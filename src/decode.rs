@@ -1,398 +1,728 @@
+//! Contains Error type definitions and
+//! all the functions that can only be used to decode an image
 
-use ::std::io::Read;
-use ::std::io::Cursor;
+use ::std::io::{Read, Seek, SeekFrom};
+use ::seek_bufread::BufReader as SeekBufRead;
 use ::byteorder::{LittleEndian, ReadBytesExt};
 use ::bit_field::BitField;
+use ::smallvec::SmallVec;
+
+use ::file::*;
 use ::attributes::*;
+use ::blocks::*;
 
 
-//  The representation of 16-bit floating-point numbers is analogous to IEEE 754,
-//  but with 5 exponent bits and 10 bits for the fraction
 
-
-pub type DecodeResult<T> = Result<T, DecodeErr>;
+pub type Result<T> = ::std::result::Result<T, Error>;
 
 #[derive(Debug)]
-pub enum DecodeErr {
+pub enum Error {
     NotEXR,
     Invalid(&'static str),
+    Missing(&'static str),
+    UnknownAttributeType { bytes_to_skip: u32 },
 
-    IO(::std::io::Error),
+    IoError(::std::io::Error),
+    CompressionError(::compress::Error),
+
     NotSupported(&'static str),
 }
 
+/// Enable using the `?` operator on io::Result
+impl From<::std::io::Error> for Error {
+    fn from(io_err: ::std::io::Error) -> Self {
+        Error::IoError(io_err)
+    }
+}
 
-pub struct Image {
-    version: Version,
-    headers: Headers,
-    offset_table: OffsetTable,
-    data: Chunks,
+/// Enable using the `?` operator on compress::Result
+impl From<::compress::Error> for Error {
+    fn from(compress_err: ::compress::Error) -> Self {
+        Error::CompressionError(compress_err)
+    }
 }
 
 
-#[derive(Debug)]
-struct Version {
-    /// is currently 2
-    file_format_version: u8,
 
-    /// bit 9
-    /// if true: single-part tiles (bits 11 and 12 must be 0).
-    /// if false and 11 and 12 are false: single-part scan-line.
-    is_single_tile: bool,
 
-    /// bit 10
-    /// if true: maximum name length is 255,
-    /// else: 31 bytes for attribute names, attribute type names, and channel names
-    has_long_names: bool,
 
-    /// bit 11
-    /// if true: at least one deep (thus non-reqular)
-    has_deep_data: bool,
 
-    /// bit 12
-    /// if true: is multipart
-    /// (end-of-header byte must always be included
-    /// and part-number-fields must be added to chunks)
-    has_multiple_parts: bool,
+
+
+fn identify_exr<R: Read>(read: &mut R) -> Result<bool> {
+    let mut magic_num = [0; 4];
+    read.read_exact(&mut magic_num)?;
+    Ok(magic_num == self::MAGIC_NUMBER)
 }
 
-impl Version {
-    pub fn is_valid(&self) -> bool {
-        match (
-            self.is_single_tile, self.has_long_names,
-            self.has_deep_data, self.file_format_version
-        ) {
-            // Single-part scan line. One normal scan line image.
-            (false, false, false, _) => true,
+fn skip_identification_bytes<R: Read>(read: &mut R) -> Result<()> {
+    if identify_exr(read)? {
+        Ok(())
 
-            // Single-part tile. One normal tiled image.
-            (true, false, false, _) => true,
+    } else {
+        Err(Error::NotEXR)
+    }
+}
 
-            // Multi-part (new in 2.0).
-            // Multiple normal images (scan line and/or tiled).
-            (false, false, true, 2) => true,
+fn version<R: ReadBytesExt>(read: &mut R) -> Result<Version> {
+    let version_and_flags = read.read_i32::<LittleEndian>()?;
 
-            // Single-part deep data (new in 2.0).
-            // One deep tile or deep scan line part
-            (false, true, false, 2) => true,
+    // take the 8 least significant bits, they contain the file format version number
+    let version = (version_and_flags & 0x000F) as u8;
 
-            // Multi-part deep data (new in 2.0).
-            // Multiple parts (any combination of:
-            // tiles, scan lines, deep tiles and/or deep scan lines).
-            (false, true, true, 2) => true,
+    // the 24 most significant bits are treated as a set of boolean flags
+    let is_single_tile = version_and_flags.get_bit(9);
+    let has_long_names = version_and_flags.get_bit(10);
+    let has_deep_data = version_and_flags.get_bit(11);
+    let has_multiple_parts = version_and_flags.get_bit(12);
+    // all remaining bits except 9, 10, 11 and 12 are reserved and should be 0
 
-            _ => false
+    Ok(Version {
+        file_format_version: version,
+        is_single_tile, has_long_names,
+        has_deep_data, has_multiple_parts,
+    })
+}
+
+/// `peek` the next byte, and consume it if it is 0
+fn skip_null_byte_if_present<R: Read + Seek>(read: &mut SeekBufRead<R>) -> Result<bool> {
+    if read_u8(read)? == 0 {
+        Ok(true)
+
+    } else {
+        // go back that wasted byte because its not 0
+        // TODO benchmark peeking the buffer performance
+        read.seek(SeekFrom::Current(-1))?;
+        Ok(false)
+    }
+}
+
+
+fn read_u8<R: ReadBytesExt>(read: &mut R) -> Result<u8> {
+    read.read_u8().map_err(Error::from)
+}
+
+fn read_i32<R: ReadBytesExt>(read: &mut R) -> Result<i32> {
+    read.read_i32::<LittleEndian>().map_err(Error::from)
+}
+
+fn read_f32<R: ReadBytesExt>(read: &mut R) -> Result<f32> {
+    read.read_f32::<LittleEndian>().map_err(Error::from)
+}
+
+fn read_u32<R: ReadBytesExt>(read: &mut R) -> Result<u32> {
+    read.read_u32::<LittleEndian>().map_err(Error::from)
+}
+
+fn read_u64<R: ReadBytesExt>(read: &mut R) -> Result<u64> {
+    read.read_u64::<LittleEndian>().map_err(Error::from)
+}
+
+fn read_f64<R: ReadBytesExt>(read: &mut R) -> Result<f64> {
+    read.read_f64::<LittleEndian>().map_err(Error::from)
+}
+
+fn null_terminated_text<R: ReadBytesExt>(read: &mut R) -> Result<Text> {
+    let mut bytes = SmallVec::new();
+
+    loop {
+        match read_u8(read)? {
+            0 => break,
+            non_terminator => bytes.push(non_terminator),
         }
     }
+
+    Ok(Text { bytes })
 }
 
-enum Headers {
-    SinglePart(Header),
+fn i32_sized_text<R: Read + Seek>(read: &mut SeekBufRead<R>, expected_attribute_bytes: Option<u32>) -> Result<Text> {
+    let string_byte_length = expected_attribute_bytes
+        .map(|u| Ok(u as i32)) // use expected attribute bytes if known,
+        .unwrap_or_else(|| read_i32(read))?; // or read from bytes otherwise
 
-    /// separate header for each part and a null byte signalling the end of the header
-    MultiPart(Vec<Header>), // TODO use small vec
-}
+    // batch-read small strings,
+    // but carefully handle suspiciously large strings
+    let bytes = if string_byte_length < 512 {
+        // possibly problematic: should be char but this code handles it like unsigned char (u8)
+        let mut bytes = vec![0; string_byte_length as usize];
+        read.read_exact(&mut bytes)?;
+        bytes
 
-struct Header {
-    attributes: Vec<Attributes>
-}
+    } else {
+        // TODO add tests
 
-pub const REQUIRED_ATTRIBUTES: [(&'static str, &'static str); 8] = [
-    ("channels", "chlist"),
-    ("compression", "compression"),
-    ("dataWindow", "box2i"),
-    ("displayWindow", "box2i"),
-    ("lineOrder", "lineOrder"),
-    ("pixelAspectRatio", "float"),
-    ("screenWindowCenter", "v2f"),
-    ("screenWindowWidth", "float"),
-];
+        // we probably have a ill-formed size because it is very large,
+        // so avoid allocating too much memory at once
+        let mut bytes = vec![0; 512];
+        read.read_exact(&mut bytes)?;
 
-/// size of the tiles and the number of resolution levels in the file
-pub const TILE_ATTRIBUTE: (&'static str, &'static str) = (
-    "tiles", "tiledesc"
-);
-
-// TODO standard OpenEXR attributes and optional attributes such as preview images, see the OpenEXR File Layout document
-pub const REQUIRED_MULTIPART_ATTRIBUTES: [(&'static str, &'static str); 5] = [
-    // Required if either the multipart bit (12) or the non-image bit (11) is set
-    ("name", "string"),
-
-    // Required if either the multipart bit (12) or the non-image bit (11) is set.
-    // Set to one of: scanlineimage, tiledimage, deepscanline, or deeptile.
-    // Note: This value must agree with the version field's tile bit (9) and non-image (deep data) bit (11) settings
-    ("type", "string"),
-
-    // This document describes version 1 data for all
-    // part types. version is required for deep data (deepscanline and deeptile) parts.
-    // If not specified for other parts, assume version=1
-    ("version", "int"),
-
-    // Required if either the multipart bit (12) or the non-image bit (11) is set
-    ("chunkCount", "box2i"),
-
-    // Required for parts of type tiledimage and deeptile
-    TILE_ATTRIBUTE,
-];
-
-// TODO standard OpenEXR attributes and optional attributes such as preview images, see the OpenEXR File Layout document
-pub const REQUIRED_DEEP_DATA_ATTRIBUTES: [(&'static str, &'static str); 4] = [
-    // Required for parts of type tiledimage and deeptile
-    TILE_ATTRIBUTE,
-
-    // Required for deep data (deepscanline and deeptile) parts.
-    // Note: Since the value of maxSamplesPerPixel
-    // maybe be unknown at the time of opening the
-    // file, the value “ -1 ” is written to the file to
-    // indicate an unknown value. When the file is
-    // closed, this will be overwritten with the correct
-    // value.
-    // If file writing does not complete
-    // correctly due to an error, the value -1 will
-    // remain. In this case, the value must be derived
-    // by decoding each chunk in the part
-    ("maxSamplesPerPixel", "int"),
-
-    // Should be set to 1 . It will be changed if the format is updated
-    ("version", "int"),
-
-    // Must be set to deepscanline or deeptile
-    ("type", "string"),
-];
-
-
-
-struct Attribute {
-    name: LimitedText,
-    kind: LimitedText,
-
-    /// size in bytes of the attribute value
-    size: i32,
-
-    value: AttributeValue,
-}
-
-
-
-
-/// For scan line blocks, the line offset table is a sequence of scan line offsets,
-/// with one offset per scan line block. In the table, scan line offsets are
-/// ordered according to increasing scan line y coordinates
-///
-/// For tiles, the offset table is a sequence of tile offsets, one offset per tile.
-/// In the table, scan line offsets are sorted the same way as tiles in IncreasingY order
-///
-/// For multi-part files, each part defined in the header component has a corresponding chunk offset table
-///
-/// If the multipart (12) bit is unset and the chunkCount is not present, the number of entries in the
-/// chunk table is computed using the dataWindow and tileDesc attributes and the compression format.
-/// 2. If the multipart (12) bit is set, the header must contain a chunkCount attribute (which indicates the
-/// size of the table and the number of chunks).
-struct OffsetTable {
-    /// one per chunk, relative to file (!) start in bytes
-    offsets: Vec<Offset>, // TODO use smallvec?
-}
-
-pub type Offset = u64;
-
-
-struct Chunk<T> {
-    /// only for multi part files.
-    /// 0 indicates the chunk belongs to the part defined
-    /// by the first header and the first chunk offset table
-    part_number: Option<u64>,
-    data: T,
-}
-
-enum Chunks {
-    /// type attribute “scanlineimage”
-    ScanLine(Vec<Chunk<ScanLineBlock>>),
-
-    /// type attribute “tiledimage”
-    Tiled(Vec<Chunk<TileBlock>>),
-
-    /// type attribute “deepscanline”,
-    DeepScanLine(Vec<Chunk<DeepScanLineBlock>>),
-
-    /// type attribute “deeptile”
-    DeepTile(Vec<Chunk<DeepTileBlock>>),
-}
-
-pub fn compression_scan_lines_per_block(compression: Compression) -> usize {
-    use Compression::*;
-    match compression {
-        NONE | RLE | ZIPS   => 1,
-        ZIP | PXR24         => 16,
-        PIZ | B44 | B44A    => 32,
-    }
-}
-
-struct ScanLineBlock {
-    /// The block's y coordinate is equal to the pixel space y
-    /// coordinate of the top scan line in the block.
-    /// The top scan line block in the image is aligned with the top edge
-    /// of the data window (that is, the y coordinate of the top scan line block
-    /// is equal to the data window's minimum y)
-    y_coordinate: i32,
-    pixels: PixelData,
-}
-
-struct TileBlock {
-    tile_coordinates: TileCoordinates,
-    pixels: PixelData,
-}
-
-/// indicates the tile's position and resolution level
-struct TileCoordinates {
-    tile_x: i32, tile_y: i32,
-    level_x: i32, level_y: i32,
-}
-
-/// Deep scan line images are indicated by a type attribute of “deepscanline”.
-/// Each chunk of deep scan line data is a single scan line of data.
-struct DeepScanLineBlock {
-    y_coordinate: i32,
-    packed_pixel_offset_table_size: i32,
-    packed_sample_data_size: i32,
-    unpacked_sample_data_size: u64,
-    compressed_pixel_offset_table: Vec<i32>,
-    compressed_sample_data: Vec<u8>,
-}
-
-/// Tiled images are indicated by a type attribute of “deeptile”.
-/// Each chunk of deep tile data is a single tile
-struct DeepTileBlock {
-    tile_coordinates: TileCoordinates,
-    packed_pixel_offset_table_size: i32,
-    packed_sample_data_size: i32,
-    unpacked_sample_data_size: u64,
-
-    /// When decompressed, the unpacked chunk consists of the
-    /// channel data stored in a non-interleaved fashion
-    /// Exception: For ZIP_COMPRESSION only there will be
-    /// up to 16 scanlines in the packed sample data block
-    compressed_sample_data: Vec<u8>,
-
-    /// The pixel offset table is a list of int s, one for each column within the dataWindow.
-    /// Each entry n in the table indicates the total number of samples required
-    /// to store the pixel in n as well as all pixels to the left of it.
-    /// Thus, the first samples stored in each channel of the pixel data are for
-    /// the pixel in column 0, which contains table[1] samples.
-    /// Each channel contains table[width-1] samples in total
-    compressed_pixel_offset_table: Vec<i32>,
-}
-
-fn compression_supports_deep_data(compression: Compression) -> bool {
-    use Compression::*;
-    match compression {
-        NONE | RLE | ZIPS | ZIP => true,
-        _ => false,
-    }
-}
-
-struct PixelData {
-    size: i32,
-    data: Vec<u8>,
-}
-
-/// null-terminated text strings.
-/// max 31 bytes long (if bit 10 is set to 0),
-/// or max 255 bytes long (if bit 10 is set to 1).
-enum LimitedText {
-    /// vector does not include null terminator
-    Short(SmallVec<[u8; 31]>),
-
-    /// vector does not include null terminator
-    /// rust will automatically use pointers and heap if this is too large
-    Long(SmallVec<[u8; 255]>),
-}
-
-impl LimitedText {
-    /// panics if value is too long
-    pub fn short(str_value: &str) -> Self {
-        let str_bytes = str_value.as_bytes();
-
-        if str_bytes.len() > 31 {
-            panic!("text too long, greater than 31 bytes");
+        // read the remaining bytes one by one
+        for _ in 0..(string_byte_length - 512) {
+            bytes.push(read_u8(read)?);
         }
 
-        LimitedText::Short(SmallVec::from_slice(str_bytes))
+        bytes
+    };
+
+    Ok(Text { bytes: SmallVec::from_vec(bytes) })
+}
+
+fn box2i<R: ReadBytesExt>(read: &mut R) -> Result<I32Box2> {
+    Ok(I32Box2 {
+        x_min: read_i32(read)?, y_min: read_i32(read)?,
+        x_max: read_i32(read)?, y_max: read_i32(read)?,
+    })
+}
+
+fn box2f<R: ReadBytesExt>(read: &mut R) -> Result<F32Box2> {
+    Ok(F32Box2 {
+        x_min: read_f32(read)?, y_min: read_f32(read)?,
+        x_max: read_f32(read)?, y_max: read_f32(read)?,
+    })
+}
+
+fn channel<R: Read + Seek>(read: &mut SeekBufRead<R>) -> Result<Channel> {
+    let name = null_terminated_text(read)?;
+
+    let pixel_type = match read_i32(read)? {
+        0 => PixelType::U32,
+        1 => PixelType::F16,
+        2 => PixelType::F32,
+        _ => return Err(Error::Invalid("pixel_type"))
+    };
+
+    let is_linear = match read_u8(read)? {
+        1 => true,
+        0 => false,
+        _ => return Err(Error::Invalid("pLinear"))
+    };
+
+    let reserved = [
+        read.read_i8()?,
+        read.read_i8()?,
+        read.read_i8()?,
+    ];
+
+    let x_sampling = read_i32(read)?;
+    let y_sampling = read_i32(read)?;
+
+    Ok(Channel {
+        name, pixel_type, is_linear,
+        reserved, x_sampling, y_sampling,
+    })
+}
+
+fn channel_list<R: Read + Seek>(read: &mut SeekBufRead<R>) -> Result<ChannelList> {
+    let mut channels = SmallVec::new();
+    while !skip_null_byte_if_present(read)? {
+        channels.push(channel(read)?);
     }
+
+    Ok(channels)
+}
+
+fn chromaticities<R: ReadBytesExt>(read: &mut R) -> Result<Chromaticities> {
+    Ok(Chromaticities {
+        red_x:   read_f32(read)?,   red_y:   read_f32(read)?,
+        green_x: read_f32(read)?,   green_y: read_f32(read)?,
+        blue_x:  read_f32(read)?,   blue_y:  read_f32(read)?,
+        white_x: read_f32(read)?,   white_y: read_f32(read)?,
+    })
+}
+
+fn compression<R: ReadBytesExt>(read: &mut R) -> Result<Compression> {
+    use ::attributes::Compression::*;
+    Ok(match read_u8(read)? {
+        0 => None,
+        1 => RLE,
+        2 => ZIPSingle,
+        3 => ZIP,
+        4 => PIZ,
+        5 => PXR24,
+        6 => B44,
+        7 => B44A,
+        _ => return Err(Error::Invalid("compression")),
+    })
+}
+
+fn environment_map<R: ReadBytesExt>(read: &mut R) -> Result<EnvironmentMap> {
+    Ok(match read_u8(read)? {
+        0 => EnvironmentMap::LatitudeLongitude,
+        1 => EnvironmentMap::Cube,
+        _ => return Err(Error::Invalid("environment map"))
+    })
+}
+
+fn key_code<R: ReadBytesExt>(read: &mut R) -> Result<KeyCode> {
+    Ok(KeyCode {
+        film_manufacturer_code: read_i32(read)?,
+        film_type: read_i32(read)?,
+        film_roll_prefix: read_i32(read)?,
+        count: read_i32(read)?,
+        perforation_offset: read_i32(read)?,
+        perforations_per_frame: read_i32(read)?,
+        perforations_per_count: read_i32(read)?,
+    })
+}
+
+fn line_order<R: ReadBytesExt>(read: &mut R) -> Result<LineOrder> {
+    use ::attributes::LineOrder::*;
+    Ok(match read_u8(read)? {
+        0 => IncreasingY,
+        1 => DecreasingY,
+        2 => RandomY,
+        _ => return Err(Error::Invalid("line order")),
+    })
+}
+
+fn f32_array<R: ReadBytesExt>(read: &mut R, result: &mut [f32]) -> Result<()> {
+    for i in 0..result.len() {
+        result[i] = read_f32(read)?;
+    }
+
+    Ok(())
+}
+
+fn f32_matrix_3x3<R: ReadBytesExt>(read: &mut R) -> Result<[f32; 9]> {
+    let mut result = [0.0; 9];
+    f32_array(read, &mut result)?;
+    Ok(result)
+}
+
+fn f32_matrix_4x4<R: ReadBytesExt>(read: &mut R) -> Result<[f32; 16]> {
+    let mut result = [0.0; 16];
+    f32_array(read, &mut result)?;
+    Ok(result)
+}
+
+fn i32_sized_text_vector<R: Read + Seek>(read: &mut SeekBufRead<R>, attribute_value_byte_size: u32) -> Result<Vec<Text>> {
+    let mut result = Vec::with_capacity(2);
+    let mut processed_bytes = 0_usize;
+
+    while processed_bytes < attribute_value_byte_size as usize {
+        let text = i32_sized_text(read, None)?;
+        processed_bytes += ::std::mem::size_of::<i32>(); // size i32 of the text
+        processed_bytes += text.bytes.len();
+        result.push(text);
+    }
+
+    debug_assert_eq!(processed_bytes, attribute_value_byte_size as usize);
+    Ok(result)
+}
+
+fn preview<R: ReadBytesExt>(read: &mut R) -> Result<Preview> {
+    let width = read_u32(read)?;
+    let height = read_u32(read)?;
+    let components_per_pixel = 4;
+
+    // TODO should be seen as char, not unsigned char!
+    let mut pixel_data = vec![0_u8; (width * height * components_per_pixel) as usize];
+    read.read_exact(&mut pixel_data)?;
+
+    Ok(Preview {
+        width, height,
+        pixel_data,
+    })
+}
+
+fn tile_description<R: ReadBytesExt>(read: &mut R) -> Result<TileDescription> {
+    let x_size = read_u32(read)?;
+    let y_size = read_u32(read)?;
+
+    // mode = level_mode + (rounding_mode * 16)
+    let mode = read_u8(read)?;
+
+    let level_mode = mode & 0b00001111; // FIXME that was just guessed
+    let rounding_mode = mode >> 4; // FIXME that was just guessed
+
+    println!("mode: {:?}, level: {:?}, rounding: {:?},", mode, level_mode, rounding_mode);
+
+    let level_mode = match level_mode {
+        0 => LevelMode::One,
+        1 => LevelMode::MipMap,
+        2 => LevelMode::RipMap,
+        _ => return Err(Error::Invalid("level mode"))
+    };
+
+    let rounding_mode = match rounding_mode {
+        0 => RoundingMode::Down,
+        1 => RoundingMode::Up,
+        _ => return Err(Error::Invalid("rounding mode"))
+    };
+
+    println!("mode: {:?}, level: {:?}, rounding: {:?},", mode, level_mode, rounding_mode);
+
+    Ok(TileDescription { x_size, y_size, level_mode, rounding_mode, })
 }
 
 
-impl Image {
-    pub const MAGIC_NUMBER: [u8; 4] = [0x76, 0x2f, 0x31, 0x01];
+fn attribute_value<R: Read + Seek>(read: &mut SeekBufRead<R>, kind: &Text, byte_size: u32) -> Result<AttributeValue> {
+    Ok(match kind.bytes.as_slice() {
+        b"box2i" => AttributeValue::I32Box2(box2i(read)?),
+        b"box2f" => AttributeValue::F32Box2(box2f(read)?),
 
+        b"int"    => AttributeValue::I32(read_i32(read)?),
+        b"float"  => AttributeValue::F32(read_f32(read)?),
+        b"double" => AttributeValue::F64(read_f64(read)?),
 
-    fn identify_exr<R: Read>(read: &mut R) -> DecodeResult<bool> {
-        let mut magic_num = [0; 4];
+        b"rational" => AttributeValue::Rational(read_i32(read)?, read_u32(read)?),
+        b"timecode" => AttributeValue::TimeCode(read_u32(read)?, read_u32(read)?),
 
-        read.read_exact(&mut magic_num)
-            .map_err(|io_err| DecodeErr::IO(io_err))?;
+        b"v2i" => AttributeValue::I32Vec2(read_i32(read)?, read_i32(read)?),
+        b"v2f" => AttributeValue::F32Vec2(read_f32(read)?, read_f32(read)?),
+        b"v3i" => AttributeValue::I32Vec3(read_i32(read)?, read_i32(read)?, read_i32(read)?),
+        b"v3f" => AttributeValue::F32Vec3(read_f32(read)?, read_f32(read)?, read_f32(read)?),
 
-        Ok(magic_num == Self::MAGIC_NUMBER)
-    }
+        b"chlist" => AttributeValue::ChannelList(channel_list(read)?),
+        b"chromaticities" => AttributeValue::Chromaticities(chromaticities(read)?),
+        b"compression" => AttributeValue::Compression(compression(read)?),
+        b"envmap" => AttributeValue::EnvironmentMap(environment_map(read)?),
 
-    fn version_from_byte_stream<R: ReadBytesExt>(read: &mut R) -> DecodeResult<Version> {
-        let version = read.read_u8()
-            .map_err(|io| DecodeErr::IO(io))?;
+        b"keycode" => AttributeValue::KeyCode(key_code(read)?),
+        b"lineOrder" => AttributeValue::LineOrder(line_order(read)?),
 
-        let flags: u32 = read.read_u24::<LittleEndian>()
-            .map_err(|io| DecodeErr::IO(io))?;
+        b"m33f" => AttributeValue::F32Matrix3x3(f32_matrix_3x3(read)?),
+        b"m44f" => AttributeValue::F32Matrix4x4(f32_matrix_4x4(read)?),
 
-        // the u32 will have zeroes appended at the beginning,
-        // so indexing at 9 should give us the first bit of the u24
-        let is_single_tile = flags.get_bit(9);
-        let has_long_names = flags.get_bit(10);
-        let has_deep_data = flags.get_bit(11);
-        let has_multiple_parts = flags.get_bit(12);
+        b"preview" => AttributeValue::Preview(preview(read)?),
+        b"string" => AttributeValue::Text(i32_sized_text(read, Some(byte_size))?),
+        b"stringvector" => AttributeValue::TextVector(i32_sized_text_vector(read, byte_size)?),
+        b"tiledesc" => AttributeValue::TileDescription(tile_description(read)?),
 
-        println!("version flags: {:#026b}", flags);
-
-        // remaining bits are reserved and should be 0
-        Ok(Version {
-            file_format_version: version,
-            is_single_tile, has_long_names,
-            has_deep_data, has_multiple_parts,
-        })
-    }
-
-    fn header_from_byte_stream<R: Read>(read: &mut R) -> DecodeResult<Header> {
-        Err(DecodeErr::NotSupported("header"))
-    }
-
-    #[must_use]
-    pub fn read_file(path: &str) -> DecodeResult<Self> {
-        let file = ::std::fs::File::open(path)
-            .map_err(|io| DecodeErr::IO(io))?;
-
-        Self::read(&mut ::std::io::BufReader::new(file))
-    }
-
-    #[must_use]
-    pub fn read<R: Read>(read: &mut R) -> DecodeResult<Self> {
-        if !Self::identify_exr(read)? {
-            return Err(DecodeErr::NotEXR);
+        _ => {
+            println!("Unknown attribute type: {:?}", kind.to_string());
+            return Err(Error::UnknownAttributeType { bytes_to_skip: byte_size as u32 })
         }
-
-        println!("hurray, magic number works");
-
-        let version = Self::version_from_byte_stream(read)?;
-        println!("version: {:?}", version);
-
-        if !version.is_valid() {
-            return Err(DecodeErr::Invalid("version values are contradictory"))
-        }
-
-
-        let header = Self::header_from_byte_stream(read)?;
-
-
-        Err(DecodeErr::NotSupported("anything"))
-
-//        version: u32,
-//        header: u32,
-    }
-
+    })
 }
+
+// TODO parse lazily, skip size, ...
+fn attribute<R: Read + Seek>(read: &mut SeekBufRead<R>) -> Result<Attribute> {
+    let name = null_terminated_text(read)?;
+    let kind = null_terminated_text(read)?;
+    let size = read_i32(read)? as u32; // TODO .checked_cast.ok_or(err:negative)
+    let value = attribute_value(read, &kind, size)?;
+    Ok(Attribute { name, kind, value, })
+}
+
+fn header<R: Seek + Read>(read: &mut SeekBufRead<R>, file_version: Version) -> Result<Header> {
+    let mut attributes = SmallVec::new();
+
+    // these required attributes will be Some(usize) when encountered while parsing
+    let mut tiles = None;
+    let mut name = None;
+    let mut kind = None;
+    let mut version = None;
+    let mut chunk_count = None;
+    let mut max_samples_per_pixel = None;
+    let mut channels = None;
+    let mut compression = None;
+    let mut data_window = None;
+    let mut display_window = None;
+    let mut line_order = None;
+    let mut pixel_aspect = None;
+    let mut screen_window_center = None;
+    let mut screen_window_width = None;
+
+
+    while !skip_null_byte_if_present(read)? {
+        match attribute(read) {
+            // skip unknown attribute values
+            Err(Error::UnknownAttributeType { bytes_to_skip }) => {
+                read.seek(SeekFrom::Current(bytes_to_skip as i64))?;
+            },
+
+            Err(other_error) => return Err(other_error),
+
+            Ok(attribute) => {
+                // save index when a required attribute is encountered
+                let index = attributes.len();
+                match attribute.name.bytes.as_slice() {
+                    b"tiles" => tiles = Some(index),
+                    b"name" => name = Some(index),
+                    b"type" => kind = Some(index),
+                    b"version" => version = Some(index),
+                    b"chunkCount" => chunk_count = Some(index),
+                    b"maxSamplesPerPixel" => max_samples_per_pixel = Some(index),
+                    b"channels" => channels = Some(index),
+                    b"compression" => compression = Some(index),
+                    b"dataWindow" => data_window = Some(index),
+                    b"displayWindow" => display_window = Some(index),
+                    b"lineOrder" => line_order = Some(index),
+                    b"pixelAspectRatio" => pixel_aspect = Some(index),
+                    b"screenWindowCenter" => screen_window_center = Some(index),
+                    b"screenWindowWidth" => screen_window_width = Some(index),
+                    _ => {},
+                }
+
+                attributes.push(attribute)
+            }
+        }
+    }
+
+    let header = Header {
+        attributes,
+        indices: AttributeIndices {
+            channels: channels.ok_or(Error::Missing("channels"))?,
+            compression: compression.ok_or(Error::Missing("compression"))?,
+            data_window: data_window.ok_or(Error::Missing("data window"))?,
+            display_window: display_window.ok_or(Error::Missing("display window"))?,
+            line_order: line_order.ok_or(Error::Missing("line order"))?,
+            pixel_aspect: pixel_aspect.ok_or(Error::Missing("pixel aspect ratio"))?,
+            screen_window_center: screen_window_center.ok_or(Error::Missing("screen window center"))?,
+            screen_window_width: screen_window_width.ok_or(Error::Missing("screen window width"))?,
+
+            tiles, name, kind,
+            version, chunk_count,
+            max_samples_per_pixel,
+        },
+    };
+
+    if header.is_valid(file_version) {
+        Ok(header)
+
+    } else {
+        Err(Error::Invalid("header"))
+    }
+}
+
+fn headers<R: Seek + Read>(read: &mut SeekBufRead<R>, version: Version) -> Result<Headers> {
+    Ok({
+        if !version.has_multiple_parts {
+            SmallVec::from_elem(header(read, version)?, 1)
+
+        } else {
+            let mut headers = SmallVec::new();
+            while !skip_null_byte_if_present(read)? {
+                headers.push(header(read, version)?);
+            }
+
+            headers
+        }
+    })
+}
+
+fn offset_table<R: Seek + Read>(
+    read: &mut SeekBufRead<R>,
+    version: Version, header: &Header
+) -> Result<OffsetTable> {
+    let entry_count = {
+        if let Some(chunk_count_index) = header.indices.chunk_count {
+            if let &AttributeValue::I32(chunk_count) = &header.attributes[chunk_count_index].value {
+                chunk_count as usize
+
+            } else {
+                return Err(Error::Invalid("chunkCount type"))
+            }
+        } else {
+            debug_assert!(
+                !version.has_multiple_parts,
+                "Multi-Part header does not have chunkCount, should have been checked"
+            );
+
+            // If not multipart and the chunkCount is not present,
+            // the number of entries in the chunk table is computed
+            // using the dataWindow and tileDesc attributes and the compression format
+            let _data_window = header.attributes[header.indices.data_window]
+                .value.to_i32_box_2().ok_or(Error::Invalid("dataWindow type"))?;
+
+            let _tiles_index = header.indices.tiles
+                .expect("tiles missing, should have been checked");
+
+            let _tile_description = header.attributes[_tiles_index]
+                .value.to_tile_description().ok_or(Error::Invalid("tileDesc type"))?;
+
+            let _compression = header.attributes[header.indices.compression]
+                .value.to_compression().ok_or(Error::Invalid("compression type"))?;
+
+            return Err(Error::NotSupported(
+                "computing chunk count by considering data_window, tiles, and compression"
+            ))
+        }
+    };
+
+    println!("offset table length is: {}", entry_count);
+    let mut offsets = Vec::with_capacity(entry_count);
+
+    for _ in 0..entry_count {
+        offsets.push(read_u64(read)?);
+    }
+
+    Ok(offsets)
+}
+
+fn offset_tables<R: Seek + Read>(
+    read: &mut SeekBufRead<R>,
+    version: Version, headers: &Headers,
+) -> Result<OffsetTables> {
+    let mut tables = SmallVec::new();
+
+    for i in 0..headers.len() {
+        // one offset table for each header
+        tables.push(offset_table(read, version, &headers[i])?);
+    }
+
+    Ok(tables)
+}
+
+fn scan_line_block<R: Seek + Read>(
+    read: &mut SeekBufRead<R>, meta_data: &MetaData,
+) -> Result<ScanLineBlock> {
+    unimplemented!()
+}
+
+fn tile_block<R: Seek + Read>(
+    read: &mut SeekBufRead<R>, meta_data: &MetaData,
+) -> Result<TileBlock> {
+    unimplemented!()
+}
+
+fn deep_scan_line_block<R: Seek + Read>(
+    read: &mut SeekBufRead<R>,
+    meta_data: &MetaData,
+) -> Result<DeepScanLineBlock> {
+    unimplemented!()
+}
+
+fn deep_tile_block<R: Seek + Read>(
+    read: &mut SeekBufRead<R>,
+    meta_data: &MetaData,
+) -> Result<DeepTileBlock> {
+    unimplemented!()
+}
+
+// TODO what about ordering? y-ordering? random? increasing? or only needed for processing?
+
+fn multi_part_chunk<R: Seek + Read>(
+    read: &mut SeekBufRead<R>,
+    meta_data: &MetaData,
+) -> Result<MultiPartChunk> {
+    let part_number = read_u64(read)?;
+
+    println!("chunk part number: {}, parts: {}", part_number, meta_data.headers.len());
+    let header = &meta_data.headers.get(part_number as usize)
+        .ok_or(Error::Invalid("chunk part number"))?;
+
+    let kind_index = header.indices.kind.ok_or(Error::Missing("multiplart 'type' attribute"))?;
+    let kind = &header.attributes[kind_index].value.to_text()
+        .ok_or(Error::Invalid("multipart 'type' attribute-type"))?;
+
+    Ok(MultiPartChunk {
+        part_number,
+        block: match kind.bytes.as_slice() {
+            b"scanlineimage" => MultiPartBlock::ScanLine(scan_line_block(read, meta_data)?),
+            b"tiledimage"    => MultiPartBlock::Tiled(tile_block(read, meta_data)?),
+            b"deepscanline"  => MultiPartBlock::DeepScanLine(Box::new(deep_scan_line_block(read, meta_data)?)),
+            b"deeptile"      => MultiPartBlock::DeepTile(Box::new(deep_tile_block(read, meta_data)?)),
+            _ => return Err(Error::Invalid("multi-part block type"))
+        },
+    })
+}
+
+
+fn multi_part_chunks<R: Seek + Read>(
+    read: &mut SeekBufRead<R>,
+    meta_data: &MetaData,
+) -> Result<Vec<MultiPartChunk>> {
+    let mut chunks = Vec::new();
+    for offset_table in &meta_data.offset_tables {
+        chunks.reserve(offset_table.len());
+        for _ in 0..offset_table.len() {
+            chunks.push(multi_part_chunk(read, meta_data)?)
+        }
+    }
+
+    Ok(chunks)
+}
+
+fn single_part_chunks<R: Seek + Read>(
+    read: &mut SeekBufRead<R>,
+    meta_data: &MetaData,
+) -> Result<SinglePartChunks> {
+    let header = meta_data.headers.get(0).expect("no header found");
+    let offset_table = meta_data.offset_tables.get(0).expect("no offset table found");
+
+    let kind_index = header.indices.kind
+        .ok_or(Error::Missing("single-part 'type' attribute"))?;
+
+    let kind = &header.attributes[kind_index].value.to_text()
+        .ok_or(Error::Invalid("single-part 'type' attribute-type"))?;
+
+    Ok(match kind.bytes.as_slice() {
+        b"scanlineimage" => {
+            let mut scan_line_blocks = Vec::with_capacity(offset_table.len());
+            for _ in 0..offset_table.len() {
+                scan_line_blocks.push(scan_line_block(read, meta_data)?)
+            }
+
+            SinglePartChunks::ScanLine(scan_line_blocks)
+        },
+
+        b"tiledimage" => {
+            let mut tile_blocks = Vec::with_capacity(offset_table.len());
+            for _ in 0..offset_table.len() {
+                tile_blocks.push(tile_block(read, meta_data)?)
+            }
+
+            SinglePartChunks::Tile(tile_blocks)
+        },
+
+        // FIXME check if single-part needs to support deep data
+        _ => return Err(Error::Invalid("single-part block type"))
+    })
+}
+
+fn chunks<R: Seek + Read>(
+    read: &mut SeekBufRead<R>,
+    meta_data: &MetaData,
+) -> Result<Chunks> {
+    Ok({
+        if meta_data.version.has_multiple_parts {
+            Chunks::MultiPart(multi_part_chunks(read, meta_data)?)
+
+        } else {
+            Chunks::SinglePart(single_part_chunks(read, meta_data)?)
+        }
+    })
+}
+
+fn meta_data<R: Seek + Read>(read: &mut SeekBufRead<R>) -> Result<MetaData> {
+    let version = version(read)?;
+    println!("version: {:#?}", version);
+
+    if !version.is_valid() {
+        return Err(Error::Invalid("version value combination"))
+    }
+
+    let headers = headers(read, version)?;
+    println!("headers: {:#?}", headers);
+
+    let offset_tables = offset_tables(read, version, &headers)?;
+
+    // TODO check if supporting version 2 implies supporting version 1
+    Ok(MetaData { version, headers, offset_tables })
+}
+
+
+
+#[must_use]
+pub fn read_file(path: &str) -> Result<RawImage> {
+    read(::std::fs::File::open(path)?)
+}
+
+/// assumes that the provided reader is not buffered, and will create a buffer for it
+#[must_use]
+pub fn read<R: Read + Seek>(unbuffered: R) -> Result<RawImage> {
+    read_seekable_buffer(&mut SeekBufRead::new(unbuffered))
+}
+
+#[must_use]
+pub fn read_seekable_buffer<R: Read + Seek>(read: &mut SeekBufRead<R>) -> Result<RawImage> {
+    skip_identification_bytes(read)?;
+    let meta_data = meta_data(read)?;
+    let chunks = chunks(read, &meta_data)?;
+    println!("chunks: {:?}", chunks);
+
+    Ok(::file::RawImage { meta_data, chunks, })
+}
+

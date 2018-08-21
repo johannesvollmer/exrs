@@ -1,6 +1,12 @@
 [package]
-name = "openexr-rs"
+name = "rust-openexr"
 version = "0.1.0"
 authors = ["johannesvollmer <johannes.boenki@t-online.de>"]
 
 [dependencies]
+seek_bufread = "*"
+compression = "*"
+byteorder = "*"
+bit_field = "*"
+smallvec = "*"
+half = "*"
