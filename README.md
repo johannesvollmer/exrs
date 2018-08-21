@@ -1,4 +1,4 @@
-#rust-openexr
+# rust-openexr
 
 This library is a draft of a pure and safe-code-only 
 implementation of the OpenEXR image file format.
