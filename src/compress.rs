@@ -42,6 +42,13 @@ pub fn compressed_scan_lines_per_block(compression: Compression) -> usize {
     }
 }
 
+pub fn compression_supports_deep_data(compression: Compression) -> bool {
+    use self::Compression::*;
+    match compression {
+        None | RLE | ZIPSingle | ZIP => true,
+        _ => false,
+    }
+}
 
 /// compresses 16 scan lines at once
 pub mod zip {

@@ -122,13 +122,6 @@ pub struct DeepTileBlock {
     pub compressed_pixel_offset_table: Vec<i32>,
 }
 
-pub fn compression_supports_deep_data(compression: Compression) -> bool {
-    use self::Compression::*;
-    match compression {
-        None | RLE | ZIPSingle | ZIP => true,
-        _ => false,
-    }
-}
 
 /// encoded as i32-size followed by u8 sequence
 #[derive(Debug, Clone)]
