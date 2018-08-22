@@ -152,9 +152,9 @@ pub struct I32Box2 {
 }
 
 impl I32Box2 {
-    pub fn check_validity(&self) -> ::file::decode::Result<()> {
+    pub fn check_validity(&self) -> ::file::read::Result<()> {
         if self.x_min > self.x_max || self.y_min > self.y_max {
-            Err(::file::decode::Error::Invalid("box2i min compared to max"))
+            Err(::file::read::Error::Invalid("box2i min compared to max"))
         } else {
             Ok(())
         }

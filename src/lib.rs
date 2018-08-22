@@ -9,8 +9,8 @@ extern crate smallvec;
 extern crate half;
 
 pub mod prelude {
-    pub use file::decode::read_file;
-    pub use file::decode::Error;
+    pub use file::read::read_file;
+    pub use file::read::Error;
 
     pub use file::MetaData;
     pub use file::RawImage;

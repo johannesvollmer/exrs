@@ -3,8 +3,8 @@
 
 
 pub mod blocks;
-pub mod encode;
-pub mod decode;
+pub mod write;
+pub mod read;
 
 
 use ::smallvec::SmallVec;
@@ -152,8 +152,8 @@ impl Header {
         })
     }
 
-    pub fn check_validity(&self, version: Version) -> ::file::decode::Result<()> {
-        use ::file::decode::Error;
+    pub fn check_validity(&self, version: Version) -> ::file::read::Result<()> {
+        use ::file::read::Error;
 
         if let Some(tiles) = self.indices.tiles {
             if self.attributes.get(tiles)

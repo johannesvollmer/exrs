@@ -53,7 +53,7 @@ impl From<::image::compress::Error> for Error {
 fn identify_exr<R: Read>(read: &mut R) -> Result<bool> {
     let mut magic_num = [0; 4];
     read.read_exact(&mut magic_num)?;
-    Ok(magic_num == self::MAGIC_NUMBER)
+    Ok(magic_num == super::MAGIC_NUMBER)
 }
 
 fn skip_identification_bytes<R: Read>(read: &mut R) -> Result<()> {

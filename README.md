@@ -106,3 +106,5 @@ __Things that are not as specified in the PDF file__ (Or were forgotten):
     and it could have been a single u64 in the file
     (which would not even need more memory if one decided to make
     the `type` attribute an enum instead of a string)
+    
+Okay, the last one was a rant, you got me.
