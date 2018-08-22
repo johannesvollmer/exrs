@@ -31,6 +31,7 @@ pub enum Error {
 /// Enable using the `?` operator on io::Result
 impl From<::std::io::Error> for Error {
     fn from(io_err: ::std::io::Error) -> Self {
+        panic!("give me that nice stack trace like you always do"); // TODO remove
         Error::IoError(io_err)
     }
 }
@@ -514,9 +515,15 @@ fn offset_table<R: Seek + Read>(
                 let tile_width =  tile_width as i32;
                 let tile_height =  tile_height as i32;
 
+                fn tile_count(image_len: i32, tile_len: i32) -> i32 {
+                    // round up, because if the image is not evenly divisible by the tiles,
+                    // we add another tile at the and that is not fully used
+                    RoundingMode::Up.divide(image_len as u32, tile_len as u32) as i32
+                }
+
                 let full_res_tile_count = {
-                    let tiles_x = data_width / tile_width + 1;
-                    let tiles_y = data_height / tile_height + 1;
+                    let tiles_x = tile_count(data_width, tile_width);
+                    let tiles_y = tile_count(data_height, tile_height);
                     tiles_x * tiles_y
                 };
 
@@ -541,8 +548,8 @@ fn offset_table<R: Seek + Read>(
                             mip_map_level_width = round.divide(mip_map_level_width as u32, 2).max(1) as i32;
                             mip_map_level_height = round.divide(mip_map_level_height as u32, 2).max(1) as i32; // new mip map resulution, never smaller than 1
 
-                            let tiles_x = mip_map_level_width / tile_width + 1;
-                            let tiles_y = mip_map_level_height / tile_height + 1;
+                            let tiles_x = tile_count(mip_map_level_width, tile_width);
+                            let tiles_y = tile_count(mip_map_level_height, tile_height);
                             line_offset_size += tiles_x * tiles_y;
 
                             if mip_map_level_width == 1 && mip_map_level_height == 1 {
@@ -572,8 +579,8 @@ fn offset_table<R: Seek + Read>(
                                 // new rip map width, horizontally resized, never smaller than 1
                                 rip_map_level_width = round.divide(rip_map_level_width as u32, 2).max(1) as i32;
 
-                                let tiles_x = rip_map_level_width / tile_width + 1;
-                                let tiles_y = rip_map_level_height / tile_height + 1;
+                                let tiles_x = tile_count(rip_map_level_width, tile_width);
+                                let tiles_y = tile_count(rip_map_level_height, tile_height);
                                 line_offset_size += tiles_x * tiles_y;
 
                                 if rip_map_level_width == 1 {
@@ -590,7 +597,6 @@ fn offset_table<R: Seek + Read>(
                         line_offset_size
                     }
                 }
-
 
             } else { // scanlines
                 let lines_per_block = compression.scan_lines_per_block() as i32;
@@ -677,7 +683,7 @@ fn tile_coordinates<R: Read>(read: &mut R) -> Result<TileCoordinates> {
 /// If a block length greater than this number is decoded,
 /// it will not try to allocate that much memory, but instead consider
 /// that decoding the block length has gone wrong
-const MAX_PIXEL_BYTES: usize = 393216;
+const MAX_PIXEL_BYTES: usize = 1048576; // 2^20
 
 fn scan_line_block<R: Seek + Read>(read: &mut SeekBufRead<R>) -> Result<ScanLineBlock> {
     let y_coordinate = read_i32(read)?;
@@ -879,8 +885,6 @@ pub fn read_seekable_buffer<R: Read + Seek>(read: &mut SeekBufRead<R>) -> Result
     skip_identification_bytes(read)?;
     let meta_data = meta_data(read)?;
     let chunks = chunks(read, &meta_data)?;
-//    println!("chunks: {:?}", chunks); 'pls dont print that much data' - IDE
-
     Ok(::file::RawImage { meta_data, chunks, })
 }
 
