@@ -23,7 +23,7 @@ pub mod test {
 
     #[test]
     fn print_version_and_headers() {
-        use std::time::{Duration, Instant};
+        use std::time::Instant;
         let now = Instant::now();
 
         let image = ::decode::read_file(

@@ -3,13 +3,27 @@
 This library is a draft of a pure and safe-code-only 
 Rust implementation of the OpenEXR image file format.
 
+[OpenEXR](http://www.openexr.com/) 
+files are widely used in animation, VFX, or 
+other computer graphics pipelines, because it offers
+a high flexibility regarding the data it is able to hold. 
+
+
 ### Current Status
 
 Because rs-exr is currently a draft, 
 it can only just load some specific exr images.
 Highly experimental!
 
-Stay tuned, and be sure to come back in a few weeks.
+__Be sure to come back in a few weeks.__
+
+### Motivation
+
+Using the [Rust bindings to OpenEXR](https://github.com/cessen/openexr-rs) 
+requires compiling multiple C++ Libraries 
+and setting environment variables, 
+which I didn't quite feel like to do, 
+so I wrote this library instead.
 
 ### Architecture
 
@@ -28,14 +42,6 @@ The main parts of this library will be:
     library is provided mainly for some very simple use-cases, like
     displaying a larger preview than OpenEXR already contains.
 
-### Motivation
-
-Using the [Rust bindings to OpenEXR](https://github.com/cessen/openexr-rs) 
-requires compiling multiple C++ Libraries 
-and setting environment variables, 
-which I was too lazy to do, so I just 
-wrote this library instead.
-
 ### Goals
 
 `rs-exr` aims to provide a safe and convenient 
@@ -47,13 +53,12 @@ or runtime checks if the type system does not suffice.
 ### Specification
 
 This library is modeled after the 
-official `openexrfilelayout.pdf` document,
-but it's not up to date
+official [`OpenEXRFileLayout.pdf`](http://www.openexr.com/documentation.html)
+document, but it's not completely up to date
 (the C++ library has greater priority).
 
-### Things that are not up to date in the PDF file:
-(Or were forgotten)
+__Things that are not as specified in the PDF file__ (Or were forgotten):
 
--   String Attributes don't always store their length,
+-   String Attributes don't store their length,
     because it can be inferred from the Attribute byte-size.
 -   Chunk Part-Number is not u64, but i32.
