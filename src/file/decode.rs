@@ -7,9 +7,9 @@ use ::byteorder::{LittleEndian, ReadBytesExt};
 use ::bit_field::BitField;
 use ::smallvec::SmallVec;
 
-use ::file::*;
-use ::attributes::*;
-use ::blocks::*;
+use super::*;
+use super::blocks::*;
+use ::image::attributes::*;
 
 
 
@@ -23,7 +23,7 @@ pub enum Error {
     UnknownAttributeType { bytes_to_skip: u32 },
 
     IoError(::std::io::Error),
-    CompressionError(::compress::Error),
+    CompressionError(::image::compress::Error),
 
     NotSupported(&'static str),
 }
@@ -36,8 +36,8 @@ impl From<::std::io::Error> for Error {
 }
 
 /// Enable using the `?` operator on compress::Result
-impl From<::compress::Error> for Error {
-    fn from(compress_err: ::compress::Error) -> Self {
+impl From<::image::compress::Error> for Error {
+    fn from(compress_err: ::image::compress::Error) -> Self {
         Error::CompressionError(compress_err)
     }
 }
@@ -211,7 +211,7 @@ fn chromaticities<R: Read>(read: &mut R) -> Result<Chromaticities> {
 }
 
 fn compression<R: Read>(read: &mut R) -> Result<Compression> {
-    use ::attributes::Compression::*;
+    use ::image::attributes::Compression::*;
     Ok(match read_u8(read)? {
         0 => None,
         1 => RLE,
@@ -246,7 +246,7 @@ fn key_code<R: Read>(read: &mut R) -> Result<KeyCode> {
 }
 
 fn line_order<R: Read>(read: &mut R) -> Result<LineOrder> {
-    use ::attributes::LineOrder::*;
+    use ::image::attributes::LineOrder::*;
     Ok(match read_u8(read)? {
         0 => IncreasingY,
         1 => DecreasingY,
@@ -255,23 +255,16 @@ fn line_order<R: Read>(read: &mut R) -> Result<LineOrder> {
     })
 }
 
-fn f32_array<R: Read>(read: &mut R, result: &mut [f32]) -> Result<()> {
-    for i in 0..result.len() {
-        result[i] = read_f32(read)?; // TODO could this be a memcpy on little endian machines?
-    }
-
-    Ok(())
-}
 
 fn f32_matrix_3x3<R: Read>(read: &mut R) -> Result<[f32; 9]> {
     let mut result = [0.0; 9];
-    f32_array(read, &mut result)?;
+    read.read_f32_into::<LittleEndian>(&mut result)?;
     Ok(result)
 }
 
 fn f32_matrix_4x4<R: Read>(read: &mut R) -> Result<[f32; 16]> {
     let mut result = [0.0; 16];
-    f32_array(read, &mut result)?;
+    read.read_f32_into::<LittleEndian>(&mut result)?;
     Ok(result)
 }
 
@@ -406,6 +399,7 @@ fn header<R: Seek + Read>(read: &mut SeekBufRead<R>, file_version: Version) -> R
     let mut pixel_aspect = None;
     let mut screen_window_center = None;
     let mut screen_window_width = None;
+    let mut chromaticities = SmallVec::new();
 
 
     while !skip_null_byte_if_present(read)? {
@@ -420,22 +414,29 @@ fn header<R: Seek + Read>(read: &mut SeekBufRead<R>, file_version: Version) -> R
             Ok(attribute) => {
                 // save index when a required attribute is encountered
                 let index = attributes.len();
+
                 // TODO replace these literals with constants
+                use ::image::attributes::required::*;
                 match attribute.name.bytes.as_slice() {
-                    b"tiles" => tiles = Some(index),
-                    b"name" => name = Some(index),
-                    b"type" => kind = Some(index),
-                    b"version" => version = Some(index),
-                    b"chunkCount" => chunk_count = Some(index),
-                    b"maxSamplesPerPixel" => max_samples_per_pixel = Some(index),
-                    b"channels" => channels = Some(index),
-                    b"compression" => compression = Some(index),
-                    b"dataWindow" => data_window = Some(index),
-                    b"displayWindow" => display_window = Some(index),
-                    b"lineOrder" => line_order = Some(index),
-                    b"pixelAspectRatio" => pixel_aspect = Some(index),
-                    b"screenWindowCenter" => screen_window_center = Some(index),
-                    b"screenWindowWidth" => screen_window_width = Some(index),
+                    TILES => tiles = Some(index),
+                    NAME => name = Some(index),
+                    TYPE => kind = Some(index),
+                    VERSION => version = Some(index),
+                    CHUNKS => chunk_count = Some(index),
+                    MAX_SAMPLES => max_samples_per_pixel = Some(index),
+                    CHANNELS => channels = Some(index),
+                    COMPRESSION => compression = Some(index),
+                    DATA_WINDOW => data_window = Some(index),
+                    DISPLAY_WINDOW => display_window = Some(index),
+                    LINE_ORDER => line_order = Some(index),
+                    PIXEL_ASPECT => pixel_aspect = Some(index),
+                    WINDOW_CENTER => screen_window_center = Some(index),
+                    WINDOW_WIDTH => screen_window_width = Some(index),
+                    _ => {},
+                }
+
+                match attribute.kind.bytes.as_slice() {
+                    b"chromaticities" => chromaticities.push(index),
                     _ => {},
                 }
 
@@ -456,18 +457,16 @@ fn header<R: Seek + Read>(read: &mut SeekBufRead<R>, file_version: Version) -> R
             screen_window_center: screen_window_center.ok_or(Error::Missing("screen window center"))?,
             screen_window_width: screen_window_width.ok_or(Error::Missing("screen window width"))?,
 
+            chromaticities,
+
             tiles, name, kind,
             version, chunk_count,
             max_samples_per_pixel,
         },
     };
 
-    if header.is_valid(file_version) {
-        Ok(header)
-
-    } else {
-        Err(Error::Invalid("header"))
-    }
+    header.check_validity(file_version)?;
+    Ok(header)
 }
 
 fn headers<R: Seek + Read>(read: &mut SeekBufRead<R>, version: Version) -> Result<Headers> {
@@ -494,7 +493,7 @@ fn offset_table<R: Seek + Read>(
     let entry_count = {
         if let Some(chunk_count_index) = header.indices.chunk_count {
             if let &AttributeValue::I32(chunk_count) = &header.attributes[chunk_count_index].value {
-                chunk_count as usize // TODO will this panic on negative number / invalid data?
+                chunk_count // TODO will this panic on negative number / invalid data?
 
             } else {
                 return Err(Error::Invalid("chunkCount type"))
@@ -508,34 +507,94 @@ fn offset_table<R: Seek + Read>(
             // If not multipart and the chunkCount is not present,
             // the number of entries in the chunk table is computed
             // using the dataWindow and tileDesc attributes and the compression format
-            let _data_window = header.attributes[header.indices.data_window]
-                .value.to_i32_box_2().ok_or(Error::Invalid("dataWindow type"))?;
+            let compression = header.compression();
+            let data_window = header.data_window();
+            data_window.check_validity()?;
 
-            let _tiles_index = header.indices.tiles
-                .expect("tiles missing, should have been checked");
+            let (data_width, data_height) = data_window.dimensions();
 
-            let _tile_description = header.attributes[_tiles_index]
-                .value.to_tile_description().ok_or(Error::Invalid("tileDesc type"))?;
+            if let Some(tiles) = header.tiles() {
+                let (tile_width, tile_height) = tiles.dimensions();
+                let tile_width =  tile_width as i32;
+                let tile_height =  tile_height as i32;
 
-            let _compression = header.attributes[header.indices.compression]
-                .value.to_compression().ok_or(Error::Invalid("compression type"))?;
+                use ::image::attributes::LevelMode::*;
+                match tiles.level_mode {
+                    One => {
+                        let tiles_x = data_width / tile_width + 1;
+                        let tiles_y = data_height / tile_height + 1;
+                        tiles_x * tiles_y
+                    },
 
-            return Err(Error::NotSupported(
-                "computing chunk count by considering data_window, tiles, and compression"
-            ))
+                    // I can't believe that this works
+                    MipMap => {
+                        let mut line_offset_size = 0;
+                        let round = tiles.rounding_mode;
+
+                        // add full-res tiles
+                        let tiles_x = data_width / tile_width + 1;
+                        let tiles_y = data_height / tile_height + 1; // TODO what about non-quadratic mip maps??
+                        line_offset_size += tiles_x * tiles_y;
+
+                        let mut mip_map_level_width = data_width;
+                        let mut mip_map_level_height = data_height;
+
+                        // add mip maps tiles
+                        loop {
+                            // is that really how you compute mip map resolution levels?
+                            mip_map_level_width = round.divide(mip_map_level_width as u32, 2).max(1) as i32;
+                            mip_map_level_height = round.divide(mip_map_level_height as u32, 2).max(1) as i32; // new mip map resulution, never smaller than 1
+
+                            let tiles_x = mip_map_level_width / tile_width + 1;
+                            let tiles_y = mip_map_level_height / tile_height + 1; // TODO what about non-quadratic mip maps??
+                            line_offset_size += tiles_x * tiles_y;
+
+                            if mip_map_level_width == 1 && mip_map_level_height == 1 {
+                                break;
+                            }
+                        }
+
+                        line_offset_size
+                    },
+
+                    RipMap => {
+                        unimplemented!()
+//                        for (int i = 0; i < numXLevels; i++)
+//                            for (int j = 0; j < numYLevels; j++)
+//                                lineOffsetSize += numXTiles[i] * numYTiles[j];
+                    }
+                }
+
+
+            } else { // scanlines
+                let lines_per_block = compression.scan_lines_per_block() as i32;
+                (data_height + lines_per_block) / lines_per_block
+            }
         }
     };
 
-    // don't reserve more than 2048 u64s in fear of falsely decoded sizes
-    let mut offsets = Vec::with_capacity(entry_count.min(2048));
+    let suspicious_limit = ::std::u16::MAX as i32;
+    if entry_count < suspicious_limit {
+        let mut offsets = vec![0; entry_count as usize];
+        read.read_u64_into::<LittleEndian>(&mut offsets)?;
+        Ok(offsets)
 
-    for _ in 0..entry_count {
-        offsets.push(read_u64(read)?); // TODO is this a memcpy for little endian machines?
+    } else {
+        // avoid allocating too much memory in fear of an
+        // incorrectly decoded entry_count, hoping the end of the file comes comes soon
+        let mut offsets = vec![0; suspicious_limit as usize];
+        read.read_u64_into::<LittleEndian>(&mut offsets)?;
+
+        for _ in suspicious_limit..entry_count {
+            offsets.push(read_u64(read)?);
+        }
+
+        Ok(offsets)
     }
 
-    Ok(offsets)
 }
 
+// TODO offset tables are only for multipart files???
 fn offset_tables<R: Seek + Read>(
     read: &mut SeekBufRead<R>,
     version: Version, headers: &Headers,
@@ -564,8 +623,10 @@ fn large_byte_vec<R: Seek + Read>(read: &mut SeekBufRead<R>, data_size: usize, e
         // as reading the pixel_data_size could have gone wrong
         // (read byte by byte to avoid allocating too much memory at once,
         // assuming that it will fail soon, when the file ends)
-        let mut data = Vec::new();
-        for _ in 0..data_size {
+        let mut data = vec![0; estimated_max];
+        read.read_exact(&mut data)?;
+
+        for _ in estimated_max..data_size {
             data.push(read_u8(read)?);
         }
 
@@ -587,9 +648,14 @@ fn tile_coordinates<R: Read>(read: &mut R) -> Result<TileCoordinates> {
     })
 }
 
+/// If a block length greater than this number is decoded,
+/// it will not try to allocate that much memory, but instead consider
+/// that decoding the block length has gone wrong
+const MAX_PIXEL_BYTES: usize = 393216;
+
 fn scan_line_block<R: Seek + Read>(read: &mut SeekBufRead<R>) -> Result<ScanLineBlock> {
     let y_coordinate = read_i32(read)?;
-    let pixels = FlatPixelData::Compressed(i32_sized_byte_vec(read, 4096)?); // TODO maximum scan line size can easily be calculated
+    let pixels = FlatPixelData::Compressed(i32_sized_byte_vec(read, MAX_PIXEL_BYTES)?); // TODO maximum scan line size can easily be calculated
     Ok(ScanLineBlock { y_coordinate, pixels })
 }
 
@@ -598,8 +664,7 @@ fn tile_block<R: Seek + Read>(
 ) -> Result<TileBlock>
 {
     let coordinates = tile_coordinates(read)?;
-    println!("tile coords: {:?}", coordinates);
-    let pixels = FlatPixelData::Compressed(i32_sized_byte_vec(read, 4096)?);// TODO maximum tile size can easily be calculated
+    let pixels = FlatPixelData::Compressed(i32_sized_byte_vec(read, MAX_PIXEL_BYTES)?);// TODO maximum tile size can easily be calculated
     Ok(TileBlock { coordinates, pixels, })
 }
 
@@ -619,7 +684,7 @@ fn deep_scan_line_block<R: Seek + Read>(
     }
 
     let compressed_sample_data = large_byte_vec(
-        read, compressed_sample_data_size, ::std::u16::MAX as usize
+        read, compressed_sample_data_size, MAX_PIXEL_BYTES
     )?;
 
     Ok(DeepScanLineBlock {
@@ -709,37 +774,35 @@ fn single_part_chunks<R: Seek + Read>(
     meta_data: &MetaData,
 ) -> Result<SinglePartChunks>
 {
-    let header = meta_data.headers.get(0).expect("no header found");
-    let offset_table = meta_data.offset_tables.get(0).expect("no offset table found");
+    // single-part files have either scan lines or tiles,
+    // but never deep scan lines or deep tiles
+    assert!(!meta_data.version.has_deep_data);
 
-    let kind_index = header.indices.kind
-        .ok_or(Error::Missing("single-part 'type' attribute"))?;
+    assert_eq!(meta_data.headers.len(), 1, "single_part_chunks called with multiple parts");
+    let header = &meta_data.headers[0];
 
-    let kind = &header.attributes[kind_index].value.to_text()
-        .ok_or(Error::Invalid("single-part 'type' attribute-type"))?;
+    assert_eq!(meta_data.offset_tables.len(), 1, "single_part_chunks called with multiple parts");
+    let offset_table = &meta_data.offset_tables[0];
 
-    Ok(match kind {
-        // TODO replace these literals with constants
-        ParsedText::ScanLine => {
-            let mut scan_line_blocks = Vec::with_capacity(offset_table.len());
-            for _ in 0..offset_table.len() {
-                scan_line_blocks.push(scan_line_block(read)?)
-            }
 
-            SinglePartChunks::ScanLine(scan_line_blocks)
-        },
+    // TODO is there a better way to figure out if this image contains tiles?
+    let is_tile_image = header.tiles().is_some();
 
-        ParsedText::Tile => {
-            let mut tile_blocks = Vec::with_capacity(offset_table.len());
-            for _ in 0..offset_table.len() {
-                tile_blocks.push(tile_block(read)?)
-            }
+    Ok(if !is_tile_image {
+        let mut scan_line_blocks = Vec::with_capacity(offset_table.len());
+        for _ in 0..offset_table.len() {
+            scan_line_blocks.push(scan_line_block(read)?)
+        }
 
-            SinglePartChunks::Tile(tile_blocks)
-        },
+        SinglePartChunks::ScanLine(scan_line_blocks)
 
-        // FIXME check if single-part needs to support deep data
-        _ => return Err(Error::Invalid("single-part block type"))
+    } else {
+        let mut tile_blocks = Vec::with_capacity(offset_table.len());
+        for _ in 0..offset_table.len() {
+            tile_blocks.push(tile_block(read)?)
+        }
+
+        SinglePartChunks::Tile(tile_blocks)
     })
 }
 

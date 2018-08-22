@@ -1,7 +1,15 @@
 
+//! The `file` module represents the file how it is laid out in memory.
+
+
+pub mod blocks;
+pub mod encode;
+pub mod decode;
+
+
 use ::smallvec::SmallVec;
-use ::attributes::*;
-use ::blocks::*;
+use ::image::attributes::*;
+use self::blocks::*;
 
 
 //  The representation of 16-bit floating-point numbers is analogous to IEEE 754,
@@ -40,15 +48,20 @@ pub type OffsetTables = SmallVec<[OffsetTable; 3]>;
 // TODO non-public fields?
 #[derive(Debug, Clone)]
 pub struct Header {
-    /// requires a null byte signalling the end of each attribute
-    /// contains custom attributes and required attributes
+    /// Requires a null byte signalling the end of each attribute
+    /// Contains custom attributes and required attributes
     pub attributes: SmallVec<[Attribute; 12]>,
 
-    /// cache required attribute indices
+    /// Cache required attribute indices of the attribute vector
+    /// For faster access
+    // TODO this only makes sense when decoding, and not for encoding
     pub indices: AttributeIndices,
 }
 
-/// Holds indices into header attributes
+/// Holds indices of the into header attributes
+/// Indices will be overwritten in the order of the attributes in the file,
+/// so that if multiple channel attributes exist, only the last one is referenced.
+// TODO these always will be updated when a new attribute is inserted
 #[derive(Debug, Clone)]
 pub struct AttributeIndices {
     pub channels: usize,
@@ -83,7 +96,7 @@ pub struct AttributeIndices {
     pub chunk_count: Option<usize>,
 
     /// Required for deep data (deepscanline and deeptile) parts.
-    /// Note: Since the value of maxSamplesPerPixel
+    /// Note: Since the value of "maxSamplesPerPixel"
     /// maybe be unknown at the time of opening the
     /// file, the value “ -1 ” is written to the file to
     /// indicate an unknown value. When the file is
@@ -94,13 +107,126 @@ pub struct AttributeIndices {
     /// remain. In this case, the value must be derived
     /// by decoding each chunk in the part
     pub max_samples_per_pixel: Option<usize>,
+
+    /// this vector will contain all indices of chromaticity attributes
+    pub chromaticities: SmallVec<[usize; 1]>,
 }
 
 impl Header {
-    pub fn is_valid(&self, _version: Version) -> bool {
+    pub fn channels(&self) -> &ChannelList {
+        self.attributes.get(self.indices.channels)
+            .expect("invalid `channels` attribute index")
+            .value.to_channel_list()
+            .expect("`channels` attribute has wrong type")
+    }
 
-        true
-        // TODO check if the header has all required attributes
+    pub fn kind(&self) -> Option<&ParsedText> {
+        self.indices.kind.map(|kind|{
+            self.attributes.get(kind)
+                .expect("invalid `type` attribute index")
+                .value.to_text()
+                .expect("`type` attribute has wrong type")
+        })
+    }
+
+    pub fn compression(&self) -> Compression {
+        self.attributes.get(self.indices.compression)
+            .expect("invalid `compression` attribute index")
+            .value.to_compression()
+            .expect("`compression` attribute has wrong type")
+    }
+
+    pub fn data_window(&self) -> I32Box2 {
+        self.attributes.get(self.indices.data_window)
+            .expect("invalid `dataWindow` attribute index")
+            .value.to_i32_box_2()
+            .expect("`dataWindow` attribute has wrong type")
+    }
+
+    pub fn tiles(&self) -> Option<TileDescription> {
+        self.indices.tiles.map(|tiles|{
+            self.attributes.get(tiles)
+                .expect("invalid `tiles` attribute index")
+                .value.to_tile_description()
+                .expect("`tiles` attribute has wrong type")
+        })
+    }
+
+    pub fn check_validity(&self, version: Version) -> ::file::decode::Result<()> {
+        use ::file::decode::Error;
+
+        if let Some(tiles) = self.indices.tiles {
+            if self.attributes.get(tiles)
+                .and_then(|tiles| tiles.value.to_tile_description())
+                .is_none() { return Err(Error::Invalid("`tile` type")); }
+        }
+
+        if self.attributes.get(self.indices.channels)
+            .and_then(|channels| channels.value.to_channel_list())
+            .is_none() { return Err(Error::Invalid("`channels` type")); }
+
+        if let Some(kind) = self.indices.kind {
+            let kind = self.attributes.get(kind)
+                .and_then(|kind| kind.value.to_text());
+
+            if let Some(kind) = kind {
+                // sadly, kind must be one of the specified texts
+                // instead of being a plain enumeration
+                if let ParsedText::Arbitrary(_) = kind {
+                    return Err(Error::Invalid("`type` string content"));
+                }
+
+            } else {
+                return Err(Error::Invalid("`type` type"));
+            }
+        }
+
+        if self.attributes.get(self.indices.compression)
+            .and_then(|compression| compression.value.to_compression())
+            .is_none() { return Err(Error::Invalid("`compression` type")); }
+
+        if self.attributes.get(self.indices.data_window)
+            .and_then(|data_window| data_window.value.to_i32_box_2())
+            .is_none() { return Err(Error::Invalid("`dataWindow` type")); }
+
+        // TODO check all types..
+
+
+
+
+        if version.has_multiple_parts {
+            if self.indices.chunk_count.is_none() { return Err(Error::Missing("`chunkCount` for multiparts")); }
+            if self.indices.kind.is_none() { return Err(Error::Missing("`type` for multiparts")); }
+            if self.indices.name.is_none() { return Err(Error::Missing("`name` for multiparts")); }
+        }
+
+        if version.has_deep_data {
+            if self.indices.chunk_count.is_none() { return Err(Error::Missing("`chunkCount` for deepdata")); }
+            if self.indices.kind.is_none() { return Err(Error::Missing("`type` for deepdata")); }
+            if self.indices.name.is_none() { return Err(Error::Missing("`name` for deepdata")); }
+            if self.indices.version.is_none() { return Err(Error::Missing("`version` for deepdata")); }
+            if self.indices.max_samples_per_pixel.is_none() {
+                return Err(Error::Missing("`maxSamplesPerPixel` for deepdata"));
+            }
+
+            let compression = self.compression(); // attribute is already checked
+            if !compression.supports_deep_data() {
+                return Err(Error::Invalid("`compression` for deepdata"));
+            }
+        }
+
+        if let Some(kind) = self.kind() {
+            if kind.is_tile_kind() {
+                if self.indices.tiles.is_none() { return Err(Error::Missing("`tiles` for tiledimage or deeptiles")); }
+            }
+
+            // version-deepness and attribute-deepness must match
+            if kind.is_deep_kind() != version.has_deep_data {
+                return Err(Error::Invalid("`type` compared to version deepness"));
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -119,9 +245,10 @@ pub struct Version {
     /// bit 10
     /// if true: maximum name length is 255,
     /// else: 31 bytes for attribute names, attribute type names, and channel names
+    /// in c or bad c++ this might have been relevant (omg is he allowed to say that)
     pub has_long_names: bool,
 
-    /// bit 11
+    /// bit 11 "non-image bit"
     /// if true: at least one deep (thus non-reqular)
     pub has_deep_data: bool,
 

@@ -71,6 +71,10 @@ pub struct ScanLineBlock {
     /// of the data window (that is, the y coordinate of the top scan line block
     /// is equal to the data window's minimum y)
     pub y_coordinate: i32,
+
+    /// For scan line images and deep scan line images, one or more scan lines
+    /// may be stored together as a scan line block. The number of scan lines per block
+    /// depends on how the pixel data are compressed
     pub pixels: FlatPixelData,
 }
 

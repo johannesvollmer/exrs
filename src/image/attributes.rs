@@ -123,13 +123,49 @@ impl ParsedText {
             _ => ParsedText::Arbitrary(text),
         }
     }
+
+    pub fn is_deep_kind(&self) -> bool {
+        match *self {
+            ParsedText::DeepScanLine
+            | ParsedText::DeepTile => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_tile_kind(&self) -> bool {
+        match *self {
+            ParsedText::DeepTile
+            | ParsedText::Tile => true,
+            _ => false,
+        }
+    }
 }
 
+
+pub type DataWindow = I32Box2;
+pub type DisplayWindow = I32Box2;
 
 #[derive(Debug, Clone, Copy)]
 pub struct I32Box2 {
     pub x_min: i32, pub y_min: i32,
     pub x_max: i32, pub y_max: i32,
+}
+
+impl I32Box2 {
+    pub fn check_validity(&self) -> ::file::decode::Result<()> {
+        if self.x_min > self.x_max || self.y_min > self.y_max {
+            Err(::file::decode::Error::Invalid("box2i min compared to max"))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn dimensions(&self) -> (i32, i32) {
+        (
+            self.x_max - self.x_min,
+            self.y_max - self.y_min,
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -230,15 +266,16 @@ pub enum RoundingMode {
     Down, Up,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum Compression {
-    None, RLE, ZIPSingle,
-    ZIP, PIZ, PXR24,
-    B44, B44A,
+pub use ::image::compress::Compression;
+
+impl TileDescription {
+    pub fn dimensions(&self) -> (u32, u32) {
+        (self.x_size, self.y_size)
+    }
 }
 
 impl AttributeValue {
-    pub fn get_byte_size(&self) -> usize {
+    pub fn byte_size(&self) -> usize {
 //        use self::AttributeValue::*;
         match *self {
             _ => unimplemented!()
@@ -247,29 +284,76 @@ impl AttributeValue {
 
     pub fn to_tile_description(&self) -> Option<TileDescription> {
         match *self {
-            AttributeValue::TileDescription(tile) => Some(tile),
+            AttributeValue::TileDescription(value) => Some(value),
             _ => None,
         }
     }
 
     pub fn to_i32_box_2(&self) -> Option<I32Box2> {
         match *self {
-            AttributeValue::I32Box2(ibox) => Some(ibox),
+            AttributeValue::I32Box2(value) => Some(value),
             _ => None,
         }
     }
 
     pub fn to_compression(&self) -> Option<Compression> {
         match *self {
-            AttributeValue::Compression(compr) => Some(compr),
+            AttributeValue::Compression(value) => Some(value),
             _ => None,
         }
     }
 
     pub fn to_text(&self) -> Option<&ParsedText> {
         match *self {
-            AttributeValue::Text(ref t) => Some(t),
+            AttributeValue::Text(ref value) => Some(value),
             _ => None,
+        }
+    }
+
+    pub fn to_channel_list(&self) -> Option<&ChannelList> {
+        match *self {
+            AttributeValue::ChannelList(ref value) => Some(value),
+            _ => None,
+        }
+    }
+}
+
+pub mod required {
+    macro_rules! define_required_attribute_names {
+        ( $($name: ident : $value: expr),* ) => {
+            $(
+                pub const $name: &'static [u8] = $value;
+            )*
+        };
+    }
+
+    define_required_attribute_names! {
+        TILES: b"tiles",
+        NAME: b"name",
+        TYPE: b"type",
+        VERSION: b"version",
+        CHUNKS: b"chunkCount",
+        MAX_SAMPLES: b"maxSamplesPerPixel",
+        CHANNELS: b"channels",
+        COMPRESSION: b"compression",
+        DATA_WINDOW: b"dataWindow",
+        DISPLAY_WINDOW: b"displayWindow",
+        LINE_ORDER: b"lineOrder",
+        PIXEL_ASPECT: b"pixelAspectRatio",
+        WINDOW_CENTER: b"screenWindowCenter",
+        WINDOW_WIDTH: b"screenWindowWidth"
+    }
+}
+
+impl RoundingMode {
+    pub fn divide(self, dividend: u32, divisor: u32) -> u32 {
+        let result = dividend / divisor;
+        match self {
+            RoundingMode::Up if result * divisor < dividend => {
+                result + 1
+            },
+
+            _ => result,
         }
     }
 }

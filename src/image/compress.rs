@@ -1,6 +1,4 @@
 
-use ::attributes::Compression;
-
 #[derive(Debug, Clone)]
 pub enum Error {
     ZipError(String)
@@ -8,6 +6,15 @@ pub enum Error {
 
 pub type Result = ::std::result::Result<Vec<u8>, Error>;
 pub type Data = Vec<u8>;
+
+
+
+#[derive(Debug, Clone, Copy)]
+pub enum Compression {
+    None, RLE, ZIPSingle,
+    ZIP, PIZ, PXR24,
+    B44, B44A,
+}
 
 
 pub fn compress(method: Compression, data: Data) -> Result {
@@ -30,25 +37,28 @@ pub fn decompress(method: Compression, data: Data, uncompressed_size: Option<usi
     }
 }
 
-/// For scan line images and deep scan line images, one or more scan lines may be
-/// stored together as a scan line block. The number of scan lines per block
-/// depends on how the pixel data are compressed
-pub fn compressed_scan_lines_per_block(compression: Compression) -> usize {
-    use self::Compression::*;
-    match compression {
-        None | RLE   | ZIPSingle    => 1,
-        ZIP  | PXR24                => 16,
-        PIZ  | B44   | B44A         => 32,
+impl Compression {
+    /// For scan line images and deep scan line images, one or more scan lines may be
+    /// stored together as a scan line block. The number of scan lines per block
+    /// depends on how the pixel data are compressed
+    pub fn scan_lines_per_block(self) -> usize {
+        use self::Compression::*;
+        match self {
+            None | RLE   | ZIPSingle    => 1,
+            ZIP  | PXR24                => 16,
+            PIZ  | B44   | B44A /* TODO: DWAA & DWAB */ => 32,
+        }
+    }
+
+    pub fn supports_deep_data(self) -> bool {
+        use self::Compression::*;
+        match self {
+            None | RLE | ZIPSingle | ZIP => true,
+            _ => false,
+        }
     }
 }
 
-pub fn compression_supports_deep_data(compression: Compression) -> bool {
-    use self::Compression::*;
-    match compression {
-        None | RLE | ZIPSingle | ZIP => true,
-        _ => false,
-    }
-}
 
 /// compresses 16 scan lines at once
 pub mod zip {
