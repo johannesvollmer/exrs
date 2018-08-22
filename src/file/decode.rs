@@ -307,10 +307,8 @@ fn tile_description<R: Read>(read: &mut R) -> Result<TileDescription> {
     // mode = level_mode + (rounding_mode * 16)
     let mode = read_u8(read)?;
 
-    let level_mode = mode & 0b00001111; // FIXME that was just guessed
-    let rounding_mode = mode >> 4; // FIXME that was just guessed
-
-    println!("mode: {:?}, level: {:?}, rounding: {:?},", mode, level_mode, rounding_mode);
+    let level_mode = mode & 0b00001111; // wow that works
+    let rounding_mode = mode >> 4; // wow that works
 
     let level_mode = match level_mode {
         0 => LevelMode::One,
@@ -324,8 +322,6 @@ fn tile_description<R: Read>(read: &mut R) -> Result<TileDescription> {
         1 => RoundingMode::Up,
         _ => return Err(Error::Invalid("rounding mode"))
     };
-
-    println!("mode: {:?}, level: {:?}, rounding: {:?},", mode, level_mode, rounding_mode);
 
     Ok(TileDescription { x_size, y_size, level_mode, rounding_mode, })
 }
@@ -518,23 +514,23 @@ fn offset_table<R: Seek + Read>(
                 let tile_width =  tile_width as i32;
                 let tile_height =  tile_height as i32;
 
+                let full_res_tile_count = {
+                    let tiles_x = data_width / tile_width + 1;
+                    let tiles_y = data_height / tile_height + 1;
+                    tiles_x * tiles_y
+                };
+
                 use ::image::attributes::LevelMode::*;
                 match tiles.level_mode {
                     One => {
-                        let tiles_x = data_width / tile_width + 1;
-                        let tiles_y = data_height / tile_height + 1;
-                        tiles_x * tiles_y
+                        full_res_tile_count
                     },
 
                     // I can't believe that this works
                     MipMap => {
-                        let mut line_offset_size = 0;
+                        // TODO simplify the whole calculation
+                        let mut line_offset_size = full_res_tile_count;
                         let round = tiles.rounding_mode;
-
-                        // add full-res tiles
-                        let tiles_x = data_width / tile_width + 1;
-                        let tiles_y = data_height / tile_height + 1; // TODO what about non-quadratic mip maps??
-                        line_offset_size += tiles_x * tiles_y;
 
                         let mut mip_map_level_width = data_width;
                         let mut mip_map_level_height = data_height;
@@ -546,7 +542,7 @@ fn offset_table<R: Seek + Read>(
                             mip_map_level_height = round.divide(mip_map_level_height as u32, 2).max(1) as i32; // new mip map resulution, never smaller than 1
 
                             let tiles_x = mip_map_level_width / tile_width + 1;
-                            let tiles_y = mip_map_level_height / tile_height + 1; // TODO what about non-quadratic mip maps??
+                            let tiles_y = mip_map_level_height / tile_height + 1;
                             line_offset_size += tiles_x * tiles_y;
 
                             if mip_map_level_width == 1 && mip_map_level_height == 1 {
@@ -557,11 +553,41 @@ fn offset_table<R: Seek + Read>(
                         line_offset_size
                     },
 
+                    // I can't believe that this works either
                     RipMap => {
-                        unimplemented!()
-//                        for (int i = 0; i < numXLevels; i++)
-//                            for (int j = 0; j < numYLevels; j++)
-//                                lineOffsetSize += numXTiles[i] * numYTiles[j];
+                        // TODO simplify the whole calculation
+                        let mut line_offset_size = 0;
+                        let round = tiles.rounding_mode;
+
+                        let mut rip_map_level_width = data_width * 2; // x2 to include fullres, because the beginning of the loop divides
+                        let mut rip_map_level_height = data_height * 2; // x2 to include fullres, because the beginning of the loop divides
+
+                        // add all rip maps tiles
+                        'y: loop {
+                            // new rip map height, vertically resized, never smaller than 1
+                            rip_map_level_height = round.divide(rip_map_level_height as u32, 2).max(1) as i32;
+
+                            // add all rip maps tiles with that specific outer height
+                            'x: loop {
+                                // new rip map width, horizontally resized, never smaller than 1
+                                rip_map_level_width = round.divide(rip_map_level_width as u32, 2).max(1) as i32;
+
+                                let tiles_x = rip_map_level_width / tile_width + 1;
+                                let tiles_y = rip_map_level_height / tile_height + 1;
+                                line_offset_size += tiles_x * tiles_y;
+
+                                if rip_map_level_width == 1 {
+                                    rip_map_level_width = data_width * 2; // x2 to include fullres, because the beginning of the loop divides
+                                    break 'x;
+                                }
+                            }
+
+                            if rip_map_level_height == 1 {
+                                break 'y;
+                            }
+                        }
+
+                        line_offset_size
                     }
                 }
 

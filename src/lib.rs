@@ -40,7 +40,13 @@ pub mod test {
             // "/home/johannes/Pictures/openexr/openexr-images-master/MultiView/Balls.exr" // large file
             // "/home/johannes/Pictures/openexr/openexr-images-master/ScanLines/StillLife.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/Tiles/Spirals.exr"
-            "/home/johannes/Pictures/openexr/openexr-images-master/Tiles/Spirals.exr"
+            // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/Kapaa.exr"
+
+            // TODO: some mysterious suspiciously-large-size error
+            "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/ColorCodedLevels.exr"
+            // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/KernerEnvLatLong.exr"
+            // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/OrientationLatLong.exr"
+            // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/PeriodicPattern.exr"
         );
 
         // warning: highly unscientific benchmarks ahead!
