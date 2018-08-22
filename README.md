@@ -11,12 +11,12 @@ a high flexibility regarding the data it is able to hold.
 
 ### Current Status
 
-Because rs-exr is currently a draft,
-it can only load some very specific exr images.
-Highly experimental!
+Because rs-exr is currently a draft, it doesn't write images,
+it only reads images, and it does not even successfully read 
+all possible exr images. Highly experimental!
 
 __Currently supported EXR features:__
-- [x] Reading
+- [ ] Reading
     - [x] Multipart 
     - [x] Singlepart 
     - [x] Tiles
