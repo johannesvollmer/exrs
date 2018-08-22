@@ -1,5 +1,5 @@
 [package]
-name = "rust-openexr"
+name = "rs-exr"
 version = "0.1.0"
 authors = ["johannesvollmer <johannes.boenki@t-online.de>"]
 
