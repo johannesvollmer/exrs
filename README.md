@@ -1,7 +1,7 @@
 # rs-exr
 
-This library is a draft of a pure and safe-code-only 
-Rust implementation of the OpenEXR image file format.
+This library is a draft of a 100%-Rust and 100%-safe-code 
+implementation of the OpenEXR image file format.
 
 [OpenEXR](http://www.openexr.com/) 
 files are widely used in animation, VFX, or 
