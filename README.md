@@ -12,7 +12,7 @@ a high flexibility regarding the data it is able to hold.
 ### Current Status
 
 Because rs-exr is currently a draft,
-it can only just load some very specific exr images.
+it can only load some very specific exr images.
 Highly experimental!
 
 __Currently supported EXR features:__
