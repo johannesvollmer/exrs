@@ -11,9 +11,26 @@ a high flexibility regarding the data it is able to hold.
 
 ### Current Status
 
-Because rs-exr is currently a draft, 
-it can only just load some specific exr images.
+Because rs-exr is currently a draft,
+it can only just load some very specific exr images.
 Highly experimental!
+
+__Currently supported EXR features:__
+- [x] Reading
+    - [x] Multipart 
+    - [x] Singlepart 
+    - [x] Tiles
+    - [x] Scan lines
+    - [ ] Multi Resolution
+        - [x] MipMaps
+        - [ ] RipMaps
+    - [ ] __Compressed Blocks__
+    - [ ] Deep Samples
+    
+- [ ] Writing
+- [ ] Memory Mapping
+- [ ] Loading Metadata and specific tiles or blocks separately
+
 
 __Be sure to come back in a few weeks.__
 
@@ -25,22 +42,8 @@ and setting environment variables,
 which I didn't quite feel like to do, 
 so I wrote this library instead.
 
-### Architecture
-
-The main parts of this library will be:
-
--   `file` - Provides raw access to the files contents.
-    The File is loaded from a byte stream into really
-    low level structures. No decompression will take place up to this stage,
-    and no data will be rearranged compared to the file layout.
-    This representation is as close to the file layout as feasible,
-    in order to be really fast if no decompression is required.
--   `image` - Simplifies converting between the raw file contents
-    and usable formats, for example `RGBA` arrays. This is optional
-    because the OpenEXR format is very detailed, and converting to
-    simpler representation will lose that detail. This part of the 
-    library is provided mainly for some very simple use-cases, like
-    displaying a larger preview than OpenEXR already contains.
+Also, I really wanted to have a library 
+which had an 'X' in its name in my git repositories.
 
 ### Goals
 
@@ -49,6 +52,37 @@ interface to the OpenEXR file format.
 We try to prevent writing invalid OpenEXR files by
 either taking advantage of Rusts type system, 
 or runtime checks if the type system does not suffice.
+
+### Architecture
+
+The main parts of this library are:
+
+-   `file` - Provides raw access to the files contents.
+
+    The File is loaded from a byte stream into really
+    low level structures. No decompression will take place up to this stage,
+    and no data will be rearranged compared to the file layout.
+    This representation is as close to the file layout as feasible,
+    in order to be really fast if no decompression is required.
+    Basic file content validation is made to avoid processing invalid files.
+    
+    
+-   `image` - Supports interpreting the raw file 
+    and supports (but is not enforcing) exr conventions.
+ 
+    It is able to convert between the raw file contents
+    and usable formats, for example `RGBA` arrays. This is optional
+    because the OpenEXR format is very detailed, and converting to
+    simpler representation will lose that detail. This part of the 
+    library is provided mainly for some very simple use-cases, like
+    displaying a larger preview than OpenEXR already contains.
+
+### What I am proud of
+
+-   For simple files, very few heap allocations are made during loading
+    (only for offset table data and actual pixel data)
+-   This is a pretty detailed README
+-   (more to come)
 
 ### Specification
 
@@ -62,3 +96,7 @@ __Things that are not as specified in the PDF file__ (Or were forgotten):
 -   String Attributes don't store their length,
     because it can be inferred from the Attribute byte-size.
 -   Chunk Part-Number is not u64, but i32.
+-   Calculating the offset table is really really complicated,
+    and it could have been a single u64 in the file
+    (which would not even need more memory if one decided to make
+    the `type` attribute an enum instead of a string)
