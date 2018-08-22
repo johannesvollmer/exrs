@@ -21,9 +21,9 @@ __Currently supported EXR features:__
     - [x] Singlepart 
     - [x] Tiles
     - [x] Scan lines
-    - [ ] Multi Resolution
+    - [x] Multi Resolution
         - [x] MipMaps
-        - [ ] RipMaps
+        - [x] RipMaps
     - [ ] __Compressed Blocks__
     - [ ] Deep Samples
     
