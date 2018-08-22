@@ -37,5 +37,3 @@ but it's not up to date
 
 -   String Attributes don't always store their length,
     because it can be inferred from the Attribute byte-size.
--   Chunk Part Numbers are not always u64, but may be u8
-    (which is sufficient for most images)
