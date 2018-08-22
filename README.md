@@ -13,24 +13,30 @@ a high flexibility regarding the data it is able to hold.
 
 Because rs-exr is currently a draft, it doesn't write images,
 it only reads images, and it does not even successfully read 
-all possible exr images. Highly experimental!
+all possible exr images.  _Highly experimental!_
 
 __Currently supported EXR features:__
-- [ ] Reading
-    - [x] Multipart 
-    - [x] Singlepart 
-    - [x] Tiles
-    - [x] Scan lines
-    - [x] Multi Resolution
-        - [x] MipMaps
-        - [x] RipMaps
-    - [ ] __Compressed Blocks__
-    - [ ] Deep Samples
+- [ ] File (data)  
+    - [ ] Reading
+        - [x] Singlepart
+            - [x] Tiles
+            - [x] Scan lines
+        - [x] Multipart
+            - [x] Tiles
+            - [x] Scan lines
+            - [ ] Deep Data
+        - [x] Multi Resolution
+            - [x] MipMaps
+            - [x] RipMaps
+        
+    - [ ] Writing
+    - [ ] Memory Mapping
+    - [ ] Loading Metadata and specific tiles or blocks separately
     
-- [ ] Writing
-- [ ] Memory Mapping
-- [ ] Loading Metadata and specific tiles or blocks separately
-
+- [ ] Image (interpreting)
+    - [ ] __Compressed Blocks__
+    - [ ] RGBA conversion
+    - [ ] Simple preview attribute extraction
 
 __Be sure to come back in a few weeks.__
 
