@@ -368,7 +368,7 @@ fn attribute_value<R: Read + Seek>(read: &mut SeekBufRead<R>, kind: &Text, byte_
         b"m44f" => AttributeValue::F32Matrix4x4(f32_matrix_4x4(read)?),
 
         b"preview" => AttributeValue::Preview(preview(read)?),
-        b"string" => AttributeValue::Text(i32_sized_text(read, Some(byte_size))?),
+        b"string" => AttributeValue::Text(ParsedText::parse(i32_sized_text(read, Some(byte_size))?)),
         b"stringvector" => AttributeValue::TextVector(i32_sized_text_vector(read, byte_size)?),
         b"tiledesc" => AttributeValue::TileDescription(tile_description(read)?),
 
@@ -494,7 +494,7 @@ fn offset_table<R: Seek + Read>(
     let entry_count = {
         if let Some(chunk_count_index) = header.indices.chunk_count {
             if let &AttributeValue::I32(chunk_count) = &header.attributes[chunk_count_index].value {
-                chunk_count as usize
+                chunk_count as usize // TODO will this panic on negative number / invalid data?
 
             } else {
                 return Err(Error::Invalid("chunkCount type"))
@@ -526,8 +526,8 @@ fn offset_table<R: Seek + Read>(
         }
     };
 
-    println!("offset table length is: {}", entry_count);
-    let mut offsets = Vec::with_capacity(entry_count);
+    // don't reserve more than 2048 u64s in fear of falsely decoded sizes
+    let mut offsets = Vec::with_capacity(entry_count.min(2048));
 
     for _ in 0..entry_count {
         offsets.push(read_u64(read)?); // TODO is this a memcpy for little endian machines?
@@ -558,7 +558,7 @@ fn large_byte_vec<R: Seek + Read>(read: &mut SeekBufRead<R>, data_size: usize, e
         Ok(data)
 
     } else {
-        println!("suspiciously large data size: {}", data_size);
+        println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
 
         // be careful for suspiciously large data,
         // as reading the pixel_data_size could have gone wrong
@@ -573,10 +573,9 @@ fn large_byte_vec<R: Seek + Read>(read: &mut SeekBufRead<R>, data_size: usize, e
     }
 }
 
-fn i32_sized_byte_vec<R: Seek + Read>(read: &mut SeekBufRead<R>) -> Result<Vec<u8>> {
+fn i32_sized_byte_vec<R: Seek + Read>(read: &mut SeekBufRead<R>, estimated_max: usize) -> Result<Vec<u8>> {
     let data_size = read_i32(read)? as usize;
-    println!("size: {}", data_size);
-    large_byte_vec(read, data_size, ::std::u16::MAX as usize)
+    large_byte_vec(read, data_size, estimated_max)
 }
 
 fn tile_coordinates<R: Read>(read: &mut R) -> Result<TileCoordinates> {
@@ -590,8 +589,7 @@ fn tile_coordinates<R: Read>(read: &mut R) -> Result<TileCoordinates> {
 
 fn scan_line_block<R: Seek + Read>(read: &mut SeekBufRead<R>) -> Result<ScanLineBlock> {
     let y_coordinate = read_i32(read)?;
-    let pixels = FlatPixelData::Compressed(i32_sized_byte_vec(read)?);
-    println!("y_coord: {:?}", y_coordinate);
+    let pixels = FlatPixelData::Compressed(i32_sized_byte_vec(read, 4096)?); // TODO maximum scan line size can easily be calculated
     Ok(ScanLineBlock { y_coordinate, pixels })
 }
 
@@ -601,7 +599,7 @@ fn tile_block<R: Seek + Read>(
 {
     let coordinates = tile_coordinates(read)?;
     println!("tile coords: {:?}", coordinates);
-    let pixels = FlatPixelData::Compressed(i32_sized_byte_vec(read)?);
+    let pixels = FlatPixelData::Compressed(i32_sized_byte_vec(read, 4096)?);// TODO maximum tile size can easily be calculated
     Ok(TileBlock { coordinates, pixels, })
 }
 
@@ -666,18 +664,9 @@ fn multi_part_chunk<R: Seek + Read>(
     meta_data: &MetaData,
 ) -> Result<MultiPartChunk>
 {
-    let part_number = {
-        // TODO documentation says that its always u64
-        // but it does not work, also u8 would be sufficient for the most images
-        if meta_data.headers.len() < 255 { // TODO just guessed here
-            read_u8(read)? as u64
+    // decode the index that tells us which header we need to analyze
+    let part_number = read_i32(read)?; // documentation says u64, but is i32
 
-        } else {
-            read_u64(read)?
-        }
-    };
-
-    println!("chunk part number: {}, parts: {}", part_number, meta_data.headers.len());
     let header = &meta_data.headers.get(part_number as usize)
         .ok_or(Error::Invalid("chunk part number"))?;
 
@@ -688,11 +677,11 @@ fn multi_part_chunk<R: Seek + Read>(
     Ok(MultiPartChunk {
         part_number,
         // TODO replace these literals with constants
-        block: match kind.bytes.as_slice() {
-            b"scanlineimage" => MultiPartBlock::ScanLine(scan_line_block(read)?),
-            b"tiledimage"    => MultiPartBlock::Tiled(tile_block(read)?),
-            b"deepscanline"  => MultiPartBlock::DeepScanLine(Box::new(deep_scan_line_block(read)?)),
-            b"deeptile"      => MultiPartBlock::DeepTile(Box::new(deep_tile_block(read)?)),
+        block: match kind {
+            ParsedText::ScanLine        => MultiPartBlock::ScanLine(scan_line_block(read)?),
+            ParsedText::Tile            => MultiPartBlock::Tiled(tile_block(read)?),
+            ParsedText::DeepScanLine    => MultiPartBlock::DeepScanLine(Box::new(deep_scan_line_block(read)?)),
+            ParsedText::DeepTile        => MultiPartBlock::DeepTile(Box::new(deep_tile_block(read)?)),
             _ => return Err(Error::Invalid("multi-part block type"))
         },
     })
@@ -729,9 +718,9 @@ fn single_part_chunks<R: Seek + Read>(
     let kind = &header.attributes[kind_index].value.to_text()
         .ok_or(Error::Invalid("single-part 'type' attribute-type"))?;
 
-    Ok(match kind.bytes.as_slice() {
+    Ok(match kind {
         // TODO replace these literals with constants
-        b"scanlineimage" => {
+        ParsedText::ScanLine => {
             let mut scan_line_blocks = Vec::with_capacity(offset_table.len());
             for _ in 0..offset_table.len() {
                 scan_line_blocks.push(scan_line_block(read)?)
@@ -740,7 +729,7 @@ fn single_part_chunks<R: Seek + Read>(
             SinglePartChunks::ScanLine(scan_line_blocks)
         },
 
-        b"tiledimage" => {
+        ParsedText::Tile => {
             let mut tile_blocks = Vec::with_capacity(offset_table.len());
             for _ in 0..offset_table.len() {
                 tile_blocks.push(tile_block(read)?)
@@ -771,15 +760,12 @@ fn chunks<R: Seek + Read>(
 
 fn meta_data<R: Seek + Read>(read: &mut SeekBufRead<R>) -> Result<MetaData> {
     let version = version(read)?;
-    println!("version: {:#?}", version);
 
     if !version.is_valid() {
         return Err(Error::Invalid("version value combination"))
     }
 
     let headers = headers(read, version)?;
-    println!("headers: {:#?}", headers);
-
     let offset_tables = offset_tables(read, version, &headers)?;
 
     // TODO check if supporting version 2 implies supporting version 1
@@ -804,7 +790,7 @@ pub fn read_seekable_buffer<R: Read + Seek>(read: &mut SeekBufRead<R>) -> Result
     skip_identification_bytes(read)?;
     let meta_data = meta_data(read)?;
     let chunks = chunks(read, &meta_data)?;
-    println!("chunks: {:?}", chunks);
+//    println!("chunks: {:?}", chunks); 'pls dont print that much data' - IDE
 
     Ok(::file::RawImage { meta_data, chunks, })
 }

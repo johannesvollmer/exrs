@@ -1,4 +1,4 @@
-use ::attributes::Compression;
+//use ::attributes::Compression;
 
 /// For scan line blocks, the line offset table is a sequence of scan line offsets,
 /// with one offset per scan line block. In the table, scan line offsets are
@@ -28,7 +28,8 @@ pub enum Chunks {
 pub struct MultiPartChunk {
     /// 0 indicates the chunk belongs to the part defined
     /// by the first header and the first chunk offset table
-    pub part_number: u64,
+    /// PDF sais u64, but source code seems to be `int`
+    pub part_number: i32,
     pub block: MultiPartBlock,
 }
 

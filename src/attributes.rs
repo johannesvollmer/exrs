@@ -77,7 +77,7 @@ pub enum AttributeValue {
     Rational(i32, u32),
 
     /// i32 of byte-length followed by u8 content
-    Text(Text),
+    Text(ParsedText),
 
     /// the number of strings can be inferred from the total attribute size
     TextVector(Vec<Text>),
@@ -92,6 +92,39 @@ pub enum AttributeValue {
     I32Vec3(i32, i32, i32),
     F32Vec3(f32, f32, f32),
 }
+
+
+/// this enum parses strings to speed up comparisons
+/// based on often-used string contents
+#[derive(Debug, Clone)]
+pub enum ParsedText {
+    /// "scanlineimage"
+    ScanLine,
+
+    /// "tiledimage"
+    Tile,
+
+    /// "deepscanline"
+    DeepScanLine,
+
+    /// "deeptile"
+    DeepTile,
+
+    Arbitrary(Text),
+}
+
+impl ParsedText {
+    pub fn parse(text: Text) -> Self {
+        match text.bytes.as_slice() {
+            b"scanlineimage" => ParsedText::ScanLine,
+            b"tiledimage" => ParsedText::Tile,
+            b"deepscanline" => ParsedText::DeepScanLine,
+            b"deeptile" => ParsedText::DeepTile,
+            _ => ParsedText::Arbitrary(text),
+        }
+    }
+}
+
 
 #[derive(Debug, Clone, Copy)]
 pub struct I32Box2 {
@@ -233,7 +266,7 @@ impl AttributeValue {
         }
     }
 
-    pub fn to_text(&self) -> Option<&Text> {
+    pub fn to_text(&self) -> Option<&ParsedText> {
         match *self {
             AttributeValue::Text(ref t) => Some(t),
             _ => None,
