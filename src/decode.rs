@@ -138,43 +138,23 @@ fn null_terminated_text<R: ReadBytesExt>(read: &mut R) -> Result<Text> {
 fn i32_sized_text<R: Read + Seek>(read: &mut SeekBufRead<R>, expected_attribute_bytes: Option<u32>) -> Result<Text> {
     let string_byte_length = expected_attribute_bytes
         .map(|u| Ok(u as i32)) // use expected attribute bytes if known,
-        .unwrap_or_else(|| read_i32(read))?; // or read from bytes otherwise
+        .unwrap_or_else(|| read_i32(read))?
+        as usize; // or read from bytes otherwise
 
-    // batch-read small strings,
-    // but carefully handle suspiciously large strings
-    let bytes = if string_byte_length < 512 {
-        // possibly problematic: should be char but this code handles it like unsigned char (u8)
-        let mut bytes = vec![0; string_byte_length as usize];
-        read.read_exact(&mut bytes)?;
-        bytes
+    let bytes = large_byte_vec(read, string_byte_length, 1024)?;
 
-    } else {
-        // TODO add tests
-
-        // we probably have a ill-formed size because it is very large,
-        // so avoid allocating too much memory at once
-        let mut bytes = vec![0; 512];
-        read.read_exact(&mut bytes)?;
-
-        // read the remaining bytes one by one
-        for _ in 0..(string_byte_length - 512) {
-            bytes.push(read_u8(read)?);
-        }
-
-        bytes
-    };
-
-    Ok(Text { bytes: SmallVec::from_vec(bytes) })
+    // using a regular vec is ok because this is only for some rare string attributes
+    Ok(Text::from_bytes(SmallVec::from_vec(bytes)))
 }
 
-fn box2i<R: ReadBytesExt>(read: &mut R) -> Result<I32Box2> {
+fn box2i<R: Read>(read: &mut R) -> Result<I32Box2> {
     Ok(I32Box2 {
         x_min: read_i32(read)?, y_min: read_i32(read)?,
         x_max: read_i32(read)?, y_max: read_i32(read)?,
     })
 }
 
-fn box2f<R: ReadBytesExt>(read: &mut R) -> Result<F32Box2> {
+fn box2f<R: Read>(read: &mut R) -> Result<F32Box2> {
     Ok(F32Box2 {
         x_min: read_f32(read)?, y_min: read_f32(read)?,
         x_max: read_f32(read)?, y_max: read_f32(read)?,
@@ -188,7 +168,7 @@ fn channel<R: Read + Seek>(read: &mut SeekBufRead<R>) -> Result<Channel> {
         0 => PixelType::U32,
         1 => PixelType::F16,
         2 => PixelType::F32,
-        _ => return Err(Error::Invalid("pixel_type"))
+        _ => return Err(Error::Invalid("pixelType"))
     };
 
     let is_linear = match read_u8(read)? {
@@ -221,7 +201,7 @@ fn channel_list<R: Read + Seek>(read: &mut SeekBufRead<R>) -> Result<ChannelList
     Ok(channels)
 }
 
-fn chromaticities<R: ReadBytesExt>(read: &mut R) -> Result<Chromaticities> {
+fn chromaticities<R: Read>(read: &mut R) -> Result<Chromaticities> {
     Ok(Chromaticities {
         red_x:   read_f32(read)?,   red_y:   read_f32(read)?,
         green_x: read_f32(read)?,   green_y: read_f32(read)?,
@@ -230,7 +210,7 @@ fn chromaticities<R: ReadBytesExt>(read: &mut R) -> Result<Chromaticities> {
     })
 }
 
-fn compression<R: ReadBytesExt>(read: &mut R) -> Result<Compression> {
+fn compression<R: Read>(read: &mut R) -> Result<Compression> {
     use ::attributes::Compression::*;
     Ok(match read_u8(read)? {
         0 => None,
@@ -245,7 +225,7 @@ fn compression<R: ReadBytesExt>(read: &mut R) -> Result<Compression> {
     })
 }
 
-fn environment_map<R: ReadBytesExt>(read: &mut R) -> Result<EnvironmentMap> {
+fn environment_map<R: Read>(read: &mut R) -> Result<EnvironmentMap> {
     Ok(match read_u8(read)? {
         0 => EnvironmentMap::LatitudeLongitude,
         1 => EnvironmentMap::Cube,
@@ -253,7 +233,7 @@ fn environment_map<R: ReadBytesExt>(read: &mut R) -> Result<EnvironmentMap> {
     })
 }
 
-fn key_code<R: ReadBytesExt>(read: &mut R) -> Result<KeyCode> {
+fn key_code<R: Read>(read: &mut R) -> Result<KeyCode> {
     Ok(KeyCode {
         film_manufacturer_code: read_i32(read)?,
         film_type: read_i32(read)?,
@@ -265,7 +245,7 @@ fn key_code<R: ReadBytesExt>(read: &mut R) -> Result<KeyCode> {
     })
 }
 
-fn line_order<R: ReadBytesExt>(read: &mut R) -> Result<LineOrder> {
+fn line_order<R: Read>(read: &mut R) -> Result<LineOrder> {
     use ::attributes::LineOrder::*;
     Ok(match read_u8(read)? {
         0 => IncreasingY,
@@ -275,21 +255,21 @@ fn line_order<R: ReadBytesExt>(read: &mut R) -> Result<LineOrder> {
     })
 }
 
-fn f32_array<R: ReadBytesExt>(read: &mut R, result: &mut [f32]) -> Result<()> {
+fn f32_array<R: Read>(read: &mut R, result: &mut [f32]) -> Result<()> {
     for i in 0..result.len() {
-        result[i] = read_f32(read)?;
+        result[i] = read_f32(read)?; // TODO could this be a memcpy on little endian machines?
     }
 
     Ok(())
 }
 
-fn f32_matrix_3x3<R: ReadBytesExt>(read: &mut R) -> Result<[f32; 9]> {
+fn f32_matrix_3x3<R: Read>(read: &mut R) -> Result<[f32; 9]> {
     let mut result = [0.0; 9];
     f32_array(read, &mut result)?;
     Ok(result)
 }
 
-fn f32_matrix_4x4<R: ReadBytesExt>(read: &mut R) -> Result<[f32; 16]> {
+fn f32_matrix_4x4<R: Read>(read: &mut R) -> Result<[f32; 16]> {
     let mut result = [0.0; 16];
     f32_array(read, &mut result)?;
     Ok(result)
@@ -310,13 +290,15 @@ fn i32_sized_text_vector<R: Read + Seek>(read: &mut SeekBufRead<R>, attribute_va
     Ok(result)
 }
 
-fn preview<R: ReadBytesExt>(read: &mut R) -> Result<Preview> {
+fn preview<R: Read>(read: &mut R) -> Result<Preview> {
     let width = read_u32(read)?;
     let height = read_u32(read)?;
     let components_per_pixel = 4;
 
     // TODO should be seen as char, not unsigned char!
     let mut pixel_data = vec![0_u8; (width * height * components_per_pixel) as usize];
+
+    // TODO don't blindly allocate too much memory
     read.read_exact(&mut pixel_data)?;
 
     Ok(Preview {
@@ -325,7 +307,7 @@ fn preview<R: ReadBytesExt>(read: &mut R) -> Result<Preview> {
     })
 }
 
-fn tile_description<R: ReadBytesExt>(read: &mut R) -> Result<TileDescription> {
+fn tile_description<R: Read>(read: &mut R) -> Result<TileDescription> {
     let x_size = read_u32(read)?;
     let y_size = read_u32(read)?;
 
@@ -358,6 +340,7 @@ fn tile_description<R: ReadBytesExt>(read: &mut R) -> Result<TileDescription> {
 
 fn attribute_value<R: Read + Seek>(read: &mut SeekBufRead<R>, kind: &Text, byte_size: u32) -> Result<AttributeValue> {
     Ok(match kind.bytes.as_slice() {
+        // TODO replace these literals with constants
         b"box2i" => AttributeValue::I32Box2(box2i(read)?),
         b"box2f" => AttributeValue::F32Box2(box2f(read)?),
 
@@ -437,6 +420,7 @@ fn header<R: Seek + Read>(read: &mut SeekBufRead<R>, file_version: Version) -> R
             Ok(attribute) => {
                 // save index when a required attribute is encountered
                 let index = attributes.len();
+                // TODO replace these literals with constants
                 match attribute.name.bytes.as_slice() {
                     b"tiles" => tiles = Some(index),
                     b"name" => name = Some(index),
@@ -505,7 +489,8 @@ fn headers<R: Seek + Read>(read: &mut SeekBufRead<R>, version: Version) -> Resul
 fn offset_table<R: Seek + Read>(
     read: &mut SeekBufRead<R>,
     version: Version, header: &Header
-) -> Result<OffsetTable> {
+) -> Result<OffsetTable>
+{
     let entry_count = {
         if let Some(chunk_count_index) = header.indices.chunk_count {
             if let &AttributeValue::I32(chunk_count) = &header.attributes[chunk_count_index].value {
@@ -545,7 +530,7 @@ fn offset_table<R: Seek + Read>(
     let mut offsets = Vec::with_capacity(entry_count);
 
     for _ in 0..entry_count {
-        offsets.push(read_u64(read)?);
+        offsets.push(read_u64(read)?); // TODO is this a memcpy for little endian machines?
     }
 
     Ok(offsets)
@@ -554,7 +539,8 @@ fn offset_table<R: Seek + Read>(
 fn offset_tables<R: Seek + Read>(
     read: &mut SeekBufRead<R>,
     version: Version, headers: &Headers,
-) -> Result<OffsetTables> {
+) -> Result<OffsetTables>
+{
     let mut tables = SmallVec::new();
 
     for i in 0..headers.len() {
@@ -565,30 +551,112 @@ fn offset_tables<R: Seek + Read>(
     Ok(tables)
 }
 
-fn scan_line_block<R: Seek + Read>(
-    read: &mut SeekBufRead<R>, meta_data: &MetaData,
-) -> Result<ScanLineBlock> {
-    unimplemented!()
+fn large_byte_vec<R: Seek + Read>(read: &mut SeekBufRead<R>, data_size: usize, estimated_max: usize) -> Result<Vec<u8>> {
+    if data_size < estimated_max {
+        let mut data = vec![0; data_size];
+        read.read_exact(&mut data)?;
+        Ok(data)
+
+    } else {
+        println!("suspiciously large data size: {}", data_size);
+
+        // be careful for suspiciously large data,
+        // as reading the pixel_data_size could have gone wrong
+        // (read byte by byte to avoid allocating too much memory at once,
+        // assuming that it will fail soon, when the file ends)
+        let mut data = Vec::new();
+        for _ in 0..data_size {
+            data.push(read_u8(read)?);
+        }
+
+        Ok(data)
+    }
+}
+
+fn i32_sized_byte_vec<R: Seek + Read>(read: &mut SeekBufRead<R>) -> Result<Vec<u8>> {
+    let data_size = read_i32(read)? as usize;
+    println!("size: {}", data_size);
+    large_byte_vec(read, data_size, ::std::u16::MAX as usize)
+}
+
+fn tile_coordinates<R: Read>(read: &mut R) -> Result<TileCoordinates> {
+    Ok(TileCoordinates {
+        tile_x: read_i32(read)?,
+        tile_y: read_i32(read)?,
+        level_x: read_i32(read)?,
+        level_y: read_i32(read)?,
+    })
+}
+
+fn scan_line_block<R: Seek + Read>(read: &mut SeekBufRead<R>) -> Result<ScanLineBlock> {
+    let y_coordinate = read_i32(read)?;
+    let pixels = FlatPixelData::Compressed(i32_sized_byte_vec(read)?);
+    println!("y_coord: {:?}", y_coordinate);
+    Ok(ScanLineBlock { y_coordinate, pixels })
 }
 
 fn tile_block<R: Seek + Read>(
-    read: &mut SeekBufRead<R>, meta_data: &MetaData,
-) -> Result<TileBlock> {
-    unimplemented!()
+    read: &mut SeekBufRead<R>
+) -> Result<TileBlock>
+{
+    let coordinates = tile_coordinates(read)?;
+    println!("tile coords: {:?}", coordinates);
+    let pixels = FlatPixelData::Compressed(i32_sized_byte_vec(read)?);
+    Ok(TileBlock { coordinates, pixels, })
 }
 
 fn deep_scan_line_block<R: Seek + Read>(
-    read: &mut SeekBufRead<R>,
-    meta_data: &MetaData,
-) -> Result<DeepScanLineBlock> {
-    unimplemented!()
+    read: &mut SeekBufRead<R>
+) -> Result<DeepScanLineBlock>
+{
+    let y_coordinate = read_i32(read)?;
+    let compressed_pixel_offset_table_size = read_i32(read)? as usize;
+    let compressed_sample_data_size = read_u64(read)? as usize; // TODO u64 just guessed
+    let decompressed_sample_data_size = read_u64(read)?;
+
+    // TODO dont blindly allocate?
+    let mut compressed_pixel_offset_table = Vec::with_capacity(compressed_pixel_offset_table_size);
+    for _ in 0..compressed_pixel_offset_table_size {
+        compressed_pixel_offset_table.push(read_i32(read)?);
+    }
+
+    let compressed_sample_data = large_byte_vec(
+        read, compressed_sample_data_size, ::std::u16::MAX as usize
+    )?;
+
+    Ok(DeepScanLineBlock {
+        y_coordinate,
+        decompressed_sample_data_size,
+        compressed_pixel_offset_table,
+        compressed_sample_data,
+    })
 }
 
 fn deep_tile_block<R: Seek + Read>(
-    read: &mut SeekBufRead<R>,
-    meta_data: &MetaData,
-) -> Result<DeepTileBlock> {
-    unimplemented!()
+    read: &mut SeekBufRead<R>
+) -> Result<DeepTileBlock>
+{
+    let coordinates = tile_coordinates(read)?;
+    let compressed_pixel_offset_table_size = read_i32(read)? as usize;
+    let compressed_sample_data_size = read_u64(read)? as usize; // TODO u64 just guessed
+    let decompressed_sample_data_size = read_u64(read)?;
+
+    // TODO dont blindly allocate?
+    let mut compressed_pixel_offset_table = Vec::with_capacity(compressed_pixel_offset_table_size);
+    for _ in 0..compressed_pixel_offset_table_size {
+        compressed_pixel_offset_table.push(read_i32(read)?);
+    }
+
+    let compressed_sample_data = large_byte_vec(
+        read, compressed_sample_data_size, ::std::u16::MAX as usize
+    )?;
+
+    Ok(DeepTileBlock {
+        coordinates,
+        decompressed_sample_data_size,
+        compressed_pixel_offset_table,
+        compressed_sample_data,
+    })
 }
 
 // TODO what about ordering? y-ordering? random? increasing? or only needed for processing?
@@ -596,8 +664,18 @@ fn deep_tile_block<R: Seek + Read>(
 fn multi_part_chunk<R: Seek + Read>(
     read: &mut SeekBufRead<R>,
     meta_data: &MetaData,
-) -> Result<MultiPartChunk> {
-    let part_number = read_u64(read)?;
+) -> Result<MultiPartChunk>
+{
+    let part_number = {
+        // TODO documentation says that its always u64
+        // but it does not work, also u8 would be sufficient for the most images
+        if meta_data.headers.len() < 255 { // TODO just guessed here
+            read_u8(read)? as u64
+
+        } else {
+            read_u64(read)?
+        }
+    };
 
     println!("chunk part number: {}, parts: {}", part_number, meta_data.headers.len());
     let header = &meta_data.headers.get(part_number as usize)
@@ -609,11 +687,12 @@ fn multi_part_chunk<R: Seek + Read>(
 
     Ok(MultiPartChunk {
         part_number,
+        // TODO replace these literals with constants
         block: match kind.bytes.as_slice() {
-            b"scanlineimage" => MultiPartBlock::ScanLine(scan_line_block(read, meta_data)?),
-            b"tiledimage"    => MultiPartBlock::Tiled(tile_block(read, meta_data)?),
-            b"deepscanline"  => MultiPartBlock::DeepScanLine(Box::new(deep_scan_line_block(read, meta_data)?)),
-            b"deeptile"      => MultiPartBlock::DeepTile(Box::new(deep_tile_block(read, meta_data)?)),
+            b"scanlineimage" => MultiPartBlock::ScanLine(scan_line_block(read)?),
+            b"tiledimage"    => MultiPartBlock::Tiled(tile_block(read)?),
+            b"deepscanline"  => MultiPartBlock::DeepScanLine(Box::new(deep_scan_line_block(read)?)),
+            b"deeptile"      => MultiPartBlock::DeepTile(Box::new(deep_tile_block(read)?)),
             _ => return Err(Error::Invalid("multi-part block type"))
         },
     })
@@ -623,7 +702,8 @@ fn multi_part_chunk<R: Seek + Read>(
 fn multi_part_chunks<R: Seek + Read>(
     read: &mut SeekBufRead<R>,
     meta_data: &MetaData,
-) -> Result<Vec<MultiPartChunk>> {
+) -> Result<Vec<MultiPartChunk>>
+{
     let mut chunks = Vec::new();
     for offset_table in &meta_data.offset_tables {
         chunks.reserve(offset_table.len());
@@ -638,7 +718,8 @@ fn multi_part_chunks<R: Seek + Read>(
 fn single_part_chunks<R: Seek + Read>(
     read: &mut SeekBufRead<R>,
     meta_data: &MetaData,
-) -> Result<SinglePartChunks> {
+) -> Result<SinglePartChunks>
+{
     let header = meta_data.headers.get(0).expect("no header found");
     let offset_table = meta_data.offset_tables.get(0).expect("no offset table found");
 
@@ -649,10 +730,11 @@ fn single_part_chunks<R: Seek + Read>(
         .ok_or(Error::Invalid("single-part 'type' attribute-type"))?;
 
     Ok(match kind.bytes.as_slice() {
+        // TODO replace these literals with constants
         b"scanlineimage" => {
             let mut scan_line_blocks = Vec::with_capacity(offset_table.len());
             for _ in 0..offset_table.len() {
-                scan_line_blocks.push(scan_line_block(read, meta_data)?)
+                scan_line_blocks.push(scan_line_block(read)?)
             }
 
             SinglePartChunks::ScanLine(scan_line_blocks)
@@ -661,7 +743,7 @@ fn single_part_chunks<R: Seek + Read>(
         b"tiledimage" => {
             let mut tile_blocks = Vec::with_capacity(offset_table.len());
             for _ in 0..offset_table.len() {
-                tile_blocks.push(tile_block(read, meta_data)?)
+                tile_blocks.push(tile_block(read)?)
             }
 
             SinglePartChunks::Tile(tile_blocks)
@@ -675,7 +757,8 @@ fn single_part_chunks<R: Seek + Read>(
 fn chunks<R: Seek + Read>(
     read: &mut SeekBufRead<R>,
     meta_data: &MetaData,
-) -> Result<Chunks> {
+) -> Result<Chunks>
+{
     Ok({
         if meta_data.version.has_multiple_parts {
             Chunks::MultiPart(multi_part_chunks(read, meta_data)?)

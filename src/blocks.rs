@@ -75,7 +75,7 @@ pub struct ScanLineBlock {
 
 #[derive(Debug, Clone)]
 pub struct TileBlock {
-    pub tile_coordinates: TileCoordinates,
+    pub coordinates: TileCoordinates,
     pub pixels: FlatPixelData,
 }
 
@@ -91,9 +91,15 @@ pub struct TileCoordinates {
 #[derive(Debug, Clone)]
 pub struct DeepScanLineBlock {
     pub y_coordinate: i32,
-    pub packed_pixel_offset_table_size: i32,
-    pub packed_sample_data_size: i32,
-    pub unpacked_sample_data_size: u64,
+    pub decompressed_sample_data_size: u64,
+
+    /// (Taken from DeepTileBlock)
+    /// The pixel offset table is a list of ints, one for each column within the dataWindow.
+    /// Each entry n in the table indicates the total number of samples required
+    /// to store the pixel in n as well as all pixels to the left of it.
+    /// Thus, the first samples stored in each channel of the pixel data are for
+    /// the pixel in column 0, which contains table[1] samples.
+    /// Each channel contains table[width-1] samples in total
     pub compressed_pixel_offset_table: Vec<i32>,
     pub compressed_sample_data: Vec<u8>,
 }
@@ -102,24 +108,22 @@ pub struct DeepScanLineBlock {
 /// Each chunk of deep tile data is a single tile
 #[derive(Debug, Clone)]
 pub struct DeepTileBlock {
-    pub tile_coordinates: TileCoordinates,
-    pub packed_pixel_offset_table_size: i32,
-    pub packed_sample_data_size: i32,
-    pub unpacked_sample_data_size: u64,
+    pub coordinates: TileCoordinates,
+    pub decompressed_sample_data_size: u64,
 
-    /// When decompressed, the unpacked chunk consists of the
-    /// channel data stored in a non-interleaved fashion
-    /// Exception: For ZIP_COMPRESSION only there will be
-    /// up to 16 scanlines in the packed sample data block
-    pub compressed_sample_data: Vec<u8>,
-
-    /// The pixel offset table is a list of int s, one for each column within the dataWindow.
+    /// The pixel offset table is a list of ints, one for each column within the dataWindow.
     /// Each entry n in the table indicates the total number of samples required
     /// to store the pixel in n as well as all pixels to the left of it.
     /// Thus, the first samples stored in each channel of the pixel data are for
     /// the pixel in column 0, which contains table[1] samples.
     /// Each channel contains table[width-1] samples in total
     pub compressed_pixel_offset_table: Vec<i32>,
+
+    /// When decompressed, the unpacked chunk consists of the
+    /// channel data stored in a non-interleaved fashion
+    /// Exception: For ZIP_COMPRESSION only there will be
+    /// up to 16 scanlines in the packed sample data block
+    pub compressed_sample_data: Vec<u8>,
 }
 
 
@@ -127,5 +131,9 @@ pub struct DeepTileBlock {
 #[derive(Debug, Clone)]
 pub enum FlatPixelData {
     Compressed(Vec<u8>),
+
+    /// When decompressed, the unpacked chunk consists of
+    /// the channel data stored in a non-interleaved fashion
     Decompressed(Vec<u8>)
 }
+

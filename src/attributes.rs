@@ -17,6 +17,10 @@ impl Text {
         Text { bytes: SmallVec::from_slice(str_value.as_bytes()) }
     }
 
+    pub fn from_bytes(bytes: SmallVec<[u8; 32]>) -> Self {
+        Text { bytes }
+    }
+
     /// panics if value is too long (31 bytes max)
     pub fn short_from_str(str_value: &str) -> Self {
         assert!(str_value.as_bytes().len() < 32, "max text length is 31");
