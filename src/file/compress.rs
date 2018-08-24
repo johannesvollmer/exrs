@@ -11,9 +11,30 @@ pub type Data = Vec<u8>;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Compression {
-    None, RLE, ZIPSingle,
-    ZIP, PIZ, PXR24,
-    B44, B44A,
+    /// store uncompressed values
+    /// (loading and writing may be faster than any compression, but file is larger)
+    None,
+
+    /// run-length-encode horizontal differences one line at a time
+    RLE,
+
+    /// zip horizontal differences one line at a time
+    ZIPS,
+
+    /// zip horizontal differences of 16 lines
+    ZIP,
+
+    /// wavelet??
+    PIZ,
+
+    /// lossy!
+    PXR24,
+
+    /// lossy!
+    B44,
+
+    /// lossy!
+    B44A,
 }
 
 
@@ -22,7 +43,7 @@ pub fn compress(method: Compression, data: Data) -> Result {
     match method {
         None => Ok(data),
         ZIP => zip::compress(data),
-        ZIPSingle => zip_single::compress(data),
+        ZIPS => zip_single::compress(data),
         _ => unimplemented!()
     }
 }
@@ -32,7 +53,7 @@ pub fn decompress(method: Compression, data: Data, uncompressed_size: Option<usi
     match method {
         None => Ok(data),
         ZIP => zip::decompress(data, uncompressed_size),
-        ZIPSingle => zip_single::decompress(data, uncompressed_size),
+        ZIPS => zip_single::decompress(data, uncompressed_size),
         _ => unimplemented!()
     }
 }
@@ -44,16 +65,17 @@ impl Compression {
     pub fn scan_lines_per_block(self) -> usize {
         use self::Compression::*;
         match self {
-            None | RLE   | ZIPSingle    => 1,
-            ZIP  | PXR24                => 16,
-            PIZ  | B44   | B44A /* TODO: DWAA & DWAB */ => 32,
+            None | RLE   | ZIPS => 1,
+            ZIP  | PXR24        => 16,
+            PIZ  | B44   | B44A => 32,
+            /* TODO: DWAA & DWAB */
         }
     }
 
     pub fn supports_deep_data(self) -> bool {
         use self::Compression::*;
         match self {
-            None | RLE | ZIPSingle | ZIP => true,
+            None | RLE | ZIPS | ZIP => true,
             _ => false,
         }
     }

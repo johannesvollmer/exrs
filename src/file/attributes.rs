@@ -610,7 +610,7 @@ impl Compression {
         match self {
             None => 0_u8,
             RLE => 1_u8,
-            ZIPSingle => 2_u8,
+            ZIPS => 2_u8,
             ZIP => 3_u8,
             PIZ => 4_u8,
             PXR24 => 5_u8,
@@ -624,7 +624,7 @@ impl Compression {
         Ok(match u8::read(read)? {
             0 => None,
             1 => RLE,
-            2 => ZIPSingle,
+            2 => ZIPS,
             3 => ZIP,
             4 => PIZ,
             5 => PXR24,
