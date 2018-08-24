@@ -37,13 +37,13 @@ pub mod test {
             // "/home/johannes/Pictures/openexr/openexr-images-master/DisplayWindow/t01.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/LuminanceChroma/Flowers.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/StageEnvCube.exr"
-            // "/home/johannes/Pictures/openexr/openexr-images-master/MultiView/Balls.exr" // large file
+             "/home/johannes/Pictures/openexr/openexr-images-master/MultiView/Balls.exr" // large file
             // "/home/johannes/Pictures/openexr/openexr-images-master/ScanLines/StillLife.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/Tiles/Spirals.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/Kapaa.exr"
 
             // TODO: some mysterious suspiciously-large-size error
-            "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/ColorCodedLevels.exr"
+            // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/ColorCodedLevels.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/KernerEnvLatLong.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/OrientationLatLong.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/PeriodicPattern.exr"
@@ -69,4 +69,9 @@ pub mod test {
     // TODO check for completeness of file
     // TODO handle incomplete files based on if the offset_table is complete (last thing written)
     // TODO memory-mapping
+
+    // TODO let the user decide how to store something,
+    // don't just read the pixels into a buffer and let the user convert the data into new data again
+    // in order to avoid too much memory allocations
+    // (something like  read_pixels(|index, pixel| pixels[index] = RGBA::new(pixel[0], pixel[1], ...) )
 }

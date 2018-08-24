@@ -59,6 +59,11 @@ We try to prevent writing invalid OpenEXR files by
 either taking advantage of Rusts type system, 
 or runtime checks if the type system does not suffice.
 
+_Unfortunately, there is currently unsafe code in the low-level `file` 
+decoding and encoding, where an array of i8 is reinterpreted as an array
+of u8 in order to write it to memory. I hope Rust will support that
+in the future._
+
 ### Architecture
 
 The main parts of this library are:

@@ -2,19 +2,56 @@
 //! The `file` module represents the file how it is laid out in memory.
 
 
-pub mod blocks;
+pub mod chunks;
 pub mod write;
 pub mod read;
 
 
 use ::smallvec::SmallVec;
 use ::image::attributes::*;
-use self::blocks::*;
+use self::chunks::*;
 
+// TODO put validation into own module
+pub type Validity = Result<(), Invalid>;
+
+#[derive(Debug, Clone, Copy)]
+pub enum Invalid {
+    Missing(Value),
+    Combination(&'static [Value]),
+    Content(Value, Required),
+    Type(Required),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Value {
+    Attribute(&'static str),
+    Version(&'static str),
+    Chunk(&'static str),
+    Type(&'static str),
+    Part(&'static str),
+    Enum(&'static str),
+    Text,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Required {
+    Max(usize),
+    Min(usize),
+    Exact(&'static str),
+    OneOf(&'static [&'static str]),
+    Range {
+        /// inclusive
+        min: usize,
+
+        /// inclusive
+        max: usize
+    },
+}
 
 //  The representation of 16-bit floating-point numbers is analogous to IEEE 754,
 //  but with 5 exponent bits and 10 bits for the fraction
 pub const MAGIC_NUMBER: [u8; 4] = [0x76, 0x2f, 0x31, 0x01];
+
 
 
 /// This is the raw data of the file,
@@ -43,6 +80,39 @@ pub struct MetaData {
 
 pub type Headers = SmallVec<[Header; 3]>;
 pub type OffsetTables = SmallVec<[OffsetTable; 3]>;
+
+
+impl MetaData {
+    pub fn validate(&self) -> Validity {
+        let tables = self.offset_tables.len();
+        let headers = self.headers.len();
+
+        if tables == 0 {
+            return Err(Invalid::Missing(Value::Part("offset table")));
+        }
+
+        if headers == 0 {
+            return Err(Invalid::Missing(Value::Part("header")));
+        }
+
+        if tables != headers {
+            return Err(Invalid::Combination(&[
+                Value::Part("headers"),
+                Value::Part("offset tables"),
+            ]));
+        }
+
+        let is_multi_part = headers != 1;
+        if is_multi_part != self.version.has_multiple_parts {
+            return Err(Invalid::Combination(&[
+                Value::Version("multipart"),
+                Value::Part("multipart"),
+            ]));
+        }
+
+        Ok(())
+    }
+}
 
 
 // TODO non-public fields?
@@ -117,7 +187,7 @@ impl Header {
         self.attributes.get(self.indices.channels)
             .expect("invalid `channels` attribute index")
             .value.to_channel_list()
-            .expect("`channels` attribute has wrong type")
+            .expect("check failed: `channels` attribute has wrong type")
     }
 
     pub fn kind(&self) -> Option<&ParsedText> {
@@ -125,7 +195,7 @@ impl Header {
             self.attributes.get(kind)
                 .expect("invalid `type` attribute index")
                 .value.to_text()
-                .expect("`type` attribute has wrong type")
+                .expect("check failed: `type` attribute has wrong type")
         })
     }
 
@@ -133,14 +203,14 @@ impl Header {
         self.attributes.get(self.indices.compression)
             .expect("invalid `compression` attribute index")
             .value.to_compression()
-            .expect("`compression` attribute has wrong type")
+            .expect("check failed: `compression` attribute has wrong type")
     }
 
     pub fn data_window(&self) -> I32Box2 {
         self.attributes.get(self.indices.data_window)
             .expect("invalid `dataWindow` attribute index")
             .value.to_i32_box_2()
-            .expect("`dataWindow` attribute has wrong type")
+            .expect("check failed: `dataWindow` attribute has wrong type")
     }
 
     pub fn tiles(&self) -> Option<TileDescription> {
@@ -148,81 +218,114 @@ impl Header {
             self.attributes.get(tiles)
                 .expect("invalid `tiles` attribute index")
                 .value.to_tile_description()
-                .expect("`tiles` attribute has wrong type")
+                .expect("check failed: `tiles` attribute has wrong type")
         })
     }
 
-    pub fn check_validity(&self, version: Version) -> ::file::read::Result<()> {
-        use ::file::read::Error;
+    pub fn chunk_count(&self) -> Option<i32> {
+        self.indices.chunk_count.map(|chunks|{
+            self.attributes.get(chunks)
+                .expect("invalid `chunks` attribute index")
+                .value.to_i32()
+                .expect("check failed: `chunks` attribute has wrong type")
+        })
+    }
 
+
+
+    pub fn validate(&self, version: Version) -> Validity {
         if let Some(tiles) = self.indices.tiles {
-            if self.attributes.get(tiles)
-                .and_then(|tiles| tiles.value.to_tile_description())
-                .is_none() { return Err(Error::Invalid("`tile` type")); }
+            self.attributes.get(tiles)
+                .expect("invalid tiles attribute index")
+                .value.to_tile_description()?;
         }
 
-        if self.attributes.get(self.indices.channels)
-            .and_then(|channels| channels.value.to_channel_list())
-            .is_none() { return Err(Error::Invalid("`channels` type")); }
+        self.attributes.get(self.indices.channels)
+            .expect("invalid channels attribute index")
+            .value.to_channel_list()?;
 
         if let Some(kind) = self.indices.kind {
-            let kind = self.attributes.get(kind)
-                .and_then(|kind| kind.value.to_text());
+            self.attributes.get(kind)
+                .expect("invalid kind attribute index")
+                .value.to_text()?
 
-            if let Some(kind) = kind {
-                // sadly, kind must be one of the specified texts
+                // sadly, "type" must be one of the specified texts
                 // instead of being a plain enumeration
-                if let ParsedText::Arbitrary(_) = kind {
-                    return Err(Error::Invalid("`type` string content"));
-                }
-
-            } else {
-                return Err(Error::Invalid("`type` type"));
-            }
+                .validate_kind()?;
         }
 
-        if self.attributes.get(self.indices.compression)
-            .and_then(|compression| compression.value.to_compression())
-            .is_none() { return Err(Error::Invalid("`compression` type")); }
+        if let Some(chunks) = self.indices.chunk_count {
+            self.attributes.get(chunks)
+                .expect("invalid chunk attribute index")
+                .value.to_i32()?;
+        }
 
-        if self.attributes.get(self.indices.data_window)
-            .and_then(|data_window| data_window.value.to_i32_box_2())
-            .is_none() { return Err(Error::Invalid("`dataWindow` type")); }
+
+        self.attributes.get(self.indices.compression)
+            .expect("invalid compression attribute index")
+            .value.to_compression()?;
+
+
+        self.attributes.get(self.indices.data_window)
+            .expect("invalid data_window attribute index")
+            .value.to_i32_box_2()?;
+
 
         // TODO check all types..
 
 
 
-
         if version.has_multiple_parts {
-            if self.indices.chunk_count.is_none() { return Err(Error::Missing("`chunkCount` for multiparts")); }
-            if self.indices.kind.is_none() { return Err(Error::Missing("`type` for multiparts")); }
-            if self.indices.name.is_none() { return Err(Error::Missing("`name` for multiparts")); }
+            if self.indices.chunk_count.is_none() {
+                return Err(Invalid::Missing(Value::Attribute("chunkCount (for multipart)")).into());
+            }
+            if self.indices.kind.is_none() {
+                return Err(Invalid::Missing(Value::Attribute("type (for multipart)")).into());
+            }
+            if self.indices.name.is_none() {
+                return Err(Invalid::Missing(Value::Attribute("name (for multipart)")).into());
+            }
         }
 
         if version.has_deep_data {
-            if self.indices.chunk_count.is_none() { return Err(Error::Missing("`chunkCount` for deepdata")); }
-            if self.indices.kind.is_none() { return Err(Error::Missing("`type` for deepdata")); }
-            if self.indices.name.is_none() { return Err(Error::Missing("`name` for deepdata")); }
-            if self.indices.version.is_none() { return Err(Error::Missing("`version` for deepdata")); }
+            if self.indices.chunk_count.is_none() {
+                return Err(Invalid::Missing(Value::Attribute("chunkCount (for deepdata)")).into());
+            }
+            if self.indices.kind.is_none() {
+                return Err(Invalid::Missing(Value::Attribute("type (for deepdata)")).into());
+            }
+            if self.indices.name.is_none() {
+                return Err(Invalid::Missing(Value::Attribute("name (for deepdata)")).into());
+            }
+            if self.indices.version.is_none() {
+                return Err(Invalid::Missing(Value::Attribute("version (for deepdata)")).into());
+            }
             if self.indices.max_samples_per_pixel.is_none() {
-                return Err(Error::Missing("`maxSamplesPerPixel` for deepdata"));
+                return Err(Invalid::Missing(Value::Attribute("maxSamplesPerPixel (for deepdata)")).into());
             }
 
             let compression = self.compression(); // attribute is already checked
             if !compression.supports_deep_data() {
-                return Err(Error::Invalid("`compression` for deepdata"));
+                return Err(Invalid::Content(
+                    Value::Attribute("compression (for deepdata)"),
+                    Required::OneOf(&["none", "rle", "zips", "zip"])
+                ).into());
             }
         }
 
         if let Some(kind) = self.kind() {
             if kind.is_tile_kind() {
-                if self.indices.tiles.is_none() { return Err(Error::Missing("`tiles` for tiledimage or deeptiles")); }
+                if self.indices.tiles.is_none() {
+                    return Err(Invalid::Missing(Value::Attribute("tiles (for tiledimage or deeptiles)")).into());
+                }
             }
 
             // version-deepness and attribute-deepness must match
             if kind.is_deep_kind() != version.has_deep_data {
-                return Err(Error::Invalid("`type` compared to version deepness"));
+                return Err(Invalid::Content(
+                    Value::Attribute("type"),
+                    Required::OneOf(&["deepscanlines", "deeptiles"])
+                ).into());
             }
         }
 
@@ -260,31 +363,36 @@ pub struct Version {
 }
 
 impl Version {
-    pub fn is_valid(&self) -> bool {
+    pub fn validate(&self) -> Validity {
         match (
             self.is_single_tile, self.has_long_names,
             self.has_deep_data, self.file_format_version
         ) {
             // Single-part scan line. One normal scan line image.
-            (false, false, false, _) => true,
+            (false, false, false, _) => Ok(()),
 
             // Single-part tile. One normal tiled image.
-            (true, false, false, _) => true,
+            (true, false, false, _) => Ok(()),
 
             // Multi-part (new in 2.0).
             // Multiple normal images (scan line and/or tiled).
-            (false, false, true, 2) => true,
+            (false, false, true, 2) => Ok(()),
 
             // Single-part deep data (new in 2.0).
             // One deep tile or deep scan line part
-            (false, true, false, 2) => true,
+            (false, true, false, 2) => Ok(()),
 
             // Multi-part deep data (new in 2.0).
             // Multiple parts (any combination of:
             // tiles, scan lines, deep tiles and/or deep scan lines).
-            (false, true, true, 2) => true,
+            (false, true, true, 2) => Ok(()),
 
-            _ => false
+            _ => Err(Invalid::Combination(&[
+                Value::Version("is_single_tile"),
+                Value::Version("has_long_names"),
+                Value::Version("has_deep_data"),
+                Value::Version("format_version"),
+            ]))
         }
     }
 }

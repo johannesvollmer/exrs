@@ -1,5 +1,5 @@
-
 use ::smallvec::SmallVec;
+use ::file::{Invalid, Required, Validity, Value};
 
 /// null-terminated text strings.
 /// max 31 bytes long (if bit 10 is set to 0),
@@ -13,6 +13,7 @@ pub struct Text {
 }
 
 impl Text {
+    // TODO make sure this does not allocate, but uses the stack for string literals
     fn unchecked_from_str(str_value: &str) -> Self {
         Text { bytes: SmallVec::from_slice(str_value.as_bytes()) }
     }
@@ -50,14 +51,14 @@ impl ::std::fmt::Debug for Text {
 #[derive(Debug, Clone)]
 pub struct Attribute {
     pub name: Text,
-    pub kind: Text,
 
+    /// kind can be inferred from value
     /// size in bytes can be inferred from value
     pub value: AttributeValue,
 }
 
 
-
+// TODO custom attribute
 #[derive(Debug, Clone)]
 pub enum AttributeValue {
     I32Box2(I32Box2),
@@ -113,14 +114,52 @@ pub enum ParsedText {
     Arbitrary(Text),
 }
 
+pub mod kind {
+    pub const SCAN_LINE: &'static [u8] = b"scanlineimage";
+    pub const TILE: &'static [u8] = b"tiledimage";
+
+    pub const DEEP_SCAN_LINE: &'static [u8] = b"deepscanline";
+    pub const DEEP_TILE: &'static [u8] = b"deeptile";
+}
+
 impl ParsedText {
+
+
     pub fn parse(text: Text) -> Self {
         match text.bytes.as_slice() {
-            b"scanlineimage" => ParsedText::ScanLine,
-            b"tiledimage" => ParsedText::Tile,
-            b"deepscanline" => ParsedText::DeepScanLine,
-            b"deeptile" => ParsedText::DeepTile,
+            kind::SCAN_LINE => ParsedText::ScanLine,
+            kind::TILE => ParsedText::Tile,
+            kind::DEEP_SCAN_LINE => ParsedText::DeepScanLine,
+            kind::DEEP_TILE => ParsedText::DeepTile,
             _ => ParsedText::Arbitrary(text),
+        }
+    }
+
+    /// This function does not do any length checks!
+    /// When writing a file, checks will be made that the length
+    /// does not exceed 31 or 255,
+    /// depending on if the 'long strings' version bit is set
+    pub fn to_text_bytes(&self) -> &[u8] {
+        match self {
+            // TODO make these constants
+            ParsedText::ScanLine => kind::SCAN_LINE,
+            ParsedText::Tile => kind::TILE,
+            ParsedText::DeepScanLine => kind::DEEP_SCAN_LINE,
+            ParsedText::DeepTile => kind::DEEP_TILE,
+            ParsedText::Arbitrary(ref text) => &text.bytes,
+        }
+    }
+
+    /// Sadly, "type" must be one of the specified texts
+    /// instead of being a plain enumeration.
+    /// This method checks if the value is one of the allowed ones.
+    pub fn validate_kind(&self) -> Validity {
+        match *self {
+            ParsedText::Arbitrary(_) => Err(Invalid::Content(
+                Value::Type("type"),
+                Required::OneOf(&["scanlineimage","tiledimage","deepscanline","deeptile"])
+            )),
+            _ => Ok(())
         }
     }
 
@@ -152,9 +191,12 @@ pub struct I32Box2 {
 }
 
 impl I32Box2 {
-    pub fn check_validity(&self) -> ::file::read::Result<()> {
+    pub fn validate(&self) -> Validity {
         if self.x_min > self.x_max || self.y_min > self.y_max {
-            Err(::file::read::Error::Invalid("box2i min compared to max"))
+            Err(Invalid::Combination(&[
+                Value::Attribute("box2i min"),
+                Value::Attribute("box2i max")
+            ]))
         } else {
             Ok(())
         }
@@ -246,7 +288,7 @@ pub struct Preview {
     /// 4 × width × height bytes,
     /// Scan lines are stored top to bottom; within a scan line pixels are stored from left
     /// to right. A pixel consists of four unsigned chars, R, G, B, A
-    pub pixel_data: Vec<u8>,
+    pub pixel_data: Vec<i8>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -282,41 +324,85 @@ impl AttributeValue {
         }
     }
 
-    pub fn to_tile_description(&self) -> Option<TileDescription> {
+    pub fn kind_name(&self) -> &'static [u8] {
+        use self::AttributeValue::*;
         match *self {
-            AttributeValue::TileDescription(value) => Some(value),
-            _ => None,
+            I32Box2(_) =>  b"box2i",
+            F32Box2(_) =>  b"box2f",
+            I32(_) =>  b"int",
+            F32(_) =>  b"float",
+            F64(_) =>  b"double",
+            Rational(_, _) => b"rational",
+            TimeCode(_, _) => b"timecode",
+            I32Vec2(_, _) => b"vec2i",
+            F32Vec2(_, _) => b"vec2f",
+            I32Vec3(_, _, _) => b"vec3i",
+            F32Vec3(_, _, _) => b"vec3f",
+            ChannelList(_) =>  b"chlist",
+            Chromaticities(_) =>  b"chromaticities",
+            Compression(_) =>  b"compression",
+            EnvironmentMap(_) =>  b"envmap",
+            KeyCode(_) =>  b"keycode",
+            LineOrder(_) =>  b"lineOrder",
+            F32Matrix3x3(_) =>  b"m33f",
+            F32Matrix4x4(_) =>  b"m44f",
+            Preview(_) =>  b"preview",
+            Text(_) =>  b"string",
+            TextVector(_) =>  b"stringvector",
+            TileDescription(_) =>  b"tiledesc",
         }
     }
 
-    pub fn to_i32_box_2(&self) -> Option<I32Box2> {
+    pub fn to_tile_description(&self) -> Result<TileDescription, Invalid> {
         match *self {
-            AttributeValue::I32Box2(value) => Some(value),
-            _ => None,
+            AttributeValue::TileDescription(value) => Ok(value),
+            _ => Err(Invalid::Type(Required::Exact("tiledesc")).into()), // TODO make these constants!
         }
     }
 
-    pub fn to_compression(&self) -> Option<Compression> {
+    pub fn to_i32(&self) -> Result<i32, Invalid> {
         match *self {
-            AttributeValue::Compression(value) => Some(value),
-            _ => None,
+            AttributeValue::I32(value) => Ok(value),
+            _ => Err(Invalid::Type(Required::Exact("i32")).into()),
         }
     }
 
-    pub fn to_text(&self) -> Option<&ParsedText> {
+    pub fn to_i32_box_2(&self) -> Result<I32Box2, Invalid> {
         match *self {
-            AttributeValue::Text(ref value) => Some(value),
-            _ => None,
+            AttributeValue::I32Box2(value) => Ok(value),
+            _ => Err(Invalid::Type(Required::Exact("box2i")).into()),
         }
     }
 
-    pub fn to_channel_list(&self) -> Option<&ChannelList> {
+    pub fn to_compression(&self) -> Result<Compression, Invalid> {
         match *self {
-            AttributeValue::ChannelList(ref value) => Some(value),
-            _ => None,
+            AttributeValue::Compression(value) => Ok(value),
+            _ => Err(Invalid::Type(Required::Exact("compression")).into()),
+        }
+    }
+
+    pub fn to_text(&self) -> Result<&ParsedText, Invalid> {
+        match *self {
+            AttributeValue::Text(ref value) => Ok(value),
+            _ => Err(Invalid::Type(Required::Exact("string")).into()),
+        }
+    }
+
+    pub fn to_channel_list(&self) -> Result<&ChannelList, Invalid> {
+        match *self {
+            AttributeValue::ChannelList(ref value) => Ok(value),
+            _ => Err(Invalid::Type(Required::Exact("chlist")).into()),
+        }
+    }
+
+    pub fn to_chromaticities(&self) -> Result<Chromaticities, Invalid> {
+        match *self {
+            AttributeValue::Chromaticities(value) => Ok(value),
+            _ => Err(Invalid::Type(Required::Exact("chromaticities")).into()),
         }
     }
 }
+
 
 pub mod required {
     macro_rules! define_required_attribute_names {

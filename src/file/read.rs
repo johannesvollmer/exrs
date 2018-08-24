@@ -3,12 +3,12 @@
 
 use ::std::io::{Read, Seek, SeekFrom};
 use ::seek_bufread::BufReader as SeekBufRead;
-use ::byteorder::{LittleEndian, ReadBytesExt};
+use ::byteorder::{ReadBytesExt, LittleEndian};
 use ::bit_field::BitField;
 use ::smallvec::SmallVec;
 
 use super::*;
-use super::blocks::*;
+use super::chunks::*;
 use ::image::attributes::*;
 
 
@@ -18,8 +18,7 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
     NotEXR,
-    Invalid(&'static str),
-    Missing(&'static str),
+    Invalid(Invalid),
     UnknownAttributeType { bytes_to_skip: u32 },
 
     IoError(::std::io::Error),
@@ -40,6 +39,13 @@ impl From<::std::io::Error> for Error {
 impl From<::image::compress::Error> for Error {
     fn from(compress_err: ::image::compress::Error) -> Self {
         Error::CompressionError(compress_err)
+    }
+}
+
+/// Enable using the `?` operator on Validity
+impl From<Invalid> for Error {
+    fn from(err: Invalid) -> Self {
+        Error::Invalid(err)
     }
 }
 
@@ -76,17 +82,29 @@ fn version<R: ReadBytesExt>(read: &mut R) -> Result<Version> {
     let has_long_names = version_and_flags.get_bit(10);
     let has_deep_data = version_and_flags.get_bit(11);
     let has_multiple_parts = version_and_flags.get_bit(12);
-    // all remaining bits except 9, 10, 11 and 12 are reserved and should be 0
 
-    Ok(Version {
+    // all remaining bits except 9, 10, 11 and 12 are reserved and should be 0
+    // if a file has any of these bits set to 1, it means this file contains
+    // a feature that we don't support
+    let unknown_flags = version_and_flags >> 12; // all flags excluding the ones we already parsed
+    if unknown_flags != 0 { // TODO test if this correctly detects unsupported files
+        return Err(Error::NotSupported("version flags"));
+    }
+
+    let version = Version {
         file_format_version: version,
         is_single_tile, has_long_names,
         has_deep_data, has_multiple_parts,
-    })
+    };
+
+    version.validate()?;
+    Ok(version)
 }
 
 /// `peek` the next byte, and consume it if it is 0
 fn skip_null_byte_if_present<R: Read + Seek>(read: &mut SeekBufRead<R>) -> Result<bool> {
+    // TODO use https://github.com/mlalic/peekable-reader-rs instead?
+
     if read_u8(read)? == 0 {
         Ok(true)
 
@@ -99,16 +117,12 @@ fn skip_null_byte_if_present<R: Read + Seek>(read: &mut SeekBufRead<R>) -> Resul
 }
 
 
-fn read_u8<R: ReadBytesExt>(read: &mut R) -> Result<u8> {
-    read.read_u8().map_err(Error::from)
-}
-
 fn read_i32<R: ReadBytesExt>(read: &mut R) -> Result<i32> {
     read.read_i32::<LittleEndian>().map_err(Error::from)
 }
 
-fn read_f32<R: ReadBytesExt>(read: &mut R) -> Result<f32> {
-    read.read_f32::<LittleEndian>().map_err(Error::from)
+fn read_u8<R: ReadBytesExt>(read: &mut R) -> Result<u8> {
+    read.read_u8().map_err(Error::from)
 }
 
 fn read_u32<R: ReadBytesExt>(read: &mut R) -> Result<u32> {
@@ -119,8 +133,24 @@ fn read_u64<R: ReadBytesExt>(read: &mut R) -> Result<u64> {
     read.read_u64::<LittleEndian>().map_err(Error::from)
 }
 
+fn read_f32<R: ReadBytesExt>(read: &mut R) -> Result<f32> {
+    read.read_f32::<LittleEndian>().map_err(Error::from)
+}
+
 fn read_f64<R: ReadBytesExt>(read: &mut R) -> Result<f64> {
     read.read_f64::<LittleEndian>().map_err(Error::from)
+}
+
+// TODO test
+fn read_i8_array<R: Read>(read: &mut R, array: &mut [i8]) -> Result<()> {
+    let as_u8 = unsafe {
+        ::std::slice::from_raw_parts_mut(
+            array.as_mut_ptr() as *mut u8,
+            array.len()
+        )
+    };
+
+    read.read_exact(as_u8).map_err(Error::from)
 }
 
 fn null_terminated_text<R: ReadBytesExt>(read: &mut R) -> Result<Text> {
@@ -148,14 +178,14 @@ fn i32_sized_text<R: Read + Seek>(read: &mut SeekBufRead<R>, expected_attribute_
     Ok(Text::from_bytes(SmallVec::from_vec(bytes)))
 }
 
-fn box2i<R: Read>(read: &mut R) -> Result<I32Box2> {
+fn i32_box_2<R: Read>(read: &mut R) -> Result<I32Box2> {
     Ok(I32Box2 {
         x_min: read_i32(read)?, y_min: read_i32(read)?,
         x_max: read_i32(read)?, y_max: read_i32(read)?,
     })
 }
 
-fn box2f<R: Read>(read: &mut R) -> Result<F32Box2> {
+fn f32_box_2<R: Read>(read: &mut R) -> Result<F32Box2> {
     Ok(F32Box2 {
         x_min: read_f32(read)?, y_min: read_f32(read)?,
         x_max: read_f32(read)?, y_max: read_f32(read)?,
@@ -169,20 +199,24 @@ fn channel<R: Read + Seek>(read: &mut SeekBufRead<R>) -> Result<Channel> {
         0 => PixelType::U32,
         1 => PixelType::F16,
         2 => PixelType::F32,
-        _ => return Err(Error::Invalid("pixelType"))
+        _ => return Err(Invalid::Content(
+            Value::Enum("pixelType"),
+            Required::Range{ min: 0, max: 2 }
+        ).into())
     };
 
     let is_linear = match read_u8(read)? {
         1 => true,
         0 => false,
-        _ => return Err(Error::Invalid("pLinear"))
+        _ => return Err(Invalid::Content(
+            Value::Enum("pLinear"),
+            Required::Range{ min: 0, max: 1 }
+        ).into())
     };
 
-    let reserved = [
-        read.read_i8()?,
-        read.read_i8()?,
-        read.read_i8()?,
-    ];
+    // TODO read-i8-array?
+    let mut reserved = [0; 3];
+    read_i8_array(read, &mut reserved)?;
 
     let x_sampling = read_i32(read)?;
     let y_sampling = read_i32(read)?;
@@ -222,7 +256,10 @@ fn compression<R: Read>(read: &mut R) -> Result<Compression> {
         5 => PXR24,
         6 => B44,
         7 => B44A,
-        _ => return Err(Error::Invalid("compression")),
+        _ => return Err(Invalid::Content(
+            Value::Enum("compression"),
+            Required::Range { min: 0, max: 7 }
+        ).into()),
     })
 }
 
@@ -230,7 +267,10 @@ fn environment_map<R: Read>(read: &mut R) -> Result<EnvironmentMap> {
     Ok(match read_u8(read)? {
         0 => EnvironmentMap::LatitudeLongitude,
         1 => EnvironmentMap::Cube,
-        _ => return Err(Error::Invalid("environment map"))
+        _ => return Err(Invalid::Content(
+            Value::Enum("envmap"),
+            Required::Range { min: 0, max: 1 }
+        ).into()),
     })
 }
 
@@ -252,25 +292,30 @@ fn line_order<R: Read>(read: &mut R) -> Result<LineOrder> {
         0 => IncreasingY,
         1 => DecreasingY,
         2 => RandomY,
-        _ => return Err(Error::Invalid("line order")),
+        _ => return Err(Invalid::Content(
+            Value::Enum("lineOrder"),
+            Required::Range { min: 0, max: 2 }
+        ).into()),
     })
 }
 
 
-fn f32_matrix_3x3<R: Read>(read: &mut R) -> Result<[f32; 9]> {
+fn f32_matrix_3x3<R: ReadBytesExt>(read: &mut R) -> Result<[f32; 9]> {
     let mut result = [0.0; 9];
     read.read_f32_into::<LittleEndian>(&mut result)?;
     Ok(result)
 }
 
-fn f32_matrix_4x4<R: Read>(read: &mut R) -> Result<[f32; 16]> {
+fn f32_matrix_4x4<R: ReadBytesExt>(read: &mut R) -> Result<[f32; 16]> {
     let mut result = [0.0; 16];
     read.read_f32_into::<LittleEndian>(&mut result)?;
     Ok(result)
 }
 
-fn i32_sized_text_vector<R: Read + Seek>(read: &mut SeekBufRead<R>, attribute_value_byte_size: u32) -> Result<Vec<Text>> {
+fn vec_of_i32_sized_texts<R: Read + Seek>(read: &mut SeekBufRead<R>, attribute_value_byte_size: u32) -> Result<Vec<Text>> {
     let mut result = Vec::with_capacity(2);
+
+    // length of the text-vector can be inferred from attribute size
     let mut processed_bytes = 0_usize;
 
     while processed_bytes < attribute_value_byte_size as usize {
@@ -280,8 +325,37 @@ fn i32_sized_text_vector<R: Read + Seek>(read: &mut SeekBufRead<R>, attribute_va
         result.push(text);
     }
 
-    debug_assert_eq!(processed_bytes, attribute_value_byte_size as usize);
+    debug_assert_eq!(processed_bytes, attribute_value_byte_size as usize, "text lengths did not match attribute size");
     Ok(result)
+}
+
+fn large_byte_vec<R: Seek + Read>(read: &mut SeekBufRead<R>, data_size: usize, estimated_max: usize) -> Result<Vec<u8>> {
+    if data_size < estimated_max {
+        let mut data = vec![0; data_size];
+        read.read_exact(&mut data)?;
+        Ok(data)
+
+    } else {
+        println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
+
+        // be careful for suspiciously large data,
+        // as reading the pixel_data_size could have gone wrong
+        // (read byte by byte to avoid allocating too much memory at once,
+        // assuming that it will fail soon, when the file ends)
+        let mut data = vec![0; estimated_max];
+        read.read_exact(&mut data)?;
+
+        for _ in estimated_max..data_size {
+            data.push(read_u8(read)?);
+        }
+
+        Ok(data)
+    }
+}
+
+fn i32_sized_byte_vec<R: Seek + Read>(read: &mut SeekBufRead<R>, estimated_max: usize) -> Result<Vec<u8>> {
+    let data_size = read_i32(read)? as usize;
+    large_byte_vec(read, data_size, estimated_max)
 }
 
 fn preview<R: Read>(read: &mut R) -> Result<Preview> {
@@ -290,10 +364,9 @@ fn preview<R: Read>(read: &mut R) -> Result<Preview> {
     let components_per_pixel = 4;
 
     // TODO should be seen as char, not unsigned char!
-    let mut pixel_data = vec![0_u8; (width * height * components_per_pixel) as usize];
-
     // TODO don't blindly allocate too much memory
-    read.read_exact(&mut pixel_data)?;
+    let mut pixel_data = vec![0; (width * height * components_per_pixel) as usize];
+    read_i8_array(read, &mut pixel_data)?;
 
     Ok(Preview {
         width, height,
@@ -306,7 +379,7 @@ fn tile_description<R: Read>(read: &mut R) -> Result<TileDescription> {
     let y_size = read_u32(read)?;
 
     // mode = level_mode + (rounding_mode * 16)
-    let mode = read_u8(read)?;
+    let mode = read_u8(read)?; // wow you really saved that one byte here
 
     let level_mode = mode & 0b00001111; // wow that works
     let rounding_mode = mode >> 4; // wow that works
@@ -315,52 +388,59 @@ fn tile_description<R: Read>(read: &mut R) -> Result<TileDescription> {
         0 => LevelMode::One,
         1 => LevelMode::MipMap,
         2 => LevelMode::RipMap,
-        _ => return Err(Error::Invalid("level mode"))
+        _ => return Err(Invalid::Content(
+            Value::Enum("level mode"),
+            Required::Range { min: 0, max: 2 }
+        ).into()),
     };
 
     let rounding_mode = match rounding_mode {
         0 => RoundingMode::Down,
         1 => RoundingMode::Up,
-        _ => return Err(Error::Invalid("rounding mode"))
+        _ => return Err(Invalid::Content(
+            Value::Enum("rounding mode"),
+            Required::Range { min: 0, max: 1 }
+        ).into()),
     };
 
     Ok(TileDescription { x_size, y_size, level_mode, rounding_mode, })
 }
 
 
-fn attribute_value<R: Read + Seek>(read: &mut SeekBufRead<R>, kind: &Text, byte_size: u32) -> Result<AttributeValue> {
+fn attribute_value<R: Read + Seek>(read: &mut SeekBufRead<R>, kind: Text, byte_size: u32) -> Result<AttributeValue> {
+    use ::image::attributes::AttributeValue::*;
     Ok(match kind.bytes.as_slice() {
         // TODO replace these literals with constants
-        b"box2i" => AttributeValue::I32Box2(box2i(read)?),
-        b"box2f" => AttributeValue::F32Box2(box2f(read)?),
+        b"box2i" => I32Box2(i32_box_2(read)?),
+        b"box2f" => F32Box2(f32_box_2(read)?),
 
-        b"int"    => AttributeValue::I32(read_i32(read)?),
-        b"float"  => AttributeValue::F32(read_f32(read)?),
-        b"double" => AttributeValue::F64(read_f64(read)?),
+        b"int"    => I32(read_i32(read)?),
+        b"float"  => F32(read_f32(read)?),
+        b"double" => F64(read_f64(read)?),
 
-        b"rational" => AttributeValue::Rational(read_i32(read)?, read_u32(read)?),
-        b"timecode" => AttributeValue::TimeCode(read_u32(read)?, read_u32(read)?),
+        b"rational" => Rational(read_i32(read)?, read_u32(read)?),
+        b"timecode" => TimeCode(read_u32(read)?, read_u32(read)?),
 
-        b"v2i" => AttributeValue::I32Vec2(read_i32(read)?, read_i32(read)?),
-        b"v2f" => AttributeValue::F32Vec2(read_f32(read)?, read_f32(read)?),
-        b"v3i" => AttributeValue::I32Vec3(read_i32(read)?, read_i32(read)?, read_i32(read)?),
-        b"v3f" => AttributeValue::F32Vec3(read_f32(read)?, read_f32(read)?, read_f32(read)?),
+        b"v2i" => I32Vec2(read_i32(read)?, read_i32(read)?),
+        b"v2f" => F32Vec2(read_f32(read)?, read_f32(read)?),
+        b"v3i" => I32Vec3(read_i32(read)?, read_i32(read)?, read_i32(read)?),
+        b"v3f" => F32Vec3(read_f32(read)?, read_f32(read)?, read_f32(read)?),
 
-        b"chlist" => AttributeValue::ChannelList(channel_list(read)?),
-        b"chromaticities" => AttributeValue::Chromaticities(chromaticities(read)?),
-        b"compression" => AttributeValue::Compression(compression(read)?),
-        b"envmap" => AttributeValue::EnvironmentMap(environment_map(read)?),
+        b"chlist" => ChannelList(channel_list(read)?),
+        b"chromaticities" => Chromaticities(chromaticities(read)?),
+        b"compression" => Compression(compression(read)?),
+        b"envmap" => EnvironmentMap(environment_map(read)?),
 
-        b"keycode" => AttributeValue::KeyCode(key_code(read)?),
-        b"lineOrder" => AttributeValue::LineOrder(line_order(read)?),
+        b"keycode" => KeyCode(key_code(read)?),
+        b"lineOrder" => LineOrder(line_order(read)?),
 
-        b"m33f" => AttributeValue::F32Matrix3x3(f32_matrix_3x3(read)?),
-        b"m44f" => AttributeValue::F32Matrix4x4(f32_matrix_4x4(read)?),
+        b"m33f" => F32Matrix3x3(f32_matrix_3x3(read)?),
+        b"m44f" => F32Matrix4x4(f32_matrix_4x4(read)?),
 
-        b"preview" => AttributeValue::Preview(preview(read)?),
-        b"string" => AttributeValue::Text(ParsedText::parse(i32_sized_text(read, Some(byte_size))?)),
-        b"stringvector" => AttributeValue::TextVector(i32_sized_text_vector(read, byte_size)?),
-        b"tiledesc" => AttributeValue::TileDescription(tile_description(read)?),
+        b"preview" => Preview(preview(read)?),
+        b"string" => Text(ParsedText::parse(i32_sized_text(read, Some(byte_size))?)),
+        b"stringvector" => TextVector(vec_of_i32_sized_texts(read, byte_size)?),
+        b"tiledesc" => TileDescription(tile_description(read)?),
 
         _ => {
             println!("Unknown attribute type: {:?}", kind.to_string());
@@ -369,13 +449,13 @@ fn attribute_value<R: Read + Seek>(read: &mut SeekBufRead<R>, kind: &Text, byte_
     })
 }
 
-// TODO parse lazily, skip size, ...
+// TODO parse lazily, skip size, ... ?
 fn attribute<R: Read + Seek>(read: &mut SeekBufRead<R>) -> Result<Attribute> {
     let name = null_terminated_text(read)?;
     let kind = null_terminated_text(read)?;
     let size = read_i32(read)? as u32; // TODO .checked_cast.ok_or(err:negative)
-    let value = attribute_value(read, &kind, size)?;
-    Ok(Attribute { name, kind, value, })
+    let value = attribute_value(read, kind, size)?;
+    Ok(Attribute { name, value, })
 }
 
 fn header<R: Seek + Read>(read: &mut SeekBufRead<R>, file_version: Version) -> Result<Header> {
@@ -432,9 +512,8 @@ fn header<R: Seek + Read>(read: &mut SeekBufRead<R>, file_version: Version) -> R
                     _ => {},
                 }
 
-                match attribute.kind.bytes.as_slice() {
-                    b"chromaticities" => chromaticities.push(index),
-                    _ => {},
+                if attribute.value.to_chromaticities().is_ok() {
+                    chromaticities.push(index);
                 }
 
                 attributes.push(attribute)
@@ -445,14 +524,14 @@ fn header<R: Seek + Read>(read: &mut SeekBufRead<R>, file_version: Version) -> R
     let header = Header {
         attributes,
         indices: AttributeIndices {
-            channels: channels.ok_or(Error::Missing("channels"))?,
-            compression: compression.ok_or(Error::Missing("compression"))?,
-            data_window: data_window.ok_or(Error::Missing("data window"))?,
-            display_window: display_window.ok_or(Error::Missing("display window"))?,
-            line_order: line_order.ok_or(Error::Missing("line order"))?,
-            pixel_aspect: pixel_aspect.ok_or(Error::Missing("pixel aspect ratio"))?,
-            screen_window_center: screen_window_center.ok_or(Error::Missing("screen window center"))?,
-            screen_window_width: screen_window_width.ok_or(Error::Missing("screen window width"))?,
+            channels: channels.ok_or(Invalid::Missing(Value::Attribute("channels")))?,
+            compression: compression.ok_or(Invalid::Missing(Value::Attribute("compression")))?,
+            data_window: data_window.ok_or(Invalid::Missing(Value::Attribute("data window")))?,
+            display_window: display_window.ok_or(Invalid::Missing(Value::Attribute("display window")))?,
+            line_order: line_order.ok_or(Invalid::Missing(Value::Attribute("line order")))?,
+            pixel_aspect: pixel_aspect.ok_or(Invalid::Missing(Value::Attribute("pixel aspect ratio")))?,
+            screen_window_center: screen_window_center.ok_or(Invalid::Missing(Value::Attribute("screen window center")))?,
+            screen_window_width: screen_window_width.ok_or(Invalid::Missing(Value::Attribute("screen window width")))?,
 
             chromaticities,
 
@@ -462,7 +541,7 @@ fn header<R: Seek + Read>(read: &mut SeekBufRead<R>, file_version: Version) -> R
         },
     };
 
-    header.check_validity(file_version)?;
+    header.validate(file_version)?;
     Ok(header)
 }
 
@@ -493,7 +572,7 @@ fn offset_table<R: Seek + Read>(
                 chunk_count // TODO will this panic on negative number / invalid data?
 
             } else {
-                return Err(Error::Invalid("chunkCount type"))
+                return Err(Invalid::Missing(Value::Attribute("chunkCount")).into());
             }
         } else {
             debug_assert!(
@@ -506,7 +585,7 @@ fn offset_table<R: Seek + Read>(
             // using the dataWindow and tileDesc attributes and the compression format
             let compression = header.compression();
             let data_window = header.data_window();
-            data_window.check_validity()?;
+            data_window.validate()?;
 
             let (data_width, data_height) = data_window.dimensions();
 
@@ -642,34 +721,6 @@ fn offset_tables<R: Seek + Read>(
     Ok(tables)
 }
 
-fn large_byte_vec<R: Seek + Read>(read: &mut SeekBufRead<R>, data_size: usize, estimated_max: usize) -> Result<Vec<u8>> {
-    if data_size < estimated_max {
-        let mut data = vec![0; data_size];
-        read.read_exact(&mut data)?;
-        Ok(data)
-
-    } else {
-        println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
-
-        // be careful for suspiciously large data,
-        // as reading the pixel_data_size could have gone wrong
-        // (read byte by byte to avoid allocating too much memory at once,
-        // assuming that it will fail soon, when the file ends)
-        let mut data = vec![0; estimated_max];
-        read.read_exact(&mut data)?;
-
-        for _ in estimated_max..data_size {
-            data.push(read_u8(read)?);
-        }
-
-        Ok(data)
-    }
-}
-
-fn i32_sized_byte_vec<R: Seek + Read>(read: &mut SeekBufRead<R>, estimated_max: usize) -> Result<Vec<u8>> {
-    let data_size = read_i32(read)? as usize;
-    large_byte_vec(read, data_size, estimated_max)
-}
 
 fn tile_coordinates<R: Read>(read: &mut R) -> Result<TileCoordinates> {
     Ok(TileCoordinates {
@@ -765,21 +816,20 @@ fn multi_part_chunk<R: Seek + Read>(
     let part_number = read_i32(read)?; // documentation says u64, but is i32
 
     let header = &meta_data.headers.get(part_number as usize)
-        .ok_or(Error::Invalid("chunk part number"))?;
+        .ok_or(Invalid::Content(Value::Chunk("part index"), Required::Range { min:0, max: meta_data.headers.len() }))?;
 
-    let kind_index = header.indices.kind.ok_or(Error::Missing("multiplart 'type' attribute"))?;
-    let kind = &header.attributes[kind_index].value.to_text()
-        .ok_or(Error::Invalid("multipart 'type' attribute-type"))?;
+    let kind_index = header.indices.kind.expect("check failed: `multi_part_chunk` called without `type` attribute");
+    let kind = &header.attributes[kind_index].value.to_text()?;
+    kind.validate_kind()?;
 
     Ok(MultiPartChunk {
         part_number,
-        // TODO replace these literals with constants
         block: match kind {
             ParsedText::ScanLine        => MultiPartBlock::ScanLine(scan_line_block(read)?),
             ParsedText::Tile            => MultiPartBlock::Tiled(tile_block(read)?),
             ParsedText::DeepScanLine    => MultiPartBlock::DeepScanLine(Box::new(deep_scan_line_block(read)?)),
             ParsedText::DeepTile        => MultiPartBlock::DeepTile(Box::new(deep_tile_block(read)?)),
-            _ => return Err(Error::Invalid("multi-part block type"))
+            _ => panic!("check failed: `kind` string validation"),
         },
     })
 }
@@ -855,11 +905,6 @@ fn chunks<R: Seek + Read>(
 
 fn meta_data<R: Seek + Read>(read: &mut SeekBufRead<R>) -> Result<MetaData> {
     let version = version(read)?;
-
-    if !version.is_valid() {
-        return Err(Error::Invalid("version value combination"))
-    }
-
     let headers = headers(read, version)?;
     let offset_tables = offset_tables(read, version, &headers)?;
 
