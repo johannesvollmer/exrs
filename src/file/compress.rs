@@ -9,7 +9,7 @@ pub type Data = Vec<u8>;
 
 
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Compression {
     None, RLE, ZIPSingle,
     ZIP, PIZ, PXR24,

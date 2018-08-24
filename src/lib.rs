@@ -36,9 +36,9 @@ pub mod test {
         let now = Instant::now();
 
         let image = read_file(
-             "/home/johannes/Pictures/openexr/openexr-images-master/Beachball/multipart.0001.exr" // much meta
+            // "/home/johannes/Pictures/openexr/openexr-images-master/Beachball/multipart.0001.exr" // much meta
             // "/home/johannes/Pictures/openexr/openexr-images-master/DisplayWindow/t01.exr"
-            // "/home/johannes/Pictures/openexr/openexr-images-master/LuminanceChroma/Flowers.exr"
+            "/home/johannes/Pictures/openexr/openexr-images-master/LuminanceChroma/Flowers.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/StageEnvCube.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/MultiView/Balls.exr" // large file
             // "/home/johannes/Pictures/openexr/openexr-images-master/ScanLines/StillLife.exr"

@@ -6,7 +6,7 @@ use ::file::validity::*;
 /// or max 255 bytes long (if bit 10 is set to 1).
 // TODO non public fields?
 /// must be at least 1 byte (to avoid confusion with null-terminators)
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct Text {
     /// vector does not include null terminator
     pub bytes: SmallVec<[u8; 32]>,
@@ -14,7 +14,7 @@ pub struct Text {
 
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Attribute {
     pub name: Text,
 
@@ -25,7 +25,7 @@ pub struct Attribute {
 
 
 // TODO custom attribute
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AttributeValue {
     I32Box2(I32Box2),
     F32Box2(F32Box2),
@@ -63,7 +63,7 @@ pub enum AttributeValue {
 
 /// this enum parses strings to speed up comparisons
 /// based on often-used string contents
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ParsedText {
     /// "scanlineimage"
     ScanLine,
@@ -94,13 +94,13 @@ pub use ::file::compress::Compression;
 pub type DataWindow = I32Box2;
 pub type DisplayWindow = I32Box2;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct I32Box2 {
     pub x_min: i32, pub y_min: i32,
     pub x_max: i32, pub y_max: i32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct F32Box2 {
     pub x_min: f32, pub y_min: f32,
     pub x_max: f32, pub y_max: f32,
@@ -110,7 +110,7 @@ pub struct F32Box2 {
 /// sorted alphabetically?
 pub type ChannelList = SmallVec<[Channel; 5]>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Channel {
     /// zero terminated, 1 to 255 bytes
     pub name: Text,
@@ -130,12 +130,12 @@ pub struct Channel {
     pub y_sampling: i32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum PixelType {
     U32, F16, F32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Chromaticities {
     pub red_x: f32,     pub red_y: f32,
     pub green_x: f32,   pub green_y: f32,
@@ -143,14 +143,14 @@ pub struct Chromaticities {
     pub white_x: f32,   pub white_y: f32
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum EnvironmentMap {
     LatitudeLongitude,
     Cube,
 }
 
 /// uniquely identifies a motion picture film frame
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct KeyCode {
     pub film_manufacturer_code: i32,
     pub film_type: i32,
@@ -163,14 +163,14 @@ pub struct KeyCode {
     pub perforations_per_count: i32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum LineOrder {
     IncreasingY,
     DecreasingY,
     RandomY,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Preview {
     pub width: u32,
     pub height: u32,
@@ -181,19 +181,19 @@ pub struct Preview {
     pub pixel_data: Vec<i8>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct TileDescription {
     pub x_size: u32, pub y_size: u32,
     pub level_mode: LevelMode,
     pub rounding_mode: RoundingMode,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum LevelMode {
     One, MipMap, RipMap,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum RoundingMode {
     Down, Up,
 }
@@ -205,7 +205,12 @@ use ::file::io;
 
 impl Text {
     // TODO make sure this does not allocate, but uses the stack for string literals
-    fn unchecked_from_str(str_value: &str) -> Self {
+    pub fn from_str(str_value: &str) -> Self {
+        debug_assert_eq!(
+            str_value.bytes().len(), str_value.chars().count(),
+            "only single-byte chars supported by open exr"
+        );
+
         Text { bytes: SmallVec::from_slice(str_value.as_bytes()) }
     }
 
@@ -216,13 +221,13 @@ impl Text {
     /// panics if value is too long (31 bytes max)
     pub fn short_from_str(str_value: &str) -> Self {
         assert!(str_value.as_bytes().len() < 32, "max text length is 31");
-        Self::unchecked_from_str(str_value)
+        Self::from_str(str_value)
     }
 
     /// panics if value is too long (31 bytes max)
     pub fn long_from_str(str_value: &str) -> Self {
         assert!(str_value.as_bytes().len() < 256, "max text length is 255");
-        Self::unchecked_from_str(str_value)
+        Self::from_str(str_value)
     }
 
     pub fn to_string(&self) -> String {
@@ -253,6 +258,14 @@ impl Text {
         }
     }
 
+
+    pub fn null_terminated_byte_size(&self) -> usize {
+        self.bytes.len() + SequenceEnd::byte_size()
+    }
+
+    pub fn i32_sized_byte_size(&self) -> usize {
+        self.bytes.len() + 0_i32.byte_size()
+    }
 
     pub fn write_i32_sized<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> WriteResult {
         (self.bytes.len() as i32).write(write)?;
@@ -414,6 +427,9 @@ impl I32Box2 {
         )
     }
 
+    pub fn byte_size(&self) -> usize {
+        4 * self.x_min.byte_size()
+    }
 
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         // validate?
@@ -434,6 +450,10 @@ impl I32Box2 {
 }
 
 impl F32Box2 {
+    pub fn byte_size(&self) -> usize {
+        4 * self.x_min.byte_size()
+    }
+
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         self.x_min.write(write)?;
         self.y_min.write(write)?;
@@ -452,6 +472,10 @@ impl F32Box2 {
 }
 
 impl PixelType {
+    pub fn byte_size(&self) -> usize {
+        0_i32.byte_size()
+    }
+
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         match *self {
             PixelType::U32 => 0_i32,
@@ -476,6 +500,15 @@ impl PixelType {
 }
 
 impl Channel {
+    pub fn byte_size(&self) -> usize {
+        self.name.null_terminated_byte_size()
+            + self.pixel_type.byte_size()
+            + 1 // is_linear
+            + self.reserved.len()
+            + self.x_sampling.byte_size()
+            + self.y_sampling.byte_size()
+    }
+
     pub fn write<W: Write>(&self, write: &mut W, long_names: bool) -> WriteResult {
         Text::write_null_terminated(&self.name, write, Some(long_names))?;
         self.pixel_type.write(write)?;
@@ -515,6 +548,10 @@ impl Channel {
         })
     }
 
+    pub fn list_byte_size(channels: &ChannelList) -> usize {
+        channels.iter().map(Channel::byte_size).sum::<usize>() + SequenceEnd::byte_size()
+    }
+
     pub fn write_list<W: Write>(channels: &ChannelList, write: &mut W, long_names: bool) -> WriteResult {
         for channel in channels {
             channel.write(write, long_names)?;
@@ -534,6 +571,10 @@ impl Channel {
 }
 
 impl Chromaticities {
+    pub fn byte_size(&self) -> usize {
+        8 * self.red_x.byte_size()
+    }
+
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         self.red_x.write(write)?;
         self.red_y.write(write)?;
@@ -560,6 +601,10 @@ impl Chromaticities {
 }
 
 impl Compression {
+    pub fn byte_size(&self) -> usize {
+        0_u8.byte_size()
+    }
+
     pub fn write<W: Write>(self, write: &mut W) -> WriteResult {
         use self::Compression::*;
         match self {
@@ -594,6 +639,10 @@ impl Compression {
 }
 
 impl EnvironmentMap {
+    pub fn byte_size(&self) -> usize {
+        0_u32.byte_size()
+    }
+
     pub fn write<W: Write>(self, write: &mut W) -> WriteResult {
         use self::EnvironmentMap::*;
         match self {
@@ -617,6 +666,10 @@ impl EnvironmentMap {
 }
 
 impl KeyCode {
+    pub fn byte_size(&self) -> usize {
+        6 * self.film_manufacturer_code.byte_size()
+    }
+
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         self.film_manufacturer_code.write(write)?;
         self.film_type.write(write)?;
@@ -640,6 +693,10 @@ impl KeyCode {
 }
 
 impl LineOrder {
+    pub fn byte_size(&self) -> usize {
+        0_u32.byte_size()
+    }
+
     pub fn write<W: Write>(self, write: &mut W) -> WriteResult {
         use self::LineOrder::*;
         match self {
@@ -664,6 +721,23 @@ impl LineOrder {
 }
 
 impl Preview {
+    pub fn validate(&self) -> Validity {
+        if self.width * self.height * 4 != self.pixel_data.len() as u32 {
+            Err(Invalid::Combination(&[
+                Value::Attribute("Preview dimensions"),
+                Value::Attribute("Preview pixel data length"),
+            ]))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn byte_size(&self) -> usize {
+        self.width.byte_size()
+            + self.height.byte_size()
+            + self.pixel_data.len()
+    }
+
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         self.width.write(write)?;
         self.height.write(write)?;
@@ -679,16 +753,24 @@ impl Preview {
         let mut pixel_data = vec![0; (width * height * components_per_pixel) as usize];
         read_i8_array(read, &mut pixel_data)?;
 
-        Ok(Preview {
+        let preview = Preview {
             width, height,
             pixel_data,
-        })
+        };
+
+        preview.validate()?;
+        Ok(preview)
     }
 }
 
 impl TileDescription {
     pub fn dimensions(&self) -> (u32, u32) {
         (self.x_size, self.y_size)
+    }
+
+    pub fn byte_size(&self) -> usize {
+        self.x_size.byte_size() + self.y_size.byte_size()
+         + 1 // (level mode + rounding mode)
     }
 
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
@@ -706,7 +788,7 @@ impl TileDescription {
             RoundingMode::Up => 1_u8,
         };
 
-        let mode = level_mode + (rounding_mode * 16);
+        let mode: u8 = level_mode + (rounding_mode * 16);
         mode.write(write)
     }
 
@@ -744,6 +826,13 @@ impl TileDescription {
 }
 
 impl Attribute {
+    pub fn byte_size(&self) -> usize {
+        self.name.null_terminated_byte_size()
+            + self.value.kind_name().len() + SequenceEnd::byte_size()
+            + 0_i32.byte_size() // serialized byte size
+            + self.value.byte_size()
+    }
+
     pub fn write<W: Write>(&self, write: &mut W, long_names: bool) -> WriteResult {
         self.name.write_null_terminated(write, Some(long_names))?;
         Text::write_null_terminated_bytes(self.value.kind_name(), write, Some(long_names))?;
@@ -765,9 +854,44 @@ impl Attribute {
 
 impl AttributeValue {
     pub fn byte_size(&self) -> usize {
-//        use self::AttributeValue::*;
+        use self::AttributeValue::*;
+        use ::file::io::Data;
+
         match *self {
-            _ => unimplemented!()
+            I32Box2(value) => value.byte_size(),
+            F32Box2(value) => value.byte_size(),
+
+            I32(value) => value.byte_size(),
+            F32(value) => value.byte_size(),
+            F64(value) => value.byte_size(),
+
+            Rational(a, b) => { a.byte_size() + b.byte_size() },
+            TimeCode(a, b) => { a.byte_size() + b.byte_size() },
+
+            I32Vec2(x, y) => { x.byte_size() + y.byte_size() },
+            F32Vec2(x, y) => { x.byte_size() + y.byte_size() },
+            I32Vec3(x, y, z) => { x.byte_size() + y.byte_size() + z.byte_size() },
+            F32Vec3(x, y, z) => { x.byte_size() + y.byte_size() + z.byte_size() },
+
+            ChannelList(ref channels) => Channel::list_byte_size(channels),
+            Chromaticities(ref value) => value.byte_size(),
+            Compression(value) => value.byte_size(),
+            EnvironmentMap(value) => value.byte_size(),
+
+            KeyCode(value) => value.byte_size(),
+            LineOrder(value) => value.byte_size(),
+
+            F32Matrix3x3(ref value) => value.len() * value[0].byte_size(),
+            F32Matrix4x4(ref value) => value.len() * value[0].byte_size(),
+
+            Preview(ref value) => value.byte_size(),
+
+            // attribute value texts never have limited size.
+            // also, don't serialize size, as it can be inferred from attribute size
+            Text(ref value) => value.to_text_bytes().len(),
+
+            TextVector(ref value) => value.iter().map(self::Text::i32_sized_byte_size).sum(),
+            TileDescription(ref value) => value.byte_size(),
         }
     }
 
@@ -820,7 +944,7 @@ impl AttributeValue {
             F32Vec3(x, y, z) => { x.write(write)?; y.write(write)?; z.write(write) },
 
             ChannelList(ref channels) => Channel::write_list(channels, write, long_names),
-            Chromaticities(ref chroma) => chroma.write(write),
+            Chromaticities(ref value) => value.write(write),
             Compression(value) => value.write(write),
             EnvironmentMap(value) => value.write(write),
 
@@ -830,13 +954,13 @@ impl AttributeValue {
             F32Matrix3x3(ref value) => write_f32_array(write, value),
             F32Matrix4x4(ref value) => write_f32_array(write, value),
 
-            Preview(ref value) => value.write(write),
+            Preview(ref value) => { value.validate()?; value.write(write) },
 
             // attribute value texts never have limited size.
             // also, don't serialize size, as it can be inferred from attribute size
             Text(ref value) => write_u8_array(write, value.to_text_bytes()),
 
-            TextVector(ref value) => self::Text::write_vec_of_i32_sized_texts(write, value), // TODO check length 31 or 255
+            TextVector(ref value) => self::Text::write_vec_of_i32_sized_texts(write, value),
             TileDescription(ref value) => value.write(write),
         }
     }
@@ -979,6 +1103,176 @@ impl RoundingMode {
             },
 
             _ => result,
+        }
+    }
+}
+
+
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use ::std::io::Cursor;
+
+    #[test]
+    fn rounding_up(){
+        let round_up = RoundingMode::Up;
+        assert_eq!(round_up.divide(10, 10), 1, "divide equal");
+        assert_eq!(round_up.divide(10, 2), 5, "divide even");
+        assert_eq!(round_up.divide(10, 5), 2, "divide even");
+
+        assert_eq!(round_up.divide(8, 5), 2, "round up");
+        assert_eq!(round_up.divide(10, 3), 4, "round up");
+        assert_eq!(round_up.divide(100, 50), 2, "divide even");
+        assert_eq!(round_up.divide(100, 49), 3, "round up");
+    }
+
+    #[test]
+    fn rounding_down(){
+        let round_down = RoundingMode::Down;
+        assert_eq!(round_down.divide(8, 5), 1, "round down");
+        assert_eq!(round_down.divide(10, 3), 3, "round down");
+        assert_eq!(round_down.divide(100, 50), 2, "divide even");
+        assert_eq!(round_down.divide(100, 49), 2, "round down");
+        assert_eq!(round_down.divide(100, 51), 1, "round down");
+    }
+
+    #[test]
+    fn tile_description_write_read_roundtrip(){
+        let tiles = [
+            TileDescription {
+                x_size: 31,
+                y_size: 7,
+                level_mode: LevelMode::MipMap,
+                rounding_mode: RoundingMode::Down,
+            },
+
+            TileDescription {
+                x_size: 0,
+                y_size: 0,
+                level_mode: LevelMode::One,
+                rounding_mode: RoundingMode::Up,
+            },
+
+            TileDescription {
+                x_size: 4294967294,
+                y_size: 4294967295,
+                level_mode: LevelMode::RipMap,
+                rounding_mode: RoundingMode::Down,
+            },
+        ];
+
+        for tile in &tiles {
+            let mut bytes = Vec::new();
+            tile.write(&mut bytes).unwrap();
+
+            let mut new_tile = TileDescription::read(&mut Cursor::new(bytes)).unwrap();
+            debug_assert_eq!(*tile, new_tile, "tile round trip");
+        }
+    }
+
+    #[test]
+    fn attribute_write_read_roundtrip_and_byte_size(){
+        let attributes = [
+            Attribute {
+                name: Text::from_str("greeting"),
+                value: AttributeValue::Text(ParsedText::parse(Text::from_str("hello"))),
+            },
+            Attribute {
+                name: Text::from_str("age"),
+                value: AttributeValue::I32(923),
+            },
+            Attribute {
+                name: Text::from_str("leg count"),
+                value: AttributeValue::F64(9.114939599234),
+            },
+            Attribute {
+                name: Text::from_str("rabbit area"),
+                value: AttributeValue::F32Box2(F32Box2 {
+                    x_min: 23.4234,
+                    y_min: 345.23,
+                    x_max: 68623.0,
+                    y_max: 3.12425926538,
+                }),
+            },
+            Attribute {
+                name: Text::from_str("tests are difficult"),
+                value: AttributeValue::TextVector(vec![
+                    Text::from_str("sdoifjpsdv"),
+                    Text::from_str("sdoifjpsdvxxxx"),
+                    Text::from_str("sdoifjasd"),
+                    Text::from_str("sdoifj"),
+                    Text::from_str("sdoifjddddddddasdasd"),
+                ]),
+            },
+            Attribute {
+                name: Text::from_str("what should we eat tonight"),
+                value: AttributeValue::Preview(Preview {
+                    width: 10,
+                    height: 30,
+                    pixel_data: vec![31; 10 * 30 * 4],
+                }),
+            },
+            Attribute {
+                name: Text::from_str("leg count, again"),
+                value: AttributeValue::ChannelList(SmallVec::from_vec(vec![
+                    Channel {
+                        name: Text::from_str("Green"),
+                        pixel_type: PixelType::F16,
+                        is_linear: false,
+                        reserved: [0, 0, 0],
+                        x_sampling: 1,
+                        y_sampling: 2,
+                    },
+                    Channel {
+                        name: Text::from_str("Red"),
+                        pixel_type: PixelType::F32,
+                        is_linear: true,
+                        reserved: [0, 1, 0],
+                        x_sampling: 1,
+                        y_sampling: 2,
+                    },
+                    Channel {
+                        name: Text::from_str("Purple"),
+                        pixel_type: PixelType::U32,
+                        is_linear: false,
+                        reserved: [1, 2, 7],
+                        x_sampling: 0,
+                        y_sampling: 0,
+                    }
+                ])),
+            },
+        ];
+
+        for attribute in &attributes {
+            let mut bytes = Vec::new();
+            attribute.write(&mut bytes, true).unwrap();
+            assert_eq!(attribute.byte_size(), bytes.len(), "attribute.byte_size() for {:?}", attribute);
+
+            let mut new_attribute = Attribute::read(&mut Cursor::new(bytes)).unwrap();
+            assert_eq!(*attribute, new_attribute, "attribute round trip");
+        }
+
+
+        {
+            let too_large_named = Attribute {
+                name: Text::from_str("asdkaspfokpaosdkfpaokswdpoakpsfokaposdkf"),
+                value: AttributeValue::I32(0),
+            };
+
+            let mut bytes = Vec::new();
+            too_large_named.write(&mut bytes, false).expect_err("name length check failed");
+        }
+
+        {
+            let way_too_large_named = Attribute {
+                name: Text::from_bytes(SmallVec::from_vec(vec![0; 257])),
+                value: AttributeValue::I32(0),
+            };
+
+            let mut bytes = Vec::new();
+            way_too_large_named.write(&mut bytes, true).expect_err("name length check failed");
         }
     }
 }

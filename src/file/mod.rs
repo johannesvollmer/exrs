@@ -500,7 +500,7 @@ impl Version {
 impl From<::std::io::Error> for ReadError {
     fn from(_io_err: ::std::io::Error) -> Self {
         panic!("give me that nice stack trace like you always do"); // TODO remove
-        ReadError::IoError(_io_err)
+        // ReadError::IoError(_io_err)
     }
 }
 
@@ -545,6 +545,8 @@ pub mod io {
     pub trait Data: Sized {
         fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult;
         fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self>;
+
+        // TODO make static
         fn byte_size(self) -> usize { ::std::mem::size_of::<Self>() }
     }
 
@@ -815,6 +817,10 @@ pub mod io {
 
     pub struct SequenceEnd;
     impl SequenceEnd {
+        pub fn byte_size() -> usize {
+            1
+        }
+
         pub fn write<W: Write>(write: &mut W) -> WriteResult {
             0_u8.write(write)
         }
