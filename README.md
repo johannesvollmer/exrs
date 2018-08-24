@@ -16,24 +16,27 @@ it only reads images, and it does not even successfully read
 all possible exr images.  _Highly experimental!_
 
 __Currently supported EXR features:__
-- [ ] File (data)  
+
+- [ ] File (byte decoding without errors)  
     - [ ] Reading
+        - [x] Any Channels
         - [x] Singlepart
             - [x] Tiles
             - [x] Scan lines
         - [x] Multipart
             - [x] Tiles
             - [x] Scan lines
-            - [ ] Deep Data
+            - [x] Deep Data
         - [x] Multi Resolution
             - [x] MipMaps
             - [x] RipMaps
+        - [ ] Non-Standard Attributes
         
     - [ ] Writing
     - [ ] Memory Mapping
     - [ ] Loading Metadata and specific tiles or blocks separately
     
-- [ ] Image (interpreting)
+- [ ] Image (interpreting of compressed pixel data)
     - [ ] __Compressed Blocks__
     - [ ] RGBA conversion
     - [ ] Simple preview attribute extraction

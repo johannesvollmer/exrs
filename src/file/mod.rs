@@ -2,55 +2,20 @@
 //! The `file` module represents the file how it is laid out in memory.
 
 
+pub mod attributes;
 pub mod chunks;
-pub mod write;
-pub mod read;
+pub mod compress;
 
 
 use ::smallvec::SmallVec;
-use ::image::attributes::*;
+use ::file::attributes::*;
 use self::chunks::*;
+use ::std::io::{Read, Write};
+use self::io::Data;
 
-// TODO put validation into own module
-pub type Validity = Result<(), Invalid>;
 
-#[derive(Debug, Clone, Copy)]
-pub enum Invalid {
-    Missing(Value),
-    Combination(&'static [Value]),
-    Content(Value, Required),
-    Type(Required),
-}
 
-#[derive(Debug, Clone, Copy)]
-pub enum Value {
-    Attribute(&'static str),
-    Version(&'static str),
-    Chunk(&'static str),
-    Type(&'static str),
-    Part(&'static str),
-    Enum(&'static str),
-    Text,
-}
 
-#[derive(Debug, Clone, Copy)]
-pub enum Required {
-    Max(usize),
-    Min(usize),
-    Exact(&'static str),
-    OneOf(&'static [&'static str]),
-    Range {
-        /// inclusive
-        min: usize,
-
-        /// inclusive
-        max: usize
-    },
-}
-
-//  The representation of 16-bit floating-point numbers is analogous to IEEE 754,
-//  but with 5 exponent bits and 10 bits for the fraction
-pub const MAGIC_NUMBER: [u8; 4] = [0x76, 0x2f, 0x31, 0x01];
 
 
 
@@ -80,39 +45,6 @@ pub struct MetaData {
 
 pub type Headers = SmallVec<[Header; 3]>;
 pub type OffsetTables = SmallVec<[OffsetTable; 3]>;
-
-
-impl MetaData {
-    pub fn validate(&self) -> Validity {
-        let tables = self.offset_tables.len();
-        let headers = self.headers.len();
-
-        if tables == 0 {
-            return Err(Invalid::Missing(Value::Part("offset table")));
-        }
-
-        if headers == 0 {
-            return Err(Invalid::Missing(Value::Part("header")));
-        }
-
-        if tables != headers {
-            return Err(Invalid::Combination(&[
-                Value::Part("headers"),
-                Value::Part("offset tables"),
-            ]));
-        }
-
-        let is_multi_part = headers != 1;
-        if is_multi_part != self.version.has_multiple_parts {
-            return Err(Invalid::Combination(&[
-                Value::Version("multipart"),
-                Value::Part("multipart"),
-            ]));
-        }
-
-        Ok(())
-    }
-}
 
 
 // TODO non-public fields?
@@ -180,6 +112,116 @@ pub struct AttributeIndices {
 
     /// this vector will contain all indices of chromaticity attributes
     pub chromaticities: SmallVec<[usize; 1]>,
+}
+
+
+
+
+pub type WriteResult = ::std::result::Result<(), WriteError>;
+
+#[derive(Debug)]
+pub enum WriteError {
+    CompressionError(compress::Error),
+    NotSupported(&'static str),
+    IoError(::std::io::Error),
+    Invalid(Invalid),
+}
+
+
+
+pub type ReadResult<T> = ::std::result::Result<T, ReadError>;
+
+#[derive(Debug)]
+pub enum ReadError {
+    NotEXR,
+    Invalid(Invalid),
+    UnknownAttributeType { bytes_to_skip: u32 },
+
+    IoError(::std::io::Error),
+    CompressionError(compress::Error),
+
+    NotSupported(&'static str),
+}
+
+pub mod validity {
+    // TODO put validation into own module
+    pub type Validity = Result<(), Invalid>;
+
+    #[derive(Debug, Clone, Copy)]
+    pub enum Invalid {
+        Missing(Value),
+        Combination(&'static [Value]),
+        Content(Value, Required),
+        Type(Required),
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    pub enum Value {
+        Attribute(&'static str),
+        Version(&'static str),
+        Chunk(&'static str),
+        Type(&'static str),
+        Part(&'static str),
+        Enum(&'static str),
+        Text,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    pub enum Required {
+        Max(usize),
+        Min(usize),
+        Exact(&'static str),
+        OneOf(&'static [&'static str]),
+        Range {
+            /// inclusive
+            min: usize,
+
+            /// inclusive
+            max: usize
+        },
+    }
+}
+
+
+
+use self::validity::*;
+
+impl MetaData {
+    pub fn validate(&self) -> Validity {
+        let tables = self.offset_tables.len();
+        let headers = self.headers.len();
+
+        if tables == 0 {
+            return Err(Invalid::Missing(Value::Part("offset table")));
+        }
+
+        if headers == 0 {
+            return Err(Invalid::Missing(Value::Part("header")));
+        }
+
+        if tables != headers {
+            return Err(Invalid::Combination(&[
+                Value::Part("headers"),
+                Value::Part("offset tables"),
+            ]));
+        }
+
+        let is_multi_part = headers != 1;
+        if is_multi_part != self.version.has_multiple_parts {
+            return Err(Invalid::Combination(&[
+                Value::Version("multipart"),
+                Value::Part("multipart"),
+            ]));
+        }
+
+
+        self.version.validate()?;
+        for header in &self.headers {
+            header.validate(self.version)?;
+        }
+
+        Ok(())
+    }
 }
 
 impl Header {
@@ -363,6 +405,62 @@ pub struct Version {
 }
 
 impl Version {
+    pub fn byte_size(self) -> usize {
+        0_u32.byte_size()
+    }
+
+    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
+        use ::bit_field::BitField;
+
+        let version_and_flags = u32::read(read)?;
+
+        // take the 8 least significant bits, they contain the file format version number
+        let version = (version_and_flags & 0x000F) as u8;
+
+        // the 24 most significant bits are treated as a set of boolean flags
+        let is_single_tile = version_and_flags.get_bit(9);
+        let has_long_names = version_and_flags.get_bit(10);
+        let has_deep_data = version_and_flags.get_bit(11);
+        let has_multiple_parts = version_and_flags.get_bit(12);
+
+        // all remaining bits except 9, 10, 11 and 12 are reserved and should be 0
+        // if a file has any of these bits set to 1, it means this file contains
+        // a feature that we don't support
+        let unknown_flags = version_and_flags >> 13; // all flags excluding the 12 bits we already parsed
+
+        if unknown_flags != 0 { // TODO test if this correctly detects unsupported files
+            return Err(ReadError::NotSupported("version flags"));
+        }
+
+        let version = Version {
+            file_format_version: version,
+            is_single_tile, has_long_names,
+            has_deep_data, has_multiple_parts,
+        };
+
+        version.validate()?;
+        Ok(version)
+    }
+
+    pub fn write<W: Write>(self, write: &mut W) -> WriteResult {
+        use ::bit_field::BitField;
+
+        self.validate()?;
+
+        // the 8 least significant bits contain the file format version number
+        // and the flags are set to 0
+        let mut version_and_flags = self.file_format_version as u32;
+
+        // the 24 most significant bits are treated as a set of boolean flags
+        version_and_flags.set_bit(9, self.is_single_tile);
+        version_and_flags.set_bit(10, self.has_long_names);
+        version_and_flags.set_bit(11, self.has_deep_data);
+        version_and_flags.set_bit(12, self.has_multiple_parts);
+        // all remaining bits except 9, 10, 11 and 12 are reserved and should be 0
+
+        version_and_flags.write(write)
+    }
+
     pub fn validate(&self) -> Validity {
         match (
             self.is_single_tile, self.has_long_names,
@@ -394,6 +492,698 @@ impl Version {
                 Value::Version("format_version"),
             ]))
         }
+    }
+}
+
+
+/// Enable using the `?` operator on io::Result
+impl From<::std::io::Error> for ReadError {
+    fn from(_io_err: ::std::io::Error) -> Self {
+        panic!("give me that nice stack trace like you always do"); // TODO remove
+        ReadError::IoError(_io_err)
+    }
+}
+
+/// Enable using the `?` operator on compress::Result
+impl From<compress::Error> for ReadError {
+    fn from(compress_err: compress::Error) -> Self {
+        ReadError::CompressionError(compress_err)
+    }
+}
+
+/// Enable using the `?` operator on Validity
+impl From<Invalid> for ReadError {
+    fn from(err: Invalid) -> Self {
+        ReadError::Invalid(err)
+    }
+}
+
+
+/// enable using the `?` operator on io errors
+impl From<::std::io::Error> for WriteError {
+    fn from(err: ::std::io::Error) -> Self {
+        WriteError::IoError(err)
+    }
+}
+
+/// Enable using the `?` operator on Validity
+impl From<Invalid> for WriteError {
+    fn from(err: Invalid) -> Self {
+        WriteError::Invalid(err)
+    }
+}
+
+
+pub mod io {
+    pub use ::std::io::{Read, Write, Seek, SeekFrom};
+    pub use ::seek_bufread::BufReader as SeekBufRead;
+    pub use super::{WriteResult, ReadResult, WriteError, ReadError};
+    use ::byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt};
+
+    // will be inlined
+    /// extension trait for primitive types like numbers and arrays
+    pub trait Data: Sized {
+        fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult;
+        fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self>;
+        fn byte_size(self) -> usize { ::std::mem::size_of::<Self>() }
+    }
+
+    impl Data for u8 {
+        fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult {
+            write.write_u8(self).map_err(WriteError::from)
+        }
+
+        fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self> {
+            read.read_u8().map_err(ReadError::from)
+        }
+    }
+
+    impl Data for u32 {
+        fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult {
+            write.write_u32::<LittleEndian>(self).map_err(WriteError::from)
+        }
+
+        fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self> {
+            read.read_u32::<LittleEndian>().map_err(ReadError::from)
+        }
+    }
+
+    impl Data for u64 {
+        fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult {
+            write.write_u64::<LittleEndian>(self).map_err(WriteError::from)
+        }
+
+        fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self> {
+            read.read_u64::<LittleEndian>().map_err(ReadError::from)
+        }
+    }
+
+    impl Data for i8 {
+        fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult {
+            write.write_i8(self).map_err(WriteError::from)
+        }
+
+        fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self> {
+            read.read_i8().map_err(ReadError::from)
+        }
+    }
+
+    impl Data for i32 {
+        fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult {
+            write.write_i32::<LittleEndian>(self).map_err(WriteError::from)
+        }
+
+        fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self> {
+            read.read_i32::<LittleEndian>().map_err(ReadError::from)
+        }
+    }
+
+    impl Data for f32 {
+        fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult {
+            write.write_f32::<LittleEndian>(self).map_err(WriteError::from)
+        }
+
+        fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self> {
+            read.read_f32::<LittleEndian>().map_err(ReadError::from)
+        }
+    }
+
+    impl Data for f64 {
+        fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult {
+            write.write_f64::<LittleEndian>(self).map_err(WriteError::from)
+        }
+
+        fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self> {
+            read.read_f64::<LittleEndian>().map_err(ReadError::from)
+        }
+    }
+
+
+
+
+    // TODO make these instance functions?
+
+    pub fn write_u8_array<W: Write>(write: &mut W, bytes: &[u8]) -> WriteResult {
+        write.write_all(bytes).map_err(WriteError::from)
+    }
+
+    pub fn write_i32_sized_u8_array<W: Write>(write: &mut W, bytes: &[u8]) -> WriteResult {
+        (bytes.len() as i32).write(write)?;
+        write_u8_array(write, bytes)
+    }
+
+    // TODO test
+    pub fn write_f32_array<W: Write>(write: &mut W, array: &[f32]) -> WriteResult {
+        // reinterpret the f32 array as bytes, in order to write it
+        let as_u8 = unsafe {
+            ::std::slice::from_raw_parts(
+                array.as_ptr() as *const u8,
+                array.len() * ::std::mem::size_of::<f32>()
+            )
+        };
+
+        write_u8_array(write, as_u8)
+    }
+
+    // TODO test
+    pub fn write_i32_array<W: Write>(write: &mut W, array: &[i32]) -> WriteResult {
+        // reinterpret the i32 array as bytes, in order to write it
+        let as_u8 = unsafe {
+            ::std::slice::from_raw_parts(
+                array.as_ptr() as *const u8,
+                array.len() * ::std::mem::size_of::<i32>()
+            )
+        };
+
+        write_u8_array(write, as_u8)
+    }
+
+    // TODO test
+    pub fn write_u64_array<W: Write>(write: &mut W, array: &[u64]) -> WriteResult {
+        // reinterpret the i32 array as bytes, in order to write it
+        let as_u8 = unsafe {
+            ::std::slice::from_raw_parts(
+                array.as_ptr() as *const u8,
+                array.len() * ::std::mem::size_of::<u64>()
+            )
+        };
+
+        write_u8_array(write, as_u8)
+    }
+
+    // TODO test
+    pub fn write_i8_array<W: Write>(write: &mut W, array: &[i8]) -> WriteResult {
+        // reinterpret the i8 array as bytes, in order to write it
+        let as_u8 = unsafe {
+            ::std::slice::from_raw_parts(
+                array.as_ptr() as *const u8,
+                array.len()
+            )
+        };
+
+        write_u8_array(write, as_u8)
+    }
+
+
+    pub fn read_u8_array<R: Read>(read: &mut R, array: &mut [u8]) -> ReadResult<()> {
+        read.read_exact(array).map_err(ReadError::from)
+    }
+
+    // TODO test
+    pub fn read_i8_array<R: Read>(read: &mut R, array: &mut [i8]) -> ReadResult<()> {
+        let as_u8 = unsafe {
+            ::std::slice::from_raw_parts_mut(
+                array.as_mut_ptr() as *mut u8,
+                array.len()
+            )
+        };
+
+        read.read_exact(as_u8).map_err(ReadError::from)
+    }
+
+    pub fn read_f32_array<R: ReadBytesExt>(read: &mut R, array: &mut [f32]) -> ReadResult<()> {
+        read.read_f32_into::<LittleEndian>(array).map_err(ReadError::from)
+    }
+
+    pub fn read_i32_vec<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_max: usize) -> ReadResult<Vec<i32>> {
+        if data_size < estimated_max {
+            let mut data = vec![0; data_size];
+            read.read_i32_into::<LittleEndian>(&mut data)?;
+            Ok(data)
+
+        } else {
+            println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
+
+            // be careful for suspiciously large data,
+            // as reading the pixel_data_size could have gone wrong
+            // (read byte by byte to avoid allocating too much memory at once,
+            // assuming that it will fail soon, when the file ends)
+            let mut data = vec![0; estimated_max];
+            read.read_i32_into::<LittleEndian>(&mut data)?;
+
+            for _ in estimated_max..data_size {
+                data.push(i32::read(read)?);
+            }
+
+            Ok(data)
+        }
+    }
+
+    pub fn read_u64_vec<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_max: usize) -> ReadResult<Vec<u64>> {
+        if data_size < estimated_max {
+            let mut data = vec![0; data_size];
+            read.read_u64_into::<LittleEndian>(&mut data)?;
+            Ok(data)
+
+        } else {
+            println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
+
+            // be careful for suspiciously large data,
+            // as reading the pixel_data_size could have gone wrong
+            // (read byte by byte to avoid allocating too much memory at once,
+            // assuming that it will fail soon, when the file ends)
+            let mut data = vec![0; estimated_max];
+            read.read_u64_into::<LittleEndian>(&mut data)?;
+
+            for _ in estimated_max..data_size {
+                data.push(u64::read(read)?);
+            }
+
+            Ok(data)
+        }
+    }
+
+    pub fn read_u8_vec<R: Read>(read: &mut R, data_size: usize, estimated_max: usize) -> ReadResult<Vec<u8>> {
+        if data_size < estimated_max {
+            let mut data = vec![0; data_size];
+            read_u8_array(read, &mut data)?;
+            Ok(data)
+
+        } else {
+            println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
+
+            // be careful for suspiciously large data,
+            // as reading the pixel_data_size could have gone wrong
+            // (read byte by byte to avoid allocating too much memory at once,
+            // assuming that it will fail soon, when the file ends)
+            let mut data = vec![0; estimated_max];
+            read.read_exact(&mut data)?;
+
+            for _ in estimated_max..data_size {
+                data.push(u8::read(read)?);
+            }
+
+            Ok(data)
+        }
+    }
+
+    pub fn read_i32_sized_u8_vec<R: Read>(read: &mut R, estimated_max: usize) -> ReadResult<Vec<u8>> {
+        let data_size = i32::read(read)? as usize;
+        read_u8_vec(read, data_size, estimated_max)
+    }
+
+
+
+
+
+    pub struct MagicNumber;
+    impl MagicNumber {
+        pub const BYTES: [u8; 4] = [0x76, 0x2f, 0x31, 0x01];
+    }
+
+    impl MagicNumber {
+        pub fn write<W: Write>(write: &mut W) -> WriteResult {
+            write_u8_array(write, &Self::BYTES)
+        }
+
+        pub fn is_exr<R: Read>(read: &mut R) -> ReadResult<bool> {
+            let mut magic_num = [0; 4];
+            read_u8_array(read, &mut magic_num)?;
+            Ok(magic_num == Self::BYTES)
+        }
+
+        pub fn validate_exr<R: Read>(read: &mut R) -> ReadResult<()> {
+            if Self::is_exr(read)? {
+                Ok(())
+
+            } else {
+                Err(ReadError::NotEXR)
+            }
+        }
+    }
+
+
+    pub struct SequenceEnd;
+    impl SequenceEnd {
+        pub fn write<W: Write>(write: &mut W) -> WriteResult {
+            0_u8.write(write)
+        }
+
+        pub fn has_come<R: Read + Seek>(read: &mut R) -> ReadResult<bool> {
+            if u8::read(read)? == 0 {
+                Ok(true)
+
+            } else {
+                // go back that wasted byte because its not 0
+                // TODO benchmark peeking the buffer performance
+                read.seek(SeekFrom::Current(-1))?;
+                Ok(false)
+            }
+        }
+    }
+
+
+    use super::*;
+
+    impl Header {
+        pub fn write_all<W: Write>(headers: &Headers, write: &mut W, version: Version) -> WriteResult {
+            let has_multiple_headers = headers.len() != 1;
+            if headers.is_empty() || version.has_multiple_parts != has_multiple_headers {
+                // TODO return combination?
+                return Err(Invalid::Content(Value::Part("headers count"), Required::Exact("1")).into());
+            }
+
+            for header in headers {
+                debug_assert!(header.validate(version).is_ok(), "check failed: header invalid");
+
+                for attrib in &header.attributes {
+                    attrib.write(write, version.has_long_names)?;
+                }
+                SequenceEnd::write(write)?;
+
+            }
+            SequenceEnd::write(write)?;
+
+            Ok(())
+        }
+
+
+        pub fn read_all<R: Read + Seek>(read: &mut R, version: Version) -> ReadResult<Headers> {
+            Ok({
+                if !version.has_multiple_parts {
+                    SmallVec::from_elem(Header::read(read, version)?, 1)
+
+                } else {
+                    let mut headers = SmallVec::new();
+                    while !SequenceEnd::has_come(read)? {
+                        headers.push(Header::read(read, version)?);
+                    }
+
+                    headers
+                }
+            })
+        }
+
+        pub fn read<R: Read + Seek>(read: &mut R, format_version: Version) -> ReadResult<Self> {
+            let mut attributes = SmallVec::new();
+
+            // these required attributes will be Some(usize) when encountered while parsing
+            let mut tiles = None;
+            let mut name = None;
+            let mut kind = None;
+            let mut version = None;
+            let mut chunk_count = None;
+            let mut max_samples_per_pixel = None;
+            let mut channels = None;
+            let mut compression = None;
+            let mut data_window = None;
+            let mut display_window = None;
+            let mut line_order = None;
+            let mut pixel_aspect = None;
+            let mut screen_window_center = None;
+            let mut screen_window_width = None;
+            let mut chromaticities = SmallVec::new();
+
+            while !SequenceEnd::has_come(read)? {
+                match Attribute::read(read) {
+                    // skip unknown attribute values
+                    Err(ReadError::UnknownAttributeType { bytes_to_skip }) => {
+                        read.seek(SeekFrom::Current(bytes_to_skip as i64))?;
+                    },
+
+                    Err(other_error) => return Err(other_error),
+
+                    Ok(attribute) => {
+                        // save index when a required attribute is encountered
+                        let index = attributes.len();
+
+                        // TODO replace these literals with constants
+                        use ::file::attributes::required::*;
+                        match attribute.name.bytes.as_slice() {
+                            TILES => tiles = Some(index),
+                            NAME => name = Some(index),
+                            TYPE => kind = Some(index),
+                            VERSION => version = Some(index),
+                            CHUNKS => chunk_count = Some(index),
+                            MAX_SAMPLES => max_samples_per_pixel = Some(index),
+                            CHANNELS => channels = Some(index),
+                            COMPRESSION => compression = Some(index),
+                            DATA_WINDOW => data_window = Some(index),
+                            DISPLAY_WINDOW => display_window = Some(index),
+                            LINE_ORDER => line_order = Some(index),
+                            PIXEL_ASPECT => pixel_aspect = Some(index),
+                            WINDOW_CENTER => screen_window_center = Some(index),
+                            WINDOW_WIDTH => screen_window_width = Some(index),
+                            _ => {},
+                        }
+
+                        if attribute.value.to_chromaticities().is_ok() {
+                            chromaticities.push(index);
+                        }
+
+                        attributes.push(attribute)
+                    }
+                }
+            }
+
+            let header = Header {
+                attributes,
+                indices: AttributeIndices {
+                    channels: channels.ok_or(Invalid::Missing(Value::Attribute("channels")))?,
+                    compression: compression.ok_or(Invalid::Missing(Value::Attribute("compression")))?,
+                    data_window: data_window.ok_or(Invalid::Missing(Value::Attribute("data window")))?,
+                    display_window: display_window.ok_or(Invalid::Missing(Value::Attribute("display window")))?,
+                    line_order: line_order.ok_or(Invalid::Missing(Value::Attribute("line order")))?,
+                    pixel_aspect: pixel_aspect.ok_or(Invalid::Missing(Value::Attribute("pixel aspect ratio")))?,
+                    screen_window_center: screen_window_center.ok_or(Invalid::Missing(Value::Attribute("screen window center")))?,
+                    screen_window_width: screen_window_width.ok_or(Invalid::Missing(Value::Attribute("screen window width")))?,
+
+                    chromaticities,
+
+                    tiles, name, kind,
+                    version, chunk_count,
+                    max_samples_per_pixel,
+                },
+            };
+
+            header.validate(format_version)?;
+            Ok(header)
+        }
+    }
+
+    // TODO make instance fn
+    pub fn read_offset_table<R: Seek + Read>(
+        read: &mut R,
+        version: Version, header: &Header
+    ) -> ReadResult<OffsetTable>
+    {
+        let entry_count = {
+            if let Some(chunk_count_index) = header.indices.chunk_count {
+                if let &AttributeValue::I32(chunk_count) = &header.attributes[chunk_count_index].value {
+                    chunk_count // TODO will this panic on negative number / invalid data?
+
+                } else {
+                    return Err(Invalid::Missing(Value::Attribute("chunkCount")).into());
+                }
+            } else {
+                debug_assert!(
+                    !version.has_multiple_parts,
+                    "Multi-Part header does not have chunkCount, should have been checked"
+                );
+
+                // If not multipart and the chunkCount is not present,
+                // the number of entries in the chunk table is computed
+                // using the dataWindow and tileDesc attributes and the compression format
+                let compression = header.compression();
+                let data_window = header.data_window();
+                data_window.validate()?;
+
+                let (data_width, data_height) = data_window.dimensions();
+
+                if let Some(tiles) = header.tiles() {
+                    let (tile_width, tile_height) = tiles.dimensions();
+                    let tile_width =  tile_width as i32;
+                    let tile_height =  tile_height as i32;
+
+                    fn tile_count(image_len: i32, tile_len: i32) -> i32 {
+                        // round up, because if the image is not evenly divisible by the tiles,
+                        // we add another tile at the and that is not fully used
+                        RoundingMode::Up.divide(image_len as u32, tile_len as u32) as i32
+                    }
+
+                    let full_res_tile_count = {
+                        let tiles_x = tile_count(data_width, tile_width);
+                        let tiles_y = tile_count(data_height, tile_height);
+                        tiles_x * tiles_y
+                    };
+
+                    use ::file::attributes::LevelMode::*;
+                    match tiles.level_mode {
+                        One => {
+                            full_res_tile_count
+                        },
+
+                        // I can't believe that this works
+                        MipMap => {
+                            // TODO simplify the whole calculation
+                            let mut line_offset_size = full_res_tile_count;
+                            let round = tiles.rounding_mode;
+
+                            let mut mip_map_level_width = data_width;
+                            let mut mip_map_level_height = data_height;
+
+                            // add mip maps tiles
+                            loop {
+                                // is that really how you compute mip map resolution levels?
+                                mip_map_level_width = round.divide(mip_map_level_width as u32, 2).max(1) as i32;
+                                mip_map_level_height = round.divide(mip_map_level_height as u32, 2).max(1) as i32; // new mip map resulution, never smaller than 1
+
+                                let tiles_x = tile_count(mip_map_level_width, tile_width);
+                                let tiles_y = tile_count(mip_map_level_height, tile_height);
+                                line_offset_size += tiles_x * tiles_y;
+
+                                if mip_map_level_width == 1 && mip_map_level_height == 1 {
+                                    break;
+                                }
+                            }
+
+                            line_offset_size
+                        },
+
+                        // I can't believe that this works either
+                        RipMap => {
+                            // TODO simplify the whole calculation
+                            let mut line_offset_size = 0;
+                            let round = tiles.rounding_mode;
+
+                            let mut rip_map_level_width = data_width * 2; // x2 to include fullres, because the beginning of the loop divides
+                            let mut rip_map_level_height = data_height * 2; // x2 to include fullres, because the beginning of the loop divides
+
+                            // add all rip maps tiles
+                            'y: loop {
+                                // new rip map height, vertically resized, never smaller than 1
+                                rip_map_level_height = round.divide(rip_map_level_height as u32, 2).max(1) as i32;
+
+                                // add all rip maps tiles with that specific outer height
+                                'x: loop {
+                                    // new rip map width, horizontally resized, never smaller than 1
+                                    rip_map_level_width = round.divide(rip_map_level_width as u32, 2).max(1) as i32;
+
+                                    let tiles_x = tile_count(rip_map_level_width, tile_width);
+                                    let tiles_y = tile_count(rip_map_level_height, tile_height);
+                                    line_offset_size += tiles_x * tiles_y;
+
+                                    if rip_map_level_width == 1 {
+                                        rip_map_level_width = data_width * 2; // x2 to include fullres, because the beginning of the loop divides
+                                        break 'x;
+                                    }
+                                }
+
+                                if rip_map_level_height == 1 {
+                                    break 'y;
+                                }
+                            }
+
+                            line_offset_size
+                        }
+                    }
+
+                } else { // scanlines
+                    let lines_per_block = compression.scan_lines_per_block() as i32;
+                    (data_height + lines_per_block) / lines_per_block
+                }
+            }
+        };
+
+        read_u64_vec(read, entry_count as usize, ::std::u16::MAX as usize)
+        /*let suspicious_limit = ::std::u16::MAX as i32;
+        if entry_count < suspicious_limit {
+            let mut offsets = vec![0; entry_count as usize];
+            read.read_u64_into::<LittleEndian>(&mut offsets)?;
+            Ok(offsets)
+
+        } else {
+            // avoid allocating too much memory in fear of an
+            // incorrectly decoded entry_count, hoping the end of the file comes comes soon
+            let mut offsets = vec![0; suspicious_limit as usize];
+            read.read_u64_into::<LittleEndian>(&mut offsets)?;
+
+            for _ in suspicious_limit..entry_count {
+                offsets.push(u64::read(read)?);
+            }
+
+            Ok(offsets)
+        }*/
+    }
+
+    // TODO offset tables are only for multipart files???
+    fn read_offset_tables<R: Seek + Read>(
+        read: &mut R, version: Version, headers: &Headers,
+    ) -> ReadResult<OffsetTables>
+    {
+        let mut tables = SmallVec::new();
+
+        for i in 0..headers.len() {
+            // one offset table for each header
+            tables.push(read_offset_table(read, version, &headers[i])?);
+        }
+
+        Ok(tables)
+    }
+
+    pub fn write_offset_tables<W: Write>(write: &mut W, tables: &OffsetTables) -> WriteResult {
+        for table in tables {
+            write_u64_array(write, &table)?;
+        }
+
+        Ok(())
+    }
+
+
+    impl MetaData {
+        pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
+            self.validate()?;
+            self.version.write(write)?;
+            Header::write_all(&self.headers, write, self.version)?;
+
+            println!("calculate tables???");
+            write_offset_tables(write, &self.offset_tables)
+        }
+
+        pub fn read<R: Read + Seek>(read: &mut R) -> ReadResult<Self> {
+            let version = Version::read(read)?;
+            let headers = Header::read_all(read, version)?;
+            let offset_tables = read_offset_tables(read, version, &headers)?;
+
+            // TODO check if supporting version 2 implies supporting version 1
+            Ok(MetaData { version, headers, offset_tables })
+        }
+    }
+
+
+    #[must_use]
+    pub fn read_file(path: &str) -> ReadResult<RawImage> {
+        read(::std::fs::File::open(path)?)
+    }
+
+    /// assumes that the provided reader is not buffered, and will create a buffer for it
+    #[must_use]
+    pub fn read<R: Read + Seek>(unbuffered: R) -> ReadResult<RawImage> {
+        read_seekable_buffer(&mut SeekBufRead::new(unbuffered))
+    }
+
+    #[must_use]
+    pub fn read_seekable_buffer<R: Read + Seek>(read: &mut SeekBufRead<R>) -> ReadResult<RawImage> {
+        MagicNumber::validate_exr(read)?;
+        let meta_data = MetaData::read(read)?;
+        let chunks = Chunks::read(read, &meta_data)?;
+        Ok(::file::RawImage { meta_data, chunks, })
+    }
+
+
+
+
+
+    #[must_use]
+    pub fn write_file(path: &str, image: &RawImage) -> WriteResult {
+        write(&mut ::std::fs::File::open(path)?, image)
+    }
+
+    #[must_use]
+    pub fn write<W: Write>(write: &mut W, image: &RawImage) -> WriteResult {
+        MagicNumber::write(write)?;
+        image.meta_data.write(write)?;
+        image.chunks.write(write, &image.meta_data)
     }
 }
 

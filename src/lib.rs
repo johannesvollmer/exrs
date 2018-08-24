@@ -9,8 +9,11 @@ extern crate smallvec;
 extern crate half;
 
 pub mod prelude {
-    pub use file::read::read_file;
-    pub use file::read::Error;
+    pub use file::io::read_file;
+    pub use file::io::ReadError;
+
+    pub use file::io::write_file;
+    pub use file::io::WriteError;
 
     pub use file::MetaData;
     pub use file::RawImage;
@@ -33,11 +36,11 @@ pub mod test {
         let now = Instant::now();
 
         let image = read_file(
-            // "/home/johannes/Pictures/openexr/openexr-images-master/Beachball/multipart.0001.exr"
+             "/home/johannes/Pictures/openexr/openexr-images-master/Beachball/multipart.0001.exr" // much meta
             // "/home/johannes/Pictures/openexr/openexr-images-master/DisplayWindow/t01.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/LuminanceChroma/Flowers.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/StageEnvCube.exr"
-             "/home/johannes/Pictures/openexr/openexr-images-master/MultiView/Balls.exr" // large file
+            // "/home/johannes/Pictures/openexr/openexr-images-master/MultiView/Balls.exr" // large file
             // "/home/johannes/Pictures/openexr/openexr-images-master/ScanLines/StillLife.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/Tiles/Spirals.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/Kapaa.exr"
