@@ -951,8 +951,8 @@ impl AttributeValue {
             KeyCode(value) => value.write(write),
             LineOrder(value) => value.write(write),
 
-            F32Matrix3x3(ref value) => write_f32_array(write, value),
-            F32Matrix4x4(ref value) => write_f32_array(write, value),
+            F32Matrix3x3(mut value) => write_f32_array(write, &mut value),
+            F32Matrix4x4(mut value) => write_f32_array(write, &mut value),
 
             Preview(ref value) => { value.validate()?; value.write(write) },
 
@@ -1098,7 +1098,8 @@ impl RoundingMode {
     pub fn divide(self, dividend: u32, divisor: u32) -> u32 {
         let result = dividend / divisor;
         match self {
-            RoundingMode::Up if result * divisor < dividend => {
+            // round up if rust has been rounding down
+            RoundingMode::Up if result * divisor != dividend => {
                 result + 1
             },
 

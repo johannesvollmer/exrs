@@ -40,12 +40,17 @@ pub mod test {
             // "/home/johannes/Pictures/openexr/openexr-images-master/DisplayWindow/t01.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/LuminanceChroma/Flowers.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/StageEnvCube.exr"
-            "/home/johannes/Pictures/openexr/openexr-images-master/MultiView/Balls.exr" // large file
+            //"/home/johannes/Pictures/openexr/openexr-images-master/MultiView/Balls.exr" // large file
             // "/home/johannes/Pictures/openexr/openexr-images-master/ScanLines/StillLife.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/Tiles/Spirals.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/Kapaa.exr"
+            // "/home/johannes/Pictures/openexr/openexr-images-master/v2/Stereo/composited.exr"
+            // "/home/johannes/Pictures/openexr/openexr-images-master/v2/Stereo/Balls.exr"
+            "/home/johannes/Pictures/openexr/openexr-images-master/v2/Stereo/Ground.exr" // very large file!!
+            // "/home/johannes/Pictures/openexr/openexr-images-master/v2/Stereo/Leaves.exr"
 
-            // TODO: some mysterious suspiciously-large-size error
+            // TODO: fix mysterious errors
+            // "/home/johannes/Pictures/openexr/openexr-images-master/v2/Stereo/Trunk.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/ColorCodedLevels.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/KernerEnvLatLong.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/OrientationLatLong.exr"

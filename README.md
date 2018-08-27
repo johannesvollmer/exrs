@@ -17,29 +17,31 @@ all possible exr images.  _Highly experimental!_
 
 __Currently supported EXR features:__
 
-- [ ] File (byte decoding without errors)  
-    - [ ] Reading
-        - [x] Any Channels
-        - [x] Singlepart
-            - [x] Tiles
-            - [x] Scan lines
-        - [x] Multipart
-            - [x] Tiles
-            - [x] Scan lines
-            - [x] Deep Data
-        - [x] Multi Resolution
-            - [x] MipMaps
-            - [x] RipMaps
-        - [ ] Non-Standard Attributes
-        
-    - [ ] Writing
-    - [ ] Memory Mapping
-    - [ ] Loading Metadata and specific tiles or blocks separately
+- [ ] Loading without errors
+    - [x] Singlepart
+        - [x] Tiles
+        - [x] Scan lines
+    - [x] Multipart
+        - [x] Tiles
+        - [x] Scan lines
+        - [ ] Deep Tiles (coded, but no sample files found to test it)
+        - [x] Deep Scan Lines         
+    - [x] Multi Resolution
+        - [x] MipMaps
+        - [x] RipMaps
+    - [ ] Non-Standard Attributes
+        - [x] Reading those with known types
+        - [x] Skipping those with unknown types
+        - [ ] Allowing you to parse your own attribute types
     
-- [ ] Image (interpreting of compressed pixel data)
-    - [ ] __Compressed Blocks__
-    - [ ] RGBA conversion
+- [ ] Interpreting loaded data
+    - [ ] __Decompress compressed pixel data__
+    - [ ] Simple RGBA conversion
     - [ ] Simple preview attribute extraction
+    
+- [ ] Writing
+- [ ] Memory Mapping
+- [ ] Loading Metadata and specific tiles or blocks separately
 
 __Be sure to come back in a few weeks.__
 

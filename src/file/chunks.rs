@@ -105,7 +105,7 @@ pub struct DeepScanLineBlock {
     /// Thus, the first samples stored in each channel of the pixel data are for
     /// the pixel in column 0, which contains table[1] samples.
     /// Each channel contains table[width-1] samples in total
-    pub compressed_pixel_offset_table: Vec<i32>,
+    pub compressed_pixel_offset_table: Vec<i8>,
     pub compressed_sample_data: Vec<u8>,
 }
 
@@ -122,7 +122,7 @@ pub struct DeepTileBlock {
     /// Thus, the first samples stored in each channel of the pixel data are for
     /// the pixel in column 0, which contains table[1] samples.
     /// Each channel contains table[width-1] samples in total
-    pub compressed_pixel_offset_table: Vec<i32>,
+    pub compressed_pixel_offset_table: Vec<i8>,
 
     /// When decompressed, the unpacked chunk consists of the
     /// channel data stored in a non-interleaved fashion
@@ -231,26 +231,37 @@ impl DeepScanLineBlock {
 
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         self.y_coordinate.write(write)?;
-        (self.compressed_pixel_offset_table.len() as i32).write(write)?;
+        (self.compressed_pixel_offset_table.len() as u64).write(write)?;
         (self.compressed_sample_data.len() as u64).write(write)?; // TODO just guessed
+        unimplemented!();
         self.decompressed_sample_data_size.write(write)?;
-        write_i32_array(write, &self.compressed_pixel_offset_table)?;
+        write_i8_array(write, &self.compressed_pixel_offset_table)?;
         write_u8_array(write, &self.compressed_sample_data)
     }
 
     // TODO parse lazily, always skip size, ... ?
-    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read<R: Read>(read: &mut R, header: &Header) -> ReadResult<Self> {
         let y_coordinate = i32::read(read)?;
-        let compressed_pixel_offset_table_size = i32::read(read)? as usize;
-        let compressed_sample_data_size = u64::read(read)? as usize; // TODO u64 just guessed
-        let decompressed_sample_data_size = u64::read(read)?;
+        println!("y coord: {:?}", y_coordinate);
 
-        let compressed_pixel_offset_table = read_i32_vec(
-            read, compressed_pixel_offset_table_size, MAX_PIXEL_BYTES
+        let compressed_pixel_offset_table_size = u64::read(read)?;
+        println!("compressed_pixel_offset_table_size: {:?}", compressed_pixel_offset_table_size);
+
+        let compressed_sample_data_size = u64::read(read)?;
+        println!("compressed_sample_data_size: {:?}", compressed_sample_data_size);
+
+        let decompressed_sample_data_size = u64::read(read)?;
+        println!("decompressed_sample_data_size: {:?}", decompressed_sample_data_size);
+
+
+        // TODO don't just panic-cast
+        // doc said i32, try u8
+        let compressed_pixel_offset_table = read_i8_vec(
+            read, compressed_pixel_offset_table_size as usize, MAX_PIXEL_BYTES
         )?;
 
         let compressed_sample_data = read_u8_vec(
-            read, compressed_sample_data_size, MAX_PIXEL_BYTES
+            read, compressed_sample_data_size as usize, MAX_PIXEL_BYTES
         )?;
 
         Ok(DeepScanLineBlock {
@@ -275,21 +286,21 @@ impl DeepTileBlock {
 
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         self.coordinates.write(write)?;
-        (self.compressed_pixel_offset_table.len() as i32).write(write)?;
+        (self.compressed_pixel_offset_table.len() as u64).write(write)?;
         (self.compressed_sample_data.len() as u64).write(write)?; // TODO just guessed
         self.decompressed_sample_data_size.write(write)?;
-        write_i32_array(write, &self.compressed_pixel_offset_table)?;
+        write_i8_array(write, &self.compressed_pixel_offset_table)?;
         write_u8_array(write, &self.compressed_sample_data)
     }
 
     // TODO parse lazily, always skip size, ... ?
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
         let coordinates = TileCoordinates::read(read)?;
-        let compressed_pixel_offset_table_size = i32::read(read)? as usize;
+        let compressed_pixel_offset_table_size = u64::read(read)? as usize;
         let compressed_sample_data_size = u64::read(read)? as usize; // TODO u64 just guessed
         let decompressed_sample_data_size = u64::read(read)?;
 
-        let compressed_pixel_offset_table = read_i32_vec(
+        let compressed_pixel_offset_table = read_i8_vec(
             read, compressed_pixel_offset_table_size, MAX_PIXEL_BYTES
         )?;
 
@@ -342,6 +353,7 @@ impl MultiPartChunk {
     pub fn read<R: Read>(read: &mut R, meta_data: &MetaData) -> ReadResult<Self> {
         // decode the index that tells us which header we need to analyze
         let part_number = i32::read(read)?; // documentation says u64, but is i32
+        println!("reading multi part block with part_number: {:?}", part_number);
 
         let header = &meta_data.headers.get(part_number as usize)
             .ok_or(Invalid::Content(Value::Chunk("part index"), Required::Range { min:0, max: meta_data.headers.len() }))?;
@@ -350,12 +362,14 @@ impl MultiPartChunk {
         let kind = &header.attributes[kind_index].value.to_text()?;
         kind.validate_kind()?;
 
+        println!("reading multi part block with kind: {:?}", kind);
+
         Ok(MultiPartChunk {
             part_number,
             block: match kind/*TODO .as_kind()? */ {
                 ParsedText::ScanLine        => MultiPartBlock::ScanLine(ScanLineBlock::read(read)?),
                 ParsedText::Tile            => MultiPartBlock::Tile(TileBlock::read(read)?),
-                ParsedText::DeepScanLine    => MultiPartBlock::DeepScanLine(Box::new(DeepScanLineBlock::read(read)?)),
+                ParsedText::DeepScanLine    => MultiPartBlock::DeepScanLine(Box::new(DeepScanLineBlock::read(read, header)?)),
                 ParsedText::DeepTile        => MultiPartBlock::DeepTile(Box::new(DeepTileBlock::read(read)?)),
                 _ => panic!("check failed: `kind` is not a valid type string"),
             },

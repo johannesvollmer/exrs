@@ -82,6 +82,7 @@ pub struct AttributeIndices {
     /// Required for parts of type tiledimage and deeptile
     pub tiles: Option<usize>,
 
+    /// The name of the `Part` which contains this Header.
     /// Required if either the multipart bit (12) or the non-image bit (11) is set
     pub name: Option<usize>,
 
@@ -362,9 +363,11 @@ impl Header {
             if self.indices.version.is_none() {
                 return Err(Invalid::Missing(Value::Attribute("version (for deepdata)")).into());
             }
-            if self.indices.max_samples_per_pixel.is_none() {
+
+            // make maxSamplesPerPixel optional because some files don't have it
+            /*if self.indices.max_samples_per_pixel.is_none() {
                 return Err(Invalid::Missing(Value::Attribute("maxSamplesPerPixel (for deepdata)")).into());
-            }
+            }*/
 
             let compression = self.compression(); // attribute is already checked
             if !compression.supports_deep_data() {
@@ -558,7 +561,7 @@ pub mod io {
     pub use ::std::io::{Read, Write, Seek, SeekFrom};
     pub use ::seek_bufread::BufReader as SeekBufRead;
     pub use super::{WriteResult, ReadResult, WriteError, ReadError};
-    use ::byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt};
+    use ::byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt, ByteOrder};
 
     // will be inlined
     /// extension trait for primitive types like numbers and arrays
@@ -597,6 +600,16 @@ pub mod io {
 
         fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self> {
             read.read_u64::<LittleEndian>().map_err(ReadError::from)
+        }
+    }
+
+    impl Data for i64 {
+        fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult {
+            write.write_i64::<LittleEndian>(self).map_err(WriteError::from)
+        }
+
+        fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self> {
+            read.read_i64::<LittleEndian>().map_err(ReadError::from)
         }
     }
 
@@ -655,55 +668,48 @@ pub mod io {
     }
 
     // TODO test
-    pub fn write_f32_array<W: Write>(write: &mut W, array: &[f32]) -> WriteResult {
-        // reinterpret the f32 array as bytes, in order to write it
-        let as_u8 = unsafe {
+    pub fn write_f32_array<W: WriteBytesExt>(write: &mut W, array: &mut [f32]) -> WriteResult {
+        LittleEndian::from_slice_f32(array); // convert data to little endian
+        write_u8_array(write, unsafe {
             ::std::slice::from_raw_parts(
                 array.as_ptr() as *const u8,
                 array.len() * ::std::mem::size_of::<f32>()
             )
-        };
-
-        write_u8_array(write, as_u8)
+        })
     }
 
     // TODO test
-    pub fn write_i32_array<W: Write>(write: &mut W, array: &[i32]) -> WriteResult {
-        // reinterpret the i32 array as bytes, in order to write it
-        let as_u8 = unsafe {
+    pub fn write_i32_array<W: Write>(write: &mut W, array: &mut [i32]) -> WriteResult {
+        LittleEndian::from_slice_i32(array); // convert data to little endian
+        write_u8_array(write, unsafe {
             ::std::slice::from_raw_parts(
                 array.as_ptr() as *const u8,
                 array.len() * ::std::mem::size_of::<i32>()
             )
-        };
-
-        write_u8_array(write, as_u8)
+        })
     }
 
     // TODO test
-    pub fn write_u64_array<W: Write>(write: &mut W, array: &[u64]) -> WriteResult {
-        // reinterpret the i32 array as bytes, in order to write it
-        let as_u8 = unsafe {
+    pub fn write_u64_array<W: Write>(write: &mut W, array: &mut [u64]) -> WriteResult {
+        LittleEndian::from_slice_u64(array); // convert data to little endian
+        write_u8_array(write, unsafe {
             ::std::slice::from_raw_parts(
                 array.as_ptr() as *const u8,
                 array.len() * ::std::mem::size_of::<u64>()
             )
-        };
-
-        write_u8_array(write, as_u8)
+        })
     }
 
     // TODO test
     pub fn write_i8_array<W: Write>(write: &mut W, array: &[i8]) -> WriteResult {
+        // single bytes don't need shuffling to little endian
         // reinterpret the i8 array as bytes, in order to write it
-        let as_u8 = unsafe {
+        write_u8_array(write, unsafe {
             ::std::slice::from_raw_parts(
                 array.as_ptr() as *const u8,
                 array.len()
             )
-        };
-
-        write_u8_array(write, as_u8)
+        })
     }
 
 
@@ -731,6 +737,7 @@ pub mod io {
         if data_size < estimated_max {
             let mut data = vec![0; data_size];
             read.read_i32_into::<LittleEndian>(&mut data)?;
+            data.shrink_to_fit();
             Ok(data)
 
         } else {
@@ -747,6 +754,7 @@ pub mod io {
                 data.push(i32::read(read)?);
             }
 
+            data.shrink_to_fit();
             Ok(data)
         }
     }
@@ -755,6 +763,7 @@ pub mod io {
         if data_size < estimated_max {
             let mut data = vec![0; data_size];
             read.read_u64_into::<LittleEndian>(&mut data)?;
+            data.shrink_to_fit();
             Ok(data)
 
         } else {
@@ -771,6 +780,33 @@ pub mod io {
                 data.push(u64::read(read)?);
             }
 
+            data.shrink_to_fit();
+            Ok(data)
+        }
+    }
+
+    pub fn read_i8_vec<R: Read>(read: &mut R, data_size: usize, estimated_max: usize) -> ReadResult<Vec<i8>> {
+        if data_size < estimated_max {
+            let mut data = vec![0; data_size];
+            read_i8_array(read, &mut data)?;
+            data.shrink_to_fit();
+            Ok(data)
+
+        } else {
+            println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
+
+            // be careful for suspiciously large data,
+            // as reading the pixel_data_size could have gone wrong
+            // (read byte by byte to avoid allocating too much memory at once,
+            // assuming that it will fail soon, when the file ends)
+            let mut data = vec![0; estimated_max];
+            read_i8_array(read, &mut data)?;
+
+            for _ in estimated_max..data_size {
+                data.push(i8::read(read)?);
+            }
+
+            data.shrink_to_fit();
             Ok(data)
         }
     }
@@ -779,6 +815,7 @@ pub mod io {
         if data_size < estimated_max {
             let mut data = vec![0; data_size];
             read_u8_array(read, &mut data)?;
+            data.shrink_to_fit();
             Ok(data)
 
         } else {
@@ -795,6 +832,7 @@ pub mod io {
                 data.push(u8::read(read)?);
             }
 
+            data.shrink_to_fit();
             Ok(data)
         }
     }
@@ -970,12 +1008,14 @@ pub mod io {
                     screen_window_center, screen_window_width,
                     chromaticities,
 
-                    tiles, name, kind,
+                    tiles,
+                    name: name, kind,
                     version, chunk_count,
                     max_samples_per_pixel,
                 },
             };
 
+            println!("{:#?}", header);
             header.validate(format_version)?;
             Ok(header)
         }
@@ -1119,7 +1159,7 @@ pub mod io {
 
     pub fn write_offset_tables<W: Write>(write: &mut W, tables: &OffsetTables) -> WriteResult {
         for table in tables {
-            write_u64_array(write, &table)?;
+            write_u64_array(write, &mut table.clone())?; // TODO without clone at least on little endian machines
         }
 
         Ok(())
