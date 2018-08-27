@@ -66,14 +66,17 @@ pub struct Header {
 // TODO these always will be updated when a new attribute is inserted
 #[derive(Debug, Clone)]
 pub struct AttributeIndices {
-    pub channels: usize,
-    pub compression: usize,
-    pub data_window: usize,
-    pub display_window: usize,
-    pub line_order: usize,
-    pub pixel_aspect: usize,
-    pub screen_window_center: usize,
-    pub screen_window_width: usize,
+    // ### required attributes: ###
+    pub channels: Option<usize>,
+    pub compression: Option<usize>,
+    pub data_window: Option<usize>,
+    pub display_window: Option<usize>,
+    pub line_order: Option<usize>,
+    pub pixel_aspect: Option<usize>,
+    pub screen_window_center: Option<usize>,
+    pub screen_window_width: Option<usize>,
+
+    // ### optional attributes: ###
 
     /// TileDescription: size of the tiles and the number of resolution levels in the file
     /// Required for parts of type tiledimage and deeptile
@@ -94,7 +97,7 @@ pub struct AttributeIndices {
     /// required for deep data: Should be set to 1 . It will be changed if the format is updated
     pub version: Option<usize>,
 
-    /// Required if either the multipart bit (12) or the non-image bit (11) is set
+    /// Required if either the multipart bit (12) or the deep-data bit (11) is set
     pub chunk_count: Option<usize>,
 
     /// Required for deep data (deepscanline and deeptile) parts.
@@ -111,7 +114,7 @@ pub struct AttributeIndices {
     pub max_samples_per_pixel: Option<usize>,
 
     /// this vector will contain all indices of chromaticity attributes
-    pub chromaticities: SmallVec<[usize; 1]>,
+    pub chromaticities: SmallVec<[usize; 3]>,
 }
 
 
@@ -122,7 +125,6 @@ pub type WriteResult = ::std::result::Result<(), WriteError>;
 #[derive(Debug)]
 pub enum WriteError {
     CompressionError(compress::Error),
-    NotSupported(&'static str),
     IoError(::std::io::Error),
     Invalid(Invalid),
 }
@@ -139,8 +141,6 @@ pub enum ReadError {
 
     IoError(::std::io::Error),
     CompressionError(compress::Error),
-
-    NotSupported(&'static str),
 }
 
 pub mod validity {
@@ -150,6 +150,7 @@ pub mod validity {
     #[derive(Debug, Clone, Copy)]
     pub enum Invalid {
         Missing(Value),
+        NotSupported(&'static str),
         Combination(&'static [Value]),
         Content(Value, Required),
         Type(Required),
@@ -226,7 +227,7 @@ impl MetaData {
 
 impl Header {
     pub fn channels(&self) -> &ChannelList {
-        self.attributes.get(self.indices.channels)
+        self.attributes.get(self.indices.channels.expect("`channels` attribute index missing"))
             .expect("invalid `channels` attribute index")
             .value.to_channel_list()
             .expect("check failed: `channels` attribute has wrong type")
@@ -242,14 +243,14 @@ impl Header {
     }
 
     pub fn compression(&self) -> Compression {
-        self.attributes.get(self.indices.compression)
+        self.attributes.get(self.indices.compression.expect("`compression` attribute index missing"))
             .expect("invalid `compression` attribute index")
             .value.to_compression()
             .expect("check failed: `compression` attribute has wrong type")
     }
 
     pub fn data_window(&self) -> I32Box2 {
-        self.attributes.get(self.indices.data_window)
+        self.attributes.get(self.indices.data_window.expect("`dataWindow` attribute index missing"))
             .expect("invalid `dataWindow` attribute index")
             .value.to_i32_box_2()
             .expect("check failed: `dataWindow` attribute has wrong type")
@@ -276,15 +277,34 @@ impl Header {
 
 
     pub fn validate(&self, version: Version) -> Validity {
+        let compression = self.indices.compression
+            .ok_or(Invalid::Missing(Value::Attribute("compression")))?;
+
+        self.attributes.get(compression)
+            .expect("invalid compression attribute index")
+            .value.to_compression()?;
+
+
+        let data_window = self.indices.data_window
+            .ok_or(Invalid::Missing(Value::Attribute("dataWindow")))?;
+
+        self.attributes.get(data_window)
+            .expect("invalid data_window attribute index")
+            .value.to_i32_box_2()?;
+
+
+        let channels = self.indices.channels
+            .ok_or(Invalid::Missing(Value::Attribute("channels")))?;
+
+        self.attributes.get(channels).expect("invalid channels attribute index")
+            .value.to_channel_list()?;
+
+
         if let Some(tiles) = self.indices.tiles {
             self.attributes.get(tiles)
                 .expect("invalid tiles attribute index")
                 .value.to_tile_description()?;
         }
-
-        self.attributes.get(self.indices.channels)
-            .expect("invalid channels attribute index")
-            .value.to_channel_list()?;
 
         if let Some(kind) = self.indices.kind {
             self.attributes.get(kind)
@@ -302,15 +322,15 @@ impl Header {
                 .value.to_i32()?;
         }
 
+        if let Some(version) = self.indices.version {
+            let version = self.attributes.get(version)
+                .expect("invalid version attribute index")
+                .value.to_i32()?;
 
-        self.attributes.get(self.indices.compression)
-            .expect("invalid compression attribute index")
-            .value.to_compression()?;
-
-
-        self.attributes.get(self.indices.data_window)
-            .expect("invalid data_window attribute index")
-            .value.to_i32_box_2()?;
+            if version != 1 {
+                return Err(Invalid::NotSupported("deep data version other than 1"));
+            }
+        }
 
 
         // TODO check all types..
@@ -429,7 +449,7 @@ impl Version {
         let unknown_flags = version_and_flags >> 13; // all flags excluding the 12 bits we already parsed
 
         if unknown_flags != 0 { // TODO test if this correctly detects unsupported files
-            return Err(ReadError::NotSupported("version flags"));
+            return Err(Invalid::NotSupported("version flags").into());
         }
 
         let version = Version {
@@ -945,15 +965,9 @@ pub mod io {
             let header = Header {
                 attributes,
                 indices: AttributeIndices {
-                    channels: channels.ok_or(Invalid::Missing(Value::Attribute("channels")))?,
-                    compression: compression.ok_or(Invalid::Missing(Value::Attribute("compression")))?,
-                    data_window: data_window.ok_or(Invalid::Missing(Value::Attribute("data window")))?,
-                    display_window: display_window.ok_or(Invalid::Missing(Value::Attribute("display window")))?,
-                    line_order: line_order.ok_or(Invalid::Missing(Value::Attribute("line order")))?,
-                    pixel_aspect: pixel_aspect.ok_or(Invalid::Missing(Value::Attribute("pixel aspect ratio")))?,
-                    screen_window_center: screen_window_center.ok_or(Invalid::Missing(Value::Attribute("screen window center")))?,
-                    screen_window_width: screen_window_width.ok_or(Invalid::Missing(Value::Attribute("screen window width")))?,
-
+                    channels, compression, data_window,
+                    display_window, line_order, pixel_aspect,
+                    screen_window_center, screen_window_width,
                     chromaticities,
 
                     tiles, name, kind,
@@ -969,18 +983,13 @@ pub mod io {
 
     // TODO make instance fn
     pub fn read_offset_table<R: Seek + Read>(
-        read: &mut R,
-        version: Version, header: &Header
+        read: &mut R, version: Version, header: &Header
     ) -> ReadResult<OffsetTable>
     {
         let entry_count = {
-            if let Some(chunk_count_index) = header.indices.chunk_count {
-                if let &AttributeValue::I32(chunk_count) = &header.attributes[chunk_count_index].value {
-                    chunk_count // TODO will this panic on negative number / invalid data?
+            if let Some(chunk_count) = header.chunk_count() {
+                chunk_count // TODO will this panic on negative number / invalid data?
 
-                } else {
-                    return Err(Invalid::Missing(Value::Attribute("chunkCount")).into());
-                }
             } else {
                 debug_assert!(
                     !version.has_multiple_parts,
@@ -1092,27 +1101,8 @@ pub mod io {
         };
 
         read_u64_vec(read, entry_count as usize, ::std::u16::MAX as usize)
-        /*let suspicious_limit = ::std::u16::MAX as i32;
-        if entry_count < suspicious_limit {
-            let mut offsets = vec![0; entry_count as usize];
-            read.read_u64_into::<LittleEndian>(&mut offsets)?;
-            Ok(offsets)
-
-        } else {
-            // avoid allocating too much memory in fear of an
-            // incorrectly decoded entry_count, hoping the end of the file comes comes soon
-            let mut offsets = vec![0; suspicious_limit as usize];
-            read.read_u64_into::<LittleEndian>(&mut offsets)?;
-
-            for _ in suspicious_limit..entry_count {
-                offsets.push(u64::read(read)?);
-            }
-
-            Ok(offsets)
-        }*/
     }
 
-    // TODO offset tables are only for multipart files???
     fn read_offset_tables<R: Seek + Read>(
         read: &mut R, version: Version, headers: &Headers,
     ) -> ReadResult<OffsetTables>

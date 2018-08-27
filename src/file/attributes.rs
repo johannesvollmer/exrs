@@ -1168,7 +1168,7 @@ mod test {
             tile.write(&mut bytes).unwrap();
 
             let mut new_tile = TileDescription::read(&mut Cursor::new(bytes)).unwrap();
-            debug_assert_eq!(*tile, new_tile, "tile round trip");
+            assert_eq!(*tile, new_tile, "tile round trip");
         }
     }
 
