@@ -22,16 +22,16 @@ __Currently supported EXR features:__
         - [x] Tiles
         - [x] Scan lines
         - [x] Deep Tiles
-        - [ ] Deep Scan Lines _(coded, but no sample files found for testing)_
+        - [x] Deep Scan Lines _(coded, but no sample files found for testing)_
     - [x] Multipart
         - [x] Tiles
         - [x] Scan lines
-        - [ ] Deep Tiles _(coded, but no sample files found for testing)_
+        - [x] Deep Tiles _(coded, but no sample files found for testing)_
         - [x] Deep Scan Lines         
     - [x] Multi Resolution
         - [x] Singular Resolution
         - [x] MipMaps
-        - [ ] RipMaps _(coded, but no sample files found for testing)_
+        - [x] RipMaps _(coded, but no sample files found for testing)_
     - [ ] Non-Standard Attributes
         - [x] Reading those with known types
         - [x] Skipping those with unknown types
