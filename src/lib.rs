@@ -28,14 +28,44 @@ pub mod test {
 //      TODO
 //    }
 
+
+
     #[test]
+    fn test_all_files() {
+        use ::std::path::Path;
+        use ::prelude::*;
+
+        // TODO test if reading pushed the reader to the very end of the file?
+
+        fn test_exr_files(path: &Path){
+            if let Some("exr") = path.extension().and_then(|os| os.to_str()) {
+                print!("testing file `{:?}`: ", path.file_name().unwrap());
+                println!(
+                    "{}",
+                    read_file(path)
+                        .map(|_| String::from("no error"))
+                        .unwrap_or_else(|e| format!("FAILED: {:?}", e))
+                );
+
+            } else if path.is_dir() {
+                for sub_dir in ::std::fs::read_dir(path).unwrap() {
+                    test_exr_files(&sub_dir.unwrap().path());
+                }
+            }
+        }
+
+        test_exr_files(::std::path::Path::new("/home/johannes/Pictures/openexr/openexr-images-master"))
+    }
+
+        #[test]
     fn print_version_and_headers() {
         use std::time::Instant;
         use ::prelude::*;
 
         let now = Instant::now();
 
-        let image = read_file(
+        let image = read_file(::std::path::Path::new(
+            // working:
             // "/home/johannes/Pictures/openexr/openexr-images-master/Beachball/multipart.0001.exr" // much meta
             // "/home/johannes/Pictures/openexr/openexr-images-master/DisplayWindow/t01.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/LuminanceChroma/Flowers.exr"
@@ -46,16 +76,17 @@ pub mod test {
             // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/Kapaa.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/v2/Stereo/composited.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/v2/Stereo/Balls.exr"
-            "/home/johannes/Pictures/openexr/openexr-images-master/v2/Stereo/Ground.exr" // very large file!!
+            // "/home/johannes/Pictures/openexr/openexr-images-master/v2/Stereo/Ground.exr" // very large file!!
             // "/home/johannes/Pictures/openexr/openexr-images-master/v2/Stereo/Leaves.exr"
+            // "/home/johannes/Pictures/openexr/openexr-images-master/v2/Stereo/Trunks.exr"
 
-            // TODO: fix mysterious errors
-            // "/home/johannes/Pictures/openexr/openexr-images-master/v2/Stereo/Trunk.exr"
+            // not working:
+            // TODO: fix mysterious large-size errors
             // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/ColorCodedLevels.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/KernerEnvLatLong.exr"
             // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/OrientationLatLong.exr"
-            // "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/PeriodicPattern.exr"
-        );
+            "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/PeriodicPattern.exr"
+        ));
 
         // warning: highly unscientific benchmarks ahead!
         let elapsed = now.elapsed();

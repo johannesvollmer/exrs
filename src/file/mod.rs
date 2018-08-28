@@ -134,6 +134,7 @@ pub enum WriteError {
 
 pub type ReadResult<T> = ::std::result::Result<T, ReadError>;
 
+// TODO implement Display for all errors
 #[derive(Debug)]
 pub enum ReadError {
     NotEXR,
@@ -521,8 +522,8 @@ impl Version {
 
 /// Enable using the `?` operator on io::Result
 impl From<::std::io::Error> for ReadError {
-    fn from(_io_err: ::std::io::Error) -> Self {
-        panic!("give me that nice stack trace like you always do"); // TODO remove
+    fn from(io_err: ::std::io::Error) -> Self {
+        panic!("give me that nice stack trace like you always do: {}", io_err); // TODO remove
         // ReadError::IoError(_io_err)
     }
 }
@@ -811,6 +812,31 @@ pub mod io {
         }
     }
 
+    /// reuses the allocated buffer, does not shrink to fit
+    pub fn reuse_read_u8_vec<R: Read>(read: &mut R, mut data: Vec<u8>, data_size: usize, estimated_max: usize) -> ReadResult<Vec<u8>> {
+        if data_size < estimated_max {
+            data.resize(data_size, 0);
+            read_u8_array(read, &mut data)?;
+            Ok(data)
+
+        } else {
+            println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
+
+            // be careful for suspiciously large data,
+            // as reading the pixel_data_size could have gone wrong
+            // (read byte by byte to avoid allocating too much memory at once,
+            // assuming that it will fail soon, when the file ends)
+            data.resize(estimated_max, 0);
+            read.read_exact(&mut data)?;
+
+            for _ in estimated_max..data_size {
+                data.push(u8::read(read)?);
+            }
+
+            Ok(data)
+        }
+    }
+
     pub fn read_u8_vec<R: Read>(read: &mut R, data_size: usize, estimated_max: usize) -> ReadResult<Vec<u8>> {
         if data_size < estimated_max {
             let mut data = vec![0; data_size];
@@ -1015,7 +1041,7 @@ pub mod io {
                 },
             };
 
-            println!("{:#?}", header);
+//            println!("{:#?}", header);
             header.validate(format_version)?;
             Ok(header)
         }
@@ -1188,7 +1214,7 @@ pub mod io {
 
 
     #[must_use]
-    pub fn read_file(path: &str) -> ReadResult<RawImage> {
+    pub fn read_file(path: &::std::path::Path) -> ReadResult<RawImage> {
         read(::std::fs::File::open(path)?)
     }
 

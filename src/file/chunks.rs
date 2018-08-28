@@ -41,7 +41,11 @@ pub enum SinglePartChunks {
     /// type attribute “tiledimage”
     Tile(Vec<TileBlock>),
 
-    // FIXME check if this needs to support deep data
+    /// type attribute “deepscanlines”
+    DeepScanLine(Vec<DeepScanLineBlock>),
+
+    /// type attribute “deeptiles”
+    DeepTile(Vec<DeepTileBlock>),
 }
 
 /// Each block in a multipart file can have a different type
@@ -194,6 +198,19 @@ impl ScanLineBlock {
         let compressed_pixels = read_i32_sized_u8_vec(read, MAX_PIXEL_BYTES)?; // TODO maximum scan line size can easily be calculated
         Ok(ScanLineBlock { y_coordinate, compressed_pixels })
     }
+
+    /// reuses the already allocated pixel data buffer
+    pub fn reuse_read<R: Read>(mut self, read: &mut R) -> ReadResult<Self> {
+        self.y_coordinate = i32::read(read)?;
+
+        let size = i32::read(read)?;
+        self.compressed_pixels = reuse_read_u8_vec(
+            // TODO maximum scan line size can easily be calculated
+            read, self.compressed_pixels, size as usize, MAX_PIXEL_BYTES
+        )?;
+
+        Ok(self)
+    }
 }
 
 impl TileBlock {
@@ -216,6 +233,19 @@ impl TileBlock {
         let coordinates = TileCoordinates::read(read)?;
         let compressed_pixels = read_i32_sized_u8_vec(read, MAX_PIXEL_BYTES)?; // TODO maximum scan line size can easily be calculated
         Ok(TileBlock { coordinates, compressed_pixels })
+    }
+
+    /// reuses the already allocated pixel data buffer
+    pub fn reuse_read<R: Read>(mut self, read: &mut R) -> ReadResult<Self> {
+        self.coordinates = TileCoordinates::read(read)?;
+
+        let size = i32::read(read)?;
+        self.compressed_pixels = reuse_read_u8_vec(
+            // TODO maximum scan line size can easily be calculated
+            read, self.compressed_pixels, size as usize, MAX_PIXEL_BYTES
+        )?;
+
+        Ok(self)
     }
 }
 
@@ -240,19 +270,11 @@ impl DeepScanLineBlock {
     }
 
     // TODO parse lazily, always skip size, ... ?
-    pub fn read<R: Read>(read: &mut R, header: &Header) -> ReadResult<Self> {
+    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
         let y_coordinate = i32::read(read)?;
-        println!("y coord: {:?}", y_coordinate);
-
         let compressed_pixel_offset_table_size = u64::read(read)?;
-        println!("compressed_pixel_offset_table_size: {:?}", compressed_pixel_offset_table_size);
-
         let compressed_sample_data_size = u64::read(read)?;
-        println!("compressed_sample_data_size: {:?}", compressed_sample_data_size);
-
         let decompressed_sample_data_size = u64::read(read)?;
-        println!("decompressed_sample_data_size: {:?}", decompressed_sample_data_size);
-
 
         // TODO don't just panic-cast
         // doc said i32, try u8
@@ -353,7 +375,6 @@ impl MultiPartChunk {
     pub fn read<R: Read>(read: &mut R, meta_data: &MetaData) -> ReadResult<Self> {
         // decode the index that tells us which header we need to analyze
         let part_number = i32::read(read)?; // documentation says u64, but is i32
-        println!("reading multi part block with part_number: {:?}", part_number);
 
         let header = &meta_data.headers.get(part_number as usize)
             .ok_or(Invalid::Content(Value::Chunk("part index"), Required::Range { min:0, max: meta_data.headers.len() }))?;
@@ -362,14 +383,12 @@ impl MultiPartChunk {
         let kind = &header.attributes[kind_index].value.to_text()?;
         kind.validate_kind()?;
 
-        println!("reading multi part block with kind: {:?}", kind);
-
         Ok(MultiPartChunk {
             part_number,
             block: match kind/*TODO .as_kind()? */ {
                 ParsedText::ScanLine        => MultiPartBlock::ScanLine(ScanLineBlock::read(read)?),
                 ParsedText::Tile            => MultiPartBlock::Tile(TileBlock::read(read)?),
-                ParsedText::DeepScanLine    => MultiPartBlock::DeepScanLine(Box::new(DeepScanLineBlock::read(read, header)?)),
+                ParsedText::DeepScanLine    => MultiPartBlock::DeepScanLine(Box::new(DeepScanLineBlock::read(read)?)),
                 ParsedText::DeepTile        => MultiPartBlock::DeepTile(Box::new(DeepTileBlock::read(read)?)),
                 _ => panic!("check failed: `kind` is not a valid type string"),
             },
@@ -414,39 +433,87 @@ impl SinglePartChunks {
                 }
                 Ok(())
             }
+            SinglePartChunks::DeepScanLine(ref lines) => {
+                if offset_table.len() != lines.len() {
+                    return Err(Invalid::Combination(&[
+                        Value::Part("offset_table size"),
+                        Value::Chunk("scanline chunk count"),
+                    ]).into())
+                }
+
+                for line in lines {
+                    line.write(write)?;
+                }
+                Ok(())
+            },
+            SinglePartChunks::DeepTile(ref tiles) => {
+                if offset_table.len() != tiles.len() {
+                    return Err(Invalid::Combination(&[
+                        Value::Part("offset_table size"),
+                        Value::Chunk("tile chunk count"),
+                    ]).into())
+                }
+
+                for tile in tiles {
+                    tile.write(write)?;
+                }
+                Ok(())
+            }
         }
     }
 
     pub fn read<R: Read>(read: &mut R, meta_data: &MetaData) -> ReadResult<Self> {
-        // single-part files have either scan lines or tiles,
-        // but never deep scan lines or deep tiles
-        assert!(!meta_data.version.has_deep_data, "single_part_chunks called with deep data");
-
         assert_eq!(meta_data.headers.len(), 1, "single_part_chunks called with multiple headers");
         let header = &meta_data.headers[0];
 
+        // TODO is there a better way to figure out if this image contains tiles?
+        let is_tiled = header.tiles().is_some();
+        let is_deep = meta_data.version.has_deep_data;
+
         assert_eq!(meta_data.offset_tables.len(), 1, "single_part_chunks called with multiple offset tables");
         let offset_table = &meta_data.offset_tables[0];
-
-        // TODO is there a better way to figure out if this image contains tiles?
-        let is_tile_image = header.tiles().is_some();
         let blocks = offset_table.len();
 
-        Ok(if !is_tile_image {
-            let mut scan_line_blocks = Vec::with_capacity(blocks);
-            for _ in 0..blocks {
-                scan_line_blocks.push(ScanLineBlock::read(read)?)
+
+        Ok({
+            if is_deep {
+                if !is_tiled {
+                    let mut scan_line_blocks = Vec::with_capacity(blocks);
+                    for _ in 0..blocks {
+                        scan_line_blocks.push(DeepScanLineBlock::read(read)?)
+                    }
+
+                    SinglePartChunks::DeepScanLine(scan_line_blocks)
+
+                } else {
+                    let mut tile_blocks = Vec::with_capacity(blocks);
+
+                    for _ in 0..blocks {
+                        tile_blocks.push(DeepTileBlock::read(read)?)
+                    }
+
+                    SinglePartChunks::DeepTile(tile_blocks)
+                }
+
+            } else {
+                if !is_tiled {
+                    let mut scan_line_blocks = Vec::with_capacity(blocks);
+                    for _ in 0..blocks {
+                        scan_line_blocks.push(ScanLineBlock::read(read)?)
+                    }
+
+                    SinglePartChunks::ScanLine(scan_line_blocks)
+
+                } else {
+                    let mut tile_blocks = Vec::with_capacity(blocks);
+
+                    for _ in 0..blocks {
+                        tile_blocks.push(TileBlock::read(read)?)
+                    }
+
+                    SinglePartChunks::Tile(tile_blocks)
+                }
             }
-
-            SinglePartChunks::ScanLine(scan_line_blocks)
-
-        } else {
-            let mut tile_blocks = Vec::with_capacity(blocks);
-            for _ in 0..blocks {
-                tile_blocks.push(TileBlock::read(read)?)
-            }
-
-            SinglePartChunks::Tile(tile_blocks)
         })
     }
 }
@@ -468,7 +535,6 @@ impl Chunks {
         }
     }
 
-    // TODO can read be immutable?
     pub fn read<R: Read>(read: &mut R, meta_data: &MetaData) -> ReadResult<Self> {
         Ok({
             if meta_data.version.has_multiple_parts {
