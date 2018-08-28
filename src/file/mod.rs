@@ -125,7 +125,7 @@ pub type WriteResult = ::std::result::Result<(), WriteError>;
 
 #[derive(Debug)]
 pub enum WriteError {
-    CompressionError(compress::Error),
+    CompressionError(compress::CompressionError),
     IoError(::std::io::Error),
     Invalid(Invalid),
 }
@@ -142,7 +142,7 @@ pub enum ReadError {
     UnknownAttributeType { bytes_to_skip: u32 },
 
     IoError(::std::io::Error),
-    CompressionError(compress::Error),
+    CompressionError(compress::CompressionError),
 }
 
 pub mod validity {
@@ -529,8 +529,8 @@ impl From<::std::io::Error> for ReadError {
 }
 
 /// Enable using the `?` operator on compress::Result
-impl From<compress::Error> for ReadError {
-    fn from(compress_err: compress::Error) -> Self {
+impl From<compress::CompressionError> for ReadError {
+    fn from(compress_err: compress::CompressionError) -> Self {
         ReadError::CompressionError(compress_err)
     }
 }
@@ -1057,10 +1057,7 @@ pub mod io {
                 chunk_count as u32 // TODO will this panic on negative number / invalid data?
 
             } else {
-                debug_assert!(
-                    !version.has_multiple_parts,
-                    "Multi-Part header does not have chunkCount, should have been checked"
-                );
+                debug_assert!(!version.has_multiple_parts, "check failed: chunkCount missing (for multi-part)");
 
                 // If not multipart and the chunkCount is not present,
                 // the number of entries in the chunk table is computed
@@ -1102,20 +1099,20 @@ pub mod io {
                             // sum all tiles per level
                             // note: as levels shrink, tiles stay the same pixel size.
                             // so at lower levels, tiles cover up a bigger are of the smaller image
-                            (0..level_count(data_width.max(data_height))).map(|level_index|{
-                                let tile_count_x = tile_count(level_size(data_width, level_index), tile_width);
-                                let tile_count_y = tile_count(level_size(data_height, level_index), tile_height);
-                                tile_count_x * tile_count_y
+                            (0..level_count(data_width.max(data_height))).map(|level|{
+                                let tiles_x = tile_count(level_size(data_width, level), tile_width);
+                                let tiles_y = tile_count(level_size(data_height, level), tile_height);
+                                tiles_x * tiles_y
                             }).sum()
                         },
 
                         RipMap => {
                             // TODO test this
-                            (0..level_count(data_width)).map(|level_x_index|{
-                                (0..level_count(data_height)).map(|level_y_index| {
-                                    let tile_count_x = tile_count(level_size(data_width, level_x_index), tile_width);
-                                    let tile_count_y = tile_count(level_size(data_height, level_y_index), tile_height);
-                                    tile_count_x * tile_count_y
+                            (0..level_count(data_width)).map(|x_level|{
+                                (0..level_count(data_height)).map(|y_level| {
+                                    let tiles_x = tile_count(level_size(data_width, x_level), tile_width);
+                                    let tiles_y = tile_count(level_size(data_height, y_level), tile_height);
+                                    tiles_x * tiles_y
                                 }).sum::<u32>()
                             }).sum()
                         }

@@ -2,7 +2,7 @@ pub mod file;
 pub mod image;
 
 extern crate seek_bufread;
-extern crate compression;
+extern crate libflate;
 extern crate bit_field;
 extern crate byteorder;
 extern crate smallvec;
@@ -42,7 +42,7 @@ pub mod test {
         fn test_exr_files(path: &Path){
             if let Some("exr") = path.extension().and_then(|os| os.to_str()) {
                 print!("testing file {:?}... ", path.file_name().unwrap());
-                println!("{}", read_file(path).map(|_| "success").unwrap());
+                println!("{}", read_file(path).map(|_| "no errors").unwrap());
 
             } else if path.is_dir() {
                 for sub_dir in ::std::fs::read_dir(path).unwrap() {

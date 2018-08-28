@@ -1,10 +1,10 @@
 
 #[derive(Debug, Clone)]
-pub enum Error {
-    ZipError(String)
+pub enum CompressionError {
+    ZipError(String),
 }
 
-pub type Result = ::std::result::Result<Vec<u8>, Error>;
+pub type Result = ::std::result::Result<Data, CompressionError>;
 pub type Data = Vec<u8>;
 
 
@@ -35,25 +35,30 @@ pub enum Compression {
 
     /// lossy!
     B44A,
+
+    /* TODO: DWAA & DWAB */
 }
 
 
+// needs ownership to return immediately in case of Compression::None
 pub fn compress(method: Compression, data: Data) -> Result {
     use self::Compression::*;
     match method {
         None => Ok(data),
         ZIP => zip::compress(data),
-        ZIPS => zip_single::compress(data),
+        ZIPS => zip::compress(data),
         _ => unimplemented!()
     }
 }
 
+// needs ownership to return immediately in case of Compression::None
 pub fn decompress(method: Compression, data: Data, uncompressed_size: Option<usize>) -> Result {
     use self::Compression::*;
     match method {
         None => Ok(data),
         ZIP => zip::decompress(data, uncompressed_size),
-        ZIPS => zip_single::decompress(data, uncompressed_size),
+        ZIPS => zip::decompress(data, uncompressed_size),
+        RLE => unimplemented!(),
         _ => unimplemented!()
     }
 }
@@ -82,33 +87,29 @@ impl Compression {
 }
 
 
-/// compresses 16 scan lines at once
+/// compresses 16 scan lines at once or
+/// compresses 1 single scan line at once
 pub mod zip {
     use super::*;
+    use std::io::{self, Read};
+    use ::libflate::zlib::{Encoder, Decoder};
 
-    pub fn decompress(_data: Data, _uncompressed_size: Option<usize>) -> Result {
-        unimplemented!()
+    pub fn decompress(data: Data, uncompressed_size: Option<usize>) -> Result {
+        let mut decoder = Decoder::new(data.as_slice())
+            .expect("io error when reading from in-memory vec");
+
+        let mut decompressed = Vec::with_capacity(uncompressed_size.unwrap_or(32));
+        decoder.read_to_end(&mut decompressed).expect("io error when reading from in-memory vec");
+        // sum up because we encoded the first derivative
+        unimplemented!("needs to sum up u32 / F16 /F32")
     }
 
     pub fn compress(data: Data) -> Result {
-        use ::compression::prelude::*;
+        unimplemented!("needs to encode differences of pixels as u32 / F16 /F32");
+        let mut encoder = Encoder::new(Vec::with_capacity(data.len() / 2))
+            .expect("io error when writing to in-memory vec");
 
-        data.into_iter()
-            .encode(&mut BZip2Encoder::new(9), Action::Finish)
-            .collect::<::std::result::Result<Vec<_>, _>>()
-            .map_err(|cerr| Error::ZipError(cerr.to_string()))
-    }
-}
-
-/// compresses 1 single scan line at once
-pub mod zip_single {
-    use super::*;
-
-    pub fn decompress(_data: Data, _uncompressed_size: Option<usize>) -> Result {
-        unimplemented!()
-    }
-
-    pub fn compress(_data: Data) -> Result {
-        unimplemented!()
+        io::copy(&mut data.as_slice(), &mut encoder).expect("io error when writing to in-memory vec");
+        Ok(encoder.finish().into_result().expect("io error when writing to in-memory vec"))
     }
 }

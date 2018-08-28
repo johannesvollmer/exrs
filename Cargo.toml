@@ -5,7 +5,7 @@ authors = ["johannesvollmer <johannes.boenki@t-online.de>"]
 
 [dependencies]
 seek_bufread = "*"
-compression = "*"
+libflate = "*"
 byteorder = "*"
 bit_field = "*"
 smallvec = "*"
