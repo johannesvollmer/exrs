@@ -17,7 +17,7 @@ all possible exr images.  _Highly experimental!_
 
 __Currently supported EXR features:__
 
-- [ ] Loading without errors
+- [x] Loading without errors
     - [x] Singlepart
         - [x] Tiles
         - [x] Scan lines
@@ -32,7 +32,7 @@ __Currently supported EXR features:__
         - [x] Singular Resolution
         - [x] MipMaps
         - [x] RipMaps _(coded, but no sample files found for testing)_
-    - [ ] Non-Standard Attributes
+    - [x] Non-Standard Attributes
         - [x] Reading those with known types
         - [x] Skipping those with unknown types
         - [ ] Allowing you to parse your own attribute types

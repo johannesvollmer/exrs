@@ -21,7 +21,7 @@ pub enum Compression {
     /// zip horizontal differences one line at a time
     ZIPS,
 
-    /// zip horizontal differences of 16 lines
+    /// zip horizontal differences of 16 lines at once
     ZIP,
 
     /// wavelet??
