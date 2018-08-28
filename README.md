@@ -12,7 +12,8 @@ a high flexibility regarding the data it is able to hold.
 ### Current Status
 
 Because rs-exr is currently a draft, it doesn't write images yet,
-but it is already able to read all files from the OpenEXR test file repository.
+but it is already able to read all files from the
+[OpenEXR test file repository](https://github.com/openexr/openexr-images/tree/master/TestImages).
 Sadly, decompressing the read pixel data is not yet possible.
 _Highly experimental!_
 
