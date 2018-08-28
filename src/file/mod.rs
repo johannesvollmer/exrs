@@ -524,7 +524,7 @@ impl Version {
 impl From<::std::io::Error> for ReadError {
     fn from(io_err: ::std::io::Error) -> Self {
         panic!("give me that nice stack trace like you always do: {}", io_err); // TODO remove
-        // ReadError::IoError(_io_err)
+        // ReadError::IoError(io_err)
     }
 }
 
@@ -1035,7 +1035,7 @@ pub mod io {
                     chromaticities,
 
                     tiles,
-                    name: name, kind,
+                    name, kind,
                     version, chunk_count,
                     max_samples_per_pixel,
                 },
@@ -1052,9 +1052,9 @@ pub mod io {
         read: &mut R, version: Version, header: &Header
     ) -> ReadResult<OffsetTable>
     {
-        let entry_count = {
+        let entry_count: u32 = {
             if let Some(chunk_count) = header.chunk_count() {
-                chunk_count // TODO will this panic on negative number / invalid data?
+                chunk_count as u32 // TODO will this panic on negative number / invalid data?
 
             } else {
                 debug_assert!(
@@ -1072,95 +1072,57 @@ pub mod io {
                 let (data_width, data_height) = data_window.dimensions();
 
                 if let Some(tiles) = header.tiles() {
+                    let round = tiles.rounding_mode;
                     let (tile_width, tile_height) = tiles.dimensions();
-                    let tile_width =  tile_width as i32;
-                    let tile_height =  tile_height as i32;
 
-                    fn tile_count(image_len: i32, tile_len: i32) -> i32 {
-                        // round up, because if the image is not evenly divisible by the tiles,
-                        // we add another tile at the and that is not fully used
-                        RoundingMode::Up.divide(image_len as u32, tile_len as u32) as i32
-                    }
+                    // calculations inspired by
+                    // https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
 
-                    let full_res_tile_count = {
-                        let tiles_x = tile_count(data_width, tile_width);
-                        let tiles_y = tile_count(data_height, tile_height);
-                        tiles_x * tiles_y
+                    let level_count = |full_res: u32| {
+                        round.log2(full_res + 1) + 1
                     };
+
+                    let level_size = |full_res: u32, level_index: u32| {
+                        round.divide(full_res + 1, 1 << level_index).max(1)
+                    };
+
+                    fn tile_count(full_res: u32, tile_size: u32) -> u32 {
+                        // round up, because if the image is not evenly divisible by the tiles,
+                        // we add another tile at the end (which is only partially used)
+                        RoundingMode::Up.divide(full_res, tile_size)
+                    }
 
                     use ::file::attributes::LevelMode::*;
                     match tiles.level_mode {
                         One => {
-                            full_res_tile_count
+                            tile_count(data_width, tile_width) * tile_count(data_height, tile_height)
                         },
 
-                        // I can't believe that this works
                         MipMap => {
-                            // TODO simplify the whole calculation
-                            let mut line_offset_size = full_res_tile_count;
-                            let round = tiles.rounding_mode;
-
-                            let mut mip_map_level_width = data_width;
-                            let mut mip_map_level_height = data_height;
-
-                            // add mip maps tiles
-                            loop {
-                                // is that really how you compute mip map resolution levels?
-                                mip_map_level_width = round.divide(mip_map_level_width as u32, 2).max(1) as i32;
-                                mip_map_level_height = round.divide(mip_map_level_height as u32, 2).max(1) as i32; // new mip map resulution, never smaller than 1
-
-                                let tiles_x = tile_count(mip_map_level_width, tile_width);
-                                let tiles_y = tile_count(mip_map_level_height, tile_height);
-                                line_offset_size += tiles_x * tiles_y;
-
-                                if mip_map_level_width == 1 && mip_map_level_height == 1 {
-                                    break;
-                                }
-                            }
-
-                            line_offset_size
+                            // sum all tiles per level
+                            // note: as levels shrink, tiles stay the same pixel size.
+                            // so at lower levels, tiles cover up a bigger are of the smaller image
+                            (0..level_count(data_width.max(data_height))).map(|level_index|{
+                                let tile_count_x = tile_count(level_size(data_width, level_index), tile_width);
+                                let tile_count_y = tile_count(level_size(data_height, level_index), tile_height);
+                                tile_count_x * tile_count_y
+                            }).sum()
                         },
 
-                        // I can't believe that this works either
                         RipMap => {
-                            // TODO simplify the whole calculation
-                            let mut line_offset_size = 0;
-                            let round = tiles.rounding_mode;
-
-                            let mut rip_map_level_width = data_width * 2; // x2 to include fullres, because the beginning of the loop divides
-                            let mut rip_map_level_height = data_height * 2; // x2 to include fullres, because the beginning of the loop divides
-
-                            // add all rip maps tiles
-                            'y: loop {
-                                // new rip map height, vertically resized, never smaller than 1
-                                rip_map_level_height = round.divide(rip_map_level_height as u32, 2).max(1) as i32;
-
-                                // add all rip maps tiles with that specific outer height
-                                'x: loop {
-                                    // new rip map width, horizontally resized, never smaller than 1
-                                    rip_map_level_width = round.divide(rip_map_level_width as u32, 2).max(1) as i32;
-
-                                    let tiles_x = tile_count(rip_map_level_width, tile_width);
-                                    let tiles_y = tile_count(rip_map_level_height, tile_height);
-                                    line_offset_size += tiles_x * tiles_y;
-
-                                    if rip_map_level_width == 1 {
-                                        rip_map_level_width = data_width * 2; // x2 to include fullres, because the beginning of the loop divides
-                                        break 'x;
-                                    }
-                                }
-
-                                if rip_map_level_height == 1 {
-                                    break 'y;
-                                }
-                            }
-
-                            line_offset_size
+                            // TODO test this
+                            (0..level_count(data_width)).map(|level_x_index|{
+                                (0..level_count(data_height)).map(|level_y_index| {
+                                    let tile_count_x = tile_count(level_size(data_width, level_x_index), tile_width);
+                                    let tile_count_y = tile_count(level_size(data_height, level_y_index), tile_height);
+                                    tile_count_x * tile_count_y
+                                }).sum::<u32>()
+                            }).sum()
                         }
                     }
 
                 } else { // scanlines
-                    let lines_per_block = compression.scan_lines_per_block() as i32;
+                    let lines_per_block = compression.scan_lines_per_block() as u32;
                     (data_height + lines_per_block) / lines_per_block
                 }
             }

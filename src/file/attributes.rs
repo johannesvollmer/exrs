@@ -420,10 +420,10 @@ impl I32Box2 {
         }
     }
 
-    pub fn dimensions(&self) -> (i32, i32) {
+    pub fn dimensions(&self) -> (u32, u32) {
         (
-            self.x_max - self.x_min,
-            self.y_max - self.y_min,
+            (self.x_max - self.x_min) as u32, // TODO checked_sub
+            (self.y_max - self.y_min) as u32,
         )
     }
 
@@ -1095,8 +1095,53 @@ pub mod required {
 }
 
 impl RoundingMode {
+
+    // TODO check implementation
+    /// For x > 0, floorLog2(y) returns floor(log(x)/log(2))
+    // taken from https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
+    pub fn floor_log_2(mut number: u32) -> u32 {
+        let mut log = 0;
+
+        while number > 1 {
+            log += 1;
+            number >>= 1;
+        }
+
+        log
+    }
+
+    // TODO check implementation
+    /// For x > 0, ceilLog2(y) returns ceil(log(x)/log(2))
+    // taken from https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
+    pub fn ceil_log_2(mut number: u32) -> u32 {
+        let mut log = 0;
+        let mut round_up = 0;
+
+        while number > 1 {
+            if number & 1 != 0 {
+                round_up = 1;
+            }
+
+            log +=  1;
+            number >>= 1;
+        }
+
+        log + round_up
+    }
+
+    pub fn log2(self, number: u32) -> u32 {
+        match self {
+            RoundingMode::Down => Self::floor_log_2(number),
+            RoundingMode::Up => Self::ceil_log_2(number),
+        }
+    }
+
+
     pub fn divide(self, dividend: u32, divisor: u32) -> u32 {
         let result = dividend / divisor;
+
+        // TODO rounding up: (dividend + divisor - 1) / divisor instead??
+
         match self {
             // round up if rust has been rounding down
             RoundingMode::Up if result * divisor != dividend => {

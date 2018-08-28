@@ -263,7 +263,6 @@ impl DeepScanLineBlock {
         self.y_coordinate.write(write)?;
         (self.compressed_pixel_offset_table.len() as u64).write(write)?;
         (self.compressed_sample_data.len() as u64).write(write)?; // TODO just guessed
-        unimplemented!();
         self.decompressed_sample_data_size.write(write)?;
         write_i8_array(write, &self.compressed_pixel_offset_table)?;
         write_u8_array(write, &self.compressed_sample_data)
@@ -487,7 +486,6 @@ impl SinglePartChunks {
 
                 } else {
                     let mut tile_blocks = Vec::with_capacity(blocks);
-
                     for _ in 0..blocks {
                         tile_blocks.push(DeepTileBlock::read(read)?)
                     }
@@ -506,7 +504,6 @@ impl SinglePartChunks {
 
                 } else {
                     let mut tile_blocks = Vec::with_capacity(blocks);
-
                     for _ in 0..blocks {
                         tile_blocks.push(TileBlock::read(read)?)
                     }
