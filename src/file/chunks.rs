@@ -1,22 +1,5 @@
 //use ::attributes::Compression;
 
-/// For scan line blocks, the line offset table is a sequence of scan line offsets,
-/// with one offset per scan line block. In the table, scan line offsets are
-/// ordered according to increasing scan line y coordinates
-///
-/// For tiles, the offset table is a sequence of tile offsets, one offset per tile.
-/// In the table, scan line offsets are sorted the same way as tiles in IncreasingY order
-///
-/// For multi-part files, each part defined in the header component has a corresponding chunk offset table
-///
-/// If the multipart (12) bit is unset and the chunkCount is not present, the number of entries in the
-/// chunk table is computed using the dataWindow and tileDesc attributes and the compression format.
-/// 2. If the multipart (12) bit is set, the header must contain a chunkCount attribute (which indicates the
-/// size of the table and the number of chunks).
-///
-///
-/// one per chunk, relative to file-start (!) in bytes
-pub type OffsetTable = Vec<u64>;
 
 #[derive(Debug, Clone)]
 pub enum Chunks {
@@ -174,7 +157,7 @@ impl TileCoordinates {
 /// it will not try to allocate that much memory, but instead consider
 /// that decoding the block length has gone wrong
 const MAX_PIXEL_BYTES: usize = 1048576; // 2^20
-use ::file::Header;
+use ::file::meta::Header;
 
 impl ScanLineBlock {
     pub fn validate(&self, header: &Header) -> Validity {
@@ -339,7 +322,7 @@ impl DeepTileBlock {
 }
 
 use ::file::validity::*;
-use ::file::MetaData;
+use ::file::meta::MetaData;
 use ::file::attributes::ParsedText;
 
 impl MultiPartChunk {

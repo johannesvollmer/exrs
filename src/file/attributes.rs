@@ -115,7 +115,7 @@ pub struct Channel {
     /// zero terminated, 1 to 255 bytes
     pub name: Text,
 
-    /// int
+    /// is a i32 in file
     pub pixel_type: PixelType,
 
     pub is_linear: bool,
@@ -552,7 +552,9 @@ impl Channel {
         channels.iter().map(Channel::byte_size).sum::<usize>() + SequenceEnd::byte_size()
     }
 
-    pub fn write_list<W: Write>(channels: &ChannelList, write: &mut W, long_names: bool) -> WriteResult {
+    pub fn write_all<W: Write>(channels: &ChannelList, write: &mut W, long_names: bool) -> WriteResult {
+        // FIXME validate if channel names are sorted alphabetically
+
         for channel in channels {
             channel.write(write, long_names)?;
         }
@@ -560,7 +562,7 @@ impl Channel {
         SequenceEnd::write(write)
     }
 
-    pub fn read_list<R: Read + Seek>(read: &mut R) -> ReadResult<ChannelList> {
+    pub fn read_all<R: Read + Seek>(read: &mut R) -> ReadResult<ChannelList> {
         let mut channels = SmallVec::new();
         while !SequenceEnd::has_come(read)? {
             channels.push(Channel::read(read)?);
@@ -943,7 +945,7 @@ impl AttributeValue {
             I32Vec3(x, y, z) => { x.write(write)?; y.write(write)?; z.write(write) },
             F32Vec3(x, y, z) => { x.write(write)?; y.write(write)?; z.write(write) },
 
-            ChannelList(ref channels) => Channel::write_list(channels, write, long_names),
+            ChannelList(ref channels) => Channel::write_all(channels, write, long_names),
             Chromaticities(ref value) => value.write(write),
             Compression(value) => value.write(write),
             EnvironmentMap(value) => value.write(write),
@@ -984,7 +986,7 @@ impl AttributeValue {
             b"v3i" => I32Vec3(i32::read(read)?, i32::read(read)?, i32::read(read)?),
             b"v3f" => F32Vec3(f32::read(read)?, f32::read(read)?, f32::read(read)?),
 
-            b"chlist" => ChannelList(self::Channel::read_list(read)?),
+            b"chlist" => ChannelList(self::Channel::read_all(read)?),
             b"chromaticities" => Chromaticities(self::Chromaticities::read(read)?),
             b"compression" => Compression(self::Compression::read(read)?),
             b"envmap" => EnvironmentMap(self::EnvironmentMap::read(read)?),

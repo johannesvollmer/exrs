@@ -17,8 +17,8 @@ pub mod prelude {
     pub use file::io::write_file;
     pub use file::io::WriteError;
 
-    pub use file::MetaData;
-    pub use file::RawImage;
+    pub use file::meta::MetaData;
+    pub use file::File;
 }
 
 
@@ -54,7 +54,7 @@ pub mod test {
         test_exr_files(::std::path::Path::new("/home/johannes/Pictures/openexr"))
     }
 
-        #[test]
+    #[test]
     fn print_version_and_headers() {
         use std::time::Instant;
         use ::prelude::*;
