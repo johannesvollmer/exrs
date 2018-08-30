@@ -114,32 +114,28 @@ pub mod uncompressed {
 
 
                 for channel in block_description.channels {
-                    let sampling_y = channel.sampling_y;
-                    let sampling_x = channel.sampling_x;
-
-                    let size = unimplemented!("calculate size based on tile size / scan line, taking care of edge cases, channel subsampling, and mip / rip map levels");
+                    let sampling = channel.sampling;
+                    let resolution = block_description.resolution; //unimplemented!("calculate size based on tile size / scan line, taking care of edge cases, channel subsampling, and mip / rip map levels");
+                    let size = (resolution.0 / sampling.0) * (resolution.1 / sampling.1); // TODO is that how sampling works?
 
                     match channel.pixel_type {
                         PixelType::U32 => {
-                            per_channel_data.push(Array::U32(
-                                ::file::io::read_u32_vec(&mut data.as_slice(), size, ::std::u16::MAX as usize)
+                            per_channel_data.push(ScanLineBlock { data: Array::U32(
+                                ::file::io::read_u32_vec(&mut data.as_slice(), size as usize, ::std::u16::MAX as usize)
                                     .expect("io err when reading from in-memory vec")
-                                    .into_boxed_slice()
-                            ));
+                            )});
                         },
                         PixelType::F16 => {
-                            per_channel_data.push(Array::F16(
-                                ::file::io::read_f16_array(&mut data.as_slice(), size, ::std::u16::MAX as usize)
+                            per_channel_data.push(ScanLineBlock { data: Array::F16(
+                                ::file::io::read_f16_array(&mut data.as_slice(), size as usize, ::std::u16::MAX as usize)
                                     .expect("io err when reading from in-memory vec")
-                                    .into_boxed_slice()
-                            ));
+                            )});
                         },
                         PixelType::F32 => {
-                            per_channel_data.push(Array::F32(
-                                ::file::io::read_f32_vec(&mut data.as_slice(), size, ::std::u16::MAX as usize)
+                            per_channel_data.push(ScanLineBlock { data: Array::F32(
+                                ::file::io::read_f32_vec(&mut data.as_slice(), size as usize, ::std::u16::MAX as usize)
                                     .expect("io err when reading from in-memory vec")
-                                    .into_boxed_slice()
-                            ));
+                            )});
                         },
                     }
                 }

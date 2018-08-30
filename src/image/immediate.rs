@@ -70,12 +70,12 @@ pub fn buffered_read<R: Read + Seek>(unbuffered: R) -> ReadResult<Image> {
 pub fn read_seekable_buffered<R: Read + Seek>(read: &mut R) -> ReadResult<Image> {
     let meta_data = MetaData::read(read)?;
     let chunks = Chunks::read(read, &meta_data)?;
-    Image::from_raw(meta_data, data) // TODO start compressing while reading more blocks, not just after finishing
+    Image::from_raw(meta_data, chunks) // TODO start compressing while reading more blocks, not just after finishing
 }
 
 
 impl Image {
-    pub fn from_raw(meta_data: MetaData, data: Chunks) -> ReadResult<Self> {
+    pub fn from_raw(meta_data: MetaData, chunks: Chunks) -> ReadResult<Self> {
         meta_data.validate()?;
 //        data.validate()?;
 
@@ -86,42 +86,48 @@ impl Image {
             Chunks::SinglePart(part) => {
                 let header = headers.get(0).expect("single part without header");
 
-                let (data_width, data_height) = head.data_window().dimensions().0;
-                let channels = head.channels();
+                let (data_width, data_height) = header.data_window().dimensions();
+                let channels = header.channels();
                 let compression = header.compression();
 
                 let channel_descriptions = channels.iter()
                     .map(|channel| ChannelDescription {
-                        sampling: (channel.sampling_x, channel.sampling_y),
+                        sampling: (channel.x_sampling, channel.y_sampling),
                         pixel_type: channel.pixel_type,
                     })
-                    .collect();
+                    .collect::<PerChannel<_>>();
 
                 use ::file::data::compressed::SinglePartChunks::*;
                 match part {
                     ScanLine(scan_lines) => {
                         // contains ALL pixels per channel
-                        let decompressed_channels = PerChannel::new();
+                        let mut decompressed_channels: PerChannel<Array> = PerChannel::new();
 
                         let decompressed_chunks = scan_lines
                             .into_iter().enumerate()
                             .map(|(index, compressed_data)|{
                                 // how much the last row is cut off
-                                let block_overflow = (index + 1) * compressed_data - data_height;
-                                let height = compression.scan_lines_per_block() - block_overflow;
+                                let block_size = compression.scan_lines_per_block();
+                                let block_overflow = (index + 1) * block_size - data_height as usize;
+                                let height = block_size - block_overflow;
 
                                 let block_description = BlockDescription {
-                                    resolution: (data_window, height),
+                                    resolution: (data_width as i32, height as i32), // TODO dont cast but use one type consistently
                                     channels: channel_descriptions.clone(),
                                     kind: BlockKind::ScanLine,
                                 };
 
                                 let decompressed_block = ::file::data::compression::decompress(
-                                    compression, block_description, block, uncompressed_size
+                                    compression, block_description, &compressed_data.compressed_pixels, None // uncompressed_size
                                 );
 
                                 for (index, channel) in decompressed_block.iter().enumerate() {
-                                    decompressed_channels[index].push(channel);
+                                    match channel {
+                                        DataBlock::ScanLine(per_channel) => {
+                                            decompressed_channels[index].push(per_channel);
+                                        },
+                                        _ => panic!("incorrect data block type uncompressed") // TODO generic instead of runtime enum?
+                                    }
                                 }
 
                                 decompressed_block.unwrap()

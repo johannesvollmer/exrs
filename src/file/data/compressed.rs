@@ -489,72 +489,67 @@ impl SinglePartChunks {
         })
     }
 
-    pub fn read_parallel<R: Read>(read: &mut R, meta_data: &MetaData, sender: Sender<ChunkUpdate<DynamicBlock>>) {
+    pub fn read_parallel<R: Read>(read: &mut R, meta_data: MetaData, sender: Sender<ChunkUpdate<DynamicBlock>>) {
         assert_eq!(meta_data.headers.len(), 1, "single_part_chunks called with multiple headers");
-        let header = &meta_data.headers[0];
 
         // TODO is there a better way to figure out if this image contains tiles?
-        let is_tiled = header.tiles().is_some();
+        let is_tiled = meta_data.headers[0].tiles().is_some();
         let is_deep = meta_data.version.has_deep_data;
 
         assert_eq!(meta_data.offset_tables.len(), 1, "single_part_chunks called with multiple offset tables");
-        let offset_table = &meta_data.offset_tables[0];
-        let blocks = offset_table.len();
+        let blocks = meta_data.offset_tables[0].len();
 
+        if is_deep {
+            if !is_tiled {
+                sender.send(ChunkUpdate::ExpectingChunks { additional: blocks }).unwrap();
+                for _ in 0..blocks {
+                    sender.send(ChunkUpdate::Chunk(
+                        DeepScanLineBlock::read(read)
+                            .map(|block| DynamicBlock::DeepScanLine(Box::new(block)))
 
-        Ok({
-            if is_deep {
-                if !is_tiled {
-                    sender.send(ChunkUpdate::ExpectingChunks { additional: blocks }).unwrap();
-                    for _ in 0..blocks {
-                        sender.send(ChunkUpdate::Chunk(
-                            DeepScanLineBlock::read(read)
-                                .map(|block| DynamicBlock::DeepScanLine(Box::new(block)))
-
-                        )).unwrap();
-                    }
-
-                    sender.send(ChunkUpdate::Finished).unwrap();
-
-                } else {
-                    sender.send(ChunkUpdate::ExpectingChunks { additional: blocks }).unwrap();
-                    for _ in 0..blocks {
-                        sender.send(ChunkUpdate::Chunk(
-                            DeepTileBlock::read(read)
-                                .map(|block| DynamicBlock::DeepTile(Box::new(block)))
-
-                        )).unwrap();
-                    }
-
-                    sender.send(ChunkUpdate::Finished).unwrap();
+                    )).unwrap();
                 }
+
+                sender.send(ChunkUpdate::Finished(meta_data)).unwrap();
+
             } else {
-                if !is_tiled {
-                    sender.send(ChunkUpdate::ExpectingChunks { additional: blocks }).unwrap();
-                    for _ in 0..blocks {
-                        sender.send(ChunkUpdate::Chunk(
-                            ScanLineBlock::read(read)
-                                .map(|block| DynamicBlock::ScanLine(block))
+                sender.send(ChunkUpdate::ExpectingChunks { additional: blocks }).unwrap();
+                for _ in 0..blocks {
+                    sender.send(ChunkUpdate::Chunk(
+                        DeepTileBlock::read(read)
+                            .map(|block| DynamicBlock::DeepTile(Box::new(block)))
 
-                        )).unwrap();
-                    }
-
-                    sender.send(ChunkUpdate::Finished).unwrap();
-
-                } else {
-                    sender.send(ChunkUpdate::ExpectingChunks { additional: blocks }).unwrap();
-                    for _ in 0..blocks {
-                        sender.send(ChunkUpdate::Chunk(
-                            TileBlock::read(read)
-                                .map(|block| DynamicBlock::Tile(block))
-
-                        )).unwrap();
-                    }
-
-                    sender.send(ChunkUpdate::Finished).unwrap();
+                    )).unwrap();
                 }
+
+                sender.send(ChunkUpdate::Finished(meta_data)).unwrap();
             }
-        })
+        } else {
+            if !is_tiled {
+                sender.send(ChunkUpdate::ExpectingChunks { additional: blocks }).unwrap();
+                for _ in 0..blocks {
+                    sender.send(ChunkUpdate::Chunk(
+                        ScanLineBlock::read(read)
+                            .map(|block| DynamicBlock::ScanLine(block))
+
+                    )).unwrap();
+                }
+
+                sender.send(ChunkUpdate::Finished(meta_data)).unwrap();
+
+            } else {
+                sender.send(ChunkUpdate::ExpectingChunks { additional: blocks }).unwrap();
+                for _ in 0..blocks {
+                    sender.send(ChunkUpdate::Chunk(
+                        TileBlock::read(read)
+                            .map(|block| DynamicBlock::Tile(block))
+
+                    )).unwrap();
+                }
+
+                sender.send(ChunkUpdate::Finished(meta_data)).unwrap();
+            }
+        }
     }
 }
 
@@ -570,7 +565,7 @@ pub enum ChunksReceiver {
 pub enum ChunkUpdate<T> {
     ExpectingChunks { additional: usize },
     Chunk(ReadResult<T>),
-    Finished,
+    Finished(MetaData),
 }
 
 impl Chunks {
@@ -611,35 +606,33 @@ impl Chunks {
         })
     }
 
-    pub fn read_parallel<R: Read>(read: &mut R, meta_data: &MetaData) -> ChunksReceiver {
-        Ok({
-            if meta_data.version.has_multiple_parts {
-                let (sender, receiver) = mpsc::channel();
+    pub fn read_parallel<R: Read + Send + 'static>(mut read: R, meta_data: MetaData) -> ChunksReceiver {
+        if meta_data.version.has_multiple_parts {
+            let (sender, receiver) = mpsc::channel();
 
-                ::std::thread::spawn(move ||{
-                    for offset_table in &meta_data.offset_tables {
-                        sender.send(ChunkUpdate::ExpectingChunks { additional: offset_table.len() }).unwrap();
+            ::std::thread::spawn(move ||{
+                for offset_table in &meta_data.offset_tables {
+                    sender.send(ChunkUpdate::ExpectingChunks { additional: offset_table.len() }).unwrap();
 
-                        for _ in 0..offset_table.len() {
-                            sender.send(ChunkUpdate::Chunk(MultiPartChunk::read(read, meta_data))).unwrap();
-                        }
+                    for _ in 0..offset_table.len() {
+                        sender.send(ChunkUpdate::Chunk(MultiPartChunk::read(&mut read, &meta_data))).unwrap();
                     }
+                }
 
-                    sender.send(ChunkUpdate::Finished).unwrap();
-                });
+                sender.send(ChunkUpdate::Finished(meta_data)).unwrap();
+            });
 
-                ChunksReceiver::MultiPart(receiver)
+            ChunksReceiver::MultiPart(receiver)
 
-            } else {
-                let (sender, receiver) = mpsc::channel();
-                // Chunks::SinglePart(SinglePartChunks::read(read, meta_data)?);
+        } else {
+            let (sender, receiver) = mpsc::channel();
+            // Chunks::SinglePart(SinglePartChunks::read(read, meta_data)?);
 
-                ::std::thread::spawn(move ||{
-                    SinglePartChunks::read_parallel(read, meta_data, sender);
-                });
+            ::std::thread::spawn(move ||{
+                SinglePartChunks::read_parallel(&mut read, meta_data, sender);
+            });
 
-                ChunksReceiver::SinglePart(receiver)
-            }
-        })
+            ChunksReceiver::SinglePart(receiver)
+        }
     }
 }

@@ -74,7 +74,7 @@ pub mod test {
             println!("\ndecoded file in {:?} ms", millis);
 
         } else {
-            println!("Error: {:?}", image);
+            println!("Error: {:?}", image.err().unwrap());
         }
     }
 

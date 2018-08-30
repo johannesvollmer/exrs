@@ -313,16 +313,17 @@ pub fn read_f32_vec<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_m
 }
 
 use ::half::f16;
-use ::file::data::uncompressed::F16Array;
+use ::file::data::uncompressed::F16Data;
 
 /// The representation of 16-bit floating-point numbers is analogous to IEEE 754,
 /// but with 5 exponent bits and 10 bits for the fraction
 // reads an u16 array first and then interprets it as f16
-pub fn read_f16_array<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_max: usize) -> ReadResult<F16Array> {
+pub fn read_f16_array<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_max: usize) -> ReadResult<F16Data> {
     if data_size < estimated_max {
         let mut data = vec![0; data_size];
         read.read_u16_into::<LittleEndian>(&mut data)?;
-        Ok(F16Array::from_bits(data.into_boxed_slice()))
+        data.shrink_to_fit();
+        Ok(F16Data::from_bits(data))
 
     } else {
         println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
@@ -338,7 +339,8 @@ pub fn read_f16_array<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated
             data.push(u16::read(read)?);
         }
 
-        Ok(F16Array::from_bits(data.into_boxed_slice()))
+        data.shrink_to_fit();
+        Ok(F16Data::from_bits(data))
     }
 }
 
