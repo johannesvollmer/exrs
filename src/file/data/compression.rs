@@ -1,26 +1,17 @@
-use ::file::attributes::PixelType;
+use ::file::meta::attributes::PixelType;
 use ::smallvec::SmallVec;
-use ::image::{BlockKind, Channels, PixelDataPerChannel, PixelData};
-use ::image::{ScanLineBlock, TileBlock, DeepScanLineBlock, DeepTileBlock};
+use super::uncompressed::*;
 
 
 #[derive(Debug, Clone)]
-pub enum CompressionError {
-    ZipError(String),
+pub enum Error {
 }
 
-pub type Result<T> = ::std::result::Result<T, CompressionError>;
+pub type Result<T> = ::std::result::Result<T, Error>;
 pub type CompressedData = Vec<u8>;
-pub type UncompressedData = DataSection;
+pub type UncompressedData = DataBlock;
 
 
-
-pub enum DataSection {
-    ScanLine(ScanLineBlock),
-    Tile(TileBlock),
-    DeepScanLine(DeepScanLineBlock),
-    DeepTile(DeepTileBlock)
-}
 
 
 
@@ -57,7 +48,7 @@ pub enum Compression {
 }
 
 
-pub fn compress(method: Compression, data: UncompressedData) -> Result<CompressedData> {
+pub fn compress(method: Compression, data: &UncompressedData) -> Result<CompressedData> {
     use self::Compression::*;
     match method {
         None => uncompressed::pack(data),
@@ -68,13 +59,17 @@ pub fn compress(method: Compression, data: UncompressedData) -> Result<Compresse
 }
 
 pub fn decompress(
-    method: Compression, block_kind: BlockKind,
-    data: CompressedData, uncompressed_size: Option<usize>, channels: &Channels
-) -> Result<UncompressedData>
+    method: Compression,
+    block_description: BlockDescription,
+
+    data: &CompressedData,
+    uncompressed_size: Option<usize>,
+)
+    -> Result<UncompressedData>
 {
     use self::Compression::*;
     match method {
-        None => uncompressed::unpack(block_kind, data, channels),
+        None => uncompressed::unpack(block_description, data),
         ZIP => zip::decompress(data, uncompressed_size),
         ZIPS => zip::decompress(data, uncompressed_size),
         RLE => unimplemented!(),
@@ -109,36 +104,38 @@ impl Compression {
 pub mod uncompressed {
     use super::*;
 
-    pub fn unpack(
-        block_kind: BlockKind,
-        data: CompressedData,
-        target_channels: &Channels
-    ) -> Result<UncompressedData>
-    {
-        match block_kind {
+    pub fn unpack(block_description: BlockDescription, data: &CompressedData) -> Result<UncompressedData> {
+        match block_description.kind {
             BlockKind::ScanLine => {
-                let mut per_channel_data = PixelDataPerChannel::new();
+                let mut per_channel_data = PerChannel::new();
+                let lines_per_block = Compression::None.scan_lines_per_block();
+                let map_level_x = unimplemented!("are mip map levels only for tiles?");
+                let map_level_y = unimplemented!();
 
-                for channel in target_channels {
+
+                for channel in block_description.channels {
+                    let sampling_y = channel.sampling_y;
+                    let sampling_x = channel.sampling_x;
+
                     let size = unimplemented!("calculate size based on tile size / scan line, taking care of edge cases, channel subsampling, and mip / rip map levels");
 
                     match channel.pixel_type {
                         PixelType::U32 => {
-                            per_channel_data.push(PixelData::U32(
+                            per_channel_data.push(Array::U32(
                                 ::file::io::read_u32_vec(&mut data.as_slice(), size, ::std::u16::MAX as usize)
                                     .expect("io err when reading from in-memory vec")
                                     .into_boxed_slice()
                             ));
                         },
                         PixelType::F16 => {
-                            per_channel_data.push(PixelData::F16(
-                                ::file::io::read_f16_vec(&mut data.as_slice(), size, ::std::u16::MAX as usize)
+                            per_channel_data.push(Array::F16(
+                                ::file::io::read_f16_array(&mut data.as_slice(), size, ::std::u16::MAX as usize)
                                     .expect("io err when reading from in-memory vec")
                                     .into_boxed_slice()
                             ));
                         },
                         PixelType::F32 => {
-                            per_channel_data.push(PixelData::F32(
+                            per_channel_data.push(Array::F32(
                                 ::file::io::read_f32_vec(&mut data.as_slice(), size, ::std::u16::MAX as usize)
                                     .expect("io err when reading from in-memory vec")
                                     .into_boxed_slice()
@@ -147,7 +144,7 @@ pub mod uncompressed {
                     }
                 }
 
-                Ok(DataSection::ScanLine(ScanLineBlock { per_channel_data }))
+                Ok(DataBlock::ScanLine(per_channel_data))
 
             },
             BlockKind::Tile => {
@@ -162,7 +159,7 @@ pub mod uncompressed {
         }
     }
 
-    pub fn pack(_data: UncompressedData) -> Result<CompressedData> {
+    pub fn pack(_data: &UncompressedData) -> Result<CompressedData> {
         unimplemented!()
     }
 }
@@ -175,7 +172,7 @@ pub mod zip {
     use std::io::{self, Read};
     use ::libflate::zlib::{Encoder, Decoder};
 
-    pub fn decompress(data: CompressedData, uncompressed_size: Option<usize>) -> Result<UncompressedData> {
+    pub fn decompress(data: &CompressedData, uncompressed_size: Option<usize>) -> Result<UncompressedData> {
         let mut decoder = Decoder::new(data.as_slice())
             .expect("io error when reading from in-memory vec");
 
@@ -185,7 +182,7 @@ pub mod zip {
 //        super::uncompressed::unpack(decompressed)
     }
 
-    pub fn compress(data: UncompressedData) -> Result<CompressedData> {
+    pub fn compress(data: &UncompressedData) -> Result<CompressedData> {
         unimplemented!("encode the first derivative");
         let mut encoder = Encoder::new(Vec::with_capacity(128))
             .expect("io error when writing to in-memory vec");

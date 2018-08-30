@@ -17,9 +17,9 @@ but it is already able to read all files from the
 Sadly, decompressing the read pixel data is not yet possible.
 _Highly experimental!_
 
-__Currently supported EXR features:__
+__Currently supported:__
 
-- [x] Loading without errors
+- [x] Loading bytes without errors
     - [x] Singlepart
         - [x] Tiles
         - [x] Scan lines
@@ -37,16 +37,26 @@ __Currently supported EXR features:__
     - [x] Non-Standard Attributes
         - [x] Reading those with known types
         - [x] Skipping those with unknown types
-        - [ ] Allowing you to parse your own attribute types
     
-- [ ] Interpreting loaded data
-    - [ ] __Decompress compressed pixel data__
+- [ ] Interpreting loaded data as image pixels
+    - [ ] Pixel Data Compression
+        - [ ] Uncompressed
+        - [ ] ZIP / ZIPS
+        - [ ] RLE
+        - [ ] PIZ
+        - [ ] RXR24
+        - [ ] B44 / B44A
+        - [ ] DWAA / DWAB
     - [ ] Simple RGBA conversion
     - [ ] Simple preview attribute extraction
     
-- [ ] Writing
-- [ ] Memory Mapping
+- [ ] Decompressing multiple blocks in parallel
+- [ ] Writing images
 - [ ] Loading Metadata and specific tiles or blocks separately
+- [ ] Memory Mapping
+- [ ] Profiling and real optimization
+- [ ] Allowing you to parse your own attribute types
+- [ ] IO Progress callback
 
 __Be sure to come back in a few weeks.__
 

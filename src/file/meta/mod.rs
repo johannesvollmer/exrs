@@ -1,10 +1,11 @@
 
+pub mod attributes;
+
 use super::validity::*;
 use super::{*, io::*};
 
 use ::smallvec::SmallVec;
-use ::file::attributes::*;
-use super::io::Data;
+use self::attributes::*;
 
 
 #[derive(Debug, Clone)]
@@ -519,7 +520,7 @@ impl Header {
                     let index = attributes.len();
 
                     // TODO replace these literals with constants
-                    use ::file::attributes::required::*;
+                    use ::file::meta::attributes::required::*;
                     match attribute.name.bytes.as_slice() {
                         TILES => tiles = Some(index),
                         NAME => name = Some(index),
@@ -571,6 +572,8 @@ impl Header {
 impl MetaData {
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         self.validate()?;
+
+        MagicNumber::write(write)?;
         self.version.write(write)?;
         Header::write_all(&self.headers, write, self.version)?;
 
@@ -579,6 +582,7 @@ impl MetaData {
     }
 
     pub fn read<R: Read + Seek>(read: &mut R) -> ReadResult<Self> {
+        MagicNumber::validate_exr(read)?;
         let version = Version::read(read)?;
         let headers = Header::read_all(read, version)?;
         let offset_tables = read_offset_tables(read, version, &headers)?;
@@ -632,7 +636,7 @@ pub fn read_offset_table<R: Seek + Read>(
                     RoundingMode::Up.divide(full_res, tile_size)
                 }
 
-                use ::file::attributes::LevelMode::*;
+                use ::file::meta::attributes::LevelMode::*;
                 match tiles.level_mode {
                     One => {
                         tile_count(data_width, tile_width) * tile_count(data_height, tile_height)

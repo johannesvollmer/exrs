@@ -11,14 +11,13 @@ extern crate half;
 // TODO various compiler tweaks, such as export RUSTFLAGS='-Ctarget-cpu=native'
 
 pub mod prelude {
-    pub use file::io::read_file;
+//    pub use file::io::read_file;
     pub use file::io::ReadError;
 
-    pub use file::io::write_file;
+//    pub use file::io::write_file;
     pub use file::io::WriteError;
 
     pub use file::meta::MetaData;
-    pub use file::File;
 }
 
 
@@ -42,7 +41,7 @@ pub mod test {
         fn test_exr_files(path: &Path){
             if let Some("exr") = path.extension().and_then(|os| os.to_str()) {
                 print!("testing file {:?}... ", path.file_name().unwrap());
-                println!("{}", read_file(path).map(|_| "no errors").unwrap());
+                println!("{}", ::image::immediate::read_file(path).map(|_| "no errors").unwrap());
 
             } else if path.is_dir() {
                 for sub_dir in ::std::fs::read_dir(path).unwrap() {
@@ -61,7 +60,7 @@ pub mod test {
 
         let now = Instant::now();
 
-        let image = read_file(::std::path::Path::new(
+        let image = ::image::immediate::read_file(::std::path::Path::new(
             "/home/johannes/Pictures/openexr/openexr-images-master/MultiResolution/ColorCodedLevels.exr"
         ));
 
@@ -70,8 +69,8 @@ pub mod test {
         let millis = elapsed.as_secs() * 1000 + elapsed.subsec_millis() as u64;
 
         if let Ok(image) = image {
-            println!("header_0 channels: {:#?}", image.meta_data.headers[0].channels());
-            println!("\nversion: {:#?}", image.meta_data.version);
+            println!("header_0 channels: {:#?}", image.parts[0].header.channels());
+            println!("\nversion: {:#?}", image.version);
             println!("\ndecoded file in {:?} ms", millis);
 
         } else {

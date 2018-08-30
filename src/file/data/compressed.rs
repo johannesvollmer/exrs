@@ -1,5 +1,5 @@
 //use ::attributes::Compression;
-
+use ::file::meta::attributes::ParsedText;
 
 #[derive(Debug, Clone)]
 pub enum Chunks {
@@ -13,7 +13,7 @@ pub struct MultiPartChunk {
     /// by the first header and the first chunk offset table
     /// PDF sais u64, but source code seems to be `int`
     pub part_number: i32,
-    pub block: MultiPartBlock,
+    pub block: DynamicBlock,
 }
 
 #[derive(Debug, Clone)]
@@ -33,7 +33,7 @@ pub enum SinglePartChunks {
 
 /// Each block in a multipart file can have a different type
 #[derive(Debug, Clone)]
-pub enum MultiPartBlock {
+pub enum DynamicBlock {
     /// type attribute “scanlineimage”
     ScanLine(ScanLineBlock),
 
@@ -116,17 +116,6 @@ pub struct DeepTileBlock {
     /// Exception: For ZIP_COMPRESSION only there will be
     /// up to 16 scanlines in the packed sample data block
     pub compressed_sample_data: Vec<u8>,
-}
-
-
-/// encoded as i32-size followed by u8 sequence
-#[derive(Debug, Clone)]
-pub enum FlatPixelData {
-    Compressed(Vec<u8>),
-
-    /// When decompressed, the unpacked chunk consists of
-    /// the channel data stored in a non-interleaved fashion
-    Decompressed(Vec<u8>)
 }
 
 
@@ -323,7 +312,6 @@ impl DeepTileBlock {
 
 use ::file::validity::*;
 use ::file::meta::MetaData;
-use ::file::attributes::ParsedText;
 
 impl MultiPartChunk {
     pub fn write<W: Write>(&self, write: &mut W, meta_data: &MetaData) -> WriteResult {
@@ -337,10 +325,10 @@ impl MultiPartChunk {
         let header = &meta_data.headers[self.part_number as usize];
 
         match self.block {
-            MultiPartBlock::ScanLine    (ref value) => { value.validate(header)?; value.write(write) },
-            MultiPartBlock::Tile        (ref value) => { value.validate(header)?; value.write(write) },
-            MultiPartBlock::DeepScanLine(ref value) => { value.validate(header)?; value.write(write) },
-            MultiPartBlock::DeepTile    (ref value) => { value.validate(header)?; value.write(write) },
+            DynamicBlock::ScanLine    (ref value) => { value.validate(header)?; value.write(write) },
+            DynamicBlock::Tile        (ref value) => { value.validate(header)?; value.write(write) },
+            DynamicBlock::DeepScanLine(ref value) => { value.validate(header)?; value.write(write) },
+            DynamicBlock::DeepTile    (ref value) => { value.validate(header)?; value.write(write) },
         }
     }
 
@@ -368,10 +356,10 @@ impl MultiPartChunk {
         Ok(MultiPartChunk {
             part_number,
             block: match kind/*TODO .as_kind()? */ {
-                ParsedText::ScanLine        => MultiPartBlock::ScanLine(ScanLineBlock::read(read)?),
-                ParsedText::Tile            => MultiPartBlock::Tile(TileBlock::read(read)?),
-                ParsedText::DeepScanLine    => MultiPartBlock::DeepScanLine(Box::new(DeepScanLineBlock::read(read)?)),
-                ParsedText::DeepTile        => MultiPartBlock::DeepTile(Box::new(DeepTileBlock::read(read)?)),
+                ParsedText::ScanLine        => DynamicBlock::ScanLine(ScanLineBlock::read(read)?),
+                ParsedText::Tile            => DynamicBlock::Tile(TileBlock::read(read)?),
+                ParsedText::DeepScanLine    => DynamicBlock::DeepScanLine(Box::new(DeepScanLineBlock::read(read)?)),
+                ParsedText::DeepTile        => DynamicBlock::DeepTile(Box::new(DeepTileBlock::read(read)?)),
                 _ => panic!("check failed: `kind` is not a valid type string"),
             },
         })
@@ -390,6 +378,7 @@ impl SinglePartChunks {
 
         match *self {
             SinglePartChunks::ScanLine(ref lines) => {
+                println!("TODO sort chunks!");
                 if offset_table.len() != lines.len() {
                     return Err(Invalid::Combination(&[
                         Value::Part("offset_table size"),
@@ -403,6 +392,7 @@ impl SinglePartChunks {
                 Ok(())
             },
             SinglePartChunks::Tile(ref tiles) => {
+                println!("TODO sort chunks!");
                 if offset_table.len() != tiles.len() {
                     return Err(Invalid::Combination(&[
                         Value::Part("offset_table size"),
@@ -416,6 +406,7 @@ impl SinglePartChunks {
                 Ok(())
             }
             SinglePartChunks::DeepScanLine(ref lines) => {
+                println!("TODO sort chunks!");
                 if offset_table.len() != lines.len() {
                     return Err(Invalid::Combination(&[
                         Value::Part("offset_table size"),
@@ -429,6 +420,7 @@ impl SinglePartChunks {
                 Ok(())
             },
             SinglePartChunks::DeepTile(ref tiles) => {
+                println!("TODO sort chunks!");
                 if offset_table.len() != tiles.len() {
                     return Err(Invalid::Combination(&[
                         Value::Part("offset_table size"),
@@ -496,6 +488,89 @@ impl SinglePartChunks {
             }
         })
     }
+
+    pub fn read_parallel<R: Read>(read: &mut R, meta_data: &MetaData, sender: Sender<ChunkUpdate<DynamicBlock>>) {
+        assert_eq!(meta_data.headers.len(), 1, "single_part_chunks called with multiple headers");
+        let header = &meta_data.headers[0];
+
+        // TODO is there a better way to figure out if this image contains tiles?
+        let is_tiled = header.tiles().is_some();
+        let is_deep = meta_data.version.has_deep_data;
+
+        assert_eq!(meta_data.offset_tables.len(), 1, "single_part_chunks called with multiple offset tables");
+        let offset_table = &meta_data.offset_tables[0];
+        let blocks = offset_table.len();
+
+
+        Ok({
+            if is_deep {
+                if !is_tiled {
+                    sender.send(ChunkUpdate::ExpectingChunks { additional: blocks }).unwrap();
+                    for _ in 0..blocks {
+                        sender.send(ChunkUpdate::Chunk(
+                            DeepScanLineBlock::read(read)
+                                .map(|block| DynamicBlock::DeepScanLine(Box::new(block)))
+
+                        )).unwrap();
+                    }
+
+                    sender.send(ChunkUpdate::Finished).unwrap();
+
+                } else {
+                    sender.send(ChunkUpdate::ExpectingChunks { additional: blocks }).unwrap();
+                    for _ in 0..blocks {
+                        sender.send(ChunkUpdate::Chunk(
+                            DeepTileBlock::read(read)
+                                .map(|block| DynamicBlock::DeepTile(Box::new(block)))
+
+                        )).unwrap();
+                    }
+
+                    sender.send(ChunkUpdate::Finished).unwrap();
+                }
+            } else {
+                if !is_tiled {
+                    sender.send(ChunkUpdate::ExpectingChunks { additional: blocks }).unwrap();
+                    for _ in 0..blocks {
+                        sender.send(ChunkUpdate::Chunk(
+                            ScanLineBlock::read(read)
+                                .map(|block| DynamicBlock::ScanLine(block))
+
+                        )).unwrap();
+                    }
+
+                    sender.send(ChunkUpdate::Finished).unwrap();
+
+                } else {
+                    sender.send(ChunkUpdate::ExpectingChunks { additional: blocks }).unwrap();
+                    for _ in 0..blocks {
+                        sender.send(ChunkUpdate::Chunk(
+                            TileBlock::read(read)
+                                .map(|block| DynamicBlock::Tile(block))
+
+                        )).unwrap();
+                    }
+
+                    sender.send(ChunkUpdate::Finished).unwrap();
+                }
+            }
+        })
+    }
+}
+
+
+use ::std::sync::mpsc::{Sender, Receiver};
+use ::std::sync::mpsc;
+
+pub enum ChunksReceiver {
+    MultiPart(Receiver<ChunkUpdate<MultiPartChunk>>),
+    SinglePart(Receiver<ChunkUpdate<DynamicBlock>>),
+}
+
+pub enum ChunkUpdate<T> {
+    ExpectingChunks { additional: usize },
+    Chunk(ReadResult<T>),
+    Finished,
 }
 
 impl Chunks {
@@ -532,6 +607,38 @@ impl Chunks {
 
             } else {
                 Chunks::SinglePart(SinglePartChunks::read(read, meta_data)?)
+            }
+        })
+    }
+
+    pub fn read_parallel<R: Read>(read: &mut R, meta_data: &MetaData) -> ChunksReceiver {
+        Ok({
+            if meta_data.version.has_multiple_parts {
+                let (sender, receiver) = mpsc::channel();
+
+                ::std::thread::spawn(move ||{
+                    for offset_table in &meta_data.offset_tables {
+                        sender.send(ChunkUpdate::ExpectingChunks { additional: offset_table.len() }).unwrap();
+
+                        for _ in 0..offset_table.len() {
+                            sender.send(ChunkUpdate::Chunk(MultiPartChunk::read(read, meta_data))).unwrap();
+                        }
+                    }
+
+                    sender.send(ChunkUpdate::Finished).unwrap();
+                });
+
+                ChunksReceiver::MultiPart(receiver)
+
+            } else {
+                let (sender, receiver) = mpsc::channel();
+                // Chunks::SinglePart(SinglePartChunks::read(read, meta_data)?);
+
+                ::std::thread::spawn(move ||{
+                    SinglePartChunks::read_parallel(read, meta_data, sender);
+                });
+
+                ChunksReceiver::SinglePart(receiver)
             }
         })
     }

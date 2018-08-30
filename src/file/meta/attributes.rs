@@ -89,7 +89,7 @@ pub mod kind {
 }
 
 
-pub use ::file::compress::Compression;
+pub use ::file::data::compression::Compression;
 
 pub type DataWindow = I32Box2;
 pub type DisplayWindow = I32Box2;
