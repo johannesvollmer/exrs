@@ -29,7 +29,7 @@ pub struct Part {
     /// 2x1, 2x2, 2x4, 2x8, and then
     /// 4x1, 4x2, 4x4, 4x8, and then
     /// 8x1, 8x2, 8x4, 8x8.
-    pub levels: Vec<PartData>
+    pub levels: SmallVec<[PartData; 1]>
 
     // offset tables are already processed while loading 'data'
     // TODO skip reading offset tables if not required?
@@ -68,22 +68,84 @@ pub fn buffered_read<R: Read + Seek>(unbuffered: R) -> ReadResult<Image> {
 /// assumes that `Read` is buffered
 #[must_use]
 pub fn read_seekable_buffered<R: Read + Seek>(read: &mut R) -> ReadResult<Image> {
-    let MetaData { version, headers, offset_tables } = MetaData::read(read)?;
-
-    // TODO parallel decompressing
+    let meta_data = MetaData::read(read)?;
     let chunks = Chunks::read(read, &meta_data)?;
+    Image::from_raw(meta_data, data) // TODO start compressing while reading more blocks, not just after finishing
+}
 
-    Ok(Image {
-        version,
-        parts: headers.into_iter().zip(offset_tables.into_iter())
-            .map(|header, table|{
-                Part {
-                    header,
-                    levels: unimplemented!(),
+
+impl Image {
+    pub fn from_raw(meta_data: MetaData, data: Chunks) -> ReadResult<Self> {
+        meta_data.validate()?;
+//        data.validate()?;
+
+        let MetaData { version, headers, offset_tables } = meta_data; // TODO skip offset table reading if possible
+
+        // TODO parallel decompressing
+        match chunks {
+            Chunks::SinglePart(part) => {
+                let header = headers.get(0).expect("single part without header");
+
+                let (data_width, data_height) = head.data_window().dimensions().0;
+                let channels = head.channels();
+                let compression = header.compression();
+
+                let channel_descriptions = channels.iter()
+                    .map(|channel| ChannelDescription {
+                        sampling: (channel.sampling_x, channel.sampling_y),
+                        pixel_type: channel.pixel_type,
+                    })
+                    .collect();
+
+                use ::file::data::compressed::SinglePartChunks::*;
+                match part {
+                    ScanLine(scan_lines) => {
+                        // contains ALL pixels per channel
+                        let decompressed_channels = PerChannel::new();
+
+                        let decompressed_chunks = scan_lines
+                            .into_iter().enumerate()
+                            .map(|(index, compressed_data)|{
+                                // how much the last row is cut off
+                                let block_overflow = (index + 1) * compressed_data - data_height;
+                                let height = compression.scan_lines_per_block() - block_overflow;
+
+                                let block_description = BlockDescription {
+                                    resolution: (data_window, height),
+                                    channels: channel_descriptions.clone(),
+                                    kind: BlockKind::ScanLine,
+                                };
+
+                                let decompressed_block = ::file::data::compression::decompress(
+                                    compression, block_description, block, uncompressed_size
+                                );
+
+                                for (index, channel) in decompressed_block.iter().enumerate() {
+                                    decompressed_channels[index].push(channel);
+                                }
+
+                                decompressed_block.unwrap()
+                            })
+                            .collect();
+
+                        Ok(Image {
+                            version,
+                            parts: SmallVec::from_slice([Part {
+                                header,
+                                levels: SmallVec::from_slice(&[PartData::Flat(decompressed_channels)]),
+                            }]),
+                        })
+
+                    },
+                    _ => unimplemented!()
                 }
-            })
-            .collect(),
-    })
+
+            },
+            Chunks::MultiPart(parts) => unimplemented!()
+        }
+
+
+    }
 }
 
 
