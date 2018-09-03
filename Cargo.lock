@@ -28,7 +28,7 @@ dependencies = [
 
 [[package]]
 name = "half"
-version = "1.1.2"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -47,7 +47,7 @@ version = "0.1.0"
 dependencies = [
  "bit_field 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "half 1.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "half 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libflate 0.1.16 (registry+https://github.com/rust-lang/crates.io-index)",
  "seek_bufread 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "smallvec 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -85,7 +85,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum build_const 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "39092a32794787acd8525ee150305ff051b0aa6cc2abaf193924f5ab05425f39"
 "checksum byteorder 1.2.4 (registry+https://github.com/rust-lang/crates.io-index)" = "8389c509ec62b9fe8eca58c502a0acaf017737355615243496cde4994f8fa4f9"
 "checksum crc 1.8.1 (registry+https://github.com/rust-lang/crates.io-index)" = "d663548de7f5cca343f1e0a48d14dcfb0e9eb4e079ec58883b7251539fa10aeb"
-"checksum half 1.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "a581f551b77eb3e177584e922a8c057e14311a857f859fd39d9574d97d3547da"
+"checksum half 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ee6c0438de3ca4d8cac2eec62b228e2f8865cfe9ebefea720406774223fa2d2e"
 "checksum libflate 0.1.16 (registry+https://github.com/rust-lang/crates.io-index)" = "7d4b4c7aff5bac19b956f693d0ea0eade8066deb092186ae954fa6ba14daab98"
 "checksum seek_bufread 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "8843cc800ef983ce74054222c3911edb9fcbc36cc70572bce7f0c7fe12b442a5"
 "checksum smallvec 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)" = "211a489e65e94b103926d2054ae515a1cdb5d515ea0ef414fee23b7e043ce748"

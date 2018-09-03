@@ -9,4 +9,4 @@ libflate = "*"
 byteorder = "*"
 bit_field = "*"
 smallvec = "*"
-half = "*"
+half = { version = "1.2.0", features = ["std"] }

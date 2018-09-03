@@ -67,60 +67,13 @@ pub struct DeepTileBlock {
 
 #[derive(Clone)]
 pub enum Array {
-    U32(U32Data),
+    U32(Vec<u32>),
 
     /// The representation of 16-bit floating-point numbers is analogous to IEEE 754,
     /// but with 5 exponent bits and 10 bits for the fraction
-    F16(F16Data),
+    F16(Vec<f16>),
 
-    F32(F32Data),
+    F32(Vec<f32>),
 }
 
 
-#[derive(Clone)]
-pub struct F16Data(Vec<u16>);
-pub type U32Data = Vec<u32>;
-pub type F32Data = Vec<f32>;
-
-
-impl F16Data {
-    pub fn from_bits(bits: Vec<u16>) -> Self {
-        F16Data(bits)
-    }
-
-    pub fn get(&self, index: usize) -> f16 {
-        f16::from_bits(self.0[index])
-    }
-
-    pub fn set(&self, index: usize, value: f16){
-        self.0[index] = value.as_bits();
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    /*pub fn iter(&self) -> impl Iterator {
-        self.0.iter().map(|&u| f16::from_bits(u))
-    }*/
-
-    pub fn into_bits(self) -> Vec<u16> {
-        self.0
-    }
-
-    pub fn as_bits(&self) -> &[u16] {
-        &self.0
-    }
-}
-
-/*impl ::std::ops::Index<usize> for F16Array {
-    type Output = f16;
-    fn index(&self, index: usize) -> &f16 {
-
-    }
-}
-impl ::std::ops::IndexMut<usize> for F16Array {
-    fn index_mut(&self, index: usize) -> &mut f16 {
-
-    }
-}*/
