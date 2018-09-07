@@ -5,8 +5,10 @@ extern crate seek_bufread;
 extern crate libflate;
 extern crate bit_field;
 extern crate byteorder;
-extern crate smallvec;
 extern crate half;
+
+#[macro_use]
+extern crate smallvec;
 
 // TODO various compiler tweaks, such as export RUSTFLAGS='-Ctarget-cpu=native'
 

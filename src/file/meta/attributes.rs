@@ -618,6 +618,7 @@ impl Compression {
             PXR24 => 5_u8,
             B44 => 6_u8,
             B44A => 7_u8,
+            _ => unimplemented!()
         }.write(write)
     }
 

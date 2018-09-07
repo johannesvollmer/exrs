@@ -257,6 +257,10 @@ pub fn read_i8_array<R: Read>(read: &mut R, array: &mut [i8]) -> ReadResult<()> 
 pub fn read_f32_array<R: ReadBytesExt>(read: &mut R, array: &mut [f32]) -> ReadResult<()> {
     read.read_f32_into::<LittleEndian>(array).map_err(ReadError::from)
 }
+pub fn read_u32_array<R: ReadBytesExt>(read: &mut R, array: &mut [u32]) -> ReadResult<()> {
+    read.read_u32_into::<LittleEndian>(array).map_err(ReadError::from)
+}
+
 
 
 pub fn read_i32_vec<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_max: usize) -> ReadResult<Vec<i32>> {
@@ -317,7 +321,7 @@ use ::half::f16;
 /// The representation of 16-bit floating-point numbers is analogous to IEEE 754,
 /// but with 5 exponent bits and 10 bits for the fraction
 // reads an u16 array first and then interprets it as f16
-pub fn read_f16_array<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_max: usize) -> ReadResult<Vec<f16>> {
+pub fn read_f16_vec<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_max: usize) -> ReadResult<Vec<f16>> {
     if data_size < estimated_max {
         let mut data = vec![0; data_size];
         read.read_u16_into::<LittleEndian>(&mut data)?;

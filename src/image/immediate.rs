@@ -53,6 +53,8 @@ pub enum PartData {
 use ::file::meta::MetaData;
 use ::file::data::compressed::Chunks;
 use ::file::io::*;
+use file::meta::attributes::PixelType;
+use half::f16;
 
 #[must_use]
 pub fn read_file(path: &::std::path::Path) -> ReadResult<Image> {
@@ -79,73 +81,78 @@ impl Image {
         meta_data.validate()?;
 //        data.validate()?;
 
-        let MetaData { version, headers, offset_tables } = meta_data; // TODO skip offset table reading if possible
+        let MetaData { version, mut headers, offset_tables } = meta_data; // TODO skip offset table reading if possible
 
         // TODO parallel decompressing
         match chunks {
             Chunks::SinglePart(part) => {
-                let header = headers.get(0).expect("single part without header");
+                let header = headers.pop().expect("single part without header");
 
-                let (data_width, data_height) = header.data_window().dimensions();
-                let channels = header.channels();
-                let compression = header.compression();
+                // contains ALL pixels per channel
+                let mut decompressed_channels: PerChannel<Array> = PerChannel::new();
 
-                let channel_descriptions = channels.iter()
-                    .map(|channel| ChannelDescription {
-                        sampling: (channel.x_sampling, channel.y_sampling),
-                        pixel_type: channel.pixel_type,
-                    })
-                    .collect::<PerChannel<_>>();
+                {
+                    let (data_width, data_height) = header.data_window().dimensions();
+                    let (data_width, data_height) = (data_width as usize, data_height as usize);
 
-                use ::file::data::compressed::SinglePartChunks::*;
-                match part {
-                    ScanLine(scan_lines) => {
-                        // contains ALL pixels per channel
-                        let mut decompressed_channels: PerChannel<Array> = PerChannel::new();
+                    let channels = header.channels();
+                    let compression = header.compression();
 
-                        let decompressed_chunks = scan_lines
-                            .into_iter().enumerate()
-                            .map(|(index, compressed_data)|{
-                                // how much the last row is cut off
-                                let block_size = compression.scan_lines_per_block();
-                                let block_overflow = (index + 1) * block_size - data_height as usize;
-                                let height = block_size - block_overflow;
+                    use ::file::data::compressed::SinglePartChunks::*;
 
-                                let block_description = BlockDescription {
-                                    resolution: (data_width as i32, height as i32), // TODO dont cast but use one type consistently
-                                    channels: channel_descriptions.clone(),
-                                    kind: BlockKind::ScanLine,
-                                };
+                    match part {
+                        ScanLine(scan_lines) => {
+                            let lines_per_block = compression.scan_lines_per_block();
 
-                                let decompressed_block = ::file::data::compression::decompress(
-                                    compression, block_description, &compressed_data.compressed_pixels, None // uncompressed_size
-                                );
 
-                                for (index, channel) in decompressed_block.iter().enumerate() {
-                                    match channel {
-                                        DataBlock::ScanLine(per_channel) => {
-                                            decompressed_channels[index].push(per_channel);
-                                        },
-                                        _ => panic!("incorrect data block type uncompressed") // TODO generic instead of runtime enum?
+                            for (index, compressed_data) in scan_lines.iter().enumerate() {
+                                // how much the last row is cut off:
+                                let block_end = (index + 1) * lines_per_block;
+                                let block_overflow = block_end.checked_sub(data_height).unwrap_or(0);
+                                let height = lines_per_block - block_overflow;
+
+                                let mut target = PerChannel::with_capacity(channels.len());
+                                for channel in channels {
+                                    let x_size = data_width / channel.x_sampling as usize; // TODO is that how sampling works?
+                                    let y_size = height / channel.y_sampling as usize;
+                                    let size = x_size * y_size;
+                                    match channel.pixel_type {
+                                        PixelType::U32 => target.push(Array::U32(vec![0; size])),
+                                        PixelType::F16 => target.push(Array::F16(vec![f16::from_f32(0.0); size])),
+                                        PixelType::F32 => target.push(Array::F32(vec![0.0; size])),
                                     }
                                 }
 
-                                decompressed_block.unwrap()
-                            })
-                            .collect();
+                                let decompressed = compression.decompress(
+                                    DataBlock::ScanLine(target),
+                                    &compressed_data.compressed_pixels, None // uncompressed_size
+                                ).unwrap(/* TODO */);
 
-                        Ok(Image {
-                            version,
-                            parts: SmallVec::from_slice([Part {
-                                header,
-                                levels: SmallVec::from_slice(&[PartData::Flat(decompressed_channels)]),
-                            }]),
-                        })
+                                if let DataBlock::ScanLine(decompressed_scan_line_channels) = decompressed {
+                                    for (channel_index, decompressed_channel) in decompressed_scan_line_channels.iter().enumerate() {
+                                        decompressed_channels[channel_index].extend_from_slice(&decompressed_channel);
+                                    }
+                                } else {
+                                    panic!("`decompress` returned wrong block type")
+                                }
+                            }
+                        },
 
-                    },
-                    _ => unimplemented!()
+
+                        // let map_level_x = unimplemented!("are mip map levels only for tiles?");
+                        // let map_level_y = unimplemented!();
+
+                        _ => unimplemented!("non-scanline uncompressed images")
+                    };
                 }
 
+                Ok(Image {
+                    version,
+                    parts: smallvec![Part {
+                        header,
+                        levels: smallvec![PartData::Flat(decompressed_channels)],
+                    }],
+                })
             },
             Chunks::MultiPart(parts) => unimplemented!()
         }

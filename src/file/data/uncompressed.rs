@@ -11,14 +11,14 @@ pub type PerChannel<T> = SmallVec<[T; 5]>;
 
 #[derive(Clone)]
 pub enum DataBlock {
-    ScanLine(PerChannel<ScanLineBlock>),
-    Tile(PerChannel<TileBlock>),
+    ScanLine(PerChannel<Array>),
+    Tile(PerChannel<Array>),
 
     DeepScanLine(PerChannel<DeepScanLineBlock>),
     DeepTile(PerChannel<DeepTileBlock>)
 }
 
-#[derive(Clone)]
+/*#[derive(Clone)]
 pub struct BlockDescription {
     /// width x height, inferred from either TileDescription or scan line height.
     /// for scan line blocks, the resolution width is always the width of the data_window.
@@ -38,11 +38,11 @@ pub struct ChannelDescription {
 #[derive(Clone, Copy)]
 pub enum BlockKind {
     ScanLine, Tile, DeepScanLine, DeepTile
-}
+}*/
 
 
 
-#[derive(Clone)]
+/*#[derive(Clone)]
 pub struct ScanLineBlock {
     pub data: Array,
 }
@@ -50,7 +50,7 @@ pub struct ScanLineBlock {
 #[derive(Clone)]
 pub struct TileBlock {
     pub data: Array,
-}
+}*/
 
 #[derive(Clone)]
 pub struct DeepScanLineBlock {
@@ -76,4 +76,40 @@ pub enum Array {
     F32(Vec<f32>),
 }
 
+impl Array {
+    /// panic on type mismatch
+    pub fn extend_from_slice(&mut self, other: &Self) {
+        assert!(self.try_extend_from_slice(other), "Array::extend_from_slice type mismatch")
+    }
 
+    pub fn try_extend_from_slice(&mut self, other: &Self) -> bool {
+        match self {
+            Array::U32(values) => {
+                if let Array::U32(ref other) = other {
+                    values.extend_from_slice(&other);
+                    true
+                } else {
+                    false
+                }
+            },
+
+            Array::F16(values) => {
+                if let Array::F16(ref other) = other {
+                    values.extend_from_slice(&other);
+                    true
+                } else {
+                    false
+                }
+            },
+
+            Array::F32(values) => {
+                if let Array::F32(ref other) = other {
+                    values.extend_from_slice(&other);
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+    }
+}
