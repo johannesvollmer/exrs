@@ -1,6 +1,19 @@
 //use ::attributes::Compression;
 use ::file::meta::attributes::ParsedText;
 
+// TODO
+// INCREASING_Y The tiles for each level are stored in a contiguous block. The levels are
+//ordered like this:
+//where
+//if the file's level mode is RIPMAP_LEVELS, or
+//if the level mode is MIPMAP_LEVELS, or
+//if the level mode is ONE_LEVEL.
+//In each level, the tiles are stored in the following order:
+//where and are the number of tiles in the x and y direction respectively,
+//for that particular level.
+// SEE PAGE 14 IN TECHNICAL INTRODUCTION
+
+
 #[derive(Debug, Clone)]
 pub enum Chunks {
     MultiPart(Vec<MultiPartChunk>),

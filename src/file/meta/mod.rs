@@ -2,7 +2,7 @@
 pub mod attributes;
 
 use super::validity::*;
-use super::{*, io::*};
+use super::io::*;
 
 use ::smallvec::SmallVec;
 use self::attributes::*;
@@ -13,6 +13,12 @@ pub struct MetaData {
     pub version: Version,
 
     /// separate header for each part, requires a null byte signalling the end of each header
+
+    // TODO in validate, make sure that:
+    /// The values of the displayWindow
+    /// and pixelAspectRatio attributes must be the same for all parts of a file.
+    /// if the headers include timeCode and chromaticities attributes, then the values of those
+    /// attributes must also be the same for all parts of a file.
     pub headers: Headers,
 
     /// one table per header
@@ -172,6 +178,9 @@ impl MetaData {
             ]));
         }
 
+        // TODO
+        // The values of the displayWindow
+        // and pixelAspectRatio attributes must be the same for all parts of a file.
 
         self.version.validate()?;
         for header in &self.headers {
@@ -413,36 +422,45 @@ impl Version {
     }
 
     pub fn validate(&self) -> Validity {
-        match (
-            self.is_single_tile, self.has_long_names,
-            self.has_deep_data, self.file_format_version
-        ) {
-            // Single-part scan line. One normal scan line image.
-            (false, false, false, _) => Ok(()),
+        if let 1...2 = self.file_format_version {
 
-            // Single-part tile. One normal tiled image.
-            (true, false, false, _) => Ok(()),
+            match (
+                self.is_single_tile, self.has_long_names,
+                self.has_deep_data, self.file_format_version
+            ) {
+                // Single-part scan line. One normal scan line image.
+                (false, false, false, 1...2) => Ok(()),
 
-            // Multi-part (new in 2.0).
-            // Multiple normal images (scan line and/or tiled).
-            (false, false, true, 2) => Ok(()),
+                // Single-part tile. One normal tiled image.
+                (true, false, false, 1...2) => Ok(()),
 
-            // Single-part deep data (new in 2.0).
-            // One deep tile or deep scan line part
-            (false, true, false, 2) => Ok(()),
+                // Multi-part (new in 2.0).
+                // Multiple normal images (scan line and/or tiled).
+                (false, false, true, 2) => Ok(()),
 
-            // Multi-part deep data (new in 2.0).
-            // Multiple parts (any combination of:
-            // tiles, scan lines, deep tiles and/or deep scan lines).
-            (false, true, true, 2) => Ok(()),
+                // Single-part deep data (new in 2.0).
+                // One deep tile or deep scan line part
+                (false, true, false, 2) => Ok(()),
 
-            _ => Err(Invalid::Combination(&[
-                Value::Version("is_single_tile"),
-                Value::Version("has_long_names"),
-                Value::Version("has_deep_data"),
-                Value::Version("format_version"),
-            ]))
+                // Multi-part deep data (new in 2.0).
+                // Multiple parts (any combination of:
+                // tiles, scan lines, deep tiles and/or deep scan lines).
+                (false, true, true, 2) => Ok(()),
+
+                _ => Err(Invalid::Combination(&[
+                    Value::Version("is_single_tile"),
+                    Value::Version("has_long_names"),
+                    Value::Version("has_deep_data"),
+                    Value::Version("format_version"),
+                ]))
+            }
+        } else {
+            Err(Invalid::Content(
+                Value::Version("file_format_number"),
+                Required::Range { min: 1, max: 2, })
+            )
         }
+
     }
 }
 
@@ -594,88 +612,110 @@ impl MetaData {
 
 
 
+// calculations inspired by
+// https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
+
+pub fn compute_tile_count(full_res: u32, tile_size: u32) -> u32 {
+    // round up, because if the image is not evenly divisible by the tiles,
+    // we add another tile at the end (which is only partially used)
+    RoundingMode::Up.divide(full_res, tile_size)
+}
+
+pub fn compute_scan_line_block_count(height: u32, block_size: u32) -> u32 {
+    // round up, because if the image is not evenly divisible by the block size,
+    // we add another block at the end (which is only partially used)
+    RoundingMode::Up.divide(height, block_size)
+}
+
+// TODO this should be cached? log2 may be very expensive
+pub fn compute_level_count(round: RoundingMode, full_res: u32) -> u32 {
+    round.log2(full_res) + 1
+}
+
+pub fn compute_level_size(round: RoundingMode, full_res: u32, level_index: u32) -> u32 {
+    round.divide(full_res,  1 << level_index).max(1)
+}
+
+pub fn compute_offset_table_size(version: Version, header: &Header) -> ReadResult<u32> {
+    if let Some(chunk_count) = header.chunk_count() {
+        Ok(chunk_count as u32) // TODO will this panic on negative number / invalid data?
+
+    } else {
+        debug_assert!(!version.has_multiple_parts, "check failed: chunkCount missing (for multi-part)");
+
+        // If not multipart and chunkCount not present,
+        // the number of entries in the chunk table is computed
+        // using the dataWindow and tileDesc attributes and the compression format
+        let compression = header.compression();
+        let data_window = header.data_window();
+        data_window.validate()?;
+
+        let (data_width, data_height) = data_window.dimensions();
+
+        if let Some(tiles) = header.tiles() {
+            let round = tiles.rounding_mode;
+            let (tile_width, tile_height) = tiles.dimensions();
+
+            let level_count = |full_res: u32| {
+                compute_level_count(round, full_res)
+            };
+
+            let level_size = |full_res: u32, level_index: u32| {
+                compute_level_size(round, full_res, level_index)
+            };
+
+            // TODO cache all these level values??
+            use ::file::meta::attributes::LevelMode::*;
+            Ok(match tiles.level_mode {
+                Singular => {
+                    compute_tile_count(data_width, tile_width) * compute_tile_count(data_height, tile_height)
+                }
+
+                MipMap => {
+                    // sum all tiles per level
+                    // note: as levels shrink, tiles stay the same pixel size.
+                    // so at lower levels, tiles cover up a visually bigger are of the smaller resolution image
+                    (0..level_count(data_width.max(data_height))).map(|level|{
+                        let tiles_x = compute_tile_count(level_size(data_width, level), tile_width);
+                        let tiles_y = compute_tile_count(level_size(data_height, level), tile_height);
+                        tiles_x * tiles_y
+                    }).sum()
+                },
+
+                RipMap => {
+                    // TODO test this
+                    (0..level_count(data_width)).map(|x_level|{
+                        (0..level_count(data_height)).map(|y_level| {
+                            let tiles_x = compute_tile_count(level_size(data_width, x_level), tile_width);
+                            let tiles_y = compute_tile_count(level_size(data_height, y_level), tile_height);
+                            tiles_x * tiles_y
+                        }).sum::<u32>()
+                    }).sum()
+                }
+            })
+
+        } else { // scanlines
+//            let lines_per_block = compression.scan_lines_per_block() as u32;
+            // println!("scan_lines: {}", (data_height + lines_per_block) / lines_per_block);
+//            Ok(RoundingMode::Up.divide(data_height, lines_per_block))
+//          Ok((data_height - 1 + lines_per_block) / lines_per_block) // TODO equal to round_up?
+            Ok(compute_scan_line_block_count(
+                data_height, compression.scan_lines_per_block() as u32
+            ))
+        }
+    }
+}
+
+
 // TODO make instance fn
 pub fn read_offset_table<R: Seek + Read>(
     read: &mut R, version: Version, header: &Header
 ) -> ReadResult<OffsetTable>
 {
-    let entry_count: u32 = {
-        if let Some(chunk_count) = header.chunk_count() {
-            chunk_count as u32 // TODO will this panic on negative number / invalid data?
-
-        } else {
-            debug_assert!(!version.has_multiple_parts, "check failed: chunkCount missing (for multi-part)");
-
-            // If not multipart and the chunkCount is not present,
-            // the number of entries in the chunk table is computed
-            // using the dataWindow and tileDesc attributes and the compression format
-            let compression = header.compression();
-            let data_window = header.data_window();
-            data_window.validate()?;
-
-            let (data_width, data_height) = data_window.dimensions();
-
-            if let Some(tiles) = header.tiles() {
-                let round = tiles.rounding_mode;
-                let (tile_width, tile_height) = tiles.dimensions();
-
-                // calculations inspired by
-                // https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
-
-                let level_count = |full_res: u32| {
-                    round.log2(full_res + 1) + 1
-                };
-
-                let level_size = |full_res: u32, level_index: u32| {
-                    round.divide(full_res + 1, 1 << level_index).max(1)
-                };
-
-                fn tile_count(full_res: u32, tile_size: u32) -> u32 {
-                    // round up, because if the image is not evenly divisible by the tiles,
-                    // we add another tile at the end (which is only partially used)
-                    RoundingMode::Up.divide(full_res, tile_size)
-                }
-
-                use ::file::meta::attributes::LevelMode::*;
-                match tiles.level_mode {
-                    One => {
-                        tile_count(data_width, tile_width) * tile_count(data_height, tile_height)
-                    },
-
-                    MipMap => {
-                        // sum all tiles per level
-                        // note: as levels shrink, tiles stay the same pixel size.
-                        // so at lower levels, tiles cover up a bigger are of the smaller image
-                        (0..level_count(data_width.max(data_height))).map(|level|{
-                            let tiles_x = tile_count(level_size(data_width, level), tile_width);
-                            let tiles_y = tile_count(level_size(data_height, level), tile_height);
-                            tiles_x * tiles_y
-                        }).sum()
-                    },
-
-                    RipMap => {
-                        // TODO test this
-                        (0..level_count(data_width)).map(|x_level|{
-                            (0..level_count(data_height)).map(|y_level| {
-                                let tiles_x = tile_count(level_size(data_width, x_level), tile_width);
-                                let tiles_y = tile_count(level_size(data_height, y_level), tile_height);
-                                tiles_x * tiles_y
-                            }).sum::<u32>()
-                        }).sum()
-                    }
-                }
-
-            } else { // scanlines
-                let lines_per_block = compression.scan_lines_per_block() as u32;
-                (data_height + lines_per_block) / lines_per_block
-            }
-        }
-    };
-
+    let entry_count = compute_offset_table_size(version, header)?;
     read_u64_vec(read, entry_count as usize, ::std::u16::MAX as usize)
 }
 
-use super::io::*;
 
 fn read_offset_tables<R: Seek + Read>(
     read: &mut R, version: Version, headers: &Headers,

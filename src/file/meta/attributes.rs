@@ -94,6 +94,7 @@ pub use ::file::data::compression::Compression;
 pub type DataWindow = I32Box2;
 pub type DisplayWindow = I32Box2;
 
+/// all limits are inclusive, so when calculating dimensions, +1 must be added
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct I32Box2 {
     pub x_min: i32, pub y_min: i32,
@@ -124,9 +125,15 @@ pub struct Channel {
     pub reserved: [i8; 3],
 
     /// can be used for chroma-subsampling
+    /// other than 1 are allowed only in flat, scan-line based images.
+    /// If deep or tiled, x and y sampling rates for all of its channels must be 1.
+    // TODO include in header validation!
     pub x_sampling: i32,
 
     /// can be used for chroma-subsampling
+    /// other than 1 are allowed only in flat, scan-line based images.
+    /// If deep or tiled, x and y sampling rates for all of its channels must be 1.
+    // TODO include in header validation!
     pub y_sampling: i32,
 }
 
@@ -135,6 +142,15 @@ pub enum PixelType {
     U32, F16, F32,
 }
 
+/// If a file doesn't have a chromaticities attribute, display software
+/// should assume that the file's primaries and the white point match Rec. ITU-R BT.709-3:
+//CIE x, y
+//red
+//0.6400, 0.3300
+//green 0.3000, 0.6000
+//blue
+//0.1500, 0.0600
+//white 0.3127, 0.3290
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Chromaticities {
     pub red_x: f32,     pub red_y: f32,
@@ -190,7 +206,7 @@ pub struct TileDescription {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum LevelMode {
-    One, MipMap, RipMap,
+    Singular, MipMap, RipMap,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -422,8 +438,9 @@ impl I32Box2 {
 
     pub fn dimensions(&self) -> (u32, u32) {
         (
-            (self.x_max - self.x_min) as u32, // TODO checked_sub
-            (self.y_max - self.y_min) as u32,
+            // see technical introduction p. 1
+            (self.x_max - self.x_min) as u32 + 1, // TODO checked_sub
+            (self.y_max - self.y_min) as u32 + 1,
         )
     }
 
@@ -612,12 +629,14 @@ impl Compression {
         match self {
             None => 0_u8,
             RLE => 1_u8,
-            ZIPS => 2_u8,
-            ZIP => 3_u8,
+            ZIP1 => 2_u8,
+            ZIP16 => 3_u8,
             PIZ => 4_u8,
             PXR24 => 5_u8,
             B44 => 6_u8,
             B44A => 7_u8,
+            DWAA => 8_u8,
+            DWAB => 9_u8,
             _ => unimplemented!()
         }.write(write)
     }
@@ -627,12 +646,13 @@ impl Compression {
         Ok(match u8::read(read)? {
             0 => None,
             1 => RLE,
-            2 => ZIPS,
-            3 => ZIP,
+            2 => ZIP1,
+            3 => ZIP16,
             4 => PIZ,
             5 => PXR24,
             6 => B44,
             7 => B44A,
+            // TODO DWAA, DWAB
             _ => return Err(Invalid::Content(
                 Value::Enum("compression"),
                 Required::Range { min: 0, max: 7 }
@@ -781,7 +801,7 @@ impl TileDescription {
         self.y_size.write(write)?;
 
         let level_mode = match self.level_mode {
-            LevelMode::One => 0_u8,
+            LevelMode::Singular => 0_u8,
             LevelMode::MipMap => 1_u8,
             LevelMode::RipMap => 2_u8,
         };
@@ -806,7 +826,7 @@ impl TileDescription {
         let rounding_mode = mode >> 4; // wow that works
 
         let level_mode = match level_mode {
-            0 => LevelMode::One,
+            0 => LevelMode::Singular,
             1 => LevelMode::MipMap,
             2 => LevelMode::RipMap,
             _ => return Err(Invalid::Content(
@@ -1200,7 +1220,7 @@ mod test {
             TileDescription {
                 x_size: 0,
                 y_size: 0,
-                level_mode: LevelMode::One,
+                level_mode: LevelMode::Singular,
                 rounding_mode: RoundingMode::Up,
             },
 

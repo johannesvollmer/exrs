@@ -24,16 +24,16 @@ __Currently supported:__
         - [x] Tiles
         - [x] Scan lines
         - [x] Deep Tiles
-        - [x] Deep Scan Lines _(coded, but no sample files found for testing)_
+        - [ ] Deep Scan Lines _(coded, but no sample files found for testing)_
     - [x] Multipart
         - [x] Tiles
         - [x] Scan lines
-        - [x] Deep Tiles _(coded, but no sample files found for testing)_
+        - [ ] Deep Tiles _(coded, but no sample files found for testing)_
         - [x] Deep Scan Lines         
     - [x] Multi Resolution
         - [x] Singular Resolution
         - [x] MipMaps
-        - [x] RipMaps _(coded, but no sample files found for testing)_
+        - [ ] RipMaps _(coded, but no sample files found for testing)_
     - [x] Non-Standard Attributes
         - [x] Reading those with known types
         - [x] Skipping those with unknown types
@@ -57,6 +57,8 @@ __Currently supported:__
 - [ ] Profiling and real optimization
 - [ ] Allowing you to parse your own attribute types
 - [ ] IO Progress callback
+- [ ] Multithreading
+- [ ] SIMD
 
 __Be sure to come back in a few weeks.__
 

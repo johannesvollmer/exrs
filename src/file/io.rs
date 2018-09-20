@@ -1,6 +1,5 @@
 
 use super::*;
-use super::meta::*;
 use ::byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt, ByteOrder};
 
 pub use ::std::io::{Read, Write, Seek, SeekFrom};

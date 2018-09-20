@@ -1,7 +1,6 @@
 //! describe a single block of pixels, which may be
 //! a tile of a scan line block of float or unsigned integer data.
 
-use ::file::meta::attributes::PixelType;
 use ::smallvec::SmallVec;
 use ::half::f16;
 
