@@ -694,14 +694,8 @@ pub fn compute_offset_table_size(version: Version, header: &Header) -> ReadResul
                 }
             })
 
-        } else { // scanlines
-//            let lines_per_block = compression.scan_lines_per_block() as u32;
-            // println!("scan_lines: {}", (data_height + lines_per_block) / lines_per_block);
-//            Ok(RoundingMode::Up.divide(data_height, lines_per_block))
-//          Ok((data_height - 1 + lines_per_block) / lines_per_block) // TODO equal to round_up?
-            Ok(compute_scan_line_block_count(
-                data_height, compression.scan_lines_per_block() as u32
-            ))
+        } else {
+            Ok(compute_scan_line_block_count(data_height, compression.scan_lines_per_block() as u32))
         }
     }
 }

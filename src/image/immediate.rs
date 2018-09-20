@@ -107,9 +107,9 @@ impl Image {
                 let mut decompressed_channels: PerChannel<Array> = header.channels()
                     .iter().map(|channel|{
                         match channel.pixel_type {
-                            PixelType::U32 => Array::U32(Vec::with_capacity(64/* TODO */)),
-                            PixelType::F16 => Array::F16(Vec::with_capacity(64/* TODO */)),
-                            PixelType::F32 => Array::F32(Vec::with_capacity(64/* TODO */)),
+                            PixelType::U32 => Array::U32(Vec::with_capacity(128/* TODO */)),
+                            PixelType::F16 => Array::F16(Vec::with_capacity(128/* TODO */)),
+                            PixelType::F32 => Array::F32(Vec::with_capacity(128/* TODO */)),
                         }
                     })
                     .collect();
@@ -129,6 +129,7 @@ impl Image {
                             println!("what about line order");
                             println!("what about mip map levels");
 
+                            // FIXME only iterate if line_order is increasing y, else we need to interleave!!
                             for (index, compressed_data) in scan_lines.iter().enumerate() {
                                 // how much the last row is cut off:
                                 let block_end = (index + 1) * lines_per_block;
@@ -178,6 +179,7 @@ impl Image {
                             let default_height = tile_description.y_size;
                             let round = tile_description.rounding_mode;
 
+                            // FIXME only iterate if line_order is increasing y, else we need to interleave!!
                             for tile in &tiles {
                                 let level_x = tile.coordinates.level_x;
                                 let level_data_width = compute_level_size(round, data_width as u32, level_x as u32);

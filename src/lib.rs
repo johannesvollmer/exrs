@@ -7,7 +7,7 @@ pub mod util {
                 $then
 
             } else {
-                panic!("Expected variant {} in {}", stringify!($variant), stringify!($value))
+                panic!("Expected variant `{}` in `{}`", stringify!($variant), stringify!($value))
             }
         };
     }
@@ -53,33 +53,6 @@ pub mod test {
 //    }
 
 
-    // TODO erroneous files:
-    // "Blobbies.exr"
-    // "composited.exr"
-    // "Fog.exr"
-    // "WavyLinesSphere.exr"
-    // "WideColorGamut.exr"
-    // "RgbRampsDiagonal.exr"
-    // "GammaChart.exr"
-    // "GrayRampsDiagonal.exr"
-    // "BrightRingsNanInf.exr"
-    // "AllHalfValues.exr"
-    // "BrightRings.exr"
-    // "GrayRampsHorizontal.exr"
-    // "singlepart.0007.exr"
-    // "singlepart.0001.exr"
-    // "singlepart.0008.exr"
-    // "singlepart.0002.exr"
-    // "singlepart.0004.exr"
-    // "singlepart.0006.exr"
-    // "singlepart.0003.exr"
-    // "singlepart.0005.exr"
-    // "suzanne_rgba_f32_rle.exr"
-    // "suzanne_rgba_f32_uncompressed.exr"
-    // "suzanne_rgba_f16_uncompressed.exr"
-    // "suzanne_rgba_f32_zips.exr"
-    // "singlepart.0003.exr"
-
     use ::std::path::Path;
 
     #[test]
@@ -102,11 +75,6 @@ pub mod test {
         test_exr_files(Path::new("/home/johannes/Pictures/openexr"))
     }
 
-    #[test]
-    fn read_file(){
-        load_file_or_print_err(Path::new("/home/johannes/Pictures/openexr/openexr-images-master/ScanLines/Blobbies.exr"))
-    }
-
     fn load_file_or_print_err(path: &Path){
         println!(
             "{:?}",
@@ -126,7 +94,7 @@ pub mod test {
         let now = Instant::now();
 
         let path = ::std::path::Path::new(
-            "/home/johannes/Pictures/openexr/suzanne/suzanne_rgba_f32_uncompressed.exr"
+            "/home/johannes/Pictures/openexr/suzanne/suzanne_rgba_f32_zips.exr"
         );
 
         let image = ::image::immediate::read_file(path);
@@ -136,27 +104,31 @@ pub mod test {
         let millis = elapsed.as_secs() * 1000 + elapsed.subsec_millis() as u64;
 
         if let Ok(image) = image {
-            println!("header_0: {:#?}", image.parts[0].header);
+            assert_eq!(image.parts.len(), 1);
+            let part = &image.parts[0];
+
+            println!("header_0: {:#?}", part.header);
             println!("\nversion: {:#?}", image.version);
             println!("\ndecoded file in {:?} ms", millis);
 
-            let header = &image.parts[0].header;
-            let channels = &image.parts[0].levels[0];
+            let header = &part.header;
+            let channels = &part.levels[0];
             let full_res = header.data_window().dimensions();
 
             let mut png_buffer = ::piston_image::GrayImage::new(full_res.0, full_res.1);
 
             // BUGHUNT CHECKLIST
             // - [ ] rust-f16 encoding is not the same as openexr-f16 encoding
-            // - [ ] compression differs from specification
+            // - [ ] compression alrogithm is wrong
+            // - [ ] compression+unpacking vs unpacking+compression order is wrong
 
 
-            // convert to png
+            // actually do the conversion to png
             expect_variant!(channels, ::image::immediate::PartData::Flat(ref channels) => {
-                expect_variant!(channels[2], ::file::data::uncompressed::Array::F32(ref channel) => {
+                expect_variant!(channels[3], ::file::data::uncompressed::Array::F32(ref channel) => {
                     for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
                         let v = channel[(y * full_res.0 + x) as usize]/*.to_f32()*/;
-                        *pixel = ::piston_image::Luma([(v * 255.0) as u8]);
+                        *pixel = ::piston_image::Luma([(v * 100.0) as u8]);
                     }
                 })
             });
