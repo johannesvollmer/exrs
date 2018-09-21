@@ -112,7 +112,7 @@ pub mod test {
             println!("\ndecoded file in {:?} ms", millis);
 
             let header = &part.header;
-            let channels = &part.levels[0];
+            let channels = expect_variant!(part.levels, ::image::immediate::Levels::Singular(ref lvl) => lvl);
             let full_res = header.data_window().dimensions();
 
             let mut png_buffer = ::piston_image::GrayImage::new(full_res.0, full_res.1);

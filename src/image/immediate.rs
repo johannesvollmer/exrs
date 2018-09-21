@@ -33,14 +33,25 @@ pub struct Part {
     /// 1x4, 2x4, 4x4, 8x4, and then
     /// 1x8, 2x8, 4x8, 8x8.
     ///
-    // FIXME should be descending, starting with full-res instead!
+    // FIXME should be descending and starting with full-res instead!
     pub levels: Levels
 
     // offset tables are already processed while loading 'data'
     // TODO skip reading offset tables if not required?
 }
 
-pub type Levels = SmallVec<[PartData; 12]>;
+pub enum Levels {
+    Singular(PartData),
+    Mip(SmallVec<[PartData; 16]>),
+    Rip(RipMaps)
+}
+
+pub struct RipMaps {
+    data: Vec<PartData>,
+    x_levels: usize,
+    y_levels: usize,
+}
+
 
 /// one `type` per Part
 pub enum PartData {
@@ -190,7 +201,7 @@ impl Image {
                                 let level_y = tile.coordinates.level_y;
                                 let level_data_height = compute_level_size(round, data_height as u32, level_y as u32);
 
-                                assert!(level_x != 1 || level_y != 1, "unimplemented: tiled levels data unpacking");
+                                assert!(level_x == 1 && level_y == 1, "unimplemented: tiled levels data unpacking");
 
                                 let default_bottom = tile.coordinates.tile_y as u32 + default_height;
                                 let bottom_overflow = default_bottom.checked_sub(level_data_height).unwrap_or(0);
@@ -243,7 +254,9 @@ impl Image {
                     version,
                     parts: smallvec![Part {
                         header,
-                        levels: smallvec![PartData::Flat(decompressed_channels)],
+                        levels: ::image::immediate::Levels::Singular(
+                            PartData::Flat(decompressed_channels)
+                        ),
                     }],
                 })
             },

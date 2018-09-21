@@ -652,7 +652,8 @@ impl Compression {
             5 => PXR24,
             6 => B44,
             7 => B44A,
-            // TODO DWAA, DWAB
+            8 => DWAA,
+            9 => DWAB,
             _ => return Err(Invalid::Content(
                 Value::Enum("compression"),
                 Required::Range { min: 0, max: 7 }
@@ -920,36 +921,39 @@ impl AttributeValue {
 
     pub fn kind_name(&self) -> &'static [u8] {
         use self::AttributeValue::*;
+        use self::attribute_type_names as ty;
+
         match *self {
-            // TODO replace these literals with constants
-            I32Box2(_) =>  b"box2i",
-            F32Box2(_) =>  b"box2f",
-            I32(_) =>  b"int",
-            F32(_) =>  b"float",
-            F64(_) =>  b"double",
-            Rational(_, _) => b"rational",
-            TimeCode(_, _) => b"timecode",
-            I32Vec2(_, _) => b"vec2i",
-            F32Vec2(_, _) => b"vec2f",
-            I32Vec3(_, _, _) => b"vec3i",
-            F32Vec3(_, _, _) => b"vec3f",
-            ChannelList(_) =>  b"chlist",
-            Chromaticities(_) =>  b"chromaticities",
-            Compression(_) =>  b"compression",
-            EnvironmentMap(_) =>  b"envmap",
-            KeyCode(_) =>  b"keycode",
-            LineOrder(_) =>  b"lineOrder",
-            F32Matrix3x3(_) =>  b"m33f",
-            F32Matrix4x4(_) =>  b"m44f",
-            Preview(_) =>  b"preview",
-            Text(_) =>  b"string",
-            TextVector(_) =>  b"stringvector",
-            TileDescription(_) =>  b"tiledesc",
+            I32Box2(_) =>  ty::I32BOX2,
+            F32Box2(_) =>  ty::F32BOX2,
+            I32(_) =>  ty::I32,
+            F32(_) =>  ty::F32,
+            F64(_) =>  ty::F64,
+            Rational(_, _) => ty::RATIONAL,
+            TimeCode(_, _) => ty::TIME_CODE,
+            I32Vec2(_, _) => ty::I32VEC2,
+            F32Vec2(_, _) => ty::F32VEC2,
+            I32Vec3(_, _, _) => ty::I32VEC3,
+            F32Vec3(_, _, _) => ty::F32VEC3,
+            ChannelList(_) =>  ty::CHANNEL_LIST,
+            Chromaticities(_) =>  ty::CHROMATICITIES,
+            Compression(_) =>  ty::COMPRESSION,
+            EnvironmentMap(_) =>  ty::ENVIRONMENT_MAP,
+            KeyCode(_) =>  ty::KEY_CODE,
+            LineOrder(_) =>  ty::LINE_ORDER,
+            F32Matrix3x3(_) =>  ty::F32MATRIX3X3,
+            F32Matrix4x4(_) =>  ty::F32MATRIX4X4,
+            Preview(_) =>  ty::PREVIEW,
+            Text(_) =>  ty::TEXT,
+            TextVector(_) =>  ty::TEXT_VECTOR,
+            TileDescription(_) =>  ty::TILES,
         }
     }
 
     pub fn write<W: Write>(&self, write: &mut W, long_names: bool) -> WriteResult {
         use self::AttributeValue::*;
+        use self::attribute_type_names as ty;
+
         match *self {
             I32Box2(value) => value.write(write),
             F32Box2(value) => value.write(write),
@@ -990,47 +994,48 @@ impl AttributeValue {
 
     pub fn read<R: Read + Seek>(read: &mut R, kind: Text, byte_size: u32) -> ReadResult<Self> {
         use self::AttributeValue::*;
+        use self::attribute_type_names as ty;
+
         Ok(match kind.bytes.as_slice() {
-            // TODO replace these literals with constants
-            b"box2i" => I32Box2(self::I32Box2::read(read)?),
-            b"box2f" => F32Box2(self::F32Box2::read(read)?),
+            ty::I32BOX2 => I32Box2(self::I32Box2::read(read)?),
+            ty::F32BOX2 => F32Box2(self::F32Box2::read(read)?),
 
-            b"int"    => I32(i32::read(read)?),
-            b"float"  => F32(f32::read(read)?),
-            b"double" => F64(f64::read(read)?),
+            ty::I32 => I32(i32::read(read)?),
+            ty::F32 => F32(f32::read(read)?),
+            ty::F64 => F64(f64::read(read)?),
 
-            b"rational" => Rational(i32::read(read)?, u32::read(read)?),
-            b"timecode" => TimeCode(u32::read(read)?, u32::read(read)?),
+            ty::RATIONAL => Rational(i32::read(read)?, u32::read(read)?),
+            ty::TIME_CODE => TimeCode(u32::read(read)?, u32::read(read)?),
 
-            b"v2i" => I32Vec2(i32::read(read)?, i32::read(read)?),
-            b"v2f" => F32Vec2(f32::read(read)?, f32::read(read)?),
-            b"v3i" => I32Vec3(i32::read(read)?, i32::read(read)?, i32::read(read)?),
-            b"v3f" => F32Vec3(f32::read(read)?, f32::read(read)?, f32::read(read)?),
+            ty::I32VEC2 => I32Vec2(i32::read(read)?, i32::read(read)?),
+            ty::F32VEC2 => F32Vec2(f32::read(read)?, f32::read(read)?),
+            ty::I32VEC3 => I32Vec3(i32::read(read)?, i32::read(read)?, i32::read(read)?),
+            ty::F32VEC3 => F32Vec3(f32::read(read)?, f32::read(read)?, f32::read(read)?),
 
-            b"chlist" => ChannelList(self::Channel::read_all(read)?),
-            b"chromaticities" => Chromaticities(self::Chromaticities::read(read)?),
-            b"compression" => Compression(self::Compression::read(read)?),
-            b"envmap" => EnvironmentMap(self::EnvironmentMap::read(read)?),
+            ty::CHANNEL_LIST    => ChannelList(self::Channel::read_all(read)?),
+            ty::CHROMATICITIES  => Chromaticities(self::Chromaticities::read(read)?),
+            ty::COMPRESSION     => Compression(self::Compression::read(read)?),
+            ty::ENVIRONMENT_MAP => EnvironmentMap(self::EnvironmentMap::read(read)?),
 
-            b"keycode" => KeyCode(self::KeyCode::read(read)?),
-            b"lineOrder" => LineOrder(self::LineOrder::read(read)?),
+            ty::KEY_CODE   => KeyCode(self::KeyCode::read(read)?),
+            ty::LINE_ORDER => LineOrder(self::LineOrder::read(read)?),
 
-            b"m33f" => F32Matrix3x3({
+            ty::F32MATRIX3X3 => F32Matrix3x3({
                 let mut result = [0.0_f32; 9];
                 read_f32_array(read, &mut result)?;
                 result
             }),
 
-            b"m44f" => F32Matrix4x4({
+            ty::F32MATRIX4X4 => F32Matrix4x4({
                 let mut result = [0.0_f32; 16];
                 read_f32_array(read, &mut result)?;
                 result
             }),
 
-            b"preview" => Preview(self::Preview::read(read)?),
-            b"string" => Text(ParsedText::parse(self::Text::read_sized(read, byte_size as usize)?)),
-            b"stringvector" => TextVector(self::Text::read_vec_of_i32_sized(read, byte_size)?),
-            b"tiledesc" => TileDescription(self::TileDescription::read(read)?),
+            ty::PREVIEW     => Preview(self::Preview::read(read)?),
+            ty::TEXT        => Text(ParsedText::parse(self::Text::read_sized(read, byte_size as usize)?)),
+            ty::TEXT_VECTOR => TextVector(self::Text::read_vec_of_i32_sized(read, byte_size)?),
+            ty::TILES       => TileDescription(self::TileDescription::read(read)?),
 
             _ => {
                 println!("Unknown attribute type: {:?}", kind.to_string());
@@ -1089,6 +1094,41 @@ impl AttributeValue {
     }
 }
 
+pub mod attribute_type_names {
+    macro_rules! define_attribute_type_names {
+        ( $($name: ident : $value: expr),* ) => {
+            $(
+                pub const $name: &'static [u8] = $value;
+            )*
+        };
+    }
+
+    define_attribute_type_names! {
+        I32BOX2:        b"box2i",
+        F32BOX2:        b"box2f",
+        I32:            b"int",
+        F32:            b"float",
+        F64:            b"double",
+        RATIONAL:       b"rational",
+        TIME_CODE:      b"timecode",
+        I32VEC2:        b"v2i",
+        F32VEC2:        b"v2f",
+        I32VEC3:        b"v3i",
+        F32VEC3:        b"v3f",
+        CHANNEL_LIST:   b"chlist",
+        CHROMATICITIES: b"chromaticities",
+        COMPRESSION:    b"compression",
+        ENVIRONMENT_MAP:b"envmap",
+        KEY_CODE:       b"keycode",
+        LINE_ORDER:     b"lineOrder",
+        F32MATRIX3X3:   b"m33f",
+        F32MATRIX4X4:   b"m44f",
+        PREVIEW:        b"preview",
+        TEXT:           b"string",
+        TEXT_VECTOR:    b"stringvector",
+        TILES:          b"tiledesc"
+    }
+}
 
 pub mod required {
     macro_rules! define_required_attribute_names {
@@ -1119,12 +1159,15 @@ pub mod required {
 
 impl RoundingMode {
 
-    // TODO simplify implementation?
     /// For x > 0, floorLog2(y) returns floor(log(x)/log(2))
     // taken from https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
     pub fn floor_log_2(mut number: u32) -> u32 {
+        debug_assert_ne!(number, 0);
+
+        // index of the most significant nonzero bit
         let mut log = 0;
 
+        // TODO check if this unrolls properly
         while number > 1 {
             log += 1;
             number >>= 1;
@@ -1133,13 +1176,15 @@ impl RoundingMode {
         log
     }
 
-    // TODO simplify implementation?
     /// For x > 0, ceilLog2(y) returns ceil(log(x)/log(2))
     // taken from https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
     pub fn ceil_log_2(mut number: u32) -> u32 {
+        debug_assert_ne!(number, 0);
+
         let mut log = 0;
         let mut round_up = 0;
 
+        // TODO check if this unrolls properly
         while number > 1 {
             if number & 1 != 0 {
                 round_up = 1;
@@ -1159,19 +1204,10 @@ impl RoundingMode {
         }
     }
 
-
     pub fn divide(self, dividend: u32, divisor: u32) -> u32 {
-        let result = dividend / divisor;
-
-        // TODO rounding up: (dividend + divisor - 1) / divisor instead??
-
         match self {
-            // round up if rust has been rounding down
-            RoundingMode::Up if result * divisor != dividend => {
-                result + 1
-            },
-
-            _ => result,
+            RoundingMode::Up => (dividend + divisor - 1) / divisor, // only works for positive numbers
+            RoundingMode::Down => dividend / divisor,
         }
     }
 }
