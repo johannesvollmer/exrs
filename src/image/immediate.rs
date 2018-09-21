@@ -112,6 +112,7 @@ impl Image {
         match chunks {
             Chunks::SinglePart(part) => {
                 let header = headers.pop().expect("single part without header");
+                assert_eq!(header.line_order(), ::file::meta::attributes::LineOrder::IncreasingY);
 
                 // contains ALL pixels per channel
                 // TODO LEVELS
@@ -190,6 +191,7 @@ impl Image {
                             let default_height = tile_description.y_size;
                             let round = tile_description.rounding_mode;
 
+
                             // FIXME only iterate if line_order is increasing y, else we need to interleave!!
                             for tile in &tiles {
                                 let level_x = tile.coordinates.level_x;
@@ -265,6 +267,15 @@ impl Image {
     }
 }
 
+impl Levels {
+    pub fn full(&self) -> &PartData {
+        match *self {
+            Levels::Singular(ref data) => data,
+            Levels::Mip(ref data) => &data[0],
+            Levels::Rip(ref rip_map) => &rip_map.data[0], // TODO test!
+        }
+    }
+}
 
 #[must_use]
 pub fn write_file(path: &str, image: &Image) -> WriteResult {

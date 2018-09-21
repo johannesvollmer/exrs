@@ -311,32 +311,32 @@ pub mod zip {
         //    }
 
         // TODO without extra allocation?
-        let mut t1 = Vec::with_capacity(source.len() / 2);
-        let mut t2 = Vec::with_capacity(source.len() / 2);
-        let mut s = 0;
+        let mut first_half = Vec::with_capacity(source.len() / 2);
+        let mut second_half = Vec::with_capacity(source.len() / 2);
+        let mut interleaved_index = 0;
 
         // TODO rustify!
         loop {
-            if s < source.len() {
-                t1.push(source[s]);
-                s += 1;
+            if interleaved_index < source.len() {
+                first_half.push(source[interleaved_index]);
+                interleaved_index += 1;
 
             } else { break; }
 
-            if s < source.len() {
-                t2.push(source[s]);
-                s += 1;
+            if interleaved_index < source.len() {
+                second_half.push(source[interleaved_index]);
+                interleaved_index += 1;
 
             } else { break; }
         }
 
-        let mut result = t1;
-        result.append(&mut t2);
+        let mut result = first_half;
+        result.append(&mut second_half);
         result
     }
 
     /// "interleave"
-    pub fn reorder_decompress(source: &[u8]) -> Vec<u8> {
+    pub fn reorder_decompress(separated: &[u8]) -> Vec<u8> {
         //    const char *t1 = source;
         //    const char *t2 = source + (outSize + 1) / 2;
         //    char *s = out;
@@ -351,32 +351,37 @@ pub mod zip {
         //    }
 
 
-        // TODO rustify
-        // w t f does this code even do? interleave every other byte? why??
+        // TODO without extra allocation, but in-place
+        // w t f does this code even do? interleave every other byte? why?? would improve compression only for f16 not for f32
 
-        // TODO without extra allocation?
-        let mut destination = vec![0; source.len()];
-        let mut t2 = (destination.len() + 1) / 2;
-        let mut t1 = 0;
-        let mut s = 0;
+        // TODO rustify
+        /*let (first_half, second_half) = separated
+            .split_at((separated.len() + 1) / 2);
+
+        first_half.iter().zip(second_half.iter())
+            .flat_map(|(&a, &b)| [a, b].into_iter())
+            .collect()*/
+
+        let mut interleaved = Vec::with_capacity(separated.len());
+        let (first_half, second_half) = separated
+            .split_at((separated.len() + 1) / 2);
+
+        let mut second_half_index = 0;
+        let mut first_half_index = 0;
 
         loop {
-            if s < destination.len() {
-                destination[s] = source[t1];
-                s += 1;
-                t1 += 1;
-
+            if interleaved.len() < separated.len() {
+                interleaved.push(first_half[first_half_index]);
+                first_half_index += 1;
             } else { break; }
 
-            if s < destination.len() {
-                destination[s] = source[t2];
-                s += 1;
-                t2 += 1;
-
+            if interleaved.len() < separated.len() {
+                interleaved.push(second_half[second_half_index]);
+                second_half_index += 1;
             } else { break; }
         }
 
-        destination
+        interleaved
     }
 
 
@@ -389,13 +394,16 @@ pub mod zip {
 
 
     pub fn decompress(target: UncompressedData, data: &CompressedData, uncompressed_size: Option<usize>) -> Result<UncompressedData> {
-        let mut decompressor = Decoder::new(data.as_slice())
-            .expect("io error when reading from in-memory vec");
-
         let mut decompressed = Vec::with_capacity(uncompressed_size.unwrap_or(32));
-        decompressor.read_to_end(&mut decompressed)?;
 
-        integrate(&mut decompressed);
+        {// decompress
+            let mut decompressor = Decoder::new(data.as_slice())
+                .expect("io error when reading from in-memory vec");
+
+            decompressor.read_to_end(&mut decompressed)?;
+        };
+
+        integrate(&mut decompressed); // TODO per channel? per line??
         decompressed = reorder_decompress(&decompressed);
         super::uncompressed::unpack(target, &decompressed) // convert to machine-dependent endianess
     }
@@ -405,11 +413,12 @@ pub mod zip {
         packed = reorder_compress(&packed);
         derive(&mut packed);
 
-        let mut compressor = Encoder::new(Vec::with_capacity(128))
-            .expect("io error when writing to in-memory vec");
+        {// compress
+            let mut compressor = Encoder::new(Vec::with_capacity(128))
+                .expect("io error when writing to in-memory vec");
 
-        io::copy(&mut packed.as_slice(), &mut compressor).expect("io error when writing to in-memory vec");
-
-        Ok(compressor.finish().into_result().expect("io error when writing to in-memory vec"))
+            io::copy(&mut packed.as_slice(), &mut compressor).expect("io error when writing to in-memory vec");
+            Ok(compressor.finish().into_result().expect("io error when writing to in-memory vec"))
+        }
     }
 }

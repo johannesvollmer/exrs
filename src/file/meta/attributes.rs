@@ -186,7 +186,7 @@ pub enum LineOrder {
     RandomY,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct Preview {
     pub width: u32,
     pub height: u32,
@@ -787,6 +787,12 @@ impl Preview {
     }
 }
 
+impl ::std::fmt::Debug for Preview {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "Preview {{ width: {}, height: {} }}", self.width, self.height)
+    }
+}
+
 impl TileDescription {
     pub fn dimensions(&self) -> (u32, u32) {
         (self.x_size, self.y_size)
@@ -952,8 +958,6 @@ impl AttributeValue {
 
     pub fn write<W: Write>(&self, write: &mut W, long_names: bool) -> WriteResult {
         use self::AttributeValue::*;
-        use self::attribute_type_names as ty;
-
         match *self {
             I32Box2(value) => value.write(write),
             F32Box2(value) => value.write(write),
@@ -1062,6 +1066,13 @@ impl AttributeValue {
         match *self {
             AttributeValue::I32Box2(value) => Ok(value),
             _ => Err(Invalid::Type(Required::Exact("box2i")).into()),
+        }
+    }
+
+    pub fn to_line_order(&self) -> Result<LineOrder, Invalid> {
+        match *self {
+            AttributeValue::LineOrder(value) => Ok(value),
+            _ => Err(Invalid::Type(Required::Exact("lineorder")).into()),
         }
     }
 

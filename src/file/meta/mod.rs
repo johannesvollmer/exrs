@@ -222,6 +222,13 @@ impl Header {
             .expect("check failed: `dataWindow` attribute has wrong type")
     }
 
+    pub fn line_order(&self) -> LineOrder {
+        self.attributes.get(self.indices.line_order.expect("`lineOrder` attribute index missing"))
+            .expect("invalid `lineOrder` attribute index")
+            .value.to_line_order()
+            .expect("check failed: `lineOrder` attribute has wrong type")
+    }
+
     pub fn tiles(&self) -> Option<TileDescription> {
         self.indices.tiles.map(|tiles|{
             self.attributes.get(tiles)

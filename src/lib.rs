@@ -49,7 +49,7 @@ pub mod test {
 
 //    #[bench]
 //    fn load_meta_only(){
-//      TODO
+//        let meta_data = MetaData::read(read)?;
 //    }
 
 
@@ -76,25 +76,22 @@ pub mod test {
     }
 
     fn load_file_or_print_err(path: &Path){
-        println!(
-            "{:?}",
-            ::image::immediate::read_raw_parts(
-                &mut ::std::fs::File::open(path).unwrap()
-            ).map(|_| "no errors")
+        let image = ::image::immediate::read_raw_parts(
+            &mut ::std::fs::File::open(path).unwrap()
         );
 
+        println!("{:?}", image.map(|_| "no errors"));
         //println!("{}", ::image::immediate::read_file(path).map(|_| "no errors").unwrap());
     }
 
 
     #[test]
     fn convert_to_png() {
-        use std::time::Instant;
-
-        let now = Instant::now();
+        let now = ::std::time::Instant::now();
 
         let path = ::std::path::Path::new(
-            "/home/johannes/Pictures/openexr/suzanne/suzanne_rgba_f32_zips.exr"
+//            "/home/johannes/Pictures/openexr/openexr-images-master/ScanLines/Blobbies.exr"
+            "/home/johannes/Pictures/openexr/samuel-zeller/samuel_zeller_rgb_f32_zip.exr"
         );
 
         let image = ::image::immediate::read_file(path);
@@ -112,23 +109,25 @@ pub mod test {
             println!("\ndecoded file in {:?} ms", millis);
 
             let header = &part.header;
-            let channels = expect_variant!(part.levels, ::image::immediate::Levels::Singular(ref lvl) => lvl);
+            let channels = part.levels.full();
             let full_res = header.data_window().dimensions();
 
             let mut png_buffer = ::piston_image::GrayImage::new(full_res.0, full_res.1);
 
             // BUGHUNT CHECKLIST
-            // - [ ] rust-f16 encoding is not the same as openexr-f16 encoding
-            // - [ ] compression alrogithm is wrong
-            // - [ ] compression+unpacking vs unpacking+compression order is wrong
+            // - [x] rust-f16 encoding is the same as openexr-f16 encoding
+            // - [x] compression+unpacking vs unpacking+compression order
+            // - [ ] compression alrogithm
+            // - [ ] mixing channels up, interleaving channels, in uncompressed::unpack
+            // - [ ] unpacking/reconstruction c algorithms translation into rust
 
 
             // actually do the conversion to png
             expect_variant!(channels, ::image::immediate::PartData::Flat(ref channels) => {
-                expect_variant!(channels[3], ::file::data::uncompressed::Array::F32(ref channel) => {
+                expect_variant!(channels[1], ::file::data::uncompressed::Array::F32(ref channel) => {
                     for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
                         let v = channel[(y * full_res.0 + x) as usize]/*.to_f32()*/;
-                        *pixel = ::piston_image::Luma([(v * 100.0) as u8]);
+                        *pixel = ::piston_image::Luma([(v * 200.0) as u8]);
                     }
                 })
             });
