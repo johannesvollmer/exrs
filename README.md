@@ -41,9 +41,14 @@ __Currently supported:__
 - [ ] Interpreting loaded data as image pixels
     - [ ] Pixel Data Compression
         - [ ] Uncompressed
-            - [x] (Half, Float) + IncreasingY + no mip map levels + no sub sampling + SinglePart + no deep data, 
+            - [x] (Half, Float) + scan line + IncreasingY + no mip map levels + no sub sampling + single-part + no deep data, 
             - [ ] Other (untested)
-        - [ ] ZIP / ZIPS
+        - [ ] ZIPS
+            - [x] (Half, Float) + scan line + IncreasingY + no mip map levels + no sub sampling + single-part + no deep data, 
+            - [ ] Other (untested)
+        - [ ] ZIP
+            - [x] (Half, Float) + scan line + IncreasingY + no mip map levels + no sub sampling + single-part + no deep data, 
+            - [ ] Other (untested)
         - [ ] RLE
         - [ ] PIZ
         - [ ] RXR24

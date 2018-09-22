@@ -134,18 +134,17 @@ impl Compression {
     pub fn decompress(
         self,
         target: UncompressedData,
-        // block_description: BlockDescription,
-
         data: &CompressedData,
         uncompressed_size: Option<usize>,
+        line_size: usize,
     )
         -> Result<UncompressedData>
     {
         use self::Compression::*;
         match self {
-            None => uncompressed::unpack(target, data),
-            ZIP16 => zip::decompress(target, data, uncompressed_size),
-            ZIP1 => zip::decompress(target, data, uncompressed_size),
+            None => uncompressed::unpack(target, data, line_size),
+            ZIP16 => zip::decompress(target, data, uncompressed_size, line_size),
+            ZIP1 => zip::decompress(target, data, uncompressed_size, line_size),
             compr => unimplemented!("decompressing {:?}", compr),
         }
     }
@@ -175,56 +174,87 @@ impl Compression {
 pub mod uncompressed {
     use super::*;
 
-    pub fn unpack(mut target: UncompressedData, data: &CompressedData) -> Result<UncompressedData> {
+    pub fn unpack(mut target: UncompressedData, data: &CompressedData, line_size: usize) -> Result<UncompressedData> {
         match &mut target {
             DataBlock::ScanLine(ref mut scan_line_channels) => {
-                for ref mut channel in scan_line_channels.iter_mut() {
-                    match channel {
-                        Array::U32(ref mut channel) => {
-                            ::file::io::read_u32_array(&mut data.as_slice(), channel.as_mut_slice())
-                                .expect("io err when reading from in-memory vec");
-                        },
+                // TODO assert channels are in alphabetical order?
+                let mut remaining_bytes = data.as_slice();
 
-                        Array::F16(ref mut channel) => {
-                            // TODO don't allocate
-                            // TODO cast mut f16 slice as u16 and read u16 array
-                            let allocated_vec = ::file::io::read_f16_vec(
-                                &mut data.as_slice(), channel.len(), ::std::usize::MAX
-                            ).expect("io err when reading from in-memory vec");
+                // for each line, extract all channels
+                while !remaining_bytes.is_empty() {
 
-                            channel.copy_from_slice(allocated_vec.as_slice());
-                        },
+                    // for each channel, read all pixels in this single line
+                    for ref mut channel in scan_line_channels.iter_mut() {
+                        match channel {
+                            Array::U32(ref mut channel) => {
+                                // TODO without separate allocation
+                                let line = ::file::io::read_u32_vec(
+                                    &mut remaining_bytes, line_size, ::std::u16::MAX as usize
+                                ).expect("io err when reading from in-memory vec");;
 
-                        Array::F32(ref mut channel) => {
-                            ::file::io::read_f32_array(&mut data.as_slice(), channel.as_mut_slice())
-                                .expect("io err when reading from in-memory vec");
-                        },
+                                channel.extend_from_slice(&line);
+                            },
+
+                            Array::F16(ref mut channel) => {
+                                // TODO don't allocate
+                                let line = ::file::io::read_f16_vec(
+                                    &mut remaining_bytes, line_size, ::std::u16::MAX as usize
+                                ).expect("io err when reading from in-memory vec");
+//
+                                channel.extend_from_slice(&line);
+                            },
+
+                            Array::F32(ref mut channel) => {
+                                // TODO without separate allocation
+                                let line = ::file::io::read_f32_vec(
+                                    &mut remaining_bytes, line_size, ::std::u16::MAX as usize
+                                ).expect("io err when reading from in-memory vec");;
+
+                                channel.extend_from_slice(&line);
+                            },
+                        }
                     }
                 }
             },
 
             DataBlock::Tile(ref mut tile_channels) => {
-                for ref mut channel in tile_channels.iter_mut() {
-                    match channel {
-                        Array::U32(ref mut channel) => {
-                            ::file::io::read_u32_array(&mut data.as_slice(), channel.as_mut_slice())
-                                .expect("io err when reading from in-memory vec");
-                        },
+                // TODO assert channels are in alphabetical order?
+                let mut remaining_bytes = data.as_slice();
 
-                        Array::F16(ref mut channel) => {
-                            // TODO don't allocate
-                            // TODO cast mut f16 slice as u16 and read u16 array
-                            let allocated_vec = ::file::io::read_f16_vec(
-                                &mut data.as_slice(), channel.len(), ::std::usize::MAX
-                            ).expect("io err when reading from in-memory vec");
+                // for each line, extract all channels
+                while !remaining_bytes.is_empty() {
 
-                            channel.copy_from_slice(allocated_vec.as_slice());
-                        },
+                    // for each channel, read all pixels in this single line
+                    for ref mut channel in tile_channels.iter_mut() {
+                        match channel {
+                            Array::U32(ref mut channel) => {
+                                // TODO without separate allocation
+                                let line = ::file::io::read_u32_vec(
+                                    &mut remaining_bytes, line_size, ::std::u16::MAX as usize
+                                ).expect("io err when reading from in-memory vec");
 
-                        Array::F32(ref mut channel) => {
-                            ::file::io::read_f32_array(&mut data.as_slice(), channel.as_mut_slice())
-                                .expect("io err when reading from in-memory vec");
-                        },
+                                channel.extend_from_slice(&line);
+                            },
+
+                            Array::F16(ref mut channel) => {
+                                // TODO don't allocate
+                                let line = ::file::io::read_f16_vec(
+                                    &mut remaining_bytes, line_size, ::std::u16::MAX as usize
+                                ).expect("io err when reading from in-memory vec");
+//
+                                channel.extend_from_slice(&line);
+                            },
+
+                            Array::F32(ref mut channel) => {
+                                // TODO without separate allocation
+                                let line = ::file::io::read_f32_vec(
+                                    &mut remaining_bytes, line_size, ::std::u16::MAX as usize
+                                ).expect("io err when reading from in-memory vec");
+                                ;
+
+                                channel.extend_from_slice(&line);
+                            },
+                        }
                     }
                 }
             },
@@ -393,7 +423,7 @@ pub mod zip {
     // 4. Fill the frame buffer with pixel data, respective to sampling and whatnot
 
 
-    pub fn decompress(target: UncompressedData, data: &CompressedData, uncompressed_size: Option<usize>) -> Result<UncompressedData> {
+    pub fn decompress(target: UncompressedData, data: &CompressedData, uncompressed_size: Option<usize>, line_size: usize) -> Result<UncompressedData> {
         let mut decompressed = Vec::with_capacity(uncompressed_size.unwrap_or(32));
 
         {// decompress
@@ -405,7 +435,7 @@ pub mod zip {
 
         integrate(&mut decompressed); // TODO per channel? per line??
         decompressed = reorder_decompress(&decompressed);
-        super::uncompressed::unpack(target, &decompressed) // convert to machine-dependent endianess
+        super::uncompressed::unpack(target, &decompressed, line_size) // convert to machine-dependent endianess
     }
 
     pub fn compress(data: &UncompressedData) -> Result<CompressedData> {

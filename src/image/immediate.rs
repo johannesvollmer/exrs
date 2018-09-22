@@ -154,15 +154,16 @@ impl Image {
                                     let y_size = height / channel.y_sampling as usize;
                                     let size = x_size * y_size;
                                     match channel.pixel_type {
-                                        PixelType::U32 => target.push(Array::U32(vec![0; size])),
-                                        PixelType::F16 => target.push(Array::F16(vec![f16::from_f32(0.0); size])),
-                                        PixelType::F32 => target.push(Array::F32(vec![0.0; size])),
+                                        PixelType::U32 => target.push(Array::U32(Vec::with_capacity(size))),
+                                        PixelType::F16 => target.push(Array::F16(Vec::with_capacity(size))),
+                                        PixelType::F32 => target.push(Array::F32(Vec::with_capacity(size))),
                                     }
                                 }
 
                                 let decompressed = compression.decompress(
                                     DataBlock::ScanLine(target),
-                                    &compressed_data.compressed_pixels, None // uncompressed_size
+                                    &compressed_data.compressed_pixels, None, // uncompressed_size
+                                    data_width
                                 ).unwrap(/* TODO */);
 
                                 expect_variant!(decompressed, DataBlock::ScanLine(decompressed_scan_line_channels) => {
@@ -217,15 +218,16 @@ impl Image {
                                     let y_size = height / channel.y_sampling as u32; // TODO rounding mode?
                                     let size = (x_size * y_size) as usize;
                                     match channel.pixel_type {
-                                        PixelType::U32 => target.push(Array::U32(vec![0; size])),
-                                        PixelType::F16 => target.push(Array::F16(vec![f16::from_f32(0.0); size])),
-                                        PixelType::F32 => target.push(Array::F32(vec![0.0; size])),
+                                        PixelType::U32 => target.push(Array::U32(Vec::with_capacity(size))),
+                                        PixelType::F16 => target.push(Array::F16(Vec::with_capacity(size))),
+                                        PixelType::F32 => target.push(Array::F32(Vec::with_capacity(size))),
                                     }
                                 }
 
                                 let decompressed = compression.decompress(
                                     DataBlock::Tile(target),
-                                    &tile.compressed_pixels, None // uncompressed_size
+                                    &tile.compressed_pixels, None, // uncompressed_size
+                                    width as usize
                                 ).unwrap(/* TODO */);
 
                                 expect_variant!(decompressed, DataBlock::Tile(decompressed_scan_line_channels) => {
