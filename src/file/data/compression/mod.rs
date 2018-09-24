@@ -1,3 +1,6 @@
+pub mod zip;
+pub mod rle;
+
 use super::uncompressed::*;
 
 #[derive(Debug)]
@@ -250,7 +253,6 @@ pub mod uncompressed {
                                 let line = ::file::io::read_f32_vec(
                                     &mut remaining_bytes, line_size, ::std::u16::MAX as usize
                                 ).expect("io err when reading from in-memory vec");
-                                ;
 
                                 channel.extend_from_slice(&line);
                             },
@@ -272,74 +274,26 @@ pub mod uncompressed {
 
 
 
-
-// see https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfCompressor.cpp
-
-
-/// compresses 16 scan lines at once or
-/// compresses 1 single scan line at once
-// TODO don't instantiate a new decoder for every block?
-pub mod zip {
-    use super::*;
-    use std::io::{self, Read};
-    use ::libflate::zlib::{Encoder, Decoder};
-
+pub mod optimize_data {
 
     // inspired by https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfZip.cpp
 
     /// "Predictor."
-    pub fn integrate(buffer: &mut [u8]){
-//        unsigned char *t    = (unsigned char *) buf + 1;
-//        unsigned char *stop = (unsigned char *) buf + outSize;
-//        while (t < stop){
-//            int d = int (t[-1]) + int (t[0]) - 128;
-//            t[0] = d;
-//            ++t;
-//        }
-
-        // TODO rustify
+    pub fn differences_to_samples(buffer: &mut [u8]){
         for index in 1..buffer.len() {
             buffer[index] = (buffer[index-1] as i32 + buffer[index] as i32 - 128) as u8;
         }
     }
 
     /// "Predictor."
-    pub fn derive(buffer: &mut [u8]){
-//        unsigned char *t    = (unsigned char *) _tmpBuffer + 1;
-//        unsigned char *stop = (unsigned char *) _tmpBuffer + rawSize;
-//        int prev = t[-1];
-//
-//        while (t < stop){
-//            int d = int (t[0]) - prev + (128 + 256);
-//            prev = t[0];
-//            t[0] = d;
-//            ++t;
-//        }
-
-        // TODO rustify
+    pub fn samples_to_differences(buffer: &mut [u8]){
         for index in 1..buffer.len() {
-            buffer[index] = (buffer[index] as i32 - buffer[index-1] as i32 + 128 + 256) /*% 256*/ as u8;
+            buffer[index] = (buffer[index] as i32 - buffer[index-1] as i32 + 128 + 256) as u8;
         }
     }
 
     /// de-"interleave"
-    pub fn reorder_compress(source: &[u8]) -> Vec<u8> {
-        //    char *t1 = _tmpBuffer;
-        //    char *t2 = _tmpBuffer + (rawSize + 1) / 2;
-        //    const char *stop = raw + rawSize;
-        //
-        //    while (true){
-        //        if (raw < stop)
-        //        *(t1++) = *(raw++);
-        //        else
-        //        break;
-        //
-        //        if (raw < stop)
-        //        *(t2++) = *(raw++);
-        //        else
-        //        break;
-        //    }
-
+    pub fn separate_bytes_fragments(source: &[u8]) -> Vec<u8> {
         // TODO without extra allocation?
         let mut first_half = Vec::with_capacity(source.len() / 2);
         let mut second_half = Vec::with_capacity(source.len() / 2);
@@ -366,32 +320,8 @@ pub mod zip {
     }
 
     /// "interleave"
-    pub fn reorder_decompress(separated: &[u8]) -> Vec<u8> {
-        //    const char *t1 = source;
-        //    const char *t2 = source + (outSize + 1) / 2;
-        //    char *s = out;
-        //    char *const stop = s + outSize;
-        //
-        //    while (true){
-        //        if (s < stop) *(s++) = *(t1++);
-        //        else break;
-        //
-        //        if (s < stop) *(s++) = *(t2++);
-        //        else break;
-        //    }
-
-
-        // TODO without extra allocation, but in-place
-        // w t f does this code even do? interleave every other byte? why?? would improve compression only for f16 not for f32
-
+    pub fn interleave_byte_blocks(separated: &[u8]) -> Vec<u8> {
         // TODO rustify
-        /*let (first_half, second_half) = separated
-            .split_at((separated.len() + 1) / 2);
-
-        first_half.iter().zip(second_half.iter())
-            .flat_map(|(&a, &b)| [a, b].into_iter())
-            .collect()*/
-
         let mut interleaved = Vec::with_capacity(separated.len());
         let (first_half, second_half) = separated
             .split_at((separated.len() + 1) / 2);
@@ -412,43 +342,5 @@ pub mod zip {
         }
 
         interleaved
-    }
-
-
-    // TODO
-    // for scanline decompression routine, see https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfScanLineInputFile.cpp
-    // 1. Uncompress the data, if necessary (If the line is uncompressed, it's in XDR format, regardless of the compressor's output format.)
-    // 2. consider line_order?
-    // 3. Convert one scan line's worth of pixel data back from the machine-independent representation
-    // 4. Fill the frame buffer with pixel data, respective to sampling and whatnot
-
-
-    pub fn decompress(target: UncompressedData, data: &CompressedData, uncompressed_size: Option<usize>, line_size: usize) -> Result<UncompressedData> {
-        let mut decompressed = Vec::with_capacity(uncompressed_size.unwrap_or(32));
-
-        {// decompress
-            let mut decompressor = Decoder::new(data.as_slice())
-                .expect("io error when reading from in-memory vec");
-
-            decompressor.read_to_end(&mut decompressed)?;
-        };
-
-        integrate(&mut decompressed); // TODO per channel? per line??
-        decompressed = reorder_decompress(&decompressed);
-        super::uncompressed::unpack(target, &decompressed, line_size) // convert to machine-dependent endianess
-    }
-
-    pub fn compress(data: &UncompressedData) -> Result<CompressedData> {
-        let mut packed = super::uncompressed::pack(data)?; // convert from machine-dependent endianess
-        packed = reorder_compress(&packed);
-        derive(&mut packed);
-
-        {// compress
-            let mut compressor = Encoder::new(Vec::with_capacity(128))
-                .expect("io error when writing to in-memory vec");
-
-            io::copy(&mut packed.as_slice(), &mut compressor).expect("io error when writing to in-memory vec");
-            Ok(compressor.finish().into_result().expect("io error when writing to in-memory vec"))
-        }
     }
 }

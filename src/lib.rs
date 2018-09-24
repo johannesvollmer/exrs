@@ -91,8 +91,8 @@ pub mod test {
 
         let path = ::std::path::Path::new(
 //            "/home/johannes/Pictures/openexr/openexr-images-master/ScanLines/Blobbies.exr"
-            "/home/johannes/Pictures/openexr/debug/128x64_r10g5b0_f32_zip.exr"
-//            "/home/johannes/Pictures/openexr/samuel-zeller/samuel_zeller_rgb_f32_zip.exr"
+//            "/home/johannes/Pictures/openexr/debug/128x64_r10g5b0_f16_zip.exr"
+            "/home/johannes/Pictures/openexr/samuel-zeller/samuel_zeller_rgb_f16_zip.exr"
         );
 
         let image = ::image::immediate::read_file(path);
@@ -125,10 +125,10 @@ pub mod test {
 
             // actually do the conversion to png
             expect_variant!(channels, ::image::immediate::PartData::Flat(ref channels) => {
-                expect_variant!(channels[1], ::file::data::uncompressed::Array::F32(ref channel) => {
+                expect_variant!(channels[1], ::file::data::uncompressed::Array::F16(ref channel) => {
                     for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
-                        let v = channel[(y * full_res.0 + x) as usize]/*.to_f32()*/;
-                        *pixel = ::piston_image::Luma([(v * 200.0) as u8]);
+                        let v = channel[(y * full_res.0 + x) as usize].to_f32();
+                        *pixel = ::piston_image::Luma([(v * 250.0) as u8]);
                     }
                 })
             });

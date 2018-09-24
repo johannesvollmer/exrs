@@ -12,9 +12,9 @@ a high flexibility regarding the data it is able to hold.
 ### Current Status
 
 Because rs-exr is currently a draft, it doesn't write images yet,
-but it is already able to read all files from the
-[OpenEXR test file repository](https://github.com/openexr/openexr-images/tree/master/TestImages).
-Sadly, decompressing the read pixel data is not yet possible.
+but it is already able to decode all files from the
+[OpenEXR test file repository](https://github.com/openexr/openexr-images/tree/master/TestImages) 
+without errors. However, only a few compression methods are supported.
 _Highly experimental!_
 
 __Currently supported:__
@@ -24,16 +24,16 @@ __Currently supported:__
         - [x] Tiles
         - [x] Scan lines
         - [x] Deep Tiles
-        - [ ] Deep Scan Lines _(coded, but no sample files found for testing)_
+        - [ ] Deep Scan Lines _(coded, but untested)_
     - [x] Multipart
         - [x] Tiles
         - [x] Scan lines
-        - [ ] Deep Tiles _(coded, but no sample files found for testing)_
-        - [x] Deep Scan Lines         
+        - [ ] Deep Tiles _(coded, but untested)_
+        - [x] Deep Scan Lines
     - [x] Multi Resolution
         - [x] Singular Resolution
         - [x] MipMaps
-        - [ ] RipMaps _(coded, but no sample files found for testing)_
+        - [ ] RipMaps _(coded, but untested)_
     - [x] Non-Standard Attributes
         - [x] Reading those with known types
         - [x] Skipping those with unknown types

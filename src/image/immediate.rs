@@ -114,7 +114,13 @@ impl Image {
                 let header = headers.pop().expect("single part without header");
                 assert_eq!(header.line_order(), ::file::meta::attributes::LineOrder::IncreasingY);
 
-                // contains ALL pixels per channel
+                /*TODO let levels = match header.tiles().level_mode {
+                    Singular => Levels::Singular,
+                    Mip => Levels::Mip,
+                    Rip => Levels::Rip,
+                };*/
+
+                // contains ALL pixels per channel for the whole image
                 // TODO LEVELS
                 let mut decompressed_channels: PerChannel<Array> = header.channels()
                     .iter().map(|channel|{
@@ -139,7 +145,7 @@ impl Image {
                         ScanLine(scan_lines) => {
                             let lines_per_block = compression.scan_lines_per_block();
                             println!("what about line order");
-                            println!("what about mip map levels");
+                            println!("what about mip/rip map levels?");
 
                             // FIXME only iterate if line_order is increasing y, else we need to interleave!!
                             for (index, compressed_data) in scan_lines.iter().enumerate() {
