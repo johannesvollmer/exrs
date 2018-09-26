@@ -5,12 +5,15 @@ use super::uncompressed::*;
 
 #[derive(Debug)]
 pub enum Error {
-    Compression(::std::io::Error),
+    /// includes zip compression errors
+    IO(::std::io::Error),
+
+    RLEMaxLengthExceeded,
 }
 
 impl From<::std::io::Error> for Error {
     fn from(io: ::std::io::Error) -> Self {
-        Error::Compression(io)
+        Error::IO(io)
     }
 }
 
@@ -128,9 +131,10 @@ impl Compression {
         use self::Compression::*;
         match self {
             None => uncompressed::pack(data),
-            ZIP16 => zip::compress(data),
-            ZIP1 => zip::compress(data),
-            _ => unimplemented!()
+            ZIP16 => zip::compress_bytes(data),
+            ZIP1 => zip::compress_bytes(data),
+            RLE => rle::compress_bytes(data),
+            compr => unimplemented!("compressing {:?}", compr),
         }
     }
 
@@ -138,7 +142,6 @@ impl Compression {
         self,
         target: UncompressedData,
         data: &CompressedData,
-        uncompressed_size: Option<usize>,
         line_size: usize,
     )
         -> Result<UncompressedData>
@@ -146,8 +149,9 @@ impl Compression {
         use self::Compression::*;
         match self {
             None => uncompressed::unpack(target, data, line_size),
-            ZIP16 => zip::decompress(target, data, uncompressed_size, line_size),
-            ZIP1 => zip::decompress(target, data, uncompressed_size, line_size),
+            ZIP16 => zip::decompress_bytes(target, data, line_size),
+            ZIP1 => zip::decompress_bytes(target, data, line_size),
+            RLE => rle::decompress_bytes(target, data, line_size),
             compr => unimplemented!("decompressing {:?}", compr),
         }
     }
@@ -190,7 +194,8 @@ pub mod uncompressed {
                     for ref mut channel in scan_line_channels.iter_mut() {
                         match channel {
                             Array::U32(ref mut channel) => {
-                                // TODO without separate allocation
+                                // TODO without separate allocation: channel must have zeroes and from io read into subslice
+
                                 let line = ::file::io::read_u32_vec(
                                     &mut remaining_bytes, line_size, ::std::u16::MAX as usize
                                 ).expect("io err when reading from in-memory vec");;
@@ -274,7 +279,7 @@ pub mod uncompressed {
 
 
 
-pub mod optimize_data {
+pub mod optimize_bytes {
 
     // inspired by https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfZip.cpp
 

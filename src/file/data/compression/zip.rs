@@ -6,7 +6,7 @@
 /// compresses 1 single scan line at once
 // TODO don't instantiate a new decoder for every block?
 use super::*;
-use super::optimize_data::*;
+use super::optimize_bytes::*;
 
 use std::io::{self, Read};
 use ::libflate::zlib::{Encoder, Decoder};
@@ -22,8 +22,8 @@ use ::libflate::zlib::{Encoder, Decoder};
 // 4. Fill the frame buffer with pixel data, respective to sampling and whatnot
 
 
-pub fn decompress(target: UncompressedData, data: &CompressedData, uncompressed_size: Option<usize>, line_size: usize) -> Result<UncompressedData> {
-    let mut decompressed = Vec::with_capacity(uncompressed_size.unwrap_or(32));
+pub fn decompress_bytes(target: UncompressedData, data: &CompressedData, line_size: usize) -> Result<UncompressedData> {
+    let mut decompressed = Vec::with_capacity(data.len());
 
     {// decompress
         let mut decompressor = Decoder::new(data.as_slice())
@@ -37,13 +37,13 @@ pub fn decompress(target: UncompressedData, data: &CompressedData, uncompressed_
     super::uncompressed::unpack(target, &decompressed, line_size) // convert to machine-dependent endianess
 }
 
-pub fn compress(data: &UncompressedData) -> Result<CompressedData> {
+pub fn compress_bytes(data: &UncompressedData) -> Result<CompressedData> {
     let mut packed = super::uncompressed::pack(data)?; // convert from machine-dependent endianess
     packed = separate_bytes_fragments(&packed);
     samples_to_differences(&mut packed);
 
     {// compress
-        let mut compressor = Encoder::new(Vec::with_capacity(128))
+        let mut compressor = Encoder::new(Vec::with_capacity(packed.len()))
             .expect("io error when writing to in-memory vec");
 
         io::copy(&mut packed.as_slice(), &mut compressor).expect("io error when writing to in-memory vec");

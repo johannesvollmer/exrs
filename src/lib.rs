@@ -92,7 +92,7 @@ pub mod test {
         let path = ::std::path::Path::new(
 //            "/home/johannes/Pictures/openexr/openexr-images-master/ScanLines/Blobbies.exr"
 //            "/home/johannes/Pictures/openexr/debug/128x64_r10g5b0_f16_zip.exr"
-            "/home/johannes/Pictures/openexr/samuel-zeller/samuel_zeller_rgb_f16_zip.exr"
+            "/home/johannes/Pictures/openexr/samuel-zeller/samuel_zeller_rgb_f16_rle.exr"
         );
 
         let image = ::image::immediate::read_file(path);
@@ -127,6 +127,7 @@ pub mod test {
             expect_variant!(channels, ::image::immediate::PartData::Flat(ref channels) => {
                 expect_variant!(channels[1], ::file::data::uncompressed::Array::F16(ref channel) => {
                     for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
+                    // TODO assumes channel is not subsampled
                         let v = channel[(y * full_res.0 + x) as usize].to_f32();
                         *pixel = ::piston_image::Luma([(v * 250.0) as u8]);
                     }

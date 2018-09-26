@@ -218,7 +218,6 @@ pub enum RoundingMode {
 use ::file::io::*;
 use ::file::io;
 
-
 impl Text {
     // TODO make sure this does not allocate, but uses the stack for string literals
     pub fn from_str(str_value: &str) -> Self {
@@ -517,6 +516,18 @@ impl PixelType {
 }
 
 impl Channel {
+    pub fn subsampled_pixels(&self, width: usize, height: usize) -> usize {
+        let (width, height) = self.subsampled_resolution(width, height);
+        width * height
+    }
+
+    pub fn subsampled_resolution(&self, width: usize, height: usize) -> (usize, usize) {
+        (
+            width / self.x_sampling as usize,
+            height / self.y_sampling as usize,
+        )
+    }
+
     pub fn byte_size(&self) -> usize {
         self.name.null_terminated_byte_size()
             + self.pixel_type.byte_size()

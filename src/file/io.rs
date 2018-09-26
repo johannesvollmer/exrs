@@ -38,8 +38,7 @@ pub enum ReadError {
 /// Enable using the `?` operator on io::Result
 impl From<::std::io::Error> for ReadError {
     fn from(io_err: ::std::io::Error) -> Self {
-        panic!("give me that nice stack trace like you always do: {}", io_err); // TODO remove
-        // ReadError::IoError(io_err)
+        ReadError::IoError(io_err)
     }
 }
 

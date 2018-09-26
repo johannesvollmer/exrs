@@ -57,6 +57,7 @@ pub struct RipMaps {
 pub enum PartData {
     /// One single array containing all pixels, row major left to right, top to bottom
     /// same length as `Part.channels` field
+    // TODO should store sampling_x/_y for simple accessors?
     Flat(PerChannel<Array>),
 
     /// scan line blocks are stored from top to bottom, row major.
@@ -104,7 +105,7 @@ pub fn read_seekable_buffered<R: Read + Seek>(read: &mut R) -> ReadResult<Image>
 impl Image {
     pub fn from_raw(meta_data: MetaData, chunks: Chunks) -> ReadResult<Self> {
         meta_data.validate()?;
-//        data.validate()?;
+//        chunks.validate()?;
 
         let MetaData { version, mut headers, .. } = meta_data; // TODO skip offset table reading if possible
 
@@ -114,7 +115,12 @@ impl Image {
                 let header = headers.pop().expect("single part without header");
                 assert_eq!(header.line_order(), ::file::meta::attributes::LineOrder::IncreasingY);
 
-                /*TODO let levels = match header.tiles().level_mode {
+                let (data_width, data_height) = header.data_window().dimensions();
+                let (data_width, data_height) = (data_width as usize, data_height as usize);
+
+
+                /*TODO
+                let levels = match header.tiles().level_mode {
                     Singular => Levels::Singular,
                     Mip => Levels::Mip,
                     Rip => Levels::Rip,
@@ -122,23 +128,20 @@ impl Image {
 
                 // contains ALL pixels per channel for the whole image
                 // TODO LEVELS
-                let mut decompressed_channels: PerChannel<Array> = header.channels()
-                    .iter().map(|channel|{
-                        match channel.pixel_type {
-                            PixelType::U32 => Array::U32(Vec::with_capacity(128/* TODO */)),
-                            PixelType::F16 => Array::F16(Vec::with_capacity(128/* TODO */)),
-                            PixelType::F32 => Array::F32(Vec::with_capacity(128/* TODO */)),
-                        }
-                    })
-                    .collect();
+                let mut decompressed_channels: PerChannel<Array> = header.channels().iter().map(|channel|{
+                    let pixels = channel.subsampled_pixels(data_width, data_height);
+                    match channel.pixel_type {
+                        PixelType::U32 => Array::U32(Vec::with_capacity(pixels)),
+                        PixelType::F16 => Array::F16(Vec::with_capacity(pixels)),
+                        PixelType::F32 => Array::F32(Vec::with_capacity(pixels)),
+                    }
+                })
+                .collect();
+
 
                 {
-                    let (data_width, data_height) = header.data_window().dimensions();
-                    let (data_width, data_height) = (data_width as usize, data_height as usize);
-
                     let channels = header.channels();
                     let compression = header.compression();
-
                     use ::file::data::compressed::SinglePartChunks::*;
 
                     match part {
@@ -156,9 +159,8 @@ impl Image {
 
                                 let mut target = PerChannel::with_capacity(channels.len());
                                 for channel in channels {
-                                    let x_size = data_width / channel.x_sampling as usize; // TODO is that how sampling works?
-                                    let y_size = height / channel.y_sampling as usize;
-                                    let size = x_size * y_size;
+                                    let size = channel.subsampled_pixels(data_width, height);
+
                                     match channel.pixel_type {
                                         PixelType::U32 => target.push(Array::U32(Vec::with_capacity(size))),
                                         PixelType::F16 => target.push(Array::F16(Vec::with_capacity(size))),
@@ -168,7 +170,7 @@ impl Image {
 
                                 let decompressed = compression.decompress(
                                     DataBlock::ScanLine(target),
-                                    &compressed_data.compressed_pixels, None, // uncompressed_size
+                                    &compressed_data.compressed_pixels,
                                     data_width
                                 ).unwrap(/* TODO */);
 
@@ -220,9 +222,7 @@ impl Image {
 
                                 let mut target = PerChannel::with_capacity(channels.len());
                                 for channel in channels {
-                                    let x_size = width / channel.x_sampling as u32; // TODO is that how sampling works?
-                                    let y_size = height / channel.y_sampling as u32; // TODO rounding mode?
-                                    let size = (x_size * y_size) as usize;
+                                    let size = channel.subsampled_pixels(width as usize, height as usize); // TODO use usize only
                                     match channel.pixel_type {
                                         PixelType::U32 => target.push(Array::U32(Vec::with_capacity(size))),
                                         PixelType::F16 => target.push(Array::F16(Vec::with_capacity(size))),
@@ -232,7 +232,7 @@ impl Image {
 
                                 let decompressed = compression.decompress(
                                     DataBlock::Tile(target),
-                                    &tile.compressed_pixels, None, // uncompressed_size
+                                    &tile.compressed_pixels,
                                     width as usize
                                 ).unwrap(/* TODO */);
 
