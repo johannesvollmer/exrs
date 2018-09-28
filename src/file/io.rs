@@ -31,7 +31,7 @@ pub enum ReadError {
     UnknownAttributeType { bytes_to_skip: u32 },
 
     IoError(::std::io::Error),
-    CompressionError(data::compression::Error),
+    CompressionError(Box<data::compression::Error>),
 }
 
 
@@ -45,7 +45,7 @@ impl From<::std::io::Error> for ReadError {
 /// Enable using the `?` operator on compress::Result
 impl From<data::compression::Error> for ReadError {
     fn from(compress_err: data::compression::Error) -> Self {
-        ReadError::CompressionError(compress_err)
+        ReadError::CompressionError(Box::new(compress_err))
     }
 }
 

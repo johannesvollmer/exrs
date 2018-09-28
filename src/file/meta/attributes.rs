@@ -219,11 +219,10 @@ use ::file::io::*;
 use ::file::io;
 
 impl Text {
-    // TODO make sure this does not allocate, but uses the stack for string literals
     pub fn from_str(str_value: &str) -> Self {
         debug_assert_eq!(
             str_value.bytes().len(), str_value.chars().count(),
-            "only single-byte chars supported by open exr"
+            "only single-byte chars supported by open exr" // TODO is this true?
         );
 
         Text { bytes: SmallVec::from_slice(str_value.as_bytes()) }
@@ -234,13 +233,13 @@ impl Text {
     }
 
     /// panics if value is too long (31 bytes max)
-    pub fn short_from_str(str_value: &str) -> Self {
+    pub fn from_str_32(str_value: &str) -> Self {
         assert!(str_value.as_bytes().len() < 32, "max text length is 31");
         Self::from_str(str_value)
     }
 
     /// panics if value is too long (31 bytes max)
-    pub fn long_from_str(str_value: &str) -> Self {
+    pub fn from_str_256(str_value: &str) -> Self {
         assert!(str_value.as_bytes().len() < 256, "max text length is 255");
         Self::from_str(str_value)
     }
@@ -648,7 +647,6 @@ impl Compression {
             B44A => 7_u8,
             DWAA => 8_u8,
             DWAB => 9_u8,
-            _ => unimplemented!()
         }.write(write)
     }
 
@@ -667,7 +665,7 @@ impl Compression {
             9 => DWAB,
             _ => return Err(Invalid::Content(
                 Value::Enum("compression"),
-                Required::Range { min: 0, max: 7 }
+                Required::Range { min: 0, max: 9 }
             ).into()),
         })
     }

@@ -14,8 +14,7 @@ use ::libflate::zlib::{Encoder, Decoder};
 
 
 
-// TODO
-// for scanline decompression routine, see https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfScanLineInputFile.cpp
+// scanline decompression routine, see https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfScanLineInputFile.cpp
 // 1. Uncompress the data, if necessary (If the line is uncompressed, it's in XDR format, regardless of the compressor's output format.)
 // 2. consider line_order?
 // 3. Convert one scan line's worth of pixel data back from the machine-independent representation

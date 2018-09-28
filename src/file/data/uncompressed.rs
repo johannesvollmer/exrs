@@ -8,7 +8,7 @@ use ::half::f16;
 pub type PerChannel<T> = SmallVec<[T; 5]>;
 // TODO pub type DataBlock = PerChannel<Array>; ? what about deep data?
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum DataBlock {
     ScanLine(PerChannel<Array>),
     Tile(PerChannel<Array>),
@@ -51,12 +51,12 @@ pub struct TileBlock {
     pub data: Array,
 }*/
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DeepScanLineBlock {
     // TODO
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DeepTileBlock {
     // TODO
 }
@@ -64,7 +64,7 @@ pub struct DeepTileBlock {
 // TODO reduce vec indirection
 // per channel!
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Array {
     U32(Vec<u32>),
 

@@ -73,7 +73,6 @@ use ::file::meta::MetaData;
 use ::file::data::compressed::Chunks;
 use ::file::io::*;
 use file::meta::attributes::PixelType;
-use half::f16;
 
 #[must_use]
 pub fn read_file(path: &::std::path::Path) -> ReadResult<Image> {
@@ -102,6 +101,8 @@ pub fn read_seekable_buffered<R: Read + Seek>(read: &mut R) -> ReadResult<Image>
 }
 
 
+// TODO feed file_read iterator directly into decompression iterator, without intermediate storage? must be buffered though
+// TODO this would enable letting the user handle storing all pixels by just handing him the iterator
 impl Image {
     pub fn from_raw(meta_data: MetaData, chunks: Chunks) -> ReadResult<Self> {
         meta_data.validate()?;
@@ -113,6 +114,7 @@ impl Image {
         match chunks {
             Chunks::SinglePart(part) => {
                 let header = headers.pop().expect("single part without header");
+                assert!(headers.is_empty(), "single part with multiple headers");
                 assert_eq!(header.line_order(), ::file::meta::attributes::LineOrder::IncreasingY);
 
                 let (data_width, data_height) = header.data_window().dimensions();
@@ -172,7 +174,7 @@ impl Image {
                                     DataBlock::ScanLine(target),
                                     &compressed_data.compressed_pixels,
                                     data_width
-                                ).unwrap(/* TODO */);
+                                )?;
 
                                 expect_variant!(decompressed, DataBlock::ScanLine(decompressed_scan_line_channels) => {
                                     for (channel_index, decompressed_channel) in decompressed_scan_line_channels.iter().enumerate() {
@@ -234,13 +236,14 @@ impl Image {
                                     DataBlock::Tile(target),
                                     &tile.compressed_pixels,
                                     width as usize
-                                ).unwrap(/* TODO */);
+                                )?;
 
-                                expect_variant!(decompressed, DataBlock::Tile(decompressed_scan_line_channels) => {
+                                unimplemented!("cannot just append tiles to a flat array");
+                                /*expect_variant!(decompressed, DataBlock::Tile(decompressed_scan_line_channels) => {
                                     for (channel_index, decompressed_channel) in decompressed_scan_line_channels.iter().enumerate() {
                                         decompressed_channels[channel_index].extend_from_slice(&decompressed_channel);
                                     }
-                                })
+                                })*/
 
                                 /*if let DataBlock::Tile(decompressed_scan_line_channels) = decompressed {
                                     for (channel_index, decompressed_channel) in decompressed_scan_line_channels.iter().enumerate() {

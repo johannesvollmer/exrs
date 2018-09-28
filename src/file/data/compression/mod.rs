@@ -5,15 +5,19 @@ use super::uncompressed::*;
 
 #[derive(Debug)]
 pub enum Error {
-    /// includes zip compression errors
-    IO(::std::io::Error),
-
-    RLEMaxLengthExceeded,
+    /// includes zip decompression errors, and wrong-length decoding errors
+    Read(::file::io::ReadError),
+    InvalidData,
 }
 
 impl From<::std::io::Error> for Error {
     fn from(io: ::std::io::Error) -> Self {
-        Error::IO(io)
+        Error::from(::file::io::ReadError::IoError(io))
+    }
+}
+impl From<::file::io::ReadError> for Error {
+    fn from(io: ::file::io::ReadError) -> Self {
+        Error::Read(io)
     }
 }
 
@@ -178,6 +182,8 @@ impl Compression {
     }
 }
 
+
+// TODO FIXME avoid all intermediate buffers and use iterators/readers exclusively?
 pub mod uncompressed {
     use super::*;
 
@@ -198,7 +204,7 @@ pub mod uncompressed {
 
                                 let line = ::file::io::read_u32_vec(
                                     &mut remaining_bytes, line_size, ::std::u16::MAX as usize
-                                ).expect("io err when reading from in-memory vec");;
+                                )?;
 
                                 channel.extend_from_slice(&line);
                             },
@@ -207,20 +213,21 @@ pub mod uncompressed {
                                 // TODO don't allocate
                                 let line = ::file::io::read_f16_vec(
                                     &mut remaining_bytes, line_size, ::std::u16::MAX as usize
-                                ).expect("io err when reading from in-memory vec");
-//
+                                )?;
+
                                 channel.extend_from_slice(&line);
                             },
 
                             Array::F32(ref mut channel) => {
+
                                 // TODO without separate allocation
                                 let line = ::file::io::read_f32_vec(
                                     &mut remaining_bytes, line_size, ::std::u16::MAX as usize
-                                ).expect("io err when reading from in-memory vec");;
+                                )?;
 
                                 channel.extend_from_slice(&line);
                             },
-                        }
+                        };
                     }
                 }
             },
@@ -269,6 +276,7 @@ pub mod uncompressed {
             _ => unimplemented!()
         }
 
+
         Ok(target)
     }
 
@@ -280,6 +288,80 @@ pub mod uncompressed {
 
 
 pub mod optimize_bytes {
+//    pub trait Bytes: Iterator<Item = u8> {}
+
+
+    // TODO: use readers and measure improvement
+
+    /*use ::std::io::Read;
+    use ::std::io::Result;
+
+    pub struct DifferencesToSamples<D: Read> {
+        pub differences: D,
+    }
+
+    impl<I: Read> Read for DifferencesToSamples<I> {
+        fn read(&mut self, buffer: &mut [u8]) -> Result<usize> {
+            let result = self.differences.read(buffer);
+            unimplemented!("only works if everything is read at once, because first byte is used as starting point");
+            if let Ok(len) = result {
+                for index in 1..len {
+                    buffer[index] = (buffer[index-1] as i32 + buffer[index] as i32 - 128) as u8;
+                }
+            }
+
+            result
+        }
+    }*/
+
+    /*
+    AS ITERATOR:
+    self.differences.next().map(|next_difference|{
+        if let Some(prev_sample) = self.previous_sample {
+            let next_sample = (prev_sample as i32 + next_difference as i32 - 128) as u8;
+            self.previous_sample = Some(next_sample);
+            next_sample
+
+        } else { // initial sample is the difference itself
+            self.previous_sample = Some(next_difference);
+            next_difference
+        }
+    })
+    */
+
+    /*pub fn differences_to_samples<R: Read>(differences: R) -> DifferencesToSamples<R> {
+        DifferencesToSamples { differences, previous_sample: None }
+    }
+
+
+
+    pub struct SamplesToDifferences<I: Bytes> {
+        samples: I,
+        previous_sample: Option<u8>,
+    }
+
+    impl<I: Bytes> Iterator for SamplesToDifferences<I> {
+        type Item = u8;
+
+        fn next(&mut self) -> Option<u8> {
+            self.samples.next().map(|next_sample|{
+                if let Some(prev_sample) = self.previous_sample {
+                    let next_sample = (prev_sample as i32 + next_difference as i32 - 128) as u8;
+                    self.previous_sample = Some(next_sample);
+                    next_sample
+
+                } else { // initial difference is the sample itself
+                    self.previous_sample = Some(next_sample);
+                    next_sample
+                }
+            })
+        }
+    }
+
+    pub fn samples_to_differences_iter<I: Bytes>(samples: I) -> SamplesToDifferences<I> {
+        SamplesToDifferences { samples, previous_sample: None }
+    }*/
+
 
     // inspired by https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfZip.cpp
 
@@ -296,6 +378,83 @@ pub mod optimize_bytes {
             buffer[index] = (buffer[index] as i32 - buffer[index-1] as i32 + 128 + 256) as u8;
         }
     }
+
+    // TODO: use readers and measure improvement
+    /*pub struct InterleaveSeparated<I: Bytes> {
+        first: I,
+        second: I,
+        use_first: bool,
+    }
+
+    impl<I: Bytes> Iterator for InterleaveSeparated<I> {
+        type Item = u8;
+
+        fn next(&mut self) -> Option<u8> {
+            self.use_first = !self.use_first;
+            if self.use_first { &self.first } else { &self.second }.next()
+        }
+    }
+
+    pub fn interleave_separated<I: Bytes>(first: I, second: I) -> InterleaveSeparated<I> {
+        InterleaveSeparated {
+            first, second, use_first: false, // will be flipped before every `.next()` call
+        }
+    }
+
+
+
+    pub struct SeparateInterleavedSlice<'s> {
+        interleaved: &'s [u8],
+        first_iteration: bool,
+        index: usize,
+    }
+
+    impl<'s> Iterator for SeparateInterleavedSlice<'s> {
+        type Item = u8;
+
+        fn next(&mut self) -> Option<u8> {
+            if self.first_iteration {
+                if self.index >= self.interleaved.len() - 1 {
+                    self.first_iteration = false;
+                    self.index = 1;
+                }
+            };
+
+            let value = self.interleaved.get(self.index);
+            self.index += 2;
+            value
+        }
+    }
+
+    pub fn separate_interleaved_slice<'s>(interleaved: &'s [u8]) -> SeparateInterleavedSlice<'s> {
+        SeparateInterleavedSlice { interleaved, first_iteration: true, index: 0, }
+    }*/
+
+    /// "interleave"
+    pub fn interleave_byte_blocks(separated: &[u8]) -> Vec<u8> {
+        // TODO rustify
+        let mut interleaved = Vec::with_capacity(separated.len());
+        let (first_half, second_half) = separated
+            .split_at((separated.len() + 1) / 2);
+
+        let mut second_half_index = 0;
+        let mut first_half_index = 0;
+
+        loop {
+            if interleaved.len() < separated.len() {
+                interleaved.push(first_half[first_half_index]);
+                first_half_index += 1;
+            } else { break; }
+
+            if interleaved.len() < separated.len() {
+                interleaved.push(second_half[second_half_index]);
+                second_half_index += 1;
+            } else { break; }
+        }
+
+        interleaved
+    }
+
 
     /// de-"interleave"
     pub fn separate_bytes_fragments(source: &[u8]) -> Vec<u8> {
@@ -322,30 +481,5 @@ pub mod optimize_bytes {
         let mut result = first_half;
         result.append(&mut second_half);
         result
-    }
-
-    /// "interleave"
-    pub fn interleave_byte_blocks(separated: &[u8]) -> Vec<u8> {
-        // TODO rustify
-        let mut interleaved = Vec::with_capacity(separated.len());
-        let (first_half, second_half) = separated
-            .split_at((separated.len() + 1) / 2);
-
-        let mut second_half_index = 0;
-        let mut first_half_index = 0;
-
-        loop {
-            if interleaved.len() < separated.len() {
-                interleaved.push(first_half[first_half_index]);
-                first_half_index += 1;
-            } else { break; }
-
-            if interleaved.len() < separated.len() {
-                interleaved.push(second_half[second_half_index]);
-                second_half_index += 1;
-            } else { break; }
-        }
-
-        interleaved
     }
 }

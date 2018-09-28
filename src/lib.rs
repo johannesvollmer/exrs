@@ -91,7 +91,7 @@ pub mod test {
 
         let path = ::std::path::Path::new(
 //            "/home/johannes/Pictures/openexr/openexr-images-master/ScanLines/Blobbies.exr"
-//            "/home/johannes/Pictures/openexr/debug/128x64_r10g5b0_f16_zip.exr"
+//            "/home/johannes/Pictures/openexr/debug/32x32_r10g5b0_f16_rle.exr"
             "/home/johannes/Pictures/openexr/samuel-zeller/samuel_zeller_rgb_f16_rle.exr"
         );
 
