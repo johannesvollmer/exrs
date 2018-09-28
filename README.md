@@ -50,6 +50,8 @@ __Currently supported:__
             - [x] (Half, Float) + scan line + IncreasingY + no mip map levels + no sub sampling + single-part + no deep data, 
             - [ ] Other (untested)
         - [ ] RLE
+            - [x] Half + scan line + IncreasingY + no mip map levels + no sub sampling + single-part + no deep data, 
+            - [ ] Other (untested)
         - [ ] PIZ
         - [ ] RXR24
         - [ ] B44 / B44A
