@@ -17,12 +17,6 @@ pub mod util {
 pub mod file;
 pub mod image;
 
-extern crate seek_bufread;
-extern crate libflate;
-extern crate bit_field;
-extern crate byteorder;
-extern crate half;
-
 #[macro_use]
 extern crate smallvec;
 
@@ -33,13 +27,13 @@ extern crate image as piston_image;
 // TODO various compiler tweaks, such as export RUSTFLAGS='-Ctarget-cpu=native'
 
 pub mod prelude {
-//    pub use file::io::read_file;
-    pub use file::io::ReadError;
+//    pub use crate::file::io::read_file;
+    pub use crate::file::io::ReadError;
 
-//    pub use file::io::write_file;
-    pub use file::io::WriteError;
+//    pub use crate::file::io::write_file;
+    pub use crate::file::io::WriteError;
 
-    pub use file::meta::MetaData;
+    pub use crate::file::meta::MetaData;
 }
 
 
@@ -72,15 +66,19 @@ pub mod test {
             }
         }
 
-        test_exr_files(Path::new("/home/johannes/Pictures/openexr"))
+        test_exr_files(Path::new("D:/Pictures/openexr"))
     }
 
     fn load_file_or_print_err(path: &Path){
-        let image = ::image::immediate::read_raw_parts(
+        let image = crate::image::immediate::read_raw_parts(
             &mut ::std::fs::File::open(path).unwrap()
         );
 
-        println!("{:?}", image.map(|_| "no errors"));
+        match image {
+            Ok((meta, _)) => println!("{:#?}", meta),
+            Err(error) => println!("{:?}", error),
+        }
+//        println!("{:?}", image.map(|(meta, chunks)| format!("{:#?}", meta)));
         //println!("{}", ::image::immediate::read_file(path).map(|_| "no errors").unwrap());
     }
 
@@ -95,7 +93,7 @@ pub mod test {
             "/home/johannes/Pictures/openexr/samuel-zeller/samuel_zeller_rgb_f16_rle.exr"
         );
 
-        let image = ::image::immediate::read_file(path);
+        let image = crate::image::immediate::read_file(path);
 
         // warning: highly unscientific benchmarks ahead!
         let elapsed = now.elapsed();
@@ -124,8 +122,8 @@ pub mod test {
 
 
             // actually do the conversion to png
-            expect_variant!(channels, ::image::immediate::PartData::Flat(ref channels) => {
-                expect_variant!(channels[1], ::file::data::uncompressed::Array::F16(ref channel) => {
+            expect_variant!(channels, crate::image::immediate::PartData::Flat(ref channels) => {
+                expect_variant!(channels[1], crate::file::data::uncompressed::Array::F16(ref channel) => {
                     for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
                     // TODO assumes channel is not subsampled
                         let v = channel[(y * full_res.0 + x) as usize].to_f32();

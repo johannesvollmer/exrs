@@ -176,8 +176,6 @@ impl Data for f64 {
 }
 
 
-
-
 // TODO make these instance functions?
 
 pub fn write_u8_array<W: Write>(write: &mut W, bytes: &[u8]) -> WriteResult {
@@ -207,6 +205,16 @@ pub fn write_i32_array<W: Write>(write: &mut W, array: &mut [i32]) -> WriteResul
         ::std::slice::from_raw_parts(
             array.as_ptr() as *const u8,
             array.len() * ::std::mem::size_of::<i32>()
+        )
+    })
+}
+
+pub fn write_u32_array<W: Write>(write: &mut W, array: &mut [u32]) -> WriteResult {
+    LittleEndian::from_slice_u32(array); // convert data to little endian
+    write_u8_array(write, unsafe {
+        ::std::slice::from_raw_parts(
+            array.as_ptr() as *const u8,
+            array.len() * ::std::mem::size_of::<u32>()
         )
     })
 }

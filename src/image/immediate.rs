@@ -1,10 +1,10 @@
 
-use ::file::meta::Header;
+use crate::file::meta::Header;
 //use ::std::io::{Read, Seek, SeekFrom};
 use ::smallvec::SmallVec;
-use ::file::data::uncompressed::*;
-//use ::file::attributes::{Text};
-//use ::file::chunks::TileCoordinates;
+use crate::file::data::uncompressed::*;
+//use crate::file::attributes::{Text};
+//use crate::file::chunks::TileCoordinates;
 
 
 
@@ -12,7 +12,7 @@ use ::file::data::uncompressed::*;
 /// any openexr image, loads all available data immediately into memory
 /// can be constructed using `::file::File`
 pub struct Image {
-    pub version: ::file::meta::Version,
+    pub version: crate::file::meta::Version,
     pub parts: Parts, // TODO HashMap<Text, Part> ?
 }
 
@@ -69,10 +69,10 @@ pub enum PartData {
 
 
 
-use ::file::meta::MetaData;
-use ::file::data::compressed::Chunks;
-use ::file::io::*;
-use file::meta::attributes::PixelType;
+use crate::file::meta::MetaData;
+use crate::file::data::compressed::Chunks;
+use crate::file::io::*;
+use crate::file::meta::attributes::PixelType;
 
 #[must_use]
 pub fn read_file(path: &::std::path::Path) -> ReadResult<Image> {
@@ -115,7 +115,7 @@ impl Image {
             Chunks::SinglePart(part) => {
                 let header = headers.pop().expect("single part without header");
                 assert!(headers.is_empty(), "single part with multiple headers");
-                assert_eq!(header.line_order(), ::file::meta::attributes::LineOrder::IncreasingY);
+                assert_eq!(header.line_order(), crate::file::meta::attributes::LineOrder::IncreasingY);
 
                 let (data_width, data_height) = header.data_window().dimensions();
                 let (data_width, data_height) = (data_width as usize, data_height as usize);
@@ -144,7 +144,7 @@ impl Image {
                 {
                     let channels = header.channels();
                     let compression = header.compression();
-                    use ::file::data::compressed::SinglePartChunks::*;
+                    use crate::file::data::compressed::SinglePartChunks::*;
 
                     match part {
                         ScanLine(scan_lines) => {
@@ -192,7 +192,7 @@ impl Image {
                         },
 
                         Tile(tiles) => {
-                            use ::file::meta::compute_level_size;
+                            use crate::file::meta::compute_level_size;
 
                             // TODO what about line order
                             let tile_description = header.tiles()
@@ -267,7 +267,7 @@ impl Image {
                     version,
                     parts: smallvec![Part {
                         header,
-                        levels: ::image::immediate::Levels::Singular(
+                        levels: crate::image::immediate::Levels::Singular(
                             PartData::Flat(decompressed_channels)
                         ),
                     }],

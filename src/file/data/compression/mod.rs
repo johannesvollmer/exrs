@@ -6,17 +6,17 @@ use super::uncompressed::*;
 #[derive(Debug)]
 pub enum Error {
     /// includes zip decompression errors, and wrong-length decoding errors
-    Read(::file::io::ReadError),
+    Read(crate::file::io::ReadError),
     InvalidData,
 }
 
 impl From<::std::io::Error> for Error {
     fn from(io: ::std::io::Error) -> Self {
-        Error::from(::file::io::ReadError::IoError(io))
+        Error::from(crate::file::io::ReadError::IoError(io))
     }
 }
-impl From<::file::io::ReadError> for Error {
-    fn from(io: ::file::io::ReadError) -> Self {
+impl From<crate::file::io::ReadError> for Error {
+    fn from(io: crate::file::io::ReadError) -> Self {
         Error::Read(io)
     }
 }
@@ -202,7 +202,7 @@ pub mod uncompressed {
                             Array::U32(ref mut channel) => {
                                 // TODO without separate allocation: channel must have zeroes and from io read into subslice
 
-                                let line = ::file::io::read_u32_vec(
+                                let line = crate::file::io::read_u32_vec(
                                     &mut remaining_bytes, line_size, ::std::u16::MAX as usize
                                 )?;
 
@@ -211,7 +211,7 @@ pub mod uncompressed {
 
                             Array::F16(ref mut channel) => {
                                 // TODO don't allocate
-                                let line = ::file::io::read_f16_vec(
+                                let line = crate::file::io::read_f16_vec(
                                     &mut remaining_bytes, line_size, ::std::u16::MAX as usize
                                 )?;
 
@@ -221,7 +221,7 @@ pub mod uncompressed {
                             Array::F32(ref mut channel) => {
 
                                 // TODO without separate allocation
-                                let line = ::file::io::read_f32_vec(
+                                let line = crate::file::io::read_f32_vec(
                                     &mut remaining_bytes, line_size, ::std::u16::MAX as usize
                                 )?;
 
@@ -244,7 +244,7 @@ pub mod uncompressed {
                         match channel {
                             Array::U32(ref mut channel) => {
                                 // TODO without separate allocation
-                                let line = ::file::io::read_u32_vec(
+                                let line = crate::file::io::read_u32_vec(
                                     &mut remaining_bytes, line_size, ::std::u16::MAX as usize
                                 ).expect("io err when reading from in-memory vec");
 
@@ -253,7 +253,7 @@ pub mod uncompressed {
 
                             Array::F16(ref mut channel) => {
                                 // TODO don't allocate
-                                let line = ::file::io::read_f16_vec(
+                                let line = crate::file::io::read_f16_vec(
                                     &mut remaining_bytes, line_size, ::std::u16::MAX as usize
                                 ).expect("io err when reading from in-memory vec");
 //
@@ -262,7 +262,7 @@ pub mod uncompressed {
 
                             Array::F32(ref mut channel) => {
                                 // TODO without separate allocation
-                                let line = ::file::io::read_f32_vec(
+                                let line = crate::file::io::read_f32_vec(
                                     &mut remaining_bytes, line_size, ::std::u16::MAX as usize
                                 ).expect("io err when reading from in-memory vec");
 

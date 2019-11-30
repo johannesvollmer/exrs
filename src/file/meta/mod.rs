@@ -545,7 +545,7 @@ impl Header {
                     let index = attributes.len();
 
                     // TODO replace these literals with constants
-                    use ::file::meta::attributes::required::*;
+                    use crate::file::meta::attributes::required::*;
                     match attribute.name.bytes.as_slice() {
                         TILES => tiles = Some(index),
                         NAME => name = Some(index),
@@ -672,7 +672,7 @@ pub fn compute_offset_table_size(version: Version, header: &Header) -> ReadResul
             };
 
             // TODO cache all these level values??
-            use ::file::meta::attributes::LevelMode::*;
+            use crate::file::meta::attributes::LevelMode::*;
             Ok(match tiles.level_mode {
                 Singular => {
                     compute_tile_count(data_width, tile_width) * compute_tile_count(data_height, tile_height)

@@ -1,5 +1,5 @@
 //use ::attributes::Compression;
-use ::file::meta::attributes::ParsedText;
+use crate::file::meta::attributes::ParsedText;
 
 // TODO
 // INCREASING_Y The tiles for each level are stored in a contiguous block. The levels are
@@ -132,7 +132,7 @@ pub struct DeepTileBlock {
 }
 
 
-use ::file::io::*;
+use crate::file::io::*;
 
 impl TileCoordinates {
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
@@ -159,7 +159,7 @@ impl TileCoordinates {
 /// it will not try to allocate that much memory, but instead consider
 /// that decoding the block length has gone wrong
 const MAX_PIXEL_BYTES: usize = 1048576; // 2^20
-use ::file::meta::Header;
+use crate::file::meta::Header;
 
 impl ScanLineBlock {
     pub fn validate(&self, header: &Header) -> Validity {
@@ -323,8 +323,8 @@ impl DeepTileBlock {
     }
 }
 
-use ::file::validity::*;
-use ::file::meta::MetaData;
+use crate::file::validity::*;
+use crate::file::meta::MetaData;
 
 impl MultiPartChunk {
     pub fn write<W: Write>(&self, write: &mut W, meta_data: &MetaData) -> WriteResult {

@@ -12,8 +12,8 @@ pub struct FullData<P> {
     pixels: Vec<P>, // TODO per channel
 }
 impl<R: Read + Seek> Image<R> {
-    pub fn load(mut source: R) -> ::file::ReadResult<Self> {
-        let meta_data = ::file::io::read_meta_data(source)?;
+    pub fn load(mut source: R) -> crate::file::ReadResult<Self> {
+        let meta_data = crate::file::io::read_meta_data(source)?;
         Ok(Image {
             source,
             meta_data,
@@ -29,13 +29,13 @@ impl<R: Read + Seek> Image<R> {
             .unwrap();
 
         if self.meta_data.version.has_multiple_parts {
-            let chunk = ::file::chunks::MultiPartChunk::read(&mut source, &self.meta_data)
+            let chunk = crate::file::chunks::MultiPartChunk::read(&mut source, &self.meta_data)
                 .unwrap();
 
             cache[&(part, tile_index)] = unpack_pixel_data(chunk)
 
         } else {
-            let chunk: SinglePartChunk = ::file::chunks::SinglePartChunks::read_chunk(&mut source, &self.meta_data)
+            let chunk: SinglePartChunk = crate::file::chunks::SinglePartChunks::read_chunk(&mut source, &self.meta_data)
                 .unwrap();
 
             cache[&(part, tile_index)] = unpack_pixel_data(chunk)

@@ -1,5 +1,5 @@
-use ::smallvec::SmallVec;
-use ::file::validity::*;
+use smallvec::SmallVec;
+use crate::file::validity::*;
 
 /// null-terminated text strings.
 /// max 31 bytes long (if bit 10 is set to 0),
@@ -89,7 +89,7 @@ pub mod kind {
 }
 
 
-pub use ::file::data::compression::Compression;
+pub use crate::file::data::compression::Compression;
 
 pub type DataWindow = I32Box2;
 pub type DisplayWindow = I32Box2;
@@ -215,8 +215,8 @@ pub enum RoundingMode {
 }
 
 
-use ::file::io::*;
-use ::file::io;
+use crate::file::io::*;
+use crate::file::io;
 
 impl Text {
     pub fn from_str(str_value: &str) -> Self {
@@ -894,7 +894,7 @@ impl Attribute {
 impl AttributeValue {
     pub fn byte_size(&self) -> usize {
         use self::AttributeValue::*;
-        use ::file::io::Data;
+        use crate::file::io::Data;
 
         match *self {
             I32Box2(value) => value.byte_size(),

@@ -4,7 +4,7 @@
 pub mod immediate;
 pub mod late;
 
-pub use ::file::meta::MetaData;
+pub use crate::file::meta::MetaData;
 
 
 

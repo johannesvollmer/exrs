@@ -11,10 +11,12 @@ a high flexibility regarding the data it is able to hold.
 
 ### Current Status
 
-Because rs-exr is currently a draft, it doesn't write images yet,
-but it is already able to decode all files from the
-[OpenEXR test file repository](https://github.com/openexr/openexr-images/tree/master/TestImages) 
-without errors. However, only a few compression methods are supported.
+Because rs-exr is currently a draft, it doesn't write images yet.
+However, it is already able to decode the metadata of all files from the
+[OpenEXR test file repository](https://github.com/openexr/openexr-images/tree/master/TestImages). 
+
+Regarding the actual pixel content, only a few compression methods are supported. 
+They are not tested very well yet.
 _Highly experimental!_
 
 __Currently supported:__
@@ -143,3 +145,7 @@ __Things that are not as specified in the PDF file__ (Or were forgotten):
     the `type` attribute an enum instead of a string)
     
 Okay, the last one was a rant, you got me.
+
+### PRIORITIES
+1. Also write simple exr files 
+1. Decode all compression formats
