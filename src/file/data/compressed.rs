@@ -163,7 +163,7 @@ use crate::file::meta::Header;
 
 impl ScanLineBlock {
     pub fn validate(&self, header: &Header) -> Validity {
-        if let &ParsedText::ScanLine = header.kind().expect("check failed: header kind missing") {
+        if let &ParsedText::ScanLine = header.kind.as_ref().expect("check failed: header kind missing") {
             Ok(())
 
         } else {
@@ -200,7 +200,7 @@ impl ScanLineBlock {
 
 impl TileBlock {
     pub fn validate(&self, header: &Header) -> Validity {
-        if let &ParsedText::Tile = header.kind().expect("check failed: header kind missing") {
+        if let &ParsedText::Tile = header.kind.as_ref().expect("check failed: header kind missing") {
             Ok(())
 
         } else {
@@ -236,7 +236,7 @@ impl TileBlock {
 
 impl DeepScanLineBlock {
     pub fn validate(&self, header: &Header) -> Validity {
-        if let &ParsedText::DeepScanLine = header.kind().expect("check failed: header kind missing") {
+        if let &ParsedText::DeepScanLine = header.kind.as_ref().expect("check failed: header kind missing") {
             Ok(())
 
         } else {
@@ -282,7 +282,7 @@ impl DeepScanLineBlock {
 
 impl DeepTileBlock {
     pub fn validate(&self, header: &Header) -> Validity {
-        if let &ParsedText::DeepTile = header.kind().expect("check failed: header kind missing") {
+        if let &ParsedText::DeepTile = header.kind.as_ref().expect("check failed: header kind missing") {
             Ok(())
 
         } else {
@@ -362,8 +362,7 @@ impl MultiPartChunk {
         let header = &meta_data.headers.get(part_number as usize)
             .ok_or(Invalid::Content(Value::Chunk("part index"), Required::Range { min:0, max: meta_data.headers.len() }))?;
 
-        let kind_index = header.indices.kind.expect("check failed: `multi_part_chunk` called without `type` attribute");
-        let kind = &header.attributes[kind_index].value.to_text()?;
+        let kind = header.kind.as_ref().expect("check failed: `multi_part_chunk` called without `type` attribute");
         kind.validate_kind()?;
 
         Ok(MultiPartChunk {
@@ -383,7 +382,7 @@ impl SinglePartChunks {
     pub fn write<W: Write>(&self, write: &mut W, meta_data: &MetaData) -> WriteResult {
         // single-part files have either scan lines or tiles,
         // but never deep scan lines or deep tiles
-        assert!(!meta_data.version.has_deep_data, "single_part_chunks called with deep data");
+        assert!(!meta_data.requirements.has_deep_data, "single_part_chunks called with deep data");
         assert_eq!(meta_data.headers.len(), 1, "single_part_chunks called with multiple headers");
         assert_eq!(meta_data.offset_tables.len(), 1, "single_part_chunks called with multiple offset tables");
 
@@ -454,8 +453,8 @@ impl SinglePartChunks {
         let header = &meta_data.headers[0];
 
         // TODO is there a better way to figure out if this image contains tiles?
-        let is_tiled = header.tiles().is_some();
-        let is_deep = meta_data.version.has_deep_data;
+        let is_tiled = header.tiles.is_some();
+        let is_deep = meta_data.requirements.has_deep_data;
 
         assert_eq!(meta_data.offset_tables.len(), 1, "single_part_chunks called with multiple offset tables");
         let offset_table = &meta_data.offset_tables[0];
@@ -506,8 +505,8 @@ impl SinglePartChunks {
         assert_eq!(meta_data.headers.len(), 1, "single_part_chunks called with multiple headers");
 
         // TODO is there a better way to figure out if this image contains tiles?
-        let is_tiled = meta_data.headers[0].tiles().is_some();
-        let is_deep = meta_data.version.has_deep_data;
+        let is_tiled = meta_data.headers[0].tiles.is_some();
+        let is_deep = meta_data.requirements.has_deep_data;
 
         assert_eq!(meta_data.offset_tables.len(), 1, "single_part_chunks called with multiple offset tables");
         let blocks = meta_data.offset_tables[0].len();
@@ -600,7 +599,7 @@ impl Chunks {
 
     pub fn read<R: Read>(read: &mut R, meta_data: &MetaData) -> ReadResult<Self> {
         Ok({
-            if meta_data.version.has_multiple_parts {
+            if meta_data.requirements.has_multiple_parts {
                 Chunks::MultiPart({
                     let mut chunks = Vec::new();
                     for offset_table in &meta_data.offset_tables {
@@ -620,7 +619,7 @@ impl Chunks {
     }
 
     pub fn read_parallel<R: Read + Send + 'static>(mut read: R, meta_data: MetaData) -> ChunksReceiver {
-        if meta_data.version.has_multiple_parts {
+        if meta_data.requirements.has_multiple_parts {
             let (sender, receiver) = mpsc::channel();
 
             ::std::thread::spawn(move ||{

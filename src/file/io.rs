@@ -3,7 +3,6 @@ use super::*;
 use ::byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt, ByteOrder};
 
 pub use ::std::io::{Read, Write, Seek, SeekFrom};
-pub use ::seek_bufread::BufReader as SeekBufRead;
 //pub use super::io::{ReadResult, ReadError, WriteResult, WriteError};
 
 
@@ -28,7 +27,7 @@ pub type ReadResult<T> = ::std::result::Result<T, ReadError>;
 pub enum ReadError {
     NotEXR,
     Invalid(Invalid),
-    UnknownAttributeType { bytes_to_skip: u32 },
+//    UnknownAttributeType { bytes_to_skip: u32 },
 
     IoError(::std::io::Error),
     CompressionError(Box<data::compression::Error>),
@@ -72,7 +71,7 @@ impl From<Invalid> for WriteError {
 }
 
 
-
+// TODO DRY
 
 
 // will be inlined

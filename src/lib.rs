@@ -33,7 +33,8 @@ pub mod prelude {
 //    pub use crate::file::io::write_file;
     pub use crate::file::io::WriteError;
 
-    pub use crate::file::meta::MetaData;
+
+
 }
 
 
@@ -70,9 +71,7 @@ pub mod test {
     }
 
     fn load_file_or_print_err(path: &Path){
-        let image = crate::image::immediate::read_raw_parts(
-            &mut ::std::fs::File::open(path).unwrap()
-        );
+        let image = crate::image::immediate::read_raw_data(path);
 
         match image {
             Ok((meta, _)) => println!("{:#?}", meta),
@@ -88,56 +87,55 @@ pub mod test {
         let now = ::std::time::Instant::now();
 
         let path = ::std::path::Path::new(
-//            "/home/johannes/Pictures/openexr/openexr-images-master/ScanLines/Blobbies.exr"
-//            "/home/johannes/Pictures/openexr/debug/32x32_r10g5b0_f16_rle.exr"
-            "/home/johannes/Pictures/openexr/samuel-zeller/samuel_zeller_rgb_f16_rle.exr"
+            "D:/Pictures/openexr/ScanLines/Blobbies.exr"
+//            "D:/Pictures/openexr/debug/32x32_r10g5b0_f16_rle.exr"
+//            "/home/johannes/Pictures/openexr/samuel-zeller/samuel_zeller_rgb_f16_rle.exr"
         );
 
-        let image = crate::image::immediate::read_file(path);
+        let (meta, chunks) = crate::image::immediate::read_raw_data(&path).unwrap();
+        println!("\nversion: {:#?}", meta.requirements.file_format_version);
+
+
+        let parts = crate::image::immediate::decode_content(meta, chunks).unwrap();
+
 
         // warning: highly unscientific benchmarks ahead!
         let elapsed = now.elapsed();
         let millis = elapsed.as_secs() * 1000 + elapsed.subsec_millis() as u64;
 
-        if let Ok(image) = image {
-            assert_eq!(image.parts.len(), 1);
-            let part = &image.parts[0];
-
-            println!("header_0: {:#?}", part.header);
-            println!("\nversion: {:#?}", image.version);
-            println!("\ndecoded file in {:?} ms", millis);
-
-            let header = &part.header;
-            let channels = part.levels.full();
-            let full_res = header.data_window().dimensions();
-
-            let mut png_buffer = ::piston_image::GrayImage::new(full_res.0, full_res.1);
-
-            // BUGHUNT CHECKLIST
-            // - [x] rust-f16 encoding is the same as openexr-f16 encoding
-            // - [x] compression+unpacking vs unpacking+compression order
-            // - [ ] compression alrogithm
-            // - [ ] mixing channels up, interleaving channels, in uncompressed::unpack
-            // - [ ] unpacking/reconstruction c algorithms translation into rust
+        assert_eq!(parts.len(), 1);
+        let part = &parts[0];
+        println!("header_0: {:#?}", part.header);
 
 
-            // actually do the conversion to png
-            expect_variant!(channels, crate::image::immediate::PartData::Flat(ref channels) => {
-                expect_variant!(channels[1], crate::file::data::uncompressed::Array::F16(ref channel) => {
-                    for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
-                    // TODO assumes channel is not subsampled
-                        let v = channel[(y * full_res.0 + x) as usize].to_f32();
-                        *pixel = ::piston_image::Luma([(v * 250.0) as u8]);
-                    }
-                })
-            });
+        println!("\ndecoded file in {:?} ms", millis);
 
-            png_buffer.save(path.with_extension("png").file_name().unwrap()).unwrap();
+        let header = &part.header;
+        let channels = part.levels.full();
+        let full_res = header.data_window.dimensions();
+
+        let mut png_buffer = ::piston_image::GrayImage::new(full_res.0, full_res.1);
+
+        // BUGHUNT CHECKLIST
+        // - [x] rust-f16 encoding is the same as openexr-f16 encoding
+        // - [x] compression+unpacking vs unpacking+compression order
+        // - [ ] compression alrogithm
+        // - [ ] mixing channels up, interleaving channels, in uncompressed::unpack
+        // - [ ] unpacking/reconstruction c algorithms translation into rust
 
 
-        } else {
-            println!("Error: {:?}", image.err().unwrap());
-        }
+        // actually do the conversion to png
+        expect_variant!(channels, crate::image::data::PartData::Flat(ref channels) => {
+            expect_variant!(channels[1], crate::file::data::uncompressed::Array::F16(ref channel) => {
+                for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
+                // TODO assumes channel is not subsampled
+                    let v = channel[(y * full_res.0 + x) as usize].to_f32();
+                    *pixel = ::piston_image::Luma([(v * 250.0) as u8]);
+                }
+            })
+        });
+
+        png_buffer.save(path.with_extension("png").file_name().unwrap()).unwrap();
     }
 
     // TODO allow loading only meta data,

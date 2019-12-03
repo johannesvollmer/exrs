@@ -58,6 +58,8 @@ pub enum AttributeValue {
     F32Vec2(f32, f32),
     I32Vec3(i32, i32, i32),
     F32Vec3(f32, f32, f32),
+
+    Custom { kind: Text, bytes: Vec<u8> }
 }
 
 
@@ -894,7 +896,6 @@ impl Attribute {
 impl AttributeValue {
     pub fn byte_size(&self) -> usize {
         use self::AttributeValue::*;
-        use crate::file::io::Data;
 
         match *self {
             I32Box2(value) => value.byte_size(),
@@ -931,10 +932,11 @@ impl AttributeValue {
 
             TextVector(ref value) => value.iter().map(self::Text::i32_sized_byte_size).sum(),
             TileDescription(ref value) => value.byte_size(),
+            Custom { kind: _, bytes: ref bytes} => bytes.len(),
         }
     }
 
-    pub fn kind_name(&self) -> &'static [u8] {
+    pub fn kind_name(&self) -> &[u8] {
         use self::AttributeValue::*;
         use self::attribute_type_names as ty;
 
@@ -962,6 +964,7 @@ impl AttributeValue {
             Text(_) =>  ty::TEXT,
             TextVector(_) =>  ty::TEXT_VECTOR,
             TileDescription(_) =>  ty::TILES,
+            Custom { kind: ref kind, bytes: _ } => &kind.bytes,
         }
     }
 
@@ -1002,6 +1005,7 @@ impl AttributeValue {
 
             TextVector(ref value) => self::Text::write_vec_of_i32_sized_texts(write, value),
             TileDescription(ref value) => value.write(write),
+            Custom { kind: _, bytes: ref bytes } => write_u8_array(write, &bytes) // write.write(&bytes).map(|_| ()),
         }
     }
 
@@ -1052,7 +1056,9 @@ impl AttributeValue {
 
             _ => {
                 println!("Unknown attribute type: {:?}", kind.to_string());
-                return Err(ReadError::UnknownAttributeType { bytes_to_skip: byte_size })
+                let mut bytes = vec![0_u8; byte_size as usize];
+                read_u8_array(read, &mut bytes)?;
+                Custom { kind, bytes }
             }
         })
     }
@@ -1071,10 +1077,24 @@ impl AttributeValue {
         }
     }
 
+    pub fn to_f32(&self) -> Result<f32, Invalid> {
+        match *self {
+            AttributeValue::F32(value) => Ok(value),
+            _ => Err(Invalid::Type(Required::Exact("f32")).into()),
+        }
+    }
+
     pub fn to_i32_box_2(&self) -> Result<I32Box2, Invalid> {
         match *self {
             AttributeValue::I32Box2(value) => Ok(value),
             _ => Err(Invalid::Type(Required::Exact("box2i")).into()),
+        }
+    }
+
+    pub fn to_f32_vec_2(&self) -> Result<(f32, f32), Invalid> {
+        match *self {
+            AttributeValue::F32Vec2(x, y) => Ok((x, y)),
+            _ => Err(Invalid::Type(Required::Exact("v2f")).into()),
         }
     }
 
@@ -1092,16 +1112,17 @@ impl AttributeValue {
         }
     }
 
-    pub fn to_text(&self) -> Result<&ParsedText, Invalid> {
-        match *self {
-            AttributeValue::Text(ref value) => Ok(value),
+    // TODO fix this parsedtext vs text stuff
+    pub fn to_text(self) -> Result<ParsedText, Invalid> {
+        match self {
+            AttributeValue::Text(value) => Ok(value),
             _ => Err(Invalid::Type(Required::Exact("string")).into()),
         }
     }
 
-    pub fn to_channel_list(&self) -> Result<&ChannelList, Invalid> {
-        match *self {
-            AttributeValue::ChannelList(ref value) => Ok(value),
+    pub fn to_channel_list(self) -> Result<ChannelList, Invalid> {
+        match self {
+            AttributeValue::ChannelList(value) => Ok(value),
             _ => Err(Invalid::Type(Required::Exact("chlist")).into()),
         }
     }
