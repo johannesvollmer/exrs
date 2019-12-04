@@ -85,7 +85,7 @@ pub struct TileBlock {
 }
 
 /// indicates the tile's position and resolution level
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct TileCoordinates {
     pub tile_x: i32, pub tile_y: i32,
     pub level_x: i32, pub level_y: i32,

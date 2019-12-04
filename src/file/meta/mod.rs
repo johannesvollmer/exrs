@@ -6,6 +6,7 @@ use super::io::*;
 
 use ::smallvec::SmallVec;
 use self::attributes::*;
+use crate::file::data::compressed::TileCoordinates;
 
 
 #[derive(Debug, Clone)]
@@ -173,6 +174,48 @@ impl MetaData {
 }
 
 impl Header {
+
+    pub fn get_scan_line_window(&self, index: usize) -> (usize, usize) {
+        let lines_per_block = self.compression.scan_lines_per_block();
+        let (data_width, data_height) = self.data_window.dimensions();
+
+        // how much the last row is cut off:
+        let block_end = (index + 1) * lines_per_block;
+        let block_overflow = block_end.checked_sub(data_height as usize).unwrap_or(0);
+
+        let height = lines_per_block - block_overflow;
+        (data_width as usize, height as usize)
+    }
+
+    pub fn get_tile_window(&self, tiles: TileDescription, tile: TileCoordinates) -> (usize, usize) {
+        let (data_width, data_height) = self.data_window.dimensions();
+        let default_width = tiles.x_size;
+        let default_height = tiles.y_size;
+        let round = tiles.rounding_mode;
+
+        let level_x = tile.level_x;
+        let level_data_width = compute_level_size(round, data_width as u32, level_x as u32);
+
+        let default_right = tile.tile_x as u32 + default_width;
+        let right_overflow = default_right.checked_sub(level_data_width).unwrap_or(0);
+
+        let level_y = tile.level_y;
+        let level_data_height = compute_level_size(round, data_height as u32, level_y as u32);
+
+        assert!(level_x == 1 && level_y == 1, "unimplemented: tiled levels data unpacking");
+
+        let default_bottom = tile.tile_y as u32 + default_height;
+        let bottom_overflow = default_bottom.checked_sub(level_data_height).unwrap_or(0);
+
+        let width = default_width - right_overflow;
+        let height = default_height - bottom_overflow;
+        (width as usize, height as usize)
+    }
+
+    // TODO for all other fields too
+    pub fn kind_or_err(&self) -> Result<&ParsedText, Invalid> {
+        self.kind.as_ref().ok_or(Invalid::Missing(Value::Attribute("kind")))
+    }
 
 //    pub fn kind(&self) -> Option<&ParsedText> {
 //        self.indices.kind.map(|kind|{

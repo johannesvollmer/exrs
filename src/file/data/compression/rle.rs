@@ -2,6 +2,7 @@ use super::*;
 use super::optimize_bytes::*;
 use super::Error;
 use super::Result;
+use crate::file::meta::Header;
 
 // inspired by  https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfRle.cpp
 
@@ -30,7 +31,9 @@ fn take_n<'s>(slice: &mut &'s [u8], n: usize) -> Result<&'s [u8]> {
     }
 }
 
-pub fn decompress_bytes(target: UncompressedData, compressed: &CompressedData, line_size: usize) -> Result<UncompressedData> {
+pub fn decompress_bytes(header: &Header, compressed: &CompressedBytes, dimensions: (usize, usize)) -> Result<UncompressedChannels> {
+    let line_size = header.data_window.dimensions().0 as usize;
+
     let mut decompressed = Vec::with_capacity(3 * (compressed.len() / 2));
     let mut remaining = &compressed[..];
 
@@ -53,10 +56,10 @@ pub fn decompress_bytes(target: UncompressedData, compressed: &CompressedData, l
 
     differences_to_samples(&mut decompressed);
     decompressed = interleave_byte_blocks(&decompressed);
-    super::uncompressed::unpack(target, &decompressed, line_size) // convert to machine-dependent endianess
+    super::uncompressed::unpack(header, &decompressed, dimensions) // convert to machine-dependent endianess
 }
 
-pub fn compress_bytes(data: &UncompressedData) -> Result<CompressedData> {
+pub fn compress_bytes(data: &UncompressedChannels) -> Result<CompressedBytes> {
     let mut data = super::uncompressed::pack(data)?; // convert from machine-dependent endianess
     data = separate_bytes_fragments(&data);
     samples_to_differences(&mut data);

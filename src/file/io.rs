@@ -71,7 +71,7 @@ impl From<Invalid> for WriteError {
 }
 
 
-// TODO DRY
+// TODO DRY !!!!!!! the whole module
 
 
 // will be inlined
@@ -323,6 +323,11 @@ pub fn read_f32_vec<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_m
 
 use ::half::f16;
 
+pub fn read_into_f16_vec(read: &mut impl ReadBytesExt, vec: &mut Vec<f16>, data_size: usize, estimated_max: usize) -> ReadResult<()> {
+    read_f16_vec(read, data_size, estimated_max)
+        .map(|values| vec.extend_from_slice(&values))
+}
+
 /// The representation of 16-bit floating-point numbers is analogous to IEEE 754,
 /// but with 5 exponent bits and 10 bits for the fraction
 // reads an u16 array first and then interprets it as f16
@@ -352,6 +357,11 @@ pub fn read_f16_vec<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_m
     }
 }
 
+pub fn read_into_u32_vec(read: &mut impl ReadBytesExt, vec: &mut Vec<u32>, data_size: usize, estimated_max: usize) -> ReadResult<()> {
+    read_u32_vec(read, data_size, estimated_max)
+        .map(|values| vec.extend_from_slice(&values))
+}
+
 pub fn read_u32_vec<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_max: usize) -> ReadResult<Vec<u32>> {
     if data_size < estimated_max {
         let mut data = vec![0; data_size];
@@ -376,6 +386,11 @@ pub fn read_u32_vec<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_m
         data.shrink_to_fit();
         Ok(data)
     }
+}
+
+pub fn read_into_f32_vec(read: &mut impl ReadBytesExt, vec: &mut Vec<f32>, data_size: usize, estimated_max: usize) -> ReadResult<()> {
+    read_f32_vec(read, data_size, estimated_max)
+        .map(|values| vec.extend_from_slice(&values))
 }
 
 pub fn read_u64_vec<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_max: usize) -> ReadResult<Vec<u64>> {

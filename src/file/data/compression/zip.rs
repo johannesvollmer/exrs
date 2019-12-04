@@ -10,8 +10,7 @@ use super::optimize_bytes::*;
 
 use std::io::{self, Read};
 use ::libflate::zlib::{Encoder, Decoder};
-
-
+use crate::file::meta::Header;
 
 
 // scanline decompression routine, see https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfScanLineInputFile.cpp
@@ -21,7 +20,9 @@ use ::libflate::zlib::{Encoder, Decoder};
 // 4. Fill the frame buffer with pixel data, respective to sampling and whatnot
 
 
-pub fn decompress_bytes(target: UncompressedData, data: &CompressedData, line_size: usize) -> Result<UncompressedData> {
+pub fn decompress_bytes(header: &Header, data: &CompressedBytes, dimensions: (usize, usize)) -> Result<UncompressedChannels> {
+    let line_size = header.data_window.dimensions().0 as usize;
+
     let mut decompressed = Vec::with_capacity(data.len());
 
     {// decompress
@@ -33,10 +34,10 @@ pub fn decompress_bytes(target: UncompressedData, data: &CompressedData, line_si
 
     differences_to_samples(&mut decompressed);
     decompressed = interleave_byte_blocks(&decompressed);
-    super::uncompressed::unpack(target, &decompressed, line_size) // convert to machine-dependent endianess
+    super::uncompressed::unpack(header, &decompressed, dimensions) // convert to machine-dependent endianess
 }
 
-pub fn compress_bytes(data: &UncompressedData) -> Result<CompressedData> {
+pub fn compress_bytes(data: &UncompressedChannels) -> Result<CompressedBytes> {
     let mut packed = super::uncompressed::pack(data)?; // convert from machine-dependent endianess
     packed = separate_bytes_fragments(&packed);
     samples_to_differences(&mut packed);

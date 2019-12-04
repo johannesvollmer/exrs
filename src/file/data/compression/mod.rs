@@ -1,7 +1,9 @@
 pub mod zip;
 pub mod rle;
+pub mod piz;
 
 use super::uncompressed::*;
+use crate::file::meta::Header;
 
 #[derive(Debug)]
 pub enum Error {
@@ -22,8 +24,8 @@ impl From<crate::file::io::ReadError> for Error {
 }
 
 pub type Result<T> = ::std::result::Result<T, Error>;
-pub type CompressedData = Vec<u8>;
-pub type UncompressedData = DataBlock;
+pub type CompressedBytes = Vec<u8>;
+pub type UncompressedChannels = PerChannel<Array>;
 
 
 
@@ -111,27 +113,25 @@ pub enum Compression {
     /// B44 compression is only supported for flat images.
     B44A,
 
-    // lossy DCT based compression, in blocks
-    // of 32 scanlines. More efficient for partial
-// buffer access.Like B44, except for blocks of four by four pixels where all pixels have the same
-//value, which are packed into 3 instead of 14 bytes. For images with large uniform
-//areas, B44A produces smaller files than B44 compression.
-//B44A compression is only supported for flat images.
+    /// lossy DCT based compression, in blocks
+    /// of 32 scanlines. More efficient for partial
+    /// buffer access.Like B44, except for blocks of four by four pixels where all pixels have the same
+    /// value, which are packed into 3 instead of 14 bytes. For images with large uniform
+    /// areas, B44A produces smaller files than B44 compression.
+    /// B44A compression is only supported for flat images.
     DWAA,
 
-    // lossy DCT based compression, in blocks
-    // of 256 scanlines. More efficient space
-    // wise and faster to decode full frames
-// than DWAA_COMPRESSION.
+    /// lossy DCT based compression, in blocks
+    /// of 256 scanlines. More efficient space
+    /// wise and faster to decode full frames
+    /// than DWAA_COMPRESSION.
     DWAB,
-
-    /* TODO: DWAA & DWAB */
 }
 
 
 
 impl Compression {
-    pub fn compress(self, data: &UncompressedData) -> Result<CompressedData> {
+    pub fn compress(self, data: &UncompressedChannels) -> Result<CompressedBytes> {
         use self::Compression::*;
         match self {
             None => uncompressed::pack(data),
@@ -142,20 +142,14 @@ impl Compression {
         }
     }
 
-    pub fn decompress(
-        self,
-        target: UncompressedData,
-        data: &CompressedData,
-        line_size: usize,
-    )
-        -> Result<UncompressedData>
-    {
+    pub fn decompress(self, header: &Header, data: &CompressedBytes, dimensions: (usize, usize)) -> Result<UncompressedChannels> {
         use self::Compression::*;
         match self {
-            None => uncompressed::unpack(target, data, line_size),
-            ZIP16 => zip::decompress_bytes(target, data, line_size),
-            ZIP1 => zip::decompress_bytes(target, data, line_size),
-            RLE => rle::decompress_bytes(target, data, line_size),
+            None => uncompressed::unpack(header, data, dimensions),
+            ZIP16 => zip::decompress_bytes(header, data, dimensions),
+            ZIP1 => zip::decompress_bytes(header, data, dimensions),
+            RLE => rle::decompress_bytes(header, data, dimensions),
+            PIZ => piz::decompress_bytes(header, data, dimensions),
             compr => unimplemented!("decompressing {:?}", compr),
         }
     }
@@ -186,101 +180,61 @@ impl Compression {
 // TODO FIXME avoid all intermediate buffers and use iterators/readers exclusively?
 pub mod uncompressed {
     use super::*;
+    use crate::file::meta::Header;
+    use crate::file::meta::attributes::{ParsedText, PixelType};
+    use crate::file::io::read_u32_array;
 
-    pub fn unpack(mut target: UncompressedData, data: &CompressedData, line_size: usize) -> Result<UncompressedData> {
-        match &mut target {
-            DataBlock::ScanLine(ref mut scan_line_channels) => {
-                // TODO assert channels are in alphabetical order?
+    pub fn unpack(header: &Header, data: &CompressedBytes, dimensions: (usize, usize)) -> Result<UncompressedChannels> {
+
+        // TODO do not rely on kind because it is only required for (multiplart or non-image) data
+        match header.kind {
+            None | Some(ParsedText::ScanLine) | Some(ParsedText::Tile) => {
+                let mut result_channels: PerChannel<Array> = header.channels.iter()
+                    .map(|channel|{
+                        let size = channel.subsampled_pixels(dimensions.0, dimensions.1);
+
+                        match channel.pixel_type {
+                            PixelType::U32 => Array::U32(Vec::with_capacity(size)),
+                            PixelType::F16 => Array::F16(Vec::with_capacity(size)),
+                            PixelType::F32 => Array::F32(Vec::with_capacity(size)),
+                        }
+                    })
+                    .collect();
+
+                // TODO asserts channels are in alphabetical order?
                 let mut remaining_bytes = data.as_slice();
 
                 // for each line, extract all channels
+//                for _ in 0..dimensions.1  TODO
                 while !remaining_bytes.is_empty() {
-
                     // for each channel, read all pixels in this single line
-                    for ref mut channel in scan_line_channels.iter_mut() {
+                    for channel in &mut result_channels {
                         match channel {
-                            Array::U32(ref mut channel) => {
-                                // TODO without separate allocation: channel must have zeroes and from io read into subslice
+                            Array::U32(ref mut channel) => crate::file::io::read_into_u32_vec(
+                                &mut remaining_bytes, channel, dimensions.0, 1024*1024
+                            ),
 
-                                let line = crate::file::io::read_u32_vec(
-                                    &mut remaining_bytes, line_size, ::std::u16::MAX as usize
-                                )?;
+                            Array::F16(ref mut channel) => crate::file::io::read_into_f16_vec(
+                                &mut remaining_bytes, channel, dimensions.0, 1024*1024
+                            ),
 
-                                channel.extend_from_slice(&line);
-                            },
-
-                            Array::F16(ref mut channel) => {
-                                // TODO don't allocate
-                                let line = crate::file::io::read_f16_vec(
-                                    &mut remaining_bytes, line_size, ::std::u16::MAX as usize
-                                )?;
-
-                                channel.extend_from_slice(&line);
-                            },
-
-                            Array::F32(ref mut channel) => {
-
-                                // TODO without separate allocation
-                                let line = crate::file::io::read_f32_vec(
-                                    &mut remaining_bytes, line_size, ::std::u16::MAX as usize
-                                )?;
-
-                                channel.extend_from_slice(&line);
-                            },
+                            Array::F32(ref mut channel) => crate::file::io::read_into_f32_vec(
+                                &mut remaining_bytes, channel, dimensions.0, 1024*1024
+                            ),
                         };
                     }
                 }
+
+                Ok(result_channels)
             },
 
-            DataBlock::Tile(ref mut tile_channels) => {
-                // TODO assert channels are in alphabetical order?
-                let mut remaining_bytes = data.as_slice();
-
-                // for each line, extract all channels
-                while !remaining_bytes.is_empty() {
-
-                    // for each channel, read all pixels in this single line
-                    for ref mut channel in tile_channels.iter_mut() {
-                        match channel {
-                            Array::U32(ref mut channel) => {
-                                // TODO without separate allocation
-                                let line = crate::file::io::read_u32_vec(
-                                    &mut remaining_bytes, line_size, ::std::u16::MAX as usize
-                                ).expect("io err when reading from in-memory vec");
-
-                                channel.extend_from_slice(&line);
-                            },
-
-                            Array::F16(ref mut channel) => {
-                                // TODO don't allocate
-                                let line = crate::file::io::read_f16_vec(
-                                    &mut remaining_bytes, line_size, ::std::u16::MAX as usize
-                                ).expect("io err when reading from in-memory vec");
-//
-                                channel.extend_from_slice(&line);
-                            },
-
-                            Array::F32(ref mut channel) => {
-                                // TODO without separate allocation
-                                let line = crate::file::io::read_f32_vec(
-                                    &mut remaining_bytes, line_size, ::std::u16::MAX as usize
-                                ).expect("io err when reading from in-memory vec");
-
-                                channel.extend_from_slice(&line);
-                            },
-                        }
-                    }
-                }
-            },
-
-            _ => unimplemented!()
+            _ => {
+                unimplemented!()
+            }
         }
-
-
-        Ok(target)
     }
 
-    pub fn pack(_data: &UncompressedData) -> Result<CompressedData> {
+    pub fn pack(_data: &UncompressedChannels) -> Result<CompressedBytes> {
         unimplemented!()
     }
 }
@@ -430,9 +384,11 @@ pub mod optimize_bytes {
         SeparateInterleavedSlice { interleaved, first_iteration: true, index: 0, }
     }*/
 
+    // TODO make iterator
     /// "interleave"
     pub fn interleave_byte_blocks(separated: &[u8]) -> Vec<u8> {
         // TODO rustify
+        // TODO without extra allocation!
         let mut interleaved = Vec::with_capacity(separated.len());
         let (first_half, second_half) = separated
             .split_at((separated.len() + 1) / 2);

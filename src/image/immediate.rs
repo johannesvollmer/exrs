@@ -1,6 +1,5 @@
 
 //use ::std::io::{Read, Seek, SeekFrom};
-use crate::file::data::uncompressed::*;
 //use crate::file::attributes::{Text};
 //use crate::file::chunks::TileCoordinates;
 
@@ -22,10 +21,11 @@ use crate::file::data::uncompressed::*;
 use crate::file::meta::MetaData;
 use crate::file::data::compressed::Chunks;
 use crate::file::io::*;
-use crate::file::meta::attributes::PixelType;
 use crate::image::data::Parts;
 use crate::image::meta::SeekBufRead;
 use std::path::Path;
+use crate::file::data::uncompressed::{PerChannel, Array};
+use crate::file::meta::attributes::PixelType;
 
 
 /// reads the whole image at once
@@ -54,8 +54,7 @@ pub fn decode_content(meta_data: MetaData, chunks: Chunks) -> ReadResult<Parts> 
             assert!(headers.is_empty(), "single part with multiple headers");
             assert_eq!(header.line_order, crate::file::meta::attributes::LineOrder::IncreasingY);
 
-            let (data_width, data_height) = header.data_window.dimensions();
-            let (data_width, data_height) = (data_width as usize, data_height as usize);
+//            let (data_width, data_height) = (data_width as usize, data_height as usize);
 
 
             /*TODO
@@ -67,8 +66,10 @@ pub fn decode_content(meta_data: MetaData, chunks: Chunks) -> ReadResult<Parts> 
 
             // contains ALL pixels per channel for the whole image
             // TODO LEVELS
+
             let mut decompressed_channels: PerChannel<Array> = header.channels.iter().map(|channel|{
-                let pixels = channel.subsampled_pixels(data_width, data_height);
+                let (data_width, data_height) = header.data_window.dimensions();
+                let pixels = channel.subsampled_pixels(data_width as usize, data_height as usize);
                 match channel.pixel_type {
                     PixelType::U32 => Array::U32(Vec::with_capacity(pixels)),
                     PixelType::F16 => Array::F16(Vec::with_capacity(pixels)),
@@ -85,39 +86,44 @@ pub fn decode_content(meta_data: MetaData, chunks: Chunks) -> ReadResult<Parts> 
 
                 match part {
                     ScanLine(scan_lines) => {
-                        let lines_per_block = compression.scan_lines_per_block();
+//                        let lines_per_block = compression.scan_lines_per_block();
+
                         println!("what about line order");
                         println!("what about mip/rip map levels?");
 
                         // FIXME only iterate if line_order is increasing y, else we need to interleave!!
                         for (index, compressed_data) in scan_lines.iter().enumerate() {
+                            let (width, height) = header.get_scan_line_window(index);
+//                            let width = header.data_window.dimensions().0 as usize;
+
                             // how much the last row is cut off:
-                            let block_end = (index + 1) * lines_per_block;
-                            let block_overflow = block_end.checked_sub(data_height).unwrap_or(0);
-                            let height = lines_per_block - block_overflow;
+//                            let block_end = (index + 1) * lines_per_block;
+//                            let block_overflow = block_end.checked_sub(data_height).unwrap_or(0);
+//                            let height = lines_per_block - block_overflow;
 
-                            let mut target = PerChannel::with_capacity(channels.len());
-                            for channel in channels {
-                                let size = channel.subsampled_pixels(data_width, height);
+//                            let mut target = PerChannel::with_capacity(channels.len());
+//
+//                            for channel in channels {
+//                                let size = channel.subsampled_pixels(data_width, height);
+//
+//                                match channel.pixel_type {
+//                                    PixelType::U32 => target.push(Array::U32(Vec::with_capacity(size))),
+//                                    PixelType::F16 => target.push(Array::F16(Vec::with_capacity(size))),
+//                                    PixelType::F32 => target.push(Array::F32(Vec::with_capacity(size))),
+//                                }
+//                            }
 
-                                match channel.pixel_type {
-                                    PixelType::U32 => target.push(Array::U32(Vec::with_capacity(size))),
-                                    PixelType::F16 => target.push(Array::F16(Vec::with_capacity(size))),
-                                    PixelType::F32 => target.push(Array::F32(Vec::with_capacity(size))),
-                                }
-                            }
-
-                            let decompressed = compression.decompress(
-                                DataBlock::ScanLine(target),
+                            let decompressed_scan_line_channels = compression.decompress(
+                                &header,
+//                                DataBlock::ScanLine(target),
                                 &compressed_data.compressed_pixels,
-                                data_width
+                                (width, height)
+//                                data_width
                             )?;
 
-                            expect_variant!(decompressed, DataBlock::ScanLine(decompressed_scan_line_channels) => {
-                                for (channel_index, decompressed_channel) in decompressed_scan_line_channels.iter().enumerate() {
-                                    decompressed_channels[channel_index].extend_from_slice(&decompressed_channel);
-                                }
-                            })
+                            for (channel_index, decompressed_channel) in decompressed_scan_line_channels.iter().enumerate() {
+                                decompressed_channels[channel_index].extend_from_slice(&decompressed_channel);
+                            }
                             /*if let DataBlock::ScanLine(decompressed_scan_line_channels) = decompressed {
                                 for (channel_index, decompressed_channel) in decompressed_scan_line_channels.iter().enumerate() {
                                     decompressed_channels[channel_index].extend_from_slice(&decompressed_channel);
@@ -125,7 +131,15 @@ pub fn decode_content(meta_data: MetaData, chunks: Chunks) -> ReadResult<Parts> 
                             } else {
                                 panic!("`decompress` returned wrong block type")
                             }*/
+
                         }
+
+                        Ok(smallvec![crate::image::data::Part {
+                            header,
+                            levels: crate::image::data::Levels::Singular(
+                                crate::image::data::PartData::Flat(decompressed_channels)
+                            ),
+                        }])
                     },
 
                     Tile(tiles) => {
@@ -135,44 +149,48 @@ pub fn decode_content(meta_data: MetaData, chunks: Chunks) -> ReadResult<Parts> 
                         let tile_description = header.tiles
                             .expect("Check failed: `tiles` missing");
 
-                        let default_width = tile_description.x_size;
-                        let default_height = tile_description.y_size;
-                        let round = tile_description.rounding_mode;
+//                        let default_width = tile_description.x_size;
+//                        let default_height = tile_description.y_size;
+//                        let round = tile_description.rounding_mode;
 
 
                         // FIXME only iterate if line_order is increasing y, else we need to interleave!!
                         for tile in &tiles {
-                            let level_x = tile.coordinates.level_x;
-                            let level_data_width = compute_level_size(round, data_width as u32, level_x as u32);
+                            let (width, height) = header.get_tile_window(tile_description, tile.coordinates);
 
-                            let default_right = tile.coordinates.tile_x as u32 + default_width;
-                            let right_overflow = default_right.checked_sub(level_data_width).unwrap_or(0);
+//                            let level_x = tile.coordinates.level_x;
+//                            let level_data_width = compute_level_size(round, data_width as u32, level_x as u32);
+//
+//                            let default_right = tile.coordinates.tile_x as u32 + default_width;
+//                            let right_overflow = default_right.checked_sub(level_data_width).unwrap_or(0);
+//
+//                            let level_y = tile.coordinates.level_y;
+//                            let level_data_height = compute_level_size(round, data_height as u32, level_y as u32);
+//
+//                            assert!(level_x == 1 && level_y == 1, "unimplemented: tiled levels data unpacking");
+//
+//                            let default_bottom = tile.coordinates.tile_y as u32 + default_height;
+//                            let bottom_overflow = default_bottom.checked_sub(level_data_height).unwrap_or(0);
+//
+//                            let width = default_width - right_overflow;
+//                            let height = default_height - bottom_overflow;
 
-                            let level_y = tile.coordinates.level_y;
-                            let level_data_height = compute_level_size(round, data_height as u32, level_y as u32);
+//                            let mut target = PerChannel::with_capacity(channels.len());
+//                            for channel in channels {
+//                                let size = channel.subsampled_pixels(width as usize, height as usize); // TODO use usize only
+//                                match channel.pixel_type {
+//                                    PixelType::U32 => target.push(Array::U32(Vec::with_capacity(size))),
+//                                    PixelType::F16 => target.push(Array::F16(Vec::with_capacity(size))),
+//                                    PixelType::F32 => target.push(Array::F32(Vec::with_capacity(size))),
+//                                }
+//                            }
 
-                            assert!(level_x == 1 && level_y == 1, "unimplemented: tiled levels data unpacking");
-
-                            let default_bottom = tile.coordinates.tile_y as u32 + default_height;
-                            let bottom_overflow = default_bottom.checked_sub(level_data_height).unwrap_or(0);
-
-                            let width = default_width - right_overflow;
-                            let height = default_height - bottom_overflow;
-
-                            let mut target = PerChannel::with_capacity(channels.len());
-                            for channel in channels {
-                                let size = channel.subsampled_pixels(width as usize, height as usize); // TODO use usize only
-                                match channel.pixel_type {
-                                    PixelType::U32 => target.push(Array::U32(Vec::with_capacity(size))),
-                                    PixelType::F16 => target.push(Array::F16(Vec::with_capacity(size))),
-                                    PixelType::F32 => target.push(Array::F32(Vec::with_capacity(size))),
-                                }
-                            }
-
-                            let _decompressed = compression.decompress(
-                                DataBlock::Tile(target),
+                            let decompressed = compression.decompress(
+                                &header,
+                                // DataBlock::Tile(target),
                                 &tile.compressed_pixels,
-                                width as usize
+                                (width as usize, height as usize)
+//                                width as usize
                             )?;
 
                             unimplemented!("cannot just append tiles to a flat array");
@@ -190,24 +208,23 @@ pub fn decode_content(meta_data: MetaData, chunks: Chunks) -> ReadResult<Parts> 
                                 panic!("`decompress` returned wrong block type")
                             }*/
                         }
-                    },
 
+                        Ok(smallvec![crate::image::data::Part {
+                            header,
+                            levels: crate::image::data::Levels::Singular(
+                                crate::image::data::PartData::Flat(decompressed_channels)
+                            ),
+                        }])
+                    },
 
                     // let map_level_x = unimplemented!("are mip map levels only for tiles?");
                     // let map_level_y = unimplemented!();
 
                     _ => unimplemented!("non-scanline uncompressed images")
-                };
+                }
             }
-
-            Ok(smallvec![crate::image::data::Part {
-                    header,
-                    levels: crate::image::data::Levels::Singular(
-                        crate::image::data::PartData::Flat(decompressed_channels)
-                    ),
-                }],
-            )
         },
+
         Chunks::MultiPart(_parts) => unimplemented!()
     }
 }

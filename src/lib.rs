@@ -87,13 +87,16 @@ pub mod test {
         let now = ::std::time::Instant::now();
 
         let path = ::std::path::Path::new(
-            "D:/Pictures/openexr/ScanLines/Blobbies.exr"
+//            "D:/Pictures/openexr/ScanLines/Blobbies.exr" FIXME
+            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
+
+
 //            "D:/Pictures/openexr/debug/32x32_r10g5b0_f16_rle.exr"
 //            "/home/johannes/Pictures/openexr/samuel-zeller/samuel_zeller_rgb_f16_rle.exr"
         );
 
         let (meta, chunks) = crate::image::immediate::read_raw_data(&path).unwrap();
-        println!("\nversion: {:#?}", meta.requirements.file_format_version);
+        println!("\nmeta: {:#?}", meta);
 
 
         let parts = crate::image::immediate::decode_content(meta, chunks).unwrap();
@@ -126,11 +129,11 @@ pub mod test {
 
         // actually do the conversion to png
         expect_variant!(channels, crate::image::data::PartData::Flat(ref channels) => {
-            expect_variant!(channels[1], crate::file::data::uncompressed::Array::F16(ref channel) => {
+            expect_variant!(channels[1], crate::file::data::uncompressed::Array::F32(ref channel) => {
                 for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
                 // TODO assumes channel is not subsampled
-                    let v = channel[(y * full_res.0 + x) as usize].to_f32();
-                    *pixel = ::piston_image::Luma([(v * 250.0) as u8]);
+                    let v = channel[(y * full_res.0 + x) as usize];
+                    *pixel = ::piston_image::Luma([(v.powf(1.0/2.2) * 100.0) as u8]);
                 }
             })
         });
