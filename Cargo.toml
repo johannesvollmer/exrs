@@ -8,9 +8,10 @@ edition = "2018"
 seek_bufread = "*"
 libflate = "*"
 byteorder = "*"
-bit_field = "*"
+bit_field = "*" # TODO
 smallvec = "*"
 half = { version = "1.4.0", features = ["std"] }
+rayon = "1.2.1"
 
 [dev-dependencies]
 image = "*" # required for testing, for converting exr to png

@@ -9,6 +9,7 @@ use crate::file::data::uncompressed::{PerChannel, Array, DeepScanLineBlock};
 use crate::file::data::compressed::Chunks;
 use crate::file::io::*;
 use crate::file::meta::attributes::{PixelType, LevelMode, Kind};
+use crate::file::data::compression::ByteVec;
 
 
 pub mod meta {
@@ -34,81 +35,6 @@ pub mod meta {
     }
 }
 
-
-#[must_use]
-pub fn read_from_file(path: &::std::path::Path) -> ReadResult<Image> {
-    read_unbuffered(::std::fs::File::open(path)?)
-}
-
-/// assumes that the provided reader is not buffered, and will create a buffer for it
-#[must_use]
-pub fn read_unbuffered<R: Read + Seek>(unbuffered: R) -> ReadResult<Image> {
-    read_seekable_prebuffered(&mut SeekBufRead::new(unbuffered))
-}
-
-#[must_use]
-pub fn read_seekable_prebuffered<R: Read + Seek>(buffered_read: &mut R) -> ReadResult<Image> {
-    let MetaData { headers, offset_tables, .. } = MetaData::read_validated(buffered_read)?;
-    let chunks = Chunks::read(buffered_read, &headers, offset_tables)?;
-
-    let mut image = Image {
-        parts: headers.into_iter().map(Part::new).collect(),
-    };
-
-    match chunks {
-        Chunks::SinglePart(part_contents) => {
-            assert_eq!(image.parts.len(), 1, "single part chunk with multiple headers");
-            let part = &mut image.parts[0];
-
-//            let data_size = part.header.data_window.dimensions();
-            let compression = part.header.compression;
-
-            use crate::file::data::compressed::SinglePartChunks::*;
-
-            match part_contents {
-                ScanLine(scan_line_contents) => {
-                    for data_block in scan_line_contents {
-                        let y = data_block.y_coordinate - part.header.data_window.y_min;
-                        debug_assert!(y >= 0); // TODO Err() instead
-
-                        let y = y as u32;
-                        let block_size = part.header.get_scan_line_block_size(y);
-
-                        let expected_byte_size = block_size.0 * block_size.1 * part.header.channels.bytes_per_pixel;
-                        let decompressed_bytes = compression.decompress_bytes(data_block.compressed_pixels, expected_byte_size as usize)?;
-                        part.read_block(&mut decompressed_bytes.as_slice(), (0,0), (0, y), block_size)?;
-                    }
-                },
-
-                Tile(tiles) => {
-                    let tile_description = part.header.tiles
-                        .expect("Check failed: `tiles` missing");
-
-                    for tile in tiles {
-                        let tile_size = part.header.get_tile_size(tile_description, tile.coordinates);
-                        let levels = (tile.coordinates.level_x as u32, tile.coordinates.level_y as u32);
-                        let x = tile.coordinates.tile_x - part.header.data_window.x_min;
-                        let y = tile.coordinates.tile_y - part.header.data_window.y_min;
-                        debug_assert!(x >= 0 && y >= 0); // TODO Err() instead
-
-                        let expected_byte_size = tile_size.0 * tile_size.1 * part.header.channels.bytes_per_pixel;
-                        let decompressed_bytes = compression.decompress_bytes(tile.compressed_pixels, expected_byte_size as usize)?;
-                        part.read_block(&mut decompressed_bytes.as_slice(), levels, (x as u32, y as u32), tile_size)?;
-                    }
-                },
-
-                // let map_level_x = unimplemented!("are mip map levels only for tiles?");
-                // let map_level_y = unimplemented!();
-
-                _ => eprintln!("deep data accumulation not supported")
-            }
-        },
-
-        Chunks::MultiPart(_parts) => eprintln!("multipart accumulation not supported")
-    }
-
-    Ok(image)
-}
 
 
 
@@ -180,16 +106,99 @@ pub struct Pixels<T> {
 }
 
 
-impl Levels {
-    pub fn largest(&self) -> &PartData {
-        match *self {
-            Levels::Singular(ref data) => data,
-            Levels::Mip(ref maps) => &maps[0], // TODO is this really the largest one?
-            Levels::Rip(ref rip_map) => &rip_map.maps[0], // TODO test!
-        }
-    }
+
+#[must_use]
+pub fn read_from_file(path: &::std::path::Path) -> ReadResult<Image> {
+    read_unbuffered(::std::fs::File::open(path)?)
 }
 
+/// assumes that the provided reader is not buffered, and will create a buffer for it
+#[must_use]
+pub fn read_unbuffered<R: Read + Seek>(unbuffered: R) -> ReadResult<Image> {
+    read_seekable_prebuffered(&mut SeekBufRead::new(unbuffered))
+}
+
+#[must_use]
+pub fn read_seekable_prebuffered<R: Read + Seek>(buffered_read: &mut R) -> ReadResult<Image> {
+    let MetaData { headers, offset_tables, .. } = MetaData::read_validated(buffered_read)?;
+    let chunks = Chunks::read(buffered_read, &headers, offset_tables)?;
+
+    let mut image = Image {
+        parts: headers.into_iter().map(Part::new).collect(),
+    };
+
+    match chunks {
+        Chunks::SinglePart(part_contents) => {
+            assert_eq!(image.parts.len(), 1, "single part chunk with multiple headers");
+            let part = &mut image.parts[0];
+            let compression = part.header.compression;
+            let header = &part.header;
+            let data_window = header.data_window;
+            let channels = &header.channels;
+
+            use rayon::prelude::*;
+            use crate::file::data::compressed::SinglePartChunks::*;
+
+            match part_contents {
+                ScanLine(scan_line_contents) => {
+                    let decompressed: Vec<ReadResult<(ByteVec, u32, (u32, u32))>> = scan_line_contents
+                        .into_par_iter()
+                        .map(|data_block|{
+                            let y = data_block.y_coordinate - data_window.y_min;
+                            debug_assert!(y >= 0); // TODO Err() instead
+
+                            let y = y as u32;
+                            let block_size = header.get_scan_line_block_size(y);
+
+                            let expected_byte_size = block_size.0 * block_size.1 * channels.bytes_per_pixel;
+                            let decompressed_bytes = compression.decompress_bytes(data_block.compressed_pixels, expected_byte_size as usize)?;
+                            Ok((decompressed_bytes, y, block_size))
+                        })
+                        .collect(); // TODO without collect
+
+                    for result in decompressed {
+                        let (decompressed_bytes, y, block_size) = result?;
+                        part.read_block(&mut decompressed_bytes.as_slice(), (0,0), (0, y), block_size)?;
+                    }
+                },
+
+                Tile(tiles) => {
+                    let tile_description = header.tiles
+                        .expect("Check failed: `tiles` missing");
+
+                    let decompressed: Vec<ReadResult<(ByteVec, (u32,u32), (u32,u32), (u32,u32))>> = tiles
+                        .into_par_iter()
+                        .map(|tile|{
+                            let tile_size = header.get_tile_size(tile_description, tile.coordinates);
+                            let levels = (tile.coordinates.level_x as u32, tile.coordinates.level_y as u32);
+                            let x = tile.coordinates.tile_x - data_window.x_min;
+                            let y = tile.coordinates.tile_y - data_window.y_min;
+                            debug_assert!(x >= 0 && y >= 0); // TODO Err() instead
+
+                            let expected_byte_size = tile_size.0 * tile_size.1 * channels.bytes_per_pixel;
+                            let decompressed_bytes = compression.decompress_bytes(tile.compressed_pixels, expected_byte_size as usize)?;
+                            Ok((decompressed_bytes, levels, (x as u32, y as u32), tile_size))
+                        })
+                        .collect();
+
+                    for tile in decompressed {
+                        let (decompressed_bytes, levels, position, size) = tile?;
+                        part.read_block(&mut decompressed_bytes.as_slice(), levels, position, size)?;
+                    }
+                },
+
+                // let map_level_x = unimplemented!("are mip map levels only for tiles?");
+                // let map_level_y = unimplemented!();
+
+                _ => eprintln!("deep data accumulation not supported")
+            }
+        },
+
+        Chunks::MultiPart(_parts) => eprintln!("multipart accumulation not supported")
+    }
+
+    Ok(image)
+}
 
 impl Part {
 
@@ -309,34 +318,15 @@ impl Part {
 
         Ok(())
     }
-    /*
-    let image_width = pixels.dimensions.0 as usize;
-    for channel in &mut pixels.channels { // FIXME must be sorted alphabetically!
-        let block_y = position.1 as usize;
-        let block_height = size.1 as usize;
-
-        let start_index = block_y * image_width;
-        let end_index = start_index + block_height * image_width;
-
-        match channel {
-            Array::F16(ref mut target) =>
-                read_f16_array(read, &mut target[start_index .. end_index])?, // could read directly from file for uncompressed data
-
-            Array::F32(ref mut target) =>
-                read_f32_array(read, &mut target[start_index .. end_index])?, // could read directly from file for uncompressed data
-
-            Array::U32(ref mut target) =>
-                read_u32_array(read, &mut target[start_index .. end_index])?, // could read directly from file for uncompressed data
-        }
-    }
-    */
-
 }
 
 
-// TODO
-//impl Levels {
-//    pub fn new() -> Self {
-//
-//    }
-//}
+impl Levels {
+    pub fn largest(&self) -> &PartData {
+        match *self {
+            Levels::Singular(ref data) => data,
+            Levels::Mip(ref maps) => &maps[0], // TODO is this really the largest one?
+            Levels::Rip(ref rip_map) => &rip_map.maps[0], // TODO test!
+        }
+    }
+}
