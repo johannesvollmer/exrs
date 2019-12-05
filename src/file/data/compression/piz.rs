@@ -1,6 +1,4 @@
 use super::*;
-use super::optimize_bytes::*;
-use super::Error;
 use super::Result;
 use crate::file::meta::attributes::{I32Box2};
 use crate::file::meta::Header;
@@ -9,11 +7,10 @@ use crate::file::meta::Header;
 
 
 pub fn decompress_bytes(
-    header: &Header,
-    compressed: &CompressedBytes,
-    dimensions: (usize, usize)
+    compressed: ByteVec,
 //    tile_window: I32Box2
-) -> Result<UncompressedChannels> {
+) -> Result<Vec<u8>> {
+    let header: &Header = unimplemented!();
     let line_size = header.data_window.dimensions().0 as usize;
     let tile_window = I32Box2 {
         x_min: 0,
@@ -43,7 +40,7 @@ pub fn decompress_bytes(
 //            return 0;
 //        }
     if line_size == 0 {
-        return Ok(smallvec![])
+        return Ok(vec![])
     }
 
 //        //
@@ -87,7 +84,7 @@ pub fn decompress_bytes(
 //            tmpBufferEnd += cd.nx * cd.ny * cd.size;
 //        }
 
-    for channel in &header.channels {
+    for channel in &header.channels.list {
 
 
     }
@@ -231,6 +228,6 @@ pub fn decompress_bytes(
     // super::uncompressed::unpack(target, &decompressed, line_size) // convert to machine-dependent endianess
 }
 
-pub fn compress_bytes(data: &UncompressedChannels) -> Result<CompressedBytes> {
+pub fn compress_bytes(packed: Bytes) -> Result<ByteVec> {
     unimplemented!();
 }

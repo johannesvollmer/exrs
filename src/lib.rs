@@ -59,8 +59,8 @@ pub mod test {
             if let Some("exr") = path.extension().and_then(|os| os.to_str()) {
                 print!("testing file {:?}... ", path.file_name().unwrap());
                 load_file_or_print_err(path)
-
-            } else if path.is_dir() {
+            }
+            else if path.is_dir() {
                 for sub_dir in ::std::fs::read_dir(path).unwrap() {
                     test_exr_files(&sub_dir.unwrap().path());
                 }
@@ -71,10 +71,10 @@ pub mod test {
     }
 
     fn load_file_or_print_err(path: &Path){
-        let image = crate::image::immediate::read_raw_data(path);
+        let image = crate::image::read_from_file(path);
 
         match image {
-            Ok((meta, _)) => println!("{:#?}", meta),
+            Ok(image) => {},
             Err(error) => println!("{:?}", error),
         }
 //        println!("{:?}", image.map(|(meta, chunks)| format!("{:#?}", meta)));
@@ -87,34 +87,30 @@ pub mod test {
         let now = ::std::time::Instant::now();
 
         let path = ::std::path::Path::new(
-//            "D:/Pictures/openexr/ScanLines/Blobbies.exr" FIXME
-            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
+//            "D:/Pictures/openexr/ScanLines/Blobbies.exr"
+//            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
+            "D:/Pictures/openexr/crowskull/crow_zips.exr"
 
 
 //            "D:/Pictures/openexr/debug/32x32_r10g5b0_f16_rle.exr"
 //            "/home/johannes/Pictures/openexr/samuel-zeller/samuel_zeller_rgb_f16_rle.exr"
         );
 
-        let (meta, chunks) = crate::image::immediate::read_raw_data(&path).unwrap();
-        println!("\nmeta: {:#?}", meta);
-
-
-        let parts = crate::image::immediate::decode_content(meta, chunks).unwrap();
-
+        let image = crate::image::read_from_file(path).unwrap();
 
         // warning: highly unscientific benchmarks ahead!
         let elapsed = now.elapsed();
         let millis = elapsed.as_secs() * 1000 + elapsed.subsec_millis() as u64;
 
-        assert_eq!(parts.len(), 1);
-        let part = &parts[0];
-        println!("header_0: {:#?}", part.header);
+        assert_eq!(image.parts.len(), 1);
+        let part = &image.parts[0];
+        println!("header 0: {:#?}", part.header);
 
 
-        println!("\ndecoded file in {:?} ms", millis);
+        println!("\ndecoded file in {:?} s", millis as f32 * 0.001);
 
         let header = &part.header;
-        let channels = part.levels.full();
+        let channels = part.levels.largest();
         let full_res = header.data_window.dimensions();
 
         let mut png_buffer = ::piston_image::GrayImage::new(full_res.0, full_res.1);
@@ -128,8 +124,8 @@ pub mod test {
 
 
         // actually do the conversion to png
-        expect_variant!(channels, crate::image::data::PartData::Flat(ref channels) => {
-            expect_variant!(channels[1], crate::file::data::uncompressed::Array::F32(ref channel) => {
+        expect_variant!(channels, crate::image::PartData::Flat(ref pixels) => {
+            expect_variant!(pixels.channels[1], crate::file::data::uncompressed::Array::F32(ref channel) => {
                 for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
                 // TODO assumes channel is not subsampled
                     let v = channel[(y * full_res.0 + x) as usize];
@@ -138,7 +134,7 @@ pub mod test {
             })
         });
 
-        png_buffer.save(path.with_extension("png").file_name().unwrap()).unwrap();
+        png_buffer.save(Path::new("test.png")).unwrap();
     }
 
     // TODO allow loading only meta data,

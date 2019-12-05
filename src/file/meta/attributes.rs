@@ -4,12 +4,12 @@ use crate::file::validity::*;
 /// null-terminated text strings.
 /// max 31 bytes long (if bit 10 is set to 0),
 /// or max 255 bytes long (if bit 10 is set to 1).
-// TODO non public fields?
 /// must be at least 1 byte (to avoid confusion with null-terminators)
+// TODO non public fields?
 #[derive(Clone, Eq, PartialEq)]
 pub struct Text {
     /// vector does not include null terminator
-    pub bytes: SmallVec<[u8; 32]>,
+    pub bytes: SmallVec<[u8; 16]>,
 }
 
 
@@ -44,7 +44,10 @@ pub enum AttributeValue {
     Rational(i32, u32),
 
     /// i32 of byte-length followed by u8 content
-    Text(ParsedText),
+    Text(Text),
+
+    /// image kind, one of the strings specified in `Kind`
+    Kind(Kind),
 
     /// the number of strings can be inferred from the total attribute size
     TextVector(Vec<Text>),
@@ -62,11 +65,10 @@ pub enum AttributeValue {
     Custom { kind: Text, bytes: Vec<u8> }
 }
 
+// FIXME this should be a simple Kind enum and use Text everywhere else!
 
-/// this enum parses strings to speed up comparisons
-/// based on often-used string contents
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum ParsedText {
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum Kind {
     /// "scanlineimage"
     ScanLine,
 
@@ -78,8 +80,6 @@ pub enum ParsedText {
 
     /// "deeptile"
     DeepTile,
-
-    Arbitrary(Text),
 }
 
 pub mod kind {
@@ -97,13 +97,13 @@ pub type DataWindow = I32Box2;
 pub type DisplayWindow = I32Box2;
 
 /// all limits are inclusive, so when calculating dimensions, +1 must be added
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct I32Box2 {
     pub x_min: i32, pub y_min: i32,
     pub x_max: i32, pub y_max: i32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct F32Box2 {
     pub x_min: f32, pub y_min: f32,
     pub x_max: f32, pub y_max: f32,
@@ -111,9 +111,13 @@ pub struct F32Box2 {
 
 /// followed by a null byte
 /// sorted alphabetically?
-pub type ChannelList = SmallVec<[Channel; 5]>;
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChannelList {
+    pub list: SmallVec<[Channel; 5]>,
+    pub bytes_per_pixel: u32,
+}
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Channel {
     /// zero terminated, 1 to 255 bytes
     pub name: Text,
@@ -139,7 +143,7 @@ pub struct Channel {
     pub y_sampling: i32,
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Copy)]
 pub enum PixelType {
     U32, F16, F32,
 }
@@ -219,6 +223,7 @@ pub enum RoundingMode {
 
 use crate::file::io::*;
 use crate::file::io;
+use std::cmp::Ordering;
 
 impl Text {
     pub fn from_str(str_value: &str) -> Self {
@@ -230,7 +235,7 @@ impl Text {
         Text { bytes: SmallVec::from_slice(str_value.as_bytes()) }
     }
 
-    pub fn from_bytes(bytes: SmallVec<[u8; 32]>) -> Self {
+    pub fn from_bytes(bytes: SmallVec<[u8; 16]>) -> Self {
         Text { bytes }
     }
 
@@ -365,61 +370,48 @@ impl ::std::fmt::Debug for Text {
 }
 
 
-impl ParsedText {
+impl ChannelList {
+    pub fn new(mut channels: SmallVec<[Channel; 5]>) -> Self {
+        channels.sort_by(|a, b| a.name.cmp(&b.name));
 
+        ChannelList {
+            bytes_per_pixel: channels.iter().map(|channel| channel.pixel_type.bytes_per_sample()).sum(),
+            list: channels,
+        }
+    }
+}
 
-    pub fn parse(text: Text) -> Self {
+impl Kind {
+    const TYPE_NAME: &'static [u8] = attribute_type_names::TEXT;
+
+    pub fn parse(text: Text) -> ReadResult<Self> {
         match text.bytes.as_slice() {
-            kind::SCAN_LINE => ParsedText::ScanLine,
-            kind::TILE => ParsedText::Tile,
-            kind::DEEP_SCAN_LINE => ParsedText::DeepScanLine,
-            kind::DEEP_TILE => ParsedText::DeepTile,
-            _ => ParsedText::Arbitrary(text),
+            kind::SCAN_LINE => Ok(Kind::ScanLine),
+            kind::TILE => Ok(Kind::Tile),
+            kind::DEEP_SCAN_LINE => Ok(Kind::DeepScanLine),
+            kind::DEEP_TILE => Ok(Kind::DeepTile),
+            _ => Err(ReadError::Invalid(Invalid::Content(
+                Value::Attribute("type"),
+                Required::OneOf(&["", "", "", ""])
+            ))),
         }
     }
 
-    /// This function does not do any length checks!
-    /// When writing a file, checks will be made that the length
-    /// does not exceed 31 or 255,
-    /// depending on if the 'long strings' version bit is set
+    pub fn write(&self, write: &mut impl Write) -> WriteResult {
+        write_u8_array(write, self.to_text_bytes())
+    }
+
     pub fn to_text_bytes(&self) -> &[u8] {
         match self {
-            // TODO make these constants
-            ParsedText::ScanLine => kind::SCAN_LINE,
-            ParsedText::Tile => kind::TILE,
-            ParsedText::DeepScanLine => kind::DEEP_SCAN_LINE,
-            ParsedText::DeepTile => kind::DEEP_TILE,
-            ParsedText::Arbitrary(ref text) => &text.bytes,
+            Kind::ScanLine => kind::SCAN_LINE,
+            Kind::Tile => kind::TILE,
+            Kind::DeepScanLine => kind::DEEP_SCAN_LINE,
+            Kind::DeepTile => kind::DEEP_TILE,
         }
     }
 
-    /// Sadly, "type" must be one of the specified texts
-    /// instead of being a plain enumeration.
-    /// This method checks if the value is one of the allowed ones.
-    pub fn validate_kind(&self) -> Validity {
-        match *self {
-            ParsedText::Arbitrary(_) => Err(Invalid::Content(
-                Value::Type("type"),
-                Required::OneOf(&["scanlineimage","tiledimage","deepscanline","deeptile"])
-            )),
-            _ => Ok(())
-        }
-    }
-
-    pub fn is_deep_kind(&self) -> bool {
-        match *self {
-            ParsedText::DeepScanLine
-            | ParsedText::DeepTile => true,
-            _ => false,
-        }
-    }
-
-    pub fn is_tile_kind(&self) -> bool {
-        match *self {
-            ParsedText::DeepTile
-            | ParsedText::Tile => true,
-            _ => false,
-        }
+    pub fn byte_size(&self) -> usize {
+        self.to_text_bytes().len()
     }
 }
 
@@ -489,6 +481,14 @@ impl F32Box2 {
 }
 
 impl PixelType {
+    pub fn bytes_per_sample(&self) -> u32 {
+        match self {
+            PixelType::F16 => 2, // TODO use mem::sizeof
+            PixelType::F32 => 4, // TODO use mem::sizeof
+            PixelType::U32 => 4, // TODO use mem::sizeof
+        }
+    }
+
     pub fn byte_size(&self) -> usize {
         0_i32.byte_size()
     }
@@ -517,15 +517,15 @@ impl PixelType {
 }
 
 impl Channel {
-    pub fn subsampled_pixels(&self, width: usize, height: usize) -> usize {
-        let (width, height) = self.subsampled_resolution(width, height);
+    pub fn subsampled_pixels(&self, dimensions: (u32, u32)) -> u32 {
+        let (width, height) = self.subsampled_resolution(dimensions);
         width * height
     }
 
-    pub fn subsampled_resolution(&self, width: usize, height: usize) -> (usize, usize) {
+    pub fn subsampled_resolution(&self, dimensions: (u32, u32)) -> (u32, u32) {
         (
-            width / self.x_sampling as usize,
-            height / self.y_sampling as usize,
+            dimensions.0 / self.x_sampling as u32,
+            dimensions.1 / self.y_sampling as u32,
         )
     }
 
@@ -578,13 +578,13 @@ impl Channel {
     }
 
     pub fn list_byte_size(channels: &ChannelList) -> usize {
-        channels.iter().map(Channel::byte_size).sum::<usize>() + SequenceEnd::byte_size()
+        channels.list.iter().map(Channel::byte_size).sum::<usize>() + SequenceEnd::byte_size()
     }
 
     pub fn write_all<W: Write>(channels: &ChannelList, write: &mut W, long_names: bool) -> WriteResult {
         // FIXME validate if channel names are sorted alphabetically
 
-        for channel in channels {
+        for channel in &channels.list {
             channel.write(write, long_names)?;
         }
 
@@ -597,7 +597,7 @@ impl Channel {
             channels.push(Channel::read(read)?);
         }
 
-        Ok(channels)
+        Ok(ChannelList::new(channels))
     }
 }
 
@@ -928,11 +928,12 @@ impl AttributeValue {
 
             // attribute value texts never have limited size.
             // also, don't serialize size, as it can be inferred from attribute size
-            Text(ref value) => value.to_text_bytes().len(),
+            Text(ref value) => value.bytes.len(),
 
             TextVector(ref value) => value.iter().map(self::Text::i32_sized_byte_size).sum(),
             TileDescription(ref value) => value.byte_size(),
-            Custom { kind: _, bytes: ref bytes} => bytes.len(),
+            Custom { ref bytes, .. } => bytes.len(),
+            Kind(ref kind) => kind.byte_size()
         }
     }
 
@@ -964,7 +965,8 @@ impl AttributeValue {
             Text(_) =>  ty::TEXT,
             TextVector(_) =>  ty::TEXT_VECTOR,
             TileDescription(_) =>  ty::TILES,
-            Custom { kind: ref kind, bytes: _ } => &kind.bytes,
+            Custom { ref kind, .. } => &kind.bytes,
+            Kind(_) => super::Kind::TYPE_NAME,
         }
     }
 
@@ -1001,11 +1003,12 @@ impl AttributeValue {
 
             // attribute value texts never have limited size.
             // also, don't serialize size, as it can be inferred from attribute size
-            Text(ref value) => write_u8_array(write, value.to_text_bytes()),
+            Text(ref value) => write_u8_array(write, value.bytes.as_slice()),
 
             TextVector(ref value) => self::Text::write_vec_of_i32_sized_texts(write, value),
             TileDescription(ref value) => value.write(write),
-            Custom { kind: _, bytes: ref bytes } => write_u8_array(write, &bytes) // write.write(&bytes).map(|_| ()),
+            Custom { ref bytes, .. } => write_u8_array(write, &bytes), // write.write(&bytes).map(|_| ()),
+            Kind(kind) => kind.write(write)
         }
     }
 
@@ -1050,7 +1053,7 @@ impl AttributeValue {
             }),
 
             ty::PREVIEW     => Preview(self::Preview::read(read)?),
-            ty::TEXT        => Text(ParsedText::parse(self::Text::read_sized(read, byte_size as usize)?)),
+            ty::TEXT        => Text(self::Text::read_sized(read, byte_size as usize)?),
             ty::TEXT_VECTOR => TextVector(self::Text::read_vec_of_i32_sized(read, byte_size)?),
             ty::TILES       => TileDescription(self::TileDescription::read(read)?),
 
@@ -1112,11 +1115,17 @@ impl AttributeValue {
         }
     }
 
-    // TODO fix this parsedtext vs text stuff
-    pub fn to_text(self) -> Result<ParsedText, Invalid> {
+    pub fn to_text(self) -> Result<Text, Invalid> {
         match self {
             AttributeValue::Text(value) => Ok(value),
             _ => Err(Invalid::Type(Required::Exact("string")).into()),
+        }
+    }
+
+    pub fn to_kind(self) -> Result<Kind, Invalid> {
+        match self {
+            AttributeValue::Kind(value) => Ok(value),
+            _ => Err(Invalid::Type(Required::Exact("type string")).into()),
         }
     }
 
@@ -1255,6 +1264,20 @@ impl RoundingMode {
 
 
 
+impl Ord for Text {
+    // TODO performance?
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.to_string().cmp(&other.to_string())
+    }
+}
+
+impl PartialOrd for Text {
+    // TODO performance?
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.to_string().partial_cmp(&other.to_string())
+    }
+}
+
 
 #[cfg(test)]
 mod test {
@@ -1313,7 +1336,7 @@ mod test {
             let mut bytes = Vec::new();
             tile.write(&mut bytes).unwrap();
 
-            let mut new_tile = TileDescription::read(&mut Cursor::new(bytes)).unwrap();
+            let new_tile = TileDescription::read(&mut Cursor::new(bytes)).unwrap();
             assert_eq!(*tile, new_tile, "tile round trip");
         }
     }
@@ -1323,7 +1346,7 @@ mod test {
         let attributes = [
             Attribute {
                 name: Text::from_str("greeting"),
-                value: AttributeValue::Text(ParsedText::parse(Text::from_str("hello"))),
+                value: AttributeValue::Text(Text::from_str("hello")),
             },
             Attribute {
                 name: Text::from_str("age"),
@@ -1362,32 +1385,35 @@ mod test {
             },
             Attribute {
                 name: Text::from_str("leg count, again"),
-                value: AttributeValue::ChannelList(SmallVec::from_vec(vec![
-                    Channel {
-                        name: Text::from_str("Green"),
-                        pixel_type: PixelType::F16,
-                        is_linear: false,
-                        reserved: [0, 0, 0],
-                        x_sampling: 1,
-                        y_sampling: 2,
-                    },
-                    Channel {
-                        name: Text::from_str("Red"),
-                        pixel_type: PixelType::F32,
-                        is_linear: true,
-                        reserved: [0, 1, 0],
-                        x_sampling: 1,
-                        y_sampling: 2,
-                    },
-                    Channel {
-                        name: Text::from_str("Purple"),
-                        pixel_type: PixelType::U32,
-                        is_linear: false,
-                        reserved: [1, 2, 7],
-                        x_sampling: 0,
-                        y_sampling: 0,
-                    }
-                ])),
+                value: AttributeValue::ChannelList(ChannelList {
+                    list: smallvec![
+                        Channel {
+                            name: Text::from_str("Green"),
+                            pixel_type: PixelType::F16,
+                            is_linear: false,
+                            reserved: [0, 0, 0],
+                            x_sampling: 1,
+                            y_sampling: 2,
+                        },
+                        Channel {
+                            name: Text::from_str("Red"),
+                            pixel_type: PixelType::F32,
+                            is_linear: true,
+                            reserved: [0, 1, 0],
+                            x_sampling: 1,
+                            y_sampling: 2,
+                        },
+                        Channel {
+                            name: Text::from_str("Purple"),
+                            pixel_type: PixelType::U32,
+                            is_linear: false,
+                            reserved: [1, 2, 7],
+                            x_sampling: 0,
+                            y_sampling: 0,
+                        }
+                    ],
+                    bytes_per_pixel: 0
+                }),
             },
         ];
 
@@ -1396,7 +1422,7 @@ mod test {
             attribute.write(&mut bytes, true).unwrap();
             assert_eq!(attribute.byte_size(), bytes.len(), "attribute.byte_size() for {:?}", attribute);
 
-            let mut new_attribute = Attribute::read(&mut Cursor::new(bytes)).unwrap();
+            let new_attribute = Attribute::read(&mut Cursor::new(bytes)).unwrap();
             assert_eq!(*attribute, new_attribute, "attribute round trip");
         }
 

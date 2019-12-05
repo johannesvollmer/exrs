@@ -10,7 +10,7 @@ libflate = "*"
 byteorder = "*"
 bit_field = "*"
 smallvec = "*"
-half = { version = "1.2.0", features = ["std"] }
+half = { version = "1.4.0", features = ["std"] }
 
 [dev-dependencies]
 image = "*" # required for testing, for converting exr to png

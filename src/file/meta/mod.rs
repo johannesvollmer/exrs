@@ -48,7 +48,7 @@ pub type OffsetTables = SmallVec<[OffsetTable; 3]>;
 pub type OffsetTable = Vec<u64>;
 
 // TODO non-public fields?
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Header {
     pub channels: ChannelList,
     pub compression: Compression,
@@ -65,19 +65,19 @@ pub struct Header {
 
     /// The name of the `Part` which contains this Header.
     /// Required if either the multipart bit (12) or the non-image bit (11) is set
-    pub name: Option<ParsedText>, // FIXME should not be parsed text
+    pub name: Option<Text>,
 
     /// Required if either the multipart bit (12) or the non-image bit (11) is set.
     /// Set to one of: scanlineimage, tiledimage, deepscanline, or deeptile.
     /// Note: This value must agree with the version field's tile bit (9) and non-image (deep data) bit (11) settings
     /// required for deep data. when deep data, Must be set to deepscanline or deeptile
-    pub kind: Option<ParsedText>,
+    pub kind: Option<Kind>,
 
     /// This document describes version 1 data for all
     /// part types. version is required for deep data (deepscanline and deeptile) parts.
     /// If not specified for other parts, assume version=1
     /// required for deep data: Should be set to 1 . It will be changed if the format is updated
-    pub version: Option<i32>,
+    pub deep_data_version: Option<i32>,
 
     /// Required if either the multipart bit (12) or the deep-data bit (11) is set
     pub chunk_count: Option<i32>,
@@ -97,36 +97,40 @@ pub struct Header {
 
     /// Requires a null byte signalling the end of each attribute
     /// Contains custom attributes
-    pub custom: SmallVec<[Attribute; 6]>,
+    pub custom_attributes: SmallVec<[Attribute; 6]>,
 
 }
 
-// TODO use immutable accessors and private fields?
-#[derive(Debug, Clone, Copy)]
+
+// FIXME this merely reports the features which must be supported by our library,
+// FIXME do not use these features to control the flow of the program, use the attributes instead!
+// check these once while reading, remove those fields from this struct otherwise
+
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub struct Requirements {
     /// is currently 2
-    pub file_format_version: u8,
+    file_format_version: u8,
 
     /// bit 9
     /// if true: single-part tiles (bits 11 and 12 must be 0).
     /// if false and 11 and 12 are false: single-part scan-line.
-    pub is_single_tile: bool,
+    is_single_tile: bool,
 
     /// bit 10
     /// if true: maximum name length is 255,
     /// else: 31 bytes for attribute names, attribute type names, and channel names
     /// in c or bad c++ this might have been relevant (omg is he allowed to say that)
-    pub has_long_names: bool,
+    has_long_names: bool,
 
     /// bit 11 "non-image bit"
     /// if true: at least one deep (thus non-reqular)
-    pub has_deep_data: bool,
+    has_deep_data: bool,
 
     /// bit 12
     /// if true: is multipart
     /// (end-of-header byte must always be included
     /// and part-number-fields must be added to chunks)
-    pub has_multiple_parts: bool,
+    has_multiple_parts: bool,
 }
 
 
@@ -152,13 +156,13 @@ impl MetaData {
             ]));
         }
 
-        let is_multi_part = headers != 1;
-        if is_multi_part != self.requirements.has_multiple_parts {
+        let is_multi_part = headers > 1;
+        /*if is_multi_part != self.requirements.has_multiple_parts {
             return Err(Invalid::Combination(&[
                 Value::Version("multipart"),
                 Value::Part("multipart"),
             ]));
-        }
+        }*/
 
         // TODO
         // The values of the displayWindow
@@ -166,7 +170,7 @@ impl MetaData {
 
         self.requirements.validate()?;
         for header in &self.headers {
-            header.validate(self.requirements)?;
+            header.validate(is_multi_part)?;
         }
 
         Ok(())
@@ -175,19 +179,36 @@ impl MetaData {
 
 impl Header {
 
-    pub fn get_scan_line_window(&self, index: usize) -> (usize, usize) {
+    pub fn has_deep_data(&self) -> bool {
+        match self.kind {
+            Some(Kind::DeepTile) | Some(Kind::DeepScanLine) => true,
+            _ => false
+        }
+    }
+
+    pub fn has_tiles(&self) -> bool {
+        match self.kind {
+            Some(Kind::DeepTile) | Some(Kind::Tile) => {
+                debug_assert!(self.tiles.is_some());
+                true
+            },
+            _ => false
+        }
+    }
+
+    pub fn get_scan_line_block_size(&self, y: u32) -> (u32, u32) {
         let lines_per_block = self.compression.scan_lines_per_block();
         let (data_width, data_height) = self.data_window.dimensions();
 
         // how much the last row is cut off:
-        let block_end = (index + 1) * lines_per_block;
-        let block_overflow = block_end.checked_sub(data_height as usize).unwrap_or(0);
+        let block_end = y + lines_per_block;
+        let block_overflow = block_end.checked_sub(data_height).unwrap_or(0);
 
         let height = lines_per_block - block_overflow;
-        (data_width as usize, height as usize)
+        (data_width, height)
     }
 
-    pub fn get_tile_window(&self, tiles: TileDescription, tile: TileCoordinates) -> (usize, usize) {
+    pub fn get_tile_size(&self, tiles: TileDescription, tile: TileCoordinates) -> (u32, u32) {
         let (data_width, data_height) = self.data_window.dimensions();
         let default_width = tiles.x_size;
         let default_height = tiles.y_size;
@@ -209,11 +230,11 @@ impl Header {
 
         let width = default_width - right_overflow;
         let height = default_height - bottom_overflow;
-        (width as usize, height as usize)
+        (width, height)
     }
 
-    // TODO for all other fields too
-    pub fn kind_or_err(&self) -> Result<&ParsedText, Invalid> {
+    // TODO for all other fields too?
+    pub fn kind_or_err(&self) -> Result<&Kind, Invalid> {
         self.kind.as_ref().ok_or(Invalid::Missing(Value::Attribute("kind")))
     }
 
@@ -267,9 +288,8 @@ impl Header {
 
 
 
-    pub fn validate(&self, version: Requirements) -> Validity {
-
-        if version.has_multiple_parts {
+    pub fn validate(&self, is_multipart: bool) -> Validity {
+        if is_multipart {
             if self.chunk_count.is_none() {
                 return Err(Invalid::Missing(Value::Attribute("chunkCount (for multipart)")).into());
             }
@@ -281,21 +301,18 @@ impl Header {
             }
         }
 
-        if version.has_deep_data {
+        if self.has_deep_data() {
             if self.chunk_count.is_none() {
                 return Err(Invalid::Missing(Value::Attribute("chunkCount (for deepdata)")).into());
-            }
-            if self.kind.is_none() {
-                return Err(Invalid::Missing(Value::Attribute("type (for deepdata)")).into());
             }
             if self.name.is_none() {
                 return Err(Invalid::Missing(Value::Attribute("name (for deepdata)")).into());
             }
-            if self.version.is_none() {
+            if self.deep_data_version.is_none() {
                 return Err(Invalid::Missing(Value::Attribute("version (for deepdata)")).into());
             }
 
-            if self.version != Some(1) {
+            if self.deep_data_version != Some(1) {
                 return Err(Invalid::NotSupported("deep data version other than 1"));
             }
 
@@ -313,23 +330,130 @@ impl Header {
             }
         }
 
-        if let Some(ref kind) = self.kind {
-            if kind.is_tile_kind() {
-                if self.tiles.is_none() {
-                    return Err(Invalid::Missing(Value::Attribute("tiles (for tiledimage or deeptiles)")).into());
-                }
-            }
-
-            // version-deepness and attribute-deepness must match
-            if kind.is_deep_kind() != version.has_deep_data {
-                return Err(Invalid::Content(
-                    Value::Attribute("type"),
-                    Required::OneOf(&["deepscanlines", "deeptiles"])
-                ).into());
+        if self.has_tiles() {
+            if self.tiles.is_none() {
+                return Err(Invalid::Missing(Value::Attribute("tiles (for tiledimage or deeptiles)")).into());
             }
         }
 
+        // TODO those do not have to agree
+        // version-deepness and attribute-deepness must match
+        /*if kind.is_deep_kind() != version.has_deep_data {
+            return Err(Invalid::Content(
+                Value::Attribute("type"),
+                Required::OneOf(&["deepscanlines", "deeptiles"])
+            ).into());
+        }*/
+
         Ok(())
+    }
+
+    pub fn write_all<W: Write>(headers: &Headers, write: &mut W, version: Requirements) -> WriteResult {
+        let has_multiple_headers = headers.len() != 1;
+        if headers.is_empty() || version.has_multiple_parts != has_multiple_headers {
+            // TODO return combination?
+            return Err(Invalid::Content(Value::Part("headers count"), Required::Exact("1")).into());
+        }
+
+        for header in headers {
+            debug_assert!(header.validate(headers.len() > 1).is_ok(), "check failed: header invalid");
+
+            // header.tiles.write(write, version.has_long_names)?;
+            println!("FIXME write all header attributes!!!");
+
+            for attrib in &header.custom_attributes {
+                attrib.write(write, version.has_long_names)?;
+            }
+
+            SequenceEnd::write(write)?;
+
+        }
+        SequenceEnd::write(write)?;
+
+        Ok(())
+    }
+
+    pub fn read_all<R: Read + Seek>(read: &mut R, version: Requirements) -> ReadResult<Headers> {
+        Ok({
+            if !version.has_multiple_parts { // TODO check a different way?
+                SmallVec::from_elem(Header::read(read, false)?, 1)
+
+            } else {
+                let mut headers = SmallVec::new();
+                while !SequenceEnd::has_come(read)? {
+                    headers.push(Header::read(read, true)?);
+                }
+
+                headers
+            }
+        })
+    }
+
+    pub fn read<R: Read + Seek>(read: &mut R, is_multipart: bool) -> ReadResult<Self> {
+        let mut custom = SmallVec::new();
+
+        // these required attributes will be Some(usize) when encountered while parsing
+        let mut tiles = None;
+        let mut name = None;
+        let mut kind = None;
+        let mut version = None;
+        let mut chunk_count = None;
+        let mut max_samples_per_pixel = None;
+        let mut channels = None;
+        let mut compression = None;
+        let mut data_window = None;
+        let mut display_window = None;
+        let mut line_order = None;
+        let mut pixel_aspect = None;
+        let mut screen_window_center = None;
+        let mut screen_window_width = None;
+
+        while !SequenceEnd::has_come(read)? {
+            let Attribute { name: attribute_name, value } = Attribute::read(read)?;
+
+            use crate::file::meta::attributes::required::*;
+            match attribute_name.bytes.as_slice() {
+                TILES => tiles = Some(value.to_tile_description()?),
+                NAME => name = Some(value.to_text()?),
+                TYPE => kind = Some(Kind::parse(value.to_text()?)?),
+                VERSION => version = Some(value.to_i32()?),
+                CHUNKS => chunk_count = Some(value.to_i32()?),
+                MAX_SAMPLES => max_samples_per_pixel = Some(value.to_i32()?),
+                CHANNELS => channels = Some(value.to_channel_list()?),
+                COMPRESSION => compression = Some(value.to_compression()?),
+                DATA_WINDOW => data_window = Some(value.to_i32_box_2()?),
+                DISPLAY_WINDOW => display_window = Some(value.to_i32_box_2()?),
+                LINE_ORDER => line_order = Some(value.to_line_order()?),
+                PIXEL_ASPECT => pixel_aspect = Some(value.to_f32()?),
+                WINDOW_CENTER => screen_window_center = Some(value.to_f32_vec_2()?),
+                WINDOW_WIDTH => screen_window_width = Some(value.to_f32()),
+
+                _ => {
+                    // TODO lazy? only for user-specified names?
+                    custom.push(Attribute { name: attribute_name, value })
+                },
+            }
+        }
+
+        let header = Header {
+            channels: channels.ok_or(Invalid::Missing(Value::Attribute("channels")))?,
+            compression: compression.ok_or(Invalid::Missing(Value::Attribute("compression")))?,
+            data_window: data_window.ok_or(Invalid::Missing(Value::Attribute("data_window")))?,
+            display_window: display_window.ok_or(Invalid::Missing(Value::Attribute("display_window")))?,
+            line_order: line_order.ok_or(Invalid::Missing(Value::Attribute("line_order")))?,
+            pixel_aspect: pixel_aspect.ok_or(Invalid::Missing(Value::Attribute("pixel_aspect")))?,
+            screen_window_center: screen_window_center.ok_or(Invalid::Missing(Value::Attribute("screen_window_center")))?,
+            screen_window_width: screen_window_width.ok_or(Invalid::Missing(Value::Attribute("screen_window_width")))??,
+
+            tiles,
+            name, kind,
+            deep_data_version: version, chunk_count,
+            max_samples_per_pixel,
+            custom_attributes: custom,
+        };
+
+        header.validate(is_multipart)?;
+        Ok(header)
     }
 }
 
@@ -435,115 +559,6 @@ impl Requirements {
 }
 
 
-impl Header {
-    pub fn write_all<W: Write>(headers: &Headers, write: &mut W, version: Requirements) -> WriteResult {
-        let has_multiple_headers = headers.len() != 1;
-        if headers.is_empty() || version.has_multiple_parts != has_multiple_headers {
-            // TODO return combination?
-            return Err(Invalid::Content(Value::Part("headers count"), Required::Exact("1")).into());
-        }
-
-        for header in headers {
-            debug_assert!(header.validate(version).is_ok(), "check failed: header invalid");
-
-            // header.tiles.write(write, version.has_long_names)?;
-            unimplemented!("write all header attributes!!!");
-
-            for attrib in &header.custom {
-                attrib.write(write, version.has_long_names)?;
-            }
-
-            SequenceEnd::write(write)?;
-
-        }
-        SequenceEnd::write(write)?;
-
-        Ok(())
-    }
-
-    pub fn read_all<R: Read + Seek>(read: &mut R, version: Requirements) -> ReadResult<Headers> {
-        Ok({
-            if !version.has_multiple_parts {
-                SmallVec::from_elem(Header::read(read, version)?, 1)
-
-            } else {
-                let mut headers = SmallVec::new();
-                while !SequenceEnd::has_come(read)? {
-                    headers.push(Header::read(read, version)?);
-                }
-
-                headers
-            }
-        })
-    }
-
-    pub fn read<R: Read + Seek>(read: &mut R, format_version: Requirements) -> ReadResult<Self> {
-        let mut custom = SmallVec::new();
-
-        // these required attributes will be Some(usize) when encountered while parsing
-        let mut tiles = None;
-        let mut name = None;
-        let mut kind = None;
-        let mut version = None;
-        let mut chunk_count = None;
-        let mut max_samples_per_pixel = None;
-        let mut channels = None;
-        let mut compression = None;
-        let mut data_window = None;
-        let mut display_window = None;
-        let mut line_order = None;
-        let mut pixel_aspect = None;
-        let mut screen_window_center = None;
-        let mut screen_window_width = None;
-
-        while !SequenceEnd::has_come(read)? {
-            let Attribute { name: attribute_name, value } = Attribute::read(read)?;
-
-            use crate::file::meta::attributes::required::*;
-            match attribute_name.bytes.as_slice() {
-                TILES => tiles = Some(value.to_tile_description()?),
-                NAME => name = Some(value.to_text()?),
-                TYPE => kind = Some(value.to_text()?),
-                VERSION => version = Some(value.to_i32()?),
-                CHUNKS => chunk_count = Some(value.to_i32()?),
-                MAX_SAMPLES => max_samples_per_pixel = Some(value.to_i32()?),
-                CHANNELS => channels = Some(value.to_channel_list()?),
-                COMPRESSION => compression = Some(value.to_compression()?),
-                DATA_WINDOW => data_window = Some(value.to_i32_box_2()?),
-                DISPLAY_WINDOW => display_window = Some(value.to_i32_box_2()?),
-                LINE_ORDER => line_order = Some(value.to_line_order()?),
-                PIXEL_ASPECT => pixel_aspect = Some(value.to_f32()?),
-                WINDOW_CENTER => screen_window_center = Some(value.to_f32_vec_2()?),
-                WINDOW_WIDTH => screen_window_width = Some(value.to_f32()),
-
-                _ => {
-                    // TODO lazy? only for user-specified names?
-                    custom.push(Attribute { name: attribute_name, value })
-                },
-            }
-        }
-
-        let header = Header {
-            channels: channels.ok_or(Invalid::Missing(Value::Attribute("channels")))?,
-            compression: compression.ok_or(Invalid::Missing(Value::Attribute("compression")))?,
-            data_window: data_window.ok_or(Invalid::Missing(Value::Attribute("data_window")))?,
-            display_window: display_window.ok_or(Invalid::Missing(Value::Attribute("display_window")))?,
-            line_order: line_order.ok_or(Invalid::Missing(Value::Attribute("line_order")))?,
-            pixel_aspect: pixel_aspect.ok_or(Invalid::Missing(Value::Attribute("pixel_aspect")))?,
-            screen_window_center: screen_window_center.ok_or(Invalid::Missing(Value::Attribute("screen_window_center")))?,
-            screen_window_width: screen_window_width.ok_or(Invalid::Missing(Value::Attribute("screen_window_width")))??,
-
-            tiles,
-            name, kind,
-            version, chunk_count,
-            max_samples_per_pixel,
-            custom,
-        };
-
-        header.validate(format_version)?;
-        Ok(header)
-    }
-}
 
 impl MetaData {
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
@@ -557,7 +572,7 @@ impl MetaData {
         write_offset_tables(write, &self.offset_tables)
     }
 
-    pub fn read<R: Read + Seek>(read: &mut R) -> ReadResult<Self> {
+    pub fn read_unvalidated<R: Read + Seek>(read: &mut R) -> ReadResult<Self> {
         MagicNumber::validate_exr(read)?;
         let version = Requirements::read(read)?;
         let headers = Header::read_all(read, version)?;
@@ -565,6 +580,12 @@ impl MetaData {
 
         // TODO check if supporting version 2 implies supporting version 1
         Ok(MetaData { requirements: version, headers, offset_tables })
+    }
+
+    pub fn read_validated<R: Read + Seek>(read: &mut R) -> ReadResult<Self> {
+        let meta = Self::read_unvalidated(read)?;
+        meta.validate()?;
+        Ok(meta)
     }
 }
 
@@ -594,12 +615,13 @@ pub fn compute_level_size(round: RoundingMode, full_res: u32, level_index: u32) 
     round.divide(full_res,  1 << level_index).max(1)
 }
 
+// TODO reuse this algorithm in crate::image::Part::new?
 pub fn compute_offset_table_size(version: Requirements, header: &Header) -> ReadResult<u32> {
     if let Some(chunk_count) = header.chunk_count {
         Ok(chunk_count as u32) // TODO will this panic on negative number / invalid data?
 
     } else {
-        debug_assert!(!version.has_multiple_parts, "check failed: chunkCount missing (for multi-part)");
+        debug_assert!(!version.has_multiple_parts, "check failed: chunkCount missing for multi-part image");
 
         // If not multipart and chunkCount not present,
         // the number of entries in the chunk table is computed
@@ -626,7 +648,9 @@ pub fn compute_offset_table_size(version: Requirements, header: &Header) -> Read
             use crate::file::meta::attributes::LevelMode::*;
             Ok(match tiles.level_mode {
                 Singular => {
-                    compute_tile_count(data_width, tile_width) * compute_tile_count(data_height, tile_height)
+                    let tiles_x = compute_tile_count(data_width, tile_width);
+                    let tiles_y = compute_tile_count(data_height, tile_height);
+                    tiles_x * tiles_y
                 }
 
                 MipMap => {
@@ -642,7 +666,7 @@ pub fn compute_offset_table_size(version: Requirements, header: &Header) -> Read
 
                 RipMap => {
                     // TODO test this
-                    (0..level_count(data_width)).map(|x_level|{
+                    (0..level_count(data_width)).map(|x_level|{ // TODO may swap y and x?
                         (0..level_count(data_height)).map(|y_level| {
                             let tiles_x = compute_tile_count(level_size(data_width, x_level), tile_width);
                             let tiles_y = compute_tile_count(level_size(data_height, y_level), tile_height);
@@ -652,7 +676,10 @@ pub fn compute_offset_table_size(version: Requirements, header: &Header) -> Read
                 }
             })
 
-        } else {
+        }
+
+        // scan line blocks never have mip maps // TODO check if this is true
+        else {
             Ok(compute_scan_line_block_count(data_height, compression.scan_lines_per_block() as u32))
         }
     }

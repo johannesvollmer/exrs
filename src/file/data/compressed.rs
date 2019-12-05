@@ -1,5 +1,5 @@
 //use ::attributes::Compression;
-use crate::file::meta::attributes::ParsedText;
+use crate::file::meta::attributes::Kind;
 
 // TODO
 // INCREASING_Y The tiles for each level are stored in a contiguous block. The levels are
@@ -87,7 +87,7 @@ pub struct TileBlock {
 /// indicates the tile's position and resolution level
 #[derive(Debug, Clone, Copy)]
 pub struct TileCoordinates {
-    pub tile_x: i32, pub tile_y: i32,
+    pub tile_x: i32, pub tile_y: i32, // TODO make this u32
     pub level_x: i32, pub level_y: i32,
 }
 
@@ -135,6 +135,8 @@ pub struct DeepTileBlock {
 use crate::file::io::*;
 
 impl TileCoordinates {
+    // TODO validate levels >= 0
+
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         self.tile_x.write(write)?;
         self.tile_y.write(write)?;
@@ -159,11 +161,11 @@ impl TileCoordinates {
 /// it will not try to allocate that much memory, but instead consider
 /// that decoding the block length has gone wrong
 const MAX_PIXEL_BYTES: usize = 1048576; // 2^20
-use crate::file::meta::Header;
+use crate::file::meta::{Header, OffsetTables, Headers, OffsetTable};
 
 impl ScanLineBlock {
     pub fn validate(&self, header: &Header) -> Validity {
-        if let &ParsedText::ScanLine = header.kind.as_ref().expect("check failed: header kind missing") {
+        if let Some(Kind::ScanLine) = header.kind.as_ref() {
             Ok(())
 
         } else {
@@ -183,24 +185,11 @@ impl ScanLineBlock {
         let compressed_pixels = read_i32_sized_u8_vec(read, MAX_PIXEL_BYTES)?; // TODO maximum scan line size can easily be calculated
         Ok(ScanLineBlock { y_coordinate, compressed_pixels })
     }
-
-    /// reuses the already allocated pixel data buffer
-    pub fn reuse_read<R: Read>(mut self, read: &mut R) -> ReadResult<Self> {
-        self.y_coordinate = i32::read(read)?;
-
-        let size = i32::read(read)?;
-        self.compressed_pixels = reuse_read_u8_vec(
-            // TODO maximum scan line size can easily be calculated
-            read, self.compressed_pixels, size as usize, MAX_PIXEL_BYTES
-        )?;
-
-        Ok(self)
-    }
 }
 
 impl TileBlock {
     pub fn validate(&self, header: &Header) -> Validity {
-        if let &ParsedText::Tile = header.kind.as_ref().expect("check failed: header kind missing") {
+        if let &Kind::Tile = header.kind.as_ref().expect("check failed: header kind missing") {
             Ok(())
 
         } else {
@@ -236,7 +225,7 @@ impl TileBlock {
 
 impl DeepScanLineBlock {
     pub fn validate(&self, header: &Header) -> Validity {
-        if let &ParsedText::DeepScanLine = header.kind.as_ref().expect("check failed: header kind missing") {
+        if let &Kind::DeepScanLine = header.kind.as_ref().expect("check failed: header kind missing") {
             Ok(())
 
         } else {
@@ -282,7 +271,7 @@ impl DeepScanLineBlock {
 
 impl DeepTileBlock {
     pub fn validate(&self, header: &Header) -> Validity {
-        if let &ParsedText::DeepTile = header.kind.as_ref().expect("check failed: header kind missing") {
+        if let &Kind::DeepTile = header.kind.as_ref().expect("check failed: header kind missing") {
             Ok(())
 
         } else {
@@ -355,24 +344,25 @@ impl MultiPartChunk {
     }*/
 
     // TODO parse lazily, always skip size, ... ?
-    pub fn read<R: Read>(read: &mut R, meta_data: &MetaData) -> ReadResult<Self> {
+    pub fn read<R: Read>(read: &mut R, headers: &Headers) -> ReadResult<Self> {
         // decode the index that tells us which header we need to analyze
         let part_number = i32::read(read)?; // documentation says u64, but is i32
 
-        let header = &meta_data.headers.get(part_number as usize)
-            .ok_or(Invalid::Content(Value::Chunk("part index"), Required::Range { min:0, max: meta_data.headers.len() }))?;
+        let header = &headers.get(part_number as usize)
+            .ok_or(Invalid::Content(
+                Value::Chunk("part index of chunk"),
+                Required::Range { min:0, max: headers.len() })
+            )?;
 
         let kind = header.kind.as_ref().expect("check failed: `multi_part_chunk` called without `type` attribute");
-        kind.validate_kind()?;
 
         Ok(MultiPartChunk {
             part_number,
             block: match kind/*TODO .as_kind()? */ {
-                ParsedText::ScanLine        => DynamicBlock::ScanLine(ScanLineBlock::read(read)?),
-                ParsedText::Tile            => DynamicBlock::Tile(TileBlock::read(read)?),
-                ParsedText::DeepScanLine    => DynamicBlock::DeepScanLine(Box::new(DeepScanLineBlock::read(read)?)),
-                ParsedText::DeepTile        => DynamicBlock::DeepTile(Box::new(DeepTileBlock::read(read)?)),
-                _ => panic!("check failed: `kind` is not a valid type string"),
+                Kind::ScanLine        => DynamicBlock::ScanLine(ScanLineBlock::read(read)?),
+                Kind::Tile            => DynamicBlock::Tile(TileBlock::read(read)?),
+                Kind::DeepScanLine    => DynamicBlock::DeepScanLine(Box::new(DeepScanLineBlock::read(read)?)),
+                Kind::DeepTile        => DynamicBlock::DeepTile(Box::new(DeepTileBlock::read(read)?)),
             },
         })
     }
@@ -382,7 +372,8 @@ impl SinglePartChunks {
     pub fn write<W: Write>(&self, write: &mut W, meta_data: &MetaData) -> WriteResult {
         // single-part files have either scan lines or tiles,
         // but never deep scan lines or deep tiles
-        assert!(!meta_data.requirements.has_deep_data, "single_part_chunks called with deep data");
+
+//        assert!(!meta_data.requirements.has_deep_data, "single_part_chunks called with deep data");
         assert_eq!(meta_data.headers.len(), 1, "single_part_chunks called with multiple headers");
         assert_eq!(meta_data.offset_tables.len(), 1, "single_part_chunks called with multiple offset tables");
 
@@ -448,16 +439,13 @@ impl SinglePartChunks {
         }
     }
 
-    pub fn read<R: Read>(read: &mut R, meta_data: &MetaData) -> ReadResult<Self> {
-        assert_eq!(meta_data.headers.len(), 1, "single_part_chunks called with multiple headers");
-        let header = &meta_data.headers[0];
+    pub fn read<R: Read>(read: &mut R, header: &Header, offset_table: &OffsetTable) -> ReadResult<Self> {
+//        assert_eq!(headers.len(), 1, "single_part_chunks called with multiple headers");
+//        let header = &headers[0];
 
         // TODO is there a better way to figure out if this image contains tiles?
         let is_tiled = header.tiles.is_some();
-        let is_deep = meta_data.requirements.has_deep_data;
-
-        assert_eq!(meta_data.offset_tables.len(), 1, "single_part_chunks called with multiple offset tables");
-        let offset_table = &meta_data.offset_tables[0];
+        let is_deep = header.has_deep_data();
         let blocks = offset_table.len();
 
 
@@ -500,112 +488,36 @@ impl SinglePartChunks {
             }
         })
     }
-
-    pub fn read_parallel<R: Read>(read: &mut R, meta_data: MetaData, sender: Sender<ChunkUpdate<DynamicBlock>>) {
-        assert_eq!(meta_data.headers.len(), 1, "single_part_chunks called with multiple headers");
-
-        // TODO is there a better way to figure out if this image contains tiles?
-        let is_tiled = meta_data.headers[0].tiles.is_some();
-        let is_deep = meta_data.requirements.has_deep_data;
-
-        assert_eq!(meta_data.offset_tables.len(), 1, "single_part_chunks called with multiple offset tables");
-        let blocks = meta_data.offset_tables[0].len();
-
-        if is_deep {
-            if !is_tiled {
-                sender.send(ChunkUpdate::ExpectingChunks { additional: blocks }).unwrap();
-                for _ in 0..blocks {
-                    sender.send(ChunkUpdate::Chunk(
-                        DeepScanLineBlock::read(read)
-                            .map(|block| DynamicBlock::DeepScanLine(Box::new(block)))
-
-                    )).unwrap();
-                }
-
-                sender.send(ChunkUpdate::Finished(meta_data)).unwrap();
-
-            } else {
-                sender.send(ChunkUpdate::ExpectingChunks { additional: blocks }).unwrap();
-                for _ in 0..blocks {
-                    sender.send(ChunkUpdate::Chunk(
-                        DeepTileBlock::read(read)
-                            .map(|block| DynamicBlock::DeepTile(Box::new(block)))
-
-                    )).unwrap();
-                }
-
-                sender.send(ChunkUpdate::Finished(meta_data)).unwrap();
-            }
-        } else {
-            if !is_tiled {
-                sender.send(ChunkUpdate::ExpectingChunks { additional: blocks }).unwrap();
-                for _ in 0..blocks {
-                    sender.send(ChunkUpdate::Chunk(
-                        ScanLineBlock::read(read)
-                            .map(|block| DynamicBlock::ScanLine(block))
-
-                    )).unwrap();
-                }
-
-                sender.send(ChunkUpdate::Finished(meta_data)).unwrap();
-
-            } else {
-                sender.send(ChunkUpdate::ExpectingChunks { additional: blocks }).unwrap();
-                for _ in 0..blocks {
-                    sender.send(ChunkUpdate::Chunk(
-                        TileBlock::read(read)
-                            .map(|block| DynamicBlock::Tile(block))
-
-                    )).unwrap();
-                }
-
-                sender.send(ChunkUpdate::Finished(meta_data)).unwrap();
-            }
-        }
-    }
 }
 
 
-use ::std::sync::mpsc::{Sender, Receiver};
-use ::std::sync::mpsc;
-
-pub enum ChunksReceiver {
-    MultiPart(Receiver<ChunkUpdate<MultiPartChunk>>),
-    SinglePart(Receiver<ChunkUpdate<DynamicBlock>>),
-}
-
-pub enum ChunkUpdate<T> {
-    ExpectingChunks { additional: usize },
-    Chunk(ReadResult<T>),
-    Finished(MetaData),
-}
 
 impl Chunks {
-    pub fn write<W: Write>(&self, write: &mut W, meta_data: &MetaData) -> WriteResult {
-        // TODO check version.multiple and self::MultiPart
-        match *self {
-            Chunks::MultiPart(ref chunks) => {
-                // TODO check chunk len == offset_table len sum
-                for chunk in chunks {
-                    chunk.write(write, meta_data)?
-                }
-                Ok(())
-            },
-            Chunks::SinglePart(ref chunks) => {
-                chunks.write(write, meta_data)
-            }
-        }
-    }
+//    pub fn write<W: Write>(&self, write: &mut W, meta_data: &MetaData) -> WriteResult {
+//        // TODO check version.multiple and self::MultiPart
+//        match *self {
+//            Chunks::MultiPart(ref chunks) => {
+//                // TODO check chunk len == offset_table len sum
+//                for chunk in chunks {
+//                    chunk.write(write, meta_data)?
+//                }
+//                Ok(())
+//            },
+//            Chunks::SinglePart(ref chunks) => {
+//                chunks.write(write, meta_data)
+//            }
+//        }
+//    }
 
-    pub fn read<R: Read>(read: &mut R, meta_data: &MetaData) -> ReadResult<Self> {
+    pub fn read<R: Read>(read: &mut R, headers: &Headers, offset_tables: OffsetTables) -> ReadResult<Self> {
         Ok({
-            if meta_data.requirements.has_multiple_parts {
+            if headers.len() > 1 {
                 Chunks::MultiPart({
                     let mut chunks = Vec::new();
-                    for offset_table in &meta_data.offset_tables {
+                    for offset_table in &offset_tables {
                         chunks.reserve(offset_table.len());
                         for _ in 0..offset_table.len() {
-                            chunks.push(MultiPartChunk::read(read, meta_data)?)
+                            chunks.push(MultiPartChunk::read(read, headers)?)
                         }
                     }
 
@@ -613,12 +525,13 @@ impl Chunks {
                 })
 
             } else {
-                Chunks::SinglePart(SinglePartChunks::read(read, meta_data)?)
+                debug_assert_eq!(headers.len(), offset_tables.len());
+                Chunks::SinglePart(SinglePartChunks::read(read, &headers[0], &offset_tables[0])?)
             }
         })
     }
 
-    pub fn read_parallel<R: Read + Send + 'static>(mut read: R, meta_data: MetaData) -> ChunksReceiver {
+    /*pub fn read_parallel<R: Read + Send + 'static>(mut read: R, meta_data: MetaData) -> ChunksReceiver {
         if meta_data.requirements.has_multiple_parts {
             let (sender, receiver) = mpsc::channel();
 
@@ -646,5 +559,5 @@ impl Chunks {
 
             ChunksReceiver::SinglePart(receiver)
         }
-    }
+    }*/
 }

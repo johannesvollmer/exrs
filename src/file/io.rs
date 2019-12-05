@@ -3,6 +3,8 @@ use super::*;
 use ::byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt, ByteOrder};
 
 pub use ::std::io::{Read, Write, Seek, SeekFrom};
+
+use half::slice::{HalfFloatSliceExt};
 //pub use super::io::{ReadResult, ReadError, WriteResult, WriteError};
 
 
@@ -262,6 +264,10 @@ pub fn read_i8_array<R: Read>(read: &mut R, array: &mut [i8]) -> ReadResult<()> 
 pub fn read_f32_array<R: ReadBytesExt>(read: &mut R, array: &mut [f32]) -> ReadResult<()> {
     read.read_f32_into::<LittleEndian>(array).map_err(ReadError::from)
 }
+pub fn read_f16_array<R: ReadBytesExt>(read: &mut R, array: &mut [f16]) -> ReadResult<()> {
+    let u16_array = array.reinterpret_cast_mut();
+    read.read_u16_into::<LittleEndian>(u16_array).map_err(ReadError::from)
+}
 pub fn read_u32_array<R: ReadBytesExt>(read: &mut R, array: &mut [u32]) -> ReadResult<()> {
     read.read_u32_into::<LittleEndian>(array).map_err(ReadError::from)
 }
@@ -282,6 +288,7 @@ pub fn read_i32_vec<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_m
         // as reading the pixel_data_size could have gone wrong
         // (read byte by byte to avoid allocating too much memory at once,
         // assuming that it will fail soon, when the file ends)
+        // FIXME shouldn't file::open already check too large buffers?
         let mut data = vec![0; estimated_max];
         read.read_i32_into::<LittleEndian>(&mut data)?;
 
@@ -322,6 +329,7 @@ pub fn read_f32_vec<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_m
 }
 
 use ::half::f16;
+use half::vec::HalfBitsVecExt;
 
 pub fn read_into_f16_vec(read: &mut impl ReadBytesExt, vec: &mut Vec<f16>, data_size: usize, estimated_max: usize) -> ReadResult<()> {
     read_f16_vec(read, data_size, estimated_max)
@@ -336,7 +344,7 @@ pub fn read_f16_vec<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_m
         let mut data = vec![0; data_size];
         read.read_u16_into::<LittleEndian>(&mut data)?;
         data.shrink_to_fit();
-        Ok(::half::vec::from_bits(data))
+        Ok(data.reinterpret_into())
 
     } else {
         println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
@@ -353,7 +361,7 @@ pub fn read_f16_vec<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_m
         }
 
         data.shrink_to_fit();
-        Ok(::half::vec::from_bits(data))
+        Ok(data.reinterpret_into())
     }
 }
 

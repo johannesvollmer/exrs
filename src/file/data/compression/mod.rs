@@ -1,15 +1,16 @@
+use crate::file::io::ReadError;
+
 pub mod zip;
 pub mod rle;
 pub mod piz;
 
-use super::uncompressed::*;
-use crate::file::meta::Header;
 
 #[derive(Debug)]
 pub enum Error {
     /// includes zip decompression errors, and wrong-length decoding errors
     Read(crate::file::io::ReadError),
     InvalidData,
+    InvalidSize,
 }
 
 impl From<::std::io::Error> for Error {
@@ -23,11 +24,9 @@ impl From<crate::file::io::ReadError> for Error {
     }
 }
 
+pub type ByteVec = Vec<u8>;
+pub type Bytes<'s> = &'s [u8];
 pub type Result<T> = ::std::result::Result<T, Error>;
-pub type CompressedBytes = Vec<u8>;
-pub type UncompressedChannels = PerChannel<Array>;
-
-
 
 
 
@@ -131,33 +130,55 @@ pub enum Compression {
 
 
 impl Compression {
-    pub fn compress(self, data: &UncompressedChannels) -> Result<CompressedBytes> {
+    pub fn compress_bytes(self, packed: ByteVec) -> Result<ByteVec> {
         use self::Compression::*;
-        match self {
-            None => uncompressed::pack(data),
-            ZIP16 => zip::compress_bytes(data),
-            ZIP1 => zip::compress_bytes(data),
-            RLE => rle::compress_bytes(data),
+
+        // FIXME only write compressed if smaller
+        let compressed = match self {
+            None => return Ok(packed),
+            ZIP16 => zip::compress_bytes(&packed)?,
+            ZIP1 => zip::compress_bytes(&packed)?,
+            RLE => rle::compress_bytes(&packed)?,
+            PIZ => piz::compress_bytes(&packed)?,
             compr => unimplemented!("compressing {:?}", compr),
+        };
+
+        if compressed.len() < packed.len() {
+            Ok(compressed)
+        }
+        else {
+            Ok(packed)
         }
     }
 
-    pub fn decompress(self, header: &Header, data: &CompressedBytes, dimensions: (usize, usize)) -> Result<UncompressedChannels> {
+    pub fn decompress_bytes(self, data: ByteVec, expected_byte_size: usize) -> Result<ByteVec> {
         use self::Compression::*;
-        match self {
-            None => uncompressed::unpack(header, data, dimensions),
-            ZIP16 => zip::decompress_bytes(header, data, dimensions),
-            ZIP1 => zip::decompress_bytes(header, data, dimensions),
-            RLE => rle::decompress_bytes(header, data, dimensions),
-            PIZ => piz::decompress_bytes(header, data, dimensions),
-            compr => unimplemented!("decompressing {:?}", compr),
+        if data.len() == expected_byte_size {
+            Ok(data)
+        }
+        else {
+            let bytes = match self {
+                None => Ok(data),
+                ZIP16 => zip::decompress_bytes(data, expected_byte_size),
+                ZIP1 => zip::decompress_bytes(data, expected_byte_size),
+                RLE => rle::decompress_bytes(data, expected_byte_size),
+                PIZ => piz::decompress_bytes(data),
+                compression => unimplemented!("decompressing {:?}", compression),
+            }?;
+
+            if bytes.len() != expected_byte_size {
+                Err(Error::InvalidSize)
+            }
+            else {
+                Ok(bytes)
+            }
         }
     }
 
     /// For scan line images and deep scan line images, one or more scan lines may be
     /// stored together as a scan line block. The number of scan lines per block
     /// depends on how the pixel data are compressed
-    pub fn scan_lines_per_block(self) -> usize {
+    pub fn scan_lines_per_block(self) -> u32 {
         use self::Compression::*;
         match self {
             None  | RLE   | ZIP1        => 1,
@@ -178,66 +199,65 @@ impl Compression {
 
 
 // TODO FIXME avoid all intermediate buffers and use iterators/readers exclusively?
-pub mod uncompressed {
-    use super::*;
-    use crate::file::meta::Header;
-    use crate::file::meta::attributes::{ParsedText, PixelType};
-    use crate::file::io::read_u32_array;
+//use super::*;
+//use crate::file::meta::Header;
+//use crate::file::meta::attributes::{ParsedText, PixelType};
+//use crate::file::io::read_u32_array;
 
-    pub fn unpack(header: &Header, data: &CompressedBytes, dimensions: (usize, usize)) -> Result<UncompressedChannels> {
+// TODO without allocation?
+/*pub fn unpack(header: &Header, data: Bytes, dimensions: (usize, usize)) -> Result<Channels> {
 
-        // TODO do not rely on kind because it is only required for (multiplart or non-image) data
-        match header.kind {
-            None | Some(ParsedText::ScanLine) | Some(ParsedText::Tile) => {
-                let mut result_channels: PerChannel<Array> = header.channels.iter()
-                    .map(|channel|{
-                        let size = channel.subsampled_pixels(dimensions.0, dimensions.1);
+    // TODO do not rely on kind because it is only required for (multiplart or non-image) data
+    match header.kind {
+        None | Some(ParsedText::ScanLine) | Some(ParsedText::Tile) => {
+            let mut result_channels: PerChannel<Array> = header.channels.iter()
+                .map(|channel|{
+                    let size = channel.subsampled_pixels(dimensions.0, dimensions.1);
 
-                        match channel.pixel_type {
-                            PixelType::U32 => Array::U32(Vec::with_capacity(size)),
-                            PixelType::F16 => Array::F16(Vec::with_capacity(size)),
-                            PixelType::F32 => Array::F32(Vec::with_capacity(size)),
-                        }
-                    })
-                    .collect();
-
-                // TODO asserts channels are in alphabetical order?
-                let mut remaining_bytes = data.as_slice();
-
-                // for each line, extract all channels
-//                for _ in 0..dimensions.1  TODO
-                while !remaining_bytes.is_empty() {
-                    // for each channel, read all pixels in this single line
-                    for channel in &mut result_channels {
-                        match channel {
-                            Array::U32(ref mut channel) => crate::file::io::read_into_u32_vec(
-                                &mut remaining_bytes, channel, dimensions.0, 1024*1024
-                            ),
-
-                            Array::F16(ref mut channel) => crate::file::io::read_into_f16_vec(
-                                &mut remaining_bytes, channel, dimensions.0, 1024*1024
-                            ),
-
-                            Array::F32(ref mut channel) => crate::file::io::read_into_f32_vec(
-                                &mut remaining_bytes, channel, dimensions.0, 1024*1024
-                            ),
-                        };
+                    match channel.pixel_type {
+                        PixelType::U32 => Array::U32(Vec::with_capacity(size)),
+                        PixelType::F16 => Array::F16(Vec::with_capacity(size)),
+                        PixelType::F32 => Array::F32(Vec::with_capacity(size)),
                     }
+                })
+                .collect();
+
+            // TODO asserts channels are in alphabetical order?
+            let mut remaining_bytes = data.as_slice();
+
+            // for each line, extract all channels
+//                for _ in 0..dimensions.1  TODO
+            while !remaining_bytes.is_empty() {
+                // for each channel, read all pixels in this single line
+                for channel in &mut result_channels {
+                    match channel {
+                        Array::U32(ref mut channel) => crate::file::io::read_into_u32_vec(
+                            &mut remaining_bytes, channel, dimensions.0, 1024*1024
+                        ),
+
+                        Array::F16(ref mut channel) => crate::file::io::read_into_f16_vec(
+                            &mut remaining_bytes, channel, dimensions.0, 1024*1024
+                        ),
+
+                        Array::F32(ref mut channel) => crate::file::io::read_into_f32_vec(
+                            &mut remaining_bytes, channel, dimensions.0, 1024*1024
+                        ),
+                    };
                 }
-
-                Ok(result_channels)
-            },
-
-            _ => {
-                unimplemented!()
             }
+
+            Ok(result_channels)
+        },
+
+        _ => {
+            unimplemented!()
         }
     }
-
-    pub fn pack(_data: &UncompressedChannels) -> Result<CompressedBytes> {
-        unimplemented!()
-    }
 }
+
+pub fn pack(_data: UncompressedChannels) -> Result<CompressedBytes> {
+    unimplemented!()
+}*/
 
 
 
