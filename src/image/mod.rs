@@ -4,12 +4,13 @@
 pub use ::seek_bufread::BufReader as SeekBufRead;
 
 use smallvec::SmallVec;
-use crate::file::meta::{Header, MetaData, compute_level_count, compute_level_size};
+use crate::file::meta::{Header, MetaData, compute_level_count, compute_level_size, TileIndices};
 use crate::file::data::uncompressed::{PerChannel, Array, DeepScanLineBlock};
 use crate::file::data::compressed::Chunks;
 use crate::file::io::*;
 use crate::file::meta::attributes::{PixelType, LevelMode, Kind};
 use crate::file::data::compression::ByteVec;
+use crate::file::validity::{Invalid, Value, Required};
 
 
 pub mod meta {
@@ -72,15 +73,16 @@ pub struct Part {
 #[derive(Clone, PartialEq, Debug)]
 pub enum Levels {
     Singular(PartData),
-    Mip(Maps),
+    Mip(LevelMaps),
     Rip(RipMaps),
 }
 
-pub type Maps = SmallVec<[PartData; 16]>;
+// FIXME can each level of a mip map contain independent deep or flat data???!!?!
+pub type LevelMaps = SmallVec<[PartData; 16]>;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct RipMaps {
-    pub maps: Maps,
+    pub maps: LevelMaps,
     pub level_count: (u32, u32),
 }
 
@@ -102,6 +104,8 @@ pub enum PartData {
 #[derive(Clone, PartialEq, Debug)]
 pub struct Pixels<T> {
     pub dimensions: (u32, u32),
+
+    /// always sorted alphabetically
     pub channels: PerChannel<T>
 }
 
@@ -140,61 +144,54 @@ pub fn read_seekable_prebuffered<R: Read + Seek>(buffered_read: &mut R) -> ReadR
             use crate::file::data::compressed::SinglePartChunks::*;
 
             match part_contents {
+                // TODO DRY  scanline/tiles
                 ScanLine(scan_line_contents) => {
-                    let decompressed: Vec<ReadResult<(ByteVec, u32, (u32, u32))>> = scan_line_contents
+                    let decompressed: Vec<ReadResult<(ByteVec, TileIndices)>> = scan_line_contents
                         .into_par_iter()
                         .map(|data_block|{
-                            let y = data_block.y_coordinate - data_window.y_min;
-                            debug_assert!(y >= 0); // TODO Err() instead
+                            let block = header.get_scan_line_indices(data_block.y_coordinate)?;
 
-                            let y = y as u32;
-                            let block_size = header.get_scan_line_block_size(y);
-
-                            let expected_byte_size = block_size.0 * block_size.1 * channels.bytes_per_pixel;
+                            // FIXME account for channel subsampling everywhere????
+                            let expected_byte_size = block.size.0 * block.size.1 * channels.bytes_per_pixel;
                             let decompressed_bytes = compression.decompress_bytes(data_block.compressed_pixels, expected_byte_size as usize)?;
-                            Ok((decompressed_bytes, y, block_size))
+                            Ok((decompressed_bytes, block))
                         })
                         .collect(); // TODO without collect
 
                     for result in decompressed {
-                        let (decompressed_bytes, y, block_size) = result?;
-                        part.read_block(&mut decompressed_bytes.as_slice(), (0,0), (0, y), block_size)?;
+                        let (decompressed_bytes, block) = result?;
+                        part.read_block(&mut decompressed_bytes.as_slice(), block)?;
                     }
                 },
 
                 Tile(tiles) => {
-                    let tile_description = header.tiles
-                        .expect("Check failed: `tiles` missing");
-
-                    let decompressed: Vec<ReadResult<(ByteVec, (u32,u32), (u32,u32), (u32,u32))>> = tiles
+                    let decompressed: Vec<ReadResult<(ByteVec, TileIndices)>> = tiles
                         .into_par_iter()
-                        .map(|tile|{
-                            let tile_size = header.get_tile_size(tile_description, tile.coordinates);
-                            let levels = (tile.coordinates.level_x as u32, tile.coordinates.level_y as u32);
-                            let x = tile.coordinates.tile_x - data_window.x_min;
-                            let y = tile.coordinates.tile_y - data_window.y_min;
-                            debug_assert!(x >= 0 && y >= 0); // TODO Err() instead
+                        .map(|block|{
+                            let tile = header.get_tile_indices(block.coordinates)?;
 
-                            let expected_byte_size = tile_size.0 * tile_size.1 * channels.bytes_per_pixel;
-                            let decompressed_bytes = compression.decompress_bytes(tile.compressed_pixels, expected_byte_size as usize)?;
-                            Ok((decompressed_bytes, levels, (x as u32, y as u32), tile_size))
+                            // FIXME account for channel subsampling everywhere????
+                            let expected_byte_size = tile.size.0 * tile.size.1 * channels.bytes_per_pixel;
+                            let decompressed_bytes = compression.decompress_bytes(block.compressed_pixels, expected_byte_size as usize)?;
+                            Ok((decompressed_bytes, tile))
                         })
                         .collect();
 
                     for tile in decompressed {
-                        let (decompressed_bytes, levels, position, size) = tile?;
-                        part.read_block(&mut decompressed_bytes.as_slice(), levels, position, size)?;
+                        let (decompressed_bytes, block) = tile?;
+                        part.read_block(&mut decompressed_bytes.as_slice(), block)?;
                     }
                 },
-
-                // let map_level_x = unimplemented!("are mip map levels only for tiles?");
-                // let map_level_y = unimplemented!();
 
                 _ => eprintln!("deep data accumulation not supported")
             }
         },
 
-        Chunks::MultiPart(_parts) => eprintln!("multipart accumulation not supported")
+        Chunks::MultiPart(parts) => {
+            for part in parts {
+                unimplemented!("multipart accumulatio")
+            }
+        }
     }
 
     Ok(image)
@@ -226,8 +223,6 @@ impl Part {
                         debug_assert_eq!(header.kind, Some(Kind::Tile));
 
                         let round = tiles.rounding_mode;
-//                        let tile_size = tiles.dimensions();
-
                         let level_count = |full_res: u32| {
                             compute_level_count(round, full_res)
                         };
@@ -236,7 +231,7 @@ impl Part {
                             compute_level_size(round, full_res, level_index)
                         };
 
-                        // TODO cache all these level values?? and reuse algorithm from crate::file::meta
+                        // TODO cache all these level values?? and reuse algorithm from crate::file::meta::compute_offset_table_sizes?
 
                         match tiles.level_mode {
                             LevelMode::Singular => Levels::Singular(part_data(data_size)),
@@ -283,43 +278,84 @@ impl Part {
         }
     }
 
-    pub fn read_block(&mut self, read: &mut impl Read, _level: (u32, u32), position: (u32, u32), block_size: (u32, u32)) -> ReadResult<()> {
+
+    pub fn read_block(&mut self, read: &mut impl Read, block: TileIndices) -> ReadResult<()> {
         match &mut self.levels {
             Levels::Singular(ref mut part) => {
-                match part {
-                    PartData::Flat(ref mut pixels) => {
-                        let image_width = pixels.dimensions.0;
-
-                        for line_index in 0..block_size.1 {
-                            let start_index = ((position.1 + line_index) * image_width) as usize;
-                            let end_index = start_index + image_width as usize;
-
-                            for channel in &mut pixels.channels { // FIXME must be sorted alphabetically!
-                                match channel {
-                                    Array::F16(ref mut target) =>
-                                        read_f16_array(read, &mut target[start_index .. end_index])?, // could read directly from file for uncompressed data
-
-                                    Array::F32(ref mut target) =>
-                                        read_f32_array(read, &mut target[start_index .. end_index])?, // could read directly from file for uncompressed data
-
-                                    Array::U32(ref mut target) =>
-                                        read_u32_array(read, &mut target[start_index .. end_index])?, // could read directly from file for uncompressed data
-                                }
-                            }
-                        }
-                    },
-
-                    _ => unimplemented!("deep pixel accumulation")
-                }
+                debug_assert_eq!(block.level, (0,0), "singular image cannot read leveled blocks");
+                part.read_lines(read, block.position, block.size)?;
             },
 
-            _ => unimplemented!("mip/rip pixel accumulation")
+            Levels::Mip(maps) => {
+                debug_assert_eq!(block.level.0, block.level.1, "mip map levels must be equal on x and y");
+                let max = maps.len();
+
+                maps.get_mut(block.level.0 as usize)
+                    .ok_or(Invalid::Content(Value::MapLevel, Required::Max(max)))?
+                    .read_lines(read, block.position, block.size)?;
+            },
+
+            Levels::Rip(maps) => {
+                let max = maps.maps.len();
+
+                maps.get_by_level_mut(block.level)
+                    .ok_or(Invalid::Content(Value::MapLevel, Required::Max(max)))?
+                    .read_lines(read, block.position, block.size)?;
+            }
         };
 
         Ok(())
     }
 }
 
+
+impl PartData {
+
+    fn read_lines(&mut self, read: &mut impl Read, position: (u32, u32), block_size: (u32, u32)) -> ReadResult<()> {
+        match self {
+            PartData::Flat(ref mut pixels) => {
+                let image_width = pixels.dimensions.0;
+
+                for line_index in 0..block_size.1 {
+                    let start_index = ((position.1 + line_index) * image_width) as usize;
+                    let end_index = start_index + block_size.0 as usize;
+
+                    for channel in &mut pixels.channels {
+                        match channel {
+                            Array::F16(ref mut target) =>
+                                read_f16_array(read, &mut target[start_index .. end_index])?, // could read directly from file for uncompressed data
+
+                            Array::F32(ref mut target) =>
+                                read_f32_array(read, &mut target[start_index .. end_index])?, // could read directly from file for uncompressed data
+
+                            Array::U32(ref mut target) =>
+                                read_u32_array(read, &mut target[start_index .. end_index])?, // could read directly from file for uncompressed data
+                        }
+                    }
+                }
+
+                Ok(())
+            },
+
+            _ => unimplemented!("deep pixel accumulation")
+        }
+    }
+}
+
+impl RipMaps {
+    pub fn get_level_index(&self, level: (u32,u32)) -> usize {
+        (self.level_count.0 * level.1 + level.0) as usize  // TODO check this calculation (x vs y)
+    }
+
+    pub fn get_by_level(&self, level: (u32, u32)) -> Option<&PartData> {
+        self.maps.get(self.get_level_index(level))
+    }
+
+    pub fn get_by_level_mut(&mut self, level: (u32, u32)) -> Option<&mut PartData> {
+        let index = self.get_level_index(level);
+        self.maps.get_mut(index)
+    }
+}
 
 impl Levels {
     pub fn largest(&self) -> &PartData {

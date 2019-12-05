@@ -53,6 +53,7 @@ pub mod validity {
         Part(&'static str),
         Enum(&'static str),
         Text,
+        MapLevel,
     }
 
     #[derive(Debug, Clone, Copy)]

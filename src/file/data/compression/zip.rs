@@ -22,7 +22,7 @@ use ::libflate::zlib::{Encoder, Decoder};
 pub fn decompress_bytes(data: ByteVec, expected_byte_size: usize) -> Result<ByteVec> {
     let mut decompressed = Vec::with_capacity(expected_byte_size);
 
-    {// decompress
+    {
         let mut decompressor = Decoder::new(data.as_slice())
             .expect("io error when reading from in-memory vec");
 
@@ -37,7 +37,7 @@ pub fn compress_bytes(packed: Bytes) -> Result<ByteVec> {
     let mut packed = separate_bytes_fragments(&packed);
     samples_to_differences(&mut packed);
 
-    {// compress
+    {
         let mut compressor = Encoder::new(Vec::with_capacity(packed.len()))
             .expect("io error when writing to in-memory vec");
 

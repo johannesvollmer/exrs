@@ -10,7 +10,7 @@ pub fn decompress_bytes(
     compressed: ByteVec,
 //    tile_window: I32Box2
 ) -> Result<Vec<u8>> {
-    let header: &Header = unimplemented!();
+    let header: &Header = unimplemented!("piz compression");
     let line_size = header.data_window.dimensions().0 as usize;
     let tile_window = I32Box2 {
         x_min: 0,

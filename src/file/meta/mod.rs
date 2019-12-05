@@ -134,6 +134,13 @@ pub struct Requirements {
 
 
 
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+pub struct TileIndices {
+    pub level: (u32, u32),
+    pub position: (u32, u32),
+    pub size: (u32, u32),
+}
+
 
 impl MetaData {
     pub fn validate(&self) -> Validity {
@@ -195,6 +202,26 @@ impl Header {
         }
     }
 
+    pub fn get_scan_line_indices(&self, y: i32) -> ReadResult<TileIndices> {
+        let y = y - self.data_window.y_min;
+        debug_assert!(y >= 0); // TODO Err() instead
+
+        let y = y as u32;
+        let size = self.get_scan_line_block_size(y);
+        Ok(TileIndices { position: (0, y), size, level: (0, 0) })
+    }
+
+    pub fn get_tile_indices(&self, coordinates: TileCoordinates) -> ReadResult<TileIndices> {
+        // FIXME is the level required here?
+        let size = self.get_tile_size(coordinates);
+        let level = (coordinates.level_x as u32, coordinates.level_y as u32);
+        let x = coordinates.tile_x - self.data_window.x_min;
+        let y = coordinates.tile_y - self.data_window.y_min;
+        debug_assert!(x >= 0 && y >= 0); // TODO Err() instead
+
+        Ok(TileIndices { position: (x as u32, y as u32), size, level })
+    }
+
     pub fn get_scan_line_block_size(&self, y: u32) -> (u32, u32) {
         let lines_per_block = self.compression.scan_lines_per_block();
         let (data_width, data_height) = self.data_window.dimensions();
@@ -207,19 +234,22 @@ impl Header {
         (data_width, height)
     }
 
-    pub fn get_tile_size(&self, tiles: TileDescription, tile: TileCoordinates) -> (u32, u32) {
+    pub fn get_tile_size(&self, tile: TileCoordinates) -> (u32, u32) {
+        let tiles = self.tiles.expect("check failed: tiles not found");
+
         let (data_width, data_height) = self.data_window.dimensions();
         let default_width = tiles.x_size;
         let default_height = tiles.y_size;
         let round = tiles.rounding_mode;
 
-        let level_x = tile.level_x;
+        // FIXME is the level required here or not?? indices should always start at 0 and not exceed bounds
+        let level_x = 1; // tile.level_x;
         let level_data_width = compute_level_size(round, data_width as u32, level_x as u32);
 
         let default_right = tile.tile_x as u32 + default_width;
         let right_overflow = default_right.checked_sub(level_data_width).unwrap_or(0);
 
-        let level_y = tile.level_y;
+        let level_y = 1; // tile.level_y;
         let level_data_height = compute_level_size(round, data_height as u32, level_y as u32);
 
         assert!(level_x == 1 && level_y == 1, "unimplemented: tiled levels data unpacking");

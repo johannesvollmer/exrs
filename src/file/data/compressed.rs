@@ -16,8 +16,8 @@ use crate::file::meta::attributes::Kind;
 
 #[derive(Debug, Clone)]
 pub enum Chunks {
+    SinglePart(SinglePartChunks),
     MultiPart(Vec<MultiPartChunk>),
-    SinglePart(SinglePartChunks)
 }
 
 #[derive(Debug, Clone)]
