@@ -166,6 +166,7 @@ impl Compression {
             }?;
 
             if bytes.len() != expected_byte_size {
+                println!("decompressed byte length: {}", bytes.len());
                 Err(Error::InvalidSize)
             }
             else {

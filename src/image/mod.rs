@@ -4,14 +4,14 @@
 pub use ::seek_bufread::BufReader as SeekBufRead;
 
 use smallvec::SmallVec;
-use crate::file::meta::{Header, MetaData, compute_level_count, compute_level_size, TileIndices};
+use crate::file::meta::{Header, MetaData, compute_level_count, compute_level_size, TileIndices, Headers};
 use crate::file::data::uncompressed::{PerChannel, Array, DeepScanLineBlock};
-use crate::file::data::compressed::Chunks;
+use crate::file::data::compressed::{Chunks, DynamicBlock, SinglePartChunks};
 use crate::file::io::*;
 use crate::file::meta::attributes::{PixelType, LevelMode, Kind};
 use crate::file::data::compression::ByteVec;
 use crate::file::validity::{Invalid, Value, Required};
-
+use rayon::prelude::*;
 
 pub mod meta {
     use super::SeekBufRead;
@@ -128,32 +128,24 @@ pub fn read_seekable_prebuffered<R: Read + Seek>(buffered_read: &mut R) -> ReadR
     let chunks = Chunks::read(buffered_read, &headers, offset_tables)?;
 
     let mut image = Image {
-        parts: headers.into_iter().map(Part::new).collect(),
+        parts: headers.into_iter().map(Part::new).collect()
     };
 
     match chunks {
         Chunks::SinglePart(part_contents) => {
             assert_eq!(image.parts.len(), 1, "single part chunk with multiple headers");
             let part = &mut image.parts[0];
-            let compression = part.header.compression;
             let header = &part.header;
-            let data_window = header.data_window;
-            let channels = &header.channels;
-
-            use rayon::prelude::*;
-            use crate::file::data::compressed::SinglePartChunks::*;
 
             match part_contents {
                 // TODO DRY  scanline/tiles
-                ScanLine(scan_line_contents) => {
+                SinglePartChunks::ScanLine(scan_line_contents) => {
                     let decompressed: Vec<ReadResult<(ByteVec, TileIndices)>> = scan_line_contents
                         .into_par_iter()
                         .map(|data_block|{
                             let block = header.get_scan_line_indices(data_block.y_coordinate)?;
-
-                            // FIXME account for channel subsampling everywhere????
-                            let expected_byte_size = block.size.0 * block.size.1 * channels.bytes_per_pixel;
-                            let decompressed_bytes = compression.decompress_bytes(data_block.compressed_pixels, expected_byte_size as usize)?;
+                            let expected_byte_size = block.size.0 * block.size.1 * header.channels.bytes_per_pixel;
+                            let decompressed_bytes = header.compression.decompress_bytes(data_block.compressed_pixels, expected_byte_size as usize)?;
                             Ok((decompressed_bytes, block))
                         })
                         .collect(); // TODO without collect
@@ -164,15 +156,13 @@ pub fn read_seekable_prebuffered<R: Read + Seek>(buffered_read: &mut R) -> ReadR
                     }
                 },
 
-                Tile(tiles) => {
+                SinglePartChunks::Tile(tiles) => {
                     let decompressed: Vec<ReadResult<(ByteVec, TileIndices)>> = tiles
                         .into_par_iter()
                         .map(|block|{
                             let tile = header.get_tile_indices(block.coordinates)?;
-
-                            // FIXME account for channel subsampling everywhere????
-                            let expected_byte_size = tile.size.0 * tile.size.1 * channels.bytes_per_pixel;
-                            let decompressed_bytes = compression.decompress_bytes(block.compressed_pixels, expected_byte_size as usize)?;
+                            let expected_byte_size = tile.size.0 * tile.size.1 * header.channels.bytes_per_pixel;
+                            let decompressed_bytes = header.compression.decompress_bytes(block.compressed_pixels, expected_byte_size as usize)?;
                             Ok((decompressed_bytes, tile))
                         })
                         .collect();
@@ -183,13 +173,44 @@ pub fn read_seekable_prebuffered<R: Read + Seek>(buffered_read: &mut R) -> ReadR
                     }
                 },
 
-                _ => eprintln!("deep data accumulation not supported")
+                _ => panic!("deep data accumulation not supported yet")
             }
         },
 
         Chunks::MultiPart(parts) => {
-            for part in parts {
-                unimplemented!("multipart accumulatio")
+            for chunk in parts {
+                // TODO par_iter
+
+                let part_index = chunk.part_number as usize; // TODO panic on negative
+                let part = image.parts.get(part_index).expect("invalid pard number");
+                let header = &part.header;
+
+                let part = &mut image.parts[0];
+                let header = &part.header;
+
+                match chunk.block {
+                    // TODO DRY  scanline/tiles
+                    DynamicBlock::ScanLine(data_block) => {
+                        let block = header.get_scan_line_indices(data_block.y_coordinate)?;
+                        let expected_byte_size = block.size.0 * block.size.1 * header.channels.bytes_per_pixel;
+
+                        println!("channels: {:?}", header.channels);
+                        println!("scan line block: {:?}, bytes: {}", block, expected_byte_size);
+                        println!("compression: {:?}, compressed size: {}", header.compression, data_block.compressed_pixels.len());
+
+                        let decompressed_bytes = header.compression.decompress_bytes(data_block.compressed_pixels, expected_byte_size as usize)?;
+                        part.read_block(&mut decompressed_bytes.as_slice(), block)?;
+                    },
+
+                    DynamicBlock::Tile(block) => {
+                        let tile = header.get_tile_indices(block.coordinates)?;
+                        let expected_byte_size = tile.size.0 * tile.size.1 * header.channels.bytes_per_pixel;
+                        let decompressed_bytes = header.compression.decompress_bytes(block.compressed_pixels, expected_byte_size as usize)?;
+                        part.read_block(&mut decompressed_bytes.as_slice(), tile)?;
+                    },
+
+                    _ => panic!("deep data accumulation not supported yet")
+                }
             }
         }
     }
