@@ -21,7 +21,7 @@ _Highly experimental!_
 
 __Currently supported:__
 
-- [x] Loading bytes without errors
+- [x] Loading Metadata
     - [x] Singlepart
         - [x] Tiles
         - [x] Scan lines
@@ -37,8 +37,10 @@ __Currently supported:__
         - [x] MipMaps
         - [ ] RipMaps _(coded, but untested)_
     - [x] Non-Standard Attributes
+        - [x] Reading those with known and unknown names
         - [x] Reading those with known types
-        - [x] Skipping those with unknown types
+        - [x] Saving those with unknown types into a plain byte buffer
+    - [ ] Simple preview attribute extraction
     
 - [ ] Interpreting loaded data as image pixels
     - [ ] Pixel Data Compression
@@ -55,20 +57,20 @@ __Currently supported:__
             - [x] Half + scan line + IncreasingY + no mip map levels + no sub sampling + single-part + no deep data, 
             - [ ] Other (untested)
         - [ ] PIZ
+            - [ ] Half + scan line + IncreasingY + no mip map levels + no sub sampling + single-part + no deep data, 
+            - [ ] Other (untested)
         - [ ] RXR24
         - [ ] B44 / B44A
         - [ ] DWAA / DWAB
     - [ ] Simple RGBA conversion
-    - [ ] Simple preview attribute extraction
     
 - [ ] Decompressing multiple blocks in parallel
-- [ ] Writing images
 - [ ] Loading Metadata and specific tiles or blocks separately
-- [ ] Memory Mapping
+- [ ] Writing images
 - [ ] Profiling and real optimization
-- [ ] Allowing you to parse your own attribute types
+    - [ ] Memory Mapping?
+- [x] Allowing you to parse your own attribute types
 - [ ] IO Progress callback
-- [ ] Multithreading
 - [ ] SIMD
 
 __Be sure to come back in a few weeks.__
@@ -108,7 +110,6 @@ The main parts of this library are:
     This representation is as close to the file layout as feasible,
     in order to be really fast if no decompression is required.
     Basic file content validation is made to avoid processing invalid files.
-    
     
 -   `image` - Supports interpreting the raw file 
     and supports (but is not enforcing) exr conventions.
