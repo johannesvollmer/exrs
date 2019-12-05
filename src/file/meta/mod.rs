@@ -98,7 +98,6 @@ pub struct Header {
     /// Requires a null byte signalling the end of each attribute
     /// Contains custom attributes
     pub custom_attributes: SmallVec<[Attribute; 6]>,
-
 }
 
 
@@ -519,8 +518,8 @@ impl Requirements {
         if let 1..=2 = self.file_format_version {
 
             match (
-                self.is_single_tile, self.has_long_names,
-                self.has_deep_data, self.file_format_version
+                self.is_single_tile, self.has_deep_data, self.has_multiple_parts,
+                self.file_format_version
             ) {
                 // Single-part scan line. One normal scan line image.
                 (false, false, false, 1..=2) => Ok(()),
@@ -548,7 +547,8 @@ impl Requirements {
                     Value::Version("format_version"),
                 ]))
             }
-        } else {
+        }
+        else {
             Err(Invalid::Content(
                 Value::Version("file_format_number"),
                 Required::Range { min: 1, max: 2, })
