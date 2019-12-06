@@ -31,47 +31,6 @@ pub struct File {
 
 
 
-pub mod validity {
-    // TODO put validation into own module
-    pub type Validity = Result<(), Invalid>;
-
-    #[derive(Debug, Clone, Copy)]
-    pub enum Invalid {
-        Missing(Value),
-        NotSupported(&'static str),
-        Combination(&'static [Value]),
-        Content(Value, Required),
-        Type(Required),
-    }
-
-    #[derive(Debug, Clone, Copy)]
-    pub enum Value {
-        Attribute(&'static str),
-        Version(&'static str),
-        Chunk(&'static str),
-        Type(&'static str),
-        Part(&'static str),
-        Enum(&'static str),
-        Text,
-        MapLevel,
-    }
-
-    #[derive(Debug, Clone, Copy)]
-    pub enum Required {
-        Max(usize),
-        Min(usize),
-        Exact(&'static str),
-        OneOf(&'static [&'static str]),
-        Range {
-            /// inclusive
-            min: usize,
-
-            /// inclusive
-            max: usize
-        },
-    }
-}
-
 
 
 

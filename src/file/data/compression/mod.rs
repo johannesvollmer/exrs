@@ -1,5 +1,3 @@
-use crate::file::io::ReadError;
-
 pub mod zip;
 pub mod rle;
 pub mod piz;
@@ -8,18 +6,18 @@ pub mod piz;
 #[derive(Debug)]
 pub enum Error {
     /// includes zip decompression errors, and wrong-length decoding errors
-    Read(crate::file::io::ReadError),
+    Read(crate::error::ReadError),
     InvalidData,
     InvalidSize,
 }
 
 impl From<::std::io::Error> for Error {
     fn from(io: ::std::io::Error) -> Self {
-        Error::from(crate::file::io::ReadError::IoError(io))
+        Error::from(crate::error::ReadError::IoError(io))
     }
 }
-impl From<crate::file::io::ReadError> for Error {
-    fn from(io: crate::file::io::ReadError) -> Self {
+impl From<crate::error::ReadError> for Error {
+    fn from(io: crate::error::ReadError) -> Self {
         Error::Read(io)
     }
 }

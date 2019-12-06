@@ -1,5 +1,5 @@
 use smallvec::SmallVec;
-use crate::file::validity::*;
+use crate::error::validity::*;
 
 /// null-terminated text strings.
 /// max 31 bytes long (if bit 10 is set to 0),
@@ -224,6 +224,7 @@ pub enum RoundingMode {
 use crate::file::io::*;
 use crate::file::io;
 use std::cmp::Ordering;
+use crate::error::{ReadResult, WriteResult, ReadError};
 
 impl Text {
     pub fn from_str(str_value: &str) -> Self {

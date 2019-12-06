@@ -1,5 +1,4 @@
 
-use super::*;
 use ::byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt, ByteOrder};
 
 pub use ::std::io::{Read, Write, Seek, SeekFrom};
@@ -7,70 +6,7 @@ pub use ::std::io::{Read, Write, Seek, SeekFrom};
 use half::slice::{HalfFloatSliceExt};
 //pub use super::io::{ReadResult, ReadError, WriteResult, WriteError};
 
-
-use self::validity::*;
-
-
-pub type WriteResult = ::std::result::Result<(), WriteError>;
-
-#[derive(Debug)]
-pub enum WriteError {
-    CompressionError(data::compression::Error),
-    IoError(::std::io::Error),
-    Invalid(Invalid),
-}
-
-
-
-pub type ReadResult<T> = ::std::result::Result<T, ReadError>;
-
-// TODO implement Display for all errors
-#[derive(Debug)]
-pub enum ReadError {
-    NotEXR,
-    Invalid(Invalid),
-//    UnknownAttributeType { bytes_to_skip: u32 },
-
-    IoError(::std::io::Error),
-    CompressionError(Box<data::compression::Error>),
-}
-
-
-/// Enable using the `?` operator on io::Result
-impl From<::std::io::Error> for ReadError {
-    fn from(io_err: ::std::io::Error) -> Self {
-        ReadError::IoError(io_err)
-    }
-}
-
-/// Enable using the `?` operator on compress::Result
-impl From<data::compression::Error> for ReadError {
-    fn from(compress_err: data::compression::Error) -> Self {
-        ReadError::CompressionError(Box::new(compress_err))
-    }
-}
-
-/// Enable using the `?` operator on Validity
-impl From<Invalid> for ReadError {
-    fn from(err: Invalid) -> Self {
-        ReadError::Invalid(err)
-    }
-}
-
-
-/// enable using the `?` operator on io errors
-impl From<::std::io::Error> for WriteError {
-    fn from(err: ::std::io::Error) -> Self {
-        WriteError::IoError(err)
-    }
-}
-
-/// Enable using the `?` operator on Validity
-impl From<Invalid> for WriteError {
-    fn from(err: Invalid) -> Self {
-        WriteError::Invalid(err)
-    }
-}
+use crate::error::*;
 
 
 // TODO DRY !!!!!!! the whole module

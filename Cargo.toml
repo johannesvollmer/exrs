@@ -14,4 +14,9 @@ half = { version = "1.4.0", features = ["std"] }
 rayon = "1.2.1"
 
 [dev-dependencies]
-image = "*" # required for testing, for converting exr to png
+bencher = "0.1.5"
+image = "*" # required converting exr to png in tests
+
+[[bench]]
+name = "benches"
+harness = false

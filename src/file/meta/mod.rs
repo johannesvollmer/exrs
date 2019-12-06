@@ -1,12 +1,13 @@
 
 pub mod attributes;
 
-use super::validity::*;
+use crate::error::validity::*;
 use super::io::*;
 
 use ::smallvec::SmallVec;
 use self::attributes::*;
-use crate::file::data::compressed::TileCoordinates;
+use crate::file::data::TileCoordinates;
+use crate::error::{ReadResult, WriteResult};
 
 
 #[derive(Debug, Clone)]
@@ -22,7 +23,9 @@ pub struct MetaData {
     /// attributes must also be the same for all parts of a file.
     pub headers: Headers,
 
-    /// one table per header
+    /// one table per header.
+    /// In the table, scan line offsets are ordered according to increasing scan line y coordinates.
+    /// In the table, tile offsets are sorted the same way as tiles in INCREASING_Y order.
     pub offset_tables: OffsetTables,
 }
 
@@ -243,13 +246,13 @@ impl Header {
         let round = tiles.rounding_mode;
 
         // FIXME is the level required here or not?? indices should always start at 0 and not exceed bounds
-        let level_x = 1; // tile.level_x;
+        let level_x = tile.level_x;
         let level_data_width = compute_level_size(round, data_width as u32, level_x as u32);
 
         let default_right = tile.tile_x as u32 + default_width;
         let right_overflow = default_right.checked_sub(level_data_width).unwrap_or(0);
 
-        let level_y = 1; // tile.level_y;
+        let level_y = tile.level_y;
         let level_data_height = compute_level_size(round, data_height as u32, level_y as u32);
 
         assert!(level_x == 1 && level_y == 1, "unimplemented: tiled levels data unpacking");
@@ -266,56 +269,6 @@ impl Header {
     pub fn kind_or_err(&self) -> Result<&Kind, Invalid> {
         self.kind.as_ref().ok_or(Invalid::Missing(Value::Attribute("kind")))
     }
-
-//    pub fn kind(&self) -> Option<&ParsedText> {
-//        self.indices.kind.map(|kind|{
-//            self.attributes.get(kind)
-//                .expect("invalid `type` attribute index")
-//                .value.to_text()
-//                .expect("check failed: `type` attribute has wrong type")
-//        })
-//    }
-//
-//    pub fn compression(&self) -> Compression {
-//        self.attributes.get(self.indices.compression.expect("`compression` attribute index missing"))
-//            .expect("invalid `compression` attribute index")
-//            .value.to_compression()
-//            .expect("check failed: `compression` attribute has wrong type")
-//    }
-//
-//    pub fn data_window(&self) -> I32Box2 {
-//        self.attributes.get(self.indices.data_window.expect("`dataWindow` attribute index missing"))
-//            .expect("invalid `dataWindow` attribute index")
-//            .value.to_i32_box_2()
-//            .expect("check failed: `dataWindow` attribute has wrong type")
-//    }
-//
-//    pub fn line_order(&self) -> LineOrder {
-//        self.attributes.get(self.indices.line_order.expect("`lineOrder` attribute index missing"))
-//            .expect("invalid `lineOrder` attribute index")
-//            .value.to_line_order()
-//            .expect("check failed: `lineOrder` attribute has wrong type")
-//    }
-//
-//    pub fn tiles(&self) -> Option<TileDescription> {
-//        self.indices.tiles.map(|tiles|{
-//            self.attributes.get(tiles)
-//                .expect("invalid `tiles` attribute index")
-//                .value.to_tile_description()
-//                .expect("check failed: `tiles` attribute has wrong type")
-//        })
-//    }
-//
-//    pub fn chunk_count(&self) -> Option<i32> {
-//        self.indices.chunk_count.map(|chunks|{
-//            self.attributes.get(chunks)
-//                .expect("invalid `chunks` attribute index")
-//                .value.to_i32()
-//                .expect("check failed: `chunks` attribute has wrong type")
-//        })
-//    }
-
-
 
     pub fn validate(&self, is_multipart: bool) -> Validity {
         if is_multipart {
@@ -488,6 +441,11 @@ impl Header {
 
 
 impl Requirements {
+    /// this is actually used for control flow, as the number of headers may be 1 in a multipart file
+    pub fn is_multipart(&self) -> bool {
+        self.has_multiple_parts
+    }
+
     pub fn byte_size(self) -> usize {
         0_u32.byte_size()
     }

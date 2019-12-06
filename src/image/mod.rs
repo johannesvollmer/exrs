@@ -4,20 +4,27 @@
 pub use ::seek_bufread::BufReader as SeekBufRead;
 
 use smallvec::SmallVec;
-use crate::file::meta::{Header, MetaData, compute_level_count, compute_level_size, TileIndices, Headers};
-use crate::file::data::uncompressed::{PerChannel, Array, DeepScanLineBlock};
-use crate::file::data::compressed::{Chunks, DynamicBlock, SinglePartChunks};
+use crate::file::meta::{Header, MetaData, compute_level_count, compute_level_size, TileIndices};
+use crate::file::data::{Chunks, DynamicBlock, SinglePartChunks};
 use crate::file::io::*;
 use crate::file::meta::attributes::{PixelType, LevelMode, Kind};
 use crate::file::data::compression::ByteVec;
-use crate::file::validity::{Invalid, Value, Required};
+use crate::error::validity::{Invalid, Value, Required};
 use rayon::prelude::*;
+use half::f16;
+use crate::error::ReadResult;
+
+
+// TODO notes:
+// Channels with an x or y sampling rate other than 1 are allowed only in flat, scan-line based images. If an image is deep or tiled, then the x and y sampling rates for all of its channels must be 1.
+// Scan-line based images cannot be multi-resolution images.
+
 
 pub mod meta {
     use super::SeekBufRead;
     use crate::file::meta::MetaData;
     use std::io::{Read, Seek};
-    use crate::file::io::ReadResult;
+    use crate::error::ReadResult;
 
     #[must_use]
     pub fn read_from_file(path: &::std::path::Path) -> ReadResult<MetaData> {
@@ -49,7 +56,7 @@ pub type Parts = SmallVec<[Part; 2]>;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Part {
-    pub header: Header,
+    pub header: Header, // TODO dissolve header properties into part, and put a name into the channels?
 
     /// only the data for this single part,
     /// index can be computed from pixel location and block_kind.
@@ -94,11 +101,8 @@ pub enum PartData {
     // TODO should store sampling_x/_y for simple accessors?
     Flat(Pixels<Array>),
 
-    /// scan line blocks are stored from top to bottom, row major.
-    Deep/*ScanLine*/(Pixels<Vec<DeepScanLineBlock>>),
-
-    // /// Blocks are stored from top left to bottom right, row major.
-    // DeepTile(PerChannel<Vec<DeepTileBlock>>),
+    ///
+    Deep(Pixels<DeepArray>),
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -109,7 +113,23 @@ pub struct Pixels<T> {
     pub channels: PerChannel<T>
 }
 
+pub type PerChannel<T> = SmallVec<[T; 5]>;
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum Array {
+    U32(Vec<u32>),
+
+    /// The representation of 16-bit floating-point numbers is analogous to IEEE 754,
+    /// but with 5 exponent bits and 10 bits for the fraction
+    F16(Vec<f16>),
+
+    F32(Vec<f32>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeepArray {
+    // TODO
+}
 
 #[must_use]
 pub fn read_from_file(path: &::std::path::Path) -> ReadResult<Image> {
@@ -124,8 +144,8 @@ pub fn read_unbuffered<R: Read + Seek>(unbuffered: R) -> ReadResult<Image> {
 
 #[must_use]
 pub fn read_seekable_prebuffered<R: Read + Seek>(buffered_read: &mut R) -> ReadResult<Image> {
-    let MetaData { headers, offset_tables, .. } = MetaData::read_validated(buffered_read)?;
-    let chunks = Chunks::read(buffered_read, &headers, offset_tables)?;
+    let MetaData { headers, offset_tables, requirements } = MetaData::read_validated(buffered_read)?;
+    let chunks = Chunks::read(buffered_read, requirements.is_multipart(), &headers, offset_tables)?;
 
     let mut image = Image {
         parts: headers.into_iter().map(Part::new).collect()
@@ -136,6 +156,8 @@ pub fn read_seekable_prebuffered<R: Read + Seek>(buffered_read: &mut R) -> ReadR
             assert_eq!(image.parts.len(), 1, "single part chunk with multiple headers");
             let part = &mut image.parts[0];
             let header = &part.header;
+
+            // TODO only par_iter if arg is true && image.compression_method != no_compression
 
             match part_contents {
                 // TODO DRY  scanline/tiles
@@ -182,30 +204,26 @@ pub fn read_seekable_prebuffered<R: Read + Seek>(buffered_read: &mut R) -> ReadR
                 // TODO par_iter
 
                 let part_index = chunk.part_number as usize; // TODO panic on negative
-                let part = image.parts.get(part_index).expect("invalid pard number");
-                let header = &part.header;
-
-                let part = &mut image.parts[0];
-                let header = &part.header;
+                let part = image.parts.get_mut(part_index).expect("invalid pard number");
 
                 match chunk.block {
                     // TODO DRY  scanline/tiles
                     DynamicBlock::ScanLine(data_block) => {
-                        let block = header.get_scan_line_indices(data_block.y_coordinate)?;
-                        let expected_byte_size = block.size.0 * block.size.1 * header.channels.bytes_per_pixel;
+                        let block = part.header.get_scan_line_indices(data_block.y_coordinate)?;
+                        let expected_byte_size = block.size.0 * block.size.1 * part.header.channels.bytes_per_pixel;
 
-                        println!("channels: {:?}", header.channels);
+                        println!("header: {:#?}", part.header);
                         println!("scan line block: {:?}, bytes: {}", block, expected_byte_size);
-                        println!("compression: {:?}, compressed size: {}", header.compression, data_block.compressed_pixels.len());
+                        println!("compression: {:?}, compressed size: {}", part.header.compression, data_block.compressed_pixels.len());
 
-                        let decompressed_bytes = header.compression.decompress_bytes(data_block.compressed_pixels, expected_byte_size as usize)?;
+                        let decompressed_bytes = part.header.compression.decompress_bytes(data_block.compressed_pixels, expected_byte_size as usize)?;
                         part.read_block(&mut decompressed_bytes.as_slice(), block)?;
                     },
 
                     DynamicBlock::Tile(block) => {
-                        let tile = header.get_tile_indices(block.coordinates)?;
-                        let expected_byte_size = tile.size.0 * tile.size.1 * header.channels.bytes_per_pixel;
-                        let decompressed_bytes = header.compression.decompress_bytes(block.compressed_pixels, expected_byte_size as usize)?;
+                        let tile = part.header.get_tile_indices(block.coordinates)?;
+                        let expected_byte_size = tile.size.0 * tile.size.1 * part.header.channels.bytes_per_pixel;
+                        let decompressed_bytes = part.header.compression.decompress_bytes(block.compressed_pixels, expected_byte_size as usize)?;
                         part.read_block(&mut decompressed_bytes.as_slice(), tile)?;
                     },
 
@@ -223,8 +241,8 @@ impl Part {
     /// allocates all the memory necessary to hold the pixel data,
     /// zeroed out, ready to be filled with actual pixel data
     pub fn new(header: Header) -> Self {
-        match &header.kind {
-            None | &Some(Kind::ScanLine) | &Some(Kind::Tile) => {
+        match header.kind {
+            None | Some(Kind::ScanLine) | Some(Kind::Tile) => {
                 let levels = {
                     let data_size = header.data_window.dimensions();
 
@@ -331,7 +349,6 @@ impl Part {
 
 
 impl PartData {
-
     fn read_lines(&mut self, read: &mut impl Read, position: (u32, u32), block_size: (u32, u32)) -> ReadResult<()> {
         match self {
             PartData::Flat(ref mut pixels) => {

@@ -64,7 +64,7 @@ __Currently supported:__
         - [ ] DWAA / DWAB
     - [ ] Simple RGBA conversion
     
-- [ ] Decompressing multiple blocks in parallel
+- [x] Decompressing multiple blocks in parallel
 - [ ] Loading Metadata and specific tiles or blocks separately
 - [ ] Writing images
 - [ ] Profiling and real optimization
