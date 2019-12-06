@@ -211,11 +211,6 @@ pub fn read_seekable_prebuffered<R: Read + Seek>(buffered_read: &mut R) -> ReadR
                     DynamicBlock::ScanLine(data_block) => {
                         let block = part.header.get_scan_line_indices(data_block.y_coordinate)?;
                         let expected_byte_size = block.size.0 * block.size.1 * part.header.channels.bytes_per_pixel;
-
-                        println!("header: {:#?}", part.header);
-                        println!("scan line block: {:?}, bytes: {}", block, expected_byte_size);
-                        println!("compression: {:?}, compressed size: {}", part.header.compression, data_block.compressed_pixels.len());
-
                         let decompressed_bytes = part.header.compression.decompress_bytes(data_block.compressed_pixels, expected_byte_size as usize)?;
                         part.read_block(&mut decompressed_bytes.as_slice(), block)?;
                     },
