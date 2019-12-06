@@ -200,30 +200,45 @@ pub fn read_seekable_prebuffered<R: Read + Seek>(buffered_read: &mut R) -> ReadR
         },
 
         Chunks::MultiPart(parts) => {
-            for chunk in parts {
-                // TODO par_iter
+            type PartIndex = usize;
+            type TmpVec = Vec<ReadResult<(PartIndex, ByteVec, TileIndices)>>;
 
-                let part_index = chunk.part_number as usize; // TODO panic on negative
+            let decompressed: TmpVec = parts.into_iter()
+                .map(|chunk|{
+                    let part_index = chunk.part_number as usize; // TODO panic on negative
+                    let part = image.parts.get(part_index).expect("invalid pard number");
+
+                    match chunk.block {
+                        // TODO DRY  scanline/tiles
+                        DynamicBlock::ScanLine(block) => {
+                            let tile = part.header.get_scan_line_indices(block.y_coordinate)?;
+                            Ok((part_index, block.compressed_pixels, tile))
+                        },
+
+                        DynamicBlock::Tile(block) => {
+                            let tile = part.header.get_tile_indices(block.coordinates)?;
+                            Ok((part_index, block.compressed_pixels, tile))
+                        },
+
+                        _ => panic!("deep data accumulation not supported yet")
+                    }
+                })
+                .collect::<TmpVec>() // TODO is this neccessary?!
+                .into_par_iter()
+                .map(|result|{
+                    let (part_index, bytes, block) = result?;
+                    let part: &Part = image.parts.get(part_index).expect("invalid pard number");
+
+                    let expected_byte_size = block.size.0 * block.size.1 * part.header.channels.bytes_per_pixel;
+                    let decompressed_bytes = part.header.compression.decompress_bytes(bytes, expected_byte_size as usize)?;
+                    Ok((part_index, decompressed_bytes, block))
+                })
+                .collect();
+
+            for part in decompressed {
+                let (part_index, decompressed_bytes, tile) = part?;
                 let part = image.parts.get_mut(part_index).expect("invalid pard number");
-
-                match chunk.block {
-                    // TODO DRY  scanline/tiles
-                    DynamicBlock::ScanLine(data_block) => {
-                        let block = part.header.get_scan_line_indices(data_block.y_coordinate)?;
-                        let expected_byte_size = block.size.0 * block.size.1 * part.header.channels.bytes_per_pixel;
-                        let decompressed_bytes = part.header.compression.decompress_bytes(data_block.compressed_pixels, expected_byte_size as usize)?;
-                        part.read_block(&mut decompressed_bytes.as_slice(), block)?;
-                    },
-
-                    DynamicBlock::Tile(block) => {
-                        let tile = part.header.get_tile_indices(block.coordinates)?;
-                        let expected_byte_size = tile.size.0 * tile.size.1 * part.header.channels.bytes_per_pixel;
-                        let decompressed_bytes = part.header.compression.decompress_bytes(block.compressed_pixels, expected_byte_size as usize)?;
-                        part.read_block(&mut decompressed_bytes.as_slice(), tile)?;
-                    },
-
-                    _ => panic!("deep data accumulation not supported yet")
-                }
+                part.read_block(&mut decompressed_bytes.as_slice(), tile)?;
             }
         }
     }
