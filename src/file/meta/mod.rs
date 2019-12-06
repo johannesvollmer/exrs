@@ -355,7 +355,7 @@ impl Header {
         Ok(())
     }
 
-    pub fn read_all<R: Read + Seek>(read: &mut R, version: Requirements) -> ReadResult<Headers> {
+    pub fn read_all(read: &mut PeekRead<impl Read>, version: Requirements) -> ReadResult<Headers> {
         Ok({
             if !version.has_multiple_parts { // TODO check a different way?
                 SmallVec::from_elem(Header::read(read, false)?, 1)
@@ -371,7 +371,7 @@ impl Header {
         })
     }
 
-    pub fn read<R: Read + Seek>(read: &mut R, is_multipart: bool) -> ReadResult<Self> {
+    pub fn read(read: &mut PeekRead<impl Read>, is_multipart: bool) -> ReadResult<Self> {
         let mut custom = SmallVec::new();
 
         // these required attributes will be Some(usize) when encountered while parsing
@@ -560,7 +560,7 @@ impl MetaData {
         write_offset_tables(write, &self.offset_tables)
     }
 
-    pub fn read_unvalidated<R: Read + Seek>(read: &mut R) -> ReadResult<Self> {
+    pub fn read_unvalidated(read: &mut PeekRead<impl Read>) -> ReadResult<Self> {
         MagicNumber::validate_exr(read)?;
         let version = Requirements::read(read)?;
         let headers = Header::read_all(read, version)?;
@@ -570,7 +570,7 @@ impl MetaData {
         Ok(MetaData { requirements: version, headers, offset_tables })
     }
 
-    pub fn read_validated<R: Read + Seek>(read: &mut R) -> ReadResult<Self> {
+    pub fn read_validated(read: &mut PeekRead<impl Read>) -> ReadResult<Self> {
         let meta = Self::read_unvalidated(read)?;
         meta.validate()?;
         Ok(meta)
@@ -675,8 +675,8 @@ pub fn compute_offset_table_size(version: Requirements, header: &Header) -> Read
 
 
 // TODO make instance fn
-pub fn read_offset_table<R: Seek + Read>(
-    read: &mut R, version: Requirements, header: &Header
+pub fn read_offset_table(
+    read: &mut PeekRead<impl Read>, version: Requirements, header: &Header
 ) -> ReadResult<OffsetTable>
 {
     let entry_count = compute_offset_table_size(version, header)?;
@@ -684,8 +684,8 @@ pub fn read_offset_table<R: Seek + Read>(
 }
 
 
-fn read_offset_tables<R: Seek + Read>(
-    read: &mut R, version: Requirements, headers: &Headers,
+fn read_offset_tables(
+    read: &mut PeekRead<impl Read>, version: Requirements, headers: &Headers,
 ) -> ReadResult<OffsetTables>
 {
     let mut tables = SmallVec::new();

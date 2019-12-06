@@ -332,8 +332,8 @@ impl Text {
         Ok(Text { bytes })
     }
 
-    fn read_vec_of_i32_sized<R: Read + Seek>(
-        read: &mut R, attribute_value_byte_size: u32
+    fn read_vec_of_i32_sized(
+        read: &mut PeekRead<impl Read>, attribute_value_byte_size: u32
     ) -> ReadResult<Vec<Text>>
     {
         let mut result = Vec::with_capacity(2);
@@ -592,7 +592,7 @@ impl Channel {
         SequenceEnd::write(write)
     }
 
-    pub fn read_all<R: Read + Seek>(read: &mut R) -> ReadResult<ChannelList> {
+    pub fn read_all(read: &mut PeekRead<impl Read>) -> ReadResult<ChannelList> {
         let mut channels = SmallVec::new();
         while !SequenceEnd::has_come(read)? {
             channels.push(Channel::read(read)?);
@@ -883,7 +883,7 @@ impl Attribute {
     }
 
     // TODO parse lazily, always skip size, ... ?
-    pub fn read<R: Read + Seek>(read: &mut R) -> ReadResult<Self> {
+    pub fn read(read: &mut PeekRead<impl Read>) -> ReadResult<Self> {
         let name = Text::read_null_terminated(read)?;
         let kind = Text::read_null_terminated(read)?;
         let size = i32::read(read)? as u32; // TODO .checked_cast.ok_or(err:negative)
@@ -1013,7 +1013,7 @@ impl AttributeValue {
         }
     }
 
-    pub fn read<R: Read + Seek>(read: &mut R, kind: Text, byte_size: u32) -> ReadResult<Self> {
+    pub fn read(read: &mut PeekRead<impl Read>, kind: Text, byte_size: u32) -> ReadResult<Self> {
         use self::AttributeValue::*;
         use self::attribute_type_names as ty;
 
@@ -1423,7 +1423,7 @@ mod test {
             attribute.write(&mut bytes, true).unwrap();
             assert_eq!(attribute.byte_size(), bytes.len(), "attribute.byte_size() for {:?}", attribute);
 
-            let new_attribute = Attribute::read(&mut Cursor::new(bytes)).unwrap();
+            let new_attribute = Attribute::read(&mut PeekRead::new(Cursor::new(bytes))).unwrap();
             assert_eq!(*attribute, new_attribute, "attribute round trip");
         }
 

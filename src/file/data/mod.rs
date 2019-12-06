@@ -17,38 +17,23 @@ use crate::file::meta::attributes::Kind;
 
 
 #[derive(Debug, Clone)]
-pub enum Chunks {
-    SinglePart(SinglePartChunks),
-    MultiPart(Vec<MultiPartChunk>),
+pub struct Chunks {
+    pub content: Vec<Chunk>,
+    // sorted: bool,
 }
 
 #[derive(Debug, Clone)]
-pub struct MultiPartChunk {
+pub struct Chunk {
     /// 0 indicates the chunk belongs to the part defined
     /// by the first header and the first chunk offset table
     /// PDF sais u64, but source code seems to be `int`
     pub part_number: i32,
-    pub block: DynamicBlock,
-}
-
-#[derive(Debug, Clone)]
-pub enum SinglePartChunks {
-    /// type attribute “scanlineimage”
-    ScanLine(Vec<ScanLineBlock>),
-
-    /// type attribute “tiledimage”
-    Tile(Vec<TileBlock>),
-
-    /// type attribute “deepscanlines”
-    DeepScanLine(Vec<DeepScanLineBlock>),
-
-    /// type attribute “deeptiles”
-    DeepTile(Vec<DeepTileBlock>),
+    pub block: Block,
 }
 
 /// Each block in a multipart file can have a different type
 #[derive(Debug, Clone)]
-pub enum DynamicBlock {
+pub enum Block {
     /// type attribute “scanlineimage”
     ScanLine(ScanLineBlock),
 
@@ -56,12 +41,10 @@ pub enum DynamicBlock {
     Tile(TileBlock),
 
     /// type attribute “deepscanline”,
-    // use box to reduce the size of this enum (which is stored inside an array)
-    DeepScanLine(Box<DeepScanLineBlock>),
+    DeepScanLine(DeepScanLineBlock),
 
     /// type attribute “deeptile”
-    // use box to reduce the size of this enum (which is stored inside an array)
-    DeepTile(Box<DeepTileBlock>),
+    DeepTile(DeepTileBlock),
 }
 
 
@@ -163,7 +146,7 @@ impl TileCoordinates {
 /// it will not try to allocate that much memory, but instead consider
 /// that decoding the block length has gone wrong
 const MAX_PIXEL_BYTES: usize = 1048576; // 2^20
-use crate::file::meta::{Header, OffsetTables, Headers, OffsetTable};
+use crate::file::meta::{Header, OffsetTables, Headers};
 
 impl ScanLineBlock {
     pub fn validate(&self, header: &Header) -> Validity {
@@ -211,8 +194,7 @@ impl TileBlock {
         Ok(TileBlock { coordinates, compressed_pixels })
     }
 
-    /// reuses the already allocated pixel data buffer
-    pub fn reuse_read<R: Read>(mut self, read: &mut R) -> ReadResult<Self> {
+    /*pub fn reuse_read<R: Read>(mut self, read: &mut R) -> ReadResult<Self> {
         self.coordinates = TileCoordinates::read(read)?;
 
         let size = i32::read(read)?;
@@ -222,7 +204,7 @@ impl TileBlock {
         )?;
 
         Ok(self)
-    }
+    }*/
 }
 
 impl DeepScanLineBlock {
@@ -244,7 +226,6 @@ impl DeepScanLineBlock {
         write_u8_array(write, &self.compressed_sample_data)
     }
 
-    // TODO parse lazily, always skip size, ... ?
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
         let y_coordinate = i32::read(read)?;
         let compressed_pixel_offset_table_size = u64::read(read)?;
@@ -290,7 +271,6 @@ impl DeepTileBlock {
         write_u8_array(write, &self.compressed_sample_data)
     }
 
-    // TODO parse lazily, always skip size, ... ?
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
         let coordinates = TileCoordinates::read(read)?;
         let compressed_pixel_offset_table_size = u64::read(read)? as usize;
@@ -315,41 +295,38 @@ impl DeepTileBlock {
 }
 
 use crate::error::validity::*;
-use crate::file::meta::MetaData;
 use crate::error::{WriteResult, ReadResult};
 
-impl MultiPartChunk {
-    pub fn write<W: Write>(&self, write: &mut W, meta_data: &MetaData) -> WriteResult {
+impl Chunk {
+    /*pub fn write<W: Write>(&self, write: &mut W, is_multipart: bool, meta_data: &MetaData) -> WriteResult {
         if self.part_number as usize >= meta_data.headers.len() {
             return Err(Invalid::Combination(&[
                 Value::Part("header count"), Value::Chunk("part number")
             ]).into());
         }
 
-        self.part_number.write(write)?;
+        if is_multipart {
+            self.part_number.write(write)?;
+        }
+
         let header = &meta_data.headers[self.part_number as usize];
 
         match self.block {
-            DynamicBlock::ScanLine    (ref value) => { value.validate(header)?; value.write(write) },
-            DynamicBlock::Tile        (ref value) => { value.validate(header)?; value.write(write) },
-            DynamicBlock::DeepScanLine(ref value) => { value.validate(header)?; value.write(write) },
-            DynamicBlock::DeepTile    (ref value) => { value.validate(header)?; value.write(write) },
+            Block::ScanLine    (ref value) => { value.validate(header)?; value.write(write) },
+            Block::Tile        (ref value) => { value.validate(header)?; value.write(write) },
+            Block::DeepScanLine(ref value) => { value.validate(header)?; value.write(write) },
+            Block::DeepTile    (ref value) => { value.validate(header)?; value.write(write) },
         }
-    }
-
-    /*pub fn write_all<W: Write>(chunks: &[MultiPartChunk], write: &mut W, meta_data: &MetaData) -> WriteResult {
-        // TODO check if chunk number equals table offset len() sum
-        for chunk in chunks {
-            chunk.write(write, meta_data)?;
-        }
-
-        Ok(())
     }*/
 
     // TODO parse lazily, always skip size, ... ?
-    pub fn read<R: Read>(read: &mut R, headers: &Headers) -> ReadResult<Self> {
-        // decode the index that tells us which header we need to analyze
-        let part_number = i32::read(read)?; // documentation says u64, but is i32
+    pub fn read<R: Read>(read: &mut R, is_multipart: bool, headers: &Headers) -> ReadResult<Self> {
+        let part_number = if is_multipart {
+            i32::read(read)? // documentation says u64, but is i32
+        }
+        else {
+            0 // first header for single-part images
+        };
 
         let header = &headers.get(part_number as usize)
             .ok_or(Invalid::Content(
@@ -357,158 +334,31 @@ impl MultiPartChunk {
                 Required::Range { min:0, max: headers.len() })
             )?;
 
-        let kind = header.kind.as_ref().expect("check failed: `multi_part_chunk` called without `type` attribute");
+        let kind = header.kind.unwrap_or(Kind::ScanLine); // TODO is this how it works?
 
-        Ok(MultiPartChunk {
+        Ok(Chunk {
             part_number,
-            block: match kind/*TODO .as_kind()? */ {
-                Kind::ScanLine        => DynamicBlock::ScanLine(ScanLineBlock::read(read)?),
-                Kind::Tile            => DynamicBlock::Tile(TileBlock::read(read)?),
-                Kind::DeepScanLine    => DynamicBlock::DeepScanLine(Box::new(DeepScanLineBlock::read(read)?)),
-                Kind::DeepTile        => DynamicBlock::DeepTile(Box::new(DeepTileBlock::read(read)?)),
+            block: match kind {
+                Kind::ScanLine        => Block::ScanLine(ScanLineBlock::read(read)?),
+                Kind::Tile            => Block::Tile(TileBlock::read(read)?),
+                Kind::DeepScanLine    => Block::DeepScanLine(DeepScanLineBlock::read(read)?),
+                Kind::DeepTile        => Block::DeepTile(DeepTileBlock::read(read)?),
             },
-        })
-    }
-}
-
-impl SinglePartChunks {
-    pub fn write<W: Write>(&self, write: &mut W, meta_data: &MetaData) -> WriteResult {
-        // single-part files have either scan lines or tiles,
-        // but never deep scan lines or deep tiles
-
-//        assert!(!meta_data.requirements.has_deep_data, "single_part_chunks called with deep data");
-        assert_eq!(meta_data.headers.len(), 1, "single_part_chunks called with multiple headers");
-        assert_eq!(meta_data.offset_tables.len(), 1, "single_part_chunks called with multiple offset tables");
-
-        let offset_table = &meta_data.offset_tables[0];
-
-        match *self {
-            SinglePartChunks::ScanLine(ref lines) => {
-                println!("TODO sort chunks!");
-                if offset_table.len() != lines.len() {
-                    return Err(Invalid::Combination(&[
-                        Value::Part("offset_table size"),
-                        Value::Chunk("scanline chunk count"),
-                    ]).into())
-                }
-
-                for line in lines {
-                    line.write(write)?;
-                }
-                Ok(())
-            },
-            SinglePartChunks::Tile(ref tiles) => {
-                println!("TODO sort chunks!");
-                if offset_table.len() != tiles.len() {
-                    return Err(Invalid::Combination(&[
-                        Value::Part("offset_table size"),
-                        Value::Chunk("tile chunk count"),
-                    ]).into())
-                }
-
-                for tile in tiles {
-                    tile.write(write)?;
-                }
-                Ok(())
-            }
-            SinglePartChunks::DeepScanLine(ref lines) => {
-                println!("TODO sort chunks!");
-                if offset_table.len() != lines.len() {
-                    return Err(Invalid::Combination(&[
-                        Value::Part("offset_table size"),
-                        Value::Chunk("scanline chunk count"),
-                    ]).into())
-                }
-
-                for line in lines {
-                    line.write(write)?;
-                }
-                Ok(())
-            },
-            SinglePartChunks::DeepTile(ref tiles) => {
-                println!("TODO sort chunks!");
-                if offset_table.len() != tiles.len() {
-                    return Err(Invalid::Combination(&[
-                        Value::Part("offset_table size"),
-                        Value::Chunk("tile chunk count"),
-                    ]).into())
-                }
-
-                for tile in tiles {
-                    tile.write(write)?;
-                }
-                Ok(())
-            }
-        }
-    }
-
-    pub fn read<R: Read>(read: &mut R, header: &Header, offset_table: &OffsetTable) -> ReadResult<Self> {
-        let is_tiled = header.has_tiles();
-        let is_deep = header.has_deep_data();
-        let blocks = offset_table.len();
-
-        Ok({
-            if is_deep {
-                if !is_tiled {
-                    let mut scan_line_blocks = Vec::with_capacity(blocks);
-                    for _ in 0..blocks {
-                        scan_line_blocks.push(DeepScanLineBlock::read(read)?)
-                    }
-
-                    SinglePartChunks::DeepScanLine(scan_line_blocks)
-                }
-                else {
-                    let mut tile_blocks = Vec::with_capacity(blocks);
-                    for _ in 0..blocks {
-                        tile_blocks.push(DeepTileBlock::read(read)?)
-                    }
-
-                    SinglePartChunks::DeepTile(tile_blocks)
-                }
-
-            } else {
-                if !is_tiled {
-                    let mut scan_line_blocks = Vec::with_capacity(blocks);
-                    for _ in 0..blocks {
-                        scan_line_blocks.push(ScanLineBlock::read(read)?)
-                    }
-
-                    SinglePartChunks::ScanLine(scan_line_blocks)
-                }
-                else {
-                    let mut tile_blocks = Vec::with_capacity(blocks);
-                    for _ in 0..blocks {
-                        // FIXME i thought tileblocks only store their y coordinate if it is multipart?
-                        tile_blocks.push(TileBlock::read(read)?)
-                    }
-
-                    SinglePartChunks::Tile(tile_blocks)
-                }
-            }
         })
     }
 }
 
 impl Chunks {
     pub fn read<R: Read>(read: &mut R, is_multipart: bool, headers: &Headers, offset_tables: OffsetTables) -> ReadResult<Self> {
-        Ok({
-            if is_multipart {
-                Chunks::MultiPart({
-                    let mut chunks = Vec::new();
-                    for offset_table in &offset_tables {
-                        chunks.reserve(offset_table.len());
-                        for _ in 0..offset_table.len() {
-                            chunks.push(MultiPartChunk::read(read, headers)?)
-                        }
-                    }
+        let mut chunks = Vec::with_capacity(headers.len() * 12);
 
-                    chunks
-                })
-
-            } else {
-                debug_assert_eq!(headers.len(), offset_tables.len());
-                Chunks::SinglePart(SinglePartChunks::read(read, &headers[0], &offset_tables[0])?)
+        for offset_table in &offset_tables {
+            chunks.reserve(offset_table.len());
+            for _ in 0..offset_table.len() {
+                chunks.push(Chunk::read(read, is_multipart, headers)?)
             }
-        })
+        }
+
+        Ok(Chunks { content: chunks })
     }
 }

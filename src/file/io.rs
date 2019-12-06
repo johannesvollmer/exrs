@@ -1,7 +1,7 @@
 
 use ::byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt, ByteOrder};
 
-pub use ::std::io::{Read, Write, Seek, SeekFrom};
+pub use ::std::io::{Read, Write};
 
 use half::slice::{HalfFloatSliceExt};
 //pub use super::io::{ReadResult, ReadError, WriteResult, WriteError};
@@ -10,6 +10,49 @@ use crate::error::*;
 
 
 // TODO DRY !!!!!!! the whole module
+pub struct PeekRead<T> {
+    inner: T,
+    peeked: Option<std::io::Result<u8>>,
+}
+
+impl<T: Read> PeekRead<T> {
+    pub fn new(inner: T) -> Self {
+        Self { inner, peeked: None }
+    }
+
+    pub fn peek_u8(&mut self) -> &std::io::Result<u8> {
+        self.peeked = self.peeked.take().or_else(|| Some(self.inner.read_u8()));
+        self.peeked.as_ref().unwrap()
+    }
+
+    pub fn skip_if_eq(&mut self, value: u8) -> std::io::Result<bool> {
+        match self.peek_u8() {
+            Ok(peeked) if *peeked == value =>  {
+                self.read_u8().unwrap(); // skip, will be Ok(value)
+                Ok(true)
+            },
+
+            Ok(_) => Ok(false),
+            Err(_) => Err(self.read_u8().err().unwrap())
+        }
+    }
+}
+
+impl<T: Read> Read for PeekRead<T> {
+    fn read(&mut self, target_buffer: &mut [u8]) -> std::io::Result<usize> {
+        if target_buffer.is_empty() {
+            return Ok(0)
+        }
+
+        match self.peeked.take() {
+            None => self.inner.read(target_buffer),
+            Some(peeked) => {
+                target_buffer[0] = peeked?;
+                Ok(1 + self.inner.read(&mut target_buffer[1..])?)
+            }
+        }
+    }
+}
 
 
 // will be inlined
@@ -486,16 +529,39 @@ impl SequenceEnd {
         0_u8.write(write)
     }
 
-    pub fn has_come<R: Read + Seek>(read: &mut R) -> ReadResult<bool> {
-        if u8::read(read)? == 0 {
-            Ok(true)
+    pub fn has_come(read: &mut PeekRead<impl Read>) -> ReadResult<bool> {
+        read.skip_if_eq(0).map_err(ReadError::IoError)
+    }
+}
 
-        } else {
-            // go back that wasted byte because its not 0
-            // TODO benchmark peeking the buffer performance
-            read.seek(SeekFrom::Current(-1))?;
-            Ok(false)
-        }
+
+#[cfg(test)]
+mod test {
+    use crate::file::io::PeekRead;
+    use byteorder::ReadBytesExt;
+    use std::io::Read;
+
+    #[test]
+    fn peek(){
+        let buffer: &[u8] = &[0,1,2,3];
+        let mut peek = PeekRead::new(buffer);
+
+        assert_eq!(peek.peek_u8().as_ref().unwrap(), &0);
+        assert_eq!(peek.peek_u8().as_ref().unwrap(), &0);
+        assert_eq!(peek.peek_u8().as_ref().unwrap(), &0);
+        assert_eq!(peek.read_u8().unwrap(), 0);
+
+        assert_eq!(peek.read(&mut [0,0]).unwrap(), 2);
+
+        assert_eq!(peek.peek_u8().as_ref().unwrap(), &3);
+        assert_eq!(peek.read_u8().unwrap(), 3);
+
+        assert!(peek.peek_u8().is_err());
+        assert!(peek.peek_u8().is_err());
+        assert!(peek.peek_u8().is_err());
+        assert!(peek.peek_u8().is_err());
+
+        assert!(peek.read_u8().is_err());
     }
 }
 

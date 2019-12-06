@@ -58,7 +58,7 @@ pub mod test1 {
     }
 
     fn load_file_or_print_err(path: &Path){
-        let image = crate::image::read_from_file(path);
+        let image = crate::image::read_from_file(path, true);
         if let Err(error) = image {
             println!("{:?}", error);
         }
@@ -87,7 +87,7 @@ pub mod test1 {
 //            "/home/johannes/Pictures/openexr/samuel-zeller/samuel_zeller_rgb_f16_rle.exr"
         );
 
-        let image = crate::image::read_from_file(path).unwrap();
+        let image = crate::image::read_from_file(path, true).unwrap();
 
         // warning: highly unscientific benchmarks ahead!
         let elapsed = now.elapsed();

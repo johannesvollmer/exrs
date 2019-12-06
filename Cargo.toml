@@ -5,13 +5,13 @@ authors = ["johannesvollmer <johannes.boenki@t-online.de>"]
 edition = "2018"
 
 [dependencies]
-seek_bufread = "*"
 libflate = "*"
 byteorder = "*"
-bit_field = "*" # TODO
+bit_field = "*"
 smallvec = "*"
 half = { version = "1.4.0", features = ["std"] }
-rayon = "1.2.1"
+threadpool = "1.7.1"
+num_cpus = "1.11.1"
 
 [dev-dependencies]
 bencher = "0.1.5"

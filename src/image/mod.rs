@@ -1,18 +1,18 @@
 //! The `image` module is for interpreting the loaded file data.
 //!
 
-pub use ::seek_bufread::BufReader as SeekBufRead;
 
 use smallvec::SmallVec;
-use crate::file::meta::{Header, MetaData, compute_level_count, compute_level_size, TileIndices};
-use crate::file::data::{Chunks, DynamicBlock, SinglePartChunks};
+use crate::file::meta::{Header, MetaData, compute_level_count, compute_level_size, TileIndices, Headers};
+use crate::file::data::{Chunks, Block};
 use crate::file::io::*;
 use crate::file::meta::attributes::{PixelType, LevelMode, Kind};
-use crate::file::data::compression::ByteVec;
+use crate::file::data::compression::{ByteVec, Compression};
 use crate::error::validity::{Invalid, Value, Required};
-use rayon::prelude::*;
+//use rayon::prelude::*;
 use half::f16;
 use crate::error::ReadResult;
+use std::io::BufReader;
 
 
 // TODO notes:
@@ -21,25 +21,25 @@ use crate::error::ReadResult;
 
 
 pub mod meta {
-    use super::SeekBufRead;
     use crate::file::meta::MetaData;
-    use std::io::{Read, Seek};
+    use std::io::{Read, BufReader};
     use crate::error::ReadResult;
+    use crate::file::io::PeekRead;
 
     #[must_use]
     pub fn read_from_file(path: &::std::path::Path) -> ReadResult<MetaData> {
-        read_unbuffered(::std::fs::File::open(path)?)
+        read_from_unbuffered(::std::fs::File::open(path)?)
     }
 
     /// assumes that the provided reader is not buffered, and will create a buffer for it
     #[must_use]
-    pub fn read_unbuffered<R: Read + Seek>(unbuffered: R) -> ReadResult<MetaData> {
-        read_seekable_prebuffered(&mut SeekBufRead::new(unbuffered))
+    pub fn read_from_unbuffered(unbuffered: impl Read) -> ReadResult<MetaData> {
+        read_from_buffered(BufReader::new(unbuffered))
     }
 
     #[must_use]
-    pub fn read_seekable_prebuffered<R: Read + Seek>(buffered: &mut R) -> ReadResult<MetaData> {
-        MetaData::read_validated(buffered)
+    pub fn read_from_buffered(buffered: impl Read) -> ReadResult<MetaData> {
+        MetaData::read_validated(&mut PeekRead::new(buffered))
     }
 }
 
@@ -132,118 +132,137 @@ pub struct DeepArray {
 }
 
 #[must_use]
-pub fn read_from_file(path: &::std::path::Path) -> ReadResult<Image> {
-    read_unbuffered(::std::fs::File::open(path)?)
+pub fn read_from_file(path: &::std::path::Path, parallel: bool) -> ReadResult<Image> {
+    read_from_unbuffered(::std::fs::File::open(path)?, parallel)
 }
 
 /// assumes that the provided reader is not buffered, and will create a buffer for it
 #[must_use]
-pub fn read_unbuffered<R: Read + Seek>(unbuffered: R) -> ReadResult<Image> {
-    read_seekable_prebuffered(&mut SeekBufRead::new(unbuffered))
+pub fn read_from_unbuffered(unbuffered: impl Read, parallel: bool) -> ReadResult<Image> {
+    read_from_buffered(BufReader::new(unbuffered), parallel)
 }
 
+// TODO use custom simple peek-read instead of seekable read?
 #[must_use]
-pub fn read_seekable_prebuffered<R: Read + Seek>(buffered_read: &mut R) -> ReadResult<Image> {
-    let MetaData { headers, offset_tables, requirements } = MetaData::read_validated(buffered_read)?;
-    let chunks = Chunks::read(buffered_read, requirements.is_multipart(), &headers, offset_tables)?;
+pub fn read_from_buffered(buffered_read: impl Read, parallel: bool) -> ReadResult<Image> {
+    let (headers, chunks) = {
+        let mut read = PeekRead::new(buffered_read);
 
-    let mut image = Image {
-        parts: headers.into_iter().map(Part::new).collect()
+        let MetaData { headers, offset_tables, requirements } = MetaData::read_validated(&mut read)?;
+        let chunks = Chunks::read(&mut read, requirements.is_multipart(), &headers, offset_tables)?;
+        (headers, chunks)
     };
 
-    match chunks {
-        Chunks::SinglePart(part_contents) => {
-            assert_eq!(image.parts.len(), 1, "single part chunk with multiple headers");
-            let part = &mut image.parts[0];
-            let header = &part.header;
+    let mut image = Image::new(headers);
 
-            // TODO only par_iter if arg is true && image.compression_method != no_compression
-
-            match part_contents {
-                // TODO DRY  scanline/tiles
-                SinglePartChunks::ScanLine(scan_line_contents) => {
-                    let decompressed: Vec<ReadResult<(ByteVec, TileIndices)>> = scan_line_contents
-                        .into_par_iter()
-                        .map(|data_block|{
-                            let block = header.get_scan_line_indices(data_block.y_coordinate)?;
-                            let expected_byte_size = block.size.0 * block.size.1 * header.channels.bytes_per_pixel;
-                            let decompressed_bytes = header.compression.decompress_bytes(data_block.compressed_pixels, expected_byte_size as usize)?;
-                            Ok((decompressed_bytes, block))
-                        })
-                        .collect(); // TODO without collect
-
-                    for result in decompressed {
-                        let (decompressed_bytes, block) = result?;
-                        part.read_block(&mut decompressed_bytes.as_slice(), block)?;
-                    }
-                },
-
-                SinglePartChunks::Tile(tiles) => {
-                    let decompressed: Vec<ReadResult<(ByteVec, TileIndices)>> = tiles
-                        .into_par_iter()
-                        .map(|block|{
-                            let tile = header.get_tile_indices(block.coordinates)?;
-                            let expected_byte_size = tile.size.0 * tile.size.1 * header.channels.bytes_per_pixel;
-                            let decompressed_bytes = header.compression.decompress_bytes(block.compressed_pixels, expected_byte_size as usize)?;
-                            Ok((decompressed_bytes, tile))
-                        })
-                        .collect();
-
-                    for tile in decompressed {
-                        let (decompressed_bytes, block) = tile?;
-                        part.read_block(&mut decompressed_bytes.as_slice(), block)?;
-                    }
-                },
-
-                _ => panic!("deep data accumulation not supported yet")
-            }
-        },
-
-        Chunks::MultiPart(parts) => {
-            type PartIndex = usize;
-            type TmpVec = Vec<ReadResult<(PartIndex, ByteVec, TileIndices)>>;
-
-            let decompressed: TmpVec = parts.into_iter()
-                .map(|chunk|{
-                    let part_index = chunk.part_number as usize; // TODO panic on negative
-                    let part = image.parts.get(part_index).expect("invalid pard number");
-
-                    match chunk.block {
-                        // TODO DRY  scanline/tiles
-                        DynamicBlock::ScanLine(block) => {
-                            let tile = part.header.get_scan_line_indices(block.y_coordinate)?;
-                            Ok((part_index, block.compressed_pixels, tile))
-                        },
-
-                        DynamicBlock::Tile(block) => {
-                            let tile = part.header.get_tile_indices(block.coordinates)?;
-                            Ok((part_index, block.compressed_pixels, tile))
-                        },
-
-                        _ => panic!("deep data accumulation not supported yet")
-                    }
-                })
-                .collect::<TmpVec>() // TODO is this neccessary?!
-                .into_par_iter()
-                .map(|result|{
-                    let (part_index, bytes, block) = result?;
-                    let part: &Part = image.parts.get(part_index).expect("invalid pard number");
-
-                    let expected_byte_size = block.size.0 * block.size.1 * part.header.channels.bytes_per_pixel;
-                    let decompressed_bytes = part.header.compression.decompress_bytes(bytes, expected_byte_size as usize)?;
-                    Ok((part_index, decompressed_bytes, block))
-                })
-                .collect();
-
-            for part in decompressed {
-                let (part_index, decompressed_bytes, tile) = part?;
-                let part = image.parts.get_mut(part_index).expect("invalid pard number");
-                part.read_block(&mut decompressed_bytes.as_slice(), tile)?;
-            }
-        }
+    if parallel {
+        image.decompress_parallel(chunks)?;
+    }
+    else {
+        image.decompress(chunks)?;
     }
 
     Ok(image)
+}
+
+
+impl Image {
+    pub fn new(headers: Headers) -> Self {
+        Image {
+            parts: headers.into_iter().map(Part::new).collect()
+        }
+    }
+
+    pub fn decompress(&mut self, chunks: Chunks) -> ReadResult<()> {
+        let part_count = self.parts.len();
+
+        for chunk in chunks.content {
+            let part = self.parts.get_mut(chunk.part_number as usize)
+                .ok_or(Invalid::Content(Value::Chunk("part index"), Required::Max(part_count)))?;
+
+            let (tile, data) = match chunk.block {
+                Block::Tile(tile) => (part.header.get_tile_indices(tile.coordinates)?, tile.compressed_pixels),
+                Block::ScanLine(block) => (part.header.get_scan_line_indices(block.y_coordinate)?, block.compressed_pixels),
+                _ => unimplemented!()
+            };
+
+            let expected_byte_size = tile.size.0 * tile.size.1 * part.header.channels.bytes_per_pixel;
+            let data = part.header.compression.decompress_bytes(data, expected_byte_size as usize)?;
+
+            part.read_block(&mut data.as_slice(), tile)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn decompress_parallel(&mut self, chunks: Chunks) -> ReadResult<()> {
+        use threadpool::ThreadPool;
+        use std::sync::mpsc::channel;
+
+        #[derive(Clone, PartialEq, Debug)]
+        struct DecompressibleBlock {
+            part_index: usize,
+            tile: TileIndices,
+            data: ByteVec,
+            compression: Compression,
+            bytes_per_pixel: u32
+        }
+
+        let blocks: Vec<ReadResult<DecompressibleBlock>> = chunks.content.into_iter()
+            .map(|chunk|{
+                let part_count = self.parts.len();
+                let part: &Part = self.parts.get(chunk.part_number as usize)
+                    .ok_or(Invalid::Content(Value::Chunk("part index"), Required::Max(part_count)))?;
+
+                let (tile, data) = match chunk.block {
+                    Block::Tile(tile) => (part.header.get_tile_indices(tile.coordinates)?, tile.compressed_pixels),
+                    Block::ScanLine(block) => (part.header.get_scan_line_indices(block.y_coordinate)?, block.compressed_pixels),
+                    _ => unimplemented!()
+                };
+
+                Ok(DecompressibleBlock {
+                    compression: part.header.compression,
+                    bytes_per_pixel: part.header.channels.bytes_per_pixel,
+                    part_index: chunk.part_number as usize,
+                    tile, data,
+                })
+            }).collect();
+
+        let pool = ThreadPool::new(num_cpus::get());
+
+        let receiver = {
+            let (sender, receiver) = channel();
+
+            for value in blocks {
+                let sender = sender.clone();
+                pool.execute(move || {
+                    // decompress on hopefully multiple threads
+                    let result = value.and_then(|block|{
+                        let expected_byte_size = block.tile.size.0 * block.tile.size.1 * block.bytes_per_pixel;
+                        let decompressed_bytes = block.compression.decompress_bytes(block.data, expected_byte_size as usize)?;
+                        Ok(DecompressibleBlock { data: decompressed_bytes, .. block })
+                    });
+
+                    sender.send(result).expect("thread pool error");
+                });
+            }
+
+            receiver
+        };
+
+        for result in receiver {
+            let block = result?;
+            let part_count = self.parts.len();
+            let part = self.parts.get_mut(block.part_index)
+                .ok_or(Invalid::Content(Value::Chunk("part index"), Required::Max(part_count)))?;
+
+            part.read_block(&mut block.data.as_slice(), block.tile)?;
+        }
+
+        pool.join();
+        Ok(())
+    }
+
 }
 
 impl Part {
