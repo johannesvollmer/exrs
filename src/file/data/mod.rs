@@ -17,12 +17,6 @@ use crate::file::meta::attributes::Kind;
 
 
 #[derive(Debug, Clone)]
-pub struct Chunks {
-    pub content: Vec<Chunk>,
-    // sorted: bool,
-}
-
-#[derive(Debug, Clone)]
 pub struct Chunk {
     /// 0 indicates the chunk belongs to the part defined
     /// by the first header and the first chunk offset table
@@ -130,7 +124,7 @@ impl TileCoordinates {
     }
 
     // TODO parse lazily, always skip size, ... ?
-    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read(read: &mut impl Read) -> ReadResult<Self> {
         Ok(TileCoordinates {
             tile_x: i32::read(read)?,
             tile_y: i32::read(read)?,
@@ -165,7 +159,7 @@ impl ScanLineBlock {
     }
 
     // TODO parse lazily, always skip size, ... ?
-    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read(read: &mut impl Read) -> ReadResult<Self> {
         let y_coordinate = i32::read(read)?;
         let compressed_pixels = read_i32_sized_u8_vec(read, MAX_PIXEL_BYTES)?; // TODO maximum scan line size can easily be calculated
         Ok(ScanLineBlock { y_coordinate, compressed_pixels })
@@ -188,7 +182,7 @@ impl TileBlock {
     }
 
     // TODO parse lazily, always skip size, ... ?
-    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read(read: &mut impl Read) -> ReadResult<Self> {
         let coordinates = TileCoordinates::read(read)?;
         let compressed_pixels = read_i32_sized_u8_vec(read, MAX_PIXEL_BYTES)?; // TODO maximum scan line size can easily be calculated
         Ok(TileBlock { coordinates, compressed_pixels })
@@ -226,7 +220,7 @@ impl DeepScanLineBlock {
         write_u8_array(write, &self.compressed_sample_data)
     }
 
-    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read(read: &mut impl Read) -> ReadResult<Self> {
         let y_coordinate = i32::read(read)?;
         let compressed_pixel_offset_table_size = u64::read(read)?;
         let compressed_sample_data_size = u64::read(read)?;
@@ -271,7 +265,7 @@ impl DeepTileBlock {
         write_u8_array(write, &self.compressed_sample_data)
     }
 
-    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read(read: &mut impl Read) -> ReadResult<Self> {
         let coordinates = TileCoordinates::read(read)?;
         let compressed_pixel_offset_table_size = u64::read(read)? as usize;
         let compressed_sample_data_size = u64::read(read)? as usize; // TODO u64 just guessed
@@ -320,7 +314,7 @@ impl Chunk {
     }*/
 
     // TODO parse lazily, always skip size, ... ?
-    pub fn read<R: Read>(read: &mut R, is_multipart: bool, headers: &Headers) -> ReadResult<Self> {
+    pub fn read(read: &mut impl Read, is_multipart: bool, headers: &Headers) -> ReadResult<Self> {
         let part_number = if is_multipart {
             i32::read(read)? // documentation says u64, but is i32
         }
@@ -348,17 +342,44 @@ impl Chunk {
     }
 }
 
-impl Chunks {
-    pub fn read<R: Read>(read: &mut R, is_multipart: bool, headers: &Headers, offset_tables: OffsetTables) -> ReadResult<Self> {
-        let mut chunks = Vec::with_capacity(headers.len() * 12);
+pub struct ChunkReader<'h, R: Read> {
+    headers: &'h Headers,
+    remaining_chunk_count: usize,
+    multipart: bool,
+    read: R,
+}
 
-        for offset_table in &offset_tables {
-            chunks.reserve(offset_table.len());
-            for _ in 0..offset_table.len() {
-                chunks.push(Chunk::read(read, is_multipart, headers)?)
-            }
+impl<'h, R:Read> ChunkReader<'h, R> {
+    pub fn new(read: R, multipart: bool, headers: &'h Headers, tables: &OffsetTables) -> Self {
+        ChunkReader {
+            remaining_chunk_count: tables.iter().map(Vec::len).sum(),
+            headers, read, multipart
         }
-
-        Ok(Chunks { content: chunks })
     }
 }
+
+impl<'h, R: Read> Iterator for ChunkReader<'h, R> {
+    type Item = ReadResult<Chunk>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining_chunk_count > 0 {
+            self.remaining_chunk_count -= 1;
+            Some(Chunk::read(&mut self.read, self.multipart, self.headers))
+        }
+        else {
+            None
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+

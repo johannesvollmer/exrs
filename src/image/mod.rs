@@ -4,16 +4,17 @@
 
 use smallvec::SmallVec;
 use crate::file::meta::{Header, MetaData, compute_level_count, compute_level_size, TileIndices, Headers};
-use crate::file::data::{Chunks, Block};
+use crate::file::data::{Block, Chunk, ChunkReader};
 use crate::file::io::*;
-use crate::file::meta::attributes::{PixelType, LevelMode, Kind};
+use crate::file::meta::attributes::{PixelType, LevelMode, Kind, I32Box2};
 use crate::file::data::compression::{ByteVec, Compression};
 use crate::error::validity::{Invalid, Value, Required};
 //use rayon::prelude::*;
 use half::f16;
-use crate::error::ReadResult;
+use crate::error::{ReadResult};
 use std::io::BufReader;
-
+use rayon::prelude::{IntoParallelRefIterator, IntoParallelIterator};
+use rayon::iter::{ParallelIterator};
 
 // TODO notes:
 // Channels with an x or y sampling rate other than 1 are allowed only in flat, scan-line based images. If an image is deep or tiled, then the x and y sampling rates for all of its channels must be 1.
@@ -56,7 +57,10 @@ pub type Parts = SmallVec<[Part; 2]>;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Part {
-    pub header: Header, // TODO dissolve header properties into part, and put a name into the channels?
+    pub data_window: I32Box2,
+    pub display_window: I32Box2,
+
+    // pub header: Header, // TODO dissolve header properties into part, and put a name into the channels?
 
     /// only the data for this single part,
     /// index can be computed from pixel location and block_kind.
@@ -71,7 +75,7 @@ pub struct Part {
     /// 1x8, 2x8, 4x8, 8x8.
     ///
     // FIXME should be descending and starting with full-res instead!
-    pub levels: Levels
+    pub level_data: Levels
 
     // offset tables are already processed while loading 'data'
     // TODO skip reading offset tables if not required?
@@ -89,7 +93,7 @@ pub type LevelMaps = SmallVec<[PartData; 16]>;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct RipMaps {
-    pub maps: LevelMaps,
+    pub maps_data: LevelMaps,
     pub level_count: (u32, u32),
 }
 
@@ -110,7 +114,7 @@ pub struct Pixels<T> {
     pub dimensions: (u32, u32),
 
     /// always sorted alphabetically
-    pub channels: PerChannel<T>
+    pub channel_data: PerChannel<T>
 }
 
 pub type PerChannel<T> = SmallVec<[T; 5]>;
@@ -131,6 +135,14 @@ pub struct DeepArray {
     // TODO
 }
 
+/// temporarily used to construct images in parallel
+#[derive(Clone, PartialEq, Debug)]
+pub struct DecompressedBlock {
+    part_index: usize,
+    tile: TileIndices,
+    data: ByteVec,
+}
+
 #[must_use]
 pub fn read_from_file(path: &::std::path::Path, parallel: bool) -> ReadResult<Image> {
     read_from_unbuffered(::std::fs::File::open(path)?, parallel)
@@ -145,35 +157,119 @@ pub fn read_from_unbuffered(unbuffered: impl Read, parallel: bool) -> ReadResult
 // TODO use custom simple peek-read instead of seekable read?
 #[must_use]
 pub fn read_from_buffered(buffered_read: impl Read, parallel: bool) -> ReadResult<Image> {
-    let (headers, chunks) = {
-        let mut read = PeekRead::new(buffered_read);
+    let mut read = PeekRead::new(buffered_read);
 
-        let MetaData { headers, offset_tables, requirements } = MetaData::read_validated(&mut read)?;
-        let chunks = Chunks::read(&mut read, requirements.is_multipart(), &headers, offset_tables)?;
-        (headers, chunks)
-    };
+    let MetaData { headers, offset_tables, requirements } = MetaData::read_validated(&mut read)?;
+    let chunk_reader = ChunkReader::new(read, requirements.is_multipart(), &headers, &offset_tables);
 
-    let mut image = Image::new(headers);
+    // crate::file::data::chunk_reader(&mut read, requirements.is_multipart(), &headers, offset_tables);
 
-    if parallel {
-        image.decompress_parallel(chunks)?;
+    let mut image = Image::new(&headers);
+
+    let has_compression = headers.iter() // do not use parallel stuff for uncompressed images
+        .find(|header| header.compression != Compression::None).is_some();
+
+    if parallel && has_compression {
+        let chunks: Vec<ReadResult<Chunk>> = chunk_reader.collect();
+        let blocks = chunks.into_par_iter().map(|chunk| chunk.and_then(|chunk|
+            DecompressedBlock::decompress(chunk, &headers)
+        ));
+
+        let blocks: Vec<ReadResult<DecompressedBlock>> = blocks.collect(); // TODO without double collect!
+
+        for block in blocks {
+            image.insert_block(block?)?;
+        }
     }
     else {
-        image.decompress(chunks)?;
+        for block in chunk_reader
+            .map(|chunk| chunk.and_then(|chunk|
+                DecompressedBlock::decompress(chunk, &headers)
+            ))
+        {
+            image.insert_block(block?)?;
+        }
     }
 
     Ok(image)
 }
 
+impl DecompressedBlock {
+    // for uncompressed data, the ByteVec in the chunk is moved all the way
+    pub fn decompress(chunk: Chunk, headers: &Headers) -> ReadResult<Self> {
+        let part_count = headers.len();
+        let header: &Header = headers.get(chunk.part_number as usize)
+            .ok_or(Invalid::Content(Value::Chunk("part index"), Required::Max(part_count)))?;
+
+        let raw_coordinates = header.get_raw_block_coordinates(&chunk.block)?;
+        let tile_data_indices = header.get_block_data_indices(&chunk.block)?;
+
+        let data = match chunk.block {
+            Block::Tile(tile) => tile.compressed_pixels,
+            Block::ScanLine(block) => block.compressed_pixels,
+            _ => unimplemented!()
+        };
+
+        // decompress on hopefully multiple threads
+        let data = header.compression.decompress_bytes(header, data, raw_coordinates)?;
+        Ok(DecompressedBlock { part_index: chunk.part_number as usize, tile: tile_data_indices, data,  })
+    }
+}
+
+/*pub fn decompress_blocks_parallel(
+    headers: &Headers, chunk_count: usize, mut chunks: impl Iterator<Item=ReadResult<Chunk>>
+) -> (ThreadPool, impl Iterator<Item=ReadResult<DecompressedBlock>>)
+{
+    use threadpool::ThreadPool;
+    use std::sync::mpsc::channel;
+
+    // contains reference to Reader, which serially reads chunks from the file
+    let mut chunks = Mutex::new(&mut chunks);
+    let pool = ThreadPool::new(num_cpus::get());
+    let part_count = headers.len();
+
+    let (sender, receiver) = channel();
+
+    for _ in 0 .. chunk_count {
+        let sender = sender.clone();
+        pool.execute(move || {
+            let chunk: ReadResult<Chunk> = {
+                let mut chunks = chunks.lock().expect("mutex locking error");
+                if let Some(chunk_result) = chunks.next() {
+                    chunk_result
+                }
+                else {
+                    sender.send(Err(ReadError::Invalid(Invalid::Missing(Value::Chunk("data")))));
+                    return;
+                }
+            };
+
+            let decompressed: ReadResult<DecompressedBlock> = chunk
+                .and_then(|chunk| DecompressedBlock::decompress(chunk, headers));
+
+            sender.send(decompressed).expect("thread pool error");
+        });
+    }
+
+    (pool, receiver.into_iter())
+}*/
 
 impl Image {
-    pub fn new(headers: Headers) -> Self {
+    pub fn new(headers: &Headers) -> Self {
         Image {
-            parts: headers.into_iter().map(Part::new).collect()
+            parts: headers.iter().map(Part::new).collect()
         }
     }
 
-    pub fn decompress(&mut self, chunks: Chunks) -> ReadResult<()> {
+    pub fn insert_block(&mut self, block: DecompressedBlock) -> ReadResult<()> {
+        let part_count = self.parts.len();
+        let part = self.parts.get_mut(block.part_index)
+            .ok_or(Invalid::Content(Value::Chunk("part index"), Required::Max(part_count)))?;
+
+        part.read_block(&mut block.data.as_slice(), block.tile)
+    }
+
+    /*pub fn decompress(&mut self, headers: &Headers, chunks: Chunks) -> ReadResult<()> {
         let part_count = self.parts.len();
 
         for chunk in chunks.content {
@@ -187,81 +283,13 @@ impl Image {
             };
 
             let expected_byte_size = tile.size.0 * tile.size.1 * part.header.channels.bytes_per_pixel;
-            let data = part.header.compression.decompress_bytes(data, expected_byte_size as usize)?;
+            let data = part.header.compression.decompress_bytes(part.header, data, tile)?;
 
             part.read_block(&mut data.as_slice(), tile)?;
         }
 
         Ok(())
-    }
-
-    pub fn decompress_parallel(&mut self, chunks: Chunks) -> ReadResult<()> {
-        use threadpool::ThreadPool;
-        use std::sync::mpsc::channel;
-
-        #[derive(Clone, PartialEq, Debug)]
-        struct DecompressibleBlock {
-            part_index: usize,
-            tile: TileIndices,
-            data: ByteVec,
-            compression: Compression,
-            bytes_per_pixel: u32
-        }
-
-        let blocks: Vec<ReadResult<DecompressibleBlock>> = chunks.content.into_iter()
-            .map(|chunk|{
-                let part_count = self.parts.len();
-                let part: &Part = self.parts.get(chunk.part_number as usize)
-                    .ok_or(Invalid::Content(Value::Chunk("part index"), Required::Max(part_count)))?;
-
-                let (tile, data) = match chunk.block {
-                    Block::Tile(tile) => (part.header.get_tile_indices(tile.coordinates)?, tile.compressed_pixels),
-                    Block::ScanLine(block) => (part.header.get_scan_line_indices(block.y_coordinate)?, block.compressed_pixels),
-                    _ => unimplemented!()
-                };
-
-                Ok(DecompressibleBlock {
-                    compression: part.header.compression,
-                    bytes_per_pixel: part.header.channels.bytes_per_pixel,
-                    part_index: chunk.part_number as usize,
-                    tile, data,
-                })
-            }).collect();
-
-        let pool = ThreadPool::new(num_cpus::get());
-
-        let receiver = {
-            let (sender, receiver) = channel();
-
-            for value in blocks {
-                let sender = sender.clone();
-                pool.execute(move || {
-                    // decompress on hopefully multiple threads
-                    let result = value.and_then(|block|{
-                        let expected_byte_size = block.tile.size.0 * block.tile.size.1 * block.bytes_per_pixel;
-                        let decompressed_bytes = block.compression.decompress_bytes(block.data, expected_byte_size as usize)?;
-                        Ok(DecompressibleBlock { data: decompressed_bytes, .. block })
-                    });
-
-                    sender.send(result).expect("thread pool error");
-                });
-            }
-
-            receiver
-        };
-
-        for result in receiver {
-            let block = result?;
-            let part_count = self.parts.len();
-            let part = self.parts.get_mut(block.part_index)
-                .ok_or(Invalid::Content(Value::Chunk("part index"), Required::Max(part_count)))?;
-
-            part.read_block(&mut block.data.as_slice(), block.tile)?;
-        }
-
-        pool.join();
-        Ok(())
-    }
+    }*/
 
 }
 
@@ -269,7 +297,7 @@ impl Part {
 
     /// allocates all the memory necessary to hold the pixel data,
     /// zeroed out, ready to be filled with actual pixel data
-    pub fn new(header: Header) -> Self {
+    pub fn new(header: &Header) -> Self {
         match header.kind {
             None | Some(Kind::ScanLine) | Some(Kind::Tile) => {
                 let levels = {
@@ -284,7 +312,7 @@ impl Part {
                             }})
                             .collect();
 
-                        PartData::Flat(Pixels { dimensions, channels: data })
+                        PartData::Flat(Pixels { dimensions, channel_data: data })
                     };
 
                     if let Some(tiles) = &header.tiles {
@@ -328,7 +356,7 @@ impl Part {
                                     })
                                     .collect();
 
-                                RipMaps { maps, level_count }
+                                RipMaps { maps_data: maps, level_count }
                             })
                         }
                     }
@@ -339,7 +367,11 @@ impl Part {
                     }
                 };
 
-                Part { levels, header }
+                Part {
+                    level_data: levels,
+                    data_window: header.data_window,
+                    display_window: header.display_window
+                }
             },
 
             Some(Kind::DeepScanLine) | Some(Kind::DeepTile) => unimplemented!("deep allocation"),
@@ -348,7 +380,7 @@ impl Part {
 
 
     pub fn read_block(&mut self, read: &mut impl Read, block: TileIndices) -> ReadResult<()> {
-        match &mut self.levels {
+        match &mut self.level_data {
             Levels::Singular(ref mut part) => {
                 debug_assert_eq!(block.level, (0,0), "singular image cannot read leveled blocks");
                 part.read_lines(read, block.position, block.size)?;
@@ -364,7 +396,7 @@ impl Part {
             },
 
             Levels::Rip(maps) => {
-                let max = maps.maps.len();
+                let max = maps.maps_data.len();
 
                 maps.get_by_level_mut(block.level)
                     .ok_or(Invalid::Content(Value::MapLevel, Required::Max(max)))?
@@ -387,7 +419,7 @@ impl PartData {
                     let start_index = ((position.1 + line_index) * image_width) as usize;
                     let end_index = start_index + block_size.0 as usize;
 
-                    for channel in &mut pixels.channels {
+                    for channel in &mut pixels.channel_data {
                         match channel {
                             Array::F16(ref mut target) =>
                                 read_f16_array(read, &mut target[start_index .. end_index])?, // could read directly from file for uncompressed data
@@ -415,12 +447,12 @@ impl RipMaps {
     }
 
     pub fn get_by_level(&self, level: (u32, u32)) -> Option<&PartData> {
-        self.maps.get(self.get_level_index(level))
+        self.maps_data.get(self.get_level_index(level))
     }
 
     pub fn get_by_level_mut(&mut self, level: (u32, u32)) -> Option<&mut PartData> {
         let index = self.get_level_index(level);
-        self.maps.get_mut(index)
+        self.maps_data.get_mut(index)
     }
 }
 
@@ -429,7 +461,7 @@ impl Levels {
         match *self {
             Levels::Singular(ref data) => data,
             Levels::Mip(ref maps) => &maps[0], // TODO is this really the largest one?
-            Levels::Rip(ref rip_map) => &rip_map.maps[0], // TODO test!
+            Levels::Rip(ref rip_map) => &rip_map.maps_data[0], // TODO test!
         }
     }
 }

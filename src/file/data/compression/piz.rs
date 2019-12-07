@@ -1,23 +1,147 @@
 use super::*;
 use super::Result;
-use crate::file::meta::attributes::{I32Box2};
-use crate::file::meta::Header;
+use crate::file::meta::attributes::{I32Box2, PixelType};
+use crate::file::meta::{Header};
+use crate::file::data::compression::Error::InvalidData;
+use crate::error::ReadResult;
+use crate::file::io::Data;
 
 // inspired by  https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfPizCompressor.cpp
 
 
+//
+// Integer division and remainder where the
+// remainder of x/y is always positive:
+//
+//	divp(x,y) == floor (double(x) / double (y))
+//	modp(x,y) == x - y * divp(x,y)
+//
+//
+//    inline int
+//    divp (int x, int y)
+//    {
+//    return (x >= 0)? ((y >= 0)?  (     x  / y): -(      x  / -y)):
+//    ((y >= 0)? -((y-1-x) / y):  ((-y-1-x) / -y));
+//    }
+//
+//
+//    inline int
+//    modp (int x, int y)
+//    {
+//    return x - y * divp (x, y);
+//    }
+
+fn div_p (x: i32, y: i32) -> i32 {
+    if x >= 0 {
+        if y >= 0 { x  / y }
+        else { -(x  / -y) }
+    }
+    else {
+        if y >= 0 { -((y-1-x) / y) }
+        else { (-y-1-x) / -y }
+    }
+}
+
+fn mod_p(x: i32, y: i32) -> i32 {
+    x - y * div_p(x, y)
+}
+
+
+const u16_range: i32 = (1 << 16);
+const bitmap_size: i32  = (u16_range >> 3); // rly
+
+
+
 pub fn decompress_bytes(
+    header: &Header,
     compressed: ByteVec,
-//    tile_window: I32Box2
-) -> Result<Vec<u8>> {
-    let header: &Header = unimplemented!("piz compression");
-    let line_size = header.data_window.dimensions().0 as usize;
-    let tile_window = I32Box2 {
-        x_min: 0,
-        y_min: 0,
-        x_max: 0,
-        y_max: 0
-    };
+    rectangle: I32Box2,
+    expected_byte_size: usize,
+) -> Result<Vec<u8>>
+{
+
+    struct ChannelData {
+        start_index: u32,
+        end_index: u32,
+        number_samples_x: u32,
+        number_samples_y: u32,
+        y_samples: u32,
+        size: u32,
+    }
+
+    let xdr = true;
+    let format = xdr; // TODO
+
+//    PizCompressor::PizCompressor
+//        (const Header &hdr,
+//    size_t maxScanLineSize,
+//    size_t numScanLines)
+//    :
+//    Compressor (hdr),
+//    _maxScanLineSize (maxScanLineSize),
+//    _format (XDR),
+//    _numScanLines (numScanLines),
+//    _tmpBuffer (0),
+//    _outBuffer (0),
+//    _numChans (0),
+//    _channels (hdr.channels()),
+//    _channelData (0)
+//    {
+//        // TODO: Remove this when we can change the ABI
+//        (void) _maxScanLineSize;
+//        size_t tmpBufferSize = uiMult (maxScanLineSize, numScanLines) / 2;
+//
+//        size_t outBufferSize =
+//        uiAdd (uiMult (maxScanLineSize, numScanLines),
+//               size_t (65536 + 8192));
+//
+//        _tmpBuffer = new unsigned short
+//        [checkArraySize (tmpBufferSize, sizeof (unsigned short))];
+//
+//        _outBuffer = new char [outBufferSize];
+//
+//        const ChannelList &channels = header().channels();
+//        bool onlyHalfChannels = true;
+//
+//        for (ChannelList::ConstIterator c = channels.begin();
+//        c != channels.end();
+//        ++c)
+//        {
+//            _numChans++;
+//
+//            assert (pixelTypeSize (c.channel().type) % pixelTypeSize (HALF) == 0);
+//
+//            if (c.channel().type != HALF)
+//            onlyHalfChannels = false;
+//        }
+
+    // TODO only once per header!
+    let has_only_half_channels = header.channels.list
+        .iter().all(|channel| channel.pixel_type == PixelType::F16);
+
+//
+//        _channelData = new ChannelData[_numChans];
+//
+
+//        const Box2i &dataWindow = hdr.dataWindow();
+//
+//        _minX = dataWindow.min.x;
+//        _maxX = dataWindow.max.x;
+//        _maxY = dataWindow.max.y;
+//
+//        //
+//        // We can support uncompressed data in the machine's native format
+//        // if all image channels are of type HALF, and if the Xdr and the
+//        // native represenations of a half have the same size.
+//        //
+
+    let use_native_format = has_only_half_channels; // half is always 16 bit
+
+//
+//        if (onlyHalfChannels && (sizeof (half) == pixelTypeSize (HALF)))
+//        _format = NATIVE;
+//    }
+
 
 //    int
 //    PizCompressor::uncompress (const char *inPtr,
@@ -39,31 +163,44 @@ pub fn decompress_bytes(
 //            outPtr = _outBuffer;
 //            return 0;
 //        }
-    if line_size == 0 {
-        return Ok(vec![])
+    if compressed.len() == 0 {
+        return Ok(Vec::new())
     }
 
 //        //
 //        // Determine the layout of the compressed pixel data
 //        //
 //
+//        _minX = dataWindow.min.x;
+//        _maxX = dataWindow.max.x;
+//        _maxY = dataWindow.max.y;
+
 //        int minX = range.min.x;
 //        int maxX = range.max.x;
 //        int minY = range.min.y;
 //        int maxY = range.max.y;
 //
-//        if (maxY > _maxY)
+//        if (maxY > _maxY) // select smaller of maxY and _maxY
 //        maxY = _maxY;
 //
 //        if (maxX > _maxX)
 //        maxX = _maxX;
 
 
-    let min_x = tile_window.x_min as usize;
-    let min_y = header.data_window.y_min as usize;
+    let min_x = rectangle.x_min;
+    let min_y = rectangle.y_min;
 
-    let max_x = header.data_window.x_max.min(tile_window.x_max) as usize;
-    let max_y = header.data_window.y_max.min(tile_window.y_max) as usize;
+    let mut max_x = rectangle.x_max;
+    let mut max_y = rectangle.y_max;
+
+    // TODO rustify
+    if max_x > header.data_window.x_max {
+        max_x = header.data_window.x_max;
+    }
+
+    if max_y > header.data_window.y_max {
+        max_y = header.data_window.y_max;
+    }
 
 //
 //        unsigned short *tmpBufferEnd = _tmpBuffer;
@@ -84,12 +221,28 @@ pub fn decompress_bytes(
 //            tmpBufferEnd += cd.nx * cd.ny * cd.size;
 //        }
 
-    for channel in &header.channels.list {
+    let mut channel_data: Vec<ChannelData> = Vec::new();
 
+    let mut tmp_buffer = vec![0_u16; header.data_window.dimensions().0 as usize]; // TODO better size calculation?
+    let mut tmp_buffer_end = 0_u32;
 
+    for (index, channel) in header.channels.list.iter().enumerate() {
+        let (number_samples_x, number_samples_y) = channel.subsampled_resolution(rectangle.dimensions());
+
+        let channel = ChannelData {
+            start_index: tmp_buffer_end,
+            end_index: tmp_buffer_end,
+            y_samples: channel.y_sampling as u32,
+            number_samples_x, number_samples_y,
+            size: channel.pixel_type.bytes_per_sample() / PixelType::F16.bytes_per_sample()
+        };
+
+        tmp_buffer_end += channel.number_samples_x * channel.number_samples_y * channel.size;
+        channel_data.push(channel);
     }
 
 //
+//        //
 //        //
 //        // Read range compression data
 //        //
@@ -99,25 +252,49 @@ pub fn decompress_bytes(
 //
 //        AutoArray <unsigned char, BITMAP_SIZE> bitmap;
 //        memset (bitmap, 0, sizeof (unsigned char) * BITMAP_SIZE);
+
+    let mut bitmap = vec![0_u8; bitmap_size as usize];
+
+
 //
 //        Xdr::read <CharPtrIO> (inPtr, minNonZero);
 //        Xdr::read <CharPtrIO> (inPtr, maxNonZero);
+
+    let mut read = compressed.as_slice();
+
+    let min_non_zero = u16::read(&mut read)?;
+    let max_non_zero = u16::read(&mut read)?;
+
 //
 //        if (maxNonZero >= BITMAP_SIZE)
 //        {
 //            throw InputExc ("Error in header for PIZ-compressed data "
 //            "(invalid bitmap size).");
 //        }
+    if max_non_zero as i32 >= bitmap_size {
+        println!("invalid bitmap size");
+        return Err(InvalidData);
+    }
 //
 //        if (minNonZero <= maxNonZero)
 //        {
 //            Xdr::read <CharPtrIO> (inPtr, (char *) &bitmap[0] + minNonZero,
 //                                   maxNonZero - minNonZero + 1);
 //        }
+
+    if min_non_zero <= max_non_zero {
+        let length = max_non_zero - min_non_zero + 1;
+
+        bitmap[ min_non_zero as usize .. (min_non_zero + length) as usize ]
+            .copy_from_slice(&read[.. length as usize]);
+
+    }
 //
 //        AutoArray <unsigned short, USHORT_RANGE> lut;
 //        unsigned short maxValue = reverseLutFromBitmap (bitmap, lut);
 //
+    let (lookup_table, max_value) = reverse_lookup_table_from_bitmap(&bitmap);
+
 //        //
 //        // Huffman decoding
 //        //
@@ -125,6 +302,8 @@ pub fn decompress_bytes(
 //        int length;
 //        Xdr::read <CharPtrIO> (inPtr, length);
 //
+    let length = i32::read(&mut read)?;
+
 //        if (length > inSize)
 //        {
 //            throw InputExc ("Error in header for PIZ-compressed data "
@@ -132,6 +311,15 @@ pub fn decompress_bytes(
 //        }
 //
 //        hufUncompress (inPtr, length, _tmpBuffer, tmpBufferEnd - _tmpBuffer);
+
+    if length as usize > read.len() {
+        println!("invalid array length");
+        return Err(InvalidData);
+    }
+
+    // TODO use DynamicHuffmanCodec?
+    huffman_decompress(&read[..length as usize], &mut tmp_buffer)?;
+
 //
 //        //
 //        // Wavelet decoding
@@ -149,12 +337,25 @@ pub fn decompress_bytes(
 //                            maxValue);
 //            }
 //        }
+    for channel in &channel_data {
+        for size in 0..channel.size {
+            wave_2_decode(
+                &mut tmp_buffer[(channel.start_index + size) as usize..],
+                channel.number_samples_x, channel.size, channel.number_samples_y,
+                channel.number_samples_x * channel.size, max_value
+            )?;
+        }
+    }
+
 //
 //        //
 //        // Expand the pixel data to their original range
 //        //
 //
 //        applyLut (lut, _tmpBuffer, tmpBufferEnd - _tmpBuffer);
+    apply_lookup_table(&mut tmp_buffer, &lookup_table);
+
+
 //
 //        //
 //        // Rearrange the pixel data into the format expected by the caller.
@@ -162,6 +363,9 @@ pub fn decompress_bytes(
 //
 //        char *outEnd = _outBuffer;
 //
+    // TODO what is XDR?
+    let mut out = Vec::new();
+
 //        if (_format == XDR)
 //        {
 //            //
@@ -185,6 +389,24 @@ pub fn decompress_bytes(
 //                }
 //            }
 //        }
+
+    if format == xdr {
+        for y in min_y ..= max_y {
+            for channel in &mut channel_data {
+                if mod_p(y, channel.y_samples as i32) != 0 {
+                    continue;
+                }
+
+                // TODO this should be a simple mirroring slice copy?
+                for x in (0 .. channel.number_samples_x * channel.size).rev() {
+                    out.push(tmp_buffer[channel.end_index as usize]);
+                    channel.end_index += 1;
+                }
+            }
+        }
+    }
+
+
 //        else
 //        {
 //            //
@@ -207,6 +429,21 @@ pub fn decompress_bytes(
 //                }
 //            }
 //        }
+
+    else { // native format
+        for y in min_y ..= max_y {
+            for channel in &mut channel_data {
+                if mod_p(y, channel.y_samples as i32) != 0 {
+                    continue;
+                }
+
+                // copy each channel
+                let n = channel.number_samples_x * channel.size;
+                out.extend_from_slice(&tmp_buffer[channel.end_index as usize .. (channel.end_index + n) as usize]);
+                channel.end_index += n;
+            }
+        }
+    }
 //
 //        #if defined (DEBUG)
 //
@@ -220,14 +457,72 @@ pub fn decompress_bytes(
 //        outPtr = _outBuffer;
 //        return outEnd - _outBuffer;
 //    }
+    for index in 1..channel_data.len() {
+        assert_eq!(channel_data[index - 1].end_index, channel_data[index].start_index);
+    }
 
+    assert_eq!(channel_data.last().unwrap().end_index as usize, tmp_buffer.len());
 
-    unimplemented!()
-    // differences_to_samples(&mut decompressed);
-    // decompressed = interleave_byte_blocks(&decompressed);
-    // super::uncompressed::unpack(target, &decompressed, line_size) // convert to machine-dependent endianess
+//    Ok(out)
+    unimplemented!("Ok(out)")
 }
 
-pub fn compress_bytes(packed: Bytes) -> Result<ByteVec> {
+fn huffman_decompress(data: &[u8], result: &mut [u16]) -> ReadResult<()> {
+    unimplemented!()
+}
+
+// https://github.com/AcademySoftwareFoundation/openexr/blob/8cd1b9210855fa4f6923c1b94df8a86166be19b1/OpenEXR/IlmImf/ImfWav.cpp
+fn wave_2_decode(buffer: &[u16], x_size: u32, x_offset: u32, y_size: u32, y_offset: u32, max: u16 ) -> ReadResult<()> {
+    unimplemented!()
+}
+
+fn reverse_lookup_table_from_bitmap(bitmap: Bytes) -> (Vec<u16>, u16) {
+//    int k = 0;
+//
+//    for (int i = 0; i < USHORT_RANGE; ++i)
+//    {
+//        if ((i == 0) || (bitmap[i >> 3] & (1 << (i & 7))))
+//        lut[k++] = i;
+//    }
+//
+//    int n = k - 1;
+//
+//    while (k < USHORT_RANGE)
+//    lut[k++] = 0;
+//
+//    return n;		// maximum k where lut[k] is non-zero,
+
+//    let mut k = 0;
+
+    assert_eq!(u16_range as u16 as i32, u16_range);
+
+    let mut table = Vec::with_capacity(u16_range as usize);
+
+    for index in 0 .. u16_range as u16 {
+        if index == 0 || (bitmap[index as usize >> 3] as usize & (1 << (index as usize & 7)) != 0) { // TODO where should be cast?
+//            lut[k] = i;
+//            k += 1;
+            table.push(index);
+        }
+    }
+
+    let n = table.len() as u16;
+    assert_eq!(table.len() as u16 as usize, table.len());
+
+    table.resize(u16_range as usize, 0);
+
+    (table, n)
+}
+
+fn apply_lookup_table(data: &mut [u16], table: &[u16]) {
+//    for (int i = 0; i < nData; ++i)
+//        data[i] = lut[data[i]];
+    for data in data {
+        *data = table[*data as usize];
+    }
+}
+
+
+pub fn compress_bytes(_packed: Bytes) -> Result<ByteVec> {
     unimplemented!();
 }

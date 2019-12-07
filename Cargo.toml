@@ -5,11 +5,13 @@ authors = ["johannesvollmer <johannes.boenki@t-online.de>"]
 edition = "2018"
 
 [dependencies]
+half = { version = "1.4.0", features = ["std"] }
 libflate = "*"
 byteorder = "*"
+
 bit_field = "*"
 smallvec = "*"
-half = { version = "1.4.0", features = ["std"] }
+rayon = "1.2.1"
 threadpool = "1.7.1"
 num_cpus = "1.11.1"
 

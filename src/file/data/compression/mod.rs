@@ -1,3 +1,6 @@
+use crate::file::meta::Header;
+use crate::file::meta::attributes::I32Box2;
+
 pub mod zip;
 pub mod rle;
 pub mod piz;
@@ -148,25 +151,32 @@ impl Compression {
         }
     }
 
-    pub fn decompress_bytes(self, data: ByteVec, expected_byte_size: usize) -> Result<ByteVec> {
-        use self::Compression::*;
+    pub fn decompress_bytes(self, header: &Header, data: ByteVec, tile: I32Box2) -> Result<ByteVec> {
+        let dimensions = tile.dimensions();
+
+        let expected_byte_size = (dimensions.0 * dimensions.1 * header.channels.bytes_per_pixel) as usize;
+
         if data.len() == expected_byte_size {
             Ok(data)
         }
+
         else {
+            use self::Compression::*;
             let bytes = match self {
                 None => Ok(data),
                 ZIP16 => zip::decompress_bytes(data, expected_byte_size),
                 ZIP1 => zip::decompress_bytes(data, expected_byte_size),
                 RLE => rle::decompress_bytes(data, expected_byte_size),
-                PIZ => piz::decompress_bytes(data),
+                PIZ => piz::decompress_bytes(header, data, tile, expected_byte_size),
                 compression => unimplemented!("decompressing {:?}", compression),
             }?;
 
             if bytes.len() != expected_byte_size {
-                println!("decompressed byte length: {}", bytes.len());
+                eprintln!("expected decompressed byte length: {}", expected_byte_size);
+                eprintln!("actual decompressed byte length: {}", bytes.len());
                 Err(Error::InvalidSize)
             }
+
             else {
                 Ok(bytes)
             }

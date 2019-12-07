@@ -432,8 +432,8 @@ impl I32Box2 {
     pub fn dimensions(&self) -> (u32, u32) {
         (
             // see technical introduction p. 1
-            (self.x_max - self.x_min) as u32 + 1, // TODO checked_sub
-            (self.y_max - self.y_min) as u32 + 1,
+            (self.x_max + 1 - self.x_min) as u32, // TODO checked_sub
+            (self.y_max + 1 - self.y_min) as u32,
         )
     }
 

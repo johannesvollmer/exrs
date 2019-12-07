@@ -37,8 +37,9 @@ pub mod prelude {
 
 
 #[cfg(test)]
-pub mod test1 {
-    use std::path::Path;
+pub mod test {
+    use crate::prelude::*;
+
 
     #[test]
     fn read_all_files() {
@@ -58,7 +59,7 @@ pub mod test1 {
     }
 
     fn load_file_or_print_err(path: &Path){
-        let image = crate::image::read_from_file(path, true);
+        let image = read(path, true);
         if let Err(error) = image {
             println!("{:?}", error);
         }
@@ -79,51 +80,48 @@ pub mod test1 {
     pub fn convert_to_png() {
         let now = ::std::time::Instant::now();
 
-        let path = ::std::path::Path::new(
-            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
+        let path = Path::new(
+//            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
 //            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
 //        "D:/Pictures/openexr/crowskull/crow_zips.exr"
-//            "D:/Pictures/openexr/debug/32x32_r10g5b0_f16_rle.exr"
+            "D:/Pictures/openexr/crowskull/crow_rle.exr"
 //            "/home/johannes/Pictures/openexr/samuel-zeller/samuel_zeller_rgb_f16_rle.exr"
         );
 
-        let image = crate::image::read_from_file(path, true).unwrap();
+        let image = read(path, true).unwrap();
 
         // warning: highly unscientific benchmarks ahead!
         let elapsed = now.elapsed();
         let millis = elapsed.as_secs() * 1000 + elapsed.subsec_millis() as u64;
 
-//        assert_eq!(image.parts.len(), 1);
         let part = &image.parts[0];
-        println!("header 0: {:#?}", part.header);
 
         println!("\ndecoded file in {:?} s", millis as f32 * 0.001);
 
-        let header = &part.header;
-        let channels = part.levels.largest();
-        let full_res = header.data_window.dimensions();
+        let channels = part.level_data.largest();
 
-        let mut png_buffer = ::piston_image::GrayImage::new(full_res.0, full_res.1);
-
-        // BUGHUNT CHECKLIST
-        // - [x] rust-f16 encoding is the same as openexr-f16 encoding
-        // - [x] compression+unpacking vs unpacking+compression order
-        // - [ ] compression alrogithm
-        // - [ ] mixing channels up, interleaving channels, in uncompressed::unpack
-        // - [ ] unpacking/reconstruction c algorithms translation into rust
-
-        // actually do the conversion to png
         expect_variant!(channels, crate::image::PartData::Flat(ref pixels) => {
-            expect_variant!(pixels.channels[1], crate::image::Array::F16(ref channel) => {
-                for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
-//                     TODO assumes channel is not subsampled
-                    let v = channel[(y * full_res.0 + x) as usize];
-                    *pixel = ::piston_image::Luma([(v.to_f32().powf(1.0/2.2) * 100.0) as u8]);
-                }
-            })
+            let mut png_buffer = ::piston_image::GrayImage::new(pixels.dimensions.0, pixels.dimensions.1);
+
+            match pixels.channel_data[0] {
+                Array::F32(ref channel) => {
+                    for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
+                        let v = channel[(y * pixels.dimensions.0 + x) as usize];
+                        *pixel = ::piston_image::Luma([(v.powf(1.0/2.2) * 100.0) as u8]);
+                    }
+                },
+                Array::F16(ref channel) => {
+                    for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
+                        let v = channel[(y * pixels.dimensions.0 + x) as usize];
+                        *pixel = ::piston_image::Luma([(v.to_f32().powf(1.0/2.2) * 100.0) as u8]);
+                    }
+                },
+                _ => panic!()
+            }
+
+            png_buffer.save(Path::new("test.png")).unwrap();
         });
 
-        png_buffer.save(Path::new("test.png")).unwrap();
     }
 
 }

@@ -6,7 +6,7 @@ use super::io::*;
 
 use ::smallvec::SmallVec;
 use self::attributes::*;
-use crate::file::data::TileCoordinates;
+use crate::file::data::{TileCoordinates, Block};
 use crate::error::{ReadResult, WriteResult};
 
 
@@ -205,39 +205,75 @@ impl Header {
         }
     }
 
-    pub fn get_scan_line_indices(&self, y: i32) -> ReadResult<TileIndices> {
-        let y = y - self.data_window.y_min;
-        debug_assert!(y >= 0); // TODO Err() instead
+    pub fn get_raw_block_coordinates(&self, block: &Block) -> ReadResult<I32Box2> {
+        Ok(match block {
+            Block::Tile(ref tile) => {
+                let size = self.get_tile_size(tile.coordinates);
+                I32Box2 {
+                    x_min: tile.coordinates.tile_x,
+                    y_min: tile.coordinates.tile_y,
+                    x_max: tile.coordinates.tile_x + size.0 as i32 - 1,
+                    y_max: tile.coordinates.tile_y + size.1 as i32 - 1
+                }
+            },
+//                // FIXME is the level required here?
+//                let size = self.get_tile_size(coordinates);
+//                let level = (coordinates.level_x as u32, coordinates.level_y as u32);
+//                let x = coordinates.tile_x - self.data_window.x_min;
+//                let y = coordinates.tile_y - self.data_window.y_min;
+//                debug_assert!(x >= 0 && y >= 0)
+//
+//                Ok(TileIndices { position: (x as u32, y as u32), size, level })
+            Block::ScanLine(ref block) => {
+                let height = self.get_scan_line_block_height(block.y_coordinate as u32);
 
-        let y = y as u32;
-        let size = self.get_scan_line_block_size(y);
-        Ok(TileIndices { position: (0, y), size, level: (0, 0) })
+                I32Box2 {
+                    x_min: self.data_window.x_min, y_min: block.y_coordinate,
+                    x_max: self.data_window.x_max, y_max: block.y_coordinate + height as i32 - 1
+                }
+            },
+
+            _ => unimplemented!()
+        })
     }
 
-    pub fn get_tile_indices(&self, coordinates: TileCoordinates) -> ReadResult<TileIndices> {
-        // FIXME is the level required here?
-        let size = self.get_tile_size(coordinates);
-        let level = (coordinates.level_x as u32, coordinates.level_y as u32);
-        let x = coordinates.tile_x - self.data_window.x_min;
-        let y = coordinates.tile_y - self.data_window.y_min;
-        debug_assert!(x >= 0 && y >= 0); // TODO Err() instead
+    pub fn get_block_data_indices(&self, block: &Block) -> ReadResult<TileIndices> {
+        let coordinates = self.get_raw_block_coordinates(block)?;
 
-        Ok(TileIndices { position: (x as u32, y as u32), size, level })
+        assert!(coordinates.x_min >= self.data_window.x_min); // TODO Err() instead
+        assert!(coordinates.y_min >= self.data_window.y_min); // TODO Err() insteads
+
+        let position = (
+            (coordinates.x_min - self.data_window.x_min) as u32,
+            (coordinates.y_min - self.data_window.y_min) as u32
+        );
+
+        let size = coordinates.dimensions();
+
+        Ok(TileIndices {
+            level: match block {
+                Block::Tile(ref tile) => (tile.coordinates.level_x as u32, tile.coordinates.level_y as u32),
+                Block::ScanLine(ref _block) => (0,0), // FIXME is this correct?
+                _ => unimplemented!()
+            },
+
+            position,
+            size
+        })
     }
 
-    pub fn get_scan_line_block_size(&self, y: u32) -> (u32, u32) {
+    fn get_scan_line_block_height(&self, y: u32) -> u32 {
         let lines_per_block = self.compression.scan_lines_per_block();
-        let (data_width, data_height) = self.data_window.dimensions();
+        let data_height = self.data_window.dimensions().1;
 
-        // how much the last row is cut off:
+        // find out how much the last scan block would be cut off (or 0):
         let block_end = y + lines_per_block;
-        let block_overflow = block_end.checked_sub(data_height).unwrap_or(0);
+        let clip = block_end.checked_sub(data_height).unwrap_or(0);
 
-        let height = lines_per_block - block_overflow;
-        (data_width, height)
+        lines_per_block - clip
     }
 
-    pub fn get_tile_size(&self, tile: TileCoordinates) -> (u32, u32) {
+    fn get_tile_size(&self, tile: TileCoordinates) -> (u32, u32) {
         let tiles = self.tiles.expect("check failed: tiles not found");
 
         let (data_width, data_height) = self.data_window.dimensions();
