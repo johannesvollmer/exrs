@@ -103,7 +103,7 @@ pub mod test {
         expect_variant!(channels, crate::image::PartData::Flat(ref pixels) => {
             let mut png_buffer = ::piston_image::GrayImage::new(pixels.dimensions.0, pixels.dimensions.1);
 
-            match pixels.channel_data[0] {
+            match pixels.channel_data[1] {
                 Array::F32(ref channel) => {
                     for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
                         let v = channel[(y * pixels.dimensions.0 + x) as usize];

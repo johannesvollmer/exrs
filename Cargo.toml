@@ -12,8 +12,6 @@ byteorder = "*"
 bit_field = "*"
 smallvec = "*"
 rayon = "1.2.1"
-threadpool = "1.7.1"
-num_cpus = "1.11.1"
 
 [dev-dependencies]
 bencher = "0.1.5"
