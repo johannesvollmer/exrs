@@ -45,7 +45,9 @@ pub fn decompress_bytes(compressed: ByteVec, expected_byte_size: usize) -> Resul
         } else {
             // repeat the next value 'count' times
             let value = take_1(&mut remaining)?;
-            decompressed.extend(count + 1, std::iter::repeat(value)); // TODO explicit memset?
+            for _ in 0..count + 1 { // TODO explicit memset?
+                decompressed.push(value);
+            }
         }
     }
 
