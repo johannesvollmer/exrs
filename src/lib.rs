@@ -81,14 +81,14 @@ pub mod test {
         let now = ::std::time::Instant::now();
 
         let path = Path::new(
-//            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
+            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
 //            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
 //        "D:/Pictures/openexr/crowskull/crow_zips.exr"
-            "D:/Pictures/openexr/crowskull/crow_rle.exr"
+//            "D:/Pictures/openexr/crowskull/crow_rle.exr"
 //            "/home/johannes/Pictures/openexr/samuel-zeller/samuel_zeller_rgb_f16_rle.exr"
         );
 
-        let image = read(path, true).unwrap();
+        let image = read(path, false).unwrap();
 
         // warning: highly unscientific benchmarks ahead!
         let elapsed = now.elapsed();
