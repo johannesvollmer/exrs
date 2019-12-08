@@ -143,16 +143,6 @@ const MAX_PIXEL_BYTES: usize = 1048576; // 2^20
 use crate::file::meta::{Header, OffsetTables, Headers};
 
 impl ScanLineBlock {
-    pub fn validate(&self, header: &Header) -> Validity {
-        if let Some(Kind::ScanLine) = header.kind.as_ref() {
-            Ok(())
-
-        } else {
-            // TODO make these string literals constants!
-            Err(Invalid::Content(Value::Attribute("type"), Required::Exact("scanlineimage")).into())
-        }
-    }
-
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         self.y_coordinate.write(write)?;
         write_i32_sized_u8_array(write, &self.compressed_pixels)
@@ -167,15 +157,6 @@ impl ScanLineBlock {
 }
 
 impl TileBlock {
-    pub fn validate(&self, header: &Header) -> Validity {
-        if let &Kind::Tile = header.kind.as_ref().expect("check failed: header kind missing") {
-            Ok(())
-
-        } else {
-            Err(Invalid::Content(Value::Attribute("type"), Required::Exact("tiledimage")).into())
-        }
-    }
-
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         self.coordinates.write(write)?;
         write_i32_sized_u8_array(write, &self.compressed_pixels)
@@ -202,15 +183,6 @@ impl TileBlock {
 }
 
 impl DeepScanLineBlock {
-    pub fn validate(&self, header: &Header) -> Validity {
-        if let &Kind::DeepScanLine = header.kind.as_ref().expect("check failed: header kind missing") {
-            Ok(())
-
-        } else {
-            Err(Invalid::Content(Value::Attribute("type"), Required::Exact("deepscanline")).into())
-        }
-    }
-
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         self.y_coordinate.write(write)?;
         (self.compressed_pixel_offset_table.len() as u64).write(write)?;
@@ -247,15 +219,6 @@ impl DeepScanLineBlock {
 
 
 impl DeepTileBlock {
-    pub fn validate(&self, header: &Header) -> Validity {
-        if let &Kind::DeepTile = header.kind.as_ref().expect("check failed: header kind missing") {
-            Ok(())
-
-        } else {
-            Err(Invalid::Content(Value::Attribute("type"), Required::Exact("deeptile")).into())
-        }
-    }
-
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         self.coordinates.write(write)?;
         (self.compressed_pixel_offset_table.len() as u64).write(write)?;
@@ -325,7 +288,7 @@ impl Chunk {
         let header = &headers.get(part_number as usize)
             .ok_or(Invalid::Content(
                 Value::Chunk("part index of chunk"),
-                Required::Range { min:0, max: headers.len() })
+                Required::Range { min: 0, max: headers.len() })
             )?;
 
         let kind = header.kind.unwrap_or(Kind::ScanLine); // TODO is this how it works?

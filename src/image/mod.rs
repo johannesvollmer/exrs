@@ -26,21 +26,24 @@ pub mod meta {
     use std::io::{Read, BufReader};
     use crate::error::ReadResult;
     use crate::file::io::PeekRead;
+    use std::fs::File;
 
     #[must_use]
-    pub fn read_from_file(path: &::std::path::Path) -> ReadResult<MetaData> {
-        read_from_unbuffered(::std::fs::File::open(path)?)
+    pub fn read_from_file(path: &::std::path::Path) -> ReadResult<(PeekRead<BufReader<File>>, MetaData)> {
+        read_from_unbuffered(File::open(path)?)
     }
 
     /// assumes that the provided reader is not buffered, and will create a buffer for it
     #[must_use]
-    pub fn read_from_unbuffered(unbuffered: impl Read) -> ReadResult<MetaData> {
+    pub fn read_from_unbuffered<R: Read>(unbuffered: R) -> ReadResult<(PeekRead<BufReader<R>>, MetaData)> {
         read_from_buffered(BufReader::new(unbuffered))
     }
 
     #[must_use]
-    pub fn read_from_buffered(buffered: impl Read) -> ReadResult<MetaData> {
-        MetaData::read_validated(&mut PeekRead::new(buffered))
+    pub fn read_from_buffered<R: Read>(buffered: R) -> ReadResult<(PeekRead<R>, MetaData)> {
+        let mut read = PeekRead::new(buffered);
+        let meta = MetaData::read_validated(&mut read)?;
+        Ok((read, meta))
     }
 }
 
@@ -60,7 +63,7 @@ pub struct Part {
     pub data_window: I32Box2,
     pub display_window: I32Box2,
 
-    // pub header: Header, // TODO dissolve header properties into part, and put a name into the channels?
+    // TODO put more header properties here, and put a name into the channels?
 
     /// only the data for this single part,
     /// index can be computed from pixel location and block_kind.
@@ -162,8 +165,6 @@ pub fn read_from_buffered(buffered_read: impl Read, parallel: bool) -> ReadResul
     let MetaData { headers, offset_tables, requirements } = MetaData::read_validated(&mut read)?;
     let chunk_reader = ChunkReader::new(read, requirements.is_multipart(), &headers, &offset_tables);
 
-    // crate::file::data::chunk_reader(&mut read, requirements.is_multipart(), &headers, offset_tables);
-
     let mut image = Image::new(&headers);
 
     let has_compression = headers.iter() // do not use parallel stuff for uncompressed images
@@ -228,6 +229,7 @@ impl DecompressedBlock {
     let pool = ThreadPool::new(num_cpus::get());
     let part_count = headers.len();
 
+    use std::sync::mpsc::channel;
     let (sender, receiver) = channel();
 
     for _ in 0 .. chunk_count {
@@ -266,31 +268,8 @@ impl Image {
         let part = self.parts.get_mut(block.part_index)
             .ok_or(Invalid::Content(Value::Chunk("part index"), Required::Max(part_count)))?;
 
-        part.read_block(&mut block.data.as_slice(), block.tile)
+        part.insert_block(&mut block.data.as_slice(), block.tile)
     }
-
-    /*pub fn decompress(&mut self, headers: &Headers, chunks: Chunks) -> ReadResult<()> {
-        let part_count = self.parts.len();
-
-        for chunk in chunks.content {
-            let part = self.parts.get_mut(chunk.part_number as usize)
-                .ok_or(Invalid::Content(Value::Chunk("part index"), Required::Max(part_count)))?;
-
-            let (tile, data) = match chunk.block {
-                Block::Tile(tile) => (part.header.get_tile_indices(tile.coordinates)?, tile.compressed_pixels),
-                Block::ScanLine(block) => (part.header.get_scan_line_indices(block.y_coordinate)?, block.compressed_pixels),
-                _ => unimplemented!()
-            };
-
-            let expected_byte_size = tile.size.0 * tile.size.1 * part.header.channels.bytes_per_pixel;
-            let data = part.header.compression.decompress_bytes(part.header, data, tile)?;
-
-            part.read_block(&mut data.as_slice(), tile)?;
-        }
-
-        Ok(())
-    }*/
-
 }
 
 impl Part {
@@ -379,7 +358,7 @@ impl Part {
     }
 
 
-    pub fn read_block(&mut self, read: &mut impl Read, block: TileIndices) -> ReadResult<()> {
+    pub fn insert_block(&mut self, read: &mut impl Read, block: TileIndices) -> ReadResult<()> {
         match &mut self.level_data {
             Levels::Singular(ref mut part) => {
                 debug_assert_eq!(block.level, (0,0), "singular image cannot read leveled blocks");
@@ -387,7 +366,7 @@ impl Part {
             },
 
             Levels::Mip(maps) => {
-                debug_assert_eq!(block.level.0, block.level.1, "mip map levels must be equal on x and y");
+                debug_assert_eq!(block.level.0, block.level.1, "mip map levels must be equal on x and y"); // TODO err instead?
                 let max = maps.len();
 
                 maps.get_mut(block.level.0 as usize)
