@@ -7,7 +7,8 @@ use super::io::*;
 use ::smallvec::SmallVec;
 use self::attributes::*;
 use crate::file::data::{TileCoordinates, Block};
-use crate::error::{ReadResult, WriteResult};
+use crate::error::{ReadResult, WriteResult, ReadError};
+use std::convert::TryFrom;
 
 
 #[derive(Debug, Clone)]
@@ -83,7 +84,7 @@ pub struct Header {
     pub deep_data_version: Option<i32>,
 
     /// Required if either the multipart bit (12) or the deep-data bit (11) is set
-    pub chunk_count: Option<i32>,
+    pub chunk_count: Option<u32>,
 
     /// Required for deep data (deepscanline and deeptile) parts.
     /// Note: Since the value of "maxSamplesPerPixel"
@@ -96,12 +97,14 @@ pub struct Header {
     /// correctly due to an error, the value -1 will
     /// remain. In this case, the value must be derived
     /// by decoding each chunk in the part
-    pub max_samples_per_pixel: Option<i32>,
+    pub max_samples_per_pixel: Option<u32>,
 
     /// Requires a null byte signalling the end of each attribute
     /// Contains custom attributes
-    pub custom_attributes: SmallVec<[Attribute; 6]>,
+    pub custom_attributes: Attributes,
 }
+
+pub type Attributes = SmallVec<[Attribute; 8]>;
 
 
 // FIXME this merely reports the features which must be supported by our library,
@@ -254,7 +257,9 @@ impl Header {
             level: match block {
                 Block::Tile(ref tile) => (tile.coordinates.level_x as u32, tile.coordinates.level_y as u32),
                 Block::ScanLine(ref _block) => (0,0), // FIXME is this correct?
-                _ => unimplemented!()
+
+                Block::DeepTile(ref tile) => (tile.coordinates.level_x as u32, tile.coordinates.level_y as u32),
+                Block::DeepScanLine(ref _block) => (0,0), // FIXME is this correct?
             },
 
             position,
@@ -277,8 +282,8 @@ impl Header {
         let tiles = self.tiles.expect("check failed: tiles not found");
 
         let (data_width, data_height) = self.data_window.dimensions();
-        let default_width = tiles.x_size;
-        let default_height = tiles.y_size;
+        let default_width = tiles.size.0;
+        let default_height = tiles.size.1;
         let round = tiles.rounding_mode;
 
         // FIXME is the level required here or not?? indices should always start at 0 and not exceed bounds
@@ -434,9 +439,6 @@ impl Header {
                 TILES => tiles = Some(value.to_tile_description()?),
                 NAME => name = Some(value.to_text()?),
                 TYPE => kind = Some(Kind::parse(value.to_text()?)?),
-                VERSION => version = Some(value.to_i32()?),
-                CHUNKS => chunk_count = Some(value.to_i32()?),
-                MAX_SAMPLES => max_samples_per_pixel = Some(value.to_i32()?),
                 CHANNELS => channels = Some(value.to_channel_list()?),
                 COMPRESSION => compression = Some(value.to_compression()?),
                 DATA_WINDOW => data_window = Some(value.to_i32_box_2()?),
@@ -445,6 +447,17 @@ impl Header {
                 PIXEL_ASPECT => pixel_aspect = Some(value.to_f32()?),
                 WINDOW_CENTER => screen_window_center = Some(value.to_f32_vec_2()?),
                 WINDOW_WIDTH => screen_window_width = Some(value.to_f32()),
+                VERSION => version = Some(value.to_i32()?),
+
+                MAX_SAMPLES => max_samples_per_pixel = Some(
+                    u32::try_from(value.to_i32()?)
+                        .map_err(|_| Invalid::Content(Value::Attribute("maxSamples"), Required::Min(0)))?
+                ),
+
+                CHUNKS => chunk_count = Some(
+                    u32::try_from(value.to_i32()?)
+                        .map_err(|_| Invalid::Content(Value::Attribute("chunkCount"), Required::Min(0)))?
+                ),
 
                 _ => {
                     // TODO lazy? only for user-specified names?
@@ -465,7 +478,8 @@ impl Header {
 
             tiles,
             name, kind,
-            deep_data_version: version, chunk_count,
+            deep_data_version: version,
+            chunk_count,
             max_samples_per_pixel,
             custom_attributes: custom,
         };
@@ -482,9 +496,9 @@ impl Requirements {
         self.has_multiple_parts
     }
 
-    pub fn byte_size(self) -> usize {
+    /*pub fn byte_size(self) -> usize {
         0_u32.byte_size()
-    }
+    }*/
 
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
         use ::bit_field::BitField;
@@ -614,30 +628,7 @@ impl MetaData {
 }
 
 
-
-// calculations inspired by
-// https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
-
-pub fn compute_tile_count(full_res: u32, tile_size: u32) -> u32 {
-    // round up, because if the image is not evenly divisible by the tiles,
-    // we add another tile at the end (which is only partially used)
-    RoundingMode::Up.divide(full_res, tile_size)
-}
-
-pub fn compute_scan_line_block_count(height: u32, block_size: u32) -> u32 {
-    // round up, because if the image is not evenly divisible by the block size,
-    // we add another block at the end (which is only partially used)
-    RoundingMode::Up.divide(height, block_size)
-}
-
-// TODO this should be cached? log2 may be very expensive
-pub fn compute_level_count(round: RoundingMode, full_res: u32) -> u32 {
-    round.log2(full_res) + 1
-}
-
-pub fn compute_level_size(round: RoundingMode, full_res: u32, level_index: u32) -> u32 {
-    round.divide(full_res,  1 << level_index).max(1)
-}
+use crate::file::*;
 
 // TODO reuse this algorithm in crate::image::Part::new?
 pub fn compute_offset_table_size(version: Requirements, header: &Header) -> ReadResult<u32> {
@@ -654,26 +645,26 @@ pub fn compute_offset_table_size(version: Requirements, header: &Header) -> Read
         let data_window = header.data_window;
         data_window.validate()?;
 
-        let (data_width, data_height) = data_window.dimensions();
+        let data_size = data_window.dimensions();
 
         if let Some(tiles) = header.tiles {
             let round = tiles.rounding_mode;
-            let (tile_width, tile_height) = tiles.dimensions();
+            let (tile_width, tile_height) = tiles.size;
 
-            let level_count = |full_res: u32| {
-                compute_level_count(round, full_res)
-            };
+//            let level_count = |full_res: u32| {
+//                compute_level_count(round, full_res)
+//            };
 
-            let level_size = |full_res: u32, level_index: u32| {
-                compute_level_size(round, full_res, level_index)
-            };
+//            let level_size = |full_res: u32, level_index: u32| {
+//                compute_level_size(round, full_res, level_index)
+//            };
 
             // TODO cache all these level values??
             use crate::file::meta::attributes::LevelMode::*;
             Ok(match tiles.level_mode {
                 Singular => {
-                    let tiles_x = compute_tile_count(data_width, tile_width);
-                    let tiles_y = compute_tile_count(data_height, tile_height);
+                    let tiles_x = compute_tile_count(data_size.0, tile_width);
+                    let tiles_y = compute_tile_count(data_size.1, tile_height);
                     tiles_x * tiles_y
                 }
 
@@ -681,21 +672,29 @@ pub fn compute_offset_table_size(version: Requirements, header: &Header) -> Read
                     // sum all tiles per level
                     // note: as levels shrink, tiles stay the same pixel size.
                     // so at lower levels, tiles cover up a visually bigger are of the smaller resolution image
-                    (0..level_count(data_width.max(data_height))).map(|level|{
+                    /*(0..level_count(data_width.max(data_height))).map(|level|{
                         let tiles_x = compute_tile_count(level_size(data_width, level), tile_width);
                         let tiles_y = compute_tile_count(level_size(data_height, level), tile_height);
                         tiles_x * tiles_y
+                    }).sum()*/
+
+                    mip_map_resolutions(round, data_size).map(|(level_width, level_height)| {
+                        compute_tile_count(level_width, tile_width) * compute_tile_count(level_height, tile_height)
                     }).sum()
                 },
 
                 RipMap => {
                     // TODO test this
-                    (0..level_count(data_width)).map(|x_level|{ // TODO may swap y and x?
+                    /*(0..level_count(data_width)).map(|x_level|{ // TODO may swap y and x?
                         (0..level_count(data_height)).map(|y_level| {
                             let tiles_x = compute_tile_count(level_size(data_width, x_level), tile_width);
                             let tiles_y = compute_tile_count(level_size(data_height, y_level), tile_height);
                             tiles_x * tiles_y
                         }).sum::<u32>()
+                    }).sum()*/
+
+                    rip_map_resolutions(round, data_size).map(|(level_width, level_height)| {
+                        compute_tile_count(level_width, tile_width) * compute_tile_count(level_height, tile_height)
                     }).sum()
                 }
             })
@@ -704,11 +703,10 @@ pub fn compute_offset_table_size(version: Requirements, header: &Header) -> Read
 
         // scan line blocks never have mip maps // TODO check if this is true
         else {
-            Ok(compute_scan_line_block_count(data_height, compression.scan_lines_per_block() as u32))
+            Ok(compute_scan_line_block_count(data_size.1, compression.scan_lines_per_block() as u32))
         }
     }
 }
-
 
 // TODO make instance fn
 pub fn read_offset_table(
@@ -716,11 +714,12 @@ pub fn read_offset_table(
 ) -> ReadResult<OffsetTable>
 {
     let entry_count = compute_offset_table_size(version, header)?;
-    read_u64_vec(read, entry_count as usize, ::std::u16::MAX as usize)
+    u64::read_vec(read, entry_count as usize, ::std::u16::MAX as usize)
 }
 
 
-fn read_offset_tables(
+// TODO skip reading offset tables if not required?
+pub fn read_offset_tables(
     read: &mut PeekRead<impl Read>, version: Requirements, headers: &Headers,
 ) -> ReadResult<OffsetTables>
 {
@@ -736,7 +735,7 @@ fn read_offset_tables(
 
 pub fn write_offset_tables<W: Write>(write: &mut W, tables: &OffsetTables) -> WriteResult {
     for table in tables {
-        write_u64_array(write, &mut table.clone())?; // TODO without clone at least on little endian machines
+        u64::write_slice(write, &mut table.clone())?; // TODO without clone at least on little endian machines
     }
 
     Ok(())

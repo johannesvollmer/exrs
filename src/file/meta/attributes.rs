@@ -9,7 +9,8 @@ use crate::error::validity::*;
 #[derive(Clone, Eq, PartialEq)]
 pub struct Text {
     /// vector does not include null terminator
-    pub bytes: SmallVec<[u8; 16]>,
+    /// those strings will mostly be "R", "G", "B" or "deepscanlineimage"
+    pub bytes: SmallVec<[u8; 24]>,
 }
 
 
@@ -133,14 +134,7 @@ pub struct Channel {
     /// can be used for chroma-subsampling
     /// other than 1 are allowed only in flat, scan-line based images.
     /// If deep or tiled, x and y sampling rates for all of its channels must be 1.
-    // TODO include in header validation!
-    pub x_sampling: i32,
-
-    /// can be used for chroma-subsampling
-    /// other than 1 are allowed only in flat, scan-line based images.
-    /// If deep or tiled, x and y sampling rates for all of its channels must be 1.
-    // TODO include in header validation!
-    pub y_sampling: i32,
+    pub sampling: (u32, u32),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Copy)]
@@ -205,7 +199,7 @@ pub struct Preview {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct TileDescription {
-    pub x_size: u32, pub y_size: u32,
+    pub size: (u32, u32),
     pub level_mode: LevelMode,
     pub rounding_mode: RoundingMode,
 }
@@ -236,7 +230,7 @@ impl Text {
         Text { bytes: SmallVec::from_slice(str_value.as_bytes()) }
     }
 
-    pub fn from_bytes(bytes: SmallVec<[u8; 16]>) -> Self {
+    pub fn from_bytes(bytes: SmallVec<[u8; 24]>) -> Self {
         Text { bytes }
     }
 
@@ -296,7 +290,7 @@ impl Text {
 
     pub fn write_unsized_bytes<W: Write>(bytes: &[u8], write: &mut W, long_names: Option<bool>) -> WriteResult {
         Text::validate_bytes(bytes, long_names)?;
-        io::write_u8_array(write, bytes)
+        u8::write_slice(write, bytes)
     }
 
     pub fn read_i32_sized<R: Read>(read: &mut R) -> ReadResult<Self> {
@@ -306,7 +300,7 @@ impl Text {
 
     pub fn read_sized<R: Read>(read: &mut R, size: usize) -> ReadResult<Self> {
         // TODO read into small vec without heap
-        Ok(Text::from_bytes(SmallVec::from_vec(read_u8_vec(read, size, 1024)?)))
+        Ok(Text::from_bytes(SmallVec::from_vec(u8::read_vec(read, size, 1024)?)))
     }
 
     pub fn write_null_terminated<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> WriteResult {
@@ -399,7 +393,7 @@ impl Kind {
     }
 
     pub fn write(&self, write: &mut impl Write) -> WriteResult {
-        write_u8_array(write, self.to_text_bytes())
+        u8::write_slice(write, self.to_text_bytes())
     }
 
     pub fn to_text_bytes(&self) -> &[u8] {
@@ -525,8 +519,8 @@ impl Channel {
 
     pub fn subsampled_resolution(&self, dimensions: (u32, u32)) -> (u32, u32) {
         (
-            dimensions.0 / self.x_sampling as u32,
-            dimensions.1 / self.y_sampling as u32,
+            dimensions.0 / self.sampling.0 as u32,
+            dimensions.1 / self.sampling.1 as u32,
         )
     }
 
@@ -535,8 +529,8 @@ impl Channel {
             + self.pixel_type.byte_size()
             + 1 // is_linear
             + self.reserved.len()
-            + self.x_sampling.byte_size()
-            + self.y_sampling.byte_size()
+            + self.sampling.0.byte_size()
+            + self.sampling.1.byte_size()
     }
 
     pub fn write<W: Write>(&self, write: &mut W, long_names: bool) -> WriteResult {
@@ -548,9 +542,9 @@ impl Channel {
             true  => 1_u8,
         }.write(write)?;
 
-        write_i8_array(write, &self.reserved)?;
-        self.x_sampling.write(write)?;
-        self.y_sampling.write(write)
+        i8::write_slice(write, &self.reserved)?;
+        self.sampling.0.write(write)?;
+        self.sampling.1.write(write)
     }
 
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
@@ -567,14 +561,18 @@ impl Channel {
         };
 
         let mut reserved = [0; 3];
-        read_i8_array(read, &mut reserved)?;
+        i8::read_slice(read, &mut reserved)?;
 
         let x_sampling = i32::read(read)?;
         let y_sampling = i32::read(read)?;
 
+        if x_sampling < 0 || y_sampling < 0 {
+            return Err(ReadError::Invalid(Invalid::Content(Value::Attribute("channel sampling"), Required::Min(0))));
+        }
+
         Ok(Channel {
             name, pixel_type, is_linear,
-            reserved, x_sampling, y_sampling,
+            reserved, sampling: (x_sampling as u32, y_sampling as u32),
         })
     }
 
@@ -777,7 +775,7 @@ impl Preview {
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         self.width.write(write)?;
         self.height.write(write)?;
-        write_i8_array(write, &self.pixel_data)
+        i8::write_slice(write, &self.pixel_data)
     }
 
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
@@ -787,7 +785,7 @@ impl Preview {
 
         // TODO carefully allocate
         let mut pixel_data = vec![0; (width * height * components_per_pixel) as usize];
-        read_i8_array(read, &mut pixel_data)?;
+        i8::read_slice(read, &mut pixel_data)?;
 
         let preview = Preview {
             width, height,
@@ -806,18 +804,15 @@ impl ::std::fmt::Debug for Preview {
 }
 
 impl TileDescription {
-    pub fn dimensions(&self) -> (u32, u32) {
-        (self.x_size, self.y_size)
-    }
 
     pub fn byte_size(&self) -> usize {
-        self.x_size.byte_size() + self.y_size.byte_size()
+        self.size.0.byte_size() + self.size.1.byte_size()
          + 1 // (level mode + rounding mode)
     }
 
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
-        self.x_size.write(write)?;
-        self.y_size.write(write)?;
+        self.size.0.write(write)?;
+        self.size.1.write(write)?;
 
         let level_mode = match self.level_mode {
             LevelMode::Singular => 0_u8,
@@ -863,7 +858,7 @@ impl TileDescription {
             ).into()),
         };
 
-        Ok(TileDescription { x_size, y_size, level_mode, rounding_mode, })
+        Ok(TileDescription { size: (x_size, y_size), level_mode, rounding_mode, })
     }
 }
 
@@ -997,18 +992,18 @@ impl AttributeValue {
             KeyCode(value) => value.write(write),
             LineOrder(value) => value.write(write),
 
-            F32Matrix3x3(mut value) => write_f32_array(write, &mut value),
-            F32Matrix4x4(mut value) => write_f32_array(write, &mut value),
+            F32Matrix3x3(mut value) => f32::write_slice(write, &mut value),
+            F32Matrix4x4(mut value) => f32::write_slice(write, &mut value),
 
             Preview(ref value) => { value.validate()?; value.write(write) },
 
             // attribute value texts never have limited size.
             // also, don't serialize size, as it can be inferred from attribute size
-            Text(ref value) => write_u8_array(write, value.bytes.as_slice()),
+            Text(ref value) => u8::write_slice(write, value.bytes.as_slice()),
 
             TextVector(ref value) => self::Text::write_vec_of_i32_sized_texts(write, value),
             TileDescription(ref value) => value.write(write),
-            Custom { ref bytes, .. } => write_u8_array(write, &bytes), // write.write(&bytes).map(|_| ()),
+            Custom { ref bytes, .. } => u8::write_slice(write, &bytes), // write.write(&bytes).map(|_| ()),
             Kind(kind) => kind.write(write)
         }
     }
@@ -1043,13 +1038,13 @@ impl AttributeValue {
 
             ty::F32MATRIX3X3 => F32Matrix3x3({
                 let mut result = [0.0_f32; 9];
-                read_f32_array(read, &mut result)?;
+                f32::read_slice(read, &mut result)?;
                 result
             }),
 
             ty::F32MATRIX4X4 => F32Matrix4x4({
                 let mut result = [0.0_f32; 16];
-                read_f32_array(read, &mut result)?;
+                f32::read_slice(read, &mut result)?;
                 result
             }),
 
@@ -1061,7 +1056,7 @@ impl AttributeValue {
             _ => {
                 println!("Unknown attribute type: {:?}", kind.to_string());
                 let mut bytes = vec![0_u8; byte_size as usize];
-                read_u8_array(read, &mut bytes)?;
+                u8::read_slice(read, &mut bytes)?;
                 Custom { kind, bytes }
             }
         })
@@ -1264,7 +1259,6 @@ impl RoundingMode {
 }
 
 
-
 impl Ord for Text {
     // TODO performance?
     fn cmp(&self, other: &Self) -> Ordering {
@@ -1312,22 +1306,19 @@ mod test {
     fn tile_description_write_read_roundtrip(){
         let tiles = [
             TileDescription {
-                x_size: 31,
-                y_size: 7,
+                size: (31, 7),
                 level_mode: LevelMode::MipMap,
                 rounding_mode: RoundingMode::Down,
             },
 
             TileDescription {
-                x_size: 0,
-                y_size: 0,
+                size: (0,0),
                 level_mode: LevelMode::Singular,
                 rounding_mode: RoundingMode::Up,
             },
 
             TileDescription {
-                x_size: 4294967294,
-                y_size: 4294967295,
+                size: (4294967294, 4294967295),
                 level_mode: LevelMode::RipMap,
                 rounding_mode: RoundingMode::Down,
             },
@@ -1393,24 +1384,21 @@ mod test {
                             pixel_type: PixelType::F16,
                             is_linear: false,
                             reserved: [0, 0, 0],
-                            x_sampling: 1,
-                            y_sampling: 2,
+                            sampling: (1,2)
                         },
                         Channel {
                             name: Text::from_str("Red"),
                             pixel_type: PixelType::F32,
                             is_linear: true,
                             reserved: [0, 1, 0],
-                            x_sampling: 1,
-                            y_sampling: 2,
+                            sampling: (1,2)
                         },
                         Channel {
                             name: Text::from_str("Purple"),
                             pixel_type: PixelType::U32,
                             is_linear: false,
                             reserved: [1, 2, 7],
-                            x_sampling: 0,
-                            y_sampling: 0,
+                            sampling: (0,0)
                         }
                     ],
                     bytes_per_pixel: 0

@@ -140,18 +140,18 @@ impl TileCoordinates {
 /// it will not try to allocate that much memory, but instead consider
 /// that decoding the block length has gone wrong
 const MAX_PIXEL_BYTES: usize = 1048576; // 2^20
-use crate::file::meta::{Header, OffsetTables, Headers};
+use crate::file::meta::{OffsetTables, Headers};
 
 impl ScanLineBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         self.y_coordinate.write(write)?;
-        write_i32_sized_u8_array(write, &self.compressed_pixels)
+        u8::write_i32_sized_slice(write, &self.compressed_pixels)
     }
 
     // TODO parse lazily, always skip size, ... ?
     pub fn read(read: &mut impl Read) -> ReadResult<Self> {
         let y_coordinate = i32::read(read)?;
-        let compressed_pixels = read_i32_sized_u8_vec(read, MAX_PIXEL_BYTES)?; // TODO maximum scan line size can easily be calculated
+        let compressed_pixels = u8::read_i32_sized_vec(read, MAX_PIXEL_BYTES)?; // TODO maximum scan line size can easily be calculated
         Ok(ScanLineBlock { y_coordinate, compressed_pixels })
     }
 }
@@ -159,13 +159,13 @@ impl ScanLineBlock {
 impl TileBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         self.coordinates.write(write)?;
-        write_i32_sized_u8_array(write, &self.compressed_pixels)
+        u8::write_i32_sized_slice(write, &self.compressed_pixels)
     }
 
     // TODO parse lazily, always skip size, ... ?
     pub fn read(read: &mut impl Read) -> ReadResult<Self> {
         let coordinates = TileCoordinates::read(read)?;
-        let compressed_pixels = read_i32_sized_u8_vec(read, MAX_PIXEL_BYTES)?; // TODO maximum scan line size can easily be calculated
+        let compressed_pixels = u8::read_i32_sized_vec(read, MAX_PIXEL_BYTES)?; // TODO maximum scan line size can easily be calculated
         Ok(TileBlock { coordinates, compressed_pixels })
     }
 
@@ -188,8 +188,8 @@ impl DeepScanLineBlock {
         (self.compressed_pixel_offset_table.len() as u64).write(write)?;
         (self.compressed_sample_data.len() as u64).write(write)?; // TODO just guessed
         self.decompressed_sample_data_size.write(write)?;
-        write_i8_array(write, &self.compressed_pixel_offset_table)?;
-        write_u8_array(write, &self.compressed_sample_data)
+        i8::write_slice(write, &self.compressed_pixel_offset_table)?;
+        u8::write_slice(write, &self.compressed_sample_data)
     }
 
     pub fn read(read: &mut impl Read) -> ReadResult<Self> {
@@ -200,11 +200,11 @@ impl DeepScanLineBlock {
 
         // TODO don't just panic-cast
         // doc said i32, try u8
-        let compressed_pixel_offset_table = read_i8_vec(
+        let compressed_pixel_offset_table = i8::read_vec(
             read, compressed_pixel_offset_table_size as usize, MAX_PIXEL_BYTES
         )?;
 
-        let compressed_sample_data = read_u8_vec(
+        let compressed_sample_data = u8::read_vec(
             read, compressed_sample_data_size as usize, MAX_PIXEL_BYTES
         )?;
 
@@ -224,8 +224,8 @@ impl DeepTileBlock {
         (self.compressed_pixel_offset_table.len() as u64).write(write)?;
         (self.compressed_sample_data.len() as u64).write(write)?; // TODO just guessed
         self.decompressed_sample_data_size.write(write)?;
-        write_i8_array(write, &self.compressed_pixel_offset_table)?;
-        write_u8_array(write, &self.compressed_sample_data)
+        i8::write_slice(write, &self.compressed_pixel_offset_table)?;
+        u8::write_slice(write, &self.compressed_sample_data)
     }
 
     pub fn read(read: &mut impl Read) -> ReadResult<Self> {
@@ -234,11 +234,11 @@ impl DeepTileBlock {
         let compressed_sample_data_size = u64::read(read)? as usize; // TODO u64 just guessed
         let decompressed_sample_data_size = u64::read(read)?;
 
-        let compressed_pixel_offset_table = read_i8_vec(
+        let compressed_pixel_offset_table = i8::read_vec(
             read, compressed_pixel_offset_table_size, MAX_PIXEL_BYTES
         )?;
 
-        let compressed_sample_data = read_u8_vec(
+        let compressed_sample_data = u8::read_vec(
             read, compressed_sample_data_size, MAX_PIXEL_BYTES
         )?;
 

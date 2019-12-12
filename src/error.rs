@@ -46,7 +46,6 @@ impl From<Invalid> for ReadError {
     }
 }
 
-
 /// enable using the `?` operator on io errors
 impl From<::std::io::Error> for WriteError {
     fn from(err: ::std::io::Error) -> Self {

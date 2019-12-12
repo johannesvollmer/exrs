@@ -6,6 +6,7 @@ use crate::file::data::compression::Error::InvalidData;
 use crate::error::ReadResult;
 use crate::file::io::Data;
 
+
 // inspired by  https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfPizCompressor.cpp
 
 
@@ -56,7 +57,7 @@ pub fn decompress_bytes(
     header: &Header,
     compressed: ByteVec,
     rectangle: I32Box2,
-    expected_byte_size: usize,
+    _expected_byte_size: usize,
 ) -> Result<Vec<u8>>
 {
 
@@ -135,7 +136,7 @@ pub fn decompress_bytes(
 //        // native represenations of a half have the same size.
 //        //
 
-    let use_native_format = has_only_half_channels; // half is always 16 bit
+    let _use_native_format = has_only_half_channels; // half is always 16 bit
 
 //
 //        if (onlyHalfChannels && (sizeof (half) == pixelTypeSize (HALF)))
@@ -187,7 +188,7 @@ pub fn decompress_bytes(
 //        maxX = _maxX;
 
 
-    let min_x = rectangle.x_min;
+    let _min_x = rectangle.x_min;
     let min_y = rectangle.y_min;
 
     let mut max_x = rectangle.x_max;
@@ -226,13 +227,13 @@ pub fn decompress_bytes(
     let mut tmp_buffer = vec![0_u16; header.data_window.dimensions().0 as usize]; // TODO better size calculation?
     let mut tmp_buffer_end = 0_u32;
 
-    for (index, channel) in header.channels.list.iter().enumerate() {
+    for (_index, channel) in header.channels.list.iter().enumerate() {
         let (number_samples_x, number_samples_y) = channel.subsampled_resolution(rectangle.dimensions());
 
         let channel = ChannelData {
             start_index: tmp_buffer_end,
             end_index: tmp_buffer_end,
-            y_samples: channel.y_sampling as u32,
+            y_samples: channel.sampling.1 as u32,
             number_samples_x, number_samples_y,
             size: channel.pixel_type.bytes_per_sample() / PixelType::F16.bytes_per_sample()
         };
@@ -398,7 +399,7 @@ pub fn decompress_bytes(
                 }
 
                 // TODO this should be a simple mirroring slice copy?
-                for x in (0 .. channel.number_samples_x * channel.size).rev() {
+                for _x in (0 .. channel.number_samples_x * channel.size).rev() {
                     out.push(tmp_buffer[channel.end_index as usize]);
                     channel.end_index += 1;
                 }
@@ -467,12 +468,12 @@ pub fn decompress_bytes(
     unimplemented!("Ok(out)")
 }
 
-fn huffman_decompress(data: &[u8], result: &mut [u16]) -> ReadResult<()> {
+fn huffman_decompress(_data: &[u8], _result: &mut [u16]) -> ReadResult<()> {
     unimplemented!()
 }
 
 // https://github.com/AcademySoftwareFoundation/openexr/blob/8cd1b9210855fa4f6923c1b94df8a86166be19b1/OpenEXR/IlmImf/ImfWav.cpp
-fn wave_2_decode(buffer: &[u16], x_size: u32, x_offset: u32, y_size: u32, y_offset: u32, max: u16 ) -> ReadResult<()> {
+fn wave_2_decode(_buffer: &[u16], _x_size: u32, _x_offset: u32, _y_size: u32, _y_offset: u32, _max: u16 ) -> ReadResult<()> {
     unimplemented!()
 }
 

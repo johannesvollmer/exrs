@@ -1,10 +1,9 @@
 
-use ::byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt, ByteOrder};
 
 pub use ::std::io::{Read, Write};
-
 use half::slice::{HalfFloatSliceExt};
-//pub use super::io::{ReadResult, ReadError, WriteResult, WriteError};
+use byteorder::{ReadBytesExt, WriteBytesExt, LittleEndian};
+use ::half::f16;
 
 use crate::error::*;
 
@@ -55,437 +54,175 @@ impl<T: Read> Read for PeekRead<T> {
 }
 
 
+
+
+
 // will be inlined
 /// extension trait for primitive types like numbers and arrays
-pub trait Data: Sized {
-    fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult;
-    fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self>;
+pub trait Data: Sized + Default + Clone {
 
-    // TODO make static
-    fn byte_size(self) -> usize { ::std::mem::size_of::<Self>() }
+    fn read(read: &mut impl Read) -> ReadResult<Self>;
+    fn read_slice(read: &mut impl Read, slice: &mut[Self]) -> ReadResult<()>;
+
+    fn read_vec(read: &mut impl Read, data_size: usize, estimated_max: usize) -> ReadResult<Vec<Self>> {
+        let mut vec = Vec::new();
+        Self::read_into_vec(read, &mut vec, data_size, estimated_max)?;
+        Ok(vec)
+    }
+
+    fn write(self, write: &mut impl Write) -> WriteResult;
+    fn write_slice(write: &mut impl Write, slice: &[Self]) -> WriteResult;
+
+    fn byte_size(self) -> usize {
+        ::std::mem::size_of::<Self>()
+    }
+
+    fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, estimated_max: usize) -> ReadResult<()> {
+        let start = data.len();
+        let end = start + data_size;
+        let max_end = start + estimated_max;
+
+        if data_size < estimated_max {
+            data.resize(end, Self::default());
+            Self::read_slice(read, &mut data[start .. end])
+        }
+        else {
+            println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
+
+            data.resize(max_end, Self::default());
+            Self::read_slice(read, &mut data[start .. max_end])?;
+
+            for _ in estimated_max..data_size {
+                data.push(Self::read(read)?);
+            }
+
+            Ok(())
+        }
+    }
+
+    fn write_i32_sized_slice<W: Write>(write: &mut W, slice: &[Self]) -> WriteResult {
+        (slice.len() as i32).write(write)?;
+        Self::write_slice(write, slice)
+    }
+
+    fn read_i32_sized_vec(read: &mut impl Read, estimated_max: usize) -> ReadResult<Vec<Self>> {
+        let size = i32::read(read)?;
+        if size < 0 { return Err(unimplemented!()) }
+        Self::read_vec(read, size as usize, estimated_max)
+    }
 }
 
+
+macro_rules! implement_data_for_primitive {
+    ($kind: ident, $read: ident, $read_into: ident, $write: ident, $to_little_endian: ident) => {
+        impl Data for $kind {
+            fn read(read: &mut impl Read) -> ReadResult<Self> {
+                read. $read ::<LittleEndian> ().map_err(ReadError::from)
+            }
+
+            fn read_slice(read: &mut impl Read, slice: &mut [Self]) -> ReadResult<()> {
+                read. $read_into ::<LittleEndian> (slice).map_err(ReadError::from)
+            }
+
+            fn write(self, write: &mut impl Write) -> WriteResult {
+                write. $write ::<LittleEndian> (self).map(|_| ()).map_err(WriteError::from)
+            }
+
+            fn write_slice(write: &mut impl Write, slice: &[Self]) -> WriteResult {
+                // TODO without allocation?!?!?!
+                let mut mutable = slice.to_owned();
+                LittleEndian:: $to_little_endian (mutable.as_mut_slice()); // convert data to little endian
+
+                u8::write_slice(write, unsafe {
+                    std::slice::from_raw_parts(
+                        mutable.as_ptr() as *const u8,
+                        mutable.len() * std::mem::size_of::<$kind>()
+                    )
+                }).map(|_| ()).map_err(WriteError::from)
+            }
+        }
+    };
+}
+
+use byteorder::ByteOrder;
+implement_data_for_primitive!(u16, read_u16, read_u16_into, write_u16, from_slice_u16);
+implement_data_for_primitive!(u32, read_u32, read_u32_into, write_u32, from_slice_u32);
+implement_data_for_primitive!(i32, read_i32, read_i32_into, write_i32, from_slice_i32);
+implement_data_for_primitive!(i64, read_i64, read_i64_into, write_i64, from_slice_i64);
+implement_data_for_primitive!(u64, read_u64, read_u64_into, write_u64, from_slice_u64);
+implement_data_for_primitive!(i16, read_i16, read_i16_into, write_i16, from_slice_i16);
+implement_data_for_primitive!(f32, read_f32, read_f32_into, write_f32, from_slice_f32);
+implement_data_for_primitive!(f64, read_f64, read_f64_into, write_f64, from_slice_f64);
+
+
 impl Data for u8 {
-    fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult {
+    fn read(read: &mut impl Read) -> ReadResult<Self> {
+        read.read_u8().map_err(ReadError::from)
+    }
+
+    fn read_slice(read: &mut impl Read, slice: &mut [Self]) -> ReadResult<()> {
+        read.read_exact(slice).map_err(ReadError::from)
+    }
+
+    fn write(self, write: &mut impl Write) -> WriteResult {
         write.write_u8(self).map_err(WriteError::from)
     }
 
-    fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self> {
-        read.read_u8().map_err(ReadError::from)
+    fn write_slice(write: &mut impl Write, slice: &[Self]) -> WriteResult {
+        write.write_all(slice).map_err(WriteError::from)
     }
 }
 
-impl Data for u32 {
-    fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult {
-        write.write_u32::<LittleEndian>(self).map_err(WriteError::from)
+impl Data for f16 {
+    fn read(read: &mut impl Read) -> ReadResult<Self> {
+        read.read_u16::<LittleEndian>().map(f16::from_bits).map_err(ReadError::from)
     }
 
-    fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self> {
-        read.read_u32::<LittleEndian>().map_err(ReadError::from)
-    }
-}
-
-impl Data for u64 {
-    fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult {
-        write.write_u64::<LittleEndian>(self).map_err(WriteError::from)
+    fn read_slice(read: &mut impl Read, slice: &mut [Self]) -> ReadResult<()> {
+        let bits = slice.reinterpret_cast_mut();
+        u16::read_slice(read, bits)
     }
 
-    fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self> {
-        read.read_u64::<LittleEndian>().map_err(ReadError::from)
-    }
-}
-
-impl Data for i64 {
-    fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult {
-        write.write_i64::<LittleEndian>(self).map_err(WriteError::from)
+    fn write(self, write: &mut impl Write) -> WriteResult {
+        self.to_bits().write(write)
     }
 
-    fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self> {
-        read.read_i64::<LittleEndian>().map_err(ReadError::from)
-    }
-}
-
-impl Data for u16 {
-    fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult {
-        write.write_u16::<LittleEndian>(self).map_err(WriteError::from)
-    }
-
-    fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self> {
-        read.read_u16::<LittleEndian>().map_err(ReadError::from)
+    fn write_slice(write: &mut impl Write, slice: &[Self]) -> WriteResult {
+        let bits = slice.reinterpret_cast();
+        u16::write_slice(write, bits)
     }
 }
 
 impl Data for i8 {
-    fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult {
+    fn read(read: &mut impl Read) -> ReadResult<Self> {
+        read.read_i8().map_err(ReadError::from)
+    }
+
+    fn read_slice(read: &mut impl Read, slice: &mut [Self]) -> ReadResult<()> {
+        let as_u8 = unsafe {
+            std::slice::from_raw_parts_mut(
+                slice.as_mut_ptr() as *mut u8,
+                slice.len()
+            )
+        };
+
+        u8::read_slice(read, as_u8)
+    }
+
+    fn write(self, write: &mut impl Write) -> WriteResult {
         write.write_i8(self).map_err(WriteError::from)
     }
 
-    fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self> {
-        read.read_i8().map_err(ReadError::from)
+    fn write_slice(write: &mut impl Write, slice: &[Self]) -> WriteResult {
+        // single bytes don't need shuffling to little endian
+        // reinterpret the i8 array as bytes, in order to write it
+        u8::write_slice(write, unsafe {
+            ::std::slice::from_raw_parts(
+                slice.as_ptr() as *const u8,
+                slice.len()
+            )
+        })
     }
-}
-
-impl Data for i32 {
-    fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult {
-        write.write_i32::<LittleEndian>(self).map_err(WriteError::from)
-    }
-
-    fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self> {
-        read.read_i32::<LittleEndian>().map_err(ReadError::from)
-    }
-}
-
-impl Data for f32 {
-    fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult {
-        write.write_f32::<LittleEndian>(self).map_err(WriteError::from)
-    }
-
-    fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self> {
-        read.read_f32::<LittleEndian>().map_err(ReadError::from)
-    }
-}
-
-impl Data for f64 {
-    fn write<W: WriteBytesExt>(self, write: &mut W) -> WriteResult {
-        write.write_f64::<LittleEndian>(self).map_err(WriteError::from)
-    }
-
-    fn read<R: ReadBytesExt>(read: &mut R) -> ReadResult<Self> {
-        read.read_f64::<LittleEndian>().map_err(ReadError::from)
-    }
-}
-
-
-// TODO make these instance functions?
-
-pub fn write_u8_array<W: Write>(write: &mut W, bytes: &[u8]) -> WriteResult {
-    write.write_all(bytes).map_err(WriteError::from)
-}
-
-pub fn write_i32_sized_u8_array<W: Write>(write: &mut W, bytes: &[u8]) -> WriteResult {
-    (bytes.len() as i32).write(write)?;
-    write_u8_array(write, bytes)
-}
-
-// TODO test
-pub fn write_f32_array<W: WriteBytesExt>(write: &mut W, array: &mut [f32]) -> WriteResult {
-    LittleEndian::from_slice_f32(array); // convert data to little endian
-    write_u8_array(write, unsafe {
-        ::std::slice::from_raw_parts(
-            array.as_ptr() as *const u8,
-            array.len() * ::std::mem::size_of::<f32>()
-        )
-    })
-}
-
-// TODO test
-pub fn write_i32_array<W: Write>(write: &mut W, array: &mut [i32]) -> WriteResult {
-    LittleEndian::from_slice_i32(array); // convert data to little endian
-    write_u8_array(write, unsafe {
-        ::std::slice::from_raw_parts(
-            array.as_ptr() as *const u8,
-            array.len() * ::std::mem::size_of::<i32>()
-        )
-    })
-}
-
-pub fn write_u32_array<W: Write>(write: &mut W, array: &mut [u32]) -> WriteResult {
-    LittleEndian::from_slice_u32(array); // convert data to little endian
-    write_u8_array(write, unsafe {
-        ::std::slice::from_raw_parts(
-            array.as_ptr() as *const u8,
-            array.len() * ::std::mem::size_of::<u32>()
-        )
-    })
-}
-
-// TODO test
-pub fn write_u64_array<W: Write>(write: &mut W, array: &mut [u64]) -> WriteResult {
-    LittleEndian::from_slice_u64(array); // convert data to little endian
-    write_u8_array(write, unsafe {
-        ::std::slice::from_raw_parts(
-            array.as_ptr() as *const u8,
-            array.len() * ::std::mem::size_of::<u64>()
-        )
-    })
-}
-
-// TODO test
-pub fn write_i8_array<W: Write>(write: &mut W, array: &[i8]) -> WriteResult {
-    // single bytes don't need shuffling to little endian
-    // reinterpret the i8 array as bytes, in order to write it
-    write_u8_array(write, unsafe {
-        ::std::slice::from_raw_parts(
-            array.as_ptr() as *const u8,
-            array.len()
-        )
-    })
-}
-
-// TODO DRY
-
-pub fn read_u8_array<R: Read>(read: &mut R, array: &mut [u8]) -> ReadResult<()> {
-    read.read_exact(array).map_err(ReadError::from)
-}
-
-// TODO test
-pub fn read_i8_array<R: Read>(read: &mut R, array: &mut [i8]) -> ReadResult<()> {
-    let as_u8 = unsafe {
-        ::std::slice::from_raw_parts_mut(
-            array.as_mut_ptr() as *mut u8,
-            array.len()
-        )
-    };
-
-    read.read_exact(as_u8).map_err(ReadError::from)
-}
-
-pub fn read_f32_array<R: ReadBytesExt>(read: &mut R, array: &mut [f32]) -> ReadResult<()> {
-    read.read_f32_into::<LittleEndian>(array).map_err(ReadError::from)
-}
-pub fn read_f16_array<R: ReadBytesExt>(read: &mut R, array: &mut [f16]) -> ReadResult<()> {
-    let u16_array = array.reinterpret_cast_mut();
-    read.read_u16_into::<LittleEndian>(u16_array).map_err(ReadError::from)
-}
-pub fn read_u32_array<R: ReadBytesExt>(read: &mut R, array: &mut [u32]) -> ReadResult<()> {
-    read.read_u32_into::<LittleEndian>(array).map_err(ReadError::from)
-}
-
-
-
-pub fn read_i32_vec<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_max: usize) -> ReadResult<Vec<i32>> {
-    if data_size < estimated_max {
-        let mut data = vec![0; data_size];
-        read.read_i32_into::<LittleEndian>(&mut data)?;
-        data.shrink_to_fit();
-        Ok(data)
-
-    } else {
-        println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
-
-        // be careful for suspiciously large data,
-        // as reading the pixel_data_size could have gone wrong
-        // (read byte by byte to avoid allocating too much memory at once,
-        // assuming that it will fail soon, when the file ends)
-        // FIXME shouldn't file::open already check too large buffers?
-        let mut data = vec![0; estimated_max];
-        read.read_i32_into::<LittleEndian>(&mut data)?;
-
-        for _ in estimated_max..data_size {
-            data.push(i32::read(read)?);
-        }
-
-        data.shrink_to_fit();
-        Ok(data)
-    }
-}
-
-
-pub fn read_f32_vec<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_max: usize) -> ReadResult<Vec<f32>> {
-    if data_size < estimated_max {
-        let mut data = vec![0.0; data_size];
-        read.read_f32_into::<LittleEndian>(&mut data)?;
-        data.shrink_to_fit();
-        Ok(data)
-
-    } else {
-        println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
-
-        // be careful for suspiciously large data,
-        // as reading the pixel_data_size could have gone wrong
-        // (read byte by byte to avoid allocating too much memory at once,
-        // assuming that it will fail soon, when the file ends)
-        let mut data = vec![0.0; estimated_max];
-        read.read_f32_into::<LittleEndian>(&mut data)?;
-
-        for _ in estimated_max..data_size {
-            data.push(f32::read(read)?);
-        }
-
-        data.shrink_to_fit();
-        Ok(data)
-    }
-}
-
-use ::half::f16;
-use half::vec::HalfBitsVecExt;
-
-pub fn read_into_f16_vec(read: &mut impl ReadBytesExt, vec: &mut Vec<f16>, data_size: usize, estimated_max: usize) -> ReadResult<()> {
-    read_f16_vec(read, data_size, estimated_max)
-        .map(|values| vec.extend_from_slice(&values))
-}
-
-/// The representation of 16-bit floating-point numbers is analogous to IEEE 754,
-/// but with 5 exponent bits and 10 bits for the fraction
-// reads an u16 array first and then interprets it as f16
-pub fn read_f16_vec<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_max: usize) -> ReadResult<Vec<f16>> {
-    if data_size < estimated_max {
-        let mut data = vec![0; data_size];
-        read.read_u16_into::<LittleEndian>(&mut data)?;
-        data.shrink_to_fit();
-        Ok(data.reinterpret_into())
-
-    } else {
-        println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
-
-        // be careful for suspiciously large data,
-        // as reading the pixel_data_size could have gone wrong
-        // (read byte by byte to avoid allocating too much memory at once,
-        // assuming that it will fail soon, when the file ends)
-        let mut data = vec![0; estimated_max];
-        read.read_u16_into::<LittleEndian>(&mut data)?;
-
-        for _ in estimated_max..data_size {
-            data.push(u16::read(read)?);
-        }
-
-        data.shrink_to_fit();
-        Ok(data.reinterpret_into())
-    }
-}
-
-pub fn read_into_u32_vec(read: &mut impl ReadBytesExt, vec: &mut Vec<u32>, data_size: usize, estimated_max: usize) -> ReadResult<()> {
-    read_u32_vec(read, data_size, estimated_max)
-        .map(|values| vec.extend_from_slice(&values))
-}
-
-pub fn read_u32_vec<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_max: usize) -> ReadResult<Vec<u32>> {
-    if data_size < estimated_max {
-        let mut data = vec![0; data_size];
-        read.read_u32_into::<LittleEndian>(&mut data)?;
-        data.shrink_to_fit();
-        Ok(data)
-
-    } else {
-        println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
-
-        // be careful for suspiciously large data,
-        // as reading the pixel_data_size could have gone wrong
-        // (read byte by byte to avoid allocating too much memory at once,
-        // assuming that it will fail soon, when the file ends)
-        let mut data = vec![0; estimated_max];
-        read.read_u32_into::<LittleEndian>(&mut data)?;
-
-        for _ in estimated_max..data_size {
-            data.push(u32::read(read)?);
-        }
-
-        data.shrink_to_fit();
-        Ok(data)
-    }
-}
-
-pub fn read_into_f32_vec(read: &mut impl ReadBytesExt, vec: &mut Vec<f32>, data_size: usize, estimated_max: usize) -> ReadResult<()> {
-    read_f32_vec(read, data_size, estimated_max)
-        .map(|values| vec.extend_from_slice(&values))
-}
-
-pub fn read_u64_vec<R: ReadBytesExt>(read: &mut R, data_size: usize, estimated_max: usize) -> ReadResult<Vec<u64>> {
-    if data_size < estimated_max {
-        let mut data = vec![0; data_size];
-        read.read_u64_into::<LittleEndian>(&mut data)?;
-        data.shrink_to_fit();
-        Ok(data)
-
-    } else {
-        println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
-
-        // be careful for suspiciously large data,
-        // as reading the pixel_data_size could have gone wrong
-        // (read byte by byte to avoid allocating too much memory at once,
-        // assuming that it will fail soon, when the file ends)
-        let mut data = vec![0; estimated_max];
-        read.read_u64_into::<LittleEndian>(&mut data)?;
-
-        for _ in estimated_max..data_size {
-            data.push(u64::read(read)?);
-        }
-
-        data.shrink_to_fit();
-        Ok(data)
-    }
-}
-
-pub fn read_i8_vec<R: Read>(read: &mut R, data_size: usize, estimated_max: usize) -> ReadResult<Vec<i8>> {
-    if data_size < estimated_max {
-        let mut data = vec![0; data_size];
-        read_i8_array(read, &mut data)?;
-        data.shrink_to_fit();
-        Ok(data)
-
-    } else {
-        println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
-
-        // be careful for suspiciously large data,
-        // as reading the pixel_data_size could have gone wrong
-        // (read byte by byte to avoid allocating too much memory at once,
-        // assuming that it will fail soon, when the file ends)
-        let mut data = vec![0; estimated_max];
-        read_i8_array(read, &mut data)?;
-
-        for _ in estimated_max..data_size {
-            data.push(i8::read(read)?);
-        }
-
-        data.shrink_to_fit();
-        Ok(data)
-    }
-}
-
-/// reuses the allocated buffer, does not shrink to fit
-pub fn reuse_read_u8_vec<R: Read>(read: &mut R, mut data: Vec<u8>, data_size: usize, estimated_max: usize) -> ReadResult<Vec<u8>> {
-    if data_size < estimated_max {
-        data.resize(data_size, 0);
-        read_u8_array(read, &mut data)?;
-        Ok(data)
-
-    } else {
-        println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
-
-        // be careful for suspiciously large data,
-        // as reading the pixel_data_size could have gone wrong
-        // (read byte by byte to avoid allocating too much memory at once,
-        // assuming that it will fail soon, when the file ends)
-        data.resize(estimated_max, 0);
-        read.read_exact(&mut data)?;
-
-        for _ in estimated_max..data_size {
-            data.push(u8::read(read)?);
-        }
-
-        Ok(data)
-    }
-}
-
-pub fn read_u8_vec<R: Read>(read: &mut R, data_size: usize, estimated_max: usize) -> ReadResult<Vec<u8>> {
-    if data_size < estimated_max {
-        let mut data = vec![0; data_size];
-        read_u8_array(read, &mut data)?;
-        data.shrink_to_fit();
-        Ok(data)
-
-    } else {
-        println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
-
-        // be careful for suspiciously large data,
-        // as reading the pixel_data_size could have gone wrong
-        // (read byte by byte to avoid allocating too much memory at once,
-        // assuming that it will fail soon, when the file ends)
-        let mut data = vec![0; estimated_max];
-        read.read_exact(&mut data)?;
-
-        for _ in estimated_max..data_size {
-            data.push(u8::read(read)?);
-        }
-
-        data.shrink_to_fit();
-        Ok(data)
-    }
-}
-
-pub fn read_i32_sized_u8_vec<R: Read>(read: &mut R, estimated_max: usize) -> ReadResult<Vec<u8>> {
-    let data_size = i32::read(read)? as usize;
-    read_u8_vec(read, data_size, estimated_max)
 }
 
 
@@ -499,12 +236,12 @@ impl MagicNumber {
 
 impl MagicNumber {
     pub fn write<W: Write>(write: &mut W) -> WriteResult {
-        write_u8_array(write, &Self::BYTES)
+        u8::write_slice(write, &Self::BYTES)
     }
 
     pub fn is_exr<R: Read>(read: &mut R) -> ReadResult<bool> {
         let mut magic_num = [0; 4];
-        read_u8_array(read, &mut magic_num)?;
+        u8::read_slice(read, &mut magic_num)?;
         Ok(magic_num == Self::BYTES)
     }
 
