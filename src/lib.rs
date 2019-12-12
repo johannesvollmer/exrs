@@ -128,7 +128,7 @@ pub mod test {
         println!("\ndecoded file in {:?} s", millis as f32 * 0.001);
 
         let part: &Part = &image.parts[0];
-        let content: &ChannelData = &part.channels[2].content;
+        let content: &ChannelData = &part.channels[1].content;
 
         match content {
             ChannelData::F16(levels) => {

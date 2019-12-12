@@ -3,20 +3,23 @@
 
 
 use smallvec::SmallVec;
-use crate::file::meta::{Header, MetaData, TileIndices, Headers, Attributes};
-use crate::file::{compute_level_count};
-use crate::file::data::{Block, Chunk, ChunkReader, TileBlock, ScanLineBlock};
-use crate::file::io::*;
-use crate::file::meta::attributes::{PixelType, LevelMode, Kind, I32Box2, Text};
-use crate::file::data::compression::{ByteVec, Compression};
-use crate::error::validity::{Invalid, Value, Required};
-//use rayon::prelude::*;
 use half::f16;
-use crate::error::{ReadResult};
-use std::io::BufReader;
 use rayon::prelude::{IntoParallelIterator};
 use rayon::iter::{ParallelIterator};
-use crate::file::{mip_map_resolutions, rip_map_resolutions, io};
+
+use crate::file::data::*;
+use crate::file::io::*;
+use crate::file::meta::*;
+use crate::error::validity::*;
+use crate::file::meta::attributes::*;
+use crate::file::*;
+
+use crate::file::compute_level_count;
+use crate::file::data::compression::{ByteVec, Compression};
+use crate::error::{ReadResult};
+use std::io::BufReader;
+
+
 pub use crate::file::io::Data;
 
 // TODO notes:
@@ -423,7 +426,7 @@ impl Channel {
     }
 }
 
-impl<Sample: Data> SampleMaps<Sample> {
+impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
     pub fn new(header: &Header) -> Self {
         if header.has_deep_data() {
             SampleMaps::Deep(Levels::new(header))
@@ -529,9 +532,9 @@ impl<Sample: io::Data> Samples for DeepSamples<Sample> {
         ]
     }
 
-    fn read_line(&mut self, read: &mut impl Read, position: (usize, usize), length: usize, _image_width: usize) -> ReadResult<()> {
+    fn read_line(&mut self, read: &mut impl Read, _position: (usize, usize), length: usize, _image_width: usize) -> ReadResult<()> {
         // TODO err on invalid tile position
-        self[position.1 as usize] = DeepLine {
+        self[_position.1 as usize] = DeepLine {
             samples: Sample::read_vec(read, length, 1024*1024*1024)?, // FIXME where tiles, will not be hole line
             index_table: unimplemented!()
         };
@@ -540,16 +543,18 @@ impl<Sample: io::Data> Samples for DeepSamples<Sample> {
     }
 }
 
-impl<Sample: io::Data + Default + Clone> Samples for FlatSamples<Sample> {
+impl<Sample: io::Data + Default + Clone + std::fmt::Debug> Samples for FlatSamples<Sample> {
     fn new(resolution: (usize, usize)) -> Self {
         let resolution = (resolution.0 as usize, resolution.1 as usize);
         vec![Sample::default(); resolution.0 * resolution.1]
     }
 
     fn read_line(&mut self, read: &mut impl Read, position: (usize, usize), length: usize, image_width: usize) -> ReadResult<()> {
-        let start_index = position.0 as usize * image_width;
+        let start_index = position.1 as usize * image_width + position.0 as usize;
         let end_index = start_index + length;
-        Sample::read_slice(read, &mut self[start_index .. end_index])
+
+        Sample::read_slice(read, &mut self[start_index .. end_index])?;
+        Ok(())
     }
 }
 

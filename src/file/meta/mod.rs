@@ -7,7 +7,7 @@ use super::io::*;
 use ::smallvec::SmallVec;
 use self::attributes::*;
 use crate::file::data::{TileCoordinates, Block};
-use crate::error::{ReadResult, WriteResult, ReadError};
+use crate::error::{ReadResult, WriteResult};
 use std::convert::TryFrom;
 
 

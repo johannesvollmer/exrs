@@ -48,8 +48,8 @@ fn mod_p(x: i32, y: i32) -> i32 {
 }
 
 
-const u16_range: i32 = (1 << 16);
-const bitmap_size: i32  = (u16_range >> 3); // rly
+const U16_RANGE: i32 = (1 << 16);
+const BITMAP_SIZE: i32  = (U16_RANGE >> 3); // rly
 
 
 
@@ -191,12 +191,12 @@ pub fn decompress_bytes(
     let _min_x = rectangle.x_min;
     let min_y = rectangle.y_min;
 
-    let mut max_x = rectangle.x_max;
+    let mut _max_x = rectangle.x_max;
     let mut max_y = rectangle.y_max;
 
     // TODO rustify
-    if max_x > header.data_window.x_max {
-        max_x = header.data_window.x_max;
+    if _max_x > header.data_window.x_max {
+        _max_x = header.data_window.x_max;
     }
 
     if max_y > header.data_window.y_max {
@@ -254,7 +254,7 @@ pub fn decompress_bytes(
 //        AutoArray <unsigned char, BITMAP_SIZE> bitmap;
 //        memset (bitmap, 0, sizeof (unsigned char) * BITMAP_SIZE);
 
-    let mut bitmap = vec![0_u8; bitmap_size as usize];
+    let mut bitmap = vec![0_u8; BITMAP_SIZE as usize];
 
 
 //
@@ -272,7 +272,7 @@ pub fn decompress_bytes(
 //            throw InputExc ("Error in header for PIZ-compressed data "
 //            "(invalid bitmap size).");
 //        }
-    if max_non_zero as i32 >= bitmap_size {
+    if max_non_zero as i32 >= BITMAP_SIZE {
         println!("invalid bitmap size");
         return Err(InvalidData);
     }
@@ -495,11 +495,11 @@ fn reverse_lookup_table_from_bitmap(bitmap: Bytes) -> (Vec<u16>, u16) {
 
 //    let mut k = 0;
 
-    assert_eq!(u16_range as u16 as i32, u16_range);
+    assert_eq!(U16_RANGE as u16 as i32, U16_RANGE);
 
-    let mut table = Vec::with_capacity(u16_range as usize);
+    let mut table = Vec::with_capacity(U16_RANGE as usize);
 
-    for index in 0 .. u16_range as u16 {
+    for index in 0 .. U16_RANGE as u16 {
         if index == 0 || (bitmap[index as usize >> 3] as usize & (1 << (index as usize & 7)) != 0) { // TODO where should be cast?
 //            lut[k] = i;
 //            k += 1;
@@ -510,7 +510,7 @@ fn reverse_lookup_table_from_bitmap(bitmap: Bytes) -> (Vec<u16>, u16) {
     let n = table.len() as u16;
     assert_eq!(table.len() as u16 as usize, table.len());
 
-    table.resize(u16_range as usize, 0);
+    table.resize(U16_RANGE as usize, 0);
 
     (table, n)
 }
