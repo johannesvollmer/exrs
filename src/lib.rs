@@ -10,6 +10,13 @@ pub mod util {
                 panic!("Expected variant `{}` in `{}`", stringify!($variant), stringify!($value))
             }
         };
+
+        ($value: expr, $variant: pat) => {
+            match $value {
+                $variant => value,
+                _ => panic!("Expected value in variant `{}` in `{}`", stringify!($variant), stringify!($value))
+            }
+        }
     }
 }
 
@@ -42,7 +49,7 @@ pub mod prelude {
 
     // data types
     pub use crate::file::meta::{ MetaData, attributes::{ Attribute, AttributeValue, Text }, Header };
-    pub use crate::image::{Image, Channel, ChannelData, SampleMaps, Levels, RipMaps, SampleBlock, DeepSamples, FlatSamples };
+    pub use crate::image::{Image, Channel, ChannelData, SampleMaps, Levels, RipMaps, SampleBlock, DeepSamples, FlatSamples, Samples };
     pub use crate::error::{ ReadResult, WriteResult, ReadError, WriteError };
 
     // re export external stuff
@@ -55,6 +62,7 @@ pub mod prelude {
 pub mod test {
     use crate::prelude::*;
     use crate::image::Part;
+    use std::fs;
 
     #[test]
     fn print_meta_of_all_files() {
@@ -127,39 +135,56 @@ pub mod test {
         let millis = elapsed.as_secs() * 1000 + elapsed.subsec_millis() as u64;
         println!("\ndecoded file in {:?} s", millis as f32 * 0.001);
 
-        let part: &Part = &image.parts[0];
-        let content: &ChannelData = &part.channels[1].content;
 
-        match content {
-            ChannelData::F16(levels) => {
-                expect_variant!(levels, SampleMaps::Flat(levels) => {
-                    let sample_block : &SampleBlock<FlatSamples<f16>> = levels.largest();
+        fn save_f16_as_png(data: &[f32], size: (usize, usize), name: String) {
+            let mut png_buffer = ::piston_image::GrayImage::new(size.0 as u32, size.1 as u32);
+            let min = data.iter().cloned().fold(0.0/0.0, f32::max);
+            let max = data.iter().cloned().fold(1.0/0.0, f32::min);
 
-                    let mut png_buffer = ::piston_image::GrayImage::new(sample_block.resolution.0 as u32, sample_block.resolution.1 as u32);
+            for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
+                let v = data[(y * size.0 as u32 + x) as usize];
+                let v = (v - min) / (max - min);
+                *pixel = ::piston_image::Luma([(v * 255.0) as u8]);
+            }
 
-                    for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
-                        let v = sample_block.samples[(y * sample_block.resolution.0 as u32 + x) as usize];
-                        *pixel = ::piston_image::Luma([(v.to_f32().powf(1.0/2.2) * 100.0) as u8]);
-                    }
+            png_buffer.save(Path::new(&name)).unwrap();
+        }
 
-                    png_buffer.save(Path::new("test.png")).unwrap();
-                })
-            },
-            ChannelData::F32(levels) => {
-                expect_variant!(levels, SampleMaps::Flat(levels) => {
-                    let sample_block : &SampleBlock<FlatSamples<f32>> = levels.largest();
+        fs::remove_dir_all("testout").unwrap();
+        fs::create_dir("testout").unwrap();
 
-                    let mut png_buffer = ::piston_image::GrayImage::new(sample_block.resolution.0 as u32, sample_block.resolution.1 as u32);
+        for part in &image.parts {
+            for channel in &part.channels {
+                match &channel.content {
+                    ChannelData::F16(levels) => {
+                        let levels = levels.flat_samples().unwrap();
+                        for sample_block in levels.levels() {
+                            let data : Vec<f32> = sample_block.samples.iter().map(|f16| f16.to_f32()).collect();
 
-                    for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
-                        let v = sample_block.samples[(y * sample_block.resolution.0 as u32 + x) as usize];
-                        *pixel = ::piston_image::Luma([(v.powf(1.0/2.2) * 100.0) as u8]);
-                    }
-
-                    png_buffer.save(Path::new("test.png")).unwrap();
-                })
-            },
-            _ => unimplemented!()
+                            save_f16_as_png(&data, sample_block.resolution, format!(
+                                "testout/part-{}_f16-channel-{}_level-{}-{}.png",
+                                part.name.as_ref().map(Text::to_string).unwrap_or(String::from("1")),
+                                channel.name,
+                                sample_block.resolution.0,
+                                sample_block.resolution.1,
+                            ))
+                        }
+                    },
+                    ChannelData::F32(levels) => {
+                        let levels = levels.flat_samples().unwrap();
+                        for sample_block in levels.levels() {
+                            save_f16_as_png(&sample_block.samples, sample_block.resolution, format!(
+                                "testout/part-{}_f16-channel-{}_level-{}-{}.png",
+                                part.name.as_ref().map(Text::to_string).unwrap_or(String::from("1")),
+                                channel.name,
+                                sample_block.resolution.0,
+                                sample_block.resolution.1,
+                            ))
+                        }
+                    },
+                    _ => unimplemented!()
+                }
+            }
         }
 
         // expect_variant!(channels, crate::image::PartData::Flat(ref pixels) => {

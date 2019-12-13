@@ -221,7 +221,7 @@ use std::cmp::Ordering;
 use crate::error::{ReadResult, WriteResult, ReadError};
 
 impl Text {
-    pub fn from_str(str_value: &str) -> Self {
+    pub fn from_str_unchecked(str_value: &str) -> Self {
         debug_assert_eq!(
             str_value.bytes().len(), str_value.chars().count(),
             "only single-byte chars supported by open exr" // TODO is this true?
@@ -237,19 +237,13 @@ impl Text {
     /// panics if value is too long (31 bytes max)
     pub fn from_str_32(str_value: &str) -> Self {
         assert!(str_value.as_bytes().len() < 32, "max text length is 31");
-        Self::from_str(str_value)
+        Self::from_str_unchecked(str_value)
     }
 
     /// panics if value is too long (31 bytes max)
     pub fn from_str_256(str_value: &str) -> Self {
         assert!(str_value.as_bytes().len() < 256, "max text length is 255");
-        Self::from_str(str_value)
-    }
-
-    pub fn to_string(&self) -> String {
-        self.bytes.iter()
-            .map(|&byte| byte as char)
-            .collect() // TODO is this ascii and can be treated as utf-8?
+        Self::from_str_unchecked(str_value)
     }
 
     pub fn validate(&self, long_names: Option<bool>) -> Validity {
@@ -355,12 +349,30 @@ impl Text {
         }
         Ok(())
     }
+}
 
+impl Into<String> for Text {
+    fn into(self) -> String {
+        self.to_string()
+    }
 }
 
 impl ::std::fmt::Debug for Text {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "\"{}\"", self.to_string())
+        write!(f, "exr::Text(\"{}\")", self.to_string())
+    }
+}
+
+// automatically implements to_string for us
+impl ::std::fmt::Display for Text {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        use std::fmt::Write;
+
+        for &byte in self.bytes.iter() {
+            f.write_char(byte as char)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -1337,19 +1349,19 @@ mod test {
     fn attribute_write_read_roundtrip_and_byte_size(){
         let attributes = [
             Attribute {
-                name: Text::from_str("greeting"),
-                value: AttributeValue::Text(Text::from_str("hello")),
+                name: Text::from_str_unchecked("greeting"),
+                value: AttributeValue::Text(Text::from_str_unchecked("hello")),
             },
             Attribute {
-                name: Text::from_str("age"),
+                name: Text::from_str_unchecked("age"),
                 value: AttributeValue::I32(923),
             },
             Attribute {
-                name: Text::from_str("leg count"),
+                name: Text::from_str_unchecked("leg count"),
                 value: AttributeValue::F64(9.114939599234),
             },
             Attribute {
-                name: Text::from_str("rabbit area"),
+                name: Text::from_str_unchecked("rabbit area"),
                 value: AttributeValue::F32Box2(F32Box2 {
                     x_min: 23.4234,
                     y_min: 345.23,
@@ -1358,17 +1370,17 @@ mod test {
                 }),
             },
             Attribute {
-                name: Text::from_str("tests are difficult"),
+                name: Text::from_str_unchecked("tests are difficult"),
                 value: AttributeValue::TextVector(vec![
-                    Text::from_str("sdoifjpsdv"),
-                    Text::from_str("sdoifjpsdvxxxx"),
-                    Text::from_str("sdoifjasd"),
-                    Text::from_str("sdoifj"),
-                    Text::from_str("sdoifjddddddddasdasd"),
+                    Text::from_str_unchecked("sdoifjpsdv"),
+                    Text::from_str_unchecked("sdoifjpsdvxxxx"),
+                    Text::from_str_unchecked("sdoifjasd"),
+                    Text::from_str_unchecked("sdoifj"),
+                    Text::from_str_unchecked("sdoifjddddddddasdasd"),
                 ]),
             },
             Attribute {
-                name: Text::from_str("what should we eat tonight"),
+                name: Text::from_str_unchecked("what should we eat tonight"),
                 value: AttributeValue::Preview(Preview {
                     width: 10,
                     height: 30,
@@ -1376,25 +1388,25 @@ mod test {
                 }),
             },
             Attribute {
-                name: Text::from_str("leg count, again"),
+                name: Text::from_str_unchecked("leg count, again"),
                 value: AttributeValue::ChannelList(ChannelList {
                     list: smallvec![
                         Channel {
-                            name: Text::from_str("Green"),
+                            name: Text::from_str_32("Green"),
                             pixel_type: PixelType::F16,
                             is_linear: false,
                             reserved: [0, 0, 0],
                             sampling: (1,2)
                         },
                         Channel {
-                            name: Text::from_str("Red"),
+                            name: Text::from_str_32("Red"),
                             pixel_type: PixelType::F32,
                             is_linear: true,
                             reserved: [0, 1, 0],
                             sampling: (1,2)
                         },
                         Channel {
-                            name: Text::from_str("Purple"),
+                            name: Text::from_str_32("Purple"),
                             pixel_type: PixelType::U32,
                             is_linear: false,
                             reserved: [1, 2, 7],
@@ -1418,7 +1430,7 @@ mod test {
 
         {
             let too_large_named = Attribute {
-                name: Text::from_str("asdkaspfokpaosdkfpaokswdpoakpsfokaposdkf"),
+                name: Text::from_str_unchecked("asdkaspfokpaosdkfpaokswdpoakpsfokaposdkf"),
                 value: AttributeValue::I32(0),
             };
 

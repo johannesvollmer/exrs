@@ -442,6 +442,20 @@ impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
             SampleMaps::Flat(ref mut levels) => levels.read_line(block, level, position, length),
         }
     }
+
+    pub fn flat_samples(&self) -> Option<&Levels<FlatSamples<Sample>>> {
+        match self {
+            SampleMaps::Flat(ref levels) => Some(levels),
+            _ => None
+        }
+    }
+
+    pub fn deep_samples(&self) -> Option<&Levels<DeepSamples<Sample>>> {
+        match self {
+            SampleMaps::Deep(ref levels) => Some(levels),
+            _ => None
+        }
+    }
 }
 
 impl<S: Samples> Levels<S> {
@@ -505,7 +519,24 @@ impl<S: Samples> Levels<S> {
 
         Ok(())
     }
+
+    pub fn largest(&self) -> &SampleBlock<S> {
+        match self {
+            Levels::Singular(data) => data,
+            Levels::Mip(maps) => &maps[0], // TODO is this really the largest one?
+            Levels::Rip(rip_map) => &rip_map.map_data[0], // TODO test!
+        }
+    }
+
+    pub fn levels(&self) -> &[SampleBlock<S>] {
+        match self {
+            Levels::Singular(ref data) => std::slice::from_ref(data),
+            Levels::Mip(ref maps) => maps, // TODO is this really the largest one?
+            Levels::Rip(ref rip_map) => &rip_map.map_data, // TODO test!
+        }
+    }
 }
+
 
 impl<S: Samples> SampleBlock<S> {
     pub fn new(resolution: (u32, u32)) -> Self {
@@ -603,15 +634,5 @@ impl<Samples> RipMaps<Samples> {
     pub fn get_by_level_mut(&mut self, level: (usize, usize)) -> Option<&mut SampleBlock<Samples>> {
         let index = self.get_level_index(level);
         self.map_data.get_mut(index)
-    }
-}
-
-impl<Samples> Levels<Samples> {
-    pub fn largest(&self) -> &SampleBlock<Samples> {
-        match self {
-            Levels::Singular(data) => data,
-            Levels::Mip(maps) => &maps[0], // TODO is this really the largest one?
-            Levels::Rip(rip_map) => &rip_map.map_data[0], // TODO test!
-        }
     }
 }
