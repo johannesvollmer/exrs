@@ -118,11 +118,11 @@ pub mod test {
         let now = ::std::time::Instant::now();
 
         let path = Path::new(
-//            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
+//            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
 //            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
-        "D:/Pictures/openexr/crowskull/crow_zips.exr"
+//        "D:/Pictures/openexr/crowskull/crow_zips.exr"
 //            "D:/Pictures/openexr/crowskull/crow_rle.exr"
-//            "D:/Pictures/openexr/crowskull/crow_zip_half.exr"
+            "D:/Pictures/openexr/crowskull/crow_zip_half.exr"
 
 
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
@@ -133,7 +133,7 @@ pub mod test {
         // warning: highly unscientific benchmarks ahead!
         let elapsed = now.elapsed();
         let millis = elapsed.as_secs() * 1000 + elapsed.subsec_millis() as u64;
-        println!("\ndecoded file in {:?} s", millis as f32 * 0.001);
+        println!("\ndecoded file in {:?}s", millis as f32 * 0.001);
 
 
         fn save_f16_as_png(data: &[f32], size: (usize, usize), name: String) {
@@ -162,7 +162,7 @@ pub mod test {
                             let data : Vec<f32> = sample_block.samples.iter().map(|f16| f16.to_f32()).collect();
 
                             save_f16_as_png(&data, sample_block.resolution, format!(
-                                "testout/part-{}_f16-channel-{}_level-{}-{}.png",
+                                "testout/{}_{}_f16_{}x{}.png",
                                 part.name.as_ref().map(Text::to_string).unwrap_or(String::from("1")),
                                 channel.name,
                                 sample_block.resolution.0,
@@ -174,7 +174,7 @@ pub mod test {
                         let levels = levels.flat_samples().unwrap();
                         for sample_block in levels.levels() {
                             save_f16_as_png(&sample_block.samples, sample_block.resolution, format!(
-                                "testout/part-{}_f16-channel-{}_level-{}-{}.png",
+                                "testout/{}_{}_f16_{}x{}.png",
                                 part.name.as_ref().map(Text::to_string).unwrap_or(String::from("1")),
                                 channel.name,
                                 sample_block.resolution.0,

@@ -1,5 +1,7 @@
 use crate::file::meta::Header;
 use crate::file::meta::attributes::I32Box2;
+use crate::error::{ReadResult, ReadError};
+use crate::error::WriteError::CompressionError;
 
 pub mod zip;
 pub mod rle;
@@ -10,6 +12,7 @@ pub mod piz;
 pub enum Error {
     /// includes zip decompression errors, and wrong-length decoding errors
     Read(crate::error::ReadError),
+    UnsupportedCompressionType,
     InvalidData,
     InvalidSize,
 }
@@ -151,11 +154,10 @@ impl Compression {
         }
     }
 
-    pub fn decompress_bytes(self, header: &Header, data: ByteVec, tile: I32Box2) -> Result<ByteVec> {
+    pub fn decompress_image_section(self, header: &Header, data: ByteVec, tile: I32Box2) -> Result<ByteVec> {
         let dimensions = tile.dimensions();
 
         let expected_byte_size = (dimensions.0 * dimensions.1 * header.channels.bytes_per_pixel) as usize;
-
         if data.len() == expected_byte_size {
             Ok(data)
         }
@@ -172,8 +174,10 @@ impl Compression {
             }?;
 
             if bytes.len() != expected_byte_size {
-                eprintln!("expected decompressed byte length: {}", expected_byte_size);
-                eprintln!("actual decompressed byte length: {}", bytes.len());
+                eprintln!("error in {:?} decompression:", self);
+                eprintln!("\twindow: {:?}, ({} x {} px)", tile, tile.dimensions().0, tile.dimensions().1);
+                eprintln!("\texpected decompressed byte length: {}", expected_byte_size);
+                eprintln!("\tactual decompressed byte length: {}", bytes.len());
                 Err(Error::InvalidSize)
             }
 
@@ -182,6 +186,26 @@ impl Compression {
             }
         }
     }
+
+    // used for deep data
+    pub fn decompress_bytes(self, data: ByteVec, expected_byte_size: usize) -> Result<ByteVec> {
+        if data.len() == expected_byte_size {
+            Ok(data)
+        }
+
+        else {
+            use self::Compression::*;
+            match self {
+                None => Ok(data),
+                ZIP16 => zip::decompress_bytes(data, expected_byte_size),
+                ZIP1 => zip::decompress_bytes(data, expected_byte_size),
+                RLE => rle::decompress_bytes(data, expected_byte_size),
+                compression => Err(Error::UnsupportedCompressionType),
+            }
+        }
+    }
+
+
 
     /// For scan line images and deep scan line images, one or more scan lines may be
     /// stored together as a scan line block. The number of scan lines per block

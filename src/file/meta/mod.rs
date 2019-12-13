@@ -268,41 +268,58 @@ impl Header {
     }
 
     fn get_scan_line_block_height(&self, y: u32) -> u32 {
+        debug_assert!(y as i32 >= self.data_window.y_min);
+
         let lines_per_block = self.compression.scan_lines_per_block();
-        let data_height = self.data_window.dimensions().1;
+        let next_block_y = y + lines_per_block - self.data_window.y_min as u32;
+        let data_height = self.data_window.dimensions().1; // TODO scan line blocks never have levels?
 
-        // find out how much the last scan block would be cut off (or 0):
-        let block_end = y + lines_per_block;
-        let clip = block_end.checked_sub(data_height).unwrap_or(0);
+        let height = if next_block_y <= data_height { lines_per_block } else {
+            let clipped_line_count = next_block_y - data_height; // TODO +/-1?
+            lines_per_block - clipped_line_count
+        };
 
-        lines_per_block - clip
+        debug_assert_ne!(
+            height, 0,
+            "scan line block height is 0 where y = {} in header {:?} ({} x {} px) (window {:?}) ",
+            y, self.name, self.data_window.dimensions().0, self.data_window.dimensions().1, self.data_window
+        );
+
+        height
     }
 
     fn get_tile_size(&self, tile: TileCoordinates) -> (u32, u32) {
         let tiles = self.tiles.expect("check failed: tiles not found");
+        let round = tiles.rounding_mode;
+        let default_tile_width = tiles.size.0;
+        let default_tile_height = tiles.size.1;
 
         let (data_width, data_height) = self.data_window.dimensions();
-        let default_width = tiles.size.0;
-        let default_height = tiles.size.1;
-        let round = tiles.rounding_mode;
+        let data_width = compute_level_size(round, data_width as u32, tile.level_x as u32);
+        let data_height = compute_level_size(round, data_height as u32, tile.level_y as u32);
 
-        // FIXME is the level required here or not?? indices should always start at 0 and not exceed bounds
-        let level_x = tile.level_x;
-        let level_data_width = compute_level_size(round, data_width as u32, level_x as u32);
+        let y = tile.tile_y - self.data_window.y_min; // TODO divide by tile size?
+        let x = tile.tile_x - self.data_window.x_min; // TODO divide by tile size?
 
-        let default_right = tile.tile_x as u32 + default_width;
-        let right_overflow = default_right.checked_sub(level_data_width).unwrap_or(0);
+        let next_tile_x = x as u32 + default_tile_width;
+        let next_tile_y = y as u32 + default_tile_height;
 
-        let level_y = tile.level_y;
-        let level_data_height = compute_level_size(round, data_height as u32, level_y as u32);
+        let width = if next_tile_x <= data_width { default_tile_width } else {
+            let clipped_columns = next_tile_x - data_width; // TODO +/-1?
+            default_tile_width - clipped_columns
+        };
 
-        assert!(level_x == 1 && level_y == 1, "unimplemented: tiled levels data unpacking");
+        let height = if next_tile_y <= data_height { default_tile_height } else {
+            let clipped_lines = next_tile_y - data_height; // TODO +/-1?
+            default_tile_height - clipped_lines
+        };
 
-        let default_bottom = tile.tile_y as u32 + default_height;
-        let bottom_overflow = default_bottom.checked_sub(level_data_height).unwrap_or(0);
+        debug_assert!(
+            height != 0 && width != 0,
+            "tile size is 0 for tile {:?} in header {:#?}",
+            tile, self
+        );
 
-        let width = default_width - right_overflow;
-        let height = default_height - bottom_overflow;
         (width, height)
     }
 
@@ -643,7 +660,7 @@ pub fn compute_offset_table_size(version: Requirements, header: &Header) -> Read
         // using the dataWindow and tileDesc attributes and the compression format
         let compression = header.compression;
         let data_window = header.data_window;
-        data_window.validate()?;
+        data_window.validate(None)?;
 
         let data_size = data_window.dimensions();
 

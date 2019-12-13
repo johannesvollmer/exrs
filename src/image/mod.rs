@@ -228,10 +228,13 @@ impl DecompressedBlock {
 
         let raw_coordinates = header.get_raw_block_coordinates(&chunk.block)?;
         let tile_data_indices = header.get_block_data_indices(&chunk.block)?;
+        raw_coordinates.validate(Some(header.data_window.dimensions()))?;
 
         match chunk.block {
-            Block::Tile(TileBlock { compressed_pixels, .. }) | Block::ScanLine(ScanLineBlock { compressed_pixels, .. })=> {
-                let data = header.compression.decompress_bytes(header, compressed_pixels, raw_coordinates)?;
+            Block::Tile(TileBlock { compressed_pixels, .. }) |
+            Block::ScanLine(ScanLineBlock { compressed_pixels, .. }) => {
+
+                let data = header.compression.decompress_image_section(header, compressed_pixels, raw_coordinates)?;
                 Ok(DecompressedBlock { part_index: chunk.part_number as usize, tile: tile_data_indices, data,  })
             },
 

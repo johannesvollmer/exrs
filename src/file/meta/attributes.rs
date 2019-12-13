@@ -424,15 +424,26 @@ impl Kind {
 
 
 impl I32Box2 {
-    pub fn validate(&self) -> Validity {
+    pub fn validate(&self, max: Option<(u32, u32)>) -> Validity {
         if self.x_min > self.x_max || self.y_min > self.y_max {
-            Err(Invalid::Combination(&[
+            return Err(Invalid::Combination(&[
                 Value::Attribute("box2i min"),
                 Value::Attribute("box2i max")
             ]))
-        } else {
-            Ok(())
         }
+
+        if let Some(bounds) = max {
+            let dimensions = self.dimensions();
+            if dimensions.0 > bounds.0 {
+                return Err(Invalid::Content(Value::Attribute("box2i max x"), Required::Max(bounds.0 as usize)))
+            }
+
+            if dimensions.1 > bounds.1 {
+                return Err(Invalid::Content(Value::Attribute("box2i max y"), Required::Max(bounds.1 as usize)))
+            }
+        }
+
+        Ok(())
     }
 
     pub fn dimensions(&self) -> (u32, u32) {
@@ -456,12 +467,15 @@ impl I32Box2 {
     }
 
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
-        Ok(I32Box2 {
+        let value = I32Box2 {
             x_min: i32::read(read)?,
             y_min: i32::read(read)?,
             x_max: i32::read(read)?,
             y_max: i32::read(read)?,
-        })
+        };
+
+        value.validate(None)?;
+        Ok(value)
     }
 }
 
