@@ -3,6 +3,9 @@
 
 
 use crate::file::meta::attributes::RoundingMode;
+use crate::error::{WriteResult, ReadResult, ReadError};
+use std::io::{Write, Read};
+use crate::file::io::{Data, PeekRead};
 
 pub mod io;
 pub mod meta;
@@ -60,6 +63,52 @@ pub fn compute_level_size(round: RoundingMode, full_res: u32, level_index: u32) 
     round.divide(full_res,  1 << level_index).max(1)
 }
 
+
+
+
+
+
+pub struct MagicNumber;
+impl MagicNumber {
+    pub const BYTES: [u8; 4] = [0x76, 0x2f, 0x31, 0x01];
+}
+
+impl MagicNumber {
+    pub fn write(write: &mut impl Write) -> std::io::Result<()> {
+        u8::write_slice(write, &Self::BYTES)
+    }
+
+    pub fn is_exr(read: &mut impl Read) -> std::io::Result<bool> {
+        let mut magic_num = [0; 4];
+        u8::read_slice(read, &mut magic_num)?;
+        Ok(magic_num == Self::BYTES)
+    }
+
+    pub fn validate_exr(read: &mut impl Read) -> ReadResult<()> {
+        if Self::is_exr(read)? {
+            Ok(())
+
+        } else {
+            Err(ReadError::NotEXR)
+        }
+    }
+}
+
+
+pub struct SequenceEnd;
+impl SequenceEnd {
+    pub fn byte_size() -> usize {
+        1
+    }
+
+    pub fn write<W: Write>(write: &mut W) -> std::io::Result<()> {
+        0_u8.write(write)
+    }
+
+    pub fn has_come(read: &mut PeekRead<impl Read>) -> std::io::Result<bool> {
+        read.skip_if_eq(0)
+    }
+}
 
 
 

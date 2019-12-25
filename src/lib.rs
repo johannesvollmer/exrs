@@ -1,4 +1,4 @@
-
+/*
 #[macro_use]
 pub mod util {
     macro_rules! expect_variant {
@@ -18,7 +18,7 @@ pub mod util {
             }
         }
     }
-}
+}*/
 
 
 pub mod file;
@@ -35,24 +35,22 @@ extern crate image as piston_image;
 // TODO various compiler tweaks, such as export RUSTFLAGS='-Ctarget-cpu=native'
 
 pub mod prelude {
-    // image functions
+    // main exports
+    pub use crate::image::Image;
+    pub use crate::file::meta::MetaData;
+
+    // core data types
     pub use crate::image::{
-        read_from_file as read_file,
-        read_from_unbuffered as read
+        ReadOptions, WriteOptions, TileOptions,
+        Channel, ChannelData, SampleMaps, Levels, RipMaps, SampleBlock, DeepSamples, FlatSamples, Samples
     };
 
-    // meta functions
-    pub use crate::image::meta::{
-        read_from_file as read_file_meta,
-        read_from_unbuffered as read_meta
-    };
+    // secondary data types
+    pub use crate::file::meta;
+    pub use crate::file::meta::attributes;
+    pub use crate::error;
 
-    // data types
-    pub use crate::file::meta::{ MetaData, attributes::{ Attribute, AttributeValue, Text }, Header };
-    pub use crate::image::{Image, Channel, ChannelData, SampleMaps, Levels, RipMaps, SampleBlock, DeepSamples, FlatSamples, Samples };
-    pub use crate::error::{ ReadResult, WriteResult, ReadError, WriteError };
-
-    // re export external stuff
+    // re-export external stuff
     pub use std::path::Path;
     pub use half::f16;
 }
@@ -61,15 +59,17 @@ pub mod prelude {
 #[cfg(test)]
 pub mod test {
     use crate::prelude::*;
-    use crate::image::Part;
+    use crate::image::{ReadOptions};
     use std::fs;
+    use std::io::Cursor;
+    use std::panic::catch_unwind;
 
     #[test]
     fn print_meta_of_all_files() {
         fn print_exr_files(path: &Path){
             if let Some("exr") = path.extension().and_then(|os| os.to_str()) {
                 print!("inspecting file {:?}:   ", path.file_name().unwrap());
-                let (meta, _read) = read_file_meta(path).unwrap();
+                let meta = MetaData::read_from_file(path).unwrap();
                 println!("{:?} {:?}", meta.requirements, meta.headers);
             }
             else if path.is_dir() {
@@ -86,10 +86,15 @@ pub mod test {
     fn read_all_files() {
         fn test_exr_files(path: &Path){
             if let Some("exr") = path.extension().and_then(|os| os.to_str()) {
-                println!("testing file {:?}... ", path.file_name().unwrap());
-                let image = read_file(path, true);
-                if let Err(error) = image {
-                    eprintln!("{:?}", error);
+                print!("testing file {:?}... ", path.file_name().unwrap());
+                let image = catch_unwind(||{ // FIXME does not catch errors from other thread
+                    Image::read_from_file(path, ReadOptions::default())
+                });
+
+                match image {
+                    Ok(Ok(_)) => println!("Ok"),
+                    Ok(Err(_)) => eprintln!("Error"),
+                    Err(_) => eprintln!("Panic")
                 }
             }
             else if path.is_dir() {
@@ -114,6 +119,26 @@ pub mod test {
 
 
     #[test]
+    pub fn test_roundtrip() {
+        let path = Path::new(
+//            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
+//            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
+//        "D:/Pictures/openexr/crowskull/crow_zips.exr"
+//            "D:/Pictures/openexr/crowskull/crow_rle.exr"
+"D:/Pictures/openexr/crowskull/crow_zip_half.exr"
+
+
+//        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
+        );
+
+        let image = Image::read_from_file(path, ReadOptions::default()).unwrap();
+
+        let mut tmp_bytes = Vec::new();
+        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), WriteOptions::default()).unwrap();
+        let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::default()).unwrap();
+    }
+
+    #[test]
     pub fn convert_to_png() {
         let now = ::std::time::Instant::now();
 
@@ -128,7 +153,7 @@ pub mod test {
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
         );
 
-        let image = read_file(path, true).unwrap();
+        let image = Image::read_from_file(path, ReadOptions::default()).unwrap();
 
         // warning: highly unscientific benchmarks ahead!
         let elapsed = now.elapsed();
@@ -163,7 +188,7 @@ pub mod test {
 
                             save_f16_as_png(&data, sample_block.resolution, format!(
                                 "testout/{}_{}_f16_{}x{}.png",
-                                part.name.as_ref().map(Text::to_string).unwrap_or(String::from("1")),
+                                part.name.as_ref().map(attributes::Text::to_string).unwrap_or(String::from("1")),
                                 channel.name,
                                 sample_block.resolution.0,
                                 sample_block.resolution.1,
@@ -175,7 +200,7 @@ pub mod test {
                         for sample_block in levels.levels() {
                             save_f16_as_png(&sample_block.samples, sample_block.resolution, format!(
                                 "testout/{}_{}_f16_{}x{}.png",
-                                part.name.as_ref().map(Text::to_string).unwrap_or(String::from("1")),
+                                part.name.as_ref().map(attributes::Text::to_string).unwrap_or(String::from("1")),
                                 channel.name,
                                 sample_block.resolution.0,
                                 sample_block.resolution.1,

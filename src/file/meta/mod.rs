@@ -9,6 +9,10 @@ use self::attributes::*;
 use crate::file::data::{TileCoordinates, Block};
 use crate::error::{ReadResult, WriteResult};
 use std::convert::TryFrom;
+use crate::file::*;
+use std::fs::File;
+use std::io::{BufReader};
+use std::cmp::Ordering;
 
 
 #[derive(Debug, Clone)]
@@ -119,7 +123,7 @@ pub struct Requirements {
     /// bit 9
     /// if true: single-part tiles (bits 11 and 12 must be 0).
     /// if false and 11 and 12 are false: single-part scan-line.
-    is_single_tile: bool,
+    is_single_part_and_tiled: bool,
 
     /// bit 10
     /// if true: maximum name length is 255,
@@ -138,8 +142,6 @@ pub struct Requirements {
     has_multiple_parts: bool,
 }
 
-
-
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct TileIndices {
     pub level: (u32, u32),
@@ -147,8 +149,93 @@ pub struct TileIndices {
     pub size: (u32, u32),
 }
 
+impl Ord for TileIndices {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.position.1.cmp(&other.position.1) {
+            Ordering::Equal => {
+                self.position.0.cmp(&other.position.0)
+            },
+
+            other => other,
+        }
+    }
+}
+
+impl PartialOrd for TileIndices {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 
 impl MetaData {
+    #[must_use]
+    pub fn read_from_file(path: &::std::path::Path) -> ReadResult<Self> {
+        Self::read_from_unbuffered(File::open(path)?)
+    }
+
+    /// assumes that the provided reader is not buffered, and will create a buffer for it
+    #[must_use]
+    pub fn read_from_unbuffered<R: Read>(unbuffered: R) -> ReadResult<Self> {
+        Self::read_from_buffered(BufReader::new(unbuffered))
+    }
+
+    /// assumes the reader is buffered
+    #[must_use]
+    pub fn read_from_buffered<R: Read>(buffered: R) -> ReadResult<Self> {
+        let mut read = PeekRead::new(buffered);
+        let meta = MetaData::read_from_buffered_peekable(&mut read)?;
+        Ok(meta)
+    }
+
+    #[must_use]
+    pub fn read_from_buffered_peekable(read: &mut PeekRead<impl Read>) -> ReadResult<Self> {
+        MagicNumber::validate_exr(read)?;
+        let version = Requirements::read(read)?;
+        let headers = Header::read_all(read, &version)?;
+        let offset_tables = Self::read_offset_tables(read, version, &headers)?;
+
+        // TODO check if supporting version 2 implies supporting version 1
+        let meta = MetaData { requirements: version, headers, offset_tables };
+        meta.validate()?;
+        Ok(meta)
+    }
+
+    /// assumes the reader is buffered.
+    /// Call `write_offset_tables(write, &self.offset_tables)` after this to write offset tables
+    #[must_use]
+    pub fn write_without_tables(&self, write: &mut impl Write) -> WriteResult {
+        self.validate()?;
+
+        MagicNumber::write(write)?;
+        self.requirements.write(write)?;
+        Header::write_all(self.headers.as_slice(), write, &self.requirements)
+    }
+
+
+    // TODO skip reading offset tables if not required?
+    pub fn read_offset_tables(
+        read: &mut PeekRead<impl Read>, version: Requirements, headers: &Headers,
+    ) -> ReadResult<OffsetTables>
+    {
+        headers.iter()
+            .map(|header| {
+                let entry_count = header.compute_offset_table_size(version)?;
+                let vec = u64::read_vec(read, entry_count as usize, std::u16::MAX as usize)?;
+                Ok(vec)
+            })
+            .collect()
+    }
+
+    pub fn write_offset_tables<W: Write>(write: &mut W, tables: &OffsetTables) -> WriteResult {
+        for table in tables {
+            u64::write_slice(write, &table)?; // TODO without clone at least on little endian machines
+        }
+
+        Ok(())
+    }
+
+    // TODO also check for writing valid files
     pub fn validate(&self) -> Validity {
         let tables = self.offset_tables.len();
         let headers = self.headers.len();
@@ -182,12 +269,24 @@ impl MetaData {
 
         self.requirements.validate()?;
         for header in &self.headers {
-            header.validate(is_multi_part)?;
+            header.validate(&self.requirements)?;
         }
+
+        // TODO if version is 1, check that there is no deep data and only one header
+        if self.requirements.file_format_version == 1 {
+            if headers > 1 {
+                return Err(Invalid::Combination(&[
+                    Value::Part("version (1)"),
+                    Value::Part("multipart"),
+                ]));
+            }
+        }
+
 
         Ok(())
     }
 }
+
 
 impl Header {
 
@@ -198,8 +297,8 @@ impl Header {
         }
     }
 
-    pub fn has_tiles(&self) -> bool {
-        match self.kind {
+    pub fn has_tiles(&self, requirements: &Requirements) -> bool {
+        requirements.is_single_part_and_tiled || match self.kind {
             Some(Kind::DeepTile) | Some(Kind::Tile) => {
                 debug_assert!(self.tiles.is_some());
                 true
@@ -323,13 +422,92 @@ impl Header {
         (width, height)
     }
 
+
+    // TODO reuse this algorithm in crate::image::Part::new?
+    pub fn compute_offset_table_size(&self, version: Requirements) -> Result<u32, Invalid> {
+        if let Some(chunk_count) = self.chunk_count {
+            Ok(chunk_count as u32) // TODO will this panic on negative number / invalid data?
+
+        } else {
+            debug_assert!(!version.has_multiple_parts, "check failed: chunkCount missing for multi-part image");
+
+            // If not multipart and chunkCount not present,
+            // the number of entries in the chunk table is computed
+            // using the dataWindow and tileDesc attributes and the compression format
+            let compression = self.compression;
+            let data_window = self.data_window;
+            data_window.validate(None)?;
+
+            let data_size = data_window.dimensions();
+
+            if let Some(tiles) = self.tiles {
+                let round = tiles.rounding_mode;
+                let (tile_width, tile_height) = tiles.size;
+
+//            let level_count = |full_res: u32| {
+//                compute_level_count(round, full_res)
+//            };
+
+//            let level_size = |full_res: u32, level_index: u32| {
+//                compute_level_size(round, full_res, level_index)
+//            };
+
+                // TODO cache all these level values??
+                use crate::file::meta::attributes::LevelMode::*;
+                Ok(match tiles.level_mode {
+                    Singular => {
+                        let tiles_x = compute_tile_count(data_size.0, tile_width);
+                        let tiles_y = compute_tile_count(data_size.1, tile_height);
+                        tiles_x * tiles_y
+                    }
+
+                    MipMap => {
+                        // sum all tiles per level
+                        // note: as levels shrink, tiles stay the same pixel size.
+                        // so at lower levels, tiles cover up a visually bigger are of the smaller resolution image
+                        /*(0..level_count(data_width.max(data_height))).map(|level|{
+                            let tiles_x = compute_tile_count(level_size(data_width, level), tile_width);
+                            let tiles_y = compute_tile_count(level_size(data_height, level), tile_height);
+                            tiles_x * tiles_y
+                        }).sum()*/
+
+                        mip_map_resolutions(round, data_size).map(|(level_width, level_height)| {
+                            compute_tile_count(level_width, tile_width) * compute_tile_count(level_height, tile_height)
+                        }).sum()
+                    },
+
+                    RipMap => {
+                        // TODO test this
+                        /*(0..level_count(data_width)).map(|x_level|{ // TODO may swap y and x?
+                            (0..level_count(data_height)).map(|y_level| {
+                                let tiles_x = compute_tile_count(level_size(data_width, x_level), tile_width);
+                                let tiles_y = compute_tile_count(level_size(data_height, y_level), tile_height);
+                                tiles_x * tiles_y
+                            }).sum::<u32>()
+                        }).sum()*/
+
+                        rip_map_resolutions(round, data_size).map(|(level_width, level_height)| {
+                            compute_tile_count(level_width, tile_width) * compute_tile_count(level_height, tile_height)
+                        }).sum()
+                    }
+                })
+
+            }
+
+            // scan line blocks never have mip maps // TODO check if this is true
+            else {
+                Ok(compute_scan_line_block_count(data_size.1, compression.scan_lines_per_block() as u32))
+            }
+        }
+    }
+
     // TODO for all other fields too?
     pub fn kind_or_err(&self) -> Result<&Kind, Invalid> {
         self.kind.as_ref().ok_or(Invalid::Missing(Value::Attribute("kind")))
     }
 
-    pub fn validate(&self, is_multipart: bool) -> Validity {
-        if is_multipart {
+    pub fn validate(&self, requirements: &Requirements) -> Validity {
+        if requirements.is_multipart() {
             if self.chunk_count.is_none() {
                 return Err(Invalid::Missing(Value::Attribute("chunkCount (for multipart)")).into());
             }
@@ -370,7 +548,7 @@ impl Header {
             }
         }
 
-        if self.has_tiles() {
+        if self.has_tiles(&requirements) {
             if self.tiles.is_none() {
                 return Err(Invalid::Missing(Value::Attribute("tiles (for tiledimage or deeptiles)")).into());
             }
@@ -388,7 +566,7 @@ impl Header {
         Ok(())
     }
 
-    pub fn write_all<W: Write>(headers: &Headers, write: &mut W, version: Requirements) -> WriteResult {
+    pub fn write_all<W: Write>(headers: &[Header], write: &mut W, version: &Requirements) -> WriteResult {
         let has_multiple_headers = headers.len() != 1;
         if headers.is_empty() || version.has_multiple_parts != has_multiple_headers {
             // TODO return combination?
@@ -396,7 +574,7 @@ impl Header {
         }
 
         for header in headers {
-            debug_assert!(header.validate(headers.len() > 1).is_ok(), "check failed: header invalid");
+            debug_assert!(header.validate(&version).is_ok(), "check failed: header invalid");
 
             // header.tiles.write(write, version.has_long_names)?;
             println!("FIXME write all header attributes!!!");
@@ -413,15 +591,15 @@ impl Header {
         Ok(())
     }
 
-    pub fn read_all(read: &mut PeekRead<impl Read>, version: Requirements) -> ReadResult<Headers> {
+    pub fn read_all(read: &mut PeekRead<impl Read>, version: &Requirements) -> ReadResult<Headers> {
         Ok({
             if !version.has_multiple_parts { // TODO check a different way?
-                SmallVec::from_elem(Header::read(read, false)?, 1)
+                SmallVec::from_elem(Header::read(read, version)?, 1)
 
             } else {
                 let mut headers = SmallVec::new();
                 while !SequenceEnd::has_come(read)? {
-                    headers.push(Header::read(read, true)?);
+                    headers.push(Header::read(read, version)?);
                 }
 
                 headers
@@ -429,7 +607,7 @@ impl Header {
         })
     }
 
-    pub fn read(read: &mut PeekRead<impl Read>, is_multipart: bool) -> ReadResult<Self> {
+    pub fn read(read: &mut PeekRead<impl Read>, requirements: &Requirements) -> ReadResult<Self> {
         let mut custom = SmallVec::new();
 
         // these required attributes will be Some(usize) when encountered while parsing
@@ -501,13 +679,24 @@ impl Header {
             custom_attributes: custom,
         };
 
-        header.validate(is_multipart)?;
+        header.validate(requirements)?;
         Ok(header)
     }
 }
 
 
 impl Requirements {
+    pub fn new(version: u8, header_count: usize, has_tiles: bool, long_names: bool, deep: bool) -> Self {
+        Requirements {
+            file_format_version: version,
+            is_single_part_and_tiled: header_count == 1 && has_tiles,
+            has_long_names: long_names,
+            has_deep_data: deep, // TODO
+            has_multiple_parts: header_count != 1
+        }
+    }
+
+
     /// this is actually used for control flow, as the number of headers may be 1 in a multipart file
     pub fn is_multipart(&self) -> bool {
         self.has_multiple_parts
@@ -542,7 +731,7 @@ impl Requirements {
 
         let version = Requirements {
             file_format_version: version,
-            is_single_tile, has_long_names,
+            is_single_part_and_tiled: is_single_tile, has_long_names,
             has_deep_data, has_multiple_parts,
         };
 
@@ -560,20 +749,21 @@ impl Requirements {
         let mut version_and_flags = self.file_format_version as u32;
 
         // the 24 most significant bits are treated as a set of boolean flags
-        version_and_flags.set_bit(9, self.is_single_tile);
+        version_and_flags.set_bit(9, self.is_single_part_and_tiled);
         version_and_flags.set_bit(10, self.has_long_names);
         version_and_flags.set_bit(11, self.has_deep_data);
         version_and_flags.set_bit(12, self.has_multiple_parts);
         // all remaining bits except 9, 10, 11 and 12 are reserved and should be 0
 
-        version_and_flags.write(write)
+        version_and_flags.write(write)?;
+        Ok(())
     }
 
     pub fn validate(&self) -> Validity {
         if let 1..=2 = self.file_format_version {
 
             match (
-                self.is_single_tile, self.has_deep_data, self.has_multiple_parts,
+                self.is_single_part_and_tiled, self.has_deep_data, self.has_multiple_parts,
                 self.file_format_version
             ) {
                 // Single-part scan line. One normal scan line image.
@@ -615,145 +805,4 @@ impl Requirements {
 
 
 
-impl MetaData {
-    pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
-        self.validate()?;
 
-        MagicNumber::write(write)?;
-        self.requirements.write(write)?;
-        Header::write_all(&self.headers, write, self.requirements)?;
-
-        println!("calculate tables???");
-        write_offset_tables(write, &self.offset_tables)
-    }
-
-    pub fn read_unvalidated(read: &mut PeekRead<impl Read>) -> ReadResult<Self> {
-        MagicNumber::validate_exr(read)?;
-        let version = Requirements::read(read)?;
-        let headers = Header::read_all(read, version)?;
-        let offset_tables = read_offset_tables(read, version, &headers)?;
-
-        // TODO check if supporting version 2 implies supporting version 1
-        Ok(MetaData { requirements: version, headers, offset_tables })
-    }
-
-    pub fn read_validated(read: &mut PeekRead<impl Read>) -> ReadResult<Self> {
-        let meta = Self::read_unvalidated(read)?;
-        meta.validate()?;
-        Ok(meta)
-    }
-}
-
-
-use crate::file::*;
-
-// TODO reuse this algorithm in crate::image::Part::new?
-pub fn compute_offset_table_size(version: Requirements, header: &Header) -> ReadResult<u32> {
-    if let Some(chunk_count) = header.chunk_count {
-        Ok(chunk_count as u32) // TODO will this panic on negative number / invalid data?
-
-    } else {
-        debug_assert!(!version.has_multiple_parts, "check failed: chunkCount missing for multi-part image");
-
-        // If not multipart and chunkCount not present,
-        // the number of entries in the chunk table is computed
-        // using the dataWindow and tileDesc attributes and the compression format
-        let compression = header.compression;
-        let data_window = header.data_window;
-        data_window.validate(None)?;
-
-        let data_size = data_window.dimensions();
-
-        if let Some(tiles) = header.tiles {
-            let round = tiles.rounding_mode;
-            let (tile_width, tile_height) = tiles.size;
-
-//            let level_count = |full_res: u32| {
-//                compute_level_count(round, full_res)
-//            };
-
-//            let level_size = |full_res: u32, level_index: u32| {
-//                compute_level_size(round, full_res, level_index)
-//            };
-
-            // TODO cache all these level values??
-            use crate::file::meta::attributes::LevelMode::*;
-            Ok(match tiles.level_mode {
-                Singular => {
-                    let tiles_x = compute_tile_count(data_size.0, tile_width);
-                    let tiles_y = compute_tile_count(data_size.1, tile_height);
-                    tiles_x * tiles_y
-                }
-
-                MipMap => {
-                    // sum all tiles per level
-                    // note: as levels shrink, tiles stay the same pixel size.
-                    // so at lower levels, tiles cover up a visually bigger are of the smaller resolution image
-                    /*(0..level_count(data_width.max(data_height))).map(|level|{
-                        let tiles_x = compute_tile_count(level_size(data_width, level), tile_width);
-                        let tiles_y = compute_tile_count(level_size(data_height, level), tile_height);
-                        tiles_x * tiles_y
-                    }).sum()*/
-
-                    mip_map_resolutions(round, data_size).map(|(level_width, level_height)| {
-                        compute_tile_count(level_width, tile_width) * compute_tile_count(level_height, tile_height)
-                    }).sum()
-                },
-
-                RipMap => {
-                    // TODO test this
-                    /*(0..level_count(data_width)).map(|x_level|{ // TODO may swap y and x?
-                        (0..level_count(data_height)).map(|y_level| {
-                            let tiles_x = compute_tile_count(level_size(data_width, x_level), tile_width);
-                            let tiles_y = compute_tile_count(level_size(data_height, y_level), tile_height);
-                            tiles_x * tiles_y
-                        }).sum::<u32>()
-                    }).sum()*/
-
-                    rip_map_resolutions(round, data_size).map(|(level_width, level_height)| {
-                        compute_tile_count(level_width, tile_width) * compute_tile_count(level_height, tile_height)
-                    }).sum()
-                }
-            })
-
-        }
-
-        // scan line blocks never have mip maps // TODO check if this is true
-        else {
-            Ok(compute_scan_line_block_count(data_size.1, compression.scan_lines_per_block() as u32))
-        }
-    }
-}
-
-// TODO make instance fn
-pub fn read_offset_table(
-    read: &mut PeekRead<impl Read>, version: Requirements, header: &Header
-) -> ReadResult<OffsetTable>
-{
-    let entry_count = compute_offset_table_size(version, header)?;
-    u64::read_vec(read, entry_count as usize, ::std::u16::MAX as usize)
-}
-
-
-// TODO skip reading offset tables if not required?
-pub fn read_offset_tables(
-    read: &mut PeekRead<impl Read>, version: Requirements, headers: &Headers,
-) -> ReadResult<OffsetTables>
-{
-    let mut tables = SmallVec::new();
-
-    for i in 0..headers.len() {
-        // one offset table for each header
-        tables.push(read_offset_table(read, version, &headers[i])?);
-    }
-
-    Ok(tables)
-}
-
-pub fn write_offset_tables<W: Write>(write: &mut W, tables: &OffsetTables) -> WriteResult {
-    for table in tables {
-        u64::write_slice(write, &mut table.clone())?; // TODO without clone at least on little endian machines
-    }
-
-    Ok(())
-}

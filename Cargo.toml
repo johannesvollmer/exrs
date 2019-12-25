@@ -6,8 +6,9 @@ edition = "2018"
 
 [dependencies]
 half = { version = "1.4.0", features = ["std"] }
+lebe = { git = "https://github.com/johannesvollmer/lebe" }
 libflate = "*"
-byteorder = "*"
+# byteorder = "*"
 
 bit_field = "*"
 smallvec = "*"

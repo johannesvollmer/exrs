@@ -11,7 +11,7 @@ fn single_image_uncompressed(bench: &mut Bencher) {
                 "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
             );
 
-            let image = exr::read_file(path, true).unwrap();
+            let image = exr::Image::read_from_file(path, exr::ReadOptions::default()).unwrap();
             bencher::black_box(image);
         })
     })
@@ -24,7 +24,7 @@ fn single_image_zips(bench: &mut Bencher) {
                 "D:/Pictures/openexr/crowskull/crow_zips.exr"
             );
 
-            let image = exr::read_file(path, true).unwrap();
+            let image = exr::Image::read_from_file(path, exr::ReadOptions::default()).unwrap();
             bencher::black_box(image);
         })
     })
@@ -37,7 +37,7 @@ fn single_image_rle(bench: &mut Bencher) {
                 "D:/Pictures/openexr/crowskull/crow_rle.exr"
             );
 
-            let image = exr::read_file(path, true).unwrap();
+            let image = exr::Image::read_from_file(path, exr::ReadOptions::default()).unwrap();
             bencher::black_box(image);
         })
     })
@@ -50,7 +50,7 @@ fn single_image_non_parallel_zips(bench: &mut Bencher) {
                 "D:/Pictures/openexr/crowskull/crow_zips.exr"
             );
 
-            let image = exr::read_file(path, false).unwrap();
+            let image = exr::Image::read_from_file(path, exr::ReadOptions::default()).unwrap();
             bencher::black_box(image);
         })
     })

@@ -2,6 +2,8 @@ use self::validity::*;
 use crate::file::data::compression::{Error as CompressionError};
 
 pub type WriteResult = ::std::result::Result<(), WriteError>;
+
+
 pub type ReadResult<T> = ::std::result::Result<T, ReadError>;
 
 
@@ -21,7 +23,7 @@ pub enum ReadError {
 //    UnknownAttributeType { bytes_to_skip: u32 },
 
     IoError(::std::io::Error),
-    CompressionError(Box<CompressionError>),
+    CompressionError(CompressionError),
 }
 
 
@@ -29,13 +31,6 @@ pub enum ReadError {
 impl From<::std::io::Error> for ReadError {
     fn from(io_err: ::std::io::Error) -> Self {
         ReadError::IoError(io_err)
-    }
-}
-
-/// Enable using the `?` operator on compress::Result
-impl From<CompressionError> for ReadError {
-    fn from(compress_err: CompressionError) -> Self {
-        ReadError::CompressionError(Box::new(compress_err))
     }
 }
 
@@ -53,12 +48,27 @@ impl From<::std::io::Error> for WriteError {
     }
 }
 
+/// enable using the `?` operator on io errors
+impl From<CompressionError> for WriteError {
+    fn from(err: CompressionError) -> Self {
+        WriteError::CompressionError(err)
+    }
+}
+
+/// enable using the `?` operator on io errors
+impl From<CompressionError> for ReadError {
+    fn from(err: CompressionError) -> Self {
+        ReadError::CompressionError(err)
+    }
+}
+
 /// Enable using the `?` operator on Validity
 impl From<Invalid> for WriteError {
     fn from(err: Invalid) -> Self {
         WriteError::Invalid(err)
     }
 }
+
 
 pub mod validity {
     // TODO put validation into own module

@@ -216,7 +216,7 @@ pub enum RoundingMode {
 
 
 use crate::file::io::*;
-use crate::file::io;
+use crate::file::SequenceEnd;
 use std::cmp::Ordering;
 use crate::error::{ReadResult, WriteResult, ReadError};
 
@@ -284,7 +284,8 @@ impl Text {
 
     pub fn write_unsized_bytes<W: Write>(bytes: &[u8], write: &mut W, long_names: Option<bool>) -> WriteResult {
         Text::validate_bytes(bytes, long_names)?;
-        u8::write_slice(write, bytes)
+        u8::write_slice(write, bytes)?;
+        Ok(())
     }
 
     pub fn read_i32_sized<R: Read>(read: &mut R) -> ReadResult<Self> {
@@ -299,12 +300,14 @@ impl Text {
 
     pub fn write_null_terminated<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> WriteResult {
         Self::write_unsized_bytes(self.bytes.as_slice(), write, long_names)?;
-        io::SequenceEnd::write(write)
+        SequenceEnd::write(write)?;
+        Ok(())
     }
 
     pub fn write_null_terminated_bytes<W: Write>(bytes: &[u8], write: &mut W, long_names: Option<bool>) -> WriteResult {
         Text::write_unsized_bytes(bytes, write, long_names)?;
-        io::SequenceEnd::write(write)
+        SequenceEnd::write(write)?;
+        Ok(())
     }
 
     pub fn read_null_terminated<R: Read>(read: &mut R) -> ReadResult<Self> {
@@ -405,7 +408,8 @@ impl Kind {
     }
 
     pub fn write(&self, write: &mut impl Write) -> WriteResult {
-        u8::write_slice(write, self.to_text_bytes())
+        u8::write_slice(write, self.to_text_bytes())?;
+        Ok(())
     }
 
     pub fn to_text_bytes(&self) -> &[u8] {
@@ -463,7 +467,8 @@ impl I32Box2 {
         self.x_min.write(write)?;
         self.y_min.write(write)?;
         self.x_max.write(write)?;
-        self.y_max.write(write)
+        self.y_max.write(write)?;
+        Ok(())
     }
 
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
@@ -488,7 +493,8 @@ impl F32Box2 {
         self.x_min.write(write)?;
         self.y_min.write(write)?;
         self.x_max.write(write)?;
-        self.y_max.write(write)
+        self.y_max.write(write)?;
+        Ok(())
     }
 
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
@@ -519,7 +525,9 @@ impl PixelType {
             PixelType::U32 => 0_i32,
             PixelType::F16 => 1_i32,
             PixelType::F32 => 2_i32,
-        }.write(write)
+        }.write(write)?;
+
+        Ok(())
     }
 
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
@@ -570,7 +578,8 @@ impl Channel {
 
         i8::write_slice(write, &self.reserved)?;
         self.sampling.0.write(write)?;
-        self.sampling.1.write(write)
+        self.sampling.1.write(write)?;
+        Ok(())
     }
 
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
@@ -613,7 +622,8 @@ impl Channel {
             channel.write(write, long_names)?;
         }
 
-        SequenceEnd::write(write)
+        SequenceEnd::write(write)?;
+        Ok(())
     }
 
     pub fn read_all(read: &mut PeekRead<impl Read>) -> ReadResult<ChannelList> {
@@ -639,7 +649,8 @@ impl Chromaticities {
         self.blue_x.write(write)?;
         self.blue_y.write(write)?;
         self.white_x.write(write)?;
-        self.white_y.write(write)
+        self.white_y.write(write)?;
+        Ok(())
     }
 
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
@@ -674,7 +685,8 @@ impl Compression {
             B44A => 7_u8,
             DWAA => 8_u8,
             DWAB => 9_u8,
-        }.write(write)
+        }.write(write)?;
+        Ok(())
     }
 
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
@@ -708,7 +720,9 @@ impl EnvironmentMap {
         match self {
             LatitudeLongitude => 0_u8,
             Cube => 1_u8
-        }.write(write)
+        }.write(write)?;
+
+        Ok(())
     }
 
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
@@ -736,7 +750,8 @@ impl KeyCode {
         self.film_roll_prefix.write(write)?;
         self.count.write(write)?;
         self.perforation_offset.write(write)?;
-        self.perforations_per_count.write(write)
+        self.perforations_per_count.write(write)?;
+        Ok(())
     }
 
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
@@ -763,7 +778,9 @@ impl LineOrder {
             IncreasingY => 0_u8,
             DecreasingY => 1_u8,
             RandomY => 2_u8,
-        }.write(write)
+        }.write(write)?;
+
+        Ok(())
     }
 
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
@@ -801,7 +818,8 @@ impl Preview {
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         self.width.write(write)?;
         self.height.write(write)?;
-        i8::write_slice(write, &self.pixel_data)
+        i8::write_slice(write, &self.pixel_data)?;
+        Ok(())
     }
 
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
@@ -852,7 +870,8 @@ impl TileDescription {
         };
 
         let mode: u8 = level_mode + (rounding_mode * 16);
-        mode.write(write)
+        mode.write(write)?;
+        Ok(())
     }
 
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
@@ -995,43 +1014,45 @@ impl AttributeValue {
     pub fn write<W: Write>(&self, write: &mut W, long_names: bool) -> WriteResult {
         use self::AttributeValue::*;
         match *self {
-            I32Box2(value) => value.write(write),
-            F32Box2(value) => value.write(write),
+            I32Box2(value) => value.write(write)?,
+            F32Box2(value) => value.write(write)?,
 
-            I32(value) => value.write(write),
-            F32(value) => value.write(write),
-            F64(value) => value.write(write),
+            I32(value) => value.write(write)?,
+            F32(value) => value.write(write)?,
+            F64(value) => value.write(write)?,
 
-            Rational(a, b) => { a.write(write)?; b.write(write) },
-            TimeCode(a, b) => { a.write(write)?; b.write(write) },
+            Rational(a, b) => { a.write(write)?; b.write(write)?; },
+            TimeCode(a, b) => { a.write(write)?; b.write(write)?; },
 
-            I32Vec2(x, y) => { x.write(write)?; y.write(write) },
-            F32Vec2(x, y) => { x.write(write)?; y.write(write) },
-            I32Vec3(x, y, z) => { x.write(write)?; y.write(write)?; z.write(write) },
-            F32Vec3(x, y, z) => { x.write(write)?; y.write(write)?; z.write(write) },
+            I32Vec2(x, y) => { x.write(write)?; y.write(write)?; },
+            F32Vec2(x, y) => { x.write(write)?; y.write(write)?; },
+            I32Vec3(x, y, z) => { x.write(write)?; y.write(write)?; z.write(write)?; },
+            F32Vec3(x, y, z) => { x.write(write)?; y.write(write)?; z.write(write)?; },
 
-            ChannelList(ref channels) => Channel::write_all(channels, write, long_names),
-            Chromaticities(ref value) => value.write(write),
-            Compression(value) => value.write(write),
-            EnvironmentMap(value) => value.write(write),
+            ChannelList(ref channels) => Channel::write_all(channels, write, long_names)?,
+            Chromaticities(ref value) => value.write(write)?,
+            Compression(value) => value.write(write)?,
+            EnvironmentMap(value) => value.write(write)?,
 
-            KeyCode(value) => value.write(write),
-            LineOrder(value) => value.write(write),
+            KeyCode(value) => value.write(write)?,
+            LineOrder(value) => value.write(write)?,
 
-            F32Matrix3x3(mut value) => f32::write_slice(write, &mut value),
-            F32Matrix4x4(mut value) => f32::write_slice(write, &mut value),
+            F32Matrix3x3(mut value) => f32::write_slice(write, &mut value)?,
+            F32Matrix4x4(mut value) => f32::write_slice(write, &mut value)?,
 
-            Preview(ref value) => { value.validate()?; value.write(write) },
+            Preview(ref value) => { value.validate()?; value.write(write)?; },
 
             // attribute value texts never have limited size.
             // also, don't serialize size, as it can be inferred from attribute size
-            Text(ref value) => u8::write_slice(write, value.bytes.as_slice()),
+            Text(ref value) => u8::write_slice(write, value.bytes.as_slice())?,
 
-            TextVector(ref value) => self::Text::write_vec_of_i32_sized_texts(write, value),
-            TileDescription(ref value) => value.write(write),
-            Custom { ref bytes, .. } => u8::write_slice(write, &bytes), // write.write(&bytes).map(|_| ()),
-            Kind(kind) => kind.write(write)
-        }
+            TextVector(ref value) => self::Text::write_vec_of_i32_sized_texts(write, value)?,
+            TileDescription(ref value) => value.write(write)?,
+            Custom { ref bytes, .. } => u8::write_slice(write, &bytes)?, // write.write(&bytes).map(|_| ()),
+            Kind(kind) => kind.write(write)?
+        };
+
+        Ok(())
     }
 
     pub fn read(read: &mut PeekRead<impl Read>, kind: Text, byte_size: u32) -> ReadResult<Self> {

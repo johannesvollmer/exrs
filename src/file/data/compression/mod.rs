@@ -1,7 +1,5 @@
 use crate::file::meta::Header;
 use crate::file::meta::attributes::I32Box2;
-use crate::error::{ReadResult, ReadError};
-use crate::error::WriteError::CompressionError;
 
 pub mod zip;
 pub mod rle;
@@ -10,8 +8,7 @@ pub mod piz;
 
 #[derive(Debug)]
 pub enum Error {
-    /// includes zip decompression errors, and wrong-length decoding errors
-    Read(crate::error::ReadError),
+    Other(std::io::Error),
     UnsupportedCompressionType,
     InvalidData,
     InvalidSize,
@@ -19,12 +16,7 @@ pub enum Error {
 
 impl From<::std::io::Error> for Error {
     fn from(io: ::std::io::Error) -> Self {
-        Error::from(crate::error::ReadError::IoError(io))
-    }
-}
-impl From<crate::error::ReadError> for Error {
-    fn from(io: crate::error::ReadError) -> Self {
-        Error::Read(io)
+        Error::Other(io)
     }
 }
 

@@ -120,7 +120,8 @@ impl TileCoordinates {
         self.tile_x.write(write)?;
         self.tile_y.write(write)?;
         self.level_x.write(write)?;
-        self.level_y.write(write)
+        self.level_y.write(write)?;
+        Ok(())
     }
 
     // TODO parse lazily, always skip size, ... ?
@@ -140,12 +141,13 @@ impl TileCoordinates {
 /// it will not try to allocate that much memory, but instead consider
 /// that decoding the block length has gone wrong
 const MAX_PIXEL_BYTES: usize = 1048576; // 2^20
-use crate::file::meta::{OffsetTables, Headers};
+use crate::file::meta::{OffsetTables, Headers, Header};
 
 impl ScanLineBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         self.y_coordinate.write(write)?;
-        u8::write_i32_sized_slice(write, &self.compressed_pixels)
+        u8::write_i32_sized_slice(write, &self.compressed_pixels)?;
+        Ok(())
     }
 
     // TODO parse lazily, always skip size, ... ?
@@ -159,7 +161,8 @@ impl ScanLineBlock {
 impl TileBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
         self.coordinates.write(write)?;
-        u8::write_i32_sized_slice(write, &self.compressed_pixels)
+        u8::write_i32_sized_slice(write, &self.compressed_pixels)?;
+        Ok(())
     }
 
     // TODO parse lazily, always skip size, ... ?
@@ -189,7 +192,8 @@ impl DeepScanLineBlock {
         (self.compressed_sample_data.len() as u64).write(write)?; // TODO just guessed
         self.decompressed_sample_data_size.write(write)?;
         i8::write_slice(write, &self.compressed_pixel_offset_table)?;
-        u8::write_slice(write, &self.compressed_sample_data)
+        u8::write_slice(write, &self.compressed_sample_data)?;
+        Ok(())
     }
 
     pub fn read(read: &mut impl Read) -> ReadResult<Self> {
@@ -225,7 +229,8 @@ impl DeepTileBlock {
         (self.compressed_sample_data.len() as u64).write(write)?; // TODO just guessed
         self.decompressed_sample_data_size.write(write)?;
         i8::write_slice(write, &self.compressed_pixel_offset_table)?;
-        u8::write_slice(write, &self.compressed_sample_data)
+        u8::write_slice(write, &self.compressed_sample_data)?;
+        Ok(())
     }
 
     pub fn read(read: &mut impl Read) -> ReadResult<Self> {
@@ -252,48 +257,64 @@ impl DeepTileBlock {
 }
 
 use crate::error::validity::*;
-use crate::error::{WriteResult, ReadResult};
+use crate::error::{WriteResult, ReadResult, ReadError};
 
 impl Chunk {
-    /*pub fn write<W: Write>(&self, write: &mut W, is_multipart: bool, meta_data: &MetaData) -> WriteResult {
-        if self.part_number as usize >= meta_data.headers.len() {
+    pub fn validate(&self, is_multipart: bool, headers: usize) -> Validity {
+        if self.part_number as usize >= headers {
             return Err(Invalid::Combination(&[
                 Value::Part("header count"), Value::Chunk("part number")
             ]).into());
         }
 
-        if is_multipart {
-            self.part_number.write(write)?;
+        if !is_multipart && self.part_number != 0 {
+            unimplemented!()
+            // Err(...)
         }
 
-        let header = &meta_data.headers[self.part_number as usize];
+        // TODO
+        Ok(())
+//        match self.block {
+//            Block::ScanLine     (ref value) => value.validate(header),
+//            Block::Tile         (ref value) => value.validate(header),
+//            Block::DeepScanLine (ref value) => value.validate(header),
+//            Block::DeepTile     (ref value) => value.validate(header),
+//        }
+    }
+
+    pub fn write(&self, write: &mut impl Write, is_multipart: bool, headers: &[Header]) -> WriteResult {
+        self.validate(is_multipart, headers.len())?;
+
+        if is_multipart { self.part_number.write(write)?; }
+        else { assert_eq!(self.part_number, 0); }
+
+//        let header = &headers[self.part_number as usize];
 
         match self.block {
-            Block::ScanLine    (ref value) => { value.validate(header)?; value.write(write) },
-            Block::Tile        (ref value) => { value.validate(header)?; value.write(write) },
-            Block::DeepScanLine(ref value) => { value.validate(header)?; value.write(write) },
-            Block::DeepTile    (ref value) => { value.validate(header)?; value.write(write) },
+            Block::ScanLine     (ref value) => value.write(write),
+            Block::Tile         (ref value) => value.write(write),
+            Block::DeepScanLine (ref value) => value.write(write),
+            Block::DeepTile     (ref value) => value.write(write),
         }
-    }*/
+    }
 
     // TODO parse lazily, always skip size, ... ?
-    pub fn read(read: &mut impl Read, is_multipart: bool, headers: &Headers) -> ReadResult<Self> {
-        let part_number = if is_multipart {
-            i32::read(read)? // documentation says u64, but is i32
-        }
-        else {
-            0 // first header for single-part images
+    pub fn read(read: &mut impl Read, is_multipart: bool, headers: &[Header]) -> ReadResult<Self> {
+        let part_number = {
+            if is_multipart { i32::read(read)? } // documentation says u64, but is i32
+            else { 0_i32 } // first header for single-part images
         };
 
-        let header = &headers.get(part_number as usize)
-            .ok_or(Invalid::Content(
-                Value::Chunk("part index of chunk"),
-                Required::Range { min: 0, max: headers.len() })
-            )?;
+        if part_number < 0 || part_number >= headers.len() as i32 {
+            return Err(ReadError::Invalid(Invalid::Content(
+                Value::Part("number"), Required::Range { min:0, max: headers.len() }
+            )));
+        }
 
-        let kind = header.kind.unwrap_or(Kind::ScanLine); // TODO is this how it works?
+        let kind = headers[part_number as usize].kind
+            .unwrap_or(Kind::ScanLine); // TODO is this how it works?
 
-        Ok(Chunk {
+        let chunk = Chunk {
             part_number,
             block: match kind {
                 Kind::ScanLine        => Block::ScanLine(ScanLineBlock::read(read)?),
@@ -301,7 +322,10 @@ impl Chunk {
                 Kind::DeepScanLine    => Block::DeepScanLine(DeepScanLineBlock::read(read)?),
                 Kind::DeepTile        => Block::DeepTile(DeepTileBlock::read(read)?),
             },
-        })
+        };
+
+        chunk.validate(is_multipart, headers.len())?;
+        Ok(chunk)
     }
 }
 
