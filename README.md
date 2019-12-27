@@ -1,22 +1,19 @@
 # rs-exr
 
-This library is a draft of a 100%-Rust and 100%-safe-code 
+This library is a 100% Rust and 100% safe code
 implementation of the OpenEXR image file format.
 
 [OpenEXR](http://www.openexr.com/) 
-files are widely used in animation, VFX, or 
+files are widely used in animation, VFX, and 
 other computer graphics pipelines, because it offers
 a high flexibility regarding the data it is able to hold. 
 
 
 ### Current Status
 
-Because rs-exr is currently a draft, it doesn't write images yet.
-However, it is already able to decode the metadata of all files from the
-[OpenEXR test file repository](https://github.com/openexr/openexr-images/tree/master/TestImages). 
+This library is in an early stage of development. It only supports a few of all possible image types.
+Currently, deep data and complex compression algorithms are not supported yet.
 
-Regarding the actual pixel content, only a few compression methods are supported. 
-They are not tested very well yet.
 _Highly experimental!_
 
 __Currently supported:__
@@ -94,10 +91,6 @@ We try to prevent writing invalid OpenEXR files by
 either taking advantage of Rusts type system, 
 or runtime checks if the type system does not suffice.
 
-_Quite unfortunately, there is a ton of unsafe code in the low-level `file` 
-decoding and encoding, where an array of i8 is reinterpreted as an array
-of u8 in order to write it to memory. I hope we can eventually get rid of that._
-
 ### Architecture
 
 The main parts of this library are:
@@ -150,3 +143,5 @@ Okay, the last one was a rant, you got me.
 ### PRIORITIES
 1. Also write simple exr files 
 1. Decode all compression formats
+1. Simple rendering of common image formats
+1. Profiling and other optimization
