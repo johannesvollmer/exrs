@@ -1,7 +1,7 @@
 # rs-exr
 
-This library is a 100% Rust and 100% safe code
-implementation of the OpenEXR image file format.
+This library is a 100% Rust and 100% safe code 
+encoding and decoding library for the OpenEXR image file format.
 
 [OpenEXR](http://www.openexr.com/) 
 files are widely used in animation, VFX, and 
