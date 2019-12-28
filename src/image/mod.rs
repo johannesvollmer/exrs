@@ -21,7 +21,6 @@ use std::io::{BufReader, BufWriter, Seek, SeekFrom, Cursor};
 
 
 pub use crate::file::io::Data;
-use std::panic::catch_unwind;
 
 // TODO notes:
 // Channels with an x or y sampling rate other than 1 are allowed only in flat, scan-line based images. If an image is deep or tiled, then the x and y sampling rates for all of its channels must be 1.
@@ -156,10 +155,19 @@ impl Image {
     pub fn read_from_buffered(read: impl Read, options: ReadOptions) -> ReadResult<Self> {
         let mut read = PeekRead::new(read);
 
-        let MetaData { headers, offset_tables, requirements } = MetaData::read_from_buffered_peekable(&mut read)?;
+        let MetaData { headers, requirements } = MetaData::read_from_buffered_peekable(&mut read)?;
+//        println!("meta data: {:#?}\n{:#?}", requirements, headers);
+
+        let offset_tables = MetaData::read_offset_tables(&mut read, requirements, &headers)?;
+        println!("read offset tables: {:?}", offset_tables);
+
         let chunk_reader = ChunkReader::new(read, requirements.is_multipart(), &headers, &offset_tables);
 
         let mut image = Image::new(headers.as_slice());
+
+        for table in &offset_tables {
+            println!("read offset table size {}", table.len());
+        }
 
         let has_compression = headers.iter() // do not use parallel stuff for uncompressed images
             .find(|header| header.compression != Compression::None).is_some();
@@ -223,25 +231,32 @@ impl Image {
     /// assumes the reader is buffered
     #[must_use]
     pub fn write_to_buffered(&self, mut write: impl Write + Seek, options: WriteOptions) -> WriteResult {
-        let (requirements, headers) = self.infer_meta_data(options)?;
-
-        MetaData { requirements, headers: headers.clone(), offset_tables: SmallVec::new() } // TODO cleanup
-            .write_without_tables(&mut write)?;
+        let meta_data = self.infer_meta_data(options)?;
+        meta_data.write(&mut write)?;
 
         let offset_table_start_byte = write.seek(SeekFrom::Current(0))?;
 
         // skip offset tables for now
-        let offset_table_size: u32 = headers.iter().map(|header| header.compute_offset_table_size(requirements).unwrap()).sum();
-        write.write_all(vec![0; offset_table_size as usize].as_slice())?;
+        let offset_table_size: u32 = meta_data.headers.iter()
+            .map(|header| header.compute_offset_table_size(meta_data.requirements).unwrap()).sum();
 
-        let mut offset_tables = SmallVec::new();
+        let mut offset_tables: Vec<u64> = vec![0; offset_table_size as usize];
+        u64::write_slice(&mut write, offset_tables.as_slice())?;
+        offset_tables.clear();
+
+        print!("writing offset_table size: {}", offset_table_size);
+
 
         for (part_index, part) in self.parts.iter().enumerate() {
             let mut table = Vec::new();
+            let table_start_index = offset_tables.len();
 
-            for (index, tile) in part.tiles(&requirements, &headers[part_index]).enumerate() {
+            println!("offset table entries: ");
+
+            for (index, tile) in part.tiles(&meta_data.requirements, &meta_data.headers[part_index]).enumerate() {
                 let block_start_position = write.seek(SeekFrom::Current(0))?;
                 table.push((tile, block_start_position as u64));
+                print!("{}, ", block_start_position);
 
                 let data: Vec<u8> = self.compress_block(options.compression_method, part_index, tile)?;
 
@@ -253,19 +268,21 @@ impl Image {
                     }) // FIXME add the other ones?? match???
                 };
 
-                chunk.write(&mut write, headers.len() > 1, headers.as_slice())?;
-                table.push((tile, index as u64));
+                chunk.write(&mut write, meta_data.headers.len() > 1, meta_data.headers.as_slice())?;
             }
 
             // sort by increasing y
             table.sort_by(|(a, _), (b, _)| a.cmp(b));
-            offset_tables.push(table.into_iter().map(|(_, index)| index).collect());
+            offset_tables.extend(table.into_iter().map(|(_, index)| index));
         }
 
         // write offset tables after all blocks have been written
+        debug_assert_eq!(offset_tables.len(), offset_table_size as usize);
         write.seek(SeekFrom::Start(offset_table_start_byte))?;
-        MetaData::write_offset_tables(&mut write, &offset_tables);
+        u64::write_slice(&mut write, offset_tables.as_slice());
+//        MetaData::write_offset_tables(&mut write, &offset_tables)?;
 
+        println!();
         Ok(())
     }
 }
@@ -297,6 +314,25 @@ impl Default for WriteOptions {
             compression_method: Compression::RLE,
             line_order: LineOrder::IncreasingY,
             tiles: TileOptions::ScanLineBlocks
+        }
+    }
+}
+
+impl WriteOptions {
+    pub fn debug() -> Self {
+        WriteOptions {
+            parallel_compression: false,
+            compression_method: Compression::None,
+            line_order: LineOrder::IncreasingY,
+            tiles: TileOptions::ScanLineBlocks
+        }
+    }
+}
+
+impl ReadOptions {
+    pub fn debug() -> Self {
+        ReadOptions {
+            parallel_decompression: false
         }
     }
 }
@@ -379,14 +415,14 @@ impl Image {
         Ok(bytes)
     }
 
-    pub fn infer_meta_data(&self, options: WriteOptions) -> Result<(Requirements, Headers), WriteError> {
+    pub fn infer_meta_data(&self, options: WriteOptions) -> Result<MetaData, WriteError> {
         let headers: Result<Headers, WriteError> = self.parts.iter().map(|part| part.infer_header(options)).collect();
 
         let mut headers = headers?;
         headers.sort_by(|a,b| a.name.cmp(&b.name));
 
-        Ok((
-            Requirements::new(
+        Ok(MetaData {
+            requirements: Requirements::new(
                 self.minimum_version(options.tiles)?,
                 headers.len(),
                 match options.tiles {
@@ -399,7 +435,7 @@ impl Image {
 
             headers
             // headers.into_iter().map(|header| header.compute_offset_table_size(version)).collect(),
-        ))
+        })
     }
 
     pub fn minimum_version(&self, _options: TileOptions) -> Result<u8, Invalid> {
@@ -751,7 +787,7 @@ impl<Sample: io::Data> Samples for DeepSamples<Sample> {
         ]
     }
 
-    fn read_line(&mut self, read: &mut impl Read, _position: (usize, usize), length: usize, _image_width: usize) -> ReadResult<()> {
+    fn read_line(&mut self, _read: &mut impl Read, _position: (usize, usize), _length: usize, _image_width: usize) -> ReadResult<()> {
         unimplemented!()
 
         // TODO err on invalid tile position
@@ -763,7 +799,7 @@ impl<Sample: io::Data> Samples for DeepSamples<Sample> {
 //        Ok(())
     }
 
-    fn extract_line(&self, write: &mut impl Write, _position: (usize, usize), length: usize, _image_width: usize) -> WriteResult {
+    fn extract_line(&self, _write: &mut impl Write, _position: (usize, usize), _length: usize, _image_width: usize) -> WriteResult {
         unimplemented!()
     }
 }

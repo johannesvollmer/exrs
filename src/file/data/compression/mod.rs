@@ -151,7 +151,7 @@ impl Compression {
 
         let expected_byte_size = (dimensions.0 * dimensions.1 * header.channels.bytes_per_pixel) as usize;
         if data.len() == expected_byte_size {
-            Ok(data)
+            Ok(data) // the raw data was smaller than the compressed data, so the raw data has been written
         }
 
         else {
@@ -192,7 +192,7 @@ impl Compression {
                 ZIP16 => zip::decompress_bytes(data, expected_byte_size),
                 ZIP1 => zip::decompress_bytes(data, expected_byte_size),
                 RLE => rle::decompress_bytes(data, expected_byte_size),
-                compression => Err(Error::UnsupportedCompressionType),
+                _ => Err(Error::UnsupportedCompressionType),
             }
         }
     }
@@ -205,10 +205,10 @@ impl Compression {
     pub fn scan_lines_per_block(self) -> u32 {
         use self::Compression::*;
         match self {
-            None  | RLE   | ZIP1        => 1,
-            ZIP16 | PXR24               => 16,
-            PIZ   | B44   | B44A | DWAA => 32,
-            DWAB                        => 256,
+            None  | RLE   | ZIP1         => 1,
+            ZIP16 | PXR24                => 16,
+            PIZ   | B44   | B44A | DWAA  => 32,
+            DWAB                         => 256,
         }
     }
 

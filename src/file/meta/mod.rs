@@ -15,7 +15,7 @@ use std::io::{BufReader};
 use std::cmp::Ordering;
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MetaData {
     pub requirements: Requirements,
 
@@ -28,10 +28,10 @@ pub struct MetaData {
     /// attributes must also be the same for all parts of a file.
     pub headers: Headers,
 
-    /// one table per header.
-    /// In the table, scan line offsets are ordered according to increasing scan line y coordinates.
-    /// In the table, tile offsets are sorted the same way as tiles in INCREASING_Y order.
-    pub offset_tables: OffsetTables,
+    // one table per header.
+    // In the table, scan line offsets are ordered according to increasing scan line y coordinates.
+    // In the table, tile offsets are sorted the same way as tiles in INCREASING_Y order.
+//    pub offset_tables: OffsetTables,
 }
 
 pub type Headers = SmallVec<[Header; 3]>;
@@ -184,8 +184,7 @@ impl MetaData {
     #[must_use]
     pub fn read_from_buffered<R: Read>(buffered: R) -> ReadResult<Self> {
         let mut read = PeekRead::new(buffered);
-        let meta = MetaData::read_from_buffered_peekable(&mut read)?;
-        Ok(meta)
+        MetaData::read_from_buffered_peekable(&mut read)
     }
 
     #[must_use]
@@ -193,25 +192,22 @@ impl MetaData {
         MagicNumber::validate_exr(read)?;
         let version = Requirements::read(read)?;
         let headers = Header::read_all(read, &version)?;
-        let offset_tables = Self::read_offset_tables(read, version, &headers)?;
 
         // TODO check if supporting version 2 implies supporting version 1
-        let meta = MetaData { requirements: version, headers, offset_tables };
+        let meta = MetaData { requirements: version, headers };
         meta.validate()?;
+
         Ok(meta)
     }
 
-    /// assumes the reader is buffered.
-    /// Call `write_offset_tables(write, &self.offset_tables)` after this to write offset tables
-    #[must_use]
-    pub fn write_without_tables(&self, write: &mut impl Write) -> WriteResult {
+    pub fn write(&self, write: &mut impl Write) -> WriteResult {
         self.validate()?;
 
         MagicNumber::write(write)?;
         self.requirements.write(write)?;
-        Header::write_all(self.headers.as_slice(), write, &self.requirements)
+        Header::write_all(self.headers.as_slice(), write, &self.requirements)?;
+        Ok(())
     }
-
 
     // TODO skip reading offset tables if not required?
     pub fn read_offset_tables(
@@ -227,35 +223,31 @@ impl MetaData {
             .collect()
     }
 
-    pub fn write_offset_tables<W: Write>(write: &mut W, tables: &OffsetTables) -> WriteResult {
-        for table in tables {
-            u64::write_slice(write, &table)?; // TODO without clone at least on little endian machines
-        }
-
-        Ok(())
-    }
+//    pub fn write_offset_tables<W: Write>(write: &mut W, tables: &OffsetTables) -> WriteResult {
+//        for table in tables {
+//            u64::write_slice(write, &table)?;
+//        }
+//
+//        Ok(())
+//    }
 
     // TODO also check for writing valid files
     pub fn validate(&self) -> Validity {
-        let tables = self.offset_tables.len();
         let headers = self.headers.len();
-
-        if tables == 0 {
-            return Err(Invalid::Missing(Value::Part("offset table")));
-        }
 
         if headers == 0 {
             return Err(Invalid::Missing(Value::Part("header")));
         }
 
-        if tables != headers {
-            return Err(Invalid::Combination(&[
-                Value::Part("headers"),
-                Value::Part("offset tables"),
-            ]));
-        }
+//        TODO
+//        if tables != headers {
+//            return Err(Invalid::Combination(&[
+//                Value::Part("headers"),
+//                Value::Part("offset tables"),
+//            ]));
+//        }
 
-        let is_multi_part = headers > 1;
+//        let _is_multi_part = headers > 1;
         /*if is_multi_part != self.requirements.has_multiple_parts {
             return Err(Invalid::Combination(&[
                 Value::Version("multipart"),
@@ -367,7 +359,8 @@ impl Header {
     }
 
     fn get_scan_line_block_height(&self, y: u32) -> u32 {
-        debug_assert!(y as i32 >= self.data_window.y_min);
+        debug_assert!(y as i32 >= self.data_window.y_min, "invalid y coordinate: {}", y);
+        debug_assert!(y < self.data_window.dimensions().1, "invalid y coordinate: {}", y);
 
         let lines_per_block = self.compression.scan_lines_per_block();
         let next_block_y = y + lines_per_block - self.data_window.y_min as u32;
@@ -566,7 +559,7 @@ impl Header {
         Ok(())
     }
 
-    pub fn write_all<W: Write>(headers: &[Header], write: &mut W, version: &Requirements) -> WriteResult {
+    pub fn write_all(headers: &[Header], write: &mut impl Write, version: &Requirements) -> WriteResult {
         let has_multiple_headers = headers.len() != 1;
         if headers.is_empty() || version.has_multiple_parts != has_multiple_headers {
             // TODO return combination?
@@ -574,10 +567,42 @@ impl Header {
         }
 
         for header in headers {
-            debug_assert!(header.validate(&version).is_ok(), "check failed: header invalid");
+            header.validate(&version).expect("check failed: header invalid");
 
             // header.tiles.write(write, version.has_long_names)?;
-            println!("FIXME write all header attributes!!!");
+//            println!("FIXME write all header attributes!!!");
+
+            // FIXME do not allocate text object for writing!
+            fn write_attr<T>(write: &mut impl Write, long: bool, name: &[u8], value: T, variant: impl Fn(T) -> AttributeValue) -> WriteResult {
+                Attribute { name: Text::from_bytes_unchecked(SmallVec::from_slice(name)), value: variant(value) }
+                    .write(write, long)
+            };
+
+            fn write_opt_attr<T>(write: &mut impl Write, long: bool, name: &[u8], attribute: Option<T>, variant: impl Fn(T) -> AttributeValue) -> WriteResult {
+                if let Some(value) = attribute { write_attr(write, long, name, value, variant) }
+                else { Ok(()) }
+            };
+
+            {
+                let long = version.has_long_names;
+                use crate::file::meta::attributes::required::*;
+                use AttributeValue::*;
+
+                write_opt_attr(write, long, TILES, header.tiles, TileDescription)?;
+                write_opt_attr(write, long, NAME, header.name.clone(), Text)?;
+                write_opt_attr(write, long, TYPE, header.kind, Kind)?;
+                write_opt_attr(write, long, VERSION, header.deep_data_version, I32)?;
+                write_opt_attr(write, long, CHUNKS, header.chunk_count, |u| I32(u as i32))?;
+                write_opt_attr(write, long, MAX_SAMPLES, header.max_samples_per_pixel, |u| I32(u as i32))?;
+                write_attr(write, long, CHANNELS, header.channels.clone(), ChannelList)?; // FIXME do not clone
+                write_attr(write, long, COMPRESSION, header.compression, Compression)?;
+                write_attr(write, long, DATA_WINDOW, header.data_window, I32Box2)?;
+                write_attr(write, long, DISPLAY_WINDOW, header.display_window, I32Box2)?;
+                write_attr(write, long, LINE_ORDER, header.line_order, LineOrder)?;
+                write_attr(write, long, PIXEL_ASPECT, header.pixel_aspect, F32)?;
+                write_attr(write, long, WINDOW_WIDTH, header.screen_window_width, F32)?;
+                write_attr(write, long, WINDOW_CENTER, header.screen_window_center, |(x, y)| F32Vec2(x, y))?;
+            }
 
             for attrib in &header.custom_attributes {
                 attrib.write(write, version.has_long_names)?;
@@ -726,7 +751,7 @@ impl Requirements {
         let unknown_flags = version_and_flags >> 13; // all flags excluding the 12 bits we already parsed
 
         if unknown_flags != 0 { // TODO test if this correctly detects unsupported files
-            return Err(Invalid::NotSupported("version flags").into());
+            return Err(Invalid::NotSupported("reserved version flags").into());
         }
 
         let version = Requirements {
@@ -804,5 +829,78 @@ impl Requirements {
 }
 
 
+#[cfg(test)]
+mod test {
+    use crate::file::meta::{MetaData, Requirements, Header};
+    use crate::file::meta::attributes::{Text, ChannelList, I32Box2, LineOrder, Channel, PixelType};
+    use crate::file::data::compression::Compression;
 
+    #[test]
+    fn round_trip_requirements() {
+        let requirements = Requirements::new(2, 4, true, true, true);
+
+        let mut data: Vec<u8> = Vec::new();
+        requirements.write(&mut data).unwrap();
+        let read = Requirements::read(&mut data.as_slice()).unwrap();
+        assert_eq!(requirements, read);
+    }
+
+        #[test]
+    fn round_trip(){
+        let meta = MetaData {
+            requirements: Requirements::new(2, 1, false, false, false),
+            headers: smallvec![
+                Header {
+                    channels: ChannelList {
+                        list: smallvec![
+                            Channel {
+                                name: Text::from_str("main").unwrap(),
+                                pixel_type: PixelType::U32,
+                                is_linear: false,
+                                reserved: [0,0,0],
+                                sampling: (1, 1)
+                            }
+                        ],
+                        bytes_per_pixel: 4
+                    },
+                    compression: Compression::None,
+                    data_window: I32Box2 {
+                        x_min: 0,
+                        y_min: 0,
+                        x_max: 10,
+                        y_max: 10
+                    },
+                    display_window: I32Box2 {
+                        x_min: 0,
+                        y_min: 0,
+                        x_max: 10,
+                        y_max: 10
+                    },
+                    line_order: LineOrder::IncreasingY,
+                    pixel_aspect: 1.0,
+                    screen_window_center: (5.0, 5.0),
+                    screen_window_width: 10.0,
+                    tiles: None,
+                    name: None,
+                    kind: None,
+                    deep_data_version: None,
+                    chunk_count: None,
+                    max_samples_per_pixel: None,
+                    custom_attributes: smallvec![ /* TODO */ ]
+                }
+            ],
+//            offset_tables: smallvec![
+//                vec![
+//                    0, 2, 3, 4, 5, 6, 7, 1234, 23, 412,4 ,124,4,
+//                ]
+//            ]
+        };
+
+
+        let mut data: Vec<u8> = Vec::new();
+        meta.write(&mut data).unwrap();
+        let meta2 = MetaData::read_from_buffered(data.as_slice()).unwrap();
+        assert_eq!(meta, meta2);
+    }
+}
 

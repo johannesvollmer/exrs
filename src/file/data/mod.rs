@@ -152,7 +152,7 @@ impl ScanLineBlock {
 
     // TODO parse lazily, always skip size, ... ?
     pub fn read(read: &mut impl Read) -> ReadResult<Self> {
-        let y_coordinate = i32::read(read)?;
+        let y_coordinate = i32::read(read)?; // FIXME i32 sized although scanline block easily calculatable?
         let compressed_pixels = u8::read_i32_sized_vec(read, MAX_PIXEL_BYTES)?; // TODO maximum scan line size can easily be calculated
         Ok(ScanLineBlock { y_coordinate, compressed_pixels })
     }

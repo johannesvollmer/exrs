@@ -5,7 +5,6 @@ use half::slice::{HalfFloatSliceExt};
 use lebe::prelude::*;
 use ::half::f16;
 
-use crate::error::*;
 
 
 // TODO DRY !!!!!!! the whole module
@@ -79,6 +78,8 @@ pub trait Data: Sized + Default + Clone {
         let end = start + data_size;
         let max_end = start + estimated_max;
 
+        debug_assert!(data_size < estimated_max, "suspiciously large data size: {}", data_size);
+
         if data_size < estimated_max {
             data.resize(end, Self::default());
             Self::read_slice(read, &mut data[start .. end])
@@ -104,7 +105,7 @@ pub trait Data: Sized + Default + Clone {
 
     fn read_i32_sized_vec(read: &mut impl Read, estimated_max: usize) -> std::io::Result<Vec<Self>> {
         let size = i32::read(read)?;
-        if size < 0 { return unimplemented!() }
+        if size < 0 { unimplemented!() }
         Self::read_vec(read, size as usize, estimated_max)
     }
 }
@@ -118,7 +119,7 @@ macro_rules! implement_data_for_primitive {
             }
 
             fn write(self, write: &mut impl Write) -> std::io::Result<()> {
-                write.write_as_little_endian(&self).map(|_| ())
+                write.write_as_little_endian(&self)
             }
 
             fn read_slice(read: &mut impl Read, slice: &mut [Self]) -> std::io::Result<()> {
@@ -126,7 +127,7 @@ macro_rules! implement_data_for_primitive {
             }
 
             fn write_slice(write: &mut impl Write, slice: &[Self]) -> std::io::Result<()> {
-                write.write_as_little_endian(slice).map(|_| ())
+                write.write_as_little_endian(slice)
             }
         }
     };
@@ -134,12 +135,12 @@ macro_rules! implement_data_for_primitive {
 
 implement_data_for_primitive!(u8);
 implement_data_for_primitive!(i8);
+implement_data_for_primitive!(i16);
 implement_data_for_primitive!(u16);
 implement_data_for_primitive!(u32);
 implement_data_for_primitive!(i32);
 implement_data_for_primitive!(i64);
 implement_data_for_primitive!(u64);
-implement_data_for_primitive!(i16);
 implement_data_for_primitive!(f32);
 implement_data_for_primitive!(f64);
 

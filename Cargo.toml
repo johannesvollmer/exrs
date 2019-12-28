@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 half = { version = "1.4.0", features = ["std"] }
-lebe = { git = "https://github.com/johannesvollmer/lebe" }
+lebe = { path = "C:/Users/Johannes/IdeaProjects/lebe" }
 libflate = "*"
 # byteorder = "*"
 

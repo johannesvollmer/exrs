@@ -3,7 +3,7 @@
 
 
 use crate::file::meta::attributes::RoundingMode;
-use crate::error::{WriteResult, ReadResult, ReadError};
+use crate::error::{ ReadResult, ReadError};
 use std::io::{Write, Read};
 use crate::file::io::{Data, PeekRead};
 

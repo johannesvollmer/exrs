@@ -10,7 +10,7 @@ use crate::error::validity::*;
 pub struct Text {
     /// vector does not include null terminator
     /// those strings will mostly be "R", "G", "B" or "deepscanlineimage"
-    pub bytes: SmallVec<[u8; 24]>,
+    pub bytes: TextBytes,
 }
 
 
@@ -115,7 +115,7 @@ pub struct F32Box2 {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChannelList {
     pub list: SmallVec<[Channel; 5]>,
-    pub bytes_per_pixel: u32,
+    pub bytes_per_pixel: u32, // FIXME only makes sense for flat images!
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -220,31 +220,35 @@ use crate::file::SequenceEnd;
 use std::cmp::Ordering;
 use crate::error::{ReadResult, WriteResult, ReadError};
 
-impl Text {
-    pub fn from_str_unchecked(str_value: &str) -> Self {
-        debug_assert_eq!(
-            str_value.bytes().len(), str_value.chars().count(),
-            "only single-byte chars supported by open exr" // TODO is this true?
-        );
+pub type TextBytes = SmallVec<[u8; 24]>;
 
-        Text { bytes: SmallVec::from_slice(str_value.as_bytes()) }
+impl Text {
+    pub fn from_str(str: &str) -> Option<Self> {
+        let vec : Option<TextBytes> = str.chars()
+            .map(|char| Some(char as u8)) // u8::try_from(char).ok())
+            .collect();
+
+        vec.map(Self::from_bytes_unchecked)
     }
 
-    pub fn from_bytes(bytes: SmallVec<[u8; 24]>) -> Self {
+    pub fn from_bytes_unchecked(bytes: TextBytes) -> Self {
         Text { bytes }
     }
 
-    /// panics if value is too long (31 bytes max)
-    pub fn from_str_32(str_value: &str) -> Self {
-        assert!(str_value.as_bytes().len() < 32, "max text length is 31");
-        Self::from_str_unchecked(str_value)
-    }
 
-    /// panics if value is too long (31 bytes max)
-    pub fn from_str_256(str_value: &str) -> Self {
-        assert!(str_value.as_bytes().len() < 256, "max text length is 255");
-        Self::from_str_unchecked(str_value)
-    }
+
+
+//    / panics if value is too long (31 bytes max)
+//    pub fn from_str_32(str_value: &str) -> Self {
+//        assert!(str_value.as_bytes().len() < 32, "max text length is 31");
+//        Self::from_str_unchecked(str_value)
+//    }
+
+//    / panics if value is too long (31 bytes max)
+//    pub fn from_str_256(str_value: &str) -> Self {
+//        assert!(str_value.as_bytes().len() < 256, "max text length is 255");
+//        Self::from_str_unchecked(str_value)
+//    }
 
     pub fn validate(&self, long_names: Option<bool>) -> Validity {
         Self::validate_bytes(self.bytes.as_slice(), long_names)
@@ -295,7 +299,7 @@ impl Text {
 
     pub fn read_sized<R: Read>(read: &mut R, size: usize) -> ReadResult<Self> {
         // TODO read into small vec without heap
-        Ok(Text::from_bytes(SmallVec::from_vec(u8::read_vec(read, size, 1024)?)))
+        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 1024)?)))
     }
 
     pub fn write_null_terminated<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> WriteResult {
@@ -1384,19 +1388,19 @@ mod test {
     fn attribute_write_read_roundtrip_and_byte_size(){
         let attributes = [
             Attribute {
-                name: Text::from_str_unchecked("greeting"),
-                value: AttributeValue::Text(Text::from_str_unchecked("hello")),
+                name: Text::from_str("greeting").unwrap(),
+                value: AttributeValue::Text(Text::from_str("hello").unwrap()),
             },
             Attribute {
-                name: Text::from_str_unchecked("age"),
+                name: Text::from_str("age").unwrap(),
                 value: AttributeValue::I32(923),
             },
             Attribute {
-                name: Text::from_str_unchecked("leg count"),
+                name: Text::from_str("leg count").unwrap(),
                 value: AttributeValue::F64(9.114939599234),
             },
             Attribute {
-                name: Text::from_str_unchecked("rabbit area"),
+                name: Text::from_str("rabbit area").unwrap(),
                 value: AttributeValue::F32Box2(F32Box2 {
                     x_min: 23.4234,
                     y_min: 345.23,
@@ -1405,17 +1409,17 @@ mod test {
                 }),
             },
             Attribute {
-                name: Text::from_str_unchecked("tests are difficult"),
+                name: Text::from_str("tests are difficult").unwrap(),
                 value: AttributeValue::TextVector(vec![
-                    Text::from_str_unchecked("sdoifjpsdv"),
-                    Text::from_str_unchecked("sdoifjpsdvxxxx"),
-                    Text::from_str_unchecked("sdoifjasd"),
-                    Text::from_str_unchecked("sdoifj"),
-                    Text::from_str_unchecked("sdoifjddddddddasdasd"),
+                    Text::from_str("sdoifjpsdv").unwrap(),
+                    Text::from_str("sdoifjpsdvxxxx").unwrap(),
+                    Text::from_str("sdoifjasd").unwrap(),
+                    Text::from_str("sdoifj").unwrap(),
+                    Text::from_str("sdoifjddddddddasdasd").unwrap(),
                 ]),
             },
             Attribute {
-                name: Text::from_str_unchecked("what should we eat tonight"),
+                name: Text::from_str("what should we eat tonight").unwrap(),
                 value: AttributeValue::Preview(Preview {
                     width: 10,
                     height: 30,
@@ -1423,25 +1427,25 @@ mod test {
                 }),
             },
             Attribute {
-                name: Text::from_str_unchecked("leg count, again"),
+                name: Text::from_str("leg count, again").unwrap(),
                 value: AttributeValue::ChannelList(ChannelList {
                     list: smallvec![
                         Channel {
-                            name: Text::from_str_32("Green"),
+                            name: Text::from_str("Green").unwrap(),
                             pixel_type: PixelType::F16,
                             is_linear: false,
                             reserved: [0, 0, 0],
                             sampling: (1,2)
                         },
                         Channel {
-                            name: Text::from_str_32("Red"),
+                            name: Text::from_str("Red").unwrap(),
                             pixel_type: PixelType::F32,
                             is_linear: true,
                             reserved: [0, 1, 0],
                             sampling: (1,2)
                         },
                         Channel {
-                            name: Text::from_str_32("Purple"),
+                            name: Text::from_str("Purple").unwrap(),
                             pixel_type: PixelType::U32,
                             is_linear: false,
                             reserved: [1, 2, 7],
@@ -1465,7 +1469,7 @@ mod test {
 
         {
             let too_large_named = Attribute {
-                name: Text::from_str_unchecked("asdkaspfokpaosdkfpaokswdpoakpsfokaposdkf"),
+                name: Text::from_str("asdkaspfokpaosdkfpaokswdpoakpsfokaposdkf").unwrap(),
                 value: AttributeValue::I32(0),
             };
 
@@ -1475,7 +1479,7 @@ mod test {
 
         {
             let way_too_large_named = Attribute {
-                name: Text::from_bytes(SmallVec::from_vec(vec![0; 257])),
+                name: Text::from_str("sdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfpo").unwrap(),
                 value: AttributeValue::I32(0),
             };
 

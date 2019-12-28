@@ -3,7 +3,6 @@ use super::Result;
 use crate::file::meta::attributes::{I32Box2, PixelType};
 use crate::file::meta::{Header};
 use crate::file::data::compression::Error::InvalidData;
-use crate::error::ReadResult;
 use crate::file::io::Data;
 
 

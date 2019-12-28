@@ -131,11 +131,18 @@ pub mod test {
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
         );
 
-        let image = Image::read_from_file(path, ReadOptions::default()).unwrap();
+        let image = Image::read_from_file(path, ReadOptions::debug()).unwrap();
+        println!("read 1 successfull, beginning write");
 
         let mut tmp_bytes = Vec::new();
-        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), WriteOptions::default()).unwrap();
-        let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::default()).unwrap();
+        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), WriteOptions::debug()).unwrap();
+        println!("write successfull, beginning read 2");
+
+        let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::debug()).unwrap();
+        println!("read 2 successfull");
+
+        assert_eq!(image, image2);
+        println!("equal");
     }
 
     #[test]
@@ -144,10 +151,10 @@ pub mod test {
 
         let path = Path::new(
 //            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
-//            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
-//        "D:/Pictures/openexr/crowskull/crow_zips.exr"
+            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
+//        "D:/Pictures/openexr/crows/kull/crow_zips.exr"
 //            "D:/Pictures/openexr/crowskull/crow_rle.exr"
-            "D:/Pictures/openexr/crowskull/crow_zip_half.exr"
+//            "D:/Pictures/openexr/crowskull/crow_zip_half.exr"
 
 
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
@@ -161,7 +168,7 @@ pub mod test {
         println!("\ndecoded file in {:?}s", millis as f32 * 0.001);
 
 
-        fn save_f16_as_png(data: &[f32], size: (usize, usize), name: String) {
+        fn save_f32_image_as_png(data: &[f32], size: (usize, usize), name: String) {
             let mut png_buffer = ::piston_image::GrayImage::new(size.0 as u32, size.1 as u32);
             let min = data.iter().cloned().fold(0.0/0.0, f32::max);
             let max = data.iter().cloned().fold(1.0/0.0, f32::min);
@@ -186,7 +193,7 @@ pub mod test {
                         for sample_block in levels.levels() {
                             let data : Vec<f32> = sample_block.samples.iter().map(|f16| f16.to_f32()).collect();
 
-                            save_f16_as_png(&data, sample_block.resolution, format!(
+                            save_f32_image_as_png(&data, sample_block.resolution, format!(
                                 "testout/{}_{}_f16_{}x{}.png",
                                 part.name.as_ref().map(attributes::Text::to_string).unwrap_or(String::from("1")),
                                 channel.name,
@@ -198,7 +205,7 @@ pub mod test {
                     ChannelData::F32(levels) => {
                         let levels = levels.flat_samples().unwrap();
                         for sample_block in levels.levels() {
-                            save_f16_as_png(&sample_block.samples, sample_block.resolution, format!(
+                            save_f32_image_as_png(&sample_block.samples, sample_block.resolution, format!(
                                 "testout/{}_{}_f16_{}x{}.png",
                                 part.name.as_ref().map(attributes::Text::to_string).unwrap_or(String::from("1")),
                                 channel.name,
