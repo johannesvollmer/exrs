@@ -78,9 +78,9 @@ pub trait Data: Sized + Default + Clone {
         let end = start + data_size;
         let max_end = start + estimated_max;
 
-        debug_assert!(data_size < estimated_max, "suspiciously large data size: {}", data_size);
+        debug_assert!(data_size <= estimated_max, "suspiciously large data size: {} (max: {})", data_size, estimated_max);
 
-        if data_size < estimated_max {
+        if data_size <= estimated_max {
             data.resize(end, Self::default());
             Self::read_slice(read, &mut data[start .. end])
         }

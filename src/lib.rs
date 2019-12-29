@@ -63,6 +63,7 @@ pub mod test {
     use std::fs;
     use std::io::Cursor;
     use std::panic::catch_unwind;
+    use std::fs::File;
 
     #[test]
     fn print_meta_of_all_files() {
@@ -82,13 +83,15 @@ pub mod test {
         print_exr_files(Path::new("D:/Pictures/openexr"))
     }
 
+    /// read all images in a directory.
+    /// does not check any content, just checks whether a read error or panic happened.
     #[test]
     fn read_all_files() {
         fn test_exr_files(path: &Path){
             if let Some("exr") = path.extension().and_then(|os| os.to_str()) {
-                print!("testing file {:?}... ", path.file_name().unwrap());
+                print!("reading file {:?}... ", path.file_name().unwrap());
                 let image = catch_unwind(||{ // FIXME does not catch errors from other thread
-                    Image::read_from_file(path, ReadOptions::default())
+                    Image::read_from_file(path, ReadOptions::debug())
                 });
 
                 match image {
@@ -123,9 +126,9 @@ pub mod test {
         let path = Path::new(
 //            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
 //            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
-//        "D:/Pictures/openexr/crowskull/crow_zips.exr"
+        "D:/Pictures/openexr/crowskull/crow_zips.exr"
 //            "D:/Pictures/openexr/crowskull/crow_rle.exr"
-"D:/Pictures/openexr/crowskull/crow_zip_half.exr"
+//"D:/Pictures/openexr/crowskull/crow_zip_half.exr"
 
 
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
@@ -146,12 +149,29 @@ pub mod test {
     }
 
     #[test]
+    pub fn test_write_file() {
+        let path = Path::new(
+//            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
+//            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
+"D:/Pictures/openexr/crowskull/crow_zips.exr"
+//            "D:/Pictures/openexr/crowskull/crow_rle.exr"
+//"D:/Pictures/openexr/crowskull/crow_zip_half.exr"
+
+
+//        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
+        );
+
+        let image = Image::read_from_file(path, ReadOptions::debug()).unwrap();
+        image.write_to_file(Path::new("./testout/written.exr"), WriteOptions::debug()).unwrap();
+    }
+
+    #[test]
     pub fn convert_to_png() {
         let now = ::std::time::Instant::now();
 
         let path = Path::new(
-//            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
-            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
+            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
+//            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
 //        "D:/Pictures/openexr/crows/kull/crow_zips.exr"
 //            "D:/Pictures/openexr/crowskull/crow_rle.exr"
 //            "D:/Pictures/openexr/crowskull/crow_zip_half.exr"
@@ -218,27 +238,6 @@ pub mod test {
                 }
             }
         }
-
-        // expect_variant!(channels, crate::image::PartData::Flat(ref pixels) => {
-
-//            match pixels.channel_data[1] {
-//                PixelArray::F32(ref channel) => {
-//                    for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
-//                        let v = channel[(y * pixels.dimensions.0 + x) as usize];
-//                        *pixel = ::piston_image::Luma([(v.powf(1.0/2.2) * 100.0) as u8]);
-//                    }
-//                },
-//                PixelArray::F16(ref channel) => {
-//                    for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
-//                        let v = channel[(y * pixels.dimensions.0 + x) as usize];
-//                        *pixel = ::piston_image::Luma([(v.to_f32().powf(1.0/2.2) * 100.0) as u8]);
-//                    }
-//                },
-//                _ => panic!()
-//            }
-
-        // });
-
     }
 
 }

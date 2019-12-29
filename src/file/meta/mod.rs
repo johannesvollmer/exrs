@@ -190,11 +190,11 @@ impl MetaData {
     #[must_use]
     pub fn read_from_buffered_peekable(read: &mut PeekRead<impl Read>) -> ReadResult<Self> {
         MagicNumber::validate_exr(read)?;
-        let version = Requirements::read(read)?;
-        let headers = Header::read_all(read, &version)?;
+        let requirements = Requirements::read(read)?;
+        let headers = Header::read_all(read, &requirements)?;
 
-        // TODO check if supporting version 2 implies supporting version 1
-        let meta = MetaData { requirements: version, headers };
+        // TODO check if supporting requirements 2 always implies supporting requirements 1
+        let meta = MetaData { requirements, headers };
         meta.validate()?;
 
         Ok(meta)
@@ -359,8 +359,10 @@ impl Header {
     }
 
     fn get_scan_line_block_height(&self, y: u32) -> u32 {
-        debug_assert!(y as i32 >= self.data_window.y_min, "invalid y coordinate: {}", y);
-        debug_assert!(y < self.data_window.dimensions().1, "invalid y coordinate: {}", y);
+        debug_assert!(
+            y as i32 >= self.data_window.y_min && y as i32 <= self.data_window.y_max,
+            "invalid y coordinate: {}, (data window: {:?})", y, self.data_window
+        );
 
         let lines_per_block = self.compression.scan_lines_per_block();
         let next_block_y = y + lines_per_block - self.data_window.y_min as u32;
@@ -415,6 +417,14 @@ impl Header {
         (width, height)
     }
 
+    pub fn max_block_byte_size(&self) -> usize {
+        (
+            self.channels.bytes_per_pixel * match self.tiles {
+                Some(tiles) => tiles.size.0 * tiles.size.1,
+                None => self.compression.scan_lines_per_block() * self.data_window.dimensions().0 // TODO is this how it works?!?! What about deep data???
+            }
+        ) as usize
+    }
 
     // TODO reuse this algorithm in crate::image::Part::new?
     pub fn compute_offset_table_size(&self, version: Requirements) -> Result<u32, Invalid> {
@@ -437,14 +447,6 @@ impl Header {
                 let round = tiles.rounding_mode;
                 let (tile_width, tile_height) = tiles.size;
 
-//            let level_count = |full_res: u32| {
-//                compute_level_count(round, full_res)
-//            };
-
-//            let level_size = |full_res: u32, level_index: u32| {
-//                compute_level_size(round, full_res, level_index)
-//            };
-
                 // TODO cache all these level values??
                 use crate::file::meta::attributes::LevelMode::*;
                 Ok(match tiles.level_mode {
@@ -455,15 +457,6 @@ impl Header {
                     }
 
                     MipMap => {
-                        // sum all tiles per level
-                        // note: as levels shrink, tiles stay the same pixel size.
-                        // so at lower levels, tiles cover up a visually bigger are of the smaller resolution image
-                        /*(0..level_count(data_width.max(data_height))).map(|level|{
-                            let tiles_x = compute_tile_count(level_size(data_width, level), tile_width);
-                            let tiles_y = compute_tile_count(level_size(data_height, level), tile_height);
-                            tiles_x * tiles_y
-                        }).sum()*/
-
                         mip_map_resolutions(round, data_size).map(|(level_width, level_height)| {
                             compute_tile_count(level_width, tile_width) * compute_tile_count(level_height, tile_height)
                         }).sum()
@@ -471,14 +464,6 @@ impl Header {
 
                     RipMap => {
                         // TODO test this
-                        /*(0..level_count(data_width)).map(|x_level|{ // TODO may swap y and x?
-                            (0..level_count(data_height)).map(|y_level| {
-                                let tiles_x = compute_tile_count(level_size(data_width, x_level), tile_width);
-                                let tiles_y = compute_tile_count(level_size(data_height, y_level), tile_height);
-                                tiles_x * tiles_y
-                            }).sum::<u32>()
-                        }).sum()*/
-
                         rip_map_resolutions(round, data_size).map(|(level_width, level_height)| {
                             compute_tile_count(level_width, tile_width) * compute_tile_count(level_height, tile_height)
                         }).sum()
@@ -559,80 +544,37 @@ impl Header {
         Ok(())
     }
 
+    pub fn read_all(read: &mut PeekRead<impl Read>, version: &Requirements) -> ReadResult<Headers> {
+        if !version.is_multipart() { // TODO check a different way?
+            Ok(smallvec![ Header::read(read, version)? ])
+        }
+        else {
+            let mut headers = SmallVec::new();
+
+            while !SequenceEnd::has_come(read)? {
+                headers.push(Header::read(read, version)?);
+            }
+
+            Ok(headers)
+        }
+    }
+
     pub fn write_all(headers: &[Header], write: &mut impl Write, version: &Requirements) -> WriteResult {
         let has_multiple_headers = headers.len() != 1;
-        if headers.is_empty() || version.has_multiple_parts != has_multiple_headers {
-            // TODO return combination?
-            return Err(Invalid::Content(Value::Part("headers count"), Required::Exact("1")).into());
-        }
 
         for header in headers {
-            header.validate(&version).expect("check failed: header invalid");
-
-            // header.tiles.write(write, version.has_long_names)?;
-//            println!("FIXME write all header attributes!!!");
-
-            // FIXME do not allocate text object for writing!
-            fn write_attr<T>(write: &mut impl Write, long: bool, name: &[u8], value: T, variant: impl Fn(T) -> AttributeValue) -> WriteResult {
-                Attribute { name: Text::from_bytes_unchecked(SmallVec::from_slice(name)), value: variant(value) }
-                    .write(write, long)
-            };
-
-            fn write_opt_attr<T>(write: &mut impl Write, long: bool, name: &[u8], attribute: Option<T>, variant: impl Fn(T) -> AttributeValue) -> WriteResult {
-                if let Some(value) = attribute { write_attr(write, long, name, value, variant) }
-                else { Ok(()) }
-            };
-
-            {
-                let long = version.has_long_names;
-                use crate::file::meta::attributes::required::*;
-                use AttributeValue::*;
-
-                write_opt_attr(write, long, TILES, header.tiles, TileDescription)?;
-                write_opt_attr(write, long, NAME, header.name.clone(), Text)?;
-                write_opt_attr(write, long, TYPE, header.kind, Kind)?;
-                write_opt_attr(write, long, VERSION, header.deep_data_version, I32)?;
-                write_opt_attr(write, long, CHUNKS, header.chunk_count, |u| I32(u as i32))?;
-                write_opt_attr(write, long, MAX_SAMPLES, header.max_samples_per_pixel, |u| I32(u as i32))?;
-                write_attr(write, long, CHANNELS, header.channels.clone(), ChannelList)?; // FIXME do not clone
-                write_attr(write, long, COMPRESSION, header.compression, Compression)?;
-                write_attr(write, long, DATA_WINDOW, header.data_window, I32Box2)?;
-                write_attr(write, long, DISPLAY_WINDOW, header.display_window, I32Box2)?;
-                write_attr(write, long, LINE_ORDER, header.line_order, LineOrder)?;
-                write_attr(write, long, PIXEL_ASPECT, header.pixel_aspect, F32)?;
-                write_attr(write, long, WINDOW_WIDTH, header.screen_window_width, F32)?;
-                write_attr(write, long, WINDOW_CENTER, header.screen_window_center, |(x, y)| F32Vec2(x, y))?;
-            }
-
-            for attrib in &header.custom_attributes {
-                attrib.write(write, version.has_long_names)?;
-            }
-
-            SequenceEnd::write(write)?;
-
+            header.write(write, version)?;
         }
-        SequenceEnd::write(write)?;
+
+        if has_multiple_headers {
+            SequenceEnd::write(write)?;
+        }
 
         Ok(())
     }
 
-    pub fn read_all(read: &mut PeekRead<impl Read>, version: &Requirements) -> ReadResult<Headers> {
-        Ok({
-            if !version.has_multiple_parts { // TODO check a different way?
-                SmallVec::from_elem(Header::read(read, version)?, 1)
-
-            } else {
-                let mut headers = SmallVec::new();
-                while !SequenceEnd::has_come(read)? {
-                    headers.push(Header::read(read, version)?);
-                }
-
-                headers
-            }
-        })
-    }
-
     pub fn read(read: &mut PeekRead<impl Read>, requirements: &Requirements) -> ReadResult<Self> {
+        let max_string_len = if requirements.has_long_names { 256 } else { 32 }; // TODO DRY this information
         let mut custom = SmallVec::new();
 
         // these required attributes will be Some(usize) when encountered while parsing
@@ -652,7 +594,7 @@ impl Header {
         let mut screen_window_width = None;
 
         while !SequenceEnd::has_come(read)? {
-            let Attribute { name: attribute_name, value } = Attribute::read(read)?;
+            let Attribute { name: attribute_name, value } = Attribute::read(read, max_string_len)?;
 
             use crate::file::meta::attributes::required::*;
             match attribute_name.bytes.as_slice() {
@@ -698,14 +640,59 @@ impl Header {
 
             tiles,
             name, kind,
-            deep_data_version: version,
             chunk_count,
             max_samples_per_pixel,
+            deep_data_version: version,
             custom_attributes: custom,
         };
 
         header.validate(requirements)?;
         Ok(header)
+    }
+
+    pub fn write(&self, write: &mut impl Write, version: &Requirements) -> WriteResult {
+        self.validate(&version).expect("check failed: header invalid");
+
+        // FIXME do not allocate text object for writing!
+        fn write_attr<T>(write: &mut impl Write, long: bool, name: &[u8], value: T, variant: impl Fn(T) -> AttributeValue) -> WriteResult {
+            Attribute { name: Text::from_bytes_unchecked(SmallVec::from_slice(name)), value: variant(value) }
+                .write(write, long)
+        };
+
+        fn write_opt_attr<T>(write: &mut impl Write, long: bool, name: &[u8], attribute: Option<T>, variant: impl Fn(T) -> AttributeValue) -> WriteResult {
+            if let Some(value) = attribute { write_attr(write, long, name, value, variant) }
+            else { Ok(()) }
+        };
+
+        {
+            let long = version.has_long_names;
+            use crate::file::meta::attributes::required::*;
+            use AttributeValue::*;
+
+            write_opt_attr(write, long, TILES, self.tiles, TileDescription)?;
+            write_opt_attr(write, long, NAME, self.name.clone(), Text)?;
+            write_opt_attr(write, long, TYPE, self.kind, Kind)?;
+            write_opt_attr(write, long, VERSION, self.deep_data_version, I32)?;
+            write_opt_attr(write, long, CHUNKS, self.chunk_count, |u| I32(u as i32))?;
+            write_opt_attr(write, long, MAX_SAMPLES, self.max_samples_per_pixel, |u| I32(u as i32))?;
+            write_attr(write, long, CHANNELS, self.channels.clone(), ChannelList)?; // FIXME do not clone
+            write_attr(write, long, COMPRESSION, self.compression, Compression)?;
+            write_attr(write, long, DATA_WINDOW, self.data_window, I32Box2)?;
+            write_attr(write, long, DISPLAY_WINDOW, self.display_window, I32Box2)?;
+            write_attr(write, long, LINE_ORDER, self.line_order, LineOrder)?;
+            write_attr(write, long, PIXEL_ASPECT, self.pixel_aspect, F32)?;
+            write_attr(write, long, WINDOW_WIDTH, self.screen_window_width, F32)?;
+            write_attr(write, long, WINDOW_CENTER, self.screen_window_center, |(x, y)| F32Vec2(x, y))?;
+
+            // FIXME always write chunk_count for faster read?
+        }
+
+        for attrib in &self.custom_attributes {
+            attrib.write(write, version.has_long_names)?;
+        }
+
+        SequenceEnd::write(write)?;
+        Ok(())
     }
 }
 

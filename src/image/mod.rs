@@ -156,18 +156,12 @@ impl Image {
         let mut read = PeekRead::new(read);
 
         let MetaData { headers, requirements } = MetaData::read_from_buffered_peekable(&mut read)?;
-//        println!("meta data: {:#?}\n{:#?}", requirements, headers);
 
         let offset_tables = MetaData::read_offset_tables(&mut read, requirements, &headers)?;
-        println!("read offset tables: {:?}", offset_tables);
 
         let chunk_reader = ChunkReader::new(read, requirements.is_multipart(), &headers, &offset_tables);
 
         let mut image = Image::new(headers.as_slice());
-
-        for table in &offset_tables {
-            println!("read offset table size {}", table.len());
-        }
 
         let has_compression = headers.iter() // do not use parallel stuff for uncompressed images
             .find(|header| header.compression != Compression::None).is_some();
@@ -206,7 +200,7 @@ impl Image {
 
     #[must_use]
     pub fn write_to_file(&self, path: &std::path::Path, options: WriteOptions) -> WriteResult {
-        Self::write_to_unbuffered(self, std::fs::File::open(path)?, options)
+        Self::write_to_unbuffered(self, std::fs::File::create(path)?, options)
     }
 
     /// needs more memory but allows for non-seeking write operations
@@ -244,19 +238,12 @@ impl Image {
         u64::write_slice(&mut write, offset_tables.as_slice())?;
         offset_tables.clear();
 
-        print!("writing offset_table size: {}", offset_table_size);
-
-
         for (part_index, part) in self.parts.iter().enumerate() {
             let mut table = Vec::new();
-            let table_start_index = offset_tables.len();
 
-            println!("offset table entries: ");
-
-            for (index, tile) in part.tiles(&meta_data.requirements, &meta_data.headers[part_index]).enumerate() {
+            for tile in part.tiles(&meta_data.requirements, &meta_data.headers[part_index]) {
                 let block_start_position = write.seek(SeekFrom::Current(0))?;
                 table.push((tile, block_start_position as u64));
-                print!("{}, ", block_start_position);
 
                 let data: Vec<u8> = self.compress_block(options.compression_method, part_index, tile)?;
 
@@ -279,10 +266,8 @@ impl Image {
         // write offset tables after all blocks have been written
         debug_assert_eq!(offset_tables.len(), offset_table_size as usize);
         write.seek(SeekFrom::Start(offset_table_start_byte))?;
-        u64::write_slice(&mut write, offset_tables.as_slice());
-//        MetaData::write_offset_tables(&mut write, &offset_tables)?;
+        u64::write_slice(&mut write, offset_tables.as_slice())?;
 
-        println!();
         Ok(())
     }
 }
@@ -385,9 +370,7 @@ impl UncompressedBlock {
 
 impl Image {
     pub fn new(headers: &[Header]) -> Self {
-        Image {
-            parts: headers.iter().map(Part::new).collect()
-        }
+        Image { parts: headers.iter().map(Part::new).collect() }
     }
 
     pub fn insert_block(&mut self, data: &mut impl Read, part_index: usize, tile: TileIndices) -> ReadResult<()> {
@@ -411,7 +394,6 @@ impl Image {
 
 
         let bytes = compression.compress_bytes(bytes)?;
-
         Ok(bytes)
     }
 
@@ -452,8 +434,6 @@ impl Part {
     /// allocates all the memory necessary to hold the pixel data,
     /// zeroed out, ready to be filled with actual pixel data
     pub fn new(header: &Header) -> Self {
-        let _data_size = header.data_window.dimensions();
-
         match header.kind {
             None | Some(Kind::ScanLine) | Some(Kind::Tile) => {
                 Part {
@@ -513,13 +493,13 @@ impl Part {
                 sampling: (channel.sampling.0 as u32, channel.sampling.1 as u32)
             }).collect()),
 
-            compression: options.compression_method,
             data_window: self.data_window,
             display_window: self.display_window,
-            line_order: options.line_order,
             pixel_aspect: self.pixel_aspect,
             screen_window_center: self.screen_window_center,
             screen_window_width: self.screen_window_width,
+            compression: options.compression_method,
+            line_order: options.line_order,
 
             tiles: match options.tiles {
                 TileOptions::ScanLineBlocks => None,
@@ -534,7 +514,7 @@ impl Part {
                 TileOptions::Tiles (_) => Kind::Tile,
             }),
 
-            // TODO deep data:
+            // TODO deep/multipart data:
             deep_data_version: None,
             chunk_count: None,
             max_samples_per_pixel: None,
@@ -552,27 +532,34 @@ impl Part {
             let block_size = header.compression.scan_lines_per_block();
             let block_count = compute_scan_line_block_count(image_height, block_size);
 
-            let mut data: Vec<_> = (0.. block_count - 1)
-                .map(move |block_index| {
-                    let y = block_index * block_size;
-                    let block_height = block_size;
-                    (y, block_height)
+            if block_size == 1 {
+                (0..block_count).map(move |y| {
+                    TileIndices {
+                        level: (0, 0),
+                        position: (0, y),
+                        size: (image_width, block_size)
+                    }
                 })
-                .collect();
+            }
+            else {
+                let mut data: Vec<_> = (0.. block_count - 1)
+                    .map(move |block_index| (block_index * block_size, block_size))
+                    .collect();
 
-            data.push({
-                let y = block_size * block_count;
-                let block_height = image_height - y;
-                (y, block_height)
-            });
+                let last_y = block_size * (block_count - 1);
+                let last_height = last_y + block_size - image_height;
+                data.push((last_y, last_height));
 
-            data.into_iter().map(move |(y, block_height)|
-                TileIndices {
-                    level: (0, 0),
-                    position: (0, y),
-                    size: (image_width, block_height)
-                }
-            )
+                let _result = data.into_iter().map(move |(y, block_height)|
+                    TileIndices {
+                        level: (0, 0),
+                        position: (0, y),
+                        size: (image_width, block_height)
+                    }
+                );
+
+                unimplemented!()
+            }
         }
     }
 }

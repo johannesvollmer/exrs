@@ -292,14 +292,14 @@ impl Text {
         Ok(())
     }
 
-    pub fn read_i32_sized<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read_i32_sized<R: Read>(read: &mut R, max_size: usize) -> ReadResult<Self> {
         let size = i32::read(read)? as usize;
-        Text::read_sized(read, size)
+        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, max_size.min(2048))?)))
     }
 
     pub fn read_sized<R: Read>(read: &mut R, size: usize) -> ReadResult<Self> {
         // TODO read into small vec without heap
-        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 1024)?)))
+        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 2048)?)))
     }
 
     pub fn write_null_terminated<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> WriteResult {
@@ -314,10 +314,16 @@ impl Text {
         Ok(())
     }
 
-    pub fn read_null_terminated<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read_null_terminated<R: Read>(read: &mut R, max_len: usize) -> ReadResult<Self> {
         let mut bytes = SmallVec::new();
 
         loop {
+            debug_assert!(bytes.len() < max_len, "text longer than max length");
+            if bytes.len() >= max_len {
+//                return Err()
+                unimplemented!()
+            }
+
             match u8::read(read)? {
                 0 => break,
                 non_terminator => bytes.push(non_terminator),
@@ -328,7 +334,8 @@ impl Text {
     }
 
     fn read_vec_of_i32_sized(
-        read: &mut PeekRead<impl Read>, attribute_value_byte_size: u32
+        read: &mut PeekRead<impl Read>,
+        total_byte_size: u32
     ) -> ReadResult<Vec<Text>>
     {
         let mut result = Vec::with_capacity(2);
@@ -336,14 +343,14 @@ impl Text {
         // length of the text-vector can be inferred from attribute size
         let mut processed_bytes = 0;
 
-        while processed_bytes < attribute_value_byte_size {
-            let text = Text::read_i32_sized(read)?;
+        while processed_bytes < total_byte_size {
+            let text = Text::read_i32_sized(read, total_byte_size as usize)?;
             processed_bytes += ::std::mem::size_of::<i32>() as u32; // size i32 of the text
             processed_bytes += text.bytes.len() as u32;
             result.push(text);
         }
 
-        debug_assert_eq!(processed_bytes, attribute_value_byte_size, "text lengths did not match attribute size");
+        debug_assert_eq!(processed_bytes, total_byte_size, "text lengths did not match attribute size");
         Ok(result)
     }
 
@@ -587,7 +594,7 @@ impl Channel {
     }
 
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
-        let name = Text::read_null_terminated(read)?;
+        let name = Text::read_null_terminated(read, 256)?;
         let pixel_type = PixelType::read(read)?;
 
         let is_linear = match u8::read(read)? {
@@ -927,9 +934,9 @@ impl Attribute {
     }
 
     // TODO parse lazily, always skip size, ... ?
-    pub fn read(read: &mut PeekRead<impl Read>) -> ReadResult<Self> {
-        let name = Text::read_null_terminated(read)?;
-        let kind = Text::read_null_terminated(read)?;
+    pub fn read(read: &mut PeekRead<impl Read>, max_size: usize) -> ReadResult<Self> {
+        let name = Text::read_null_terminated(read, max_size)?;
+        let kind = Text::read_null_terminated(read, max_size)?;
         let size = i32::read(read)? as u32; // TODO .checked_cast.ok_or(err:negative)
         let value = AttributeValue::read(read, kind, size)?;
         Ok(Attribute { name, value, })
@@ -1101,7 +1108,7 @@ impl AttributeValue {
 
             ty::PREVIEW     => Preview(self::Preview::read(read)?),
             ty::TEXT        => Text(self::Text::read_sized(read, byte_size as usize)?),
-            ty::TEXT_VECTOR => TextVector(self::Text::read_vec_of_i32_sized(read, byte_size)?),
+            ty::TEXT_VECTOR => TextVector(self::Text::read_vec_of_i32_sized(read, byte_size.min(2048))?),
             ty::TILES       => TileDescription(self::TileDescription::read(read)?),
 
             _ => {
@@ -1462,7 +1469,7 @@ mod test {
             attribute.write(&mut bytes, true).unwrap();
             assert_eq!(attribute.byte_size(), bytes.len(), "attribute.byte_size() for {:?}", attribute);
 
-            let new_attribute = Attribute::read(&mut PeekRead::new(Cursor::new(bytes))).unwrap();
+            let new_attribute = Attribute::read(&mut PeekRead::new(Cursor::new(bytes)), 300).unwrap();
             assert_eq!(*attribute, new_attribute, "attribute round trip");
         }
 

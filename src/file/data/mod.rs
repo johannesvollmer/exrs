@@ -151,9 +151,9 @@ impl ScanLineBlock {
     }
 
     // TODO parse lazily, always skip size, ... ?
-    pub fn read(read: &mut impl Read) -> ReadResult<Self> {
-        let y_coordinate = i32::read(read)?; // FIXME i32 sized although scanline block easily calculatable?
-        let compressed_pixels = u8::read_i32_sized_vec(read, MAX_PIXEL_BYTES)?; // TODO maximum scan line size can easily be calculated
+    pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> ReadResult<Self> {
+        let y_coordinate = i32::read(read)?;
+        let compressed_pixels = u8::read_i32_sized_vec(read, max_block_byte_size)?;
         Ok(ScanLineBlock { y_coordinate, compressed_pixels })
     }
 }
@@ -166,9 +166,9 @@ impl TileBlock {
     }
 
     // TODO parse lazily, always skip size, ... ?
-    pub fn read(read: &mut impl Read) -> ReadResult<Self> {
+    pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> ReadResult<Self> {
         let coordinates = TileCoordinates::read(read)?;
-        let compressed_pixels = u8::read_i32_sized_vec(read, MAX_PIXEL_BYTES)?; // TODO maximum scan line size can easily be calculated
+        let compressed_pixels = u8::read_i32_sized_vec(read, max_block_byte_size)?; // TODO maximum scan line size can easily be calculated
         Ok(TileBlock { coordinates, compressed_pixels })
     }
 
@@ -196,7 +196,7 @@ impl DeepScanLineBlock {
         Ok(())
     }
 
-    pub fn read(read: &mut impl Read) -> ReadResult<Self> {
+    pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> ReadResult<Self> {
         let y_coordinate = i32::read(read)?;
         let compressed_pixel_offset_table_size = u64::read(read)?;
         let compressed_sample_data_size = u64::read(read)?;
@@ -205,11 +205,11 @@ impl DeepScanLineBlock {
         // TODO don't just panic-cast
         // doc said i32, try u8
         let compressed_pixel_offset_table = i8::read_vec(
-            read, compressed_pixel_offset_table_size as usize, MAX_PIXEL_BYTES
+            read, compressed_pixel_offset_table_size as usize, max_block_byte_size
         )?;
 
         let compressed_sample_data = u8::read_vec(
-            read, compressed_sample_data_size as usize, MAX_PIXEL_BYTES
+            read, compressed_sample_data_size as usize, max_block_byte_size
         )?;
 
         Ok(DeepScanLineBlock {
@@ -233,18 +233,18 @@ impl DeepTileBlock {
         Ok(())
     }
 
-    pub fn read(read: &mut impl Read) -> ReadResult<Self> {
+    pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> ReadResult<Self> {
         let coordinates = TileCoordinates::read(read)?;
         let compressed_pixel_offset_table_size = u64::read(read)? as usize;
         let compressed_sample_data_size = u64::read(read)? as usize; // TODO u64 just guessed
         let decompressed_sample_data_size = u64::read(read)?;
 
         let compressed_pixel_offset_table = i8::read_vec(
-            read, compressed_pixel_offset_table_size, MAX_PIXEL_BYTES
+            read, compressed_pixel_offset_table_size, max_block_byte_size
         )?;
 
         let compressed_sample_data = u8::read_vec(
-            read, compressed_sample_data_size, MAX_PIXEL_BYTES
+            read, compressed_sample_data_size, max_block_byte_size
         )?;
 
         Ok(DeepTileBlock {
@@ -311,16 +311,17 @@ impl Chunk {
             )));
         }
 
-        let kind = headers[part_number as usize].kind
-            .unwrap_or(Kind::ScanLine); // TODO is this how it works?
+        let header = &headers[part_number as usize];
+        let kind = header.kind.unwrap_or(Kind::ScanLine); // TODO is this how it works?
+        let max_block_byte_size = header.max_block_byte_size();
 
         let chunk = Chunk {
             part_number,
             block: match kind {
-                Kind::ScanLine        => Block::ScanLine(ScanLineBlock::read(read)?),
-                Kind::Tile            => Block::Tile(TileBlock::read(read)?),
-                Kind::DeepScanLine    => Block::DeepScanLine(DeepScanLineBlock::read(read)?),
-                Kind::DeepTile        => Block::DeepTile(DeepTileBlock::read(read)?),
+                Kind::ScanLine        => Block::ScanLine(ScanLineBlock::read(read, max_block_byte_size)?),
+                Kind::Tile            => Block::Tile(TileBlock::read(read, max_block_byte_size)?),
+                Kind::DeepScanLine    => Block::DeepScanLine(DeepScanLineBlock::read(read, max_block_byte_size)?),
+                Kind::DeepTile        => Block::DeepTile(DeepTileBlock::read(read, max_block_byte_size)?),
             },
         };
 
@@ -351,7 +352,7 @@ impl<'h, R: Read> Iterator for ChunkReader<'h, R> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.remaining_chunk_count > 0 {
             self.remaining_chunk_count -= 1;
-            Some(Chunk::read(&mut self.read, self.multipart, self.headers))
+            Some(Chunk::read(&mut self.read, self.multipart, self.headers.as_slice()))
         }
         else {
             None
