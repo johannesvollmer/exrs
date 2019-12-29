@@ -949,7 +949,7 @@ mod test {
                         ],
                         bytes_per_pixel: 4
                     },
-                    compression: Compression::None,
+                    compression: Compression::Uncompressed,
                     data_window: I32Box2 {
                         x_min: 0,
                         y_min: 0,

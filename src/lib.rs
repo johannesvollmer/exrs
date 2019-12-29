@@ -51,6 +51,7 @@ pub mod test {
     use std::path::PathBuf;
     use std::ffi::OsStr;
     use rayon::iter::{IntoParallelIterator, ParallelIterator};
+    use crate::compression::Compression;
 
     fn exr_files() -> impl Iterator<Item=PathBuf> {
         walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter()
@@ -127,8 +128,8 @@ pub mod test {
     pub fn test_roundtrip() {
         let path = Path::new(
 //            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
-//            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
-        "D:/Pictures/openexr/crowskull/crow_zips.exr"
+            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
+//        "D:/Pictures/openexr/crowskull/crow_zips.exr"
 //            "D:/Pictures/openexr/crowskull/crow_rle.exr"
 //"D:/Pictures/openexr/crowskull/crow_zip_half.exr"
 
@@ -139,8 +140,13 @@ pub mod test {
         let image = Image::read_from_file(path, ReadOptions::debug()).unwrap();
         println!("read 1 successfull, beginning write");
 
+        let write_options = WriteOptions {
+            compression_method: Compression::ZIP1,
+            .. WriteOptions::debug()
+        };
+
         let mut tmp_bytes = Vec::new();
-        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), WriteOptions::debug()).unwrap();
+        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options).unwrap();
         println!("write successfull, beginning read 2");
 
         let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::debug()).unwrap();
@@ -164,7 +170,13 @@ pub mod test {
         );
 
         let image = Image::read_from_file(path, ReadOptions::debug()).unwrap();
-        image.write_to_file(Path::new("./testout/written.exr"), WriteOptions::debug()).unwrap();
+
+        let write_options = WriteOptions {
+            compression_method: Compression::ZIP1,
+            .. WriteOptions::debug()
+        };
+
+        image.write_to_file(Path::new("./testout/written.exr"), write_options).unwrap();
     }
 
     #[test]

@@ -153,17 +153,23 @@ impl Image {
     #[must_use]
     pub fn read_from_buffered(read: impl Read, options: ReadOptions) -> ReadResult<Self> {
         let mut read = PeekRead::new(read);
+        let meta_data = MetaData::read_from_buffered_peekable(&mut read)?;
+        let offset_tables = MetaData::read_offset_tables(&mut read, meta_data.requirements, &meta_data.headers)?;
+        Self::read_data_by_meta(meta_data, offset_tables, &mut read, options)
+    }
 
-        let MetaData { headers, requirements } = MetaData::read_from_buffered_peekable(&mut read)?;
 
-        let offset_tables = MetaData::read_offset_tables(&mut read, requirements, &headers)?;
+    /// assumes the reader is buffered (if desired)
+    #[must_use]
+    pub fn read_data_by_meta(meta_data: MetaData, offset_tables: OffsetTables, read: &mut impl Read, options: ReadOptions) -> ReadResult<Self> {
+        let MetaData { headers, requirements } = meta_data;
 
         let chunk_reader = ChunkReader::new(read, requirements.is_multipart(), &headers, &offset_tables);
 
         let mut image = Image::new(headers.as_slice());
 
         let has_compression = headers.iter() // do not use parallel stuff for uncompressed images
-            .find(|header| header.compression != Compression::None).is_some();
+            .find(|header| header.compression != Compression::Uncompressed).is_some();
 
         if options.parallel_decompression && has_compression {
             let chunks: Vec<ReadResult<Chunk>> = chunk_reader.collect();
@@ -237,29 +243,34 @@ impl Image {
         u64::write_slice(&mut write, offset_tables.as_slice())?;
         offset_tables.clear();
 
-        for (part_index, part) in self.parts.iter().enumerate() {
-            let mut table = Vec::new();
+        if !options.parallel_compression {
+            for (part_index, part) in self.parts.iter().enumerate() {
+                let mut table = Vec::new();
 
-            for tile in part.tiles(&meta_data.requirements, &meta_data.headers[part_index]) {
-                let block_start_position = write.seek(SeekFrom::Current(0))?;
-                table.push((tile, block_start_position as u64));
+                for tile in part.tiles(&meta_data.requirements, &meta_data.headers[part_index]) {
+                    let block_start_position = write.seek(SeekFrom::Current(0))?;
+                    table.push((tile, block_start_position as u64));
 
-                let data: Vec<u8> = self.compress_block(options.compression_method, part_index, tile)?;
+                    let data: Vec<u8> = self.compress_block(options.compression_method, part_index, tile)?;
 
-                let chunk = Chunk {
-                    part_number: part_index as i32,
-                    block: Block::ScanLine(ScanLineBlock {
-                        y_coordinate: part.data_window.y_min + tile.position.1 as i32, // TODO - data_window.min_y?
-                        compressed_pixels: data
-                    }) // FIXME add the other ones?? match???
-                };
+                    let chunk = Chunk {
+                        part_number: part_index as i32,
+                        block: Block::ScanLine(ScanLineBlock {
+                            y_coordinate: part.data_window.y_min + tile.position.1 as i32,
+                            compressed_pixels: data
+                        }) // FIXME add the other ones?? match???
+                    };
 
-                chunk.write(&mut write, meta_data.headers.len() > 1, meta_data.headers.as_slice())?;
+                    chunk.write(&mut write, meta_data.headers.len() > 1, meta_data.headers.as_slice())?;
+                }
+
+                // sort by increasing y
+                table.sort_by(|(a, _), (b, _)| a.cmp(b));
+                offset_tables.extend(table.into_iter().map(|(_, index)| index));
             }
-
-            // sort by increasing y
-            table.sort_by(|(a, _), (b, _)| a.cmp(b));
-            offset_tables.extend(table.into_iter().map(|(_, index)| index));
+        }
+        else {
+            unimplemented!()
         }
 
         // write offset tables after all blocks have been written
@@ -274,10 +285,10 @@ impl Image {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct WriteOptions {
-    parallel_compression: bool,
-    compression_method: Compression,
-    line_order: LineOrder,
-    tiles: TileOptions
+    pub parallel_compression: bool,
+    pub compression_method: Compression,
+    pub line_order: LineOrder,
+    pub tiles: TileOptions
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -288,7 +299,7 @@ pub enum TileOptions {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct ReadOptions {
-    parallel_decompression: bool,
+    pub parallel_decompression: bool,
 }
 
 impl Default for WriteOptions {
@@ -306,7 +317,7 @@ impl WriteOptions {
     pub fn debug() -> Self {
         WriteOptions {
             parallel_compression: false,
-            compression_method: Compression::None,
+            compression_method: Compression::Uncompressed,
             line_order: LineOrder::IncreasingY,
             tiles: TileOptions::ScanLineBlocks
         }
@@ -373,6 +384,9 @@ impl Image {
     }
 
     pub fn insert_block(&mut self, data: &mut impl Read, part_index: usize, tile: TileIndices) -> ReadResult<()> {
+        debug_assert_ne!(tile.size.0, 0);
+        debug_assert_ne!(tile.size.1, 0);
+
         let part_count = self.parts.len();
 
         let part = self.parts.get_mut(part_index)
@@ -382,15 +396,16 @@ impl Image {
     }
 
     pub fn compress_block(&self, compression: Compression, part: usize, tile: TileIndices) -> Result<ByteVec, WriteError> {
+        debug_assert_ne!(tile.size.0, 0);
+        debug_assert_ne!(tile.size.1, 0);
+
         let part_count = self.parts.len();
 
         let part = self.parts.get(part)
             .ok_or(Invalid::Content(Value::Chunk("part index"), Required::Max(part_count)))?;
 
-        // TODO compression
         let mut bytes = Vec::new();
-        part.extract_block(tile, &mut bytes)?;
-
+        part.decompress_block(tile, &mut bytes)?;
 
         let bytes = compression.compress_bytes(bytes)?;
         Ok(bytes)
@@ -458,14 +473,14 @@ impl Part {
 
         for y in area.position.1 .. area.position.1 + area.size.1 {
             for channel in &mut self.channels {
-                channel.read_line(data, level, (area.position.0 as usize, y as usize), area.size.0 as usize)?;
+                channel.insert_line(data, level, (area.position.0 as usize, y as usize), area.size.0 as usize)?;
             }
         }
 
         Ok(())
     }
 
-    pub fn extract_block(&self, area: TileIndices, write: &mut impl Write) -> WriteResult {
+    pub fn decompress_block(&self, area: TileIndices, write: &mut impl Write) -> WriteResult {
         let level = (area.level.0 as usize, area.level.1 as usize);
 
         for y in area.position.1 .. area.position.1 + area.size.1 {
@@ -531,34 +546,26 @@ impl Part {
             let block_size = header.compression.scan_lines_per_block();
             let block_count = compute_scan_line_block_count(image_height, block_size);
 
-            if block_size == 1 {
-                (0..block_count).map(move |y| {
-                    TileIndices {
-                        level: (0, 0),
-                        position: (0, y),
-                        size: (image_width, block_size)
-                    }
+            let mut data: Vec<_> = (0.. block_count - 1)
+                .map(move |block_index| TileIndices {
+                    level: (0, 0), position: (0, block_index * block_size),
+                    size: (image_width, block_size)
                 })
-            }
-            else {
-                let mut data: Vec<_> = (0.. block_count - 1)
-                    .map(move |block_index| (block_index * block_size, block_size))
-                    .collect();
+                .collect();
 
-                let last_y = block_size * (block_count - 1);
-                let last_height = last_y + block_size - image_height;
-                data.push((last_y, last_height));
+            let last_y = block_size * (block_count - 1);
+            let last_height = (last_y + block_size - image_height).max(1); // FIXME min(1) should not be required, fix formula instead!
+            data.push(TileIndices { // TODO level always 0,0?
+                level: (0, 0), position: (0, last_y),
+                size: (image_width, last_height)
+            });
 
-                let _result = data.into_iter().map(move |(y, block_height)|
-                    TileIndices {
-                        level: (0, 0),
-                        position: (0, y),
-                        size: (image_width, block_height)
-                    }
-                );
+//            println!("blocks: {:?}", data);
 
-                unimplemented!()
-            }
+            debug_assert_ne!(last_height, 0);
+            debug_assert!(last_y < image_height);
+
+            data.into_iter()
         }
     }
 }
@@ -578,11 +585,11 @@ impl Channel {
         }
     }
 
-    pub fn read_line(&mut self, block: &mut impl Read, level:(usize, usize), position: (usize, usize), length: usize) -> ReadResult<()> {
+    pub fn insert_line(&mut self, block: &mut impl Read, level:(usize, usize), position: (usize, usize), length: usize) -> ReadResult<()> {
         match &mut self.content {
-            ChannelData::F16(maps) => maps.read_line(block, level, position, length),
-            ChannelData::F32(maps) => maps.read_line(block, level, position, length),
-            ChannelData::U32(maps) => maps.read_line(block, level, position, length),
+            ChannelData::F16(maps) => maps.insert_line(block, level, position, length),
+            ChannelData::F32(maps) => maps.insert_line(block, level, position, length),
+            ChannelData::U32(maps) => maps.insert_line(block, level, position, length),
         }
     }
 
@@ -605,10 +612,10 @@ impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
         }
     }
 
-    pub fn read_line(&mut self, block: &mut impl Read, level:(usize, usize), position: (usize, usize), length: usize) -> ReadResult<()> {
+    pub fn insert_line(&mut self, block: &mut impl Read, level:(usize, usize), position: (usize, usize), length: usize) -> ReadResult<()> {
         match self {
-            SampleMaps::Deep(ref mut levels) => levels.read_line(block, level, position, length),
-            SampleMaps::Flat(ref mut levels) => levels.read_line(block, level, position, length),
+            SampleMaps::Deep(ref mut levels) => levels.insert_line(block, level, position, length),
+            SampleMaps::Flat(ref mut levels) => levels.insert_line(block, level, position, length),
         }
     }
 
@@ -668,11 +675,11 @@ impl<S: Samples> Levels<S> {
         }
     }
 
-    pub fn read_line(&mut self, read: &mut impl Read, level:(usize, usize), position: (usize, usize), length: usize) -> ReadResult<()> {
+    pub fn insert_line(&mut self, read: &mut impl Read, level:(usize, usize), position: (usize, usize), length: usize) -> ReadResult<()> {
         match self {
             Levels::Singular(ref mut block) => {
                 debug_assert_eq!(level, (0,0), "singular image cannot read leveled blocks");
-                block.read_line(read, position, length)?;
+                block.insert_line(read, position, length)?;
             },
 
             Levels::Mip(block) => {
@@ -681,7 +688,7 @@ impl<S: Samples> Levels<S> {
 
                 block.get_mut(level.0)
                     .ok_or(Invalid::Content(Value::MapLevel, Required::Max(max)))?
-                    .read_line(read, position, length)?;
+                    .insert_line(read, position, length)?;
             },
 
             Levels::Rip(block) => {
@@ -689,7 +696,7 @@ impl<S: Samples> Levels<S> {
 
                 block.get_by_level_mut(level)
                     .ok_or(Invalid::Content(Value::MapLevel, Required::Max(max)))?
-                    .read_line(read, position, length)?;
+                    .insert_line(read, position, length)?;
             }
         }
 
@@ -748,20 +755,26 @@ impl<S: Samples> SampleBlock<S> {
         SampleBlock { resolution, samples: S::new(resolution) }
     }
 
-    pub fn read_line(&mut self, read: &mut impl Read, position: (usize, usize), length: usize) -> ReadResult<()> {
-        // TODO assert area lies inside this buffer
-        self.samples.read_line(read, position, length, self.resolution.0)
+    pub fn insert_line(&mut self, read: &mut impl Read, position: (usize, usize), length: usize) -> ReadResult<()> {
+        debug_assert!(position.1 < self.resolution.1, "y: {}, height: {}", position.1, self.resolution.1);
+        debug_assert!(position.0 + length <= self.resolution.0);
+        debug_assert_ne!(length, 0);
+
+        self.samples.insert_line(read, position, length, self.resolution.0)
     }
 
     pub fn extract_line(&self, write: &mut impl Write, position: (usize, usize), length: usize) -> WriteResult {
-        // TODO assert area lies inside this buffer
+        debug_assert!(position.1 < self.resolution.1, "y: {}, height: {}", position.1, self.resolution.1);
+        debug_assert!(position.0 + length <= self.resolution.0);
+        debug_assert_ne!(length, 0);
+
         self.samples.extract_line(write, position, length, self.resolution.0)
     }
 }
 
 pub trait Samples {
     fn new(resolution: (usize, usize)) -> Self;
-    fn read_line(&mut self, read: &mut impl Read, position: (usize, usize), length: usize, image_width: usize) -> ReadResult<()>;
+    fn insert_line(&mut self, read: &mut impl Read, position: (usize, usize), length: usize, image_width: usize) -> ReadResult<()>;
     fn extract_line(&self, write: &mut impl Write, position: (usize, usize), length: usize, image_width: usize) -> WriteResult;
 }
 
@@ -773,7 +786,10 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
         ]
     }
 
-    fn read_line(&mut self, _read: &mut impl Read, _position: (usize, usize), _length: usize, _image_width: usize) -> ReadResult<()> {
+    fn insert_line(&mut self, _read: &mut impl Read, _position: (usize, usize), length: usize, image_width: usize) -> ReadResult<()> {
+        debug_assert_ne!(image_width, 0);
+        debug_assert_ne!(length, 0);
+
         unimplemented!()
 
         // TODO err on invalid tile position
@@ -785,7 +801,10 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
 //        Ok(())
     }
 
-    fn extract_line(&self, _write: &mut impl Write, _position: (usize, usize), _length: usize, _image_width: usize) -> WriteResult {
+    fn extract_line(&self, _write: &mut impl Write, _position: (usize, usize), length: usize, image_width: usize) -> WriteResult {
+        debug_assert_ne!(image_width, 0);
+        debug_assert_ne!(length, 0);
+
         unimplemented!()
     }
 }
@@ -796,7 +815,10 @@ impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for Fl
         vec![Sample::default(); resolution.0 * resolution.1]
     }
 
-    fn read_line(&mut self, read: &mut impl Read, position: (usize, usize), length: usize, image_width: usize) -> ReadResult<()> {
+    fn insert_line(&mut self, read: &mut impl Read, position: (usize, usize), length: usize, image_width: usize) -> ReadResult<()> {
+        debug_assert_ne!(image_width, 0);
+        debug_assert_ne!(length, 0);
+
         let start_index = position.1 as usize * image_width + position.0 as usize;
         let end_index = start_index + length;
 
@@ -805,45 +827,16 @@ impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for Fl
     }
 
     fn extract_line(&self, write: &mut impl Write, position: (usize, usize), length: usize, image_width: usize) -> WriteResult {
+        debug_assert_ne!(image_width, 0);
+        debug_assert_ne!(length, 0);
+
         let start_index = position.1 as usize * image_width + position.0 as usize;
         let end_index = start_index + length;
+
         Sample::write_slice(write, &self[start_index .. end_index])?;
         Ok(())
     }
 }
-
-
-/*impl PartData {
-    fn read_lines(&mut self, read: &mut impl Read, position: (u32, u32), block_size: (u32, u32)) -> ReadResult<()> {
-        match self {
-            PartData::Flat(ref mut pixels) => {
-                let image_width = pixels.dimensions.0;
-
-                for line_index in 0..block_size.1 {
-                    let start_index = ((position.1 + line_index) * image_width) as usize;
-                    let end_index = start_index + block_size.0 as usize;
-
-                    for channel in &mut pixels.channel_data {
-                        match channel {
-                            ChannelData::F16(ref mut target) =>
-                                read_f16_array(read, &mut target[start_index .. end_index])?, // could read directly from file for uncompressed data
-
-                            ChannelData::F32(ref mut target) =>
-                                read_f32_array(read, &mut target[start_index .. end_index])?, // could read directly from file for uncompressed data
-
-                            ChannelData::U32(ref mut target) =>
-                                read_u32_array(read, &mut target[start_index .. end_index])?, // could read directly from file for uncompressed data
-                        }
-                    }
-                }
-
-                Ok(())
-            },
-
-            _ => unimplemented!("deep pixel accumulation")
-        }
-    }
-}*/
 
 impl<Samples> RipMaps<Samples> {
     pub fn get_level_index(&self, level: (usize, usize)) -> usize {

@@ -700,7 +700,7 @@ impl Compression {
     pub fn write<W: Write>(self, write: &mut W) -> WriteResult {
         use self::Compression::*;
         match self {
-            None => 0_u8,
+            Uncompressed => 0_u8,
             RLE => 1_u8,
             ZIP1 => 2_u8,
             ZIP16 => 3_u8,
@@ -717,7 +717,7 @@ impl Compression {
     pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
         use self::Compression::*;
         Ok(match u8::read(read)? {
-            0 => None,
+            0 => Uncompressed,
             1 => RLE,
             2 => ZIP1,
             3 => ZIP16,

@@ -21,3 +21,11 @@ walkdir = "2.2.9"
 [[bench]]
 name = "benches"
 harness = false
+
+[profile.release]
+lto = true
+
+[profile.dev]
+opt-level = 3
+lto = true
+

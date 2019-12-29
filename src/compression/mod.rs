@@ -31,7 +31,7 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 pub enum Compression {
     /// store uncompressed values
     /// (loading and writing may be faster than any compression, but file is larger)
-    None,
+    Uncompressed,
 
     /// run-length-encode horizontal differences one line at a time
     /// Differences between horizontally adjacent pixels are run-length encoded. This
@@ -132,7 +132,7 @@ impl Compression {
 
         // FIXME only write compressed if smaller
         let compressed = match self {
-            None => return Ok(packed),
+            Uncompressed => return Ok(packed),
             ZIP16 => zip::compress_bytes(&packed)?,
             ZIP1 => zip::compress_bytes(&packed)?,
             RLE => rle::compress_bytes(&packed)?,
@@ -159,7 +159,7 @@ impl Compression {
         else {
             use self::Compression::*;
             let bytes = match self {
-                None => Ok(data),
+                Uncompressed => Ok(data),
                 ZIP16 => zip::decompress_bytes(data, expected_byte_size),
                 ZIP1 => zip::decompress_bytes(data, expected_byte_size),
                 RLE => rle::decompress_bytes(data, expected_byte_size),
@@ -191,7 +191,7 @@ impl Compression {
         else {
             use self::Compression::*;
             match self {
-                None => Ok(data),
+                Uncompressed => Ok(data),
                 ZIP16 => zip::decompress_bytes(data, expected_byte_size),
                 ZIP1 => zip::decompress_bytes(data, expected_byte_size),
                 RLE => rle::decompress_bytes(data, expected_byte_size),
@@ -208,7 +208,7 @@ impl Compression {
     pub fn scan_lines_per_block(self) -> u32 {
         use self::Compression::*;
         match self {
-            None  | RLE   | ZIP1         => 1,
+            Uncompressed | RLE   | ZIP1         => 1,
             ZIP16 | PXR24                => 16,
             PIZ   | B44   | B44A | DWAA  => 32,
             DWAB                         => 256,
@@ -218,7 +218,7 @@ impl Compression {
     pub fn supports_deep_data(self) -> bool {
         use self::Compression::*;
         match self {
-            None | RLE | ZIP1 | ZIP16 => true,
+            Uncompressed | RLE | ZIP1 | ZIP16 => true,
             _ => false,
         }
     }
@@ -226,17 +226,15 @@ impl Compression {
 
 
 pub mod optimize_bytes {
-    /// "Predictor."
     pub fn differences_to_samples(buffer: &mut [u8]){
         for index in 1..buffer.len() {
-            buffer[index] = (buffer[index-1] as i32 + buffer[index] as i32 - 128) as u8;
+            buffer[index] = (buffer[index - 1] as i32 + buffer[index] as i32 - 128) as u8;
         }
     }
 
-    /// "Predictor."
     pub fn samples_to_differences(buffer: &mut [u8]){
-        for index in 1..buffer.len() {
-            buffer[index] = (buffer[index] as i32 - buffer[index-1] as i32 + 128 + 256) as u8;
+        for index in (1..buffer.len()).rev() {
+            buffer[index] = (buffer[index] as i32 - buffer[index - 1] as i32 + 128 /*+ 256*/) as u8;
         }
     }
 
@@ -292,5 +290,33 @@ pub mod optimize_bytes {
         let mut result = first_half;
         result.append(&mut second_half);
         result
+    }
+
+
+    #[cfg(test)]
+    pub mod test {
+        #[test]
+        fn roundtrip_interleave(){
+            let source = vec![ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 ];
+            let mut modified = source.clone();
+
+            super::separate_bytes_fragments(&mut modified);
+            super::interleave_byte_blocks(&mut modified);
+
+            assert_eq!(source, modified);
+        }
+
+        #[test]
+        fn roundtrip_derive(){
+            let source = vec![ 0, 1, 2, 7, 4, 5, 6, 7, 13, 9, 10 ];
+            let mut modified = source.clone();
+
+            super::samples_to_differences(&mut modified);
+            println!("differences {:?}", modified);
+
+            super::differences_to_samples(&mut modified);
+
+            assert_eq!(source, modified);
+        }
     }
 }
