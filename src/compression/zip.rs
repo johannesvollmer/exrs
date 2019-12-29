@@ -23,9 +23,7 @@ pub fn decompress_bytes(data: ByteVec, expected_byte_size: usize) -> Result<Byte
     let mut decompressed = Vec::with_capacity(expected_byte_size);
 
     {
-        let mut decompressor = Decoder::new(data.as_slice())
-            .expect("io error when reading from in-memory vec");
-
+        let mut decompressor = Decoder::new(data.as_slice())?;
         decompressor.read_to_end(&mut decompressed)?;
     };
 
@@ -38,10 +36,8 @@ pub fn compress_bytes(packed: Bytes) -> Result<ByteVec> {
     samples_to_differences(&mut packed);
 
     {
-        let mut compressor = Encoder::new(Vec::with_capacity(packed.len()))
-            .expect("io error when writing to in-memory vec");
-
-        io::copy(&mut packed.as_slice(), &mut compressor).expect("io error when writing to in-memory vec");
-        Ok(compressor.finish().into_result().expect("io error when writing to in-memory vec"))
+        let mut compressor = Encoder::new(Vec::with_capacity(packed.len()))?;
+        io::copy(&mut packed.as_slice(), &mut compressor)?;
+        Ok(compressor.finish().into_result()?)
     }
 }

@@ -168,7 +168,7 @@ impl Data for f16 {
 
 #[cfg(test)]
 mod test {
-    use crate::file::io::PeekRead;
+    use crate::io::PeekRead;
     use std::io::Read;
 
     #[test]

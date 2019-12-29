@@ -1,27 +1,12 @@
-/*
-#[macro_use]
-pub mod util {
-    macro_rules! expect_variant {
-        ($value: expr, $variant: pat => $then: expr) => {
-            if let $variant = $value {
-                $then
-
-            } else {
-                panic!("Expected variant `{}` in `{}`", stringify!($variant), stringify!($value))
-            }
-        };
-
-        ($value: expr, $variant: pat) => {
-            match $value {
-                $variant => value,
-                _ => panic!("Expected value in variant `{}` in `{}`", stringify!($variant), stringify!($value))
-            }
-        }
-    }
-}*/
+#![forbid(unsafe_code)]
+#![deny(clippy::all)]
+// TODO #![warn(missing_docs)]
 
 
-pub mod file;
+pub mod io;
+pub mod chunks;
+pub mod compression;
+pub mod meta;
 pub mod image;
 pub mod error;
 
@@ -37,7 +22,7 @@ extern crate image as piston_image;
 pub mod prelude {
     // main exports
     pub use crate::image::Image;
-    pub use crate::file::meta::MetaData;
+    pub use crate::meta::MetaData;
 
     // core data types
     pub use crate::image::{
@@ -46,8 +31,8 @@ pub mod prelude {
     };
 
     // secondary data types
-    pub use crate::file::meta;
-    pub use crate::file::meta::attributes;
+    pub use crate::meta;
+    pub use crate::meta::attributes;
     pub use crate::error;
 
     // re-export external stuff
@@ -60,10 +45,18 @@ pub mod prelude {
 pub mod test {
     use crate::prelude::*;
     use crate::image::{ReadOptions};
-    use std::fs;
+    use std::{fs, panic};
     use std::io::Cursor;
     use std::panic::catch_unwind;
-    use std::fs::File;
+    use std::path::PathBuf;
+    use std::ffi::OsStr;
+    use rayon::iter::{IntoParallelIterator, ParallelIterator};
+
+    fn exr_files() -> impl Iterator<Item=PathBuf> {
+        walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter()
+            .map(Result::unwrap).filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
+            .map(walkdir::DirEntry::into_path)
+    }
 
     #[test]
     fn print_meta_of_all_files() {
@@ -87,27 +80,36 @@ pub mod test {
     /// does not check any content, just checks whether a read error or panic happened.
     #[test]
     fn read_all_files() {
-        fn test_exr_files(path: &Path){
-            if let Some("exr") = path.extension().and_then(|os| os.to_str()) {
-                print!("reading file {:?}... ", path.file_name().unwrap());
-                let image = catch_unwind(||{ // FIXME does not catch errors from other thread
-                    Image::read_from_file(path, ReadOptions::debug())
+        #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
+        enum Result { Ok, Err, Panic };
+
+        let files: Vec<PathBuf> = exr_files().collect();
+        let mut results: Vec<(PathBuf, Result)> = files.into_par_iter()
+            .map(|file| {
+                let image = catch_unwind(||{ // FIXME does not catch errors from other thread?
+                    let prev_hook = panic::take_hook();
+                    panic::set_hook(Box::new(|_| (/* do not println panics */)));
+                    let image = Image::read_from_file(&file, ReadOptions::debug());
+                    panic::set_hook(prev_hook);
+
+                    image
                 });
 
-                match image {
-                    Ok(Ok(_)) => println!("Ok"),
-                    Ok(Err(_)) => eprintln!("Error"),
-                    Err(_) => eprintln!("Panic")
-                }
-            }
-            else if path.is_dir() {
-                for sub_dir in ::std::fs::read_dir(path).unwrap() {
-                    test_exr_files(&sub_dir.unwrap().path());
-                }
-            }
-        }
+                let result = match image {
+                    Ok(Ok(_)) => Result::Ok,
+                    Ok(Err(_)) => Result::Err,
+                    Err(_) => Result::Panic,
+                };
 
-        test_exr_files(Path::new("D:/Pictures/openexr"))
+                (file, result)
+            })
+            .collect();
+
+        results.sort_by(|(_, a), (_, b)| a.cmp(b));
+
+        println!("{:#?}", results.iter().map(|(path, result)| {
+            format!("{:?}: {}", result, path.file_name().unwrap().to_str().unwrap())
+        }).collect::<Vec<_>>());
     }
 
 

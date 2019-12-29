@@ -1,5 +1,6 @@
-use crate::file::meta::Header;
-use crate::file::meta::attributes::I32Box2;
+use crate::meta::Header;
+use crate::meta::attributes::I32Box2;
+use crate::compression::Error::UnsupportedCompressionMethod;
 
 pub mod zip;
 pub mod rle;
@@ -9,7 +10,8 @@ pub mod piz;
 #[derive(Debug)]
 pub enum Error {
     Other(std::io::Error),
-    UnsupportedCompressionType,
+    UnsupportedCompressionMethod(Compression),
+    DeepDataNotSupportedFor(Compression),
     InvalidData,
     InvalidSize,
 }
@@ -134,8 +136,8 @@ impl Compression {
             ZIP16 => zip::compress_bytes(&packed)?,
             ZIP1 => zip::compress_bytes(&packed)?,
             RLE => rle::compress_bytes(&packed)?,
-            PIZ => piz::compress_bytes(&packed)?,
-            compr => unimplemented!("compressing {:?}", compr),
+//            PIZ => piz::compress_bytes(&packed)?,
+            compr => return Err(UnsupportedCompressionMethod(compr))
         };
 
         if compressed.len() < packed.len() {
@@ -161,8 +163,9 @@ impl Compression {
                 ZIP16 => zip::decompress_bytes(data, expected_byte_size),
                 ZIP1 => zip::decompress_bytes(data, expected_byte_size),
                 RLE => rle::decompress_bytes(data, expected_byte_size),
-                PIZ => piz::decompress_bytes(header, data, tile, expected_byte_size),
-                compression => unimplemented!("decompressing {:?}", compression),
+//                PIZ => piz::decompress_bytes(header, data, tile, expected_byte_size),
+                compr => return Err(UnsupportedCompressionMethod(compr))
+//                compression => unimplemented!("decompressing {:?}", compression),
             }?;
 
             if bytes.len() != expected_byte_size {
@@ -192,7 +195,7 @@ impl Compression {
                 ZIP16 => zip::decompress_bytes(data, expected_byte_size),
                 ZIP1 => zip::decompress_bytes(data, expected_byte_size),
                 RLE => rle::decompress_bytes(data, expected_byte_size),
-                _ => Err(Error::UnsupportedCompressionType),
+                compr => Err(Error::UnsupportedCompressionMethod(compr)),
             }
         }
     }

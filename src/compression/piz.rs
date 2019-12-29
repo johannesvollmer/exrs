@@ -1,9 +1,9 @@
 use super::*;
 use super::Result;
-use crate::file::meta::attributes::{I32Box2, PixelType};
-use crate::file::meta::{Header};
-use crate::file::data::compression::Error::InvalidData;
-use crate::file::io::Data;
+use crate::meta::attributes::{I32Box2, PixelType};
+use crate::meta::{Header};
+use crate::compression::Error::InvalidData;
+use crate::io::Data;
 
 
 // inspired by  https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfPizCompressor.cpp

@@ -34,39 +34,45 @@ __Currently supported:__
         - [x] MipMaps
         - [ ] RipMaps _(coded, but untested)_
     - [x] Non-Standard Attributes
-        - [x] Reading those with known and unknown names
+        - [x] Reading those with known names and unknown names
         - [x] Reading those with known types
-        - [x] Saving those with unknown types into a plain byte buffer
-    - [ ] Simple preview attribute extraction
+        - [x] Reading those with unknown types into a plain byte buffer
+    - [ ] Nice API for preview attribute extraction
     
-- [ ] Interpreting loaded data as image pixels
-    - [ ] Pixel Data Compression
-        - [ ] Uncompressed
-            - [x] (Half, Float) + scan line + IncreasingY + no mip map levels + no sub sampling + single-part + no deep data, 
-            - [ ] Other (untested)
-        - [ ] ZIPS
-            - [x] (Half, Float) + scan line + IncreasingY + no mip map levels + no sub sampling + single-part + no deep data, 
-            - [ ] Other (untested)
-        - [ ] ZIP
-            - [x] (Half, Float) + scan line + IncreasingY + no mip map levels + no sub sampling + single-part + no deep data, 
-            - [ ] Other (untested)
-        - [ ] RLE
-            - [x] Half + scan line + IncreasingY + no mip map levels + no sub sampling + single-part + no deep data, 
-            - [ ] Other (untested)
+- [ ] Decompressing Pixel Data
+    - [x] Any LineOrder
+    - [x] Any Pixel Type (`f16`, `f32`, `u32`)
+    - [x] Multipart
+    - [ ] Deep Data
+    - [ ] Rip/Mip Maps  _(coded, but untested)_
+    - [ ] Nice API for RGBA conversion and displaying other color spaces?
+    - [ ] Compression Methods
+        - [x] Uncompressed
+        - [x] ZIPS
+        - [x] ZIP
+        - [x] RLE
         - [ ] PIZ
-            - [ ] Half + scan line + IncreasingY + no mip map levels + no sub sampling + single-part + no deep data, 
-            - [ ] Other (untested)
         - [ ] RXR24
-        - [ ] B44 / B44A
-        - [ ] DWAA / DWAB
-    - [ ] Simple RGBA conversion
+        - [ ] B44, B44A
+        - [ ] DWAA, DWAB
+
+- [ ] Writing images
+    - [x] Compression Methods
+        - [x] Uncompressed
+        - [ ] ZIPS
+        - [ ] ZIP
+        - [ ] RLE
+        - [ ] PIZ
+        - [ ] RXR24
+        - [ ] B44, B44A
+        - [ ] DWAA, DWAB
     
 - [x] Decompressing multiple blocks in parallel
-- [ ] Loading Metadata and specific tiles or blocks separately
-- [ ] Writing images
+- [x] Compressing multiple blocks in parallel
+
+- [ ] Nice API for loading Metadata and specific tiles or blocks separately
 - [ ] Profiling and real optimization
     - [ ] Memory Mapping?
-- [x] Allowing you to parse your own attribute types
 - [ ] IO Progress callback
 - [ ] SIMD
 

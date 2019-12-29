@@ -92,7 +92,7 @@ pub mod kind {
 }
 
 
-pub use crate::file::data::compression::Compression;
+pub use crate::compression::Compression;
 
 pub type DataWindow = I32Box2;
 pub type DisplayWindow = I32Box2;
@@ -215,8 +215,8 @@ pub enum RoundingMode {
 }
 
 
-use crate::file::io::*;
-use crate::file::SequenceEnd;
+use crate::io::*;
+use crate::meta::SequenceEnd;
 use std::cmp::Ordering;
 use crate::error::{ReadResult, WriteResult, ReadError};
 
@@ -439,6 +439,20 @@ impl Kind {
 
 
 impl I32Box2 {
+
+    pub fn from_dimensions(size: (u32, u32)) -> Self {
+        Self::new((0,0), size)
+    }
+
+    pub fn new(position: (i32, i32), size: (u32, u32)) -> Self {
+        Self {
+            x_min: position.0,
+            y_min: position.1,
+            x_max: position.0 + size.0 as i32 - 1,
+            y_max: position.1 + size.1 as i32 - 1
+        }
+    }
+
     pub fn validate(&self, max: Option<(u32, u32)>) -> Validity {
         if self.x_min > self.x_max || self.y_min > self.y_max {
             return Err(Invalid::Combination(&[

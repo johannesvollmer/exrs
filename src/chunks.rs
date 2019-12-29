@@ -1,7 +1,6 @@
-pub mod compression;
 
 //use ::attributes::Compression;
-use crate::file::meta::attributes::Kind;
+use crate::meta::attributes::Kind;
 
 // TODO
 // INCREASING_Y The tiles for each level are stored in a contiguous block. The levels are
@@ -111,7 +110,7 @@ pub struct DeepTileBlock {
 }
 
 
-use crate::file::io::*;
+use crate::io::*;
 
 impl TileCoordinates {
     // TODO validate levels >= 0
@@ -140,8 +139,7 @@ impl TileCoordinates {
 /// If a block length greater than this number is decoded,
 /// it will not try to allocate that much memory, but instead consider
 /// that decoding the block length has gone wrong
-const MAX_PIXEL_BYTES: usize = 1048576; // 2^20
-use crate::file::meta::{OffsetTables, Headers, Header};
+use crate::meta::{OffsetTables, Headers, Header};
 
 impl ScanLineBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {

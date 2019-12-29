@@ -16,6 +16,7 @@ rayon = "1.2.1"
 [dev-dependencies]
 bencher = "0.1.5"
 image = "0.23.0-preview.0" # required converting exr to png in tests
+walkdir = "2.2.9"
 
 [[bench]]
 name = "benches"

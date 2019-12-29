@@ -1,5 +1,5 @@
 use self::validity::*;
-use crate::file::data::compression::{Error as CompressionError};
+use crate::compression::{Error as CompressionError};
 
 pub type WriteResult = ::std::result::Result<(), WriteError>;
 
