@@ -57,11 +57,18 @@ __Currently supported:__
         - [ ] DWAA, DWAB
 
 - [ ] Writing images
+    - [x] Scan Lines
+    - [ ] Tiles
+    - [ ] Multipart
+    - [ ] Deep Data
+    - [ ] Line Order
+    - [ ] Rip/Mip Maps
+    - [ ] 100% correct meta data
     - [x] Compression Methods
         - [x] Uncompressed
-        - [ ] ZIPS
-        - [ ] ZIP
-        - [ ] RLE
+        - [x] ZIPS
+        - [x] ZIP
+        - [x] RLE
         - [ ] PIZ
         - [ ] RXR24
         - [ ] B44, B44A

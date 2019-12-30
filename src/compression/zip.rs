@@ -19,20 +19,22 @@ use ::libflate::zlib::{Encoder, Decoder};
 // 4. Fill the frame buffer with pixel data, respective to sampling and whatnot
 
 
-pub fn decompress_bytes(data: ByteVec, expected_byte_size: usize) -> Result<ByteVec> {
+pub fn decompress_bytes(data: Bytes, expected_byte_size: usize) -> Result<ByteVec> {
     let mut decompressed = Vec::with_capacity(expected_byte_size);
 
     {
-        let mut decompressor = Decoder::new(data.as_slice())?;
+        let mut decompressor = Decoder::new(data)?;
         decompressor.read_to_end(&mut decompressed)?;
     };
 
     differences_to_samples(&mut decompressed);
-    Ok(interleave_byte_blocks(&decompressed))
+    interleave_byte_blocks(&mut decompressed);
+    Ok(decompressed)
 }
 
 pub fn compress_bytes(packed: Bytes) -> Result<ByteVec> {
-    let mut packed = separate_bytes_fragments(&packed);
+    let mut packed = Vec::from(packed); // TODO no alloc
+    separate_bytes_fragments(&mut packed);
     samples_to_differences(&mut packed);
 
     {

@@ -141,7 +141,7 @@ pub mod test {
         println!("read 1 successfull, beginning write");
 
         let write_options = WriteOptions {
-            compression_method: Compression::ZIP1,
+            compression_method: Compression::RLE,
             .. WriteOptions::debug()
         };
 

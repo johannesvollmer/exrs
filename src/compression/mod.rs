@@ -136,7 +136,7 @@ impl Compression {
             ZIP16 => zip::compress_bytes(&packed)?,
             ZIP1 => zip::compress_bytes(&packed)?,
             RLE => rle::compress_bytes(&packed)?,
-//            PIZ => piz::compress_bytes(&packed)?,
+//            PIZ => piz::compress_bytes(packed)?,
             compr => return Err(UnsupportedCompressionMethod(compr))
         };
 
@@ -160,9 +160,9 @@ impl Compression {
             use self::Compression::*;
             let bytes = match self {
                 Uncompressed => Ok(data),
-                ZIP16 => zip::decompress_bytes(data, expected_byte_size),
-                ZIP1 => zip::decompress_bytes(data, expected_byte_size),
-                RLE => rle::decompress_bytes(data, expected_byte_size),
+                ZIP16 => zip::decompress_bytes(&data, expected_byte_size),
+                ZIP1 => zip::decompress_bytes(&data, expected_byte_size),
+                RLE => rle::decompress_bytes(&data, expected_byte_size),
 //                PIZ => piz::decompress_bytes(header, data, tile, expected_byte_size),
                 compr => return Err(UnsupportedCompressionMethod(compr))
 //                compression => unimplemented!("decompressing {:?}", compression),
@@ -192,9 +192,9 @@ impl Compression {
             use self::Compression::*;
             match self {
                 Uncompressed => Ok(data),
-                ZIP16 => zip::decompress_bytes(data, expected_byte_size),
-                ZIP1 => zip::decompress_bytes(data, expected_byte_size),
-                RLE => rle::decompress_bytes(data, expected_byte_size),
+                ZIP16 => zip::decompress_bytes(&data, expected_byte_size),
+                ZIP1 => zip::decompress_bytes(&data, expected_byte_size),
+                RLE => rle::decompress_bytes(&data, expected_byte_size),
                 compr => Err(Error::UnsupportedCompressionMethod(compr)),
             }
         }
@@ -240,7 +240,7 @@ pub mod optimize_bytes {
 
     // TODO make iterator
     /// "interleave"
-    pub fn interleave_byte_blocks(separated: &[u8]) -> Vec<u8> {
+    pub fn interleave_byte_blocks(separated: &mut [u8]) {
         // TODO rustify
         // TODO without extra allocation!
         let mut interleaved = Vec::with_capacity(separated.len());
@@ -262,11 +262,11 @@ pub mod optimize_bytes {
             } else { break; }
         }
 
-        interleaved
+        separated.copy_from_slice(interleaved.as_slice())
     }
 
     /// de-"interleave"
-    pub fn separate_bytes_fragments(source: &[u8]) -> Vec<u8> {
+    pub fn separate_bytes_fragments(source: &mut [u8]) {
         // TODO without extra allocation?
         let mut first_half = Vec::with_capacity(source.len() / 2);
         let mut second_half = Vec::with_capacity(source.len() / 2);
@@ -289,7 +289,7 @@ pub mod optimize_bytes {
 
         let mut result = first_half;
         result.append(&mut second_half);
-        result
+        source.copy_from_slice(result.as_slice());
     }
 
 
