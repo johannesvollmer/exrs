@@ -5,7 +5,7 @@
 use smallvec::SmallVec;
 use half::f16;
 use rayon::prelude::{IntoParallelIterator};
-use rayon::iter::{ParallelIterator};
+use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 
 use crate::chunks::*;
 use crate::io::*;
@@ -247,10 +247,7 @@ impl Image {
             for (part_index, part) in self.parts.iter().enumerate() {
                 let mut table = Vec::new();
 
-                for tile in part.tiles(&meta_data.requirements, &meta_data.headers[part_index]) {
-                    let block_start_position = write.seek(SeekFrom::Current(0))?;
-                    table.push((tile, block_start_position as u64));
-
+                part.tiles(&meta_data.headers[part_index], &mut |tile| {
                     let data: Vec<u8> = self.compress_block(options.compression_method, part_index, tile)?;
 
                     let chunk = Chunk {
@@ -261,8 +258,13 @@ impl Image {
                         }) // FIXME add the other ones?? match???
                     };
 
+                    let block_start_position = write.seek(SeekFrom::Current(0))?;
+                    table.push((tile, block_start_position as u64));
+
                     chunk.write(&mut write, meta_data.headers.len() > 1, meta_data.headers.as_slice())?;
-                }
+
+                    Ok(())
+                })?;
 
                 // sort by increasing y
                 table.sort_by(|(a, _), (b, _)| a.cmp(b));
@@ -293,7 +295,7 @@ pub struct WriteOptions {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TileOptions {
-    Tiles (TileDescription),
+    Tiles { size: (u32, u32), rounding: RoundingMode },
     ScanLineBlocks
 }
 
@@ -517,7 +519,10 @@ impl Part {
 
             tiles: match options.tiles {
                 TileOptions::ScanLineBlocks => None,
-                TileOptions::Tiles (tiles) => Some(tiles)
+                TileOptions::Tiles { size, rounding } => Some(TileDescription {
+                    size, level_mode: LevelMode::Singular, // FIXME levels!
+                    rounding_mode: rounding
+                })
             },
 
             name: self.name.clone(),
@@ -525,7 +530,8 @@ impl Part {
             // TODO deep data:
             kind: Some(match options.tiles {
                 TileOptions::ScanLineBlocks => Kind::ScanLine,
-                TileOptions::Tiles (_) => Kind::Tile,
+                TileOptions::Tiles { .. } => Kind::Tile,
+                // TODO
             }),
 
             // TODO deep/multipart data:
@@ -536,13 +542,64 @@ impl Part {
         })
     }
 
-    pub fn tiles(&self, requirements: &Requirements, header: &Header) -> impl Iterator<Item=TileIndices> {
-        if header.has_tiles(requirements) {
-//            let _tile_count_x = compute_tile_count(width, header.tiles.expect("tiles not found").size.0);
-            unimplemented!()
+    pub fn tiles(&self, header: &Header, action: &mut impl FnMut(TileIndices) -> WriteResult) -> WriteResult {
+        fn tiles_of(image_size: (u32, u32), tile_size: (u32, u32), level: (u32, u32), action: &mut impl FnMut(TileIndices) -> WriteResult) -> WriteResult {
+            fn divide_and_rest(total_size: u32, block_size: u32, action: &mut impl FnMut(u32, u32) -> WriteResult) -> WriteResult {
+                let whole_block_count = total_size / block_size; // RoundingMode::Up.divide(total_size, block_size);
+
+                for whole_block_index in 0 .. whole_block_count {
+                    action(whole_block_index * block_size, block_size)?;
+                }
+
+                let covered_size = whole_block_count * block_size;
+
+                if covered_size != total_size {
+                    let last_position = covered_size;
+                    let remaining = last_position + block_size - total_size; // FIXME min(1) should not be required, fix formula instead!
+
+                    debug_assert_eq!(last_position + remaining, total_size);
+                    action(last_position, remaining)?;
+                }
+
+                Ok(())
+            }
+
+            divide_and_rest(image_size.1, tile_size.1, &mut |y, tile_height|{
+                divide_and_rest(image_size.0, tile_size.0, &mut |x, tile_width|{
+                    action(TileIndices {
+                        position: (x, y), level,
+                        size: (tile_width, tile_height),
+                    })
+                })
+            })
+        }
+
+        let image_size = self.data_window.dimensions();
+
+        if let Some(tiles) = header.tiles {
+            match tiles.level_mode {
+                LevelMode::Singular => {
+                    tiles_of(image_size, tiles.size, (0,0), action)?;
+                },
+                LevelMode::MipMap => {
+                    for level in mip_map_resolutions(tiles.rounding_mode, image_size) {
+                        tiles_of(level, tiles.size, level, action)?;
+                    }
+                },
+                LevelMode::RipMap => {
+                    for level in rip_map_resolutions(tiles.rounding_mode, image_size) {
+                        tiles_of(level, tiles.size, level, action)?;
+                    }
+                }
+            }
+
+            Ok(())
         }
         else {
-            let (image_width, image_height) = self.data_window.dimensions();
+            let block_height = header.compression.scan_lines_per_block();
+            tiles_of(image_size, (image_size.0, block_height), (0,0), action)
+
+            /*let (image_width, image_height) = self.data_window.dimensions();
             let block_size = header.compression.scan_lines_per_block();
             let block_count = compute_scan_line_block_count(image_height, block_size);
 
@@ -565,7 +622,7 @@ impl Part {
             debug_assert_ne!(last_height, 0);
             debug_assert!(last_y < image_height);
 
-            data.into_iter()
+            data.into_iter()*/
         }
     }
 }

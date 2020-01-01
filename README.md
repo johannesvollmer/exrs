@@ -58,11 +58,11 @@ __Currently supported:__
 
 - [ ] Writing images
     - [x] Scan Lines
-    - [ ] Tiles
+    - [x] Tiles
     - [ ] Multipart
     - [ ] Deep Data
     - [ ] Line Order
-    - [ ] Rip/Mip Maps
+    - [ ] Rip/Mip Maps _(coded, but untested)_
     - [ ] 100% correct meta data
     - [x] Compression Methods
         - [x] Uncompressed
