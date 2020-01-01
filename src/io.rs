@@ -19,19 +19,19 @@ impl<T: Read> PeekRead<T> {
     }
 
     pub fn peek_u8(&mut self) -> &std::io::Result<u8> {
-        self.peeked = self.peeked.take().or_else(|| Some(self.inner.read_u8_from_little_endian()));
+        self.peeked = self.peeked.take().or_else(|| Some(u8::read_from_little_endian(&mut self.inner)));
         self.peeked.as_ref().unwrap()
     }
 
     pub fn skip_if_eq(&mut self, value: u8) -> std::io::Result<bool> {
         match self.peek_u8() {
             Ok(peeked) if *peeked == value =>  {
-                self.read_u8_from_little_endian().unwrap(); // skip, will be Ok(value)
+                u8::read_from_little_endian(self).unwrap(); // skip, will be Ok(value)
                 Ok(true)
             },
 
             Ok(_) => Ok(false),
-            Err(_) => Err(self.read_u8_from_little_endian().err().unwrap())
+            Err(_) => Err(u8::read_from_little_endian(self).err().unwrap())
         }
     }
 }
@@ -180,19 +180,19 @@ mod test {
         assert_eq!(peek.peek_u8().as_ref().unwrap(), &0);
         assert_eq!(peek.peek_u8().as_ref().unwrap(), &0);
         assert_eq!(peek.peek_u8().as_ref().unwrap(), &0);
-        assert_eq!(peek.read_u8_from_little_endian().unwrap(), 0_u8); // TODO rename to "read u8 from little endian"?
+        assert_eq!(u8::read_from_little_endian(&mut peek).unwrap(), 0_u8); // TODO rename to "read u8 from little endian"?
 
         assert_eq!(peek.read(&mut [0,0]).unwrap(), 2);
 
         assert_eq!(peek.peek_u8().as_ref().unwrap(), &3);
-        assert_eq!(peek.read_u8_from_little_endian().unwrap(), 3_u8);
+        assert_eq!(u8::read_from_little_endian(&mut peek).unwrap(), 3_u8);
 
         assert!(peek.peek_u8().is_err());
         assert!(peek.peek_u8().is_err());
         assert!(peek.peek_u8().is_err());
         assert!(peek.peek_u8().is_err());
 
-        assert!(peek.read_u8_from_little_endian().is_err());
+        assert!(u8::read_from_little_endian(&mut peek).is_err());
     }
 }
 

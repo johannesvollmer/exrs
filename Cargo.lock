@@ -168,7 +168,7 @@ dependencies = [
 [[package]]
 name = "lebe"
 version = "0.1.0"
-source = "git+http://github.com/johannesvollmer/lebe#b8178c47c399bbbb5c84e7596bf2b8bf350fc1b6"
+source = "git+http://github.com/johannesvollmer/lebe#dc801ea5fdceffb9181670132960de3f51d08b27"
 
 [[package]]
 name = "libc"
