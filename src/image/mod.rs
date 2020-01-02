@@ -1,6 +1,7 @@
 //! The `image` module is for interpreting the loaded file data.
 //!
 
+pub mod rgba;
 
 use smallvec::SmallVec;
 use half::f16;
@@ -20,10 +21,11 @@ use std::io::{BufReader, BufWriter, Seek, SeekFrom, Cursor};
 
 
 pub use crate::io::Data;
+use crate::math::{compute_level_count, RoundingMode, rip_map_resolutions, mip_map_resolutions};
 
-// TODO notes:
-// Channels with an x or y sampling rate other than 1 are allowed only in flat, scan-line based images. If an image is deep or tiled, then the x and y sampling rates for all of its channels must be 1.
-// Scan-line based images cannot be multi-resolution images.
+
+
+
 
 
 
@@ -295,8 +297,11 @@ pub struct WriteOptions {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TileOptions {
-    Tiles { size: (u32, u32), rounding: RoundingMode },
-    ScanLineBlocks
+    ScanLineBlocks,
+    Tiles {
+        size: (u32, u32),
+        rounding: RoundingMode
+    },
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

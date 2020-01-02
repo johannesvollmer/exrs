@@ -103,6 +103,21 @@ version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "exr"
+version = "0.1.0"
+dependencies = [
+ "bencher 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bit_field 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "half 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "image 0.23.0-preview.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "lebe 0.1.0 (git+http://github.com/johannesvollmer/lebe)",
+ "libflate 0.1.27 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rayon 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "smallvec 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "walkdir 2.2.9 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "gif"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -288,21 +303,6 @@ dependencies = [
 name = "rle-decode-fast"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "rs-exr"
-version = "0.1.0"
-dependencies = [
- "bencher 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "bit_field 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "half 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "image 0.23.0-preview.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "lebe 0.1.0 (git+http://github.com/johannesvollmer/lebe)",
- "libflate 0.1.27 (registry+https://github.com/rust-lang/crates.io-index)",
- "rayon 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "smallvec 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "walkdir 2.2.9 (registry+https://github.com/rust-lang/crates.io-index)",
-]
 
 [[package]]
 name = "rustc_version"

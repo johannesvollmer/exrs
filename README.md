@@ -77,12 +77,19 @@ __Currently supported:__
 - [x] Decompressing multiple blocks in parallel
 - [x] Compressing multiple blocks in parallel
 
-- [ ] Nice API for loading Metadata and specific tiles or blocks separately
 - [ ] Profiling and real optimization
     - [ ] Memory Mapping?
 - [ ] IO Progress callback
 - [ ] SIMD
+- [ ] detailed file validation
+    - [ ] Channels with an x or y sampling rate other than 1 are allowed only in flat, scan-line based images.
+    - [ ] If an image is deep or tiled, then the x and y sampling rates for all of its channels must be 1.
+    - [ ] Scan-line based images cannot be multi-resolution images.
 
+- [ ] explore different APIs
+    - [ ] Let user decide how to store data
+    - [ ] Loading Metadata and specific tiles or blocks separately
+    
 __Be sure to come back in a few weeks.__
 
 ### Motivation

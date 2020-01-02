@@ -1,17 +1,13 @@
 use smallvec::SmallVec;
 use crate::error::validity::*;
 
-/// null-terminated text strings.
-/// max 31 bytes long (if bit 10 is set to 0),
-/// or max 255 bytes long (if bit 10 is set to 1).
-/// must be at least 1 byte (to avoid confusion with null-terminators)
-// TODO non public fields?
-#[derive(Clone, Eq, PartialEq)]
-pub struct Text {
-    /// vector does not include null terminator
-    /// those strings will mostly be "R", "G", "B" or "deepscanlineimage"
-    pub bytes: TextBytes,
-}
+
+
+
+
+
+
+
 
 
 
@@ -63,6 +59,19 @@ pub enum AnyValue {
     F32Vec3(f32, f32, f32),
 
     Custom { kind: Text, bytes: Vec<u8> }
+}
+
+
+/// null-terminated text strings.
+/// max 31 bytes long (if bit 10 is set to 0),
+/// or max 255 bytes long (if bit 10 is set to 1).
+/// must be at least 1 byte (to avoid confusion with null-terminators)
+// TODO non public fields?
+#[derive(Clone, Eq, PartialEq)]
+pub struct Text {
+    /// vector does not include null terminator
+    /// those strings will mostly be "R", "G", "B" or "deepscanlineimage"
+    pub bytes: TextBytes,
 }
 
 // TODO enable conversion to rust time
@@ -209,16 +218,13 @@ pub enum LevelMode {
     Singular, MipMap, RipMap,
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum RoundingMode {
-    Down, Up,
-}
 
 
 use crate::io::*;
 use crate::meta::sequence_end;
 use std::cmp::Ordering;
 use crate::error::{ReadResult, WriteResult, ReadError};
+use crate::math::RoundingMode;
 
 pub type TextBytes = SmallVec<[u8; 24]>;
 
@@ -234,21 +240,6 @@ impl Text {
     pub fn from_bytes_unchecked(bytes: TextBytes) -> Self {
         Text { bytes }
     }
-
-
-
-
-//    / panics if value is too long (31 bytes max)
-//    pub fn from_str_32(str_value: &str) -> Self {
-//        assert!(str_value.as_bytes().len() < 32, "max text length is 31");
-//        Self::from_str_unchecked(str_value)
-//    }
-
-//    / panics if value is too long (31 bytes max)
-//    pub fn from_str_256(str_value: &str) -> Self {
-//        assert!(str_value.as_bytes().len() < 256, "max text length is 255");
-//        Self::from_str_unchecked(str_value)
-//    }
 
     pub fn validate(&self, long_names: Option<bool>) -> Validity {
         Self::validate_bytes(self.bytes.as_slice(), long_names)
@@ -1183,21 +1174,21 @@ impl AnyValue {
         }
     }
 
-    pub fn to_text(self) -> Result<Text, Invalid> {
+    pub fn into_text(self) -> Result<Text, Invalid> {
         match self {
             AnyValue::Text(value) => Ok(value),
             _ => Err(Invalid::Type(Required::Exact("string")).into()),
         }
     }
 
-    pub fn to_kind(self) -> Result<Kind, Invalid> {
+    pub fn into_kind(self) -> Result<Kind, Invalid> {
         match self {
             AnyValue::Kind(value) => Ok(value),
             _ => Err(Invalid::Type(Required::Exact("type string")).into()),
         }
     }
 
-    pub fn to_channel_list(self) -> Result<ChannelList, Invalid> {
+    pub fn into_channel_list(self) -> Result<ChannelList, Invalid> {
         match self {
             AnyValue::ChannelList(value) => Ok(value),
             _ => Err(Invalid::Type(Required::Exact("chlist")).into()),
@@ -1272,61 +1263,6 @@ pub mod required {
         PIXEL_ASPECT: b"pixelAspectRatio",
         WINDOW_CENTER: b"screenWindowCenter",
         WINDOW_WIDTH: b"screenWindowWidth"
-    }
-}
-
-impl RoundingMode {
-
-    /// For x > 0, floorLog2(y) returns floor(log(x)/log(2))
-    // taken from https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
-    pub fn floor_log_2(mut number: u32) -> u32 {
-        debug_assert_ne!(number, 0);
-
-        // index of the most significant nonzero bit
-        let mut log = 0;
-
-        // TODO check if this unrolls properly
-        while number > 1 {
-            log += 1;
-            number >>= 1;
-        }
-
-        log
-    }
-
-    /// For x > 0, ceilLog2(y) returns ceil(log(x)/log(2))
-    // taken from https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
-    pub fn ceil_log_2(mut number: u32) -> u32 {
-        debug_assert_ne!(number, 0);
-
-        let mut log = 0;
-        let mut round_up = 0;
-
-        // TODO check if this unrolls properly
-        while number > 1 {
-            if number & 1 != 0 {
-                round_up = 1;
-            }
-
-            log +=  1;
-            number >>= 1;
-        }
-
-        log + round_up
-    }
-
-    pub fn log2(self, number: u32) -> u32 {
-        match self {
-            RoundingMode::Down => Self::floor_log_2(number),
-            RoundingMode::Up => Self::ceil_log_2(number),
-        }
-    }
-
-    pub fn divide(self, dividend: u32, divisor: u32) -> u32 {
-        match self {
-            RoundingMode::Up => (dividend + divisor - 1) / divisor, // only works for positive numbers
-            RoundingMode::Down => dividend / divisor,
-        }
     }
 }
 
