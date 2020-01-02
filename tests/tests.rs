@@ -2,7 +2,8 @@ extern crate exr;
 
 
 use exr::prelude::*;
-use exr::image::{ReadOptions, ChannelData};
+use exr::image::full::*;
+use exr::image::ReadOptions;
 use std::{fs, panic};
 use std::io::Cursor;
 use std::panic::catch_unwind;
@@ -10,7 +11,7 @@ use std::path::PathBuf;
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use exr::compression::Compression;
-
+use exr::math::RoundingMode;
 
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
@@ -42,7 +43,7 @@ fn read_all_files() {
             let image = catch_unwind(||{ // FIXME does not catch errors from other thread?
                 let prev_hook = panic::take_hook();
                 panic::set_hook(Box::new(|_| (/* do not println panics */)));
-                let image = Image::read_from_file(&file, ReadOptions::debug());
+                let image = exr::image::read_from_file(&file, ReadOptions::debug());
                 panic::set_hook(prev_hook);
 
                 image
@@ -80,12 +81,12 @@ pub fn test_roundtrip() {
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
     ;
 
-    let image = Image::read_from_file(path, ReadOptions::debug()).unwrap();
+    let image = exr::image::read_from_file(path, ReadOptions::debug()).unwrap();
     println!("read 1 successfull, beginning write");
 
     let write_options = WriteOptions {
         compression_method: Compression::ZIP16,
-//            tiles: TileOptions::Tiles { size: (64, 64), rounding: RoundingMode::Down },
+        tiles: TileOptions::Tiles { size: (64, 64), rounding: RoundingMode::Down },
         .. WriteOptions::debug()
     };
 
@@ -93,7 +94,7 @@ pub fn test_roundtrip() {
     image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options).unwrap();
     println!("write successfull, beginning read 2");
 
-    let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::debug()).unwrap();
+    let image2 = exr::image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::debug()).unwrap();
     println!("read 2 successfull");
 
     assert_eq!(image, image2);
@@ -113,14 +114,14 @@ pub fn test_write_file() {
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
     ;
 
-    let image = Image::read_from_file(path, ReadOptions::debug()).unwrap();
+    let image = exr::image::read_from_file(path, ReadOptions::debug()).unwrap();
 
     let write_options = WriteOptions {
         compression_method: Compression::ZIP1,
         .. WriteOptions::debug()
     };
 
-    image.write_to_file("./testout/written.exr", write_options).unwrap();
+    exr::image::write_to_file(&image, "./testout/written.exr", write_options).unwrap();
 }
 
 #[test]
@@ -138,7 +139,7 @@ pub fn convert_to_png() {
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
     ;
 
-    let image = Image::read_from_file(path, ReadOptions::default()).unwrap();
+    let image = exr::image::read_from_file(path, ReadOptions::default()).unwrap();
 
     // warning: highly unscientific benchmarks ahead!
     let elapsed = now.elapsed();

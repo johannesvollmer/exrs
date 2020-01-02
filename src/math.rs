@@ -1,18 +1,15 @@
 
 // calculations inspired by
-// https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
+// https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
 
 
-
-/// For x > 0, floorLog2(y) returns floor(log(x)/log(2))
-// taken from https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
+/// computes floor(log(x)/log(2))
 pub fn floor_log_2(mut number: u32) -> u32 {
     debug_assert_ne!(number, 0);
 
-    // index of the most significant nonzero bit
     let mut log = 0;
 
-    // TODO check if this unrolls properly?
+//     TODO check if this unrolls properly?
     while number > 1 {
         log += 1;
         number >>= 1;
@@ -21,7 +18,8 @@ pub fn floor_log_2(mut number: u32) -> u32 {
     log
 }
 
-/// For x > 0, ceilLog2(y) returns ceil(log(x)/log(2))
+
+/// computes ceil(log(x)/log(2))
 // taken from https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
 pub fn ceil_log_2(mut number: u32) -> u32 {
     debug_assert_ne!(number, 0);
@@ -82,6 +80,7 @@ pub fn compute_level_size(round: RoundingMode, full_res: u32, level_index: u32) 
 }
 
 // TODO cache these?
+// TODO compute these directly instead of summing up an iterator?
 pub fn rip_map_resolutions(round: RoundingMode, max_resolution: (u32, u32)) -> impl Iterator<Item=(u32, u32)> {
     let (w, h) = (compute_level_count(round, max_resolution.0), compute_level_count(round, max_resolution.1));
 
@@ -97,6 +96,7 @@ pub fn rip_map_resolutions(round: RoundingMode, max_resolution: (u32, u32)) -> i
 }
 
 // TODO cache all these level values when computing table offset size??
+// TODO compute these directly instead of summing up an iterator?
 pub fn mip_map_resolutions(round: RoundingMode, max_resolution: (u32, u32)) -> impl Iterator<Item=(u32, u32)> {
     (0..compute_level_count(round, max_resolution.0.max(max_resolution.1)))
         .map(move |level|{

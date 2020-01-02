@@ -1,8 +1,8 @@
 #[macro_use]
 extern crate bencher;
 
-extern crate exr as exr_crate;
-pub use exr_crate::prelude as exr;
+extern crate exr;
+use exr::prelude::*;
 
 use bencher::Bencher;
 
@@ -12,7 +12,7 @@ fn single_image_uncompressed(bench: &mut Bencher) {
         bencher.iter(||{
             let path = "D:/Pictures/openexr/crowskull/crow_uncompressed.exr";
 
-            let image = exr::Image::read_from_file(path, exr::ReadOptions::default()).unwrap();
+            let image = exr::image::read_from_file(path, ReadOptions::default()).unwrap();
             bencher::black_box(image);
         })
     })
@@ -22,7 +22,7 @@ fn single_image_zips(bench: &mut Bencher) {
     bench.bench_n(4, |bencher| {
         bencher.iter(||{
             let path = "D:/Pictures/openexr/crowskull/crow_zips.exr";
-            let image = exr::Image::read_from_file(path, exr::ReadOptions::default()).unwrap();
+            let image = exr::image::read_from_file(path, ReadOptions::default()).unwrap();
             bencher::black_box(image);
         })
     })
@@ -32,7 +32,7 @@ fn single_image_rle(bench: &mut Bencher) {
     bench.bench_n(4, |bencher| {
         bencher.iter(||{
             let path = "D:/Pictures/openexr/crowskull/crow_rle.exr";
-            let image = exr::Image::read_from_file(path, exr::ReadOptions::default()).unwrap();
+            let image = exr::image::read_from_file(path, ReadOptions::default()).unwrap();
             bencher::black_box(image);
         })
     })
@@ -42,12 +42,12 @@ fn single_image_non_parallel_zips(bench: &mut Bencher) {
     bench.bench_n(1, |bencher| {
         bencher.iter(||{
             let path = "D:/Pictures/openexr/crowskull/crow_zips.exr";
-            let options = exr::ReadOptions {
+            let options = ReadOptions {
                 parallel_decompression: false,
-                .. exr::ReadOptions::default()
+                .. ReadOptions::default()
             };
 
-            let image = exr::Image::read_from_file(path, options).unwrap();
+            let image = exr::image::read_from_file(path, options).unwrap();
             bencher::black_box(image);
         })
     })

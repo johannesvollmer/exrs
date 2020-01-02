@@ -28,15 +28,15 @@ extern crate image as piston_image;
 
 pub mod prelude {
     // main exports
-    pub use crate::image::Image;
     pub use crate::meta::MetaData;
 
     // core data types
     pub use crate::image::{
+        read_from_file, write_to_file,
         ReadOptions, WriteOptions, TileOptions,
-        Channel, ChannelData, SampleMaps, Levels, RipMaps,
-        SampleBlock, DeepSamples, FlatSamples, Samples
     };
+
+    pub use crate::image::full;
 
     // secondary data types
     pub use crate::meta;
