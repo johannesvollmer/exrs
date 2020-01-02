@@ -1,24 +1,28 @@
 [package]
 name = "exr"
 version = "0.1.0"
-authors = ["johannesvollmer <johannes.boenki@t-online.de>"]
+authors = ["johannesvollmer <johannes596@t-online.de>"]
 edition = "2018"
 
-
 [dependencies]
-half = { version = "1.4.0", features = ["std"] }
-lebe = { git = "http://github.com/johannesvollmer/lebe" }
+# data types
+half = "1.4.0"
+smallvec = "1.1.0"
 
+# serialization
+lebe = { git = "http://github.com/johannesvollmer/lebe" }
+bit_field = "0.10.0"
+
+# zlib compression
 libflate = "0.1.27"
 
-bit_field = "0.10.0"
-smallvec = "1.1.0"
+# simple concurrency
 rayon = "1.2.1"
 
 
 [dev-dependencies]
 bencher = "0.1.5"
-image = "0.23.0-preview.0" # required converting exr to png in tests
+image = "0.23.0-preview.0"
 walkdir = "2.2.9"
 
 [[bench]]
@@ -27,8 +31,10 @@ harness = false
 
 [profile.release]
 lto = true
+debug = false
 
+# test with fast runtime speed
 [profile.dev]
 opt-level = 3
 lto = true
-
+debug = true

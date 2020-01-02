@@ -11,6 +11,8 @@ use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use exr::compression::Compression;
 
+
+
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter()
         .map(Result::unwrap).filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
@@ -67,7 +69,7 @@ fn read_all_files() {
 
 #[test]
 pub fn test_roundtrip() {
-    let path = Path::new(
+    let path =
 //            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
 //            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
 //        "D:/Pictures/openexr/crowskull/crow_zips.exr"
@@ -76,7 +78,7 @@ pub fn test_roundtrip() {
 
 
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
-    );
+    ;
 
     let image = Image::read_from_file(path, ReadOptions::debug()).unwrap();
     println!("read 1 successfull, beginning write");
@@ -100,7 +102,7 @@ pub fn test_roundtrip() {
 
 #[test]
 pub fn test_write_file() {
-    let path = Path::new(
+    let path =
 //            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
 //            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
 "D:/Pictures/openexr/crowskull/crow_zips.exr"
@@ -109,7 +111,7 @@ pub fn test_write_file() {
 
 
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
-    );
+    ;
 
     let image = Image::read_from_file(path, ReadOptions::debug()).unwrap();
 
@@ -118,14 +120,14 @@ pub fn test_write_file() {
         .. WriteOptions::debug()
     };
 
-    image.write_to_file(Path::new("./testout/written.exr"), write_options).unwrap();
+    image.write_to_file("./testout/written.exr", write_options).unwrap();
 }
 
 #[test]
 pub fn convert_to_png() {
     let now = ::std::time::Instant::now();
 
-    let path = Path::new(
+    let path =
         "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
 //            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
 //        "D:/Pictures/openexr/crows/kull/crow_zips.exr"
@@ -134,7 +136,7 @@ pub fn convert_to_png() {
 
 
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
-    );
+    ;
 
     let image = Image::read_from_file(path, ReadOptions::default()).unwrap();
 
@@ -155,7 +157,7 @@ pub fn convert_to_png() {
             *pixel = image::Luma([(v * 255.0) as u8]);
         }
 
-        png_buffer.save(Path::new(&name)).unwrap();
+        png_buffer.save(&name).unwrap();
     }
 
     fs::remove_dir_all("testout").unwrap();

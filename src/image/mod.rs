@@ -5,28 +5,18 @@ pub mod rgba;
 
 use smallvec::SmallVec;
 use half::f16;
-use rayon::prelude::{IntoParallelIterator};
-use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
-
+use rayon::prelude::IntoParallelIterator;
+use rayon::iter::ParallelIterator;
 use crate::chunks::*;
 use crate::io::*;
 use crate::meta::*;
 use crate::error::validity::*;
 use crate::meta::attributes::*;
-//use crate::file::*;
-
 use crate::compression::{ByteVec, Compression};
 use crate::error::{ReadResult, WriteResult, WriteError};
+use crate::math::*;
 use std::io::{BufReader, BufWriter, Seek, SeekFrom, Cursor};
-
-
-pub use crate::io::Data;
-use crate::math::{compute_level_count, RoundingMode, rip_map_resolutions, mip_map_resolutions};
-
-
-
-
-
+use crate::io::Data;
 
 
 #[derive(Clone, PartialEq, Debug)]
@@ -206,7 +196,7 @@ impl Image {
 
 
     #[must_use]
-    pub fn write_to_file(&self, path: &std::path::Path, options: WriteOptions) -> WriteResult {
+    pub fn write_to_file(&self, path: impl AsRef<std::path::Path>, options: WriteOptions) -> WriteResult {
         Self::write_to_unbuffered(self, std::fs::File::create(path)?, options)
     }
 
