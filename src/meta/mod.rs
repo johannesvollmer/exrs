@@ -100,10 +100,6 @@ pub struct Header {
 pub type Attributes = SmallVec<[Attribute; 8]>;
 
 
-// FIXME this merely reports the features which must be supported by our library,
-// FIXME do not use these features to control the flow of the program, use the attributes instead!
-// check these once while reading, remove those fields from this struct otherwise
-
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub struct Requirements {
     /// is currently 2
@@ -212,25 +208,23 @@ impl PartialOrd for TileIndices {
 }
 
 
+pub mod magic_number {
+    use super::*;
 
-pub struct MagicNumber;
-impl MagicNumber {
     pub const BYTES: [u8; 4] = [0x76, 0x2f, 0x31, 0x01];
-}
 
-impl MagicNumber {
     pub fn write(write: &mut impl Write) -> std::io::Result<()> {
-        u8::write_slice(write, &Self::BYTES)
+        u8::write_slice(write, &self::BYTES)
     }
 
     pub fn is_exr(read: &mut impl Read) -> std::io::Result<bool> {
         let mut magic_num = [0; 4];
         u8::read_slice(read, &mut magic_num)?;
-        Ok(magic_num == Self::BYTES)
+        Ok(magic_num == self::BYTES)
     }
 
     pub fn validate_exr(read: &mut impl Read) -> ReadResult<()> {
-        if Self::is_exr(read)? {
+        if self::is_exr(read)? {
             Ok(())
 
         } else {
@@ -240,8 +234,9 @@ impl MagicNumber {
 }
 
 
-pub struct SequenceEnd;
-impl SequenceEnd {
+pub mod sequence_end {
+    use super::*;
+
     pub fn byte_size() -> usize {
         1
     }
@@ -254,6 +249,7 @@ impl SequenceEnd {
         read.skip_if_eq(0)
     }
 }
+
 
 
 
@@ -278,7 +274,7 @@ impl MetaData {
 
     #[must_use]
     pub fn read_from_buffered_peekable(read: &mut PeekRead<impl Read>) -> ReadResult<Self> {
-        MagicNumber::validate_exr(read)?;
+        magic_number::validate_exr(read)?;
         let requirements = Requirements::read(read)?;
         let headers = Header::read_all(read, &requirements)?;
 
@@ -292,7 +288,7 @@ impl MetaData {
     pub fn write(&self, write: &mut impl Write) -> WriteResult {
         self.validate()?;
 
-        MagicNumber::write(write)?;
+        magic_number::write(write)?;
         self.requirements.write(write)?;
         Header::write_all(self.headers.as_slice(), write, &self.requirements)?;
         Ok(())
@@ -640,7 +636,7 @@ impl Header {
         else {
             let mut headers = SmallVec::new();
 
-            while !SequenceEnd::has_come(read)? {
+            while !sequence_end::has_come(read)? {
                 headers.push(Header::read(read, version)?);
             }
 
@@ -656,7 +652,7 @@ impl Header {
         }
 
         if has_multiple_headers {
-            SequenceEnd::write(write)?;
+            sequence_end::write(write)?;
         }
 
         Ok(())
@@ -682,7 +678,7 @@ impl Header {
         let mut screen_window_center = None;
         let mut screen_window_width = None;
 
-        while !SequenceEnd::has_come(read)? {
+        while !sequence_end::has_come(read)? {
             let Attribute { name: attribute_name, value } = Attribute::read(read, max_string_len)?;
 
             use crate::meta::attributes::required::*;
@@ -780,7 +776,7 @@ impl Header {
             attrib.write(write, version.has_long_names)?;
         }
 
-        SequenceEnd::write(write)?;
+        sequence_end::write(write)?;
         Ok(())
     }
 }

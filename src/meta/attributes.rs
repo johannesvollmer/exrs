@@ -216,7 +216,7 @@ pub enum RoundingMode {
 
 
 use crate::io::*;
-use crate::meta::SequenceEnd;
+use crate::meta::sequence_end;
 use std::cmp::Ordering;
 use crate::error::{ReadResult, WriteResult, ReadError};
 
@@ -274,7 +274,7 @@ impl Text {
 
 
     pub fn null_terminated_byte_size(&self) -> usize {
-        self.bytes.len() + SequenceEnd::byte_size()
+        self.bytes.len() + sequence_end::byte_size()
     }
 
     pub fn i32_sized_byte_size(&self) -> usize {
@@ -304,13 +304,13 @@ impl Text {
 
     pub fn write_null_terminated<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> WriteResult {
         Self::write_unsized_bytes(self.bytes.as_slice(), write, long_names)?;
-        SequenceEnd::write(write)?;
+        sequence_end::write(write)?;
         Ok(())
     }
 
     pub fn write_null_terminated_bytes<W: Write>(bytes: &[u8], write: &mut W, long_names: Option<bool>) -> WriteResult {
         Text::write_unsized_bytes(bytes, write, long_names)?;
-        SequenceEnd::write(write)?;
+        sequence_end::write(write)?;
         Ok(())
     }
 
@@ -637,7 +637,7 @@ impl Channel {
     }
 
     pub fn list_byte_size(channels: &ChannelList) -> usize {
-        channels.list.iter().map(Channel::byte_size).sum::<usize>() + SequenceEnd::byte_size()
+        channels.list.iter().map(Channel::byte_size).sum::<usize>() + sequence_end::byte_size()
     }
 
     pub fn write_all<W: Write>(channels: &ChannelList, write: &mut W, long_names: bool) -> WriteResult {
@@ -647,13 +647,13 @@ impl Channel {
             channel.write(write, long_names)?;
         }
 
-        SequenceEnd::write(write)?;
+        sequence_end::write(write)?;
         Ok(())
     }
 
     pub fn read_all(read: &mut PeekRead<impl Read>) -> ReadResult<ChannelList> {
         let mut channels = SmallVec::new();
-        while !SequenceEnd::has_come(read)? {
+        while !sequence_end::has_come(read)? {
             channels.push(Channel::read(read)?);
         }
 
@@ -935,7 +935,7 @@ impl TileDescription {
 impl Attribute {
     pub fn byte_size(&self) -> usize {
         self.name.null_terminated_byte_size()
-            + self.value.kind_name().len() + SequenceEnd::byte_size()
+            + self.value.kind_name().len() + sequence_end::byte_size()
             + 0_i32.byte_size() // serialized byte size
             + self.value.byte_size()
     }
