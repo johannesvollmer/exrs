@@ -4,14 +4,17 @@ version = "0.1.0"
 authors = ["johannesvollmer <johannes.boenki@t-online.de>"]
 edition = "2018"
 
+
 [dependencies]
 half = { version = "1.4.0", features = ["std"] }
 lebe = { git = "http://github.com/johannesvollmer/lebe" }
+
 libflate = "0.1.27"
 
 bit_field = "0.10.0"
 smallvec = "1.1.0"
 rayon = "1.2.1"
+
 
 [dev-dependencies]
 bencher = "0.1.5"

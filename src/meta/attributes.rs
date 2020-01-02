@@ -21,13 +21,13 @@ pub struct Attribute {
 
     /// kind can be inferred from value
     /// size in bytes can be inferred from value
-    pub value: AttributeValue,
+    pub value: AnyValue,
 }
 
 
 // TODO custom attribute
 #[derive(Debug, Clone, PartialEq)]
-pub enum AttributeValue {
+pub enum AnyValue {
     I32Box2(I32Box2),
     F32Box2(F32Box2),
     ChannelList(ChannelList),
@@ -55,8 +55,7 @@ pub enum AttributeValue {
 
     TileDescription(TileDescription),
 
-    // TODO enable conversion to rust time
-    TimeCode(u32, u32),
+    TimeCode(TimeCodes),
 
     I32Vec2(i32, i32),
     F32Vec2(f32, f32),
@@ -66,7 +65,8 @@ pub enum AttributeValue {
     Custom { kind: Text, bytes: Vec<u8> }
 }
 
-// FIXME this should be a simple Kind enum and use Text everywhere else!
+// TODO enable conversion to rust time
+pub type TimeCodes = (u32, u32);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Kind {
@@ -952,16 +952,16 @@ impl Attribute {
         let name = Text::read_null_terminated(read, max_size)?;
         let kind = Text::read_null_terminated(read, max_size)?;
         let size = i32::read(read)? as u32; // TODO .checked_cast.ok_or(err:negative)
-        let value = AttributeValue::read(read, kind, size)?;
+        let value = AnyValue::read(read, kind, size)?;
         Ok(Attribute { name, value, })
     }
 }
 
 
 
-impl AttributeValue {
+impl AnyValue {
     pub fn byte_size(&self) -> usize {
-        use self::AttributeValue::*;
+        use self::AnyValue::*;
 
         match *self {
             I32Box2(value) => value.byte_size(),
@@ -972,7 +972,7 @@ impl AttributeValue {
             F64(value) => value.byte_size(),
 
             Rational(a, b) => { a.byte_size() + b.byte_size() },
-            TimeCode(a, b) => { a.byte_size() + b.byte_size() },
+            TimeCode((a, b)) => { a.byte_size() + b.byte_size() },
 
             I32Vec2(x, y) => { x.byte_size() + y.byte_size() },
             F32Vec2(x, y) => { x.byte_size() + y.byte_size() },
@@ -1004,7 +1004,7 @@ impl AttributeValue {
     }
 
     pub fn kind_name(&self) -> &[u8] {
-        use self::AttributeValue::*;
+        use self::AnyValue::*;
         use self::attribute_type_names as ty;
 
         match *self {
@@ -1014,7 +1014,7 @@ impl AttributeValue {
             F32(_) =>  ty::F32,
             F64(_) =>  ty::F64,
             Rational(_, _) => ty::RATIONAL,
-            TimeCode(_, _) => ty::TIME_CODE,
+            TimeCode((_, _)) => ty::TIME_CODE,
             I32Vec2(_, _) => ty::I32VEC2,
             F32Vec2(_, _) => ty::F32VEC2,
             I32Vec3(_, _, _) => ty::I32VEC3,
@@ -1037,7 +1037,7 @@ impl AttributeValue {
     }
 
     pub fn write<W: Write>(&self, write: &mut W, long_names: bool) -> WriteResult {
-        use self::AttributeValue::*;
+        use self::AnyValue::*;
         match *self {
             I32Box2(value) => value.write(write)?,
             F32Box2(value) => value.write(write)?,
@@ -1047,7 +1047,7 @@ impl AttributeValue {
             F64(value) => value.write(write)?,
 
             Rational(a, b) => { a.write(write)?; b.write(write)?; },
-            TimeCode(a, b) => { a.write(write)?; b.write(write)?; },
+            TimeCode((a, b)) => { a.write(write)?; b.write(write)?; },
 
             I32Vec2(x, y) => { x.write(write)?; y.write(write)?; },
             F32Vec2(x, y) => { x.write(write)?; y.write(write)?; },
@@ -1081,7 +1081,7 @@ impl AttributeValue {
     }
 
     pub fn read(read: &mut PeekRead<impl Read>, kind: Text, byte_size: u32) -> ReadResult<Self> {
-        use self::AttributeValue::*;
+        use self::AnyValue::*;
         use self::attribute_type_names as ty;
 
         Ok(match kind.bytes.as_slice() {
@@ -1093,7 +1093,7 @@ impl AttributeValue {
             ty::F64 => F64(f64::read(read)?),
 
             ty::RATIONAL => Rational(i32::read(read)?, u32::read(read)?),
-            ty::TIME_CODE => TimeCode(u32::read(read)?, u32::read(read)?),
+            ty::TIME_CODE => TimeCode((u32::read(read)?, u32::read(read)?)),
 
             ty::I32VEC2 => I32Vec2(i32::read(read)?, i32::read(read)?),
             ty::F32VEC2 => F32Vec2(f32::read(read)?, f32::read(read)?),
@@ -1136,77 +1136,77 @@ impl AttributeValue {
 
     pub fn to_tile_description(&self) -> Result<TileDescription, Invalid> {
         match *self {
-            AttributeValue::TileDescription(value) => Ok(value),
+            AnyValue::TileDescription(value) => Ok(value),
             _ => Err(Invalid::Type(Required::Exact("tiledesc")).into()), // TODO make these constants!
         }
     }
 
     pub fn to_i32(&self) -> Result<i32, Invalid> {
         match *self {
-            AttributeValue::I32(value) => Ok(value),
+            AnyValue::I32(value) => Ok(value),
             _ => Err(Invalid::Type(Required::Exact("i32")).into()),
         }
     }
 
     pub fn to_f32(&self) -> Result<f32, Invalid> {
         match *self {
-            AttributeValue::F32(value) => Ok(value),
+            AnyValue::F32(value) => Ok(value),
             _ => Err(Invalid::Type(Required::Exact("f32")).into()),
         }
     }
 
     pub fn to_i32_box_2(&self) -> Result<I32Box2, Invalid> {
         match *self {
-            AttributeValue::I32Box2(value) => Ok(value),
+            AnyValue::I32Box2(value) => Ok(value),
             _ => Err(Invalid::Type(Required::Exact("box2i")).into()),
         }
     }
 
     pub fn to_f32_vec_2(&self) -> Result<(f32, f32), Invalid> {
         match *self {
-            AttributeValue::F32Vec2(x, y) => Ok((x, y)),
+            AnyValue::F32Vec2(x, y) => Ok((x, y)),
             _ => Err(Invalid::Type(Required::Exact("v2f")).into()),
         }
     }
 
     pub fn to_line_order(&self) -> Result<LineOrder, Invalid> {
         match *self {
-            AttributeValue::LineOrder(value) => Ok(value),
+            AnyValue::LineOrder(value) => Ok(value),
             _ => Err(Invalid::Type(Required::Exact("lineorder")).into()),
         }
     }
 
     pub fn to_compression(&self) -> Result<Compression, Invalid> {
         match *self {
-            AttributeValue::Compression(value) => Ok(value),
+            AnyValue::Compression(value) => Ok(value),
             _ => Err(Invalid::Type(Required::Exact("compression")).into()),
         }
     }
 
     pub fn to_text(self) -> Result<Text, Invalid> {
         match self {
-            AttributeValue::Text(value) => Ok(value),
+            AnyValue::Text(value) => Ok(value),
             _ => Err(Invalid::Type(Required::Exact("string")).into()),
         }
     }
 
     pub fn to_kind(self) -> Result<Kind, Invalid> {
         match self {
-            AttributeValue::Kind(value) => Ok(value),
+            AnyValue::Kind(value) => Ok(value),
             _ => Err(Invalid::Type(Required::Exact("type string")).into()),
         }
     }
 
     pub fn to_channel_list(self) -> Result<ChannelList, Invalid> {
         match self {
-            AttributeValue::ChannelList(value) => Ok(value),
+            AnyValue::ChannelList(value) => Ok(value),
             _ => Err(Invalid::Type(Required::Exact("chlist")).into()),
         }
     }
 
     pub fn to_chromaticities(&self) -> Result<Chromaticities, Invalid> {
         match *self {
-            AttributeValue::Chromaticities(value) => Ok(value),
+            AnyValue::Chromaticities(value) => Ok(value),
             _ => Err(Invalid::Type(Required::Exact("chromaticities")).into()),
         }
     }
@@ -1410,19 +1410,19 @@ mod test {
         let attributes = [
             Attribute {
                 name: Text::from_str("greeting").unwrap(),
-                value: AttributeValue::Text(Text::from_str("hello").unwrap()),
+                value: AnyValue::Text(Text::from_str("hello").unwrap()),
             },
             Attribute {
                 name: Text::from_str("age").unwrap(),
-                value: AttributeValue::I32(923),
+                value: AnyValue::I32(923),
             },
             Attribute {
                 name: Text::from_str("leg count").unwrap(),
-                value: AttributeValue::F64(9.114939599234),
+                value: AnyValue::F64(9.114939599234),
             },
             Attribute {
                 name: Text::from_str("rabbit area").unwrap(),
-                value: AttributeValue::F32Box2(F32Box2 {
+                value: AnyValue::F32Box2(F32Box2 {
                     x_min: 23.4234,
                     y_min: 345.23,
                     x_max: 68623.0,
@@ -1431,7 +1431,7 @@ mod test {
             },
             Attribute {
                 name: Text::from_str("tests are difficult").unwrap(),
-                value: AttributeValue::TextVector(vec![
+                value: AnyValue::TextVector(vec![
                     Text::from_str("sdoifjpsdv").unwrap(),
                     Text::from_str("sdoifjpsdvxxxx").unwrap(),
                     Text::from_str("sdoifjasd").unwrap(),
@@ -1441,7 +1441,7 @@ mod test {
             },
             Attribute {
                 name: Text::from_str("what should we eat tonight").unwrap(),
-                value: AttributeValue::Preview(Preview {
+                value: AnyValue::Preview(Preview {
                     width: 10,
                     height: 30,
                     pixel_data: vec![31; 10 * 30 * 4],
@@ -1449,7 +1449,7 @@ mod test {
             },
             Attribute {
                 name: Text::from_str("leg count, again").unwrap(),
-                value: AttributeValue::ChannelList(ChannelList {
+                value: AnyValue::ChannelList(ChannelList {
                     list: smallvec![
                         Channel {
                             name: Text::from_str("Green").unwrap(),
@@ -1491,7 +1491,7 @@ mod test {
         {
             let too_large_named = Attribute {
                 name: Text::from_str("asdkaspfokpaosdkfpaokswdpoakpsfokaposdkf").unwrap(),
-                value: AttributeValue::I32(0),
+                value: AnyValue::I32(0),
             };
 
             let mut bytes = Vec::new();
@@ -1501,7 +1501,7 @@ mod test {
         {
             let way_too_large_named = Attribute {
                 name: Text::from_str("sdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfpo").unwrap(),
-                value: AttributeValue::I32(0),
+                value: AnyValue::I32(0),
             };
 
             let mut bytes = Vec::new();

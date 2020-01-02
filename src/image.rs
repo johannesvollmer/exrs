@@ -29,7 +29,10 @@ pub use crate::io::Data;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Image {
-    pub parts: Parts
+    pub parts: Parts,
+
+    display_window: I32Box2,
+    pixel_aspect: f32,
 }
 
 /// an exr image can store multiple parts (multiple bitmaps inside one image)
@@ -38,9 +41,6 @@ pub type Parts = SmallVec<[Part; 3]>;
 #[derive(Clone, PartialEq, Debug)]
 pub struct Part {
     pub data_window: I32Box2,
-    pub display_window: I32Box2,
-
-    pub pixel_aspect: f32,
     pub screen_window_center: (f32, f32),
     pub screen_window_width: f32,
 
@@ -382,7 +382,22 @@ impl UncompressedBlock {
 
 impl Image {
     pub fn new(headers: &[Header]) -> Self {
-        Image { parts: headers.iter().map(Part::new).collect() }
+        let mut display = headers.iter()
+            .map(|header| header.display_window);
+
+        // FIXME check all display windows are the same
+        let display_window = display.next().unwrap();
+
+        let mut pixel_aspect = headers.iter()
+            .map(|header| header.pixel_aspect);
+
+        // FIXME check all display windows are the same
+        let pixel_aspect = pixel_aspect.next().unwrap();
+
+        Image {
+            parts: headers.iter().map(Part::new).collect(),
+            display_window, pixel_aspect
+        }
     }
 
     pub fn insert_block(&mut self, data: &mut impl Read, part_index: usize, tile: TileIndices) -> ReadResult<()> {
@@ -414,7 +429,7 @@ impl Image {
     }
 
     pub fn infer_meta_data(&self, options: WriteOptions) -> Result<MetaData, WriteError> {
-        let headers: Result<Headers, WriteError> = self.parts.iter().map(|part| part.infer_header(options)).collect();
+        let headers: Result<Headers, WriteError> = self.parts.iter().map(|part| part.infer_header(self.display_window, self.pixel_aspect, options)).collect();
 
         let mut headers = headers?;
         headers.sort_by(|a,b| a.name.cmp(&b.name));
@@ -454,8 +469,8 @@ impl Part {
             None | Some(Kind::ScanLine) | Some(Kind::Tile) => {
                 Part {
                     data_window: header.data_window,
-                    display_window: header.display_window,
-                    pixel_aspect: header.pixel_aspect,
+//                    display_window: header.display_window,
+//                    pixel_aspect: header.pixel_aspect,
                     screen_window_center: header.screen_window_center,
                     screen_window_width: header.screen_window_width,
                     name: header.name.clone(),
@@ -494,7 +509,7 @@ impl Part {
         Ok(())
     }
 
-    pub fn infer_header(&self, options: WriteOptions) -> Result<Header, WriteError> {
+    pub fn infer_header(&self, display_window: I32Box2, pixel_aspect: f32, options: WriteOptions) -> Result<Header, WriteError> {
         Ok(Header {
             channels: ChannelList::new(self.channels.iter().map(|channel| attributes::Channel {
                 pixel_type: match channel.content {
@@ -510,12 +525,11 @@ impl Part {
             }).collect()),
 
             data_window: self.data_window,
-            display_window: self.display_window,
-            pixel_aspect: self.pixel_aspect,
             screen_window_center: self.screen_window_center,
             screen_window_width: self.screen_window_width,
             compression: options.compression_method,
             line_order: options.line_order,
+
 
             tiles: match options.tiles {
                 TileOptions::ScanLineBlocks => None,
@@ -538,7 +552,8 @@ impl Part {
             deep_data_version: None,
             chunk_count: None,
             max_samples_per_pixel: None,
-            custom_attributes: self.attributes.clone()
+            custom_attributes: self.attributes.clone(),
+            display_window, pixel_aspect
         })
     }
 

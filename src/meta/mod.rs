@@ -14,23 +14,13 @@ use std::io::{BufReader};
 use std::cmp::Ordering;
 
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct MetaData {
     pub requirements: Requirements,
 
     /// separate header for each part, requires a null byte signalling the end of each header
-
-    // TODO in validate, make sure that:
-    /// The values of the displayWindow
-    /// and pixelAspectRatio attributes must be the same for all parts of a file.
-    /// if the headers include timeCode and chromaticities attributes, then the values of those
-    /// attributes must also be the same for all parts of a file.
     pub headers: Headers,
-
-    // one table per header.
-    // In the table, scan line offsets are ordered according to increasing scan line y coordinates.
-    // In the table, tile offsets are sorted the same way as tiles in INCREASING_Y order.
-//    pub offset_tables: OffsetTables,
 }
 
 pub type Headers = SmallVec<[Header; 3]>;
@@ -753,12 +743,12 @@ impl Header {
         self.validate(&version).expect("check failed: header invalid");
 
         // FIXME do not allocate text object for writing!
-        fn write_attr<T>(write: &mut impl Write, long: bool, name: &[u8], value: T, variant: impl Fn(T) -> AttributeValue) -> WriteResult {
+        fn write_attr<T>(write: &mut impl Write, long: bool, name: &[u8], value: T, variant: impl Fn(T) -> AnyValue) -> WriteResult {
             Attribute { name: Text::from_bytes_unchecked(SmallVec::from_slice(name)), value: variant(value) }
                 .write(write, long)
         };
 
-        fn write_opt_attr<T>(write: &mut impl Write, long: bool, name: &[u8], attribute: Option<T>, variant: impl Fn(T) -> AttributeValue) -> WriteResult {
+        fn write_opt_attr<T>(write: &mut impl Write, long: bool, name: &[u8], attribute: Option<T>, variant: impl Fn(T) -> AnyValue) -> WriteResult {
             if let Some(value) = attribute { write_attr(write, long, name, value, variant) }
             else { Ok(()) }
         };
@@ -766,7 +756,7 @@ impl Header {
         {
             let long = version.has_long_names;
             use crate::meta::attributes::required::*;
-            use AttributeValue::*;
+            use AnyValue::*;
 
             write_opt_attr(write, long, TILES, self.tiles, TileDescription)?;
             write_opt_attr(write, long, NAME, self.name.clone(), Text)?;
