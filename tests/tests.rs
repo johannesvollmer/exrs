@@ -84,7 +84,8 @@ pub fn test_roundtrip() {
     println!("read 1 successfull, beginning write");
 
     let write_options = WriteOptions {
-        compression_method: Compression::ZIP16,
+//        compression_method: Compression::ZIP16,
+        compression_method: Compression::Uncompressed,
 //        tiles: TileOptions::Tiles { size: (64, 64), rounding: RoundingMode::Down },
         .. WriteOptions::debug()
     };

@@ -4,7 +4,25 @@ pub use ::std::io::{Read, Write};
 use half::slice::{HalfFloatSliceExt};
 use lebe::prelude::*;
 use ::half::f16;
-use crate::error::{Error, Result};
+use crate::error::{Error, Result, PassiveResult};
+
+
+
+pub fn skip_bytes(read: &mut impl Read, count: u64) -> PassiveResult {
+    let skipped = std::io::copy(
+        &mut read.by_ref().take(count),
+        &mut std::io::sink()
+    )?;
+
+    debug_assert_eq!(skipped, count);
+    Ok(())
+}
+
+
+pub fn positive_i32(value: i32, name: &str) -> Result<u32> {
+    if value < 0 { Err(Error::invalid(name)) }
+    else { Ok(value as u32) }
+}
 
 
 // TODO DRY !!!!!!! the whole module
@@ -35,6 +53,7 @@ impl<T: Read> PeekRead<T> {
         }
     }
 }
+
 
 impl<T: Read> Read for PeekRead<T> {
     fn read(&mut self, target_buffer: &mut [u8]) -> std::io::Result<usize> {
@@ -108,10 +127,8 @@ pub trait Data: Sized + Default + Clone {
         let size = i32::read(read)?;
         debug_assert!(size >= 0);
 
-        if size < 0 {
-            return Err(Error::invalid("negative array size"))
-        }
-        Ok(Self::read_vec(read, size as usize, estimated_max)?)
+        if size < 0 { Err(Error::invalid("negative array size")) }
+        else { Ok(Self::read_vec(read, size as usize, estimated_max)?) }
     }
 }
 

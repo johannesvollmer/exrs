@@ -58,7 +58,7 @@ __Currently supported:__
 
 - [ ] Writing images
     - [x] Scan Lines
-    - [x] Tiles
+    - [ ] Tiles
     - [ ] Multipart
     - [ ] Deep Data
     - [ ] Line Order

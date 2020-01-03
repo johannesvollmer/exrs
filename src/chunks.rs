@@ -123,7 +123,6 @@ impl TileCoordinates {
         Ok(())
     }
 
-    // TODO parse lazily, always skip size, ... ?
     pub fn read(read: &mut impl Read) -> Result<Self> {
         Ok(TileCoordinates {
             tile_x: i32::read(read)?,
@@ -139,7 +138,7 @@ impl TileCoordinates {
 /// If a block length greater than this number is decoded,
 /// it will not try to allocate that much memory, but instead consider
 /// that decoding the block length has gone wrong
-use crate::meta::{OffsetTables, Headers, Header};
+use crate::meta::Header;
 
 impl ScanLineBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
@@ -148,7 +147,6 @@ impl ScanLineBlock {
         Ok(())
     }
 
-    // TODO parse lazily, always skip size, ... ?
     pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let y_coordinate = i32::read(read)?;
         let compressed_pixels = u8::read_i32_sized_vec(read, max_block_byte_size)?;
@@ -163,24 +161,11 @@ impl TileBlock {
         Ok(())
     }
 
-    // TODO parse lazily, always skip size, ... ?
     pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let coordinates = TileCoordinates::read(read)?;
-        let compressed_pixels = u8::read_i32_sized_vec(read, max_block_byte_size)?; // TODO maximum scan line size can easily be calculated
+        let compressed_pixels = u8::read_i32_sized_vec(read, max_block_byte_size)?;
         Ok(TileBlock { coordinates, compressed_pixels })
     }
-
-    /*pub fn reuse_read<R: Read>(mut self, read: &mut R) -> Result<Self> {
-        self.coordinates = TileCoordinates::read(read)?;
-
-        let size = i32::read(read)?;
-        self.compressed_pixels = reuse_read_u8_vec(
-            // TODO maximum scan line size can easily be calculated
-            read, self.compressed_pixels, size as usize, MAX_PIXEL_BYTES
-        )?;
-
-        Ok(self)
-    }*/
 }
 
 impl DeepScanLineBlock {
@@ -288,7 +273,6 @@ impl Chunk {
         }
     }
 
-    // TODO parse lazily, always skip size, ... ?
     pub fn read(read: &mut impl Read, is_multipart: bool, headers: &[Header]) -> Result<Self> {
         let part_number = {
             if is_multipart { i32::read(read)? } // documentation says u64, but is i32
@@ -317,45 +301,3 @@ impl Chunk {
         Ok(chunk)
     }
 }
-
-pub struct ChunkReader<'h, R: Read> {
-    headers: &'h Headers,
-    remaining_chunk_count: usize,
-    multipart: bool,
-    read: R,
-}
-
-impl<'h, R:Read> ChunkReader<'h, R> {
-    pub fn new(read: R, multipart: bool, headers: &'h Headers, tables: &OffsetTables) -> Self {
-        ChunkReader {
-            remaining_chunk_count: tables.iter().map(Vec::len).sum(),
-            headers, read, multipart
-        }
-    }
-}
-
-impl<'h, R: Read> Iterator for ChunkReader<'h, R> {
-    type Item = Result<Chunk>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.remaining_chunk_count > 0 {
-            self.remaining_chunk_count -= 1;
-            Some(Chunk::read(&mut self.read, self.multipart, self.headers.as_slice()))
-        }
-        else {
-            None
-        }
-    }
-}
-
-
-
-
-
-
-
-
-
-
-
-

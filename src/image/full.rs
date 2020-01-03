@@ -132,10 +132,10 @@ impl FullImage {
 
     /// assumes the reader is buffered (if desired)
     #[must_use]
-    pub fn read_data_by_meta(meta_data: MetaData, offset_tables: OffsetTables, read: &mut impl Read, options: ReadOptions) -> Result<Self> {
+    pub fn read_data_by_meta(meta_data: MetaData, chunk_count: usize, read: &mut impl Read, options: ReadOptions) -> Result<Self> {
         let MetaData { headers, requirements } = meta_data;
 
-        let chunk_reader = ChunkReader::new(read, requirements.is_multipart(), &headers, &offset_tables);
+        // let chunk_reader = ChunkReader::new(read, requirements.is_multipart(), &headers, &offset_tables);
 
         let mut image = FullImage::new(headers.as_slice())?;
 
@@ -143,30 +143,29 @@ impl FullImage {
             .find(|header| header.compression != Compression::Uncompressed).is_some();
 
         if options.parallel_decompression && has_compression {
-            let chunks: Vec<Result<Chunk>> = chunk_reader.collect();
-            let blocks = chunks.into_par_iter().map(|chunk| chunk.and_then(|chunk|
-//                catch_unwind(|| { TODO?
-                                                                               UncompressedBlock::from_compressed(chunk, headers.as_slice())
-//                })
-            ));
+            let mut chunks = Vec::with_capacity(chunk_count);
 
-            let blocks: Vec<Result<UncompressedBlock>> = blocks.collect(); // TODO without double collect!
+            for _ in 0..chunk_count {
+                chunks.push(Chunk::read(read, requirements.is_multipart(), headers.as_slice())?);
+            }
 
-            for block in blocks {
-                let block = block?; // TODO use write everywhere instead of block allocations?
+            let blocks = chunks.into_par_iter().map(|chunk|
+                UncompressedBlock::from_compressed(chunk, headers.as_slice())
+            );
+
+            let blocks: Result<Vec<UncompressedBlock>> = blocks.collect(); // TODO without double collect!
+
+            for block in blocks? {
+//                let block = block?; // TODO use write everywhere instead of block allocations?
                 image.insert_block(&mut block.data.as_slice(), block.part_index, block.tile)?;
             }
         }
         else {
-            let decompressed = chunk_reader // TODO use write everywhere instead of block allocations?
-                .map(|chunk| chunk.and_then(|chunk|
-                    UncompressedBlock::from_compressed(chunk, headers.as_slice())
-                ));
-
-            // TODO avoid all allocations for uncompressed data
-            for block in decompressed {
-                let block = block?;
-                image.insert_block(&mut block.data.as_slice(), block.part_index, block.tile)?;
+            for _ in 0..chunk_count {
+                let chunk = Chunk::read(read, requirements.is_multipart(), headers.as_slice())?;
+                let decompressed = UncompressedBlock::from_compressed(chunk, headers.as_slice())?;
+                // TODO avoid all allocations for uncompressed data
+                image.insert_block(&mut decompressed.data.as_slice(), decompressed.part_index, decompressed.tile)?;
             }
         }
 

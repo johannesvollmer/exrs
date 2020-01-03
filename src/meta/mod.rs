@@ -210,10 +210,6 @@ pub fn missing_attribute(name: &str) -> Error {
     Error::invalid(format!("missing `{}` attribute", name))
 }
 
-pub fn positive_i32(value: i32, name: &str) -> Result<u32> {
-    if value < 0 { Err(Error::invalid(name)) }
-    else { Ok(value as u32) }
-}
 
 
 
@@ -259,14 +255,30 @@ impl MetaData {
     }
 
     // TODO skip reading offset tables if not required?
-    pub fn read_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<OffsetTables> {
-        headers.iter()
-            .map(|header| {
-                let entry_count = header.compute_offset_table_size()?;
-                let vec = u64::read_vec(read, entry_count as usize, std::u16::MAX as usize)?;
-                Ok(vec)
-            })
-            .collect()
+//    pub fn read_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<OffsetTables> {
+//        headers.iter()
+//            .map(|header| {
+//                let entry_count = header.compute_offset_table_size()?;
+//                let vec = u64::read_vec(read, entry_count as usize, std::u16::MAX as usize)?;
+//                Ok(vec)
+//            })
+//            .collect()
+//    }
+    // TODO skip reading offset tables if not required?
+    pub fn skip_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<u64> {
+        let chunk_count: Result<u32> = headers.iter().map(Header::compute_offset_table_size).sum();
+        let chunk_count = chunk_count? as u64;
+
+        crate::io::skip_bytes(read, chunk_count * std::mem::size_of::<u64>() as u64)?;
+        Ok(chunk_count)
+
+//        headers.iter()
+//            .map(|header| {
+//                let entry_count = header.compute_offset_table_size()?;
+//                let vec = u64::read_vec(read, entry_count as usize, std::u16::MAX as usize)?;
+//                Ok(vec)
+//            })
+//            .collect()
     }
 
 //    pub fn write_offset_tables<W: Write>(write: &mut W, tables: &OffsetTables) -> PassiveResult {

@@ -97,15 +97,15 @@ pub fn read_from_unbuffered(unbuffered: impl Read, options: ReadOptions) -> Resu
 pub fn read_from_buffered(read: impl Read, options: ReadOptions) -> Result<FullImage> {
     let mut read = PeekRead::new(read);
     let meta_data = MetaData::read_from_buffered_peekable(&mut read)?;
-    let offset_tables = MetaData::read_offset_tables(&mut read, &meta_data.headers)?;
-    self::read_data_by_meta(meta_data, offset_tables, &mut read, options)
+    let chunk_count = MetaData::skip_offset_tables(&mut read, &meta_data.headers)? as usize;
+    self::read_data_by_meta(meta_data, chunk_count, &mut read, options)
 }
 
 
 /// assumes the reader is buffered (if desired)
 #[must_use]
-pub fn read_data_by_meta(meta_data: MetaData, offset_tables: OffsetTables, read: &mut impl Read, options: ReadOptions) -> Result<FullImage> {
-    FullImage::read_data_by_meta(meta_data, offset_tables, read, options)
+pub fn read_data_by_meta(meta_data: MetaData, chunk_count: usize, read: &mut impl Read, options: ReadOptions) -> Result<FullImage> {
+    FullImage::read_data_by_meta(meta_data, chunk_count, read, options)
 }
 
 
