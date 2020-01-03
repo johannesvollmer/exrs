@@ -59,7 +59,7 @@ __Currently supported:__
 - [ ] Writing images
     - [x] Scan Lines
     - [x] Tiles
-    - [x] Multipart
+    - [ ] Multipart
     - [ ] Deep Data
     - [ ] User supplied line order
     - [ ] Rip/Mip Maps _(coded, but untested)_
