@@ -37,7 +37,7 @@ impl Error {
 impl From<IoError> for Error {
     fn from(error: IoError) -> Self {
         if error.kind() == ErrorKind::UnexpectedEof {
-            Error::invalid("invalid content size")
+            Error::invalid("content size")
         }
 
         else {

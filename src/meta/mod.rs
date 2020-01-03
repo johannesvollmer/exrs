@@ -261,7 +261,7 @@ impl MetaData {
         headers.iter()
             .map(|header| {
                 let entry_count = header.compute_offset_table_size()?;
-                let vec = u64::read_vec(read, entry_count as usize, std::u16::MAX as usize)?;
+                let vec = u64::read_vec(read, entry_count as usize, std::u16::MAX as usize, false)?;
                 Ok(vec)
             })
             .collect()
@@ -379,7 +379,7 @@ impl Header {
     fn get_scan_line_block_height(&self, y: u32) -> u32 {
         debug_assert!(
             y as i32 >= self.data_window.y_min && y as i32 <= self.data_window.y_max,
-            "invalid y coordinate: {}, (data window: {:?})", y, self.data_window
+            "y coordinate: {}, (data window: {:?})", y, self.data_window
         );
 
         let lines_per_block = self.compression.scan_lines_per_block();

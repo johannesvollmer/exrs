@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use exr::compression::Compression;
+use exr::math::RoundingMode;
 
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
@@ -84,9 +85,9 @@ pub fn test_roundtrip() {
     println!("read 1 successfull, beginning write");
 
     let write_options = WriteOptions {
-        compression_method: Compression::ZIP16,
-//        compression_method: Compression::Uncompressed,
-//        tiles: TileOptions::Tiles { size: (64, 64), rounding: RoundingMode::Down },
+//        compression_method: Compression::ZIP16,
+        compression_method: Compression::Uncompressed,
+        tiles: TileOptions::Tiles { size: (64, 64), rounding: RoundingMode::Down },
         .. WriteOptions::debug()
     };
 

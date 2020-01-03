@@ -149,7 +149,7 @@ impl ScanLineBlock {
 
     pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let y_coordinate = i32::read(read)?;
-        let compressed_pixels = u8::read_i32_sized_vec(read, max_block_byte_size)?;
+        let compressed_pixels = u8::read_i32_sized_vec(read, max_block_byte_size, true)?;
         Ok(ScanLineBlock { y_coordinate, compressed_pixels })
     }
 }
@@ -163,7 +163,7 @@ impl TileBlock {
 
     pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let coordinates = TileCoordinates::read(read)?;
-        let compressed_pixels = u8::read_i32_sized_vec(read, max_block_byte_size)?;
+        let compressed_pixels = u8::read_i32_sized_vec(read, max_block_byte_size, true)?;
         Ok(TileBlock { coordinates, compressed_pixels })
     }
 }
@@ -188,11 +188,11 @@ impl DeepScanLineBlock {
         // TODO don't just panic-cast
         // doc said i32, try u8
         let compressed_pixel_offset_table = i8::read_vec(
-            read, compressed_pixel_offset_table_size as usize, max_block_byte_size
+            read, compressed_pixel_offset_table_size as usize, max_block_byte_size, true
         )?;
 
         let compressed_sample_data = u8::read_vec(
-            read, compressed_sample_data_size as usize, max_block_byte_size
+            read, compressed_sample_data_size as usize, max_block_byte_size, true
         )?;
 
         Ok(DeepScanLineBlock {
@@ -223,11 +223,11 @@ impl DeepTileBlock {
         let decompressed_sample_data_size = u64::read(read)?;
 
         let compressed_pixel_offset_table = i8::read_vec(
-            read, compressed_pixel_offset_table_size, max_block_byte_size
+            read, compressed_pixel_offset_table_size, max_block_byte_size, true
         )?;
 
         let compressed_sample_data = u8::read_vec(
-            read, compressed_sample_data_size, max_block_byte_size
+            read, compressed_sample_data_size, max_block_byte_size, true
         )?;
 
         Ok(DeepTileBlock {

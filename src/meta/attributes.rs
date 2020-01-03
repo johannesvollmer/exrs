@@ -286,12 +286,12 @@ impl Text {
 
     pub fn read_i32_sized<R: Read>(read: &mut R, max_size: usize) -> Result<Self> {
         let size = i32::read(read)? as usize;
-        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, max_size.min(2048))?)))
+        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, max_size.min(2048), false)?)))
     }
 
     pub fn read_sized<R: Read>(read: &mut R, size: usize) -> Result<Self> {
         // TODO read into small vec without heap?
-        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 2048)?)))
+        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 2048, false)?)))
     }
 
     pub fn write_null_terminated<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> PassiveResult {

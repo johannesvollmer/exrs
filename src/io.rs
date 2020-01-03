@@ -80,9 +80,9 @@ pub trait Data: Sized + Default + Clone {
     fn read(read: &mut impl Read) -> Result<Self>;
     fn read_slice(read: &mut impl Read, slice: &mut[Self]) -> PassiveResult;
 
-    fn read_vec(read: &mut impl Read, data_size: usize, estimated_max: usize) -> Result<Vec<Self>> {
+    fn read_vec(read: &mut impl Read, data_size: usize, estimated_max: usize, abort_on_max: bool) -> Result<Vec<Self>> {
         let mut vec = Vec::new();
-        Self::read_into_vec(read, &mut vec, data_size, estimated_max)?;
+        Self::read_into_vec(read, &mut vec, data_size, estimated_max, abort_on_max)?;
         Ok(vec)
     }
 
@@ -95,24 +95,28 @@ pub trait Data: Sized + Default + Clone {
 //        ::std::mem::size_of::<Self>()
 //    }
 
-    fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, estimated_max: usize) -> PassiveResult {
+    fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, max: usize, abort_on_max: bool) -> PassiveResult {
         let start = data.len();
         let end = start + data_size;
-        let max_end = start + estimated_max;
+        let max_end = start + max;
 
-        debug_assert!(data_size <= estimated_max, "suspiciously large data size: {} (max: {})", data_size, estimated_max);
+//        debug_assert!(data_size <= estimated_max, "suspiciously large data size: {} (max: {})", data_size, estimated_max);
 
-        if data_size <= estimated_max {
+        if data_size <= max {
             data.resize(end, Self::default());
             Self::read_slice(read, &mut data[start .. end])
         }
         else {
-            println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
+            if abort_on_max {
+                return Err(Error::invalid("content size"))
+            }
+
+//            println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
 
             data.resize(max_end, Self::default());
             Self::read_slice(read, &mut data[start .. max_end])?;
 
-            for _ in estimated_max..data_size {
+            for _ in max..data_size {
                 data.push(Self::read(read)?);
             }
 
@@ -125,12 +129,12 @@ pub trait Data: Sized + Default + Clone {
         Self::write_slice(write, slice)
     }
 
-    fn read_i32_sized_vec(read: &mut impl Read, estimated_max: usize) -> Result<Vec<Self>> {
+    fn read_i32_sized_vec(read: &mut impl Read, estimated_max: usize, abort_on_max: bool) -> Result<Vec<Self>> {
         let size = i32::read(read)?;
         debug_assert!(size >= 0);
 
         if size < 0 { Err(Error::invalid("negative array size")) }
-        else { Self::read_vec(read, size as usize, estimated_max) }
+        else { Self::read_vec(read, size as usize, estimated_max, abort_on_max) }
     }
 }
 
