@@ -7,21 +7,6 @@ pub mod rle;
 pub mod piz;
 
 
-//#[derive(Debug)]
-//pub enum Error {
-//    Other(std::io::Error),
-//    UnsupportedCompressionMethod(Compression),
-//    DeepDataNotSupportedFor(Compression),
-//    InvalidData,
-//    InvalidSize,
-//}
-//
-//impl From<::std::io::Error> for Error {
-//    fn from(io: ::std::io::Error) -> Self {
-//        Error::Other(io)
-//    }
-//}
-
 pub type ByteVec = Vec<u8>;
 pub type Bytes<'s> = &'s [u8];
 
@@ -123,6 +108,23 @@ pub enum Compression {
     DWAB,
 }
 
+impl std::fmt::Display for Compression {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{} compression", match self {
+            Compression::Uncompressed => "no",
+            Compression::RLE => "rle",
+            Compression::ZIP1 => "zip line",
+            Compression::ZIP16 => "zip block",
+            Compression::B44 => "b44",
+            Compression::B44A => "b44a",
+            Compression::DWAA=> "dwaa",
+            Compression::DWAB => "dwab",
+            Compression::PIZ => "piz",
+            Compression::PXR24 => "pxr24",
+        })
+    }
+}
+
 
 
 impl Compression {
@@ -132,12 +134,15 @@ impl Compression {
         // FIXME only write compressed if smaller
         let compressed = match self {
             Uncompressed => return Ok(packed),
-            ZIP16 => zip::compress_bytes(&packed)?,
-            ZIP1 => zip::compress_bytes(&packed)?,
-            RLE => rle::compress_bytes(&packed)?,
+            ZIP16 => zip::compress_bytes(&packed),
+            ZIP1 => zip::compress_bytes(&packed),
+            RLE => rle::compress_bytes(&packed),
 //            PIZ => piz::compress_bytes(packed)?,
-            _ => return Err(Error::unsupported("yet unimplemented compression method"))
+            _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
         };
+
+        let compressed = compressed
+            .map_err(|_| Error::invalid("compressed content"))?;
 
         if compressed.len() < packed.len() {
             Ok(compressed)
@@ -163,16 +168,15 @@ impl Compression {
                 ZIP1 => zip::decompress_bytes(&data, expected_byte_size),
                 RLE => rle::decompress_bytes(&data, expected_byte_size),
 //                PIZ => piz::decompress_bytes(header, data, tile, expected_byte_size),
-                _ => Err(Error::unsupported("yet unimplemented compression method"))
-            }?;
+                _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
+            };
+
+            // map all errors to compression errors
+            let bytes = bytes
+                .map_err(|_| Error::invalid(format!("compressed data ({:?})", self)))?;
 
             if bytes.len() != expected_byte_size {
-                // TODO remove prints
-                eprintln!("error in {:?} decompression:", self);
-                eprintln!("\twindow: {:?}, ({} x {} px)", tile, tile.dimensions().0, tile.dimensions().1);
-                eprintln!("\texpected decompressed byte length: {}", expected_byte_size);
-                eprintln!("\tactual decompressed byte length: {}", bytes.len());
-                Err(Error::invalid("compressed data"))
+                Err(Error::invalid("decompressed data"))
             }
 
             else {
@@ -189,13 +193,16 @@ impl Compression {
 
         else {
             use self::Compression::*;
-            match self {
+            let result = match self {
                 Uncompressed => Ok(data),
                 ZIP16 => zip::decompress_bytes(&data, expected_byte_size),
                 ZIP1 => zip::decompress_bytes(&data, expected_byte_size),
                 RLE => rle::decompress_bytes(&data, expected_byte_size),
-                _ => Err(Error::unsupported("deep data compression method"))
-            }
+                _ => return Err(Error::unsupported(format!("deep data compression method: {}", self)))
+            };
+
+            // map all errors to compression errors
+            result.map_err(|_| Error::invalid("compressed content"))
         }
     }
 

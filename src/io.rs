@@ -24,7 +24,6 @@ pub fn positive_i32(value: i32, name: &'static str) -> Result<u32> {
 }
 
 
-// TODO DRY !!!!!!! the whole module
 pub struct PeekRead<T> {
     inner: T,
     peeked: Option<std::io::Result<u8>>,
@@ -70,9 +69,6 @@ impl<T: Read> Read for PeekRead<T> {
     }
 }
 
-// TODO catch "end of file" errors and throw error::invalid instead
-
-// will be inlined
 /// extension trait for primitive types like numbers and arrays
 pub trait Data: Sized + Default + Clone {
     #[inline]
@@ -96,6 +92,9 @@ pub trait Data: Sized + Default + Clone {
 
     const BYTE_SIZE: usize = ::std::mem::size_of::<Self>();
 
+    /// If a block length greater than this number is decoded,
+    /// it will not try to allocate that much memory, but instead consider
+    /// that decoding the block length has gone wrong
     #[inline]
     fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, max: usize, abort_on_max: bool) -> PassiveResult {
         let start = data.len();
@@ -114,7 +113,7 @@ pub trait Data: Sized + Default + Clone {
                 return Err(Error::invalid("content size"))
             }
 
-//            println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
+            println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
 
             data.resize(max_end, Self::default());
             Self::read_slice(read, &mut data[start .. max_end])?;

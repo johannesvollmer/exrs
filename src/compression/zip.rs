@@ -2,9 +2,9 @@
 // see https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfCompressor.cpp
 
 
-/// compresses 16 scan lines at once or
-/// compresses 1 single scan line at once
-// TODO don't instantiate a new decoder for every block?
+///! compresses 16 scan lines at once or
+///! compresses 1 single scan line at once
+
 use super::*;
 use super::optimize_bytes::*;
 
@@ -14,7 +14,6 @@ use crate::error::Result;
 
 // scanline decompression routine, see https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfScanLineInputFile.cpp
 // 1. Uncompress the data, if necessary (If the line is uncompressed, it's in XDR format, regardless of the compressor's output format.)
-// 2. consider line_order?
 // 3. Convert one scan line's worth of pixel data back from the machine-independent representation
 // 4. Fill the frame buffer with pixel data, respective to sampling and whatnot
 

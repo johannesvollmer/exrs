@@ -13,7 +13,6 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use exr::compression::Compression;
 use exr::math::RoundingMode;
 
-
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter()
         .map(Result::unwrap).filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
@@ -35,7 +34,7 @@ fn print_meta_of_all_files() {
 #[test]
 fn read_all_files() {
     #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
-    enum Result { Ok, Err, Panic };
+    enum Result { Ok, Error(String), Panic };
 
     let files: Vec<PathBuf> = exr_files().collect();
     let mut results: Vec<(PathBuf, Result)> = files.into_par_iter()
@@ -51,7 +50,7 @@ fn read_all_files() {
 
             let result = match image {
                 Ok(Ok(_)) => Result::Ok,
-                Ok(Err(_)) => Result::Err,
+                Ok(Err(error)) => Result::Error(format!("{:?}", error)),
                 Err(_) => Result::Panic,
             };
 
@@ -133,7 +132,7 @@ pub fn convert_to_png() {
 //        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
 
 
-            "D:/Pictures/openexr/ScanLines/Blobbies.exr"
+            "D:/Pictures/openexr/MultiResolution/Bonita.exr"
 
 //            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
 //        "D:/Pictures/openexr/crows/kull/crow_zips.exr"

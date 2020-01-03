@@ -1,30 +1,20 @@
 
-//use ::attributes::Compression;
 use crate::meta::attributes::Kind;
 
 // TODO
-// INCREASING_Y The tiles for each level are stored in a contiguous block. The levels are
-//ordered like this:
-//where
-//if the file's level mode is RIPMAP_LEVELS, or
-//if the level mode is MIPMAP_LEVELS, or
-//if the level mode is ONE_LEVEL.
-//In each level, the tiles are stored in the following order:
-//where and are the number of tiles in the x and y direction respectively,
-//for that particular level.
 // SEE PAGE 14 IN TECHNICAL INTRODUCTION
 
 
 #[derive(Debug, Clone)]
 pub struct Chunk {
-    /// 0 indicates the chunk belongs to the part defined
-    /// by the first header and the first chunk offset table
-    /// PDF sais u64, but source code seems to be `int`
+    /// index of which header this pixel data belongs to
+    /// (data can be in any order in the file)
+    // PDF says u64, but source code seems to be i32
     pub part_number: i32,
     pub block: Block,
 }
 
-/// Each block in a multipart file can have a different type
+/// Each part in a multipart file can have a different type
 #[derive(Debug, Clone)]
 pub enum Block {
     /// type attribute “scanlineimage”
@@ -65,7 +55,7 @@ pub struct TileBlock {
 /// indicates the tile's position and resolution level
 #[derive(Debug, Clone, Copy)]
 pub struct TileCoordinates {
-    pub tile_x: i32, pub tile_y: i32, // TODO make this u32
+    pub tile_x: i32, pub tile_y: i32,
     pub level_x: i32, pub level_y: i32,
 }
 
@@ -113,8 +103,6 @@ pub struct DeepTileBlock {
 use crate::io::*;
 
 impl TileCoordinates {
-    // TODO validate levels >= 0
-
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         self.tile_x.write(write)?;
         self.tile_y.write(write)?;
@@ -135,9 +123,6 @@ impl TileCoordinates {
 
 
 
-/// If a block length greater than this number is decoded,
-/// it will not try to allocate that much memory, but instead consider
-/// that decoding the block length has gone wrong
 use crate::meta::Header;
 
 impl ScanLineBlock {
@@ -263,8 +248,6 @@ impl Chunk {
         if headers.len() > 1 { self.part_number.write(write)?; }
         else { assert_eq!(self.part_number, 0); }
 
-//        let header = &headers[self.part_number as usize];
-
         match self.block {
             Block::ScanLine     (ref value) => value.write(write),
             Block::Tile         (ref value) => value.write(write),
@@ -276,7 +259,7 @@ impl Chunk {
     pub fn read(read: &mut impl Read, is_multipart: bool, headers: &[Header]) -> Result<Self> {
         let part_number = {
             if is_multipart { i32::read(read)? } // documentation says u64, but is i32
-            else { 0_i32 } // first header for single-part images
+            else { 0_i32 } // use first header for single-part images
         };
 
         if part_number < 0 || part_number >= headers.len() as i32 {
