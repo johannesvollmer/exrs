@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use exr::compression::Compression;
+use exr::math::RoundingMode;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter()
@@ -69,10 +70,10 @@ fn read_all_files() {
 #[test]
 pub fn test_roundtrip() {
     let path =
-//            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
+            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
 //            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
 //        "D:/Pictures/openexr/crowskull/crow_zips.exr"
-"D:/Pictures/openexr/crowskull/crow_rle.exr"
+//"D:/Pictures/openexr/crowskull/crow_rle.exr"
 //"D:/Pictures/openexr/crowskull/crow_zip_half.exr"
 
 
@@ -86,9 +87,9 @@ pub fn test_roundtrip() {
     println!("...read 1 successfull");
 
     let write_options = WriteOptions {
-        compression_method: Compression::ZIP16,
-//        compression_method: Compression::Uncompressed,
-//        tiles: TileOptions::Tiles { size: (64, 64), rounding: RoundingMode::Down },
+//        compression_method: Compression::ZIP16,
+        compression_method: Compression::Uncompressed,
+//        tiles: BlockOptions::Tiles { size: (128, 128), rounding: RoundingMode::Down },
         .. WriteOptions::debug()
     };
 
@@ -107,7 +108,6 @@ pub fn test_roundtrip() {
     println!("...read 2 successfull");
 
     assert_eq!(image, image2);
-    println!("success!");
 }
 
 #[test]
@@ -141,10 +141,10 @@ pub fn convert_to_png() {
 //        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
 
 
-            "D:/Pictures/openexr/MultiResolution/Bonita.exr"
+//            "D:/Pictures/openexr/MultiResolution/Bonita.exr"
 
 //            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
-//        "D:/Pictures/openexr/crows/kull/crow_zips.exr"
+        "D:/Pictures/openexr/crowskull/crow_zips.exr"
 //            "D:/Pictures/openexr/crowskull/crow_rle.exr"
 //            "D:/Pictures/openexr/crowskull/crow_zip_half.exr"
 

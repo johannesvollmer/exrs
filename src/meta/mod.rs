@@ -79,7 +79,8 @@ pub struct Header {
     pub deep_data_version: Option<i32>,
 
     /// Required if either the multipart bit (12) or the deep-data bit (11) is set
-    pub chunk_count: Option<u32>,
+    /// (this crate always computes this value to avoid unnecessary computations)
+    pub chunk_count: u32,
 
     /// Required for deep data (deepscanline and deeptile) parts.
     /// Note: Since the value of "maxSamplesPerPixel"
@@ -260,18 +261,14 @@ impl MetaData {
     pub fn read_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<OffsetTables> {
         headers.iter()
             .map(|header| {
-                let entry_count = header.compute_offset_table_size()?;
-                let vec = u64::read_vec(read, entry_count as usize, std::u16::MAX as usize, false)?;
-                Ok(vec)
+                Ok(u64::read_vec(read, header.chunk_count as usize, std::u16::MAX as usize, false)?)
             })
             .collect()
     }
 
     // TODO skip reading offset tables if not required?
     pub fn skip_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<u64> {
-        let chunk_count: Result<u32> = headers.iter().map(Header::compute_offset_table_size).sum();
-        let chunk_count = chunk_count? as u64;
-
+        let chunk_count: u64 = headers.iter().map(|header| header.chunk_count as u64).sum();
         crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE as u64)?;
         Ok(chunk_count)
     }
@@ -448,57 +445,6 @@ impl Header {
         ) as usize
     }
 
-    // TODO reuse this algorithm in crate::image::Part::new?
-    pub fn compute_offset_table_size(&self) -> Result<u32> {
-        if let Some(chunk_count) = self.chunk_count {
-            Ok(chunk_count as u32) // TODO will this panic on negative number / invalid data?
-
-        } else {
-            // If not multipart and chunkCount not present,
-            // the number of entries in the chunk table is computed
-            // using the dataWindow and tileDesc attributes and the compression format
-            let compression = self.compression;
-            let data_window = self.data_window;
-            data_window.validate(None)?;
-
-            let data_size = data_window.dimensions();
-
-            if let Some(tiles) = self.tiles {
-                let round = tiles.rounding_mode;
-                let (tile_width, tile_height) = tiles.tile_size;
-
-                // TODO cache all these level values??
-                use crate::meta::attributes::LevelMode::*;
-                Ok(match tiles.level_mode {
-                    Singular => {
-                        let tiles_x = compute_tile_count(data_size.0, tile_width);
-                        let tiles_y = compute_tile_count(data_size.1, tile_height);
-                        tiles_x * tiles_y
-                    }
-
-                    MipMap => {
-                        mip_map_resolutions(round, data_size).map(|(level_width, level_height)| {
-                            compute_tile_count(level_width, tile_width) * compute_tile_count(level_height, tile_height)
-                        }).sum()
-                    },
-
-                    RipMap => {
-                        // TODO test this
-                        rip_map_resolutions(round, data_size).map(|(level_width, level_height)| {
-                            compute_tile_count(level_width, tile_width) * compute_tile_count(level_height, tile_height)
-                        }).sum()
-                    }
-                })
-
-            }
-
-            // scan line blocks never have mip maps // TODO check if this is true
-            else {
-                Ok(compute_tile_count(data_size.1, compression.scan_lines_per_block() as u32))
-            }
-        }
-    }
-
     // TODO for all other fields too?
     pub fn kind_or_err(&self) -> Result<&Kind> {
         self.kind.as_ref().ok_or(missing_attribute("chunk segmentation type"))
@@ -506,9 +452,6 @@ impl Header {
 
     pub fn validate(&self, requirements: &Requirements) -> PassiveResult {
         if requirements.is_multipart() {
-            if self.chunk_count.is_none() {
-                return Err(missing_attribute("chunk count"));
-            }
             if self.kind.is_none() {
                 return Err(missing_attribute("chunk segmentation type"));
             }
@@ -518,10 +461,6 @@ impl Header {
         }
 
         if self.has_deep_data() {
-            if self.chunk_count.is_none() {
-                return Err(missing_attribute("chunk count"));
-            }
-
             if self.name.is_none() {
                 return Err(missing_attribute("image part name"));
             }
@@ -646,19 +585,26 @@ impl Header {
             }
         }
 
+        let compression = compression.ok_or(missing_attribute("compression"))?;
+        let data_window = data_window.ok_or(missing_attribute("data window"))?;
+        let chunk_count = match chunk_count {
+            None => compute_chunk_count(compression, data_window, tiles)?,
+            Some(count) => count,
+        };
+
         let header = Header {
+            compression, data_window, chunk_count,
+
             channels: channels.ok_or(missing_attribute("channels"))?,
-            compression: compression.ok_or(missing_attribute("compression"))?,
-            data_window: data_window.ok_or(missing_attribute("data window"))?,
             display_window: display_window.ok_or(missing_attribute("display window"))?,
             line_order: line_order.ok_or(missing_attribute("line order"))?,
             pixel_aspect: pixel_aspect.ok_or(missing_attribute("pixel aspect"))?,
             screen_window_center: screen_window_center.ok_or(missing_attribute("screen window center"))?,
             screen_window_width: screen_window_width.ok_or(missing_attribute("screen window width"))??,
 
+
             tiles,
             name, kind,
-            chunk_count,
             max_samples_per_pixel,
             deep_data_version: version,
             custom_attributes: custom,
@@ -691,8 +637,11 @@ impl Header {
             write_opt_attr(write, long, NAME, self.name.clone(), Text)?;
             write_opt_attr(write, long, TYPE, self.kind, Kind)?;
             write_opt_attr(write, long, VERSION, self.deep_data_version, I32)?;
-            write_opt_attr(write, long, CHUNKS, self.chunk_count, |u| I32(u as i32))?;
             write_opt_attr(write, long, MAX_SAMPLES, self.max_samples_per_pixel, |u| I32(u as i32))?;
+
+            // not actually required, but always computed in this library anyways
+            write_attr(write, long, CHUNKS, self.chunk_count, |u| I32(u as i32))?;
+
             write_attr(write, long, CHANNELS, self.channels.clone(), ChannelList)?; // FIXME do not clone
             write_attr(write, long, COMPRESSION, self.compression, Compression)?;
             write_attr(write, long, DATA_WINDOW, self.data_window, I32Box2)?;

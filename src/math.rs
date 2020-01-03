@@ -3,6 +3,9 @@
 // https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
 
 
+use crate::compression::Compression;
+use crate::meta::attributes::{I32Box2, TileDescription};
+
 /// computes floor(log(x)/log(2))
 pub fn floor_log_2(mut number: u32) -> u32 {
     debug_assert_ne!(number, 0);
@@ -105,4 +108,47 @@ pub fn mip_map_resolutions(round: RoundingMode, max_resolution: (u32, u32)) -> i
             let height = compute_level_size(round, max_resolution.1, level);
             (width, height)
         })
+}
+
+
+pub fn compute_chunk_count(compression: Compression, data_window: I32Box2, tiles: Option<TileDescription>) -> crate::error::Result<u32> {
+    // If not multipart and chunkCount not present,
+    // the number of entries in the chunk table is computed
+    // using the dataWindow and tileDesc attributes and the compression format
+    data_window.validate(None)?;
+
+    let data_size = data_window.dimensions();
+
+    if let Some(tiles) = tiles {
+        let round = tiles.rounding_mode;
+        let (tile_width, tile_height) = tiles.tile_size;
+
+        // TODO cache all these level values??
+        use crate::meta::attributes::LevelMode::*;
+        Ok(match tiles.level_mode {
+            Singular => {
+                let tiles_x = compute_tile_count(data_size.0, tile_width);
+                let tiles_y = compute_tile_count(data_size.1, tile_height);
+                tiles_x * tiles_y
+            }
+
+            MipMap => {
+                mip_map_resolutions(round, data_size).map(|(level_width, level_height)| {
+                    compute_tile_count(level_width, tile_width) * compute_tile_count(level_height, tile_height)
+                }).sum()
+            },
+
+            RipMap => {
+                // TODO test this
+                rip_map_resolutions(round, data_size).map(|(level_width, level_height)| {
+                    compute_tile_count(level_width, tile_width) * compute_tile_count(level_height, tile_height)
+                }).sum()
+            }
+        })
+    }
+
+    // scan line blocks never have mip maps // TODO check if this is true
+    else {
+        Ok(compute_tile_count(data_size.1, compression.scan_lines_per_block() as u32))
+    }
 }

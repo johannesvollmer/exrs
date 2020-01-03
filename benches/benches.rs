@@ -27,7 +27,7 @@ fn read_single_image_uncompressed_from_buffer(bench: &mut Bencher) {
         bencher.iter(||{
             let mut read = file.as_slice();
 
-            let image = exr::image::read_from_buffered(read, ReadOptions::fast()).unwrap();
+            let image = exr::image::read_from_buffered(read, ReadOptions::fast_loading()).unwrap();
             bencher::black_box(image);
         })
     })

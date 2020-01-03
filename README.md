@@ -58,10 +58,10 @@ __Currently supported:__
 
 - [ ] Writing images
     - [x] Scan Lines
-    - [ ] Tiles
-    - [ ] Multipart
+    - [x] Tiles
+    - [x] Multipart
     - [ ] Deep Data
-    - [ ] Line Order
+    - [ ] User supplied line order
     - [ ] Rip/Mip Maps _(coded, but untested)_
     - [ ] 100% correct meta data
     - [x] Compression Methods
@@ -79,14 +79,14 @@ __Currently supported:__
 
 - [ ] Profiling and real optimization
     - [ ] Memory Mapping?
-- [ ] IO Progress callback
+- [ ] IO Progress callback?
 - [ ] SIMD
-- [ ] detailed file validation
+- [ ] Detailed file validation
     - [ ] Channels with an x or y sampling rate other than 1 are allowed only in flat, scan-line based images.
     - [ ] If an image is deep or tiled, then the x and y sampling rates for all of its channels must be 1.
     - [ ] Scan-line based images cannot be multi-resolution images.
 
-- [ ] explore different APIs
+- [ ] Explore different APIs
     - [ ] Let user decide how to store data
     - [ ] Loading Metadata and specific tiles or blocks separately
     

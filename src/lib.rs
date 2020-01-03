@@ -33,7 +33,7 @@ pub mod prelude {
     // core data types
     pub use crate::image::{
         read_from_file, write_to_file,
-        ReadOptions, WriteOptions, TileOptions,
+        ReadOptions, WriteOptions, BlockOptions,
     };
 
     pub use crate::image::full;

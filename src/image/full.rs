@@ -14,7 +14,7 @@ use crate::error::{Result, PassiveResult, Error};
 use crate::math::*;
 use std::io::{Seek, SeekFrom};
 use crate::io::Data;
-use crate::image::{TileOptions, WriteOptions, ReadOptions};
+use crate::image::{BlockOptions, WriteOptions, ReadOptions};
 
 
 #[derive(Clone, PartialEq, Debug)]
@@ -31,7 +31,7 @@ pub type Parts = SmallVec<[Part; 3]>;
 #[derive(Clone, PartialEq, Debug)]
 pub struct Part {
     pub data_window: I32Box2,
-    pub screen_window_center: (f32, f32),
+    pub screen_window_center: (f32, f32), // TODO use sensible defaults instead of returning an error on missing?
     pub screen_window_width: f32,
 
     pub name: Option<Text>,
@@ -83,7 +83,7 @@ pub enum SampleMaps<Sample> {
 }
 
 // FIXME should be descending and starting with full-res instead!
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq)]
 pub enum Levels<Samples> {
     Singular(SampleBlock<Samples>),
     Mip(LevelMaps<Samples>),
@@ -125,7 +125,24 @@ pub struct UncompressedBlock {
     data: ByteVec,
 }
 
-
+impl<S> std::fmt::Debug for Levels<S> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Levels::Singular(image) => write!(
+                formatter, "Singular ({}x{})",
+                image.resolution.0, image.resolution.1
+            ),
+            Levels::Mip(levels) => write!(
+                formatter, "Mip ({}x{} [{}])",
+                levels[0].resolution.0, levels[0].resolution.1, levels.len()
+            ),
+            Levels::Rip(maps) => write!(
+                formatter, "Rip ({}x{} [{}x{}])",
+                maps.map_data[0].resolution.0, maps.map_data[0].resolution.1,
+                maps.level_count.0, maps.level_count.1),
+        }
+    }
+}
 
 
 impl FullImage {
@@ -177,7 +194,7 @@ impl FullImage {
 
         // skip offset tables for now
         let offset_table_size: u32 = meta_data.headers.iter()
-            .map(|header| header.compute_offset_table_size().unwrap()).sum();
+            .map(|header| header.chunk_count).sum();
 
         let mut offset_tables: Vec<u64> = vec![0; offset_table_size as usize];
         u64::write_slice(&mut write, offset_tables.as_slice())?;
@@ -192,10 +209,24 @@ impl FullImage {
 
                     let chunk = Chunk {
                         part_number: part_index as i32,
-                        block: Block::ScanLine(ScanLineBlock {
-                            y_coordinate: part.data_window.y_min + tile.position.1 as i32,
-                            compressed_pixels: data
-                        }) // FIXME add the other ones?? match???
+
+                        // TODO deep data
+                        block: match options.tiles {
+                            BlockOptions::ScanLineBlocks => Block::ScanLine(ScanLineBlock {
+                                y_coordinate: part.data_window.y_min + tile.position.1 as i32,
+                                compressed_pixels: data
+                            }),
+
+                            BlockOptions::Tiles { .. } => Block::Tile(TileBlock {
+                                compressed_pixels: data,
+                                coordinates: TileCoordinates {
+                                    tile_x: part.data_window.x_min + tile.position.0 as i32,
+                                    tile_y: part.data_window.y_min + tile.position.1 as i32,
+                                    level_x: tile.level.0 as i32,
+                                    level_y: tile.level.1 as i32
+                                },
+                            }),
+                        }
                     };
 
                     let block_start_position = write.seek(SeekFrom::Current(0))?;
@@ -304,7 +335,7 @@ impl FullImage {
                 self.minimum_version(options.tiles)?,
                 headers.len(),
                 match options.tiles {
-                    TileOptions::ScanLineBlocks => false,
+                    BlockOptions::ScanLineBlocks => false,
                     _ => true
                 },
                 self.has_long_names()?,
@@ -315,7 +346,7 @@ impl FullImage {
         })
     }
 
-    pub fn minimum_version(&self, _options: TileOptions) -> Result<u8> {
+    pub fn minimum_version(&self, _options: BlockOptions) -> Result<u8> {
         Ok(2) // TODO pick lowest possible
     }
 
@@ -333,8 +364,6 @@ impl Part {
             None | Some(Kind::ScanLine) | Some(Kind::Tile) => {
                 Ok(Part {
                     data_window: header.data_window,
-//                    display_window: header.display_window,
-//                    pixel_aspect: header.pixel_aspect,
                     screen_window_center: header.screen_window_center,
                     screen_window_width: header.screen_window_width,
                     name: header.name.clone(),
@@ -375,8 +404,27 @@ impl Part {
 
     pub fn infer_header(&self, display_window: I32Box2, pixel_aspect: f32, options: WriteOptions) -> Result<Header> {
         assert_eq!(options.line_order, LineOrder::Unspecified);
+        let tiles = match options.tiles {
+            BlockOptions::ScanLineBlocks => None,
+            BlockOptions::Tiles { size, rounding } => Some(TileDescription {
+                tile_size: size, level_mode: LevelMode::Singular, // FIXME levels!
+                rounding_mode: rounding
+            })
+        };
+
+        let chunk_count = compute_chunk_count(
+            options.compression_method, self.data_window, tiles
+        )?;
 
         Ok(Header {
+            tiles, chunk_count,
+
+            data_window: self.data_window,
+            screen_window_center: self.screen_window_center,
+            screen_window_width: self.screen_window_width,
+            compression: options.compression_method,
+            name: self.name.clone(),
+
             channels: ChannelList::new(self.channels.iter().map(|channel| attributes::Channel {
                 pixel_type: match channel.content {
                     ChannelData::F16(_) => PixelType::F16,
@@ -389,32 +437,18 @@ impl Part {
                 sampling: (channel.sampling.0 as u32, channel.sampling.1 as u32)
             }).collect()),
 
-            data_window: self.data_window,
-            screen_window_center: self.screen_window_center,
-            screen_window_width: self.screen_window_width,
-            compression: options.compression_method,
-            line_order: LineOrder::Unspecified,
+            line_order: LineOrder::Unspecified, // TODO
 
-            tiles: match options.tiles {
-                TileOptions::ScanLineBlocks => None,
-                TileOptions::Tiles { size, rounding } => Some(TileDescription {
-                    tile_size: size, level_mode: LevelMode::Singular, // FIXME levels!
-                    rounding_mode: rounding
-                })
-            },
 
-            name: self.name.clone(),
-
-            // TODO deep data:
-            kind: Some(match options.tiles {
-                TileOptions::ScanLineBlocks => Kind::ScanLine,
-                TileOptions::Tiles { .. } => Kind::Tile,
-                // TODO
+            kind: Some(match options.tiles { // TODO only write if necessary?
+                BlockOptions::ScanLineBlocks => Kind::ScanLine,
+                BlockOptions::Tiles { .. } => Kind::Tile,
+                // TODO deep data
             }),
+
 
             // TODO deep/multipart data:
             deep_data_version: None,
-            chunk_count: None,
             max_samples_per_pixel: None,
             custom_attributes: self.attributes.clone(),
             display_window, pixel_aspect

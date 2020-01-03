@@ -267,8 +267,8 @@ impl Chunk {
         }
 
         let header = &headers[part_number as usize];
-        let kind = header.kind.unwrap_or(Kind::ScanLine); // TODO is this how it works?
-        let max_block_byte_size = header.max_block_byte_size();
+        let kind = header.kind.unwrap_or(Kind::ScanLine); // TODO is this how it works? Do this everywhere?
+        let max_block_byte_size = header.max_block_byte_size().min(std::u16::MAX as usize * 16);
 
         let chunk = Chunk {
             part_number,
