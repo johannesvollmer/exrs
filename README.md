@@ -18,7 +18,7 @@ _Highly experimental!_
 
 __Currently supported:__
 
-- [x] Loading Metadata
+- [x] Inspecting Metadata
     - [x] Singlepart
         - [x] Tiles
         - [x] Scan lines
@@ -121,29 +121,6 @@ interface to the OpenEXR file format.
 We try to prevent writing invalid OpenEXR files by
 either taking advantage of Rusts type system, 
 or runtime checks if the type system does not suffice.
-
-### Architecture
-
-The main parts of this library are:
-
--   `file` - Provides raw access to the files contents.
-
-    The File is loaded from a byte stream into really
-    low level structures. No decompression will take place up to this stage,
-    and no data will be rearranged compared to the file layout.
-    This representation is as close to the file layout as feasible,
-    in order to be really fast if no decompression is required.
-    Basic file content validation is made to avoid processing invalid files.
-    
--   `image` - Supports interpreting the raw file 
-    and supports (but is not enforcing) exr conventions.
- 
-    It is able to convert between the raw file contents
-    and usable formats, for example `RGBA` arrays. This is optional
-    because the OpenEXR format is very detailed, and converting to
-    simpler representation will lose that detail. This part of the 
-    library is provided mainly for some very simple use-cases, like
-    displaying a larger preview than OpenEXR already contains.
 
 ### What I am proud of
 
