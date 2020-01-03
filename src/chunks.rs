@@ -115,7 +115,7 @@ use crate::io::*;
 impl TileCoordinates {
     // TODO validate levels >= 0
 
-    pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         self.tile_x.write(write)?;
         self.tile_y.write(write)?;
         self.level_x.write(write)?;
@@ -124,7 +124,7 @@ impl TileCoordinates {
     }
 
     // TODO parse lazily, always skip size, ... ?
-    pub fn read(read: &mut impl Read) -> ReadResult<Self> {
+    pub fn read(read: &mut impl Read) -> Result<Self> {
         Ok(TileCoordinates {
             tile_x: i32::read(read)?,
             tile_y: i32::read(read)?,
@@ -142,14 +142,14 @@ impl TileCoordinates {
 use crate::meta::{OffsetTables, Headers, Header};
 
 impl ScanLineBlock {
-    pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         self.y_coordinate.write(write)?;
         u8::write_i32_sized_slice(write, &self.compressed_pixels)?;
         Ok(())
     }
 
     // TODO parse lazily, always skip size, ... ?
-    pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> ReadResult<Self> {
+    pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let y_coordinate = i32::read(read)?;
         let compressed_pixels = u8::read_i32_sized_vec(read, max_block_byte_size)?;
         Ok(ScanLineBlock { y_coordinate, compressed_pixels })
@@ -157,20 +157,20 @@ impl ScanLineBlock {
 }
 
 impl TileBlock {
-    pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         self.coordinates.write(write)?;
         u8::write_i32_sized_slice(write, &self.compressed_pixels)?;
         Ok(())
     }
 
     // TODO parse lazily, always skip size, ... ?
-    pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> ReadResult<Self> {
+    pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let coordinates = TileCoordinates::read(read)?;
         let compressed_pixels = u8::read_i32_sized_vec(read, max_block_byte_size)?; // TODO maximum scan line size can easily be calculated
         Ok(TileBlock { coordinates, compressed_pixels })
     }
 
-    /*pub fn reuse_read<R: Read>(mut self, read: &mut R) -> ReadResult<Self> {
+    /*pub fn reuse_read<R: Read>(mut self, read: &mut R) -> Result<Self> {
         self.coordinates = TileCoordinates::read(read)?;
 
         let size = i32::read(read)?;
@@ -184,7 +184,7 @@ impl TileBlock {
 }
 
 impl DeepScanLineBlock {
-    pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         self.y_coordinate.write(write)?;
         (self.compressed_pixel_offset_table.len() as u64).write(write)?;
         (self.compressed_sample_data.len() as u64).write(write)?; // TODO just guessed
@@ -194,7 +194,7 @@ impl DeepScanLineBlock {
         Ok(())
     }
 
-    pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> ReadResult<Self> {
+    pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let y_coordinate = i32::read(read)?;
         let compressed_pixel_offset_table_size = u64::read(read)?;
         let compressed_sample_data_size = u64::read(read)?;
@@ -221,7 +221,7 @@ impl DeepScanLineBlock {
 
 
 impl DeepTileBlock {
-    pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         self.coordinates.write(write)?;
         (self.compressed_pixel_offset_table.len() as u64).write(write)?;
         (self.compressed_sample_data.len() as u64).write(write)?; // TODO just guessed
@@ -231,7 +231,7 @@ impl DeepTileBlock {
         Ok(())
     }
 
-    pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> ReadResult<Self> {
+    pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let coordinates = TileCoordinates::read(read)?;
         let compressed_pixel_offset_table_size = u64::read(read)? as usize;
         let compressed_sample_data_size = u64::read(read)? as usize; // TODO u64 just guessed
@@ -254,15 +254,12 @@ impl DeepTileBlock {
     }
 }
 
-use crate::error::validity::*;
-use crate::error::{WriteResult, ReadResult, ReadError};
+use crate::error::{PassiveResult, Result, Error};
 
 impl Chunk {
-    pub fn validate(&self, is_multipart: bool, headers: usize) -> Validity {
+    pub fn validate(&self, is_multipart: bool, headers: usize) -> PassiveResult {
         if self.part_number as usize >= headers {
-            return Err(Invalid::Combination(&[
-                Value::Part("header count"), Value::Chunk("part number")
-            ]).into());
+            return Err(Error::invalid("chunk data part number"));
         }
 
         if !is_multipart && self.part_number != 0 {
@@ -280,7 +277,7 @@ impl Chunk {
 //        }
     }
 
-    pub fn write(&self, write: &mut impl Write, is_multipart: bool, headers: &[Header]) -> WriteResult {
+    pub fn write(&self, write: &mut impl Write, is_multipart: bool, headers: &[Header]) -> PassiveResult {
         self.validate(is_multipart, headers.len())?;
 
         if is_multipart { self.part_number.write(write)?; }
@@ -297,16 +294,14 @@ impl Chunk {
     }
 
     // TODO parse lazily, always skip size, ... ?
-    pub fn read(read: &mut impl Read, is_multipart: bool, headers: &[Header]) -> ReadResult<Self> {
+    pub fn read(read: &mut impl Read, is_multipart: bool, headers: &[Header]) -> Result<Self> {
         let part_number = {
             if is_multipart { i32::read(read)? } // documentation says u64, but is i32
             else { 0_i32 } // first header for single-part images
         };
 
         if part_number < 0 || part_number >= headers.len() as i32 {
-            return Err(ReadError::Invalid(Invalid::Content(
-                Value::Part("number"), Required::Range { min:0, max: headers.len() }
-            )));
+            return Err(Error::invalid("chunk data part number"));
         }
 
         let header = &headers[part_number as usize];
@@ -345,7 +340,7 @@ impl<'h, R:Read> ChunkReader<'h, R> {
 }
 
 impl<'h, R: Read> Iterator for ChunkReader<'h, R> {
-    type Item = ReadResult<Chunk>;
+    type Item = Result<Chunk>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.remaining_chunk_count > 0 {

@@ -1,5 +1,4 @@
 use smallvec::SmallVec;
-use crate::error::validity::*;
 
 
 
@@ -218,15 +217,21 @@ pub enum LevelMode {
     Singular, MipMap, RipMap,
 }
 
+pub type TextBytes = SmallVec<[u8; 24]>;
+
 
 
 use crate::io::*;
 use crate::meta::sequence_end;
 use std::cmp::Ordering;
-use crate::error::{ReadResult, WriteResult, ReadError};
+use crate::error::*;
 use crate::math::RoundingMode;
 
-pub type TextBytes = SmallVec<[u8; 24]>;
+
+fn invalid_type() -> Error {
+    Error::invalid("wrong attribute type")
+}
+
 
 impl Text {
     pub fn from_str(str: &str) -> Option<Self> {
@@ -241,11 +246,11 @@ impl Text {
         Text { bytes }
     }
 
-    pub fn validate(&self, long_names: Option<bool>) -> Validity {
+    pub fn validate(&self, long_names: Option<bool>) -> PassiveResult {
         Self::validate_bytes(self.bytes.as_slice(), long_names)
     }
 
-    pub fn validate_bytes(text: &[u8], long_names: Option<bool>) -> Validity {
+    pub fn validate_bytes(text: &[u8], long_names: Option<bool>) -> PassiveResult {
         let is_valid = !text.is_empty() && match long_names {
             Some(false) => text.len() < 32,
             Some(true) => text.len() < 256,
@@ -253,12 +258,11 @@ impl Text {
         };
 
         if is_valid { Ok(()) } else {
-            if text.is_empty() {
-                Err(Invalid::Content(Value::Text, Required::Min(1)).into())
-            } else if long_names.unwrap() {
-                Err(Invalid::Content(Value::Text, Required::Max(255)).into())
-            } else {
-                Err(Invalid::Content(Value::Text, Required::Max(31)).into())
+            if long_names.unwrap() {
+                Err(Error::invalid("text longer than 255"))
+            }
+            else {
+                Err(Error::invalid("text longer than 31"))
             }
         }
     }
@@ -272,40 +276,42 @@ impl Text {
         self.bytes.len() + 0_i32.byte_size()
     }
 
-    pub fn write_i32_sized<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> WriteResult {
+    pub fn write_i32_sized<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> PassiveResult {
         (self.bytes.len() as i32).write(write)?;
         Self::write_unsized_bytes(self.bytes.as_slice(), write, long_names)
     }
 
-    pub fn write_unsized_bytes<W: Write>(bytes: &[u8], write: &mut W, long_names: Option<bool>) -> WriteResult {
+    pub fn write_unsized_bytes<W: Write>(bytes: &[u8], write: &mut W, long_names: Option<bool>) -> PassiveResult {
         Text::validate_bytes(bytes, long_names)?;
         u8::write_slice(write, bytes)?;
         Ok(())
     }
 
-    pub fn read_i32_sized<R: Read>(read: &mut R, max_size: usize) -> ReadResult<Self> {
+    pub fn read_i32_sized<R: Read>(read: &mut R, max_size: usize) -> Result<Self> {
         let size = i32::read(read)? as usize;
         Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, max_size.min(2048))?)))
     }
 
-    pub fn read_sized<R: Read>(read: &mut R, size: usize) -> ReadResult<Self> {
-        // TODO read into small vec without heap
+    pub fn read_sized<R: Read>(read: &mut R, size: usize) -> Result<Self> {
+        // TODO read into small vec without heap?
         Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 2048)?)))
     }
 
-    pub fn write_null_terminated<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> WriteResult {
+    pub fn write_null_terminated<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> PassiveResult {
+        if self.bytes.is_empty() { return Err(Error::invalid("text is empty")) } // required to avoid mixup with "sequece_end"
         Self::write_unsized_bytes(self.bytes.as_slice(), write, long_names)?;
         sequence_end::write(write)?;
         Ok(())
     }
 
-    pub fn write_null_terminated_bytes<W: Write>(bytes: &[u8], write: &mut W, long_names: Option<bool>) -> WriteResult {
+    pub fn write_null_terminated_bytes<W: Write>(bytes: &[u8], write: &mut W, long_names: Option<bool>) -> PassiveResult {
+        if bytes.is_empty() { return Err(Error::invalid("text is empty")) } // required to avoid mixup with "sequece_end"
         Text::write_unsized_bytes(bytes, write, long_names)?;
         sequence_end::write(write)?;
         Ok(())
     }
 
-    pub fn read_null_terminated<R: Read>(read: &mut R, max_len: usize) -> ReadResult<Self> {
+    pub fn read_null_terminated<R: Read>(read: &mut R, max_len: usize) -> Result<Self> {
         let mut bytes = SmallVec::new();
 
         loop {
@@ -327,7 +333,7 @@ impl Text {
     fn read_vec_of_i32_sized(
         read: &mut PeekRead<impl Read>,
         total_byte_size: u32
-    ) -> ReadResult<Vec<Text>>
+    ) -> Result<Vec<Text>>
     {
         let mut result = Vec::with_capacity(2);
 
@@ -347,7 +353,7 @@ impl Text {
 
     /// allows any text length since it is only used for attribute values,
     /// but not attribute names, attribute type names, or channel names
-    fn write_vec_of_i32_sized_texts<W: Write>(write: &mut W, texts: &[Text]) -> WriteResult {
+    fn write_vec_of_i32_sized_texts<W: Write>(write: &mut W, texts: &[Text]) -> PassiveResult {
         // length of the text-vector can be inferred from attribute size
         for text in texts {
             text.write_i32_sized(write, None)?;
@@ -396,20 +402,19 @@ impl ChannelList {
 impl Kind {
     const TYPE_NAME: &'static [u8] = attribute_type_names::TEXT;
 
-    pub fn parse(text: Text) -> ReadResult<Self> {
+    pub fn parse(text: Text) -> Result<Self> {
         match text.bytes.as_slice() {
             kind::SCAN_LINE => Ok(Kind::ScanLine),
             kind::TILE => Ok(Kind::Tile),
+
             kind::DEEP_SCAN_LINE => Ok(Kind::DeepScanLine),
             kind::DEEP_TILE => Ok(Kind::DeepTile),
-            _ => Err(ReadError::Invalid(Invalid::Content(
-                Value::Attribute("type"),
-                Required::OneOf(&["", "", "", ""])
-            ))),
+
+            _ => Err(Error::invalid("block type value")),
         }
     }
 
-    pub fn write(&self, write: &mut impl Write) -> WriteResult {
+    pub fn write(&self, write: &mut impl Write) -> PassiveResult {
         u8::write_slice(write, self.to_text_bytes())?;
         Ok(())
     }
@@ -444,22 +449,16 @@ impl I32Box2 {
         }
     }
 
-    pub fn validate(&self, max: Option<(u32, u32)>) -> Validity {
+    pub fn validate(&self, max: Option<(u32, u32)>) -> PassiveResult {
         if self.x_min > self.x_max || self.y_min > self.y_max {
-            return Err(Invalid::Combination(&[
-                Value::Attribute("box2i min"),
-                Value::Attribute("box2i max")
-            ]))
+            return Err(Error::invalid("box attribute dimensions"));
         }
 
         if let Some(bounds) = max {
             let dimensions = self.dimensions();
-            if dimensions.0 > bounds.0 {
-                return Err(Invalid::Content(Value::Attribute("box2i max x"), Required::Max(bounds.0 as usize)))
-            }
 
-            if dimensions.1 > bounds.1 {
-                return Err(Invalid::Content(Value::Attribute("box2i max y"), Required::Max(bounds.1 as usize)))
+            if dimensions.0 > bounds.0 || dimensions.1 > bounds.1  {
+                return Err(Error::invalid("box attribute dimensions"));
             }
         }
 
@@ -467,9 +466,10 @@ impl I32Box2 {
     }
 
     pub fn dimensions(&self) -> (u32, u32) {
+        debug_assert!(self.validate(None).is_ok());
+
         (
-            // see technical introduction p. 1
-            (self.x_max + 1 - self.x_min) as u32, // TODO checked_sub
+            (self.x_max + 1 - self.x_min) as u32,
             (self.y_max + 1 - self.y_min) as u32,
         )
     }
@@ -478,7 +478,7 @@ impl I32Box2 {
         4 * self.x_min.byte_size()
     }
 
-    pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         // validate?
         self.x_min.write(write)?;
         self.y_min.write(write)?;
@@ -487,7 +487,7 @@ impl I32Box2 {
         Ok(())
     }
 
-    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         let value = I32Box2 {
             x_min: i32::read(read)?,
             y_min: i32::read(read)?,
@@ -505,7 +505,7 @@ impl F32Box2 {
         4 * self.x_min.byte_size()
     }
 
-    pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         self.x_min.write(write)?;
         self.y_min.write(write)?;
         self.x_max.write(write)?;
@@ -513,7 +513,7 @@ impl F32Box2 {
         Ok(())
     }
 
-    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         Ok(F32Box2 {
             x_min: f32::read(read)?,
             y_min: f32::read(read)?,
@@ -536,7 +536,7 @@ impl PixelType {
         0_i32.byte_size()
     }
 
-    pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         match *self {
             PixelType::U32 => 0_i32,
             PixelType::F16 => 1_i32,
@@ -546,17 +546,14 @@ impl PixelType {
         Ok(())
     }
 
-    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         // there's definitely going to be more than 255 different pixel types
         // in the future, when exr is still used
         Ok(match i32::read(read)? {
             0 => PixelType::U32,
             1 => PixelType::F16,
             2 => PixelType::F32,
-            _ => return Err(Invalid::Content(
-                Value::Enum("pixelType"),
-                Required::Range{ min: 0, max: 2 }
-            ).into())
+            _ => return Err(Error::invalid("pixel type attribute value")),
         })
     }
 }
@@ -583,7 +580,7 @@ impl Channel {
             + self.sampling.1.byte_size()
     }
 
-    pub fn write<W: Write>(&self, write: &mut W, long_names: bool) -> WriteResult {
+    pub fn write<W: Write>(&self, write: &mut W, long_names: bool) -> PassiveResult {
         Text::write_null_terminated(&self.name, write, Some(long_names))?;
         self.pixel_type.write(write)?;
 
@@ -598,27 +595,24 @@ impl Channel {
         Ok(())
     }
 
-    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         let name = Text::read_null_terminated(read, 256)?;
         let pixel_type = PixelType::read(read)?;
 
         let is_linear = match u8::read(read)? {
             1 => true,
             0 => false,
-            _ => return Err(Invalid::Content(
-                Value::Enum("pLinear"),
-                Required::Range{ min: 0, max: 1 }
-            ).into())
+            _ => return Err(Error::invalid("channel linearity attribute value")),
         };
 
         let mut reserved = [0; 3];
         i8::read_slice(read, &mut reserved)?;
 
         let x_sampling = i32::read(read)?;
-        let y_sampling = i32::read(read)?;
+        let y_sampling = i32::read(read)?; // TODO make u32?
 
         if x_sampling < 0 || y_sampling < 0 {
-            return Err(ReadError::Invalid(Invalid::Content(Value::Attribute("channel sampling"), Required::Min(0))));
+            return Err(Error::invalid("channel sampling value"))
         }
 
         Ok(Channel {
@@ -631,7 +625,7 @@ impl Channel {
         channels.list.iter().map(Channel::byte_size).sum::<usize>() + sequence_end::byte_size()
     }
 
-    pub fn write_all<W: Write>(channels: &ChannelList, write: &mut W, long_names: bool) -> WriteResult {
+    pub fn write_all<W: Write>(channels: &ChannelList, write: &mut W, long_names: bool) -> PassiveResult {
         // FIXME validate if channel names are sorted alphabetically
 
         for channel in &channels.list {
@@ -642,7 +636,7 @@ impl Channel {
         Ok(())
     }
 
-    pub fn read_all(read: &mut PeekRead<impl Read>) -> ReadResult<ChannelList> {
+    pub fn read_all(read: &mut PeekRead<impl Read>) -> Result<ChannelList> {
         let mut channels = SmallVec::new();
         while !sequence_end::has_come(read)? {
             channels.push(Channel::read(read)?);
@@ -657,7 +651,7 @@ impl Chromaticities {
         8 * self.red_x.byte_size()
     }
 
-    pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         self.red_x.write(write)?;
         self.red_y.write(write)?;
         self.green_x.write(write)?;
@@ -669,7 +663,7 @@ impl Chromaticities {
         Ok(())
     }
 
-    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         Ok(Chromaticities {
             red_x: f32::read(read)?,
             red_y: f32::read(read)?,
@@ -688,7 +682,7 @@ impl Compression {
         0_u8.byte_size()
     }
 
-    pub fn write<W: Write>(self, write: &mut W) -> WriteResult {
+    pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
         use self::Compression::*;
         match self {
             Uncompressed => 0_u8,
@@ -705,7 +699,7 @@ impl Compression {
         Ok(())
     }
 
-    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         use self::Compression::*;
         Ok(match u8::read(read)? {
             0 => Uncompressed,
@@ -718,10 +712,7 @@ impl Compression {
             7 => B44A,
             8 => DWAA,
             9 => DWAB,
-            _ => return Err(Invalid::Content(
-                Value::Enum("compression"),
-                Required::Range { min: 0, max: 9 }
-            ).into()),
+            _ => return Err(Error::unsupported("compression method")),
         })
     }
 }
@@ -731,7 +722,7 @@ impl EnvironmentMap {
         0_u32.byte_size()
     }
 
-    pub fn write<W: Write>(self, write: &mut W) -> WriteResult {
+    pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
         use self::EnvironmentMap::*;
         match self {
             LatitudeLongitude => 0_u8,
@@ -741,16 +732,12 @@ impl EnvironmentMap {
         Ok(())
     }
 
-    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         use self::EnvironmentMap::*;
         Ok(match u8::read(read)? {
             0 => LatitudeLongitude,
             1 => Cube,
-
-            _ => return Err(Invalid::Content(
-                Value::Enum("envmap"),
-                Required::Range { min: 0, max: 1 }
-            ).into()),
+            _ => return Err(Error::invalid("environment map attribute value")),
         })
     }
 }
@@ -760,7 +747,7 @@ impl KeyCode {
         6 * self.film_manufacturer_code.byte_size()
     }
 
-    pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         self.film_manufacturer_code.write(write)?;
         self.film_type.write(write)?;
         self.film_roll_prefix.write(write)?;
@@ -770,7 +757,7 @@ impl KeyCode {
         Ok(())
     }
 
-    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         Ok(KeyCode {
             film_manufacturer_code: i32::read(read)?,
             film_type: i32::read(read)?,
@@ -788,7 +775,7 @@ impl LineOrder {
         0_u32.byte_size()
     }
 
-    pub fn write<W: Write>(self, write: &mut W) -> WriteResult {
+    pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
         use self::LineOrder::*;
         match self {
             IncreasingY => 0_u8,
@@ -799,28 +786,23 @@ impl LineOrder {
         Ok(())
     }
 
-    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         use self::LineOrder::*;
         Ok(match u8::read(read)? {
             0 => IncreasingY,
             1 => DecreasingY,
             2 => RandomY,
-            _ => return Err(Invalid::Content(
-                Value::Enum("lineOrder"),
-                Required::Range { min: 0, max: 2 }
-            ).into()),
+            _ => return Err(Error::invalid("line order attribute value")),
         })
     }
 }
 
 impl Preview {
-    pub fn validate(&self) -> Validity {
+    pub fn validate(&self) -> PassiveResult {
         if self.width * self.height * 4 != self.pixel_data.len() as u32 {
-            Err(Invalid::Combination(&[
-                Value::Attribute("Preview dimensions"),
-                Value::Attribute("Preview pixel data length"),
-            ]))
-        } else {
+            Err(Error::invalid("preview dimensions do not match content length"))
+        }
+        else {
             Ok(())
         }
     }
@@ -831,14 +813,14 @@ impl Preview {
             + self.pixel_data.len()
     }
 
-    pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         self.width.write(write)?;
         self.height.write(write)?;
         i8::write_slice(write, &self.pixel_data)?;
         Ok(())
     }
 
-    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         let components_per_pixel = 4;
         let width = u32::read(read)?;
         let height = u32::read(read)?;
@@ -859,7 +841,7 @@ impl Preview {
 
 impl ::std::fmt::Debug for Preview {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "Preview {{ width: {}, height: {} }}", self.width, self.height)
+        write!(f, "Preview ({}x{} px)", self.width, self.height)
     }
 }
 
@@ -870,7 +852,7 @@ impl TileDescription {
          + 1 // (level mode + rounding mode)
     }
 
-    pub fn write<W: Write>(&self, write: &mut W) -> WriteResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         self.size.0.write(write)?;
         self.size.1.write(write)?;
 
@@ -890,7 +872,7 @@ impl TileDescription {
         Ok(())
     }
 
-    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         let x_size = u32::read(read)?;
         let y_size = u32::read(read)?;
 
@@ -904,19 +886,13 @@ impl TileDescription {
             0 => LevelMode::Singular,
             1 => LevelMode::MipMap,
             2 => LevelMode::RipMap,
-            _ => return Err(Invalid::Content(
-                Value::Enum("level mode"),
-                Required::Range { min: 0, max: 2 }
-            ).into()),
+            _ => return Err(Error::invalid("tile description level mode")),
         };
 
         let rounding_mode = match rounding_mode {
             0 => RoundingMode::Down,
             1 => RoundingMode::Up,
-            _ => return Err(Invalid::Content(
-                Value::Enum("rounding mode"),
-                Required::Range { min: 0, max: 1 }
-            ).into()),
+            _ => return Err(Error::invalid("tile description rounding mode")),
         };
 
         Ok(TileDescription { size: (x_size, y_size), level_mode, rounding_mode, })
@@ -931,7 +907,7 @@ impl Attribute {
             + self.value.byte_size()
     }
 
-    pub fn write<W: Write>(&self, write: &mut W, long_names: bool) -> WriteResult {
+    pub fn write<W: Write>(&self, write: &mut W, long_names: bool) -> PassiveResult {
         self.name.write_null_terminated(write, Some(long_names))?;
         Text::write_null_terminated_bytes(self.value.kind_name(), write, Some(long_names))?;
         (self.value.byte_size() as i32).write(write)?;
@@ -939,7 +915,7 @@ impl Attribute {
     }
 
     // TODO parse lazily, always skip size, ... ?
-    pub fn read(read: &mut PeekRead<impl Read>, max_size: usize) -> ReadResult<Self> {
+    pub fn read(read: &mut PeekRead<impl Read>, max_size: usize) -> Result<Self> {
         let name = Text::read_null_terminated(read, max_size)?;
         let kind = Text::read_null_terminated(read, max_size)?;
         let size = i32::read(read)? as u32; // TODO .checked_cast.ok_or(err:negative)
@@ -1027,7 +1003,7 @@ impl AnyValue {
         }
     }
 
-    pub fn write<W: Write>(&self, write: &mut W, long_names: bool) -> WriteResult {
+    pub fn write<W: Write>(&self, write: &mut W, long_names: bool) -> PassiveResult {
         use self::AnyValue::*;
         match *self {
             I32Box2(value) => value.write(write)?,
@@ -1071,7 +1047,7 @@ impl AnyValue {
         Ok(())
     }
 
-    pub fn read(read: &mut PeekRead<impl Read>, kind: Text, byte_size: u32) -> ReadResult<Self> {
+    pub fn read(read: &mut PeekRead<impl Read>, kind: Text, byte_size: u32) -> Result<Self> {
         use self::AnyValue::*;
         use self::attribute_type_names as ty;
 
@@ -1125,80 +1101,80 @@ impl AnyValue {
         })
     }
 
-    pub fn to_tile_description(&self) -> Result<TileDescription, Invalid> {
+    pub fn to_tile_description(&self) -> Result<TileDescription> {
         match *self {
             AnyValue::TileDescription(value) => Ok(value),
-            _ => Err(Invalid::Type(Required::Exact("tiledesc")).into()), // TODO make these constants!
+            _ => Err(invalid_type())
         }
     }
 
-    pub fn to_i32(&self) -> Result<i32, Invalid> {
+    pub fn to_i32(&self) -> Result<i32> {
         match *self {
             AnyValue::I32(value) => Ok(value),
-            _ => Err(Invalid::Type(Required::Exact("i32")).into()),
+            _ => Err(invalid_type())
         }
     }
 
-    pub fn to_f32(&self) -> Result<f32, Invalid> {
+    pub fn to_f32(&self) -> Result<f32> {
         match *self {
             AnyValue::F32(value) => Ok(value),
-            _ => Err(Invalid::Type(Required::Exact("f32")).into()),
+            _ => Err(invalid_type())
         }
     }
 
-    pub fn to_i32_box_2(&self) -> Result<I32Box2, Invalid> {
+    pub fn to_i32_box_2(&self) -> Result<I32Box2> {
         match *self {
             AnyValue::I32Box2(value) => Ok(value),
-            _ => Err(Invalid::Type(Required::Exact("box2i")).into()),
+            _ => Err(invalid_type())
         }
     }
 
-    pub fn to_f32_vec_2(&self) -> Result<(f32, f32), Invalid> {
+    pub fn to_f32_vec_2(&self) -> Result<(f32, f32)> {
         match *self {
             AnyValue::F32Vec2(x, y) => Ok((x, y)),
-            _ => Err(Invalid::Type(Required::Exact("v2f")).into()),
+            _ => Err(invalid_type())
         }
     }
 
-    pub fn to_line_order(&self) -> Result<LineOrder, Invalid> {
+    pub fn to_line_order(&self) -> Result<LineOrder> {
         match *self {
             AnyValue::LineOrder(value) => Ok(value),
-            _ => Err(Invalid::Type(Required::Exact("lineorder")).into()),
+            _ => Err(invalid_type())
         }
     }
 
-    pub fn to_compression(&self) -> Result<Compression, Invalid> {
+    pub fn to_compression(&self) -> Result<Compression> {
         match *self {
             AnyValue::Compression(value) => Ok(value),
-            _ => Err(Invalid::Type(Required::Exact("compression")).into()),
+            _ => Err(invalid_type())
         }
     }
 
-    pub fn into_text(self) -> Result<Text, Invalid> {
+    pub fn into_text(self) -> Result<Text> {
         match self {
             AnyValue::Text(value) => Ok(value),
-            _ => Err(Invalid::Type(Required::Exact("string")).into()),
+            _ => Err(invalid_type())
         }
     }
 
-    pub fn into_kind(self) -> Result<Kind, Invalid> {
+    pub fn into_kind(self) -> Result<Kind> {
         match self {
             AnyValue::Kind(value) => Ok(value),
-            _ => Err(Invalid::Type(Required::Exact("type string")).into()),
+            _ => Err(invalid_type())
         }
     }
 
-    pub fn into_channel_list(self) -> Result<ChannelList, Invalid> {
+    pub fn into_channel_list(self) -> Result<ChannelList> {
         match self {
             AnyValue::ChannelList(value) => Ok(value),
-            _ => Err(Invalid::Type(Required::Exact("chlist")).into()),
+            _ => Err(invalid_type())
         }
     }
 
-    pub fn to_chromaticities(&self) -> Result<Chromaticities, Invalid> {
+    pub fn to_chromaticities(&self) -> Result<Chromaticities> {
         match *self {
             AnyValue::Chromaticities(value) => Ok(value),
-            _ => Err(Invalid::Type(Required::Exact("chromaticities")).into()),
+            _ => Err(invalid_type())
         }
     }
 }

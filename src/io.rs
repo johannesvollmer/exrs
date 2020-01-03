@@ -4,7 +4,7 @@ pub use ::std::io::{Read, Write};
 use half::slice::{HalfFloatSliceExt};
 use lebe::prelude::*;
 use ::half::f16;
-
+use crate::error::{Error, Result};
 
 
 // TODO DRY !!!!!!! the whole module
@@ -52,6 +52,7 @@ impl<T: Read> Read for PeekRead<T> {
     }
 }
 
+// TODO catch "end of file" errors and throw error::invalid instead
 
 // will be inlined
 /// extension trait for primitive types like numbers and arrays
@@ -103,10 +104,14 @@ pub trait Data: Sized + Default + Clone {
         Self::write_slice(write, slice)
     }
 
-    fn read_i32_sized_vec(read: &mut impl Read, estimated_max: usize) -> std::io::Result<Vec<Self>> {
+    fn read_i32_sized_vec(read: &mut impl Read, estimated_max: usize) -> Result<Vec<Self>> {
         let size = i32::read(read)?;
-        if size < 0 { unimplemented!() }
-        Self::read_vec(read, size as usize, estimated_max)
+        debug_assert!(size >= 0);
+
+        if size < 0 {
+            return Err(Error::invalid("negative array size"))
+        }
+        Ok(Self::read_vec(read, size as usize, estimated_max)?)
     }
 }
 

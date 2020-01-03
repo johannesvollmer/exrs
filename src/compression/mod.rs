@@ -1,30 +1,29 @@
 use crate::meta::Header;
 use crate::meta::attributes::I32Box2;
-use crate::compression::Error::UnsupportedCompressionMethod;
+use crate::error::{Result, Error};
 
 pub mod zip;
 pub mod rle;
 pub mod piz;
 
 
-#[derive(Debug)]
-pub enum Error {
-    Other(std::io::Error),
-    UnsupportedCompressionMethod(Compression),
-    DeepDataNotSupportedFor(Compression),
-    InvalidData,
-    InvalidSize,
-}
-
-impl From<::std::io::Error> for Error {
-    fn from(io: ::std::io::Error) -> Self {
-        Error::Other(io)
-    }
-}
+//#[derive(Debug)]
+//pub enum Error {
+//    Other(std::io::Error),
+//    UnsupportedCompressionMethod(Compression),
+//    DeepDataNotSupportedFor(Compression),
+//    InvalidData,
+//    InvalidSize,
+//}
+//
+//impl From<::std::io::Error> for Error {
+//    fn from(io: ::std::io::Error) -> Self {
+//        Error::Other(io)
+//    }
+//}
 
 pub type ByteVec = Vec<u8>;
 pub type Bytes<'s> = &'s [u8];
-pub type Result<T> = ::std::result::Result<T, Error>;
 
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -137,7 +136,7 @@ impl Compression {
             ZIP1 => zip::compress_bytes(&packed)?,
             RLE => rle::compress_bytes(&packed)?,
 //            PIZ => piz::compress_bytes(packed)?,
-            compr => return Err(UnsupportedCompressionMethod(compr))
+            _ => return Err(Error::unsupported("yet unimplemented compression method"))
         };
 
         if compressed.len() < packed.len() {
@@ -164,16 +163,16 @@ impl Compression {
                 ZIP1 => zip::decompress_bytes(&data, expected_byte_size),
                 RLE => rle::decompress_bytes(&data, expected_byte_size),
 //                PIZ => piz::decompress_bytes(header, data, tile, expected_byte_size),
-                compr => return Err(UnsupportedCompressionMethod(compr))
-//                compression => unimplemented!("decompressing {:?}", compression),
+                _ => Err(Error::unsupported("yet unimplemented compression method"))
             }?;
 
             if bytes.len() != expected_byte_size {
+                // TODO remove prints
                 eprintln!("error in {:?} decompression:", self);
                 eprintln!("\twindow: {:?}, ({} x {} px)", tile, tile.dimensions().0, tile.dimensions().1);
                 eprintln!("\texpected decompressed byte length: {}", expected_byte_size);
                 eprintln!("\tactual decompressed byte length: {}", bytes.len());
-                Err(Error::InvalidSize)
+                Err(Error::invalid("compressed data"))
             }
 
             else {
@@ -195,7 +194,7 @@ impl Compression {
                 ZIP16 => zip::decompress_bytes(&data, expected_byte_size),
                 ZIP1 => zip::decompress_bytes(&data, expected_byte_size),
                 RLE => rle::decompress_bytes(&data, expected_byte_size),
-                compr => Err(Error::UnsupportedCompressionMethod(compr)),
+                _ => Err(Error::unsupported("deep data compression method"))
             }
         }
     }

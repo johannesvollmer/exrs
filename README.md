@@ -92,6 +92,15 @@ __Currently supported:__
     
 __Be sure to come back in a few weeks.__
 
+### Cleanup Tasks Before Version 1.0
+- [ ] remove all calls to `Option::unwrap()` and `Result::unwrap()`
+- [ ] remove all print statements
+- [ ] remove inappropriate `assert!` and `debug_assert!` calls,
+        all `unimplemented!` calls,
+        and use real Error handling instead
+- [ ] reduce all not required `pub` usages
+
+
 ### Motivation
 
 Using the [Rust bindings to OpenEXR](https://github.com/cessen/openexr-rs) 

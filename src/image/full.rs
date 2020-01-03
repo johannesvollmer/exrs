@@ -8,10 +8,9 @@ use rayon::iter::ParallelIterator;
 use crate::chunks::*;
 use crate::io::*;
 use crate::meta::*;
-use crate::error::validity::*;
 use crate::meta::attributes::*;
 use crate::compression::{ByteVec, Compression};
-use crate::error::{ReadResult, WriteResult, WriteError};
+use crate::error::{Result, PassiveResult, Error};
 use crate::math::*;
 use std::io::{Seek, SeekFrom};
 use crate::io::Data;
@@ -133,7 +132,7 @@ impl FullImage {
 
     /// assumes the reader is buffered (if desired)
     #[must_use]
-    pub fn read_data_by_meta(meta_data: MetaData, offset_tables: OffsetTables, read: &mut impl Read, options: ReadOptions) -> ReadResult<Self> {
+    pub fn read_data_by_meta(meta_data: MetaData, offset_tables: OffsetTables, read: &mut impl Read, options: ReadOptions) -> Result<Self> {
         let MetaData { headers, requirements } = meta_data;
 
         let chunk_reader = ChunkReader::new(read, requirements.is_multipart(), &headers, &offset_tables);
@@ -144,14 +143,14 @@ impl FullImage {
             .find(|header| header.compression != Compression::Uncompressed).is_some();
 
         if options.parallel_decompression && has_compression {
-            let chunks: Vec<ReadResult<Chunk>> = chunk_reader.collect();
+            let chunks: Vec<Result<Chunk>> = chunk_reader.collect();
             let blocks = chunks.into_par_iter().map(|chunk| chunk.and_then(|chunk|
 //                catch_unwind(|| { TODO?
                                                                                UncompressedBlock::from_compressed(chunk, headers.as_slice())
 //                })
             ));
 
-            let blocks: Vec<ReadResult<UncompressedBlock>> = blocks.collect(); // TODO without double collect!
+            let blocks: Vec<Result<UncompressedBlock>> = blocks.collect(); // TODO without double collect!
 
             for block in blocks {
                 let block = block?; // TODO use write everywhere instead of block allocations?
@@ -177,7 +176,7 @@ impl FullImage {
 
     /// assumes the reader is buffered
     #[must_use]
-    pub fn write_to_buffered(&self, mut write: impl Write + Seek, options: WriteOptions) -> WriteResult {
+    pub fn write_to_buffered(&self, mut write: impl Write + Seek, options: WriteOptions) -> PassiveResult {
         let meta_data = self.infer_meta_data(options)?;
         meta_data.write(&mut write)?;
 
@@ -185,7 +184,7 @@ impl FullImage {
 
         // skip offset tables for now
         let offset_table_size: u32 = meta_data.headers.iter()
-            .map(|header| header.compute_offset_table_size(meta_data.requirements).unwrap()).sum();
+            .map(|header| header.compute_offset_table_size().unwrap()).sum();
 
         let mut offset_tables: Vec<u64> = vec![0; offset_table_size as usize];
         u64::write_slice(&mut write, offset_tables.as_slice())?;
@@ -234,10 +233,9 @@ impl FullImage {
 
 impl UncompressedBlock {
     // for uncompressed data, the ByteVec in the chunk is moved all the way
-    pub fn from_compressed(chunk: Chunk, headers: &[Header]) -> ReadResult<Self> {
-        let part_count = headers.len();
+    pub fn from_compressed(chunk: Chunk, headers: &[Header]) -> Result<Self> {
         let header: &Header = headers.get(chunk.part_number as usize)
-            .ok_or(Invalid::Content(Value::Chunk("part index"), Required::Max(part_count)))?;
+            .ok_or(Error::invalid("chunk part index"))?;
 
         let raw_coordinates = header.get_raw_block_coordinates(&chunk.block)?;
         let tile_data_indices = header.get_block_data_indices(&chunk.block)?;
@@ -280,26 +278,22 @@ impl FullImage {
         }
     }
 
-    pub fn insert_block(&mut self, data: &mut impl Read, part_index: usize, tile: TileIndices) -> ReadResult<()> {
+    pub fn insert_block(&mut self, data: &mut impl Read, part_index: usize, tile: TileIndices) -> PassiveResult {
         debug_assert_ne!(tile.size.0, 0);
         debug_assert_ne!(tile.size.1, 0);
 
-        let part_count = self.parts.len();
-
         let part = self.parts.get_mut(part_index)
-            .ok_or(Invalid::Content(Value::Chunk("part index"), Required::Max(part_count)))?;
+            .ok_or(Error::invalid("chunk part index"))?;
 
         part.insert_block(data, tile)
     }
 
-    pub fn compress_block(&self, compression: Compression, part: usize, tile: TileIndices) -> Result<ByteVec, WriteError> {
+    pub fn compress_block(&self, compression: Compression, part: usize, tile: TileIndices) -> Result<ByteVec> {
         debug_assert_ne!(tile.size.0, 0);
         debug_assert_ne!(tile.size.1, 0);
 
-        let part_count = self.parts.len();
-
         let part = self.parts.get(part)
-            .ok_or(Invalid::Content(Value::Chunk("part index"), Required::Max(part_count)))?;
+            .ok_or(Error::invalid("chunk part index"))?;
 
         let mut bytes = Vec::new();
         part.decompress_block(tile, &mut bytes)?;
@@ -308,8 +302,8 @@ impl FullImage {
         Ok(bytes)
     }
 
-    pub fn infer_meta_data(&self, options: WriteOptions) -> Result<MetaData, WriteError> {
-        let headers: Result<Headers, WriteError> = self.parts.iter().map(|part| part.infer_header(self.display_window, self.pixel_aspect, options)).collect();
+    pub fn infer_meta_data(&self, options: WriteOptions) -> Result<MetaData> {
+        let headers: Result<Headers> = self.parts.iter().map(|part| part.infer_header(self.display_window, self.pixel_aspect, options)).collect();
 
         let mut headers = headers?;
         headers.sort_by(|a,b| a.name.cmp(&b.name));
@@ -331,11 +325,11 @@ impl FullImage {
         })
     }
 
-    pub fn minimum_version(&self, _options: TileOptions) -> Result<u8, Invalid> {
+    pub fn minimum_version(&self, _options: TileOptions) -> Result<u8> {
         Ok(2) // TODO pick lowest possible
     }
 
-    pub fn has_long_names(&self) -> Result<bool, Invalid> {
+    pub fn has_long_names(&self) -> Result<bool> {
         Ok(true) // TODO check all name string lengths
     }
 }
@@ -365,7 +359,7 @@ impl Part {
         }
     }
 
-    pub fn insert_block(&mut self, data: &mut impl Read, area: TileIndices) -> ReadResult<()> {
+    pub fn insert_block(&mut self, data: &mut impl Read, area: TileIndices) -> PassiveResult {
         let level = (area.level.0 as usize, area.level.1 as usize);
 
         for y in area.position.1 .. area.position.1 + area.size.1 {
@@ -377,7 +371,7 @@ impl Part {
         Ok(())
     }
 
-    pub fn decompress_block(&self, area: TileIndices, write: &mut impl Write) -> WriteResult {
+    pub fn decompress_block(&self, area: TileIndices, write: &mut impl Write) -> PassiveResult {
         let level = (area.level.0 as usize, area.level.1 as usize);
 
         for y in area.position.1 .. area.position.1 + area.size.1 {
@@ -389,7 +383,7 @@ impl Part {
         Ok(())
     }
 
-    pub fn infer_header(&self, display_window: I32Box2, pixel_aspect: f32, options: WriteOptions) -> Result<Header, WriteError> {
+    pub fn infer_header(&self, display_window: I32Box2, pixel_aspect: f32, options: WriteOptions) -> Result<Header> {
         Ok(Header {
             channels: ChannelList::new(self.channels.iter().map(|channel| attributes::Channel {
                 pixel_type: match channel.content {
@@ -437,9 +431,9 @@ impl Part {
         })
     }
 
-    pub fn tiles(&self, header: &Header, action: &mut impl FnMut(TileIndices) -> WriteResult) -> WriteResult {
-        fn tiles_of(image_size: (u32, u32), tile_size: (u32, u32), level: (u32, u32), action: &mut impl FnMut(TileIndices) -> WriteResult) -> WriteResult {
-            fn divide_and_rest(total_size: u32, block_size: u32, action: &mut impl FnMut(u32, u32) -> WriteResult) -> WriteResult {
+    pub fn tiles(&self, header: &Header, action: &mut impl FnMut(TileIndices) -> PassiveResult) -> PassiveResult {
+        fn tiles_of(image_size: (u32, u32), tile_size: (u32, u32), level: (u32, u32), action: &mut impl FnMut(TileIndices) -> PassiveResult) -> PassiveResult {
+            fn divide_and_rest(total_size: u32, block_size: u32, action: &mut impl FnMut(u32, u32) -> PassiveResult) -> PassiveResult {
                 let whole_block_count = total_size / block_size;
                 let whole_block_size = whole_block_count * block_size;
 
@@ -532,7 +526,7 @@ impl Channel {
         }
     }
 
-    pub fn insert_line(&mut self, block: &mut impl Read, level:(usize, usize), position: (usize, usize), length: usize) -> ReadResult<()> {
+    pub fn insert_line(&mut self, block: &mut impl Read, level:(usize, usize), position: (usize, usize), length: usize) -> PassiveResult {
         match &mut self.content {
             ChannelData::F16(maps) => maps.insert_line(block, level, position, length),
             ChannelData::F32(maps) => maps.insert_line(block, level, position, length),
@@ -540,7 +534,7 @@ impl Channel {
         }
     }
 
-    pub fn extract_line(&self, block: &mut impl Write, level:(usize, usize), position: (usize, usize), length: usize) -> WriteResult {
+    pub fn extract_line(&self, block: &mut impl Write, level:(usize, usize), position: (usize, usize), length: usize) -> PassiveResult {
         match &self.content {
             ChannelData::F16(maps) => maps.extract_line(block, level, position, length),
             ChannelData::F32(maps) => maps.extract_line(block, level, position, length),
@@ -559,14 +553,14 @@ impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
         }
     }
 
-    pub fn insert_line(&mut self, block: &mut impl Read, level:(usize, usize), position: (usize, usize), length: usize) -> ReadResult<()> {
+    pub fn insert_line(&mut self, block: &mut impl Read, level:(usize, usize), position: (usize, usize), length: usize) -> PassiveResult {
         match self {
             SampleMaps::Deep(ref mut levels) => levels.insert_line(block, level, position, length),
             SampleMaps::Flat(ref mut levels) => levels.insert_line(block, level, position, length),
         }
     }
 
-    pub fn extract_line(&self, block: &mut impl Write, level:(usize, usize), position: (usize, usize), length: usize) -> WriteResult {
+    pub fn extract_line(&self, block: &mut impl Write, level:(usize, usize), position: (usize, usize), length: usize) -> PassiveResult {
         match self {
             SampleMaps::Deep(ref levels) => levels.extract_line(block, level, position, length),
             SampleMaps::Flat(ref levels) => levels.extract_line(block, level, position, length),
@@ -622,7 +616,7 @@ impl<S: Samples> Levels<S> {
         }
     }
 
-    pub fn insert_line(&mut self, read: &mut impl Read, level:(usize, usize), position: (usize, usize), length: usize) -> ReadResult<()> {
+    pub fn insert_line(&mut self, read: &mut impl Read, level:(usize, usize), position: (usize, usize), length: usize) -> PassiveResult {
         match self {
             Levels::Singular(ref mut block) => {
                 debug_assert_eq!(level, (0,0), "singular image cannot read leveled blocks");
@@ -631,18 +625,14 @@ impl<S: Samples> Levels<S> {
 
             Levels::Mip(block) => {
                 debug_assert_eq!(level.0, level.1, "mip map levels must be equal on x and y"); // TODO err instead?
-                let max = block.len();
-
                 block.get_mut(level.0)
-                    .ok_or(Invalid::Content(Value::MapLevel, Required::Max(max)))?
+                    .ok_or(Error::invalid("block mip level index"))?
                     .insert_line(read, position, length)?;
             },
 
             Levels::Rip(block) => {
-                let max = block.map_data.len();
-
                 block.get_by_level_mut(level)
-                    .ok_or(Invalid::Content(Value::MapLevel, Required::Max(max)))?
+                    .ok_or(Error::invalid("block rip level index"))?
                     .insert_line(read, position, length)?;
             }
         }
@@ -650,7 +640,7 @@ impl<S: Samples> Levels<S> {
         Ok(())
     }
 
-    pub fn extract_line(&self, write: &mut impl Write, level:(usize, usize), position: (usize, usize), length: usize) -> WriteResult {
+    pub fn extract_line(&self, write: &mut impl Write, level:(usize, usize), position: (usize, usize), length: usize) -> PassiveResult {
         match self {
             Levels::Singular(ref block) => {
                 debug_assert_eq!(level, (0,0), "singular image cannot write leveled blocks");
@@ -659,18 +649,14 @@ impl<S: Samples> Levels<S> {
 
             Levels::Mip(block) => {
                 debug_assert_eq!(level.0, level.1, "mip map levels must be equal on x and y"); // TODO err instead?
-                let max = block.len();
-
                 block.get(level.0)
-                    .ok_or(Invalid::Content(Value::MapLevel, Required::Max(max)))?
+                    .ok_or(Error::invalid("block mip level index"))?
                     .extract_line(write, position, length)?;
             },
 
             Levels::Rip(block) => {
-                let max = block.map_data.len();
-
                 block.get_by_level(level)
-                    .ok_or(Invalid::Content(Value::MapLevel, Required::Max(max)))?
+                    .ok_or(Error::invalid("block rip level index"))?
                     .extract_line(write, position, length)?;
             }
         }
@@ -702,7 +688,7 @@ impl<S: Samples> SampleBlock<S> {
         SampleBlock { resolution, samples: S::new(resolution) }
     }
 
-    pub fn insert_line(&mut self, read: &mut impl Read, position: (usize, usize), length: usize) -> ReadResult<()> {
+    pub fn insert_line(&mut self, read: &mut impl Read, position: (usize, usize), length: usize) -> PassiveResult {
         debug_assert!(position.1 < self.resolution.1, "y: {}, height: {}", position.1, self.resolution.1);
         debug_assert!(position.0 + length <= self.resolution.0);
         debug_assert_ne!(length, 0);
@@ -710,7 +696,7 @@ impl<S: Samples> SampleBlock<S> {
         self.samples.insert_line(read, position, length, self.resolution.0)
     }
 
-    pub fn extract_line(&self, write: &mut impl Write, position: (usize, usize), length: usize) -> WriteResult {
+    pub fn extract_line(&self, write: &mut impl Write, position: (usize, usize), length: usize) -> PassiveResult {
         debug_assert!(position.1 < self.resolution.1, "y: {}, height: {}", position.1, self.resolution.1);
         debug_assert!(position.0 + length <= self.resolution.0);
         debug_assert_ne!(length, 0);
@@ -721,8 +707,8 @@ impl<S: Samples> SampleBlock<S> {
 
 pub trait Samples {
     fn new(resolution: (usize, usize)) -> Self;
-    fn insert_line(&mut self, read: &mut impl Read, position: (usize, usize), length: usize, image_width: usize) -> ReadResult<()>;
-    fn extract_line(&self, write: &mut impl Write, position: (usize, usize), length: usize, image_width: usize) -> WriteResult;
+    fn insert_line(&mut self, read: &mut impl Read, position: (usize, usize), length: usize, image_width: usize) -> PassiveResult;
+    fn extract_line(&self, write: &mut impl Write, position: (usize, usize), length: usize, image_width: usize) -> PassiveResult;
 }
 
 impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
@@ -733,7 +719,7 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
         ]
     }
 
-    fn insert_line(&mut self, _read: &mut impl Read, _position: (usize, usize), length: usize, image_width: usize) -> ReadResult<()> {
+    fn insert_line(&mut self, _read: &mut impl Read, _position: (usize, usize), length: usize, image_width: usize) -> PassiveResult {
         debug_assert_ne!(image_width, 0);
         debug_assert_ne!(length, 0);
 
@@ -748,7 +734,7 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
 //        Ok(())
     }
 
-    fn extract_line(&self, _write: &mut impl Write, _position: (usize, usize), length: usize, image_width: usize) -> WriteResult {
+    fn extract_line(&self, _write: &mut impl Write, _position: (usize, usize), length: usize, image_width: usize) -> PassiveResult {
         debug_assert_ne!(image_width, 0);
         debug_assert_ne!(length, 0);
 
@@ -762,7 +748,7 @@ impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for Fl
         vec![Sample::default(); resolution.0 * resolution.1]
     }
 
-    fn insert_line(&mut self, read: &mut impl Read, position: (usize, usize), length: usize, image_width: usize) -> ReadResult<()> {
+    fn insert_line(&mut self, read: &mut impl Read, position: (usize, usize), length: usize, image_width: usize) -> PassiveResult {
         debug_assert_ne!(image_width, 0);
         debug_assert_ne!(length, 0);
 
@@ -773,7 +759,7 @@ impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for Fl
         Ok(())
     }
 
-    fn extract_line(&self, write: &mut impl Write, position: (usize, usize), length: usize, image_width: usize) -> WriteResult {
+    fn extract_line(&self, write: &mut impl Write, position: (usize, usize), length: usize, image_width: usize) -> PassiveResult {
         debug_assert_ne!(image_width, 0);
         debug_assert_ne!(length, 0);
 

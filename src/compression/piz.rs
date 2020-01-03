@@ -2,7 +2,6 @@ use super::*;
 use super::Result;
 use crate::meta::attributes::{I32Box2, PixelType};
 use crate::meta::{Header};
-use crate::compression::Error::InvalidData;
 use crate::io::Data;
 
 
@@ -273,7 +272,7 @@ pub fn decompress_bytes(
 //        }
     if max_non_zero as i32 >= BITMAP_SIZE {
         println!("invalid bitmap size");
-        return Err(InvalidData);
+        return Err(Error::invalid("compression data"));
     }
 //
 //        if (minNonZero <= maxNonZero)
@@ -314,7 +313,7 @@ pub fn decompress_bytes(
 
     if length as usize > read.len() {
         println!("invalid array length");
-        return Err(InvalidData);
+        return Err(Error::invalid("compression data"));
     }
 
     // TODO use DynamicHuffmanCodec?

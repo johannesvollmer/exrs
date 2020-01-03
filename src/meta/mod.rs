@@ -1,18 +1,17 @@
 
 pub mod attributes;
 
-use crate::error::validity::*;
 use crate::io::*;
 
 use ::smallvec::SmallVec;
 use self::attributes::*;
 use crate::chunks::{TileCoordinates, Block};
 use crate::error::*;
-use std::convert::TryFrom;
 use std::fs::File;
 use std::io::{BufReader};
 use std::cmp::Ordering;
 use crate::math::*;
+
 
 
 
@@ -52,6 +51,8 @@ pub struct Header {
     pub compression: Compression,
     pub data_window: I32Box2,
     pub display_window: I32Box2,
+
+    // todo: make optionals?
     pub line_order: LineOrder,
     pub pixel_aspect: f32,
     pub screen_window_center: (f32, f32),
@@ -100,6 +101,9 @@ pub struct Header {
 
 pub type Attributes = SmallVec<[Attribute; 8]>;
 
+
+// FIXME TODO this should probably not be a struct but a module, and not passed everywhere,
+/// since most of the fields don't matter after the first validation
 
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub struct Requirements {
@@ -174,12 +178,12 @@ pub mod magic_number {
         Ok(magic_num == self::BYTES)
     }
 
-    pub fn validate_exr(read: &mut impl Read) -> ReadResult<()> {
+    pub fn validate_exr(read: &mut impl Read) -> PassiveResult {
         if self::is_exr(read)? {
             Ok(())
 
         } else {
-            Err(ReadError::NotEXR)
+            Err(Error::invalid("file identifier missing"))
         }
     }
 }
@@ -202,29 +206,38 @@ pub mod sequence_end {
 }
 
 
+pub fn missing_attribute(name: &str) -> Error {
+    Error::invalid(format!("missing `{}` attribute", name))
+}
+
+pub fn positive_i32(value: i32, name: &str) -> Result<u32> {
+    if value < 0 { Err(Error::invalid(name)) }
+    else { Ok(value as u32) }
+}
+
 
 
 impl MetaData {
     #[must_use]
-    pub fn read_from_file(path: impl AsRef<::std::path::Path>) -> ReadResult<Self> {
+    pub fn read_from_file(path: impl AsRef<::std::path::Path>) -> Result<Self> {
         Self::read_from_unbuffered(File::open(path)?)
     }
 
     /// assumes that the provided reader is not buffered, and will create a buffer for it
     #[must_use]
-    pub fn read_from_unbuffered<R: Read>(unbuffered: R) -> ReadResult<Self> {
+    pub fn read_from_unbuffered<R: Read>(unbuffered: R) -> Result<Self> {
         Self::read_from_buffered(BufReader::new(unbuffered))
     }
 
     /// assumes the reader is buffered
     #[must_use]
-    pub fn read_from_buffered<R: Read>(buffered: R) -> ReadResult<Self> {
+    pub fn read_from_buffered<R: Read>(buffered: R) -> Result<Self> {
         let mut read = PeekRead::new(buffered);
         MetaData::read_from_buffered_peekable(&mut read)
     }
 
     #[must_use]
-    pub fn read_from_buffered_peekable(read: &mut PeekRead<impl Read>) -> ReadResult<Self> {
+    pub fn read_from_buffered_peekable(read: &mut PeekRead<impl Read>) -> Result<Self> {
         magic_number::validate_exr(read)?;
         let requirements = Requirements::read(read)?;
         let headers = Header::read_all(read, &requirements)?;
@@ -236,7 +249,7 @@ impl MetaData {
         Ok(meta)
     }
 
-    pub fn write(&self, write: &mut impl Write) -> WriteResult {
+    pub fn write(&self, write: &mut impl Write) -> PassiveResult {
         self.validate()?;
 
         magic_number::write(write)?;
@@ -246,20 +259,17 @@ impl MetaData {
     }
 
     // TODO skip reading offset tables if not required?
-    pub fn read_offset_tables(
-        read: &mut PeekRead<impl Read>, version: Requirements, headers: &Headers,
-    ) -> ReadResult<OffsetTables>
-    {
+    pub fn read_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<OffsetTables> {
         headers.iter()
             .map(|header| {
-                let entry_count = header.compute_offset_table_size(version)?;
+                let entry_count = header.compute_offset_table_size()?;
                 let vec = u64::read_vec(read, entry_count as usize, std::u16::MAX as usize)?;
                 Ok(vec)
             })
             .collect()
     }
 
-//    pub fn write_offset_tables<W: Write>(write: &mut W, tables: &OffsetTables) -> WriteResult {
+//    pub fn write_offset_tables<W: Write>(write: &mut W, tables: &OffsetTables) -> PassiveResult {
 //        for table in tables {
 //            u64::write_slice(write, &table)?;
 //        }
@@ -268,48 +278,21 @@ impl MetaData {
 //    }
 
     // TODO also check for writing valid files
-    pub fn validate(&self) -> Validity {
+    pub fn validate(&self) -> PassiveResult {
         let headers = self.headers.len();
 
         if headers == 0 {
-            return Err(Invalid::Missing(Value::Part("header")));
+            return Err(Error::invalid("missing headers"));
         }
 
-//        TODO
-//        if tables != headers {
-//            return Err(Invalid::Combination(&[
-//                Value::Part("headers"),
-//                Value::Part("offset tables"),
-//            ]));
-//        }
-
-//        let _is_multi_part = headers > 1;
-        /*if is_multi_part != self.requirements.has_multiple_parts {
-            return Err(Invalid::Combination(&[
-                Value::Version("multipart"),
-                Value::Part("multipart"),
-            ]));
-        }*/
-
-        // TODO
-        // The values of the displayWindow
-        // and pixelAspectRatio attributes must be the same for all parts of a file.
-
         self.requirements.validate()?;
+        if self.requirements.file_format_version == 1 {
+            debug_assert_eq!(headers, 1);
+        }
+
         for header in &self.headers {
             header.validate(&self.requirements)?;
         }
-
-        // TODO if version is 1, check that there is no deep data and only one header
-        if self.requirements.file_format_version == 1 {
-            if headers > 1 {
-                return Err(Invalid::Combination(&[
-                    Value::Part("version (1)"),
-                    Value::Part("multipart"),
-                ]));
-            }
-        }
-
 
         Ok(())
     }
@@ -335,7 +318,7 @@ impl Header {
         }
     }
 
-    pub fn get_raw_block_coordinates(&self, block: &Block) -> ReadResult<I32Box2> {
+    pub fn get_raw_block_coordinates(&self, block: &Block) -> Result<I32Box2> {
         Ok(match block {
             Block::Tile(ref tile) => {
                 let size = self.get_tile_size(tile.coordinates);
@@ -367,7 +350,7 @@ impl Header {
         })
     }
 
-    pub fn get_block_data_indices(&self, block: &Block) -> ReadResult<TileIndices> {
+    pub fn get_block_data_indices(&self, block: &Block) -> Result<TileIndices> {
         let coordinates = self.get_raw_block_coordinates(block)?;
 
         assert!(coordinates.x_min >= self.data_window.x_min); // TODO Err() instead
@@ -463,13 +446,11 @@ impl Header {
     }
 
     // TODO reuse this algorithm in crate::image::Part::new?
-    pub fn compute_offset_table_size(&self, version: Requirements) -> Result<u32, Invalid> {
+    pub fn compute_offset_table_size(&self) -> Result<u32> {
         if let Some(chunk_count) = self.chunk_count {
             Ok(chunk_count as u32) // TODO will this panic on negative number / invalid data?
 
         } else {
-            debug_assert!(!version.has_multiple_parts, "check failed: chunkCount missing for multi-part image");
-
             // If not multipart and chunkCount not present,
             // the number of entries in the chunk table is computed
             // using the dataWindow and tileDesc attributes and the compression format
@@ -516,36 +497,36 @@ impl Header {
     }
 
     // TODO for all other fields too?
-    pub fn kind_or_err(&self) -> Result<&Kind, Invalid> {
-        self.kind.as_ref().ok_or(Invalid::Missing(Value::Attribute("kind")))
+    pub fn kind_or_err(&self) -> Result<&Kind> {
+        self.kind.as_ref().ok_or(Error::invalid("block type attribute"))
     }
 
-    pub fn validate(&self, requirements: &Requirements) -> Validity {
+    pub fn validate(&self, requirements: &Requirements) -> PassiveResult {
         if requirements.is_multipart() {
             if self.chunk_count.is_none() {
-                return Err(Invalid::Missing(Value::Attribute("chunkCount (for multipart)")).into());
+                return Err(missing_attribute("chunk count"));
             }
             if self.kind.is_none() {
-                return Err(Invalid::Missing(Value::Attribute("type (for multipart)")).into());
+                return Err(missing_attribute("block type"));
             }
             if self.name.is_none() {
-                return Err(Invalid::Missing(Value::Attribute("name (for multipart)")).into());
+                return Err(missing_attribute("image part name"));
             }
         }
 
         if self.has_deep_data() {
             if self.chunk_count.is_none() {
-                return Err(Invalid::Missing(Value::Attribute("chunkCount (for deepdata)")).into());
-            }
-            if self.name.is_none() {
-                return Err(Invalid::Missing(Value::Attribute("name (for deepdata)")).into());
-            }
-            if self.deep_data_version.is_none() {
-                return Err(Invalid::Missing(Value::Attribute("version (for deepdata)")).into());
+                return Err(missing_attribute("chunk count"));
             }
 
-            if self.deep_data_version != Some(1) {
-                return Err(Invalid::NotSupported("deep data version other than 1"));
+            if self.name.is_none() {
+                return Err(missing_attribute("image part name"));
+            }
+
+            match self.deep_data_version {
+                Some(1) => {},
+                Some(_) => return Err(Error::invalid("deep data version")),
+                None => return Err(missing_attribute("deep data version")),
             }
 
             // make maxSamplesPerPixel optional because some files don't have it
@@ -553,18 +534,18 @@ impl Header {
                 return Err(Invalid::Missing(Value::Attribute("maxSamplesPerPixel (for deepdata)")).into());
             }*/
 
-            let compression = self.compression; // attribute is already checked
-            if !compression.supports_deep_data() {
-                return Err(Invalid::Content(
-                    Value::Attribute("compression (for deepdata)"),
-                    Required::OneOf(&["none", "rle", "zips", "zip"])
-                ).into());
-            }
+//            if !self.compression.supports_deep_data() {
+//                return Err(Error::invalid("compress deep data"))
+//                return Err(Invalid::Content(
+//                    Value::Attribute("compression (for deepdata)"),
+//                    Required::OneOf(&["none", "rle", "zips", "zip"])
+//                ).into());
+//            }
         }
 
         if self.has_tiles(&requirements) {
             if self.tiles.is_none() {
-                return Err(Invalid::Missing(Value::Attribute("tiles (for tiledimage or deeptiles)")).into());
+                return Err(missing_attribute("tiles"));
             }
         }
 
@@ -580,7 +561,7 @@ impl Header {
         Ok(())
     }
 
-    pub fn read_all(read: &mut PeekRead<impl Read>, version: &Requirements) -> ReadResult<Headers> {
+    pub fn read_all(read: &mut PeekRead<impl Read>, version: &Requirements) -> Result<Headers> {
         if !version.is_multipart() { // TODO check a different way?
             Ok(smallvec![ Header::read(read, version)? ])
         }
@@ -595,7 +576,7 @@ impl Header {
         }
     }
 
-    pub fn write_all(headers: &[Header], write: &mut impl Write, version: &Requirements) -> WriteResult {
+    pub fn write_all(headers: &[Header], write: &mut impl Write, version: &Requirements) -> PassiveResult {
         let has_multiple_headers = headers.len() != 1;
 
         for header in headers {
@@ -609,7 +590,7 @@ impl Header {
         Ok(())
     }
 
-    pub fn read(read: &mut PeekRead<impl Read>, requirements: &Requirements) -> ReadResult<Self> {
+    pub fn read(read: &mut PeekRead<impl Read>, requirements: &Requirements) -> Result<Self> {
         let max_string_len = if requirements.has_long_names { 256 } else { 32 }; // TODO DRY this information
         let mut custom = SmallVec::new();
 
@@ -648,13 +629,11 @@ impl Header {
                 VERSION => version = Some(value.to_i32()?),
 
                 MAX_SAMPLES => max_samples_per_pixel = Some(
-                    u32::try_from(value.to_i32()?)
-                        .map_err(|_| Invalid::Content(Value::Attribute("maxSamples"), Required::Min(0)))?
+                    positive_i32(value.to_i32()?, "max sample count")?
                 ),
 
                 CHUNKS => chunk_count = Some(
-                    u32::try_from(value.to_i32()?)
-                        .map_err(|_| Invalid::Content(Value::Attribute("chunkCount"), Required::Min(0)))?
+                    positive_i32(value.to_i32()?, "chunk count")?
                 ),
 
                 _ => {
@@ -665,14 +644,14 @@ impl Header {
         }
 
         let header = Header {
-            channels: channels.ok_or(Invalid::Missing(Value::Attribute("channels")))?,
-            compression: compression.ok_or(Invalid::Missing(Value::Attribute("compression")))?,
-            data_window: data_window.ok_or(Invalid::Missing(Value::Attribute("data_window")))?,
-            display_window: display_window.ok_or(Invalid::Missing(Value::Attribute("display_window")))?,
-            line_order: line_order.ok_or(Invalid::Missing(Value::Attribute("line_order")))?,
-            pixel_aspect: pixel_aspect.ok_or(Invalid::Missing(Value::Attribute("pixel_aspect")))?,
-            screen_window_center: screen_window_center.ok_or(Invalid::Missing(Value::Attribute("screen_window_center")))?,
-            screen_window_width: screen_window_width.ok_or(Invalid::Missing(Value::Attribute("screen_window_width")))??,
+            channels: channels.ok_or(missing_attribute("channels"))?,
+            compression: compression.ok_or(missing_attribute("compression"))?,
+            data_window: data_window.ok_or(missing_attribute("data window"))?,
+            display_window: display_window.ok_or(missing_attribute("display window"))?,
+            line_order: line_order.ok_or(missing_attribute("line order"))?,
+            pixel_aspect: pixel_aspect.ok_or(missing_attribute("pixel aspect"))?,
+            screen_window_center: screen_window_center.ok_or(missing_attribute("screen window center"))?,
+            screen_window_width: screen_window_width.ok_or(missing_attribute("screen window width"))??,
 
             tiles,
             name, kind,
@@ -686,16 +665,16 @@ impl Header {
         Ok(header)
     }
 
-    pub fn write(&self, write: &mut impl Write, version: &Requirements) -> WriteResult {
+    pub fn write(&self, write: &mut impl Write, version: &Requirements) -> PassiveResult {
         self.validate(&version).expect("check failed: header invalid");
 
         // FIXME do not allocate text object for writing!
-        fn write_attr<T>(write: &mut impl Write, long: bool, name: &[u8], value: T, variant: impl Fn(T) -> AnyValue) -> WriteResult {
+        fn write_attr<T>(write: &mut impl Write, long: bool, name: &[u8], value: T, variant: impl Fn(T) -> AnyValue) -> PassiveResult {
             Attribute { name: Text::from_bytes_unchecked(SmallVec::from_slice(name)), value: variant(value) }
                 .write(write, long)
         };
 
-        fn write_opt_attr<T>(write: &mut impl Write, long: bool, name: &[u8], attribute: Option<T>, variant: impl Fn(T) -> AnyValue) -> WriteResult {
+        fn write_opt_attr<T>(write: &mut impl Write, long: bool, name: &[u8], attribute: Option<T>, variant: impl Fn(T) -> AnyValue) -> PassiveResult {
             if let Some(value) = attribute { write_attr(write, long, name, value, variant) }
             else { Ok(()) }
         };
@@ -754,7 +733,7 @@ impl Requirements {
         0_u32.byte_size()
     }*/
 
-    pub fn read<R: Read>(read: &mut R) -> ReadResult<Self> {
+    pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         use ::bit_field::BitField;
 
         let version_and_flags = u32::read(read)?;
@@ -774,7 +753,7 @@ impl Requirements {
         let unknown_flags = version_and_flags >> 13; // all flags excluding the 12 bits we already parsed
 
         if unknown_flags != 0 { // TODO test if this correctly detects unsupported files
-            return Err(Invalid::NotSupported("reserved version flags").into());
+            return Err(Error::unsupported("file feature flags"));
         }
 
         let version = Requirements {
@@ -787,7 +766,7 @@ impl Requirements {
         Ok(version)
     }
 
-    pub fn write<W: Write>(self, write: &mut W) -> WriteResult {
+    pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
         use ::bit_field::BitField;
 
         self.validate()?;
@@ -807,7 +786,7 @@ impl Requirements {
         Ok(())
     }
 
-    pub fn validate(&self) -> Validity {
+    pub fn validate(&self) -> PassiveResult {
         if let 1..=2 = self.file_format_version {
 
             match (
@@ -833,19 +812,11 @@ impl Requirements {
                 // tiles, scan lines, deep tiles and/or deep scan lines).
                 (false, true, true, 2) => Ok(()),
 
-                _ => Err(Invalid::Combination(&[
-                    Value::Version("is_single_tile"),
-                    Value::Version("has_long_names"),
-                    Value::Version("has_deep_data"),
-                    Value::Version("format_version"),
-                ]))
+                _ => Err(Error::invalid("file feature flags"))
             }
         }
         else {
-            Err(Invalid::Content(
-                Value::Version("file_format_number"),
-                Required::Range { min: 1, max: 2, })
-            )
+            Err(Error::unsupported("file version newer than `2.0`"))
         }
 
     }

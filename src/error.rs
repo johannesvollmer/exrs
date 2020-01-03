@@ -1,112 +1,38 @@
-use self::validity::*;
-use crate::compression::{Error as CompressionError};
-
-pub type WriteResult = ::std::result::Result<(), WriteError>;
 
 
-pub type ReadResult<T> = ::std::result::Result<T, ReadError>;
+pub type Result<T> = std::result::Result<T, Error>;
+pub type PassiveResult = Result<()>;
+
+pub use std::io::Error as IoError;
+pub use std::io::Result as IoResult;
 
 
-#[derive(Debug)]
-pub enum WriteError {
-    CompressionError(CompressionError),
-    IoError(::std::io::Error),
-    Invalid(Invalid),
+#[derive(Debug)] // TODO derive Display?
+pub enum Error {
+    NotSupported(String),
+    Invalid(String),
+
+    /// This error can also occur when reading invalid files,
+    /// where the number of bytes to read does not match the input stream length.
+    // TODO this can be detected in the IO module!
+    Io(IoError),
 }
 
 
-// TODO implement Display for all errors
-#[derive(Debug)]
-pub enum ReadError {
-    NotEXR,
-    Invalid(Invalid),
-//    UnknownAttributeType { bytes_to_skip: u32 },
+impl Error {
+    pub fn invalid(message: impl Into<String>) -> Self {
+        Error::Invalid(message.into())
+    }
 
-    IoError(::std::io::Error),
-    CompressionError(CompressionError),
+    pub fn unsupported(message: impl Into<String>) -> Self {
+        Error::NotSupported(message.into())
+    }
 }
 
 
 /// Enable using the `?` operator on io::Result
-impl From<::std::io::Error> for ReadError {
-    fn from(io_err: ::std::io::Error) -> Self {
-        ReadError::IoError(io_err)
-    }
-}
-
-/// Enable using the `?` operator on Validity
-impl From<Invalid> for ReadError {
-    fn from(err: Invalid) -> Self {
-        ReadError::Invalid(err)
-    }
-}
-
-/// enable using the `?` operator on io errors
-impl From<::std::io::Error> for WriteError {
-    fn from(err: ::std::io::Error) -> Self {
-        WriteError::IoError(err)
-    }
-}
-
-/// enable using the `?` operator on io errors
-impl From<CompressionError> for WriteError {
-    fn from(err: CompressionError) -> Self {
-        WriteError::CompressionError(err)
-    }
-}
-
-/// enable using the `?` operator on io errors
-impl From<CompressionError> for ReadError {
-    fn from(err: CompressionError) -> Self {
-        ReadError::CompressionError(err)
-    }
-}
-
-/// Enable using the `?` operator on Validity
-impl From<Invalid> for WriteError {
-    fn from(err: Invalid) -> Self {
-        WriteError::Invalid(err)
-    }
-}
-
-
-pub mod validity {
-    // TODO put validation into own module
-    pub type Validity = Result<(), Invalid>;
-
-    #[derive(Debug, Clone, Copy)]
-    pub enum Invalid {
-        Missing(Value),
-        NotSupported(&'static str),
-        Combination(&'static [Value]),
-        Content(Value, Required),
-        Type(Required),
-    }
-
-    #[derive(Debug, Clone, Copy)]
-    pub enum Value {
-        Attribute(&'static str),
-        Version(&'static str),
-        Chunk(&'static str),
-        Type(&'static str),
-        Part(&'static str),
-        Enum(&'static str),
-        Text,
-        MapLevel,
-    }
-
-    #[derive(Debug, Clone, Copy)]
-    pub enum Required {
-        Max(usize),
-        Min(usize),
-        Exact(&'static str),
-        OneOf(&'static [&'static str]),
-        Range {
-            /// inclusive
-            min: usize,
-
-            /// inclusive
-            max: usize
-        },
+impl From<IoError> for Error {
+    fn from(error: IoError) -> Self {
+        Error::Io(error)
     }
 }

@@ -15,7 +15,7 @@ fn take_1(slice: &mut &[u8]) -> Result<u8> {
         Ok(result)
 
     } else {
-        Err(Error::InvalidData)
+        Err(Error::invalid("compressed data"))
     }
 }
 
@@ -26,7 +26,7 @@ fn take_n<'s>(slice: &mut &'s [u8], n: usize) -> Result<&'s [u8]> {
         Ok(front)
 
     } else {
-        Err(Error::InvalidData)
+        Err(Error::invalid("compressed data"))
     }
 }
 
