@@ -7,7 +7,6 @@ use ::half::f16;
 use crate::error::{Error, Result, PassiveResult};
 
 
-
 pub fn skip_bytes(read: &mut impl Read, count: u64) -> PassiveResult {
     let skipped = std::io::copy(
         &mut read.by_ref().take(count),
@@ -18,7 +17,7 @@ pub fn skip_bytes(read: &mut impl Read, count: u64) -> PassiveResult {
     Ok(())
 }
 
-
+#[inline]
 pub fn positive_i32(value: i32, name: &'static str) -> Result<u32> {
     if value < 0 { Err(Error::invalid(name)) }
     else { Ok(value as u32) }
@@ -76,31 +75,35 @@ impl<T: Read> Read for PeekRead<T> {
 // will be inlined
 /// extension trait for primitive types like numbers and arrays
 pub trait Data: Sized + Default + Clone {
-
+    #[inline]
     fn read(read: &mut impl Read) -> Result<Self>;
+
+    #[inline]
     fn read_slice(read: &mut impl Read, slice: &mut[Self]) -> PassiveResult;
 
+    #[inline]
     fn read_vec(read: &mut impl Read, data_size: usize, estimated_max: usize, abort_on_max: bool) -> Result<Vec<Self>> {
         let mut vec = Vec::new();
         Self::read_into_vec(read, &mut vec, data_size, estimated_max, abort_on_max)?;
         Ok(vec)
     }
 
+    #[inline]
     fn write(self, write: &mut impl Write) -> PassiveResult;
+
+    #[inline]
     fn write_slice(write: &mut impl Write, slice: &[Self]) -> PassiveResult;
 
     const BYTE_SIZE: usize = ::std::mem::size_of::<Self>();
 
-//    fn byte_size(self) -> usize {
-//        ::std::mem::size_of::<Self>()
-//    }
-
+    #[inline]
     fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, max: usize, abort_on_max: bool) -> PassiveResult {
         let start = data.len();
         let end = start + data_size;
         let max_end = start + max;
 
-//        debug_assert!(data_size <= estimated_max, "suspiciously large data size: {} (max: {})", data_size, estimated_max);
+        debug_assert!(max <= 24 * std::u16::MAX as usize, "dangerously large max value ({}), was it read from an invalid file?", max);
+        debug_assert!(data_size <= max, "suspiciously large data size: {} (max: {})", data_size, max);
 
         if data_size <= max {
             data.resize(end, Self::default());
@@ -124,11 +127,13 @@ pub trait Data: Sized + Default + Clone {
         }
     }
 
+    #[inline]
     fn write_i32_sized_slice<W: Write>(write: &mut W, slice: &[Self]) -> PassiveResult {
         (slice.len() as i32).write(write)?;
         Self::write_slice(write, slice)
     }
 
+    #[inline]
     fn read_i32_sized_vec(read: &mut impl Read, estimated_max: usize, abort_on_max: bool) -> Result<Vec<Self>> {
         let size = i32::read(read)?;
         debug_assert!(size >= 0);

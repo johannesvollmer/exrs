@@ -62,7 +62,7 @@ fn read_all_files() {
     results.sort_by(|(_, a), (_, b)| a.cmp(b));
 
     println!("{:#?}", results.iter().map(|(path, result)| {
-        format!("{:?}: {}", result, path.file_name().unwrap().to_str().unwrap())
+        format!("{:?}: {}", result, path.to_str().unwrap())
     }).collect::<Vec<_>>());
 }
 
@@ -130,7 +130,11 @@ pub fn convert_to_png() {
     let now = ::std::time::Instant::now();
 
     let path =
-        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
+//        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
+
+
+            "D:/Pictures/openexr/ScanLines/Blobbies.exr"
+
 //            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
 //        "D:/Pictures/openexr/crows/kull/crow_zips.exr"
 //            "D:/Pictures/openexr/crowskull/crow_rle.exr"
@@ -140,7 +144,7 @@ pub fn convert_to_png() {
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
     ;
 
-    let image = exr::image::read_from_file(path, ReadOptions::default()).unwrap();
+    let image = exr::image::read_from_file(path, ReadOptions::debug()).unwrap();
 
     // warning: highly unscientific benchmarks ahead!
     let elapsed = now.elapsed();
@@ -162,7 +166,7 @@ pub fn convert_to_png() {
         png_buffer.save(&name).unwrap();
     }
 
-    fs::remove_dir_all("testout").unwrap();
+    fs::remove_dir_all("testout").unwrap_or_default();
     fs::create_dir("testout").unwrap();
 
     for part in &image.parts {

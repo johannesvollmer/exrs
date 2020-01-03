@@ -383,7 +383,11 @@ impl Header {
         );
 
         let lines_per_block = self.compression.scan_lines_per_block();
-        let next_block_y = y + lines_per_block - self.data_window.y_min as u32;
+
+        // FIXME
+//        println!("y {}, lines {}, miny {}, maxy {}", y, lines_per_block, self.data_window.y_min, self.data_window.y_max);
+        let next_block_y = (y as i64 + lines_per_block as i64 - self.data_window.y_min as i64) as u32;
+
         let data_height = self.data_window.dimensions().1; // TODO scan line blocks never have levels?
 
         let height = if next_block_y <= data_height { lines_per_block } else {
