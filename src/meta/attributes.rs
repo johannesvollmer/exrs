@@ -315,10 +315,8 @@ impl Text {
         let mut bytes = SmallVec::new();
 
         loop {
-            debug_assert!(bytes.len() < max_len, "text longer than max length");
             if bytes.len() >= max_len {
-//                return Err()
-                unimplemented!()
+                return Err(Error::invalid("text too long"))
             }
 
             match u8::read(read)? {

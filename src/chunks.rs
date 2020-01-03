@@ -257,18 +257,13 @@ impl DeepTileBlock {
 use crate::error::{PassiveResult, Result, Error};
 
 impl Chunk {
-    pub fn validate(&self, is_multipart: bool, headers: usize) -> PassiveResult {
-        if self.part_number as usize >= headers {
+    pub fn validate(&self, headers: usize) -> PassiveResult {
+        if self.part_number as usize >= headers { // also triggers where part number > 0 in singlepart image
             return Err(Error::invalid("chunk data part number"));
         }
 
-        if !is_multipart && self.part_number != 0 {
-            unimplemented!()
-            // Err(...)
-        }
-
-        // TODO
         Ok(())
+        // TODO:
 //        match self.block {
 //            Block::ScanLine     (ref value) => value.validate(header),
 //            Block::Tile         (ref value) => value.validate(header),
@@ -277,10 +272,10 @@ impl Chunk {
 //        }
     }
 
-    pub fn write(&self, write: &mut impl Write, is_multipart: bool, headers: &[Header]) -> PassiveResult {
-        self.validate(is_multipart, headers.len())?;
+    pub fn write(&self, write: &mut impl Write, headers: &[Header]) -> PassiveResult {
+        self.validate(headers.len())?;
 
-        if is_multipart { self.part_number.write(write)?; }
+        if headers.len() > 1 { self.part_number.write(write)?; }
         else { assert_eq!(self.part_number, 0); }
 
 //        let header = &headers[self.part_number as usize];
@@ -318,7 +313,7 @@ impl Chunk {
             },
         };
 
-        chunk.validate(is_multipart, headers.len())?;
+        chunk.validate(headers.len())?;
         Ok(chunk)
     }
 }

@@ -137,7 +137,7 @@ impl FullImage {
 
         let chunk_reader = ChunkReader::new(read, requirements.is_multipart(), &headers, &offset_tables);
 
-        let mut image = FullImage::new(headers.as_slice());
+        let mut image = FullImage::new(headers.as_slice())?;
 
         let has_compression = headers.iter() // do not use parallel stuff for uncompressed images
             .find(|header| header.compression != Compression::Uncompressed).is_some();
@@ -208,7 +208,7 @@ impl FullImage {
                     let block_start_position = write.seek(SeekFrom::Current(0))?;
                     table.push((tile, block_start_position as u64));
 
-                    chunk.write(&mut write, meta_data.headers.len() > 1, meta_data.headers.as_slice())?;
+                    chunk.write(&mut write, meta_data.headers.as_slice())?;
 
                     Ok(())
                 })?;
@@ -219,7 +219,7 @@ impl FullImage {
             }
         }
         else {
-            unimplemented!()
+            return Err(Error::unsupported("parallel compression"));
         }
 
         // write offset tables after all blocks have been written
@@ -244,12 +244,11 @@ impl UncompressedBlock {
         match chunk.block {
             Block::Tile(TileBlock { compressed_pixels, .. }) |
             Block::ScanLine(ScanLineBlock { compressed_pixels, .. }) => {
-
                 let data = header.compression.decompress_image_section(header, compressed_pixels, raw_coordinates)?;
                 Ok(UncompressedBlock { part_index: chunk.part_number as usize, tile: tile_data_indices, data,  })
             },
 
-            _ => unimplemented!()
+            _ => return Err(Error::unsupported("deep data"))
         }
     }
 
@@ -259,7 +258,7 @@ impl UncompressedBlock {
 }
 
 impl FullImage {
-    pub fn new(headers: &[Header]) -> Self {
+    pub fn new(headers: &[Header]) -> Result<Self> {
         let mut display = headers.iter()
             .map(|header| header.display_window);
 
@@ -272,10 +271,12 @@ impl FullImage {
         // FIXME check all display windows are the same
         let pixel_aspect = pixel_aspect.next().unwrap();
 
-        FullImage {
-            parts: headers.iter().map(Part::new).collect(),
+        let headers : Result<_> = headers.iter().map(Part::new).collect();
+
+        Ok(FullImage {
+            parts: headers?,
             display_window, pixel_aspect
-        }
+        })
     }
 
     pub fn insert_block(&mut self, data: &mut impl Read, part_index: usize, tile: TileIndices) -> PassiveResult {
@@ -338,10 +339,10 @@ impl Part {
 
     /// allocates all the memory necessary to hold the pixel data,
     /// zeroed out, ready to be filled with actual pixel data
-    pub fn new(header: &Header) -> Self {
+    pub fn new(header: &Header) -> Result<Self> {
         match header.kind {
             None | Some(Kind::ScanLine) | Some(Kind::Tile) => {
-                Part {
+                Ok(Part {
                     data_window: header.data_window,
 //                    display_window: header.display_window,
 //                    pixel_aspect: header.pixel_aspect,
@@ -350,11 +351,11 @@ impl Part {
                     name: header.name.clone(),
                     attributes: header.custom_attributes.clone(),
                     channels: header.channels.list.iter().map(|channel| Channel::new(header, channel)).collect()
-                }
+                })
             },
 
             Some(Kind::DeepScanLine) | Some(Kind::DeepTile) => {
-                unimplemented!()
+                return Err(Error::unsupported("deep data"))
             },
         }
     }
@@ -723,12 +724,12 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
         debug_assert_ne!(image_width, 0);
         debug_assert_ne!(length, 0);
 
-        unimplemented!()
+        Err(Error::unsupported("deep data"))
 
         // TODO err on invalid tile position
 //        self[_position.1 as usize] = DeepLine {
 //            samples: Sample::read_vec(read, length, 1024*1024*1024)?, // FIXME where tiles, will not be hole line
-//            index_table: unimplemented!()
+//            index_table:
 //        };
 //
 //        Ok(())
@@ -738,7 +739,7 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
         debug_assert_ne!(image_width, 0);
         debug_assert_ne!(length, 0);
 
-        unimplemented!()
+        Err(Error::unsupported("deep data"))
     }
 }
 

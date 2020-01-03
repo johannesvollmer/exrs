@@ -192,7 +192,7 @@ pub fn convert_to_png() {
                         ))
                     }
                 },
-                _ => unimplemented!()
+                _ => panic!()
             }
         }
     }

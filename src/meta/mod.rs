@@ -346,7 +346,7 @@ impl Header {
                 }
             },
 
-            _ => unimplemented!()
+            _ => return Err(Error::unsupported("deep data"))
         })
     }
 
