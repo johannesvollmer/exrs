@@ -4,7 +4,7 @@ pub use ::std::io::{Read, Write};
 use half::slice::{HalfFloatSliceExt};
 use lebe::prelude::*;
 use ::half::f16;
-use crate::error::{Error, Result, PassiveResult};
+use crate::error::{Error, Result, PassiveResult, IoResult};
 
 
 pub fn skip_bytes(read: &mut impl Read, count: u64) -> PassiveResult {
@@ -26,7 +26,7 @@ pub fn positive_i32(value: i32, name: &'static str) -> Result<u32> {
 
 pub struct PeekRead<T> {
     inner: T,
-    peeked: Option<std::io::Result<u8>>,
+    peeked: Option<IoResult<u8>>,
 }
 
 impl<T: Read> PeekRead<T> {
@@ -34,12 +34,12 @@ impl<T: Read> PeekRead<T> {
         Self { inner, peeked: None }
     }
 
-    pub fn peek_u8(&mut self) -> &std::io::Result<u8> {
+    pub fn peek_u8(&mut self) -> &IoResult<u8> {
         self.peeked = self.peeked.take().or_else(|| Some(u8::read_from_little_endian(&mut self.inner)));
         self.peeked.as_ref().unwrap()
     }
 
-    pub fn skip_if_eq(&mut self, value: u8) -> std::io::Result<bool> {
+    pub fn skip_if_eq(&mut self, value: u8) -> IoResult<bool> {
         match self.peek_u8() {
             Ok(peeked) if *peeked == value =>  {
                 u8::read_from_little_endian(self).unwrap(); // skip, will be Ok(value)
@@ -54,7 +54,7 @@ impl<T: Read> PeekRead<T> {
 
 
 impl<T: Read> Read for PeekRead<T> {
-    fn read(&mut self, target_buffer: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, target_buffer: &mut [u8]) -> IoResult<usize> {
         if target_buffer.is_empty() {
             return Ok(0)
         }
@@ -113,7 +113,7 @@ pub trait Data: Sized + Default + Clone {
                 return Err(Error::invalid("content size"))
             }
 
-            println!("suspiciously large data size: {}, estimated max: {}", data_size, estimated_max);
+            println!("suspiciously large data size: {}, estimated max: {}", data_size, max);
 
             data.resize(max_end, Self::default());
             Self::read_slice(read, &mut data[start .. max_end])?;

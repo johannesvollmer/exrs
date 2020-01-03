@@ -407,8 +407,8 @@ impl Header {
     fn get_tile_size(&self, tile: TileCoordinates) -> (u32, u32) {
         let tiles = self.tiles.expect("check failed: tiles not found");
         let round = tiles.rounding_mode;
-        let default_tile_width = tiles.size.0;
-        let default_tile_height = tiles.size.1;
+        let default_tile_width = tiles.tile_size.0;
+        let default_tile_height = tiles.tile_size.1;
 
         let (data_width, data_height) = self.data_window.dimensions();
         let data_width = compute_level_size(round, data_width as u32, tile.level_x as u32);
@@ -442,7 +442,7 @@ impl Header {
     pub fn max_block_byte_size(&self) -> usize {
         (
             self.channels.bytes_per_pixel * match self.tiles {
-                Some(tiles) => tiles.size.0 * tiles.size.1,
+                Some(tiles) => tiles.tile_size.0 * tiles.tile_size.1,
                 None => self.compression.scan_lines_per_block() * self.data_window.dimensions().0 // TODO is this how it works?!?! What about deep data???
             }
         ) as usize
@@ -465,7 +465,7 @@ impl Header {
 
             if let Some(tiles) = self.tiles {
                 let round = tiles.rounding_mode;
-                let (tile_width, tile_height) = tiles.size;
+                let (tile_width, tile_height) = tiles.tile_size;
 
                 // TODO cache all these level values??
                 use crate::meta::attributes::LevelMode::*;
@@ -854,7 +854,7 @@ mod test {
                                 name: Text::from_str("main").unwrap(),
                                 pixel_type: PixelType::U32,
                                 is_linear: false,
-                                reserved: [0,0,0],
+//                                reserved: [0,0,0],
                                 sampling: (1, 1)
                             }
                         ],
@@ -873,7 +873,7 @@ mod test {
                         x_max: 10,
                         y_max: 10
                     },
-                    line_order: LineOrder::IncreasingY,
+                    line_order: LineOrder::Increasing,
                     pixel_aspect: 1.0,
                     screen_window_center: (5.0, 5.0),
                     screen_window_width: 10.0,

@@ -4,14 +4,13 @@ extern crate exr;
 use exr::prelude::*;
 use exr::image::full::*;
 use exr::image::ReadOptions;
-use std::{fs, panic};
-use std::io::Cursor;
+use std::{fs, panic, io};
+use std::io::{Cursor, Write};
 use std::panic::catch_unwind;
 use std::path::PathBuf;
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use exr::compression::Compression;
-use exr::math::RoundingMode;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter()
@@ -80,25 +79,35 @@ pub fn test_roundtrip() {
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
     ;
 
+    print!("starting read 1... ");
+    io::stdout().flush().unwrap();
+
     let image = exr::image::read_from_file(path, ReadOptions::debug()).unwrap();
-    println!("read 1 successfull, beginning write");
+    println!("...read 1 successfull");
 
     let write_options = WriteOptions {
-//        compression_method: Compression::ZIP16,
-        compression_method: Compression::Uncompressed,
-        tiles: TileOptions::Tiles { size: (64, 64), rounding: RoundingMode::Down },
+        compression_method: Compression::ZIP16,
+//        compression_method: Compression::Uncompressed,
+//        tiles: TileOptions::Tiles { size: (64, 64), rounding: RoundingMode::Down },
         .. WriteOptions::debug()
     };
 
     let mut tmp_bytes = Vec::new();
+
+    print!("starting write... ");
+    io::stdout().flush().unwrap();
+
     image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options).unwrap();
-    println!("write successfull, beginning read 2");
+    println!("...write successfull");
+
+    print!("starting read 2... ");
+    io::stdout().flush().unwrap();
 
     let image2 = exr::image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::debug()).unwrap();
-    println!("read 2 successfull");
+    println!("...read 2 successfull");
 
     assert_eq!(image, image2);
-    println!("equal");
+    println!("success!");
 }
 
 #[test]

@@ -1,13 +1,7 @@
 use smallvec::SmallVec;
 
-
-
-
-
-
-
-
-
+///! List of OpenEXR meta data attributes.
+///! Each image part will have any number of [`Attribute`]s.
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -38,18 +32,11 @@ pub enum AnyValue {
     F32Matrix4x4([f32; 16]),
     Preview(Preview),
     Rational(i32, u32),
-
-    /// i32 of byte-length followed by u8 content
     Text(Text),
 
-    /// image kind, one of the strings specified in `Kind`
     Kind(Kind),
-
-    /// the number of strings can be inferred from the total attribute size
     TextVector(Vec<Text>),
-
     TileDescription(TileDescription),
-
     TimeCode(TimeCodes),
 
     I32Vec2(i32, i32),
@@ -61,21 +48,17 @@ pub enum AnyValue {
 }
 
 
-/// null-terminated text strings.
-/// max 31 bytes long (if bit 10 is set to 0),
-/// or max 255 bytes long (if bit 10 is set to 1).
-/// must be at least 1 byte (to avoid confusion with null-terminators)
 // TODO non public fields?
 #[derive(Clone, Eq, PartialEq)]
 pub struct Text {
-    /// vector does not include null terminator
-    /// those strings will mostly be "R", "G", "B" or "deepscanlineimage"
+    /// will mostly be "R", "G", "B" or "deepscanlineimage"
     pub bytes: TextBytes,
 }
 
 // TODO enable conversion to rust time
 pub type TimeCodes = (u32, u32);
 
+/// image kind, one of the strings specified in `Kind`
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Kind {
     /// "scanlineimage"
@@ -149,13 +132,6 @@ pub enum PixelType {
 
 /// If a file doesn't have a chromaticities attribute, display software
 /// should assume that the file's primaries and the white point match Rec. ITU-R BT.709-3:
-//CIE x, y
-//red
-//0.6400, 0.3300
-//green 0.3000, 0.6000
-//blue
-//0.1500, 0.0600
-//white 0.3127, 0.3290
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Chromaticities {
     pub red_x: f32,     pub red_y: f32,
@@ -204,7 +180,7 @@ pub struct Preview {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct TileDescription {
-    pub size: (u32, u32),
+    pub tile_size: (u32, u32),
     pub level_mode: LevelMode,
     pub rounding_mode: RoundingMode,
 }
@@ -223,10 +199,11 @@ use crate::meta::sequence_end;
 use std::cmp::Ordering;
 use crate::error::*;
 use crate::math::RoundingMode;
+use half::f16;
 
 
 fn invalid_type() -> Error {
-    Error::invalid("wrong attribute type")
+    Error::invalid("attribute type mismatch")
 }
 
 
@@ -290,8 +267,19 @@ impl Text {
     }
 
     pub fn read_sized<R: Read>(read: &mut R, size: usize) -> Result<Self> {
-        // TODO read into small vec without heap?
-        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 2048, false)?)))
+        // for small strings, read into small vec without heap allocation
+        if size <= 24 {
+            let mut buffer = [0_u8; 24];
+            let data = &mut buffer[..size];
+
+            read.read_exact(data)?;
+            Ok(Text::from_bytes_unchecked(SmallVec::from_slice(data)))
+        }
+
+        // for large strings, read a dynamic vec of arbitrary size
+        else {
+            Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 2048, false)?)))
+        }
     }
 
     pub fn write_null_terminated<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> PassiveResult {
@@ -474,7 +462,7 @@ impl I32Box2 {
     }
 
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        // validate?
+        self.validate(None)?; // TODO pass validate some boundary?
         self.x_min.write(write)?;
         self.y_min.write(write)?;
         self.x_max.write(write)?;
@@ -520,11 +508,11 @@ impl F32Box2 {
 
 impl PixelType {
     pub fn bytes_per_sample(&self) -> u32 {
-        match self {
-            PixelType::F16 => 2, // TODO use mem::sizeof
-            PixelType::F32 => 4, // TODO use mem::sizeof
-            PixelType::U32 => 4, // TODO use mem::sizeof
-        }
+        (match self {
+            PixelType::F16 => f16::BYTE_SIZE,
+            PixelType::F32 => f32::BYTE_SIZE,
+            PixelType::U32 => u32::BYTE_SIZE,
+        }) as u32
     }
 
     pub fn byte_size() -> usize {
@@ -542,8 +530,7 @@ impl PixelType {
     }
 
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
-        // there's definitely going to be more than 255 different pixel types
-        // in the future, when exr is still used
+        // there's definitely going to be more than 255 different pixel types in the future
         Ok(match i32::read(read)? {
             0 => PixelType::U32,
             1 => PixelType::F16,
@@ -621,6 +608,7 @@ impl Channel {
 
     pub fn write_all<W: Write>(channels: &ChannelList, write: &mut W, long_names: bool) -> PassiveResult {
         // FIXME validate if channel names are sorted alphabetically
+        // debug_assert!(channels.list.is_sorted_by(|a| a.name));
 
         for channel in &channels.list {
             channel.write(write, long_names)?;
@@ -706,7 +694,7 @@ impl Compression {
             7 => B44A,
             8 => DWAA,
             9 => DWAB,
-            _ => return Err(Error::unsupported("compression method")),
+            _ => return Err(Error::unsupported("unknown compression method")),
         })
     }
 }
@@ -844,8 +832,8 @@ impl TileDescription {
     }
 
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        self.size.0.write(write)?;
-        self.size.1.write(write)?;
+        self.tile_size.0.write(write)?;
+        self.tile_size.1.write(write)?;
 
         let level_mode = match self.level_mode {
             LevelMode::Singular => 0_u8,
@@ -886,7 +874,7 @@ impl TileDescription {
             _ => return Err(Error::invalid("tile description rounding mode")),
         };
 
-        Ok(TileDescription { size: (x_size, y_size), level_mode, rounding_mode, })
+        Ok(TileDescription { tile_size: (x_size, y_size), level_mode, rounding_mode, })
     }
 }
 
@@ -1080,7 +1068,10 @@ impl AnyValue {
 
             ty::PREVIEW     => Preview(self::Preview::read(read)?),
             ty::TEXT        => Text(self::Text::read_sized(read, byte_size as usize)?),
+
+            // the number of strings can be inferred from the total attribute size
             ty::TEXT_VECTOR => TextVector(self::Text::read_vec_of_i32_sized(read, byte_size.min(2048))?),
+
             ty::TILES       => TileDescription(self::TileDescription::read(read)?),
 
             _ => {
@@ -1281,19 +1272,19 @@ mod test {
     fn tile_description_write_read_roundtrip(){
         let tiles = [
             TileDescription {
-                size: (31, 7),
+                tile_size: (31, 7),
                 level_mode: LevelMode::MipMap,
                 rounding_mode: RoundingMode::Down,
             },
 
             TileDescription {
-                size: (0,0),
+                tile_size: (0, 0),
                 level_mode: LevelMode::Singular,
                 rounding_mode: RoundingMode::Up,
             },
 
             TileDescription {
-                size: (4294967294, 4294967295),
+                tile_size: (4294967294, 4294967295),
                 level_mode: LevelMode::RipMap,
                 rounding_mode: RoundingMode::Down,
             },
@@ -1358,21 +1349,18 @@ mod test {
                             name: Text::from_str("Green").unwrap(),
                             pixel_type: PixelType::F16,
                             is_linear: false,
-                            reserved: [0, 0, 0],
                             sampling: (1,2)
                         },
                         Channel {
                             name: Text::from_str("Red").unwrap(),
                             pixel_type: PixelType::F32,
                             is_linear: true,
-                            reserved: [0, 1, 0],
                             sampling: (1,2)
                         },
                         Channel {
                             name: Text::from_str("Purple").unwrap(),
                             pixel_type: PixelType::U32,
                             is_linear: false,
-                            reserved: [1, 2, 7],
                             sampling: (0,0)
                         }
                     ],

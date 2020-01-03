@@ -34,17 +34,44 @@ pub struct ReadOptions {
 }
 
 impl Default for WriteOptions {
-    fn default() -> Self {
+    fn default() -> Self { WriteOptions::fast() }
+}
+
+impl Default for ReadOptions {
+    fn default() -> Self { Self::fast() }
+}
+
+impl WriteOptions {
+    pub fn fast() -> Self {
         WriteOptions {
             parallel_compression: true,
+
+            // RLE has low runtime cost but great compression areas with one color
             compression_method: Compression::RLE,
+
             line_order: LineOrder::Unspecified,
             tiles: TileOptions::ScanLineBlocks
         }
     }
-}
 
-impl WriteOptions {
+    pub fn small_result() -> Self {
+        WriteOptions {
+            parallel_compression: true,
+            compression_method: Compression::ZIP16, // TODO test if this is one of the smallest
+            line_order: LineOrder::Unspecified,
+            tiles: TileOptions::ScanLineBlocks
+        }
+    }
+
+    pub fn small_process() -> Self {
+        WriteOptions {
+            parallel_compression: false,
+            compression_method: Compression::Uncompressed,
+            line_order: LineOrder::Unspecified,
+            tiles: TileOptions::ScanLineBlocks
+        }
+    }
+
     pub fn debug() -> Self {
         WriteOptions {
             parallel_compression: false,
@@ -61,15 +88,20 @@ impl ReadOptions {
             parallel_decompression: false
         }
     }
-}
 
-impl Default for ReadOptions {
-    fn default() -> Self {
+    pub fn fast() -> Self {
         ReadOptions {
             parallel_decompression: true
         }
     }
+
+    pub fn small_process() -> Self {
+        ReadOptions {
+            parallel_decompression: false
+        }
+    }
 }
+
 
 
 impl TileOptions {
@@ -86,13 +118,13 @@ pub fn read_from_file(path: impl AsRef<std::path::Path>, options: ReadOptions) -
     self::read_from_unbuffered(std::fs::File::open(path)?, options)
 }
 
-/// assumes that the provided reader is not buffered, and will create a buffer for it
+/// assumes that the provided reader is not buffered, and will create a buffer for it.
 #[must_use]
 pub fn read_from_unbuffered(unbuffered: impl Read, options: ReadOptions) -> Result<FullImage> {
     self::read_from_buffered(BufReader::new(unbuffered), options)
 }
 
-/// assumes the reader is buffered (if desired)
+/// performs many small read operations, and should thus be buffered
 #[must_use]
 pub fn read_from_buffered(read: impl Read, options: ReadOptions) -> Result<FullImage> {
     let mut read = PeekRead::new(read);
@@ -101,8 +133,7 @@ pub fn read_from_buffered(read: impl Read, options: ReadOptions) -> Result<FullI
     self::read_data_by_meta(meta_data, chunk_count, &mut read, options)
 }
 
-
-/// assumes the reader is buffered (if desired)
+/// performs many small read operations, and should thus be buffered
 #[must_use]
 pub fn read_data_by_meta(meta_data: MetaData, chunk_count: usize, read: &mut impl Read, options: ReadOptions) -> Result<FullImage> {
     FullImage::read_data_by_meta(meta_data, chunk_count, read, options)

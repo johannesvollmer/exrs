@@ -1,13 +1,14 @@
 
+use std::borrow::Cow;
+use std::io::ErrorKind;
+
+
 
 pub type Result<T> = std::result::Result<T, Error>;
 pub type PassiveResult = Result<()>;
 
 pub use std::io::Error as IoError;
 pub use std::io::Result as IoResult;
-use std::borrow::Cow;
-use std::io::ErrorKind;
-
 
 #[derive(Debug)] // TODO derive Display?
 pub enum Error {

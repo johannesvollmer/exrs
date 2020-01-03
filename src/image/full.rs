@@ -398,7 +398,7 @@ impl Part {
             tiles: match options.tiles {
                 TileOptions::ScanLineBlocks => None,
                 TileOptions::Tiles { size, rounding } => Some(TileDescription {
-                    size, level_mode: LevelMode::Singular, // FIXME levels!
+                    tile_size: size, level_mode: LevelMode::Singular, // FIXME levels!
                     rounding_mode: rounding
                 })
             },
@@ -453,16 +453,16 @@ impl Part {
         if let Some(tiles) = header.tiles {
             match tiles.level_mode {
                 LevelMode::Singular => {
-                    tiles_of(image_size, tiles.size, (0,0), action)?;
+                    tiles_of(image_size, tiles.tile_size, (0, 0), action)?;
                 },
                 LevelMode::MipMap => {
                     for level in mip_map_resolutions(tiles.rounding_mode, image_size) {
-                        tiles_of(level, tiles.size, level, action)?;
+                        tiles_of(level, tiles.tile_size, level, action)?;
                     }
                 },
                 LevelMode::RipMap => {
                     for level in rip_map_resolutions(tiles.rounding_mode, image_size) {
-                        tiles_of(level, tiles.size, level, action)?;
+                        tiles_of(level, tiles.tile_size, level, action)?;
                     }
                 }
             }
