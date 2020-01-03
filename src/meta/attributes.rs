@@ -136,9 +136,6 @@ pub struct Channel {
 
     pub is_linear: bool,
 
-    /// three signed chars, should be zero
-    pub reserved: [i8; 3],
-
     /// can be used for chroma-subsampling
     /// other than 1 are allowed only in flat, scan-line based images.
     /// If deep or tiled, x and y sampling rates for all of its channels must be 1.
@@ -189,9 +186,9 @@ pub struct KeyCode {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum LineOrder {
-    IncreasingY,
-    DecreasingY,
-    RandomY,
+    Increasing,
+    Decreasing,
+    Unspecified,
 }
 
 #[derive(Clone, Eq, PartialEq)]
@@ -408,7 +405,7 @@ impl Kind {
             kind::DEEP_SCAN_LINE => Ok(Kind::DeepScanLine),
             kind::DEEP_TILE => Ok(Kind::DeepTile),
 
-            _ => Err(Error::invalid("block type value")),
+            _ => Err(Error::invalid("chunk segmentation method attribute value")),
         }
     }
 
@@ -573,7 +570,7 @@ impl Channel {
         self.name.null_terminated_byte_size()
             + PixelType::byte_size()
             + 1 // is_linear
-            + self.reserved.len()
+            + 3 // reserved bytes
             + 2 * u32::BYTE_SIZE // sampling x, y
     }
 
@@ -586,7 +583,7 @@ impl Channel {
             true  => 1_u8,
         }.write(write)?;
 
-        i8::write_slice(write, &self.reserved)?;
+        i8::write_slice(write, &[0_i8, 0_i8, 0_i8])?;
         self.sampling.0.write(write)?;
         self.sampling.1.write(write)?;
         Ok(())
@@ -602,7 +599,7 @@ impl Channel {
             _ => return Err(Error::invalid("channel linearity attribute value")),
         };
 
-        let mut reserved = [0; 3];
+        let mut reserved = [0_i8; 3];
         i8::read_slice(read, &mut reserved)?;
 
         let x_sampling = i32::read(read)?;
@@ -614,7 +611,7 @@ impl Channel {
 
         Ok(Channel {
             name, pixel_type, is_linear,
-            reserved, sampling: (x_sampling as u32, y_sampling as u32),
+            sampling: (x_sampling as u32, y_sampling as u32),
         })
     }
 
@@ -775,9 +772,9 @@ impl LineOrder {
     pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
         use self::LineOrder::*;
         match self {
-            IncreasingY => 0_u8,
-            DecreasingY => 1_u8,
-            RandomY => 2_u8,
+            Increasing => 0_u8,
+            Decreasing => 1_u8,
+            Unspecified => 2_u8,
         }.write(write)?;
 
         Ok(())
@@ -786,9 +783,9 @@ impl LineOrder {
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         use self::LineOrder::*;
         Ok(match u8::read(read)? {
-            0 => IncreasingY,
-            1 => DecreasingY,
-            2 => RandomY,
+            0 => Increasing,
+            1 => Decreasing,
+            2 => Unspecified,
             _ => return Err(Error::invalid("line order attribute value")),
         })
     }

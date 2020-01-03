@@ -139,28 +139,30 @@ pub struct TileIndices {
     pub size: (u32, u32),
 }
 
-
-
-
-
-
-impl Ord for TileIndices {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match self.position.1.cmp(&other.position.1) {
+impl TileIndices {
+    pub fn cmp(&self, other: &Self) -> Ordering {
+        match self.level.1.cmp(&other.level.1) {
             Ordering::Equal => {
-                self.position.0.cmp(&other.position.0)
+                match self.level.0.cmp(&other.level.0) {
+                    Ordering::Equal => {
+                        match self.position.1.cmp(&other.position.1) {
+                            Ordering::Equal => {
+                                self.position.0.cmp(&other.position.0)
+                            },
+
+                            other => other,
+                        }
+                    },
+
+                    other => other
+                }
             },
 
-            other => other,
+            other => other
         }
     }
 }
 
-impl PartialOrd for TileIndices {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
 
 
 pub mod magic_number {
@@ -255,39 +257,24 @@ impl MetaData {
     }
 
     // TODO skip reading offset tables if not required?
-//    pub fn read_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<OffsetTables> {
-//        headers.iter()
-//            .map(|header| {
-//                let entry_count = header.compute_offset_table_size()?;
-//                let vec = u64::read_vec(read, entry_count as usize, std::u16::MAX as usize)?;
-//                Ok(vec)
-//            })
-//            .collect()
-//    }
+    pub fn read_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<OffsetTables> {
+        headers.iter()
+            .map(|header| {
+                let entry_count = header.compute_offset_table_size()?;
+                let vec = u64::read_vec(read, entry_count as usize, std::u16::MAX as usize)?;
+                Ok(vec)
+            })
+            .collect()
+    }
+
     // TODO skip reading offset tables if not required?
     pub fn skip_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<u64> {
         let chunk_count: Result<u32> = headers.iter().map(Header::compute_offset_table_size).sum();
         let chunk_count = chunk_count? as u64;
 
-        crate::io::skip_bytes(read, chunk_count * std::mem::size_of::<u64>() as u64)?;
+        crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE as u64)?;
         Ok(chunk_count)
-
-//        headers.iter()
-//            .map(|header| {
-//                let entry_count = header.compute_offset_table_size()?;
-//                let vec = u64::read_vec(read, entry_count as usize, std::u16::MAX as usize)?;
-//                Ok(vec)
-//            })
-//            .collect()
     }
-
-//    pub fn write_offset_tables<W: Write>(write: &mut W, tables: &OffsetTables) -> PassiveResult {
-//        for table in tables {
-//            u64::write_slice(write, &table)?;
-//        }
-//
-//        Ok(())
-//    }
 
     // TODO also check for writing valid files
     pub fn validate(&self) -> PassiveResult {
@@ -510,7 +497,7 @@ impl Header {
 
     // TODO for all other fields too?
     pub fn kind_or_err(&self) -> Result<&Kind> {
-        self.kind.as_ref().ok_or(Error::invalid("block type attribute"))
+        self.kind.as_ref().ok_or(missing_attribute("chunk segmentation type"))
     }
 
     pub fn validate(&self, requirements: &Requirements) -> PassiveResult {
@@ -519,7 +506,7 @@ impl Header {
                 return Err(missing_attribute("chunk count"));
             }
             if self.kind.is_none() {
-                return Err(missing_attribute("block type"));
+                return Err(missing_attribute("chunk segmentation type"));
             }
             if self.name.is_none() {
                 return Err(missing_attribute("image part name"));

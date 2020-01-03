@@ -134,37 +134,31 @@ impl FullImage {
     #[must_use]
     pub fn read_data_by_meta(meta_data: MetaData, chunk_count: usize, read: &mut impl Read, options: ReadOptions) -> Result<Self> {
         let MetaData { headers, requirements } = meta_data;
-
-        // let chunk_reader = ChunkReader::new(read, requirements.is_multipart(), &headers, &offset_tables);
-
         let mut image = FullImage::new(headers.as_slice())?;
 
         let has_compression = headers.iter() // do not use parallel stuff for uncompressed images
             .find(|header| header.compression != Compression::Uncompressed).is_some();
 
         if options.parallel_decompression && has_compression {
-            let mut chunks = Vec::with_capacity(chunk_count);
+            let compressed: Result<Vec<Chunk>> = (0..chunk_count)
+                .map(|_| Chunk::read(read, requirements.is_multipart(), headers.as_slice()))
+                .collect();
 
-            for _ in 0..chunk_count {
-                chunks.push(Chunk::read(read, requirements.is_multipart(), headers.as_slice())?);
-            }
-
-            let blocks = chunks.into_par_iter().map(|chunk|
+            let decompress = compressed?.into_par_iter().map(|chunk|
                 UncompressedBlock::from_compressed(chunk, headers.as_slice())
             );
 
-            let blocks: Result<Vec<UncompressedBlock>> = blocks.collect(); // TODO without double collect!
+            let decompressed: Result<Vec<UncompressedBlock>> = decompress.collect(); // TODO without double collect!
 
-            for block in blocks? {
-//                let block = block?; // TODO use write everywhere instead of block allocations?
-                image.insert_block(&mut block.data.as_slice(), block.part_index, block.tile)?;
+            for decompressed in decompressed? {
+                image.insert_block(&mut decompressed.data.as_slice(), decompressed.part_index, decompressed.tile)?;
             }
         }
         else {
             for _ in 0..chunk_count {
+                // TODO avoid all allocations for uncompressed data
                 let chunk = Chunk::read(read, requirements.is_multipart(), headers.as_slice())?;
                 let decompressed = UncompressedBlock::from_compressed(chunk, headers.as_slice())?;
-                // TODO avoid all allocations for uncompressed data
                 image.insert_block(&mut decompressed.data.as_slice(), decompressed.part_index, decompressed.tile)?;
             }
         }
@@ -212,7 +206,7 @@ impl FullImage {
                     Ok(())
                 })?;
 
-                // sort by increasing y
+                // sort offset table by increasing y
                 table.sort_by(|(a, _), (b, _)| a.cmp(b));
                 offset_tables.extend(table.into_iter().map(|(_, index)| index));
             }
@@ -251,9 +245,6 @@ impl UncompressedBlock {
         }
     }
 
-//    pub fn to_compressed(&self, header: &Header, options: TileOptions) -> Result<Chunk, WriteError> {
-//
-//    }
 }
 
 impl FullImage {
@@ -321,7 +312,6 @@ impl FullImage {
             ),
 
             headers
-            // headers.into_iter().map(|header| header.compute_offset_table_size(version)).collect(),
         })
     }
 
@@ -384,6 +374,8 @@ impl Part {
     }
 
     pub fn infer_header(&self, display_window: I32Box2, pixel_aspect: f32, options: WriteOptions) -> Result<Header> {
+        assert_eq!(options.line_order, LineOrder::Unspecified);
+
         Ok(Header {
             channels: ChannelList::new(self.channels.iter().map(|channel| attributes::Channel {
                 pixel_type: match channel.content {
@@ -394,7 +386,6 @@ impl Part {
 
                 name: channel.name.clone(),
                 is_linear: channel.is_linear,
-                reserved: [0, 0, 0],
                 sampling: (channel.sampling.0 as u32, channel.sampling.1 as u32)
             }).collect()),
 
@@ -402,8 +393,7 @@ impl Part {
             screen_window_center: self.screen_window_center,
             screen_window_width: self.screen_window_width,
             compression: options.compression_method,
-            line_order: options.line_order,
-
+            line_order: LineOrder::Unspecified,
 
             tiles: match options.tiles {
                 TileOptions::ScanLineBlocks => None,

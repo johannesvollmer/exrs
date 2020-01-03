@@ -38,7 +38,7 @@ impl Default for WriteOptions {
         WriteOptions {
             parallel_compression: true,
             compression_method: Compression::RLE,
-            line_order: LineOrder::IncreasingY,
+            line_order: LineOrder::Unspecified,
             tiles: TileOptions::ScanLineBlocks
         }
     }
@@ -49,7 +49,7 @@ impl WriteOptions {
         WriteOptions {
             parallel_compression: false,
             compression_method: Compression::Uncompressed,
-            line_order: LineOrder::IncreasingY,
+            line_order: LineOrder::Unspecified,
             tiles: TileOptions::ScanLineBlocks
         }
     }
