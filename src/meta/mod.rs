@@ -168,11 +168,11 @@ pub mod magic_number {
 
     pub const BYTES: [u8; 4] = [0x76, 0x2f, 0x31, 0x01];
 
-    pub fn write(write: &mut impl Write) -> std::io::Result<()> {
+    pub fn write(write: &mut impl Write) -> Result<()> {
         u8::write_slice(write, &self::BYTES)
     }
 
-    pub fn is_exr(read: &mut impl Read) -> std::io::Result<bool> {
+    pub fn is_exr(read: &mut impl Read) -> Result<bool> {
         let mut magic_num = [0; 4];
         u8::read_slice(read, &mut magic_num)?;
         Ok(magic_num == self::BYTES)
@@ -196,12 +196,12 @@ pub mod sequence_end {
         1
     }
 
-    pub fn write<W: Write>(write: &mut W) -> std::io::Result<()> {
+    pub fn write<W: Write>(write: &mut W) -> PassiveResult {
         0_u8.write(write)
     }
 
-    pub fn has_come(read: &mut PeekRead<impl Read>) -> std::io::Result<bool> {
-        read.skip_if_eq(0)
+    pub fn has_come(read: &mut PeekRead<impl Read>) -> Result<bool> {
+        Ok(read.skip_if_eq(0)?)
     }
 }
 

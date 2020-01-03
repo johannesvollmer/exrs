@@ -273,7 +273,7 @@ impl Text {
     }
 
     pub fn i32_sized_byte_size(&self) -> usize {
-        self.bytes.len() + 0_i32.byte_size()
+        self.bytes.len() + i32::BYTE_SIZE
     }
 
     pub fn write_i32_sized<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> PassiveResult {
@@ -472,8 +472,8 @@ impl I32Box2 {
         )
     }
 
-    pub fn byte_size(&self) -> usize {
-        4 * self.x_min.byte_size()
+    pub fn byte_size() -> usize {
+        4 * i32::BYTE_SIZE
     }
 
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
@@ -499,8 +499,8 @@ impl I32Box2 {
 }
 
 impl F32Box2 {
-    pub fn byte_size(&self) -> usize {
-        4 * self.x_min.byte_size()
+    pub fn byte_size() -> usize {
+        4 * f32::BYTE_SIZE
     }
 
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
@@ -530,8 +530,8 @@ impl PixelType {
         }
     }
 
-    pub fn byte_size(&self) -> usize {
-        0_i32.byte_size()
+    pub fn byte_size() -> usize {
+        i32::BYTE_SIZE
     }
 
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
@@ -564,18 +564,17 @@ impl Channel {
 
     pub fn subsampled_resolution(&self, dimensions: (u32, u32)) -> (u32, u32) {
         (
-            dimensions.0 / self.sampling.0 as u32,
-            dimensions.1 / self.sampling.1 as u32,
+            dimensions.0 / self.sampling.0,
+            dimensions.1 / self.sampling.1,
         )
     }
 
     pub fn byte_size(&self) -> usize {
         self.name.null_terminated_byte_size()
-            + self.pixel_type.byte_size()
+            + PixelType::byte_size()
             + 1 // is_linear
             + self.reserved.len()
-            + self.sampling.0.byte_size()
-            + self.sampling.1.byte_size()
+            + 2 * u32::BYTE_SIZE // sampling x, y
     }
 
     pub fn write<W: Write>(&self, write: &mut W, long_names: bool) -> PassiveResult {
@@ -645,8 +644,8 @@ impl Channel {
 }
 
 impl Chromaticities {
-    pub fn byte_size(&self) -> usize {
-        8 * self.red_x.byte_size()
+    pub fn byte_size() -> usize {
+        8 * f32::BYTE_SIZE
     }
 
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
@@ -676,8 +675,8 @@ impl Chromaticities {
 }
 
 impl Compression {
-    pub fn byte_size(&self) -> usize {
-        0_u8.byte_size()
+    pub fn byte_size() -> usize {
+        1
     }
 
     pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
@@ -716,8 +715,8 @@ impl Compression {
 }
 
 impl EnvironmentMap {
-    pub fn byte_size(&self) -> usize {
-        0_u32.byte_size()
+    pub fn byte_size() -> usize {
+        u32::BYTE_SIZE
     }
 
     pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
@@ -741,8 +740,8 @@ impl EnvironmentMap {
 }
 
 impl KeyCode {
-    pub fn byte_size(&self) -> usize {
-        6 * self.film_manufacturer_code.byte_size()
+    pub fn byte_size() -> usize {
+        6 * i32::BYTE_SIZE
     }
 
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
@@ -769,8 +768,8 @@ impl KeyCode {
 }
 
 impl LineOrder {
-    pub fn byte_size(&self) -> usize {
-        0_u32.byte_size()
+    pub fn byte_size() -> usize {
+        u32::BYTE_SIZE
     }
 
     pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
@@ -806,9 +805,7 @@ impl Preview {
     }
 
     pub fn byte_size(&self) -> usize {
-        self.width.byte_size()
-            + self.height.byte_size()
-            + self.pixel_data.len()
+        2 * u32::BYTE_SIZE + self.pixel_data.len()
     }
 
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
@@ -845,9 +842,8 @@ impl ::std::fmt::Debug for Preview {
 
 impl TileDescription {
 
-    pub fn byte_size(&self) -> usize {
-        self.size.0.byte_size() + self.size.1.byte_size()
-         + 1 // (level mode + rounding mode)
+    pub fn byte_size() -> usize {
+        2 * u32::BYTE_SIZE + 1 // size x,y + (level mode + rounding mode)
     }
 
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
@@ -901,7 +897,7 @@ impl Attribute {
     pub fn byte_size(&self) -> usize {
         self.name.null_terminated_byte_size()
             + self.value.kind_name().len() + sequence_end::byte_size()
-            + 0_i32.byte_size() // serialized byte size
+            + i32::BYTE_SIZE // serialized byte size
             + self.value.byte_size()
     }
 
@@ -929,31 +925,31 @@ impl AnyValue {
         use self::AnyValue::*;
 
         match *self {
-            I32Box2(value) => value.byte_size(),
-            F32Box2(value) => value.byte_size(),
+            I32Box2(_) => self::I32Box2::byte_size(),
+            F32Box2(_) => self::F32Box2::byte_size(),
 
-            I32(value) => value.byte_size(),
-            F32(value) => value.byte_size(),
-            F64(value) => value.byte_size(),
+            I32(_) => i32::BYTE_SIZE,
+            F32(_) => f32::BYTE_SIZE,
+            F64(_) => f64::BYTE_SIZE,
 
-            Rational(a, b) => { a.byte_size() + b.byte_size() },
-            TimeCode((a, b)) => { a.byte_size() + b.byte_size() },
+            Rational(_,_) => { i32::BYTE_SIZE + u32::BYTE_SIZE },
+            TimeCode((_,_)) => { 2 * u32::BYTE_SIZE },
 
-            I32Vec2(x, y) => { x.byte_size() + y.byte_size() },
-            F32Vec2(x, y) => { x.byte_size() + y.byte_size() },
-            I32Vec3(x, y, z) => { x.byte_size() + y.byte_size() + z.byte_size() },
-            F32Vec3(x, y, z) => { x.byte_size() + y.byte_size() + z.byte_size() },
+            I32Vec2(_,_) => { 2 * i32::BYTE_SIZE },
+            F32Vec2(_,_) => { 2 * f32::BYTE_SIZE },
+            I32Vec3(_,_,_) => { 3 * i32::BYTE_SIZE },
+            F32Vec3(_,_,_) => { 3 * f32::BYTE_SIZE },
 
             ChannelList(ref channels) => Channel::list_byte_size(channels),
-            Chromaticities(ref value) => value.byte_size(),
-            Compression(value) => value.byte_size(),
-            EnvironmentMap(value) => value.byte_size(),
+            Chromaticities(_) => self::Chromaticities::byte_size(),
+            Compression(_) => self::Compression::byte_size(),
+            EnvironmentMap(_) => self::EnvironmentMap::byte_size(),
 
-            KeyCode(value) => value.byte_size(),
-            LineOrder(value) => value.byte_size(),
+            KeyCode(_) => self::KeyCode::byte_size(),
+            LineOrder(_) => self::LineOrder::byte_size(),
 
-            F32Matrix3x3(ref value) => value.len() * value[0].byte_size(),
-            F32Matrix4x4(ref value) => value.len() * value[0].byte_size(),
+            F32Matrix3x3(ref value) => value.len() * f32::BYTE_SIZE,
+            F32Matrix4x4(ref value) => value.len() * f32::BYTE_SIZE,
 
             Preview(ref value) => value.byte_size(),
 
@@ -962,7 +958,7 @@ impl AnyValue {
             Text(ref value) => value.bytes.len(),
 
             TextVector(ref value) => value.iter().map(self::Text::i32_sized_byte_size).sum(),
-            TileDescription(ref value) => value.byte_size(),
+            TileDescription(_) => self::TileDescription::byte_size(),
             Custom { ref bytes, .. } => bytes.len(),
             Kind(ref kind) => kind.byte_size()
         }

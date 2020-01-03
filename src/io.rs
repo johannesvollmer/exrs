@@ -7,7 +7,6 @@ use ::half::f16;
 use crate::error::{Error, Result, PassiveResult};
 
 
-
 pub fn skip_bytes(read: &mut impl Read, count: u64) -> PassiveResult {
     let skipped = std::io::copy(
         &mut read.by_ref().take(count),
@@ -19,7 +18,7 @@ pub fn skip_bytes(read: &mut impl Read, count: u64) -> PassiveResult {
 }
 
 
-pub fn positive_i32(value: i32, name: &str) -> Result<u32> {
+pub fn positive_i32(value: i32, name: &'static str) -> Result<u32> {
     if value < 0 { Err(Error::invalid(name)) }
     else { Ok(value as u32) }
 }
@@ -77,23 +76,25 @@ impl<T: Read> Read for PeekRead<T> {
 /// extension trait for primitive types like numbers and arrays
 pub trait Data: Sized + Default + Clone {
 
-    fn read(read: &mut impl Read) -> std::io::Result<Self>;
-    fn read_slice(read: &mut impl Read, slice: &mut[Self]) -> std::io::Result<()>;
+    fn read(read: &mut impl Read) -> Result<Self>;
+    fn read_slice(read: &mut impl Read, slice: &mut[Self]) -> PassiveResult;
 
-    fn read_vec(read: &mut impl Read, data_size: usize, estimated_max: usize) -> std::io::Result<Vec<Self>> {
+    fn read_vec(read: &mut impl Read, data_size: usize, estimated_max: usize) -> Result<Vec<Self>> {
         let mut vec = Vec::new();
         Self::read_into_vec(read, &mut vec, data_size, estimated_max)?;
         Ok(vec)
     }
 
-    fn write(self, write: &mut impl Write) -> std::io::Result<()>;
-    fn write_slice(write: &mut impl Write, slice: &[Self]) -> std::io::Result<()>;
+    fn write(self, write: &mut impl Write) -> PassiveResult;
+    fn write_slice(write: &mut impl Write, slice: &[Self]) -> PassiveResult;
 
-    fn byte_size(self) -> usize {
-        ::std::mem::size_of::<Self>()
-    }
+    const BYTE_SIZE: usize = ::std::mem::size_of::<Self>();
 
-    fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, estimated_max: usize) -> std::io::Result<()> {
+//    fn byte_size(self) -> usize {
+//        ::std::mem::size_of::<Self>()
+//    }
+
+    fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, estimated_max: usize) -> PassiveResult {
         let start = data.len();
         let end = start + data_size;
         let max_end = start + estimated_max;
@@ -118,7 +119,7 @@ pub trait Data: Sized + Default + Clone {
         }
     }
 
-    fn write_i32_sized_slice<W: Write>(write: &mut W, slice: &[Self]) -> std::io::Result<()> {
+    fn write_i32_sized_slice<W: Write>(write: &mut W, slice: &[Self]) -> PassiveResult {
         (slice.len() as i32).write(write)?;
         Self::write_slice(write, slice)
     }
@@ -128,7 +129,7 @@ pub trait Data: Sized + Default + Clone {
         debug_assert!(size >= 0);
 
         if size < 0 { Err(Error::invalid("negative array size")) }
-        else { Ok(Self::read_vec(read, size as usize, estimated_max)?) }
+        else { Self::read_vec(read, size as usize, estimated_max) }
     }
 }
 
@@ -136,20 +137,23 @@ pub trait Data: Sized + Default + Clone {
 macro_rules! implement_data_for_primitive {
     ($kind: ident) => {
         impl Data for $kind {
-            fn read(read: &mut impl Read) -> std::io::Result<Self> {
-                read.read_from_little_endian()
+            fn read(read: &mut impl Read) -> Result<Self> {
+                Ok(read.read_from_little_endian()?)
             }
 
-            fn write(self, write: &mut impl Write) -> std::io::Result<()> {
-                write.write_as_little_endian(&self)
+            fn write(self, write: &mut impl Write) -> Result<()> {
+                write.write_as_little_endian(&self)?;
+                Ok(())
             }
 
-            fn read_slice(read: &mut impl Read, slice: &mut [Self]) -> std::io::Result<()> {
-                read.read_from_little_endian_into(slice)
+            fn read_slice(read: &mut impl Read, slice: &mut [Self]) -> Result<()> {
+                read.read_from_little_endian_into(slice)?;
+                Ok(())
             }
 
-            fn write_slice(write: &mut impl Write, slice: &[Self]) -> std::io::Result<()> {
-                write.write_as_little_endian(slice)
+            fn write_slice(write: &mut impl Write, slice: &[Self]) -> Result<()> {
+                write.write_as_little_endian(slice)?;
+                Ok(())
             }
         }
     };
@@ -168,20 +172,20 @@ implement_data_for_primitive!(f64);
 
 
 impl Data for f16 {
-    fn read(read: &mut impl Read) -> std::io::Result<Self> {
+    fn read(read: &mut impl Read) -> Result<Self> {
         u16::read(read).map(f16::from_bits)
     }
 
-    fn read_slice(read: &mut impl Read, slice: &mut [Self]) -> std::io::Result<()> {
+    fn read_slice(read: &mut impl Read, slice: &mut [Self]) -> Result<()> {
         let bits = slice.reinterpret_cast_mut();
         u16::read_slice(read, bits)
     }
 
-    fn write(self, write: &mut impl Write) -> std::io::Result<()> {
+    fn write(self, write: &mut impl Write) -> Result<()> {
         self.to_bits().write(write)
     }
 
-    fn write_slice(write: &mut impl Write, slice: &[Self]) -> std::io::Result<()> {
+    fn write_slice(write: &mut impl Write, slice: &[Self]) -> Result<()> {
         let bits = slice.reinterpret_cast();
         u16::write_slice(write, bits)
     }
