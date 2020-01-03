@@ -260,9 +260,7 @@ impl MetaData {
     // TODO skip reading offset tables if not required?
     pub fn read_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<OffsetTables> {
         headers.iter()
-            .map(|header| {
-                Ok(u64::read_vec(read, header.chunk_count as usize, std::u16::MAX as usize, false)?)
-            })
+            .map(|header| u64::read_vec(read, header.chunk_count as usize, std::u16::MAX as usize, false))
             .collect()
     }
 
@@ -408,8 +406,8 @@ impl Header {
         let default_tile_height = tiles.tile_size.1;
 
         let (data_width, data_height) = self.data_window.dimensions();
-        let data_width = compute_level_size(round, data_width as u32, tile.level_x as u32);
-        let data_height = compute_level_size(round, data_height as u32, tile.level_y as u32);
+        let data_width = compute_level_size(round, data_width, tile.level_x as u32);
+        let data_height = compute_level_size(round, data_height, tile.level_y as u32);
 
         let y = tile.tile_y - self.data_window.y_min; // TODO divide by tile size?
         let x = tile.tile_x - self.data_window.x_min; // TODO divide by tile size?

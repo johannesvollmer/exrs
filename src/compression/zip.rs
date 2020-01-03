@@ -18,7 +18,7 @@ use crate::error::Result;
 // 4. Fill the frame buffer with pixel data, respective to sampling and whatnot
 
 
-pub fn decompress_bytes(data: Bytes, expected_byte_size: usize) -> Result<ByteVec> {
+pub fn decompress_bytes(data: Bytes<'_>, expected_byte_size: usize) -> Result<ByteVec> {
     let mut decompressed = Vec::with_capacity(expected_byte_size);
 
     {
@@ -31,7 +31,7 @@ pub fn decompress_bytes(data: Bytes, expected_byte_size: usize) -> Result<ByteVe
     Ok(decompressed)
 }
 
-pub fn compress_bytes(packed: Bytes) -> Result<ByteVec> {
+pub fn compress_bytes(packed: Bytes<'_>) -> Result<ByteVec> {
     let mut packed = Vec::from(packed); // TODO no alloc
     separate_bytes_fragments(&mut packed);
     samples_to_differences(&mut packed);

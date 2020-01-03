@@ -232,7 +232,7 @@ pub fn decompress_bytes(
         let channel = ChannelData {
             start_index: tmp_buffer_end,
             end_index: tmp_buffer_end,
-            y_samples: channel.sampling.1 as u32,
+            y_samples: channel.sampling.1,
             number_samples_x, number_samples_y,
             size: channel.pixel_type.bytes_per_sample() / PixelType::F16.bytes_per_sample()
         };
@@ -476,7 +476,7 @@ fn wave_2_decode(_buffer: &[u16], _x_size: u32, _x_offset: u32, _y_size: u32, _y
     unimplemented!()
 }
 
-fn reverse_lookup_table_from_bitmap(bitmap: Bytes) -> (Vec<u16>, u16) {
+fn reverse_lookup_table_from_bitmap(bitmap: Bytes<'_>) -> (Vec<u16>, u16) {
 //    int k = 0;
 //
 //    for (int i = 0; i < USHORT_RANGE; ++i)
@@ -523,6 +523,6 @@ fn apply_lookup_table(data: &mut [u16], table: &[u16]) {
 }
 
 
-pub fn compress_bytes(_packed: Bytes) -> Result<ByteVec> {
+pub fn compress_bytes(_packed: Bytes<'_>) -> Result<ByteVec> {
     unimplemented!();
 }

@@ -149,6 +149,6 @@ pub fn compute_chunk_count(compression: Compression, data_window: I32Box2, tiles
 
     // scan line blocks never have mip maps // TODO check if this is true
     else {
-        Ok(compute_tile_count(data_size.1, compression.scan_lines_per_block() as u32))
+        Ok(compute_tile_count(data_size.1, compression.scan_lines_per_block()))
     }
 }

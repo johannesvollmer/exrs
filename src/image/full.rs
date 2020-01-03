@@ -204,6 +204,8 @@ impl FullImage {
             for (part_index, part) in self.parts.iter().enumerate() {
                 let mut table = Vec::new();
 
+                // println!("writing image part {}", part_index);
+
                 part.tiles(&meta_data.headers[part_index], &mut |tile| {
                     let data: Vec<u8> = self.compress_block(options.compression_method, part_index, tile)?;
 
@@ -229,8 +231,10 @@ impl FullImage {
                         }
                     };
 
+                    // println!("writing image chunk {:?}", chunk);
+
                     let block_start_position = write.seek(SeekFrom::Current(0))?;
-                    table.push((tile, block_start_position as u64));
+                    table.push((tile, block_start_position));
 
                     chunk.write(&mut write, meta_data.headers.as_slice())?;
 
@@ -768,7 +772,7 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
 
 impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for FlatSamples<Sample> {
     fn new(resolution: (usize, usize)) -> Self {
-        let resolution = (resolution.0 as usize, resolution.1 as usize);
+        let resolution = (resolution.0, resolution.1);
         vec![Sample::default(); resolution.0 * resolution.1]
     }
 
@@ -776,7 +780,7 @@ impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for Fl
         debug_assert_ne!(image_width, 0);
         debug_assert_ne!(length, 0);
 
-        let start_index = position.1 as usize * image_width + position.0 as usize;
+        let start_index = position.1 * image_width + position.0;
         let end_index = start_index + length;
 
         Sample::read_slice(read, &mut self[start_index .. end_index])?;
@@ -787,7 +791,7 @@ impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for Fl
         debug_assert_ne!(image_width, 0);
         debug_assert_ne!(length, 0);
 
-        let start_index = position.1 as usize * image_width + position.0 as usize;
+        let start_index = position.1 * image_width + position.0;
         let end_index = start_index + length;
 
         Sample::write_slice(write, &self[start_index .. end_index])?;
@@ -797,7 +801,7 @@ impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for Fl
 
 impl<Samples> RipMaps<Samples> {
     pub fn get_level_index(&self, level: (usize, usize)) -> usize {
-        self.level_count.0 * level.1 as usize + level.0 as usize  // TODO check this calculation (x vs y)
+        self.level_count.0 * level.1 + level.0  // TODO check this calculation (x vs y)
     }
 
     pub fn get_by_level(&self, level: (usize, usize)) -> Option<&SampleBlock<Samples>> {

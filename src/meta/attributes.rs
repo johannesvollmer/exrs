@@ -352,14 +352,14 @@ impl Into<String> for Text {
 }
 
 impl ::std::fmt::Debug for Text {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         write!(f, "exr::Text(\"{}\")", self.to_string())
     }
 }
 
 // automatically implements to_string for us
 impl ::std::fmt::Display for Text {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         use std::fmt::Write;
 
         for &byte in self.bytes.iter() {
@@ -820,7 +820,7 @@ impl Preview {
 }
 
 impl ::std::fmt::Debug for Preview {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         write!(f, "Preview ({}x{} px)", self.width, self.height)
     }
 }

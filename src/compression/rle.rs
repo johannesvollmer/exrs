@@ -30,7 +30,7 @@ fn take_n<'s>(slice: &mut &'s [u8], n: usize) -> Result<&'s [u8]> {
     }
 }
 
-pub fn decompress_bytes(mut remaining: Bytes, expected_byte_size: usize) -> Result<ByteVec> {
+pub fn decompress_bytes(mut remaining: Bytes<'_>, expected_byte_size: usize) -> Result<ByteVec> {
     let mut decompressed = Vec::with_capacity(expected_byte_size);
 
     while !remaining.is_empty() {
@@ -55,7 +55,7 @@ pub fn decompress_bytes(mut remaining: Bytes, expected_byte_size: usize) -> Resu
     Ok(decompressed)
 }
 
-pub fn compress_bytes(data: Bytes) -> Result<ByteVec> {
+pub fn compress_bytes(data: Bytes<'_>) -> Result<ByteVec> {
     let mut data = Vec::from(data); // TODO no alloc
     separate_bytes_fragments(&mut data);
     samples_to_differences(&mut data);

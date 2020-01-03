@@ -1,6 +1,23 @@
 
 #![forbid(unsafe_code)]
-#![forbid(
+
+#![deny(
+    warnings,
+
+    unused_variables,
+    unused_assignments,
+    dead_code,
+    unused_must_use,
+    unused_extern_crates,
+    missing_copy_implementations,
+    trivial_numeric_casts,
+)]
+
+#![warn(
+    rust_2018_idioms,
+    future_incompatible,
+    unused,
+
     clippy::all,
     clippy::restriction,
     clippy::pedantic,
