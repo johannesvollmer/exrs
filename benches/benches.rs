@@ -86,7 +86,7 @@ fn write_single_image_parallel_zip(bench: &mut Bencher) {
 
 benchmark_group!(benches,
     read_single_image_uncompressed_from_buffer,
-    write_single_image_parallel_zip,
+    // write_single_image_parallel_zip,
     read_single_image_uncompressed,
     read_single_image_zips,
     read_single_image_rle,

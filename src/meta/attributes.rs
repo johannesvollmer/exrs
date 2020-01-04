@@ -263,7 +263,7 @@ impl Text {
 
     pub fn read_i32_sized<R: Read>(read: &mut R, max_size: usize) -> Result<Self> {
         let size = i32::read(read)? as usize;
-        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, max_size.min(2048), false)?)))
+        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 1024, Some(max_size))?)))
     }
 
     pub fn read_sized<R: Read>(read: &mut R, size: usize) -> Result<Self> {
@@ -278,7 +278,7 @@ impl Text {
 
         // for large strings, read a dynamic vec of arbitrary size
         else {
-            Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 2048, false)?)))
+            Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 1024, None)?)))
         }
     }
 
@@ -1070,7 +1070,7 @@ impl AnyValue {
             ty::TEXT        => Text(self::Text::read_sized(read, byte_size as usize)?),
 
             // the number of strings can be inferred from the total attribute size
-            ty::TEXT_VECTOR => TextVector(self::Text::read_vec_of_i32_sized(read, byte_size.min(2048))?),
+            ty::TEXT_VECTOR => TextVector(self::Text::read_vec_of_i32_sized(read, byte_size)?),
 
             ty::TILES       => TileDescription(self::TileDescription::read(read)?),
 

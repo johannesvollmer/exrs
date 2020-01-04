@@ -260,7 +260,7 @@ impl MetaData {
     // TODO skip reading offset tables if not required?
     pub fn read_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<OffsetTables> {
         headers.iter()
-            .map(|header| u64::read_vec(read, header.chunk_count as usize, std::u16::MAX as usize, false))
+            .map(|header| u64::read_vec(read, header.chunk_count as usize, std::u16::MAX as usize, None))
             .collect()
     }
 

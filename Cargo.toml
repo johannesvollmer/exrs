@@ -29,12 +29,25 @@ walkdir = "2.2.9"
 name = "benches"
 harness = false
 
+[[bench]]
+name = "profiling"
+harness = false
+
+# release with fastest runtime speed
 [profile.release]
+opt-level = 3
 lto = true
 debug = false
+codegen-units = 1
 
-# test with fast runtime speed
+# test with fast runtime speed and moderate build speed
 [profile.dev]
+opt-level = 3
+debug = true
+
+# bench with fastest runtime speed
+[profile.bench]
 opt-level = 3
 lto = true
 debug = true
+codegen-units = 1

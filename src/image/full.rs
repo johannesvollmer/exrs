@@ -158,14 +158,6 @@ impl FullImage {
         Self::read_from_buffered(BufReader::new(unbuffered), options)
     }
 
-    /// performs many small read operations, and should thus be buffered
-    #[must_use]
-    pub fn read_from_buffered(read: impl Read, options: ReadOptions) -> Result<Self> {
-        let mut read = PeekRead::new(read);
-        let meta_data = MetaData::read_from_buffered_peekable(&mut read)?;
-        let chunk_count = MetaData::skip_offset_tables(&mut read, &meta_data.headers)? as usize;
-        Self::read_data_by_meta(meta_data, chunk_count, &mut read, options)
-    }
 
 
     #[must_use]
@@ -192,14 +184,13 @@ impl FullImage {
         self.write_to_buffered(BufWriter::new(unbuffered), options)
     }
 
-
-
-
-
     /// assumes the reader is buffered (if desired)
     #[must_use]
-    pub fn read_data_by_meta(meta_data: MetaData, chunk_count: usize, read: &mut impl Read, options: ReadOptions) -> Result<Self> {
-        let MetaData { headers, requirements } = meta_data;
+    pub fn read_from_buffered(read: impl Read, options: ReadOptions) -> Result<Self> {
+        let mut read = PeekRead::new(read);
+        let MetaData { headers, requirements } = MetaData::read_from_buffered_peekable(&mut read)?;
+        let chunk_count = MetaData::skip_offset_tables(&mut read, &headers)? as usize;
+
         let mut image = FullImage::new(headers.as_slice())?;
 
         let has_compression = headers.iter() // do not use parallel stuff for uncompressed images
@@ -207,7 +198,7 @@ impl FullImage {
 
         if options.parallel_decompression && has_compression {
             let compressed: Result<Vec<Chunk>> = (0..chunk_count)
-                .map(|_| Chunk::read(read, requirements.is_multipart(), headers.as_slice()))
+                .map(|_| Chunk::read(&mut read, requirements.is_multipart(), headers.as_slice()))
                 .collect();
 
             let decompress = compressed?.into_par_iter().map(|chunk|
@@ -223,7 +214,7 @@ impl FullImage {
         else {
             for _ in 0..chunk_count {
                 // TODO avoid all allocations for uncompressed data
-                let chunk = Chunk::read(read, requirements.is_multipart(), headers.as_slice())?;
+                let chunk = Chunk::read(&mut read, requirements.is_multipart(), headers.as_slice())?;
                 let decompressed = UncompressedBlock::from_compressed(chunk, headers.as_slice())?;
                 image.insert_block(&mut decompressed.data.as_slice(), decompressed.part_index, decompressed.tile)?;
             }

@@ -7,6 +7,7 @@ use ::half::f16;
 use crate::error::{Error, Result, PassiveResult, IoResult};
 
 
+#[inline]
 pub fn skip_bytes(read: &mut impl Read, count: u64) -> PassiveResult {
     let skipped = std::io::copy(
         &mut read.by_ref().take(count),
@@ -34,11 +35,13 @@ impl<T: Read> PeekRead<T> {
         Self { inner, peeked: None }
     }
 
+    #[inline]
     pub fn peek_u8(&mut self) -> &IoResult<u8> {
         self.peeked = self.peeked.take().or_else(|| Some(u8::read_from_little_endian(&mut self.inner)));
         self.peeked.as_ref().unwrap()
     }
 
+    #[inline]
     pub fn skip_if_eq(&mut self, value: u8) -> IoResult<bool> {
         match self.peek_u8() {
             Ok(peeked) if *peeked == value =>  {
@@ -71,23 +74,19 @@ impl<T: Read> Read for PeekRead<T> {
 
 /// extension trait for primitive types like numbers and arrays
 pub trait Data: Sized + Default + Clone {
-    #[inline]
     fn read(read: &mut impl Read) -> Result<Self>;
 
-    #[inline]
     fn read_slice(read: &mut impl Read, slice: &mut[Self]) -> PassiveResult;
 
     #[inline]
-    fn read_vec(read: &mut impl Read, data_size: usize, estimated_max: usize, abort_on_max: bool) -> Result<Vec<Self>> {
+    fn read_vec(read: &mut impl Read, data_size: usize, soft_max: usize, hard_max: Option<usize>) -> Result<Vec<Self>> {
         let mut vec = Vec::new();
-        Self::read_into_vec(read, &mut vec, data_size, estimated_max, abort_on_max)?;
+        Self::read_into_vec(read, &mut vec, data_size, soft_max, hard_max)?;
         Ok(vec)
     }
 
-    #[inline]
     fn write(self, write: &mut impl Write) -> PassiveResult;
 
-    #[inline]
     fn write_slice(write: &mut impl Write, slice: &[Self]) -> PassiveResult;
 
     const BYTE_SIZE: usize = ::std::mem::size_of::<Self>();
@@ -96,34 +95,27 @@ pub trait Data: Sized + Default + Clone {
     /// it will not try to allocate that much memory, but instead consider
     /// that decoding the block length has gone wrong
     #[inline]
-    fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, max: usize, abort_on_max: bool) -> PassiveResult {
-        let start = data.len();
-        let end = start + data_size;
-        let max_end = start + max;
-
-        debug_assert!(max <= 24 * std::u16::MAX as usize, "dangerously large max value ({}), was it read from an invalid file?", max);
-        debug_assert!(data_size <= max, "suspiciously large data size: {} (max: {})", data_size, max);
-
-        if data_size <= max {
-            data.resize(end, Self::default());
-            Self::read_slice(read, &mut data[start .. end])
-        }
-        else {
-            if abort_on_max {
+    fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, soft_max: usize, hard_max: Option<usize>) -> PassiveResult {
+        if let Some(max) = hard_max {
+            if data_size > max {
                 return Err(Error::invalid("content size"))
             }
-
-            println!("suspiciously large data size: {}, estimated max: {}", data_size, max);
-
-            data.resize(max_end, Self::default());
-            Self::read_slice(read, &mut data[start .. max_end])?;
-
-            for _ in max..data_size {
-                data.push(Self::read(read)?);
-            }
-
-            Ok(())
         }
+
+        let soft_max = hard_max.unwrap_or(soft_max).min(soft_max);
+        let end = data.len() + data_size;
+
+        // do not allocate more than $chunks memory at once
+        // (most of the time, this loop will run only once)
+        while data.len() < end {
+            let chunk_start = data.len();
+            let chunk_end = (chunk_start + soft_max).min(data_size);
+
+            data.resize(chunk_end, Self::default());
+            Self::read_slice(read, &mut data[chunk_start .. chunk_end])?;
+        }
+
+        Ok(())
     }
 
     #[inline]
@@ -133,12 +125,12 @@ pub trait Data: Sized + Default + Clone {
     }
 
     #[inline]
-    fn read_i32_sized_vec(read: &mut impl Read, estimated_max: usize, abort_on_max: bool) -> Result<Vec<Self>> {
+    fn read_i32_sized_vec(read: &mut impl Read, soft_max: usize, hard_max: Option<usize>) -> Result<Vec<Self>> {
         let size = i32::read(read)?;
         debug_assert!(size >= 0);
 
         if size < 0 { Err(Error::invalid("negative array size")) }
-        else { Self::read_vec(read, size as usize, estimated_max, abort_on_max) }
+        else { Self::read_vec(read, size as usize, soft_max, hard_max) }
     }
 }
 
@@ -146,20 +138,24 @@ pub trait Data: Sized + Default + Clone {
 macro_rules! implement_data_for_primitive {
     ($kind: ident) => {
         impl Data for $kind {
+            #[inline]
             fn read(read: &mut impl Read) -> Result<Self> {
                 Ok(read.read_from_little_endian()?)
             }
 
+            #[inline]
             fn write(self, write: &mut impl Write) -> Result<()> {
                 write.write_as_little_endian(&self)?;
                 Ok(())
             }
 
+            #[inline]
             fn read_slice(read: &mut impl Read, slice: &mut [Self]) -> Result<()> {
                 read.read_from_little_endian_into(slice)?;
                 Ok(())
             }
 
+            #[inline]
             fn write_slice(write: &mut impl Write, slice: &[Self]) -> Result<()> {
                 write.write_as_little_endian(slice)?;
                 Ok(())
@@ -181,19 +177,23 @@ implement_data_for_primitive!(f64);
 
 
 impl Data for f16 {
+    #[inline]
     fn read(read: &mut impl Read) -> Result<Self> {
         u16::read(read).map(f16::from_bits)
     }
 
+    #[inline]
     fn read_slice(read: &mut impl Read, slice: &mut [Self]) -> Result<()> {
         let bits = slice.reinterpret_cast_mut();
         u16::read_slice(read, bits)
     }
 
+    #[inline]
     fn write(self, write: &mut impl Write) -> Result<()> {
         self.to_bits().write(write)
     }
 
+    #[inline]
     fn write_slice(write: &mut impl Write, slice: &[Self]) -> Result<()> {
         let bits = slice.reinterpret_cast();
         u16::write_slice(write, bits)
