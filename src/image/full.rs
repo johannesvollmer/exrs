@@ -12,7 +12,7 @@ use crate::meta::attributes::*;
 use crate::compression::{ByteVec, Compression};
 use crate::error::{Result, PassiveResult, Error};
 use crate::math::*;
-use std::io::{Seek, SeekFrom};
+use std::io::{Seek, SeekFrom, BufReader, Cursor, BufWriter};
 use crate::io::Data;
 use crate::image::{BlockOptions, WriteOptions, ReadOptions};
 
@@ -146,6 +146,55 @@ impl<S> std::fmt::Debug for Levels<S> {
 
 
 impl FullImage {
+    // TODO also return the corresponding WriteOptions which can be used to write the most similar file to this?
+    #[must_use]
+    pub fn read_from_file(path: impl AsRef<std::path::Path>, options: ReadOptions) -> Result<Self> {
+        Self::read_from_unbuffered(std::fs::File::open(path)?, options)
+    }
+
+    /// assumes that the provided reader is not buffered, and will create a buffer for it.
+    #[must_use]
+    pub fn read_from_unbuffered(unbuffered: impl Read, options: ReadOptions) -> Result<Self> {
+        Self::read_from_buffered(BufReader::new(unbuffered), options)
+    }
+
+    /// performs many small read operations, and should thus be buffered
+    #[must_use]
+    pub fn read_from_buffered(read: impl Read, options: ReadOptions) -> Result<Self> {
+        let mut read = PeekRead::new(read);
+        let meta_data = MetaData::read_from_buffered_peekable(&mut read)?;
+        let chunk_count = MetaData::skip_offset_tables(&mut read, &meta_data.headers)? as usize;
+        Self::read_data_by_meta(meta_data, chunk_count, &mut read, options)
+    }
+
+
+    #[must_use]
+    pub fn write_to_file(&self, path: impl AsRef<std::path::Path>, options: WriteOptions) -> PassiveResult {
+        self.write_to_unbuffered(std::fs::File::create(path)?, options)
+    }
+
+    /// needs more memory but allows for non-seeking write operations
+    #[must_use]
+    pub fn write_without_seek(&self, mut unbuffered: impl Write, options: WriteOptions) -> PassiveResult {
+        let mut bytes = Vec::new();
+
+        // write the image to the seekable vec
+        self.write_to_buffered(Cursor::new(&mut bytes), options)?;
+
+        // write the vec into the actual output
+        unbuffered.write_all(&bytes)?;
+        Ok(())
+    }
+
+    /// assumes that the provided reader is not buffered, and will create a buffer for it
+    #[must_use]
+    pub fn write_to_unbuffered(&self, unbuffered: impl Write + Seek, options: WriteOptions) -> PassiveResult {
+        self.write_to_buffered(BufWriter::new(unbuffered), options)
+    }
+
+
+
+
 
     /// assumes the reader is buffered (if desired)
     #[must_use]
@@ -204,7 +253,7 @@ impl FullImage {
             for (part_index, part) in self.parts.iter().enumerate() {
                 let mut table = Vec::new();
 
-                // println!("writing image part {}", part_index);
+                println!("writing image part {}", part_index);
 
                 part.tiles(&meta_data.headers[part_index], &mut |tile| {
                     let data: Vec<u8> = self.compress_block(options.compression_method, part_index, tile)?;
@@ -231,7 +280,7 @@ impl FullImage {
                         }
                     };
 
-                    // println!("writing image chunk {:?}", chunk);
+                    println!("writing image chunk {:?}", tile);
 
                     let block_start_position = write.seek(SeekFrom::Current(0))?;
                     table.push((tile, block_start_position));

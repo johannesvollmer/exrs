@@ -828,7 +828,7 @@ mod test {
                     name: None,
                     kind: None,
                     deep_data_version: None,
-                    chunk_count: None,
+                    chunk_count: 1,
                     max_samples_per_pixel: None,
                     custom_attributes: smallvec![ /* TODO */ ]
                 }

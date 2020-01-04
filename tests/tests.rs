@@ -42,7 +42,7 @@ fn read_all_files() {
             let image = catch_unwind(||{ // FIXME does not catch errors from other thread?
                 let prev_hook = panic::take_hook();
                 panic::set_hook(Box::new(|_| (/* do not println panics */)));
-                let image = exr::image::read_from_file(&file, ReadOptions::debug());
+                let image = FullImage::read_from_file(&file, ReadOptions::debug());
                 panic::set_hook(prev_hook);
 
                 image
@@ -66,6 +66,29 @@ fn read_all_files() {
 }
 
 
+#[test]
+fn loop_read() {
+    let path =
+//        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
+            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
+//        "D:/Pictures/openexr/crowskull/crow_zips.exr"
+//"D:/Pictures/openexr/crowskull/crow_rle.exr"
+//"D:/Pictures/openexr/crowskull/crow_zip_half.exr"
+
+//        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
+        ;
+
+    let bytes = fs::read(path).unwrap();
+
+    println!("starting loop...");
+
+    for _ in 0..1024 {
+        let image = FullImage::read_from_buffered(bytes.as_slice(), ReadOptions::debug()).unwrap();
+        bencher::black_box(image);
+    }
+
+    println!("finished");
+}
 
 #[test]
 pub fn test_roundtrip() {
@@ -83,7 +106,7 @@ pub fn test_roundtrip() {
     print!("starting read 1... ");
     io::stdout().flush().unwrap();
 
-    let image = exr::image::read_from_file(path, ReadOptions::debug()).unwrap();
+    let image = FullImage::read_from_file(path, ReadOptions::debug()).unwrap();
     println!("...read 1 successfull");
 
     let write_options = WriteOptions {
@@ -104,7 +127,7 @@ pub fn test_roundtrip() {
     print!("starting read 2... ");
     io::stdout().flush().unwrap();
 
-    let image2 = exr::image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::debug()).unwrap();
+    let image2 = FullImage::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::debug()).unwrap();
     println!("...read 2 successfull");
 
     assert_eq!(image, image2);
@@ -123,14 +146,14 @@ pub fn test_write_file() {
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
     ;
 
-    let image = exr::image::read_from_file(path, ReadOptions::debug()).unwrap();
+    let image = FullImage::read_from_file(path, ReadOptions::debug()).unwrap();
 
     let write_options = WriteOptions {
         compression_method: Compression::ZIP1,
         .. WriteOptions::debug()
     };
 
-    exr::image::write_to_file(&image, "./testout/written.exr", write_options).unwrap();
+    FullImage::write_to_file(&image, "./testout/written.exr", write_options).unwrap();
 }
 
 #[test]
@@ -152,7 +175,7 @@ pub fn convert_to_png() {
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
     ;
 
-    let image = exr::image::read_from_file(path, ReadOptions::debug()).unwrap();
+    let image = FullImage::read_from_file(path, ReadOptions::debug()).unwrap();
 
     // warning: highly unscientific benchmarks ahead!
     let elapsed = now.elapsed();

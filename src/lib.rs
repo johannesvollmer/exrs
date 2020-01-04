@@ -40,6 +40,7 @@ pub mod error;
 extern crate smallvec;
 
 #[cfg(test)]
+#[cfg(debug)]
 extern crate image as piston_image;
 
 
@@ -49,7 +50,7 @@ pub mod prelude {
 
     // core data types
     pub use crate::image::{
-        read_from_file, write_to_file,
+        full::{ FullImage },
         ReadOptions, WriteOptions, BlockOptions,
     };
 
