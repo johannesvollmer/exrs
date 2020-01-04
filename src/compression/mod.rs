@@ -128,7 +128,7 @@ impl std::fmt::Display for Compression {
 
 
 impl Compression {
-    pub fn compress_bytes(self, packed: ByteVec) -> Result<ByteVec> {
+    pub fn compress_image_section(self, packed: ByteVec) -> Result<ByteVec> {
         use self::Compression::*;
 
         // FIXME only write compressed if smaller
@@ -145,9 +145,13 @@ impl Compression {
             .map_err(|_| Error::invalid("compressed content"))?;
 
         if compressed.len() < packed.len() {
+            println!("compressing to byte size {}", compressed.len());
+
             Ok(compressed)
         }
         else {
+            println!("compressing to byte size {}", packed.len());
+
             Ok(packed)
         }
     }
@@ -156,6 +160,9 @@ impl Compression {
         let dimensions = tile.dimensions();
 
         let expected_byte_size = (dimensions.0 * dimensions.1 * header.channels.bytes_per_pixel) as usize;
+
+        println!("expecting tile byte size {} {:?} {:?}", expected_byte_size, tile.dimensions(), tile);
+
         if data.len() == expected_byte_size {
             Ok(data) // the raw data was smaller than the compressed data, so the raw data has been written
         }
@@ -175,6 +182,7 @@ impl Compression {
             let bytes = bytes
                 .map_err(|_| Error::invalid(format!("compressed data ({:?})", self)))?;
 
+            debug_assert_eq!(bytes.len(), expected_byte_size);
             if bytes.len() != expected_byte_size {
                 Err(Error::invalid("decompressed data"))
             }

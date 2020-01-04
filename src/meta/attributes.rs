@@ -34,7 +34,7 @@ pub enum AnyValue {
     Rational(i32, u32),
     Text(Text),
 
-    Kind(Kind),
+    BlockType(BlockType),
     TextVector(Vec<Text>),
     TileDescription(TileDescription),
     TimeCode(TimeCodes),
@@ -60,7 +60,7 @@ pub type TimeCodes = (u32, u32);
 
 /// image kind, one of the strings specified in `Kind`
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum Kind {
+pub enum BlockType {
     /// "scanlineimage"
     ScanLine,
 
@@ -382,16 +382,16 @@ impl ChannelList {
     }
 }
 
-impl Kind {
+impl BlockType {
     const TYPE_NAME: &'static [u8] = attribute_type_names::TEXT;
 
     pub fn parse(text: Text) -> Result<Self> {
         match text.bytes.as_slice() {
-            kind::SCAN_LINE => Ok(Kind::ScanLine),
-            kind::TILE => Ok(Kind::Tile),
+            kind::SCAN_LINE => Ok(BlockType::ScanLine),
+            kind::TILE => Ok(BlockType::Tile),
 
-            kind::DEEP_SCAN_LINE => Ok(Kind::DeepScanLine),
-            kind::DEEP_TILE => Ok(Kind::DeepTile),
+            kind::DEEP_SCAN_LINE => Ok(BlockType::DeepScanLine),
+            kind::DEEP_TILE => Ok(BlockType::DeepTile),
 
             _ => Err(Error::invalid("chunk segmentation method attribute value")),
         }
@@ -404,10 +404,10 @@ impl Kind {
 
     pub fn to_text_bytes(&self) -> &[u8] {
         match self {
-            Kind::ScanLine => kind::SCAN_LINE,
-            Kind::Tile => kind::TILE,
-            Kind::DeepScanLine => kind::DEEP_SCAN_LINE,
-            Kind::DeepTile => kind::DEEP_TILE,
+            BlockType::ScanLine => kind::SCAN_LINE,
+            BlockType::Tile => kind::TILE,
+            BlockType::DeepScanLine => kind::DEEP_SCAN_LINE,
+            BlockType::DeepTile => kind::DEEP_TILE,
         }
     }
 
@@ -945,7 +945,7 @@ impl AnyValue {
             TextVector(ref value) => value.iter().map(self::Text::i32_sized_byte_size).sum(),
             TileDescription(_) => self::TileDescription::byte_size(),
             Custom { ref bytes, .. } => bytes.len(),
-            Kind(ref kind) => kind.byte_size()
+            BlockType(ref kind) => kind.byte_size()
         }
     }
 
@@ -978,7 +978,7 @@ impl AnyValue {
             TextVector(_) =>  ty::TEXT_VECTOR,
             TileDescription(_) =>  ty::TILES,
             Custom { ref kind, .. } => &kind.bytes,
-            Kind(_) => super::Kind::TYPE_NAME,
+            BlockType(_) => super::BlockType::TYPE_NAME,
         }
     }
 
@@ -1020,7 +1020,7 @@ impl AnyValue {
             TextVector(ref value) => self::Text::write_vec_of_i32_sized_texts(write, value)?,
             TileDescription(ref value) => value.write(write)?,
             Custom { ref bytes, .. } => u8::write_slice(write, &bytes)?, // write.write(&bytes).map(|_| ()),
-            Kind(kind) => kind.write(write)?
+            BlockType(kind) => kind.write(write)?
         };
 
         Ok(())
@@ -1139,9 +1139,9 @@ impl AnyValue {
         }
     }
 
-    pub fn into_kind(self) -> Result<Kind> {
+    pub fn into_kind(self) -> Result<BlockType> {
         match self {
-            AnyValue::Kind(value) => Ok(value),
+            AnyValue::BlockType(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1209,7 +1209,7 @@ pub mod required {
     define_required_attribute_names! {
         TILES: b"tiles",
         NAME: b"name",
-        TYPE: b"type",
+        BLOCK_TYPE: b"type",
         VERSION: b"version",
         CHUNKS: b"chunkCount",
         MAX_SAMPLES: b"maxSamplesPerPixel",

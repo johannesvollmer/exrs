@@ -97,6 +97,8 @@ pub trait Data: Sized + Default + Clone {
     #[inline]
     fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, soft_max: usize, hard_max: Option<usize>) -> PassiveResult {
         if let Some(max) = hard_max {
+            debug_assert!(data_size <= max, "large data: {} (max {})", data_size, max);
+
             if data_size > max {
                 return Err(Error::invalid("content size"))
             }

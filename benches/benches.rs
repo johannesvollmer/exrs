@@ -5,7 +5,6 @@ extern crate exr;
 use exr::prelude::*;
 
 use bencher::Bencher;
-use std::io::Cursor;
 use std::fs;
 
 
@@ -66,7 +65,7 @@ fn read_single_image_non_parallel_zips(bench: &mut Bencher) {
     })
 }
 
-fn write_single_image_parallel_zip(bench: &mut Bencher) {
+/*fn write_single_image_parallel_zip(bench: &mut Bencher) {
     let path = "D:/Pictures/openexr/crowskull/crow_zips.exr";
     let options = ReadOptions {
         parallel_decompression: false,
@@ -82,7 +81,7 @@ fn write_single_image_parallel_zip(bench: &mut Bencher) {
             bencher::black_box(result);
         })
     })
-}
+}*/
 
 benchmark_group!(benches,
     read_single_image_uncompressed_from_buffer,

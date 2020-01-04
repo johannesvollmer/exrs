@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 # data types
 half = "1.4.0"
-smallvec = "1.1.0"
+smallvec = "1.1.0" # TODO profile if smallvec is really an improvement!
 
 # serialization
 lebe = { git = "http://github.com/johannesvollmer/lebe" }
@@ -16,7 +16,8 @@ bit_field = "0.10.0"
 # zlib compression
 libflate = "0.1.27"
 
-# simple concurrency
+# simple concurrency (parallel compression and decompression)
+# TODO this could be an default feature which can be disabled if desired
 rayon = "1.2.1"
 
 

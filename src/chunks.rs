@@ -1,5 +1,5 @@
 
-use crate::meta::attributes::Kind;
+use crate::meta::attributes::BlockType;
 
 // TODO
 // SEE PAGE 14 IN TECHNICAL INTRODUCTION
@@ -123,7 +123,7 @@ impl TileCoordinates {
 
 
 
-use crate::meta::Header;
+use crate::meta::{Header, MetaData};
 
 impl ScanLineBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
@@ -228,7 +228,7 @@ use crate::error::{PassiveResult, Result, Error};
 
 impl Chunk {
     pub fn validate(&self, headers: usize) -> PassiveResult {
-        if self.part_number as usize >= headers { // also triggers where part number > 0 in singlepart image
+        if self.part_number as usize >= headers || self.part_number < 0 { // also triggers where part number > 0 in singlepart image
             return Err(Error::invalid("chunk data part number"));
         }
 
@@ -245,7 +245,7 @@ impl Chunk {
     pub fn write(&self, write: &mut impl Write, headers: &[Header]) -> PassiveResult {
         self.validate(headers.len())?;
 
-        if headers.len() > 1 { self.part_number.write(write)?; }
+        if headers.len() != 1 { self.part_number.write(write)?; }
         else { assert_eq!(self.part_number, 0); }
 
         match self.block {
@@ -256,31 +256,32 @@ impl Chunk {
         }
     }
 
-    pub fn read(read: &mut impl Read, is_multipart: bool, headers: &[Header]) -> Result<Self> {
+    pub fn read(read: &mut impl Read, meta_data: &MetaData) -> Result<Self> {
         let part_number = {
-            if is_multipart { i32::read(read)? } // documentation says u64, but is i32
+            if meta_data.requirements.is_multipart() { i32::read(read)? } // documentation says u64, but is i32
             else { 0_i32 } // use first header for single-part images
         };
 
-        if part_number < 0 || part_number >= headers.len() as i32 {
+        if part_number < 0 || part_number >= meta_data.headers.len() as i32 {
             return Err(Error::invalid("chunk data part number"));
         }
 
-        let header = &headers[part_number as usize];
-        let kind = header.kind.unwrap_or(Kind::ScanLine); // TODO is this how it works? Do this everywhere?
-        let max_block_byte_size = header.max_block_byte_size().min(std::u16::MAX as usize * 16);
+        let header = &meta_data.headers[part_number as usize];
+        let block_type = header.block_type;
+
+        let max_block_byte_size = std::usize::MAX; // header.max_block_byte_size().min(std::u16::MAX as usize * 16);
 
         let chunk = Chunk {
             part_number,
-            block: match kind {
-                Kind::ScanLine        => Block::ScanLine(ScanLineBlock::read(read, max_block_byte_size)?),
-                Kind::Tile            => Block::Tile(TileBlock::read(read, max_block_byte_size)?),
-                Kind::DeepScanLine    => Block::DeepScanLine(DeepScanLineBlock::read(read, max_block_byte_size)?),
-                Kind::DeepTile        => Block::DeepTile(DeepTileBlock::read(read, max_block_byte_size)?),
+            block: match block_type {
+                BlockType::ScanLine        => Block::ScanLine(ScanLineBlock::read(read, max_block_byte_size)?),
+                BlockType::Tile            => Block::Tile(TileBlock::read(read, max_block_byte_size)?),
+                BlockType::DeepScanLine    => Block::DeepScanLine(DeepScanLineBlock::read(read, max_block_byte_size)?),
+                BlockType::DeepTile        => Block::DeepTile(DeepTileBlock::read(read, max_block_byte_size)?),
             },
         };
 
-        chunk.validate(headers.len())?;
+        chunk.validate(meta_data.headers.len())?;
         Ok(chunk)
     }
 }

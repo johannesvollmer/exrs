@@ -11,7 +11,6 @@ use std::path::PathBuf;
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use exr::compression::Compression;
-use exr::math::RoundingMode;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter()
@@ -93,7 +92,9 @@ fn loop_read() {
 #[test]
 pub fn test_roundtrip() {
     let path =
-            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
+//            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
+            "D:/Pictures/openexr/MultiResolution/Bonita.exr"
+
 //            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
 //        "D:/Pictures/openexr/crowskull/crow_zips.exr"
 //"D:/Pictures/openexr/crowskull/crow_rle.exr"
@@ -110,9 +111,10 @@ pub fn test_roundtrip() {
     println!("...read 1 successfull");
 
     let write_options = WriteOptions {
-        compression_method: Compression::ZIP16,
-//        compression_method: Compression::Uncompressed,
-//        tiles: BlockOptions::Tiles { size: (128, 128), rounding: RoundingMode::Down },
+//        compression_method: Compression::ZIP16,
+        compression_method: Compression::Uncompressed,
+        blocks: BlockOptions::ScanLineBlocks,
+//        tiles: BlockOptions::TileBlocks { size: (128, 128), rounding: RoundingMode::Down },
         .. WriteOptions::debug()
     };
 
@@ -136,9 +138,11 @@ pub fn test_roundtrip() {
 #[test]
 pub fn test_write_file() {
     let path =
+        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
+
 //            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
 //            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
-"D:/Pictures/openexr/crowskull/crow_zips.exr"
+//"D:/Pictures/openexr/crowskull/crow_zips.exr"
 //            "D:/Pictures/openexr/crowskull/crow_rle.exr"
 //"D:/Pictures/openexr/crowskull/crow_zip_half.exr"
 
@@ -161,13 +165,13 @@ pub fn convert_to_png() {
     let now = ::std::time::Instant::now();
 
     let path =
-//        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
+        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
 
 
 //            "D:/Pictures/openexr/MultiResolution/Bonita.exr"
 
 //            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
-        "D:/Pictures/openexr/crowskull/crow_zips.exr"
+//        "D:/Pictures/openexr/crowskull/crow_zips.exr"
 //            "D:/Pictures/openexr/crowskull/crow_rle.exr"
 //            "D:/Pictures/openexr/crowskull/crow_zip_half.exr"
 
@@ -200,16 +204,17 @@ pub fn convert_to_png() {
     fs::remove_dir_all("testout").unwrap_or_default();
     fs::create_dir("testout").unwrap();
 
-    for part in &image.parts {
+    for (part_index, part) in image.parts.iter().enumerate() {
         for channel in &part.channels {
             match &channel.content {
                 ChannelData::F16(levels) => {
-                    let levels = levels.flat_samples().unwrap();
-                    for sample_block in levels.levels() {
+                    let levels = levels.as_flat_samples().unwrap();
+                    for sample_block in levels.as_slice() {
                         let data : Vec<f32> = sample_block.samples.iter().map(|f16| f16.to_f32()).collect();
 
                         save_f32_image_as_png(&data, sample_block.resolution, format!(
-                            "testout/{}_{}_f16_{}x{}.png",
+                            "testout/{} ({}) {}_f16_{}x{}.png",
+                            part_index,
                             part.name.as_ref().map(attributes::Text::to_string).unwrap_or(String::from("1")),
                             channel.name,
                             sample_block.resolution.0,
@@ -218,10 +223,11 @@ pub fn convert_to_png() {
                     }
                 },
                 ChannelData::F32(levels) => {
-                    let levels = levels.flat_samples().unwrap();
-                    for sample_block in levels.levels() {
+                    let levels = levels.as_flat_samples().unwrap();
+                    for sample_block in levels.as_slice() {
                         save_f32_image_as_png(&sample_block.samples, sample_block.resolution, format!(
-                            "testout/{}_{}_f16_{}x{}.png",
+                            "testout/{} ({}) {}_f16_{}x{}.png",
+                            part_index,
                             part.name.as_ref().map(attributes::Text::to_string).unwrap_or(String::from("1")),
                             channel.name,
                             sample_block.resolution.0,

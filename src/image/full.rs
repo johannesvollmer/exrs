@@ -3,8 +3,6 @@
 
 use smallvec::SmallVec;
 use half::f16;
-use rayon::prelude::IntoParallelIterator;
-use rayon::iter::ParallelIterator;
 use crate::chunks::*;
 use crate::io::*;
 use crate::meta::*;
@@ -117,14 +115,6 @@ pub struct DeepLine<Sample> {
 }
 
 
-/// temporarily used to construct images in parallel
-#[derive(Clone, PartialEq, Debug)]
-pub struct UncompressedBlock {
-    part_index: usize,
-    tile: TileIndices,
-    data: ByteVec,
-}
-
 impl<S> std::fmt::Debug for Levels<S> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -187,40 +177,10 @@ impl FullImage {
     /// assumes the reader is buffered (if desired)
     #[must_use]
     pub fn read_from_buffered(read: impl Read, options: ReadOptions) -> Result<Self> {
-        let mut read = PeekRead::new(read);
-        let MetaData { headers, requirements } = MetaData::read_from_buffered_peekable(&mut read)?;
-        let chunk_count = MetaData::skip_offset_tables(&mut read, &headers)? as usize;
-
-        let mut image = FullImage::new(headers.as_slice())?;
-
-        let has_compression = headers.iter() // do not use parallel stuff for uncompressed images
-            .find(|header| header.compression != Compression::Uncompressed).is_some();
-
-        if options.parallel_decompression && has_compression {
-            let compressed: Result<Vec<Chunk>> = (0..chunk_count)
-                .map(|_| Chunk::read(&mut read, requirements.is_multipart(), headers.as_slice()))
-                .collect();
-
-            let decompress = compressed?.into_par_iter().map(|chunk|
-                UncompressedBlock::from_compressed(chunk, headers.as_slice())
-            );
-
-            let decompressed: Result<Vec<UncompressedBlock>> = decompress.collect(); // TODO without double collect!
-
-            for decompressed in decompressed? {
-                image.insert_block(&mut decompressed.data.as_slice(), decompressed.part_index, decompressed.tile)?;
-            }
-        }
-        else {
-            for _ in 0..chunk_count {
-                // TODO avoid all allocations for uncompressed data
-                let chunk = Chunk::read(&mut read, requirements.is_multipart(), headers.as_slice())?;
-                let decompressed = UncompressedBlock::from_compressed(chunk, headers.as_slice())?;
-                image.insert_block(&mut decompressed.data.as_slice(), decompressed.part_index, decompressed.tile)?;
-            }
-        }
-
-        Ok(image)
+        crate::image::read_all_chunks(read, options, FullImage::new, |mut image, block| {
+            image.insert_block(&mut block.data.as_slice(), block.part_index, block.tile)?;
+            Ok(image)
+        })
     }
 
 
@@ -236,6 +196,8 @@ impl FullImage {
         let offset_table_size: u32 = meta_data.headers.iter()
             .map(|header| header.chunk_count).sum();
 
+        println!("writing zeroed tables (chunk count: {})", offset_table_size);
+
         let mut offset_tables: Vec<u64> = vec![0; offset_table_size as usize];
         u64::write_slice(&mut write, offset_tables.as_slice())?;
         offset_tables.clear();
@@ -247,19 +209,28 @@ impl FullImage {
                 println!("writing image part {}", part_index);
 
                 part.tiles(&meta_data.headers[part_index], &mut |tile| {
-                    let data: Vec<u8> = self.compress_block(options.compression_method, part_index, tile)?;
+                    let data: Vec<u8> = self.extract_block(part_index, tile)?;
+
+                    if part_index == 1 {
+                        println!("uncompressed data len: {}", data.len());
+                        println!("compressing tile: {:?}", tile);
+                    }
+
+                    let data = options.compression_method.compress_image_section(data)?;
+
+//                    println!("compressed data len: {}", data.len());
 
                     let chunk = Chunk {
                         part_number: part_index as i32,
 
                         // TODO deep data
-                        block: match options.tiles {
+                        block: match options.blocks {
                             BlockOptions::ScanLineBlocks => Block::ScanLine(ScanLineBlock {
                                 y_coordinate: part.data_window.y_min + tile.position.1 as i32,
                                 compressed_pixels: data
                             }),
 
-                            BlockOptions::Tiles { .. } => Block::Tile(TileBlock {
+                            BlockOptions::TileBlocks { .. } => Block::Tile(TileBlock {
                                 compressed_pixels: data,
                                 coordinates: TileCoordinates {
                                     tile_x: part.data_window.x_min + tile.position.0 as i32,
@@ -271,10 +242,9 @@ impl FullImage {
                         }
                     };
 
-                    println!("writing image chunk {:?}", tile);
-
                     let block_start_position = write.seek(SeekFrom::Current(0))?;
                     table.push((tile, block_start_position));
+
 
                     chunk.write(&mut write, meta_data.headers.as_slice())?;
 
@@ -283,6 +253,8 @@ impl FullImage {
 
                 // sort offset table by increasing y
                 table.sort_by(|(a, _), (b, _)| a.cmp(b));
+                println!("write single table [{}] {:?}", table.len(), table);
+
                 offset_tables.extend(table.into_iter().map(|(_, index)| index));
             }
         }
@@ -299,28 +271,6 @@ impl FullImage {
     }
 }
 
-impl UncompressedBlock {
-    // for uncompressed data, the ByteVec in the chunk is moved all the way
-    pub fn from_compressed(chunk: Chunk, headers: &[Header]) -> Result<Self> {
-        let header: &Header = headers.get(chunk.part_number as usize)
-            .ok_or(Error::invalid("chunk part index"))?;
-
-        let raw_coordinates = header.get_raw_block_coordinates(&chunk.block)?;
-        let tile_data_indices = header.get_block_data_indices(&chunk.block)?;
-        raw_coordinates.validate(Some(header.data_window.dimensions()))?;
-
-        match chunk.block {
-            Block::Tile(TileBlock { compressed_pixels, .. }) |
-            Block::ScanLine(ScanLineBlock { compressed_pixels, .. }) => {
-                let data = header.compression.decompress_image_section(header, compressed_pixels, raw_coordinates)?;
-                Ok(UncompressedBlock { part_index: chunk.part_number as usize, tile: tile_data_indices, data,  })
-            },
-
-            _ => return Err(Error::unsupported("deep data"))
-        }
-    }
-
-}
 
 impl FullImage {
     pub fn new(headers: &[Header]) -> Result<Self> {
@@ -354,7 +304,7 @@ impl FullImage {
         part.insert_block(data, tile)
     }
 
-    pub fn compress_block(&self, compression: Compression, part: usize, tile: TileIndices) -> Result<ByteVec> {
+    pub fn extract_block(&self, part: usize, tile: TileIndices) -> Result<ByteVec> {
         debug_assert_ne!(tile.size.0, 0);
         debug_assert_ne!(tile.size.1, 0);
 
@@ -362,9 +312,7 @@ impl FullImage {
             .ok_or(Error::invalid("chunk part index"))?;
 
         let mut bytes = Vec::new();
-        part.decompress_block(tile, &mut bytes)?;
-
-        let bytes = compression.compress_bytes(bytes)?;
+        part.extract_block(tile, &mut bytes)?;
         Ok(bytes)
     }
 
@@ -376,9 +324,9 @@ impl FullImage {
 
         Ok(MetaData {
             requirements: Requirements::new(
-                self.minimum_version(options.tiles)?,
+                self.minimum_version(options.blocks)?,
                 headers.len(),
-                match options.tiles {
+                match options.blocks {
                     BlockOptions::ScanLineBlocks => false,
                     _ => true
                 },
@@ -404,8 +352,8 @@ impl Part {
     /// allocates all the memory necessary to hold the pixel data,
     /// zeroed out, ready to be filled with actual pixel data
     pub fn new(header: &Header) -> Result<Self> {
-        match header.kind {
-            None | Some(Kind::ScanLine) | Some(Kind::Tile) => {
+        match header.block_type {
+            BlockType::ScanLine | BlockType::Tile => {
                 Ok(Part {
                     data_window: header.data_window,
                     screen_window_center: header.screen_window_center,
@@ -416,7 +364,7 @@ impl Part {
                 })
             },
 
-            Some(Kind::DeepScanLine) | Some(Kind::DeepTile) => {
+            BlockType::DeepScanLine | BlockType::DeepTile => {
                 return Err(Error::unsupported("deep data"))
             },
         }
@@ -434,7 +382,7 @@ impl Part {
         Ok(())
     }
 
-    pub fn decompress_block(&self, area: TileIndices, write: &mut impl Write) -> PassiveResult {
+    pub fn extract_block(&self, area: TileIndices, write: &mut impl Write) -> PassiveResult {
         let level = (area.level.0 as usize, area.level.1 as usize);
 
         for y in area.position.1 .. area.position.1 + area.size.1 {
@@ -448,9 +396,9 @@ impl Part {
 
     pub fn infer_header(&self, display_window: I32Box2, pixel_aspect: f32, options: WriteOptions) -> Result<Header> {
         assert_eq!(options.line_order, LineOrder::Unspecified);
-        let tiles = match options.tiles {
+        let tiles = match options.blocks {
             BlockOptions::ScanLineBlocks => None,
-            BlockOptions::Tiles { size, rounding } => Some(TileDescription {
+            BlockOptions::TileBlocks { size, rounding } => Some(TileDescription {
                 tile_size: size, level_mode: LevelMode::Singular, // FIXME levels!
                 rounding_mode: rounding
             })
@@ -483,12 +431,11 @@ impl Part {
 
             line_order: LineOrder::Unspecified, // TODO
 
-
-            kind: Some(match options.tiles { // TODO only write if necessary?
-                BlockOptions::ScanLineBlocks => Kind::ScanLine,
-                BlockOptions::Tiles { .. } => Kind::Tile,
+            block_type: match options.blocks { // TODO only write if necessary?
+                BlockOptions::ScanLineBlocks => BlockType::ScanLine,
+                BlockOptions::TileBlocks { .. } => BlockType::Tile,
                 // TODO deep data
-            }),
+            },
 
 
             // TODO deep/multipart data:
@@ -635,14 +582,14 @@ impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
         }
     }
 
-    pub fn flat_samples(&self) -> Option<&Levels<FlatSamples<Sample>>> {
+    pub fn as_flat_samples(&self) -> Option<&Levels<FlatSamples<Sample>>> {
         match self {
             SampleMaps::Flat(ref levels) => Some(levels),
             _ => None
         }
     }
 
-    pub fn deep_samples(&self) -> Option<&Levels<DeepSamples<Sample>>> {
+    pub fn as_deep_samples(&self) -> Option<&Levels<DeepSamples<Sample>>> {
         match self {
             SampleMaps::Deep(ref levels) => Some(levels),
             _ => None
@@ -685,62 +632,54 @@ impl<S: Samples> Levels<S> {
     }
 
     pub fn insert_line(&mut self, read: &mut impl Read, level:(usize, usize), position: (usize, usize), length: usize) -> PassiveResult {
-        match self {
-            Levels::Singular(ref mut block) => {
-                debug_assert_eq!(level, (0,0), "singular image cannot read leveled blocks");
-                block.insert_line(read, position, length)?;
-            },
-
-            Levels::Mip(block) => {
-                debug_assert_eq!(level.0, level.1, "mip map levels must be equal on x and y"); // TODO err instead?
-                block.get_mut(level.0)
-                    .ok_or(Error::invalid("block mip level index"))?
-                    .insert_line(read, position, length)?;
-            },
-
-            Levels::Rip(block) => {
-                block.get_by_level_mut(level)
-                    .ok_or(Error::invalid("block rip level index"))?
-                    .insert_line(read, position, length)?;
-            }
-        }
-
-        Ok(())
+        self.get_level_mut(level)?.insert_line(read, position, length)
     }
 
     pub fn extract_line(&self, write: &mut impl Write, level:(usize, usize), position: (usize, usize), length: usize) -> PassiveResult {
+        self.get_level(level)?.extract_line(write, position, length)
+    }
+
+    pub fn get_level(&self, level: (usize, usize)) -> Result<&SampleBlock<S>> {
         match self {
             Levels::Singular(ref block) => {
                 debug_assert_eq!(level, (0,0), "singular image cannot write leveled blocks");
-                block.extract_line(write, position, length)?;
+                Ok(block)
             },
 
             Levels::Mip(block) => {
                 debug_assert_eq!(level.0, level.1, "mip map levels must be equal on x and y"); // TODO err instead?
-                block.get(level.0)
-                    .ok_or(Error::invalid("block mip level index"))?
-                    .extract_line(write, position, length)?;
+                block.get(level.0).ok_or(Error::invalid("block mip level index"))
             },
 
             Levels::Rip(block) => {
-                block.get_by_level(level)
-                    .ok_or(Error::invalid("block rip level index"))?
-                    .extract_line(write, position, length)?;
+                block.get_by_level(level).ok_or(Error::invalid("block rip level index"))
             }
         }
-
-        Ok(())
     }
 
-    pub fn largest(&self) -> &SampleBlock<S> {
+    pub fn get_level_mut(&mut self, level: (usize, usize)) -> Result<&mut SampleBlock<S>> {
         match self {
-            Levels::Singular(data) => data,
-            Levels::Mip(maps) => &maps[0], // TODO is this really the largest one?
-            Levels::Rip(rip_map) => &rip_map.map_data[0], // TODO test!
+            Levels::Singular(ref mut block) => {
+                debug_assert_eq!(level, (0,0), "singular image cannot write leveled blocks");
+                Ok(block)
+            },
+
+            Levels::Mip(block) => {
+                debug_assert_eq!(level.0, level.1, "mip map levels must be equal on x and y"); // TODO err instead?
+                block.get_mut(level.0).ok_or(Error::invalid("block mip level index"))
+            },
+
+            Levels::Rip(block) => {
+                block.get_by_level_mut(level).ok_or(Error::invalid("block rip level index"))
+            }
         }
     }
 
-    pub fn levels(&self) -> &[SampleBlock<S>] {
+    pub fn largest(&self) -> Result<&SampleBlock<S>> {
+        self.get_level((0,0))
+    }
+
+    pub fn as_slice(&self) -> &[SampleBlock<S>] {
         match self {
             Levels::Singular(ref data) => std::slice::from_ref(data),
             Levels::Mip(ref maps) => maps, // TODO is this really the largest one?

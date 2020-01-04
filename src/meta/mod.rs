@@ -69,8 +69,9 @@ pub struct Header {
     /// Required if either the multipart bit (12) or the non-image bit (11) is set.
     /// Set to one of: scanlineimage, tiledimage, deepscanline, or deeptile.
     /// Note: This value must agree with the version field's tile bit (9) and non-image (deep data) bit (11) settings
-    /// required for deep data. when deep data, Must be set to deepscanline or deeptile
-    pub kind: Option<Kind>,
+    /// required for deep data. when deep data, Must be set to deepscanline or deeptile.
+    /// In this crate, this attribute will always have a value for simplicity.
+    pub block_type: BlockType,
 
     /// This document describes version 1 data for all
     /// part types. version is required for deep data (deepscanline and deeptile) parts.
@@ -267,7 +268,10 @@ impl MetaData {
     // TODO skip reading offset tables if not required?
     pub fn skip_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<u64> {
         let chunk_count: u64 = headers.iter().map(|header| header.chunk_count as u64).sum();
-        crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE as u64)?;
+
+        let values = u64::read_vec(read, chunk_count as usize, 2048, None)?;
+        println!("read offset table {:?}", values);
+        // crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE as u64)?;
         Ok(chunk_count)
     }
 
@@ -296,18 +300,26 @@ impl MetaData {
 impl Header {
 
     pub fn has_deep_data(&self) -> bool {
-        match self.kind {
-            Some(Kind::DeepTile) | Some(Kind::DeepScanLine) => true,
+        match self.block_type {
+            BlockType::DeepTile | BlockType::DeepScanLine => true,
             _ => false
         }
     }
 
+//    pub fn block_type(&self, requirements: &Requirements) -> BlockType {
+//        match self.block_type {
+//            None => if requirements.is_single_part_and_tiled { BlockType::Tile } else { BlockType::ScanLine },
+//            Some(block_type) => block_type
+//        }
+//    }
+
     pub fn has_tiles(&self, requirements: &Requirements) -> bool {
-        requirements.is_single_part_and_tiled || match self.kind {
-            Some(Kind::DeepTile) | Some(Kind::Tile) => {
+        match self.block_type {
+            BlockType::DeepTile | BlockType::Tile => {
                 debug_assert!(self.tiles.is_some());
                 true
             },
+
             _ => false
         }
     }
@@ -444,15 +456,12 @@ impl Header {
     }
 
     // TODO for all other fields too?
-    pub fn kind_or_err(&self) -> Result<&Kind> {
-        self.kind.as_ref().ok_or(missing_attribute("chunk segmentation type"))
-    }
+//    pub fn kind_or_err(&self) -> Result<&BlockType> {
+//        self.block_type.as_ref().ok_or(missing_attribute("chunk segmentation type"))
+//    }
 
     pub fn validate(&self, requirements: &Requirements) -> PassiveResult {
         if requirements.is_multipart() {
-            if self.kind.is_none() {
-                return Err(missing_attribute("chunk segmentation type"));
-            }
             if self.name.is_none() {
                 return Err(missing_attribute("image part name"));
             }
@@ -517,13 +526,11 @@ impl Header {
     }
 
     pub fn write_all(headers: &[Header], write: &mut impl Write, version: &Requirements) -> PassiveResult {
-        let has_multiple_headers = headers.len() != 1;
-
         for header in headers {
             header.write(write, version)?;
         }
 
-        if has_multiple_headers {
+        if version.is_multipart() {
             sequence_end::write(write)?;
         }
 
@@ -537,7 +544,7 @@ impl Header {
         // these required attributes will be Some(usize) when encountered while parsing
         let mut tiles = None;
         let mut name = None;
-        let mut kind = None;
+        let mut block_type = None;
         let mut version = None;
         let mut chunk_count = None;
         let mut max_samples_per_pixel = None;
@@ -557,7 +564,7 @@ impl Header {
             match attribute_name.bytes.as_slice() {
                 TILES => tiles = Some(value.to_tile_description()?),
                 NAME => name = Some(value.into_text()?),
-                TYPE => kind = Some(Kind::parse(value.into_text()?)?),
+                BLOCK_TYPE => block_type = Some(BlockType::parse(value.into_text()?)?),
                 CHANNELS => channels = Some(value.into_channel_list()?),
                 COMPRESSION => compression = Some(value.to_compression()?),
                 DATA_WINDOW => data_window = Some(value.to_i32_box_2()?),
@@ -590,6 +597,11 @@ impl Header {
             Some(count) => count,
         };
 
+        let block_type = match block_type {
+            None => if requirements.is_single_part_and_tiled { BlockType::Tile } else { BlockType::ScanLine },
+            Some(kind) => kind,
+        };
+
         let header = Header {
             compression, data_window, chunk_count,
 
@@ -602,7 +614,8 @@ impl Header {
 
 
             tiles,
-            name, kind,
+            name,
+            block_type,
             max_samples_per_pixel,
             deep_data_version: version,
             custom_attributes: custom,
@@ -633,12 +646,12 @@ impl Header {
 
             write_opt_attr(write, long, TILES, self.tiles, TileDescription)?;
             write_opt_attr(write, long, NAME, self.name.clone(), Text)?;
-            write_opt_attr(write, long, TYPE, self.kind, Kind)?;
             write_opt_attr(write, long, VERSION, self.deep_data_version, I32)?;
             write_opt_attr(write, long, MAX_SAMPLES, self.max_samples_per_pixel, |u| I32(u as i32))?;
 
             // not actually required, but always computed in this library anyways
             write_attr(write, long, CHUNKS, self.chunk_count, |u| I32(u as i32))?;
+            write_attr(write, long, BLOCK_TYPE, self.block_type, BlockType)?;
 
             write_attr(write, long, CHANNELS, self.channels.clone(), ChannelList)?; // FIXME do not clone
             write_attr(write, long, COMPRESSION, self.compression, Compression)?;
