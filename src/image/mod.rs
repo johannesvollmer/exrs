@@ -6,7 +6,7 @@ use crate::compression::{Compression, ByteVec};
 use crate::math::*;
 use std::io::Read;
 use crate::error::{Result, Error};
-use crate::meta::{MetaData, TileIndices, Header};
+use crate::meta::{MetaData, Header};
 use crate::chunks::{Chunk, Block, TileBlock, ScanLineBlock};
 use crate::io::PeekRead;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -42,7 +42,9 @@ pub struct ReadOptions {
 #[derive(Clone, PartialEq, Debug)]
 pub struct UncompressedBlock {
     part_index: usize,
-    tile: TileIndices,
+    data_index: (usize, usize),
+    data_size: (usize, usize),
+    level: (usize, usize),
     data: ByteVec,
 }
 
@@ -55,12 +57,12 @@ pub fn read_all_chunks<T>(
 ) -> Result<T>
 {
 
-    struct ByteCounter<T> {
-        bytes: usize,
-        inner: T
-    }
+//    struct ByteCounter<T> {
+//        bytes: usize,
+//        inner: T
+//    }
 
-    impl<T: Read> Read for ByteCounter<T> {
+    /*impl<T: Read> Read for ByteCounter<T> {
         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
             let byte_count = self.inner.read(buf)?;
 //            println!("read bytes {} to {} ({})", self.bytes, self.bytes + byte_count, byte_count);
@@ -69,17 +71,13 @@ pub fn read_all_chunks<T>(
         }
     }
 
-    impl<T> ByteCounter<T> {
-        pub fn byte_count(&self) -> usize { self.bytes }
-    }
-
-    let read = ByteCounter { inner: read, bytes: 0, };
+    let read = ByteCounter { inner: read, bytes: 0, };*/
 
 
     let mut read = PeekRead::new(read);
     let meta_data = MetaData::read_from_buffered_peekable(&mut read)?;
     let chunk_count = MetaData::skip_offset_tables(&mut read, &meta_data.headers)? as usize;
-    println!("skipping tables (chunk count: {})", chunk_count);
+//    println!("skipping tables (chunk count: {})", chunk_count);
 
     let mut value = new(meta_data.headers.as_slice())?;
 
@@ -104,7 +102,7 @@ pub fn read_all_chunks<T>(
         }
     }
     else {
-        for c in 0..chunk_count {
+        for _ in 0..chunk_count {
             // TODO avoid all allocations for uncompressed data
             let chunk = Chunk::read(&mut read, &meta_data)?;
             let decompressed = UncompressedBlock::from_compressed(chunk, &meta_data)?;
@@ -125,16 +123,23 @@ impl UncompressedBlock {
         let header: &Header = meta_data.headers.get(chunk.part_number as usize)
             .ok_or(Error::invalid("chunk part index"))?;
 
-        let raw_coordinates = header.get_raw_block_coordinates(&chunk.block)?;
+        // TODO clean up this doubly repeated stuff!!!:
+//        let raw_coordinates = header.get_raw_block_coordinates(&chunk.block)?;
         let tile_data_indices = header.get_block_data_indices(&chunk.block)?;
-        raw_coordinates.validate(Some(header.data_window.dimensions()))?;
+//        let data_window_coordinates = header.get_block_data_window_coordinates(tile_data_indices);
+        let absolute_indices = header.get_absolute_block_indices(tile_data_indices)?;
+
+        absolute_indices.validate(Some(header.data_window.dimensions()))?;
 
         match chunk.block {
             Block::Tile(TileBlock { compressed_pixels, .. }) |
-            Block::ScanLine(ScanLineBlock { compressed_pixels, .. }) => {
-                let data = header.compression.decompress_image_section(header, compressed_pixels, raw_coordinates)?;
-                Ok(UncompressedBlock { part_index: chunk.part_number as usize, tile: tile_data_indices, data,  })
-            },
+            Block::ScanLine(ScanLineBlock { compressed_pixels, .. }) => Ok(UncompressedBlock {
+                part_index: chunk.part_number as usize,
+                data_index: (absolute_indices.x_min as usize, absolute_indices.y_min as usize),
+                data_size: (absolute_indices.dimensions().0 as usize, absolute_indices.dimensions().1 as usize),
+                level: (tile_data_indices.level_x as usize, tile_data_indices.level_y as usize),
+                data: header.compression.decompress_image_section(header, compressed_pixels, absolute_indices)?
+            }),
 
             _ => return Err(Error::unsupported("deep data"))
         }

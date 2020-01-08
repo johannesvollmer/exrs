@@ -165,7 +165,12 @@ pub fn convert_to_png() {
     let now = ::std::time::Instant::now();
 
     let path =
-        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
+//        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
+//        "D:/Pictures/openexr/Tiles/Ocean.exr"
+        "D:/Pictures/openexr/MultiResolution/Kapaa.exr" // FIXME y == height
+//        "D:/Pictures/openexr/MultiView/Impact.exr"
+//        "D:/Pictures/openexr/MultiResolution/KernerEnvCube.exr"
+//        "D:/Pictures/openexr/MultiResolution/Bonita.exr"
 
 
 //            "D:/Pictures/openexr/MultiResolution/Bonita.exr"

@@ -24,7 +24,7 @@ pub fn positive_i32(value: i32, name: &'static str) -> Result<u32> {
     else { Ok(value as u32) }
 }
 
-
+#[derive(Debug)]
 pub struct PeekRead<T> {
     inner: T,
     peeked: Option<IoResult<u8>>,

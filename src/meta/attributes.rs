@@ -92,6 +92,8 @@ pub type DisplayWindow = I32Box2;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct I32Box2 {
     pub x_min: i32, pub y_min: i32,
+
+    /// in rust, these are exclusive! (deviating from original openexr)
     pub x_max: i32, pub y_max: i32,
 }
 
@@ -418,7 +420,6 @@ impl BlockType {
 
 
 impl I32Box2 {
-
     pub fn from_dimensions(size: (u32, u32)) -> Self {
         Self::new((0,0), size)
     }
@@ -427,20 +428,20 @@ impl I32Box2 {
         Self {
             x_min: position.0,
             y_min: position.1,
-            x_max: position.0 + size.0 as i32 - 1,
-            y_max: position.1 + size.1 as i32 - 1
+            x_max: position.0 + size.0 as i32,
+            y_max: position.1 + size.1 as i32
         }
     }
 
     pub fn validate(&self, max: Option<(u32, u32)>) -> PassiveResult {
-        if self.x_min > self.x_max || self.y_min > self.y_max {
+        if self.x_min >= self.x_max || self.y_min >= self.y_max {
             return Err(Error::invalid("box attribute dimensions"));
         }
 
         if let Some(bounds) = max {
-            let dimensions = self.dimensions();
+            let size = self.dimensions();
 
-            if dimensions.0 > bounds.0 || dimensions.1 > bounds.1  {
+            if size.0 > bounds.0 || size.1 > bounds.1  {
                 return Err(Error::invalid("box attribute dimensions"));
             }
         }
@@ -452,8 +453,8 @@ impl I32Box2 {
         debug_assert!(self.validate(None).is_ok());
 
         (
-            (self.x_max + 1 - self.x_min) as u32,
-            (self.y_max + 1 - self.y_min) as u32,
+            (self.x_max - self.x_min) as u32,
+            (self.y_max - self.y_min) as u32,
         )
     }
 
@@ -465,8 +466,8 @@ impl I32Box2 {
         self.validate(None)?; // TODO pass validate some boundary?
         self.x_min.write(write)?;
         self.y_min.write(write)?;
-        self.x_max.write(write)?;
-        self.y_max.write(write)?;
+        (self.x_max - 1).write(write)?;
+        (self.y_max - 1).write(write)?;
         Ok(())
     }
 
@@ -474,14 +475,24 @@ impl I32Box2 {
         let value = I32Box2 {
             x_min: i32::read(read)?,
             y_min: i32::read(read)?,
-            x_max: i32::read(read)?,
-            y_max: i32::read(read)?,
+            x_max: i32::read(read)? + 1,
+            y_max: i32::read(read)? + 1,
         };
 
         value.validate(None)?;
         Ok(value)
     }
+
+    pub fn with_origin(&self, origin: (i32, i32)) -> Self {
+        I32Box2 {
+            x_min: self.x_min + origin.0,
+            y_min: self.y_min + origin.1,
+            x_max: self.x_max + origin.0,
+            y_max: self.y_max + origin.1
+        }
+    }
 }
+
 
 impl F32Box2 {
     pub fn byte_size() -> usize {

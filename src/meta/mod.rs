@@ -13,8 +13,6 @@ use std::cmp::Ordering;
 use crate::math::*;
 
 
-
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct MetaData {
     pub requirements: Requirements,
@@ -136,20 +134,19 @@ pub struct Requirements {
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct TileIndices {
-    pub level: (u32, u32),
-    pub position: (u32, u32),
+    pub location: TileCoordinates,
     pub size: (u32, u32),
 }
 
 impl TileIndices {
     pub fn cmp(&self, other: &Self) -> Ordering {
-        match self.level.1.cmp(&other.level.1) {
+        match self.location.level_y.cmp(&other.location.level_y) {
             Ordering::Equal => {
-                match self.level.0.cmp(&other.level.0) {
+                match self.location.level_x.cmp(&other.location.level_x) {
                     Ordering::Equal => {
-                        match self.position.1.cmp(&other.position.1) {
+                        match self.location.tile_index_y.cmp(&other.location.tile_index_y) {
                             Ordering::Equal => {
-                                self.position.0.cmp(&other.position.0)
+                                self.location.tile_index_x.cmp(&other.location.tile_index_x)
                             },
 
                             other => other,
@@ -269,9 +266,9 @@ impl MetaData {
     pub fn skip_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<u64> {
         let chunk_count: u64 = headers.iter().map(|header| header.chunk_count as u64).sum();
 
-        let values = u64::read_vec(read, chunk_count as usize, 2048, None)?;
-        println!("read offset table {:?}", values);
-        // crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE as u64)?;
+//        let values = u64::read_vec(read, chunk_count as usize, 2048, None)?;
+//        println!("read offset table {:?}", values);
+         crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE as u64)?;
         Ok(chunk_count)
     }
 
@@ -306,14 +303,7 @@ impl Header {
         }
     }
 
-//    pub fn block_type(&self, requirements: &Requirements) -> BlockType {
-//        match self.block_type {
-//            None => if requirements.is_single_part_and_tiled { BlockType::Tile } else { BlockType::ScanLine },
-//            Some(block_type) => block_type
-//        }
-//    }
-
-    pub fn has_tiles(&self, requirements: &Requirements) -> bool {
+    pub fn has_tiles(&self) -> bool {
         match self.block_type {
             BlockType::DeepTile | BlockType::Tile => {
                 debug_assert!(self.tiles.is_some());
@@ -324,127 +314,166 @@ impl Header {
         }
     }
 
-    pub fn get_raw_block_coordinates(&self, block: &Block) -> Result<I32Box2> {
+    /*pub fn get_absolute_block_coordinates_for(&self, tile: TileCoordinates) -> I32Box2 {
+        match self.tiles {
+            Some(tiles) => self.get_tile(tile), // FIXME branch
+            None => {
+                let y = tile.tile_index_y * self.compression.scan_lines_per_block() as i32;
+                let height = self.get_scan_line_block_height(y as u32);
+                let width = self.data_window.dimensions().0;
+
+                I32Box2 {
+                    x_min: 0,
+                    y_min: y,
+                    x_max: width as i32,
+                    y_max: y + height as i32
+                }
+            }
+        }
+    }*/
+    pub fn get_block_data_window_coordinates(&self, tile: TileCoordinates) -> Result<I32Box2> {
+        let data = self.get_absolute_block_indices(tile)?;
+        Ok(data.with_origin((self.data_window.x_min, self.data_window.y_min)))
+    }
+
+    pub fn get_absolute_block_indices(&self, tile: TileCoordinates) -> Result<I32Box2> {
+        Ok(if let Some(tiles) = self.tiles { // FIXME set to none if tile attribute exists but image is not tiled!
+            let round = tiles.rounding_mode;
+            let default_tile_width = tiles.tile_size.0;
+            let default_tile_height = tiles.tile_size.1;
+
+            let (data_width, data_height) = self.data_window.dimensions();
+            let data_width = compute_level_size(round, data_width, tile.level_x as u32);
+            let data_height = compute_level_size(round, data_height, tile.level_y as u32);
+
+            let absolute_tile_coordinates = tile.to_data_indices((tiles.tile_size.0 as i32, tiles.tile_size.1 as i32));
+//        let y = tile.absolute_coordinates(tiles.tile_size).0 - self.data_window.y_min; // TODO divide by tile size?
+//        let x = tile.tile_x * tiles.tile_size.0 as i32 - self.data_window.x_min; // TODO divide by tile size?
+
+            let next_tile_x = absolute_tile_coordinates.x_min as u32 + default_tile_width;
+            let next_tile_y = absolute_tile_coordinates.y_min as u32 + default_tile_height;
+
+            let width = if next_tile_x <= data_width { default_tile_width } else {
+                let clipped_columns = next_tile_x - data_width; // TODO +/-1?
+                default_tile_width - clipped_columns
+            };
+
+            let height = if next_tile_y <= data_height { default_tile_height } else {
+                let clipped_lines = next_tile_y - data_height; // TODO +/-1?
+                default_tile_height - clipped_lines
+            };
+
+            debug_assert!(
+                height != 0 && width != 0,
+                "tile size is 0 for tile {:?} in header {:#?}",
+                tile, self
+            );
+
+            I32Box2 {
+                x_min: absolute_tile_coordinates.x_min,
+                y_min: absolute_tile_coordinates.y_min,
+                x_max: absolute_tile_coordinates.x_min + width as i32,
+                y_max: absolute_tile_coordinates.y_min + height as i32,
+            }
+        }
+        else {
+            let y = tile.tile_index_y * self.compression.scan_lines_per_block() as i32;
+            let height = self.get_scan_line_block_height(y + self.data_window.y_min);
+
+            I32Box2 {
+                x_min: 0,
+                y_min: y,
+                x_max: self.data_window.dimensions().0 as i32,
+                y_max: y + height as i32
+            }
+        })
+        // TODO deep data?
+    }
+
+    pub fn get_block_data_indices(&self, block: &Block) -> Result<TileCoordinates> {
         Ok(match block {
             Block::Tile(ref tile) => {
-                let size = self.get_tile_size(tile.coordinates);
-                I32Box2 {
-                    x_min: tile.coordinates.tile_x,
-                    y_min: tile.coordinates.tile_y,
-                    x_max: tile.coordinates.tile_x + size.0 as i32 - 1,
-                    y_max: tile.coordinates.tile_y + size.1 as i32 - 1
-                }
+                tile.coordinates
+//                TileIndices {
+//                    location: tile.coordinates,
+//                    size: self.get_tile(tile.coordinates).dimensions() // TODO cleanup
+//                }
             },
-//                // FIXME is the level required here?
-//                let size = self.get_tile_size(coordinates);
-//                let level = (coordinates.level_x as u32, coordinates.level_y as u32);
-//                let x = coordinates.tile_x - self.data_window.x_min;
-//                let y = coordinates.tile_y - self.data_window.y_min;
-//                debug_assert!(x >= 0 && y >= 0)
+
+            Block::ScanLine(ref block) => TileCoordinates {
+                tile_index_x: 0,
+                tile_index_y: (block.y_coordinate - self.data_window.y_min) / self.compression.scan_lines_per_block() as i32,
+                level_x: 0, level_y: 0
+//                size: (self.data_window.dimensions().0, self.compression.scan_lines_per_block())
+            },
+
+            _ => unimplemented!()
+        })
+
+//        let coordinates = self.get_raw_block_coordinates(block)?;
 //
-//                Ok(TileIndices { position: (x as u32, y as u32), size, level })
-            Block::ScanLine(ref block) => {
-                let height = self.get_scan_line_block_height(block.y_coordinate as u32);
-
-                I32Box2 {
-                    x_min: self.data_window.x_min, y_min: block.y_coordinate,
-                    x_max: self.data_window.x_max, y_max: block.y_coordinate + height as i32 - 1
-                }
-            },
-
-            _ => return Err(Error::unsupported("deep data"))
-        })
+//        assert!(coordinates.x_min >= self.data_window.x_min); // TODO Err() instead
+//        assert!(coordinates.y_min >= self.data_window.y_min); // TODO Err() insteads
+//
+//        let position = (
+//            (coordinates.x_min - self.data_window.x_min) as u32,
+//            (coordinates.y_min - self.data_window.y_min) as u32
+//        );
+//
+//        let size = coordinates.dimensions();
+//
+//        Ok(TileIndices {
+//            location: TileCoordinates {
+//                tile_index_x: 0,
+//                tile_index_y: 0,
+//                level_x: 0,
+//                level_y: 0
+//            },
+//
+//            level: match block {
+//                Block::Tile(ref tile) => (tile.coordinates.level_x as u32, tile.coordinates.level_y as u32),
+//                Block::ScanLine(ref _block) => (0,0), // FIXME is this correct?
+//
+//                Block::DeepTile(ref tile) => (tile.coordinates.level_x as u32, tile.coordinates.level_y as u32),
+//                Block::DeepScanLine(ref tile) => (0,0), // FIXME is this correct?
+//            },
+//
+//            position,
+//            size
+//        })
     }
 
-    pub fn get_block_data_indices(&self, block: &Block) -> Result<TileIndices> {
-        let coordinates = self.get_raw_block_coordinates(block)?;
+    fn get_scan_line_block_height(&self, y: i32) -> u32 {
+        let y_end = self.data_window.y_max;
 
-        assert!(coordinates.x_min >= self.data_window.x_min); // TODO Err() instead
-        assert!(coordinates.y_min >= self.data_window.y_min); // TODO Err() insteads
-
-        let position = (
-            (coordinates.x_min - self.data_window.x_min) as u32,
-            (coordinates.y_min - self.data_window.y_min) as u32
-        );
-
-        let size = coordinates.dimensions();
-
-        Ok(TileIndices {
-            level: match block {
-                Block::Tile(ref tile) => (tile.coordinates.level_x as u32, tile.coordinates.level_y as u32),
-                Block::ScanLine(ref _block) => (0,0), // FIXME is this correct?
-
-                Block::DeepTile(ref tile) => (tile.coordinates.level_x as u32, tile.coordinates.level_y as u32),
-                Block::DeepScanLine(ref _block) => (0,0), // FIXME is this correct?
-            },
-
-            position,
-            size
-        })
-    }
-
-    fn get_scan_line_block_height(&self, y: u32) -> u32 {
         debug_assert!(
-            y as i32 >= self.data_window.y_min && y as i32 <= self.data_window.y_max,
+            y >= self.data_window.y_min && y <= y_end,
             "y coordinate: {}, (data window: {:?})", y, self.data_window
         );
 
-        let lines_per_block = self.compression.scan_lines_per_block();
+        let lines_per_block = self.compression.scan_lines_per_block() as i32;
 
         // FIXME
 //        println!("y {}, lines {}, miny {}, maxy {}", y, lines_per_block, self.data_window.y_min, self.data_window.y_max);
-        let next_block_y = (y as i64 + lines_per_block as i64 - self.data_window.y_min as i64) as u32;
+        let next_block_y = y + lines_per_block;
 
-        let data_height = self.data_window.dimensions().1; // TODO scan line blocks never have levels?
+        let height =
+            if next_block_y <= y_end { lines_per_block }
+            else { y_end - y };
 
-        let height = if next_block_y <= data_height { lines_per_block } else {
-            let clipped_line_count = next_block_y - data_height; // TODO +/-1?
-            lines_per_block - clipped_line_count
-        };
-
-        debug_assert_ne!(
-            height, 0,
+        debug_assert!(
+            height > 0,
             "scan line block height is 0 where y = {} in header {:?} ({} x {} px) (window {:?}) ",
             y, self.name, self.data_window.dimensions().0, self.data_window.dimensions().1, self.data_window
         );
 
-        height
+        height as u32
     }
-
-    fn get_tile_size(&self, tile: TileCoordinates) -> (u32, u32) {
-        let tiles = self.tiles.expect("check failed: tiles not found");
-        let round = tiles.rounding_mode;
-        let default_tile_width = tiles.tile_size.0;
-        let default_tile_height = tiles.tile_size.1;
-
-        let (data_width, data_height) = self.data_window.dimensions();
-        let data_width = compute_level_size(round, data_width, tile.level_x as u32);
-        let data_height = compute_level_size(round, data_height, tile.level_y as u32);
-
-        let y = tile.tile_y - self.data_window.y_min; // TODO divide by tile size?
-        let x = tile.tile_x - self.data_window.x_min; // TODO divide by tile size?
-
-        let next_tile_x = x as u32 + default_tile_width;
-        let next_tile_y = y as u32 + default_tile_height;
-
-        let width = if next_tile_x <= data_width { default_tile_width } else {
-            let clipped_columns = next_tile_x - data_width; // TODO +/-1?
-            default_tile_width - clipped_columns
-        };
-
-        let height = if next_tile_y <= data_height { default_tile_height } else {
-            let clipped_lines = next_tile_y - data_height; // TODO +/-1?
-            default_tile_height - clipped_lines
-        };
-
-        debug_assert!(
-            height != 0 && width != 0,
-            "tile size is 0 for tile {:?} in header {:#?}",
-            tile, self
-        );
-
-        (width, height)
-    }
+//
+//    fn get_tile(&self, tile: TileCoordinates) -> I32Box2 { // TODO result?
+//        let tiles = self.tiles.expect("check failed: tiles not found");
+//
+//    }
 
     pub fn max_block_byte_size(&self) -> usize {
         (
@@ -492,7 +521,7 @@ impl Header {
 //            }
         }
 
-        if self.has_tiles(&requirements) {
+        if self.has_tiles() {
             if self.tiles.is_none() {
                 return Err(missing_attribute("tiles"));
             }

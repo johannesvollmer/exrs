@@ -1,5 +1,5 @@
 
-use crate::meta::attributes::BlockType;
+use crate::meta::attributes::{BlockType, I32Box2};
 
 // TODO
 // SEE PAGE 14 IN TECHNICAL INTRODUCTION
@@ -53,9 +53,10 @@ pub struct TileBlock {
 }
 
 /// indicates the tile's position and resolution level
-#[derive(Debug, Clone, Copy)]
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct TileCoordinates {
-    pub tile_x: i32, pub tile_y: i32,
+    // TODO make these u32 as they are all indices?
+    pub tile_index_x: i32, pub tile_index_y: i32,
     pub level_x: i32, pub level_y: i32,
 }
 
@@ -104,20 +105,53 @@ use crate::io::*;
 
 impl TileCoordinates {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        self.tile_x.write(write)?;
-        self.tile_y.write(write)?;
+        self.tile_index_x.write(write)?;
+        self.tile_index_y.write(write)?;
         self.level_x.write(write)?;
         self.level_y.write(write)?;
+
         Ok(())
     }
 
     pub fn read(read: &mut impl Read) -> Result<Self> {
-        Ok(TileCoordinates {
-            tile_x: i32::read(read)?,
-            tile_y: i32::read(read)?,
-            level_x: i32::read(read)?,
-            level_y: i32::read(read)?,
-        })
+        let tile_x = i32::read(read)?;
+        let tile_y = i32::read(read)?;
+
+        let level_x = i32::read(read)?;
+        let level_y = i32::read(read)?;
+
+        Ok(TileCoordinates { tile_index_x: tile_x, tile_index_y: tile_y, level_x, level_y })
+    }
+
+    pub fn from_absolute_coordinates(level: (i32, i32), tile: (i32, i32), tile_size: (i32, i32), data_window: I32Box2) -> Self {
+        TileCoordinates {
+            tile_index_x: tile.0 / tile_size.0 + data_window.x_min,
+            tile_index_y: tile.1 / tile_size.1 + data_window.y_min,
+            level_x: level.0,
+            level_y: level.1
+        }
+    }
+
+    pub fn to_data_indices(&self, tile_size: (i32, i32)) -> I32Box2 {
+        let x = self.tile_index_x * tile_size.0;
+        let y = self.tile_index_y * tile_size.1;
+
+        I32Box2 {
+            x_min: x, y_min: y,
+            x_max: x + tile_size.0,
+            y_max: y + tile_size.1
+        }
+    }
+
+    pub fn to_absolute_indices(&self, tile_size: (i32, i32), data_window: I32Box2) -> I32Box2 {
+        let data = self.to_data_indices(tile_size);
+        data.with_origin((data_window.x_min, data_window.y_min))
+//        I32Box2 {
+//            x_min: data.x_min + data_window.x_min,
+//            y_min: data.y_min + data_window.y_min,
+//            x_max: data.x_max + data_window.x_min,
+//            y_max: data.y_max + data_window.y_min
+//        }
     }
 }
 
@@ -149,6 +183,9 @@ impl TileBlock {
     pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let coordinates = TileCoordinates::read(read)?;
         let compressed_pixels = u8::read_i32_sized_vec(read, max_block_byte_size, Some(max_block_byte_size))?;
+
+//        println!("read tile coordinates {:?}", coordinates);
+
         Ok(TileBlock { coordinates, compressed_pixels })
     }
 }
@@ -267,13 +304,13 @@ impl Chunk {
         }
 
         let header = &meta_data.headers[part_number as usize];
-        let block_type = header.block_type;
+        let max_block_byte_size = header.max_block_byte_size().min(std::u16::MAX as usize * 16);
 
-        let max_block_byte_size = std::usize::MAX; // header.max_block_byte_size().min(std::u16::MAX as usize * 16);
+//        println!("read chunk for part {} ({:?})", part_number, header.block_type);
 
         let chunk = Chunk {
             part_number,
-            block: match block_type {
+            block: match header.block_type {
                 BlockType::ScanLine        => Block::ScanLine(ScanLineBlock::read(read, max_block_byte_size)?),
                 BlockType::Tile            => Block::Tile(TileBlock::read(read, max_block_byte_size)?),
                 BlockType::DeepScanLine    => Block::DeepScanLine(DeepScanLineBlock::read(read, max_block_byte_size)?),

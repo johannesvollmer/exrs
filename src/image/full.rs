@@ -7,12 +7,12 @@ use crate::chunks::*;
 use crate::io::*;
 use crate::meta::*;
 use crate::meta::attributes::*;
-use crate::compression::{ByteVec, Compression};
+use crate::compression::{ByteVec};
 use crate::error::{Result, PassiveResult, Error};
 use crate::math::*;
 use std::io::{Seek, SeekFrom, BufReader, Cursor, BufWriter};
 use crate::io::Data;
-use crate::image::{BlockOptions, WriteOptions, ReadOptions};
+use crate::image::{BlockOptions, WriteOptions, ReadOptions, UncompressedBlock};
 
 
 #[derive(Clone, PartialEq, Debug)]
@@ -29,6 +29,8 @@ pub type Parts = SmallVec<[Part; 3]>;
 #[derive(Clone, PartialEq, Debug)]
 pub struct Part {
     pub data_window: I32Box2,
+    // TODO pub data_offset: (i32, i32),
+
     pub screen_window_center: (f32, f32), // TODO use sensible defaults instead of returning an error on missing?
     pub screen_window_width: f32,
 
@@ -178,7 +180,8 @@ impl FullImage {
     #[must_use]
     pub fn read_from_buffered(read: impl Read, options: ReadOptions) -> Result<Self> {
         crate::image::read_all_chunks(read, options, FullImage::new, |mut image, block| {
-            image.insert_block(&mut block.data.as_slice(), block.part_index, block.tile)?;
+//            debug_assert!(block.position)
+            image.insert_block(block)?;
             Ok(image)
         })
     }
@@ -204,12 +207,20 @@ impl FullImage {
 
         if !options.parallel_compression {
             for (part_index, part) in self.parts.iter().enumerate() {
+                let header = &meta_data.headers[part_index];
                 let mut table = Vec::new();
 
                 println!("writing image part {}", part_index);
 
-                part.tiles(&meta_data.headers[part_index], &mut |tile| {
-                    let data: Vec<u8> = self.extract_block(part_index, tile)?;
+                part.tiles(header, &mut |tile| {
+                    let data_indices = header.get_absolute_block_indices(tile.location)?;
+
+                    let data_size = data_indices.dimensions();
+                    let data_size = (data_size.0 as usize, data_size.1 as usize);
+                    let data_position = (data_indices.x_min as usize, data_indices.y_min as usize);
+                    let data_level = (tile.location.level_x as usize, tile.location.level_y as usize);
+
+                    let data: Vec<u8> = self.extract_block(part_index, data_position, data_size, data_level)?;
 
                     if part_index == 1 {
                         println!("uncompressed data len: {}", data.len());
@@ -217,7 +228,6 @@ impl FullImage {
                     }
 
                     let data = options.compression_method.compress_image_section(data)?;
-
 //                    println!("compressed data len: {}", data.len());
 
                     let chunk = Chunk {
@@ -226,18 +236,14 @@ impl FullImage {
                         // TODO deep data
                         block: match options.blocks {
                             BlockOptions::ScanLineBlocks => Block::ScanLine(ScanLineBlock {
-                                y_coordinate: part.data_window.y_min + tile.position.1 as i32,
+                                y_coordinate: header.get_block_data_window_coordinates(tile.location)?.y_min,
+                                    // part.data_window.y_min + (tile.index.1 * header.compression.scan_lines_per_block()) as i32,
                                 compressed_pixels: data
                             }),
 
                             BlockOptions::TileBlocks { .. } => Block::Tile(TileBlock {
                                 compressed_pixels: data,
-                                coordinates: TileCoordinates {
-                                    tile_x: part.data_window.x_min + tile.position.0 as i32,
-                                    tile_y: part.data_window.y_min + tile.position.1 as i32,
-                                    level_x: tile.level.0 as i32,
-                                    level_y: tile.level.1 as i32
-                                },
+                                coordinates: tile.location,
                             }),
                         }
                     };
@@ -271,7 +277,6 @@ impl FullImage {
     }
 }
 
-
 impl FullImage {
     pub fn new(headers: &[Header]) -> Result<Self> {
         let mut display = headers.iter()
@@ -294,25 +299,25 @@ impl FullImage {
         })
     }
 
-    pub fn insert_block(&mut self, data: &mut impl Read, part_index: usize, tile: TileIndices) -> PassiveResult {
-        debug_assert_ne!(tile.size.0, 0);
-        debug_assert_ne!(tile.size.1, 0);
+    pub fn insert_block(&mut self, block: UncompressedBlock) -> PassiveResult {
+        debug_assert_ne!(block.data_size.0, 0);
+        debug_assert_ne!(block.data_size.1, 0);
 
-        let part = self.parts.get_mut(part_index)
+        let part = self.parts.get_mut(block.part_index)
             .ok_or(Error::invalid("chunk part index"))?;
 
-        part.insert_block(data, tile)
+        part.insert_block(&mut block.data.as_slice(), block.data_index, block.data_size, block.level)
     }
 
-    pub fn extract_block(&self, part: usize, tile: TileIndices) -> Result<ByteVec> {
-        debug_assert_ne!(tile.size.0, 0);
-        debug_assert_ne!(tile.size.1, 0);
+    pub fn extract_block(&self, part: usize, position: (usize, usize), size: (usize, usize), level: (usize, usize)) -> Result<ByteVec> {
+        debug_assert_ne!(size.0, 0);
+        debug_assert_ne!(size.1, 0);
 
         let part = self.parts.get(part)
             .ok_or(Error::invalid("chunk part index"))?;
 
         let mut bytes = Vec::new();
-        part.extract_block(tile, &mut bytes)?;
+        part.extract_block(position, size, level, &mut bytes)?;
         Ok(bytes)
     }
 
@@ -370,24 +375,20 @@ impl Part {
         }
     }
 
-    pub fn insert_block(&mut self, data: &mut impl Read, area: TileIndices) -> PassiveResult {
-        let level = (area.level.0 as usize, area.level.1 as usize);
-
-        for y in area.position.1 .. area.position.1 + area.size.1 {
+    pub fn insert_block(&mut self, data: &mut impl Read, position: (usize, usize), size: (usize, usize), level: (usize, usize)) -> PassiveResult {
+        for y in position.1 .. position.1 + size.1 {
             for channel in &mut self.channels {
-                channel.insert_line(data, level, (area.position.0 as usize, y as usize), area.size.0 as usize)?;
+                channel.insert_line(data, level, (position.0, y), size.0)?;
             }
         }
 
         Ok(())
     }
 
-    pub fn extract_block(&self, area: TileIndices, write: &mut impl Write) -> PassiveResult {
-        let level = (area.level.0 as usize, area.level.1 as usize);
-
-        for y in area.position.1 .. area.position.1 + area.size.1 {
+    pub fn extract_block(&self, position: (usize, usize), size: (usize, usize), level: (usize, usize), write: &mut impl Write) -> PassiveResult {
+        for y in position.1 .. position.1 + size.1 {
             for channel in &self.channels {
-                channel.extract_line(write, level, (area.position.0 as usize, y as usize), area.size.0 as usize)?;
+                channel.extract_line(write, level, (position.0, y), size.0)?;
             }
         }
 
@@ -446,6 +447,9 @@ impl Part {
         })
     }
 
+
+
+    // TODO return iter instead
     pub fn tiles(&self, header: &Header, action: &mut impl FnMut(TileIndices) -> PassiveResult) -> PassiveResult {
         fn tiles_of(image_size: (u32, u32), tile_size: (u32, u32), level: (u32, u32), action: &mut impl FnMut(TileIndices) -> PassiveResult) -> PassiveResult {
             fn divide_and_rest(total_size: u32, block_size: u32, action: &mut impl FnMut(u32, u32) -> PassiveResult) -> PassiveResult {
@@ -453,20 +457,26 @@ impl Part {
                 let whole_block_size = whole_block_count * block_size;
 
                 for whole_block_index in 0 .. whole_block_count {
-                    action(whole_block_index * block_size, block_size)?;
+                    action(whole_block_index, block_size)?;
                 }
 
                 if whole_block_size != total_size {
-                    action(whole_block_size, total_size - whole_block_size)?;
+                    action(whole_block_count, total_size - whole_block_size)?;
                 }
 
                 Ok(())
             }
 
-            divide_and_rest(image_size.1, tile_size.1, &mut |y, tile_height|{
-                divide_and_rest(image_size.0, tile_size.0, &mut |x, tile_width|{
+            divide_and_rest(image_size.1, tile_size.1, &mut |y_index, tile_height|{
+                divide_and_rest(image_size.0, tile_size.0, &mut |x_index, tile_width|{
                     action(TileIndices {
-                        position: (x, y), level,
+                        location: TileCoordinates {
+                            tile_index_x: x_index as i32,
+                            tile_index_y: y_index as i32,
+                            level_x: level.0 as i32,
+                            level_y: level.1 as i32
+                        },
+                        // index: (x_index, y_index), level,
                         size: (tile_width, tile_height),
                     })
                 })
@@ -491,38 +501,13 @@ impl Part {
                     }
                 }
             }
-
-            Ok(())
         }
         else {
-            let block_height = header.compression.scan_lines_per_block();
-            tiles_of(image_size, (image_size.0, block_height), (0,0), action)
 
-            /*let (image_width, image_height) = self.data_window.dimensions();
-            let block_size = header.compression.scan_lines_per_block();
-            let block_count = compute_scan_line_block_count(image_height, block_size);
-
-            let mut data: Vec<_> = (0.. block_count - 1)
-                .map(move |block_index| TileIndices {
-                    level: (0, 0), position: (0, block_index * block_size),
-                    size: (image_width, block_size)
-                })
-                .collect();
-
-            let last_y = block_size * (block_count - 1);
-            let last_height = (last_y + block_size - image_height).max(1); // FIXME min(1) should not be required, fix formula instead!
-            data.push(TileIndices { // TODO level always 0,0?
-                level: (0, 0), position: (0, last_y),
-                size: (image_width, last_height)
-            });
-
-//            println!("blocks: {:?}", data);
-
-            debug_assert_ne!(last_height, 0);
-            debug_assert!(last_y < image_height);
-
-            data.into_iter()*/
         }
+
+
+        Ok(())
     }
 }
 
@@ -697,7 +682,7 @@ impl<S: Samples> SampleBlock<S> {
 
     pub fn insert_line(&mut self, read: &mut impl Read, position: (usize, usize), length: usize) -> PassiveResult {
         debug_assert!(position.1 < self.resolution.1, "y: {}, height: {}", position.1, self.resolution.1);
-        debug_assert!(position.0 + length <= self.resolution.0);
+        debug_assert!(position.0 + length <= self.resolution.0, "block width: {}, image width: {}", position.0 + length, self.resolution.0);
         debug_assert_ne!(length, 0);
 
         self.samples.insert_line(read, position, length, self.resolution.0)

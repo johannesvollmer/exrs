@@ -16,6 +16,9 @@
     unused_extern_crates,
     unused,
 
+    missing_copy_implementations,
+    missing_debug_implementations,
+
     clippy::all,
     clippy::restriction,
     clippy::pedantic,

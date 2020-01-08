@@ -157,11 +157,13 @@ impl Compression {
     }
 
     pub fn decompress_image_section(self, header: &Header, data: ByteVec, tile: I32Box2) -> Result<ByteVec> {
+
         let dimensions = tile.dimensions();
+        debug_assert!(tile.validate(Some(dimensions)).is_ok());
 
         let expected_byte_size = (dimensions.0 * dimensions.1 * header.channels.bytes_per_pixel) as usize;
 
-        println!("expecting tile byte size {} {:?} {:?}", expected_byte_size, tile.dimensions(), tile);
+//        println!("expecting tile byte size {} {:?} {:?}", expected_byte_size, tile.dimensions(), tile);
 
         if data.len() == expected_byte_size {
             Ok(data) // the raw data was smaller than the compressed data, so the raw data has been written
@@ -182,7 +184,11 @@ impl Compression {
             let bytes = bytes
                 .map_err(|_| Error::invalid(format!("compressed data ({:?})", self)))?;
 
-            debug_assert_eq!(bytes.len(), expected_byte_size);
+            debug_assert_eq!(
+                bytes.len(), expected_byte_size,
+                "compression size mismatch: expected {}, found {}", expected_byte_size, bytes.len()
+            );
+
             if bytes.len() != expected_byte_size {
                 Err(Error::invalid("decompressed data"))
             }
