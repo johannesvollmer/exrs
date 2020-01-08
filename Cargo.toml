@@ -25,6 +25,7 @@ rayon = "1.2.1"
 bencher = "0.1.5"
 image = "0.23.0-preview.0"
 walkdir = "2.2.9"
+rand = "0.7.2"
 
 [[bench]]
 name = "benches"
