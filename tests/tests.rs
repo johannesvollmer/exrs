@@ -12,6 +12,7 @@ use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use exr::compression::Compression;
 use exr::math::Vec2;
+use std::cmp::Ordering;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter()
@@ -168,7 +169,7 @@ pub fn convert_to_png() {
     let path =
 //        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
 //        "D:/Pictures/openexr/Tiles/Ocean.exr"
-        "D:/Pictures/openexr/MultiResolution/Kapaa.exr" // FIXME y == height
+//        "D:/Pictures/openexr/MultiResolution/Kapaa.exr" // FIXME y == height
 //        "D:/Pictures/openexr/MultiView/Impact.exr"
 //        "D:/Pictures/openexr/MultiResolution/KernerEnvCube.exr"
 //        "D:/Pictures/openexr/MultiResolution/Bonita.exr"
@@ -177,7 +178,7 @@ pub fn convert_to_png() {
 //            "D:/Pictures/openexr/MultiResolution/Bonita.exr"
 
 //            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
-//        "D:/Pictures/openexr/crowskull/crow_zips.exr"
+        "D:/Pictures/openexr/crowskull/crow_zips.exr"
 //            "D:/Pictures/openexr/crowskull/crow_rle.exr"
 //            "D:/Pictures/openexr/crowskull/crow_zip_half.exr"
 
@@ -194,12 +195,17 @@ pub fn convert_to_png() {
 
     fn save_f32_image_as_png(data: &[f32], size: Vec2<usize>, name: String) {
         let mut png_buffer = image::GrayImage::new(size.0 as u32, size.1 as u32);
-        let min = data.iter().cloned().fold(0.0/0.0, f32::max);
-        let max = data.iter().cloned().fold(1.0/0.0, f32::min);
+        let mut sorted = Vec::from(data);
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Less));
+
+        // median-like eighth normalization
+        let max = sorted[7 * sorted.len() / 8];
+        let min = sorted[sorted.len() / 8];
 
         for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
             let v = data[(y * size.0 as u32 + x) as usize];
             let v = (v - min) / (max - min);
+            let v = v.min(1.0).max(0.0);
             *pixel = image::Luma([(v * 255.0) as u8]);
         }
 
