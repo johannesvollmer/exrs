@@ -1,5 +1,5 @@
 use crate::meta::Header;
-use crate::meta::attributes::I32Box2;
+use crate::meta::attributes::Box2I32;
 use crate::error::{Result, Error};
 
 pub mod zip;
@@ -156,10 +156,10 @@ impl Compression {
         }
     }
 
-    pub fn decompress_image_section(self, header: &Header, data: ByteVec, tile: I32Box2) -> Result<ByteVec> {
+    pub fn decompress_image_section(self, header: &Header, data: ByteVec, tile: Box2I32) -> Result<ByteVec> {
 
-        let dimensions = tile.dimensions();
-        debug_assert!(tile.validate(Some(dimensions)).is_ok());
+        let dimensions = tile.size;
+        debug_assert!(tile.validate(dimensions).is_ok());
 
         let expected_byte_size = (dimensions.0 * dimensions.1 * header.channels.bytes_per_pixel) as usize;
 

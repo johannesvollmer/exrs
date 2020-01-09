@@ -18,11 +18,6 @@ pub fn skip_bytes(read: &mut impl Read, count: u64) -> PassiveResult {
     Ok(())
 }
 
-#[inline]
-pub fn positive_i32(value: i32, name: &'static str) -> Result<u32> {
-    if value < 0 { Err(Error::invalid(name)) }
-    else { Ok(value as u32) }
-}
 
 #[derive(Debug)]
 pub struct PeekRead<T> {

@@ -1,5 +1,5 @@
 
-use crate::meta::attributes::{BlockType, I32Box2};
+use crate::meta::attributes::{BlockType, Box2I32};
 
 // TODO
 // SEE PAGE 14 IN TECHNICAL INTRODUCTION
@@ -56,8 +56,8 @@ pub struct TileBlock {
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct TileCoordinates {
     // TODO make these u32 as they are all indices?
-    pub tile_index_x: i32, pub tile_index_y: i32,
-    pub level_x: i32, pub level_y: i32,
+    pub tile_index: Vec2<i32>,
+    pub level: Vec2<i32>,
 }
 
 /// Deep scan line images are indicated by a type attribute of “deepscanline”.
@@ -105,10 +105,10 @@ use crate::io::*;
 
 impl TileCoordinates {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        self.tile_index_x.write(write)?;
-        self.tile_index_y.write(write)?;
-        self.level_x.write(write)?;
-        self.level_y.write(write)?;
+        self.tile_index.0.write(write)?;
+        self.tile_index.1.write(write)?;
+        self.level.0.write(write)?;
+        self.level.1.write(write)?;
 
         Ok(())
     }
@@ -120,32 +120,39 @@ impl TileCoordinates {
         let level_x = i32::read(read)?;
         let level_y = i32::read(read)?;
 
-        Ok(TileCoordinates { tile_index_x: tile_x, tile_index_y: tile_y, level_x, level_y })
+        Ok(TileCoordinates {
+            tile_index: Vec2(tile_x, tile_y),
+            level: Vec2(level_x, level_y)
+        })
     }
 
-    pub fn from_absolute_coordinates(level: (i32, i32), tile: (i32, i32), tile_size: (i32, i32), data_window: I32Box2) -> Self {
+    pub fn from_absolute_coordinates(level: Vec2<i32>, tile: Vec2<i32>, tile_size: Vec2<i32>, data_window: Box2I32) -> Self {
         TileCoordinates {
-            tile_index_x: tile.0 / tile_size.0 + data_window.x_min,
-            tile_index_y: tile.1 / tile_size.1 + data_window.y_min,
-            level_x: level.0,
-            level_y: level.1
+            tile_index: tile / tile_size + data_window.start,
+            level,
+//            tile_index_x: tile.0 / tile_size.0 + data_window.x_min,
+//            tile_index_y: tile.1 / tile_size.1 + data_window.y_min,
+//            level_x: level.0,
+//            level_y: level.1
         }
     }
 
-    pub fn to_data_indices(&self, tile_size: (i32, i32)) -> I32Box2 {
-        let x = self.tile_index_x * tile_size.0;
-        let y = self.tile_index_y * tile_size.1;
+    pub fn to_data_indices(&self, tile_size: Vec2<i32>) -> Box2I32 {
+//        let x = self.tile_index_x * tile_size.0;
+//        let y = self.tile_index_y * tile_size.1;
 
-        I32Box2 {
-            x_min: x, y_min: y,
-            x_max: x + tile_size.0,
-            y_max: y + tile_size.1
+        Box2I32 {
+            start: self.tile_index * tile_size,
+            size: Vec2::try_from(tile_size).unwrap(),
+//            x_min: x, y_min: y,
+//            x_max: x + tile_size.0,
+//            y_max: y + tile_size.1
         }
     }
 
-    pub fn to_absolute_indices(&self, tile_size: (i32, i32), data_window: I32Box2) -> I32Box2 {
+    pub fn to_absolute_indices(&self, tile_size: Vec2<i32>, data_window: Box2I32) -> Box2I32 {
         let data = self.to_data_indices(tile_size);
-        data.with_origin((data_window.x_min, data_window.y_min))
+        data.with_origin(data_window.start)
 //        I32Box2 {
 //            x_min: data.x_min + data_window.x_min,
 //            y_min: data.y_min + data_window.y_min,
@@ -262,6 +269,7 @@ impl DeepTileBlock {
 }
 
 use crate::error::{PassiveResult, Result, Error};
+use crate::math::Vec2;
 
 impl Chunk {
     pub fn validate(&self, headers: usize) -> PassiveResult {

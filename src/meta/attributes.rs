@@ -17,32 +17,33 @@ pub struct Attribute {
 // TODO custom attribute
 #[derive(Debug, Clone, PartialEq)]
 pub enum AnyValue {
-    I32Box2(I32Box2),
-    F32Box2(F32Box2),
     ChannelList(ChannelList),
     Chromaticities(Chromaticities),
     Compression(Compression),
-    F64(f64),
     EnvironmentMap(EnvironmentMap),
-    F32(f32),
-    I32(i32),
     KeyCode(KeyCode),
     LineOrder(LineOrder),
     F32Matrix3x3([f32; 9]),
     F32Matrix4x4([f32; 16]),
     Preview(Preview),
-    Rational(i32, u32),
-    Text(Text),
+    Rational((i32, u32)),
 
     BlockType(BlockType),
     TextVector(Vec<Text>),
     TileDescription(TileDescription),
     TimeCode(TimeCodes),
 
-    I32Vec2(i32, i32),
-    F32Vec2(f32, f32),
-    I32Vec3(i32, i32, i32),
-    F32Vec3(f32, f32, f32),
+    Text(Text),
+    F64(f64),
+    F32(f32),
+    I32(i32),
+
+    I32Box2(Box2I32),
+    F32Box2(Box2F32),
+    I32Vec2(Vec2<i32>),
+    F32Vec2(Vec2<f32>),
+    I32Vec3((i32, i32, i32)),
+    F32Vec3((f32, f32, f32)),
 
     Custom { kind: Text, bytes: Vec<u8> }
 }
@@ -85,22 +86,20 @@ pub mod kind {
 
 pub use crate::compression::Compression;
 
-pub type DataWindow = I32Box2;
-pub type DisplayWindow = I32Box2;
+pub type DataWindow = Box2I32;
+pub type DisplayWindow = Box2I32;
 
 /// all limits are inclusive, so when calculating dimensions, +1 must be added
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct I32Box2 {
-    pub x_min: i32, pub y_min: i32,
-
-    /// in rust, these are exclusive! (deviating from original openexr)
-    pub x_max: i32, pub y_max: i32,
+pub struct Box2I32 {
+    pub start: Vec2<i32>,
+    pub size: Vec2<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct F32Box2 {
-    pub x_min: f32, pub y_min: f32,
-    pub x_max: f32, pub y_max: f32,
+pub struct Box2F32 {
+    min: Vec2<f32>,
+    max: Vec2<f32>
 }
 
 /// followed by a null byte
@@ -124,7 +123,7 @@ pub struct Channel {
     /// can be used for chroma-subsampling
     /// other than 1 are allowed only in flat, scan-line based images.
     /// If deep or tiled, x and y sampling rates for all of its channels must be 1.
-    pub sampling: (u32, u32),
+    pub sampling: Vec2<u32>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Copy)]
@@ -171,8 +170,7 @@ pub enum LineOrder {
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct Preview {
-    pub width: u32,
-    pub height: u32,
+    pub size: Vec2<u32>,
 
     /// 4 × width × height bytes,
     /// Scan lines are stored top to bottom; within a scan line pixels are stored from left
@@ -182,7 +180,7 @@ pub struct Preview {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct TileDescription {
-    pub tile_size: (u32, u32),
+    pub tile_size: Vec2<u32>,
     pub level_mode: LevelMode,
     pub rounding_mode: RoundingMode,
 }
@@ -200,7 +198,7 @@ use crate::io::*;
 use crate::meta::sequence_end;
 use std::cmp::Ordering;
 use crate::error::*;
-use crate::math::RoundingMode;
+use crate::math::{RoundingMode, Vec2};
 use half::f16;
 
 
@@ -419,43 +417,29 @@ impl BlockType {
 }
 
 
-impl I32Box2 {
-    pub fn from_dimensions(size: (u32, u32)) -> Self {
-        Self::new((0,0), size)
+impl Box2I32 {
+    pub fn from_dimensions(size: Vec2<u32>) -> Self {
+        Self::new(Vec2(0,0), size)
     }
 
-    pub fn new(position: (i32, i32), size: (u32, u32)) -> Self {
-        Self {
-            x_min: position.0,
-            y_min: position.1,
-            x_max: position.0 + size.0 as i32,
-            y_max: position.1 + size.1 as i32
-        }
+    pub fn new(start: Vec2<i32>, size: Vec2<u32>) -> Self {
+        Self { start, size }
     }
 
-    pub fn validate(&self, max: Option<(u32, u32)>) -> PassiveResult {
-        if self.x_min >= self.x_max || self.y_min >= self.y_max {
-            return Err(Error::invalid("box attribute dimensions"));
-        }
+    pub fn end(&self) -> Vec2<i32> {
+        self.start + Vec2::try_from(self.size).unwrap()
+    }
 
-        if let Some(bounds) = max {
-            let size = self.dimensions();
+    pub fn max(&self) -> Vec2<i32> {
+        self.end() - Vec2(1,1)
+    }
 
-            if size.0 > bounds.0 || size.1 > bounds.1  {
-                return Err(Error::invalid("box attribute dimensions"));
-            }
+    pub fn validate(&self, max: Vec2<u32>) -> PassiveResult {
+        if self.size.0 > max.0 || self.size.1 > max.1  {
+            return Err(Error::invalid("window attribute dimension value"));
         }
 
         Ok(())
-    }
-
-    pub fn dimensions(&self) -> (u32, u32) {
-        debug_assert!(self.validate(None).is_ok());
-
-        (
-            (self.x_max - self.x_min) as u32,
-            (self.y_max - self.y_min) as u32,
-        )
     }
 
     pub fn byte_size() -> usize {
@@ -463,56 +447,63 @@ impl I32Box2 {
     }
 
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        self.validate(None)?; // TODO pass validate some boundary?
-        self.x_min.write(write)?;
-        self.y_min.write(write)?;
-        (self.x_max - 1).write(write)?;
-        (self.y_max - 1).write(write)?;
+        let Vec2(x_min, y_min) = self.start;
+        let Vec2(x_max, y_max) = self.max();
+//        let x_max = self.start.0 + self.size.0 as i32 - 1;
+//        let y_max = self.start.1 + self.size.1 as i32 - 1;
+
+        x_min.write(write)?;
+        y_min.write(write)?;
+        x_max.write(write)?;
+        y_max.write(write)?;
         Ok(())
     }
 
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
-        let value = I32Box2 {
-            x_min: i32::read(read)?,
-            y_min: i32::read(read)?,
-            x_max: i32::read(read)? + 1,
-            y_max: i32::read(read)? + 1,
-        };
+        let x_min = i32::read(read)?;
+        let y_min = i32::read(read)?;
+        let x_max = i32::read(read)?;
+        let y_max = i32::read(read)?;
 
-        value.validate(None)?;
-        Ok(value)
+        let min = Vec2(x_min.min(x_max), y_min.min(y_max));
+        let max  = Vec2(x_min.max(x_max), y_min.max(y_max)); // inclusive!
+        let size = Vec2(max.0 + 1 - min.0, max.1 + 1 - min.1);
+        let size = size.to_u32()?;
+
+        Ok(Box2I32 { start: min, size })
     }
 
-    pub fn with_origin(&self, origin: (i32, i32)) -> Self {
-        I32Box2 {
-            x_min: self.x_min + origin.0,
-            y_min: self.y_min + origin.1,
-            x_max: self.x_max + origin.0,
-            y_max: self.y_max + origin.1
+    pub fn with_origin(self, origin: Vec2<i32>) -> Self {
+        Box2I32 {
+            start: self.start + origin, // Vec2(self.start.0 + origin.0, self.start.1 + origin.1),
+            .. self
         }
     }
 }
 
 
-impl F32Box2 {
+impl Box2F32 {
     pub fn byte_size() -> usize {
         4 * f32::BYTE_SIZE
     }
 
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        self.x_min.write(write)?;
-        self.y_min.write(write)?;
-        self.x_max.write(write)?;
-        self.y_max.write(write)?;
+        self.min.0.write(write)?;
+        self.min.1.write(write)?;
+        self.max.0.write(write)?;
+        self.max.1.write(write)?;
         Ok(())
     }
 
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
-        Ok(F32Box2 {
-            x_min: f32::read(read)?,
-            y_min: f32::read(read)?,
-            x_max: f32::read(read)?,
-            y_max: f32::read(read)?,
+        let x_min = f32::read(read)?;
+        let y_min = f32::read(read)?;
+        let x_max = f32::read(read)?;
+        let y_max = f32::read(read)?;
+
+        Ok(Box2F32 {
+            min: Vec2(x_min, y_min),
+            max: Vec2(x_max, y_max)
         })
     }
 }
@@ -552,16 +543,12 @@ impl PixelType {
 }
 
 impl Channel {
-    pub fn subsampled_pixels(&self, dimensions: (u32, u32)) -> u32 {
-        let (width, height) = self.subsampled_resolution(dimensions);
-        width * height
+    pub fn subsampled_pixels(&self, dimensions: Vec2<u32>) -> u32 {
+        self.subsampled_resolution(dimensions).area()
     }
 
-    pub fn subsampled_resolution(&self, dimensions: (u32, u32)) -> (u32, u32) {
-        (
-            dimensions.0 / self.sampling.0,
-            dimensions.1 / self.sampling.1,
-        )
+    pub fn subsampled_resolution(&self, dimensions: Vec2<u32>) -> Vec2<u32> {
+        dimensions / self.sampling
     }
 
     pub fn byte_size(&self) -> usize {
@@ -601,7 +588,7 @@ impl Channel {
         i8::read_slice(read, &mut reserved)?;
 
         let x_sampling = i32::read(read)?;
-        let y_sampling = i32::read(read)?; // TODO make u32?
+        let y_sampling = i32::read(read)?;
 
         if x_sampling < 0 || y_sampling < 0 {
             return Err(Error::invalid("channel sampling value"))
@@ -609,7 +596,7 @@ impl Channel {
 
         Ok(Channel {
             name, pixel_type, is_linear,
-            sampling: (x_sampling as u32, y_sampling as u32),
+            sampling: Vec2::try_from(Vec2(x_sampling, y_sampling)).unwrap(),
         })
     }
 
@@ -792,7 +779,7 @@ impl LineOrder {
 
 impl Preview {
     pub fn validate(&self) -> PassiveResult {
-        if self.width * self.height * 4 != self.pixel_data.len() as u32 {
+        if self.size.0 * self.size.1 * 4 != self.pixel_data.len() as u32 {
             Err(Error::invalid("preview dimensions do not match content length"))
         }
         else {
@@ -805,8 +792,8 @@ impl Preview {
     }
 
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        self.width.write(write)?;
-        self.height.write(write)?;
+        self.size.0.write(write)?;
+        self.size.1.write(write)?;
         i8::write_slice(write, &self.pixel_data)?;
         Ok(())
     }
@@ -821,7 +808,7 @@ impl Preview {
         i8::read_slice(read, &mut pixel_data)?;
 
         let preview = Preview {
-            width, height,
+            size: Vec2(width, height),
             pixel_data,
         };
 
@@ -832,7 +819,7 @@ impl Preview {
 
 impl ::std::fmt::Debug for Preview {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        write!(f, "Preview ({}x{} px)", self.width, self.height)
+        write!(f, "Preview ({}x{} px)", self.size.0, self.size.1)
     }
 }
 
@@ -885,7 +872,7 @@ impl TileDescription {
             _ => return Err(Error::invalid("tile description rounding mode")),
         };
 
-        Ok(TileDescription { tile_size: (x_size, y_size), level_mode, rounding_mode, })
+        Ok(TileDescription { tile_size: Vec2(x_size, y_size), level_mode, rounding_mode, })
     }
 }
 
@@ -921,20 +908,20 @@ impl AnyValue {
         use self::AnyValue::*;
 
         match *self {
-            I32Box2(_) => self::I32Box2::byte_size(),
-            F32Box2(_) => self::F32Box2::byte_size(),
+            I32Box2(_) => self::Box2I32::byte_size(),
+            F32Box2(_) => self::Box2F32::byte_size(),
 
             I32(_) => i32::BYTE_SIZE,
             F32(_) => f32::BYTE_SIZE,
             F64(_) => f64::BYTE_SIZE,
 
-            Rational(_,_) => { i32::BYTE_SIZE + u32::BYTE_SIZE },
-            TimeCode((_,_)) => { 2 * u32::BYTE_SIZE },
+            Rational(_) => { i32::BYTE_SIZE + u32::BYTE_SIZE },
+            TimeCode(_) => { 2 * u32::BYTE_SIZE },
 
-            I32Vec2(_,_) => { 2 * i32::BYTE_SIZE },
-            F32Vec2(_,_) => { 2 * f32::BYTE_SIZE },
-            I32Vec3(_,_,_) => { 3 * i32::BYTE_SIZE },
-            F32Vec3(_,_,_) => { 3 * f32::BYTE_SIZE },
+            I32Vec2(_) => { 2 * i32::BYTE_SIZE },
+            F32Vec2(_) => { 2 * f32::BYTE_SIZE },
+            I32Vec3(_) => { 3 * i32::BYTE_SIZE },
+            F32Vec3(_) => { 3 * f32::BYTE_SIZE },
 
             ChannelList(ref channels) => Channel::list_byte_size(channels),
             Chromaticities(_) => self::Chromaticities::byte_size(),
@@ -970,12 +957,12 @@ impl AnyValue {
             I32(_) =>  ty::I32,
             F32(_) =>  ty::F32,
             F64(_) =>  ty::F64,
-            Rational(_, _) => ty::RATIONAL,
-            TimeCode((_, _)) => ty::TIME_CODE,
-            I32Vec2(_, _) => ty::I32VEC2,
-            F32Vec2(_, _) => ty::F32VEC2,
-            I32Vec3(_, _, _) => ty::I32VEC3,
-            F32Vec3(_, _, _) => ty::F32VEC3,
+            Rational(_) => ty::RATIONAL,
+            TimeCode(_) => ty::TIME_CODE,
+            I32Vec2(_) => ty::I32VEC2,
+            F32Vec2(_) => ty::F32VEC2,
+            I32Vec3(_) => ty::I32VEC3,
+            F32Vec3(_) => ty::F32VEC3,
             ChannelList(_) =>  ty::CHANNEL_LIST,
             Chromaticities(_) =>  ty::CHROMATICITIES,
             Compression(_) =>  ty::COMPRESSION,
@@ -1003,13 +990,13 @@ impl AnyValue {
             F32(value) => value.write(write)?,
             F64(value) => value.write(write)?,
 
-            Rational(a, b) => { a.write(write)?; b.write(write)?; },
+            Rational((a, b)) => { a.write(write)?; b.write(write)?; },
             TimeCode((a, b)) => { a.write(write)?; b.write(write)?; },
 
-            I32Vec2(x, y) => { x.write(write)?; y.write(write)?; },
-            F32Vec2(x, y) => { x.write(write)?; y.write(write)?; },
-            I32Vec3(x, y, z) => { x.write(write)?; y.write(write)?; z.write(write)?; },
-            F32Vec3(x, y, z) => { x.write(write)?; y.write(write)?; z.write(write)?; },
+            I32Vec2(Vec2(x, y)) => { x.write(write)?; y.write(write)?; },
+            F32Vec2(Vec2(x, y)) => { x.write(write)?; y.write(write)?; },
+            I32Vec3((x, y, z)) => { x.write(write)?; y.write(write)?; z.write(write)?; },
+            F32Vec3((x, y, z)) => { x.write(write)?; y.write(write)?; z.write(write)?; },
 
             ChannelList(ref channels) => Channel::write_all(channels, write, long_names)?,
             Chromaticities(ref value) => value.write(write)?,
@@ -1042,20 +1029,46 @@ impl AnyValue {
         use self::attribute_type_names as ty;
 
         Ok(match kind.bytes.as_slice() {
-            ty::I32BOX2 => I32Box2(self::I32Box2::read(read)?),
-            ty::F32BOX2 => F32Box2(self::F32Box2::read(read)?),
+            ty::I32BOX2 => I32Box2(self::Box2I32::read(read)?),
+            ty::F32BOX2 => F32Box2(self::Box2F32::read(read)?),
 
             ty::I32 => I32(i32::read(read)?),
             ty::F32 => F32(f32::read(read)?),
             ty::F64 => F64(f64::read(read)?),
 
-            ty::RATIONAL => Rational(i32::read(read)?, u32::read(read)?),
+            ty::RATIONAL => Rational({
+                let a = i32::read(read)?;
+                let b = u32::read(read)?;
+                (a, b)
+            }),
+            // FIXME argument order not guaranteed??
             ty::TIME_CODE => TimeCode((u32::read(read)?, u32::read(read)?)),
 
-            ty::I32VEC2 => I32Vec2(i32::read(read)?, i32::read(read)?),
-            ty::F32VEC2 => F32Vec2(f32::read(read)?, f32::read(read)?),
-            ty::I32VEC3 => I32Vec3(i32::read(read)?, i32::read(read)?, i32::read(read)?),
-            ty::F32VEC3 => F32Vec3(f32::read(read)?, f32::read(read)?, f32::read(read)?),
+            ty::I32VEC2 => I32Vec2({
+                let a = i32::read(read)?;
+                let b = i32::read(read)?;
+                Vec2(a, b)
+            }),
+
+            ty::F32VEC2 => F32Vec2({
+                let a = f32::read(read)?;
+                let b = f32::read(read)?;
+                Vec2(a, b)
+            }),
+
+            ty::I32VEC3 => I32Vec3({
+                let a = i32::read(read)?;
+                let b = i32::read(read)?;
+                let c = i32::read(read)?;
+                (a, b, c)
+            }),
+
+            ty::F32VEC3 => F32Vec3({
+                let a = f32::read(read)?;
+                let b = f32::read(read)?;
+                let c = f32::read(read)?;
+                (a, b, c)
+            }),
 
             ty::CHANNEL_LIST    => ChannelList(self::Channel::read_all(read)?),
             ty::CHROMATICITIES  => Chromaticities(self::Chromaticities::read(read)?),
@@ -1115,16 +1128,16 @@ impl AnyValue {
         }
     }
 
-    pub fn to_i32_box_2(&self) -> Result<I32Box2> {
+    pub fn to_i32_box_2(&self) -> Result<Box2I32> {
         match *self {
             AnyValue::I32Box2(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
 
-    pub fn to_f32_vec_2(&self) -> Result<(f32, f32)> {
+    pub fn to_f32_vec_2(&self) -> Result<Vec2<f32>> {
         match *self {
-            AnyValue::F32Vec2(x, y) => Ok((x, y)),
+            AnyValue::F32Vec2(vec) => Ok(vec),
             _ => Err(invalid_type())
         }
     }
@@ -1327,7 +1340,7 @@ mod test {
             },
             Attribute {
                 name: Text::from_str("rabbit area").unwrap(),
-                value: AnyValue::F32Box2(F32Box2 {
+                value: AnyValue::F32Box2(Box2F32 {
                     x_min: 23.4234,
                     y_min: 345.23,
                     x_max: 68623.0,

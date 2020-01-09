@@ -10,6 +10,7 @@ use crate::meta::{MetaData, Header};
 use crate::chunks::{Chunk, Block, TileBlock, ScanLineBlock};
 use crate::io::PeekRead;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use std::convert::TryFrom;
 
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -25,7 +26,7 @@ pub enum BlockOptions {
     ScanLineBlocks,
 
     TileBlocks {
-        size: (u32, u32),
+        size: Vec2<u32>,
         rounding: RoundingMode
     },
 }
@@ -42,9 +43,9 @@ pub struct ReadOptions {
 #[derive(Clone, PartialEq, Debug)]
 pub struct UncompressedBlock {
     part_index: usize,
-    data_index: (usize, usize),
-    data_size: (usize, usize),
-    level: (usize, usize),
+    data_index: Vec2<usize>,
+    data_size: Vec2<usize>,
+    level: Vec2<usize>,
     data: ByteVec,
 }
 
@@ -129,15 +130,15 @@ impl UncompressedBlock {
 //        let data_window_coordinates = header.get_block_data_window_coordinates(tile_data_indices);
         let absolute_indices = header.get_absolute_block_indices(tile_data_indices)?;
 
-        absolute_indices.validate(Some(header.data_window.dimensions()))?;
+        absolute_indices.validate(header.data_window.size)?;
 
         match chunk.block {
             Block::Tile(TileBlock { compressed_pixels, .. }) |
             Block::ScanLine(ScanLineBlock { compressed_pixels, .. }) => Ok(UncompressedBlock {
-                part_index: chunk.part_number as usize,
-                data_index: (absolute_indices.x_min as usize, absolute_indices.y_min as usize),
-                data_size: (absolute_indices.dimensions().0 as usize, absolute_indices.dimensions().1 as usize),
-                level: (tile_data_indices.level_x as usize, tile_data_indices.level_y as usize),
+                part_index: usize::try_from(chunk.part_number).unwrap(),
+                data_index: Vec2::try_from(absolute_indices.start).unwrap(),
+                data_size: Vec2::try_from(absolute_indices.size).unwrap(),
+                level: Vec2::try_from(tile_data_indices.level).unwrap(),
                 data: header.compression.decompress_image_section(header, compressed_pixels, absolute_indices)?
             }),
 

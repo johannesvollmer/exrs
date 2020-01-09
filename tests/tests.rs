@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use exr::compression::Compression;
+use exr::math::Vec2;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter()
@@ -92,8 +93,8 @@ fn loop_read() {
 #[test]
 pub fn test_roundtrip() {
     let path =
-//            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
-            "D:/Pictures/openexr/MultiResolution/Bonita.exr"
+            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
+//            "D:/Pictures/openexr/MultiResolution/Bonita.exr"
 
 //            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
 //        "D:/Pictures/openexr/crowskull/crow_zips.exr"
@@ -191,8 +192,7 @@ pub fn convert_to_png() {
     let millis = elapsed.as_secs() * 1000 + elapsed.subsec_millis() as u64;
     println!("\ndecoded file in {:?}s", millis as f32 * 0.001);
 
-
-    fn save_f32_image_as_png(data: &[f32], size: (usize, usize), name: String) {
+    fn save_f32_image_as_png(data: &[f32], size: Vec2<usize>, name: String) {
         let mut png_buffer = image::GrayImage::new(size.0 as u32, size.1 as u32);
         let min = data.iter().cloned().fold(0.0/0.0, f32::max);
         let max = data.iter().cloned().fold(1.0/0.0, f32::min);

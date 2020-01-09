@@ -37,7 +37,6 @@ pub fn incremental(){
 #[test]
 pub fn stochastic(){
     println!("started stochastic fuzzing");
-//    panic::set_hook(Box::new(|_| (/* do not println panics */)));
     let mut pool = rayon::ThreadPoolBuilder::new().build().unwrap();
 
     for index in 0..1024_u64 * 2048 {

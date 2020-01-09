@@ -1,9 +1,10 @@
 use super::*;
 use super::Result;
-use crate::meta::attributes::{I32Box2, PixelType};
+use crate::meta::attributes::{Box2I32, PixelType};
 use crate::meta::{Header};
 use crate::io::Data;
 use crate::error::IoResult;
+use crate::math::Vec2;
 
 
 // inspired by  https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfPizCompressor.cpp
@@ -55,7 +56,7 @@ const BITMAP_SIZE: i32  = (U16_RANGE >> 3); // rly
 pub fn decompress_bytes(
     header: &Header,
     compressed: ByteVec,
-    rectangle: I32Box2,
+    rectangle: Box2I32,
     _expected_byte_size: usize,
 ) -> Result<Vec<u8>>
 {
@@ -63,8 +64,7 @@ pub fn decompress_bytes(
     struct ChannelData {
         start_index: u32,
         end_index: u32,
-        number_samples_x: u32,
-        number_samples_y: u32,
+        number_samples: Vec2<u32>,
         y_samples: u32,
         size: u32,
     }
@@ -187,19 +187,19 @@ pub fn decompress_bytes(
 //        maxX = _maxX;
 
 
-    let _min_x = rectangle.x_min;
-    let min_y = rectangle.y_min;
+    let _min_x = rectangle.start.0;
+    let min_y = rectangle.start.1;
 
-    let mut _max_x = rectangle.x_max;
-    let mut max_y = rectangle.y_max;
+    let mut _max_x = rectangle.max().0;
+    let mut max_y = rectangle.max().1;
 
     // TODO rustify
-    if _max_x > header.data_window.x_max {
-        _max_x = header.data_window.x_max;
+    if _max_x > header.data_window.max().0 {
+        _max_x = header.data_window.max().0;
     }
 
-    if max_y > header.data_window.y_max {
-        max_y = header.data_window.y_max;
+    if max_y > header.data_window.max().1 {
+        max_y = header.data_window.max().1;
     }
 
 //
@@ -223,21 +223,21 @@ pub fn decompress_bytes(
 
     let mut channel_data: Vec<ChannelData> = Vec::new();
 
-    let mut tmp_buffer = vec![0_u16; header.data_window.dimensions().0 as usize]; // TODO better size calculation?
+    let mut tmp_buffer = vec![0_u16; header.data_window.size.0 as usize]; // TODO better size calculation?
     let mut tmp_buffer_end = 0_u32;
 
     for (_index, channel) in header.channels.list.iter().enumerate() {
-        let (number_samples_x, number_samples_y) = channel.subsampled_resolution(rectangle.dimensions());
 
         let channel = ChannelData {
             start_index: tmp_buffer_end,
             end_index: tmp_buffer_end,
             y_samples: channel.sampling.1,
-            number_samples_x, number_samples_y,
+            number_samples: channel.subsampled_resolution(rectangle.size),
+            // number_samples_x, number_samples_y,
             size: channel.pixel_type.bytes_per_sample() / PixelType::F16.bytes_per_sample()
         };
 
-        tmp_buffer_end += channel.number_samples_x * channel.number_samples_y * channel.size;
+        tmp_buffer_end += channel.number_samples.0 * channel.number_samples.1 * channel.size;
         channel_data.push(channel);
     }
 
@@ -341,8 +341,8 @@ pub fn decompress_bytes(
         for size in 0..channel.size {
             wave_2_decode(
                 &mut tmp_buffer[(channel.start_index + size) as usize..],
-                channel.number_samples_x, channel.size, channel.number_samples_y,
-                channel.number_samples_x * channel.size, max_value
+                channel.number_samples.0, channel.size, channel.number_samples.1,
+                channel.number_samples.0 * channel.size, max_value
             )?;
         }
     }
@@ -398,7 +398,7 @@ pub fn decompress_bytes(
                 }
 
                 // TODO this should be a simple mirroring slice copy?
-                for _x in (0 .. channel.number_samples_x * channel.size).rev() {
+                for _x in (0 .. channel.number_samples.0 * channel.size).rev() {
                     out.push(tmp_buffer[channel.end_index as usize]);
                     channel.end_index += 1;
                 }
@@ -438,7 +438,7 @@ pub fn decompress_bytes(
                 }
 
                 // copy each channel
-                let n = channel.number_samples_x * channel.size;
+                let n = channel.number_samples.0 * channel.size;
                 out.extend_from_slice(&tmp_buffer[channel.end_index as usize .. (channel.end_index + n) as usize]);
                 channel.end_index += n;
             }

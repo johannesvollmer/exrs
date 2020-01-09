@@ -4,7 +4,75 @@
 
 
 use crate::compression::Compression;
-use crate::meta::attributes::{I32Box2, TileDescription};
+use crate::meta::attributes::{Box2I32, TileDescription};
+use std::convert::TryFrom;
+use crate::error::{i32_to_u32, i32_to_usize};
+use crate::error::Result;
+
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Vec2<T> (pub T, pub T);
+
+impl<T> Vec2<T> {
+    pub fn map<B>(self, map: impl Fn(T) -> B) -> Vec2<B> {
+        Vec2(map(self.0), map(self.1))
+    }
+
+    pub fn try_from<S>(value: Vec2<S>) -> std::result::Result<Self, T::Error> where T: TryFrom<S> {
+        let x = T::try_from(value.0)?;
+        let y = T::try_from(value.1)?;
+        Ok(Vec2(x, y))
+    }
+
+    pub fn area(self) -> T where T: std::ops::Mul<T, Output = T> {
+        self.0 * self.1
+    }
+}
+
+
+
+impl Vec2<i32> {
+    pub fn to_usize(self) -> Result<Vec2<usize>> {
+        let x = i32_to_usize(self.0)?;
+        let y = i32_to_usize(self.1)?;
+        Ok(Vec2(x, y))
+    }
+
+    pub fn to_u32(self) -> Result<Vec2<u32>> {
+        let x = i32_to_u32(self.0)?;
+        let y = i32_to_u32(self.1)?;
+        Ok(Vec2(x, y))
+    }
+}
+
+impl<T: std::ops::Add<T>> std::ops::Add<Vec2<T>> for Vec2<T> {
+    type Output = Vec2<T::Output>;
+    fn add(self, other: Vec2<T>) -> Self::Output {
+        Vec2(self.0 + other.0, self.1 + other.1)
+    }
+}
+
+impl<T: std::ops::Sub<T>> std::ops::Sub<Vec2<T>> for Vec2<T> {
+    type Output = Vec2<T::Output>;
+    fn sub(self, other: Vec2<T>) -> Self::Output {
+        Vec2(self.0 - other.0, self.1 - other.1)
+    }
+}
+
+impl<T: std::ops::Div<T>> std::ops::Div<Vec2<T>> for Vec2<T> {
+    type Output = Vec2<T::Output>;
+    fn div(self, other: Vec2<T>) -> Self::Output {
+        Vec2(self.0 / other.0, self.1 / other.1)
+    }
+}
+
+impl<T: std::ops::Mul<T>> std::ops::Mul<Vec2<T>> for Vec2<T> {
+    type Output = Vec2<T::Output>;
+    fn mul(self, other: Vec2<T>) -> Self::Output {
+        Vec2(self.0 * other.0, self.1 * other.1)
+    }
+}
+
 
 /// computes floor(log(x)/log(2))
 pub fn floor_log_2(mut number: u32) -> u32 {
@@ -84,7 +152,7 @@ pub fn compute_level_size(round: RoundingMode, full_res: u32, level_index: u32) 
 
 // TODO cache these?
 // TODO compute these directly instead of summing up an iterator?
-pub fn rip_map_resolutions(round: RoundingMode, max_resolution: (u32, u32)) -> impl Iterator<Item=(u32, u32)> {
+pub fn rip_map_resolutions(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=Vec2<u32>> {
     let (w, h) = (compute_level_count(round, max_resolution.0), compute_level_count(round, max_resolution.1));
 
     (0..w) // TODO test this
@@ -93,35 +161,33 @@ pub fn rip_map_resolutions(round: RoundingMode, max_resolution: (u32, u32)) -> i
                 // TODO progressively divide instead??
                 let width = compute_level_size(round, max_resolution.0, x_level);
                 let height = compute_level_size(round, max_resolution.1, y_level);
-                (width, height)
+                Vec2(width, height)
             })
         })
 }
 
 // TODO cache all these level values when computing table offset size??
 // TODO compute these directly instead of summing up an iterator?
-pub fn mip_map_resolutions(round: RoundingMode, max_resolution: (u32, u32)) -> impl Iterator<Item=(u32, u32)> {
+pub fn mip_map_resolutions(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=Vec2<u32>> {
     (0..compute_level_count(round, max_resolution.0.max(max_resolution.1)))
         .map(move |level|{
             // TODO progressively divide instead??
             let width = compute_level_size(round, max_resolution.0, level);
             let height = compute_level_size(round, max_resolution.1, level);
-            (width, height)
+            Vec2(width, height)
         })
 }
 
 
-pub fn compute_chunk_count(compression: Compression, data_window: I32Box2, tiles: Option<TileDescription>) -> crate::error::Result<u32> {
+pub fn compute_chunk_count(compression: Compression, data_window: Box2I32, tiles: Option<TileDescription>) -> crate::error::Result<u32> {
     // If not multipart and chunkCount not present,
     // the number of entries in the chunk table is computed
     // using the dataWindow and tileDesc attributes and the compression format
-    data_window.validate(None)?;
-
-    let data_size = data_window.dimensions();
+    let data_size = data_window.size;
 
     if let Some(tiles) = tiles {
         let round = tiles.rounding_mode;
-        let (tile_width, tile_height) = tiles.tile_size;
+        let Vec2(tile_width, tile_height) = tiles.tile_size;
 
         // TODO cache all these level values??
         use crate::meta::attributes::LevelMode::*;
@@ -133,14 +199,14 @@ pub fn compute_chunk_count(compression: Compression, data_window: I32Box2, tiles
             }
 
             MipMap => {
-                mip_map_resolutions(round, data_size).map(|(level_width, level_height)| {
+                mip_map_resolutions(round, data_size).map(|Vec2(level_width, level_height)| {
                     compute_tile_count(level_width, tile_width) * compute_tile_count(level_height, tile_height)
                 }).sum()
             },
 
             RipMap => {
                 // TODO test this
-                rip_map_resolutions(round, data_size).map(|(level_width, level_height)| {
+                rip_map_resolutions(round, data_size).map(|Vec2(level_width, level_height)| {
                     compute_tile_count(level_width, tile_width) * compute_tile_count(level_height, tile_height)
                 }).sum()
             }

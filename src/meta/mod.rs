@@ -47,13 +47,13 @@ pub type OffsetTable = Vec<u64>;
 pub struct Header {
     pub channels: ChannelList,
     pub compression: Compression,
-    pub data_window: I32Box2,
-    pub display_window: I32Box2,
+    pub data_window: Box2I32,
+    pub display_window: Box2I32,
 
     // todo: make optionals?
     pub line_order: LineOrder,
     pub pixel_aspect: f32,
-    pub screen_window_center: (f32, f32),
+    pub screen_window_center: Vec2<f32>,
     pub screen_window_width: f32,
 
     /// TileDescription: size of the tiles and the number of resolution levels in the file
@@ -135,18 +135,18 @@ pub struct Requirements {
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct TileIndices {
     pub location: TileCoordinates,
-    pub size: (u32, u32),
+    pub size: Vec2<u32>,
 }
 
 impl TileIndices {
     pub fn cmp(&self, other: &Self) -> Ordering {
-        match self.location.level_y.cmp(&other.location.level_y) {
+        match self.location.level.1.cmp(&other.location.level.1) {
             Ordering::Equal => {
-                match self.location.level_x.cmp(&other.location.level_x) {
+                match self.location.level.0.cmp(&other.location.level.0) {
                     Ordering::Equal => {
-                        match self.location.tile_index_y.cmp(&other.location.tile_index_y) {
+                        match self.location.tile_index.1.cmp(&other.location.tile_index.1) {
                             Ordering::Equal => {
-                                self.location.tile_index_x.cmp(&other.location.tile_index_x)
+                                self.location.tile_index.0.cmp(&other.location.tile_index.0)
                             },
 
                             other => other,
@@ -331,36 +331,37 @@ impl Header {
             }
         }
     }*/
-    pub fn get_block_data_window_coordinates(&self, tile: TileCoordinates) -> Result<I32Box2> {
+    pub fn get_block_data_window_coordinates(&self, tile: TileCoordinates) -> Result<Box2I32> {
         let data = self.get_absolute_block_indices(tile)?;
-        Ok(data.with_origin((self.data_window.x_min, self.data_window.y_min)))
+        Ok(data.with_origin(self.data_window.start))
     }
 
-    pub fn get_absolute_block_indices(&self, tile: TileCoordinates) -> Result<I32Box2> {
+    pub fn get_absolute_block_indices(&self, tile: TileCoordinates) -> Result<Box2I32> {
         Ok(if let Some(tiles) = self.tiles { // FIXME set to none if tile attribute exists but image is not tiled!
             let round = tiles.rounding_mode;
-            let default_tile_width = tiles.tile_size.0;
-            let default_tile_height = tiles.tile_size.1;
+//            let default_tile_width = tiles.tile_size.0;
+//            let default_tile_height = tiles.tile_size.1;
 
-            let (data_width, data_height) = self.data_window.dimensions();
-            let data_width = compute_level_size(round, data_width, tile.level_x as u32);
-            let data_height = compute_level_size(round, data_height, tile.level_y as u32);
+            let Vec2(data_width, data_height) = self.data_window.size;
+            let data_width = compute_level_size(round, data_width, tile.level.0 as u32) as i32;
+            let data_height = compute_level_size(round, data_height, tile.level.1 as u32) as i32;
 
-            let absolute_tile_coordinates = tile.to_data_indices((tiles.tile_size.0 as i32, tiles.tile_size.1 as i32));
+            let absolute_tile_coordinates = tile.to_data_indices(Vec2::try_from(tiles.tile_size).unwrap());
 //        let y = tile.absolute_coordinates(tiles.tile_size).0 - self.data_window.y_min; // TODO divide by tile size?
 //        let x = tile.tile_x * tiles.tile_size.0 as i32 - self.data_window.x_min; // TODO divide by tile size?
 
-            let next_tile_x = absolute_tile_coordinates.x_min as u32 + default_tile_width;
-            let next_tile_y = absolute_tile_coordinates.y_min as u32 + default_tile_height;
+            let new_tile_start = absolute_tile_coordinates.start + Vec2::try_from(tiles.tile_size).unwrap();
+//            let next_tile_x = absolute_tile_coordinates.start.0 as u32 + default_tile_width;
+//            let next_tile_y = absolute_tile_coordinates.start.1 as u32 + default_tile_height;
 
-            let width = if next_tile_x <= data_width { default_tile_width } else {
-                let clipped_columns = next_tile_x - data_width; // TODO +/-1?
-                default_tile_width - clipped_columns
+            let width = if new_tile_start.0 <= data_width { tiles.tile_size.0 as i32 } else {
+                let clipped_columns = new_tile_start.0 - data_width; // TODO +/-1?
+                tiles.tile_size.0 as i32 - clipped_columns
             };
 
-            let height = if next_tile_y <= data_height { default_tile_height } else {
-                let clipped_lines = next_tile_y - data_height; // TODO +/-1?
-                default_tile_height - clipped_lines
+            let height = if new_tile_start.1 <= data_height { tiles.tile_size.1 as i32 } else {
+                let clipped_lines = new_tile_start.1 - data_height; // TODO +/-1?
+                tiles.tile_size.1 as i32 - clipped_lines
             };
 
             debug_assert!(
@@ -369,22 +370,28 @@ impl Header {
                 tile, self
             );
 
-            I32Box2 {
-                x_min: absolute_tile_coordinates.x_min,
-                y_min: absolute_tile_coordinates.y_min,
-                x_max: absolute_tile_coordinates.x_min + width as i32,
-                y_max: absolute_tile_coordinates.y_min + height as i32,
+            Box2I32 {
+                start: absolute_tile_coordinates.start,
+                size: Vec2::try_from(Vec2(width, height)).unwrap(),
+
+//                x_min: absolute_tile_coordinates.x_min,
+//                y_min: absolute_tile_coordinates.y_min,
+//                x_max: absolute_tile_coordinates.x_min + width as i32,
+//                y_max: absolute_tile_coordinates.y_min + height as i32,
             }
         }
         else {
-            let y = tile.tile_index_y * self.compression.scan_lines_per_block() as i32;
-            let height = self.get_scan_line_block_height(y + self.data_window.y_min);
+            let y = tile.tile_index.1 * self.compression.scan_lines_per_block() as i32;
+            let height = self.get_scan_line_block_height(y + self.data_window.start.1);
 
-            I32Box2 {
-                x_min: 0,
-                y_min: y,
-                x_max: self.data_window.dimensions().0 as i32,
-                y_max: y + height as i32
+            Box2I32 {
+                start: Vec2(0, y),
+                size: Vec2(self.data_window.size.0, height)
+
+//                x_min: 0,
+//                y_min: y,
+//                x_max: self.data_window.dimensions().0 as i32,
+//                y_max: y + height as i32
             }
         })
         // TODO deep data?
@@ -401,9 +408,13 @@ impl Header {
             },
 
             Block::ScanLine(ref block) => TileCoordinates {
-                tile_index_x: 0,
-                tile_index_y: (block.y_coordinate - self.data_window.y_min) / self.compression.scan_lines_per_block() as i32,
-                level_x: 0, level_y: 0
+                tile_index: Vec2(
+                    0, (block.y_coordinate - self.data_window.start.1) / self.compression.scan_lines_per_block() as i32,
+                ),
+                level: Vec2(0,0),
+//                tile_index_x: 0,
+//                tile_index_y:
+//                level_x: 0, level_y: 0
 //                size: (self.data_window.dimensions().0, self.compression.scan_lines_per_block())
             },
 
@@ -444,10 +455,10 @@ impl Header {
     }
 
     fn get_scan_line_block_height(&self, y: i32) -> u32 {
-        let y_end = self.data_window.y_max;
+        let y_end = self.data_window.end().1; // FIXME max() instead?
 
         debug_assert!(
-            y >= self.data_window.y_min && y <= y_end,
+            y >= self.data_window.start.1 && y <= y_end,
             "y coordinate: {}, (data window: {:?})", y, self.data_window
         );
 
@@ -464,7 +475,7 @@ impl Header {
         debug_assert!(
             height > 0,
             "scan line block height is 0 where y = {} in header {:?} ({} x {} px) (window {:?}) ",
-            y, self.name, self.data_window.dimensions().0, self.data_window.dimensions().1, self.data_window
+            y, self.name, self.data_window.size.0, self.data_window.size.1, self.data_window
         );
 
         height as u32
@@ -479,7 +490,7 @@ impl Header {
         (
             self.channels.bytes_per_pixel * match self.tiles {
                 Some(tiles) => tiles.tile_size.0 * tiles.tile_size.1,
-                None => self.compression.scan_lines_per_block() * self.data_window.dimensions().0 // TODO is this how it works?!?! What about deep data???
+                None => self.compression.scan_lines_per_block() * self.data_window.size.0 // TODO is this how it works?!?! What about deep data???
             }
         ) as usize
     }
@@ -605,11 +616,11 @@ impl Header {
                 VERSION => version = Some(value.to_i32()?),
 
                 MAX_SAMPLES => max_samples_per_pixel = Some(
-                    positive_i32(value.to_i32()?, "max sample count")?
+                    i32_to_u32_at(value.to_i32()?, "max sample count")?
                 ),
 
                 CHUNKS => chunk_count = Some(
-                    positive_i32(value.to_i32()?, "chunk count")?
+                    i32_to_u32_at(value.to_i32()?, "chunk count")?
                 ),
 
                 _ => {
@@ -689,7 +700,7 @@ impl Header {
             write_attr(write, long, LINE_ORDER, self.line_order, LineOrder)?;
             write_attr(write, long, PIXEL_ASPECT, self.pixel_aspect, F32)?;
             write_attr(write, long, WINDOW_WIDTH, self.screen_window_width, F32)?;
-            write_attr(write, long, WINDOW_CENTER, self.screen_window_center, |(x, y)| F32Vec2(x, y))?;
+            write_attr(write, long, WINDOW_CENTER, self.screen_window_center, F32Vec2)?;
 
             // FIXME always write chunk_count for faster read?
         }
@@ -818,7 +829,7 @@ impl Requirements {
 #[cfg(test)]
 mod test {
     use crate::meta::{MetaData, Requirements, Header};
-    use crate::meta::attributes::{Text, ChannelList, I32Box2, LineOrder, Channel, PixelType};
+    use crate::meta::attributes::{Text, ChannelList, Box2I32, LineOrder, Channel, PixelType};
     use crate::compression::Compression;
 
     #[test]
