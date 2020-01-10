@@ -65,6 +65,8 @@ impl<T: Read> Read for PeekRead<T> {
             }
         }
     }
+
+    // TODO delegate remaining?
 }
 
 /// extension trait for primitive types like numbers and arrays

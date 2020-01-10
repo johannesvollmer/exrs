@@ -155,15 +155,14 @@ pub fn compute_level_size(round: RoundingMode, full_res: u32, level_index: u32) 
 pub fn rip_map_resolutions(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=Vec2<u32>> {
     let (w, h) = (compute_level_count(round, max_resolution.0), compute_level_count(round, max_resolution.1));
 
-    (0..w) // TODO test this
-        .flat_map(move |x_level|{ // FIXME may swap y and x order?
-            (0..h).map(move |y_level| {
-                // TODO progressively divide instead??
-                let width = compute_level_size(round, max_resolution.0, x_level);
-                let height = compute_level_size(round, max_resolution.1, y_level);
-                Vec2(width, height)
-            })
+    (0..h).flat_map(move |y_level|{
+        (0..w).map(move |x_level|{
+            // TODO progressively divide instead??
+            let width = compute_level_size(round, max_resolution.0, x_level);
+            let height = compute_level_size(round, max_resolution.1, y_level);
+            Vec2(width, height)
         })
+    })
 }
 
 // TODO cache all these level values when computing table offset size??

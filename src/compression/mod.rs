@@ -145,13 +145,9 @@ impl Compression {
             .map_err(|_| Error::invalid("compressed content"))?;
 
         if compressed.len() < packed.len() {
-            println!("compressing to byte size {}", compressed.len());
-
             Ok(compressed)
         }
         else {
-            println!("compressing to byte size {}", packed.len());
-
             Ok(packed)
         }
     }
@@ -162,8 +158,6 @@ impl Compression {
         debug_assert!(tile.validate(dimensions).is_ok());
 
         let expected_byte_size = (dimensions.0 * dimensions.1 * header.channels.bytes_per_pixel) as usize;
-
-//        println!("expecting tile byte size {} {:?} {:?}", expected_byte_size, tile.dimensions(), tile);
 
         if data.len() == expected_byte_size {
             Ok(data) // the raw data was smaller than the compressed data, so the raw data has been written

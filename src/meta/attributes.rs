@@ -449,8 +449,6 @@ impl Box2I32 {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         let Vec2(x_min, y_min) = self.start;
         let Vec2(x_max, y_max) = self.max();
-//        let x_max = self.start.0 + self.size.0 as i32 - 1;
-//        let y_max = self.start.1 + self.size.1 as i32 - 1;
 
         x_min.write(write)?;
         y_min.write(write)?;
@@ -474,10 +472,7 @@ impl Box2I32 {
     }
 
     pub fn with_origin(self, origin: Vec2<i32>) -> Self {
-        Box2I32 {
-            start: self.start + origin, // Vec2(self.start.0 + origin.0, self.start.1 + origin.1),
-            .. self
-        }
+        Box2I32 { start: self.start + origin, .. self }
     }
 }
 
@@ -1099,7 +1094,6 @@ impl AnyValue {
             ty::TILES       => TileDescription(self::TileDescription::read(read)?),
 
             _ => {
-                println!("Unknown attribute type: {:?}", kind.to_string());
                 let mut bytes = vec![0_u8; byte_size as usize];
                 u8::read_slice(read, &mut bytes)?;
                 Custom { kind, bytes }
@@ -1296,19 +1290,19 @@ mod test {
     fn tile_description_write_read_roundtrip(){
         let tiles = [
             TileDescription {
-                tile_size: (31, 7),
+                tile_size: Vec2(31, 7),
                 level_mode: LevelMode::MipMap,
                 rounding_mode: RoundingMode::Down,
             },
 
             TileDescription {
-                tile_size: (0, 0),
+                tile_size: Vec2(0, 0),
                 level_mode: LevelMode::Singular,
                 rounding_mode: RoundingMode::Up,
             },
 
             TileDescription {
-                tile_size: (4294967294, 4294967295),
+                tile_size: Vec2(4294967294, 4294967295),
                 level_mode: LevelMode::RipMap,
                 rounding_mode: RoundingMode::Down,
             },
@@ -1341,10 +1335,8 @@ mod test {
             Attribute {
                 name: Text::from_str("rabbit area").unwrap(),
                 value: AnyValue::F32Box2(Box2F32 {
-                    x_min: 23.4234,
-                    y_min: 345.23,
-                    x_max: 68623.0,
-                    y_max: 3.12425926538,
+                    min: Vec2(23.4234, 345.23),
+                    max: Vec2(68623.0, 3.12425926538),
                 }),
             },
             Attribute {
@@ -1360,8 +1352,7 @@ mod test {
             Attribute {
                 name: Text::from_str("what should we eat tonight").unwrap(),
                 value: AnyValue::Preview(Preview {
-                    width: 10,
-                    height: 30,
+                    size: Vec2(10, 30),
                     pixel_data: vec![31; 10 * 30 * 4],
                 }),
             },
@@ -1373,19 +1364,19 @@ mod test {
                             name: Text::from_str("Green").unwrap(),
                             pixel_type: PixelType::F16,
                             is_linear: false,
-                            sampling: (1,2)
+                            sampling: Vec2(1,2)
                         },
                         Channel {
                             name: Text::from_str("Red").unwrap(),
                             pixel_type: PixelType::F32,
                             is_linear: true,
-                            sampling: (1,2)
+                            sampling: Vec2(1,2)
                         },
                         Channel {
                             name: Text::from_str("Purple").unwrap(),
                             pixel_type: PixelType::U32,
                             is_linear: false,
-                            sampling: (0,0)
+                            sampling: Vec2(0,0)
                         }
                     ],
                     bytes_per_pixel: 0

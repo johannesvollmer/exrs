@@ -1,8 +1,7 @@
 
 use crate::meta::attributes::{BlockType, Box2I32};
 
-// TODO
-// SEE PAGE 14 IN TECHNICAL INTRODUCTION
+// TODO SEE PAGE 14 IN TECHNICAL INTRODUCTION
 
 
 #[derive(Debug, Clone)]
@@ -57,7 +56,7 @@ pub struct TileBlock {
 pub struct TileCoordinates {
     // TODO make these u32 as they are all indices?
     pub tile_index: Vec2<i32>,
-    pub level: Vec2<i32>,
+    pub level_index: Vec2<i32>,
 }
 
 /// Deep scan line images are indicated by a type attribute of “deepscanline”.
@@ -107,8 +106,8 @@ impl TileCoordinates {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         self.tile_index.0.write(write)?;
         self.tile_index.1.write(write)?;
-        self.level.0.write(write)?;
-        self.level.1.write(write)?;
+        self.level_index.0.write(write)?;
+        self.level_index.1.write(write)?;
 
         Ok(())
     }
@@ -122,43 +121,27 @@ impl TileCoordinates {
 
         Ok(TileCoordinates {
             tile_index: Vec2(tile_x, tile_y),
-            level: Vec2(level_x, level_y)
+            level_index: Vec2(level_x, level_y)
         })
     }
 
     pub fn from_absolute_coordinates(level: Vec2<i32>, tile: Vec2<i32>, tile_size: Vec2<i32>, data_window: Box2I32) -> Self {
         TileCoordinates {
             tile_index: tile / tile_size + data_window.start,
-            level,
-//            tile_index_x: tile.0 / tile_size.0 + data_window.x_min,
-//            tile_index_y: tile.1 / tile_size.1 + data_window.y_min,
-//            level_x: level.0,
-//            level_y: level.1
+            level_index: level,
         }
     }
 
     pub fn to_data_indices(&self, tile_size: Vec2<i32>) -> Box2I32 {
-//        let x = self.tile_index_x * tile_size.0;
-//        let y = self.tile_index_y * tile_size.1;
-
         Box2I32 {
             start: self.tile_index * tile_size,
             size: Vec2::try_from(tile_size).unwrap(),
-//            x_min: x, y_min: y,
-//            x_max: x + tile_size.0,
-//            y_max: y + tile_size.1
         }
     }
 
     pub fn to_absolute_indices(&self, tile_size: Vec2<i32>, data_window: Box2I32) -> Box2I32 {
         let data = self.to_data_indices(tile_size);
         data.with_origin(data_window.start)
-//        I32Box2 {
-//            x_min: data.x_min + data_window.x_min,
-//            y_min: data.y_min + data_window.y_min,
-//            x_max: data.x_max + data_window.x_min,
-//            y_max: data.y_max + data_window.y_min
-//        }
     }
 }
 
@@ -190,9 +173,6 @@ impl TileBlock {
     pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let coordinates = TileCoordinates::read(read)?;
         let compressed_pixels = u8::read_i32_sized_vec(read, max_block_byte_size, Some(max_block_byte_size))?;
-
-//        println!("read tile coordinates {:?}", coordinates);
-
         Ok(TileBlock { coordinates, compressed_pixels })
     }
 }
@@ -313,8 +293,6 @@ impl Chunk {
 
         let header = &meta_data.headers[part_number as usize];
         let max_block_byte_size = header.max_block_byte_size().min(std::u16::MAX as usize * 16);
-
-//        println!("read chunk for part {} ({:?})", part_number, header.block_type);
 
         let chunk = Chunk {
             part_number,

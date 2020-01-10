@@ -140,9 +140,9 @@ pub struct TileIndices {
 
 impl TileIndices {
     pub fn cmp(&self, other: &Self) -> Ordering {
-        match self.location.level.1.cmp(&other.location.level.1) {
+        match self.location.level_index.1.cmp(&other.location.level_index.1) {
             Ordering::Equal => {
-                match self.location.level.0.cmp(&other.location.level.0) {
+                match self.location.level_index.0.cmp(&other.location.level_index.0) {
                     Ordering::Equal => {
                         match self.location.tile_index.1.cmp(&other.location.tile_index.1) {
                             Ordering::Equal => {
@@ -265,9 +265,6 @@ impl MetaData {
     // TODO skip reading offset tables if not required?
     pub fn skip_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<u64> {
         let chunk_count: u64 = headers.iter().map(|header| header.chunk_count as u64).sum();
-
-//        let values = u64::read_vec(read, chunk_count as usize, 2048, None)?;
-//        println!("read offset table {:?}", values);
          crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE as u64)?;
         Ok(chunk_count)
     }
@@ -343,8 +340,8 @@ impl Header {
 //            let default_tile_height = tiles.tile_size.1;
 
             let Vec2(data_width, data_height) = self.data_window.size;
-            let data_width = compute_level_size(round, data_width, tile.level.0 as u32) as i32;
-            let data_height = compute_level_size(round, data_height, tile.level.1 as u32) as i32;
+            let data_width = compute_level_size(round, data_width, tile.level_index.0 as u32) as i32;
+            let data_height = compute_level_size(round, data_height, tile.level_index.1 as u32) as i32;
 
             let absolute_tile_coordinates = tile.to_data_indices(Vec2::try_from(tiles.tile_size).unwrap());
 //        let y = tile.absolute_coordinates(tiles.tile_size).0 - self.data_window.y_min; // TODO divide by tile size?
@@ -411,7 +408,7 @@ impl Header {
                 tile_index: Vec2(
                     0, (block.y_coordinate - self.data_window.start.1) / self.compression.scan_lines_per_block() as i32,
                 ),
-                level: Vec2(0,0),
+                level_index: Vec2(0, 0),
 //                tile_index_x: 0,
 //                tile_index_y:
 //                level_x: 0, level_y: 0
@@ -463,9 +460,6 @@ impl Header {
         );
 
         let lines_per_block = self.compression.scan_lines_per_block() as i32;
-
-        // FIXME
-//        println!("y {}, lines {}, miny {}, maxy {}", y, lines_per_block, self.data_window.y_min, self.data_window.y_max);
         let next_block_y = y + lines_per_block;
 
         let height =

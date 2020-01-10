@@ -28,14 +28,16 @@ pub type Parts = SmallVec<[Part; 3]>;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Part {
+    pub name: Option<Text>,
+    pub attributes: Attributes,
+
     pub data_window: Box2I32,
     // TODO pub data_offset: (i32, i32),
 
     pub screen_window_center: Vec2<f32>, // TODO use sensible defaults instead of returning an error on missing?
     pub screen_window_width: f32,
 
-    pub name: Option<Text>,
-    pub attributes: Attributes,
+    pub compression: Compression,
 
     /// only the data for this single part,
     /// index can be computed from pixel location and block_kind.
@@ -121,17 +123,17 @@ impl<S> std::fmt::Debug for Levels<S> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Levels::Singular(image) => write!(
-                formatter, "Singular ({}x{})",
+                formatter, "Singular ([{}x{}])",
                 image.resolution.0, image.resolution.1
             ),
             Levels::Mip(levels) => write!(
-                formatter, "Mip ({}x{} [{}])",
-                levels[0].resolution.0, levels[0].resolution.1, levels.len()
+                formatter, "Mip ({:?})",
+                levels.iter().map(|level| level.resolution).collect::<Vec<_>>(),
             ),
             Levels::Rip(maps) => write!(
-                formatter, "Rip ({}x{} [{}x{}])",
-                maps.map_data[0].resolution.0, maps.map_data[0].resolution.1,
-                maps.level_count.0, maps.level_count.1),
+                formatter, "Rip ({:?})",
+                maps.map_data.iter().map(|level| level.resolution).collect::<Vec<_>>()
+            )
         }
     }
 }
@@ -179,11 +181,7 @@ impl FullImage {
     /// assumes the reader is buffered (if desired)
     #[must_use]
     pub fn read_from_buffered(read: impl Read, options: ReadOptions) -> Result<Self> {
-        crate::image::read_all_chunks(read, options, FullImage::new, |mut image, block| {
-//            debug_assert!(block.position)
-            image.insert_block(block)?;
-            Ok(image)
-        })
+        crate::image::read_all_chunks(read, options, FullImage::new, FullImage::with_block)
     }
 
 
@@ -199,7 +197,7 @@ impl FullImage {
         let offset_table_size: u32 = meta_data.headers.iter()
             .map(|header| header.chunk_count).sum();
 
-        println!("writing zeroed tables (chunk count: {})", offset_table_size);
+//        println!("writing zeroed tables (chunk count: {})", offset_table_size);
 
         let mut offset_tables: Vec<u64> = vec![0; offset_table_size as usize];
         u64::write_slice(&mut write, offset_tables.as_slice())?;
@@ -210,28 +208,18 @@ impl FullImage {
                 let header = &meta_data.headers[part_index];
                 let mut table = Vec::new();
 
-                println!("writing image part {}", part_index);
+//                println!("writing image part {}", part_index);
 
                 part.tiles(header, &mut |tile| {
                     let data_indices = header.get_absolute_block_indices(tile.location)?;
 
                     let data_size = Vec2::try_from(data_indices.size).unwrap();
                     let data_position = Vec2::try_from(data_indices.start).unwrap();
-                    let data_level = Vec2::try_from(tile.location.level).unwrap();
-
-//                    let data_size = (data_size.0 as usize, data_size.1 as usize); // TODO use fn tuple::cast?
-//                    let data_position = (data_indices.start.0 as usize, data_indices.start.1 as usize);
-//                    let data_level = (tile.location.level.0 as usize, tile.location.level.1 as usize);
+                    let data_level = Vec2::try_from(tile.location.level_index).unwrap();
 
                     let data: Vec<u8> = self.extract_block(part_index, data_position, data_size, data_level)?;
 
-                    if part_index == 1 {
-//                        println!("uncompressed data len: {}", data.len());
-//                        println!("compressing tile: {:?}", tile);
-                    }
-
-                    let data = options.compression_method.compress_image_section(data)?;
-//                    println!("compressed data len: {}", data.len());
+                    let data = header.compression.compress_image_section(data)?;
 
                     let chunk = Chunk {
                         part_number: part_index as i32,
@@ -262,7 +250,7 @@ impl FullImage {
 
                 // sort offset table by increasing y
                 table.sort_by(|(a, _), (b, _)| a.cmp(b));
-                println!("write single table with len {} {:?}", table.len(), table);
+//                println!("write single table with len {} {:?}", table.len(), table);
 
                 offset_tables.extend(table.into_iter().map(|(_, index)| index));
             }
@@ -300,6 +288,11 @@ impl FullImage {
             parts: headers?,
             display_window, pixel_aspect
         })
+    }
+
+    pub fn with_block(mut self, block: UncompressedBlock) -> Result<Self> {
+        self.insert_block(block)?;
+        Ok(self)
     }
 
     pub fn insert_block(&mut self, block: UncompressedBlock) -> PassiveResult {
@@ -368,7 +361,8 @@ impl Part {
                     screen_window_width: header.screen_window_width,
                     name: header.name.clone(),
                     attributes: header.custom_attributes.clone(),
-                    channels: header.channels.list.iter().map(|channel| Channel::new(header, channel)).collect()
+                    channels: header.channels.list.iter().map(|channel| Channel::new(header, channel)).collect(),
+                    compression: header.compression
                 })
             },
 
@@ -379,7 +373,13 @@ impl Part {
     }
 
     pub fn insert_block(&mut self, data: &mut impl Read, position: Vec2<usize>, size: Vec2<usize>, level: Vec2<usize>) -> PassiveResult {
+        debug_assert!(position.0 + size.0 <= self.data_window.size.0 as usize);
+        debug_assert!(position.1 + size.1 <= self.data_window.size.1 as usize);
+
+//        println!("position: {:?}, size: {:?}, image: {:?}", position, size, self.data_window);
+
         for y in position.1 .. position.1 + size.1 {
+//            println!("\ty: {}", y);
             for channel in &mut self.channels {
                 channel.insert_line(data, level, Vec2(position.0, y), size.0)?;
             }
@@ -409,7 +409,7 @@ impl Part {
         };
 
         let chunk_count = compute_chunk_count(
-            options.compression_method, self.data_window, tiles
+            self.compression, self.data_window, tiles
         )?;
 
         Ok(Header {
@@ -418,7 +418,7 @@ impl Part {
             data_window: self.data_window,
             screen_window_center: self.screen_window_center,
             screen_window_width: self.screen_window_width,
-            compression: options.compression_method,
+            compression: self.compression,
             name: self.name.clone(),
 
             channels: ChannelList::new(self.channels.iter().map(|channel| attributes::Channel {
@@ -473,7 +473,7 @@ impl Part {
                     action(TileIndices {
                         location: TileCoordinates {
                             tile_index: Vec2::try_from(Vec2(x_index, y_index)).unwrap(),
-                            level: Vec2::try_from(level).unwrap(),
+                            level_index: Vec2::try_from(level).unwrap(),
                         },
                         size: Vec2(tile_width, tile_height),
                     })
@@ -585,7 +585,6 @@ impl<S: Samples> Levels<S> {
         let data_size = header.data_window.size;
 
         if let Some(tiles) = &header.tiles {
-//            debug_assert_eq!(header.kind, Some(Kind::Tile)); FIXME triggered
             let round = tiles.rounding_mode;
 
             match tiles.level_mode {
@@ -615,6 +614,7 @@ impl<S: Samples> Levels<S> {
     }
 
     pub fn insert_line(&mut self, read: &mut impl Read, level: Vec2<usize>, position: Vec2<usize>, length: usize) -> PassiveResult {
+//        println!("level {:?}, dimensions: {:?}", level, self.get_level(level).unwrap().resolution);
         self.get_level_mut(level)?.insert_line(read, position, length)
     }
 
@@ -679,16 +679,16 @@ impl<S: Samples> SampleBlock<S> {
     }
 
     pub fn insert_line(&mut self, read: &mut impl Read, position: Vec2<usize>, length: usize) -> PassiveResult {
-        debug_assert!(position.1 < self.resolution.1, "y: {}, height: {}", position.1, self.resolution.1);
         debug_assert!(position.0 + length <= self.resolution.0, "x max {}, of {}", position.0 + length, self.resolution.0);
+        debug_assert!(position.1 < self.resolution.1, "y: {}, height: {}", position.1, self.resolution.1);
         debug_assert_ne!(length, 0);
 
         self.samples.insert_line(read, position, length, self.resolution.0)
     }
 
     pub fn extract_line(&self, write: &mut impl Write, position: Vec2<usize>, length: usize) -> PassiveResult {
-        debug_assert!(position.1 < self.resolution.1, "y: {}, height: {}", position.1, self.resolution.1);
         debug_assert!(position.0 + length <= self.resolution.0, "x max {} of width {}", position.0 + length, self.resolution.0);
+        debug_assert!(position.1 < self.resolution.1, "y: {}, height: {}", position.1, self.resolution.1);
         debug_assert_ne!(length, 0);
 
         self.samples.extract_line(write, position, length, self.resolution.0)

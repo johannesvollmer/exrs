@@ -16,9 +16,8 @@ use std::convert::TryFrom;
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct WriteOptions {
     pub parallel_compression: bool,
-    pub compression_method: Compression,
-    pub line_order: LineOrder,
-    pub blocks: BlockOptions
+    pub line_order: LineOrder, // TODO per header?
+    pub blocks: BlockOptions // TODO per header!
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -78,7 +77,6 @@ pub fn read_all_chunks<T>(
     let mut read = PeekRead::new(read);
     let meta_data = MetaData::read_from_buffered_peekable(&mut read)?;
     let chunk_count = MetaData::skip_offset_tables(&mut read, &meta_data.headers)? as usize;
-//    println!("skipping tables (chunk count: {})", chunk_count);
 
     let mut value = new(meta_data.headers.as_slice())?;
 
@@ -108,8 +106,6 @@ pub fn read_all_chunks<T>(
             let chunk = Chunk::read(&mut read, &meta_data)?;
             let decompressed = UncompressedBlock::from_compressed(chunk, &meta_data)?;
 
-//            println!("reading chunk {}",  c);
-
             value = insert(value, decompressed)?;
         }
     }
@@ -138,7 +134,7 @@ impl UncompressedBlock {
                 part_index: usize::try_from(chunk.part_number).unwrap(),
                 data_index: Vec2::try_from(absolute_indices.start).unwrap(),
                 data_size: Vec2::try_from(absolute_indices.size).unwrap(),
-                level: Vec2::try_from(tile_data_indices.level).unwrap(),
+                level: Vec2::try_from(tile_data_indices.level_index).unwrap(),
                 data: header.compression.decompress_image_section(header, compressed_pixels, absolute_indices)?
             }),
 
@@ -162,10 +158,6 @@ impl WriteOptions {
     pub fn fast_writing() -> Self {
         WriteOptions {
             parallel_compression: true,
-
-            // RLE has low runtime cost but great compression for areas with solid color
-            compression_method: Compression::RLE,
-
             line_order: LineOrder::Unspecified,
             blocks: BlockOptions::ScanLineBlocks
         }
@@ -174,7 +166,6 @@ impl WriteOptions {
     pub fn small_image() -> Self {
         WriteOptions {
             parallel_compression: true,
-            compression_method: Compression::ZIP16, // TODO test if this is one of the smallest
             line_order: LineOrder::Unspecified,
             blocks: BlockOptions::ScanLineBlocks
         }
@@ -183,7 +174,6 @@ impl WriteOptions {
     pub fn small_writing() -> Self {
         WriteOptions {
             parallel_compression: false,
-            compression_method: Compression::Uncompressed,
             line_order: LineOrder::Unspecified,
             blocks: BlockOptions::ScanLineBlocks
         }
@@ -192,7 +182,6 @@ impl WriteOptions {
     pub fn debug() -> Self {
         WriteOptions {
             parallel_compression: false,
-            compression_method: Compression::Uncompressed,
             line_order: LineOrder::Unspecified,
             blocks: BlockOptions::ScanLineBlocks
         }
