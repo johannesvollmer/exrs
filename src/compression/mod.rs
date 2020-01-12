@@ -131,7 +131,6 @@ impl Compression {
     pub fn compress_image_section(self, packed: ByteVec) -> Result<ByteVec> {
         use self::Compression::*;
 
-        // FIXME only write compressed if smaller
         let compressed = match self {
             Uncompressed => return Ok(packed),
             ZIP16 => zip::compress_bytes(&packed),

@@ -58,7 +58,7 @@ pub struct Header {
 
     /// TileDescription: size of the tiles and the number of resolution levels in the file
     /// Required for parts of type tiledimage and deeptile
-    pub tiles: Option<TileDescription>,
+//    pub tiles: Option<TileDescription>, // TODO use image::full::Blocks here too?
 
     /// The name of the `Part` which contains this Header.
     /// Required if either the multipart bit (12) or the non-image bit (11) is set
@@ -69,7 +69,9 @@ pub struct Header {
     /// Note: This value must agree with the version field's tile bit (9) and non-image (deep data) bit (11) settings
     /// required for deep data. when deep data, Must be set to deepscanline or deeptile.
     /// In this crate, this attribute will always have a value for simplicity.
-    pub block_type: BlockType,
+//    pub block_type: BlockType, // TODO use image::full::Blocks here too?
+    pub blocks: Blocks,
+    pub deep: bool,
 
     /// This document describes version 1 data for all
     /// part types. version is required for deep data (deepscanline and deeptile) parts.
@@ -99,7 +101,7 @@ pub struct Header {
     pub custom_attributes: Attributes,
 }
 
-pub type Attributes = SmallVec<[Attribute; 8]>;
+pub type Attributes = Vec<Attribute>;
 
 
 // FIXME TODO this should probably not be a struct but a module, and not passed everywhere,
@@ -138,6 +140,12 @@ pub struct TileIndices {
     pub size: Vec2<u32>,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Blocks {
+    ScanLines,
+    Tiles(TileDescription)
+}
+
 impl TileIndices {
     pub fn cmp(&self, other: &Self) -> Ordering {
         match self.location.level_index.1.cmp(&other.location.level_index.1) {
@@ -158,6 +166,15 @@ impl TileIndices {
             },
 
             other => other
+        }
+    }
+}
+
+impl Blocks {
+    pub fn has_tiles(&self) -> bool {
+        match self {
+            Blocks::Tiles { .. } => true,
+            _ => false
         }
     }
 }
@@ -293,24 +310,6 @@ impl MetaData {
 
 impl Header {
 
-    pub fn has_deep_data(&self) -> bool {
-        match self.block_type {
-            BlockType::DeepTile | BlockType::DeepScanLine => true,
-            _ => false
-        }
-    }
-
-    pub fn has_tiles(&self) -> bool {
-        match self.block_type {
-            BlockType::DeepTile | BlockType::Tile => {
-                debug_assert!(self.tiles.is_some());
-                true
-            },
-
-            _ => false
-        }
-    }
-
     /*pub fn get_absolute_block_coordinates_for(&self, tile: TileCoordinates) -> I32Box2 {
         match self.tiles {
             Some(tiles) => self.get_tile(tile), // FIXME branch
@@ -328,53 +327,109 @@ impl Header {
             }
         }
     }*/
+
+
+
+    // FIXME return iter instead
+    pub fn blocks(&self, action: &mut impl FnMut(TileIndices) -> PassiveResult) -> PassiveResult {
+        fn tiles_of(image_size: Vec2<u32>, tile_size: Vec2<u32>, level_index: Vec2<u32>, action: &mut impl FnMut(TileIndices) -> PassiveResult) -> PassiveResult {
+            fn divide_and_rest(total_size: u32, block_size: u32, action: &mut impl FnMut(u32, u32) -> PassiveResult) -> PassiveResult {
+                let whole_block_count = total_size / block_size;
+                for whole_block_index in 0 .. whole_block_count {
+                    action(whole_block_index, block_size)?;
+                }
+
+                let whole_block_size = whole_block_count * block_size;
+                if whole_block_size != total_size {
+                    action(whole_block_count, total_size - whole_block_size)?;
+                }
+
+                Ok(())
+            }
+
+            divide_and_rest(image_size.1, tile_size.1, &mut |y_index, tile_height|{
+                divide_and_rest(image_size.0, tile_size.0, &mut |x_index, tile_width|{
+                    action(TileIndices {
+                        size: Vec2(tile_width, tile_height),
+                        location: TileCoordinates {
+                            tile_index: Vec2::try_from(Vec2(x_index, y_index)).unwrap(),
+                            level_index: Vec2::try_from(level_index).unwrap(),
+                        },
+                    })
+                })
+            })
+        }
+
+        let image_size = self.data_window.size;
+
+        if let Blocks::Tiles(tiles) = self.blocks {
+            match tiles.level_mode {
+                LevelMode::Singular => {
+                    tiles_of(image_size, tiles.tile_size, Vec2(0, 0), action)?;
+                },
+                LevelMode::MipMap => {
+                    for (level_index, level_size) in mip_map_levels(tiles.rounding_mode, image_size) {
+                        tiles_of(level_size, tiles.tile_size, Vec2(level_index, level_index), action)?;
+                    }
+                },
+                LevelMode::RipMap => {
+                    for (level_index, level_size) in rip_map_levels(tiles.rounding_mode, image_size) {
+                        tiles_of(level_size, tiles.tile_size, level_index, action)?;
+                    }
+                }
+            }
+        }
+        else {
+            let tiles = Vec2(image_size.0, self.compression.scan_lines_per_block());
+            tiles_of(image_size, tiles, Vec2(0,0), action)?;
+        }
+
+        Ok(())
+    }
+
     pub fn get_block_data_window_coordinates(&self, tile: TileCoordinates) -> Result<Box2I32> {
         let data = self.get_absolute_block_indices(tile)?;
         Ok(data.with_origin(self.data_window.start))
     }
 
     pub fn get_absolute_block_indices(&self, tile: TileCoordinates) -> Result<Box2I32> {
-        Ok(if let Some(tiles) = self.tiles { // FIXME set to none if tile attribute exists but image is not tiled!
+        Ok(if let Blocks::Tiles(tiles) = self.blocks { // FIXME set to none if tile attribute exists but image is not tiled!
             let round = tiles.rounding_mode;
-//            let default_tile_width = tiles.tile_size.0;
-//            let default_tile_height = tiles.tile_size.1;
 
             let Vec2(data_width, data_height) = self.data_window.size;
             let data_width = compute_level_size(round, data_width, tile.level_index.0 as u32) as i32;
             let data_height = compute_level_size(round, data_height, tile.level_index.1 as u32) as i32;
-
-            let absolute_tile_coordinates = tile.to_data_indices(Vec2::try_from(tiles.tile_size).unwrap());
-//        let y = tile.absolute_coordinates(tiles.tile_size).0 - self.data_window.y_min; // TODO divide by tile size?
-//        let x = tile.tile_x * tiles.tile_size.0 as i32 - self.data_window.x_min; // TODO divide by tile size?
-
-            let new_tile_start = absolute_tile_coordinates.start + Vec2::try_from(tiles.tile_size).unwrap();
-//            let next_tile_x = absolute_tile_coordinates.start.0 as u32 + default_tile_width;
-//            let next_tile_y = absolute_tile_coordinates.start.1 as u32 + default_tile_height;
-
-            let width = if new_tile_start.0 <= data_width { tiles.tile_size.0 as i32 } else {
-                let clipped_columns = new_tile_start.0 - data_width; // TODO +/-1?
-                tiles.tile_size.0 as i32 - clipped_columns
-            };
-
-            let height = if new_tile_start.1 <= data_height { tiles.tile_size.1 as i32 } else {
-                let clipped_lines = new_tile_start.1 - data_height; // TODO +/-1?
-                tiles.tile_size.1 as i32 - clipped_lines
-            };
+            let tile_size = Vec2::try_from(tiles.tile_size).unwrap();
+            let absolute_tile_coordinates = tile.to_data_indices(tile_size);
 
             debug_assert!(
-                height != 0 && width != 0,
-                "tile size is 0 for tile {:?} in header {:#?}",
-                tile, self
+                absolute_tile_coordinates.start.0 < data_width,
+                "invalid tile index x {} for level index {} with width {}",
+                absolute_tile_coordinates.start.0, tile.level_index.0, data_width
             );
+
+            debug_assert!(absolute_tile_coordinates.start.1 < data_height, "invalid tile index y for level");
+
+            if absolute_tile_coordinates.start.0 >= data_width || absolute_tile_coordinates.start.1 >= data_height {
+                return Err(Error::invalid("data block tile index"))
+            }
+
+            // FIXME divide start by (1 << level _index)?
+            let next_tile_start = absolute_tile_coordinates.start + tile_size;
+
+            let width = if next_tile_start.0 <= data_width { tile_size.0 } else {
+                data_width - absolute_tile_coordinates.start.0
+            };
+
+            let height = if next_tile_start.1 <= data_height { tile_size.1 } else {
+                data_height - absolute_tile_coordinates.start.1
+            };
+
+            debug_assert!(height > 0 && width > 0);
 
             Box2I32 {
                 start: absolute_tile_coordinates.start,
                 size: Vec2::try_from(Vec2(width, height)).unwrap(),
-
-//                x_min: absolute_tile_coordinates.x_min,
-//                y_min: absolute_tile_coordinates.y_min,
-//                x_max: absolute_tile_coordinates.x_min + width as i32,
-//                y_max: absolute_tile_coordinates.y_min + height as i32,
             }
         }
         else {
@@ -384,11 +439,6 @@ impl Header {
             Box2I32 {
                 start: Vec2(0, y),
                 size: Vec2(self.data_window.size.0, height)
-
-//                x_min: 0,
-//                y_min: y,
-//                x_max: self.data_window.dimensions().0 as i32,
-//                y_max: y + height as i32
             }
         })
         // TODO deep data?
@@ -398,10 +448,6 @@ impl Header {
         Ok(match block {
             Block::Tile(ref tile) => {
                 tile.coordinates
-//                TileIndices {
-//                    location: tile.coordinates,
-//                    size: self.get_tile(tile.coordinates).dimensions() // TODO cleanup
-//                }
             },
 
             Block::ScanLine(ref block) => TileCoordinates {
@@ -409,46 +455,10 @@ impl Header {
                     0, (block.y_coordinate - self.data_window.start.1) / self.compression.scan_lines_per_block() as i32,
                 ),
                 level_index: Vec2(0, 0),
-//                tile_index_x: 0,
-//                tile_index_y:
-//                level_x: 0, level_y: 0
-//                size: (self.data_window.dimensions().0, self.compression.scan_lines_per_block())
             },
 
-            _ => unimplemented!()
+            _ => return Err(Error::unsupported("deep data"))
         })
-
-//        let coordinates = self.get_raw_block_coordinates(block)?;
-//
-//        assert!(coordinates.x_min >= self.data_window.x_min); // TODO Err() instead
-//        assert!(coordinates.y_min >= self.data_window.y_min); // TODO Err() insteads
-//
-//        let position = (
-//            (coordinates.x_min - self.data_window.x_min) as u32,
-//            (coordinates.y_min - self.data_window.y_min) as u32
-//        );
-//
-//        let size = coordinates.dimensions();
-//
-//        Ok(TileIndices {
-//            location: TileCoordinates {
-//                tile_index_x: 0,
-//                tile_index_y: 0,
-//                level_x: 0,
-//                level_y: 0
-//            },
-//
-//            level: match block {
-//                Block::Tile(ref tile) => (tile.coordinates.level_x as u32, tile.coordinates.level_y as u32),
-//                Block::ScanLine(ref _block) => (0,0), // FIXME is this correct?
-//
-//                Block::DeepTile(ref tile) => (tile.coordinates.level_x as u32, tile.coordinates.level_y as u32),
-//                Block::DeepScanLine(ref tile) => (0,0), // FIXME is this correct?
-//            },
-//
-//            position,
-//            size
-//        })
     }
 
     fn get_scan_line_block_height(&self, y: i32) -> u32 {
@@ -474,25 +484,20 @@ impl Header {
 
         height as u32
     }
-//
+
 //    fn get_tile(&self, tile: TileCoordinates) -> I32Box2 { // TODO result?
 //        let tiles = self.tiles.expect("check failed: tiles not found");
-//
 //    }
 
     pub fn max_block_byte_size(&self) -> usize {
         (
-            self.channels.bytes_per_pixel * match self.tiles {
-                Some(tiles) => tiles.tile_size.0 * tiles.tile_size.1,
-                None => self.compression.scan_lines_per_block() * self.data_window.size.0 // TODO is this how it works?!?! What about deep data???
+            self.channels.bytes_per_pixel * match self.blocks {
+                Blocks::Tiles(tiles) => tiles.tile_size.0 * tiles.tile_size.1,
+                Blocks::ScanLines => self.compression.scan_lines_per_block() * self.data_window.size.0
+                // TODO What about deep data???
             }
         ) as usize
     }
-
-    // TODO for all other fields too?
-//    pub fn kind_or_err(&self) -> Result<&BlockType> {
-//        self.block_type.as_ref().ok_or(missing_attribute("chunk segmentation type"))
-//    }
 
     pub fn validate(&self, requirements: &Requirements) -> PassiveResult {
         if requirements.is_multipart() {
@@ -501,7 +506,7 @@ impl Header {
             }
         }
 
-        if self.has_deep_data() {
+        if self.deep {
             if self.name.is_none() {
                 return Err(missing_attribute("image part name"));
             }
@@ -525,21 +530,6 @@ impl Header {
 //                ).into());
 //            }
         }
-
-        if self.has_tiles() {
-            if self.tiles.is_none() {
-                return Err(missing_attribute("tiles"));
-            }
-        }
-
-        // TODO those do not have to agree
-        // version-deepness and attribute-deepness must match
-        /*if kind.is_deep_kind() != version.has_deep_data {
-            return Err(Invalid::Content(
-                Value::Attribute("type"),
-                Required::OneOf(&["deepscanlines", "deeptiles"])
-            ).into());
-        }*/
 
         Ok(())
     }
@@ -573,7 +563,7 @@ impl Header {
 
     pub fn read(read: &mut PeekRead<impl Read>, requirements: &Requirements) -> Result<Self> {
         let max_string_len = if requirements.has_long_names { 256 } else { 32 }; // TODO DRY this information
-        let mut custom = SmallVec::new();
+        let mut custom = Vec::new();
 
         // these required attributes will be Some(usize) when encountered while parsing
         let mut tiles = None;
@@ -626,14 +616,21 @@ impl Header {
 
         let compression = compression.ok_or(missing_attribute("compression"))?;
         let data_window = data_window.ok_or(missing_attribute("data window"))?;
-        let chunk_count = match chunk_count {
-            None => compute_chunk_count(compression, data_window, tiles)?,
-            Some(count) => count,
+
+        let blocks = match block_type {
+            None if requirements.is_single_part_and_tiled => {
+                Blocks::Tiles(tiles.ok_or(missing_attribute("tiles"))?)
+            },
+            Some(BlockType::Tile) | Some(BlockType::DeepTile) => {
+                Blocks::Tiles(tiles.ok_or(missing_attribute("tiles"))?)
+            },
+
+            _ => Blocks::ScanLines,
         };
 
-        let block_type = match block_type {
-            None => if requirements.is_single_part_and_tiled { BlockType::Tile } else { BlockType::ScanLine },
-            Some(kind) => kind,
+        let chunk_count = match chunk_count {
+            None => compute_chunk_count(compression, data_window, blocks)?,
+            Some(count) => count,
         };
 
         let header = Header {
@@ -646,13 +643,12 @@ impl Header {
             screen_window_center: screen_window_center.ok_or(missing_attribute("screen window center"))?,
             screen_window_width: screen_window_width.ok_or(missing_attribute("screen window width"))??,
 
-
-            tiles,
+            blocks,
             name,
-            block_type,
             max_samples_per_pixel,
             deep_data_version: version,
             custom_attributes: custom,
+            deep: block_type == Some(BlockType::DeepScanLine) || block_type == Some(BlockType::DeepTile)
         };
 
         header.validate(requirements)?;
@@ -678,14 +674,21 @@ impl Header {
             use crate::meta::attributes::required::*;
             use AnyValue::*;
 
-            write_opt_attr(write, long, TILES, self.tiles, TileDescription)?;
+
+            let (block_type, tiles) = match self.blocks {
+                Blocks::ScanLines => (attributes::BlockType::ScanLine, None),
+                Blocks::Tiles(tiles) => (attributes::BlockType::Tile, Some(tiles))
+            };
+
+            write_opt_attr(write, long, TILES, tiles, TileDescription)?;
+
             write_opt_attr(write, long, NAME, self.name.clone(), Text)?;
             write_opt_attr(write, long, VERSION, self.deep_data_version, I32)?;
             write_opt_attr(write, long, MAX_SAMPLES, self.max_samples_per_pixel, |u| I32(u as i32))?;
 
             // not actually required, but always computed in this library anyways
             write_attr(write, long, CHUNKS, self.chunk_count, |u| I32(u as i32))?;
-            write_attr(write, long, BLOCK_TYPE, self.block_type, BlockType)?;
+            write_attr(write, long, BLOCK_TYPE, block_type, BlockType)?;
 
             write_attr(write, long, CHANNELS, self.channels.clone(), ChannelList)?; // FIXME do not clone
             write_attr(write, long, COMPRESSION, self.compression, Compression)?;
@@ -725,10 +728,6 @@ impl Requirements {
     pub fn is_multipart(&self) -> bool {
         self.has_multiple_parts
     }
-
-    /*pub fn byte_size(self) -> usize {
-        0_u32.byte_size()
-    }*/
 
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         use ::bit_field::BitField;

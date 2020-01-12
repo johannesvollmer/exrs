@@ -51,7 +51,7 @@ pub mod prelude {
     // core data types
     pub use crate::image::{
         full::{ FullImage },
-        ReadOptions, WriteOptions, BlockOptions,
+        ReadOptions, WriteOptions,
     };
 
     pub use crate::image::full;

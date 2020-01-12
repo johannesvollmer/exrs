@@ -4,10 +4,11 @@
 
 
 use crate::compression::Compression;
-use crate::meta::attributes::{Box2I32, TileDescription};
+use crate::meta::attributes::Box2I32;
 use std::convert::TryFrom;
 use crate::error::{i32_to_u32, i32_to_usize};
 use crate::error::Result;
+use crate::meta::Blocks;
 
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -147,44 +148,58 @@ pub fn compute_level_count(round: RoundingMode, full_res: u32) -> u32 {
 }
 
 pub fn compute_level_size(round: RoundingMode, full_res: u32, level_index: u32) -> u32 {
+    // debug_assert!(level_index < compute_level_count(round, full_res), "level index {} too large for resolution {}", level_index, full_res);
+
     round.divide(full_res,  1 << level_index).max(1)
 }
 
 // TODO cache these?
 // TODO compute these directly instead of summing up an iterator?
-pub fn rip_map_resolutions(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=Vec2<u32>> {
-    let (w, h) = (compute_level_count(round, max_resolution.0), compute_level_count(round, max_resolution.1));
-
-    (0..h).flat_map(move |y_level|{
-        (0..w).map(move |x_level|{
-            // TODO progressively divide instead??
-            let width = compute_level_size(round, max_resolution.0, x_level);
-            let height = compute_level_size(round, max_resolution.1, y_level);
-            Vec2(width, height)
-        })
+pub fn rip_map_levels(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=(Vec2<u32>, Vec2<u32>)> {
+    rip_map_indices(round, max_resolution).map(move |level_indices|{
+        // TODO progressively divide instead??
+        let width = compute_level_size(round, max_resolution.0, level_indices.0);
+        let height = compute_level_size(round, max_resolution.1, level_indices.1);
+        (level_indices, Vec2(width, height))
     })
 }
 
 // TODO cache all these level values when computing table offset size??
 // TODO compute these directly instead of summing up an iterator?
-pub fn mip_map_resolutions(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=Vec2<u32>> {
-    (0..compute_level_count(round, max_resolution.0.max(max_resolution.1)))
-        .map(move |level|{
+pub fn mip_map_levels(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=(u32, Vec2<u32>)> {
+    mip_map_indices(round, max_resolution)
+        .map(move |level_index|{
             // TODO progressively divide instead??
-            let width = compute_level_size(round, max_resolution.0, level);
-            let height = compute_level_size(round, max_resolution.1, level);
-            Vec2(width, height)
+            let width = compute_level_size(round, max_resolution.0, level_index);
+            let height = compute_level_size(round, max_resolution.1, level_index);
+            (level_index, Vec2(width, height))
         })
 }
 
+pub fn rip_map_indices(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=Vec2<u32>> {
+    let (width, height) = (
+        compute_level_count(round, max_resolution.0),
+        compute_level_count(round, max_resolution.1)
+    );
 
-pub fn compute_chunk_count(compression: Compression, data_window: Box2I32, tiles: Option<TileDescription>) -> crate::error::Result<u32> {
+    (0..height).flat_map(move |y_level|{
+        (0..width).map(move |x_level|{
+            Vec2(x_level, y_level)
+        })
+    })
+}
+
+pub fn mip_map_indices(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=u32> {
+    (0..compute_level_count(round, max_resolution.0.max(max_resolution.1)))
+}
+
+pub fn compute_chunk_count(compression: Compression, data_window: Box2I32, blocks: Blocks) -> crate::error::Result<u32> {
     // If not multipart and chunkCount not present,
     // the number of entries in the chunk table is computed
     // using the dataWindow and tileDesc attributes and the compression format
     let data_size = data_window.size;
 
-    if let Some(tiles) = tiles {
+    if let Blocks::Tiles(tiles) = blocks {
         let round = tiles.rounding_mode;
         let Vec2(tile_width, tile_height) = tiles.tile_size;
 
@@ -198,14 +213,14 @@ pub fn compute_chunk_count(compression: Compression, data_window: Box2I32, tiles
             }
 
             MipMap => {
-                mip_map_resolutions(round, data_size).map(|Vec2(level_width, level_height)| {
+                mip_map_levels(round, data_size).map(|(_, Vec2(level_width, level_height))| {
                     compute_tile_count(level_width, tile_width) * compute_tile_count(level_height, tile_height)
                 }).sum()
             },
 
             RipMap => {
                 // TODO test this
-                rip_map_resolutions(round, data_size).map(|Vec2(level_width, level_height)| {
+                rip_map_levels(round, data_size).map(|(_, Vec2(level_width, level_height))| {
                     compute_tile_count(level_width, tile_width) * compute_tile_count(level_height, tile_height)
                 }).sum()
             }

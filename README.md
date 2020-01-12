@@ -18,6 +18,40 @@ _Highly experimental!_
 
 __Currently supported:__
 
+- Supported OpenEXR Features
+    - [x] custom attributes
+    - [x] multi-part images
+    - [x] multi-resolution images: mip maps, rip maps
+    - [ ] deep data (next up)
+    - [ ] line order
+        - [x] read any
+        - [x] write increasing-y
+        - [ ] write any
+        
+    - [ ] compression methods (help wanted)
+        - [x] uncompressed
+        - [x] zip line
+        - [x] zip block
+        - [x] rle
+        - [ ] piz
+        - [ ] pxr24
+        - [ ] b44, b44a
+        - [ ] dwaa, dwab
+
+- Nice Things
+    - [x] read meta data without having to load image data
+    - [x] read all contents at once
+        - [x] decompress image sections either 
+              in parallel or with low memory overhead
+    - [x] write all contents at once
+        - [ ] compress blocks in parallel
+    - [ ] read only some blocks dynamically
+    - [ ] write blocks streams, one after another
+    - [ ] progress callback
+    - [ ] memory mapping
+    
+    
+<!--
 - [x] Inspecting Metadata
     - [x] Singlepart
         - [x] Tiles
@@ -32,7 +66,7 @@ __Currently supported:__
     - [x] Multi Resolution
         - [x] Singular Resolution
         - [x] MipMaps
-        - [ ] RipMaps _(coded, but untested)_
+        - [x] RipMaps _(coded, but untested)_
     - [x] Non-Standard Attributes
         - [x] Reading those with known names and unknown names
         - [x] Reading those with known types
@@ -44,7 +78,7 @@ __Currently supported:__
     - [x] Any Pixel Type (`f16`, `f32`, `u32`)
     - [x] Multipart
     - [ ] Deep Data
-    - [ ] Rip/Mip Maps  _(coded, but untested)_
+    - [x] Rip/Mip Maps  _(coded, but untested)_
     - [ ] Nice API for RGBA conversion and displaying other color spaces?
     - [ ] Compression Methods
         - [x] Uncompressed
@@ -59,10 +93,10 @@ __Currently supported:__
 - [ ] Writing images
     - [x] Scan Lines
     - [x] Tiles
-    - [ ] Multipart
+    - [x] Multipart
     - [ ] Deep Data
     - [ ] User supplied line order
-    - [ ] Rip/Mip Maps _(coded, but untested)_
+    - [x] Rip/Mip Maps _(coded, but untested)_
     - [ ] 100% correct meta data
     - [x] Compression Methods
         - [x] Uncompressed
@@ -75,7 +109,7 @@ __Currently supported:__
         - [ ] DWAA, DWAB
     
 - [x] Decompressing multiple blocks in parallel
-- [x] Compressing multiple blocks in parallel
+- [ ] Compressing multiple blocks in parallel
 
 - [ ] Profiling and real optimization
     - [ ] Memory Mapping?
@@ -89,6 +123,7 @@ __Currently supported:__
 - [ ] Explore different APIs
     - [ ] Let user decide how to store data
     - [ ] Loading Metadata and specific tiles or blocks separately
+-->
     
 __Be sure to come back in a few weeks.__
 

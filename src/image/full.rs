@@ -12,7 +12,7 @@ use crate::error::{Result, PassiveResult, Error};
 use crate::math::*;
 use std::io::{Seek, SeekFrom, BufReader, Cursor, BufWriter};
 use crate::io::Data;
-use crate::image::{BlockOptions, WriteOptions, ReadOptions, UncompressedBlock};
+use crate::image::{ WriteOptions, ReadOptions, UncompressedBlock};
 
 
 #[derive(Clone, PartialEq, Debug)]
@@ -38,6 +38,7 @@ pub struct Part {
     pub screen_window_width: f32,
 
     pub compression: Compression,
+    pub blocks: Blocks,
 
     /// only the data for this single part,
     /// index can be computed from pixel location and block_kind.
@@ -117,6 +118,7 @@ pub struct DeepLine<Sample> {
     pub samples: Vec<Sample>,
     pub index_table: Vec<u32>,
 }
+
 
 
 impl<S> std::fmt::Debug for Levels<S> {
@@ -203,36 +205,43 @@ impl FullImage {
         u64::write_slice(&mut write, offset_tables.as_slice())?;
         offset_tables.clear();
 
+//        println!("full image: {:#?}", self);
+//        println!("headers: {:#?}", meta_data.headers);
+
         if !options.parallel_compression {
-            for (part_index, part) in self.parts.iter().enumerate() {
+            for part_index in 0..self.parts.len() {
                 let header = &meta_data.headers[part_index];
                 let mut table = Vec::new();
 
 //                println!("writing image part {}", part_index);
 
-                part.tiles(header, &mut |tile| {
+                header.blocks(&mut |tile| {
+                    debug_assert_eq!(header.display_window, self.display_window);
+                    debug_assert_eq!(header.data_window, self.parts[part_index].data_window);
+
                     let data_indices = header.get_absolute_block_indices(tile.location)?;
+
+//                    println!("part {}, header data_window: {:?}, part data_window: {:?},", part_index, header.data_window, self.parts[part_index].data_window);
+//                    println!("data_indices: {:?}", data_indices);
 
                     let data_size = Vec2::try_from(data_indices.size).unwrap();
                     let data_position = Vec2::try_from(data_indices.start).unwrap();
                     let data_level = Vec2::try_from(tile.location.level_index).unwrap();
 
-                    let data: Vec<u8> = self.extract_block(part_index, data_position, data_size, data_level)?;
-
+                    let data = self.extract_block(part_index, data_position, data_size, data_level)?;
                     let data = header.compression.compress_image_section(data)?;
 
                     let chunk = Chunk {
                         part_number: part_index as i32,
 
                         // TODO deep data
-                        block: match options.blocks {
-                            BlockOptions::ScanLineBlocks => Block::ScanLine(ScanLineBlock {
+                        block: match header.blocks {
+                            Blocks::ScanLines => Block::ScanLine(ScanLineBlock {
                                 y_coordinate: header.get_block_data_window_coordinates(tile.location)?.start.1,
-                                    // part.data_window.y_min + (tile.index.1 * header.compression.scan_lines_per_block()) as i32,
                                 compressed_pixels: data
                             }),
 
-                            BlockOptions::TileBlocks { .. } => Block::Tile(TileBlock {
+                            Blocks::Tiles(_) => Block::Tile(TileBlock {
                                 compressed_pixels: data,
                                 coordinates: tile.location,
                             }),
@@ -320,17 +329,14 @@ impl FullImage {
     pub fn infer_meta_data(&self, options: WriteOptions) -> Result<MetaData> {
         let headers: Result<Headers> = self.parts.iter().map(|part| part.infer_header(self.display_window, self.pixel_aspect, options)).collect();
 
-        let mut headers = headers?;
-        headers.sort_by(|a,b| a.name.cmp(&b.name));
+        let headers = headers?;
+        let has_tiles = headers.iter().any(|header| header.blocks.has_tiles());
 
         Ok(MetaData {
             requirements: Requirements::new(
-                self.minimum_version(options.blocks)?,
+                self.minimum_version()?,
                 headers.len(),
-                match options.blocks {
-                    BlockOptions::ScanLineBlocks => false,
-                    _ => true
-                },
+                has_tiles,
                 self.has_long_names()?,
                 false // TODO
             ),
@@ -339,7 +345,7 @@ impl FullImage {
         })
     }
 
-    pub fn minimum_version(&self, _options: BlockOptions) -> Result<u8> {
+    pub fn minimum_version(&self) -> Result<u8> {
         Ok(2) // TODO pick lowest possible
     }
 
@@ -348,13 +354,15 @@ impl FullImage {
     }
 }
 
+
+
 impl Part {
 
     /// allocates all the memory necessary to hold the pixel data,
     /// zeroed out, ready to be filled with actual pixel data
     pub fn new(header: &Header) -> Result<Self> {
-        match header.block_type {
-            BlockType::ScanLine | BlockType::Tile => {
+//        match header.blocks {
+//            BlockType::ScanLine | BlockType::Tile => {
                 Ok(Part {
                     data_window: header.data_window,
                     screen_window_center: header.screen_window_center,
@@ -362,14 +370,15 @@ impl Part {
                     name: header.name.clone(),
                     attributes: header.custom_attributes.clone(),
                     channels: header.channels.list.iter().map(|channel| Channel::new(header, channel)).collect(),
-                    compression: header.compression
+                    compression: header.compression,
+                    blocks: header.blocks
                 })
-            },
-
-            BlockType::DeepScanLine | BlockType::DeepTile => {
-                return Err(Error::unsupported("deep data"))
-            },
-        }
+//            },
+//
+//            BlockType::DeepScanLine | BlockType::DeepTile => {
+//                return Err(Error::unsupported("deep data"))
+//            },
+//        }
     }
 
     pub fn insert_block(&mut self, data: &mut impl Read, position: Vec2<usize>, size: Vec2<usize>, level: Vec2<usize>) -> PassiveResult {
@@ -400,25 +409,20 @@ impl Part {
 
     pub fn infer_header(&self, display_window: Box2I32, pixel_aspect: f32, options: WriteOptions) -> Result<Header> {
         assert_eq!(options.line_order, LineOrder::Unspecified);
-        let tiles = match options.blocks {
-            BlockOptions::ScanLineBlocks => None,
-            BlockOptions::TileBlocks { size, rounding } => Some(TileDescription {
-                tile_size: size, level_mode: LevelMode::Singular, // FIXME levels!
-                rounding_mode: rounding
-            })
-        };
+//      TODO  assert!(self.channels.is_sorted_by_key(|c| c.name));
 
         let chunk_count = compute_chunk_count(
-            self.compression, self.data_window, tiles
+            self.compression, self.data_window, self.blocks
         )?;
 
         Ok(Header {
-            tiles, chunk_count,
+            chunk_count,
 
             data_window: self.data_window,
             screen_window_center: self.screen_window_center,
             screen_window_width: self.screen_window_width,
             compression: self.compression,
+            blocks: self.blocks,
             name: self.name.clone(),
 
             channels: ChannelList::new(self.channels.iter().map(|channel| attributes::Channel {
@@ -435,78 +439,17 @@ impl Part {
 
             line_order: LineOrder::Unspecified, // TODO
 
-            block_type: match options.blocks { // TODO only write if necessary?
-                BlockOptions::ScanLineBlocks => BlockType::ScanLine,
-                BlockOptions::TileBlocks { .. } => BlockType::Tile,
-                // TODO deep data
-            },
-
 
             // TODO deep/multipart data:
             deep_data_version: None,
             max_samples_per_pixel: None,
             custom_attributes: self.attributes.clone(),
-            display_window, pixel_aspect
+            display_window, pixel_aspect,
+            deep: false
         })
     }
 
 
-    // FIXME return iter instead
-    pub fn tiles(&self, header: &Header, action: &mut impl FnMut(TileIndices) -> PassiveResult) -> PassiveResult {
-        fn tiles_of(image_size: Vec2<u32>, tile_size: Vec2<u32>, level: Vec2<u32>, action: &mut impl FnMut(TileIndices) -> PassiveResult) -> PassiveResult {
-            fn divide_and_rest(total_size: u32, block_size: u32, action: &mut impl FnMut(u32, u32) -> PassiveResult) -> PassiveResult {
-                let whole_block_count = total_size / block_size;
-                for whole_block_index in 0 .. whole_block_count {
-                    action(whole_block_index, block_size)?;
-                }
-
-                let whole_block_size = whole_block_count * block_size;
-                if whole_block_size != total_size {
-                    action(whole_block_count, total_size - whole_block_size)?;
-                }
-
-                Ok(())
-            }
-
-            divide_and_rest(image_size.1, tile_size.1, &mut |y_index, tile_height|{
-                divide_and_rest(image_size.0, tile_size.0, &mut |x_index, tile_width|{
-                    action(TileIndices {
-                        location: TileCoordinates {
-                            tile_index: Vec2::try_from(Vec2(x_index, y_index)).unwrap(),
-                            level_index: Vec2::try_from(level).unwrap(),
-                        },
-                        size: Vec2(tile_width, tile_height),
-                    })
-                })
-            })
-        }
-
-        let image_size = self.data_window.size;
-
-        if let Some(tiles) = header.tiles {
-            match tiles.level_mode {
-                LevelMode::Singular => {
-                    tiles_of(image_size, tiles.tile_size, Vec2(0, 0), action)?;
-                },
-                LevelMode::MipMap => {
-                    for level in mip_map_resolutions(tiles.rounding_mode, image_size) {
-                        tiles_of(image_size, tiles.tile_size, level, action)?;
-                    }
-                },
-                LevelMode::RipMap => {
-                    for level in rip_map_resolutions(tiles.rounding_mode, image_size) {
-                        tiles_of(image_size, tiles.tile_size, level, action)?;
-                    }
-                }
-            }
-        }
-        else {
-            tiles_of(image_size, Vec2(image_size.0, header.compression.scan_lines_per_block()), Vec2(0,0), action)?;
-        }
-
-
-        Ok(())
-    }
 }
 
 impl Channel {
@@ -541,9 +484,10 @@ impl Channel {
     }
 }
 
+
 impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
     pub fn new(header: &Header) -> Self {
-        if header.has_deep_data() {
+        if header.deep {
             SampleMaps::Deep(Levels::new(header))
         }
         else {
@@ -578,31 +522,38 @@ impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
             _ => None
         }
     }
+
+    pub fn level_mode(&self) -> LevelMode {
+        match self {
+            SampleMaps::Flat(levels) => levels.level_mode(),
+            SampleMaps::Deep(levels) => levels.level_mode(),
+        }
+    }
 }
 
 impl<S: Samples> Levels<S> {
     pub fn new(header: &Header) -> Self {
         let data_size = header.data_window.size;
 
-        if let Some(tiles) = &header.tiles {
+        if let Blocks::Tiles(tiles) = &header.blocks {
             let round = tiles.rounding_mode;
 
             match tiles.level_mode {
                 LevelMode::Singular => Levels::Singular(SampleBlock::new(data_size)),
 
                 LevelMode::MipMap => Levels::Mip(
-                    mip_map_resolutions(round, data_size)
-                        .map(|level_size| SampleBlock::new(level_size)).collect()
+                    mip_map_levels(round, data_size)
+                        .map(|(_, level_size)| SampleBlock::new(level_size)).collect()
                 ),
 
                 // TODO put this into Levels::new(..) ?
                 LevelMode::RipMap => Levels::Rip({
                     let level_count_x = compute_level_count(round, data_size.0);
                     let level_count_y = compute_level_count(round, data_size.1);
-                    let maps = rip_map_resolutions(round, data_size)
-                        .map(|level_size| SampleBlock::new(level_size)).collect();
+                    let maps = rip_map_levels(round, data_size)
+                        .map(|(_, level_size)| SampleBlock::new(level_size)).collect();
 
-                    RipMaps { map_data: maps, level_count: Vec2::try_from(Vec2(level_count_x, level_count_y)).unwrap() }// Vec2(level_count_x as usize, level_count_y as usize) }
+                    RipMaps { map_data: maps, level_count: Vec2::try_from(Vec2(level_count_x, level_count_y)).unwrap() }
                 })
             }
         }
@@ -669,6 +620,15 @@ impl<S: Samples> Levels<S> {
             Levels::Rip(ref rip_map) => &rip_map.map_data, // TODO test!
         }
     }
+
+
+    pub fn level_mode(&self) -> LevelMode {
+        match self {
+            Levels::Singular(_) => LevelMode::Singular,
+            Levels::Mip(_) => LevelMode::MipMap,
+            Levels::Rip(_) => LevelMode::RipMap,
+        }
+    }
 }
 
 
@@ -687,7 +647,7 @@ impl<S: Samples> SampleBlock<S> {
     }
 
     pub fn extract_line(&self, write: &mut impl Write, position: Vec2<usize>, length: usize) -> PassiveResult {
-        debug_assert!(position.0 + length <= self.resolution.0, "x max {} of width {}", position.0 + length, self.resolution.0);
+        debug_assert!(position.0 + length <= self.resolution.0, "x max {} of width {}", position.0 + length, self.resolution.0); // TODO this should Err() instead
         debug_assert!(position.1 < self.resolution.1, "y: {}, height: {}", position.1, self.resolution.1);
         debug_assert_ne!(length, 0);
 

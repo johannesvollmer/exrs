@@ -12,7 +12,6 @@ use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use exr::math::Vec2;
 use std::cmp::Ordering;
-use exr::error::Error;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter()
@@ -74,19 +73,15 @@ fn read_all_files() {
 fn round_trip_all_files() {
     check_files(|path| {
         let image = FullImage::read_from_file(path, ReadOptions::debug())?;
-
-        let write_options = WriteOptions {
-            blocks: BlockOptions::ScanLineBlocks,
-            .. WriteOptions::debug()
-        };
+        let write_options = WriteOptions::debug();
 
         let mut tmp_bytes = Vec::new();
         image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options)?;
 
         let image2 = FullImage::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::debug())?;
 
-        if image == image2 { Ok(()) }
-        else { Err(Error::invalid("roundtrip not equal")) }
+        assert_eq!(image, image2);
+        Ok(())
     })
 }
 
@@ -118,8 +113,11 @@ fn loop_read() {
 #[test]
 pub fn test_roundtrip() {
     let path =
-            "D:/Pictures/openexr/BeachBall/multipart.0001.exr" // FIXME
-//            "D:/Pictures/openexr/MultiResolution/Bonita.exr" // FIXME
+
+        "D:/Pictures/openexr/TestImages/BrightRingsNanInf.exr"
+//        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
+//            "D:/Pictures/openexr/v2/Stereo/composited.exr"
+//            "D:/Pictures/openexr/MultiResolution/Bonita.exr"
 
 //            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
 //        "D:/Pictures/openexr/crowskull/crow_zips.exr"
@@ -136,12 +134,7 @@ pub fn test_roundtrip() {
     let image = FullImage::read_from_file(path, ReadOptions::debug()).unwrap();
     println!("...read 1 successfull");
 
-    let write_options = WriteOptions {
-        blocks: BlockOptions::ScanLineBlocks,
-//        tiles: BlockOptions::TileBlocks { size: (128, 128), rounding: RoundingMode::Down },
-        .. WriteOptions::debug()
-    };
-
+    let write_options = WriteOptions::debug();
     let mut tmp_bytes = Vec::new();
 
     print!("starting write... ");
@@ -190,7 +183,7 @@ pub fn convert_to_png() {
     let path =
 //        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
 //        "D:/Pictures/openexr/Tiles/Ocean.exr"
-        "D:/Pictures/openexr/MultiResolution/Kapaa.exr" // FIXME y == height
+//        "D:/Pictures/openexr/MultiResolution/Kapaa.exr"
 //        "D:/Pictures/openexr/MultiView/Impact.exr"
 //        "D:/Pictures/openexr/MultiResolution/KernerEnvCube.exr"
 //        "D:/Pictures/openexr/MultiResolution/Bonita.exr"
@@ -204,7 +197,7 @@ pub fn convert_to_png() {
 //            "D:/Pictures/openexr/crowskull/crow_zip_half.exr"
 
 
-//        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
+        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
     ;
 
     let image = FullImage::read_from_file(path, ReadOptions::debug()).unwrap();

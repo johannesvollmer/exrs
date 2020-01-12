@@ -426,11 +426,11 @@ impl Box2I32 {
         Self { start, size }
     }
 
-    pub fn end(&self) -> Vec2<i32> {
+    pub fn end(self) -> Vec2<i32> {
         self.start + Vec2::try_from(self.size).unwrap()
     }
 
-    pub fn max(&self) -> Vec2<i32> {
+    pub fn max(self) -> Vec2<i32> {
         self.end() - Vec2(1,1)
     }
 
@@ -848,8 +848,9 @@ impl TileDescription {
         let x_size = u32::read(read)?;
         let y_size = u32::read(read)?;
 
-        let mode = u8::read(read)?; // wow you really saved that one byte here
+        let mode = u8::read(read)?;
 
+        // wow you really saved that one byte here
         // mode = level_mode + (rounding_mode * 16)
         let level_mode = mode & 0b00001111; // wow that works
         let rounding_mode = mode >> 4; // wow that works

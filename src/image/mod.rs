@@ -17,17 +17,6 @@ use std::convert::TryFrom;
 pub struct WriteOptions {
     pub parallel_compression: bool,
     pub line_order: LineOrder, // TODO per header?
-    pub blocks: BlockOptions // TODO per header!
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum BlockOptions {
-    ScanLineBlocks,
-
-    TileBlocks {
-        size: Vec2<u32>,
-        rounding: RoundingMode
-    },
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -159,7 +148,6 @@ impl WriteOptions {
         WriteOptions {
             parallel_compression: true,
             line_order: LineOrder::Unspecified,
-            blocks: BlockOptions::ScanLineBlocks
         }
     }
 
@@ -167,7 +155,6 @@ impl WriteOptions {
         WriteOptions {
             parallel_compression: true,
             line_order: LineOrder::Unspecified,
-            blocks: BlockOptions::ScanLineBlocks
         }
     }
 
@@ -175,7 +162,6 @@ impl WriteOptions {
         WriteOptions {
             parallel_compression: false,
             line_order: LineOrder::Unspecified,
-            blocks: BlockOptions::ScanLineBlocks
         }
     }
 
@@ -183,7 +169,6 @@ impl WriteOptions {
         WriteOptions {
             parallel_compression: false,
             line_order: LineOrder::Unspecified,
-            blocks: BlockOptions::ScanLineBlocks
         }
     }
 }
@@ -208,13 +193,4 @@ impl ReadOptions {
         }
     }
 
-}
-
-impl BlockOptions {
-    pub fn has_tiles(&self) -> bool {
-        match self {
-            BlockOptions::TileBlocks { .. } => true,
-            _ => false
-        }
-    }
 }

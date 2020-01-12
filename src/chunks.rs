@@ -1,5 +1,5 @@
 
-use crate::meta::attributes::{BlockType, Box2I32};
+use crate::meta::attributes::{Box2I32};
 
 // TODO SEE PAGE 14 IN TECHNICAL INTRODUCTION
 
@@ -147,7 +147,7 @@ impl TileCoordinates {
 
 
 
-use crate::meta::{Header, MetaData};
+use crate::meta::{Header, MetaData, Blocks};
 
 impl ScanLineBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
@@ -296,11 +296,14 @@ impl Chunk {
 
         let chunk = Chunk {
             part_number,
-            block: match header.block_type {
-                BlockType::ScanLine        => Block::ScanLine(ScanLineBlock::read(read, max_block_byte_size)?),
-                BlockType::Tile            => Block::Tile(TileBlock::read(read, max_block_byte_size)?),
-                BlockType::DeepScanLine    => Block::DeepScanLine(DeepScanLineBlock::read(read, max_block_byte_size)?),
-                BlockType::DeepTile        => Block::DeepTile(DeepTileBlock::read(read, max_block_byte_size)?),
+            block: match header.blocks {
+                // flat data
+                Blocks::ScanLines if !header.deep => Block::ScanLine(ScanLineBlock::read(read, max_block_byte_size)?),
+                Blocks::Tiles(_) if !header.deep     => Block::Tile(TileBlock::read(read, max_block_byte_size)?),
+
+                // deep data
+                Blocks::ScanLines   => Block::DeepScanLine(DeepScanLineBlock::read(read, max_block_byte_size)?),
+                Blocks::Tiles(_)    => Block::DeepTile(DeepTileBlock::read(read, max_block_byte_size)?),
             },
         };
 
