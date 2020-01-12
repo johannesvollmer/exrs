@@ -85,6 +85,7 @@ __Currently supported:__
     - [ ] Channels with an x or y sampling rate other than 1 are allowed only in flat, scan-line based images.
     - [ ] If an image is deep or tiled, then the x and y sampling rates for all of its channels must be 1.
     - [ ] Scan-line based images cannot be multi-resolution images.
+    - [ ] Enforce minimum length of 1 for arrays
 
 - [ ] Explore different APIs
     - [ ] Let user decide how to store data
