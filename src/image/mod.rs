@@ -4,11 +4,11 @@ pub mod full;
 use crate::meta::attributes::*;
 use crate::compression::{Compression, ByteVec};
 use crate::math::*;
-use std::io::Read;
+use std::io::{Read, Seek};
 use crate::error::{Result, Error};
-use crate::meta::{MetaData, Header};
+use crate::meta::{MetaData, Header, TileIndices};
 use crate::chunks::{Chunk, Block, TileBlock, ScanLineBlock};
-use crate::io::PeekRead;
+use crate::io::{PeekRead, Tracking};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::convert::TryFrom;
 
@@ -45,24 +45,6 @@ pub fn read_all_chunks<T>(
     insert: impl Fn(T, UncompressedBlock) -> Result<T>
 ) -> Result<T>
 {
-
-//    struct ByteCounter<T> {
-//        bytes: usize,
-//        inner: T
-//    }
-
-    /*impl<T: Read> Read for ByteCounter<T> {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            let byte_count = self.inner.read(buf)?;
-//            println!("read bytes {} to {} ({})", self.bytes, self.bytes + byte_count, byte_count);
-            self.bytes += byte_count;
-            Ok(byte_count)
-        }
-    }
-
-    let read = ByteCounter { inner: read, bytes: 0, };*/
-
-
     let mut read = PeekRead::new(read);
     let meta_data = MetaData::read_from_buffered_peekable(&mut read)?;
     let chunk_count = MetaData::skip_offset_tables(&mut read, &meta_data.headers)? as usize;
@@ -92,6 +74,70 @@ pub fn read_all_chunks<T>(
     else {
         for _ in 0..chunk_count {
             // TODO avoid all allocations for uncompressed data
+            let chunk = Chunk::read(&mut read, &meta_data)?;
+            let decompressed = UncompressedBlock::from_compressed(chunk, &meta_data)?;
+
+            value = insert(value, decompressed)?;
+        }
+    }
+
+    Ok(value)
+}
+
+
+/// reads all chunks sequentially without seeking
+pub fn read_filtered_chunks<T>(
+    read: impl Read + Seek, options: ReadOptions,
+    filter: impl Fn(&Header, &TileIndices) -> bool,
+    new: impl Fn(&[Header]) -> Result<T>,
+    insert: impl Fn(T, UncompressedBlock) -> Result<T>
+) -> Result<T>
+{
+    let skip_read = Tracking::new(read);
+    let mut read = PeekRead::new(skip_read);
+    let meta_data = MetaData::read_from_buffered_peekable(&mut read)?;
+    let offset_tables = MetaData::read_offset_tables(&mut read, &meta_data.headers)?;
+
+    let mut offsets = Vec::with_capacity(meta_data.headers.len() * 32);
+    for (header_index, header) in meta_data.headers.iter().enumerate() {
+        for (block_index, block) in header.blocks().enumerate() { // in increasing_y order
+            if filter(header, &block) {
+                offsets.push(offset_tables[header_index][block_index])
+            }
+        };
+    }
+
+    offsets.sort();
+
+    let mut value = new(meta_data.headers.as_slice())?;
+
+    let has_compression = meta_data.headers.iter() // do not use parallel stuff for uncompressed images
+        .find(|header| header.compression != Compression::Uncompressed).is_some();
+
+    if options.parallel_decompression && has_compression {
+        // TODO without double collect!
+        let compressed: Result<Vec<Chunk>> = offsets.into_iter()
+            .map(|offset| {
+                read.skip_to(offset as usize)?; // this is only ever going to skip forward, use skip_bytes for small amounts instead?
+                Chunk::read(&mut read, &meta_data)
+            })
+            .collect();
+
+        let decompress = compressed?.into_par_iter().map(|chunk|
+            UncompressedBlock::from_compressed(chunk, &meta_data)
+        );
+
+        // TODO without double collect!
+        let decompressed: Result<Vec<UncompressedBlock>> = decompress.collect();
+
+        for decompressed in decompressed? {
+            value = insert(value, decompressed)?;
+        }
+    }
+    else {
+        for offset in offsets {
+            // TODO avoid all allocations for uncompressed data
+            read.skip_to(offset as usize)?; // this is only ever going to skip forward, use skip_bytes for small amounts instead?
             let chunk = Chunk::read(&mut read, &meta_data)?;
             let decompressed = UncompressedBlock::from_compressed(chunk, &meta_data)?;
 

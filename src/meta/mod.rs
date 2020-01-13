@@ -230,6 +230,123 @@ pub fn missing_attribute(name: &str) -> Error {
 
 
 
+pub fn compute_block_count(full_res: u32, tile_size: u32) -> u32 {
+    // round up, because if the image is not evenly divisible by the tiles,
+    // we add another tile at the end (which is only partially used)
+    RoundingMode::Up.divide(full_res, tile_size)
+}
+
+// TODO use this everywhere
+#[inline]
+pub fn calculate_block_position_and_size(total_size: u32, block_size: u32, block_index: u32) -> (u32, u32) {
+    let block_position = block_size * block_index;
+    (block_position, calculate_block_size(total_size, block_size, block_position))
+}
+
+// TODO use this everywhere
+#[inline]
+pub fn calculate_block_size(total_size: u32, block_size: u32, block_position: u32) -> u32 {
+    debug_assert!(block_position < total_size, "pos: {}, size: {}", block_position, total_size);
+
+    if block_position + block_size <= total_size {
+        block_size
+    }
+    else {
+        total_size - block_position
+    }
+}
+
+
+// TODO this should be cached? log2 may be very expensive
+pub fn compute_level_count(round: RoundingMode, full_res: u32) -> u32 {
+    round.log2(full_res) + 1
+}
+
+pub fn compute_level_size(round: RoundingMode, full_res: u32, level_index: u32) -> u32 {
+    round.divide(full_res,  1 << level_index).max(1)
+}
+
+// TODO cache these?
+// TODO compute these directly instead of summing up an iterator?
+pub fn rip_map_levels(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=(Vec2<u32>, Vec2<u32>)> {
+    rip_map_indices(round, max_resolution).map(move |level_indices|{
+        // TODO progressively divide instead??
+        let width = compute_level_size(round, max_resolution.0, level_indices.0);
+        let height = compute_level_size(round, max_resolution.1, level_indices.1);
+        (level_indices, Vec2(width, height))
+    })
+}
+
+// TODO cache all these level values when computing table offset size??
+// TODO compute these directly instead of summing up an iterator?
+pub fn mip_map_levels(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=(u32, Vec2<u32>)> {
+    mip_map_indices(round, max_resolution)
+        .map(move |level_index|{
+            // TODO progressively divide instead??
+            let width = compute_level_size(round, max_resolution.0, level_index);
+            let height = compute_level_size(round, max_resolution.1, level_index);
+            (level_index, Vec2(width, height))
+        })
+}
+
+pub fn rip_map_indices(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=Vec2<u32>> {
+    let (width, height) = (
+        compute_level_count(round, max_resolution.0),
+        compute_level_count(round, max_resolution.1)
+    );
+
+    (0..height).flat_map(move |y_level|{
+        (0..width).map(move |x_level|{
+            Vec2(x_level, y_level)
+        })
+    })
+}
+
+pub fn mip_map_indices(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=u32> {
+    (0..compute_level_count(round, max_resolution.0.max(max_resolution.1)))
+}
+
+pub fn compute_chunk_count(compression: Compression, data_window: Box2I32, blocks: Blocks) -> crate::error::Result<u32> {
+    // If not multipart and chunkCount not present,
+    // the number of entries in the chunk table is computed
+    // using the dataWindow and tileDesc attributes and the compression format
+    let data_size = data_window.size;
+
+    if let Blocks::Tiles(tiles) = blocks {
+        let round = tiles.rounding_mode;
+        let Vec2(tile_width, tile_height) = tiles.tile_size;
+
+        // TODO cache all these level values??
+        use crate::meta::attributes::LevelMode::*;
+        Ok(match tiles.level_mode {
+            Singular => {
+                let tiles_x = compute_block_count(data_size.0, tile_width);
+                let tiles_y = compute_block_count(data_size.1, tile_height);
+                tiles_x * tiles_y
+            }
+
+            MipMap => {
+                mip_map_levels(round, data_size).map(|(_, Vec2(level_width, level_height))| {
+                    compute_block_count(level_width, tile_width) * compute_block_count(level_height, tile_height)
+                }).sum()
+            },
+
+            RipMap => {
+                // TODO test this
+                rip_map_levels(round, data_size).map(|(_, Vec2(level_width, level_height))| {
+                    compute_block_count(level_width, tile_width) * compute_block_count(level_height, tile_height)
+                }).sum()
+            }
+        })
+    }
+
+    // scan line blocks never have mip maps // TODO check if this is true
+    else {
+        Ok(compute_block_count(data_size.1, compression.scan_lines_per_block()))
+    }
+}
+
+
 
 impl MetaData {
     #[must_use]
@@ -310,81 +427,48 @@ impl MetaData {
 
 impl Header {
 
-    /*pub fn get_absolute_block_coordinates_for(&self, tile: TileCoordinates) -> I32Box2 {
-        match self.tiles {
-            Some(tiles) => self.get_tile(tile), // FIXME branch
-            None => {
-                let y = tile.tile_index_y * self.compression.scan_lines_per_block() as i32;
-                let height = self.get_scan_line_block_height(y as u32);
-                let width = self.data_window.dimensions().0;
-
-                I32Box2 {
-                    x_min: 0,
-                    y_min: y,
-                    x_max: width as i32,
-                    y_max: y + height as i32
-                }
-            }
-        }
-    }*/
-
-
-
-    // FIXME return iter instead
-    pub fn blocks(&self, action: &mut impl FnMut(TileIndices) -> PassiveResult) -> PassiveResult {
-        fn tiles_of(image_size: Vec2<u32>, tile_size: Vec2<u32>, level_index: Vec2<u32>, action: &mut impl FnMut(TileIndices) -> PassiveResult) -> PassiveResult {
-            fn divide_and_rest(total_size: u32, block_size: u32, action: &mut impl FnMut(u32, u32) -> PassiveResult) -> PassiveResult {
-                let whole_block_count = total_size / block_size;
-                for whole_block_index in 0 .. whole_block_count {
-                    action(whole_block_index, block_size)?;
-                }
-
-                let whole_block_size = whole_block_count * block_size;
-                if whole_block_size != total_size {
-                    action(whole_block_count, total_size - whole_block_size)?;
-                }
-
-                Ok(())
+    pub fn blocks(&self) -> Box<dyn Iterator<Item=TileIndices>> {
+        fn tiles_of(image_size: Vec2<u32>, tile_size: Vec2<u32>, level_index: Vec2<u32>) -> impl Iterator<Item=TileIndices> {
+            fn divide_and_rest(total_size: u32, block_size: u32) -> impl Iterator<Item=(u32, u32)> {
+                let block_count = compute_block_count(total_size, block_size);
+                (0..block_count).map(move |block_index| (block_index, calculate_block_size(total_size, block_size, block_index)))
             }
 
-            divide_and_rest(image_size.1, tile_size.1, &mut |y_index, tile_height|{
-                divide_and_rest(image_size.0, tile_size.0, &mut |x_index, tile_width|{
-                    action(TileIndices {
+            divide_and_rest(image_size.1, tile_size.1).flat_map(move |(y_index, tile_height)|{
+                divide_and_rest(image_size.0, tile_size.0).map(move |(x_index, tile_width)|{
+                    TileIndices {
                         size: Vec2(tile_width, tile_height),
                         location: TileCoordinates {
                             tile_index: Vec2::try_from(Vec2(x_index, y_index)).unwrap(),
                             level_index: Vec2::try_from(level_index).unwrap(),
                         },
-                    })
+                    }
                 })
             })
         }
 
         let image_size = self.data_window.size;
-
         if let Blocks::Tiles(tiles) = self.blocks {
             match tiles.level_mode {
                 LevelMode::Singular => {
-                    tiles_of(image_size, tiles.tile_size, Vec2(0, 0), action)?;
+                    Box::new(tiles_of(image_size, tiles.tile_size, Vec2(0, 0)))
                 },
                 LevelMode::MipMap => {
-                    for (level_index, level_size) in mip_map_levels(tiles.rounding_mode, image_size) {
-                        tiles_of(level_size, tiles.tile_size, Vec2(level_index, level_index), action)?;
-                    }
+                    Box::new(mip_map_levels(tiles.rounding_mode, image_size).flat_map(move |(level_index, level_size)|{
+                        tiles_of(level_size, tiles.tile_size, Vec2(level_index, level_index))
+                    }))
                 },
                 LevelMode::RipMap => {
-                    for (level_index, level_size) in rip_map_levels(tiles.rounding_mode, image_size) {
-                        tiles_of(level_size, tiles.tile_size, level_index, action)?;
-                    }
+                    Box::new(rip_map_levels(tiles.rounding_mode, image_size).flat_map(move |(level_index, level_size)| {
+                        tiles_of(level_size, tiles.tile_size, level_index)
+                    }))
                 }
             }
         }
         else {
             let tiles = Vec2(image_size.0, self.compression.scan_lines_per_block());
-            tiles_of(image_size, tiles, Vec2(0,0), action)?;
+            Box::new(tiles_of(image_size, tiles, Vec2(0,0)))
         }
-
-        Ok(())
     }
 
     pub fn get_block_data_window_coordinates(&self, tile: TileCoordinates) -> Result<Box2I32> {
@@ -396,51 +480,34 @@ impl Header {
         Ok(if let Blocks::Tiles(tiles) = self.blocks { // FIXME set to none if tile attribute exists but image is not tiled!
             let round = tiles.rounding_mode;
 
-            let Vec2(data_width, data_height) = self.data_window.size;
-            let data_width = compute_level_size(round, data_width, tile.level_index.0 as u32) as i32;
-            let data_height = compute_level_size(round, data_height, tile.level_index.1 as u32) as i32;
             let tile_size = Vec2::try_from(tiles.tile_size).unwrap();
-            let absolute_tile_coordinates = tile.to_data_indices(tile_size);
+            let Vec2(data_width, data_height) = self.data_window.size;
 
-            debug_assert!(
-                absolute_tile_coordinates.start.0 < data_width,
-                "invalid tile index x {} for level index {} with width {}",
-                absolute_tile_coordinates.start.0, tile.level_index.0, data_width
-            );
+            let data_width = compute_level_size(round, data_width, tile.level_index.0 as u32);
+            let data_height = compute_level_size(round, data_height, tile.level_index.1 as u32);
+            let absolute_tile_coordinates = tile.to_data_indices(tile_size, Vec2(data_width, data_height));
 
-            debug_assert!(absolute_tile_coordinates.start.1 < data_height, "invalid tile index y for level");
-
-            if absolute_tile_coordinates.start.0 >= data_width || absolute_tile_coordinates.start.1 >= data_height {
+            if absolute_tile_coordinates.start.0 >= data_width as i32 || absolute_tile_coordinates.start.1 >= data_height as i32 {
                 return Err(Error::invalid("data block tile index"))
             }
 
-            // FIXME divide start by (1 << level _index)?
-            let next_tile_start = absolute_tile_coordinates.start + tile_size;
-
-            let width = if next_tile_start.0 <= data_width { tile_size.0 } else {
-                data_width - absolute_tile_coordinates.start.0
-            };
-
-            let height = if next_tile_start.1 <= data_height { tile_size.1 } else {
-                data_height - absolute_tile_coordinates.start.1
-            };
-
-            debug_assert!(height > 0 && width > 0);
-
-            Box2I32 {
-                start: absolute_tile_coordinates.start,
-                size: Vec2::try_from(Vec2(width, height)).unwrap(),
-            }
+            absolute_tile_coordinates
         }
         else {
-            let y = tile.tile_index.1 * self.compression.scan_lines_per_block() as i32;
-            let height = self.get_scan_line_block_height(y + self.data_window.start.1);
+            debug_assert_eq!(tile.tile_index.0, 0);
+
+            let (y, height) = calculate_block_position_and_size(
+                self.data_window.size.1,
+                self.compression.scan_lines_per_block(),
+                tile.tile_index.1 as u32
+            );
 
             Box2I32 {
-                start: Vec2(0, y),
+                start: Vec2(0, y as i32),
                 size: Vec2(self.data_window.size.0, height)
             }
         })
+
         // TODO deep data?
     }
 
@@ -460,34 +527,6 @@ impl Header {
             _ => return Err(Error::unsupported("deep data"))
         })
     }
-
-    fn get_scan_line_block_height(&self, y: i32) -> u32 {
-        let y_end = self.data_window.end().1; // FIXME max() instead?
-
-        debug_assert!(
-            y >= self.data_window.start.1 && y <= y_end,
-            "y coordinate: {}, (data window: {:?})", y, self.data_window
-        );
-
-        let lines_per_block = self.compression.scan_lines_per_block() as i32;
-        let next_block_y = y + lines_per_block;
-
-        let height =
-            if next_block_y <= y_end { lines_per_block }
-            else { y_end - y };
-
-        debug_assert!(
-            height > 0,
-            "scan line block height is 0 where y = {} in header {:?} ({} x {} px) (window {:?}) ",
-            y, self.name, self.data_window.size.0, self.data_window.size.1, self.data_window
-        );
-
-        height as u32
-    }
-
-//    fn get_tile(&self, tile: TileCoordinates) -> I32Box2 { // TODO result?
-//        let tiles = self.tiles.expect("check failed: tiles not found");
-//    }
 
     pub fn max_block_byte_size(&self) -> usize {
         (

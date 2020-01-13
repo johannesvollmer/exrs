@@ -5,10 +5,11 @@ use half::slice::{HalfFloatSliceExt};
 use lebe::prelude::*;
 use ::half::f16;
 use crate::error::{Error, Result, PassiveResult, IoResult};
+use std::io::{Seek, SeekFrom};
 
 
 #[inline]
-pub fn skip_bytes(read: &mut impl Read, count: u64) -> PassiveResult {
+pub fn skip_bytes(read: &mut impl Read, count: u64) -> IoResult<()> {
     let skipped = std::io::copy(
         &mut read.by_ref().take(count),
         &mut std::io::sink()
@@ -26,6 +27,7 @@ pub struct PeekRead<T> {
 }
 
 impl<T: Read> PeekRead<T> {
+    #[inline]
     pub fn new(inner: T) -> Self {
         Self { inner, peeked: None }
     }
@@ -68,6 +70,85 @@ impl<T: Read> Read for PeekRead<T> {
 
     // TODO delegate remaining?
 }
+
+impl<T: Read + Seek> PeekRead<Tracking<T>> {
+    pub fn skip_to(&mut self, position: usize) -> std::io::Result<()> {
+        self.inner.skip_read_to(position)?;
+        self.peeked = None;
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct Tracking<T> {
+    inner: T,
+    position: usize,
+}
+
+impl<T: Read> Read for Tracking<T> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let count = self.inner.read(buffer)?;
+        self.position += count;
+        Ok(count)
+    }
+}
+
+impl<T: Write> Write for Tracking<T> {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        let count = self.inner.write(buffer)?;
+        self.position += count;
+        Ok(count)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl<T> Tracking<T> {
+    pub fn new(inner: T) -> Self {
+        Tracking { inner, position: 0 }
+    }
+
+    pub fn byte_position(&self) -> usize {
+        self.position
+    }
+}
+
+impl<T: Read + Seek> Tracking<T> {
+    pub fn skip_read_to(&mut self, target_position: usize) -> std::io::Result<()> {
+        let delta = target_position as i64 - self.position as i64;
+
+        if delta > 0 && delta < 4 {
+            skip_bytes(self, delta as u64)?;
+            self.position += delta as usize;
+        }
+        else if delta != 0 {
+            self.inner.seek(SeekFrom::Start(target_position as u64))?;
+            self.position = target_position;
+        }
+
+        Ok(())
+    }
+}
+
+impl<T: Write + Seek> Tracking<T> {
+    pub fn skip_write_to(&mut self, target_position: usize) -> std::io::Result<()> {
+        if target_position < self.position {
+            self.inner.seek(SeekFrom::Start(target_position as u64))?;
+        }
+        else if target_position > self.position {
+            std::io::copy(
+                &mut std::io::repeat(0).take((target_position - self.position) as u64),
+                self
+            )?;
+        }
+
+        self.position = target_position;
+        Ok(())
+    }
+}
+
 
 /// extension trait for primitive types like numbers and arrays
 pub trait Data: Sized + Default + Clone {

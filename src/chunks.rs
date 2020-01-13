@@ -132,22 +132,27 @@ impl TileCoordinates {
         }
     }
 
-    pub fn to_data_indices(&self, tile_size: Vec2<i32>) -> Box2I32 {
+    pub fn to_data_indices(&self, tile_size: Vec2<u32>, max: Vec2<u32>) -> Box2I32 {
+        let start = Vec2::try_from(self.tile_index).unwrap() * tile_size;
+
         Box2I32 {
-            start: self.tile_index * tile_size,
-            size: Vec2::try_from(tile_size).unwrap(),
+            start: Vec2::try_from(start).unwrap(),
+            size: Vec2(
+                calculate_block_size(max.0, tile_size.0, start.0),
+                calculate_block_size(max.1, tile_size.0, start.1),
+            ),
         }
     }
 
-    pub fn to_absolute_indices(&self, tile_size: Vec2<i32>, data_window: Box2I32) -> Box2I32 {
-        let data = self.to_data_indices(tile_size);
+    pub fn to_absolute_indices(&self, tile_size: Vec2<u32>, data_window: Box2I32) -> Box2I32 {
+        let data = self.to_data_indices(tile_size, data_window.size);
         data.with_origin(data_window.start)
     }
 }
 
 
 
-use crate::meta::{Header, MetaData, Blocks};
+use crate::meta::{Header, MetaData, Blocks, calculate_block_size};
 
 impl ScanLineBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {

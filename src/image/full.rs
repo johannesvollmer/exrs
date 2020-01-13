@@ -10,7 +10,7 @@ use crate::meta::attributes::*;
 use crate::compression::{ByteVec};
 use crate::error::{Result, PassiveResult, Error};
 use crate::math::*;
-use std::io::{Seek, SeekFrom, BufReader, Cursor, BufWriter};
+use std::io::{Seek, BufReader, Cursor, BufWriter};
 use crate::io::Data;
 use crate::image::{ WriteOptions, ReadOptions, UncompressedBlock};
 
@@ -189,40 +189,32 @@ impl FullImage {
 
     /// assumes the reader is buffered
     #[must_use]
-    pub fn write_to_buffered(&self, mut write: impl Write + Seek, options: WriteOptions) -> PassiveResult {
+    pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions) -> PassiveResult {
+        let mut write = Tracking::new(write);
+
         let meta_data = self.infer_meta_data(options)?;
         meta_data.write(&mut write)?;
 
-        let offset_table_start_byte = write.seek(SeekFrom::Current(0))?;
+        let offset_table_start_byte = write.byte_position();
 
         // skip offset tables for now
         let offset_table_size: u32 = meta_data.headers.iter()
             .map(|header| header.chunk_count).sum();
 
-//        println!("writing zeroed tables (chunk count: {})", offset_table_size);
-
         let mut offset_tables: Vec<u64> = vec![0; offset_table_size as usize];
         u64::write_slice(&mut write, offset_tables.as_slice())?;
         offset_tables.clear();
-
-//        println!("full image: {:#?}", self);
-//        println!("headers: {:#?}", meta_data.headers);
 
         if !options.parallel_compression {
             for part_index in 0..self.parts.len() {
                 let header = &meta_data.headers[part_index];
                 let mut table = Vec::new();
 
-//                println!("writing image part {}", part_index);
-
-                header.blocks(&mut |tile| {
+                for tile in header.blocks() {
                     debug_assert_eq!(header.display_window, self.display_window);
                     debug_assert_eq!(header.data_window, self.parts[part_index].data_window);
 
                     let data_indices = header.get_absolute_block_indices(tile.location)?;
-
-//                    println!("part {}, header data_window: {:?}, part data_window: {:?},", part_index, header.data_window, self.parts[part_index].data_window);
-//                    println!("data_indices: {:?}", data_indices);
 
                     let data_size = Vec2::try_from(data_indices.size).unwrap();
                     let data_position = Vec2::try_from(data_indices.start).unwrap();
@@ -248,19 +240,15 @@ impl FullImage {
                         }
                     };
 
-                    let block_start_position = write.seek(SeekFrom::Current(0))?;
-                    table.push((tile, block_start_position));
+                    let block_start_position = write.byte_position();
+                    table.push((tile, block_start_position as u64));
 
 
                     chunk.write(&mut write, meta_data.headers.as_slice())?;
-
-                    Ok(())
-                })?;
+                }
 
                 // sort offset table by increasing y
                 table.sort_by(|(a, _), (b, _)| a.cmp(b));
-//                println!("write single table with len {} {:?}", table.len(), table);
-
                 offset_tables.extend(table.into_iter().map(|(_, index)| index));
             }
         }
@@ -270,7 +258,7 @@ impl FullImage {
 
         // write offset tables after all blocks have been written
         debug_assert_eq!(offset_tables.len(), offset_table_size as usize);
-        write.seek(SeekFrom::Start(offset_table_start_byte))?;
+        write.skip_write_to(offset_table_start_byte)?;
         u64::write_slice(&mut write, offset_tables.as_slice())?;
 
         Ok(())

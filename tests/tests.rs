@@ -114,7 +114,8 @@ fn loop_read() {
 pub fn test_roundtrip() {
     let path =
 
-        "D:/Pictures/openexr/TestImages/BrightRingsNanInf.exr"
+//        "D:/Pictures/openexr/TestImages/BrightRingsNanInf.exr"
+        "D:/Pictures/openexr/Tiles/Ocean.exr"
 //        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
 //            "D:/Pictures/openexr/v2/Stereo/composited.exr"
 //            "D:/Pictures/openexr/MultiResolution/Bonita.exr"
