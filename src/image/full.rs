@@ -3,7 +3,6 @@
 
 use smallvec::SmallVec;
 use half::f16;
-use crate::chunks::*;
 use crate::io::*;
 use crate::meta::*;
 use crate::meta::attributes::*;
@@ -12,7 +11,7 @@ use crate::error::{Result, PassiveResult, Error};
 use crate::math::*;
 use std::io::{Seek, BufReader, Cursor, BufWriter};
 use crate::io::Data;
-use crate::image::{ WriteOptions, ReadOptions, UncompressedBlock};
+use crate::image::{WriteOptions, ReadOptions, UncompressedBlock, BlockIndex};
 
 
 #[derive(Clone, PartialEq, Debug)]
@@ -37,6 +36,7 @@ pub struct Part {
     pub screen_window_center: Vec2<f32>, // TODO use sensible defaults instead of returning an error on missing?
     pub screen_window_width: f32,
 
+    pub line_order: LineOrder,
     pub compression: Compression,
     pub blocks: Blocks,
 
@@ -150,7 +150,7 @@ impl FullImage {
 
     /// assumes that the provided reader is not buffered, and will create a buffer for it.
     #[must_use]
-    pub fn read_from_unbuffered(unbuffered: impl Read, options: ReadOptions) -> Result<Self> {
+    pub fn read_from_unbuffered(unbuffered: impl Read + Send, options: ReadOptions) -> Result<Self> {
         Self::read_from_buffered(BufReader::new(unbuffered), options)
     }
 
@@ -182,7 +182,7 @@ impl FullImage {
 
     /// assumes the reader is buffered (if desired)
     #[must_use]
-    pub fn read_from_buffered(read: impl Read, options: ReadOptions) -> Result<Self> {
+    pub fn read_from_buffered(read: impl Read + Send, options: ReadOptions) -> Result<Self> {
         crate::image::read_all_chunks(read, options, FullImage::new, FullImage::with_block)
     }
 
@@ -190,7 +190,12 @@ impl FullImage {
     /// assumes the reader is buffered
     #[must_use]
     pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions) -> PassiveResult {
-        let mut write = Tracking::new(write);
+        crate::image::write_chunks(
+            write, options, self.infer_meta_data()?,
+            |block| self.extract_block(block)
+        )
+
+        /*let mut write = Tracking::new(write);
 
         let meta_data = self.infer_meta_data(options)?;
         meta_data.write(&mut write)?;
@@ -210,7 +215,7 @@ impl FullImage {
                 let header = &meta_data.headers[part_index];
                 let mut table = Vec::new();
 
-                for tile in header.blocks() {
+                for tile in header.blocks_increasing_y_order() {
                     debug_assert_eq!(header.display_window, self.display_window);
                     debug_assert_eq!(header.data_window, self.parts[part_index].data_window);
 
@@ -258,10 +263,10 @@ impl FullImage {
 
         // write offset tables after all blocks have been written
         debug_assert_eq!(offset_tables.len(), offset_table_size as usize);
-        write.skip_write_to(offset_table_start_byte)?;
+        write.seek_write_to(offset_table_start_byte)?;
         u64::write_slice(&mut write, offset_tables.as_slice())?;
 
-        Ok(())
+        Ok(())*/
     }
 }
 
@@ -293,29 +298,29 @@ impl FullImage {
     }
 
     pub fn insert_block(&mut self, block: UncompressedBlock) -> PassiveResult {
-        debug_assert_ne!(block.data_size.0, 0);
-        debug_assert_ne!(block.data_size.1, 0);
+        debug_assert_ne!(block.index.size.0, 0);
+        debug_assert_ne!(block.index.size.1, 0);
 
-        let part = self.parts.get_mut(block.part_index)
+        let part = self.parts.get_mut(block.index.part)
             .ok_or(Error::invalid("chunk part index"))?;
 
-        part.insert_block(&mut block.data.as_slice(), block.data_index, block.data_size, block.level)
+        part.insert_block(&mut block.data.as_slice(), block.index.position, block.index.size, block.index.level)
     }
 
-    pub fn extract_block(&self, part: usize, position: Vec2<usize>, size: Vec2<usize>, level: Vec2<usize>) -> Result<ByteVec> {
-        debug_assert_ne!(size.0, 0);
-        debug_assert_ne!(size.1, 0);
+    pub fn extract_block(&self, index: BlockIndex) -> Result<ByteVec> {
+        debug_assert_ne!(index.size.0, 0);
+        debug_assert_ne!(index.size.1, 0);
 
-        let part = self.parts.get(part)
+        let part = self.parts.get(index.part)
             .ok_or(Error::invalid("chunk part index"))?;
 
         let mut bytes = Vec::new();
-        part.extract_block(position, size, level, &mut bytes)?;
+        part.extract_block(index.position, index.size, index.level, &mut bytes)?;
         Ok(bytes)
     }
 
-    pub fn infer_meta_data(&self, options: WriteOptions) -> Result<MetaData> {
-        let headers: Result<Headers> = self.parts.iter().map(|part| part.infer_header(self.display_window, self.pixel_aspect, options)).collect();
+    pub fn infer_meta_data(&self) -> Result<MetaData> {
+        let headers: Result<Headers> = self.parts.iter().map(|part| part.infer_header(self.display_window, self.pixel_aspect)).collect();
 
         let headers = headers?;
         let has_tiles = headers.iter().any(|header| header.blocks.has_tiles());
@@ -359,7 +364,8 @@ impl Part {
                     attributes: header.custom_attributes.clone(),
                     channels: header.channels.list.iter().map(|channel| Channel::new(header, channel)).collect(),
                     compression: header.compression,
-                    blocks: header.blocks
+                    blocks: header.blocks,
+                    line_order: header.line_order,
                 })
 //            },
 //
@@ -395,8 +401,7 @@ impl Part {
         Ok(())
     }
 
-    pub fn infer_header(&self, display_window: Box2I32, pixel_aspect: f32, options: WriteOptions) -> Result<Header> {
-        assert_eq!(options.line_order, LineOrder::Unspecified);
+    pub fn infer_header(&self, display_window: Box2I32, pixel_aspect: f32) -> Result<Header> {
 //      TODO  assert!(self.channels.is_sorted_by_key(|c| c.name));
 
         let chunk_count = compute_chunk_count(
@@ -425,7 +430,7 @@ impl Part {
                 sampling: Vec2::try_from(channel.sampling).unwrap()
             }).collect()),
 
-            line_order: LineOrder::Unspecified, // TODO
+            line_order: self.line_order,
 
 
             // TODO deep/multipart data:

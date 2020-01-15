@@ -132,7 +132,7 @@ pub fn test_roundtrip() {
     print!("starting read 1... ");
     io::stdout().flush().unwrap();
 
-    let image = FullImage::read_from_file(path, ReadOptions::debug()).unwrap();
+    let image = FullImage::read_from_file(path, ReadOptions::fast_loading()).unwrap();
     println!("...read 1 successfull");
 
     let write_options = WriteOptions::debug();
@@ -147,7 +147,7 @@ pub fn test_roundtrip() {
     print!("starting read 2... ");
     io::stdout().flush().unwrap();
 
-    let image2 = FullImage::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::debug()).unwrap();
+    let image2 = FullImage::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::fast_loading()).unwrap();
     println!("...read 2 successfull");
 
     assert_eq!(image, image2);

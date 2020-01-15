@@ -73,7 +73,7 @@ impl<T: Read> Read for PeekRead<T> {
 
 impl<T: Read + Seek> PeekRead<Tracking<T>> {
     pub fn skip_to(&mut self, position: usize) -> std::io::Result<()> {
-        self.inner.skip_read_to(position)?;
+        self.inner.seek_read_to(position)?;
         self.peeked = None;
         Ok(())
     }
@@ -116,7 +116,7 @@ impl<T> Tracking<T> {
 }
 
 impl<T: Read + Seek> Tracking<T> {
-    pub fn skip_read_to(&mut self, target_position: usize) -> std::io::Result<()> {
+    pub fn seek_read_to(&mut self, target_position: usize) -> std::io::Result<()> {
         let delta = target_position as i64 - self.position as i64;
 
         if delta > 0 && delta < 4 {
@@ -133,7 +133,7 @@ impl<T: Read + Seek> Tracking<T> {
 }
 
 impl<T: Write + Seek> Tracking<T> {
-    pub fn skip_write_to(&mut self, target_position: usize) -> std::io::Result<()> {
+    pub fn seek_write_to(&mut self, target_position: usize) -> std::io::Result<()> {
         if target_position < self.position {
             self.inner.seek(SeekFrom::Start(target_position as u64))?;
         }

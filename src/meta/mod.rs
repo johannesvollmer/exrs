@@ -134,6 +134,8 @@ pub struct Requirements {
     has_multiple_parts: bool,
 }
 
+
+
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct TileIndices {
     pub location: TileCoordinates,
@@ -425,9 +427,10 @@ impl MetaData {
 }
 
 
+
 impl Header {
 
-    pub fn blocks(&self) -> Box<dyn Iterator<Item=TileIndices>> {
+    pub fn blocks_increasing_y_order(&self) -> impl Iterator<Item = TileIndices> + ExactSizeIterator + DoubleEndedIterator {
         fn tiles_of(image_size: Vec2<u32>, tile_size: Vec2<u32>, level_index: Vec2<u32>) -> impl Iterator<Item=TileIndices> {
             fn divide_and_rest(total_size: u32, block_size: u32) -> impl Iterator<Item=(u32, u32)> {
                 let block_count = compute_block_count(total_size, block_size);
@@ -447,28 +450,35 @@ impl Header {
             })
         }
 
-        let image_size = self.data_window.size;
-        if let Blocks::Tiles(tiles) = self.blocks {
-            match tiles.level_mode {
-                LevelMode::Singular => {
-                    Box::new(tiles_of(image_size, tiles.tile_size, Vec2(0, 0)))
-                },
-                LevelMode::MipMap => {
-                    Box::new(mip_map_levels(tiles.rounding_mode, image_size).flat_map(move |(level_index, level_size)|{
-                        tiles_of(level_size, tiles.tile_size, Vec2(level_index, level_index))
-                    }))
-                },
-                LevelMode::RipMap => {
-                    Box::new(rip_map_levels(tiles.rounding_mode, image_size).flat_map(move |(level_index, level_size)| {
-                        tiles_of(level_size, tiles.tile_size, level_index)
-                    }))
+        let vec: Vec<TileIndices> = {
+            if let Blocks::Tiles(tiles) = self.blocks {
+                match tiles.level_mode {
+                    LevelMode::Singular => {
+                        tiles_of(self.data_window.size, tiles.tile_size, Vec2(0, 0)).collect()
+                    },
+                    LevelMode::MipMap => {
+                        mip_map_levels(tiles.rounding_mode, self.data_window.size)
+                            .flat_map(move |(level_index, level_size)|{
+                                tiles_of(level_size, tiles.tile_size, Vec2(level_index, level_index))
+                            })
+                            .collect()
+                    },
+                    LevelMode::RipMap => {
+                        rip_map_levels(tiles.rounding_mode, self.data_window.size)
+                            .flat_map(move |(level_index, level_size)| {
+                                tiles_of(level_size, tiles.tile_size, level_index)
+                            })
+                            .collect()
+                    }
                 }
             }
-        }
-        else {
-            let tiles = Vec2(image_size.0, self.compression.scan_lines_per_block());
-            Box::new(tiles_of(image_size, tiles, Vec2(0,0)))
-        }
+            else {
+                let tiles = Vec2(self.data_window.size.0, self.compression.scan_lines_per_block());
+                tiles_of(self.data_window.size, tiles, Vec2(0,0)).collect()
+            }
+        };
+
+        vec.into_iter() // TODO without collect
     }
 
     pub fn get_block_data_window_coordinates(&self, tile: TileCoordinates) -> Result<Box2I32> {
@@ -863,6 +873,8 @@ mod test {
     use crate::meta::{MetaData, Requirements, Header};
     use crate::meta::attributes::{Text, ChannelList, Box2I32, LineOrder, Channel, PixelType};
     use crate::compression::Compression;
+    use crate::meta::Blocks;
+    use crate::math::*;
 
     #[test]
     fn round_trip_requirements() {
@@ -874,7 +886,7 @@ mod test {
         assert_eq!(requirements, read);
     }
 
-        #[test]
+    #[test]
     fn round_trip(){
         let meta = MetaData {
             requirements: Requirements::new(2, 1, false, false, false),
@@ -886,36 +898,32 @@ mod test {
                                 name: Text::from_str("main").unwrap(),
                                 pixel_type: PixelType::U32,
                                 is_linear: false,
-//                                reserved: [0,0,0],
-                                sampling: (1, 1)
+                                sampling: Vec2(1, 1)
                             }
                         ],
                         bytes_per_pixel: 4
                     },
                     compression: Compression::Uncompressed,
-                    data_window: I32Box2 {
-                        x_min: 0,
-                        y_min: 0,
-                        x_max: 10,
-                        y_max: 10
+                    data_window: Box2I32 {
+                        start: Vec2(-3,-1),
+                        size: Vec2(22, 21)
                     },
-                    display_window: I32Box2 {
-                        x_min: 0,
-                        y_min: 0,
-                        x_max: 10,
-                        y_max: 10
+                    display_window: Box2I32 {
+                        start: Vec2(2,1),
+                        size: Vec2(11, 9)
                     },
                     line_order: LineOrder::Increasing,
                     pixel_aspect: 1.0,
-                    screen_window_center: (5.0, 5.0),
+                    screen_window_center: Vec2(5.0, 5.0),
                     screen_window_width: 10.0,
-                    tiles: None,
                     name: None,
-                    kind: None,
                     deep_data_version: None,
                     chunk_count: 1,
                     max_samples_per_pixel: None,
-                    custom_attributes: smallvec![ /* TODO */ ]
+                    custom_attributes: vec![ /* TODO */ ],
+
+                    blocks: Blocks::ScanLines,
+                    deep: false,
                 }
             ],
 //            offset_tables: smallvec![
