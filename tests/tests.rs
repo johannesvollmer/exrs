@@ -182,7 +182,7 @@ pub fn convert_to_png() {
     let now = ::std::time::Instant::now();
 
     let path =
-//        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
+        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
 //        "D:/Pictures/openexr/Tiles/Ocean.exr"
 //        "D:/Pictures/openexr/MultiResolution/Kapaa.exr"
 //        "D:/Pictures/openexr/MultiView/Impact.exr"
@@ -198,7 +198,7 @@ pub fn convert_to_png() {
 //            "D:/Pictures/openexr/crowskull/crow_zip_half.exr"
 
 
-        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
+//        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
     ;
 
     let image = FullImage::read_from_file(path, ReadOptions::debug()).unwrap();

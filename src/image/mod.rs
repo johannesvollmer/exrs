@@ -39,17 +39,26 @@ pub struct BlockIndex {
 /// temporarily used to construct images in parallel
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct UncompressedBlock {
-    index: BlockIndex,
-    data: ByteVec,
+    pub index: BlockIndex,
+    pub data: ByteVec,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+pub struct Line<B> {
+    pub part: usize,
+    pub channel: usize,
+    pub level: Vec2<usize>,
+    pub position: Vec2<usize>,
+    pub width: usize,
+    pub value: B,
+}
 
 /// reads all chunks sequentially without seeking
 pub fn read_all_chunks<T>(
     read: impl Read + Send, // FIXME does not actually need to be send, only for parallel writing
     options: ReadOptions,
     new: impl Fn(&[Header]) -> Result<T>,
-    insert: impl Fn(T, UncompressedBlock) -> Result<T>
+    insert: impl Fn(T, Line<&[u8]>) -> Result<T>
 ) -> Result<T>
 {
     let mut read = PeekRead::new(read);
@@ -72,13 +81,16 @@ pub fn read_all_chunks<T>(
 
         (0..chunk_count)
             .map(|_| Chunk::read(&mut read, meta))
-            .par_bridge().map(|chunk| UncompressedBlock::from_compressed(chunk?, meta))
+            .par_bridge().map(|chunk| UncompressedBlock::decompress_chunk(chunk?, meta))
             .try_for_each_with(sender, |sender, result| {
                 result.map(|block: UncompressedBlock| sender.send(block).unwrap())
             })?;
 
         for decompressed in receiver {
-            value = insert(value, decompressed)?;
+            let header = meta_data.headers.get(decompressed.index.part).unwrap();
+            for line in decompressed.lines(header) {
+                value = insert(value, line)?;
+            }
         }
 
         // TODO profile memory usage (current should be better than below)
@@ -105,8 +117,12 @@ pub fn read_all_chunks<T>(
         for _ in 0..chunk_count {
             // TODO avoid all allocations for uncompressed data
             let chunk = Chunk::read(&mut read, &meta_data)?;
-            let decompressed = UncompressedBlock::from_compressed(chunk, &meta_data)?;
-            value = insert(value, decompressed)?;
+            let decompressed = UncompressedBlock::decompress_chunk(chunk, &meta_data)?;
+
+            let header = meta_data.headers.get(decompressed.index.part).unwrap();
+            for line in decompressed.lines(header) {
+                value = insert(value, line)?;
+            }
         }
     }
 
@@ -152,7 +168,7 @@ pub fn read_filtered_chunks<T>(
                 read.skip_to(offset as usize)?; // this is only ever going to skip forward, use skip_bytes for small amounts instead?
                 Chunk::read(&mut read, &meta_data)
             })
-            .par_bridge().map(|chunk| UncompressedBlock::from_compressed(chunk?, &meta_data))
+            .par_bridge().map(|chunk| UncompressedBlock::decompress_chunk(chunk?, &meta_data))
             .try_for_each_with(sender, |sender, result| {
                 result.map(|block: UncompressedBlock| sender.send(block).unwrap())
             })?;
@@ -166,7 +182,7 @@ pub fn read_filtered_chunks<T>(
             // TODO avoid all allocations for uncompressed data
             read.skip_to(offset as usize)?; // this is only ever going to skip forward, use skip_bytes for small amounts instead?
             let chunk = Chunk::read(&mut read, &meta_data)?;
-            let decompressed = UncompressedBlock::from_compressed(chunk, &meta_data)?;
+            let decompressed = UncompressedBlock::decompress_chunk(chunk, &meta_data)?;
 
             value = insert(value, decompressed)?;
         }
@@ -323,16 +339,15 @@ pub fn write_chunks(
 }
 
 
+
 impl UncompressedBlock {
+
     // for uncompressed data, the ByteVec in the chunk is moved all the way
-    pub fn from_compressed(chunk: Chunk, meta_data: &MetaData) -> Result<Self> {
+    pub fn decompress_chunk(chunk: Chunk, meta_data: &MetaData) -> Result<Self> {
         let header: &Header = meta_data.headers.get(chunk.part_number as usize)
             .ok_or(Error::invalid("chunk part index"))?;
 
-        // TODO clean up this doubly repeated stuff!!!:
-//        let raw_coordinates = header.get_raw_block_coordinates(&chunk.block)?;
         let tile_data_indices = header.get_block_data_indices(&chunk.block)?;
-//        let data_window_coordinates = header.get_block_data_window_coordinates(tile_data_indices);
         let absolute_indices = header.get_absolute_block_indices(tile_data_indices)?;
 
         absolute_indices.validate(header.data_window.size)?;
@@ -352,6 +367,56 @@ impl UncompressedBlock {
             _ => return Err(Error::unsupported("deep data"))
         }
     }
+
+    pub fn lines<'s>(&'s self, header: &'s Header) -> impl Iterator<Item=Line<&'s [u8]>> {
+        let mut index = 0;
+
+        (self.index.position.1 .. self.index.position.1 + self.index.size.1).flat_map(move |y| {
+            header.channels.list.iter().enumerate().map(move |(channel_index, channel)| {
+                let byte_len = self.index.size.0 * channel.pixel_type.bytes_per_sample() as usize;
+
+                let line = &self.data[index .. index + byte_len];
+                index += byte_len;
+
+                Line {
+                    part: self.index.part,
+                    channel: channel_index,
+                    level: self.index.level,
+                    position: Vec2(self.index.position.0, y),
+                    width: self.index.size.0,
+                    value: line,
+                }
+            })
+        })
+    }
+
+
+    /*pub fn write_to<'b>(&self, lines: impl Iterator<Item= impl Iterator<Item=Result<&'b mut[u8]>> >) -> PassiveResult {
+        let mut byte_source = self.data.as_slice();
+
+        for line in lines {
+            for bytes in line {
+                byte_source.read_exact(bytes?)?;
+            }
+        }
+
+        Ok(())
+    }*/
+
+
+
+    pub fn read_from<'b>(lines: impl Iterator<Item= impl Iterator<Item=&'b[u8]> >) -> PassiveResult {
+        let mut bytes_target = Vec::with_capacity(512);
+
+        for line in lines {
+            for bytes in line {
+                bytes_target.write_all(bytes)?;
+            }
+        }
+
+        Ok(())
+    }
+
 
 }
 

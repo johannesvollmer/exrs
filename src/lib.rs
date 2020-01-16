@@ -1,14 +1,4 @@
 
-#![forbid(unsafe_code)]
-
-#![deny(
-    unused_variables,
-    unused_assignments,
-    dead_code,
-    unused_must_use,
-    missing_copy_implementations,
-    trivial_numeric_casts,
-)]
 
 #![warn(
     rust_2018_idioms,
@@ -25,6 +15,17 @@
     clippy::nursery,
     clippy::cargo,
 )]
+
+#![deny(
+    unused_variables,
+    unused_assignments,
+    dead_code,
+    unused_must_use,
+    missing_copy_implementations,
+    trivial_numeric_casts,
+)]
+
+#![forbid(unsafe_code)]
 
 // TODO #![warn(missing_docs)]
 

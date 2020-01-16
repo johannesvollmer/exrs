@@ -11,7 +11,7 @@ use crate::error::{Result, PassiveResult, Error};
 use crate::math::*;
 use std::io::{Seek, BufReader, Cursor, BufWriter};
 use crate::io::Data;
-use crate::image::{WriteOptions, ReadOptions, UncompressedBlock, BlockIndex};
+use crate::image::{WriteOptions, ReadOptions, BlockIndex, Line};
 
 
 #[derive(Clone, PartialEq, Debug)]
@@ -183,7 +183,7 @@ impl FullImage {
     /// assumes the reader is buffered (if desired)
     #[must_use]
     pub fn read_from_buffered(read: impl Read + Send, options: ReadOptions) -> Result<Self> {
-        crate::image::read_all_chunks(read, options, FullImage::new, FullImage::with_block)
+        crate::image::read_all_chunks(read, options, FullImage::new, FullImage::with_line)
     }
 
 
@@ -194,79 +194,6 @@ impl FullImage {
             write, options, self.infer_meta_data()?,
             |block| self.extract_block(block)
         )
-
-        /*let mut write = Tracking::new(write);
-
-        let meta_data = self.infer_meta_data(options)?;
-        meta_data.write(&mut write)?;
-
-        let offset_table_start_byte = write.byte_position();
-
-        // skip offset tables for now
-        let offset_table_size: u32 = meta_data.headers.iter()
-            .map(|header| header.chunk_count).sum();
-
-        let mut offset_tables: Vec<u64> = vec![0; offset_table_size as usize];
-        u64::write_slice(&mut write, offset_tables.as_slice())?;
-        offset_tables.clear();
-
-        if !options.parallel_compression {
-            for part_index in 0..self.parts.len() {
-                let header = &meta_data.headers[part_index];
-                let mut table = Vec::new();
-
-                for tile in header.blocks_increasing_y_order() {
-                    debug_assert_eq!(header.display_window, self.display_window);
-                    debug_assert_eq!(header.data_window, self.parts[part_index].data_window);
-
-                    let data_indices = header.get_absolute_block_indices(tile.location)?;
-
-                    let data_size = Vec2::try_from(data_indices.size).unwrap();
-                    let data_position = Vec2::try_from(data_indices.start).unwrap();
-                    let data_level = Vec2::try_from(tile.location.level_index).unwrap();
-
-                    let data = self.extract_block(part_index, data_position, data_size, data_level)?;
-                    let data = header.compression.compress_image_section(data)?;
-
-                    let chunk = Chunk {
-                        part_number: part_index as i32,
-
-                        // TODO deep data
-                        block: match header.blocks {
-                            Blocks::ScanLines => Block::ScanLine(ScanLineBlock {
-                                y_coordinate: header.get_block_data_window_coordinates(tile.location)?.start.1,
-                                compressed_pixels: data
-                            }),
-
-                            Blocks::Tiles(_) => Block::Tile(TileBlock {
-                                compressed_pixels: data,
-                                coordinates: tile.location,
-                            }),
-                        }
-                    };
-
-                    let block_start_position = write.byte_position();
-                    table.push((tile, block_start_position as u64));
-
-
-                    chunk.write(&mut write, meta_data.headers.as_slice())?;
-                }
-
-                // sort offset table by increasing y
-                table.sort_by(|(a, _), (b, _)| a.cmp(b));
-                offset_tables.extend(table.into_iter().map(|(_, index)| index));
-            }
-        }
-        else {
-            return Err(Error::unsupported("parallel compression"));
-        }
-
-        // write offset tables after all blocks have been written
-        debug_assert_eq!(offset_tables.len(), offset_table_size as usize);
-        write.seek_write_to(offset_table_start_byte)?;
-        u64::write_slice(&mut write, offset_tables.as_slice())?;
-
-        Ok(())*/
     }
 }
 
@@ -292,19 +219,18 @@ impl FullImage {
         })
     }
 
-    pub fn with_block(mut self, block: UncompressedBlock) -> Result<Self> {
-        self.insert_block(block)?;
+    pub fn with_line(mut self, line: Line<&[u8]>) -> Result<Self> {
+        self.insert_line(line)?;
         Ok(self)
     }
 
-    pub fn insert_block(&mut self, block: UncompressedBlock) -> PassiveResult {
-        debug_assert_ne!(block.index.size.0, 0);
-        debug_assert_ne!(block.index.size.1, 0);
+    pub fn insert_line(&mut self, line: Line<&[u8]>) -> PassiveResult {
+        debug_assert_ne!(line.width, 0);
 
-        let part = self.parts.get_mut(block.index.part)
+        let part = self.parts.get_mut(line.part)
             .ok_or(Error::invalid("chunk part index"))?;
 
-        part.insert_block(&mut block.data.as_slice(), block.index.position, block.index.size, block.index.level)
+        part.insert_line(line)
     }
 
     pub fn extract_block(&self, index: BlockIndex) -> Result<ByteVec> {
@@ -354,41 +280,26 @@ impl Part {
     /// allocates all the memory necessary to hold the pixel data,
     /// zeroed out, ready to be filled with actual pixel data
     pub fn new(header: &Header) -> Result<Self> {
-//        match header.blocks {
-//            BlockType::ScanLine | BlockType::Tile => {
-                Ok(Part {
-                    data_window: header.data_window,
-                    screen_window_center: header.screen_window_center,
-                    screen_window_width: header.screen_window_width,
-                    name: header.name.clone(),
-                    attributes: header.custom_attributes.clone(),
-                    channels: header.channels.list.iter().map(|channel| Channel::new(header, channel)).collect(),
-                    compression: header.compression,
-                    blocks: header.blocks,
-                    line_order: header.line_order,
-                })
-//            },
-//
-//            BlockType::DeepScanLine | BlockType::DeepTile => {
-//                return Err(Error::unsupported("deep data"))
-//            },
-//        }
+        Ok(Part {
+            data_window: header.data_window,
+            screen_window_center: header.screen_window_center,
+            screen_window_width: header.screen_window_width,
+            name: header.name.clone(),
+            attributes: header.custom_attributes.clone(),
+            channels: header.channels.list.iter().map(|channel| Channel::new(header, channel)).collect(),
+            compression: header.compression,
+            blocks: header.blocks,
+            line_order: header.line_order,
+        })
     }
 
-    pub fn insert_block(&mut self, data: &mut impl Read, position: Vec2<usize>, size: Vec2<usize>, level: Vec2<usize>) -> PassiveResult {
-        debug_assert!(position.0 + size.0 <= self.data_window.size.0 as usize);
-        debug_assert!(position.1 + size.1 <= self.data_window.size.1 as usize);
+    pub fn insert_line(&mut self, line: Line<&[u8]>) -> PassiveResult {
+        debug_assert!(line.position.0 + line.width <= self.data_window.size.0 as usize);
+        debug_assert!(line.position.1 < self.data_window.size.1 as usize);
 
-//        println!("position: {:?}, size: {:?}, image: {:?}", position, size, self.data_window);
-
-        for y in position.1 .. position.1 + size.1 {
-//            println!("\ty: {}", y);
-            for channel in &mut self.channels {
-                channel.insert_line(data, level, Vec2(position.0, y), size.0)?;
-            }
-        }
-
-        Ok(())
+        self.channels.get_mut(line.channel)
+            .expect("invalid channel index")
+            .insert_line(line)
     }
 
     pub fn extract_block(&self, position: Vec2<usize>, size: Vec2<usize>, level: Vec2<usize>, write: &mut impl Write) -> PassiveResult {
@@ -460,11 +371,11 @@ impl Channel {
         }
     }
 
-    pub fn insert_line(&mut self, block: &mut impl Read, level: Vec2<usize>, position: Vec2<usize>, length: usize) -> PassiveResult {
+    pub fn insert_line(&mut self, line: Line<&[u8]>) -> PassiveResult {
         match &mut self.content {
-            ChannelData::F16(maps) => maps.insert_line(block, level, position, length),
-            ChannelData::F32(maps) => maps.insert_line(block, level, position, length),
-            ChannelData::U32(maps) => maps.insert_line(block, level, position, length),
+            ChannelData::F16(maps) => maps.insert_line(line),
+            ChannelData::F32(maps) => maps.insert_line(line),
+            ChannelData::U32(maps) => maps.insert_line(line),
         }
     }
 
@@ -488,10 +399,10 @@ impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
         }
     }
 
-    pub fn insert_line(&mut self, block: &mut impl Read, level: Vec2<usize>, position: Vec2<usize>, length: usize) -> PassiveResult {
+    pub fn insert_line(&mut self, line: Line<&[u8]>) -> PassiveResult {
         match self {
-            SampleMaps::Deep(ref mut levels) => levels.insert_line(block, level, position, length),
-            SampleMaps::Flat(ref mut levels) => levels.insert_line(block, level, position, length),
+            SampleMaps::Deep(ref mut levels) => levels.insert_line(line),
+            SampleMaps::Flat(ref mut levels) => levels.insert_line(line),
         }
     }
 
@@ -557,9 +468,8 @@ impl<S: Samples> Levels<S> {
         }
     }
 
-    pub fn insert_line(&mut self, read: &mut impl Read, level: Vec2<usize>, position: Vec2<usize>, length: usize) -> PassiveResult {
-//        println!("level {:?}, dimensions: {:?}", level, self.get_level(level).unwrap().resolution);
-        self.get_level_mut(level)?.insert_line(read, position, length)
+    pub fn insert_line(&mut self, line: Line<&[u8]>) -> PassiveResult {
+        self.get_level_mut(line.level)?.insert_line(line)
     }
 
     pub fn extract_line(&self, write: &mut impl Write, level: Vec2<usize>, position: Vec2<usize>, length: usize) -> PassiveResult {
@@ -631,12 +541,18 @@ impl<S: Samples> SampleBlock<S> {
         SampleBlock { resolution, samples: S::new(resolution) }
     }
 
-    pub fn insert_line(&mut self, read: &mut impl Read, position: Vec2<usize>, length: usize) -> PassiveResult {
-        debug_assert!(position.0 + length <= self.resolution.0, "x max {}, of {}", position.0 + length, self.resolution.0);
-        debug_assert!(position.1 < self.resolution.1, "y: {}, height: {}", position.1, self.resolution.1);
-        debug_assert_ne!(length, 0);
+    pub fn insert_line(&mut self, line: Line<&[u8]>) -> PassiveResult {
+        debug_assert_ne!(line.width, 0);
 
-        self.samples.insert_line(read, position, length, self.resolution.0)
+        if line.position.0 + line.width > self.resolution.0 {
+            return Err(Error::invalid("data block x coordinate"))
+        }
+
+        if line.position.1 > self.resolution.1 {
+            return Err(Error::invalid("data block y coordinate"))
+        }
+
+        self.samples.insert_line(line, self.resolution.0)
     }
 
     pub fn extract_line(&self, write: &mut impl Write, position: Vec2<usize>, length: usize) -> PassiveResult {
@@ -650,7 +566,7 @@ impl<S: Samples> SampleBlock<S> {
 
 pub trait Samples {
     fn new(resolution: Vec2<usize>) -> Self;
-    fn insert_line(&mut self, read: &mut impl Read, position: Vec2<usize>, length: usize, image_width: usize) -> PassiveResult;
+    fn insert_line(&mut self, line: Line<&[u8]>, image_width: usize) -> PassiveResult;
     fn extract_line(&self, write: &mut impl Write, position: Vec2<usize>, length: usize, image_width: usize) -> PassiveResult;
 }
 
@@ -662,9 +578,9 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
         ]
     }
 
-    fn insert_line(&mut self, _read: &mut impl Read, _position: Vec2<usize>, length: usize, image_width: usize) -> PassiveResult {
-        debug_assert_ne!(image_width, 0);
-        debug_assert_ne!(length, 0);
+    fn insert_line(&mut self, _line: Line<&[u8]>, _width: usize) -> PassiveResult {
+//        debug_assert_ne!(image_width, 0);
+//        debug_assert_ne!(length, 0);
 
         Err(Error::unsupported("deep data"))
 
@@ -691,14 +607,15 @@ impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for Fl
         vec![Sample::default(); resolution.0 * resolution.1]
     }
 
-    fn insert_line(&mut self, read: &mut impl Read, position: Vec2<usize>, length: usize, image_width: usize) -> PassiveResult {
+    fn insert_line(&mut self, line: Line<&[u8]>, image_width: usize) -> PassiveResult {
         debug_assert_ne!(image_width, 0);
-        debug_assert_ne!(length, 0);
+        debug_assert_ne!(line.width, 0);
 
-        let start_index = position.1 * image_width + position.0;
-        let end_index = start_index + length;
+        let start_index = line.position.1 * image_width + line.position.0;
+        let end_index = start_index + line.width;
 
-        Sample::read_slice(read, &mut self[start_index .. end_index])?;
+        let mut slice = line.value;
+        Sample::read_slice(&mut slice, &mut self[start_index .. end_index])?;
         Ok(())
     }
 
