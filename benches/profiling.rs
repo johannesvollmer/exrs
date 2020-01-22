@@ -9,24 +9,18 @@ use std::fs;
 
 
 fn read_single_image_uncompressed(bench: &mut Bencher) {
-    bench.bench_n(4, |bencher| {
-        bencher.iter(||{
-            let path = "D:/Pictures/openexr/crowskull/crow_uncompressed.exr";
+    let path = "D:/Pictures/openexr/crowskull/crow_rle.exr";
 
-            let image = FullImage::read_from_file(path, ReadOptions::default()).unwrap();
-            bencher::black_box(image);
-        })
+    bench.iter(||{
+        FullImage::read_from_file(path, ReadOptions::debug()).unwrap();
     })
 }
 
 fn read_single_image_uncompressed_from_buffer(bench: &mut Bencher) {
-    let file = fs::read("D:/Pictures/openexr/crowskull/crow_uncompressed.exr").unwrap();
+    let file = fs::read("D:/Pictures/openexr/crowskull/crow_zips.exr").unwrap();
 
-    bench.bench_n(4, |bencher| {
-        bencher.iter(||{
-            let image = FullImage::read_from_buffered(file.as_slice(), ReadOptions::fast_loading()).unwrap();
-            bencher::black_box(image);
-        })
+    bench.iter(||{
+        FullImage::read_from_buffered(file.as_slice(), ReadOptions::debug()).unwrap();
     })
 }
 

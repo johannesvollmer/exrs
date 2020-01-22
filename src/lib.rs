@@ -23,6 +23,7 @@
     unused_must_use,
     missing_copy_implementations,
     trivial_numeric_casts,
+    redundant_semicolon
 )]
 
 #![forbid(unsafe_code)]

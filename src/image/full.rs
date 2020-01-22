@@ -6,12 +6,11 @@ use half::f16;
 use crate::io::*;
 use crate::meta::*;
 use crate::meta::attributes::*;
-use crate::compression::{ByteVec};
 use crate::error::{Result, PassiveResult, Error};
 use crate::math::*;
 use std::io::{Seek, BufReader, Cursor, BufWriter};
 use crate::io::Data;
-use crate::image::{WriteOptions, ReadOptions, BlockIndex, Line};
+use crate::image::{WriteOptions, ReadOptions, Line, LineIndex};
 
 
 #[derive(Clone, PartialEq, Debug)]
@@ -183,16 +182,20 @@ impl FullImage {
     /// assumes the reader is buffered (if desired)
     #[must_use]
     pub fn read_from_buffered(read: impl Read + Send, options: ReadOptions) -> Result<Self> {
-        crate::image::read_all_chunks(read, options, FullImage::new, FullImage::with_line)
+        crate::image::read_all_lines(read, options, FullImage::new, FullImage::insert_line)
     }
 
 
     /// assumes the reader is buffered
     #[must_use]
     pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions) -> PassiveResult {
-        crate::image::write_chunks(
+        crate::image::write_all_lines(
             write, options, self.infer_meta_data()?,
-            |block| self.extract_block(block)
+            |location| {
+                let mut bytes = Vec::new(); // TODO avoid allocation for each line?
+                self.extract_line(location, &mut bytes)?;
+                Ok(bytes)
+            }
         )
     }
 }
@@ -219,30 +222,22 @@ impl FullImage {
         })
     }
 
-    pub fn with_line(mut self, line: Line<&[u8]>) -> Result<Self> {
-        self.insert_line(line)?;
-        Ok(self)
-    }
+    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
+        debug_assert_ne!(line.location.width, 0);
 
-    pub fn insert_line(&mut self, line: Line<&[u8]>) -> PassiveResult {
-        debug_assert_ne!(line.width, 0);
-
-        let part = self.parts.get_mut(line.part)
+        let part = self.parts.get_mut(line.location.part)
             .ok_or(Error::invalid("chunk part index"))?;
 
         part.insert_line(line)
     }
 
-    pub fn extract_block(&self, index: BlockIndex) -> Result<ByteVec> {
-        debug_assert_ne!(index.size.0, 0);
-        debug_assert_ne!(index.size.1, 0);
+    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) -> PassiveResult {
+        debug_assert_ne!(index.width, 0);
 
         let part = self.parts.get(index.part)
             .ok_or(Error::invalid("chunk part index"))?;
 
-        let mut bytes = Vec::new();
-        part.extract_block(index.position, index.size, index.level, &mut bytes)?;
-        Ok(bytes)
+        part.extract_line(index, write)
     }
 
     pub fn infer_meta_data(&self) -> Result<MetaData> {
@@ -293,23 +288,22 @@ impl Part {
         })
     }
 
-    pub fn insert_line(&mut self, line: Line<&[u8]>) -> PassiveResult {
-        debug_assert!(line.position.0 + line.width <= self.data_window.size.0 as usize);
-        debug_assert!(line.position.1 < self.data_window.size.1 as usize);
+    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
+        debug_assert!(line.location.position.0 + line.location.width <= self.data_window.size.0 as usize);
+        debug_assert!(line.location.position.1 < self.data_window.size.1 as usize);
 
-        self.channels.get_mut(line.channel)
+        self.channels.get_mut(line.location.channel)
             .expect("invalid channel index")
             .insert_line(line)
     }
 
-    pub fn extract_block(&self, position: Vec2<usize>, size: Vec2<usize>, level: Vec2<usize>, write: &mut impl Write) -> PassiveResult {
-        for y in position.1 .. position.1 + size.1 {
-            for channel in &self.channels {
-                channel.extract_line(write, level, Vec2(position.0, y), size.0)?;
-            }
-        }
+    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) -> PassiveResult {
+        debug_assert!(index.position.0 + index.width <= self.data_window.size.0 as usize);
+        debug_assert!(index.position.1 < self.data_window.size.1 as usize);
 
-        Ok(())
+        self.channels.get(index.channel)
+            .expect("invalid channel index")
+            .extract_line(index, write)
     }
 
     pub fn infer_header(&self, display_window: Box2I32, pixel_aspect: f32) -> Result<Header> {
@@ -371,7 +365,7 @@ impl Channel {
         }
     }
 
-    pub fn insert_line(&mut self, line: Line<&[u8]>) -> PassiveResult {
+    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
         match &mut self.content {
             ChannelData::F16(maps) => maps.insert_line(line),
             ChannelData::F32(maps) => maps.insert_line(line),
@@ -379,11 +373,11 @@ impl Channel {
         }
     }
 
-    pub fn extract_line(&self, block: &mut impl Write, level: Vec2<usize>, position: Vec2<usize>, length: usize) -> PassiveResult {
+    pub fn extract_line(&self, index: LineIndex, block: &mut impl Write) -> PassiveResult {
         match &self.content {
-            ChannelData::F16(maps) => maps.extract_line(block, level, position, length),
-            ChannelData::F32(maps) => maps.extract_line(block, level, position, length),
-            ChannelData::U32(maps) => maps.extract_line(block, level, position, length),
+            ChannelData::F16(maps) => maps.extract_line(index, block),
+            ChannelData::F32(maps) => maps.extract_line(index, block),
+            ChannelData::U32(maps) => maps.extract_line(index, block),
         }
     }
 }
@@ -399,17 +393,17 @@ impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
         }
     }
 
-    pub fn insert_line(&mut self, line: Line<&[u8]>) -> PassiveResult {
+    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
         match self {
             SampleMaps::Deep(ref mut levels) => levels.insert_line(line),
             SampleMaps::Flat(ref mut levels) => levels.insert_line(line),
         }
     }
 
-    pub fn extract_line(&self, block: &mut impl Write, level: Vec2<usize>, position: Vec2<usize>, length: usize) -> PassiveResult {
+    pub fn extract_line(&self, index: LineIndex, block: &mut impl Write) -> PassiveResult {
         match self {
-            SampleMaps::Deep(ref levels) => levels.extract_line(block, level, position, length),
-            SampleMaps::Flat(ref levels) => levels.extract_line(block, level, position, length),
+            SampleMaps::Deep(ref levels) => levels.extract_line(index, block),
+            SampleMaps::Flat(ref levels) => levels.extract_line(index, block),
         }
     }
 
@@ -468,12 +462,12 @@ impl<S: Samples> Levels<S> {
         }
     }
 
-    pub fn insert_line(&mut self, line: Line<&[u8]>) -> PassiveResult {
-        self.get_level_mut(line.level)?.insert_line(line)
+    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
+        self.get_level_mut(line.location.level)?.insert_line(line)
     }
 
-    pub fn extract_line(&self, write: &mut impl Write, level: Vec2<usize>, position: Vec2<usize>, length: usize) -> PassiveResult {
-        self.get_level(level)?.extract_line(write, position, length)
+    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) -> PassiveResult {
+        self.get_level(index.level)?.extract_line(index, write)
     }
 
     pub fn get_level(&self, level: Vec2<usize>) -> Result<&SampleBlock<S>> {
@@ -541,33 +535,33 @@ impl<S: Samples> SampleBlock<S> {
         SampleBlock { resolution, samples: S::new(resolution) }
     }
 
-    pub fn insert_line(&mut self, line: Line<&[u8]>) -> PassiveResult {
-        debug_assert_ne!(line.width, 0);
+    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
+        debug_assert_ne!(line.location.width, 0);
 
-        if line.position.0 + line.width > self.resolution.0 {
+        if line.location.position.0 + line.location.width > self.resolution.0 {
             return Err(Error::invalid("data block x coordinate"))
         }
 
-        if line.position.1 > self.resolution.1 {
+        if line.location.position.1 > self.resolution.1 {
             return Err(Error::invalid("data block y coordinate"))
         }
 
         self.samples.insert_line(line, self.resolution.0)
     }
 
-    pub fn extract_line(&self, write: &mut impl Write, position: Vec2<usize>, length: usize) -> PassiveResult {
-        debug_assert!(position.0 + length <= self.resolution.0, "x max {} of width {}", position.0 + length, self.resolution.0); // TODO this should Err() instead
-        debug_assert!(position.1 < self.resolution.1, "y: {}, height: {}", position.1, self.resolution.1);
-        debug_assert_ne!(length, 0);
+    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) -> PassiveResult {
+        debug_assert!(index.position.0 + index.width <= self.resolution.0, "x max {} of width {}", index.position.0 + index.width, self.resolution.0); // TODO this should Err() instead
+        debug_assert!(index.position.1 < self.resolution.1, "y: {}, height: {}", index.position.1, self.resolution.1);
+        debug_assert_ne!(index.width, 0);
 
-        self.samples.extract_line(write, position, length, self.resolution.0)
+        self.samples.extract_line(index, write, self.resolution.0)
     }
 }
 
 pub trait Samples {
     fn new(resolution: Vec2<usize>) -> Self;
-    fn insert_line(&mut self, line: Line<&[u8]>, image_width: usize) -> PassiveResult;
-    fn extract_line(&self, write: &mut impl Write, position: Vec2<usize>, length: usize, image_width: usize) -> PassiveResult;
+    fn insert_line(&mut self, line: Line<'_>, image_width: usize) -> PassiveResult;
+    fn extract_line(&self, index: LineIndex, write: &mut impl Write, image_width: usize) -> PassiveResult;
 }
 
 impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
@@ -578,7 +572,7 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
         ]
     }
 
-    fn insert_line(&mut self, _line: Line<&[u8]>, _width: usize) -> PassiveResult {
+    fn insert_line(&mut self, _line: Line<'_>, _width: usize) -> PassiveResult {
 //        debug_assert_ne!(image_width, 0);
 //        debug_assert_ne!(length, 0);
 
@@ -593,9 +587,9 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
 //        Ok(())
     }
 
-    fn extract_line(&self, _write: &mut impl Write, _position: Vec2<usize>, length: usize, image_width: usize) -> PassiveResult {
+    fn extract_line(&self, index: LineIndex, _write: &mut impl Write, image_width: usize) -> PassiveResult {
         debug_assert_ne!(image_width, 0);
-        debug_assert_ne!(length, 0);
+        debug_assert_ne!(index.width, 0);
 
         Err(Error::unsupported("deep data"))
     }
@@ -607,27 +601,24 @@ impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for Fl
         vec![Sample::default(); resolution.0 * resolution.1]
     }
 
-    fn insert_line(&mut self, line: Line<&[u8]>, image_width: usize) -> PassiveResult {
+    fn insert_line(&mut self, line: Line<'_>, image_width: usize) -> PassiveResult {
         debug_assert_ne!(image_width, 0);
-        debug_assert_ne!(line.width, 0);
+        debug_assert_ne!(line.location.width, 0);
 
-        let start_index = line.position.1 * image_width + line.position.0;
-        let end_index = start_index + line.width;
+        let start_index = line.location.position.1 * image_width + line.location.position.0;
+        let end_index = start_index + line.location.width;
 
-        let mut slice = line.value;
-        Sample::read_slice(&mut slice, &mut self[start_index .. end_index])?;
-        Ok(())
+        line.read_samples(&mut self[start_index .. end_index])
     }
 
-    fn extract_line(&self, write: &mut impl Write, position: Vec2<usize>, length: usize, image_width: usize) -> PassiveResult {
+    fn extract_line(&self, index: LineIndex, write: &mut impl Write, image_width: usize) -> PassiveResult {
         debug_assert_ne!(image_width, 0);
-        debug_assert_ne!(length, 0);
+        debug_assert_ne!(index.width, 0);
 
-        let start_index = position.1 * image_width + position.0;
-        let end_index = start_index + length;
+        let start_index = index.position.1 * image_width + index.position.0;
+        let end_index = start_index + index.width;
 
-        Sample::write_slice(write, &self[start_index .. end_index])?;
-        Ok(())
+        LineIndex::write_samples(&self[start_index .. end_index], write)
     }
 }
 

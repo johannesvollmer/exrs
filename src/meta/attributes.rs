@@ -50,7 +50,7 @@ pub enum AnyValue {
 
 
 // TODO non public fields?
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Text {
     /// will mostly be "R", "G", "B" or "deepscanlineimage"
     pub bytes: TextBytes,
@@ -196,7 +196,6 @@ pub type TextBytes = SmallVec<[u8; 24]>;
 
 use crate::io::*;
 use crate::meta::sequence_end;
-use std::cmp::Ordering;
 use crate::error::*;
 use crate::math::{RoundingMode, Vec2};
 use half::f16;
@@ -1244,25 +1243,20 @@ pub mod required {
 }
 
 
-impl Ord for Text {
-    // TODO performance?
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.to_string().cmp(&other.to_string())
-    }
-}
-
-impl PartialOrd for Text {
-    // TODO performance?
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.to_string().partial_cmp(&other.to_string())
-    }
-}
-
-
 #[cfg(test)]
 mod test {
     use super::*;
     use ::std::io::Cursor;
+
+    #[test]
+    fn text_ord() {
+        for _ in 0..1024 {
+            let text1 = Text::from_bytes_unchecked((0..4).map(|_| rand::random::<u8>()).collect());
+            let text2 = Text::from_bytes_unchecked((0..4).map(|_| rand::random::<u8>()).collect());
+
+            assert_eq!(text1.to_string().cmp(&text2.to_string()), text1.cmp(&text2), "in text {:?} vs {:?}", text1, text2);
+        }
+    }
 
     #[test]
     fn rounding_up(){

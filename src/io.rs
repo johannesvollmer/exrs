@@ -119,7 +119,7 @@ impl<T: Read + Seek> Tracking<T> {
     pub fn seek_read_to(&mut self, target_position: usize) -> std::io::Result<()> {
         let delta = target_position as i64 - self.position as i64;
 
-        if delta > 0 && delta < 4 {
+        if delta > 0 && delta < 16 { // TODO profile that this is indeed faster than a syscall! (should be because of bufread buffer discard)
             skip_bytes(self, delta as u64)?;
             self.position += delta as usize;
         }
