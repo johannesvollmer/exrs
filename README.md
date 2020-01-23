@@ -154,14 +154,14 @@ which had an 'X' in its name in my git repositories.
 
 `rs-exr` aims to provide a safe and convenient 
 interface to the OpenEXR file format.
-We try to prevent writing invalid OpenEXR files by
-either taking advantage of Rusts type system, 
-or runtime checks if the type system does not suffice.
+This library does not try to be a general purpose image file or image processing library.
+Therefore, color conversion, subsampling, and mip map generation are left to other crates for now.
+As the original OpenEXR implementation supports those operations, this library may choose to support them later.
+Furthermore, this implementation does not try to produce byte-exact file output, but only correct output.
 
 ### What I am proud of
 
--   For simple files, very few heap allocations are made during loading
-    (only for offset table data and actual pixel data)
+-   Flexible API allows for custom parallelization
 -   This is a pretty detailed README
 -   (more to come)
 
@@ -169,23 +169,16 @@ or runtime checks if the type system does not suffice.
 
 This library is modeled after the 
 official [`OpenEXRFileLayout.pdf`](http://www.openexr.com/documentation.html)
-document, but it's not completely up to date
-(the C++ library has greater priority).
+document. Unspecified behavior is concluded from the C++ library.
 
 __Things that are not as specified in the PDF file__ (Or were forgotten):
 
 -   String Attributes don't store their length,
     because it can be inferred from the Attribute byte-size.
 -   Chunk Part-Number is not u64, but i32.
--   Calculating the offset table is really really complicated,
-    and it could have been a single u64 in the file
-    (which would not even need more memory if one decided to make
-    the `type` attribute an enum instead of a string)
-    
-Okay, the last one was a rant, you got me.
 
 ### PRIORITIES
-1. Also write simple exr files 
 1. Decode all compression formats
 1. Simple rendering of common image formats
 1. Profiling and other optimization
+1. Tooling (Image Viewer App)
