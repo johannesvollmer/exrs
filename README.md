@@ -189,6 +189,15 @@ Therefore, color conversion, subsampling, and mip map generation are left to oth
 As the original OpenEXR implementation supports those operations, this library may choose to support them later.
 Furthermore, this implementation does not try to produce byte-exact file output, but only correct output.
 
+#### Safety
+This library uses no unsafe code. In fact, this create is annotated with `#[forbid(unsafe_code)]`.
+The dependencies use unsafe code though.
+
+
+All information from a file is handled with caution.
+Allocations have a safe maximum size that will not be exceeded at once.
+
+
 ### What I am proud of
 
 -   Flexible API allows for custom parallelization
