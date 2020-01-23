@@ -148,8 +148,6 @@ use exr::prelude::*;
 // ReadOptions::default() enables multicore decompression
 let image = FullImage::read_from_file("/images/test.exr", ReadOptions::default())?;
 println("file meta data: {:#?}", image); // does not print actual pixel values
-
-# Ok::<(), Error>(()) // FIXME
 ```
 
 Writing all image contents at once:
@@ -158,8 +156,6 @@ use exr::prelude::*;
 
 let image: FullImage = unimplemented!();
 image.write_to_file("/images/written.exr", WriteOptions::default())?;
-
-# Ok::<(), Error>(()) // FIXME
 ```
 
 ### Cleanup Tasks Before Version 1.0
