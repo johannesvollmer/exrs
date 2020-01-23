@@ -4,7 +4,7 @@ This library is a 100% Rust and 100% safe code
 encoding and decoding library for the OpenEXR image file format.
 
 [OpenEXR](http://www.openexr.com/) 
-files is the de-facto standard image format in animation, VFX, and 
+is the de-facto standard image format in animation, VFX, and 
 other computer graphics pipelines, for it can represent an immense variety of pixel data with lossless compression. 
 
 Features include:
