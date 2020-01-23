@@ -4,9 +4,19 @@ This library is a 100% Rust and 100% safe code
 encoding and decoding library for the OpenEXR image file format.
 
 [OpenEXR](http://www.openexr.com/) 
-files are widely used in animation, VFX, and 
-other computer graphics pipelines, because it offers
-a high flexibility regarding the data it is able to hold. 
+files is the de-facto image format in animation, VFX, and 
+other computer graphics pipelines, for it can represent an immense variety of pixel data with lossless compression. 
+
+Features include:
+- any number of images placed in 2d space
+- any kind of channels in an image (rgb, xyz, lab, depth, motion, mask, ...)
+- high dynamic range values (32bit float, 64bit float, 32bit unsigned integer)
+- optionally any number of samples per pixel ("deep data")
+- lossless compression for any image type
+- lossy compression for non-deep image types
+- load sections of an image without processing the whole file
+- compress and decompress in parallel
+- embed any kind of meta data, including custom bytes
 
 
 ### Current Status
