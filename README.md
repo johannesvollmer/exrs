@@ -4,20 +4,19 @@ This library is a 100% Rust and 100% safe code
 encoding and decoding library for the OpenEXR image file format.
 
 [OpenEXR](http://www.openexr.com/) 
-files is the de-facto image format in animation, VFX, and 
+files is the de-facto standard image format in animation, VFX, and 
 other computer graphics pipelines, for it can represent an immense variety of pixel data with lossless compression. 
 
 Features include:
-- any number of images placed in 2d space
+- any number of images placed anywhere in 2d space
 - any kind of channels in an image (rgb, xyz, lab, depth, motion, mask, ...)
 - high dynamic range values (32bit float, 64bit float, 32bit unsigned integer)
-- optionally any number of samples per pixel ("deep data")
+- any number of samples per pixel ("deep data")
 - lossless compression for any image type
 - lossy compression for non-deep image types
-- load sections of an image without processing the whole file
-- compress and decompress in parallel
-- embed any kind of meta data, including custom bytes
-
+- load specific sections of an image without processing the whole file
+- compress and decompress images in parallel
+- embed any kind of meta data, including custom bytes, with full backwards compatibility
 
 ### Current Status
 
@@ -145,7 +144,7 @@ including deep data, mip maps, and u32, f64, and f32 pixel data.
 ```rust
 use exr::prelude::*;
 
-// ReadOptions::default() enables multicore decompression
+// ReadOptions::default() includes multicore decompression
 let image = FullImage::read_from_file("/images/test.exr", ReadOptions::default())?;
 println("file meta data: {:#?}", image); // does not print actual pixel values
 ```
@@ -182,16 +181,20 @@ which had an 'X' in its name in my git repositories.
 
 ### Goals
 
-`rs-exr` aims to provide a safe and convenient 
+`exrs` aims to provide a safe and convenient 
 interface to the OpenEXR file format.
+
+
+
 This library does not try to be a general purpose image file or image processing library.
 Therefore, color conversion, subsampling, and mip map generation are left to other crates for now.
 As the original OpenEXR implementation supports those operations, this library may choose to support them later.
-Furthermore, this implementation does not try to produce byte-exact file output, but only correct output.
+Furthermore, this implementation does not try to produce byte-exact file output
+matching the original implementation, but only correct output.
 
 #### Safety
-This library uses no unsafe code. In fact, this create is annotated with `#[forbid(unsafe_code)]`.
-The dependencies use unsafe code though.
+This library uses no unsafe code. In fact, this crate is annotated with `#[forbid(unsafe_code)]`.
+Its dependencies use unsafe code, though.
 
 
 All information from a file is handled with caution.
