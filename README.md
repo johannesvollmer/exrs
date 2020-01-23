@@ -1,4 +1,4 @@
-# rs-exr
+# exrs (exr-rs)
 
 This library is a 100% Rust and 100% safe code 
 encoding and decoding library for the OpenEXR image file format.
