@@ -12,8 +12,9 @@ Features include:
 - any kind of channels in an image (rgb, xyz, lab, depth, motion, mask, ...)
 - high dynamic range values (16bit float, 32bit float, 32bit unsigned integer)
 - any number of samples per pixel ("deep data")
-- lossless compression for any image type
-- lossy compression for non-deep image types
+- uncompressed pixel data for fast file access
+- lossless compression for any image type 
+- lossy compression for non-deep image types for very small files
 - load specific sections of an image without processing the whole file
 - compress and decompress images in parallel
 - embed any kind of meta data, including custom bytes, with full backwards compatibility
