@@ -317,6 +317,8 @@ pub fn write_all_lines(
 
 impl BlockIndex {
 
+    /// iterates the lines of this block index in interleaved fashion:
+    /// for each line in this block, this iterator steps once through each channel.
     pub fn lines(&self, header: &Header) -> impl Iterator<Item=(Range<usize>, LineIndex)> {
         struct LineIter {
             part: usize, level: Vec2<usize>, width: usize, end_y: usize, x: usize,
@@ -376,22 +378,6 @@ impl BlockIndex {
             channel: 0,
             y: self.position.1
         }
-
-        /*let mut index = 0;
-        (self.index.position.1 .. self.index.position.1 + self.index.size.1).flat_map(move |y| {
-            channel_line_sizes.iter().enumerate().map(move |(channel_index, byte_len)| {
-                let byte_index = index;
-                index += byte_len;
-
-                (byte_index, LineIndex {
-                    part: self.index.part,
-                    channel: channel_index,
-                    level: self.index.level,
-                    position: Vec2(self.index.position.0, y),
-                    width: self.index.size.0,
-                })
-            })
-        })*/
     }
 }
 
