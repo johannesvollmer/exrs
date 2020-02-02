@@ -9,8 +9,8 @@ other computer graphics pipelines, for it can represent an immense variety of pi
 
 Features include:
 - any number of images placed anywhere in 2d space
-- any kind of channels in an image (rgb, xyz, lab, depth, motion, mask, ...)
-- high dynamic range values (16bit float, 32bit float, 32bit unsigned integer)
+- any number of channels in an image (rgb, xyz, lab, depth, motion, mask, ...)
+- any type of high dynamic range values (16bit float, 32bit float, 32bit unsigned integer) per channel
 - any number of samples per pixel ("deep data")
 - uncompressed pixel data for fast file access
 - lossless compression for any image type 
