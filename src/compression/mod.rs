@@ -238,7 +238,7 @@ impl Compression {
 }
 
 
-pub mod optimize_bytes {
+mod optimize_bytes {
     pub fn differences_to_samples(buffer: &mut [u8]){
         for index in 1..buffer.len() {
             buffer[index] = (buffer[index - 1] as i32 + buffer[index] as i32 - 128) as u8;

@@ -31,7 +31,8 @@
 // TODO #![warn(missing_docs)]
 
 
-pub mod io;
+mod io;
+
 pub mod math;
 pub mod chunks;
 pub mod compression;

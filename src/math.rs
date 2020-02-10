@@ -73,7 +73,7 @@ impl<T: std::ops::Mul<T>> std::ops::Mul<Vec2<T>> for Vec2<T> {
 
 
 /// computes floor(log(x)/log(2))
-pub fn floor_log_2(mut number: u32) -> u32 {
+pub(crate) fn floor_log_2(mut number: u32) -> u32 {
     debug_assert_ne!(number, 0);
 
     let mut log = 0;
@@ -90,7 +90,7 @@ pub fn floor_log_2(mut number: u32) -> u32 {
 
 /// computes ceil(log(x)/log(2))
 // taken from https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
-pub fn ceil_log_2(mut number: u32) -> u32 {
+pub(crate) fn ceil_log_2(mut number: u32) -> u32 {
     debug_assert_ne!(number, 0);
 
     let mut log = 0;
@@ -117,14 +117,14 @@ pub enum RoundingMode {
 }
 
 impl RoundingMode {
-    pub fn log2(self, number: u32) -> u32 {
+    pub(crate) fn log2(self, number: u32) -> u32 {
         match self {
             RoundingMode::Down => self::floor_log_2(number),
             RoundingMode::Up => self::ceil_log_2(number),
         }
     }
 
-    pub fn divide(self, dividend: u32, divisor: u32) -> u32 {
+    pub(crate) fn divide(self, dividend: u32, divisor: u32) -> u32 {
         match self {
             RoundingMode::Up => (dividend + divisor - 1) / divisor, // only works for positive numbers
             RoundingMode::Down => dividend / divisor,

@@ -49,25 +49,25 @@ impl From<IoError> for Error {
 
 
 #[inline]
-pub fn i32_to_usize(value: i32) -> Result<usize> {
+pub(crate) fn i32_to_usize(value: i32) -> Result<usize> {
     if value < 0 { Err(Error::invalid("number sign")) }
     else { Ok(value as usize) }
 }
 
 #[inline]
-pub fn i32_to_u32(value: i32) -> Result<u32> {
+pub(crate) fn i32_to_u32(value: i32) -> Result<u32> {
     if value < 0 { Err(Error::invalid("number sign")) }
     else { Ok(value as u32) }
 }
 
-#[inline]
-pub fn i32_to_usize_at(value: i32, context: &'static str) -> Result<usize> {
+/*#[inline]
+pub(crate) fn i32_to_usize_at(value: i32, context: &'static str) -> Result<usize> {
     if value < 0 { Err(Error::invalid(context)) }
     else { Ok(value as usize) }
-}
+}*/
 
 #[inline]
-pub fn i32_to_u32_at(value: i32, context: &'static str) -> Result<u32> {
+pub(crate) fn i32_to_u32_at(value: i32, context: &'static str) -> Result<u32> {
     if value < 0 { Err(Error::invalid(context)) }
     else { Ok(value as u32) }
 }
