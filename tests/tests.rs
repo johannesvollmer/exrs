@@ -81,6 +81,11 @@ fn round_trip_all_files() {
         let image2 = FullImage::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::debug())?;
 
         assert_eq!(image, image2);
+
+        let mut tmp_bytes2 = Vec::new();
+        image2.write_to_buffered(&mut Cursor::new(&mut tmp_bytes2), write_options)?;
+
+        assert_eq!(tmp_bytes, tmp_bytes2);
         Ok(())
     })
 }

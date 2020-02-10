@@ -22,7 +22,7 @@ __Currently supported:__
     - [x] custom attributes
     - [x] multi-part images
     - [x] multi-resolution images: mip maps, rip maps
-    - [ ] deep data (next up)
+    - [ ] deep data
     - [ ] line order
         - [x] read any
         - [x] write increasing-y

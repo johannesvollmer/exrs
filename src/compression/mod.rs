@@ -2,9 +2,9 @@ use crate::meta::Header;
 use crate::meta::attributes::Box2I32;
 use crate::error::{Result, Error};
 
-pub mod zip;
-pub mod rle;
-pub mod piz;
+mod zip;
+mod rle;
+mod piz;
 
 
 pub type ByteVec = Vec<u8>;
@@ -247,7 +247,7 @@ pub mod optimize_bytes {
 
     pub fn samples_to_differences(buffer: &mut [u8]){
         for index in (1..buffer.len()).rev() {
-            buffer[index] = (buffer[index] as i32 - buffer[index - 1] as i32 + 128 /*+ 256*/) as u8;
+            buffer[index] = (buffer[index] as i32 - buffer[index - 1] as i32 + 128) as u8;
         }
     }
 
@@ -308,6 +308,7 @@ pub mod optimize_bytes {
 
     #[cfg(test)]
     pub mod test {
+
         #[test]
         fn roundtrip_interleave(){
             let source = vec![ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 ];

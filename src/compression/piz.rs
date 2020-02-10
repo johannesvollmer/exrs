@@ -1,3 +1,5 @@
+#![allow(dead_code)] // TODO remove
+
 use super::*;
 use super::Result;
 use crate::meta::attributes::{Box2I32, PixelType};
