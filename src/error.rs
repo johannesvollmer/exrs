@@ -10,37 +10,45 @@ pub type PassiveResult = Result<()>;
 pub use std::io::Error as IoError;
 pub use std::io::Result as IoResult;
 
-#[derive(Debug)] // TODO derive Display?
+/// An error that may happen while reading or writing an exr file.
+/// Distinguishes between three types of errors:
+/// unsupported features, invalid data, and file system errors.
+#[derive(Debug)]
 pub enum Error {
-    /// The contents of the file are not supported by this implementation of open exr
+
+    /// The contents of the file are not supported by
+    /// this specific implementation of open exr,
+    /// even though the data may be valid.
     NotSupported(Cow<'static, str>),
 
-    /// The contents of the file are corrupt or insufficient
+    /// The contents of the image are contradicting or insufficient.
+    /// Also returned for `ErrorKind::UnexpectedEof` errors.
     Invalid(Cow<'static, str>),
 
-    /// The underlying byte stream could not be read correctly
+    /// The underlying byte stream could not be read successfully,
+    /// probably due to file system related errors.
     Io(IoError),
 }
 
 
 impl Error {
-    pub fn invalid(message: impl Into<Cow<'static, str>>) -> Self {
+    /// Create an error of the variant `Invalid`.
+    pub(crate) fn invalid(message: impl Into<Cow<'static, str>>) -> Self {
         Error::Invalid(message.into())
     }
 
-    pub fn unsupported(message: impl Into<Cow<'static, str>>) -> Self {
+    /// Create an error of the variant `NotSupported`.
+    pub(crate) fn unsupported(message: impl Into<Cow<'static, str>>) -> Self {
         Error::NotSupported(message.into())
     }
 }
 
-
-/// Enable using the `?` operator on io::Result
+/// Enable using the `?` operator on `exr::io::Result`.
 impl From<IoError> for Error {
     fn from(error: IoError) -> Self {
         if error.kind() == ErrorKind::UnexpectedEof {
             Error::invalid("content size")
         }
-
         else {
             Error::Io(error)
         }

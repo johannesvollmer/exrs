@@ -7,7 +7,7 @@ use ::half::f16;
 use crate::error::{Error, Result, PassiveResult, IoResult};
 use std::io::{Seek, SeekFrom};
 
-
+/// Skip reading uninteresting bytes without allocating.
 #[inline]
 pub fn skip_bytes(read: &mut impl Read, count: u64) -> IoResult<()> {
     let skipped = std::io::copy(
@@ -19,7 +19,7 @@ pub fn skip_bytes(read: &mut impl Read, count: u64) -> IoResult<()> {
     Ok(())
 }
 
-
+/// Peek a single byte without consuming it.
 #[derive(Debug)]
 pub struct PeekRead<T> {
     inner: T,
@@ -32,12 +32,15 @@ impl<T: Read> PeekRead<T> {
         Self { inner, peeked: None }
     }
 
+    /// Read a single byte and return that without consuming it.
     #[inline]
     pub fn peek_u8(&mut self) -> &IoResult<u8> {
         self.peeked = self.peeked.take().or_else(|| Some(u8::read_from_little_endian(&mut self.inner)));
         self.peeked.as_ref().unwrap()
     }
 
+    /// Skip a single byte if it equals the specified value.
+    /// Returns whether the value was found.
     #[inline]
     pub fn skip_if_eq(&mut self, value: u8) -> IoResult<bool> {
         match self.peek_u8() {
@@ -67,8 +70,6 @@ impl<T: Read> Read for PeekRead<T> {
             }
         }
     }
-
-    // TODO delegate remaining?
 }
 
 impl<T: Read + Seek> PeekRead<Tracking<T>> {
@@ -79,6 +80,8 @@ impl<T: Read + Seek> PeekRead<Tracking<T>> {
     }
 }
 
+/// Keep track of what byte we are at.
+/// Used to skip back to a previous place after writing some information.
 #[derive(Debug)]
 pub struct Tracking<T> {
     inner: T,
@@ -152,10 +155,15 @@ impl<T: Write + Seek> Tracking<T> {
 
 /// extension trait for primitive types like numbers and arrays
 pub trait Data: Sized + Default + Clone {
+    const BYTE_SIZE: usize = ::std::mem::size_of::<Self>();
+
     fn read(read: &mut impl Read) -> Result<Self>;
 
     fn read_slice(read: &mut impl Read, slice: &mut[Self]) -> PassiveResult;
 
+    /// If a block length greater than this number is decoded,
+    /// it will not try to allocate that much memory, but instead consider
+    /// that decoding the block length has gone wrong.
     #[inline]
     fn read_vec(read: &mut impl Read, data_size: usize, soft_max: usize, hard_max: Option<usize>) -> Result<Vec<Self>> {
         let mut vec = Vec::new();
@@ -167,11 +175,10 @@ pub trait Data: Sized + Default + Clone {
 
     fn write_slice(write: &mut impl Write, slice: &[Self]) -> PassiveResult;
 
-    const BYTE_SIZE: usize = ::std::mem::size_of::<Self>();
 
     /// If a block length greater than this number is decoded,
     /// it will not try to allocate that much memory, but instead consider
-    /// that decoding the block length has gone wrong
+    /// that decoding the block length has gone wrong.
     #[inline]
     fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, soft_max: usize, hard_max: Option<usize>) -> PassiveResult {
         if let Some(max) = hard_max {

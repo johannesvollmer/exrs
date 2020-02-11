@@ -634,7 +634,7 @@ impl Header {
             let Attribute { name: attribute_name, value } = Attribute::read(read, max_string_len)?;
 
             use crate::meta::attributes::required::*;
-            match attribute_name.bytes.as_slice() {
+            match attribute_name.bytes() {
                 TILES => tiles = Some(value.to_tile_description()?),
                 NAME => name = Some(value.into_text()?),
                 BLOCK_TYPE => block_type = Some(BlockType::parse(value.into_text()?)?),

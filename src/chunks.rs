@@ -3,99 +3,112 @@ use crate::meta::attributes::{Box2I32};
 
 // TODO SEE PAGE 14 IN TECHNICAL INTRODUCTION
 
-
+/// A generic block of pixel information.
+/// Contains pixel data and an index to the corresponding header.
+/// All pixel data in a file is split into a list of chunks.
+/// Also contains positioning information that locates this
+/// data block in the referenced image part.
 #[derive(Debug, Clone)]
 pub struct Chunk {
-    /// index of which header this pixel data belongs to
-    /// (data can be in any order in the file)
+    /// The index of the image part that the block belongs to.
+    /// This is required as the pixel data can appear in any order in a file.
     // PDF says u64, but source code seems to be i32
     pub part_number: i32,
+
+    /// The compressed pixel contents.
     pub block: Block,
 }
 
-/// Each part in a multipart file can have a different type
+/// The raw, possibly compressed pixel data of a file.
+/// Each image part in a file can have a different type.
+/// Also contains positioning information that locates this
+/// data block in the corresponding image part.
+/// Exists inside a `Chunk`.
 #[derive(Debug, Clone)]
 pub enum Block {
-    /// type attribute “scanlineimage”
     ScanLine(ScanLineBlock),
-
-    /// type attribute “tiledimage”
     Tile(TileBlock),
-
-    /// type attribute “deepscanline”,
     DeepScanLine(DeepScanLineBlock),
-
-    /// type attribute “deeptile”
     DeepTile(DeepTileBlock),
 }
 
-
+/// A `Block` of possibly compressed flat scan lines.
+/// Corresponds to type attribute `scanlineimage`.
 #[derive(Debug, Clone)]
 pub struct ScanLineBlock {
-    /// The block's y coordinate is equal to the pixel space y
-    /// coordinate of the top scan line in the block.
-    /// The top scan line block in the image is aligned with the top edge
-    /// of the data window (that is, the y coordinate of the top scan line block
-    /// is equal to the data window's minimum y)
+    /// The block's y coordinate is the pixel space y coordinate of the top scan line in the block.
+    /// The top scan line block in the image is aligned with the top edge of the data window.
     pub y_coordinate: i32,
 
-    /// For scan line images and deep scan line images, one or more scan lines
-    /// may be stored together as a scan line block. The number of scan lines per block
-    /// depends on how the pixel data are compressed
+    /// One or more scan lines may be stored together as a scan line block.
+    /// The number of scan lines per block depends on how the pixel data are compressed.
+    /// For each line in the tile, for each channel, the row values are contiguous.
     pub compressed_pixels: Vec<u8>,
 }
 
+/// This `Block` is a tile of flat (non-deep) data.
+/// Corresponds to type attribute `tiledimage`.
 #[derive(Debug, Clone)]
 pub struct TileBlock {
+    /// The tile location.
     pub coordinates: TileCoordinates,
+
+    /// One or more scan lines may be stored together as a scan line block.
+    /// The number of scan lines per block depends on how the pixel data are compressed.
+    /// For each line in the tile, for each channel, the row values are contiguous.
     pub compressed_pixels: Vec<u8>,
 }
 
-/// indicates the tile's position and resolution level
+/// Indicates the position and resolution level of a `TileBlock` or `DeepTileBlock`.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct TileCoordinates {
     // TODO make these u32 as they are all indices?
+
+    /// Index of the tile, not pixel position.
     pub tile_index: Vec2<i32>,
+
+    /// Index of the Mip/Rip level.
     pub level_index: Vec2<i32>,
 }
 
-/// Deep scan line images are indicated by a type attribute of “deepscanline”.
-/// Each chunk of deep scan line data is a single scan line of data.
+/// This `Block` consists of one or more deep scan lines.
+/// Corresponds to type attribute `deepscanline`.
 #[derive(Debug, Clone)]
 pub struct DeepScanLineBlock {
+    /// The block's y coordinate is the pixel space y coordinate of the top scan line in the block.
+    /// The top scan line block in the image is aligned with the top edge of the data window.
     pub y_coordinate: i32,
+
     pub decompressed_sample_data_size: u64,
 
-    /// (Taken from DeepTileBlock)
-    /// The pixel offset table is a list of ints, one for each column within the dataWindow.
-    /// Each entry n in the table indicates the total number of samples required
-    /// to store the pixel in n as well as all pixels to the left of it.
-    /// Thus, the first samples stored in each channel of the pixel data are for
-    /// the pixel in column 0, which contains table[1] samples.
-    /// Each channel contains table[width-1] samples in total
+    /// The pixel offset table is a list of integers, one for each pixel column within the data window.
+    /// Each entry in the table indicates the total number of samples required
+    /// to store the pixel in it as well as all pixels to the left of it.
     pub compressed_pixel_offset_table: Vec<i8>,
+
+    /// One or more scan lines may be stored together as a scan line block.
+    /// The number of scan lines per block depends on how the pixel data are compressed.
+    /// For each line in the tile, for each channel, the row values are contiguous.
     pub compressed_sample_data: Vec<u8>,
 }
 
-/// Tiled images are indicated by a type attribute of “deeptile”.
-/// Each chunk of deep tile data is a single tile
+/// This `Block` is a tile of deep data.
+/// Corresponds to type attribute `deeptile`.
 #[derive(Debug, Clone)]
 pub struct DeepTileBlock {
+    /// The tile location.
     pub coordinates: TileCoordinates,
+
     pub decompressed_sample_data_size: u64,
 
-    /// The pixel offset table is a list of ints, one for each column within the dataWindow.
-    /// Each entry n in the table indicates the total number of samples required
-    /// to store the pixel in n as well as all pixels to the left of it.
-    /// Thus, the first samples stored in each channel of the pixel data are for
-    /// the pixel in column 0, which contains table[1] samples.
-    /// Each channel contains table[width-1] samples in total
+    /// The pixel offset table is a list of integers, one for each pixel column within the data window.
+    /// Each entry in the table indicates the total number of samples required
+    /// to store the pixel in it as well as all pixels to the left of it.
     pub compressed_pixel_offset_table: Vec<i8>,
 
-    /// When decompressed, the unpacked chunk consists of the
-    /// channel data stored in a non-interleaved fashion
-    /// Exception: For ZIP_COMPRESSION only there will be
-    /// up to 16 scanlines in the packed sample data block
+    /// One or more scan lines may be stored together as a scan line block.
+    /// The number of scan lines per block depends on how the pixel data are compressed.
+    /// For each line in the tile, for each channel, the row values are contiguous.
     pub compressed_sample_data: Vec<u8>,
 }
 
@@ -108,7 +121,6 @@ impl TileCoordinates {
         self.tile_index.1.write(write)?;
         self.level_index.0.write(write)?;
         self.level_index.1.write(write)?;
-
         Ok(())
     }
 
@@ -125,13 +137,9 @@ impl TileCoordinates {
         })
     }
 
-    pub fn from_absolute_coordinates(level: Vec2<i32>, tile: Vec2<i32>, tile_size: Vec2<i32>, data_window: Box2I32) -> Self {
-        TileCoordinates {
-            tile_index: tile / tile_size + data_window.start,
-            level_index: level,
-        }
-    }
-
+    /// The indices which can be used to index into the arrays of a data window.
+    /// These coordinates are only valid inside the corresponding one header.
+    /// Will start at 0 and always be positive.
     pub fn to_data_indices(&self, tile_size: Vec2<u32>, max: Vec2<u32>) -> Box2I32 {
         let start = Vec2::try_from(self.tile_index).unwrap() * tile_size;
 
@@ -144,6 +152,7 @@ impl TileCoordinates {
         }
     }
 
+    /// Absolute coordinates inside the global 2D space of a file, may be negative.
     pub fn to_absolute_indices(&self, tile_size: Vec2<u32>, data_window: Box2I32) -> Box2I32 {
         let data = self.to_data_indices(tile_size, data_window.size);
         data.with_origin(data_window.start)
@@ -256,24 +265,10 @@ impl DeepTileBlock {
 use crate::error::{PassiveResult, Result, Error};
 use crate::math::Vec2;
 
+/// Validation of chunks is done while reading and writing the actual data. (For example in exr::full_image)
 impl Chunk {
-    pub fn validate(&self, headers: usize) -> PassiveResult {
-        if self.part_number as usize >= headers || self.part_number < 0 { // also triggers where part number > 0 in singlepart image
-            return Err(Error::invalid("chunk data part number"));
-        }
-
-        Ok(())
-        // TODO:
-//        match self.block {
-//            Block::ScanLine     (ref value) => value.validate(header),
-//            Block::Tile         (ref value) => value.validate(header),
-//            Block::DeepScanLine (ref value) => value.validate(header),
-//            Block::DeepTile     (ref value) => value.validate(header),
-//        }
-    }
-
     pub fn write(&self, write: &mut impl Write, headers: &[Header]) -> PassiveResult {
-        self.validate(headers.len())?;
+        debug_assert!(self.part_number < headers.len() as i32);
 
         if headers.len() != 1 { self.part_number.write(write)?; }
         else { assert_eq!(self.part_number, 0); }
@@ -312,7 +307,6 @@ impl Chunk {
             },
         };
 
-        chunk.validate(meta_data.headers.len())?;
         Ok(chunk)
     }
 }

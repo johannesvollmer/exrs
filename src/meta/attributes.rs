@@ -1,20 +1,17 @@
 use smallvec::SmallVec;
 
-///! List of OpenEXR meta data attributes.
+///! Contains all exr meta data attributes.
 ///! Each image part will have any number of [`Attribute`]s.
 
-
+/// A named attribute value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attribute {
     pub name: Text,
-
-    /// kind can be inferred from value
-    /// size in bytes can be inferred from value
     pub value: AnyValue,
 }
 
-
-// TODO custom attribute
+/// Contains one of all possible attributes.
+/// Includes a variant for custom attributes.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AnyValue {
     ChannelList(ChannelList),
@@ -48,37 +45,40 @@ pub enum AnyValue {
     Custom { kind: Text, bytes: Vec<u8> }
 }
 
-
-// TODO non public fields?
+/// A byte array with each byte being a char.
+/// This is not UTF an must be constructed from a standard string.
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Text {
-    /// will mostly be "R", "G", "B" or "deepscanlineimage"
-    pub bytes: TextBytes,
+    bytes: TextBytes,
 }
 
 // TODO enable conversion to rust time
-pub type TimeCodes = (u32, u32);
+#[derive(Copy, Debug, Clone, Eq, PartialEq, Hash)]
+pub struct TimeCodes {
+    time_and_flags: u32,
+    user_data: u32,
+}
 
-/// image kind, one of the strings specified in `Kind`
+/// Image part type, specifies block type and deepness.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum BlockType {
-    /// "scanlineimage"
+    /// Corresponds to the string value `scanlineimage`.
     ScanLine,
 
-    /// "tiledimage"
+    /// Corresponds to the string value `tiledimage`.
     Tile,
 
-    /// "deepscanline"
+    /// Corresponds to the string value `deepscanline`.
     DeepScanLine,
 
-    /// "deeptile"
+    /// Corresponds to the string value `deeptile`.
     DeepTile,
 }
 
-pub mod kind {
+/// The string literals used to represent a `BlockType` in a file.
+pub mod block_type_strings {
     pub const SCAN_LINE: &'static [u8] = b"scanlineimage";
     pub const TILE: &'static [u8] = b"tiledimage";
-
     pub const DEEP_SCAN_LINE: &'static [u8] = b"deepscanline";
     pub const DEEP_TILE: &'static [u8] = b"deeptile";
 }
@@ -86,53 +86,74 @@ pub mod kind {
 
 pub use crate::compression::Compression;
 
+/// The integer rectangle describing where an image part is placed on the infinite 2D global space.
 pub type DataWindow = Box2I32;
+
+/// The integer rectangle limiting part of the infinite 2D global space should be displayed.
 pub type DisplayWindow = Box2I32;
 
-/// all limits are inclusive, so when calculating dimensions, +1 must be added
+/// A rectangular section anywhere in 2D integer space.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Box2I32 {
+    /// The top left corner of this rectangle.
+    /// The `Box2I32` includes this pixel if the size is not zero.
     pub start: Vec2<i32>,
+
+    /// How many pixels to include in this `Box2I32`.
+    /// Does not include the actual boundary, just like `Vec::len()`.
     pub size: Vec2<u32>,
 }
 
+/// A rectangular section anywhere in 2D float space.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Box2F32 {
     min: Vec2<f32>,
     max: Vec2<f32>
 }
 
-/// followed by a null byte
-/// sorted alphabetically?
+/// A List of channels. Channels must be sorted alphabetically.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChannelList {
+    /// The channels in this list.
     pub list: SmallVec<[Channel; 5]>,
+
+    /// The number of bytes that one pixel in this image needs.
     pub bytes_per_pixel: u32, // FIXME only makes sense for flat images!
 }
 
+/// A single channel in an image part.
+/// Does not contain the actual pixel data,
+/// but instead merely describes it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Channel {
-    /// zero terminated, 1 to 255 bytes
+
+    /// The name cannot be empty in a file with multiple parts.
     pub name: Text,
 
-    /// is a i32 in file
+    /// U32, F16 or F32.
     pub pixel_type: PixelType,
 
+    /// Are the samples in this channel in a linear space or not?
     pub is_linear: bool,
 
-    /// can be used for chroma-subsampling
-    /// other than 1 are allowed only in flat, scan-line based images.
-    /// If deep or tiled, x and y sampling rates for all of its channels must be 1.
+    /// How many of the samples are skipped compared to the other channels in this image part.
+    ///
+    /// Can be used for chroma subsampling for manual lossy data compression.
+    /// Values other than 1 are allowed only in flat, scan-line based images.
+    /// If an image is deep or tiled, x and y sampling rates for all of its channels must be 1.
     pub sampling: Vec2<u32>,
 }
 
+/// What kind of pixels are in this channel.
 #[derive(Clone, Debug, Eq, PartialEq, Copy)]
 pub enum PixelType {
     U32, F16, F32,
 }
 
+/// The color space of the pixels.
+///
 /// If a file doesn't have a chromaticities attribute, display software
-/// should assume that the file's primaries and the white point match Rec. ITU-R BT.709-3:
+/// should assume that the file's primaries and the white point match `Rec. ITU-R BT.709-3`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Chromaticities {
     pub red_x: f32,     pub red_y: f32,
@@ -141,13 +162,15 @@ pub struct Chromaticities {
     pub white_x: f32,   pub white_y: f32
 }
 
+/// If this attribute is present, it describes
+/// how this texture should be projected onto an environment.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum EnvironmentMap {
     LatitudeLongitude,
     Cube,
 }
 
-/// uniquely identifies a motion picture film frame
+/// Uniquely identifies a motion picture film frame.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct KeyCode {
     pub film_manufacturer_code: i32,
@@ -161,36 +184,59 @@ pub struct KeyCode {
     pub perforations_per_count: i32,
 }
 
+/// In what order the `Block`s of pixel data appear in a file.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum LineOrder {
+    /// The blocks are ordered in rows from top to bottom.
+    /// Each row contains the blocks ordered from left to right.
     Increasing,
+
+    /// The blocks are ordered in rows from bottom to top.
+    /// Each row contains the blocks ordered from right to left.
     Decreasing,
+
+    /// The blocks are not ordered in a specific way inside the file.
     Unspecified,
 }
 
+/// A small `rgba` image of `i8` values that approximates the real exr image.
 #[derive(Clone, Eq, PartialEq)]
 pub struct Preview {
+
+    /// The dimensions of the preview image.
     pub size: Vec2<u32>,
 
-    /// 4 × width × height bytes,
-    /// Scan lines are stored top to bottom; within a scan line pixels are stored from left
-    /// to right. A pixel consists of four unsigned chars, R, G, B, A
+    /// An array with a length of 4 × width × height.
+    /// The pixels are stored in `LineOrder::Increasing`.
+    /// Each pixel consists of the four `u8` values red, green, blue, alpha.
     pub pixel_data: Vec<i8>,
 }
 
+/// Describes how the image part is divided into tiles.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct TileDescription {
+    /// The size of a tile.
+    /// Stays the same number of pixels across all levels.
     pub tile_size: Vec2<u32>,
+
+    /// Whether to also store smaller versions of the image.
     pub level_mode: LevelMode,
+
+    /// Whether to round up or down when calculating Mip/Rip levels.
     pub rounding_mode: RoundingMode,
 }
 
+/// Whether to also store increasingly smaller versions of the original image.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum LevelMode {
     Singular, MipMap, RipMap,
 }
 
-pub type TextBytes = SmallVec<[u8; 24]>;
+
+/// The raw bytes that make up a string in an exr file.
+/// Each `u8` is a single char.
+// will mostly be "R", "G", "B" or "deepscanlineimage"
+type TextBytes = SmallVec<[u8; 24]>;
 
 
 
@@ -199,6 +245,7 @@ use crate::meta::sequence_end;
 use crate::error::*;
 use crate::math::{RoundingMode, Vec2};
 use half::f16;
+use std::convert::TryFrom;
 
 
 fn invalid_type() -> Error {
@@ -207,22 +254,32 @@ fn invalid_type() -> Error {
 
 
 impl Text {
+    pub fn bytes(&self) -> &[u8] {
+        self.bytes.as_slice()
+    }
+
+    /// Create a `Text` from an `str` reference.
+    /// Returns `None` if this string contains unsupported chars.
     pub fn from_str(str: &str) -> Option<Self> {
         let vec : Option<TextBytes> = str.chars()
-            .map(|char| Some(char as u8)) // u8::try_from(char).ok())
+            .map(|character| u8::try_from(character as u64).ok())
             .collect();
 
         vec.map(Self::from_bytes_unchecked)
     }
 
+    /// Create a `Text` from the specified bytes object,
+    /// without checking any of the bytes.
     pub fn from_bytes_unchecked(bytes: TextBytes) -> Self {
         Text { bytes }
     }
 
+    /// Check whether this string is valid, considering the maximum text length.
     pub fn validate(&self, long_names: Option<bool>) -> PassiveResult {
-        Self::validate_bytes(self.bytes.as_slice(), long_names)
+        Self::validate_bytes(self.bytes(), long_names)
     }
 
+    /// Check whether some bytes are valid, considering the maximum text length.
     pub fn validate_bytes(text: &[u8], long_names: Option<bool>) -> PassiveResult {
         let is_valid = !text.is_empty() && match long_names {
             Some(false) => text.len() < 32,
@@ -240,31 +297,35 @@ impl Text {
         }
     }
 
-
+    /// The byte count this string would occupy if it were encoded as a null-terminated string.
     pub fn null_terminated_byte_size(&self) -> usize {
         self.bytes.len() + sequence_end::byte_size()
     }
 
+    /// The byte count this string would occupy if it were encoded as a size-prefixed string.
     pub fn i32_sized_byte_size(&self) -> usize {
         self.bytes.len() + i32::BYTE_SIZE
     }
 
+    /// Write the length of a string and then the contents with that length.
     pub fn write_i32_sized<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> PassiveResult {
         (self.bytes.len() as i32).write(write)?;
         Self::write_unsized_bytes(self.bytes.as_slice(), write, long_names)
     }
 
-    pub fn write_unsized_bytes<W: Write>(bytes: &[u8], write: &mut W, long_names: Option<bool>) -> PassiveResult {
+    fn write_unsized_bytes<W: Write>(bytes: &[u8], write: &mut W, long_names: Option<bool>) -> PassiveResult {
         Text::validate_bytes(bytes, long_names)?;
         u8::write_slice(write, bytes)?;
         Ok(())
     }
 
+    /// Read the length of a string and then the contents with that length.
     pub fn read_i32_sized<R: Read>(read: &mut R, max_size: usize) -> Result<Self> {
         let size = i32::read(read)? as usize;
         Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 1024, Some(max_size))?)))
     }
 
+    /// Read the contents with that length.
     pub fn read_sized<R: Read>(read: &mut R, size: usize) -> Result<Self> {
         // for small strings, read into small vec without heap allocation
         if size <= 24 {
@@ -281,6 +342,7 @@ impl Text {
         }
     }
 
+    /// Write the string contents and a null-terminator.
     pub fn write_null_terminated<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> PassiveResult {
         if self.bytes.is_empty() { return Err(Error::invalid("text is empty")) } // required to avoid mixup with "sequece_end"
         Self::write_unsized_bytes(self.bytes.as_slice(), write, long_names)?;
@@ -288,13 +350,15 @@ impl Text {
         Ok(())
     }
 
-    pub fn write_null_terminated_bytes<W: Write>(bytes: &[u8], write: &mut W, long_names: Option<bool>) -> PassiveResult {
+    /// Write the string contents and a null-terminator.
+    fn write_null_terminated_bytes<W: Write>(bytes: &[u8], write: &mut W, long_names: Option<bool>) -> PassiveResult {
         if bytes.is_empty() { return Err(Error::invalid("text is empty")) } // required to avoid mixup with "sequece_end"
         Text::write_unsized_bytes(bytes, write, long_names)?;
         sequence_end::write(write)?;
         Ok(())
     }
 
+    /// Read a string until the null-terminator is found. Then skips the null-terminator.
     pub fn read_null_terminated<R: Read>(read: &mut R, max_len: usize) -> Result<Self> {
         let mut bytes = SmallVec::new();
 
@@ -312,6 +376,8 @@ impl Text {
         Ok(Text { bytes })
     }
 
+    /// Allows any text length since it is only used for attribute values,
+    /// but not attribute names, attribute type names, or channel names.
     fn read_vec_of_i32_sized(
         read: &mut PeekRead<impl Read>,
         total_byte_size: u32
@@ -333,13 +399,14 @@ impl Text {
         Ok(result)
     }
 
-    /// allows any text length since it is only used for attribute values,
-    /// but not attribute names, attribute type names, or channel names
+    /// Allows any text length since it is only used for attribute values,
+    /// but not attribute names, attribute type names, or channel names.
     fn write_vec_of_i32_sized_texts<W: Write>(write: &mut W, texts: &[Text]) -> PassiveResult {
         // length of the text-vector can be inferred from attribute size
         for text in texts {
             text.write_i32_sized(write, None)?;
         }
+
         Ok(())
     }
 }
@@ -371,6 +438,7 @@ impl ::std::fmt::Display for Text {
 
 
 impl ChannelList {
+    /// Sorts the channels and calculates the bytes required for a single pixel.
     pub fn new(mut channels: SmallVec<[Channel; 5]>) -> Self {
         channels.sort_by(|a, b| a.name.cmp(&b.name));
 
@@ -382,15 +450,16 @@ impl ChannelList {
 }
 
 impl BlockType {
+    /// The corresponding attribute type name literal
     const TYPE_NAME: &'static [u8] = attribute_type_names::TEXT;
 
     pub fn parse(text: Text) -> Result<Self> {
         match text.bytes.as_slice() {
-            kind::SCAN_LINE => Ok(BlockType::ScanLine),
-            kind::TILE => Ok(BlockType::Tile),
+            block_type_strings::SCAN_LINE => Ok(BlockType::ScanLine),
+            block_type_strings::TILE => Ok(BlockType::Tile),
 
-            kind::DEEP_SCAN_LINE => Ok(BlockType::DeepScanLine),
-            kind::DEEP_TILE => Ok(BlockType::DeepTile),
+            block_type_strings::DEEP_SCAN_LINE => Ok(BlockType::DeepScanLine),
+            block_type_strings::DEEP_TILE => Ok(BlockType::DeepTile),
 
             _ => Err(Error::invalid("chunk segmentation method attribute value")),
         }
@@ -403,10 +472,10 @@ impl BlockType {
 
     pub fn to_text_bytes(&self) -> &[u8] {
         match self {
-            BlockType::ScanLine => kind::SCAN_LINE,
-            BlockType::Tile => kind::TILE,
-            BlockType::DeepScanLine => kind::DEEP_SCAN_LINE,
-            BlockType::DeepTile => kind::DEEP_TILE,
+            BlockType::ScanLine => block_type_strings::SCAN_LINE,
+            BlockType::Tile => block_type_strings::TILE,
+            BlockType::DeepScanLine => block_type_strings::DEEP_SCAN_LINE,
+            BlockType::DeepTile => block_type_strings::DEEP_TILE,
         }
     }
 
@@ -417,18 +486,24 @@ impl BlockType {
 
 
 impl Box2I32 {
+    /// Create a box with a size starting at zero.
     pub fn from_dimensions(size: Vec2<u32>) -> Self {
         Self::new(Vec2(0,0), size)
     }
 
+    /// Create a box with a size and an origin point.
     pub fn new(start: Vec2<i32>, size: Vec2<u32>) -> Self {
         Self { start, size }
     }
 
+    /// Returns the top-right coordinate of the rectangle.
+    /// The row and column described by this vector are not included in the rectangle,
+    /// just like `Vec::len()`.
     pub fn end(self) -> Vec2<i32> {
         self.start + Vec2::try_from(self.size).unwrap()
     }
 
+    /// Returns the maximum index a value in this rectangle may have.
     pub fn max(self) -> Vec2<i32> {
         self.end() - Vec2(1,1)
     }
@@ -470,6 +545,7 @@ impl Box2I32 {
         Ok(Box2I32 { start: min, size })
     }
 
+    /// Create a new rectangle which is offset by the specified origin.
     pub fn with_origin(self, origin: Vec2<i32>) -> Self {
         Box2I32 { start: self.start + origin, .. self }
     }
@@ -503,6 +579,7 @@ impl Box2F32 {
 }
 
 impl PixelType {
+    /// How many bytes a single sample takes up.
     pub fn bytes_per_sample(&self) -> u32 {
         (match self {
             PixelType::F16 => f16::BYTE_SIZE,
@@ -537,10 +614,12 @@ impl PixelType {
 }
 
 impl Channel {
+    /// The count of pixels this channel contains, respecting subsampling.
     pub fn subsampled_pixels(&self, dimensions: Vec2<u32>) -> u32 {
         self.subsampled_resolution(dimensions).area()
     }
 
+    /// The resolution pf this channel, respecting subsampling.
     pub fn subsampled_resolution(&self, dimensions: Vec2<u32>) -> Vec2<u32> {
         dimensions / self.sampling
     }
@@ -942,6 +1021,7 @@ impl AnyValue {
         }
     }
 
+    /// The exr name string of the type that an attribute can have.
     pub fn kind_name(&self) -> &[u8] {
         use self::AnyValue::*;
         use self::attribute_type_names as ty;
@@ -986,7 +1066,7 @@ impl AnyValue {
             F64(value) => value.write(write)?,
 
             Rational((a, b)) => { a.write(write)?; b.write(write)?; },
-            TimeCode((a, b)) => { a.write(write)?; b.write(write)?; },
+            TimeCode(codes) => { codes.time_and_flags.write(write)?; codes.user_data.write(write)?; },
 
             I32Vec2(Vec2(x, y)) => { x.write(write)?; y.write(write)?; },
             F32Vec2(Vec2(x, y)) => { x.write(write)?; y.write(write)?; },
@@ -1037,7 +1117,11 @@ impl AnyValue {
                 (a, b)
             }),
             // FIXME argument order not guaranteed??
-            ty::TIME_CODE => TimeCode((u32::read(read)?, u32::read(read)?)),
+            ty::TIME_CODE => TimeCode({
+                let time_and_flags = u32::read(read)?;
+                let user_data = u32::read(read)?;
+                TimeCodes { time_and_flags, user_data }
+            }),
 
             ty::I32VEC2 => I32Vec2({
                 let a = i32::read(read)?;
@@ -1179,6 +1263,7 @@ impl AnyValue {
     }
 }
 
+/// Contains string literals identifying the type of an attribute.
 pub mod attribute_type_names {
     macro_rules! define_attribute_type_names {
         ( $($name: ident : $value: expr),* ) => {

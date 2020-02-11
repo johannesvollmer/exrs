@@ -46,7 +46,7 @@ extern crate smallvec;
 #[cfg(test)]
 extern crate image as piston_image;
 
-
+/// Re-exports of all modules types commonly required for simple reading and writing of an exr image.
 pub mod prelude {
     // main exports
     pub use crate::meta::MetaData;

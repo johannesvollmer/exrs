@@ -7,21 +7,28 @@ use std::convert::TryFrom;
 use crate::error::{i32_to_u32, i32_to_usize};
 use crate::error::Result;
 
-
+/// Simple two-dimensional vector of any numerical type.
+/// Supports only few mathematical operations
+/// as this is used mainly as data struct.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Vec2<T> (pub T, pub T);
 
 impl<T> Vec2<T> {
+    /// Maps all components of this vector to a new type, yielding a vector of that new type.
     pub fn map<B>(self, map: impl Fn(T) -> B) -> Vec2<B> {
         Vec2(map(self.0), map(self.1))
     }
 
+    /// Try to convert all components of this vector to a new type,
+    /// yielding either a vector of that new type, or an error.
     pub fn try_from<S>(value: Vec2<S>) -> std::result::Result<Self, T::Error> where T: TryFrom<S> {
         let x = T::try_from(value.0)?;
         let y = T::try_from(value.1)?;
         Ok(Vec2(x, y))
     }
 
+    /// Seeing this vector as a dimension or size (width and height),
+    /// this returns the area that this dimensions contains.
     pub fn area(self) -> T where T: std::ops::Mul<T, Output = T> {
         self.0 * self.1
     }
@@ -30,12 +37,14 @@ impl<T> Vec2<T> {
 
 
 impl Vec2<i32> {
+    /// Try to convert to `Vec2<usize>`, returning an error on negative numbers.
     pub fn to_usize(self) -> Result<Vec2<usize>> {
         let x = i32_to_usize(self.0)?;
         let y = i32_to_usize(self.1)?;
         Ok(Vec2(x, y))
     }
 
+    /// Try to convert to `Vec2<u32>`, returning an error on negative numbers.
     pub fn to_u32(self) -> Result<Vec2<u32>> {
         let x = i32_to_u32(self.0)?;
         let y = i32_to_u32(self.1)?;
@@ -72,7 +81,7 @@ impl<T: std::ops::Mul<T>> std::ops::Mul<Vec2<T>> for Vec2<T> {
 }
 
 
-/// computes floor(log(x)/log(2))
+/// Computes `floor(log(x)/log(2))`
 pub(crate) fn floor_log_2(mut number: u32) -> u32 {
     debug_assert_ne!(number, 0);
 
@@ -88,7 +97,7 @@ pub(crate) fn floor_log_2(mut number: u32) -> u32 {
 }
 
 
-/// computes ceil(log(x)/log(2))
+/// Computes `ceil(log(x)/log(2))`
 // taken from https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
 pub(crate) fn ceil_log_2(mut number: u32) -> u32 {
     debug_assert_ne!(number, 0);
@@ -110,7 +119,7 @@ pub(crate) fn ceil_log_2(mut number: u32) -> u32 {
 }
 
 
-
+/// Round up or down in specific calculations.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum RoundingMode {
     Down, Up,
