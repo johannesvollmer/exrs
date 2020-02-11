@@ -28,11 +28,15 @@ walkdir = "2.2.9"
 rand = "0.7.2"
 
 [[bench]]
-name = "benches"
+name = "read"
 harness = false
 
 [[bench]]
 name = "profiling"
+harness = false
+
+[[bench]]
+name = "write"
 harness = false
 
 # release with fastest runtime speed

@@ -55,23 +55,8 @@ fn read_single_image_non_parallel_zips(bench: &mut Bencher) {
     })
 }
 
-/*fn write_single_image_parallel_zip(bench: &mut Bencher) {
-    let path = "D:/Pictures/openexr/crowskull/crow_zips.exr";
-    let options = ReadOptions {
-        parallel_decompression: false,
-        .. ReadOptions::default()
-    };
 
-    let image = FullImage::read_from_file(path, options).unwrap();
-
-    bencher.iter(||{
-        let mut result = Vec::new();
-        FullImage::write_to_buffered(&image, Cursor::new(&mut result), WriteOptions::debug()).unwrap();
-        bencher::black_box(result);
-    })
-}*/
-
-benchmark_group!(benches,
+benchmark_group!(read,
     read_single_image_uncompressed_from_buffer,
     // write_single_image_parallel_zip,
     read_single_image_uncompressed,
@@ -80,4 +65,4 @@ benchmark_group!(benches,
     read_single_image_non_parallel_zips
 );
 
-benchmark_main!(benches);
+benchmark_main!(read);
