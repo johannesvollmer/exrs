@@ -1,4 +1,6 @@
 
+///! Specialized binary input and output.
+///! Uses the error handling for this crate.
 
 pub use ::std::io::{Read, Write};
 use half::slice::{HalfFloatSliceExt};

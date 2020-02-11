@@ -2,6 +2,7 @@ use crate::meta::Header;
 use crate::meta::attributes::Box2I32;
 use crate::error::{Result, Error};
 
+// TODO documentation
 mod zip;
 mod rle;
 mod piz;

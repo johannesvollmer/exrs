@@ -1,5 +1,6 @@
 //! The `image` module is for interpreting the loaded file data.
 //!
+// TODO documentation
 
 use smallvec::SmallVec;
 use half::f16;

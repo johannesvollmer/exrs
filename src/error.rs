@@ -1,8 +1,8 @@
 
+///! Error type definitions.
+
 use std::borrow::Cow;
 use std::io::ErrorKind;
-
-
 
 pub type Result<T> = std::result::Result<T, Error>;
 pub type PassiveResult = Result<()>;

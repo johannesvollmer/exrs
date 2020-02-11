@@ -2,6 +2,7 @@
 // calculations inspired by
 // https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
 
+///! Simple math utilities.
 
 use std::convert::TryFrom;
 use crate::error::{i32_to_u32, i32_to_usize};
