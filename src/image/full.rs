@@ -1,5 +1,4 @@
-//! The `image` module is for interpreting the loaded file data.
-//!
+
 // TODO documentation
 
 use smallvec::SmallVec;
@@ -190,7 +189,7 @@ impl FullImage {
     /// assumes the reader is buffered
     #[must_use]
     pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions) -> PassiveResult {
-        crate::image::write_all_lines(
+        crate::image::write_all_lines_to_buffered(
             write, options, self.infer_meta_data()?,
             |location| {
                 let mut bytes = Vec::new(); // TODO avoid allocation for each line?

@@ -155,17 +155,22 @@ impl<T: Write + Seek> Tracking<T> {
 }
 
 
-/// extension trait for primitive types like numbers and arrays
+/// Generic trait that defines common binary operations such as reading and writing for this type.
 pub trait Data: Sized + Default + Clone {
     const BYTE_SIZE: usize = ::std::mem::size_of::<Self>();
 
+    /// Read a value of type `Self`.
     fn read(read: &mut impl Read) -> Result<Self>;
 
+    /// Read as many values of type `Self` as fit into the specified slice.
+    /// If the slice cannot be filled completely, returns `Error::Invalid`.
     fn read_slice(read: &mut impl Read, slice: &mut[Self]) -> PassiveResult;
 
-    /// If a block length greater than this number is decoded,
-    /// it will not try to allocate that much memory, but instead consider
-    /// that decoding the block length has gone wrong.
+    /// Read as many values of type `Self` as specified with `data_size`.
+    ///
+    /// This method will not allocate more memory than `soft_max` at once.
+    /// If `hard_max` is specified, it will never read any more than that.
+    /// Returns `Error::Invalid` if reader does not contain the desired number of elements.
     #[inline]
     fn read_vec(read: &mut impl Read, data_size: usize, soft_max: usize, hard_max: Option<usize>) -> Result<Vec<Self>> {
         let mut vec = Vec::new();
@@ -173,14 +178,18 @@ pub trait Data: Sized + Default + Clone {
         Ok(vec)
     }
 
+    /// Write this value to the writer.
     fn write(self, write: &mut impl Write) -> PassiveResult;
 
+    /// Write all values of that slice to the writer.
     fn write_slice(write: &mut impl Write, slice: &[Self]) -> PassiveResult;
 
 
-    /// If a block length greater than this number is decoded,
-    /// it will not try to allocate that much memory, but instead consider
-    /// that decoding the block length has gone wrong.
+    /// Read as many values of type `Self` as specified with `data_size` into the provided vector.
+    ///
+    /// This method will not allocate more memory than `soft_max` at once.
+    /// If `hard_max` is specified, it will never read any more than that.
+    /// Returns `Error::Invalid` if reader does not contain the desired number of elements.
     #[inline]
     fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, soft_max: usize, hard_max: Option<usize>) -> PassiveResult {
         if let Some(max) = hard_max {
@@ -207,12 +216,18 @@ pub trait Data: Sized + Default + Clone {
         Ok(())
     }
 
+    /// Write the length of the slice and then its contents.
     #[inline]
     fn write_i32_sized_slice<W: Write>(write: &mut W, slice: &[Self]) -> PassiveResult {
         (slice.len() as i32).write(write)?;
         Self::write_slice(write, slice)
     }
 
+    /// Read the desired element count and then read that many items into a vector.
+    ///
+    /// This method will not allocate more memory than `soft_max` at once.
+    /// If `hard_max` is specified, it will never read any more than that.
+    /// Returns `Error::Invalid` if reader does not contain the desired number of elements.
     #[inline]
     fn read_i32_sized_vec(read: &mut impl Read, soft_max: usize, hard_max: Option<usize>) -> Result<Vec<Self>> {
         let size = i32::read(read)?;

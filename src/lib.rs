@@ -31,7 +31,7 @@
 // TODO #![warn(missing_docs)]
 
 
-mod io;
+pub mod io; // public to allow for custom attribute byte parsing
 
 pub mod math;
 pub mod chunks;

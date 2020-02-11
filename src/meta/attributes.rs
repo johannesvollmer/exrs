@@ -1,7 +1,7 @@
 use smallvec::SmallVec;
 
-///! Contains all exr meta data attributes.
-///! Each image part will have any number of [`Attribute`]s.
+///! Contains all meta data attributes.
+///! Each image part can have any number of [`Attribute`]s, including custom attributes.
 
 /// A named attribute value.
 #[derive(Debug, Clone, PartialEq)]

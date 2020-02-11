@@ -1,9 +1,8 @@
 
-// TODO documentation
+///! Describes all meta data possible in an exr file.
 pub mod attributes;
 
 use crate::io::*;
-
 use ::smallvec::SmallVec;
 use self::attributes::*;
 use crate::chunks::{TileCoordinates, Block};
@@ -940,7 +939,7 @@ mod test {
 
     #[test]
     fn round_trip_requirements() {
-        let requirements = Requirements::new(2, 4, true, true, true);
+        let requirements = Requirements::new(2, true, true, true, true);
 
         let mut data: Vec<u8> = Vec::new();
         requirements.write(&mut data).unwrap();
@@ -951,7 +950,7 @@ mod test {
     #[test]
     fn round_trip(){
         let meta = MetaData {
-            requirements: Requirements::new(2, 1, false, false, false),
+            requirements: Requirements::new(2, false, false, false, false),
             headers: smallvec![
                 Header {
                     channels: ChannelList {
@@ -997,7 +996,7 @@ mod test {
 
 
         let mut data: Vec<u8> = Vec::new();
-        meta.write(&mut data).unwrap();
+        meta.write_to_buffered(&mut data).unwrap();
         let meta2 = MetaData::read_from_buffered(data.as_slice()).unwrap();
         assert_eq!(meta, meta2);
     }

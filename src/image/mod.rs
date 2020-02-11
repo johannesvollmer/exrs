@@ -1,11 +1,13 @@
 
 pub mod full;
+pub mod simple;
+pub mod rgba;
 
 // TODO documentation
 use crate::meta::attributes::*;
 use crate::compression::{Compression, ByteVec};
 use crate::math::*;
-use std::io::{Read, Seek, Write, BufWriter};
+use std::io::{Read, Seek, Write};
 use crate::error::{Result, Error, PassiveResult};
 use crate::meta::{MetaData, Header, TileIndices, Blocks};
 use crate::chunks::{Chunk, Block, TileBlock, ScanLineBlock};
@@ -210,7 +212,7 @@ pub fn read_filtered_chunks<'m>(
 
 /// assumes the reader is buffered
 #[must_use]
-pub fn write_all_lines(
+pub fn write_all_lines_to_buffered(
     write: impl Write + Seek, options: WriteOptions, mut meta_data: MetaData,
     get_line: impl Fn(LineIndex) -> Result<ByteVec>
 ) -> PassiveResult
@@ -224,7 +226,6 @@ pub fn write_all_lines(
         }
     }
 
-//    let write = BufWriter::new(write); FIXME free performance win
     let mut write = Tracking::new(write);
     meta_data.write_to_buffered(&mut write)?;
 
