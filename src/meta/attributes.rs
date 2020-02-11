@@ -213,9 +213,12 @@ pub struct Preview {
 }
 
 /// Describes how the image part is divided into tiles.
+/// Specifies the size of each tile in the image
+/// and whether this image contains multiple resolution levels.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct TileDescription {
-    /// The size of a tile.
+
+    /// The size of each tile.
     /// Stays the same number of pixels across all levels.
     pub tile_size: Vec2<u32>,
 

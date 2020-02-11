@@ -250,7 +250,7 @@ impl FullImage {
         Ok(MetaData {
             requirements: Requirements::new(
                 self.minimum_version()?,
-                headers.len(),
+                headers.len() > 1,
                 has_tiles,
                 self.has_long_names()?,
                 false // TODO

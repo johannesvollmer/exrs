@@ -13,139 +13,168 @@ use std::io::{BufReader};
 use std::cmp::Ordering;
 use crate::math::*;
 
-
+/// Contains the complete meta data of an exr image.
+/// Defines how the image is split up in the file,
+/// the number and type of images and channels,
+/// and various other attributes.
+/// The usage of custom attributes is encouraged.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MetaData {
+
+    /// Some flags summarizing the features that must be supported to decode the file.
     pub requirements: Requirements,
 
-    /// separate header for each part, requires a null byte signalling the end of each header
+    /// One header to describe each image part in this file.
     pub headers: Headers,
 }
 
 pub type Headers = SmallVec<[Header; 3]>;
 pub type OffsetTables = SmallVec<[OffsetTable; 3]>;
 
-/// For scan line blocks, the line offset table is a sequence of scan line offsets,
-/// with one offset per scan line block. In the table, scan line offsets are
-/// ordered according to increasing scan line y coordinates
-///
-/// For tiles, the offset table is a sequence of tile offsets, one offset per tile.
-/// In the table, scan line offsets are sorted the same way as tiles in IncreasingY order
-///
-/// For multi-part files, each part defined in the header component has a corresponding chunk offset table
-///
-/// If the multipart (12) bit is unset and the chunkCount is not present, the number of entries in the
-/// chunk table is computed using the dataWindow and tileDesc attributes and the compression format.
-/// 2. If the multipart (12) bit is set, the header must contain a chunkCount attribute (which indicates the
-/// size of the table and the number of chunks).
-///
-///
-/// one per chunk, relative to file-start (!) in bytes
+
+/// The offset table is an ordered list of indices referencing pixel data in the exr file.
+/// For each pixel tile in the image, an index exists, which points to the byte-location
+/// of the corresponding pixel data in the file. That index can be used to load specific
+/// portions of an image without processing all bytes in a file. For each header,
+/// an offset table exists with its indices ordered by `LineOrder::Increasing`.
+// If the multipart bit is unset and the chunkCount attribute is not present,
+// the number of entries in the chunk table is computed using the
+// dataWindow, tileDesc, and compression attribute.
+//
+// If the multipart bit is set, the header must contain a
+// chunkCount attribute, that contains the length of the offset table.
 pub type OffsetTable = Vec<u64>;
 
+/// Describes a single image part in a file.
+/// A file can have any number of image parts.
+/// The meta data contains one header per image part.
 // TODO non-public fields?
 #[derive(Clone, Debug, PartialEq)]
 pub struct Header {
+
+    /// List of channels in this image part.
     pub channels: ChannelList,
+
+    /// How the pixel data of all channels in this image part is compressed. May be `Compression::Uncompressed`.
     pub compression: Compression,
+
+    /// The rectangle that positions this image part within the infinite 2D space.
     pub data_window: Box2I32,
+
+    /// The rectangle anywhere in 2D space that clips all contents of the file.
     pub display_window: Box2I32,
 
-    // todo: make optionals?
+
+    /// In what order the tiles of this header occur in the file.
+    // todo: make optional?
     pub line_order: LineOrder,
+
+    /// Aspect ratio of each pixel in this header.
+    // todo: make optional?
     pub pixel_aspect: f32,
+
+    /// Part of the perspective projection. Default should be `(0, 0)`.
+    // todo: make optional?
     pub screen_window_center: Vec2<f32>,
+
+    /// Part of the perspective projection. Default should be `1`.
+    // todo: make optional?
     pub screen_window_width: f32,
 
-    /// TileDescription: size of the tiles and the number of resolution levels in the file
-    /// Required for parts of type tiledimage and deeptile
-//    pub tiles: Option<TileDescription>, // TODO use image::full::Blocks here too?
-
-    /// The name of the `Part` which contains this Header.
-    /// Required if either the multipart bit (12) or the non-image bit (11) is set
+    /// The name of this image part.
+    /// Required if this file contains deep data or multiple image parts.
     pub name: Option<Text>,
 
-    /// Required if either the multipart bit (12) or the non-image bit (11) is set.
-    /// Set to one of: scanlineimage, tiledimage, deepscanline, or deeptile.
-    /// Note: This value must agree with the version field's tile bit (9) and non-image (deep data) bit (11) settings
-    /// required for deep data. when deep data, Must be set to deepscanline or deeptile.
-    /// In this crate, this attribute will always have a value for simplicity.
-//    pub block_type: BlockType, // TODO use image::full::Blocks here too?
+    /// Describes how the pixels of this image part are divided into smaller blocks.
+    /// A single block can be loaded without processing all bytes of a file.
+    ///
+    /// Also describes whether a file contains multiple resolution levels: mip maps or rip maps.
+    /// This allows loading not the full resolution, but the smallest sensible resolution.
+    //
+    // Required if file contains deep data or multiple image parts.
+    // Note: This value must agree with the version field's tile bit and deep data bit.
+    // In this crate, this attribute will always have a value, for simplicity.
     pub blocks: Blocks,
+
+    /// Whether this image part contains deep data.
     pub deep: bool,
 
-    /// This document describes version 1 data for all
-    /// part types. version is required for deep data (deepscanline and deeptile) parts.
-    /// If not specified for other parts, assume version=1
-    /// required for deep data: Should be set to 1 . It will be changed if the format is updated
+    /// This library supports only deep data version 1.
+    // TODO throw error on other version found
     pub deep_data_version: Option<i32>,
 
-    /// Required if either the multipart bit (12) or the deep-data bit (11) is set
-    /// (this crate always computes this value to avoid unnecessary computations)
+    /// Number of chunks, that is, scan line blocks or tiles, that this image has been divided into.
+    /// This number is calculated once at the beginning
+    /// of the read process or when creating a channel object.
+    ///
+    /// This value includes all chunks of all resolution levels.
     pub chunk_count: u32,
 
-    /// Required for deep data (deepscanline and deeptile) parts.
-    /// Note: Since the value of "maxSamplesPerPixel"
-    /// maybe be unknown at the time of opening the
-    /// file, the value “ -1 ” is written to the file to
-    /// indicate an unknown value. When the file is
-    /// closed, this will be overwritten with the correct
-    /// value.
-    /// If file writing does not complete
-    /// correctly due to an error, the value -1 will
-    /// remain. In this case, the value must be derived
-    /// by decoding each chunk in the part
+    // Required for deep data (deepscanline and deeptile) parts.
+    // Note: Since the value of "maxSamplesPerPixel"
+    // maybe be unknown at the time of opening the
+    // file, the value “ -1 ” is written to the file to
+    // indicate an unknown value. When the file is
+    // closed, this will be overwritten with the correct
+    // value.
+    // If file writing does not complete
+    // correctly due to an error, the value -1 will
+    // remain. In this case, the value must be derived
+    // by decoding each chunk in the part
+    /// Maximum number of samples in a single pixel in a deep image.
     pub max_samples_per_pixel: Option<u32>,
 
-    /// Requires a null byte signalling the end of each attribute
-    /// Contains custom attributes
+    /// Optional attributes. May contain custom attributes.
+    /// Does not contain the attributes already present in the `Header` struct.
     pub custom_attributes: Attributes,
 }
 
 pub type Attributes = Vec<Attribute>;
 
-
-// FIXME TODO this should probably not be a struct but a module, and not passed everywhere,
-/// since most of the fields don't matter after the first validation
-
+/// A summary of requirements that must be met to read this exr file.
+/// Used to determine whether this file can be read by a given reader.
+/// It includes the OpenEXR version number. This library aims to support version `2.0`.
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub struct Requirements {
-    /// is currently 2
+
+    /// This library supports reading version 1 and 2, and writing version 2.
+    // TODO write version 1 for simple images
     file_format_version: u8,
 
-    /// bit 9
-    /// if true: single-part tiles (bits 11 and 12 must be 0).
-    /// if false and 11 and 12 are false: single-part scan-line.
+    /// If true, this image has tiled blocks and contains only a single image part.
+    /// If false and not deep and not multipart, this image is a single part image with scan line blocks.
     is_single_part_and_tiled: bool,
 
-    /// bit 10
-    /// if true: maximum name length is 255,
-    /// else: 31 bytes for attribute names, attribute type names, and channel names
-    /// in c or bad c++ this might have been relevant (omg is he allowed to say that)
+    // in c or bad c++ this might have been relevant (omg is he allowed to say that)
+    /// Whether this file has strings with a length greater than 31.
+    /// Strings can never be longer than 255.
     has_long_names: bool,
 
-    /// bit 11 "non-image bit"
-    /// if true: at least one deep (thus non-reqular)
+    /// This image contains at least one image part with deep data.
     has_deep_data: bool,
 
-    /// bit 12
-    /// if true: is multipart
-    /// (end-of-header byte must always be included
-    /// and part-number-fields must be added to chunks)
+    /// Whether this file contains multiple image parts.
     has_multiple_parts: bool,
 }
 
 
-
+/// Locates a rectangular section of pixels in an image.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct TileIndices {
     pub location: TileCoordinates,
     pub size: Vec2<u32>,
 }
 
+/// How the image pixels are split up into separate blocks.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Blocks {
+    /// The image is divided into scan line blocks.
+    /// The number of scan lines in a block depends on the compression method.
     ScanLines,
+
+    /// The image is divided into tile blocks.
+    /// Also specifies the size of each tile in the image
+    /// and whether this image contains multiple resolution levels.
     Tiles(TileDescription)
 }
 
@@ -174,6 +203,7 @@ impl TileIndices {
 }
 
 impl Blocks {
+    /// Whether this image is tiled. If false, this image is divided into scan line blocks.
     pub fn has_tiles(&self) -> bool {
         match self {
             Blocks::Tiles { .. } => true,
@@ -183,16 +213,20 @@ impl Blocks {
 }
 
 
-
+/// The first four bytes of each exr file.
+/// Used to abort reading non-exr files.
 pub mod magic_number {
     use super::*;
 
+    /// The first four bytes of each exr file.
     pub const BYTES: [u8; 4] = [0x76, 0x2f, 0x31, 0x01];
 
     pub fn write(write: &mut impl Write) -> Result<()> {
         u8::write_slice(write, &self::BYTES)
     }
 
+    /// Consumes four bytes from the reader and returns whether the file may be an exr file.
+    // TODO check if exr before allocating BufRead
     pub fn is_exr(read: &mut impl Read) -> Result<bool> {
         let mut magic_num = [0; 4];
         u8::read_slice(read, &mut magic_num)?;
@@ -209,7 +243,7 @@ pub mod magic_number {
     }
 }
 
-
+/// A `0_u8` at the end of a sequence.
 pub mod sequence_end {
     use super::*;
 
@@ -221,32 +255,35 @@ pub mod sequence_end {
         0_u8.write(write)
     }
 
+    /// Peeks the next byte. If it is zero, consumes the byte and returns true.
     pub fn has_come(read: &mut PeekRead<impl Read>) -> Result<bool> {
         Ok(read.skip_if_eq(0)?)
     }
 }
 
 
-pub fn missing_attribute(name: &str) -> Error {
+fn missing_attribute(name: &str) -> Error {
     Error::invalid(format!("missing `{}` attribute", name))
 }
 
 
-
+/// Compute the number of tiles required to contain all values.
 pub fn compute_block_count(full_res: u32, tile_size: u32) -> u32 {
     // round up, because if the image is not evenly divisible by the tiles,
     // we add another tile at the end (which is only partially used)
     RoundingMode::Up.divide(full_res, tile_size)
 }
 
-// TODO use this everywhere
+/// Compute the start position and size of a block inside a dimension.
 #[inline]
 pub fn calculate_block_position_and_size(total_size: u32, block_size: u32, block_index: u32) -> (u32, u32) {
     let block_position = block_size * block_index;
     (block_position, calculate_block_size(total_size, block_size, block_position))
 }
 
-// TODO use this everywhere
+/// Calculate the size of a single block. If this is the last block,
+/// this only returns the required size, which is always smaller than the default block size.
+// TODO use this method everywhere instead of convoluted formulas
 #[inline]
 pub fn calculate_block_size(total_size: u32, block_size: u32, block_position: u32) -> u32 {
     debug_assert!(block_position < total_size, "pos: {}, size: {}", block_position, total_size);
@@ -260,15 +297,20 @@ pub fn calculate_block_size(total_size: u32, block_size: u32, block_position: u3
 }
 
 
+/// Calculate number of mip levels in a given resolution.
 // TODO this should be cached? log2 may be very expensive
 pub fn compute_level_count(round: RoundingMode, full_res: u32) -> u32 {
     round.log2(full_res) + 1
 }
 
+/// Calculate the size of a single mip level by index.
+// TODO this should be cached? log2 may be very expensive
 pub fn compute_level_size(round: RoundingMode, full_res: u32, level_index: u32) -> u32 {
     round.divide(full_res,  1 << level_index).max(1)
 }
 
+/// Iterates over all rip map level resolutions of a given size, including the indices of each level.
+/// The order of iteration conforms to `LineOrder::Increasing`.
 // TODO cache these?
 // TODO compute these directly instead of summing up an iterator?
 pub fn rip_map_levels(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=(Vec2<u32>, Vec2<u32>)> {
@@ -280,6 +322,8 @@ pub fn rip_map_levels(round: RoundingMode, max_resolution: Vec2<u32>) -> impl It
     })
 }
 
+/// Iterates over all mip map level resolutions of a given size, including the indices of each level.
+/// The order of iteration conforms to `LineOrder::Increasing`.
 // TODO cache all these level values when computing table offset size??
 // TODO compute these directly instead of summing up an iterator?
 pub fn mip_map_levels(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=(u32, Vec2<u32>)> {
@@ -292,6 +336,8 @@ pub fn mip_map_levels(round: RoundingMode, max_resolution: Vec2<u32>) -> impl It
         })
 }
 
+/// Iterates over all rip map level indices of a given size.
+/// The order of iteration conforms to `LineOrder::Increasing`.
 pub fn rip_map_indices(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=Vec2<u32>> {
     let (width, height) = (
         compute_level_count(round, max_resolution.0),
@@ -305,14 +351,17 @@ pub fn rip_map_indices(round: RoundingMode, max_resolution: Vec2<u32>) -> impl I
     })
 }
 
+/// Iterates over all mip map level indices of a given size.
+/// The order of iteration conforms to `LineOrder::Increasing`.
 pub fn mip_map_indices(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=u32> {
     (0..compute_level_count(round, max_resolution.0.max(max_resolution.1)))
 }
 
+/// Compute the number of chunks that an image is divided into. May be an expensive operation.
+// If not multipart and chunkCount not present,
+// the number of entries in the chunk table is computed
+// using the dataWindow and tileDesc attributes and the compression format
 pub fn compute_chunk_count(compression: Compression, data_window: Box2I32, blocks: Blocks) -> crate::error::Result<u32> {
-    // If not multipart and chunkCount not present,
-    // the number of entries in the chunk table is computed
-    // using the dataWindow and tileDesc attributes and the compression format
     let data_size = data_window.size;
 
     if let Blocks::Tiles(tiles) = blocks {
@@ -352,26 +401,32 @@ pub fn compute_chunk_count(compression: Compression, data_window: Box2I32, block
 
 
 impl MetaData {
+    /// Read the exr meta data from a file.
+    /// Use `read_from_unbuffered` instead if you do not have a file.
     #[must_use]
     pub fn read_from_file(path: impl AsRef<::std::path::Path>) -> Result<Self> {
         Self::read_from_unbuffered(File::open(path)?)
     }
 
-    /// assumes that the provided reader is not buffered, and will create a buffer for it
+    /// Buffer the reader and then read the exr meta data from it.
+    /// Use `read_from_buffered` if your reader is an in-memory reader.
+    /// Use `read_from_file` if you have a file path.
     #[must_use]
-    pub fn read_from_unbuffered<R: Read>(unbuffered: R) -> Result<Self> {
+    pub fn read_from_unbuffered(unbuffered: impl Read) -> Result<Self> {
         Self::read_from_buffered(BufReader::new(unbuffered))
     }
 
-    /// assumes the reader is buffered
+    /// Read the exr meta data from a reader.
+    /// Use `read_from_file` if you have a file path.
+    /// Use `read_from_unbuffered` if this is not an in-memory reader.
     #[must_use]
-    pub fn read_from_buffered<R: Read>(buffered: R) -> Result<Self> {
+    pub fn read_from_buffered(buffered: impl Read) -> Result<Self> {
         let mut read = PeekRead::new(buffered);
         MetaData::read_from_buffered_peekable(&mut read)
     }
 
     #[must_use]
-    pub fn read_from_buffered_peekable(read: &mut PeekRead<impl Read>) -> Result<Self> {
+    pub(crate) fn read_from_buffered_peekable(read: &mut PeekRead<impl Read>) -> Result<Self> {
         magic_number::validate_exr(read)?;
         let requirements = Requirements::read(read)?;
         let headers = Header::read_all(read, &requirements)?;
@@ -383,7 +438,7 @@ impl MetaData {
         Ok(meta)
     }
 
-    pub fn write(&self, write: &mut impl Write) -> PassiveResult {
+    pub(crate) fn write_to_buffered(&self, write: &mut impl Write) -> PassiveResult {
         self.validate()?;
 
         magic_number::write(write)?;
@@ -392,14 +447,15 @@ impl MetaData {
         Ok(())
     }
 
-    // TODO skip reading offset tables if not required?
+    /// Read one offset table from the reader for each header.
     pub fn read_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<OffsetTables> {
         headers.iter()
             .map(|header| u64::read_vec(read, header.chunk_count as usize, std::u16::MAX as usize, None))
             .collect()
     }
 
-    // TODO skip reading offset tables if not required?
+    /// Skip the offset tables by advancing the reader.
+    // TODO use seek for large (probably all) tables!
     pub fn skip_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<u64> {
         let chunk_count: u64 = headers.iter().map(|header| header.chunk_count as u64).sum();
          crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE as u64)?;
@@ -430,7 +486,7 @@ impl MetaData {
 
 
 impl Header {
-
+    /// Iterate over all tile indices in this header in `LineOrder::Increasing` order.
     pub fn blocks_increasing_y_order(&self) -> impl Iterator<Item = TileIndices> + ExactSizeIterator + DoubleEndedIterator {
         fn tiles_of(image_size: Vec2<u32>, tile_size: Vec2<u32>, level_index: Vec2<u32>) -> impl Iterator<Item=TileIndices> {
             fn divide_and_rest(total_size: u32, block_size: u32) -> impl Iterator<Item=(u32, u32)> {
@@ -482,11 +538,13 @@ impl Header {
         vec.into_iter() // TODO without collect
     }
 
+    /// Calculate the position of a block in the global infinite 2D space of a file. May be negative.
     pub fn get_block_data_window_coordinates(&self, tile: TileCoordinates) -> Result<Box2I32> {
         let data = self.get_absolute_block_indices(tile)?;
         Ok(data.with_origin(self.data_window.start))
     }
 
+    /// Calculate the pixel index rectangle inside this header. Is not negative. Starts at `0`.
     pub fn get_absolute_block_indices(&self, tile: TileCoordinates) -> Result<Box2I32> {
         Ok(if let Blocks::Tiles(tiles) = self.blocks { // FIXME set to none if tile attribute exists but image is not tiled!
             let round = tiles.rounding_mode;
@@ -522,23 +580,29 @@ impl Header {
         // TODO deep data?
     }
 
+    /// Return the tile index, converting scan line block coordinates to tile indices.
+    /// Starts at `0` and is not negative.
     pub fn get_block_data_indices(&self, block: &Block) -> Result<TileCoordinates> {
         Ok(match block {
             Block::Tile(ref tile) => {
                 tile.coordinates
             },
 
-            Block::ScanLine(ref block) => TileCoordinates {
-                tile_index: Vec2(
-                    0, (block.y_coordinate - self.data_window.start.1) / self.compression.scan_lines_per_block() as i32,
-                ),
-                level_index: Vec2(0, 0),
+            Block::ScanLine(ref block) => {
+                let y = (block.y_coordinate - self.data_window.start.1)
+                    / self.compression.scan_lines_per_block() as i32;
+
+                TileCoordinates {
+                    tile_index: Vec2(0, y),
+                    level_index: Vec2(0, 0)
+                }
             },
 
             _ => return Err(Error::unsupported("deep data"))
         })
     }
 
+    /// Maximum byte length of a compressed block, used for validation.
     pub fn max_block_byte_size(&self) -> usize {
         (
             self.channels.bytes_per_pixel * match self.blocks {
@@ -615,7 +679,7 @@ impl Header {
         let max_string_len = if requirements.has_long_names { 256 } else { 32 }; // TODO DRY this information
         let mut custom = Vec::new();
 
-        // these required attributes will be Some(usize) when encountered while parsing
+        // these required attributes will be filled when encountered while parsing
         let mut tiles = None;
         let mut name = None;
         let mut block_type = None;
@@ -631,9 +695,12 @@ impl Header {
         let mut screen_window_center = None;
         let mut screen_window_width = None;
 
+        // read each attribute in this header
         while !sequence_end::has_come(read)? {
             let Attribute { name: attribute_name, value } = Attribute::read(read, max_string_len)?;
 
+            // if the attribute is a required attribute, set the corresponding variable directly.
+            // otherwise, add the attribute to the vector of custom attributes
             use crate::meta::attributes::required::*;
             match attribute_name.bytes() {
                 TILES => tiles = Some(value.to_tile_description()?),
@@ -657,10 +724,7 @@ impl Header {
                     i32_to_u32_at(value.to_i32()?, "chunk count")?
                 ),
 
-                _ => {
-                    // TODO lazy? only for user-specified names?
-                    custom.push(Attribute { name: attribute_name, value })
-                },
+                _ => custom.push(Attribute { name: attribute_name, value }), // TODO only requested attributes?
             }
         }
 
@@ -748,8 +812,6 @@ impl Header {
             write_attr(write, long, PIXEL_ASPECT, self.pixel_aspect, F32)?;
             write_attr(write, long, WINDOW_WIDTH, self.screen_window_width, F32)?;
             write_attr(write, long, WINDOW_CENTER, self.screen_window_center, F32Vec2)?;
-
-            // FIXME always write chunk_count for faster read?
         }
 
         for attrib in &self.custom_attributes {
@@ -763,18 +825,17 @@ impl Header {
 
 
 impl Requirements {
-    pub fn new(version: u8, header_count: usize, has_tiles: bool, long_names: bool, deep: bool) -> Self {
+    pub fn new(version: u8, multipart: bool, has_tiles: bool, long_names: bool, deep: bool) -> Self {
         Requirements {
             file_format_version: version,
-            is_single_part_and_tiled: header_count == 1 && has_tiles,
+            is_single_part_and_tiled: !multipart && has_tiles,
             has_long_names: long_names,
             has_deep_data: deep, // TODO
-            has_multiple_parts: header_count != 1
+            has_multiple_parts: multipart
         }
     }
 
-
-    /// this is actually used for control flow, as the number of headers may be 1 in a multipart file
+    // this is actually used for control flow, as the number of headers may be 1 in a multipart file
     pub fn is_multipart(&self) -> bool {
         self.has_multiple_parts
     }

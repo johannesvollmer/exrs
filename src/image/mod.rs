@@ -5,7 +5,7 @@ pub mod full;
 use crate::meta::attributes::*;
 use crate::compression::{Compression, ByteVec};
 use crate::math::*;
-use std::io::{Read, Seek, Write};
+use std::io::{Read, Seek, Write, BufWriter};
 use crate::error::{Result, Error, PassiveResult};
 use crate::meta::{MetaData, Header, TileIndices, Blocks};
 use crate::chunks::{Chunk, Block, TileBlock, ScanLineBlock};
@@ -224,8 +224,9 @@ pub fn write_all_lines(
         }
     }
 
+//    let write = BufWriter::new(write); FIXME free performance win
     let mut write = Tracking::new(write);
-    meta_data.write(&mut write)?;
+    meta_data.write_to_buffered(&mut write)?;
 
     let offset_table_start_byte = write.byte_position();
 
