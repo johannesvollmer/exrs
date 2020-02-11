@@ -1,13 +1,23 @@
-# rs-exr
+# exrs (exr-rs)
 
 This library is a 100% Rust and 100% safe code 
 encoding and decoding library for the OpenEXR image file format.
 
 [OpenEXR](http://www.openexr.com/) 
-files are widely used in animation, VFX, and 
-other computer graphics pipelines, because it offers
-a high flexibility regarding the data it is able to hold. 
+is the de-facto standard image format in animation, VFX, and 
+other computer graphics pipelines, for it can represent an immense variety of pixel data with lossless compression. 
 
+Features include:
+- any number of images placed anywhere in 2d space
+- any number of channels in an image (rgb, xyz, lab, depth, motion, mask, ...)
+- any type of high dynamic range values (16bit float, 32bit float, 32bit unsigned integer) per channel
+- any number of samples per pixel ("deep data")
+- uncompressed pixel data for fast file access
+- lossless compression for any image type 
+- lossy compression for non-deep image types for very small files
+- load specific sections of an image without processing the whole file
+- compress and decompress images in parallel
+- embed any kind of meta data, including custom bytes, with full backwards compatibility
 
 ### Current Status
 
@@ -128,6 +138,26 @@ __Currently supported:__
     
 __Be sure to come back in a few weeks.__
 
+### Example Usage
+
+Read all contents of the exr file at once,
+including deep data, mip maps, and u32, f64, and f32 pixel data.
+```rust
+use exr::prelude::*;
+
+// ReadOptions::default() includes multicore decompression
+let image = FullImage::read_from_file("/images/test.exr", ReadOptions::default())?;
+println("file meta data: {:#?}", image); // does not print actual pixel values
+```
+
+Writing all image contents at once:
+```rust
+use exr::prelude::*;
+
+let image: FullImage = unimplemented!();
+image.write_to_file("/images/written.exr", WriteOptions::default())?;
+```
+
 ### Cleanup Tasks Before Version 1.0
 - [ ] remove all calls to `Option::unwrap()` and `Result::unwrap()`
 - [ ] remove all print statements
@@ -152,16 +182,29 @@ which had an 'X' in its name in my git repositories.
 
 ### Goals
 
-`rs-exr` aims to provide a safe and convenient 
+`exrs` aims to provide a safe and convenient 
 interface to the OpenEXR file format.
-We try to prevent writing invalid OpenEXR files by
-either taking advantage of Rusts type system, 
-or runtime checks if the type system does not suffice.
+
+
+
+This library does not try to be a general purpose image file or image processing library.
+Therefore, color conversion, subsampling, and mip map generation are left to other crates for now.
+As the original OpenEXR implementation supports those operations, this library may choose to support them later.
+Furthermore, this implementation does not try to produce byte-exact file output
+matching the original implementation, but only correct output.
+
+#### Safety
+This library uses no unsafe code. In fact, this crate is annotated with `#[forbid(unsafe_code)]`.
+Its dependencies use unsafe code, though.
+
+
+All information from a file is handled with caution.
+Allocations have a safe maximum size that will not be exceeded at once.
+
 
 ### What I am proud of
 
--   For simple files, very few heap allocations are made during loading
-    (only for offset table data and actual pixel data)
+-   Flexible API allows for custom parallelization
 -   This is a pretty detailed README
 -   (more to come)
 
@@ -169,23 +212,16 @@ or runtime checks if the type system does not suffice.
 
 This library is modeled after the 
 official [`OpenEXRFileLayout.pdf`](http://www.openexr.com/documentation.html)
-document, but it's not completely up to date
-(the C++ library has greater priority).
+document. Unspecified behavior is concluded from the C++ library.
 
 __Things that are not as specified in the PDF file__ (Or were forgotten):
 
 -   String Attributes don't store their length,
     because it can be inferred from the Attribute byte-size.
 -   Chunk Part-Number is not u64, but i32.
--   Calculating the offset table is really really complicated,
-    and it could have been a single u64 in the file
-    (which would not even need more memory if one decided to make
-    the `type` attribute an enum instead of a string)
-    
-Okay, the last one was a rant, you got me.
 
 ### PRIORITIES
-1. Also write simple exr files 
 1. Decode all compression formats
 1. Simple rendering of common image formats
 1. Profiling and other optimization
+1. Tooling (Image Viewer App)
