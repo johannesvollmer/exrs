@@ -148,7 +148,7 @@ impl TileCoordinates {
         let start = self.tile_index.to_u32("tile index")? * tile_size;
 
         Ok(Box2I32 {
-            start: start.to_i32("box start")?,
+            start: start.to_i32(),
             size: Vec2(
                 calculate_block_size(max.0, tile_size.0, start.0)?,
                 calculate_block_size(max.1, tile_size.0, start.1)?,

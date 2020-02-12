@@ -67,8 +67,3 @@ pub(crate) fn i32_to_usize(value: i32, error_message: StrLiteral) -> Result<usiz
 pub(crate) fn i32_to_u32(value: i32, error_message: StrLiteral) -> Result<u32> {
     u32::try_from(value).map_err(|_| Error::invalid(error_message))
 }
-
-#[inline]
-pub(crate) fn u32_to_i32(value: u32, error_message: StrLiteral) -> Result<i32> {
-    i32::try_from(value).map_err(|_| Error::invalid(error_message))
-}

@@ -510,7 +510,7 @@ impl Box2I32 {
     /// The row and column described by this vector are not included in the rectangle,
     /// just like `Vec::len()`.
     pub fn end(self) -> Vec2<i32> {
-        self.start + self.size.to_i32("box size").unwrap() // larger than max int32 is panic
+        self.start + self.size.to_i32() // larger than max int32 is panic
     }
 
     /// Returns the maximum coordinate that a value in this rectangle may have.

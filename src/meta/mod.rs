@@ -114,8 +114,7 @@ pub struct Header {
     // maybe be unknown at the time of opening the
     // file, the value “ -1 ” is written to the file to
     // indicate an unknown value. When the file is
-    // closed, this will be overwritten with the correct
-    // value.
+    // closed, this will be overwritten with the correct value.
     // If file writing does not complete
     // correctly due to an error, the value -1 will
     // remain. In this case, the value must be derived
@@ -202,6 +201,7 @@ impl TileIndices {
 }
 
 impl Blocks {
+
     /// Whether this image is tiled. If false, this image is divided into scan line blocks.
     pub fn has_tiles(&self) -> bool {
         match self {
@@ -463,7 +463,7 @@ impl MetaData {
     // TODO use seek for large (probably all) tables!
     pub fn skip_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<u64> {
         let chunk_count: u64 = headers.iter().map(|header| header.chunk_count as u64).sum();
-         crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE as u64)?;
+        crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE as u64)?;
         Ok(chunk_count)
     }
 
@@ -472,12 +472,14 @@ impl MetaData {
         let headers = self.headers.len();
 
         if headers == 0 {
-            return Err(Error::invalid("missing headers"));
+            return Err(Error::invalid("no header"));
         }
 
         self.requirements.validate()?;
         if self.requirements.file_format_version == 1 {
-            debug_assert_eq!(headers, 1);
+            if headers != 1 {
+                return Err(Error::invalid("multipart flag for header count"));
+            }
         }
 
         for header in &self.headers {
@@ -507,8 +509,8 @@ impl Header {
                     TileIndices {
                         size: Vec2(tile_width, tile_height),
                         location: TileCoordinates {
-                            tile_index: Vec2::try_from(Vec2(x_index, y_index)).unwrap(),
-                            level_index: Vec2::try_from(level_index).unwrap(),
+                            tile_index: Vec2(x_index, y_index).to_i32(), // i32 max value is panic
+                            level_index: level_index.to_i32(), // i32 max value is panic
                         },
                     }
                 })
@@ -554,15 +556,12 @@ impl Header {
 
     /// Calculate the pixel index rectangle inside this header. Is not negative. Starts at `0`.
     pub fn get_absolute_block_indices(&self, tile: TileCoordinates) -> Result<Box2I32> {
-        Ok(if let Blocks::Tiles(tiles) = self.blocks { // FIXME set to none if tile attribute exists but image is not tiled!
-            let round = tiles.rounding_mode;
-
-            let tile_size = Vec2::try_from(tiles.tile_size).unwrap();
+        Ok(if let Blocks::Tiles(tiles) = self.blocks {
             let Vec2(data_width, data_height) = self.data_window.size;
 
-            let data_width = compute_level_size(round, data_width, tile.level_index.0 as u32);
-            let data_height = compute_level_size(round, data_height, tile.level_index.1 as u32);
-            let absolute_tile_coordinates = tile.to_data_indices(tile_size, Vec2(data_width, data_height))?;
+            let data_width = compute_level_size(tiles.rounding_mode, data_width, tile.level_index.0 as u32);
+            let data_height = compute_level_size(tiles.rounding_mode, data_height, tile.level_index.1 as u32);
+            let absolute_tile_coordinates = tile.to_data_indices(tiles.tile_size, Vec2(data_width, data_height))?;
 
             if absolute_tile_coordinates.start.0 >= data_width as i32 || absolute_tile_coordinates.start.1 >= data_height as i32 {
                 return Err(Error::invalid("data block tile index"))
@@ -570,8 +569,8 @@ impl Header {
 
             absolute_tile_coordinates
         }
-        else {
-            debug_assert_eq!(tile.tile_index.0, 0);
+        else { // this is a scanline image
+            debug_assert_eq!(tile.tile_index.0, 0, "block index calculation bug");
 
             let (y, height) = calculate_block_position_and_size(
                 self.data_window.size.1,
@@ -623,19 +622,19 @@ impl Header {
 
     pub fn validate(&self, requirements: &Requirements) -> PassiveResult {
         if requirements.is_multipart() {
-            if self.name.is_none() {
+            if self.name.is_none() { // TODO only be pedantic on write, but not on read?
                 return Err(missing_attribute("image part name"));
             }
         }
 
         if self.deep {
-            if self.name.is_none() {
+            if self.name.is_none() { // TODO only be pedantic on write, but not on read?
                 return Err(missing_attribute("image part name"));
             }
 
             match self.deep_data_version {
                 Some(1) => {},
-                Some(_) => return Err(Error::invalid("deep data version")),
+                Some(_) => return Err(Error::unsupported("deep data version")),
                 None => return Err(missing_attribute("deep data version")),
             }
 
@@ -777,8 +776,9 @@ impl Header {
         Ok(header)
     }
 
+    /// Validates the header and then writes it
     pub fn write(&self, write: &mut impl Write, version: &Requirements) -> PassiveResult {
-        self.validate(&version).expect("check failed: header invalid");
+        self.validate(version)?;
 
         // FIXME do not allocate text object for writing!
         fn write_attr<T>(write: &mut impl Write, long: bool, name: &[u8], value: T, variant: impl Fn(T) -> AnyValue) -> PassiveResult {
@@ -868,7 +868,7 @@ impl Requirements {
         let unknown_flags = version_and_flags >> 13; // all flags excluding the 12 bits we already parsed
 
         if unknown_flags != 0 { // TODO test if this correctly detects unsupported files
-            return Err(Error::unsupported("file feature flags"));
+            return Err(Error::unsupported("too new file feature flags"));
         }
 
         let version = Requirements {
