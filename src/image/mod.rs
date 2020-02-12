@@ -1,7 +1,6 @@
 
 pub mod full;
 pub mod simple;
-pub mod rgba;
 
 // TODO documentation
 use crate::meta::attributes::*;
