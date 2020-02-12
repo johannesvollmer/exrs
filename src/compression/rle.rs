@@ -40,13 +40,11 @@ pub fn decompress_bytes(mut remaining: Bytes<'_>, expected_byte_size: usize) -> 
             // take the next '-count' bytes as-is
             let values = take_n(&mut remaining, (-count) as usize)?;
             decompressed.extend_from_slice(values);
-
-        } else {
-            // repeat the next value 'count' times
+        }
+        else {
+            // repeat the next value 'count + 1' times
             let value = take_1(&mut remaining)?;
-            for _ in 0..count + 1 { // TODO explicit memset?
-                decompressed.push(value);
-            }
+            decompressed.resize(decompressed.len() + count as usize + 1, value);
         }
     }
 
@@ -110,4 +108,6 @@ mod test {
 
         assert_eq!(decompressed, data);
     }
+
+    // TODO fuzz testing
 }
