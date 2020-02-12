@@ -9,7 +9,6 @@ use crate::chunks::{TileCoordinates, Block};
 use crate::error::*;
 use std::fs::File;
 use std::io::{BufReader};
-use std::cmp::Ordering;
 use crate::math::*;
 
 /// Contains the complete meta data of an exr image.
@@ -366,7 +365,7 @@ pub fn mip_map_indices(round: RoundingMode, max_resolution: Vec2<u32>) -> impl I
 // If not multipart and chunkCount not present,
 // the number of entries in the chunk table is computed
 // using the dataWindow and tileDesc attributes and the compression format
-pub fn compute_chunk_count(compression: Compression, data_window: Box2I32, blocks: Blocks) -> crate::error::Result<u32> {
+pub fn compute_chunk_count(compression: Compression, data_window: Box2I32, blocks: Blocks) -> u32 {
     let data_size = data_window.size;
 
     if let Blocks::Tiles(tiles) = blocks {
@@ -375,7 +374,7 @@ pub fn compute_chunk_count(compression: Compression, data_window: Box2I32, block
 
         // TODO cache all these level values??
         use crate::meta::attributes::LevelMode::*;
-        Ok(match tiles.level_mode {
+        match tiles.level_mode {
             Singular => {
                 let tiles_x = compute_block_count(data_size.0, tile_width);
                 let tiles_y = compute_block_count(data_size.1, tile_height);
@@ -394,12 +393,12 @@ pub fn compute_chunk_count(compression: Compression, data_window: Box2I32, block
                     compute_block_count(level_width, tile_width) * compute_block_count(level_height, tile_height)
                 }).sum()
             }
-        })
+        }
     }
 
     // scan line blocks never have mip maps // TODO check if this is true
     else {
-        Ok(compute_block_count(data_size.1, compression.scan_lines_per_block()))
+        compute_block_count(data_size.1, compression.scan_lines_per_block())
     }
 }
 
@@ -750,7 +749,7 @@ impl Header {
         };
 
         let chunk_count = match chunk_count {
-            None => compute_chunk_count(compression, data_window, blocks)?,
+            None => compute_chunk_count(compression, data_window, blocks),
             Some(count) => count,
         };
 

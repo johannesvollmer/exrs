@@ -1,6 +1,6 @@
 
-//! Read and write simple aspects of an exr image, excluding deep data and multiresolution levels.
-//! Use `exr::image::full` instead, if you need deep data or resolution levels.
+//! Read and write all supported aspects of an exr image, including deep data and multiresolution levels.
+//! Use `exr::image::simple` if you do not need deep data or resolution levels.
 
 use smallvec::SmallVec;
 use half::f16;
@@ -10,44 +10,706 @@ use crate::meta::attributes::*;
 use crate::error::{Result, PassiveResult, Error};
 use crate::math::*;
 use std::io::{Seek, BufReader, BufWriter};
-use crate::io::Data;
 use crate::image::{Line, LineIndex};
 
+// TODO dry this module with image::full?
 
 
-#[derive(Debug, Clone, PartialEq)]
+/// Specify how to write an exr image.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct WriteOptions {
+
+    /// Enable multicore compression.
+    pub parallel_compression: bool,
+
+    /// Override the line order of all headers in the image.
+    pub override_line_order: Option<LineOrder>,
+
+    /// Override the block type of all headers in the image.
+    pub override_tiles: Option<Option<Vec2<u32>>>,
+
+    /// Override the compression method of all headers in the image.
+    pub override_compression: Option<Compression>,
+}
+
+
+
+/// Specify how to read an exr image.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct ReadOptions {
+
+    /// Enable multicore decompression.
+    pub parallel_decompression: bool,
+}
+
+
+
+/// An exr image.
+///
+/// Supports all possible exr image features.
+/// An exr image may contain multiple image parts.
+/// All meta data is encoded in this image,
+/// including custom attributes.
+#[derive(Clone, PartialEq, Debug)]
 pub struct Image {
-    pub parts: SmallVec<[Part; 6]>,
+
+    /// All image parts contained in the image file
+    pub parts: Parts,
+
+    /// The rectangle positioned anywhere in the infinite 2D space that
+    /// clips all contents of the file, limiting what should be rendered.
     pub display_window: Box2I32,
+
+    /// Aspect ratio of each pixel in this image part.
     pub pixel_aspect: f32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+
+pub type Parts = SmallVec<[Part; 3]>;
+
+
+/// A single image part of an exr image.
+/// Contains meta data and actual pixel information of the channels.
+#[derive(Clone, PartialEq, Debug)]
 pub struct Part {
-    pub channels: Vec<Channel>,
-    pub line_order: LineOrder,
-    pub compression: Compression,
-    pub blocks: Blocks,
-    pub data_window: Box2I32,
-    pub attributes: Attributes,
+
+    /// The name of the image part.
+    /// This is optional for files with only one image part.
     pub name: Option<Text>,
 
+    /// The remaining attributes which are not already in the `Part`.
+    /// Includes custom attributes.
+    pub attributes: Attributes,
+
+    /// The rectangle that positions this image part
+    /// within the global infinite 2D space of the file.
+    pub data_window: Box2I32, // TODO single point?
+
+    /// Part of the perspective projection. Default should be `(0, 0)`.
     pub screen_window_center: Vec2<f32>, // TODO use sensible defaults instead of returning an error on missing?
+
+    /// Part of the perspective projection. Default should be `1`.
     pub screen_window_width: f32,
+
+    /// In what order the tiles of this header occur in the file.
+    pub line_order: LineOrder,
+
+    /// How the pixel data of all channels in this image part is compressed. May be `Compression::Uncompressed`.
+    pub compression: Compression,
+
+    /// If this is some pair of numbers, the image is divided into tiles of that size.
+    /// If this is none, the image is divided into scan line blocks, depending on the compression method.
+    pub tiles: Option<Vec2<u32>>,
+
+    /// List of channels in this image part.
+    /// Contains the actual pixel data of the image.
+    pub channels: Channels,
 }
 
+
+
+pub type Channels = SmallVec<[Channel; 5]>;
+
+
+/// Contains an arbitrary list of pixel data.
+/// Each channel can have a different pixel type,
+/// either f16, f32, or u32.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Channel {
+
+    /// One of "R", "G", or "B" most of the time.
     pub name: Text,
-    pub pixels: Pixels,
+
+    /// Actual pixel data.
+    pub sample_block: SampleBlock,
+
+    /// Are the samples in this channel in linear color space?
     pub is_linear: bool,
+
+    /// How many of the samples are skipped compared to the other channels in this image part.
+    ///
+    /// Can be used for chroma subsampling for manual lossy data compression.
+    /// Values other than 1 are allowed only in flat, scan-line based images.
+    /// If an image is deep or tiled, x and y sampling rates for all of its channels must be 1.
     pub sampling: Vec2<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Pixels {
+
+/// The actual pixel data.
+/// Contains a flattened vector of samples.
+#[derive(Clone, PartialEq, Debug)]
+pub struct SampleBlock {
+
+    /// The dimensions of this sample collection,
+    /// possibly reduced by the channels subsampling factor.
+    pub resolution: Vec2<usize>,
+
+    /// The samples of a 2D grid, flattened in a single vector.
+    /// The vector contains each row, one after another.
+    /// A specific pixel value can be found at the index `samples[y_index * width + x_index]`.
+    pub samples: Samples
+}
+
+/// Actual pixel data in a channel. Is either one of f16, f32, or u32.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Samples {
+
+    /// The representation of 16-bit floating-point numbers is analogous to IEEE 754,
+    /// but with 5 exponent bits and 10 bits for the fraction.
+    ///
+    /// Currently this crate is using the `half` crate, which is an implementation of the IEEE 754-2008 standard, meeting that requirement.
     F16(Vec<f16>),
+
+    /// 32-bit float samples.
     F32(Vec<f32>),
+
+    /// 32-bit unsigned int samples.
+    /// Used for segmentation of image parts.
     U32(Vec<u32>),
+}
+
+
+impl Default for WriteOptions {
+    fn default() -> Self { Self::fast_writing() }
+}
+
+impl Default for ReadOptions {
+    fn default() -> Self { Self::fast_loading() }
+}
+
+
+impl WriteOptions {
+    pub fn fast_writing() -> Self {
+        WriteOptions {
+            parallel_compression: true,
+            override_line_order: Some(LineOrder::Unspecified),
+            override_compression: Some(Compression::Uncompressed),
+            override_tiles: None,
+        }
+    }
+
+    pub fn small_image() -> Self {
+        WriteOptions {
+            parallel_compression: true,
+            override_line_order: Some(LineOrder::Unspecified),
+            override_compression: Some(Compression::ZIP16),
+            override_tiles: None,
+        }
+    }
+
+    pub fn small_writing() -> Self {
+        WriteOptions {
+            parallel_compression: false,
+            override_line_order: Some(LineOrder::Unspecified),
+            override_compression: Some(Compression::Uncompressed),
+            override_tiles: None,
+        }
+    }
+
+    pub fn debug() -> Self {
+        WriteOptions {
+            parallel_compression: false,
+            override_line_order: None,
+            override_tiles: None,
+            override_compression: None
+        }
+    }
+}
+
+impl ReadOptions {
+    pub fn fast_loading() -> Self { ReadOptions { parallel_decompression: true } }
+    pub fn small_loading() -> Self { ReadOptions { parallel_decompression: false } }
+    pub fn debug() -> Self { ReadOptions { parallel_decompression: false } }
+}
+
+
+impl Image {
+
+    pub fn from_channels(name: Text, channels: Channels, compression: Compression) -> Self {
+        debug_assert!(!channels.is_empty());
+        let data_window = Box2I32::from_dimensions(channels.first().unwrap().view_size().to_u32());
+        Self::from_single_part(Part::new(name, data_window, channels, compression, Vec::new(), None))
+    }
+
+    /// Create an image that is to be written to a file.
+    /// Defined the `display_window` to define
+    /// the area in the infinite 2D space that should be visible.
+    ///
+    /// Consider using `Image::from_parts` for more complex cases.
+    /// Use the raw `Image { .. }` constructor for more complex cases.
+    pub fn from_single_part(part: Part) -> Self { // TODO inline part parameters?
+        Self {
+            pixel_aspect: 1.0,
+            display_window: part.data_window,
+            parts: smallvec![ part ],
+        }
+    }
+
+    /// Create an image that is to be written to a file.
+    /// Defined the `display_window` to define
+    /// the area in the infinite 2D space that should be visible.
+    ///
+    /// Consider using `Image::from_single_part` for simpler cases.
+    /// Use the raw `Image { .. }` constructor for more complex cases.
+    pub fn from_parts(parts: Parts, display_window: Box2I32) -> Self {
+        Self {
+            parts,
+            display_window,
+            pixel_aspect: 1.0,
+        }
+    }
+
+
+    /// Read the exr image from a file.
+    /// Use `read_from_unbuffered` instead, if you do not have a file.
+    #[must_use]
+    pub fn read_from_file(path: impl AsRef<std::path::Path>, options: ReadOptions) -> Result<Self> {
+        Self::read_from_unbuffered(std::fs::File::open(path)?, options)
+    }
+
+    /// Buffer the reader and then read the exr image from it.
+    /// Use `read_from_buffered` instead, if your reader is an in-memory reader.
+    /// Use `read_from_file` instead, if you have a file path.
+    #[must_use]
+    pub fn read_from_unbuffered(unbuffered: impl Read + Send + Seek, options: ReadOptions) -> Result<Self> { // TODO not need be seek nor send
+        Self::read_from_buffered(BufReader::new(unbuffered), options)
+    }
+
+    /// Read the exr image from a reader.
+    /// Use `read_from_file` instead, if you have a file path.
+    /// Use `read_from_unbuffered` instead, if this is not an in-memory reader.
+    #[must_use]
+    pub fn read_from_buffered(read: impl Read + Send + Seek, options: ReadOptions) -> Result<Self> { // TODO not need be seek nor send
+        // crate::image::read_all_lines(read, options.parallel_decompression, Image::allocate, Image::insert_line)
+        crate::image::read_filtered_lines(
+            read, options.parallel_decompression,
+            |header, tile_index| {
+                !header.deep && tile_index.location.level_index == Vec2(0,0)
+            },
+            Image::allocate, Image::insert_line
+        )
+    }
+
+    /// Write the exr image to a file.
+    /// Use `write_to_unbuffered` instead if you do not have a file.
+    #[must_use]
+    pub fn write_to_file(&self, path: impl AsRef<std::path::Path>, options: WriteOptions) -> PassiveResult {
+        self.write_to_unbuffered(std::fs::File::create(path)?, options)
+    }
+
+    /// Buffer the reader and then write the exr image to it.
+    /// Use `read_from_buffered` instead, if your reader is an in-memory writer.
+    /// Use `read_from_file` instead, if you have a file path.
+    /// If your writer cannot seek, you can write to an in-memory vector of bytes first, using `write_to_buffered`.
+    #[must_use]
+    pub fn write_to_unbuffered(&self, unbuffered: impl Write + Seek, options: WriteOptions) -> PassiveResult {
+        self.write_to_buffered(BufWriter::new(unbuffered), options)
+    }
+
+    /// Write the exr image from a reader.
+    /// Use `read_from_file` instead, if you have a file path.
+    /// Use `read_from_unbuffered` instead, if this is not an in-memory writer.
+    /// If your writer cannot seek, you can write to an in-memory vector of bytes first.
+    #[must_use]
+    pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions) -> PassiveResult {
+        crate::image::write_all_lines_to_buffered(
+            write, options.parallel_compression, self.infer_meta_data(options),
+            |location| {
+                let mut bytes = Vec::new(); // TODO avoid allocation for each line?
+                self.extract_line(location, &mut bytes);
+                bytes
+            }
+        )
+    }
+}
+
+
+impl Part {
+
+    /// Create a new image part with all required fields.
+    pub fn new(
+        name: Text, data_window: Box2I32,
+        channels: Channels, compression: Compression,
+        custom_attributes: Attributes, tiles: Option<Vec2<u32>>
+    ) -> Self
+    {
+        assert!(!channels.is_empty());
+        debug_assert!(channels.iter().all(|channel| channel.view_size() == data_window.size.to_usize()));
+
+        Part {
+            channels,
+            data_window,
+            name: Some(name),
+            attributes: custom_attributes,
+            compression,
+
+            tiles,
+            line_order: LineOrder::Unspecified,
+            screen_window_center: Vec2(0.0, 0.0),
+            screen_window_width: 1.0,
+        }
+    }
+
+}
+
+
+impl Channel {
+
+    /// Create a Channel from name and samples.
+    /// Set `is_linear` if the color space of the samples values is linear.
+    pub fn new(name: Text, is_linear: bool, sample_block: SampleBlock) -> Self {
+        Self {
+            name,
+            sample_block,
+            is_linear,
+            sampling: Vec2(1, 1)
+        }
+    }
+
+    /// Computes the size as seen in the global infinite 2D space of the file.
+    pub fn view_size(&self) -> Vec2<usize> {
+        self.sample_block.resolution * self.sampling
+    }
+}
+
+impl SampleBlock {
+
+    /// Create a `SampleBlock` from resolution and sample vector.
+    /// Panics if the resolution does not match the sample vector length.
+    pub fn f16s(resolution: Vec2<usize>, samples: Vec<f16>) -> Self {
+        assert_eq!(resolution.area(), samples.len());
+        Self { resolution, samples: Samples::F16(samples) }
+    }
+
+    /// Create a `SampleBlock` from resolution and sample vector.
+    /// Panics if the resolution does not match the sample vector length.
+    pub fn f32s(resolution: Vec2<usize>, samples: Vec<f32>) -> Self {
+        assert_eq!(resolution.area(), samples.len());
+        Self { resolution, samples: Samples::F32(samples) }
+    }
+
+    /// Create a `SampleBlock` from resolution and sample vector.
+    /// Panics if the resolution does not match the sample vector length.
+    pub fn u32s(resolution: Vec2<usize>, samples: Vec<u32>) -> Self {
+        assert_eq!(resolution.area(), samples.len());
+        Self { resolution, samples: Samples::U32(samples) }
+    }
+}
+
+impl Samples {
+
+    pub fn len(&self) -> usize {
+        match self {
+            Samples::F16(vec) => vec.len(),
+            Samples::F32(vec) => vec.len(),
+            Samples::U32(vec) => vec.len(),
+        }
+    }
+
+}
+
+
+
+
+impl Image {
+
+    /// Allocate an image ready to be filled with pixel data.
+    pub fn allocate(headers: &[Header]) -> Result<Self> {
+        let display_window = headers.iter()
+            .map(|header| header.display_window)
+            .next().unwrap_or(Box2I32::zero()); // default value if no headers are found
+
+        let pixel_aspect = headers.iter()
+            .map(|header| header.pixel_aspect)
+            .next().unwrap_or(1.0); // default value if no headers are found
+
+        let headers : Result<_> = headers.iter().map(Part::allocate).collect();
+
+        Ok(Image {
+            parts: headers?,
+            display_window,
+            pixel_aspect
+        })
+    }
+
+    /// Insert one line of pixel data into this image.
+    /// Returns an error for invalid index or line contents.
+    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
+        debug_assert_ne!(line.location.width, 0);
+
+        let part = self.parts.get_mut(line.location.part)
+            .ok_or(Error::invalid("chunk part index"))?;
+
+        part.insert_line(line)
+    }
+
+    /// Read one line of pixel data from this channel.
+    /// Panics for an invalid index or write error.
+    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
+        debug_assert_ne!(index.width, 0);
+
+        let part = self.parts.get(index.part)
+            .expect("invalid part index");
+
+        part.extract_line(index, write)
+    }
+
+    /// Create the meta data that describes this image.
+    pub fn infer_meta_data(&self, options: WriteOptions) -> MetaData {
+        let headers: Headers = self.parts.iter()
+            .map(|part| part.infer_header(self.display_window, self.pixel_aspect, options))
+            .collect();
+
+        let has_tiles = headers.iter().any(|header| header.blocks.has_tiles());
+
+        MetaData {
+            requirements: Requirements::new(
+                self.minimum_version(), headers.len() > 1, has_tiles,
+                self.has_long_names(), false // TODO deep data
+            ),
+
+            headers
+        }
+    }
+
+    /// Compute the version number that this image requires to be decoded.
+    /// For simple images, this should return `1`.
+    ///
+    /// Currently always returns `2`.
+    pub fn minimum_version(&self) -> u8 {
+        2 // TODO pick lowest possible
+    }
+
+    /// Check if this file has long name strings.
+    ///
+    /// Currently always returns `true`.
+    pub fn has_long_names(&self) -> bool {
+        true // TODO check all name string lengths
+    }
+}
+
+
+impl Part {
+
+    /// Allocate an image part ready to be filled with pixel data.
+    pub fn allocate(header: &Header) -> Result<Self> {
+        Ok(Part {
+            data_window: header.data_window,
+            screen_window_center: header.screen_window_center,
+            screen_window_width: header.screen_window_width,
+            name: header.name.clone(),
+            attributes: header.custom_attributes.clone(),
+            channels: header.channels.list.iter().map(|channel| Channel::allocate(header, channel)).collect(),
+            compression: header.compression,
+            line_order: header.line_order,
+
+            tiles: match header.blocks {
+                Blocks::ScanLines => None,
+                Blocks::Tiles(tiles) => Some(tiles.tile_size),
+            }
+        })
+    }
+
+    /// Insert one line of pixel data into this image part.
+    /// Returns an error for invalid index or line contents.
+    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
+        debug_assert!(line.location.position.0 + line.location.width <= self.data_window.size.0 as usize);
+        debug_assert!(line.location.position.1 < self.data_window.size.1 as usize);
+
+        self.channels.get_mut(line.location.channel)
+            .expect("invalid channel index")
+            .insert_line(line)
+    }
+
+    /// Read one line of pixel data from this image part.
+    /// Panics for an invalid index or write error.
+    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
+        debug_assert!(index.position.0 + index.width <= self.data_window.size.0 as usize);
+        debug_assert!(index.position.1 < self.data_window.size.1 as usize);
+
+        self.channels.get(index.channel)
+            .expect("invalid channel index")
+            .extract_line(index, write)
+    }
+
+    /// Create the meta data that describes this image part.
+    pub fn infer_header(&self, display_window: Box2I32, pixel_aspect: f32, options: WriteOptions) -> Header {
+        debug_assert_eq!( // TODO performance: use real is_sorted
+            {
+                let mut cloned = self.channels.clone();
+                cloned.sort_by_key(|c| c.name.clone());
+                cloned
+            },
+            self.channels,
+            "channels must be sorted alphabetically"
+        );
+
+        let blocks = match options.override_tiles.unwrap_or(self.tiles) {
+            Some(tiles) => Blocks::Tiles(TileDescription {
+                tile_size: tiles,
+                level_mode: LevelMode::Singular,
+                rounding_mode: RoundingMode::Down
+            }),
+
+            None => Blocks::ScanLines,
+        };
+
+        let chunk_count = compute_chunk_count(
+            self.compression, self.data_window, blocks
+        );
+
+        Header {
+            chunk_count,
+
+            name: self.name.clone(),
+            data_window: self.data_window,
+            screen_window_center: self.screen_window_center,
+            screen_window_width: self.screen_window_width,
+            compression: options.override_compression.unwrap_or(self.compression),
+            channels: ChannelList::new(self.channels.iter().map(Channel::infer_channel_attribute).collect()),
+            line_order: options.override_line_order.unwrap_or(self.line_order),
+            custom_attributes: self.attributes.clone(),
+            display_window, pixel_aspect,
+            blocks,
+
+            deep_data_version: None,
+            max_samples_per_pixel: None,
+            deep: false
+        }
+    }
+}
+
+impl Channel {
+
+    /// Allocate a channel ready to be filled with pixel data.
+    pub fn allocate(header: &Header, channel: &crate::meta::attributes::Channel) -> Self {
+        Channel {
+            name: channel.name.clone(),
+            is_linear: channel.is_linear,
+            sampling: channel.sampling.to_usize(),
+
+            sample_block: SampleBlock::allocate(header.data_window.size, channel.pixel_type)
+            /*match channel.pixel_type {
+                PixelType::F16 => SampleBlock::allocate(header.data_window.size, Samples::F16(header.data_window.size)), // FIXME divide by sampling????
+                PixelType::F32 => SampleBlock::allocate(header.data_window.size, Samples::F32(header.data_window.size)),
+                PixelType::U32 => SampleBlock::allocate(header.data_window.size, Samples::U32(header.data_window.size)),
+            },*/
+        }
+    }
+
+    /// Insert one line of pixel data into this channel.
+    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
+        assert_eq!(line.location.level, Vec2(0,0));
+
+        self.sample_block.insert_line(line) // FIXME divide by sampling????
+//        match &mut self.sample_block.samples {
+//            Samples::F16(block) => block.insert_line(line), // FIXME divide by sampling????
+//            Samples::F32(block) => block.insert_line(line),
+//            Samples::U32(block) => block.insert_line(line),
+//        }
+    }
+
+    /// Read one line of pixel data from this channel.
+    /// Panics for an invalid index or write error.
+    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
+        debug_assert_eq!(index.level, Vec2(0,0));
+
+        self.sample_block.extract_line(index, write) // FIXME divide by sampling????
+//        match &self.sample_block {
+//            Samples::F16(block) => block.extract_line(index, write), // FIXME divide by sampling????
+//            Samples::F32(block) => block.extract_line(index, write),
+//            Samples::U32(block) => block.extract_line(index, write),
+//        }
+    }
+
+    /// Create the meta data that describes this channel.
+    pub fn infer_channel_attribute(&self) -> attributes::Channel {
+        attributes::Channel {
+            pixel_type: match self.sample_block.samples {
+                Samples::F16(_) => PixelType::F16,
+                Samples::F32(_) => PixelType::F32,
+                Samples::U32(_) => PixelType::U32,
+            },
+
+            name: self.name.clone(),
+            is_linear: self.is_linear,
+            sampling: self.sampling.to_u32(),
+        }
+    }
+}
+
+
+impl SampleBlock {
+
+    /// Allocate a sample block ready to be filled with pixel data.
+    pub fn allocate(resolution: Vec2<u32>, pixel_type: PixelType) -> Self {
+        let resolution = resolution.to_usize();
+        let count = resolution.area();
+
+        Self {
+            resolution,
+            samples: match pixel_type {
+                PixelType::F16 => Samples::F16(vec![ f16::ZERO; count ] ),
+                PixelType::F32 => Samples::F32(vec![ 0.0; count ] ),
+                PixelType::U32 => Samples::U32(vec![ 0; count ] ),
+            }
+        }
+    }
+
+    /// Insert one line of pixel data into this sample block.
+    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
+        debug_assert_ne!(line.location.width, 0);
+
+        if line.location.position.0 + line.location.width > self.resolution.0 {
+            return Err(Error::invalid("data block x coordinate"))
+        }
+
+        if line.location.position.1 > self.resolution.1 {
+            return Err(Error::invalid("data block y coordinate"))
+        }
+
+        debug_assert_ne!(self.resolution.0, 0);
+        debug_assert_ne!(line.location.width, 0);
+
+        let start_index = line.location.position.1 * self.resolution.0 + line.location.position.0;
+        let end_index = start_index + line.location.width;
+
+        match &mut self.samples {
+            Samples::F16(samples) => line.read_samples(&mut samples[start_index .. end_index]),
+            Samples::F32(samples) => line.read_samples(&mut samples[start_index .. end_index]),
+            Samples::U32(samples) => line.read_samples(&mut samples[start_index .. end_index]),
+        }
+    }
+
+    /// Read one line of pixel data from this sample block.
+    /// Panics for an invalid index or write error.
+    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
+        debug_assert!(index.position.0 + index.width <= self.resolution.0, "x max {} of width {}", index.position.0 + index.width, self.resolution.0); // TODO this should Err() instead
+        debug_assert!(index.position.1 < self.resolution.1, "y: {}, height: {}", index.position.1, self.resolution.1);
+        debug_assert_ne!(index.width, 0);
+
+        debug_assert_ne!(self.resolution.0, 0);
+        debug_assert_ne!(index.width, 0);
+
+        let start_index = index.position.1 * self.resolution.0 + index.position.0;
+        let end_index = start_index + index.width;
+
+        match &self.samples {
+            Samples::F16(samples) =>
+                LineIndex::write_samples(&samples[start_index .. end_index], write)
+                .expect("writing line bytes failed"),
+
+            Samples::F32(samples) =>
+                LineIndex::write_samples(&samples[start_index .. end_index], write)
+                .expect("writing line bytes failed"),
+
+            Samples::U32(samples) =>
+                LineIndex::write_samples(&samples[start_index .. end_index], write)
+                .expect("writing line bytes failed"),
+        }
+
+        // LineIndex::write_samples(&self.samples[start_index .. end_index], write)
+
+    }
 }
 

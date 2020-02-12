@@ -131,7 +131,9 @@ __Currently supported:__
     - [ ] If the headers include timeCode and chromaticities attributes, then the values of those attributes must also be the same for all parts of a file
     - [ ] Scan-line based images cannot be multi-resolution images.
     - [ ] Scan-line based images cannot have unspecified line order?
+    - [x] Image part name is required for multipart images
     - [ ] Enforce minimum length of 1 for arrays
+    - [ ] Validate data_window matches data size when writing images
 
 - [ ] Explore different APIs
     - [ ] Let user decide how to store data

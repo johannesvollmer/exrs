@@ -352,7 +352,7 @@ impl Image {
     #[must_use]
     pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions) -> PassiveResult {
         crate::image::write_all_lines_to_buffered(
-            write, options.parallel_compression, self.infer_meta_data(options)?,
+            write, options.parallel_compression, self.infer_meta_data(options),
             |location| {
                 let mut bytes = Vec::new(); // TODO avoid allocation for each line?
                 self.extract_line(location, &mut bytes);
@@ -406,37 +406,37 @@ impl Image {
     }
 
     /// Create the meta data that describes this image.
-    pub fn infer_meta_data(&self, options: WriteOptions) -> Result<MetaData> {
-        let headers: Result<Headers> = self.parts.iter()
+    /// May produce invalid meta data. The meta data will be validated just before writing.
+    pub fn infer_meta_data(&self, options: WriteOptions) -> MetaData {
+        let headers: Headers = self.parts.iter()
             .map(|part| part.infer_header(self.display_window, self.pixel_aspect, options))
             .collect();
 
-        let headers = headers?;
         let has_tiles = headers.iter().any(|header| header.blocks.has_tiles());
 
-        Ok(MetaData {
+        MetaData {
             requirements: Requirements::new(
-                self.minimum_version()?, headers.len() > 1, has_tiles,
-                self.has_long_names()?, false // TODO
+                self.minimum_version(), headers.len() > 1, has_tiles,
+                self.has_long_names(), false // TODO deep data
             ),
 
             headers
-        })
+        }
     }
 
     /// Compute the version number that this image requires to be decoded.
     /// For simple images, this should return `1`.
     ///
     /// Currently always returns `2`.
-    pub fn minimum_version(&self) -> Result<u8> {
-        Ok(2) // TODO pick lowest possible
+    pub fn minimum_version(&self) -> u8 {
+        2 // TODO pick lowest possible
     }
 
     /// Check if this file has long name strings.
     ///
     /// Currently always returns `true`.
-    pub fn has_long_names(&self) -> Result<bool> {
-        Ok(true) // TODO check all name string lengths
+    pub fn has_long_names(&self) -> bool {
+        true // TODO check all name string lengths
     }
 }
 
@@ -482,8 +482,9 @@ impl Part {
     }
 
     /// Create the meta data that describes this image part.
-    pub fn infer_header(&self, display_window: Box2I32, pixel_aspect: f32, options: WriteOptions) -> Result<Header> {
-        debug_assert_eq!(
+    /// May produce invalid meta data. The meta data will be validated just before writing.
+    pub fn infer_header(&self, display_window: Box2I32, pixel_aspect: f32, options: WriteOptions) -> Header {
+        debug_assert_eq!( // TODO performance: use real is_sorted
             {
                 let mut cloned = self.channels.clone();
                 cloned.sort_by_key(|c| c.name.clone());
@@ -495,22 +496,19 @@ impl Part {
 
         let chunk_count = compute_chunk_count(
             self.compression, self.data_window, self.blocks
-        )?;
+        );
 
-        Ok(Header {
+        Header {
             chunk_count,
 
+            name: self.name.clone(),
             data_window: self.data_window,
             screen_window_center: self.screen_window_center,
             screen_window_width: self.screen_window_width,
             compression: options.override_compression.unwrap_or(self.compression),
             blocks: options.override_blocks.unwrap_or(self.blocks),
-            name: self.name.clone(),
-
-            channels: ChannelList::new(self.channels.iter().map(Channel::infer_header).collect()),
-
+            channels: ChannelList::new(self.channels.iter().map(Channel::infer_channel_attribute).collect()),
             line_order: options.override_line_order.unwrap_or(self.line_order),
-
 
             // TODO deep/multipart data:
             deep_data_version: None,
@@ -518,7 +516,7 @@ impl Part {
             custom_attributes: self.attributes.clone(),
             display_window, pixel_aspect,
             deep: false
-        })
+        }
     }
 
 
@@ -534,7 +532,7 @@ impl Channel {
             sampling: channel.sampling.to_usize(),
 
             content: match channel.pixel_type {
-                PixelType::F16 => ChannelData::F16(SampleMaps::allocate(header)),
+                PixelType::F16 => ChannelData::F16(SampleMaps::allocate(header)), // FIXME divide by sampling????
                 PixelType::F32 => ChannelData::F32(SampleMaps::allocate(header)),
                 PixelType::U32 => ChannelData::U32(SampleMaps::allocate(header)),
             },
@@ -544,7 +542,7 @@ impl Channel {
     /// Insert one line of pixel data into this channel.
     pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
         match &mut self.content {
-            ChannelData::F16(maps) => maps.insert_line(line),
+            ChannelData::F16(maps) => maps.insert_line(line), // FIXME divide by sampling????
             ChannelData::F32(maps) => maps.insert_line(line),
             ChannelData::U32(maps) => maps.insert_line(line),
         }
@@ -554,14 +552,14 @@ impl Channel {
     /// Panics for an invalid index or write error.
     pub fn extract_line(&self, index: LineIndex, block: &mut impl Write) {
         match &self.content {
-            ChannelData::F16(maps) => maps.extract_line(index, block),
+            ChannelData::F16(maps) => maps.extract_line(index, block), // FIXME divide by sampling????
             ChannelData::F32(maps) => maps.extract_line(index, block),
             ChannelData::U32(maps) => maps.extract_line(index, block),
         }
     }
 
     /// Create the meta data that describes this channel.
-    pub fn infer_header(&self) -> attributes::Channel {
+    pub fn infer_channel_attribute(&self) -> attributes::Channel {
         attributes::Channel {
             pixel_type: match self.content {
                 ChannelData::F16(_) => PixelType::F16,
@@ -652,7 +650,10 @@ impl<S: Samples> Levels<S> {
                     let maps = rip_map_levels(round, data_size)
                         .map(|(_, level_size)| SampleBlock::allocate(level_size)).collect();
 
-                    RipMaps { map_data: maps, level_count: Vec2::try_from(Vec2(level_count_x, level_count_y)).unwrap() }
+                    RipMaps {
+                        map_data: maps,
+                        level_count: Vec2(level_count_x, level_count_y).to_usize()
+                    }
                 })
             }
         }
@@ -739,7 +740,7 @@ impl<S: Samples> SampleBlock<S> {
 
     /// Allocate a sample block ready to be filled with pixel data.
     pub fn allocate(resolution: Vec2<u32>) -> Self {
-        let resolution = Vec2::try_from(resolution).unwrap();
+        let resolution = resolution.to_usize();
         SampleBlock { resolution, samples: S::allocate(resolution) }
     }
 

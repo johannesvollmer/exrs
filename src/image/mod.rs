@@ -14,7 +14,6 @@ use crate::meta::{MetaData, Header, TileIndices, Blocks};
 use crate::chunks::{Chunk, Block, TileBlock, ScanLineBlock};
 use crate::io::{PeekRead, Tracking};
 use rayon::iter::{ParallelIterator, ParallelBridge};
-use std::convert::TryFrom;
 use crate::io::Data;
 use smallvec::SmallVec;
 use std::ops::Range;
@@ -265,7 +264,7 @@ pub fn write_all_lines_to_buffered(
     get_line: impl Fn(LineIndex) -> ByteVec
 ) -> PassiveResult
 {
-    // if non-parallel compression, we always can use increasing order without cost
+    // if non-parallel compression, we always use increasing order anyways
     if !parallel {
         for header in &mut meta_data.headers {
             if header.line_order == LineOrder::Unspecified {
@@ -275,7 +274,7 @@ pub fn write_all_lines_to_buffered(
     }
 
     let mut write = Tracking::new(write);
-    meta_data.write_to_buffered(&mut write)?;
+    meta_data.write_to_buffered(&mut write)?; // also validates meta data
 
     let offset_table_start_byte = write.byte_position();
 

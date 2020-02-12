@@ -971,6 +971,13 @@ impl TileDescription {
 }
 
 impl Attribute {
+
+    /// Create a new attribute from name and value.
+    pub fn new(name: Text, value: AnyValue) -> Self {
+        Self { name, value }
+    }
+
+
     pub fn byte_size(&self) -> usize {
         self.name.null_terminated_byte_size()
             + self.value.kind_name().len() + sequence_end::byte_size()
