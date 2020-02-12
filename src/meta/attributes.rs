@@ -426,6 +426,14 @@ impl Into<String> for Text {
     }
 }
 
+impl<'s> TryFrom<&'s str> for Text {
+    type Error = &'static str;
+
+    fn try_from(value: &'s str) -> std::result::Result<Self, Self::Error> {
+        Text::from_str(value).ok_or("exr text does not support unicode characters")
+    }
+}
+
 impl ::std::fmt::Debug for Text {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         write!(f, "exr::Text(\"{}\")", self.to_string())

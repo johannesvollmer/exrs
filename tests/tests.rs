@@ -1,5 +1,7 @@
 extern crate exr;
 
+#[macro_use]
+extern crate smallvec;
 
 use exr::prelude::*;
 use exr::image::full::*;
@@ -11,6 +13,29 @@ use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use exr::math::Vec2;
 use std::cmp::Ordering;
+//use exr::meta::attributes::Text;
+use std::convert::TryInto;
+use exr::compression::Compression;
+
+
+#[test]
+fn test_write() {
+    let alpha = simple::Channel::new("A".try_into().unwrap(), true, simple::SampleBlock::f32s(Vec2(4, 4), vec![
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    ]));
+
+    let image = simple::Image::new_from_channels("test-image".try_into().unwrap(), Compression::ZIP16, smallvec![ alpha ]);
+    println!("writing image {:#?}", image);
+
+    image.write_to_file("./testout/constructed.exr", simple::WriteOptions::debug()).unwrap();
+
+
+}
+
+
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter()

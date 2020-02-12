@@ -225,10 +225,10 @@ impl ReadOptions {
 
 impl Image {
 
-    pub fn from_channels(name: Text, channels: Channels, compression: Compression) -> Self {
+    pub fn new_from_channels(name: Text, compression: Compression, channels: Channels) -> Self {
         debug_assert!(!channels.is_empty());
         let data_window = Box2I32::from_dimensions(channels.first().unwrap().view_size().to_u32());
-        Self::from_single_part(Part::new(name, data_window, channels, compression, Vec::new(), None))
+        Self::new_from_single_part(Part::new(name, data_window, channels, compression, Vec::new(), None))
     }
 
     /// Create an image that is to be written to a file.
@@ -237,7 +237,7 @@ impl Image {
     ///
     /// Consider using `Image::from_parts` for more complex cases.
     /// Use the raw `Image { .. }` constructor for more complex cases.
-    pub fn from_single_part(part: Part) -> Self { // TODO inline part parameters?
+    pub fn new_from_single_part(part: Part) -> Self { // TODO inline part parameters?
         Self {
             pixel_aspect: 1.0,
             display_window: part.data_window,
@@ -251,7 +251,7 @@ impl Image {
     ///
     /// Consider using `Image::from_single_part` for simpler cases.
     /// Use the raw `Image { .. }` constructor for more complex cases.
-    pub fn from_parts(parts: Parts, display_window: Box2I32) -> Self {
+    pub fn new_from_parts(parts: Parts, display_window: Box2I32) -> Self {
         Self {
             parts,
             display_window,
