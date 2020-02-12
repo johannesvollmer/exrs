@@ -1,6 +1,6 @@
 
-///! Read and write all supported aspects of an exr image, including deep data and multiresolution levels.
-///! Use `exr::image::simple` if you do not need deep data or resolution levels.
+//! Read and write all supported aspects of an exr image, including deep data and multiresolution levels.
+//! Use `exr::image::simple` if you do not need deep data or resolution levels.
 
 use smallvec::SmallVec;
 use half::f16;
@@ -14,71 +14,127 @@ use crate::io::Data;
 use crate::image::{Line, LineIndex};
 
 
-#[derive(Clone, PartialEq, Debug)]
-pub struct Image {
-    pub parts: Parts,
 
-    display_window: Box2I32,
-    pixel_aspect: f32,
-}
-
+/// Specify how to write an exr image.
+/// Contains several `override` fields,
+/// that, if set, take precedence over
+/// the regular image properties.
+/// They can be used to write an image with a different
+/// configuration than it was read with.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct WriteOptions {
+
+    /// Enable multicore compression.
     pub parallel_compression: bool,
-    pub override_line_order: Option<LineOrder>, // TODO is this how we imagine write options?
-    pub override_blocks: Option<Blocks>, // TODO is this how we imagine write options?
-    pub override_compression: Option<Compression>, // TODO is this how we imagine write options?
+
+    /// Override the line order of all headers in the image.
+    pub override_line_order: Option<LineOrder>,
+
+    /// Override the block type of all headers in the image.
+    pub override_blocks: Option<Blocks>,
+
+    /// Override the compression method of all headers in the image.
+    pub override_compression: Option<Compression>,
 }
 
+/// Specify how to read an exr image.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct ReadOptions {
+
+    /// Enable multicore decompression.
     pub parallel_decompression: bool,
 }
 
-/// an exr image can store multiple parts (multiple bitmaps inside one image)
+/// An exr image.
+///
+/// Supports all possible exr image features.
+/// An exr image may contain multiple image parts.
+/// All meta data is encoded in this image,
+/// including custom attributes.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Image {
+
+    /// All image parts contained in the image file
+    pub parts: Parts,
+
+    /// The rectangle positioned anywhere in the infinite 2D space that
+    /// clips all contents of the file, limiting what should be rendered.
+    pub display_window: Box2I32,
+
+    /// Aspect ratio of each pixel in this image part.
+    pub pixel_aspect: f32,
+}
+
 pub type Parts = SmallVec<[Part; 3]>;
 
+/// A single image part of an exr image.
+/// Contains meta data and actual pixel information of the channels.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Part {
+
+    /// The name of the image part.
+    /// This is optional for files with only one image part.
     pub name: Option<Text>,
+
+    /// The remaining attributes which are not already in the `Part`.
+    /// Includes custom attributes.
     pub attributes: Attributes,
 
+    /// The rectangle that positions this image part
+    /// within the global infinite 2D space of the file.
     pub data_window: Box2I32,
-    // TODO pub data_offset: (i32, i32),
 
+    /// Part of the perspective projection. Default should be `(0, 0)`.
     pub screen_window_center: Vec2<f32>, // TODO use sensible defaults instead of returning an error on missing?
+
+    /// Part of the perspective projection. Default should be `1`.
     pub screen_window_width: f32,
 
+    /// In what order the tiles of this header occur in the file.
     pub line_order: LineOrder,
+
+    /// How the pixel data of all channels in this image part is compressed. May be `Compression::Uncompressed`.
     pub compression: Compression,
+
+    /// Describes how the pixels of this image part are divided into smaller blocks in the file.
+    /// A single block can be loaded without processing all bytes of a file.
+    ///
+    /// Also describes whether a file contains multiple resolution levels: mip maps or rip maps.
+    /// This allows loading not the full resolution, but the smallest sensible resolution.
     pub blocks: Blocks,
 
-    /// only the data for this single part,
-    /// index can be computed from pixel location and block_kind.
-    /// one part can only have one block_kind, not a different kind per block
-    /// number of x and y levels can be computed using the header
-    ///
-    /// That Vec contains one entry per mip map level, or only one if it does not have any,
-    /// or a row-major flattened vector of all rip maps like
-    /// 1x1, 2x1, 4x1, 8x1, and then
-    /// 1x2, 2x2, 4x2, 8x2, and then
-    /// 1x4, 2x4, 4x4, 8x4, and then
-    /// 1x8, 2x8, 4x8, 8x8.
-    ///
+    /// List of channels in this image part.
+    /// Contains the actual pixel data of the image.
     pub channels: Channels,
 }
 
 
 pub type Channels = SmallVec<[Channel; 5]>;
 
+/// Contains an arbitrary list of pixel data.
+/// Each channel can have a different pixel type,
+/// either f16, f32, or u32.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Channel {
+
+    /// One of "R", "G", or "B" most of the time.
     pub name: Text,
+
+    /// Actual pixel data.
     pub content: ChannelData,
+
+    /// Are the samples in this channel in linear color space?
     pub is_linear: bool,
+
+    /// How many of the samples are skipped compared to the other channels in this image part.
+    ///
+    /// Can be used for chroma subsampling for manual lossy data compression.
+    /// Values other than 1 are allowed only in flat, scan-line based images.
+    /// If an image is deep or tiled, x and y sampling rates for all of its channels must be 1.
     pub sampling: Vec2<usize>,
 }
 
+/// Actual pixel data in a channel. Is either one of f16, f32, or u32.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChannelData {
     /// The representation of 16-bit floating-point numbers is analogous to IEEE 754,
@@ -87,48 +143,89 @@ pub enum ChannelData {
     /// Currently this crate is using the `half` crate, which is an implementation of the IEEE 754-2008 standard, meeting that requirement.
     F16(SampleMaps<f16>),
 
+    /// 32-bit float samples.
     F32(SampleMaps<f32>),
 
+    /// 32-bit unsigned int samples.
+    /// Used for segmentation of image parts.
     U32(SampleMaps<u32>),
 }
 
+/// Contains either deep data or flat data.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SampleMaps<Sample> {
+
+    /// Each pixel has one value per channel.
     Flat (Levels<FlatSamples<Sample>>),
+
+    /// Each pixel has an arbitrary number of samples per channel.
     Deep (Levels<DeepSamples<Sample>>), // TODO can deep images even have levels?
 }
 
+/// The different resolution levels of the image part.
 // FIXME should be descending and starting with full-res instead!
 #[derive(Clone, PartialEq)]
 pub enum Levels<Samples> {
+
+    /// Just the full resolution image.
     Singular(SampleBlock<Samples>),
+
+    /// In addition to the full resolution image,
+    /// this part also contains smaller versions with the same aspect ratio.
     Mip(LevelMaps<Samples>),
+
+    /// In addition to the full resolution image,
+    /// this part also contains smaller versions,
+    /// and each smaller version has further versions with varying aspect ratios.
     Rip(RipMaps<Samples>),
 }
 
 pub type LevelMaps<Samples> = Vec<SampleBlock<Samples>>;
 
+/// In addition to the full resolution image,
+/// this part also contains smaller versions,
+/// and each smaller version has further versions with varying aspect ratios.
 #[derive(Clone, PartialEq, Debug)]
 pub struct RipMaps<Samples> {
+
+    /// The actual pixel data
     pub map_data: LevelMaps<Samples>,
+
+    /// The number of levels that were generated along the x-axis and y-axis.
     pub level_count: Vec2<usize>,
 }
 
+/// The actual pixel data, finally.
+/// Contains a vector of samples.
 #[derive(Clone, PartialEq, Debug)]
 pub struct SampleBlock<Samples> {
+
+    /// The dimensions of this sample collection
     pub resolution: Vec2<usize>,
+
+    /// The actual pixel samples
     pub samples: Samples
 }
 
+/// The samples of a 2D grid, flattened in a single vector.
+/// The vector contains each row, one after another.
+/// A specific pixel value can be found at the index `samples[y_index * width + x_index]`.
 pub type FlatSamples<Sample> = Vec<Sample>;
 
-pub type DeepSamples<Sample> = Vec<DeepLine<Sample>>;
+/// A collection of deep sample lines.
 // TODO do not store line by line in a separate vector!
+pub type DeepSamples<Sample> = Vec<DeepLine<Sample>>;
 
+/// A single line of deep data.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DeepLine<Sample> {
+
+    /// The samples of this row of pixels.
     // TODO do not store line by line in a separate vector!
     pub samples: Vec<Sample>,
+
+    /// For each column, this specifies the index in `samples` where to find the next sample.
+    /// Therefore, `samples[index_table[column_index - 1]]` contains the start position of the sample.
     pub index_table: Vec<u32>,
 }
 
@@ -229,7 +326,7 @@ impl Image {
     /// Use `read_from_unbuffered` instead, if this is not an in-memory reader.
     #[must_use]
     pub fn read_from_buffered(read: impl Read + Send, options: ReadOptions) -> Result<Self> {
-        crate::image::read_all_lines(read, options.parallel_decompression, Image::new, Image::insert_line)
+        crate::image::read_all_lines(read, options.parallel_decompression, Image::allocate, Image::insert_line)
     }
 
     /// Write the exr image to a file.
@@ -258,35 +355,36 @@ impl Image {
             write, options.parallel_compression, self.infer_meta_data(options)?,
             |location| {
                 let mut bytes = Vec::new(); // TODO avoid allocation for each line?
-                self.extract_line(location, &mut bytes)?;
-                Ok(bytes)
+                self.extract_line(location, &mut bytes);
+                bytes
             }
         )
     }
 }
 
 impl Image {
-    pub fn new(headers: &[Header]) -> Result<Self> {
-        let mut display = headers.iter()
-            .map(|header| header.display_window);
 
-        // FIXME check all display windows are the same
-        let display_window = display.next().unwrap();
+    /// Allocate an image ready to be filled with pixel data.
+    pub fn allocate(headers: &[Header]) -> Result<Self> {
+        let display_window = headers.iter()
+            .map(|header| header.display_window)
+            .next().unwrap_or(Box2I32::zero()); // default value if no headers are found
 
-        let mut pixel_aspect = headers.iter()
-            .map(|header| header.pixel_aspect);
+        let pixel_aspect = headers.iter()
+            .map(|header| header.pixel_aspect)
+            .next().unwrap_or(1.0); // default value if no headers are found
 
-        // FIXME check all display windows are the same
-        let pixel_aspect = pixel_aspect.next().unwrap();
-
-        let headers : Result<_> = headers.iter().map(Part::new).collect();
+        let headers : Result<_> = headers.iter().map(Part::allocate).collect();
 
         Ok(Image {
             parts: headers?,
-            display_window, pixel_aspect
+            display_window,
+            pixel_aspect
         })
     }
 
+    /// Insert one line of pixel data into this image.
+    /// Returns an error for invalid index or line contents.
     pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
         debug_assert_ne!(line.location.width, 0);
 
@@ -296,38 +394,47 @@ impl Image {
         part.insert_line(line)
     }
 
-    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) -> PassiveResult {
+    /// Read one line of pixel data from this channel.
+    /// Panics for an invalid index or write error.
+    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
         debug_assert_ne!(index.width, 0);
 
         let part = self.parts.get(index.part)
-            .ok_or(Error::invalid("chunk part index"))?;
+            .expect("invalid part index");
 
         part.extract_line(index, write)
     }
 
+    /// Create the meta data that describes this image.
     pub fn infer_meta_data(&self, options: WriteOptions) -> Result<MetaData> {
-        let headers: Result<Headers> = self.parts.iter().map(|part| part.infer_header(self.display_window, self.pixel_aspect, options)).collect();
+        let headers: Result<Headers> = self.parts.iter()
+            .map(|part| part.infer_header(self.display_window, self.pixel_aspect, options))
+            .collect();
 
         let headers = headers?;
         let has_tiles = headers.iter().any(|header| header.blocks.has_tiles());
 
         Ok(MetaData {
             requirements: Requirements::new(
-                self.minimum_version()?,
-                headers.len() > 1,
-                has_tiles,
-                self.has_long_names()?,
-                false // TODO
+                self.minimum_version()?, headers.len() > 1, has_tiles,
+                self.has_long_names()?, false // TODO
             ),
 
             headers
         })
     }
 
+    /// Compute the version number that this image requires to be decoded.
+    /// For simple images, this should return `1`.
+    ///
+    /// Currently always returns `2`.
     pub fn minimum_version(&self) -> Result<u8> {
         Ok(2) // TODO pick lowest possible
     }
 
+    /// Check if this file has long name strings.
+    ///
+    /// Currently always returns `true`.
     pub fn has_long_names(&self) -> Result<bool> {
         Ok(true) // TODO check all name string lengths
     }
@@ -337,22 +444,23 @@ impl Image {
 
 impl Part {
 
-    /// allocates all the memory necessary to hold the pixel data,
-    /// zeroed out, ready to be filled with actual pixel data
-    pub fn new(header: &Header) -> Result<Self> {
+    /// Allocate an image part ready to be filled with pixel data.
+    pub fn allocate(header: &Header) -> Result<Self> {
         Ok(Part {
             data_window: header.data_window,
             screen_window_center: header.screen_window_center,
             screen_window_width: header.screen_window_width,
             name: header.name.clone(),
             attributes: header.custom_attributes.clone(),
-            channels: header.channels.list.iter().map(|channel| Channel::new(header, channel)).collect(),
+            channels: header.channels.list.iter().map(|channel| Channel::allocate(header, channel)).collect(),
             compression: header.compression,
             blocks: header.blocks,
             line_order: header.line_order,
         })
     }
 
+    /// Insert one line of pixel data into this image part.
+    /// Returns an error for invalid index or line contents.
     pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
         debug_assert!(line.location.position.0 + line.location.width <= self.data_window.size.0 as usize);
         debug_assert!(line.location.position.1 < self.data_window.size.1 as usize);
@@ -362,7 +470,9 @@ impl Part {
             .insert_line(line)
     }
 
-    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) -> PassiveResult {
+    /// Read one line of pixel data from this image part.
+    /// Panics for an invalid index or write error.
+    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
         debug_assert!(index.position.0 + index.width <= self.data_window.size.0 as usize);
         debug_assert!(index.position.1 < self.data_window.size.1 as usize);
 
@@ -371,8 +481,17 @@ impl Part {
             .extract_line(index, write)
     }
 
+    /// Create the meta data that describes this image part.
     pub fn infer_header(&self, display_window: Box2I32, pixel_aspect: f32, options: WriteOptions) -> Result<Header> {
-//      TODO  assert!(self.channels.is_sorted_by_key(|c| c.name));
+        debug_assert_eq!(
+            {
+                let mut cloned = self.channels.clone();
+                cloned.sort_by_key(|c| c.name.clone());
+                cloned
+            },
+            self.channels,
+            "channels must be sorted alphabetically"
+        );
 
         let chunk_count = compute_chunk_count(
             self.compression, self.data_window, self.blocks
@@ -388,17 +507,7 @@ impl Part {
             blocks: options.override_blocks.unwrap_or(self.blocks),
             name: self.name.clone(),
 
-            channels: ChannelList::new(self.channels.iter().map(|channel| attributes::Channel {
-                pixel_type: match channel.content {
-                    ChannelData::F16(_) => PixelType::F16,
-                    ChannelData::F32(_) => PixelType::F32,
-                    ChannelData::U32(_) => PixelType::U32,
-                },
-
-                name: channel.name.clone(),
-                is_linear: channel.is_linear,
-                sampling: Vec2::try_from(channel.sampling).unwrap()
-            }).collect()),
+            channels: ChannelList::new(self.channels.iter().map(Channel::infer_header).collect()),
 
             line_order: options.override_line_order.unwrap_or(self.line_order),
 
@@ -416,20 +525,23 @@ impl Part {
 }
 
 impl Channel {
-    pub fn new(header: &Header, channel: &crate::meta::attributes::Channel) -> Self {
+
+    /// Allocate a channel ready to be filled with pixel data.
+    pub fn allocate(header: &Header, channel: &crate::meta::attributes::Channel) -> Self {
         Channel {
             name: channel.name.clone(),
             is_linear: channel.is_linear,
-            sampling: Vec2::try_from(channel.sampling).unwrap(),  // (channel.sampling.0 as usize, channel.sampling.1 as usize),
+            sampling: channel.sampling.to_usize(),
 
             content: match channel.pixel_type {
-                PixelType::F16 => ChannelData::F16(SampleMaps::new(header)),
-                PixelType::F32 => ChannelData::F32(SampleMaps::new(header)),
-                PixelType::U32 => ChannelData::U32(SampleMaps::new(header)),
+                PixelType::F16 => ChannelData::F16(SampleMaps::allocate(header)),
+                PixelType::F32 => ChannelData::F32(SampleMaps::allocate(header)),
+                PixelType::U32 => ChannelData::U32(SampleMaps::allocate(header)),
             },
         }
     }
 
+    /// Insert one line of pixel data into this channel.
     pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
         match &mut self.content {
             ChannelData::F16(maps) => maps.insert_line(line),
@@ -438,26 +550,46 @@ impl Channel {
         }
     }
 
-    pub fn extract_line(&self, index: LineIndex, block: &mut impl Write) -> PassiveResult {
+    /// Read one line of pixel data from this channel.
+    /// Panics for an invalid index or write error.
+    pub fn extract_line(&self, index: LineIndex, block: &mut impl Write) {
         match &self.content {
             ChannelData::F16(maps) => maps.extract_line(index, block),
             ChannelData::F32(maps) => maps.extract_line(index, block),
             ChannelData::U32(maps) => maps.extract_line(index, block),
         }
     }
+
+    /// Create the meta data that describes this channel.
+    pub fn infer_header(&self) -> attributes::Channel {
+        attributes::Channel {
+            pixel_type: match self.content {
+                ChannelData::F16(_) => PixelType::F16,
+                ChannelData::F32(_) => PixelType::F32,
+                ChannelData::U32(_) => PixelType::U32,
+            },
+
+            name: self.name.clone(),
+            is_linear: self.is_linear,
+            sampling: self.sampling.to_u32(),
+        }
+    }
 }
 
 
 impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
-    pub fn new(header: &Header) -> Self {
+
+    /// Allocate a collection of resolution maps ready to be filled with pixel data.
+    pub fn allocate(header: &Header) -> Self {
         if header.deep {
-            SampleMaps::Deep(Levels::new(header))
+            SampleMaps::Deep(Levels::allocate(header))
         }
         else {
-            SampleMaps::Flat(Levels::new(header))
+            SampleMaps::Flat(Levels::allocate(header))
         }
     }
 
+    /// Insert one line of pixel data into a level.
     pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
         match self {
             SampleMaps::Deep(ref mut levels) => levels.insert_line(line),
@@ -465,7 +597,9 @@ impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
         }
     }
 
-    pub fn extract_line(&self, index: LineIndex, block: &mut impl Write) -> PassiveResult {
+    /// Read one line of pixel data from a level.
+    /// Panics for an invalid index or write error.
+    pub fn extract_line(&self, index: LineIndex, block: &mut impl Write) {
         match self {
             SampleMaps::Deep(ref levels) => levels.extract_line(index, block),
             SampleMaps::Flat(ref levels) => levels.extract_line(index, block),
@@ -495,18 +629,20 @@ impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
 }
 
 impl<S: Samples> Levels<S> {
-    pub fn new(header: &Header) -> Self {
+
+    /// Allocate a collection of resolution maps ready to be filled with pixel data.
+    pub fn allocate(header: &Header) -> Self {
         let data_size = header.data_window.size;
 
         if let Blocks::Tiles(tiles) = &header.blocks {
             let round = tiles.rounding_mode;
 
             match tiles.level_mode {
-                LevelMode::Singular => Levels::Singular(SampleBlock::new(data_size)),
+                LevelMode::Singular => Levels::Singular(SampleBlock::allocate(data_size)),
 
                 LevelMode::MipMap => Levels::Mip(
                     mip_map_levels(round, data_size)
-                        .map(|(_, level_size)| SampleBlock::new(level_size)).collect()
+                        .map(|(_, level_size)| SampleBlock::allocate(level_size)).collect()
                 ),
 
                 // TODO put this into Levels::new(..) ?
@@ -514,7 +650,7 @@ impl<S: Samples> Levels<S> {
                     let level_count_x = compute_level_count(round, data_size.0);
                     let level_count_y = compute_level_count(round, data_size.1);
                     let maps = rip_map_levels(round, data_size)
-                        .map(|(_, level_size)| SampleBlock::new(level_size)).collect();
+                        .map(|(_, level_size)| SampleBlock::allocate(level_size)).collect();
 
                     RipMaps { map_data: maps, level_count: Vec2::try_from(Vec2(level_count_x, level_count_y)).unwrap() }
                 })
@@ -523,16 +659,21 @@ impl<S: Samples> Levels<S> {
 
         // scan line blocks never have mip maps? // TODO check if this is true
         else {
-            Levels::Singular(SampleBlock::new(data_size))
+            Levels::Singular(SampleBlock::allocate(data_size))
         }
     }
 
+    /// Insert one line of pixel data into a level.
     pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
         self.get_level_mut(line.location.level)?.insert_line(line)
     }
 
-    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) -> PassiveResult {
-        self.get_level(index.level)?.extract_line(index, write)
+    /// Read one line of pixel data from a level.
+    /// Panics for an invalid index or write error.
+    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
+        self.get_level(index.level)
+            .expect("invalid level index")
+            .extract_line(index, write)
     }
 
     pub fn get_level(&self, level: Vec2<usize>) -> Result<&SampleBlock<S>> {
@@ -595,11 +736,14 @@ impl<S: Samples> Levels<S> {
 
 
 impl<S: Samples> SampleBlock<S> {
-    pub fn new(resolution: Vec2<u32>) -> Self {
+
+    /// Allocate a sample block ready to be filled with pixel data.
+    pub fn allocate(resolution: Vec2<u32>) -> Self {
         let resolution = Vec2::try_from(resolution).unwrap();
-        SampleBlock { resolution, samples: S::new(resolution) }
+        SampleBlock { resolution, samples: S::allocate(resolution) }
     }
 
+    /// Insert one line of pixel data into this sample block.
     pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
         debug_assert_ne!(line.location.width, 0);
 
@@ -614,7 +758,9 @@ impl<S: Samples> SampleBlock<S> {
         self.samples.insert_line(line, self.resolution.0)
     }
 
-    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) -> PassiveResult {
+    /// Read one line of pixel data from this sample block.
+    /// Panics for an invalid index or write error.
+    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
         debug_assert!(index.position.0 + index.width <= self.resolution.0, "x max {} of width {}", index.position.0 + index.width, self.resolution.0); // TODO this should Err() instead
         debug_assert!(index.position.1 < self.resolution.1, "y: {}, height: {}", index.position.1, self.resolution.1);
         debug_assert_ne!(index.width, 0);
@@ -624,13 +770,20 @@ impl<S: Samples> SampleBlock<S> {
 }
 
 pub trait Samples {
-    fn new(resolution: Vec2<usize>) -> Self;
+
+    /// Allocate a sample block ready to be filled with pixel data.
+    fn allocate(resolution: Vec2<usize>) -> Self;
+
+    /// Insert one line of pixel data into this sample collection.
     fn insert_line(&mut self, line: Line<'_>, image_width: usize) -> PassiveResult;
-    fn extract_line(&self, index: LineIndex, write: &mut impl Write, image_width: usize) -> PassiveResult;
+
+    /// Read one line of pixel data from this sample collection.
+    /// Panics for an invalid index or write error.
+    fn extract_line(&self, index: LineIndex, write: &mut impl Write, image_width: usize);
 }
 
 impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
-    fn new(resolution: Vec2<usize>) -> Self {
+    fn allocate(resolution: Vec2<usize>) -> Self {
         vec![
             DeepLine { samples: Vec::new(), index_table: vec![0; resolution.0] };
             resolution.1
@@ -641,7 +794,7 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
 //        debug_assert_ne!(image_width, 0);
 //        debug_assert_ne!(length, 0);
 
-        Err(Error::unsupported("deep data"))
+        unimplemented!("deep data not supported yet");
 
         // TODO err on invalid tile position
 //        self[_position.1 as usize] = DeepLine {
@@ -652,16 +805,15 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
 //        Ok(())
     }
 
-    fn extract_line(&self, index: LineIndex, _write: &mut impl Write, image_width: usize) -> PassiveResult {
+    fn extract_line(&self, index: LineIndex, _write: &mut impl Write, image_width: usize) {
         debug_assert_ne!(image_width, 0);
         debug_assert_ne!(index.width, 0);
-
-        Err(Error::unsupported("deep data"))
+        unimplemented!("deep data not supported yet");
     }
 }
 
 impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for FlatSamples<Sample> {
-    fn new(resolution: Vec2<usize>) -> Self {
+    fn allocate(resolution: Vec2<usize>) -> Self {
         let resolution = (resolution.0, resolution.1);
         vec![Sample::default(); resolution.0 * resolution.1]
     }
@@ -676,7 +828,7 @@ impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for Fl
         line.read_samples(&mut self[start_index .. end_index])
     }
 
-    fn extract_line(&self, index: LineIndex, write: &mut impl Write, image_width: usize) -> PassiveResult {
+    fn extract_line(&self, index: LineIndex, write: &mut impl Write, image_width: usize) {
         debug_assert_ne!(image_width, 0);
         debug_assert_ne!(index.width, 0);
 
@@ -684,18 +836,23 @@ impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for Fl
         let end_index = start_index + index.width;
 
         LineIndex::write_samples(&self[start_index .. end_index], write)
+            .expect("writing line bytes failed");
     }
 }
 
 impl<Samples> RipMaps<Samples> {
+
+    /// Flatten the 2D level index to a one dimensional index.
     pub fn get_level_index(&self, level: Vec2<usize>) -> usize {
         self.level_count.0 * level.1 + level.0  // TODO check this calculation (x vs y)
     }
 
+    /// Return a level by level index. Level `0` has the largest resolution.
     pub fn get_by_level(&self, level: Vec2<usize>) -> Option<&SampleBlock<Samples>> {
         self.map_data.get(self.get_level_index(level))
     }
 
+    /// Return a mutable level reference by level index. Level `0` has the largest resolution.
     pub fn get_by_level_mut(&mut self, level: Vec2<usize>) -> Option<&mut SampleBlock<Samples>> {
         let index = self.get_level_index(level);
         self.map_data.get_mut(index)

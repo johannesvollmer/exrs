@@ -1,5 +1,5 @@
 
-///! Describes all meta data possible in an exr file.
+//! Describes all meta data possible in an exr file.
 pub mod attributes;
 
 use crate::io::*;
@@ -62,7 +62,6 @@ pub struct Header {
 
     /// The rectangle anywhere in 2D space that clips all contents of the file.
     pub display_window: Box2I32,
-
 
     /// In what order the tiles of this header occur in the file.
     // todo: make optional?
@@ -176,7 +175,8 @@ pub enum Blocks {
     Tiles(TileDescription)
 }
 
-impl TileIndices {
+
+/*impl TileIndices {
     pub fn cmp(&self, other: &Self) -> Ordering {
         match self.location.level_index.1.cmp(&other.location.level_index.1) {
             Ordering::Equal => {
@@ -198,7 +198,7 @@ impl TileIndices {
             other => other
         }
     }
-}
+}*/
 
 impl Blocks {
 
@@ -902,6 +902,10 @@ impl Requirements {
     }
 
     pub fn validate(&self) -> PassiveResult {
+        if self.has_deep_data { // TODO deep data (and then remove this check)
+            return Err(Error::unsupported("deep data"));
+        }
+
         if let 1..=2 = self.file_format_version {
 
             match (

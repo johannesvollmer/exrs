@@ -1,6 +1,6 @@
 
-///! Handle raw pixel data bytes.
-///! Does not include compression and decompression.
+//! Handle raw pixel data bytes.
+//! Does not include compression and decompression.
 
 use crate::meta::attributes::{Box2I32};
 

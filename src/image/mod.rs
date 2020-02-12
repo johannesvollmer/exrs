@@ -1,6 +1,6 @@
 
-///! Read and write an exr image.
-///! Use `exr::image::simple` or `exr::image::full` for actually reading a complete image.
+//! Read and write an exr image.
+//! Use `exr::image::simple` or `exr::image::full` for actually reading a complete image.
 
 pub mod full;
 pub mod simple;
@@ -262,7 +262,7 @@ pub fn write_all_lines_to_buffered(
     write: impl Write + Seek,
     parallel: bool,
     mut meta_data: MetaData,
-    get_line: impl Fn(LineIndex) -> Result<ByteVec>
+    get_line: impl Fn(LineIndex) -> ByteVec
 ) -> PassiveResult
 {
     // if non-parallel compression, we always can use increasing order without cost
@@ -310,9 +310,11 @@ pub fn write_all_lines_to_buffered(
                 let mut data = Vec::new(); // TODO allocate only block, not lines
                 for (byte_range, line_index) in block_indices.lines(header) {
                     debug_assert_eq!(byte_range.start, data.len());
-                    data.extend_from_slice(get_line(line_index)?.as_slice());
+                    data.extend_from_slice(get_line(line_index).as_slice());
                     debug_assert_eq!(byte_range.end, data.len());
                 }
+
+                // TODO check if data length matches expected byte size
 
                 let data = header.compression.compress_image_section(data)?;
 
@@ -371,10 +373,13 @@ impl BlockIndex {
     /// Iterates the lines of this block index in interleaved fashion:
     /// For each line in this block, this iterator steps once through each channel.
     /// This is how lines are stored in a pixel data block.
+    ///
+    /// Does not check whether `self.part_index`, `self.level`, `self.size` and `self.position` are valid indices.__
+    // TODO be sure this cannot produce incorrect data, as this is not further checked but only handled with panics
     pub fn lines(&self, header: &Header) -> impl Iterator<Item=(Range<usize>, LineIndex)> {
         struct LineIter {
-            part: usize, level: Vec2<usize>, width: usize, end_y: usize, x: usize,
-            channel_sizes: SmallVec<[usize; 8]>,
+            part: usize, level: Vec2<usize>, width: usize,
+            end_y: usize, x: usize, channel_sizes: SmallVec<[usize; 8]>,
             byte: usize, channel: usize, y: usize,
         };
 
@@ -383,10 +388,18 @@ impl BlockIndex {
 
             fn next(&mut self) -> Option<Self::Item> {
                 if self.y < self.end_y {
-                    let byte_index = self.byte;
-                    let channel = self.channel;
-                    let y = self.y;
+                    // compute return value before incrementing
                     let byte_len = self.channel_sizes[self.channel];
+                    let return_value = (
+                        (self.byte .. self.byte + byte_len),
+                        LineIndex {
+                            channel: self.channel,
+                            part: self.part,
+                            level: self.level,
+                            position: Vec2(self.x, self.y),
+                            width: self.width,
+                        }
+                    );
 
                     { // increment indices
                         self.byte += byte_len;
@@ -398,19 +411,12 @@ impl BlockIndex {
                         }
                     }
 
-                    return Some((
-                        (byte_index .. byte_index + byte_len),
-                        LineIndex {
-                            channel,
-                            part: self.part,
-                            level: self.level,
-                            position: Vec2(self.x, y),
-                            width: self.width,
-                        }
-                    ))
+                    Some(return_value)
                 }
 
-                None
+                else {
+                    None
+                }
             }
         }
 

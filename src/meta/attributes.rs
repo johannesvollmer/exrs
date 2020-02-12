@@ -1,7 +1,8 @@
-use smallvec::SmallVec;
 
-///! Contains all meta data attributes.
-///! Each image part can have any number of [`Attribute`]s, including custom attributes.
+//! Contains all meta data attributes.
+//! Each image part can have any number of [`Attribute`]s, including custom attributes.
+
+use smallvec::SmallVec;
 
 /// A named attribute value.
 #[derive(Debug, Clone, PartialEq)]
@@ -127,7 +128,7 @@ pub struct ChannelList {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Channel {
 
-    /// The name cannot be empty in a file with multiple parts.
+    /// One of "R", "G", or "B" most of the time.
     pub name: Text,
 
     /// U32, F16 or F32.
@@ -495,6 +496,11 @@ impl BlockType {
 
 
 impl Box2I32 {
+
+    /// Create a box with no size located at (0,0).
+    pub fn zero() -> Self {
+        Self::from_dimensions(Vec2(0, 0))
+    }
 
     /// Create a box with a size starting at zero.
     pub fn from_dimensions(size: Vec2<u32>) -> Self {

@@ -1,5 +1,5 @@
 
-///! Error type definitions.
+//! Error type definitions.
 
 use std::borrow::Cow;
 use std::io::ErrorKind;

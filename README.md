@@ -128,7 +128,9 @@ __Currently supported:__
 - [ ] Detailed file validation
     - [ ] Channels with an x or y sampling rate other than 1 are allowed only in flat, scan-line based images.
     - [ ] If an image is deep or tiled, then the x and y sampling rates for all of its channels must be 1.
+    - [ ] If the headers include timeCode and chromaticities attributes, then the values of those attributes must also be the same for all parts of a file
     - [ ] Scan-line based images cannot be multi-resolution images.
+    - [ ] Scan-line based images cannot have unspecified line order?
     - [ ] Enforce minimum length of 1 for arrays
 
 - [ ] Explore different APIs

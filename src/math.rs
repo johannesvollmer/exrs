@@ -2,7 +2,7 @@
 // calculations inspired by
 // https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
 
-///! Simple math utilities.
+//! Simple math utilities.
 
 use std::convert::TryFrom;
 use crate::error::{i32_to_u32, i32_to_usize};
@@ -68,6 +68,16 @@ impl Vec2<u32> {
     pub fn to_i32(self) -> Vec2<i32> {
         let x = i32::try_from(self.0).expect("max value overflow");
         let y = i32::try_from(self.1).expect("max value overflow");
+        Vec2(x, y)
+    }
+}
+
+impl Vec2<usize> {
+
+    /// Panics on too large value
+    pub fn to_u32(self) -> Vec2<u32> {
+        let x = u32::try_from(self.0).expect("max value overflow");
+        let y = u32::try_from(self.1).expect("max value overflow");
         Vec2(x, y)
     }
 }

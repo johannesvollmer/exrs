@@ -1,6 +1,6 @@
 
-///! Contains the compression attribute definition
-///! and methods to compress and decompress data.
+//! Contains the compression attribute definition
+//! and methods to compress and decompress data.
 
 mod zip;
 mod rle;

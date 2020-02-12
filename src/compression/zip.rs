@@ -2,8 +2,8 @@
 // see https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfCompressor.cpp
 
 
-///! compresses 16 scan lines at once or
-///! compresses 1 single scan line at once
+//! compresses 16 scan lines at once or
+//! compresses 1 single scan line at once
 
 use super::*;
 use super::optimize_bytes::*;
