@@ -541,9 +541,9 @@ impl Box2I32 {
         let y_max = i32::read(read)?;
 
         let min = Vec2(x_min.min(x_max), y_min.min(y_max));
-        let max  = Vec2(x_min.max(x_max), y_min.max(y_max)); // inclusive!
-        let size = Vec2(max.0 + 1 - min.0, max.1 + 1 - min.1);
-        let size = size.to_u32()?;
+        let max  = Vec2(x_min.max(x_max), y_min.max(y_max)); // these are inclusive!
+        let size = Vec2(max.0 + 1 - min.0, max.1 + 1 - min.1); // which is why we add 1
+        let size = size.to_u32("box coordinates")?;
 
         Ok(Box2I32 { start: min, size })
     }

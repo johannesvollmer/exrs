@@ -716,11 +716,11 @@ impl Header {
                 VERSION => version = Some(value.to_i32()?),
 
                 MAX_SAMPLES => max_samples_per_pixel = Some(
-                    i32_to_u32_at(value.to_i32()?, "max sample count")?
+                    i32_to_u32(value.to_i32()?, "max sample count")?
                 ),
 
                 CHUNKS => chunk_count = Some(
-                    i32_to_u32_at(value.to_i32()?, "chunk count")?
+                    i32_to_u32(value.to_i32()?, "chunk count")?
                 ),
 
                 _ => custom.push(Attribute { name: attribute_name, value }), // TODO only requested attributes?

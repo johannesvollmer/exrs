@@ -24,35 +24,44 @@ pub fn skip_bytes(read: &mut impl Read, count: u64) -> IoResult<()> {
 /// Peek a single byte without consuming it.
 #[derive(Debug)]
 pub struct PeekRead<T> {
+    /// Cannot be exposed as it will not contain peeked values anymore.
     inner: T,
+
     peeked: Option<IoResult<u8>>,
 }
 
 impl<T: Read> PeekRead<T> {
+
     #[inline]
     pub fn new(inner: T) -> Self {
         Self { inner, peeked: None }
     }
 
     /// Read a single byte and return that without consuming it.
+    /// The next `read` call will include that byte.
     #[inline]
     pub fn peek_u8(&mut self) -> &IoResult<u8> {
         self.peeked = self.peeked.take().or_else(|| Some(u8::read_from_little_endian(&mut self.inner)));
-        self.peeked.as_ref().unwrap()
+        self.peeked.as_ref().unwrap() // unwrap cannot fail because we just set it
     }
 
     /// Skip a single byte if it equals the specified value.
     /// Returns whether the value was found.
+    /// Consumes the peeked result if an error occurred.
     #[inline]
     pub fn skip_if_eq(&mut self, value: u8) -> IoResult<bool> {
         match self.peek_u8() {
             Ok(peeked) if *peeked == value =>  {
-                u8::read_from_little_endian(self).unwrap(); // skip, will be Ok(value)
+                self.peeked = None; // consume the byte
                 Ok(true)
             },
 
             Ok(_) => Ok(false),
-            Err(_) => Err(u8::read_from_little_endian(self).err().unwrap())
+
+            // return the error otherwise.
+            // unwrap is safe because this branch cannot be reached otherwise.
+            // we need to take() from self because io errors cannot be cloned.
+            Err(_) => Err(self.peeked.take().unwrap().err().unwrap())
         }
     }
 }
@@ -68,6 +77,8 @@ impl<T: Read> Read for PeekRead<T> {
             None => self.inner.read(target_buffer),
             Some(peeked) => {
                 target_buffer[0] = peeked?;
+
+                // indexing [1..] is safe because an empty buffer already returned ok
                 Ok(1 + self.inner.read(&mut target_buffer[1..])?)
             }
         }
@@ -75,6 +86,8 @@ impl<T: Read> Read for PeekRead<T> {
 }
 
 impl<T: Read + Seek> PeekRead<Tracking<T>> {
+    /// Seek this read to the specified byte position.
+    /// Discards any previously peeked value.
     pub fn skip_to(&mut self, position: usize) -> std::io::Result<()> {
         self.inner.seek_read_to(position)?;
         self.peeked = None;
@@ -86,7 +99,10 @@ impl<T: Read + Seek> PeekRead<Tracking<T>> {
 /// Used to skip back to a previous place after writing some information.
 #[derive(Debug)]
 pub struct Tracking<T> {
+
+    /// Do not expose to prevent seeking without updating position
     inner: T,
+
     position: usize,
 }
 
@@ -111,16 +127,23 @@ impl<T: Write> Write for Tracking<T> {
 }
 
 impl<T> Tracking<T> {
+
+    /// If `inner` is a reference, if must never be seeked directly,
+    /// but only through this `Tracking` instance.
     pub fn new(inner: T) -> Self {
         Tracking { inner, position: 0 }
     }
 
+    /// Current number of bytes written or read.
     pub fn byte_position(&self) -> usize {
         self.position
     }
 }
 
 impl<T: Read + Seek> Tracking<T> {
+
+    /// Set the reader to the specified byte position.
+    /// If it is only a couple of bytes, no seek system call is performed.
     pub fn seek_read_to(&mut self, target_position: usize) -> std::io::Result<()> {
         let delta = target_position as i64 - self.position as i64;
 
@@ -138,6 +161,9 @@ impl<T: Read + Seek> Tracking<T> {
 }
 
 impl<T: Write + Seek> Tracking<T> {
+
+    /// Move the writing cursor to the specified target byte index.
+    /// If seeking forward, this will write zeroes.
     pub fn seek_write_to(&mut self, target_position: usize) -> std::io::Result<()> {
         if target_position < self.position {
             self.inner.seek(SeekFrom::Start(target_position as u64))?;
@@ -193,8 +219,6 @@ pub trait Data: Sized + Default + Clone {
     #[inline]
     fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, soft_max: usize, hard_max: Option<usize>) -> PassiveResult {
         if let Some(max) = hard_max {
-            debug_assert!(data_size <= max, "large data: {} (max {})", data_size, max);
-
             if data_size > max {
                 return Err(Error::invalid("content size"))
             }
@@ -210,7 +234,7 @@ pub trait Data: Sized + Default + Clone {
             let chunk_end = (chunk_start + soft_max).min(data_size);
 
             data.resize(chunk_end, Self::default());
-            Self::read_slice(read, &mut data[chunk_start .. chunk_end])?;
+            Self::read_slice(read, &mut data[chunk_start .. chunk_end])?; // safe because of `min(data_size)``
         }
 
         Ok(())
@@ -231,8 +255,6 @@ pub trait Data: Sized + Default + Clone {
     #[inline]
     fn read_i32_sized_vec(read: &mut impl Read, soft_max: usize, hard_max: Option<usize>) -> Result<Vec<Self>> {
         let size = i32::read(read)?;
-        debug_assert!(size >= 0);
-
         if size < 0 { Err(Error::invalid("negative array size")) }
         else { Self::read_vec(read, size as usize, soft_max, hard_max) }
     }

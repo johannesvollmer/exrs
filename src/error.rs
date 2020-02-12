@@ -9,6 +9,8 @@ pub type PassiveResult = Result<()>;
 
 pub use std::io::Error as IoError;
 pub use std::io::Result as IoResult;
+use std::convert::TryFrom;
+pub type StrLiteral = &'static str;
 
 /// An error that may happen while reading or writing an exr file.
 /// Distinguishes between three types of errors:
@@ -57,25 +59,11 @@ impl From<IoError> for Error {
 
 
 #[inline]
-pub(crate) fn i32_to_usize(value: i32) -> Result<usize> {
-    if value < 0 { Err(Error::invalid("number sign")) }
-    else { Ok(value as usize) }
+pub(crate) fn i32_to_usize(value: i32, error_message: StrLiteral) -> Result<usize> {
+    usize::try_from(value).map_err(|_| Error::invalid(error_message))
 }
 
 #[inline]
-pub(crate) fn i32_to_u32(value: i32) -> Result<u32> {
-    if value < 0 { Err(Error::invalid("number sign")) }
-    else { Ok(value as u32) }
-}
-
-/*#[inline]
-pub(crate) fn i32_to_usize_at(value: i32, context: &'static str) -> Result<usize> {
-    if value < 0 { Err(Error::invalid(context)) }
-    else { Ok(value as usize) }
-}*/
-
-#[inline]
-pub(crate) fn i32_to_u32_at(value: i32, context: &'static str) -> Result<u32> {
-    if value < 0 { Err(Error::invalid(context)) }
-    else { Ok(value as u32) }
+pub(crate) fn i32_to_u32(value: i32, error_message: StrLiteral) -> Result<u32> {
+    u32::try_from(value).map_err(|_| Error::invalid(error_message))
 }

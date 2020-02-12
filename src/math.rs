@@ -38,17 +38,18 @@ impl<T> Vec2<T> {
 
 
 impl Vec2<i32> {
+
     /// Try to convert to `Vec2<usize>`, returning an error on negative numbers.
-    pub fn to_usize(self) -> Result<Vec2<usize>> {
-        let x = i32_to_usize(self.0)?;
-        let y = i32_to_usize(self.1)?;
+    pub fn to_usize(self, error_message: &'static str) -> Result<Vec2<usize>> {
+        let x = i32_to_usize(self.0, error_message)?;
+        let y = i32_to_usize(self.1, error_message)?;
         Ok(Vec2(x, y))
     }
 
     /// Try to convert to `Vec2<u32>`, returning an error on negative numbers.
-    pub fn to_u32(self) -> Result<Vec2<u32>> {
-        let x = i32_to_u32(self.0)?;
-        let y = i32_to_u32(self.1)?;
+    pub fn to_u32(self, error_message: &'static str) -> Result<Vec2<u32>> {
+        let x = i32_to_u32(self.0, error_message)?;
+        let y = i32_to_u32(self.1, error_message)?;
         Ok(Vec2(x, y))
     }
 }
@@ -82,13 +83,12 @@ impl<T: std::ops::Mul<T>> std::ops::Mul<Vec2<T>> for Vec2<T> {
 }
 
 
-/// Computes `floor(log(x)/log(2))`
+/// Computes `floor(log(x)/log(2))`. Returns 0 where argument is 0.
+// TODO does rust std not provide this?
 pub(crate) fn floor_log_2(mut number: u32) -> u32 {
-    debug_assert_ne!(number, 0);
-
     let mut log = 0;
 
-//     TODO check if this unrolls properly?
+    // TODO check if this unrolls properly?
     while number > 1 {
         log += 1;
         number >>= 1;
@@ -98,11 +98,10 @@ pub(crate) fn floor_log_2(mut number: u32) -> u32 {
 }
 
 
-/// Computes `ceil(log(x)/log(2))`
+/// Computes `ceil(log(x)/log(2))`. Returns 0 where argument is 0.
 // taken from https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
+// TODO does rust std not provide this?
 pub(crate) fn ceil_log_2(mut number: u32) -> u32 {
-    debug_assert_ne!(number, 0);
-
     let mut log = 0;
     let mut round_up = 0;
 
@@ -141,3 +140,5 @@ impl RoundingMode {
         }
     }
 }
+
+// TODO log2 tests
