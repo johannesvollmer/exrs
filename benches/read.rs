@@ -12,7 +12,7 @@ fn read_single_image_uncompressed(bench: &mut Bencher) {
     bench.iter(||{
         let path = "D:/Pictures/openexr/crowskull/crow_uncompressed.exr";
 
-        let image = FullImage::read_from_file(path, ReadOptions::default()).unwrap();
+        let image = full::Image::read_from_file(path, full::ReadOptions::default()).unwrap();
         bencher::black_box(image);
     })
 }
@@ -21,7 +21,7 @@ fn read_single_image_uncompressed_from_buffer(bench: &mut Bencher) {
     let file = fs::read("D:/Pictures/openexr/crowskull/crow_uncompressed.exr").unwrap();
 
     bench.iter(||{
-        let image = FullImage::read_from_buffered(file.as_slice(), ReadOptions::fast_loading()).unwrap();
+        let image = full::Image::read_from_buffered(file.as_slice(), full::ReadOptions::fast_loading()).unwrap();
         bencher::black_box(image);
     })
 }
@@ -29,7 +29,7 @@ fn read_single_image_uncompressed_from_buffer(bench: &mut Bencher) {
 fn read_single_image_zips(bench: &mut Bencher) {
     bench.iter(||{
         let path = "D:/Pictures/openexr/crowskull/crow_zips.exr";
-        let image = FullImage::read_from_file(path, ReadOptions::default()).unwrap();
+        let image = full::Image::read_from_file(path, full::ReadOptions::default()).unwrap();
         bencher::black_box(image);
     })
 }
@@ -37,7 +37,7 @@ fn read_single_image_zips(bench: &mut Bencher) {
 fn read_single_image_rle(bench: &mut Bencher) {
     bench.iter(||{
         let path = "D:/Pictures/openexr/crowskull/crow_rle.exr";
-        let image = FullImage::read_from_file(path, ReadOptions::default()).unwrap();
+        let image = full::Image::read_from_file(path, full::ReadOptions::default()).unwrap();
         bencher::black_box(image);
     })
 }
@@ -45,12 +45,12 @@ fn read_single_image_rle(bench: &mut Bencher) {
 fn read_single_image_non_parallel_zips(bench: &mut Bencher) {
     bench.iter(||{
         let path = "D:/Pictures/openexr/crowskull/crow_zips.exr";
-        let options = ReadOptions {
+        let options = full::ReadOptions {
             parallel_decompression: false,
-            .. ReadOptions::default()
+            .. full::ReadOptions::default()
         };
 
-        let image = FullImage::read_from_file(path, options).unwrap();
+        let image = full::Image::read_from_file(path, options).unwrap();
         bencher::black_box(image);
     })
 }

@@ -3,7 +3,6 @@ extern crate exr;
 
 use exr::prelude::*;
 use exr::image::full::*;
-use exr::image::ReadOptions;
 use std::{fs, panic, io};
 use std::io::{Cursor, Write};
 use std::panic::catch_unwind;
@@ -66,19 +65,19 @@ fn check_files<T>(operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -
 
 #[test]
 fn read_all_files() {
-    check_files(|path| FullImage::read_from_file(path, ReadOptions::debug()))
+    check_files(|path| Image::read_from_file(path, ReadOptions::debug()))
 }
 
 #[test]
 fn round_trip_all_files() {
     check_files(|path| {
-        let image = FullImage::read_from_file(path, ReadOptions::debug())?;
+        let image = Image::read_from_file(path, ReadOptions::debug())?;
         let write_options = WriteOptions::debug();
 
         let mut tmp_bytes = Vec::new();
         image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options)?;
 
-        let image2 = FullImage::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::debug())?;
+        let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::debug())?;
 
         assert_eq!(image, image2);
 
@@ -108,7 +107,7 @@ fn loop_read() {
     println!("starting loop...");
 
     for _ in 0..1024 {
-        let image = FullImage::read_from_buffered(bytes.as_slice(), ReadOptions::debug()).unwrap();
+        let image = Image::read_from_buffered(bytes.as_slice(), ReadOptions::debug()).unwrap();
         bencher::black_box(image);
     }
 
@@ -137,7 +136,7 @@ pub fn test_roundtrip() {
     print!("starting read 1... ");
     io::stdout().flush().unwrap();
 
-    let image = FullImage::read_from_file(path, ReadOptions::fast_loading()).unwrap();
+    let image = Image::read_from_file(path, ReadOptions::fast_loading()).unwrap();
     println!("...read 1 successfull");
 
     let write_options = WriteOptions::debug();
@@ -152,7 +151,7 @@ pub fn test_roundtrip() {
     print!("starting read 2... ");
     io::stdout().flush().unwrap();
 
-    let image2 = FullImage::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::fast_loading()).unwrap();
+    let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::fast_loading()).unwrap();
     println!("...read 2 successfull");
 
     assert_eq!(image, image2);
@@ -173,13 +172,13 @@ pub fn test_write_file() {
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
     ;
 
-    let image = FullImage::read_from_file(path, ReadOptions::debug()).unwrap();
+    let image = Image::read_from_file(path, ReadOptions::debug()).unwrap();
 
     let write_options = WriteOptions {
         .. WriteOptions::debug()
     };
 
-    FullImage::write_to_file(&image, "./testout/written.exr", write_options).unwrap();
+    Image::write_to_file(&image, "./testout/written.exr", write_options).unwrap();
 }
 
 #[test]
@@ -206,7 +205,7 @@ pub fn convert_to_png() {
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
     ;
 
-    let image = FullImage::read_from_file(path, ReadOptions::debug()).unwrap();
+    let image = Image::read_from_file(path, ReadOptions::debug()).unwrap();
 
     // warning: highly unscientific benchmarks ahead!
     let elapsed = now.elapsed();

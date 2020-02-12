@@ -58,6 +58,13 @@ impl Vec2<i32> {
 impl Vec2<u32> {
 
     /// Panics on too large value
+    pub fn to_usize(self) -> Vec2<usize> {
+        let x = usize::try_from(self.0).expect("max value overflow");
+        let y = usize::try_from(self.1).expect("max value overflow");
+        Vec2(x, y)
+    }
+
+    /// Panics on too large value
     pub fn to_i32(self) -> Vec2<i32> {
         let x = i32::try_from(self.0).expect("max value overflow");
         let y = i32::try_from(self.1).expect("max value overflow");

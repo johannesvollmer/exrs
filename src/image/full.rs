@@ -1,5 +1,6 @@
 
-// TODO documentation
+///! Read and write all supported aspects of an exr image, including deep data and multiresolution levels.
+///! Use `exr::image::simple` if you do not need deep data or resolution levels.
 
 use smallvec::SmallVec;
 use half::f16;
@@ -8,17 +9,30 @@ use crate::meta::*;
 use crate::meta::attributes::*;
 use crate::error::{Result, PassiveResult, Error};
 use crate::math::*;
-use std::io::{Seek, BufReader, Cursor, BufWriter};
+use std::io::{Seek, BufReader, BufWriter};
 use crate::io::Data;
-use crate::image::{WriteOptions, ReadOptions, Line, LineIndex};
+use crate::image::{Line, LineIndex};
 
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct FullImage {
+pub struct Image {
     pub parts: Parts,
 
     display_window: Box2I32,
     pixel_aspect: f32,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct WriteOptions {
+    pub parallel_compression: bool,
+    pub override_line_order: Option<LineOrder>, // TODO is this how we imagine write options?
+    pub override_blocks: Option<Blocks>, // TODO is this how we imagine write options?
+    pub override_compression: Option<Compression>, // TODO is this how we imagine write options?
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct ReadOptions {
+    pub parallel_decompression: bool,
 }
 
 /// an exr image can store multiple parts (multiple bitmaps inside one image)
@@ -119,6 +133,59 @@ pub struct DeepLine<Sample> {
 }
 
 
+impl Default for WriteOptions {
+    fn default() -> Self { Self::fast_writing() }
+}
+
+impl Default for ReadOptions {
+    fn default() -> Self { Self::fast_loading() }
+}
+
+
+impl WriteOptions {
+    pub fn fast_writing() -> Self {
+        WriteOptions {
+            parallel_compression: true,
+            override_line_order: Some(LineOrder::Unspecified),
+            override_compression: Some(Compression::Uncompressed),
+            override_blocks: None,
+        }
+    }
+
+    pub fn small_image() -> Self {
+        WriteOptions {
+            parallel_compression: true,
+            override_line_order: Some(LineOrder::Unspecified),
+            override_compression: Some(Compression::ZIP16),
+            override_blocks: None,
+        }
+    }
+
+    pub fn small_writing() -> Self {
+        WriteOptions {
+            parallel_compression: false,
+            override_line_order: Some(LineOrder::Unspecified),
+            override_compression: Some(Compression::Uncompressed),
+            override_blocks: None,
+        }
+    }
+
+    pub fn debug() -> Self {
+        WriteOptions {
+            parallel_compression: false,
+            override_line_order: None,
+            override_blocks: None,
+            override_compression: None
+        }
+    }
+}
+
+impl ReadOptions {
+    pub fn fast_loading() -> Self { ReadOptions { parallel_decompression: true } }
+    pub fn small_loading() -> Self { ReadOptions { parallel_decompression: false } }
+    pub fn debug() -> Self { ReadOptions { parallel_decompression: false } }
+}
+
 
 impl<S> std::fmt::Debug for Levels<S> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -140,57 +207,55 @@ impl<S> std::fmt::Debug for Levels<S> {
 }
 
 
-impl FullImage {
-    // TODO also return the corresponding WriteOptions which can be used to write the most similar file to this?
+impl Image {
+
+    /// Read the exr image from a file.
+    /// Use `read_from_unbuffered` instead, if you do not have a file.
     #[must_use]
     pub fn read_from_file(path: impl AsRef<std::path::Path>, options: ReadOptions) -> Result<Self> {
         Self::read_from_unbuffered(std::fs::File::open(path)?, options)
     }
 
-    /// assumes that the provided reader is not buffered, and will create a buffer for it.
+    /// Buffer the reader and then read the exr image from it.
+    /// Use `read_from_buffered` instead, if your reader is an in-memory reader.
+    /// Use `read_from_file` instead, if you have a file path.
     #[must_use]
     pub fn read_from_unbuffered(unbuffered: impl Read + Send, options: ReadOptions) -> Result<Self> {
         Self::read_from_buffered(BufReader::new(unbuffered), options)
     }
 
+    /// Read the exr image from a reader.
+    /// Use `read_from_file` instead, if you have a file path.
+    /// Use `read_from_unbuffered` instead, if this is not an in-memory reader.
+    #[must_use]
+    pub fn read_from_buffered(read: impl Read + Send, options: ReadOptions) -> Result<Self> {
+        crate::image::read_all_lines(read, options.parallel_decompression, Image::new, Image::insert_line)
+    }
 
-
+    /// Write the exr image to a file.
+    /// Use `write_to_unbuffered` instead if you do not have a file.
     #[must_use]
     pub fn write_to_file(&self, path: impl AsRef<std::path::Path>, options: WriteOptions) -> PassiveResult {
         self.write_to_unbuffered(std::fs::File::create(path)?, options)
     }
 
-    /// needs more memory but allows for non-seeking write operations
-    #[must_use]
-    pub fn write_without_seek(&self, mut unbuffered: impl Write, options: WriteOptions) -> PassiveResult {
-        let mut bytes = Vec::new();
-
-        // write the image to the seekable vec
-        self.write_to_buffered(Cursor::new(&mut bytes), options)?;
-
-        // write the vec into the actual output
-        unbuffered.write_all(&bytes)?;
-        Ok(())
-    }
-
-    /// assumes that the provided reader is not buffered, and will create a buffer for it
+    /// Buffer the reader and then write the exr image to it.
+    /// Use `read_from_buffered` instead, if your reader is an in-memory writer.
+    /// Use `read_from_file` instead, if you have a file path.
+    /// If your writer cannot seek, you can write to an in-memory vector of bytes first, using `write_to_buffered`.
     #[must_use]
     pub fn write_to_unbuffered(&self, unbuffered: impl Write + Seek, options: WriteOptions) -> PassiveResult {
         self.write_to_buffered(BufWriter::new(unbuffered), options)
     }
 
-    /// assumes the reader is buffered (if desired)
-    #[must_use]
-    pub fn read_from_buffered(read: impl Read + Send, options: ReadOptions) -> Result<Self> {
-        crate::image::read_all_lines(read, options, FullImage::new, FullImage::insert_line)
-    }
-
-
-    /// assumes the reader is buffered
+    /// Write the exr image from a reader.
+    /// Use `read_from_file` instead, if you have a file path.
+    /// Use `read_from_unbuffered` instead, if this is not an in-memory writer.
+    /// If your writer cannot seek, you can write to an in-memory vector of bytes first.
     #[must_use]
     pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions) -> PassiveResult {
         crate::image::write_all_lines_to_buffered(
-            write, options, self.infer_meta_data()?,
+            write, options.parallel_compression, self.infer_meta_data(options)?,
             |location| {
                 let mut bytes = Vec::new(); // TODO avoid allocation for each line?
                 self.extract_line(location, &mut bytes)?;
@@ -200,7 +265,7 @@ impl FullImage {
     }
 }
 
-impl FullImage {
+impl Image {
     pub fn new(headers: &[Header]) -> Result<Self> {
         let mut display = headers.iter()
             .map(|header| header.display_window);
@@ -216,7 +281,7 @@ impl FullImage {
 
         let headers : Result<_> = headers.iter().map(Part::new).collect();
 
-        Ok(FullImage {
+        Ok(Image {
             parts: headers?,
             display_window, pixel_aspect
         })
@@ -240,8 +305,8 @@ impl FullImage {
         part.extract_line(index, write)
     }
 
-    pub fn infer_meta_data(&self) -> Result<MetaData> {
-        let headers: Result<Headers> = self.parts.iter().map(|part| part.infer_header(self.display_window, self.pixel_aspect)).collect();
+    pub fn infer_meta_data(&self, options: WriteOptions) -> Result<MetaData> {
+        let headers: Result<Headers> = self.parts.iter().map(|part| part.infer_header(self.display_window, self.pixel_aspect, options)).collect();
 
         let headers = headers?;
         let has_tiles = headers.iter().any(|header| header.blocks.has_tiles());
@@ -306,7 +371,7 @@ impl Part {
             .extract_line(index, write)
     }
 
-    pub fn infer_header(&self, display_window: Box2I32, pixel_aspect: f32) -> Result<Header> {
+    pub fn infer_header(&self, display_window: Box2I32, pixel_aspect: f32, options: WriteOptions) -> Result<Header> {
 //      TODO  assert!(self.channels.is_sorted_by_key(|c| c.name));
 
         let chunk_count = compute_chunk_count(
@@ -319,8 +384,8 @@ impl Part {
             data_window: self.data_window,
             screen_window_center: self.screen_window_center,
             screen_window_width: self.screen_window_width,
-            compression: self.compression,
-            blocks: self.blocks,
+            compression: options.override_compression.unwrap_or(self.compression),
+            blocks: options.override_blocks.unwrap_or(self.blocks),
             name: self.name.clone(),
 
             channels: ChannelList::new(self.channels.iter().map(|channel| attributes::Channel {
@@ -335,7 +400,7 @@ impl Part {
                 sampling: Vec2::try_from(channel.sampling).unwrap()
             }).collect()),
 
-            line_order: self.line_order,
+            line_order: options.override_line_order.unwrap_or(self.line_order),
 
 
             // TODO deep/multipart data:

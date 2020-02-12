@@ -167,6 +167,7 @@ image.write_to_file("/images/written.exr", WriteOptions::default())?;
 - [ ] reduce all not required `pub` usages
 - [ ] revisit all TODO items
 - [ ] remove all `as` casts 
+- [ ] revisit all `[unchecked_index]` array accesses
 
 
 ### Motivation

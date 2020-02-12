@@ -60,7 +60,7 @@ pub fn stochastic(){
 
 // should not panic
 pub fn test_bytes(bytes: &[u8]) {
-    let _result = bencher::black_box(exr::image::full::FullImage::read_from_buffered(
+    let _result = bencher::black_box(exr::image::full::Image::read_from_buffered(
         bytes, ReadOptions::debug()
     ));
 }

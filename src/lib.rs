@@ -51,13 +51,7 @@ pub mod prelude {
     // main exports
     pub use crate::meta::MetaData;
 
-    // core data types
-    pub use crate::image::{
-        full::{ FullImage },
-        ReadOptions, WriteOptions,
-    };
-
-    pub use crate::image::full;
+    pub use crate::image::{full, simple};
 
     // secondary data types
     pub use crate::meta;
