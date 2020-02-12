@@ -181,11 +181,6 @@ impl Compression {
             let bytes = bytes
                 .map_err(|_| Error::invalid(format!("compressed data ({:?})", self)))?;
 
-//            debug_assert_eq!(
-//                bytes.len(), expected_byte_size,
-//                "compression size mismatch: expected {}, found {}", expected_byte_size, bytes.len()
-//            );
-
             if bytes.len() != expected_byte_size {
                 Err(Error::invalid("decompressed data"))
             }
