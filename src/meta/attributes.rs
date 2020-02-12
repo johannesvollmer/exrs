@@ -290,12 +290,14 @@ impl Text {
             None => true,
         };
 
-        if is_valid { Ok(()) } else {
-            if long_names.unwrap() {
-                Err(Error::invalid("text longer than 255"))
-            }
-            else {
-                Err(Error::invalid("text longer than 31"))
+        if is_valid {
+            Ok(())
+        }
+        else {
+            match long_names {
+                Some(true) => Err(Error::invalid("text longer than 255")),
+                Some(false) => Err(Error::invalid("text longer than 31")),
+                None => Err(Error::invalid("text is empty"))
             }
         }
     }
@@ -330,9 +332,11 @@ impl Text {
 
     /// Read the contents with that length.
     pub fn read_sized<R: Read>(read: &mut R, size: usize) -> Result<Self> {
+        const SMALL_SIZE: usize  = 24;
+
         // for small strings, read into small vec without heap allocation
-        if size <= 24 {
-            let mut buffer = [0_u8; 24];
+        if size <= SMALL_SIZE {
+            let mut buffer = [0_u8; SMALL_SIZE];
             let data = &mut buffer[..size];
 
             read.read_exact(data)?;
@@ -347,10 +351,7 @@ impl Text {
 
     /// Write the string contents and a null-terminator.
     pub fn write_null_terminated<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> PassiveResult {
-        if self.bytes.is_empty() { return Err(Error::invalid("text is empty")) } // required to avoid mixup with "sequece_end"
-        Self::write_unsized_bytes(self.bytes.as_slice(), write, long_names)?;
-        sequence_end::write(write)?;
-        Ok(())
+        Self::write_null_terminated_bytes(self.bytes(), write, long_names)
     }
 
     /// Write the string contents and a null-terminator.
@@ -366,13 +367,13 @@ impl Text {
         let mut bytes = SmallVec::new();
 
         loop {
-            if bytes.len() >= max_len {
-                return Err(Error::invalid("text too long"))
-            }
-
             match u8::read(read)? {
                 0 => break,
                 non_terminator => bytes.push(non_terminator),
+            }
+
+            if bytes.len() > max_len {
+                return Err(Error::invalid("text too long"))
             }
         }
 
@@ -398,7 +399,11 @@ impl Text {
             result.push(text);
         }
 
-        debug_assert_eq!(processed_bytes, total_byte_size, "text lengths did not match attribute size");
+        // the expected byte size did not match the actual text byte size
+        if processed_bytes != total_byte_size {
+            return Err(Error::invalid("text array byte size"))
+        }
+
         Ok(result)
     }
 
@@ -441,6 +446,7 @@ impl ::std::fmt::Display for Text {
 
 
 impl ChannelList {
+
     /// Sorts the channels and calculates the bytes required for a single pixel.
     pub fn new(mut channels: SmallVec<[Channel; 5]>) -> Self {
         channels.sort_by(|a, b| a.name.cmp(&b.name));
@@ -457,14 +463,14 @@ impl BlockType {
     const TYPE_NAME: &'static [u8] = attribute_type_names::TEXT;
 
     pub fn parse(text: Text) -> Result<Self> {
-        match text.bytes.as_slice() {
+        match text.bytes() {
             block_type_strings::SCAN_LINE => Ok(BlockType::ScanLine),
             block_type_strings::TILE => Ok(BlockType::Tile),
 
             block_type_strings::DEEP_SCAN_LINE => Ok(BlockType::DeepScanLine),
             block_type_strings::DEEP_TILE => Ok(BlockType::DeepTile),
 
-            _ => Err(Error::invalid("chunk segmentation method attribute value")),
+            _ => Err(Error::invalid("block type attribute value")),
         }
     }
 
@@ -489,6 +495,7 @@ impl BlockType {
 
 
 impl Box2I32 {
+
     /// Create a box with a size starting at zero.
     pub fn from_dimensions(size: Vec2<u32>) -> Self {
         Self::new(Vec2(0,0), size)
@@ -503,10 +510,10 @@ impl Box2I32 {
     /// The row and column described by this vector are not included in the rectangle,
     /// just like `Vec::len()`.
     pub fn end(self) -> Vec2<i32> {
-        self.start + Vec2::try_from(self.size).unwrap()
+        self.start + self.size.to_i32("box size").unwrap() // larger than max int32 is panic
     }
 
-    /// Returns the maximum index a value in this rectangle may have.
+    /// Returns the maximum coordinate that a value in this rectangle may have.
     pub fn max(self) -> Vec2<i32> {
         self.end() - Vec2(1,1)
     }
@@ -666,13 +673,9 @@ impl Channel {
         let x_sampling = i32::read(read)?;
         let y_sampling = i32::read(read)?;
 
-        if x_sampling < 0 || y_sampling < 0 {
-            return Err(Error::invalid("channel sampling value"))
-        }
-
         Ok(Channel {
             name, pixel_type, is_linear,
-            sampling: Vec2::try_from(Vec2(x_sampling, y_sampling)).unwrap(),
+            sampling: Vec2(x_sampling, y_sampling).to_u32("channel sampling value")?,
         })
     }
 
@@ -680,9 +683,17 @@ impl Channel {
         channels.list.iter().map(Channel::byte_size).sum::<usize>() + sequence_end::byte_size()
     }
 
+    /// Assumes channels are sorted alphabetically.
     pub fn write_all<W: Write>(channels: &ChannelList, write: &mut W, long_names: bool) -> PassiveResult {
-        // FIXME validate if channel names are sorted alphabetically
-        // debug_assert!(channels.list.is_sorted_by(|a| a.name));
+        debug_assert_eq!(
+            {
+                let mut cloned = channels.list.clone();
+                cloned.sort_by_key(|c| c.name.clone());
+                cloned
+            },
+            channels.list,
+            "channels must be sorted"
+        );
 
         for channel in &channels.list {
             channel.write(write, long_names)?;
