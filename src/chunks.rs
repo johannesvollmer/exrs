@@ -99,6 +99,7 @@ pub struct DeepScanLineBlock {
 /// Corresponds to type attribute `deeptile`.
 #[derive(Debug, Clone)]
 pub struct DeepTileBlock {
+
     /// The tile location.
     pub coordinates: TileCoordinates,
 
@@ -143,22 +144,22 @@ impl TileCoordinates {
     /// The indices which can be used to index into the arrays of a data window.
     /// These coordinates are only valid inside the corresponding one header.
     /// Will start at 0 and always be positive.
-    pub fn to_data_indices(&self, tile_size: Vec2<u32>, max: Vec2<u32>) -> Box2I32 {
-        let start = Vec2::try_from(self.tile_index).unwrap() * tile_size;
+    pub fn to_data_indices(&self, tile_size: Vec2<u32>, max: Vec2<u32>) -> Result<Box2I32> {
+        let start = self.tile_index.to_u32("tile index")? * tile_size;
 
-        Box2I32 {
-            start: Vec2::try_from(start).unwrap(),
+        Ok(Box2I32 {
+            start: start.to_i32("box start")?,
             size: Vec2(
-                calculate_block_size(max.0, tile_size.0, start.0),
-                calculate_block_size(max.1, tile_size.0, start.1),
+                calculate_block_size(max.0, tile_size.0, start.0)?,
+                calculate_block_size(max.1, tile_size.0, start.1)?,
             ),
-        }
+        })
     }
 
     /// Absolute coordinates inside the global 2D space of a file, may be negative.
-    pub fn to_absolute_indices(&self, tile_size: Vec2<u32>, data_window: Box2I32) -> Box2I32 {
-        let data = self.to_data_indices(tile_size, data_window.size);
-        data.with_origin(data_window.start)
+    pub fn to_absolute_indices(&self, tile_size: Vec2<u32>, data_window: Box2I32) -> Result<Box2I32> {
+        let data = self.to_data_indices(tile_size, data_window.size)?;
+        Ok(data.with_origin(data_window.start))
     }
 }
 
@@ -214,11 +215,13 @@ impl DeepScanLineBlock {
         // TODO don't just panic-cast
         // doc said i32, try u8
         let compressed_pixel_offset_table = i8::read_vec(
-            read, compressed_pixel_offset_table_size as usize, 6 * std::u16::MAX as usize, Some(max_block_byte_size)
+            read, compressed_pixel_offset_table_size as usize,
+            6 * std::u16::MAX as usize, Some(max_block_byte_size)
         )?;
 
         let compressed_sample_data = u8::read_vec(
-            read, compressed_sample_data_size as usize, 6 * std::u16::MAX as usize, Some(max_block_byte_size)
+            read, compressed_sample_data_size as usize,
+            6 * std::u16::MAX as usize, Some(max_block_byte_size)
         )?;
 
         Ok(DeepScanLineBlock {
@@ -249,11 +252,13 @@ impl DeepTileBlock {
         let decompressed_sample_data_size = u64::read(read)?;
 
         let compressed_pixel_offset_table = i8::read_vec(
-            read, compressed_pixel_offset_table_size, 6 * std::u16::MAX as usize, Some(hard_max_block_byte_size)
+            read, compressed_pixel_offset_table_size,
+            6 * std::u16::MAX as usize, Some(hard_max_block_byte_size)
         )?;
 
         let compressed_sample_data = u8::read_vec(
-            read, compressed_sample_data_size, 6 * std::u16::MAX as usize, Some(hard_max_block_byte_size)
+            read, compressed_sample_data_size,
+            6 * std::u16::MAX as usize, Some(hard_max_block_byte_size)
         )?;
 
         Ok(DeepTileBlock {
@@ -271,7 +276,7 @@ use crate::math::Vec2;
 /// Validation of chunks is done while reading and writing the actual data. (For example in exr::full_image)
 impl Chunk {
     pub fn write(&self, write: &mut impl Write, headers: &[Header]) -> PassiveResult {
-        debug_assert!(self.part_number < headers.len() as i32);
+        debug_assert!(self.part_number < headers.len() as i32); // validation is done in full_image or simple_image
 
         if headers.len() != 1 { self.part_number.write(write)?; }
         else { assert_eq!(self.part_number, 0); }
@@ -287,7 +292,7 @@ impl Chunk {
     pub fn read(read: &mut impl Read, meta_data: &MetaData) -> Result<Self> {
         let part_number = {
             if meta_data.requirements.is_multipart() { i32::read(read)? } // documentation says u64, but is i32
-            else { 0_i32 } // use first header for single-part images
+            else { 0_i32 } // reference the first header for single-part images
         };
 
         if part_number < 0 || part_number >= meta_data.headers.len() as i32 {
@@ -295,7 +300,7 @@ impl Chunk {
         }
 
         let header = &meta_data.headers[part_number as usize];
-        let max_block_byte_size = header.max_block_byte_size().min(std::u16::MAX as usize * 16);
+        let max_block_byte_size = header.max_block_byte_size();
 
         let chunk = Chunk {
             part_number,

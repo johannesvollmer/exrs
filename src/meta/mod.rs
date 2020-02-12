@@ -275,23 +275,29 @@ pub fn compute_block_count(full_res: u32, tile_size: u32) -> u32 {
 
 /// Compute the start position and size of a block inside a dimension.
 #[inline]
-pub fn calculate_block_position_and_size(total_size: u32, block_size: u32, block_index: u32) -> (u32, u32) {
+pub fn calculate_block_position_and_size(total_size: u32, block_size: u32, block_index: u32) -> Result<(u32, u32)> {
     let block_position = block_size * block_index;
-    (block_position, calculate_block_size(total_size, block_size, block_position))
+
+    Ok((
+        block_position,
+        calculate_block_size(total_size, block_size, block_position)?
+    ))
 }
 
 /// Calculate the size of a single block. If this is the last block,
 /// this only returns the required size, which is always smaller than the default block size.
 // TODO use this method everywhere instead of convoluted formulas
 #[inline]
-pub fn calculate_block_size(total_size: u32, block_size: u32, block_position: u32) -> u32 {
-    debug_assert!(block_position < total_size, "pos: {}, size: {}", block_position, total_size);
+pub fn calculate_block_size(total_size: u32, block_size: u32, block_position: u32) -> Result<u32> {
+    if block_position >= total_size {
+        return Err(Error::invalid("block index"))
+    }
 
     if block_position + block_size <= total_size {
-        block_size
+        Ok(block_size)
     }
     else {
-        total_size - block_position
+        Ok(total_size - block_position)
     }
 }
 
@@ -485,12 +491,15 @@ impl MetaData {
 
 
 impl Header {
+
     /// Iterate over all tile indices in this header in `LineOrder::Increasing` order.
     pub fn blocks_increasing_y_order(&self) -> impl Iterator<Item = TileIndices> + ExactSizeIterator + DoubleEndedIterator {
         fn tiles_of(image_size: Vec2<u32>, tile_size: Vec2<u32>, level_index: Vec2<u32>) -> impl Iterator<Item=TileIndices> {
             fn divide_and_rest(total_size: u32, block_size: u32) -> impl Iterator<Item=(u32, u32)> {
                 let block_count = compute_block_count(total_size, block_size);
-                (0..block_count).map(move |block_index| (block_index, calculate_block_size(total_size, block_size, block_index)))
+                (0..block_count).map(move |block_index| (
+                    block_index, calculate_block_size(total_size, block_size, block_index).expect("block size calculation bug")
+                ))
             }
 
             divide_and_rest(image_size.1, tile_size.1).flat_map(move |(y_index, tile_height)|{
@@ -553,7 +562,7 @@ impl Header {
 
             let data_width = compute_level_size(round, data_width, tile.level_index.0 as u32);
             let data_height = compute_level_size(round, data_height, tile.level_index.1 as u32);
-            let absolute_tile_coordinates = tile.to_data_indices(tile_size, Vec2(data_width, data_height));
+            let absolute_tile_coordinates = tile.to_data_indices(tile_size, Vec2(data_width, data_height))?;
 
             if absolute_tile_coordinates.start.0 >= data_width as i32 || absolute_tile_coordinates.start.1 >= data_height as i32 {
                 return Err(Error::invalid("data block tile index"))
@@ -568,7 +577,7 @@ impl Header {
                 self.data_window.size.1,
                 self.compression.scan_lines_per_block(),
                 tile.tile_index.1 as u32
-            );
+            )?;
 
             Box2I32 {
                 start: Vec2(0, y as i32),

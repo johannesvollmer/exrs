@@ -5,7 +5,7 @@
 ///! Simple math utilities.
 
 use std::convert::TryFrom;
-use crate::error::{i32_to_u32, i32_to_usize};
+use crate::error::{i32_to_u32, i32_to_usize, u32_to_i32};
 use crate::error::Result;
 
 /// Simple two-dimensional vector of any numerical type.
@@ -50,6 +50,17 @@ impl Vec2<i32> {
     pub fn to_u32(self, error_message: &'static str) -> Result<Vec2<u32>> {
         let x = i32_to_u32(self.0, error_message)?;
         let y = i32_to_u32(self.1, error_message)?;
+        Ok(Vec2(x, y))
+    }
+}
+
+
+impl Vec2<u32> {
+
+    /// Try to convert to `Vec2<u32>`, returning an error on negative numbers.
+    pub fn to_i32(self, error_message: &'static str) -> Result<Vec2<i32>> {
+        let x = u32_to_i32(self.0, error_message)?;
+        let y = u32_to_i32(self.1, error_message)?;
         Ok(Vec2(x, y))
     }
 }
