@@ -239,7 +239,7 @@ pub fn read_filtered_chunks_from_buffered<'m>(
     for (header_index, header) in meta_data.headers.iter().enumerate() {
         for (block_index, block) in header.blocks_increasing_y_order().enumerate() { // in increasing_y order
             if filter(header, &block) {
-                offsets.push(offset_tables[header_index][block_index])
+                offsets.push(offset_tables[header_index][block_index]) // safe indexing from `enumerate()`
             }
         };
     }
@@ -341,7 +341,7 @@ pub fn write_all_lines_to_buffered(
                     }
                 };
 
-                offset_tables[part_index][chunk_index] = write.byte_position() as u64;
+                offset_tables[part_index][chunk_index] = write.byte_position() as u64; // safe indices from `enumerate()`
                 chunk.write(&mut write, meta_data.headers.as_slice())?;
 
                 Ok(())

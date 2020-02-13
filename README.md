@@ -175,14 +175,14 @@ See the examples folder for a full example.
 
 ### Cleanup Tasks Before Version 1.0
 - [x] remove all calls to `Option::unwrap()` and `Result::unwrap()` (except for tests)
-- [ ] remove all print statements
+- [ ] remove all irrelevant print statements
 - [ ] remove inappropriate `assert!` and `debug_assert!` calls,
         all `unimplemented!` calls,
         and use real Error handling instead
-- [ ] reduce all not required `pub` usages
+- [x] reduce all not required `pub` usages
 - [ ] revisit all TODO items
-- [ ] remove all `as` casts 
-- [ ] revisit all `[unchecked_index]` array accesses
+- [x] revisit all `as` casts 
+- [x] revisit all `[unchecked_index]` array accesses
 
 
 ### Motivation

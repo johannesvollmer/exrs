@@ -244,14 +244,14 @@ mod optimize_bytes {
     /// Integrate over all differences to the previous value in order to reconstruct sample values.
     pub fn differences_to_samples(buffer: &mut [u8]){
         for index in 1..buffer.len() {
-            buffer[index] = (buffer[index - 1] as i32 + buffer[index] as i32 - 128) as u8;
+            buffer[index] = (buffer[index - 1] as i32 + buffer[index] as i32 - 128) as u8; // index unsafe but handled with care and unit-tested
         }
     }
 
     /// Derive over all values in order to produce differences to the previous value.
     pub fn samples_to_differences(buffer: &mut [u8]){
         for index in (1..buffer.len()).rev() {
-            buffer[index] = (buffer[index] as i32 - buffer[index - 1] as i32 + 128) as u8;
+            buffer[index] = (buffer[index] as i32 - buffer[index - 1] as i32 + 128) as u8; // index unsafe but handled with care and unit-tested
         }
     }
 
@@ -268,12 +268,12 @@ mod optimize_bytes {
 
         loop {
             if interleaved.len() < separated.len() {
-                interleaved.push(first_half[first_half_index]);
+                interleaved.push(first_half[first_half_index]); // index unsafe but handled with care and unit-tested
                 first_half_index += 1;
             } else { break; }
 
             if interleaved.len() < separated.len() {
-                interleaved.push(second_half[second_half_index]);
+                interleaved.push(second_half[second_half_index]); // index unsafe but handled with care and unit-tested
                 second_half_index += 1;
             } else { break; }
         }
@@ -291,13 +291,13 @@ mod optimize_bytes {
         // TODO rustify!
         loop {
             if interleaved_index < source.len() {
-                first_half.push(source[interleaved_index]);
+                first_half.push(source[interleaved_index]); // index unsafe but handled with care and unit-tested
                 interleaved_index += 1;
 
             } else { break; }
 
             if interleaved_index < source.len() {
-                second_half.push(source[interleaved_index]);
+                second_half.push(source[interleaved_index]); // index unsafe but handled with care and unit-tested
                 interleaved_index += 1;
 
             } else { break; }
