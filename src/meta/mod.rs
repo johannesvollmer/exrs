@@ -439,6 +439,9 @@ impl MetaData {
         let meta = MetaData { requirements, headers };
         meta.validate()?;
 
+        // TODO only validate the read data that may produce errors later on,
+        //      not because of missing attributes that nobody needs
+
         Ok(meta)
     }
 
@@ -624,6 +627,11 @@ impl Header {
             if self.name.is_none() { // TODO only be pedantic on write, but not on read?
                 return Err(missing_attribute("image part name"));
             }
+        }
+
+        self.channels.validate()?;
+        for attribute in &self.custom_attributes {
+            attribute.validate()?;
         }
 
         if self.deep {

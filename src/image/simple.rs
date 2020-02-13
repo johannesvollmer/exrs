@@ -262,6 +262,7 @@ impl Image {
 
     /// Read the exr image from a file.
     /// Use `read_from_unbuffered` instead, if you do not have a file.
+    /// Returns an empty image in case only deep data exists in the file.
     #[must_use]
     pub fn read_from_file(path: impl AsRef<std::path::Path>, options: ReadOptions) -> Result<Self> {
         Self::read_from_unbuffered(std::fs::File::open(path)?, options)
@@ -586,21 +587,14 @@ impl Channel {
     /// Insert one line of pixel data into this channel.
     pub fn insert_line(&mut self, line: Line<'_>, resolution: Vec2<usize>) -> PassiveResult {
         assert_eq!(line.location.level, Vec2(0,0));
-
-        self.samples.insert_line(resolution / self.sampling, line) // FIXME divide by sampling????
+        self.samples.insert_line(resolution / self.sampling, line)
     }
 
     /// Read one line of pixel data from this channel.
     /// Panics for an invalid index or write error.
     pub fn extract_line(&self, index: LineIndex, resolution: Vec2<usize>, write: &mut impl Write) {
         debug_assert_eq!(index.level, Vec2(0,0));
-
-        self.samples.extract_line(index, resolution / self.sampling, write) // FIXME divide by sampling????
-//        match &self.sample_block {
-//            Samples::F16(block) => block.extract_line(index, write), // FIXME divide by sampling????
-//            Samples::F32(block) => block.extract_line(index, write),
-//            Samples::U32(block) => block.extract_line(index, write),
-//        }
+        self.samples.extract_line(index, resolution / self.sampling, write)
     }
 
     /// Create the meta data that describes this channel.

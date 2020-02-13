@@ -456,10 +456,8 @@ impl ::std::fmt::Display for Text {
 
 impl ChannelList {
 
-    /// Sorts the channels and calculates the bytes required for a single pixel.
-    pub fn new(mut channels: SmallVec<[Channel; 5]>) -> Self {
-        channels.sort_by(|a, b| a.name.cmp(&b.name)); // TODO assert sorted instead
-
+    /// Does not validate channel order.
+    pub fn new(channels: SmallVec<[Channel; 5]>) -> Self {
         ChannelList {
             bytes_per_pixel: channels.iter().map(|channel| channel.pixel_type.bytes_per_sample()).sum(),
             list: channels,
@@ -693,23 +691,24 @@ impl Channel {
         })
     }
 
-    pub fn list_byte_size(channels: &ChannelList) -> usize {
-        channels.list.iter().map(Channel::byte_size).sum::<usize>() + sequence_end::byte_size()
+    pub fn validate(&self) -> PassiveResult {
+        if self.sampling.0 == 0 || self.sampling.1 == 0 {
+            return Err(Error::invalid("zero sampling factor"))
+        }
+
+        Ok(())
+    }
+}
+
+impl ChannelList {
+    // TODO instead of pre calculating byte size, write to a tmp buffer whose length is inspected before actually writing?
+    pub fn byte_size(&self) -> usize {
+        self.list.iter().map(Channel::byte_size).sum::<usize>() + sequence_end::byte_size()
     }
 
     /// Assumes channels are sorted alphabetically.
-    pub fn write_all<W: Write>(channels: &ChannelList, write: &mut W, long_names: bool) -> PassiveResult {
-        debug_assert_eq!(
-            {
-                let mut cloned = channels.list.clone();
-                cloned.sort_by_key(|c| c.name.clone());
-                cloned
-            },
-            channels.list,
-            "channels must be sorted"
-        );
-
-        for channel in &channels.list {
+    pub fn write(&self, write: &mut impl Write, long_names: bool) -> PassiveResult {
+        for channel in &self.list {
             channel.write(write, long_names)?;
         }
 
@@ -717,13 +716,27 @@ impl Channel {
         Ok(())
     }
 
-    pub fn read_all(read: &mut PeekRead<impl Read>) -> Result<ChannelList> {
+    pub fn read(read: &mut PeekRead<impl Read>) -> Result<Self> {
         let mut channels = SmallVec::new();
         while !sequence_end::has_come(read)? {
             channels.push(Channel::read(read)?);
         }
 
         Ok(ChannelList::new(channels))
+    }
+
+    pub fn validate(&self) -> PassiveResult {
+        let mut iter = self.list.iter().map(|chan| chan.validate().map(|_| &chan.name));
+        let mut previous = iter.next().ok_or(Error::invalid("at least one channel is required"))??;
+
+        for result in iter {
+            let value = result?;
+            if previous == value { return Err(Error::invalid("channel names are not unique")); }
+            else if previous > value { return Err(Error::invalid("channel names are not sorted alphabetically")); }
+            else { previous = value; }
+        }
+
+        Ok(())
     }
 }
 
@@ -879,15 +892,6 @@ impl LineOrder {
 }
 
 impl Preview {
-    pub fn validate(&self) -> PassiveResult {
-        if self.size.0 * self.size.1 * 4 != self.pixel_data.len() as u32 {
-            Err(Error::invalid("preview dimensions do not match content length"))
-        }
-        else {
-            Ok(())
-        }
-    }
-
     pub fn byte_size(&self) -> usize {
         2 * u32::BYTE_SIZE + self.pixel_data.len()
     }
@@ -913,8 +917,15 @@ impl Preview {
             pixel_data,
         };
 
-        preview.validate()?;
         Ok(preview)
+    }
+
+    pub fn validate(&self) -> PassiveResult {
+        if self.size.0 * self.size.1 * 4 != self.pixel_data.len() as u32 {
+            return Err(Error::invalid("preview dimensions do not match content length"))
+        }
+
+        Ok(())
     }
 }
 
@@ -976,6 +987,14 @@ impl TileDescription {
 
         Ok(TileDescription { tile_size: Vec2(x_size, y_size), level_mode, rounding_mode, })
     }
+
+    pub fn validate(&self) -> PassiveResult {
+        if self.tile_size.0 == 0 || self.tile_size.1 == 0 {
+            return Err(Error::invalid("zero tile size"))
+        }
+
+        Ok(())
+    }
 }
 
 impl Attribute {
@@ -1008,6 +1027,10 @@ impl Attribute {
         let value = AnyValue::read(read, kind, size)?;
         Ok(Attribute { name, value, })
     }
+
+    pub fn validate(&self) -> PassiveResult {
+        self.value.validate()
+    }
 }
 
 
@@ -1032,7 +1055,7 @@ impl AnyValue {
             I32Vec3(_) => { 3 * i32::BYTE_SIZE },
             F32Vec3(_) => { 3 * f32::BYTE_SIZE },
 
-            ChannelList(ref channels) => Channel::list_byte_size(channels),
+            ChannelList(ref channels) => channels.byte_size(),
             Chromaticities(_) => self::Chromaticities::byte_size(),
             Compression(_) => self::Compression::byte_size(),
             EnvironmentMap(_) => self::EnvironmentMap::byte_size(),
@@ -1108,7 +1131,7 @@ impl AnyValue {
             I32Vec3((x, y, z)) => { x.write(write)?; y.write(write)?; z.write(write)?; },
             F32Vec3((x, y, z)) => { x.write(write)?; y.write(write)?; z.write(write)?; },
 
-            ChannelList(ref channels) => Channel::write_all(channels, write, long_names)?,
+            ChannelList(ref channels) => channels.write(write, long_names)?,
             Chromaticities(ref value) => value.write(write)?,
             Compression(value) => value.write(write)?,
             EnvironmentMap(value) => value.write(write)?,
@@ -1184,7 +1207,7 @@ impl AnyValue {
                 (a, b, c)
             }),
 
-            ty::CHANNEL_LIST    => ChannelList(self::Channel::read_all(read)?),
+            ty::CHANNEL_LIST    => ChannelList(self::ChannelList::read(read)?),
             ty::CHROMATICITIES  => Chromaticities(self::Chromaticities::read(read)?),
             ty::COMPRESSION     => Compression(self::Compression::read(read)?),
             ty::ENVIRONMENT_MAP => EnvironmentMap(self::EnvironmentMap::read(read)?),
@@ -1218,6 +1241,19 @@ impl AnyValue {
                 Custom { kind, bytes }
             }
         })
+    }
+
+    pub fn validate(&self) -> PassiveResult {
+        use self::AnyValue::*;
+
+        match *self {
+            ChannelList(ref channels) => channels.validate()?,
+            TileDescription(ref value) => value.validate()?,
+            Preview(ref value) => value.validate()?,
+            _ => {}
+        };
+
+        Ok(())
     }
 
     pub fn to_tile_description(&self) -> Result<TileDescription> {

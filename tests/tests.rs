@@ -17,7 +17,7 @@ use std::cmp::Ordering;
 use std::convert::TryInto;
 use exr::compression::Compression;
 use exr::meta::attributes::Box2I32;
-use rand::{random, Rng};
+use rand::{Rng};
 
 
 #[test]
@@ -25,7 +25,7 @@ fn test_write() {
     fn generate_values(size: Vec2<usize>) -> Vec<f32> {
         let mut values = vec![ 0.5; size.area() ];
 
-        for _ in 0..1024 {
+        for _ in 0..1024*1024/7 {
             let index = rand::thread_rng().gen_range(0, values.len());
             values[index] = rand::random();
         }
@@ -51,15 +51,15 @@ fn test_write() {
     );
 
     let image = simple::Image::new_from_single_part(simple::Part::new(
-        "test-image".try_into().unwrap(), Compression::RLE,
-        Box2I32::from_dimensions(size.to_u32()), smallvec![ r, g, b ],
+        "test-image".try_into().unwrap(),
+        Compression::RLE,
+        Box2I32::from_dimensions(size.to_u32()),
+        smallvec![ r, g, b ],
     ));
 
-    // println!("writing image {:#?}", image);
+    // println!("writing image {:#?}", image); FIXME do not print pixel values
 
     image.write_to_file("./testout/constructed.exr", simple::WriteOptions::debug()).unwrap();
-
-
 }
 
 

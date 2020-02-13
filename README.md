@@ -134,6 +134,7 @@ __Currently supported:__
     - [x] Image part name is required for multipart images
     - [ ] Enforce minimum length of 1 for arrays
     - [ ] Validate data_window matches data size when writing images
+    - [ ] Channel names and image part names must be unique
 
 - [ ] Explore different APIs
     - [ ] Let user decide how to store data
