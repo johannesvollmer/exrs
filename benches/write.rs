@@ -3,6 +3,7 @@ extern crate bencher;
 
 extern crate exr;
 use exr::prelude::*;
+use exr::image::full::*;
 
 use bencher::Bencher;
 use std::io::Cursor;
@@ -15,11 +16,11 @@ fn write_single_image_parallel_zip(bench: &mut Bencher) {
         .. ReadOptions::default()
     };
 
-    let image = FullImage::read_from_file(path, options).unwrap();
+    let image = Image::read_from_file(path, options).unwrap();
 
     bench.iter(||{
         let mut result = Vec::new();
-        FullImage::write_to_buffered(&image, Cursor::new(&mut result), WriteOptions::debug()).unwrap();
+        Image::write_to_buffered(&image, Cursor::new(&mut result), WriteOptions::debug()).unwrap();
         bencher::black_box(result);
     })
 }

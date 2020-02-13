@@ -2,7 +2,7 @@
 extern crate bencher;
 
 extern crate exr;
-use exr::prelude::*;
+use exr::image::full;
 
 use bencher::Bencher;
 use std::fs;

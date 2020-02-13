@@ -6,13 +6,12 @@
 //! It will be made public as soon as deep data is supported.
 
 // Tasks:
-// - [ ] fix channel sampling allocation size
+// - [x] fix channel sampling allocation size
 // - [ ] nice api to construct and inspect images
 //      - [ ] validation
 // - [ ] deep data
 
 #![doc(hidden)]
-#![cfg(debug_assertions)]
 
 use smallvec::SmallVec;
 use half::f16;
@@ -537,16 +536,16 @@ impl Part {
 impl Channel {
 
     /// Allocate a channel ready to be filled with pixel data.
-    pub fn allocate(header: &Header, channel: &crate::meta::attributes::Channel) -> Self {
+    pub fn allocate(header: &Header, channel: &attributes::Channel) -> Self {
         Channel {
             name: channel.name.clone(),
             is_linear: channel.is_linear,
             sampling: channel.sampling.to_usize(),
 
             content: match channel.pixel_type {
-                PixelType::F16 => ChannelData::F16(SampleMaps::allocate(header)), // FIXME divide by sampling????
-                PixelType::F32 => ChannelData::F32(SampleMaps::allocate(header)),
-                PixelType::U32 => ChannelData::U32(SampleMaps::allocate(header)),
+                PixelType::F16 => ChannelData::F16(SampleMaps::allocate(header, channel)), // FIXME divide by sampling????
+                PixelType::F32 => ChannelData::F32(SampleMaps::allocate(header, channel)),
+                PixelType::U32 => ChannelData::U32(SampleMaps::allocate(header, channel)),
             },
         }
     }
@@ -590,12 +589,12 @@ impl Channel {
 impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
 
     /// Allocate a collection of resolution maps ready to be filled with pixel data.
-    pub fn allocate(header: &Header) -> Self {
+    pub fn allocate(header: &Header, channel: &attributes::Channel) -> Self {
         if header.deep {
-            SampleMaps::Deep(Levels::allocate(header))
+            SampleMaps::Deep(Levels::allocate(header, channel))
         }
         else {
-            SampleMaps::Flat(Levels::allocate(header))
+            SampleMaps::Flat(Levels::allocate(header, channel))
         }
     }
 
@@ -641,8 +640,8 @@ impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
 impl<S: Samples> Levels<S> {
 
     /// Allocate a collection of resolution maps ready to be filled with pixel data.
-    pub fn allocate(header: &Header) -> Self {
-        let data_size = header.data_window.size;
+    pub fn allocate(header: &Header, channel: &attributes::Channel) -> Self {
+        let data_size = header.data_window.size / channel.sampling;
 
         if let Blocks::Tiles(tiles) = &header.blocks {
             let round = tiles.rounding_mode;
