@@ -528,10 +528,7 @@ impl Header {
                 divide_and_rest(image_size.0, tile_size.0).map(move |(x_index, tile_width)|{
                     TileIndices {
                         size: Vec2(tile_width, tile_height),
-                        location: TileCoordinates {
-                            tile_index: Vec2(x_index, y_index).to_i32(), // i32 max value is panic
-                            level_index: level_index.to_i32(), // i32 max value is panic
-                        },
+                        location: TileCoordinates { tile_index: Vec2(x_index, y_index), level_index, },
                     }
                 })
             })
@@ -579,8 +576,8 @@ impl Header {
         Ok(if let Blocks::Tiles(tiles) = self.blocks {
             let Vec2(data_width, data_height) = self.data_window.size;
 
-            let data_width = compute_level_size(tiles.rounding_mode, data_width, tile.level_index.0 as u32);
-            let data_height = compute_level_size(tiles.rounding_mode, data_height, tile.level_index.1 as u32);
+            let data_width = compute_level_size(tiles.rounding_mode, data_width, tile.level_index.0);
+            let data_height = compute_level_size(tiles.rounding_mode, data_height, tile.level_index.1);
             let absolute_tile_coordinates = tile.to_data_indices(tiles.tile_size, Vec2(data_width, data_height))?;
 
             if absolute_tile_coordinates.start.0 >= data_width as i32 || absolute_tile_coordinates.start.1 >= data_height as i32 {
@@ -595,7 +592,7 @@ impl Header {
             let (y, height) = calculate_block_position_and_size(
                 self.data_window.size.1,
                 self.compression.scan_lines_per_block(),
-                tile.tile_index.1 as u32
+                tile.tile_index.1
             )?;
 
             IntRect {
@@ -619,8 +616,12 @@ impl Header {
                 let y = (block.y_coordinate - self.data_window.start.1)
                     / self.compression.scan_lines_per_block() as i32;
 
+                if y < 0 {
+                    panic!("y index calculation bug");
+                }
+
                 TileCoordinates {
-                    tile_index: Vec2(0, y),
+                    tile_index: Vec2(0, y as u32),
                     level_index: Vec2(0, 0)
                 }
             },

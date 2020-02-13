@@ -9,7 +9,7 @@ use crate::meta::attributes::*;
 use crate::compression::{Compression, ByteVec};
 use crate::math::*;
 use std::io::{Read, Seek, Write};
-use crate::error::{Result, Error, PassiveResult, i32_to_usize};
+use crate::error::{Result, Error, PassiveResult};
 use crate::meta::{MetaData, Header, TileIndices, Blocks};
 use crate::chunks::{Chunk, Block, TileBlock, ScanLineBlock};
 use crate::io::{PeekRead, Tracking};
@@ -17,6 +17,7 @@ use rayon::iter::{ParallelIterator, ParallelBridge};
 use crate::io::Data;
 use smallvec::SmallVec;
 use std::ops::Range;
+use std::convert::TryFrom;
 
 
 /// Specifies where a block of pixel data should be placed in the actual image.
@@ -206,7 +207,8 @@ pub fn read_all_compressed_chunks_from_buffered<'m>(
 {
     let mut read = PeekRead::new(read);
     let meta_data = MetaData::read_from_buffered_peekable(&mut read)?;
-    let mut remaining_chunk_count = MetaData::skip_offset_tables(&mut read, &meta_data.headers)? as usize;
+    let mut remaining_chunk_count = usize::try_from(MetaData::skip_offset_tables(&mut read, &meta_data.headers)?)
+        .expect("too large chunk count for this machine");
 
     Ok((meta_data, move |meta_data| {
         if remaining_chunk_count > 0 {
@@ -247,7 +249,7 @@ pub fn read_filtered_chunks_from_buffered<'m>(
 
     Ok((meta_data, move |meta_data| {
         offsets.next().map(|offset|{
-            read.skip_to(offset as usize)?; // no-op for seek at current position, uses skip_bytes for small amounts
+            read.skip_to(usize::try_from(offset).expect("too large chunk position for this machine"))?; // no-op for seek at current position, uses skip_bytes for small amounts
             Chunk::read(&mut read, meta_data)
         })
     }))
@@ -306,7 +308,7 @@ pub fn write_all_lines_to_buffered(
                 let data_indices = header.get_absolute_block_indices(tile.location)?;
                 let block_indices = BlockIndex {
                     part: part_index,
-                    level: tile.location.level_index.to_usize("level index")?,
+                    level: tile.location.level_index.to_usize(),
                     position: data_indices.start.to_usize("data indices start")?,
                     size: data_indices.size.to_usize(),
                 };
@@ -323,7 +325,7 @@ pub fn write_all_lines_to_buffered(
                 let data = header.compression.compress_image_section(data)?;
 
                 let chunk = Chunk {
-                    part_number: part_index as i32,
+                    part_number: part_index as u32,
 
                     // TODO deep data
                     block: match header.blocks {
@@ -450,7 +452,7 @@ impl UncompressedBlock {
     /// Decompress the possibly compressed chunk and returns an `UncompressedBlock`.
     // for uncompressed data, the ByteVec in the chunk is moved all the way
     pub fn decompress_chunk(chunk: Chunk, meta_data: &MetaData) -> Result<Self> {
-        let header: &Header = meta_data.headers.get(chunk.part_number as usize)
+        let header: &Header = meta_data.headers.get(chunk.part_number as usize) // negative overflow is handled by out of index handling
             .ok_or(Error::invalid("chunk part index"))?;
 
         let tile_data_indices = header.get_block_data_indices(&chunk.block)?;
@@ -463,9 +465,9 @@ impl UncompressedBlock {
             Block::ScanLine(ScanLineBlock { compressed_pixels, .. }) => Ok(UncompressedBlock {
                 data: header.compression.decompress_image_section(header, compressed_pixels, absolute_indices)?,
                 index: BlockIndex {
-                    part: i32_to_usize(chunk.part_number, "chunk part number")?,
+                    part: chunk.part_number as usize,
                     position: absolute_indices.start.to_usize("data indices start")?,
-                    level: tile_data_indices.level_index.to_usize("level index")?,
+                    level: tile_data_indices.level_index.to_usize(),
                     size: absolute_indices.size.to_usize(),
                 }
             }),

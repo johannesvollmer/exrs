@@ -16,7 +16,7 @@ pub struct Chunk {
     /// The index of the image part that the block belongs to.
     /// This is required as the pixel data can appear in any order in a file.
     // PDF says u64, but source code seems to be i32
-    pub part_number: i32,
+    pub part_number: u32,
 
     /// The compressed pixel contents.
     pub block: Block,
@@ -65,13 +65,12 @@ pub struct TileBlock {
 /// Indicates the position and resolution level of a `TileBlock` or `DeepTileBlock`.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct TileCoordinates {
-    // TODO make these u32 as they are all indices?
 
     /// Index of the tile, not pixel position.
-    pub tile_index: Vec2<i32>,
+    pub tile_index: Vec2<u32>,
 
     /// Index of the Mip/Rip level.
-    pub level_index: Vec2<i32>,
+    pub level_index: Vec2<u32>,
 }
 
 /// This `Block` consists of one or more deep scan lines.
@@ -121,10 +120,10 @@ use crate::io::*;
 
 impl TileCoordinates {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        self.tile_index.0.write(write)?;
-        self.tile_index.1.write(write)?;
-        self.level_index.0.write(write)?;
-        self.level_index.1.write(write)?;
+        (self.tile_index.0 as i32).write(write)?;
+        (self.tile_index.1 as i32).write(write)?;
+        (self.level_index.0 as i32).write(write)?;
+        (self.level_index.1 as i32).write(write)?;
         Ok(())
     }
 
@@ -136,8 +135,8 @@ impl TileCoordinates {
         let level_y = i32::read(read)?;
 
         Ok(TileCoordinates {
-            tile_index: Vec2(tile_x, tile_y),
-            level_index: Vec2(level_x, level_y)
+            tile_index: Vec2(tile_x, tile_y).to_u32("tile coordinate index")?,
+            level_index: Vec2(level_x, level_y).to_u32("tile coordinate level")?
         })
     }
 
@@ -145,7 +144,7 @@ impl TileCoordinates {
     /// These coordinates are only valid inside the corresponding one header.
     /// Will start at 0 and always be positive.
     pub fn to_data_indices(&self, tile_size: Vec2<u32>, max: Vec2<u32>) -> Result<IntRect> {
-        let start = self.tile_index.to_u32("tile index")? * tile_size;
+        let start = self.tile_index * tile_size;
 
         Ok(IntRect {
             start: start.to_i32(),
@@ -276,7 +275,7 @@ use crate::math::Vec2;
 /// Validation of chunks is done while reading and writing the actual data. (For example in exr::full_image)
 impl Chunk {
     pub fn write(&self, write: &mut impl Write, headers: &[Header]) -> PassiveResult {
-        debug_assert!(self.part_number < headers.len() as i32); // validation is done in full_image or simple_image
+        debug_assert!(self.part_number < headers.len() as u32); // validation is done in full_image or simple_image
 
         if headers.len() != 1 { self.part_number.write(write)?; }
         else { assert_eq!(self.part_number, 0); }
@@ -298,6 +297,8 @@ impl Chunk {
         if part_number < 0 || part_number >= meta_data.headers.len() as i32 {
             return Err(Error::invalid("chunk data part number"));
         }
+
+        let part_number = part_number as u32;
 
         let header = &meta_data.headers[part_number as usize];
         let max_block_byte_size = header.max_block_byte_size();
