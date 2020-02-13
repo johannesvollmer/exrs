@@ -16,53 +16,8 @@ use std::cmp::Ordering;
 //use exr::meta::attributes::Text;
 use std::convert::TryInto;
 use exr::compression::Compression;
-use exr::meta::attributes::Box2I32;
+use exr::meta::attributes::IntRect;
 use rand::{Rng};
-
-
-#[test]
-fn test_write() {
-    fn generate_values(size: Vec2<usize>) -> Vec<f32> {
-        let mut values = vec![ 0.5; size.area() ];
-
-        for _ in 0..1024*1024/7 {
-            let index = rand::thread_rng().gen_range(0, values.len());
-            values[index] = rand::random();
-        }
-
-        values
-    }
-
-    let size = Vec2(1024, 512);
-
-    let r = simple::Channel::new(
-        "R".try_into().unwrap(), true,
-        simple::Samples::F32(generate_values(size))
-    );
-
-    let g = simple::Channel::new(
-        "G".try_into().unwrap(), true,
-        simple::Samples::F32(generate_values(size))
-    );
-
-    let b = simple::Channel::new(
-        "B".try_into().unwrap(), true,
-        simple::Samples::F32(generate_values(size))
-    );
-
-    let image = simple::Image::new_from_single_part(simple::Part::new(
-        "test-image".try_into().unwrap(),
-        Compression::RLE,
-        Box2I32::from_dimensions(size.to_u32()),
-        smallvec![ r, g, b ],
-    ));
-
-    // println!("writing image {:#?}", image); FIXME do not print pixel values
-
-    image.write_to_file("./testout/constructed.exr", simple::WriteOptions::debug()).unwrap();
-}
-
-
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter()

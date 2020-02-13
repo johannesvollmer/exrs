@@ -36,18 +36,19 @@ pub enum AnyValue {
     F32(f32),
     I32(i32),
 
-    I32Box2(Box2I32),
-    F32Box2(Box2F32),
-    I32Vec2(Vec2<i32>),
-    F32Vec2(Vec2<f32>),
-    I32Vec3((i32, i32, i32)),
-    F32Vec3((f32, f32, f32)),
+    IntRect(IntRect),
+    FloatRect(FloatRect),
+    IntVec2(Vec2<i32>),
+    FloatVec2(Vec2<f32>),
+    IntVec3((i32, i32, i32)),
+    FloatVec3((f32, f32, f32)),
 
     Custom { kind: Text, bytes: Vec<u8> }
 }
 
 /// A byte array with each byte being a char.
 /// This is not UTF an must be constructed from a standard string.
+// TODO is this ascii? use a rust ascii crate?
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Text {
     bytes: TextBytes,
@@ -88,14 +89,14 @@ pub mod block_type_strings {
 pub use crate::compression::Compression;
 
 /// The integer rectangle describing where an image part is placed on the infinite 2D global space.
-pub type DataWindow = Box2I32;
+pub type DataWindow = IntRect;
 
 /// The integer rectangle limiting part of the infinite 2D global space should be displayed.
-pub type DisplayWindow = Box2I32;
+pub type DisplayWindow = IntRect;
 
 /// A rectangular section anywhere in 2D integer space.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Box2I32 {
+pub struct IntRect {
     /// The top left corner of this rectangle.
     /// The `Box2I32` includes this pixel if the size is not zero.
     pub start: Vec2<i32>,
@@ -107,7 +108,7 @@ pub struct Box2I32 {
 
 /// A rectangular section anywhere in 2D float space.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Box2F32 {
+pub struct FloatRect {
     min: Vec2<f32>,
     max: Vec2<f32>
 }
@@ -249,7 +250,7 @@ use crate::meta::sequence_end;
 use crate::error::*;
 use crate::math::{RoundingMode, Vec2};
 use half::f16;
-use std::convert::TryFrom;
+use std::convert::{TryFrom};
 
 
 fn invalid_type() -> Error {
@@ -434,6 +435,7 @@ impl<'s> TryFrom<&'s str> for Text {
     }
 }
 
+
 impl ::std::fmt::Debug for Text {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         write!(f, "exr::Text(\"{}\")", self.to_string())
@@ -501,7 +503,7 @@ impl BlockType {
 }
 
 
-impl Box2I32 {
+impl IntRect {
 
     /// Create a box with no size located at (0,0).
     pub fn zero() -> Self {
@@ -564,17 +566,17 @@ impl Box2I32 {
         let size = Vec2(max.0 + 1 - min.0, max.1 + 1 - min.1); // which is why we add 1
         let size = size.to_u32("box coordinates")?;
 
-        Ok(Box2I32 { start: min, size })
+        Ok(IntRect { start: min, size })
     }
 
     /// Create a new rectangle which is offset by the specified origin.
     pub fn with_origin(self, origin: Vec2<i32>) -> Self {
-        Box2I32 { start: self.start + origin, .. self }
+        IntRect { start: self.start + origin, .. self }
     }
 }
 
 
-impl Box2F32 {
+impl FloatRect {
     pub fn byte_size() -> usize {
         4 * f32::BYTE_SIZE
     }
@@ -593,7 +595,7 @@ impl Box2F32 {
         let x_max = f32::read(read)?;
         let y_max = f32::read(read)?;
 
-        Ok(Box2F32 {
+        Ok(FloatRect {
             min: Vec2(x_min, y_min),
             max: Vec2(x_max, y_max)
         })
@@ -1040,8 +1042,8 @@ impl AnyValue {
         use self::AnyValue::*;
 
         match *self {
-            I32Box2(_) => self::Box2I32::byte_size(),
-            F32Box2(_) => self::Box2F32::byte_size(),
+            IntRect(_) => self::IntRect::byte_size(),
+            FloatRect(_) => self::FloatRect::byte_size(),
 
             I32(_) => i32::BYTE_SIZE,
             F32(_) => f32::BYTE_SIZE,
@@ -1050,10 +1052,10 @@ impl AnyValue {
             Rational(_) => { i32::BYTE_SIZE + u32::BYTE_SIZE },
             TimeCode(_) => { 2 * u32::BYTE_SIZE },
 
-            I32Vec2(_) => { 2 * i32::BYTE_SIZE },
-            F32Vec2(_) => { 2 * f32::BYTE_SIZE },
-            I32Vec3(_) => { 3 * i32::BYTE_SIZE },
-            F32Vec3(_) => { 3 * f32::BYTE_SIZE },
+            IntVec2(_) => { 2 * i32::BYTE_SIZE },
+            FloatVec2(_) => { 2 * f32::BYTE_SIZE },
+            IntVec3(_) => { 3 * i32::BYTE_SIZE },
+            FloatVec3(_) => { 3 * f32::BYTE_SIZE },
 
             ChannelList(ref channels) => channels.byte_size(),
             Chromaticities(_) => self::Chromaticities::byte_size(),
@@ -1085,17 +1087,17 @@ impl AnyValue {
         use self::attribute_type_names as ty;
 
         match *self {
-            I32Box2(_) =>  ty::I32BOX2,
-            F32Box2(_) =>  ty::F32BOX2,
+            IntRect(_) =>  ty::I32BOX2,
+            FloatRect(_) =>  ty::F32BOX2,
             I32(_) =>  ty::I32,
             F32(_) =>  ty::F32,
             F64(_) =>  ty::F64,
             Rational(_) => ty::RATIONAL,
             TimeCode(_) => ty::TIME_CODE,
-            I32Vec2(_) => ty::I32VEC2,
-            F32Vec2(_) => ty::F32VEC2,
-            I32Vec3(_) => ty::I32VEC3,
-            F32Vec3(_) => ty::F32VEC3,
+            IntVec2(_) => ty::I32VEC2,
+            FloatVec2(_) => ty::F32VEC2,
+            IntVec3(_) => ty::I32VEC3,
+            FloatVec3(_) => ty::F32VEC3,
             ChannelList(_) =>  ty::CHANNEL_LIST,
             Chromaticities(_) =>  ty::CHROMATICITIES,
             Compression(_) =>  ty::COMPRESSION,
@@ -1116,8 +1118,8 @@ impl AnyValue {
     pub fn write<W: Write>(&self, write: &mut W, long_names: bool) -> PassiveResult {
         use self::AnyValue::*;
         match *self {
-            I32Box2(value) => value.write(write)?,
-            F32Box2(value) => value.write(write)?,
+            IntRect(value) => value.write(write)?,
+            FloatRect(value) => value.write(write)?,
 
             I32(value) => value.write(write)?,
             F32(value) => value.write(write)?,
@@ -1126,10 +1128,10 @@ impl AnyValue {
             Rational((a, b)) => { a.write(write)?; b.write(write)?; },
             TimeCode(codes) => { codes.time_and_flags.write(write)?; codes.user_data.write(write)?; },
 
-            I32Vec2(Vec2(x, y)) => { x.write(write)?; y.write(write)?; },
-            F32Vec2(Vec2(x, y)) => { x.write(write)?; y.write(write)?; },
-            I32Vec3((x, y, z)) => { x.write(write)?; y.write(write)?; z.write(write)?; },
-            F32Vec3((x, y, z)) => { x.write(write)?; y.write(write)?; z.write(write)?; },
+            IntVec2(Vec2(x, y)) => { x.write(write)?; y.write(write)?; },
+            FloatVec2(Vec2(x, y)) => { x.write(write)?; y.write(write)?; },
+            IntVec3((x, y, z)) => { x.write(write)?; y.write(write)?; z.write(write)?; },
+            FloatVec3((x, y, z)) => { x.write(write)?; y.write(write)?; z.write(write)?; },
 
             ChannelList(ref channels) => channels.write(write, long_names)?,
             Chromaticities(ref value) => value.write(write)?,
@@ -1162,8 +1164,8 @@ impl AnyValue {
         use self::attribute_type_names as ty;
 
         Ok(match kind.bytes.as_slice() {
-            ty::I32BOX2 => I32Box2(self::Box2I32::read(read)?),
-            ty::F32BOX2 => F32Box2(self::Box2F32::read(read)?),
+            ty::I32BOX2 => IntRect(self::IntRect::read(read)?),
+            ty::F32BOX2 => FloatRect(self::FloatRect::read(read)?),
 
             ty::I32 => I32(i32::read(read)?),
             ty::F32 => F32(f32::read(read)?),
@@ -1181,26 +1183,26 @@ impl AnyValue {
                 TimeCodes { time_and_flags, user_data }
             }),
 
-            ty::I32VEC2 => I32Vec2({
+            ty::I32VEC2 => IntVec2({
                 let a = i32::read(read)?;
                 let b = i32::read(read)?;
                 Vec2(a, b)
             }),
 
-            ty::F32VEC2 => F32Vec2({
+            ty::F32VEC2 => FloatVec2({
                 let a = f32::read(read)?;
                 let b = f32::read(read)?;
                 Vec2(a, b)
             }),
 
-            ty::I32VEC3 => I32Vec3({
+            ty::I32VEC3 => IntVec3({
                 let a = i32::read(read)?;
                 let b = i32::read(read)?;
                 let c = i32::read(read)?;
                 (a, b, c)
             }),
 
-            ty::F32VEC3 => F32Vec3({
+            ty::F32VEC3 => FloatVec3({
                 let a = f32::read(read)?;
                 let b = f32::read(read)?;
                 let c = f32::read(read)?;
@@ -1277,16 +1279,16 @@ impl AnyValue {
         }
     }
 
-    pub fn to_i32_box_2(&self) -> Result<Box2I32> {
+    pub fn to_i32_box_2(&self) -> Result<IntRect> {
         match *self {
-            AnyValue::I32Box2(value) => Ok(value),
+            AnyValue::IntRect(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
 
     pub fn to_f32_vec_2(&self) -> Result<Vec2<f32>> {
         match *self {
-            AnyValue::F32Vec2(vec) => Ok(vec),
+            AnyValue::FloatVec2(vec) => Ok(vec),
             _ => Err(invalid_type())
         }
     }
@@ -1485,7 +1487,7 @@ mod test {
             },
             Attribute {
                 name: Text::from_str("rabbit area").unwrap(),
-                value: AnyValue::F32Box2(Box2F32 {
+                value: AnyValue::FloatRect(FloatRect {
                     min: Vec2(23.4234, 345.23),
                     max: Vec2(68623.0, 3.12425926538),
                 }),

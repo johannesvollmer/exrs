@@ -60,6 +60,10 @@ pub mod prelude {
 
     // re-export external stuff
     pub use half::f16;
+
+    // export real types and attributes
+    pub use crate::math::Vec2;
+    pub use attributes::{ Compression, Text, IntRect, };
 }
 
 

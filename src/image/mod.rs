@@ -221,6 +221,7 @@ pub fn read_all_compressed_chunks<'m>(
 /// Read all desired chunks, possibly seeking.
 /// Skips all chunks that do not match the filter.
 /// Returns the compressed chunks.
+// TODO this must be tested more
 pub fn read_filtered_chunks<'m>(
     read: impl Read + Seek + Send, // FIXME does not always need be Send
     filter: impl Fn(&Header, &TileIndices) -> bool,
@@ -252,10 +253,12 @@ pub fn read_filtered_chunks<'m>(
 }
 
 
-
-
 /// Compresses and writes all lines of an image to the writer.
-/// Uses multicore compression if desired.
+/// Should use multicore compression if desired.
+///
+/// Currently, multicore compression is not implemented yet.
+// TODO multicore compression
+// TODO split up this function into reusable bits
 #[must_use]
 pub fn write_all_lines_to_buffered(
     write: impl Write + Seek,
@@ -290,11 +293,11 @@ pub fn write_all_lines_to_buffered(
     let has_compression = meta_data.headers.iter() // do not use parallel stuff for uncompressed images
         .find(|header| header.compression != Compression::Uncompressed).is_some();
 
-    if parallel && has_compression {
-        // debug_assert_eq!(options.override_line_order, Some(LineOrder::Unspecified));
-        unimplemented!()
-    }
-    else {
+//    if parallel && has_compression {
+//        // TODO
+//    }
+//    else
+    {
         for (part_index, header) in meta_data.headers.iter().enumerate() {
 
             let mut write_block = |chunk_index: usize, tile: TileIndices| -> Result<()> {

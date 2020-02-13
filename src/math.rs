@@ -29,7 +29,7 @@ impl<T> Vec2<T> {
     }
 
     /// Seeing this vector as a dimension or size (width and height),
-    /// this returns the area that this dimensions contains.
+    /// this returns the area that this dimensions contains (`width * height`).
     pub fn area(self) -> T where T: std::ops::Mul<T, Output = T> {
         self.0 * self.1
     }

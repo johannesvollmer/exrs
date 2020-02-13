@@ -13,7 +13,7 @@ use std::io::{Seek, BufReader, BufWriter};
 use crate::io::Data;
 use crate::image::{Line, LineIndex};
 
-
+// FIXME this needs some of the changes that were made in simple.rs !!!
 
 /// Specify how to write an exr image.
 /// Contains several `override` fields,
@@ -59,7 +59,7 @@ pub struct Image {
 
     /// The rectangle positioned anywhere in the infinite 2D space that
     /// clips all contents of the file, limiting what should be rendered.
-    pub display_window: Box2I32,
+    pub display_window: IntRect,
 
     /// Aspect ratio of each pixel in this image part.
     pub pixel_aspect: f32,
@@ -82,7 +82,7 @@ pub struct Part {
 
     /// The rectangle that positions this image part
     /// within the global infinite 2D space of the file.
-    pub data_window: Box2I32,
+    pub data_window: IntRect,
 
     /// Part of the perspective projection. Default should be `(0, 0)`.
     pub screen_window_center: Vec2<f32>, // TODO use sensible defaults instead of returning an error on missing?
@@ -368,7 +368,7 @@ impl Image {
     pub fn allocate(headers: &[Header]) -> Result<Self> {
         let display_window = headers.iter()
             .map(|header| header.display_window)
-            .next().unwrap_or(Box2I32::zero()); // default value if no headers are found
+            .next().unwrap_or(IntRect::zero()); // default value if no headers are found
 
         let pixel_aspect = headers.iter()
             .map(|header| header.pixel_aspect)
@@ -483,7 +483,7 @@ impl Part {
 
     /// Create the meta data that describes this image part.
     /// May produce invalid meta data. The meta data will be validated just before writing.
-    pub fn infer_header(&self, display_window: Box2I32, pixel_aspect: f32, options: WriteOptions) -> Header {
+    pub fn infer_header(&self, display_window: IntRect, pixel_aspect: f32, options: WriteOptions) -> Header {
         debug_assert_eq!( // TODO performance: use real is_sorted
             {
                 let mut cloned = self.channels.clone();

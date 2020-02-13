@@ -8,7 +8,7 @@ mod piz;
 
 
 use crate::meta::Header;
-use crate::meta::attributes::Box2I32;
+use crate::meta::attributes::IntRect;
 use crate::error::{Result, Error};
 
 
@@ -156,7 +156,7 @@ impl Compression {
     }
 
     /// Panics for invalid tile coordinates.
-    pub fn decompress_image_section(self, header: &Header, data: ByteVec, tile: Box2I32) -> Result<ByteVec> {
+    pub fn decompress_image_section(self, header: &Header, data: ByteVec, tile: IntRect) -> Result<ByteVec> {
         let dimensions = tile.size;
         debug_assert!(tile.validate(dimensions).is_ok());
 

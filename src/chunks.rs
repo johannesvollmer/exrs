@@ -2,7 +2,7 @@
 //! Handle raw pixel data bytes.
 //! Does not include compression and decompression.
 
-use crate::meta::attributes::{Box2I32};
+use crate::meta::attributes::{IntRect};
 
 // TODO SEE PAGE 14 IN TECHNICAL INTRODUCTION
 
@@ -144,10 +144,10 @@ impl TileCoordinates {
     /// The indices which can be used to index into the arrays of a data window.
     /// These coordinates are only valid inside the corresponding one header.
     /// Will start at 0 and always be positive.
-    pub fn to_data_indices(&self, tile_size: Vec2<u32>, max: Vec2<u32>) -> Result<Box2I32> {
+    pub fn to_data_indices(&self, tile_size: Vec2<u32>, max: Vec2<u32>) -> Result<IntRect> {
         let start = self.tile_index.to_u32("tile index")? * tile_size;
 
-        Ok(Box2I32 {
+        Ok(IntRect {
             start: start.to_i32(),
             size: Vec2(
                 calculate_block_size(max.0, tile_size.0, start.0)?,
@@ -157,7 +157,7 @@ impl TileCoordinates {
     }
 
     /// Absolute coordinates inside the global 2D space of a file, may be negative.
-    pub fn to_absolute_indices(&self, tile_size: Vec2<u32>, data_window: Box2I32) -> Result<Box2I32> {
+    pub fn to_absolute_indices(&self, tile_size: Vec2<u32>, data_window: IntRect) -> Result<IntRect> {
         let data = self.to_data_indices(tile_size, data_window.size)?;
         Ok(data.with_origin(data_window.start))
     }

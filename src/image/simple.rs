@@ -21,15 +21,6 @@ pub struct WriteOptions {
 
     /// Enable multicore compression.
     pub parallel_compression: bool,
-
-    /// Override the line order of all headers in the image.
-    pub override_line_order: Option<LineOrder>,
-
-    /// Override the block type of all headers in the image.
-    pub override_tiles: Option<Option<Vec2<u32>>>,
-
-    /// Override the compression method of all headers in the image.
-    pub override_compression: Option<Compression>,
 }
 
 
@@ -58,7 +49,7 @@ pub struct Image {
 
     /// The rectangle positioned anywhere in the infinite 2D space that
     /// clips all contents of the file, limiting what should be rendered.
-    pub display_window: Box2I32,
+    pub display_window: IntRect,
 
     /// Aspect ratio of each pixel in this image part.
     pub pixel_aspect: f32,
@@ -83,7 +74,7 @@ pub struct Part {
 
     /// The rectangle that positions this image part
     /// within the global infinite 2D space of the file.
-    pub data_window: Box2I32, // TODO single point?
+    pub data_window: IntRect, // TODO single point?
 
     /// Part of the perspective projection. Default should be `(0, 0)`.
     pub screen_window_center: Vec2<f32>, // TODO use sensible defaults instead of returning an error on missing?
@@ -107,7 +98,7 @@ pub struct Part {
 }
 
 
-
+// TODO API use sorted set by name instead??
 pub type Channels = SmallVec<[Channel; 5]>;
 
 
@@ -138,7 +129,8 @@ pub struct Channel {
 }
 
 /// Actual pixel data in a channel. Is either one of f16, f32, or u32.
-#[derive(Clone, Debug, PartialEq)]
+// TODO not require vec storage but also on-the-fly generation
+#[derive(Clone, PartialEq)]
 pub enum Samples {
 
     /// The representation of 16-bit floating-point numbers is analogous to IEEE 754,
@@ -156,56 +148,39 @@ pub enum Samples {
 }
 
 
+/*#[derive(Clone, PartialEq)] TODO
+pub enum Samples {
+    F16(SampleStorage<f16>),
+    F32(SampleStorage<f32>),
+    U32(SampleStorage<u32>),
+}
+
+pub trait SampleStorage<T> {
+    fn sample(position: Vec2, resolution: Vec2) -> T,
+    fn allocate() ???
+}
+
+impl SampleStorage<f16> for Vec<f16> { }
+impl SampleStorage<f16> for Fn(Vec2) -> Iterator<Item=f16> { }*/
+
+
+
 impl Default for WriteOptions {
-    fn default() -> Self { Self::fast_writing() }
+    fn default() -> Self { Self::fast() }
 }
 
 impl Default for ReadOptions {
-    fn default() -> Self { Self::fast_loading() }
+    fn default() -> Self { Self::fast() }
 }
 
 
 impl WriteOptions {
-    pub fn fast_writing() -> Self {
-        WriteOptions {
-            parallel_compression: true,
-            override_line_order: Some(LineOrder::Unspecified),
-            override_compression: Some(Compression::Uncompressed),
-            override_tiles: None,
-        }
-    }
-
-    pub fn small_image() -> Self {
-        WriteOptions {
-            parallel_compression: true,
-            override_line_order: Some(LineOrder::Unspecified),
-            override_compression: Some(Compression::ZIP16),
-            override_tiles: None,
-        }
-    }
-
-    pub fn small_writing() -> Self {
-        WriteOptions {
-            parallel_compression: false,
-            override_line_order: Some(LineOrder::Unspecified),
-            override_compression: Some(Compression::Uncompressed),
-            override_tiles: None,
-        }
-    }
-
-    pub fn debug() -> Self {
-        WriteOptions {
-            parallel_compression: false,
-            override_line_order: None,
-            override_tiles: None,
-            override_compression: None
-        }
-    }
+    pub fn fast() -> Self { WriteOptions { parallel_compression: true, } }
+    pub fn debug() -> Self { WriteOptions { parallel_compression: false, } }
 }
 
 impl ReadOptions {
-    pub fn fast_loading() -> Self { ReadOptions { parallel_decompression: true } }
-    pub fn small_loading() -> Self { ReadOptions { parallel_decompression: false } }
+    pub fn fast() -> Self { ReadOptions { parallel_decompression: true } }
     pub fn debug() -> Self { ReadOptions { parallel_decompression: false } }
 }
 
@@ -251,7 +226,7 @@ impl Image {
     ///
     /// Consider using `Image::from_single_part` for simpler cases.
     /// Use the raw `Image { .. }` constructor for more complex cases.
-    pub fn new_from_parts(parts: Parts, display_window: Box2I32) -> Self {
+    pub fn new_from_parts(parts: Parts, display_window: IntRect) -> Self {
         Self {
             parts,
             display_window,
@@ -314,7 +289,7 @@ impl Image {
     #[must_use]
     pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions) -> PassiveResult {
         crate::image::write_all_lines_to_buffered(
-            write, options.parallel_compression, self.infer_meta_data(options),
+            write, options.parallel_compression, self.infer_meta_data(),
             |location| {
                 let mut bytes = Vec::new(); // TODO avoid allocation for each line?
                 self.extract_line(location, &mut bytes);
@@ -329,9 +304,16 @@ impl Part {
 
     /// Create a new image part with all required fields.
     /// Uses scan line blocks, and no custom attributes.
-    pub fn new(name: Text, compression: Compression, data_window: Box2I32, mut channels: Channels) -> Self {
-        assert!(!channels.is_empty());
-        assert!(channels.iter().all(|chan| chan.samples.len() / (chan.sampling.0 * chan.sampling.1) == data_window.size.to_usize().area()));
+    /// Panics if anything is invalid or missing.
+    pub fn new(name: Text, compression: Compression, data_window: IntRect, mut channels: Channels) -> Self {
+        assert!(!channels.is_empty(), "at least one channel is required");
+
+        assert!(
+            channels.iter().all(|chan|
+                chan.samples.len() / (chan.sampling.0 * chan.sampling.1) == data_window.size.to_usize().area()
+            ),
+            "channel data size must conform to data window size (scaled by channel sampling)"
+        );
 
         channels.sort_by_key(|chan| chan.name.clone()); // TODO why clone?!
 
@@ -357,13 +339,16 @@ impl Channel {
 
     /// Create a Channel from name and samples.
     /// Set `is_linear` if the color space of the samples values is linear.
+    /// Panics if anything is invalid or missing.
     pub fn new(name: Text, is_linear: bool, samples: Samples) -> Self {
-        Self {
-            name,
-            samples,
-            is_linear,
-            sampling: Vec2(1, 1)
-        }
+        Self { name, samples, is_linear, sampling: Vec2(1, 1) }
+    }
+
+    /// Create a Channel from name and samples.
+    /// Use this if the color space of the samples values is linear, otherwise, use `Channel::new`.
+    /// Panics if anything is invalid or missing.
+    pub fn new_linear(name: Text, samples: Samples) -> Self {
+        Self::new(name, true, samples)
     }
 
     /*/// Computes the size as seen in the global infinite 2D space of the file.
@@ -410,7 +395,7 @@ impl Image {
     pub fn allocate(headers: &[Header]) -> Result<Self> {
         let display_window = headers.iter()
             .map(|header| header.display_window)
-            .next().unwrap_or(Box2I32::zero()); // default value if no headers are found
+            .next().unwrap_or(IntRect::zero()); // default value if no headers are found
 
         let pixel_aspect = headers.iter()
             .map(|header| header.pixel_aspect)
@@ -448,9 +433,9 @@ impl Image {
     }
 
     /// Create the meta data that describes this image.
-    pub fn infer_meta_data(&self, options: WriteOptions) -> MetaData {
+    pub fn infer_meta_data(&self) -> MetaData {
         let headers: Headers = self.parts.iter()
-            .map(|part| part.infer_header(self.display_window, self.pixel_aspect, options))
+            .map(|part| part.infer_header(self.display_window, self.pixel_aspect))
             .collect();
 
         let has_tiles = headers.iter().any(|header| header.blocks.has_tiles());
@@ -526,7 +511,7 @@ impl Part {
     }
 
     /// Create the meta data that describes this image part.
-    pub fn infer_header(&self, display_window: Box2I32, pixel_aspect: f32, options: WriteOptions) -> Header {
+    pub fn infer_header(&self, display_window: IntRect, pixel_aspect: f32) -> Header {
         debug_assert_eq!( // TODO performance: use real is_sorted
             {
                 let mut cloned = self.channels.clone();
@@ -537,7 +522,7 @@ impl Part {
             "channels must be sorted alphabetically"
         );
 
-        let blocks = match options.override_tiles.unwrap_or(self.tiles) {
+        let blocks = match self.tiles {
             Some(tiles) => Blocks::Tiles(TileDescription {
                 tile_size: tiles,
                 level_mode: LevelMode::Singular,
@@ -558,9 +543,9 @@ impl Part {
             data_window: self.data_window,
             screen_window_center: self.screen_window_center,
             screen_window_width: self.screen_window_width,
-            compression: options.override_compression.unwrap_or(self.compression),
+            compression: self.compression,
             channels: ChannelList::new(self.channels.iter().map(Channel::infer_channel_attribute).collect()), // FIXME this would sort channels, but line index would be mixed up if the original channels were not sorted
-            line_order: options.override_line_order.unwrap_or(self.line_order),
+            line_order: self.line_order,
             custom_attributes: self.attributes.clone(),
             display_window, pixel_aspect,
             blocks,
@@ -685,3 +670,12 @@ impl Samples {
     }
 }
 
+impl std::fmt::Debug for Samples {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Samples::F16(vec) => write!(formatter, "[f16; {}]", vec.len()),
+            Samples::F32(vec) => write!(formatter, "[f32; {}]", vec.len()),
+            Samples::U32(vec) => write!(formatter, "[u32; {}]", vec.len()),
+        }
+    }
+}

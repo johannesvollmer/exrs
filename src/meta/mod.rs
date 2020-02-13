@@ -63,10 +63,10 @@ pub struct Header {
     pub compression: Compression,
 
     /// The rectangle that positions this image part within the infinite 2D space.
-    pub data_window: Box2I32,
+    pub data_window: IntRect,
 
     /// The rectangle anywhere in 2D space that clips all contents of the file.
-    pub display_window: Box2I32,
+    pub display_window: IntRect,
 
     /// In what order the tiles of this header occur in the file.
     // todo: make optional?
@@ -371,7 +371,7 @@ pub fn mip_map_indices(round: RoundingMode, max_resolution: Vec2<u32>) -> impl I
 // If not multipart and chunkCount not present,
 // the number of entries in the chunk table is computed
 // using the dataWindow and tileDesc attributes and the compression format
-pub fn compute_chunk_count(compression: Compression, data_window: Box2I32, blocks: Blocks) -> u32 {
+pub fn compute_chunk_count(compression: Compression, data_window: IntRect, blocks: Blocks) -> u32 {
     let data_size = data_window.size;
 
     if let Blocks::Tiles(tiles) = blocks {
@@ -569,13 +569,13 @@ impl Header {
     }
 
     /// Calculate the position of a block in the global infinite 2D space of a file. May be negative.
-    pub fn get_block_data_window_coordinates(&self, tile: TileCoordinates) -> Result<Box2I32> {
+    pub fn get_block_data_window_coordinates(&self, tile: TileCoordinates) -> Result<IntRect> {
         let data = self.get_absolute_block_indices(tile)?;
         Ok(data.with_origin(self.data_window.start))
     }
 
     /// Calculate the pixel index rectangle inside this header. Is not negative. Starts at `0`.
-    pub fn get_absolute_block_indices(&self, tile: TileCoordinates) -> Result<Box2I32> {
+    pub fn get_absolute_block_indices(&self, tile: TileCoordinates) -> Result<IntRect> {
         Ok(if let Blocks::Tiles(tiles) = self.blocks {
             let Vec2(data_width, data_height) = self.data_window.size;
 
@@ -598,7 +598,7 @@ impl Header {
                 tile.tile_index.1 as u32
             )?;
 
-            Box2I32 {
+            IntRect {
                 start: Vec2(0, y as i32),
                 size: Vec2(self.data_window.size.0, height)
             }
@@ -839,12 +839,12 @@ impl Header {
 
             write_attr(write, long, CHANNELS, self.channels.clone(), ChannelList)?; // FIXME do not clone
             write_attr(write, long, COMPRESSION, self.compression, Compression)?;
-            write_attr(write, long, DATA_WINDOW, self.data_window, I32Box2)?;
-            write_attr(write, long, DISPLAY_WINDOW, self.display_window, I32Box2)?;
+            write_attr(write, long, DATA_WINDOW, self.data_window, IntRect)?;
+            write_attr(write, long, DISPLAY_WINDOW, self.display_window, IntRect)?;
             write_attr(write, long, LINE_ORDER, self.line_order, LineOrder)?;
             write_attr(write, long, PIXEL_ASPECT, self.pixel_aspect, F32)?;
             write_attr(write, long, WINDOW_WIDTH, self.screen_window_width, F32)?;
-            write_attr(write, long, WINDOW_CENTER, self.screen_window_center, F32Vec2)?;
+            write_attr(write, long, WINDOW_CENTER, self.screen_window_center, FloatVec2)?;
         }
 
         for attrib in &self.custom_attributes {
@@ -970,7 +970,7 @@ impl Requirements {
 #[cfg(test)]
 mod test {
     use crate::meta::{MetaData, Requirements, Header};
-    use crate::meta::attributes::{Text, ChannelList, Box2I32, LineOrder, Channel, PixelType};
+    use crate::meta::attributes::{Text, ChannelList, IntRect, LineOrder, Channel, PixelType};
     use crate::compression::Compression;
     use crate::meta::Blocks;
     use crate::math::*;

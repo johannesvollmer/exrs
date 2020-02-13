@@ -2,7 +2,7 @@
 
 use super::*;
 use super::Result;
-use crate::meta::attributes::{Box2I32, PixelType};
+use crate::meta::attributes::{IntRect, PixelType};
 use crate::meta::{Header};
 use crate::io::Data;
 use crate::error::IoResult;
@@ -58,7 +58,7 @@ const BITMAP_SIZE: i32  = (U16_RANGE >> 3); // rly
 pub fn decompress_bytes(
     header: &Header,
     compressed: ByteVec,
-    rectangle: Box2I32,
+    rectangle: IntRect,
     _expected_byte_size: usize,
 ) -> Result<Vec<u8>>
 {
