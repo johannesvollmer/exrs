@@ -580,7 +580,7 @@ impl Header {
             let data_height = compute_level_size(tiles.rounding_mode, data_height, tile.level_index.1);
             let absolute_tile_coordinates = tile.to_data_indices(tiles.tile_size, Vec2(data_width, data_height))?;
 
-            if absolute_tile_coordinates.start.0 >= data_width as i32 || absolute_tile_coordinates.start.1 >= data_height as i32 {
+            if absolute_tile_coordinates.start.0 as i64 >= data_width as i64 || absolute_tile_coordinates.start.1 as i64 >= data_height as i64 {
                 return Err(Error::invalid("data block tile index"))
             }
 
@@ -596,7 +596,7 @@ impl Header {
             )?;
 
             IntRect {
-                start: Vec2(0, y as i32),
+                start: Vec2(0, usize_to_i32(y)),
                 size: Vec2(self.data_window.size.0, height)
             }
         })

@@ -316,7 +316,7 @@ impl Text {
 
     /// Write the length of a string and then the contents with that length.
     pub fn write_i32_sized<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> PassiveResult {
-        i32::write(self.bytes.len() as i32, write)?;
+        i32::write(usize_to_i32(self.bytes.len()), write)?;
         Self::write_unsized_bytes(self.bytes.as_slice(), write, long_names)
     }
 
@@ -668,8 +668,8 @@ impl Channel {
         }.write(write)?;
 
         i8::write_slice(write, &[0_i8, 0_i8, 0_i8])?;
-        i32::write(self.sampling.0 as i32, write)?;
-        i32::write(self.sampling.1 as i32, write)?;
+        i32::write(usize_to_i32(self.sampling.0), write)?;
+        i32::write(usize_to_i32(self.sampling.1), write)?;
         Ok(())
     }
 

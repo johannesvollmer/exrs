@@ -120,10 +120,10 @@ use crate::io::*;
 
 impl TileCoordinates {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        i32::write(self.tile_index.0 as i32,write)?;
-        i32::write(self.tile_index.1 as i32,write)?;
-        i32::write(self.level_index.0 as i32,write)?;
-        i32::write(self.level_index.1 as i32, write)?;
+        i32::write(usize_to_i32(self.tile_index.0), write)?;
+        i32::write(usize_to_i32(self.tile_index.1), write)?;
+        i32::write(usize_to_i32(self.level_index.0), write)?;
+        i32::write(usize_to_i32(self.level_index.1 ), write)?;
         Ok(())
     }
 
@@ -269,7 +269,7 @@ impl DeepTileBlock {
     }
 }
 
-use crate::error::{PassiveResult, Result, Error, u64_to_usize};
+use crate::error::{PassiveResult, Result, Error, u64_to_usize, usize_to_i32};
 use crate::math::Vec2;
 
 /// Validation of chunks is done while reading and writing the actual data. (For example in exr::full_image)

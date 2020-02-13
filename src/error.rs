@@ -58,14 +58,22 @@ impl From<IoError> for Error {
 }
 
 
+/// Return error on invalid range.
 #[inline]
 pub(crate) fn i32_to_usize(value: i32, error_message: StrLiteral) -> Result<usize> {
     usize::try_from(value).map_err(|_| Error::invalid(error_message))
 }
 
+/// Panic on overflow.
 #[inline]
 pub(crate) fn u64_to_usize(value: u64) -> usize {
     usize::try_from(value).expect("(u64 as usize) overflowed")
+}
+
+/// Panic on overflow.
+#[inline]
+pub(crate) fn usize_to_i32(value: usize) -> i32 {
+    i32::try_from(value).expect("(usize as i32) overflowed")
 }
 
 
