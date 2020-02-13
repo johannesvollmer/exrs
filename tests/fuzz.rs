@@ -14,15 +14,15 @@ pub fn incremental(){
     for len in 0 .. 32 {
         println!("starting fuzzy testing for byte length of {}", len);
 
-        for variation_index in 0 .. 256_u64.pow(len as u32) {
+        for variation_index in 0 .. 256_u64.pow(len) {
             pool.install(|| {
                 let mut bytes = vec![0_u8; len];
 
                 for index in 0..len {
                     let base = len - index - 1;
-                    let range = 256_u64.pow(base as u32);
+                    let range = 256_u64.pow(base);
 
-                    bytes[index] = (variation_index / range as u64) as u8;
+                    bytes[index] = (variation_index / range) as u8;
                 }
 
                 if catch_unwind(|| test_bytes(&bytes)).is_err() {

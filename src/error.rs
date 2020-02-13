@@ -64,6 +64,12 @@ pub(crate) fn i32_to_usize(value: i32, error_message: StrLiteral) -> Result<usiz
 }
 
 #[inline]
+pub(crate) fn u64_to_usize(value: u64) -> usize {
+    usize::try_from(value).expect("(u64 as usize) overflowed")
+}
+
+
+/*#[inline]
 pub(crate) fn i32_to_u32(value: i32, error_message: StrLiteral) -> Result<u32> {
     u32::try_from(value).map_err(|_| Error::invalid(error_message))
-}
+}*/

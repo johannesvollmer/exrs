@@ -111,7 +111,7 @@ pub struct Header {
     /// of the read process or when creating a channel object.
     ///
     /// This value includes all chunks of all resolution levels.
-    pub chunk_count: u32,
+    pub chunk_count: usize,
 
     // Required for deep data (deepscanline and deeptile) parts.
     // Note: Since the value of "maxSamplesPerPixel"
@@ -124,7 +124,7 @@ pub struct Header {
     // remain. In this case, the value must be derived
     // by decoding each chunk in the part
     /// Maximum number of samples in a single pixel in a deep image.
-    pub max_samples_per_pixel: Option<u32>,
+    pub max_samples_per_pixel: Option<usize>,
 
     /// Optional attributes. May contain custom attributes.
     /// Does not contain the attributes already present in the `Header` struct.
@@ -164,7 +164,7 @@ pub struct Requirements {
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct TileIndices {
     pub location: TileCoordinates,
-    pub size: Vec2<u32>,
+    pub size: Vec2<usize>,
 }
 
 /// How the image pixels are split up into separate blocks.
@@ -272,7 +272,7 @@ fn missing_attribute(name: &str) -> Error {
 
 
 /// Compute the number of tiles required to contain all values.
-pub fn compute_block_count(full_res: u32, tile_size: u32) -> u32 {
+pub fn compute_block_count(full_res: usize, tile_size: usize) -> usize {
     // round up, because if the image is not evenly divisible by the tiles,
     // we add another tile at the end (which is only partially used)
     RoundingMode::Up.divide(full_res, tile_size)
@@ -280,7 +280,7 @@ pub fn compute_block_count(full_res: u32, tile_size: u32) -> u32 {
 
 /// Compute the start position and size of a block inside a dimension.
 #[inline]
-pub fn calculate_block_position_and_size(total_size: u32, block_size: u32, block_index: u32) -> Result<(u32, u32)> {
+pub fn calculate_block_position_and_size(total_size: usize, block_size: usize, block_index: usize) -> Result<(usize, usize)> {
     let block_position = block_size * block_index;
 
     Ok((
@@ -293,7 +293,7 @@ pub fn calculate_block_position_and_size(total_size: u32, block_size: u32, block
 /// this only returns the required size, which is always smaller than the default block size.
 // TODO use this method everywhere instead of convoluted formulas
 #[inline]
-pub fn calculate_block_size(total_size: u32, block_size: u32, block_position: u32) -> Result<u32> {
+pub fn calculate_block_size(total_size: usize, block_size: usize, block_position: usize) -> Result<usize> {
     if block_position >= total_size {
         return Err(Error::invalid("block index"))
     }
@@ -309,13 +309,13 @@ pub fn calculate_block_size(total_size: u32, block_size: u32, block_position: u3
 
 /// Calculate number of mip levels in a given resolution.
 // TODO this should be cached? log2 may be very expensive
-pub fn compute_level_count(round: RoundingMode, full_res: u32) -> u32 {
+pub fn compute_level_count(round: RoundingMode, full_res: usize) -> usize {
     round.log2(full_res) + 1
 }
 
 /// Calculate the size of a single mip level by index.
 // TODO this should be cached? log2 may be very expensive
-pub fn compute_level_size(round: RoundingMode, full_res: u32, level_index: u32) -> u32 {
+pub fn compute_level_size(round: RoundingMode, full_res: usize, level_index: usize) -> usize {
     round.divide(full_res,  1 << level_index).max(1)
 }
 
@@ -323,7 +323,7 @@ pub fn compute_level_size(round: RoundingMode, full_res: u32, level_index: u32) 
 /// The order of iteration conforms to `LineOrder::Increasing`.
 // TODO cache these?
 // TODO compute these directly instead of summing up an iterator?
-pub fn rip_map_levels(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=(Vec2<u32>, Vec2<u32>)> {
+pub fn rip_map_levels(round: RoundingMode, max_resolution: Vec2<usize>) -> impl Iterator<Item=(Vec2<usize>, Vec2<usize>)> {
     rip_map_indices(round, max_resolution).map(move |level_indices|{
         // TODO progressively divide instead??
         let width = compute_level_size(round, max_resolution.0, level_indices.0);
@@ -336,7 +336,7 @@ pub fn rip_map_levels(round: RoundingMode, max_resolution: Vec2<u32>) -> impl It
 /// The order of iteration conforms to `LineOrder::Increasing`.
 // TODO cache all these level values when computing table offset size??
 // TODO compute these directly instead of summing up an iterator?
-pub fn mip_map_levels(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=(u32, Vec2<u32>)> {
+pub fn mip_map_levels(round: RoundingMode, max_resolution: Vec2<usize>) -> impl Iterator<Item=(usize, Vec2<usize>)> {
     mip_map_indices(round, max_resolution)
         .map(move |level_index|{
             // TODO progressively divide instead??
@@ -348,7 +348,7 @@ pub fn mip_map_levels(round: RoundingMode, max_resolution: Vec2<u32>) -> impl It
 
 /// Iterates over all rip map level indices of a given size.
 /// The order of iteration conforms to `LineOrder::Increasing`.
-pub fn rip_map_indices(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=Vec2<u32>> {
+pub fn rip_map_indices(round: RoundingMode, max_resolution: Vec2<usize>) -> impl Iterator<Item=Vec2<usize>> {
     let (width, height) = (
         compute_level_count(round, max_resolution.0),
         compute_level_count(round, max_resolution.1)
@@ -363,7 +363,7 @@ pub fn rip_map_indices(round: RoundingMode, max_resolution: Vec2<u32>) -> impl I
 
 /// Iterates over all mip map level indices of a given size.
 /// The order of iteration conforms to `LineOrder::Increasing`.
-pub fn mip_map_indices(round: RoundingMode, max_resolution: Vec2<u32>) -> impl Iterator<Item=u32> {
+pub fn mip_map_indices(round: RoundingMode, max_resolution: Vec2<usize>) -> impl Iterator<Item=usize> {
     (0..compute_level_count(round, max_resolution.0.max(max_resolution.1)))
 }
 
@@ -371,7 +371,7 @@ pub fn mip_map_indices(round: RoundingMode, max_resolution: Vec2<u32>) -> impl I
 // If not multipart and chunkCount not present,
 // the number of entries in the chunk table is computed
 // using the dataWindow and tileDesc attributes and the compression format
-pub fn compute_chunk_count(compression: Compression, data_window: IntRect, blocks: Blocks) -> u32 {
+pub fn compute_chunk_count(compression: Compression, data_window: IntRect, blocks: Blocks) -> usize {
     let data_size = data_window.size;
 
     if let Blocks::Tiles(tiles) = blocks {
@@ -466,15 +466,15 @@ impl MetaData {
     /// Read one offset table from the reader for each header.
     pub fn read_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<OffsetTables> {
         headers.iter()
-            .map(|header| u64::read_vec(read, header.chunk_count as usize, std::u16::MAX as usize, None))
+            .map(|header| u64::read_vec(read, header.chunk_count, std::u16::MAX as usize, None))
             .collect()
     }
 
     /// Skip the offset tables by advancing the reader by the required byte count.
     // TODO use seek for large (probably all) tables!
-    pub fn skip_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<u64> {
-        let chunk_count: u64 = headers.iter().map(|header| header.chunk_count as u64).sum();
-        crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE as u64)?;
+    pub fn skip_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<usize> {
+        let chunk_count: usize = headers.iter().map(|header| header.chunk_count).sum();
+        crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE)?;
         Ok(chunk_count)
     }
 
@@ -516,8 +516,8 @@ impl Header {
 
     /// Iterate over all tile indices in this header in `LineOrder::Increasing` order.
     pub fn blocks_increasing_y_order(&self) -> impl Iterator<Item = TileIndices> + ExactSizeIterator + DoubleEndedIterator {
-        fn tiles_of(image_size: Vec2<u32>, tile_size: Vec2<u32>, level_index: Vec2<u32>) -> impl Iterator<Item=TileIndices> {
-            fn divide_and_rest(total_size: u32, block_size: u32) -> impl Iterator<Item=(u32, u32)> {
+        fn tiles_of(image_size: Vec2<usize>, tile_size: Vec2<usize>, level_index: Vec2<usize>) -> impl Iterator<Item=TileIndices> {
+            fn divide_and_rest(total_size: usize, block_size: usize) -> impl Iterator<Item=(usize, usize)> {
                 let block_count = compute_block_count(total_size, block_size);
                 (0..block_count).map(move |block_index| (
                     block_index, calculate_block_size(total_size, block_size, block_index).expect("block size calculation bug")
@@ -621,7 +621,7 @@ impl Header {
                 }
 
                 TileCoordinates {
-                    tile_index: Vec2(0, y as u32),
+                    tile_index: Vec2(0, y as usize),
                     level_index: Vec2(0, 0)
                 }
             },
@@ -632,13 +632,11 @@ impl Header {
 
     /// Maximum byte length of a compressed block, used for validation.
     pub fn max_block_byte_size(&self) -> usize {
-        (
-            self.channels.bytes_per_pixel * match self.blocks {
-                Blocks::Tiles(tiles) => tiles.tile_size.0 * tiles.tile_size.1,
-                Blocks::ScanLines => self.compression.scan_lines_per_block() * self.data_window.size.0
-                // TODO What about deep data???
-            }
-        ) as usize
+        self.channels.bytes_per_pixel * match self.blocks {
+            Blocks::Tiles(tiles) => tiles.tile_size.0 * tiles.tile_size.1,
+            Blocks::ScanLines => self.compression.scan_lines_per_block() * self.data_window.size.0
+            // TODO What about deep data???
+        }
     }
 
     pub fn validate(&self, requirements: &Requirements) -> PassiveResult {
@@ -750,11 +748,11 @@ impl Header {
                 VERSION => version = Some(value.to_i32()?),
 
                 MAX_SAMPLES => max_samples_per_pixel = Some(
-                    i32_to_u32(value.to_i32()?, "max sample count")?
+                    i32_to_usize(value.to_i32()?, "max sample count")?
                 ),
 
                 CHUNKS => chunk_count = Some(
-                    i32_to_u32(value.to_i32()?, "chunk count")?
+                    i32_to_usize(value.to_i32()?, "chunk count")?
                 ),
 
                 _ => custom.push(Attribute { name: attribute_name, value }), // TODO only requested attributes?

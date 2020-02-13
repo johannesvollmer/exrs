@@ -473,8 +473,8 @@ impl Part {
     /// Insert one line of pixel data into this image part.
     /// Returns an error for invalid index or line contents.
     pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
-        debug_assert!(line.location.position.0 + line.location.width <= self.data_window.size.0 as usize);
-        debug_assert!(line.location.position.1 < self.data_window.size.1 as usize);
+        debug_assert!(line.location.position.0 + line.location.width <= self.data_window.size.0);
+        debug_assert!(line.location.position.1 < self.data_window.size.1);
 
         self.channels.get_mut(line.location.channel)
             .expect("invalid channel index")
@@ -484,8 +484,8 @@ impl Part {
     /// Read one line of pixel data from this image part.
     /// Panics for an invalid index or write error.
     pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
-        debug_assert!(index.position.0 + index.width <= self.data_window.size.0 as usize);
-        debug_assert!(index.position.1 < self.data_window.size.1 as usize);
+        debug_assert!(index.position.0 + index.width <= self.data_window.size.0);
+        debug_assert!(index.position.1 < self.data_window.size.1);
 
         self.channels.get(index.channel)
             .expect("invalid channel index")
@@ -540,7 +540,7 @@ impl Channel {
         Channel {
             name: channel.name.clone(),
             is_linear: channel.is_linear,
-            sampling: channel.sampling.to_usize(),
+            sampling: channel.sampling,
 
             content: match channel.pixel_type {
                 PixelType::F16 => ChannelData::F16(SampleMaps::allocate(header, channel)), // FIXME divide by sampling????
@@ -580,7 +580,7 @@ impl Channel {
 
             name: self.name.clone(),
             is_linear: self.is_linear,
-            sampling: self.sampling.to_u32(),
+            sampling: self.sampling,
         }
     }
 }
@@ -663,7 +663,7 @@ impl<S: Samples> Levels<S> {
 
                     RipMaps {
                         map_data: maps,
-                        level_count: Vec2(level_count_x, level_count_y).to_usize()
+                        level_count: Vec2(level_count_x, level_count_y)
                     }
                 })
             }
@@ -750,8 +750,7 @@ impl<S: Samples> Levels<S> {
 impl<S: Samples> SampleBlock<S> {
 
     /// Allocate a sample block ready to be filled with pixel data.
-    pub fn allocate(resolution: Vec2<u32>) -> Self {
-        let resolution = resolution.to_usize();
+    pub fn allocate(resolution: Vec2<usize>) -> Self {
         SampleBlock { resolution, samples: S::allocate(resolution) }
     }
 

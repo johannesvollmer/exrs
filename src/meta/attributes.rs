@@ -103,7 +103,7 @@ pub struct IntRect {
 
     /// How many pixels to include in this `Box2I32`.
     /// Does not include the actual boundary, just like `Vec::len()`.
-    pub size: Vec2<u32>,
+    pub size: Vec2<usize>,
 }
 
 /// A rectangular section anywhere in 2D float space.
@@ -120,7 +120,7 @@ pub struct ChannelList {
     pub list: SmallVec<[Channel; 5]>,
 
     /// The number of bytes that one pixel in this image needs.
-    pub bytes_per_pixel: u32, // FIXME only makes sense for flat images!
+    pub bytes_per_pixel: usize, // FIXME only makes sense for flat images!
 }
 
 /// A single channel in an image part.
@@ -143,7 +143,7 @@ pub struct Channel {
     /// Can be used for chroma subsampling for manual lossy data compression.
     /// Values other than 1 are allowed only in flat, scan-line based images.
     /// If an image is deep or tiled, x and y sampling rates for all of its channels must be 1.
-    pub sampling: Vec2<u32>,
+    pub sampling: Vec2<usize>,
 }
 
 /// What kind of pixels are in this channel.
@@ -206,7 +206,7 @@ pub enum LineOrder {
 pub struct Preview {
 
     /// The dimensions of the preview image.
-    pub size: Vec2<u32>,
+    pub size: Vec2<usize>,
 
     /// An array with a length of 4 × width × height.
     /// The pixels are stored in `LineOrder::Increasing`.
@@ -222,7 +222,7 @@ pub struct TileDescription {
 
     /// The size of each tile.
     /// Stays the same number of pixels across all levels.
-    pub tile_size: Vec2<u32>,
+    pub tile_size: Vec2<usize>,
 
     /// Whether to also store smaller versions of the image.
     pub level_mode: LevelMode,
@@ -316,7 +316,7 @@ impl Text {
 
     /// Write the length of a string and then the contents with that length.
     pub fn write_i32_sized<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> PassiveResult {
-        (self.bytes.len() as i32).write(write)?;
+        i32::write(self.bytes.len() as i32, write)?;
         Self::write_unsized_bytes(self.bytes.as_slice(), write, long_names)
     }
 
@@ -328,7 +328,7 @@ impl Text {
 
     /// Read the length of a string and then the contents with that length.
     pub fn read_i32_sized<R: Read>(read: &mut R, max_size: usize) -> Result<Self> {
-        let size = i32::read(read)? as usize;
+        let size = i32_to_usize(i32::read(read)?, "vector size")?;
         Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 1024, Some(max_size))?)))
     }
 
@@ -386,7 +386,7 @@ impl Text {
     /// but not attribute names, attribute type names, or channel names.
     fn read_vec_of_i32_sized(
         read: &mut PeekRead<impl Read>,
-        total_byte_size: u32
+        total_byte_size: usize
     ) -> Result<Vec<Text>>
     {
         let mut result = Vec::with_capacity(2);
@@ -395,9 +395,9 @@ impl Text {
         let mut processed_bytes = 0;
 
         while processed_bytes < total_byte_size {
-            let text = Text::read_i32_sized(read, total_byte_size as usize)?;
-            processed_bytes += ::std::mem::size_of::<i32>() as u32; // size i32 of the text
-            processed_bytes += text.bytes.len() as u32;
+            let text = Text::read_i32_sized(read, total_byte_size)?;
+            processed_bytes += ::std::mem::size_of::<i32>(); // size i32 of the text
+            processed_bytes += text.bytes.len();
             result.push(text);
         }
 
@@ -511,12 +511,12 @@ impl IntRect {
     }
 
     /// Create a box with a size starting at zero.
-    pub fn from_dimensions(size: Vec2<u32>) -> Self {
+    pub fn from_dimensions(size: Vec2<usize>) -> Self {
         Self::new(Vec2(0,0), size)
     }
 
     /// Create a box with a size and an origin point.
-    pub fn new(start: Vec2<i32>, size: Vec2<u32>) -> Self {
+    pub fn new(start: Vec2<i32>, size: Vec2<usize>) -> Self {
         Self { start, size }
     }
 
@@ -532,7 +532,7 @@ impl IntRect {
         self.end() - Vec2(1,1)
     }
 
-    pub fn validate(&self, max: Vec2<u32>) -> PassiveResult {
+    pub fn validate(&self, max: Vec2<usize>) -> PassiveResult {
         if self.size.0 > max.0 || self.size.1 > max.1  {
             return Err(Error::invalid("window attribute dimension value"));
         }
@@ -564,7 +564,7 @@ impl IntRect {
         let min = Vec2(x_min.min(x_max), y_min.min(y_max));
         let max  = Vec2(x_min.max(x_max), y_min.max(y_max)); // these are inclusive!
         let size = Vec2(max.0 + 1 - min.0, max.1 + 1 - min.1); // which is why we add 1
-        let size = size.to_u32("box coordinates")?;
+        let size = size.to_usize("box coordinates")?;
 
         Ok(IntRect { start: min, size })
     }
@@ -604,12 +604,12 @@ impl FloatRect {
 
 impl PixelType {
     /// How many bytes a single sample takes up.
-    pub fn bytes_per_sample(&self) -> u32 {
-        (match self {
+    pub fn bytes_per_sample(&self) -> usize {
+        match self {
             PixelType::F16 => f16::BYTE_SIZE,
             PixelType::F32 => f32::BYTE_SIZE,
             PixelType::U32 => u32::BYTE_SIZE,
-        }) as u32
+        }
     }
 
     pub fn byte_size() -> usize {
@@ -641,12 +641,12 @@ impl Channel {
 
     /// The count of pixels this channel contains, respecting subsampling.
     // FIXME this must be used everywhere
-    pub fn subsampled_pixels(&self, dimensions: Vec2<u32>) -> u32 {
+    pub fn subsampled_pixels(&self, dimensions: Vec2<usize>) -> usize {
         self.subsampled_resolution(dimensions).area()
     }
 
     /// The resolution pf this channel, respecting subsampling.
-    pub fn subsampled_resolution(&self, dimensions: Vec2<u32>) -> Vec2<u32> {
+    pub fn subsampled_resolution(&self, dimensions: Vec2<usize>) -> Vec2<usize> {
         dimensions / self.sampling
     }
 
@@ -668,8 +668,8 @@ impl Channel {
         }.write(write)?;
 
         i8::write_slice(write, &[0_i8, 0_i8, 0_i8])?;
-        self.sampling.0.write(write)?;
-        self.sampling.1.write(write)?;
+        i32::write(self.sampling.0 as i32, write)?;
+        i32::write(self.sampling.1 as i32, write)?;
         Ok(())
     }
 
@@ -686,12 +686,12 @@ impl Channel {
         let mut reserved = [0_i8; 3];
         i8::read_slice(read, &mut reserved)?;
 
-        let x_sampling = i32::read(read)?;
-        let y_sampling = i32::read(read)?;
+        let x_sampling = i32_to_usize(i32::read(read)?, "x channel sampling")?;
+        let y_sampling = i32_to_usize(i32::read(read)?, "y channel sampling")?;
 
         Ok(Channel {
             name, pixel_type, is_linear,
-            sampling: Vec2(x_sampling, y_sampling).to_u32("channel sampling value")?,
+            sampling: Vec2(x_sampling, y_sampling),
         })
     }
 
@@ -704,7 +704,7 @@ impl Channel {
             // TODO this must only be implemented in the crate::image module and child modules,
             //      should not be too difficult
 
-            return Err(Error::invalid("channel sub sampling not supported yet"));
+            return Err(Error::unsupported("channel sub sampling not supported yet"));
         }
 
         Ok(())
@@ -908,19 +908,20 @@ impl Preview {
     }
 
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        self.size.0.write(write)?;
-        self.size.1.write(write)?;
+        u32::write(self.size.0 as u32, write)?;
+        u32::write(self.size.1 as u32, write)?;
+
         i8::write_slice(write, &self.pixel_data)?;
         Ok(())
     }
 
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         let components_per_pixel = 4;
-        let width = u32::read(read)?;
-        let height = u32::read(read)?;
+        let width = u32::read(read)? as usize;
+        let height = u32::read(read)? as usize;
 
         // TODO carefully allocate
-        let mut pixel_data = vec![0; (width * height * components_per_pixel) as usize];
+        let mut pixel_data = vec![0; width * height * components_per_pixel];
         i8::read_slice(read, &mut pixel_data)?;
 
         let preview = Preview {
@@ -932,7 +933,7 @@ impl Preview {
     }
 
     pub fn validate(&self) -> PassiveResult {
-        if self.size.0 * self.size.1 * 4 != self.pixel_data.len() as u32 {
+        if self.size.0 * self.size.1 * 4 != self.pixel_data.len() {
             return Err(Error::invalid("preview dimensions do not match content length"))
         }
 
@@ -953,8 +954,8 @@ impl TileDescription {
     }
 
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        self.tile_size.0.write(write)?;
-        self.tile_size.1.write(write)?;
+        u32::write(self.tile_size.0 as u32, write)?;
+        u32::write(self.tile_size.1 as u32, write)?;
 
         let level_mode = match self.level_mode {
             LevelMode::Singular => 0_u8,
@@ -973,8 +974,8 @@ impl TileDescription {
     }
 
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
-        let x_size = u32::read(read)?;
-        let y_size = u32::read(read)?;
+        let x_size = u32::read(read)? as usize;
+        let y_size = u32::read(read)? as usize;
 
         let mode = u8::read(read)?;
 
@@ -1026,7 +1027,7 @@ impl Attribute {
     pub fn write<W: Write>(&self, write: &mut W, long_names: bool) -> PassiveResult {
         self.name.write_null_terminated(write, Some(long_names))?;
         Text::write_null_terminated_bytes(self.value.kind_name(), write, Some(long_names))?;
-        (self.value.byte_size() as i32).write(write)?;
+        i32::write(self.value.byte_size() as i32, write)?;
         self.value.write(write, long_names)
     }
 
@@ -1034,7 +1035,7 @@ impl Attribute {
     pub fn read(read: &mut PeekRead<impl Read>, max_size: usize) -> Result<Self> {
         let name = Text::read_null_terminated(read, max_size)?;
         let kind = Text::read_null_terminated(read, max_size)?;
-        let size = i32::read(read)? as u32; // TODO .checked_cast.ok_or(err:negative)
+        let size = i32_to_usize(i32::read(read)?, "attribute size")?;
         let value = AnyValue::read(read, kind, size)?;
         Ok(Attribute { name, value, })
     }
@@ -1168,7 +1169,7 @@ impl AnyValue {
         Ok(())
     }
 
-    pub fn read(read: &mut PeekRead<impl Read>, kind: Text, byte_size: u32) -> Result<Self> {
+    pub fn read(read: &mut PeekRead<impl Read>, kind: Text, byte_size: usize) -> Result<Self> {
         use self::AnyValue::*;
         use self::attribute_type_names as ty;
 
@@ -1239,7 +1240,7 @@ impl AnyValue {
             }),
 
             ty::PREVIEW     => Preview(self::Preview::read(read)?),
-            ty::TEXT        => Text(self::Text::read_sized(read, byte_size as usize)?),
+            ty::TEXT        => Text(self::Text::read_sized(read, byte_size)?),
 
             // the number of strings can be inferred from the total attribute size
             ty::TEXT_VECTOR => TextVector(self::Text::read_vec_of_i32_sized(read, byte_size)?),
@@ -1247,7 +1248,7 @@ impl AnyValue {
             ty::TILES       => TileDescription(self::TileDescription::read(read)?),
 
             _ => {
-                let mut bytes = vec![0_u8; byte_size as usize];
+                let mut bytes = vec![0_u8; byte_size];
                 u8::read_slice(read, &mut bytes)?;
                 Custom { kind, bytes }
             }

@@ -286,13 +286,13 @@ pub fn write_all_lines_to_buffered(
     let offset_table_start_byte = write.byte_position();
 
     // skip offset tables for now
-    let offset_table_size: u32 = meta_data.headers.iter()
+    let offset_table_size: usize = meta_data.headers.iter()
         .map(|header| header.chunk_count).sum();
 
-    write.seek_write_to(write.byte_position() + offset_table_size as usize * std::mem::size_of::<u64>())?;
+    write.seek_write_to(write.byte_position() + offset_table_size * std::mem::size_of::<u64>())?;
 
     let mut offset_tables: Vec<Vec<u64>> = meta_data.headers.iter()
-        .map(|header| vec![0; header.chunk_count as usize]).collect();
+        .map(|header| vec![0; header.chunk_count]).collect();
 
 //    let has_compression = meta_data.headers.iter() // do not use parallel stuff for uncompressed images
 //        .find(|header| header.compression != Compression::Uncompressed).is_some();
@@ -308,9 +308,9 @@ pub fn write_all_lines_to_buffered(
                 let data_indices = header.get_absolute_block_indices(tile.location)?;
                 let block_indices = BlockIndex {
                     part: part_index,
-                    level: tile.location.level_index.to_usize(),
+                    level: tile.location.level_index,
                     position: data_indices.start.to_usize("data indices start")?,
-                    size: data_indices.size.to_usize(),
+                    size: data_indices.size,
                 };
 
                 let mut data = Vec::new(); // TODO allocate only block, not lines
@@ -325,7 +325,7 @@ pub fn write_all_lines_to_buffered(
                 let data = header.compression.compress_image_section(data)?;
 
                 let chunk = Chunk {
-                    part_number: part_index as u32,
+                    part_number: part_index,
 
                     // TODO deep data
                     block: match header.blocks {
@@ -429,7 +429,7 @@ impl BlockIndex {
         }
 
         let channel_line_sizes: SmallVec<[usize; 8]> = header.channels.list.iter()
-            .map(move |channel| self.size.0 * channel.pixel_type.bytes_per_sample() as usize) // FIXME is it fewer samples per tile or just fewer tiles for sampled images???
+            .map(move |channel| self.size.0 * channel.pixel_type.bytes_per_sample()) // FIXME is it fewer samples per tile or just fewer tiles for sampled images???
             .collect();
 
         LineIter {
@@ -452,7 +452,7 @@ impl UncompressedBlock {
     /// Decompress the possibly compressed chunk and returns an `UncompressedBlock`.
     // for uncompressed data, the ByteVec in the chunk is moved all the way
     pub fn decompress_chunk(chunk: Chunk, meta_data: &MetaData) -> Result<Self> {
-        let header: &Header = meta_data.headers.get(chunk.part_number as usize) // negative overflow is handled by out of index handling
+        let header: &Header = meta_data.headers.get(chunk.part_number) // negative overflow is handled by out of index handling
             .ok_or(Error::invalid("chunk part index"))?;
 
         let tile_data_indices = header.get_block_data_indices(&chunk.block)?;
@@ -465,10 +465,10 @@ impl UncompressedBlock {
             Block::ScanLine(ScanLineBlock { compressed_pixels, .. }) => Ok(UncompressedBlock {
                 data: header.compression.decompress_image_section(header, compressed_pixels, absolute_indices)?,
                 index: BlockIndex {
-                    part: chunk.part_number as usize,
+                    part: chunk.part_number,
                     position: absolute_indices.start.to_usize("data indices start")?,
-                    level: tile_data_indices.level_index.to_usize(),
-                    size: absolute_indices.size.to_usize(),
+                    level: tile_data_indices.level_index,
+                    size: absolute_indices.size,
                 }
             }),
 

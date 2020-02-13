@@ -163,7 +163,7 @@ impl Compression {
         let dimensions = tile.size;
         debug_assert!(tile.validate(dimensions).is_ok());
 
-        let expected_byte_size = (dimensions.0 * dimensions.1 * header.channels.bytes_per_pixel) as usize;
+        let expected_byte_size = dimensions.0 * dimensions.1 * header.channels.bytes_per_pixel;
 
         if data.len() == expected_byte_size {
             Ok(data) // the raw data was smaller than the compressed data, so the raw data has been written
@@ -218,7 +218,7 @@ impl Compression {
     /// For scan line images and deep scan line images, one or more scan lines may be
     /// stored together as a scan line block. The number of scan lines per block
     /// depends on how the pixel data are compressed.
-    pub fn scan_lines_per_block(self) -> u32 {
+    pub fn scan_lines_per_block(self) -> usize {
         use self::Compression::*;
         match self {
             Uncompressed | RLE   | ZIP1  => 1,

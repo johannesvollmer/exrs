@@ -16,7 +16,7 @@ pub struct Chunk {
     /// The index of the image part that the block belongs to.
     /// This is required as the pixel data can appear in any order in a file.
     // PDF says u64, but source code seems to be i32
-    pub part_number: u32,
+    pub part_number: usize,
 
     /// The compressed pixel contents.
     pub block: Block,
@@ -67,10 +67,10 @@ pub struct TileBlock {
 pub struct TileCoordinates {
 
     /// Index of the tile, not pixel position.
-    pub tile_index: Vec2<u32>,
+    pub tile_index: Vec2<usize>,
 
     /// Index of the Mip/Rip level.
-    pub level_index: Vec2<u32>,
+    pub level_index: Vec2<usize>,
 }
 
 /// This `Block` consists of one or more deep scan lines.
@@ -81,7 +81,7 @@ pub struct DeepScanLineBlock {
     /// The top scan line block in the image is aligned with the top edge of the data window.
     pub y_coordinate: i32,
 
-    pub decompressed_sample_data_size: u64,
+    pub decompressed_sample_data_size: usize,
 
     /// The pixel offset table is a list of integers, one for each pixel column within the data window.
     /// Each entry in the table indicates the total number of samples required
@@ -102,7 +102,7 @@ pub struct DeepTileBlock {
     /// The tile location.
     pub coordinates: TileCoordinates,
 
-    pub decompressed_sample_data_size: u64,
+    pub decompressed_sample_data_size: usize,
 
     /// The pixel offset table is a list of integers, one for each pixel column within the data window.
     /// Each entry in the table indicates the total number of samples required
@@ -120,10 +120,10 @@ use crate::io::*;
 
 impl TileCoordinates {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        (self.tile_index.0 as i32).write(write)?;
-        (self.tile_index.1 as i32).write(write)?;
-        (self.level_index.0 as i32).write(write)?;
-        (self.level_index.1 as i32).write(write)?;
+        i32::write(self.tile_index.0 as i32,write)?;
+        i32::write(self.tile_index.1 as i32,write)?;
+        i32::write(self.level_index.0 as i32,write)?;
+        i32::write(self.level_index.1 as i32, write)?;
         Ok(())
     }
 
@@ -135,15 +135,15 @@ impl TileCoordinates {
         let level_y = i32::read(read)?;
 
         Ok(TileCoordinates {
-            tile_index: Vec2(tile_x, tile_y).to_u32("tile coordinate index")?,
-            level_index: Vec2(level_x, level_y).to_u32("tile coordinate level")?
+            tile_index: Vec2(tile_x, tile_y).to_usize("tile coordinate index")?,
+            level_index: Vec2(level_x, level_y).to_usize("tile coordinate level")?
         })
     }
 
     /// The indices which can be used to index into the arrays of a data window.
     /// These coordinates are only valid inside the corresponding one header.
     /// Will start at 0 and always be positive.
-    pub fn to_data_indices(&self, tile_size: Vec2<u32>, max: Vec2<u32>) -> Result<IntRect> {
+    pub fn to_data_indices(&self, tile_size: Vec2<usize>, max: Vec2<usize>) -> Result<IntRect> {
         let start = self.tile_index * tile_size;
 
         Ok(IntRect {
@@ -156,7 +156,7 @@ impl TileCoordinates {
     }
 
     /// Absolute coordinates inside the global 2D space of a file, may be negative.
-    pub fn to_absolute_indices(&self, tile_size: Vec2<u32>, data_window: IntRect) -> Result<IntRect> {
+    pub fn to_absolute_indices(&self, tile_size: Vec2<usize>, data_window: IntRect) -> Result<IntRect> {
         let data = self.to_data_indices(tile_size, data_window.size)?;
         Ok(data.with_origin(data_window.start))
     }
@@ -168,7 +168,7 @@ use crate::meta::{Header, MetaData, Blocks, calculate_block_size};
 
 impl ScanLineBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        self.y_coordinate.write(write)?;
+        i32::write(self.y_coordinate, write)?;
         u8::write_i32_sized_slice(write, &self.compressed_pixels)?;
         Ok(())
     }
@@ -196,10 +196,10 @@ impl TileBlock {
 
 impl DeepScanLineBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        self.y_coordinate.write(write)?;
-        (self.compressed_pixel_offset_table.len() as u64).write(write)?;
-        (self.compressed_sample_data.len() as u64).write(write)?; // TODO just guessed
-        self.decompressed_sample_data_size.write(write)?;
+        i32::write(self.y_coordinate, write)?;
+        u64::write(self.compressed_pixel_offset_table.len() as u64, write)?;
+        u64::write(self.compressed_sample_data.len() as u64, write)?; // TODO just guessed
+        u64::write(self.decompressed_sample_data_size as u64, write)?;
         i8::write_slice(write, &self.compressed_pixel_offset_table)?;
         u8::write_slice(write, &self.compressed_sample_data)?;
         Ok(())
@@ -207,19 +207,19 @@ impl DeepScanLineBlock {
 
     pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let y_coordinate = i32::read(read)?;
-        let compressed_pixel_offset_table_size = u64::read(read)?;
-        let compressed_sample_data_size = u64::read(read)?;
-        let decompressed_sample_data_size = u64::read(read)?;
+        let compressed_pixel_offset_table_size = u64_to_usize(u64::read(read)?);
+        let compressed_sample_data_size = u64_to_usize(u64::read(read)?);
+        let decompressed_sample_data_size = u64_to_usize(u64::read(read)?);
 
         // TODO don't just panic-cast
         // doc said i32, try u8
         let compressed_pixel_offset_table = i8::read_vec(
-            read, compressed_pixel_offset_table_size as usize,
+            read, compressed_pixel_offset_table_size,
             6 * std::u16::MAX as usize, Some(max_block_byte_size)
         )?;
 
         let compressed_sample_data = u8::read_vec(
-            read, compressed_sample_data_size as usize,
+            read, compressed_sample_data_size,
             6 * std::u16::MAX as usize, Some(max_block_byte_size)
         )?;
 
@@ -236,9 +236,9 @@ impl DeepScanLineBlock {
 impl DeepTileBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         self.coordinates.write(write)?;
-        (self.compressed_pixel_offset_table.len() as u64).write(write)?;
-        (self.compressed_sample_data.len() as u64).write(write)?; // TODO just guessed
-        self.decompressed_sample_data_size.write(write)?;
+        u64::write(self.compressed_pixel_offset_table.len() as u64, write)?;
+        u64::write(self.compressed_sample_data.len() as u64, write)?; // TODO just guessed
+        u64::write(self.decompressed_sample_data_size as u64, write)?;
         i8::write_slice(write, &self.compressed_pixel_offset_table)?;
         u8::write_slice(write, &self.compressed_sample_data)?;
         Ok(())
@@ -246,9 +246,9 @@ impl DeepTileBlock {
 
     pub fn read(read: &mut impl Read, hard_max_block_byte_size: usize) -> Result<Self> {
         let coordinates = TileCoordinates::read(read)?;
-        let compressed_pixel_offset_table_size = u64::read(read)? as usize;
-        let compressed_sample_data_size = u64::read(read)? as usize; // TODO u64 just guessed
-        let decompressed_sample_data_size = u64::read(read)?;
+        let compressed_pixel_offset_table_size = u64_to_usize(u64::read(read)?);
+        let compressed_sample_data_size = u64_to_usize(u64::read(read)?); // TODO u64 just guessed
+        let decompressed_sample_data_size = u64_to_usize(u64::read(read)?);
 
         let compressed_pixel_offset_table = i8::read_vec(
             read, compressed_pixel_offset_table_size,
@@ -269,15 +269,15 @@ impl DeepTileBlock {
     }
 }
 
-use crate::error::{PassiveResult, Result, Error};
+use crate::error::{PassiveResult, Result, Error, u64_to_usize};
 use crate::math::Vec2;
 
 /// Validation of chunks is done while reading and writing the actual data. (For example in exr::full_image)
 impl Chunk {
     pub fn write(&self, write: &mut impl Write, headers: &[Header]) -> PassiveResult {
-        debug_assert!(self.part_number < headers.len() as u32); // validation is done in full_image or simple_image
+        debug_assert!(self.part_number < headers.len()); // validation is done in full_image or simple_image
 
-        if headers.len() != 1 { self.part_number.write(write)?; }
+        if headers.len() != 1 { i32::write(self.part_number as i32, write)?; }
         else { assert_eq!(self.part_number, 0); }
 
         match self.block {
@@ -298,9 +298,8 @@ impl Chunk {
             return Err(Error::invalid("chunk data part number"));
         }
 
-        let part_number = part_number as u32;
-
-        let header = &meta_data.headers[part_number as usize];
+        let part_number = part_number as usize;
+        let header = &meta_data.headers[part_number];
         let max_block_byte_size = header.max_block_byte_size();
 
         let chunk = Chunk {

@@ -90,7 +90,7 @@ pub struct Part {
 
     /// If this is some pair of numbers, the image is divided into tiles of that size.
     /// If this is none, the image is divided into scan line blocks, depending on the compression method.
-    pub tiles: Option<Vec2<u32>>,
+    pub tiles: Option<Vec2<usize>>,
 
     /// List of channels in this image part.
     /// Contains the actual pixel data of the image.
@@ -315,7 +315,7 @@ impl Part {
 
         assert!(
             channels.iter().all(|chan|
-                chan.samples.len() / (chan.sampling.0 * chan.sampling.1) == data_window.size.to_usize().area()
+                chan.samples.len() / (chan.sampling.0 * chan.sampling.1) == data_window.size.area()
             ),
             "channel data size must conform to data window size (scaled by channel sampling)"
         );
@@ -496,23 +496,23 @@ impl Part {
     /// Insert one line of pixel data into this image part.
     /// Returns an error for invalid index or line contents.
     pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
-        debug_assert!(line.location.position.0 + line.location.width <= self.data_window.size.0 as usize);
-        debug_assert!(line.location.position.1 < self.data_window.size.1 as usize);
+        debug_assert!(line.location.position.0 + line.location.width <= self.data_window.size.0);
+        debug_assert!(line.location.position.1 < self.data_window.size.1);
 
         self.channels.get_mut(line.location.channel)
             .expect("invalid channel index")
-            .insert_line(line, self.data_window.size.to_usize())
+            .insert_line(line, self.data_window.size)
     }
 
     /// Read one line of pixel data from this image part.
     /// Panics for an invalid index or write error.
     pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
-        debug_assert!(index.position.0 + index.width <= self.data_window.size.0 as usize);
-        debug_assert!(index.position.1 < self.data_window.size.1 as usize);
+        debug_assert!(index.position.0 + index.width <= self.data_window.size.0);
+        debug_assert!(index.position.1 < self.data_window.size.1);
 
         self.channels.get(index.channel)
             .expect("invalid channel index")
-            .extract_line(index, self.data_window.size.to_usize(), write)
+            .extract_line(index, self.data_window.size, write)
     }
 
     /// Create the meta data that describes this image part.
@@ -569,7 +569,7 @@ impl Channel {
         Channel {
             name: channel.name.clone(),
             is_linear: channel.is_linear,
-            sampling: channel.sampling.to_usize(),
+            sampling: channel.sampling,
             samples: Samples::allocate(header.data_window.size / channel.sampling, channel.pixel_type)
         }
     }
@@ -598,7 +598,7 @@ impl Channel {
 
             name: self.name.clone(),
             is_linear: self.is_linear,
-            sampling: self.sampling.to_u32(),
+            sampling: self.sampling,
         }
     }
 }
@@ -607,8 +607,7 @@ impl Channel {
 impl Samples {
 
     /// Allocate a sample block ready to be filled with pixel data.
-    pub fn allocate(resolution: Vec2<u32>, pixel_type: PixelType) -> Self {
-        let resolution = resolution.to_usize();
+    pub fn allocate(resolution: Vec2<usize>, pixel_type: PixelType) -> Self {
         let count = resolution.area();
 
         match pixel_type {

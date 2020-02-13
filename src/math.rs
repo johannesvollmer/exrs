@@ -5,7 +5,7 @@
 //! Simple math utilities.
 
 use std::convert::TryFrom;
-use crate::error::{i32_to_u32, i32_to_usize};
+use crate::error::{i32_to_usize};
 use crate::error::Result;
 
 /// Simple two-dimensional vector of any numerical type.
@@ -46,16 +46,26 @@ impl Vec2<i32> {
         Ok(Vec2(x, y))
     }
 
-    /// Try to convert to `Vec2<u32>`, returning an error on negative numbers.
-    pub fn to_u32(self, error_message: &'static str) -> Result<Vec2<u32>> {
+    // Try to convert to `Vec2<u32>`, returning an error on negative numbers.
+    /*pub fn to_u32(self, error_message: &'static str) -> Result<Vec2<u32>> {
         let x = i32_to_u32(self.0, error_message)?;
         let y = i32_to_u32(self.1, error_message)?;
         Ok(Vec2(x, y))
-    }
+    }*/
 }
 
+impl Vec2<usize> {
 
-impl Vec2<u32> {
+    /// Panics for too large values
+    pub fn to_i32(self) -> Vec2<i32> {
+        let x = i32::try_from(self.0).expect("vector x coordinate too large");
+        let y = i32::try_from(self.1).expect("vector y coordinate too large");
+        Vec2(x, y)
+    }
+
+}
+
+/*impl Vec2<u32> {
 
     /// Panics on too large value
     pub fn to_usize(self) -> Vec2<usize> {
@@ -70,9 +80,9 @@ impl Vec2<u32> {
         let y = i32::try_from(self.1).expect("max value overflow");
         Vec2(x, y)
     }
-}
+}*/
 
-impl Vec2<usize> {
+/*impl Vec2<usize> {
 
     /// Panics on too large value
     pub fn to_u32(self) -> Vec2<u32> {
@@ -80,7 +90,7 @@ impl Vec2<usize> {
         let y = u32::try_from(self.1).expect("max value overflow");
         Vec2(x, y)
     }
-}
+}*/
 
 impl<T: std::ops::Add<T>> std::ops::Add<Vec2<T>> for Vec2<T> {
     type Output = Vec2<T::Output>;
@@ -154,14 +164,14 @@ pub enum RoundingMode {
 }
 
 impl RoundingMode {
-    pub(crate) fn log2(self, number: u32) -> u32 {
+    pub(crate) fn log2(self, number: usize) -> usize {
         match self {
-            RoundingMode::Down => self::floor_log_2(number),
-            RoundingMode::Up => self::ceil_log_2(number),
+            RoundingMode::Down => self::floor_log_2(number as u32) as usize,
+            RoundingMode::Up => self::ceil_log_2(number as u32) as usize,
         }
     }
 
-    pub(crate) fn divide(self, dividend: u32, divisor: u32) -> u32 {
+    pub(crate) fn divide(self, dividend: usize, divisor: usize) -> usize {
         match self {
             RoundingMode::Up => (dividend + divisor - 1) / divisor, // only works for positive numbers
             RoundingMode::Down => dividend / divisor,

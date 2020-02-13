@@ -225,7 +225,7 @@ pub fn decompress_bytes(
 
     let mut channel_data: Vec<ChannelData> = Vec::new();
 
-    let mut tmp_buffer = vec![0_u16; header.data_window.size.0 as usize]; // TODO better size calculation?
+    let mut tmp_buffer = vec![0_u16; header.data_window.size.0]; // TODO better size calculation?
     let mut tmp_buffer_end = 0_u32;
 
     for (_index, channel) in header.channels.list.iter().enumerate() {
@@ -233,10 +233,10 @@ pub fn decompress_bytes(
         let channel = ChannelData {
             start_index: tmp_buffer_end,
             end_index: tmp_buffer_end,
-            y_samples: channel.sampling.1,
-            number_samples: channel.subsampled_resolution(rectangle.size),
+            y_samples: channel.sampling.1 as u32,
+            number_samples: channel.subsampled_resolution(rectangle.size).map(|x| x as u32),
             // number_samples_x, number_samples_y,
-            size: channel.pixel_type.bytes_per_sample() / PixelType::F16.bytes_per_sample()
+            size: (channel.pixel_type.bytes_per_sample() / PixelType::F16.bytes_per_sample()) as u32
         };
 
         tmp_buffer_end += channel.number_samples.0 * channel.number_samples.1 * channel.size;

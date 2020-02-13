@@ -11,13 +11,13 @@ use std::io::{Seek, SeekFrom};
 
 /// Skip reading uninteresting bytes without allocating.
 #[inline]
-pub fn skip_bytes(read: &mut impl Read, count: u64) -> IoResult<()> {
+pub fn skip_bytes(read: &mut impl Read, count: usize) -> IoResult<()> {
     let skipped = std::io::copy(
-        &mut read.by_ref().take(count),
+        &mut read.by_ref().take(count as u64),
         &mut std::io::sink()
     )?;
 
-    debug_assert_eq!(skipped, count);
+    debug_assert_eq!(skipped, count as u64);
     Ok(())
 }
 
@@ -148,7 +148,7 @@ impl<T: Read + Seek> Tracking<T> {
         let delta = target_position as i64 - self.position as i64;
 
         if delta > 0 && delta < 16 { // TODO profile that this is indeed faster than a syscall! (should be because of bufread buffer discard)
-            skip_bytes(self, delta as u64)?;
+            skip_bytes(self, delta as usize)?;
             self.position += delta as usize;
         }
         else if delta != 0 {
@@ -243,7 +243,7 @@ pub trait Data: Sized + Default + Clone {
     /// Write the length of the slice and then its contents.
     #[inline]
     fn write_i32_sized_slice<W: Write>(write: &mut W, slice: &[Self]) -> PassiveResult {
-        (slice.len() as i32).write(write)?;
+        i32::write(slice.len() as i32, write)?;
         Self::write_slice(write, slice)
     }
 
