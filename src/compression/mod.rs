@@ -17,11 +17,14 @@ pub type ByteVec = Vec<u8>;
 pub type Bytes<'s> = &'s [u8];
 
 /// Specifies which compression method to use.
+/// Use uncompressed data for fastest loading and writing speeds.
+/// Use RLE compression for fast loading and writing with slight memory savings.
+/// Use ZIP compression for slow processing with large memory savings.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Compression {
 
-    /// Store uncompressed values. Produces large files that can be read and written quickly.
-    /// This compression method is lossless.
+    /// Store uncompressed values.
+    /// Produces large files that can be read and written very quickly.
     Uncompressed,
 
     /// Produces slightly smaller files

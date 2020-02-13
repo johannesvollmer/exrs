@@ -32,6 +32,7 @@ __Currently supported:__
     - [x] custom attributes
     - [x] multi-part images
     - [x] multi-resolution images: mip maps, rip maps
+    - [ ] channel subsampling
     - [ ] deep data
     - [ ] line order
         - [x] read any
@@ -135,7 +136,7 @@ __Currently supported:__
     - [ ] Enforce minimum length of 1 for arrays
     - [x] [Validate data_window matches data size when writing images] is not required because one is inferred from the other
     - [x] Channel names and image part names must be unique
-
+    
 - [ ] Explore different APIs
     - [ ] Let user decide how to store data
     - [x] Loading Metadata and specific tiles or blocks separately
@@ -145,38 +146,14 @@ __Be sure to come back in a few weeks.__
 
 ### Example Usage
 
-Read all contents of the exr file at once,
-including deep data, mip maps, and u32, f64, and f32 pixel data.
-```rust
-extern crate exr;
-use exr::prelude::*;
-
-fn main() {
-    let image = simple::Image::read_from_file("/images/test.exr", simple::ReadOptions::default())
-        .expect("file read error");
-        
-    println("file meta data: {:#?}", image);
-}
-```
-
 Writing all image contents at once:
 ```rust
-extern crate exr;
-
-#[macro_use]
-extern crate smallvec;
-
-use exr::prelude::*;
-use exr::image::simple::*;
-
-use std::convert::TryInto;
-
 fn main() {
     let size = Vec2(1024, 512);
 
     let luma = Channel::new_linear(
         "Y".try_into().unwrap(),
-        simple::Samples::F32(generate_f32_vector(size))
+        Samples::F32(generate_f32_vector(size))
     );
 
     let image = Image::new_from_single_part(simple::Part::new(
@@ -192,6 +169,9 @@ fn main() {
     image.write_to_file("./testout/constructed.exr", WriteOptions::debug()).unwrap();
 }
 ```
+
+See the examples folder for a full example.
+
 
 ### Cleanup Tasks Before Version 1.0
 - [x] remove all calls to `Option::unwrap()` and `Result::unwrap()` (except for tests)

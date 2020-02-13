@@ -109,15 +109,15 @@ impl LineIndex {
 
 
 /// Reads and decompresses all chunks of a file sequentially without seeking.
-/// Will not skip any parts of the file.
-pub fn read_all_lines<T>(
+/// Will not skip any parts of the file. Does not buffer the reader, you should always pass a `BufReader`.
+pub fn read_all_lines_from_buffered<T>(
     read: impl Read + Send, // FIXME does not actually need to be send, only for parallel writing
     parallel: bool,
     new: impl Fn(&[Header]) -> Result<T>,
     mut insert: impl FnMut(&mut T, Line<'_>) -> PassiveResult
 ) -> Result<T>
 {
-    let (meta_data, mut read_chunk) = self::read_all_compressed_chunks(read)?;
+    let (meta_data, mut read_chunk) = self::read_all_compressed_chunks_from_buffered(read)?;
     let meta_data_ref = &meta_data;
 
     let read_chunks = std::iter::from_fn(move || read_chunk(meta_data_ref));
@@ -135,7 +135,8 @@ pub fn read_all_lines<T>(
 /// Reads ad decompresses all desired chunks of a file sequentially, possibly seeking.
 /// Will skip any parts of the file that do not match the specified filter condition.
 /// Will never seek if the filter condition matches all chunks.
-pub fn read_filtered_lines<T>(
+/// Does not buffer the reader, you should always pass a `BufReader`.
+pub fn read_filtered_lines_from_buffered<T>(
     read: impl Read + Seek + Send, // FIXME does not always need be Send
     parallel: bool,
     filter: impl Fn(&Header, &TileIndices) -> bool,
@@ -143,7 +144,7 @@ pub fn read_filtered_lines<T>(
     mut insert: impl FnMut(&mut T, Line<'_>) -> PassiveResult
 ) -> Result<T>
 {
-    let (meta_data, mut read_chunk) = self::read_filtered_chunks(read, filter)?;
+    let (meta_data, mut read_chunk) = self::read_filtered_chunks_from_buffered(read, filter)?;
     let read_chunks = std::iter::from_fn(|| read_chunk(&meta_data));
     let mut value = new(meta_data.headers.as_slice())?;
 
@@ -174,7 +175,7 @@ fn for_lines_in_chunks(chunks: impl Send + Iterator<Item = Result<Chunk>>, meta_
             let header = meta_data.headers.get(decompressed.index.part)
                 .ok_or(Error::invalid("chunk index"))?;
 
-            for (bytes, line) in decompressed.index.lines(header) {
+            for (bytes, line) in decompressed.index.line_indices(header) {
                 for_each(Line { location: line, value: &decompressed.data[bytes] })?;
             }
         }
@@ -187,7 +188,7 @@ fn for_lines_in_chunks(chunks: impl Send + Iterator<Item = Result<Chunk>>, meta_
             let header = meta_data.headers.get(decompressed.index.part)
                 .ok_or(Error::invalid("chunk index"))?;
 
-            for (bytes, line) in decompressed.index.lines(header) {
+            for (bytes, line) in decompressed.index.line_indices(header) {
                 for_each(Line { location: line, value: &decompressed.data[bytes] })?;
             }
         }
@@ -198,7 +199,8 @@ fn for_lines_in_chunks(chunks: impl Send + Iterator<Item = Result<Chunk>>, meta_
 
 /// Read all chunks without seeking.
 /// Returns the compressed chunks.
-pub fn read_all_compressed_chunks<'m>(
+/// Does not buffer the reader, you should always pass a `BufReader`.
+pub fn read_all_compressed_chunks_from_buffered<'m>(
     read: impl Read + Send, // FIXME does not actually need to be send, only for parallel writing
 ) -> Result<(MetaData, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
 {
@@ -218,11 +220,10 @@ pub fn read_all_compressed_chunks<'m>(
 }
 
 
-/// Read all desired chunks, possibly seeking.
-/// Skips all chunks that do not match the filter.
-/// Returns the compressed chunks.
+/// Read all desired chunks, possibly seeking. Skips all chunks that do not match the filter.
+/// Returns the compressed chunks. Does not buffer the reader, you should always pass a `BufReader`.
 // TODO this must be tested more
-pub fn read_filtered_chunks<'m>(
+pub fn read_filtered_chunks_from_buffered<'m>(
     read: impl Read + Seek + Send, // FIXME does not always need be Send
     filter: impl Fn(&Header, &TileIndices) -> bool,
 ) -> Result<(MetaData, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
@@ -257,6 +258,7 @@ pub fn read_filtered_chunks<'m>(
 /// Should use multicore compression if desired.
 ///
 /// Currently, multicore compression is not implemented yet.
+/// Does not buffer the writer, you should always pass a `BufWriter`.
 // TODO multicore compression
 // TODO split up this function into reusable bits
 #[must_use]
@@ -310,7 +312,7 @@ pub fn write_all_lines_to_buffered(
                 };
 
                 let mut data = Vec::new(); // TODO allocate only block, not lines
-                for (byte_range, line_index) in block_indices.lines(header) {
+                for (byte_range, line_index) in block_indices.line_indices(header) {
                     debug_assert_eq!(byte_range.start, data.len());
                     data.extend_from_slice(get_line(line_index).as_slice());
                     debug_assert_eq!(byte_range.end, data.len());
@@ -378,12 +380,14 @@ impl BlockIndex {
     ///
     /// Does not check whether `self.part_index`, `self.level`, `self.size` and `self.position` are valid indices.__
     // TODO be sure this cannot produce incorrect data, as this is not further checked but only handled with panics
-    pub fn lines(&self, header: &Header) -> impl Iterator<Item=(Range<usize>, LineIndex)> {
+    pub fn line_indices(&self, header: &Header) -> impl Iterator<Item=(Range<usize>, LineIndex)> {
         struct LineIter {
             part: usize, level: Vec2<usize>, width: usize,
             end_y: usize, x: usize, channel_sizes: SmallVec<[usize; 8]>,
             byte: usize, channel: usize, y: usize,
         };
+
+        // FIXME what about sub sampling??
 
         impl Iterator for LineIter {
             type Item = (Range<usize>, LineIndex);
@@ -423,7 +427,7 @@ impl BlockIndex {
         }
 
         let channel_line_sizes: SmallVec<[usize; 8]> = header.channels.list.iter()
-            .map(move |channel| self.size.0 * channel.pixel_type.bytes_per_sample() as usize)
+            .map(move |channel| self.size.0 * channel.pixel_type.bytes_per_sample() as usize) // FIXME is it fewer samples per tile or just fewer tiles for sampled images???
             .collect();
 
         LineIter {

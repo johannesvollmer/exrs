@@ -33,7 +33,7 @@ pub struct ReadOptions {
     pub parallel_decompression: bool,
 }
 
-
+// FIXME will allocate but not overwrite deep data contents????
 
 /// An exr image.
 ///
@@ -111,10 +111,13 @@ pub struct Channel {
     /// One of "R", "G", or "B" most of the time.
     pub name: Text,
 
-    /// The actual pixel data.
-    /// Contains a flattened vector of samples.
+    /// The actual pixel data. Contains a flattened vector of samples.
     /// The vector contains each row, one after another.
-    /// A specific pixel value can be found at the index `samples[y_index * width + x_index]`.
+    /// The number of pixels depends on the resolution of the image part
+    /// and the sampling rate of this channel.
+    ///
+    /// Thus, a specific pixel value can be found at the index
+    /// `samples[(y_index / sampling_y) * width + (x_index / sampling_x)]`.
     pub samples: Samples,
 
     /// Are the samples in this channel in linear color space?
@@ -176,11 +179,13 @@ impl Default for ReadOptions {
 
 impl WriteOptions {
     pub fn fast() -> Self { WriteOptions { parallel_compression: true, } }
+    pub fn low_memory() -> Self { WriteOptions { parallel_compression: false } }
     pub fn debug() -> Self { WriteOptions { parallel_compression: false, } }
 }
 
 impl ReadOptions {
     pub fn fast() -> Self { ReadOptions { parallel_decompression: true } }
+    pub fn low_memory() -> Self { ReadOptions { parallel_decompression: false } }
     pub fn debug() -> Self { ReadOptions { parallel_decompression: false } }
 }
 
@@ -257,7 +262,7 @@ impl Image {
     #[must_use]
     pub fn read_from_buffered(read: impl Read + Send + Seek, options: ReadOptions) -> Result<Self> { // TODO not need be seek nor send
         // crate::image::read_all_lines(read, options.parallel_decompression, Image::allocate, Image::insert_line)
-        crate::image::read_filtered_lines(
+        crate::image::read_filtered_lines_from_buffered(
             read, options.parallel_decompression,
             |header, tile_index| {
                 !header.deep && tile_index.location.level_index == Vec2(0,0)

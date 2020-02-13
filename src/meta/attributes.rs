@@ -638,7 +638,9 @@ impl PixelType {
 }
 
 impl Channel {
+
     /// The count of pixels this channel contains, respecting subsampling.
+    // FIXME this must be used everywhere
     pub fn subsampled_pixels(&self, dimensions: Vec2<u32>) -> u32 {
         self.subsampled_resolution(dimensions).area()
     }
@@ -695,7 +697,14 @@ impl Channel {
 
     pub fn validate(&self) -> PassiveResult {
         if self.sampling.0 == 0 || self.sampling.1 == 0 {
-            return Err(Error::invalid("zero sampling factor"))
+            return Err(Error::invalid("zero sampling factor"));
+        }
+
+        if self.sampling.0 != 1 || self.sampling.1 != 1 {
+            // TODO this must only be implemented in the crate::image module and child modules,
+            //      should not be too difficult
+
+            return Err(Error::invalid("channel sub sampling not supported yet"));
         }
 
         Ok(())

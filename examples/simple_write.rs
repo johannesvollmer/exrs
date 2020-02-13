@@ -30,17 +30,17 @@ fn write_noisy_hdr() {
 
     let r = Channel::new_linear(
         "R".try_into().unwrap(),
-        simple::Samples::F16(generate_f16_vector(size))
+        Samples::F16(generate_f16_vector(size))
     );
 
     let g = Channel::new_linear(
         "G".try_into().unwrap(),
-        simple::Samples::F16(generate_f16_vector(size))
+        Samples::F16(generate_f16_vector(size))
     );
 
     let b = Channel::new_linear(
         "B".try_into().unwrap(),
-        simple::Samples::F32(generate_f16_vector(size).into_iter().map(f16::to_f32).collect())
+        Samples::F32(generate_f16_vector(size).into_iter().map(f16::to_f32).collect())
     );
 
     let image = Image::new_from_single_part(simple::Part::new(

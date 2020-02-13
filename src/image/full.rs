@@ -337,7 +337,7 @@ impl Image {
     /// Use `read_from_unbuffered` instead, if this is not an in-memory reader.
     #[must_use]
     pub fn read_from_buffered(read: impl Read + Send, options: ReadOptions) -> Result<Self> {
-        crate::image::read_all_lines(read, options.parallel_decompression, Image::allocate, Image::insert_line)
+        crate::image::read_all_lines_from_buffered(read, options.parallel_decompression, Image::allocate, Image::insert_line)
     }
 
     /// Write the exr image to a file.
