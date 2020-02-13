@@ -74,7 +74,7 @@ pub struct Part {
 
     /// The rectangle that positions this image part
     /// within the global infinite 2D space of the file.
-    pub data_window: IntRect, // TODO single point?
+    pub data_window: IntRect,
 
     /// Part of the perspective projection. Default should be `(0, 0)`.
     pub screen_window_center: Vec2<f32>, // TODO use sensible defaults instead of returning an error on missing?

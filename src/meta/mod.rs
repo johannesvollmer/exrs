@@ -613,8 +613,8 @@ impl Header {
             },
 
             Block::ScanLine(ref block) => {
-                let y = (block.y_coordinate - self.data_window.start.1)
-                    / self.compression.scan_lines_per_block() as i32;
+                let size = self.compression.scan_lines_per_block() as i32;
+                let y = (block.y_coordinate - self.data_window.start.1) / size;
 
                 if y < 0 {
                     panic!("y index calculation bug");
@@ -744,7 +744,7 @@ impl Header {
                 LINE_ORDER => line_order = Some(value.to_line_order()?),
                 PIXEL_ASPECT => pixel_aspect = Some(value.to_f32()?),
                 WINDOW_CENTER => screen_window_center = Some(value.to_f32_vec_2()?),
-                WINDOW_WIDTH => screen_window_width = Some(value.to_f32()),
+                WINDOW_WIDTH => screen_window_width = Some(value.to_f32()?),
                 VERSION => version = Some(value.to_i32()?),
 
                 MAX_SAMPLES => max_samples_per_pixel = Some(
@@ -783,10 +783,11 @@ impl Header {
 
             channels: channels.ok_or(missing_attribute("channels"))?,
             display_window: display_window.ok_or(missing_attribute("display window"))?,
-            line_order: line_order.ok_or(missing_attribute("line order"))?,
-            pixel_aspect: pixel_aspect.ok_or(missing_attribute("pixel aspect"))?,
-            screen_window_center: screen_window_center.ok_or(missing_attribute("screen window center"))?,
-            screen_window_width: screen_window_width.ok_or(missing_attribute("screen window width"))??,
+
+            pixel_aspect: pixel_aspect.unwrap_or(1.0),
+            screen_window_center: screen_window_center.unwrap_or(Vec2(0.0, 0.0)),
+            screen_window_width: screen_window_width.unwrap_or(1.0),
+            line_order: line_order.unwrap_or(LineOrder::Unspecified),
 
             blocks,
             name,
