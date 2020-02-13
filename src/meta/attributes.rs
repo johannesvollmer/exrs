@@ -48,7 +48,7 @@ pub enum AnyValue {
 
 /// A byte array with each byte being a char.
 /// This is not UTF an must be constructed from a standard string.
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Text {
     bytes: TextBytes,
 }

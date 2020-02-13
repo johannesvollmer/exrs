@@ -1,6 +1,8 @@
 
 //! Describes all meta data possible in an exr file.
+
 pub mod attributes;
+
 
 use crate::io::*;
 use ::smallvec::SmallVec;
@@ -10,6 +12,9 @@ use crate::error::*;
 use std::fs::File;
 use std::io::{BufReader};
 use crate::math::*;
+use std::collections::HashSet;
+
+
 
 /// Contains the complete meta data of an exr image.
 /// Defines how the image is split up in the file,
@@ -25,6 +30,7 @@ pub struct MetaData {
     /// One header to describe each image part in this file.
     pub headers: Headers,
 }
+
 
 pub type Headers = SmallVec<[Header; 3]>;
 pub type OffsetTables = SmallVec<[OffsetTable; 3]>;
@@ -405,6 +411,7 @@ pub fn compute_chunk_count(compression: Compression, data_window: Box2I32, block
 
 
 impl MetaData {
+
     /// Read the exr meta data from a file.
     /// Use `read_from_unbuffered` instead if you do not have a file.
     #[must_use]
@@ -429,6 +436,7 @@ impl MetaData {
         MetaData::read_from_buffered_peekable(&mut read)
     }
 
+    /// Validates the meta data.
     #[must_use]
     pub(crate) fn read_from_buffered_peekable(read: &mut PeekRead<impl Read>) -> Result<Self> {
         magic_number::validate_exr(read)?;
@@ -445,6 +453,7 @@ impl MetaData {
         Ok(meta)
     }
 
+    /// Validates the meta data.
     pub(crate) fn write_to_buffered(&self, write: &mut impl Write) -> PassiveResult {
         self.validate()?;
 
@@ -461,7 +470,7 @@ impl MetaData {
             .collect()
     }
 
-    /// Skip the offset tables by advancing the reader.
+    /// Skip the offset tables by advancing the reader by the required byte count.
     // TODO use seek for large (probably all) tables!
     pub fn skip_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<u64> {
         let chunk_count: u64 = headers.iter().map(|header| header.chunk_count as u64).sum();
@@ -474,11 +483,20 @@ impl MetaData {
         let headers = self.headers.len();
 
         if headers == 0 {
-            return Err(Error::invalid("no header"));
+            return Err(Error::invalid("at least one image part is required"));
+        }
+
+        {   // check for duplicate header names
+            let mut header_names = HashSet::with_capacity(headers);
+            for header in &self.headers {
+                if !header_names.insert(&header.name) {
+                    return Err(Error::invalid("duplicate image part name"));
+                }
+            }
         }
 
         self.requirements.validate()?;
-        if self.requirements.file_format_version == 1 {
+        if self.requirements.file_format_version == 1 || !self.requirements.has_multiple_parts {
             if headers != 1 {
                 return Err(Error::invalid("multipart flag for header count"));
             }
