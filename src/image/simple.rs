@@ -295,10 +295,8 @@ impl Image {
     pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions) -> PassiveResult {
         crate::image::write_all_lines_to_buffered(
             write, options.parallel_compression, self.infer_meta_data(),
-            |location| {
-                let mut bytes = Vec::new(); // TODO avoid allocation for each line?
-                self.extract_line(location, &mut bytes);
-                bytes
+            |location, write| {
+                self.extract_line(location, write);
             }
         )
     }

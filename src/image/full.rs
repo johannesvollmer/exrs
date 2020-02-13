@@ -96,7 +96,7 @@ pub struct Part {
     pub data_window: IntRect,
 
     /// Part of the perspective projection. Default should be `(0, 0)`.
-    pub screen_window_center: Vec2<f32>, // TODO use sensible defaults instead of returning an error on missing?
+    pub screen_window_center: Vec2<f32>,
 
     /// Part of the perspective projection. Default should be `1`.
     pub screen_window_width: f32,
@@ -170,7 +170,7 @@ pub enum SampleMaps<Sample> {
     Flat (Levels<FlatSamples<Sample>>),
 
     /// Each pixel has an arbitrary number of samples per channel.
-    Deep (Levels<DeepSamples<Sample>>), // TODO can deep images even have levels?
+    Deep (Levels<DeepSamples<Sample>>),
 }
 
 /// The different resolution levels of the image part.
@@ -364,10 +364,8 @@ impl Image {
     pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions) -> PassiveResult {
         crate::image::write_all_lines_to_buffered(
             write, options.parallel_compression, self.infer_meta_data(options),
-            |location| {
-                let mut bytes = Vec::new(); // TODO avoid allocation for each line?
-                self.extract_line(location, &mut bytes);
-                bytes
+            |location, write| {
+                self.extract_line(location, write)
             }
         )
     }
@@ -495,16 +493,6 @@ impl Part {
     /// Create the meta data that describes this image part.
     /// May produce invalid meta data. The meta data will be validated just before writing.
     pub fn infer_header(&self, display_window: IntRect, pixel_aspect: f32, options: WriteOptions) -> Header {
-        debug_assert_eq!( // TODO performance: use real is_sorted
-            {
-                let mut cloned = self.channels.clone();
-                cloned.sort_by_key(|c| c.name.clone());
-                cloned
-            },
-            self.channels,
-            "channels must be sorted alphabetically"
-        );
-
         let chunk_count = compute_chunk_count(
             self.compression, self.data_window, self.blocks
         );
@@ -543,7 +531,7 @@ impl Channel {
             sampling: channel.sampling,
 
             content: match channel.pixel_type {
-                PixelType::F16 => ChannelData::F16(SampleMaps::allocate(header, channel)), // FIXME divide by sampling????
+                PixelType::F16 => ChannelData::F16(SampleMaps::allocate(header, channel)),
                 PixelType::F32 => ChannelData::F32(SampleMaps::allocate(header, channel)),
                 PixelType::U32 => ChannelData::U32(SampleMaps::allocate(header, channel)),
             },
@@ -553,7 +541,7 @@ impl Channel {
     /// Insert one line of pixel data into this channel.
     pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
         match &mut self.content {
-            ChannelData::F16(maps) => maps.insert_line(line), // FIXME divide by sampling????
+            ChannelData::F16(maps) => maps.insert_line(line),
             ChannelData::F32(maps) => maps.insert_line(line),
             ChannelData::U32(maps) => maps.insert_line(line),
         }
@@ -563,7 +551,7 @@ impl Channel {
     /// Panics for an invalid index or write error.
     pub fn extract_line(&self, index: LineIndex, block: &mut impl Write) {
         match &self.content {
-            ChannelData::F16(maps) => maps.extract_line(index, block), // FIXME divide by sampling????
+            ChannelData::F16(maps) => maps.extract_line(index, block),
             ChannelData::F32(maps) => maps.extract_line(index, block),
             ChannelData::U32(maps) => maps.extract_line(index, block),
         }
@@ -669,7 +657,7 @@ impl<S: Samples> Levels<S> {
             }
         }
 
-        // scan line blocks never have mip maps? // TODO check if this is true
+        // scan line blocks never have mip maps
         else {
             Levels::Singular(SampleBlock::allocate(data_size))
         }
@@ -696,7 +684,7 @@ impl<S: Samples> Levels<S> {
             },
 
             Levels::Mip(block) => {
-                debug_assert_eq!(level.0, level.1, "mip map levels must be equal on x and y"); // TODO err instead?
+                debug_assert_eq!(level.0, level.1, "mip map levels must be equal on x and y");
                 block.get(level.0).ok_or(Error::invalid("block mip level index"))
             },
 
@@ -714,7 +702,7 @@ impl<S: Samples> Levels<S> {
             },
 
             Levels::Mip(block) => {
-                debug_assert_eq!(level.0, level.1, "mip map levels must be equal on x and y"); // TODO err instead?
+                debug_assert_eq!(level.0, level.1, "mip map levels must be equal on x and y");
                 block.get_mut(level.0).ok_or(Error::invalid("block mip level index"))
             },
 
@@ -731,8 +719,8 @@ impl<S: Samples> Levels<S> {
     pub fn as_slice(&self) -> &[SampleBlock<S>] {
         match self {
             Levels::Singular(ref data) => std::slice::from_ref(data),
-            Levels::Mip(ref maps) => maps, // TODO is this really the largest one?
-            Levels::Rip(ref rip_map) => &rip_map.map_data, // TODO test!
+            Levels::Mip(ref maps) => maps,
+            Levels::Rip(ref rip_map) => &rip_map.map_data,
         }
     }
 
@@ -772,7 +760,7 @@ impl<S: Samples> SampleBlock<S> {
     /// Read one line of pixel data from this sample block.
     /// Panics for an invalid index or write error.
     pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
-        debug_assert!(index.position.0 + index.width <= self.resolution.0, "x max {} of width {}", index.position.0 + index.width, self.resolution.0); // TODO this should Err() instead
+        debug_assert!(index.position.0 + index.width <= self.resolution.0, "x max {} of width {}", index.position.0 + index.width, self.resolution.0);
         debug_assert!(index.position.1 < self.resolution.1, "y: {}, height: {}", index.position.1, self.resolution.1);
         debug_assert_ne!(index.width, 0);
 
@@ -855,7 +843,7 @@ impl<Samples> RipMaps<Samples> {
 
     /// Flatten the 2D level index to a one dimensional index.
     pub fn get_level_index(&self, level: Vec2<usize>) -> usize {
-        self.level_count.0 * level.1 + level.0  // TODO check this calculation (x vs y)
+        self.level_count.0 * level.1 + level.0
     }
 
     /// Return a level by level index. Level `0` has the largest resolution.

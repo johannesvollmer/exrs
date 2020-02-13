@@ -630,7 +630,7 @@ impl Header {
         })
     }
 
-    /// Maximum byte length of a compressed block, used for validation.
+    /// Maximum byte length of an uncompressed or compressed block, used for validation.
     pub fn max_block_byte_size(&self) -> usize {
         self.channels.bytes_per_pixel * match self.blocks {
             Blocks::Tiles(tiles) => tiles.tile_size.0 * tiles.tile_size.1,

@@ -3,14 +3,14 @@
 
 use std::borrow::Cow;
 use std::io::ErrorKind;
-
-pub type Result<T> = std::result::Result<T, Error>;
-pub type PassiveResult = Result<()>;
-
 pub use std::io::Error as IoError;
 pub use std::io::Result as IoResult;
 use std::convert::TryFrom;
-pub type StrLiteral = &'static str;
+
+// Export types
+pub type Result<T> = std::result::Result<T, Error>;
+pub type PassiveResult = Result<()>;
+
 
 /// An error that may happen while reading or writing an exr file.
 /// Distinguishes between three types of errors:
@@ -60,7 +60,7 @@ impl From<IoError> for Error {
 
 /// Return error on invalid range.
 #[inline]
-pub(crate) fn i32_to_usize(value: i32, error_message: StrLiteral) -> Result<usize> {
+pub(crate) fn i32_to_usize(value: i32, error_message: &'static str) -> Result<usize> {
     usize::try_from(value).map_err(|_| Error::invalid(error_message))
 }
 
@@ -75,9 +75,3 @@ pub(crate) fn u64_to_usize(value: u64) -> usize {
 pub(crate) fn usize_to_i32(value: usize) -> i32 {
     i32::try_from(value).expect("(usize as i32) overflowed")
 }
-
-
-/*#[inline]
-pub(crate) fn i32_to_u32(value: i32, error_message: StrLiteral) -> Result<u32> {
-    u32::try_from(value).map_err(|_| Error::invalid(error_message))
-}*/

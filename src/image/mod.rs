@@ -268,7 +268,7 @@ pub fn write_all_lines_to_buffered(
     write: impl Write + Seek,
     parallel: bool,
     mut meta_data: MetaData,
-    get_line: impl Fn(LineIndex) -> ByteVec
+    get_line: impl Fn(LineIndex, &mut Vec<u8>)
 ) -> PassiveResult
 {
     // if non-parallel compression, we always use increasing order anyways
@@ -294,16 +294,33 @@ pub fn write_all_lines_to_buffered(
     let mut offset_tables: Vec<Vec<u64>> = meta_data.headers.iter()
         .map(|header| vec![0; header.chunk_count]).collect();
 
-//    let has_compression = meta_data.headers.iter() // do not use parallel stuff for uncompressed images
-//        .find(|header| header.compression != Compression::Uncompressed).is_some();
+    let has_compression = meta_data.headers.iter() // do not use parallel stuff for uncompressed images
+        .find(|header| header.compression != Compression::Uncompressed).is_some();
 
-//    if parallel && has_compression {
-//        // TODO
-//    }
-//    else
+    if parallel && has_compression && unimplemented!() {
+        /* TODO parallel compression
+        let (sender, receiver) = std::sync::mpsc::channel();
+
+        chunks.par_bridge()
+            .map(|chunk| UncompressedBlock::decompress_chunk(chunk?, &meta_data))
+            .try_for_each_with(sender, |sender, result| {
+                result.map(|block: UncompressedBlock| sender.send(block).expect("threading error"))
+            })?;
+
+        for decompressed in receiver {
+            let header = meta_data.headers.get(decompressed.index.part)
+                .ok_or(Error::invalid("chunk index"))?;
+
+            for (bytes, line) in decompressed.index.line_indices(header) {
+                for_each(Line { location: line, value: &decompressed.data[bytes] })?;
+            }
+        }
+
+        Ok(())*/
+    }
+    else
     {
         for (part_index, header) in meta_data.headers.iter().enumerate() {
-
             let mut write_block = |chunk_index: usize, tile: TileIndices| -> Result<()> {
                 let data_indices = header.get_absolute_block_indices(tile.location)?;
                 let block_indices = BlockIndex {
@@ -313,16 +330,18 @@ pub fn write_all_lines_to_buffered(
                     size: data_indices.size,
                 };
 
-                let mut data = Vec::new(); // TODO allocate only block, not lines
+                let mut block_bytes = Vec::with_capacity(header.max_block_byte_size());
                 for (byte_range, line_index) in block_indices.line_indices(header) {
-                    debug_assert_eq!(byte_range.start, data.len());
-                    data.extend_from_slice(get_line(line_index).as_slice());
-                    debug_assert_eq!(byte_range.end, data.len());
+                    debug_assert_eq!(byte_range.start, block_bytes.len());
+
+                    get_line(line_index, &mut block_bytes);
+
+                    debug_assert_eq!(byte_range.end, block_bytes.len());
                 }
 
                 // TODO check if data length matches expected byte size
 
-                let data = header.compression.compress_image_section(data)?;
+                let data = header.compression.compress_image_section(block_bytes)?;
 
                 let chunk = Chunk {
                     part_number: part_index,
