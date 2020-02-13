@@ -120,8 +120,11 @@ pub struct Channel {
     /// One of "R", "G", or "B" most of the time.
     pub name: Text,
 
-    /// Actual pixel data.
-    pub sample_block: SampleBlock,
+    /// The actual pixel data.
+    /// Contains a flattened vector of samples.
+    /// The vector contains each row, one after another.
+    /// A specific pixel value can be found at the index `samples[y_index * width + x_index]`.
+    pub samples: Samples,
 
     /// Are the samples in this channel in linear color space?
     pub is_linear: bool,
@@ -132,22 +135,6 @@ pub struct Channel {
     /// Values other than 1 are allowed only in flat, scan-line based images.
     /// If an image is deep or tiled, x and y sampling rates for all of its channels must be 1.
     pub sampling: Vec2<usize>,
-}
-
-
-/// The actual pixel data.
-/// Contains a flattened vector of samples.
-#[derive(Clone, PartialEq, Debug)]
-pub struct SampleBlock {
-
-    /// The dimensions of this sample collection,
-    /// possibly reduced by the channels subsampling factor.
-    pub resolution: Vec2<usize>,
-
-    /// The samples of a 2D grid, flattened in a single vector.
-    /// The vector contains each row, one after another.
-    /// A specific pixel value can be found at the index `samples[y_index * width + x_index]`.
-    pub samples: Samples
 }
 
 /// Actual pixel data in a channel. Is either one of f16, f32, or u32.
@@ -223,13 +210,26 @@ impl ReadOptions {
 }
 
 
-impl Image {
 
-    pub fn new_from_channels(name: Text, compression: Compression, channels: Channels) -> Self {
-        debug_assert!(!channels.is_empty());
-        let data_window = Box2I32::from_dimensions(channels.first().unwrap().view_size().to_u32());
-        Self::new_from_single_part(Part::new(name, data_window, channels, compression, Vec::new(), None))
+/*#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct ChannelSampler<'t, T: 't> {
+    samples: &'t [T],
+    subsampled_size: Vec2<usize>,
+    subsampling_factor: Vec2<usize>,
+}
+
+impl<'t, T> ChannelSampler<'t, T> {
+    pub fn sample(&self, pixel: Vec2<usize>) -> &'t T {
+        let local_index = pixel / self.subsampling_factor;
+        debug_assert!(local_index.0 < self.subsampled_size.0, "invalid x coordinate");
+        debug_assert!(local_index.1 < self.subsampled_size.1, "invalid y coordinate");
+        &self.samples[local_index.1 * self.subsampled_size.0 + local_index.0]
     }
+}*/
+
+
+
+impl Image {
 
     /// Create an image that is to be written to a file.
     /// Defined the `display_window` to define
@@ -327,54 +327,50 @@ impl Image {
 impl Part {
 
     /// Create a new image part with all required fields.
-    pub fn new(
-        name: Text, data_window: Box2I32,
-        channels: Channels, compression: Compression,
-        custom_attributes: Attributes, tiles: Option<Vec2<u32>>
-    ) -> Self
-    {
+    /// Uses scan line blocks, and no custom attributes.
+    pub fn new(name: Text, compression: Compression, data_window: Box2I32, mut channels: Channels) -> Self {
         assert!(!channels.is_empty());
-        debug_assert!(channels.iter().all(|channel| channel.view_size() == data_window.size.to_usize()));
+        assert!(channels.iter().all(|chan| chan.samples.len() / (chan.sampling.0 * chan.sampling.1) == data_window.size.to_usize().area()));
+
+        channels.sort_by_key(|chan| chan.name.clone()); // TODO why clone?!
 
         Part {
             channels,
             data_window,
             name: Some(name),
-            attributes: custom_attributes,
+            attributes: Vec::new(),
             compression,
 
-            tiles,
+            tiles: None,
             line_order: LineOrder::Unspecified,
             screen_window_center: Vec2(0.0, 0.0),
             screen_window_width: 1.0,
         }
     }
-
 }
 
 
 impl Channel {
 
+    // TODO do not debug print pixel values
+
     /// Create a Channel from name and samples.
     /// Set `is_linear` if the color space of the samples values is linear.
-    pub fn new(name: Text, is_linear: bool, sample_block: SampleBlock) -> Self {
+    pub fn new(name: Text, is_linear: bool, samples: Samples) -> Self {
         Self {
             name,
-            sample_block,
+            samples,
             is_linear,
             sampling: Vec2(1, 1)
         }
     }
 
-    /// Computes the size as seen in the global infinite 2D space of the file.
+    /*/// Computes the size as seen in the global infinite 2D space of the file.
     pub fn view_size(&self) -> Vec2<usize> {
-        self.sample_block.resolution * self.sampling
-    }
-}
+        self.sample.resolution * self.sampling
+    }*/
 
-impl SampleBlock {
-
-    /// Create a `SampleBlock` from resolution and sample vector.
+    /*/// Create a `SampleBlock` from resolution and sample vector.
     /// Panics if the resolution does not match the sample vector length.
     pub fn f16s(resolution: Vec2<usize>, samples: Vec<f16>) -> Self {
         assert_eq!(resolution.area(), samples.len());
@@ -384,20 +380,18 @@ impl SampleBlock {
     /// Create a `SampleBlock` from resolution and sample vector.
     /// Panics if the resolution does not match the sample vector length.
     pub fn f32s(resolution: Vec2<usize>, samples: Vec<f32>) -> Self {
-        assert_eq!(resolution.area(), samples.len());
-        Self { resolution, samples: Samples::F32(samples) }
+        Samples::F32(samples)
     }
 
     /// Create a `SampleBlock` from resolution and sample vector.
     /// Panics if the resolution does not match the sample vector length.
     pub fn u32s(resolution: Vec2<usize>, samples: Vec<u32>) -> Self {
         assert_eq!(resolution.area(), samples.len());
-        Self { resolution, samples: Samples::U32(samples) }
-    }
+        Samples::U32(samples)
+    }*/
 }
 
 impl Samples {
-
     pub fn len(&self) -> usize {
         match self {
             Samples::F16(vec) => vec.len(),
@@ -405,9 +399,7 @@ impl Samples {
             Samples::U32(vec) => vec.len(),
         }
     }
-
 }
-
 
 
 
@@ -518,7 +510,7 @@ impl Part {
 
         self.channels.get_mut(line.location.channel)
             .expect("invalid channel index")
-            .insert_line(line)
+            .insert_line(line, self.data_window.size.to_usize())
     }
 
     /// Read one line of pixel data from this image part.
@@ -529,7 +521,7 @@ impl Part {
 
         self.channels.get(index.channel)
             .expect("invalid channel index")
-            .extract_line(index, write)
+            .extract_line(index, self.data_window.size.to_usize(), write)
     }
 
     /// Create the meta data that describes this image part.
@@ -566,7 +558,7 @@ impl Part {
             screen_window_center: self.screen_window_center,
             screen_window_width: self.screen_window_width,
             compression: options.override_compression.unwrap_or(self.compression),
-            channels: ChannelList::new(self.channels.iter().map(Channel::infer_channel_attribute).collect()),
+            channels: ChannelList::new(self.channels.iter().map(Channel::infer_channel_attribute).collect()), // FIXME this would sort channels, but line index would be mixed up if the original channels were not sorted
             line_order: options.override_line_order.unwrap_or(self.line_order),
             custom_attributes: self.attributes.clone(),
             display_window, pixel_aspect,
@@ -587,34 +579,23 @@ impl Channel {
             name: channel.name.clone(),
             is_linear: channel.is_linear,
             sampling: channel.sampling.to_usize(),
-
-            sample_block: SampleBlock::allocate(header.data_window.size, channel.pixel_type)
-            /*match channel.pixel_type {
-                PixelType::F16 => SampleBlock::allocate(header.data_window.size, Samples::F16(header.data_window.size)), // FIXME divide by sampling????
-                PixelType::F32 => SampleBlock::allocate(header.data_window.size, Samples::F32(header.data_window.size)),
-                PixelType::U32 => SampleBlock::allocate(header.data_window.size, Samples::U32(header.data_window.size)),
-            },*/
+            samples: Samples::allocate(header.data_window.size / channel.sampling, channel.pixel_type)
         }
     }
 
     /// Insert one line of pixel data into this channel.
-    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
+    pub fn insert_line(&mut self, line: Line<'_>, resolution: Vec2<usize>) -> PassiveResult {
         assert_eq!(line.location.level, Vec2(0,0));
 
-        self.sample_block.insert_line(line) // FIXME divide by sampling????
-//        match &mut self.sample_block.samples {
-//            Samples::F16(block) => block.insert_line(line), // FIXME divide by sampling????
-//            Samples::F32(block) => block.insert_line(line),
-//            Samples::U32(block) => block.insert_line(line),
-//        }
+        self.samples.insert_line(resolution / self.sampling, line) // FIXME divide by sampling????
     }
 
     /// Read one line of pixel data from this channel.
     /// Panics for an invalid index or write error.
-    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
+    pub fn extract_line(&self, index: LineIndex, resolution: Vec2<usize>, write: &mut impl Write) {
         debug_assert_eq!(index.level, Vec2(0,0));
 
-        self.sample_block.extract_line(index, write) // FIXME divide by sampling????
+        self.samples.extract_line(index, resolution / self.sampling, write) // FIXME divide by sampling????
 //        match &self.sample_block {
 //            Samples::F16(block) => block.extract_line(index, write), // FIXME divide by sampling????
 //            Samples::F32(block) => block.extract_line(index, write),
@@ -625,7 +606,7 @@ impl Channel {
     /// Create the meta data that describes this channel.
     pub fn infer_channel_attribute(&self) -> attributes::Channel {
         attributes::Channel {
-            pixel_type: match self.sample_block.samples {
+            pixel_type: match self.samples {
                 Samples::F16(_) => PixelType::F16,
                 Samples::F32(_) => PixelType::F32,
                 Samples::U32(_) => PixelType::U32,
@@ -639,42 +620,39 @@ impl Channel {
 }
 
 
-impl SampleBlock {
+impl Samples {
 
     /// Allocate a sample block ready to be filled with pixel data.
     pub fn allocate(resolution: Vec2<u32>, pixel_type: PixelType) -> Self {
         let resolution = resolution.to_usize();
         let count = resolution.area();
 
-        Self {
-            resolution,
-            samples: match pixel_type {
-                PixelType::F16 => Samples::F16(vec![ f16::ZERO; count ] ),
-                PixelType::F32 => Samples::F32(vec![ 0.0; count ] ),
-                PixelType::U32 => Samples::U32(vec![ 0; count ] ),
-            }
+        match pixel_type {
+            PixelType::F16 => Samples::F16(vec![ f16::ZERO; count ] ),
+            PixelType::F32 => Samples::F32(vec![ 0.0; count ] ),
+            PixelType::U32 => Samples::U32(vec![ 0; count ] ),
         }
     }
 
     /// Insert one line of pixel data into this sample block.
-    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
+    pub fn insert_line(&mut self, resolution: Vec2<usize>, line: Line<'_>) -> PassiveResult {
         debug_assert_ne!(line.location.width, 0);
 
-        if line.location.position.0 + line.location.width > self.resolution.0 {
+        if line.location.position.0 + line.location.width > resolution.0 {
             return Err(Error::invalid("data block x coordinate"))
         }
 
-        if line.location.position.1 > self.resolution.1 {
+        if line.location.position.1 > resolution.1 {
             return Err(Error::invalid("data block y coordinate"))
         }
 
-        debug_assert_ne!(self.resolution.0, 0);
+        debug_assert_ne!(resolution.0, 0);
         debug_assert_ne!(line.location.width, 0);
 
-        let start_index = line.location.position.1 * self.resolution.0 + line.location.position.0;
+        let start_index = line.location.position.1 * resolution.0 + line.location.position.0;
         let end_index = start_index + line.location.width;
 
-        match &mut self.samples {
+        match self {
             Samples::F16(samples) => line.read_samples(&mut samples[start_index .. end_index]),
             Samples::F32(samples) => line.read_samples(&mut samples[start_index .. end_index]),
             Samples::U32(samples) => line.read_samples(&mut samples[start_index .. end_index]),
@@ -683,18 +661,18 @@ impl SampleBlock {
 
     /// Read one line of pixel data from this sample block.
     /// Panics for an invalid index or write error.
-    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
-        debug_assert!(index.position.0 + index.width <= self.resolution.0, "x max {} of width {}", index.position.0 + index.width, self.resolution.0); // TODO this should Err() instead
-        debug_assert!(index.position.1 < self.resolution.1, "y: {}, height: {}", index.position.1, self.resolution.1);
+    pub fn extract_line(&self, index: LineIndex, resolution: Vec2<usize>, write: &mut impl Write) {
+        debug_assert!(index.position.0 + index.width <= resolution.0, "x max {} of width {}", index.position.0 + index.width, resolution.0); // TODO this should Err() instead
+        debug_assert!(index.position.1 < resolution.1, "y: {}, height: {}", index.position.1, resolution.1);
         debug_assert_ne!(index.width, 0);
 
-        debug_assert_ne!(self.resolution.0, 0);
+        debug_assert_ne!(resolution.0, 0);
         debug_assert_ne!(index.width, 0);
 
-        let start_index = index.position.1 * self.resolution.0 + index.position.0;
+        let start_index = index.position.1 * resolution.0 + index.position.0;
         let end_index = start_index + index.width;
 
-        match &self.samples {
+        match &self {
             Samples::F16(samples) =>
                 LineIndex::write_samples(&samples[start_index .. end_index], write)
                 .expect("writing line bytes failed"),

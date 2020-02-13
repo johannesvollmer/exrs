@@ -16,19 +16,46 @@ use std::cmp::Ordering;
 //use exr::meta::attributes::Text;
 use std::convert::TryInto;
 use exr::compression::Compression;
+use exr::meta::attributes::Box2I32;
+use rand::{random, Rng};
 
 
 #[test]
 fn test_write() {
-    let alpha = simple::Channel::new("A".try_into().unwrap(), true, simple::SampleBlock::f32s(Vec2(4, 4), vec![
-        1.0, 0.0, 0.0, 0.0,
-        0.0, 1.0, 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0,
-    ]));
+    fn generate_values(size: Vec2<usize>) -> Vec<f32> {
+        let mut values = vec![ 0.5; size.area() ];
 
-    let image = simple::Image::new_from_channels("test-image".try_into().unwrap(), Compression::ZIP16, smallvec![ alpha ]);
-    println!("writing image {:#?}", image);
+        for _ in 0..1024 {
+            let index = rand::thread_rng().gen_range(0, values.len());
+            values[index] = rand::random();
+        }
+
+        values
+    }
+
+    let size = Vec2(1024, 512);
+
+    let r = simple::Channel::new(
+        "R".try_into().unwrap(), true,
+        simple::Samples::F32(generate_values(size))
+    );
+
+    let g = simple::Channel::new(
+        "G".try_into().unwrap(), true,
+        simple::Samples::F32(generate_values(size))
+    );
+
+    let b = simple::Channel::new(
+        "B".try_into().unwrap(), true,
+        simple::Samples::F32(generate_values(size))
+    );
+
+    let image = simple::Image::new_from_single_part(simple::Part::new(
+        "test-image".try_into().unwrap(), Compression::RLE,
+        Box2I32::from_dimensions(size.to_u32()), smallvec![ r, g, b ],
+    ));
+
+    // println!("writing image {:#?}", image);
 
     image.write_to_file("./testout/constructed.exr", simple::WriteOptions::debug()).unwrap();
 

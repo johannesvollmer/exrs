@@ -458,7 +458,7 @@ impl ChannelList {
 
     /// Sorts the channels and calculates the bytes required for a single pixel.
     pub fn new(mut channels: SmallVec<[Channel; 5]>) -> Self {
-        channels.sort_by(|a, b| a.name.cmp(&b.name));
+        channels.sort_by(|a, b| a.name.cmp(&b.name)); // TODO assert sorted instead
 
         ChannelList {
             bytes_per_pixel: channels.iter().map(|channel| channel.pixel_type.bytes_per_sample()).sum(),
