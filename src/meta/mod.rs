@@ -1025,11 +1025,6 @@ mod test {
                     deep: false,
                 }
             ],
-//            offset_tables: smallvec![
-//                vec![
-//                    0, 2, 3, 4, 5, 6, 7, 1234, 23, 412,4 ,124,4,
-//                ]
-//            ]
         };
 
 

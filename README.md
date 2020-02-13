@@ -194,7 +194,7 @@ fn main() {
 ```
 
 ### Cleanup Tasks Before Version 1.0
-- [ ] remove all calls to `Option::unwrap()` and `Result::unwrap()`
+- [x] remove all calls to `Option::unwrap()` and `Result::unwrap()` (except for tests)
 - [ ] remove all print statements
 - [ ] remove inappropriate `assert!` and `debug_assert!` calls,
         all `unimplemented!` calls,
