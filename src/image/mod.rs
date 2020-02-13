@@ -290,8 +290,8 @@ pub fn write_all_lines_to_buffered(
     let mut offset_tables: Vec<Vec<u64>> = meta_data.headers.iter()
         .map(|header| vec![0; header.chunk_count as usize]).collect();
 
-    let has_compression = meta_data.headers.iter() // do not use parallel stuff for uncompressed images
-        .find(|header| header.compression != Compression::Uncompressed).is_some();
+//    let has_compression = meta_data.headers.iter() // do not use parallel stuff for uncompressed images
+//        .find(|header| header.compression != Compression::Uncompressed).is_some();
 
 //    if parallel && has_compression {
 //        // TODO

@@ -1,6 +1,5 @@
 extern crate exr;
 
-#[macro_use]
 extern crate smallvec;
 
 use exr::prelude::*;
@@ -13,11 +12,6 @@ use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use exr::math::Vec2;
 use std::cmp::Ordering;
-//use exr::meta::attributes::Text;
-use std::convert::TryInto;
-use exr::compression::Compression;
-use exr::meta::attributes::IntRect;
-use rand::{Rng};
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter()

@@ -221,8 +221,6 @@ which had an 'X' in its name in my git repositories.
 `exrs` aims to provide a safe and convenient 
 interface to the OpenEXR file format.
 
-
-
 This library does not try to be a general purpose image file or image processing library.
 Therefore, color conversion, subsampling, and mip map generation are left to other crates for now.
 As the original OpenEXR implementation supports those operations, this library may choose to support them later.
@@ -233,7 +231,6 @@ matching the original implementation, but only correct output.
 This library uses no unsafe code. In fact, this crate is annotated with `#[forbid(unsafe_code)]`.
 Its dependencies use unsafe code, though.
 
-
 All information from a file is handled with caution.
 Allocations have a safe maximum size that will not be exceeded at once.
 
@@ -241,6 +238,7 @@ Allocations have a safe maximum size that will not be exceeded at once.
 ### What I am proud of
 
 -   Flexible API allows for custom parallelization
+-   Difficult to misuse API
 -   This is a pretty detailed README
 -   (more to come)
 
@@ -257,6 +255,8 @@ __Things that are not as specified in the PDF file__ (Or were forgotten):
 -   Chunk Part-Number is not u64, but i32.
 
 ### PRIORITIES
+1. Publish version 1.0
+1. Deep Data
 1. Decode all compression formats
 1. Simple rendering of common image formats
 1. Profiling and other optimization

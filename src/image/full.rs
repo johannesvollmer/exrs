@@ -1,6 +1,18 @@
 
 //! Read and write all supported aspects of an exr image, including deep data and multiresolution levels.
 //! Use `exr::image::simple` if you do not need deep data or resolution levels.
+//!
+//! This module is currently under construction.
+//! It will be make public as soon as deep data is supported.
+
+// Tasks:
+// - [ ] fix channel sampling allocation size
+// - [ ] nice api to construct and inspect images
+//      - [ ] validation
+// - [ ] deep data
+
+#![doc(hidden)]
+#![cfg(debug_assertions)]
 
 use smallvec::SmallVec;
 use half::f16;
