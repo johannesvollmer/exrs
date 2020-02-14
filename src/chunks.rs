@@ -16,7 +16,7 @@ pub struct Chunk {
     /// The index of the image part that the block belongs to.
     /// This is required as the pixel data can appear in any order in a file.
     // PDF says u64, but source code seems to be i32
-    pub part_number: usize,
+    pub part_index: usize,
 
     /// The compressed pixel contents.
     pub block: Block,
@@ -275,10 +275,10 @@ use crate::math::Vec2;
 /// Validation of chunks is done while reading and writing the actual data. (For example in exr::full_image)
 impl Chunk {
     pub fn write(&self, write: &mut impl Write, headers: &[Header]) -> PassiveResult {
-        debug_assert!(self.part_number < headers.len()); // validation is done in full_image or simple_image
+        debug_assert!(self.part_index < headers.len()); // validation is done in full_image or simple_image
 
-        if headers.len() != 1 { i32::write(self.part_number as i32, write)?; }
-        else { assert_eq!(self.part_number, 0); }
+        if headers.len() != 1 { i32::write(self.part_index as i32, write)?; }
+        else { assert_eq!(self.part_index, 0); }
 
         match self.block {
             Block::ScanLine     (ref value) => value.write(write),
@@ -303,7 +303,7 @@ impl Chunk {
         let max_block_byte_size = header.max_block_byte_size();
 
         let chunk = Chunk {
-            part_number,
+            part_index: part_number,
             block: match header.blocks {
                 // flat data
                 Blocks::ScanLines if !header.deep => Block::ScanLine(ScanLineBlock::read(read, max_block_byte_size)?),

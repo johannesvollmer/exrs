@@ -9,9 +9,9 @@ use crate::meta::attributes::*;
 use crate::compression::{Compression, ByteVec};
 use crate::math::*;
 use std::io::{Read, Seek, Write};
-use crate::error::{Result, Error, PassiveResult};
+use crate::error::{Result, Error, PassiveResult, usize_to_i32};
 use crate::meta::{MetaData, Header, TileIndices, Blocks};
-use crate::chunks::{Chunk, Block, TileBlock, ScanLineBlock};
+use crate::chunks::{Chunk, Block, TileBlock, ScanLineBlock, TileCoordinates};
 use crate::io::{PeekRead, Tracking};
 use rayon::iter::{ParallelIterator, ParallelBridge};
 use crate::io::Data;
@@ -30,10 +30,10 @@ pub struct BlockIndex {
     pub part: usize,
 
     /// Pixel position of the bottom left corner of the block.
-    pub position: Vec2<usize>,
+    pub pixel_position: Vec2<usize>,
 
     /// Pixel size of the block.
-    pub size: Vec2<usize>,
+    pub pixel_size: Vec2<usize>,
 
     /// Index of the mip or rip level in the image.
     pub level: Vec2<usize>,
@@ -96,6 +96,12 @@ impl<'s> Line<'s> {
     pub fn read_samples<T: crate::io::Data>(&self, slice: &mut [T]) -> PassiveResult {
         debug_assert_eq!(slice.len(), self.location.width);
         T::read_slice(&mut self.value.clone(), slice)
+    }
+
+    /// Iterate over all samples in this line, from left to right.
+    pub fn sample_iter<T: crate::io::Data>(&self) -> impl Iterator<Item = Result<T>> + '_ {
+        let mut read = self.value.clone();
+        (0..self.location.width).map(move |_| T::read(&mut read))
     }
 }
 
@@ -236,7 +242,7 @@ pub fn read_filtered_chunks_from_buffered<'m>(
     let offset_tables = MetaData::read_offset_tables(&mut read, &meta_data.headers)?;
 
     let mut offsets = Vec::with_capacity(meta_data.headers.len() * 32);
-    for (header_index, header) in meta_data.headers.iter().enumerate() {
+    for (header_index, header) in meta_data.headers.iter().enumerate() { // offset tables are stored same order as headers
         for (block_index, block) in header.blocks_increasing_y_order().enumerate() { // in increasing_y order
             if filter(header, &block) {
                 offsets.push(offset_tables[header_index][block_index]) // safe indexing from `enumerate()`
@@ -256,6 +262,115 @@ pub fn read_filtered_chunks_from_buffered<'m>(
 }
 
 
+
+/// Iterate over all uncompressed blocks of an image.
+/// The image contents are collected by the `get_line` function parameter.
+/// Returns blocks in `LineOrder::Increasing`, unless the line order is requested to be decreasing.
+pub fn uncompressed_image_blocks_ordered<'l>(
+    meta_data: &'l MetaData, parallel: bool,
+    get_line: &'l (impl Fn(LineIndex, &mut Vec<u8>) + Send + Sync + 'l) // TODO reduce sync requirements, at least if parrallel is false
+) -> impl Iterator<Item = (usize, UncompressedBlock)> + 'l + Send // TODO reduce sync requirements, at least if parrallel is false
+{
+
+    meta_data.headers.iter().enumerate()
+        .flat_map(move |(part_index, header)|{
+            if parallel {
+                // TODO parallel write any line order
+                assert_eq!(header.line_order, LineOrder::Unspecified, "parallel compression currently only supports unspecified line order");
+            }
+
+            let blocks_increasing_y = header.blocks_increasing_y_order().enumerate().map(move |(chunk_index, tile)|{
+                let data_indices = header.get_absolute_block_indices(tile.location).expect("tile coordinate bug");
+
+                let block_indices = BlockIndex {
+                    part: part_index, level: tile.location.level_index,
+                    pixel_position: data_indices.start.to_usize("data indices start").expect("data index bug"),
+                    pixel_size: data_indices.size,
+                };
+
+                let mut block_bytes = Vec::with_capacity(header.max_block_byte_size());
+                for (byte_range, line_index) in block_indices.line_indices(header) {
+                    debug_assert_eq!(byte_range.start, block_bytes.len());
+
+                    get_line(line_index, &mut block_bytes);
+
+                    debug_assert_eq!(byte_range.end, block_bytes.len());
+                }
+
+                // TODO check size of block_bytes to mach expected length
+                //      which is required to avoid compression errors
+
+                (chunk_index, UncompressedBlock {
+                    index: block_indices,
+                    data: block_bytes
+                })
+            });
+
+            let chunks_in_header: Box<dyn Send + Iterator<Item = (usize, UncompressedBlock)>> = {
+                if header.line_order == LineOrder::Decreasing {
+                    Box::new(blocks_increasing_y.rev()) // TODO without box?
+                }
+                else {
+                    Box::new(blocks_increasing_y)
+                }
+            };
+
+            chunks_in_header
+        })
+}
+
+
+
+/// line order is respected here,
+/// but panics if parallel line order is not unspecified
+pub fn for_compressed_blocks_in_image(
+    meta_data: &MetaData, get_line: impl Fn(LineIndex, &mut Vec<u8>) + Send + Sync,
+    parallel: bool, mut write_chunk: impl FnMut(usize, Chunk) -> PassiveResult
+) -> PassiveResult
+{
+    let blocks = uncompressed_image_blocks_ordered(meta_data, parallel, &get_line);
+
+    let parallel = parallel && meta_data.headers.iter() // do not use parallel stuff for uncompressed images
+        .find(|header| header.compression != Compression::Uncompressed).is_some();
+
+    if parallel {
+        // TODO
+        assert!(meta_data.headers.iter().all(|header| header.line_order == LineOrder::Unspecified));
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+
+        blocks.par_bridge()
+            .map(|(chunk_index, block)| Ok((chunk_index, block.compress_to_chunk(meta_data)?)))
+            .try_for_each_with(sender, |sender, result: Result<(usize, Chunk)>| {
+                result.map(|block| sender.send(block).expect("threading error"))
+            })?;
+
+
+        // TODO remove
+        let mut sorted_chunks = Vec::new();
+
+        for (chunk_index, compressed_chunk) in receiver {
+            // write_chunk(chunk_index, compressed_chunk)?;
+            sorted_chunks.push((chunk_index, compressed_chunk));
+        }
+
+        sorted_chunks.sort_by_key(|(chunk_index, compressed_chunk)| (compressed_chunk.part_index, *chunk_index));
+
+        for (chunk_index, compressed_chunk) in sorted_chunks {
+             write_chunk(chunk_index, compressed_chunk)?;
+        }
+    }
+
+    else {
+        for (chunk_index, uncompressed_block) in blocks {
+            let chunk = uncompressed_block.compress_to_chunk(meta_data)?;
+            write_chunk(chunk_index, chunk)?;
+        }
+    }
+
+    Ok(())
+}
+
 /// Compresses and writes all lines of an image to the writer.
 /// Should use multicore compression if desired.
 ///
@@ -268,7 +383,7 @@ pub fn write_all_lines_to_buffered(
     write: impl Write + Seek,
     parallel: bool,
     mut meta_data: MetaData,
-    get_line: impl Fn(LineIndex, &mut Vec<u8>)
+    get_line: impl Fn(LineIndex, &mut Vec<u8>) + Send + Sync
 ) -> PassiveResult
 {
     // if non-parallel compression, we always use increasing order anyways
@@ -294,92 +409,17 @@ pub fn write_all_lines_to_buffered(
     let mut offset_tables: Vec<Vec<u64>> = meta_data.headers.iter()
         .map(|header| vec![0; header.chunk_count]).collect();
 
-    let has_compression = meta_data.headers.iter() // do not use parallel stuff for uncompressed images
-        .find(|header| header.compression != Compression::Uncompressed).is_some();
+    println!("start compressiong");
 
-    if parallel && has_compression && unimplemented!() {
-        /* TODO parallel compression
-        let (sender, receiver) = std::sync::mpsc::channel();
+    // line order is respected here, panics if parallel line order is not unspecified
+    for_compressed_blocks_in_image(&meta_data, get_line, parallel, |chunk_index, chunk|{
+        println!("part {}, chunk {}", chunk.part_index, chunk_index);
 
-        chunks.par_bridge()
-            .map(|chunk| UncompressedBlock::decompress_chunk(chunk?, &meta_data))
-            .try_for_each_with(sender, |sender, result| {
-                result.map(|block: UncompressedBlock| sender.send(block).expect("threading error"))
-            })?;
+        offset_tables[chunk.part_index][chunk_index] = write.byte_position() as u64; // safe indices from `enumerate()`
+        chunk.write(&mut write, meta_data.headers.as_slice())
+    })?;
 
-        for decompressed in receiver {
-            let header = meta_data.headers.get(decompressed.index.part)
-                .ok_or(Error::invalid("chunk index"))?;
-
-            for (bytes, line) in decompressed.index.line_indices(header) {
-                for_each(Line { location: line, value: &decompressed.data[bytes] })?;
-            }
-        }
-
-        Ok(())*/
-    }
-    else
-    {
-        for (part_index, header) in meta_data.headers.iter().enumerate() {
-            let mut write_block = |chunk_index: usize, tile: TileIndices| -> Result<()> {
-                let data_indices = header.get_absolute_block_indices(tile.location)?;
-                let block_indices = BlockIndex {
-                    part: part_index,
-                    level: tile.location.level_index,
-                    position: data_indices.start.to_usize("data indices start")?,
-                    size: data_indices.size,
-                };
-
-                let mut block_bytes = Vec::with_capacity(header.max_block_byte_size());
-                for (byte_range, line_index) in block_indices.line_indices(header) {
-                    debug_assert_eq!(byte_range.start, block_bytes.len());
-
-                    get_line(line_index, &mut block_bytes);
-
-                    debug_assert_eq!(byte_range.end, block_bytes.len());
-                }
-
-                // TODO check if data length matches expected byte size
-
-                let data = header.compression.compress_image_section(block_bytes)?;
-
-                let chunk = Chunk {
-                    part_number: part_index,
-
-                    // TODO deep data
-                    block: match header.blocks {
-                        Blocks::ScanLines => Block::ScanLine(ScanLineBlock {
-                            y_coordinate: header.get_block_data_window_coordinates(tile.location)?.start.1,
-                            compressed_pixels: data
-                        }),
-
-                        Blocks::Tiles(_) => Block::Tile(TileBlock {
-                            coordinates: tile.location,
-                            compressed_pixels: data,
-                        }),
-                    }
-                };
-
-                offset_tables[part_index][chunk_index] = write.byte_position() as u64; // safe indices from `enumerate()`
-                chunk.write(&mut write, meta_data.headers.as_slice())?;
-
-                Ok(())
-            };
-
-            if header.line_order == LineOrder::Decreasing {
-                for (chunk_index, tile) in header.blocks_increasing_y_order().enumerate().rev() {
-                    write_block(chunk_index, tile)?;
-                }
-            }
-            else {
-                // TODO
-                let _line_order = LineOrder::Increasing; // does not have to be unspecified
-                for (chunk_index, tile) in header.blocks_increasing_y_order().enumerate() {
-                    write_block(chunk_index, tile)?;
-                }
-            }
-        }
-    }
+    println!("finished compressiong");
 
     // write all offset tables
     write.seek_write_to(offset_table_start_byte)?;
@@ -390,7 +430,6 @@ pub fn write_all_lines_to_buffered(
 
     Ok(())
 }
-
 
 
 impl BlockIndex {
@@ -448,20 +487,20 @@ impl BlockIndex {
         }
 
         let channel_line_sizes: SmallVec<[usize; 8]> = header.channels.list.iter()
-            .map(move |channel| self.size.0 * channel.pixel_type.bytes_per_sample()) // FIXME is it fewer samples per tile or just fewer tiles for sampled images???
+            .map(move |channel| self.pixel_size.0 * channel.pixel_type.bytes_per_sample()) // FIXME is it fewer samples per tile or just fewer tiles for sampled images???
             .collect();
 
         LineIter {
             part: self.part,
             level: self.level,
-            width: self.size.0,
-            x: self.position.0,
-            end_y: self.position.1 + self.size.1,
+            width: self.pixel_size.0,
+            x: self.pixel_position.0,
+            end_y: self.pixel_position.1 + self.pixel_size.1,
             channel_sizes: channel_line_sizes,
 
             byte: 0,
             channel: 0,
-            y: self.position.1
+            y: self.pixel_position.1
         }
     }
 }
@@ -471,7 +510,7 @@ impl UncompressedBlock {
     /// Decompress the possibly compressed chunk and returns an `UncompressedBlock`.
     // for uncompressed data, the ByteVec in the chunk is moved all the way
     pub fn decompress_chunk(chunk: Chunk, meta_data: &MetaData) -> Result<Self> {
-        let header: &Header = meta_data.headers.get(chunk.part_number) // negative overflow is handled by out of index handling
+        let header: &Header = meta_data.headers.get(chunk.part_index)
             .ok_or(Error::invalid("chunk part index"))?;
 
         let tile_data_indices = header.get_block_data_indices(&chunk.block)?;
@@ -484,15 +523,62 @@ impl UncompressedBlock {
             Block::ScanLine(ScanLineBlock { compressed_pixels, .. }) => Ok(UncompressedBlock {
                 data: header.compression.decompress_image_section(header, compressed_pixels, absolute_indices)?,
                 index: BlockIndex {
-                    part: chunk.part_number,
-                    position: absolute_indices.start.to_usize("data indices start")?,
+                    part: chunk.part_index,
+                    pixel_position: absolute_indices.start.to_usize("data indices start")?,
                     level: tile_data_indices.level_index,
-                    size: absolute_indices.size,
+                    pixel_size: absolute_indices.size,
                 }
             }),
 
             _ => return Err(Error::unsupported("deep data"))
         }
+    }
+
+    /// Consume this block by compressing it, returning a `Chunk`.
+    // for uncompressed data, the ByteVec in the chunk is moved all the way
+    pub fn compress_to_chunk(self, meta_data: &MetaData) -> Result<Chunk> {
+        let UncompressedBlock { data, index } = self;
+
+        let header: &Header = meta_data.headers.get(index.part)
+            .expect("block part index bug");
+
+        // TODO check data length?
+        let compressed_data = header.compression
+            .compress_image_section(data)?;
+
+        Ok(Chunk {
+            part_index: index.part,
+
+            block : match header.blocks {
+                Blocks::ScanLines => Block::ScanLine(ScanLineBlock {
+                    y_coordinate:
+
+                    // FIXME this calculation should not be made here but elsewhere
+                        usize_to_i32(index.pixel_position.1) + header.data_window.start.1, // TODO is this calculatio even correct?
+                        /*.get_block_data_window_coordinates(TileCoordinates {
+                            tile_index: index.pixel_position,
+                            level_index: index.level
+                        })?
+
+                        .start.1,*/
+
+                    compressed_pixels: compressed_data
+                }),
+
+                Blocks::Tiles(tiles) => Block::Tile(TileBlock {
+                    coordinates: TileCoordinates {
+
+                        // TODO is this calculatio even correct?
+                        // FIXME this calculation should not be made here but elsewhere
+                        tile_index: index.pixel_position / tiles.tile_size,
+
+                        level_index: index.level,
+                    },
+
+                    compressed_pixels: compressed_data,
+                }),
+            }
+        })
     }
 }
 

@@ -64,6 +64,7 @@ pub mod prelude {
     // export real types and attributes
     pub use crate::math::Vec2;
     pub use attributes::{ Compression, Text, IntRect, };
+    pub use error::{ Result, Error };
 }
 
 

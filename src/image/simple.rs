@@ -328,7 +328,7 @@ impl Part {
             compression,
 
             tiles: None,
-            line_order: LineOrder::Unspecified,
+            line_order: LineOrder::Unspecified, // non-parallel write will set this to increasing if possible
             screen_window_center: Vec2(0.0, 0.0),
             screen_window_width: 1.0,
         }

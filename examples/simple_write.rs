@@ -20,7 +20,9 @@ fn write_noisy_hdr() {
 
         for _ in 0..(1024*1024/3)/4 {
             let index = rand::thread_rng().gen_range(0, values.len());
-            values[index] = f16::from_f32(1.0 / rand::random::<f32>() - 1.0);
+            let value = 1.0 / rand::random::<f32>() - 1.0;
+            let value = if !value.is_normal() || value > 1000.0 { 1000.0 } else { value };
+            values[index] = f16::from_f32(value);
         }
 
         values
@@ -47,10 +49,12 @@ fn write_noisy_hdr() {
         "test-image".try_into().unwrap(),
         Compression::RLE,
 
-        IntRect::from_dimensions(size.to_u32()),
+        IntRect::from_dimensions(size),
         smallvec![ r, g, b ],
     ));
 
     println!("writing image {:#?}", image);
-    image.write_to_file("./testout/noisy.exr", WriteOptions::default()).unwrap();
+    image.write_to_file("./testout/noisy.exr", WriteOptions::debug()).unwrap(); // FIXME parallel produces invalid files
+
+    assert!(Image::read_from_file("./testout/noisy.exr", ReadOptions::debug()).is_ok())
 }
