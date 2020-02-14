@@ -163,7 +163,7 @@ fn main() {
 
     println!("writing image with meta data {:#?}", image);
 
-    image.write_to_file("./testout/constructed.exr", WriteOptions::debug()).unwrap();
+    image.write_to_file("./testout/constructed.exr", WriteOptions::high()).unwrap();
 }
 ```
 

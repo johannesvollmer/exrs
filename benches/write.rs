@@ -11,12 +11,7 @@ use std::io::Cursor;
 
 fn write_single_image_parallel_zip(bench: &mut Bencher) {
     let path = "D:/Pictures/openexr/crowskull/crow_zips.exr";
-    let options = ReadOptions {
-        parallel_decompression: false,
-        .. ReadOptions::default()
-    };
-
-    let image = Image::read_from_file(path, options).unwrap();
+    let image = Image::read_from_file(path, ReadOptions::high()).unwrap();
 
     bench.iter(||{
         let mut result = Vec::new();
@@ -27,12 +22,7 @@ fn write_single_image_parallel_zip(bench: &mut Bencher) {
 
 fn write_single_image_zip(bench: &mut Bencher) {
     let path = "D:/Pictures/openexr/crowskull/crow_zips.exr";
-    let options = ReadOptions {
-        parallel_decompression: false,
-        .. ReadOptions::default()
-    };
-
-    let image = Image::read_from_file(path, options).unwrap();
+    let image = Image::read_from_file(path, ReadOptions::high()).unwrap();
 
     bench.iter(||{
         let mut result = Vec::new();
@@ -42,7 +32,8 @@ fn write_single_image_zip(bench: &mut Bencher) {
 }
 
 benchmark_group!(write,
-    write_single_image_parallel_zip
+    write_single_image_parallel_zip,
+    write_single_image_zip
 );
 
 benchmark_main!(write);
