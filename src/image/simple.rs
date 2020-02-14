@@ -170,24 +170,28 @@ impl SampleStorage<f16> for Fn(Vec2) -> Iterator<Item=f16> { }*/
 
 
 impl Default for WriteOptions {
-    fn default() -> Self { Self::fast() }
+    fn default() -> Self { Self::high() }
 }
 
 impl Default for ReadOptions {
-    fn default() -> Self { Self::fast() }
+    fn default() -> Self { Self::high() }
 }
 
 
 impl WriteOptions {
-    pub fn fast() -> Self { WriteOptions { parallel_compression: true, } }
-    pub fn low_memory() -> Self { WriteOptions { parallel_compression: false } }
-    pub fn debug() -> Self { WriteOptions { parallel_compression: false, } }
+    /// Higher speed but also higher memory requirements.
+    pub fn high() -> Self { WriteOptions { parallel_compression: true, } }
+
+    /// Lower speed but also lower memory requirements.
+    pub fn low() -> Self { WriteOptions { parallel_compression: false } }
 }
 
 impl ReadOptions {
-    pub fn fast() -> Self { ReadOptions { parallel_decompression: true } }
-    pub fn low_memory() -> Self { ReadOptions { parallel_decompression: false } }
-    pub fn debug() -> Self { ReadOptions { parallel_decompression: false } }
+    /// Higher speed but also higher memory requirements.
+    pub fn high() -> Self { ReadOptions { parallel_decompression: true } }
+
+    /// Lower speed but also lower memory requirements.
+    pub fn low() -> Self { ReadOptions { parallel_decompression: false } }
 }
 
 

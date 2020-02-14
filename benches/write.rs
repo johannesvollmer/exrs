@@ -20,7 +20,23 @@ fn write_single_image_parallel_zip(bench: &mut Bencher) {
 
     bench.iter(||{
         let mut result = Vec::new();
-        Image::write_to_buffered(&image, Cursor::new(&mut result), WriteOptions::debug()).unwrap();
+        Image::write_to_buffered(&image, Cursor::new(&mut result), WriteOptions::high()).unwrap();
+        bencher::black_box(result);
+    })
+}
+
+fn write_single_image_zip(bench: &mut Bencher) {
+    let path = "D:/Pictures/openexr/crowskull/crow_zips.exr";
+    let options = ReadOptions {
+        parallel_decompression: false,
+        .. ReadOptions::default()
+    };
+
+    let image = Image::read_from_file(path, options).unwrap();
+
+    bench.iter(||{
+        let mut result = Vec::new();
+        Image::write_to_buffered(&image, Cursor::new(&mut result), WriteOptions::low()).unwrap();
         bencher::black_box(result);
     })
 }

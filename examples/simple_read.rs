@@ -8,7 +8,7 @@ use exr::image::simple::*;
 fn read_image() {
     let image = Image::read_from_file(
         "./testout/noisy.exr",
-        ReadOptions::fast()
+        ReadOptions::high()
     ).unwrap();
 
     println!("image was read: {:#?}", image);

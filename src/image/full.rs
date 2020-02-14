@@ -227,6 +227,7 @@ pub type FlatSamples<Sample> = Vec<Sample>;
 // TODO do not store line by line in a separate vector!
 pub type DeepSamples<Sample> = Vec<DeepLine<Sample>>;
 
+
 /// A single line of deep data.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DeepLine<Sample> {
@@ -242,11 +243,11 @@ pub struct DeepLine<Sample> {
 
 
 impl Default for WriteOptions {
-    fn default() -> Self { Self::fast() }
+    fn default() -> Self { Self::high() }
 }
 
 impl Default for ReadOptions {
-    fn default() -> Self { Self::fast() }
+    fn default() -> Self { Self::high() }
 }
 
 
@@ -278,16 +279,18 @@ impl WriteOptions {
         }
     }*/
 
-    pub fn debug() -> Self {
+    /// Higher speed but also higher memory requirements.
+    pub fn high() -> Self {
         WriteOptions {
-            parallel_compression: false,
+            parallel_compression: true,
             override_line_order: None,
             override_blocks: None,
             override_compression: None
         }
     }
 
-    pub fn fast() -> Self {
+    /// Lower speed but also lower memory requirements.
+    pub fn low() -> Self {
         WriteOptions {
             parallel_compression: false,
             override_line_order: None,
@@ -298,9 +301,11 @@ impl WriteOptions {
 }
 
 impl ReadOptions {
-    pub fn fast() -> Self { ReadOptions { parallel_decompression: true } }
+    /// Higher speed but also higher memory requirements.
+    pub fn high() -> Self { ReadOptions { parallel_decompression: true } }
+
+    /// Lower speed but also lower memory requirements.
     pub fn low() -> Self { ReadOptions { parallel_decompression: false } }
-    pub fn debug() -> Self { ReadOptions { parallel_decompression: false } }
 }
 
 

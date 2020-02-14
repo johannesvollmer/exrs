@@ -64,19 +64,19 @@ fn check_files<T>(operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -
 
 #[test]
 fn read_all_files() {
-    check_files(|path| Image::read_from_file(path, ReadOptions::debug()))
+    check_files(|path| Image::read_from_file(path, ReadOptions::low()))
 }
 
 #[test]
 fn round_trip_all_files() {
     check_files(|path| {
-        let image = Image::read_from_file(path, ReadOptions::debug())?;
-        let write_options = WriteOptions::debug();
+        let image = Image::read_from_file(path, ReadOptions::low())?;
+        let write_options = WriteOptions::low();
 
         let mut tmp_bytes = Vec::new();
         image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options)?;
 
-        let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::debug())?;
+        let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::low())?;
 
         assert_eq!(image, image2);
 
@@ -91,12 +91,12 @@ fn round_trip_all_files() {
 #[test]
 fn round_trip_parallel_files() {
     check_files(|path| {
-        let image = Image::read_from_file(path, ReadOptions::fast())?;
+        let image = Image::read_from_file(path, ReadOptions::high())?;
 
         let mut tmp_bytes = Vec::new();
-        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), WriteOptions::fast())?;
+        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), WriteOptions::high())?;
 
-        let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::fast())?;
+        let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::high())?;
 
         assert_eq!(image, image2);
         Ok(())
@@ -126,10 +126,10 @@ pub fn test_roundtrip() {
     print!("starting read 1... ");
     io::stdout().flush().unwrap();
 
-    let image = Image::read_from_file(path, ReadOptions::fast()).unwrap();
+    let image = Image::read_from_file(path, ReadOptions::high()).unwrap();
     println!("...read 1 successfull");
 
-    let write_options = WriteOptions::fast();
+    let write_options = WriteOptions::high();
     let mut tmp_bytes = Vec::new();
 
     print!("starting write... ");
@@ -141,7 +141,7 @@ pub fn test_roundtrip() {
     print!("starting read 2... ");
     io::stdout().flush().unwrap();
 
-    let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::fast()).unwrap();
+    let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::high()).unwrap();
     println!("...read 2 successfull");
 
     assert_eq!(image, image2);
