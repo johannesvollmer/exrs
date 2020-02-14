@@ -120,6 +120,7 @@ pub struct ChannelList {
     pub list: SmallVec<[Channel; 5]>,
 
     /// The number of bytes that one pixel in this image needs.
+    // FIXME this needs to account for subsampling anywhere?
     pub bytes_per_pixel: usize, // FIXME only makes sense for flat images!
 }
 
@@ -712,8 +713,8 @@ impl Channel {
 }
 
 impl ChannelList {
-    // TODO instead of pre calculating byte size, write to a tmp buffer whose length is inspected before actually writing?
     pub fn byte_size(&self) -> usize {
+        // FIXME this needs to account for subsampling anywhere?
         self.list.iter().map(Channel::byte_size).sum::<usize>() + sequence_end::byte_size()
     }
 
@@ -1017,6 +1018,7 @@ impl Attribute {
     }
 
 
+    // TODO instead of pre calculating byte size, write to a tmp buffer whose length is inspected before actually writing?
     pub fn byte_size(&self) -> usize {
         self.name.null_terminated_byte_size()
             + self.value.kind_name().len() + sequence_end::byte_size()

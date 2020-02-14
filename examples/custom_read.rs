@@ -39,7 +39,7 @@ fn analyze_image() {
             !header.deep && tile.location.level_index == Vec2(0,0)
         },
 
-        |headers| -> Result<Vec<Part>> { Ok(
+        |headers| -> exr::prelude::Result<Vec<Part>> { Ok(
             headers.iter()
                 .map(|header| Part {
                     name: header.name.clone(),

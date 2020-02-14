@@ -242,16 +242,16 @@ pub struct DeepLine<Sample> {
 
 
 impl Default for WriteOptions {
-    fn default() -> Self { Self::fast_writing() }
+    fn default() -> Self { Self::fast() }
 }
 
 impl Default for ReadOptions {
-    fn default() -> Self { Self::fast_loading() }
+    fn default() -> Self { Self::fast() }
 }
 
 
 impl WriteOptions {
-    pub fn fast_writing() -> Self {
+    /*pub fn fast_writing() -> Self { // TODO rethink overrides
         WriteOptions {
             parallel_compression: true,
             override_line_order: Some(LineOrder::Unspecified),
@@ -276,9 +276,18 @@ impl WriteOptions {
             override_compression: Some(Compression::Uncompressed),
             override_blocks: None,
         }
-    }
+    }*/
 
     pub fn debug() -> Self {
+        WriteOptions {
+            parallel_compression: false,
+            override_line_order: None,
+            override_blocks: None,
+            override_compression: None
+        }
+    }
+
+    pub fn fast() -> Self {
         WriteOptions {
             parallel_compression: false,
             override_line_order: None,
@@ -289,8 +298,8 @@ impl WriteOptions {
 }
 
 impl ReadOptions {
-    pub fn fast_loading() -> Self { ReadOptions { parallel_decompression: true } }
-    pub fn small_loading() -> Self { ReadOptions { parallel_decompression: false } }
+    pub fn fast() -> Self { ReadOptions { parallel_decompression: true } }
+    pub fn low() -> Self { ReadOptions { parallel_decompression: false } }
     pub fn debug() -> Self { ReadOptions { parallel_decompression: false } }
 }
 

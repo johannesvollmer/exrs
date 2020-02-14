@@ -32,12 +32,9 @@ __Currently supported:__
     - [x] custom attributes
     - [x] multi-part images
     - [x] multi-resolution images: mip maps, rip maps
+    - [x] any line order
     - [ ] channel subsampling
     - [ ] deep data
-    - [ ] line order
-        - [x] read any
-        - [x] write increasing-y
-        - [ ] write any
         
     - [ ] compression methods (help wanted)
         - [x] uncompressed
@@ -55,8 +52,8 @@ __Currently supported:__
         - [x] decompress image sections either 
               in parallel or with low memory overhead
     - [x] write all contents at once
-        - [ ] compress blocks in parallel
-    - [ ] read only some blocks dynamically
+        - [x] compress blocks in parallel
+    - [x] read only some blocks dynamically
     - [ ] write blocks streams, one after another
     - [ ] progress callback
     - [ ] memory mapping

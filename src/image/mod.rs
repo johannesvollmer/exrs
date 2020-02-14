@@ -267,18 +267,12 @@ pub fn read_filtered_chunks_from_buffered<'m>(
 /// The image contents are collected by the `get_line` function parameter.
 /// Returns blocks in `LineOrder::Increasing`, unless the line order is requested to be decreasing.
 pub fn uncompressed_image_blocks_ordered<'l>(
-    meta_data: &'l MetaData, parallel: bool,
+    meta_data: &'l MetaData,
     get_line: &'l (impl Fn(LineIndex, &mut Vec<u8>) + Send + Sync + 'l) // TODO reduce sync requirements, at least if parrallel is false
 ) -> impl Iterator<Item = (usize, UncompressedBlock)> + 'l + Send // TODO reduce sync requirements, at least if parrallel is false
 {
-
     meta_data.headers.iter().enumerate()
         .flat_map(move |(part_index, header)|{
-            if parallel {
-                // TODO parallel write any line order
-                assert_eq!(header.line_order, LineOrder::Unspecified, "parallel compression currently only supports unspecified line order");
-            }
-
             let blocks_increasing_y = header.blocks_increasing_y_order().enumerate().map(move |(chunk_index, tile)|{
                 let data_indices = header.get_absolute_block_indices(tile.location).expect("tile coordinate bug");
 
@@ -321,22 +315,26 @@ pub fn uncompressed_image_blocks_ordered<'l>(
 
 
 
-/// line order is respected here,
-/// but panics if parallel line order is not unspecified
+/// Compress all chunks in the image described by `meta_data` and `get_line`.
+/// Calls `write_chunk` for each compressed chunk, while respecting the `line_order` of the image.
+///
+/// Attention: Currently, using multicore compression with `LineOrder::Increasing` or `LineOrder::Decreasing` in any header
+/// will allocate large amounts of memory while writing the file. Use unspecified line order for lower memory usage.
 pub fn for_compressed_blocks_in_image(
     meta_data: &MetaData, get_line: impl Fn(LineIndex, &mut Vec<u8>) + Send + Sync,
     parallel: bool, mut write_chunk: impl FnMut(usize, Chunk) -> PassiveResult
 ) -> PassiveResult
 {
-    let blocks = uncompressed_image_blocks_ordered(meta_data, parallel, &get_line);
+    let blocks = uncompressed_image_blocks_ordered(meta_data, &get_line);
 
     let parallel = parallel && meta_data.headers.iter() // do not use parallel stuff for uncompressed images
         .find(|header| header.compression != Compression::Uncompressed).is_some();
 
-    if parallel {
-        // TODO
-        assert!(meta_data.headers.iter().all(|header| header.line_order == LineOrder::Unspecified));
+    let requires_sorting = meta_data.headers.iter() // TODO only sort the specific headers that need sorting
+        .find(|header| header.line_order != LineOrder::Unspecified).is_some();
 
+
+    if parallel {
         let (sender, receiver) = std::sync::mpsc::channel();
 
         blocks.par_bridge()
@@ -345,19 +343,43 @@ pub fn for_compressed_blocks_in_image(
                 result.map(|block| sender.send(block).expect("threading error"))
             })?;
 
-
-        // TODO remove
-        let mut sorted_chunks = Vec::new();
-
-        for (chunk_index, compressed_chunk) in receiver {
-            // write_chunk(chunk_index, compressed_chunk)?;
-            sorted_chunks.push((chunk_index, compressed_chunk));
+        if !requires_sorting {
+            // FIXME does the original openexr library support unspecified line orders that have mixed up headers???
+            //       Or must the header order always be contiguous without overlaps?
+            for (chunk_index, compressed_chunk) in receiver {
+                write_chunk(chunk_index, compressed_chunk)?;
+            }
         }
 
-        sorted_chunks.sort_by_key(|(chunk_index, compressed_chunk)| (compressed_chunk.part_index, *chunk_index));
+        // write parallel chunks with sorting
+        else {
+            let mut sorted_chunks = Vec::new(); // TODO without allocating the whole file!
 
-        for (chunk_index, compressed_chunk) in sorted_chunks {
-             write_chunk(chunk_index, compressed_chunk)?;
+            for (chunk_index, compressed_chunk) in receiver {
+                sorted_chunks.push((chunk_index, compressed_chunk));
+            }
+
+            // sort by header index, and
+            // inside each header, sort by chunk index (depending on line order)
+            // TODO not sort the whole array but only the headers that need sorting??
+            sorted_chunks.sort_by_key(|(chunk_index, compressed_chunk)| {
+                let header: &Header = meta_data.headers.get(compressed_chunk.part_index)
+                    .expect("header index bug");
+
+                let chunk_priority = match header.line_order {
+                    // hopefully increase performance by not restricting chunk order in unspecified headers
+                    LineOrder::Unspecified => 0,
+
+                    LineOrder::Decreasing => -(*chunk_index as i64),
+                    LineOrder::Increasing => *chunk_index as i64,
+                };
+
+                (compressed_chunk.part_index, chunk_priority)
+            });
+
+            for (chunk_index, compressed_chunk) in sorted_chunks {
+                write_chunk(chunk_index, compressed_chunk)?;
+            }
         }
     }
 
@@ -371,13 +393,12 @@ pub fn for_compressed_blocks_in_image(
     Ok(())
 }
 
-/// Compresses and writes all lines of an image to the writer.
-/// Should use multicore compression if desired.
+/// Compresses and writes all lines of an image described by `meta_data` and `get_line` to the writer.
 ///
-/// Currently, multicore compression is not implemented yet.
+/// Attention: Currently, using multicore compression with `LineOrder::Increasing` or `LineOrder::Decreasing` in any header
+/// will allocate large amounts of memory while writing the file. Use unspecified line order for lower memory usage.
+///
 /// Does not buffer the writer, you should always pass a `BufWriter`.
-// TODO multicore compression
-// TODO split up this function into reusable bits
 #[must_use]
 pub fn write_all_lines_to_buffered(
     write: impl Write + Seek,
@@ -386,7 +407,7 @@ pub fn write_all_lines_to_buffered(
     get_line: impl Fn(LineIndex, &mut Vec<u8>) + Send + Sync
 ) -> PassiveResult
 {
-    // if non-parallel compression, we always use increasing order anyways
+    // if non-parallel compression, we always use increasing order anyways TODO
     if !parallel {
         for header in &mut meta_data.headers {
             if header.line_order == LineOrder::Unspecified {
@@ -409,17 +430,11 @@ pub fn write_all_lines_to_buffered(
     let mut offset_tables: Vec<Vec<u64>> = meta_data.headers.iter()
         .map(|header| vec![0; header.chunk_count]).collect();
 
-    println!("start compressiong");
-
-    // line order is respected here, panics if parallel line order is not unspecified
+    // line order is respected in here
     for_compressed_blocks_in_image(&meta_data, get_line, parallel, |chunk_index, chunk|{
-        println!("part {}, chunk {}", chunk.part_index, chunk_index);
-
         offset_tables[chunk.part_index][chunk_index] = write.byte_position() as u64; // safe indices from `enumerate()`
         chunk.write(&mut write, meta_data.headers.as_slice())
     })?;
-
-    println!("finished compressiong");
 
     // write all offset tables
     write.seek_write_to(offset_table_start_byte)?;
@@ -548,34 +563,23 @@ impl UncompressedBlock {
 
         Ok(Chunk {
             part_index: index.part,
-
             block : match header.blocks {
                 Blocks::ScanLines => Block::ScanLine(ScanLineBlock {
-                    y_coordinate:
+                    compressed_pixels: compressed_data,
 
-                    // FIXME this calculation should not be made here but elsewhere
-                        usize_to_i32(index.pixel_position.1) + header.data_window.start.1, // TODO is this calculatio even correct?
-                        /*.get_block_data_window_coordinates(TileCoordinates {
-                            tile_index: index.pixel_position,
-                            level_index: index.level
-                        })?
-
-                        .start.1,*/
-
-                    compressed_pixels: compressed_data
+                    // FIXME this calculation should not be made here but elsewhere instead (in meta::header?)
+                    y_coordinate: usize_to_i32(index.pixel_position.1) + header.data_window.start.1,
                 }),
 
                 Blocks::Tiles(tiles) => Block::Tile(TileBlock {
+                    compressed_pixels: compressed_data,
                     coordinates: TileCoordinates {
-
-                        // TODO is this calculatio even correct?
-                        // FIXME this calculation should not be made here but elsewhere
-                        tile_index: index.pixel_position / tiles.tile_size,
-
                         level_index: index.level,
+
+                        // FIXME this calculation should not be made here but elsewhere instead (in meta::header?)
+                        tile_index: index.pixel_position / tiles.tile_size,
                     },
 
-                    compressed_pixels: compressed_data,
                 }),
             }
         })

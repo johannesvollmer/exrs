@@ -163,7 +163,7 @@ impl Compression {
         let dimensions = tile.size;
         debug_assert!(tile.validate(dimensions).is_ok());
 
-        let expected_byte_size = dimensions.0 * dimensions.1 * header.channels.bytes_per_pixel;
+        let expected_byte_size = dimensions.0 * dimensions.1 * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
 
         if data.len() == expected_byte_size {
             Ok(data) // the raw data was smaller than the compressed data, so the raw data has been written

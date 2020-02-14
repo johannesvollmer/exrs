@@ -45,7 +45,7 @@ pub struct ReadOptions {
 pub struct Image {
 
     /// All image parts contained in the image file
-    pub parts: Parts,
+    pub image_parts: ImageParts,
 
     /// The rectangle positioned anywhere in the infinite 2D space that
     /// clips all contents of the file, limiting what should be rendered.
@@ -56,13 +56,13 @@ pub struct Image {
 }
 
 
-pub type Parts = SmallVec<[Part; 3]>;
+pub type ImageParts = SmallVec<[ImagePart; 3]>;
 
 
 /// A single image part of an exr image.
 /// Contains meta data and actual pixel information of the channels.
 #[derive(Clone, PartialEq, Debug)]
-pub struct Part {
+pub struct ImagePart {
 
     /// The name of the image part.
     /// This is optional for files with only one image part.
@@ -83,6 +83,7 @@ pub struct Part {
     pub screen_window_width: f32,
 
     /// In what order the tiles of this header occur in the file.
+    /// Does not change any actual image orientation.
     pub line_order: LineOrder,
 
     /// How the pixel data of all channels in this image part is compressed. May be `Compression::Uncompressed`.
@@ -217,11 +218,11 @@ impl Image {
     ///
     /// Consider using `Image::from_parts` for more complex cases.
     /// Use the raw `Image { .. }` constructor for more complex cases.
-    pub fn new_from_single_part(part: Part) -> Self { // TODO inline part parameters?
+    pub fn new_from_single_part(part: ImagePart) -> Self { // TODO inline part parameters?
         Self {
             pixel_aspect: 1.0,
             display_window: part.data_window,
-            parts: smallvec![ part ],
+            image_parts: smallvec![ part ],
         }
     }
 
@@ -231,9 +232,9 @@ impl Image {
     ///
     /// Consider using `Image::from_single_part` for simpler cases.
     /// Use the raw `Image { .. }` constructor for more complex cases.
-    pub fn new_from_parts(parts: Parts, display_window: IntRect) -> Self {
+    pub fn new_from_parts(parts: ImageParts, display_window: IntRect) -> Self {
         Self {
-            parts,
+            image_parts: parts,
             display_window,
             pixel_aspect: 1.0,
         }
@@ -303,7 +304,7 @@ impl Image {
 }
 
 
-impl Part {
+impl ImagePart {
 
     /// Create a new image part with all required fields.
     /// Uses scan line blocks, and no custom attributes.
@@ -320,7 +321,7 @@ impl Part {
 
         channels.sort_by_key(|chan| chan.name.clone()); // TODO why clone?!
 
-        Part {
+        ImagePart {
             channels,
             data_window,
             name: Some(name),
@@ -332,6 +333,11 @@ impl Part {
             screen_window_center: Vec2(0.0, 0.0),
             screen_window_width: 1.0,
         }
+    }
+
+    /// Update the line order of this image. See `Part::line_order` for more information.
+    pub fn with_line_order(self, line_order: LineOrder) -> Self {
+        Self { line_order, ..self }
     }
 }
 
@@ -404,10 +410,10 @@ impl Image {
             .map(|header| header.pixel_aspect)
             .next().unwrap_or(1.0); // default value if no headers are found
 
-        let headers : Result<_> = headers.iter().map(Part::allocate).collect();
+        let headers : Result<_> = headers.iter().map(ImagePart::allocate).collect();
 
         Ok(Image {
-            parts: headers?,
+            image_parts: headers?,
             display_window,
             pixel_aspect
         })
@@ -418,7 +424,7 @@ impl Image {
     pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
         debug_assert_ne!(line.location.width, 0);
 
-        let part = self.parts.get_mut(line.location.part)
+        let part = self.image_parts.get_mut(line.location.part)
             .ok_or(Error::invalid("chunk part index"))?;
 
         part.insert_line(line)
@@ -429,7 +435,7 @@ impl Image {
     pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
         debug_assert_ne!(index.width, 0);
 
-        let part = self.parts.get(index.part)
+        let part = self.image_parts.get(index.part)
             .expect("invalid part index");
 
         part.extract_line(index, write)
@@ -437,7 +443,7 @@ impl Image {
 
     /// Create the meta data that describes this image.
     pub fn infer_meta_data(&self) -> MetaData {
-        let headers: Headers = self.parts.iter()
+        let headers: Headers = self.image_parts.iter()
             .map(|part| part.infer_header(self.display_window, self.pixel_aspect))
             .collect();
 
@@ -470,11 +476,11 @@ impl Image {
 }
 
 
-impl Part {
+impl ImagePart {
 
     /// Allocate an image part ready to be filled with pixel data.
     pub fn allocate(header: &Header) -> Result<Self> {
-        Ok(Part {
+        Ok(ImagePart {
             data_window: header.data_window,
             screen_window_center: header.screen_window_center,
             screen_window_width: header.screen_window_width,
