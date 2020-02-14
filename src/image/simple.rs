@@ -45,7 +45,7 @@ pub struct ReadOptions {
 pub struct Image {
 
     /// All image parts contained in the image file
-    pub image_parts: ImageParts,
+    pub parts: ImageParts,
 
     /// The rectangle positioned anywhere in the infinite 2D space that
     /// clips all contents of the file, limiting what should be rendered.
@@ -222,7 +222,7 @@ impl Image {
         Self {
             pixel_aspect: 1.0,
             display_window: part.data_window,
-            image_parts: smallvec![ part ],
+            parts: smallvec![ part ],
         }
     }
 
@@ -234,7 +234,7 @@ impl Image {
     /// Use the raw `Image { .. }` constructor for more complex cases.
     pub fn new_from_parts(parts: ImageParts, display_window: IntRect) -> Self {
         Self {
-            image_parts: parts,
+            parts: parts,
             display_window,
             pixel_aspect: 1.0,
         }
@@ -262,14 +262,24 @@ impl Image {
     /// Use `read_from_unbuffered` instead, if this is not an in-memory reader.
     #[must_use]
     pub fn read_from_buffered(read: impl Read + Send + Seek, options: ReadOptions) -> Result<Self> { // TODO not need be seek nor send
-        // crate::image::read_all_lines(read, options.parallel_decompression, Image::allocate, Image::insert_line)
-        crate::image::read_filtered_lines_from_buffered(
+        let mut image: Image = crate::image::read_filtered_lines_from_buffered(
             read, options.parallel_decompression,
             |header, tile_index| {
                 !header.deep && tile_index.location.level_index == Vec2(0,0)
             },
             Image::allocate, Image::insert_line
-        )
+        )?;
+
+        {   // remove channels that had no data (deep data is not loaded)
+            for part in &mut image.parts {
+                part.channels.retain(|channel| channel.samples.len() > 0);
+            }
+
+            // remove parts that had only deep channels
+            image.parts.retain(|part| part.channels.len() > 0);
+        }
+
+        Ok(image)
     }
 
     /// Write the exr image to a file.
@@ -359,31 +369,6 @@ impl Channel {
     pub fn new_linear(name: Text, samples: Samples) -> Self {
         Self::new(name, true, samples)
     }
-
-    /*/// Computes the size as seen in the global infinite 2D space of the file.
-    pub fn view_size(&self) -> Vec2<usize> {
-        self.sample.resolution * self.sampling
-    }*/
-
-    /*/// Create a `SampleBlock` from resolution and sample vector.
-    /// Panics if the resolution does not match the sample vector length.
-    pub fn f16s(resolution: Vec2<usize>, samples: Vec<f16>) -> Self {
-        assert_eq!(resolution.area(), samples.len());
-        Self { resolution, samples: Samples::F16(samples) }
-    }
-
-    /// Create a `SampleBlock` from resolution and sample vector.
-    /// Panics if the resolution does not match the sample vector length.
-    pub fn f32s(resolution: Vec2<usize>, samples: Vec<f32>) -> Self {
-        Samples::F32(samples)
-    }
-
-    /// Create a `SampleBlock` from resolution and sample vector.
-    /// Panics if the resolution does not match the sample vector length.
-    pub fn u32s(resolution: Vec2<usize>, samples: Vec<u32>) -> Self {
-        assert_eq!(resolution.area(), samples.len());
-        Samples::U32(samples)
-    }*/
 }
 
 impl Samples {
@@ -413,7 +398,7 @@ impl Image {
         let headers : Result<_> = headers.iter().map(ImagePart::allocate).collect();
 
         Ok(Image {
-            image_parts: headers?,
+            parts: headers?,
             display_window,
             pixel_aspect
         })
@@ -424,7 +409,7 @@ impl Image {
     pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
         debug_assert_ne!(line.location.width, 0);
 
-        let part = self.image_parts.get_mut(line.location.part)
+        let part = self.parts.get_mut(line.location.part)
             .ok_or(Error::invalid("chunk part index"))?;
 
         part.insert_line(line)
@@ -435,7 +420,7 @@ impl Image {
     pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
         debug_assert_ne!(index.width, 0);
 
-        let part = self.image_parts.get(index.part)
+        let part = self.parts.get(index.part)
             .expect("invalid part index");
 
         part.extract_line(index, write)
@@ -443,7 +428,7 @@ impl Image {
 
     /// Create the meta data that describes this image.
     pub fn infer_meta_data(&self) -> MetaData {
-        let headers: Headers = self.image_parts.iter()
+        let headers: Headers = self.parts.iter()
             .map(|part| part.infer_header(self.display_window, self.pixel_aspect))
             .collect();
 
@@ -496,6 +481,9 @@ impl ImagePart {
             }
         })
     }
+
+
+    // TODO no insert or extract, only `get(line_index) -> Line<'_ mut>`?
 
     /// Insert one line of pixel data into this image part.
     /// Returns an error for invalid index or line contents.
@@ -570,11 +558,14 @@ impl Channel {
 
     /// Allocate a channel ready to be filled with pixel data.
     pub fn allocate(header: &Header, channel: &crate::meta::attributes::Channel) -> Self {
+        // do not allocate for deep data
+        let size = if header.deep { Vec2(0, 0) } else {
+            header.data_window.size / channel.sampling
+        };
+
         Channel {
-            name: channel.name.clone(),
-            is_linear: channel.is_linear,
-            sampling: channel.sampling,
-            samples: Samples::allocate(header.data_window.size / channel.sampling, channel.pixel_type)
+            name: channel.name.clone(), is_linear: channel.is_linear, sampling: channel.sampling,
+            samples: Samples::allocate(size, channel.pixel_type)
         }
     }
 

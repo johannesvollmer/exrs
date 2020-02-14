@@ -100,7 +100,7 @@ impl<'s> Line<'s> {
 
     /// Iterate over all samples in this line, from left to right.
     pub fn sample_iter<T: crate::io::Data>(&self) -> impl Iterator<Item = Result<T>> + '_ {
-        let mut read = self.value.clone();
+        let mut read = self.value.clone(); // FIXME deep data
         (0..self.location.width).map(move |_| T::read(&mut read))
     }
 }
