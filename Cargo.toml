@@ -1,31 +1,32 @@
 [package]
 name = "exr"
-version = "0.1.0"
+version = "0.6.0"
 authors = ["johannesvollmer <johannes596@t-online.de>"]
 edition = "2018"
 
+description = "Read and write OpenEXR files without any unsafe code"
+repository = "https://github.com/johannesvollmer/exrs"
+readme = "README.md"
+license = "LICENSE.md"
+keywords = ["exr", "openexr", "file", "binary", "io"]
+categories = ["encoding", "filesystem", "graphics", "multimedia"]
+maintenance = { status = "actively-maintained" }
+
+
 [dependencies]
-# data types
-half = "1.4.0"
-smallvec = "1.1.0" # TODO profile if smallvec is really an improvement!
-
-# serialization
-lebe = { git = "http://github.com/johannesvollmer/lebe" }
-bit_field = "0.10.0"
-
-# zlib compression
-libflate = "0.1.27"
-
-# simple concurrency (parallel compression and decompression)
-# TODO this could be an default feature which can be disabled if desired
-rayon = "1.2.1"
-
+half = "1.4.0"        # 16 bit float pixel data type
+smallvec = "1.1.0"    # make cache friendly allocations     TODO profile if smallvec is really an improvement!
+lebe = { git = "http://github.com/johannesvollmer/lebe" } # generic binary serialization
+bit_field = "0.10.0"  # exr file version bit flags
+libflate = "0.1.27"   # zlib compression
+rayon = "1.2.1"       # multicore compression and decompression TODO make this an optional feature?
 
 [dev-dependencies]
 bencher = "0.1.5"
-image = "0.23.0-preview.0"
-walkdir = "2.2.9"
-rand = "0.7.2"
+image = "0.23.0-preview.0"  # used to convert one exr to some pngs
+walkdir = "2.2.9"           # automatically test things for all files in a directory
+rand = "0.7.2"              # used for fuzz testing
+
 
 [[bench]]
 name = "read"
@@ -38,6 +39,7 @@ harness = false
 [[bench]]
 name = "write"
 harness = false
+
 
 # release with fastest runtime speed
 [profile.release]
