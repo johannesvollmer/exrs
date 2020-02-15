@@ -76,8 +76,8 @@ pub fn convert_to_png() {
     fs::remove_dir_all("testout").unwrap_or_default();
     fs::create_dir("testout").unwrap();
 
-    for (part_index, part) in image.layers.iter().enumerate() {
-        for channel in &part.channels {
+    for (layer_index, layer) in image.layers.iter().enumerate() {
+        for channel in &layer.channels {
             match &channel.content {
                 ChannelData::F16(levels) => {
                     let levels = levels.as_flat_samples()
@@ -88,8 +88,8 @@ pub fn convert_to_png() {
 
                         save_f32_image_as_png(&data, sample_block.resolution, format!(
                             "testout/{} ({}) {}_f16_{}x{}.png",
-                            part_index,
-                            part.name.as_ref().map(attributes::Text::to_string).unwrap_or(String::from("1")),
+                            layer_index,
+                            layer.name.as_ref().map(attributes::Text::to_string).unwrap_or(String::from("1")),
                             channel.name,
                             sample_block.resolution.0,
                             sample_block.resolution.1,
@@ -102,8 +102,8 @@ pub fn convert_to_png() {
                     for sample_block in levels.as_slice() {
                         save_f32_image_as_png(&sample_block.samples, sample_block.resolution, format!(
                             "testout/{} ({}) {}_f16_{}x{}.png",
-                            part_index,
-                            part.name.as_ref().map(attributes::Text::to_string).unwrap_or(String::from("1")),
+                            layer_index,
+                            layer.name.as_ref().map(attributes::Text::to_string).unwrap_or(String::from("1")),
                             channel.name,
                             sample_block.resolution.0,
                             sample_block.resolution.1,
@@ -118,8 +118,8 @@ pub fn convert_to_png() {
 
                         save_f32_image_as_png(&data, sample_block.resolution, format!(
                             "testout/{} ({}) {}_f16_{}x{}.png",
-                            part_index,
-                            part.name.as_ref().map(attributes::Text::to_string).unwrap_or(String::from("1")),
+                            layer_index,
+                            layer.name.as_ref().map(attributes::Text::to_string).unwrap_or(String::from("1")),
                             channel.name,
                             sample_block.resolution.0,
                             sample_block.resolution.1,

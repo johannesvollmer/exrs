@@ -174,11 +174,11 @@ pub enum Levels<Samples> {
     Singular(SampleBlock<Samples>),
 
     /// In addition to the full resolution image,
-    /// this part also contains smaller versions with the same aspect ratio.
+    /// this layer also contains smaller versions with the same aspect ratio.
     Mip(LevelMaps<Samples>),
 
     /// In addition to the full resolution image,
-    /// this part also contains smaller versions,
+    /// this layer also contains smaller versions,
     /// and each smaller version has further versions with varying aspect ratios.
     Rip(RipMaps<Samples>),
 }
@@ -186,7 +186,7 @@ pub enum Levels<Samples> {
 pub type LevelMaps<Samples> = Vec<SampleBlock<Samples>>;
 
 /// In addition to the full resolution image,
-/// this part also contains smaller versions,
+/// this layer also contains smaller versions,
 /// and each smaller version has further versions with varying aspect ratios.
 #[derive(Clone, PartialEq, Debug)]
 pub struct RipMaps<Samples> {

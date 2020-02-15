@@ -19,7 +19,7 @@ fn analyze_image() {
     let file = BufReader::new(File::open("./testout/noisy.exr").unwrap());
 
     #[derive(Debug)]
-    struct Part {
+    struct Layer {
         name: Option<Text>,
         data_window: IntRect,
         channels: Vec<Channel>,
@@ -39,9 +39,9 @@ fn analyze_image() {
             tile.location.level_index == Vec2(0,0)
         },
 
-        |headers| -> exr::prelude::Result<Vec<Part>> { Ok(
+        |headers| -> exr::prelude::Result<Vec<Layer>> { Ok(
             headers.iter()
-                .map(|header| Part {
+                .map(|header| Layer {
                     name: header.name.clone(),
                     data_window: header.data_window,
                     channels: header.channels.list.iter()
@@ -56,9 +56,9 @@ fn analyze_image() {
         ) },
 
         |averages, line| {
-            let part = &mut averages[line.location.layer];
-            let channel = &mut part.channels[line.location.channel];
-            let channel_sample_count = part.data_window.size.area() as f32;
+            let layer = &mut averages[line.location.layer];
+            let channel = &mut layer.channels[line.location.channel];
+            let channel_sample_count = layer.data_window.size.area() as f32;
 
             match channel.pixel_type {
                 PixelType::F16 => {

@@ -220,13 +220,13 @@ impl Image {
     /// Defined the `display_window` to define
     /// the area in the infinite 2D space that should be visible.
     ///
-    /// Consider using `Image::from_parts` for more complex cases.
+    /// Consider using `Image::new_from_layers` for more complex cases.
     /// Use the raw `Image { .. }` constructor for more complex cases.
-    pub fn new_from_single_part(part: Layer) -> Self { // TODO inline part parameters?
+    pub fn new_from_single_layer(layer: Layer) -> Self { // TODO inline layer parameters?
         Self {
             pixel_aspect: 1.0,
-            display_window: part.data_window,
-            layers: smallvec![ part ],
+            display_window: layer.data_window,
+            layers: smallvec![ layer ],
         }
     }
 
@@ -234,10 +234,10 @@ impl Image {
     /// Defined the `display_window` to define
     /// the area in the infinite 2D space that should be visible.
     ///
-    /// Consider using `Image::from_single_part` for simpler cases.
+    /// Consider using `Image::new_from_single_layer` for simpler cases.
     /// Use the raw `Image { .. }` constructor for more complex cases.
-    pub fn new_from_parts(parts: Layers, display_window: IntRect) -> Self {
-        Self { layers: parts, display_window, pixel_aspect: 1.0, }
+    pub fn new_from_layers(layers: Layers, display_window: IntRect) -> Self {
+        Self { layers, display_window, pixel_aspect: 1.0, }
     }
 
 
@@ -279,12 +279,12 @@ impl Image {
         )?;
 
         {   // remove channels that had no data (deep data is not loaded)
-            for part in &mut image.layers {
-                part.channels.retain(|channel| channel.samples.len() > 0);
+            for layer in &mut image.layers {
+                layer.channels.retain(|channel| channel.samples.len() > 0);
             }
 
             // remove parts that had only deep channels
-            image.layers.retain(|part| part.channels.len() > 0);
+            image.layers.retain(|layer| layer.channels.len() > 0);
         }
 
         Ok(image)
@@ -326,7 +326,7 @@ impl Layer {
 
     /// Create a new layer with all required fields.
     /// Uses scan line blocks, and no custom attributes.
-    /// Use `ImagePart::with_compression` or `ImagePart::with_block_format`
+    /// Use `Layer::with_compression` or `Layer::with_block_format`
     /// to further configure the file.
     ///
     /// Panics if anything is invalid or missing.
@@ -427,10 +427,10 @@ impl Image {
     pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
         debug_assert_ne!(line.location.width, 0);
 
-        let part = self.layers.get_mut(line.location.layer)
+        let layer = self.layers.get_mut(line.location.layer)
             .ok_or(Error::invalid("chunk part index"))?;
 
-        part.insert_line(line)
+        layer.insert_line(line)
     }
 
     /// Read one line of pixel data from this channel.
@@ -438,16 +438,16 @@ impl Image {
     pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
         debug_assert_ne!(index.width, 0);
 
-        let part = self.layers.get(index.layer)
+        let layer = self.layers.get(index.layer)
             .expect("invalid part index");
 
-        part.extract_line(index, write)
+        layer.extract_line(index, write)
     }
 
     /// Create the meta data that describes this image.
     pub fn infer_meta_data(&self) -> MetaData {
         let headers: Headers = self.layers.iter()
-            .map(|part| part.infer_header(self.display_window, self.pixel_aspect))
+            .map(|layer| layer.infer_header(self.display_window, self.pixel_aspect))
             .collect();
 
         MetaData::new(headers)

@@ -45,16 +45,16 @@ fn write_noisy_hdr() {
         Samples::F32(generate_f16_vector(size).into_iter().map(f16::to_f32).collect())
     );
 
-    let part = simple::Layer::new(
+    let layer = simple::Layer::new(
         "test-image".try_into().unwrap(),
         IntRect::from_dimensions(size),
         smallvec![ r, g, b ],
     );
 
-    let part = part.with_compression(Compression::RLE)
+    let layer = layer.with_compression(Compression::RLE)
         .with_block_format(None, attributes::LineOrder::Increasing); // apparently, some software only supports increasing line order
 
-    let image = Image::new_from_single_part(part);
+    let image = Image::new_from_single_layer(layer);
 
     println!("writing image {:#?}", image);
     image.write_to_file("./testout/noisy.exr", WriteOptions::high()).unwrap(); // FIXME parallel produces invalid files

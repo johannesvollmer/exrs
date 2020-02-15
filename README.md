@@ -173,7 +173,7 @@ fn main() {
     );
     
     // create an exr file from a single layer (an exr file can have multiple layers)
-    let image = Image::new_from_single_part(layer.with_compression(Compression::RLE));
+    let image = Image::new_from_single_layer(layer.with_compression(Compression::RLE));
 
     println!("writing image with meta data {:#?}", image);
 
