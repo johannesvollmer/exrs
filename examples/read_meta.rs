@@ -3,7 +3,6 @@
 // exr imports
 extern crate exr;
 use exr::prelude::*;
-use exr::meta::Header;
 
 /// Print the custom meta data of a file, excluding technical file meta data.
 #[test]

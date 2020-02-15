@@ -62,19 +62,19 @@ fn analyze_image() {
 
             match channel.pixel_type {
                 PixelType::F16 => {
-                    for value in line.sample_iter::<f16>() {
+                    for value in line.read_samples::<f16>() {
                         channel.average += value?.to_f32() / channel_sample_count;
                     }
                 },
 
                 PixelType::F32 => {
-                    for value in line.sample_iter::<f32>() {
+                    for value in line.read_samples::<f32>() {
                         channel.average += value? / channel_sample_count;
                     }
                 },
 
                 PixelType::U32 => {
-                    for value in line.sample_iter::<f32>() {
+                    for value in line.read_samples::<f32>() {
                         channel.average += (value? as f32) / channel_sample_count;
                     }
                 },

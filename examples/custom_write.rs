@@ -21,7 +21,7 @@ fn write_generated_noisy_hdr() {
     /// Just a random high dynamic range f16
     fn generate_f16 () -> f16 {
         let value = 1.0 / rand::random::<f32>() - 1.0;
-        let value = if !value.is_normal() || value > 100000.0 { 100000.0 } else { value };
+        let value = if !value.is_normal() || value > 1000.0 { 1000.0 } else { value };
         f16::from_f32(value)
     };
 
@@ -50,7 +50,7 @@ fn write_generated_noisy_hdr() {
         file, true,
         true,meta,
         |line_mut|{
-            line_mut.set_samples(|_sample_index| generate_f16()).expect("pixel bytes write error") // TODO without expect
+            line_mut.write_samples(|_sample_index| generate_f16()).expect("pixel bytes write error") // TODO without expect
         }
     ).unwrap();
 
