@@ -9,8 +9,8 @@ use crate::meta::*;
 use crate::meta::attributes::*;
 use crate::error::{Result, PassiveResult, Error};
 use crate::math::*;
-use std::io::{Seek, BufReader, BufWriter, Cursor};
-use crate::image::{Line, LineIndex};
+use std::io::{Seek, BufReader, BufWriter};
+use crate::image::{LineRefMut, LineRef};
 
 // TODO dry this module with image::full?
 
@@ -322,9 +322,7 @@ impl Image {
     pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions) -> PassiveResult {
         crate::image::write_all_lines_to_buffered(
             write, options.parallel_compression, options.pedantic, self.infer_meta_data(),
-            |location, write| {
-                self.extract_line(location, &mut Cursor::new(write));
-            }
+            |line_mut| self.extract_line(line_mut)
         )
     }
 }
@@ -432,8 +430,8 @@ impl Image {
 
     /// Insert one line of pixel data into this image.
     /// Returns an error for invalid index or line contents.
-    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
-        debug_assert_ne!(line.location.width, 0, "line width calculation bug");
+    pub fn insert_line(&mut self, line: LineRef<'_>) -> PassiveResult {
+        debug_assert_ne!(line.location.sample_count, 0, "line width calculation bug");
 
         let layer = self.layers.get_mut(line.location.layer)
             .ok_or(Error::invalid("chunk part index"))?;
@@ -443,13 +441,13 @@ impl Image {
 
     /// Read one line of pixel data from this channel.
     /// Panics for an invalid index or write error.
-    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
-        debug_assert_ne!(index.width, 0, "line width calculation bug");
+    pub fn extract_line(&self, line: LineRefMut<'_>) {
+        debug_assert_ne!(line.location.sample_count, 0, "line width calculation bug");
 
-        let layer = self.layers.get(index.layer)
+        let layer = self.layers.get(line.location.layer)
             .expect("invalid part index");
 
-        layer.extract_line(index, write)
+        layer.extract_line(line)
     }
 
     /// Create the meta data that describes this image.
@@ -489,8 +487,8 @@ impl Layer {
 
     /// Insert one line of pixel data into this layer.
     /// Returns an error for invalid index or line contents.
-    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
-        debug_assert!(line.location.position.0 + line.location.width <= self.data_window.size.0, "line index calculation bug");
+    pub fn insert_line(&mut self, line: LineRef<'_>) -> PassiveResult {
+        debug_assert!(line.location.position.0 + line.location.sample_count <= self.data_window.size.0, "line index calculation bug");
         debug_assert!(line.location.position.1 < self.data_window.size.1, "line index calculation bug");
 
         self.channels.get_mut(line.location.channel)
@@ -500,13 +498,13 @@ impl Layer {
 
     /// Read one line of pixel data from this layer.
     /// Panics for an invalid index or write error.
-    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
-        debug_assert!(index.position.0 + index.width <= self.data_window.size.0, "line index calculation bug");
-        debug_assert!(index.position.1 < self.data_window.size.1, "line index calculation bug");
+    pub fn extract_line(&self, line: LineRefMut<'_>) {
+        debug_assert!(line.location.position.0 + line.location.sample_count <= self.data_window.size.0, "line index calculation bug");
+        debug_assert!(line.location.position.1 < self.data_window.size.1, "line index calculation bug");
 
-        self.channels.get(index.channel)
+        self.channels.get(line.location.channel)
             .expect("invalid channel index")
-            .extract_line(index, self.data_window.size, write)
+            .extract_line(line, self.data_window.size)
     }
 
     /// Create the meta data that describes this layer.
@@ -565,16 +563,16 @@ impl Channel {
     }
 
     /// Insert one line of pixel data into this channel.
-    pub fn insert_line(&mut self, line: Line<'_>, resolution: Vec2<usize>) -> PassiveResult {
+    pub fn insert_line(&mut self, line: LineRef<'_>, resolution: Vec2<usize>) -> PassiveResult {
         assert_eq!(line.location.level, Vec2(0,0), "line index calculation bug");
         self.samples.insert_line(resolution / self.sampling, line)
     }
 
     /// Read one line of pixel data from this channel.
     /// Panics for an invalid index or write error.
-    pub fn extract_line(&self, index: LineIndex, resolution: Vec2<usize>, write: &mut impl Write) {
-        debug_assert_eq!(index.level, Vec2(0,0), "line index calculation bug");
-        self.samples.extract_line(index, resolution / self.sampling, write)
+    pub fn extract_line(&self, line: LineRefMut<'_>, resolution: Vec2<usize>) {
+        debug_assert_eq!(line.location.level, Vec2(0,0), "line index calculation bug");
+        self.samples.extract_line(line, resolution / self.sampling)
     }
 
     /// Create the meta data that describes this channel.
@@ -608,10 +606,10 @@ impl Samples {
     }
 
     /// Insert one line of pixel data into this sample block.
-    pub fn insert_line(&mut self, resolution: Vec2<usize>, line: Line<'_>) -> PassiveResult {
-        debug_assert_ne!(line.location.width, 0, "line index calculation bug");
+    pub fn insert_line(&mut self, resolution: Vec2<usize>, line: LineRef<'_>) -> PassiveResult {
+        debug_assert_ne!(line.location.sample_count, 0, "line index calculation bug");
 
-        if line.location.position.0 + line.location.width > resolution.0 {
+        if line.location.position.0 + line.location.sample_count > resolution.0 {
             return Err(Error::invalid("data block x coordinate"))
         }
 
@@ -620,47 +618,46 @@ impl Samples {
         }
 
         debug_assert_ne!(resolution.0, 0, "sample size bug");
-        debug_assert_ne!(line.location.width, 0, "line index calculation bug");
+        debug_assert_ne!(line.location.sample_count, 0, "line index calculation bug");
 
         let start_index = line.location.position.1 * resolution.0 + line.location.position.0;
-        let end_index = start_index + line.location.width;
+        let end_index = start_index + line.location.sample_count;
 
         match self {
-            Samples::F16(samples) => line.read_samples(&mut samples[start_index .. end_index]),
-            Samples::F32(samples) => line.read_samples(&mut samples[start_index .. end_index]),
-            Samples::U32(samples) => line.read_samples(&mut samples[start_index .. end_index]),
+            Samples::F16(samples) => line.read_samples_into_slice(&mut samples[start_index .. end_index]),
+            Samples::F32(samples) => line.read_samples_into_slice(&mut samples[start_index .. end_index]),
+            Samples::U32(samples) => line.read_samples_into_slice(&mut samples[start_index .. end_index]),
         }
     }
 
     /// Read one line of pixel data from this sample block.
     /// Panics for an invalid index or write error.
-    pub fn extract_line(&self, index: LineIndex, resolution: Vec2<usize>, write: &mut impl Write) {
-        debug_assert!(index.position.0 + index.width <= resolution.0, "line index calculation bug");
+    pub fn extract_line(&self, line: LineRefMut<'_>, resolution: Vec2<usize>) {
+        let index = line.location;
+
+        debug_assert!(index.position.0 + index.sample_count <= resolution.0, "line index calculation bug");
         debug_assert!(index.position.1 < resolution.1, "line index calculation bug");
-        debug_assert_ne!(index.width, 0, "line index bug");
+        debug_assert_ne!(index.sample_count, 0, "line index bug");
 
         debug_assert_ne!(resolution.0, 0, "sample size but");
-        debug_assert_ne!(index.width, 0, "line index bug");
+        debug_assert_ne!(index.sample_count, 0, "line index bug");
 
         let start_index = index.position.1 * resolution.0 + index.position.0;
-        let end_index = start_index + index.width;
+        let end_index = start_index + index.sample_count;
 
         match &self {
             Samples::F16(samples) =>
-                LineIndex::write_samples(&samples[start_index .. end_index], write)
+                line.write_samples_from_slice(&samples[start_index .. end_index])
                 .expect("writing line bytes failed"),
 
             Samples::F32(samples) =>
-                LineIndex::write_samples(&samples[start_index .. end_index], write)
+                line.write_samples_from_slice(&samples[start_index .. end_index])
                 .expect("writing line bytes failed"),
 
             Samples::U32(samples) =>
-                LineIndex::write_samples(&samples[start_index .. end_index], write)
+                line.write_samples_from_slice(&samples[start_index .. end_index])
                 .expect("writing line bytes failed"),
         }
-
-        // LineIndex::write_samples(&self.samples[start_index .. end_index], write)
-
     }
 }
 

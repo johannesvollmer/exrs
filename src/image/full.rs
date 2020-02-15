@@ -20,9 +20,9 @@ use crate::meta::*;
 use crate::meta::attributes::*;
 use crate::error::{Result, PassiveResult, Error};
 use crate::math::*;
-use std::io::{Seek, BufReader, BufWriter, Cursor};
+use std::io::{Seek, BufReader, BufWriter};
 use crate::io::Data;
-use crate::image::{Line, LineIndex};
+use crate::image::{LineRefMut, LineRef};
 
 // FIXME this needs some of the changes that were made in simple.rs !!!
 
@@ -348,9 +348,7 @@ impl Image {
     pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions) -> PassiveResult {
         crate::image::write_all_lines_to_buffered(
             write, options.parallel_compression, options.pedantic, self.infer_meta_data(),
-            |location, write| {
-                self.extract_line(location, &mut Cursor::new(write))
-            }
+            |line_mut| self.extract_line(line_mut)
         )
     }
 }
@@ -378,8 +376,8 @@ impl Image {
 
     /// Insert one line of pixel data into this image.
     /// Returns an error for invalid index or line contents.
-    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
-        debug_assert_ne!(line.location.width, 0, "linde index bug");
+    pub fn insert_line(&mut self, line: LineRef<'_>) -> PassiveResult {
+        debug_assert_ne!(line.location.sample_count, 0, "linde index bug");
 
         let layer = self.layers.get_mut(line.location.layer)
             .ok_or(Error::invalid("chunk layer index"))?;
@@ -389,13 +387,13 @@ impl Image {
 
     /// Read one line of pixel data from this channel.
     /// Panics for an invalid index or write error.
-    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
-        debug_assert_ne!(index.width, 0, "line index bug");
+    pub fn extract_line(&self, line: LineRefMut<'_>) {
+        debug_assert_ne!(line.location.sample_count, 0, "line index bug");
 
-        let layer = self.layers.get(index.layer)
+        let layer = self.layers.get(line.location.layer)
             .expect("invalid layer index");
 
-        layer.extract_line(index, write)
+        layer.extract_line(line)
     }
 
     /// Create the meta data that describes this image.
@@ -430,8 +428,8 @@ impl Layer {
 
     /// Insert one line of pixel data into this layer.
     /// Returns an error for invalid index or line contents.
-    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
-        debug_assert!(line.location.position.0 + line.location.width <= self.data_window.size.0, "line index bug");
+    pub fn insert_line(&mut self, line: LineRef<'_>) -> PassiveResult {
+        debug_assert!(line.location.position.0 + line.location.sample_count <= self.data_window.size.0, "line index bug");
         debug_assert!(line.location.position.1 < self.data_window.size.1, "line index bug");
 
         self.channels.get_mut(line.location.channel)
@@ -441,13 +439,13 @@ impl Layer {
 
     /// Read one line of pixel data from this layer.
     /// Panics for an invalid index or write error.
-    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
-        debug_assert!(index.position.0 + index.width <= self.data_window.size.0, "line index bug");
-        debug_assert!(index.position.1 < self.data_window.size.1, "line index bug");
+    pub fn extract_line(&self, line: LineRefMut<'_>) {
+        debug_assert!(line.location.position.0 + line.location.sample_count <= self.data_window.size.0, "line index bug");
+        debug_assert!(line.location.position.1 < self.data_window.size.1, "line index bug");
 
-        self.channels.get(index.channel)
+        self.channels.get(line.location.channel)
             .expect("invalid channel index")
-            .extract_line(index, write)
+            .extract_line(line)
     }
 
     /// Create the meta data that describes this layer.
@@ -500,7 +498,7 @@ impl Channel {
     }
 
     /// Insert one line of pixel data into this channel.
-    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
+    pub fn insert_line(&mut self, line: LineRef<'_>) -> PassiveResult {
         match &mut self.content {
             ChannelData::F16(maps) => maps.insert_line(line),
             ChannelData::F32(maps) => maps.insert_line(line),
@@ -510,11 +508,11 @@ impl Channel {
 
     /// Read one line of pixel data from this channel.
     /// Panics for an invalid index or write error.
-    pub fn extract_line(&self, index: LineIndex, block: &mut impl Write) {
+    pub fn extract_line(&self, line: LineRefMut<'_>) {
         match &self.content {
-            ChannelData::F16(maps) => maps.extract_line(index, block),
-            ChannelData::F32(maps) => maps.extract_line(index, block),
-            ChannelData::U32(maps) => maps.extract_line(index, block),
+            ChannelData::F16(maps) => maps.extract_line(line),
+            ChannelData::F32(maps) => maps.extract_line(line),
+            ChannelData::U32(maps) => maps.extract_line(line),
         }
     }
 
@@ -548,7 +546,7 @@ impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
     }
 
     /// Insert one line of pixel data into a level.
-    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
+    pub fn insert_line(&mut self, line: LineRef<'_>) -> PassiveResult {
         match self {
             SampleMaps::Deep(ref mut levels) => levels.insert_line(line),
             SampleMaps::Flat(ref mut levels) => levels.insert_line(line),
@@ -557,10 +555,10 @@ impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
 
     /// Read one line of pixel data from a level.
     /// Panics for an invalid index or write error.
-    pub fn extract_line(&self, index: LineIndex, block: &mut impl Write) {
+    pub fn extract_line(&self, line: LineRefMut<'_>) {
         match self {
-            SampleMaps::Deep(ref levels) => levels.extract_line(index, block),
-            SampleMaps::Flat(ref levels) => levels.extract_line(index, block),
+            SampleMaps::Deep(ref levels) => levels.extract_line(line),
+            SampleMaps::Flat(ref levels) => levels.extract_line(line),
         }
     }
 
@@ -625,16 +623,16 @@ impl<S: Samples> Levels<S> {
     }
 
     /// Insert one line of pixel data into a level.
-    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
+    pub fn insert_line(&mut self, line: LineRef<'_>) -> PassiveResult {
         self.get_level_mut(line.location.level)?.insert_line(line)
     }
 
     /// Read one line of pixel data from a level.
     /// Panics for an invalid index or write error.
-    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
-        self.get_level(index.level)
+    pub fn extract_line(&self, line: LineRefMut<'_>) {
+        self.get_level(line.location.level)
             .expect("invalid level index")
-            .extract_line(index, write)
+            .extract_line(line)
     }
 
     pub fn get_level(&self, level: Vec2<usize>) -> Result<&SampleBlock<S>> {
@@ -704,10 +702,10 @@ impl<S: Samples> SampleBlock<S> {
     }
 
     /// Insert one line of pixel data into this sample block.
-    pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
-        debug_assert_ne!(line.location.width, 0, "line index bug");
+    pub fn insert_line(&mut self, line: LineRef<'_>) -> PassiveResult {
+        debug_assert_ne!(line.location.sample_count, 0, "line index bug");
 
-        if line.location.position.0 + line.location.width > self.resolution.0 {
+        if line.location.position.0 + line.location.sample_count > self.resolution.0 {
             return Err(Error::invalid("data block x coordinate"))
         }
 
@@ -720,12 +718,12 @@ impl<S: Samples> SampleBlock<S> {
 
     /// Read one line of pixel data from this sample block.
     /// Panics for an invalid index or write error.
-    pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
-        debug_assert!(index.position.0 + index.width <= self.resolution.0, "line index bug");
-        debug_assert!(index.position.1 < self.resolution.1, "line index bug");
-        debug_assert_ne!(index.width, 0, "line index bug");
+    pub fn extract_line(&self, line: LineRefMut<'_>) {
+        debug_assert!(line.location.position.0 + line.location.sample_count <= self.resolution.0, "line index bug");
+        debug_assert!(line.location.position.1 < self.resolution.1, "line index bug");
+        debug_assert_ne!(line.location.sample_count, 0, "line index bug");
 
-        self.samples.extract_line(index, write, self.resolution.0)
+        self.samples.extract_line(line, self.resolution.0)
     }
 }
 
@@ -735,11 +733,11 @@ pub trait Samples {
     fn allocate(resolution: Vec2<usize>) -> Self;
 
     /// Insert one line of pixel data into this sample collection.
-    fn insert_line(&mut self, line: Line<'_>, image_width: usize) -> PassiveResult;
+    fn insert_line(&mut self, line: LineRef<'_>, image_width: usize) -> PassiveResult;
 
     /// Read one line of pixel data from this sample collection.
     /// Panics for an invalid index or write error.
-    fn extract_line(&self, index: LineIndex, write: &mut impl Write, image_width: usize);
+    fn extract_line(&self, line: LineRefMut<'_>, image_width: usize);
 }
 
 impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
@@ -750,7 +748,7 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
         ]
     }
 
-    fn insert_line(&mut self, _line: Line<'_>, _width: usize) -> PassiveResult {
+    fn insert_line(&mut self, _line: LineRef<'_>, _image_width: usize) -> PassiveResult {
 //        debug_assert_ne!(image_width, 0);
 //        debug_assert_ne!(length, 0);
 
@@ -765,8 +763,8 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
 //        Ok(())
     }
 
-    fn extract_line(&self, _index: LineIndex, _write: &mut impl Write, image_width: usize) {
-        debug_assert_ne!(image_width, 0, "deep image width bug");
+    fn extract_line(&self, _line: LineRefMut<'_>, _image_width: usize) {
+        debug_assert_ne!(_image_width, 0, "deep image width bug");
         unimplemented!("deep data not supported yet");
     }
 }
@@ -777,23 +775,23 @@ impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for Fl
         vec![Sample::default(); resolution.0 * resolution.1]
     }
 
-    fn insert_line(&mut self, line: Line<'_>, image_width: usize) -> PassiveResult {
+    fn insert_line(&mut self, line: LineRef<'_>, image_width: usize) -> PassiveResult {
         debug_assert_ne!(image_width, 0, "image width calculation bug");
-        debug_assert_ne!(line.location.width, 0, "line width calculation bug");
+        debug_assert_ne!(line.location.sample_count, 0, "line width calculation bug");
 
         let start_index = line.location.position.1 * image_width + line.location.position.0;
-        let end_index = start_index + line.location.width;
+        let end_index = start_index + line.location.sample_count;
 
-        line.read_samples(&mut self[start_index .. end_index])
+        line.read_samples_into_slice(&mut self[start_index .. end_index])
     }
 
-    fn extract_line(&self, index: LineIndex, write: &mut impl Write, image_width: usize) {
+    fn extract_line(&self, line: LineRefMut<'_>, image_width: usize) {
         debug_assert_ne!(image_width, 0, "image width calculation bug");
 
-        let start_index = index.position.1 * image_width + index.position.0;
-        let end_index = start_index + index.width;
+        let start_index = line.location.position.1 * image_width + line.location.position.0;
+        let end_index = start_index + line.location.sample_count;
 
-        LineIndex::write_samples(&self[start_index .. end_index], write)
+        line.write_samples_from_slice(&self[start_index .. end_index])
             .expect("writing line bytes failed");
     }
 }

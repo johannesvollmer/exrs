@@ -8,7 +8,7 @@ pub mod simple;
 use crate::meta::attributes::*;
 use crate::compression::{Compression, ByteVec};
 use crate::math::*;
-use std::io::{Read, Seek, Write};
+use std::io::{Read, Seek, Write, Cursor};
 use crate::error::{Result, Error, PassiveResult, usize_to_i32};
 use crate::meta::{MetaData, Header, TileIndices, Blocks};
 use crate::chunks::{Chunk, Block, TileBlock, ScanLineBlock, TileCoordinates};
@@ -55,18 +55,28 @@ pub struct UncompressedBlock {
 }
 
 /// A single line of pixels.
-/// May go across the whole image or just a tile section of it.
+/// Use `LineRef` or `LineRefMut` for easier type names.
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
-pub struct Line<'s> {
+pub struct LineSlice<T> {
 
     /// Where this line is located inside the image.
     pub location: LineIndex,
 
-    /// The raw bytes of the pixel line.
+    /// The raw bytes of the pixel line, either `&[u8]` or `&mut [u8]`.
     /// Must be re-interpreted as slice of f16, f32, or u32,
     /// according to the channel data type.
-    pub value: &'s [u8],
+    pub value: T,
 }
+
+
+/// A single line of pixels.
+/// May go across the whole image or just a tile section of it.
+pub type LineRef<'s> = LineSlice<&'s [u8]>;
+
+/// A single mutable line of pixels.
+/// May go across the whole image or just a tile section of it.
+pub type LineRefMut<'s> = LineSlice<&'s mut [u8]>;
+
 
 /// Specifies where a row of pixels lies inside an image.
 /// This is a globally unique identifier which
@@ -86,32 +96,50 @@ pub struct LineIndex {
     /// Position of the most left pixel of the row.
     pub position: Vec2<usize>,
 
-    /// Number of samples in this row, that is, the number of f16, f32, or u32 values.
-    pub width: usize,
+    /// Width of the line: The number of samples in this row,
+    /// that is, the number of f16, f32, or u32 values.
+    pub sample_count: usize,
 }
 
-impl<'s> Line<'s> {
+impl<'s> LineRefMut<'s> {
 
-    /// Read the values of this line into a slice of samples.
-    /// Panics if the slice is not as long as `self.location.width`.
-    pub fn read_samples<T: crate::io::Data>(&self, slice: &mut [T]) -> PassiveResult {
-        debug_assert_eq!(slice.len(), self.location.width, "line value width bug");
-        T::read_slice(&mut self.value.clone(), slice)
+    /// Writes the samples (f16, f32, u32 values) into this line value reference.
+    /// Use `write_samples` if there is not slice available.
+    pub fn write_samples_from_slice<T: crate::io::Data>(self, slice: &[T]) -> PassiveResult {
+        assert_eq!(slice.len(), self.location.sample_count);
+        T::write_slice(&mut Cursor::new(self.value), slice)
     }
 
     /// Iterate over all samples in this line, from left to right.
-    pub fn sample_iter<T: crate::io::Data>(&self) -> impl Iterator<Item = Result<T>> + '_ {
-        let mut read = self.value.clone(); // FIXME deep data
-        (0..self.location.width).map(move |_| T::read(&mut read))
+    /// The supplied `get_line` function returns the sample value
+    /// for a given sample index within the line,
+    /// which starts at zero for each individual line.
+    /// Use `write_samples_from_slice` if you already have a slice of samples.
+    pub fn write_samples<T: crate::io::Data>(self, mut get_sample: impl FnMut(usize) -> T) -> PassiveResult {
+        let mut write = Cursor::new(self.value);
+
+        for index in 0..self.location.sample_count {
+            T::write(get_sample(index), &mut write)?;
+        }
+
+        Ok(())
     }
 }
 
-impl LineIndex {
+impl LineRef<'_> {
 
-    /// Writes the samples (f16, f32, u32 values) into the writer.
-    pub fn write_samples<T: crate::io::Data>(slice: &[T], write: &mut impl Write) -> PassiveResult {
-        T::write_slice(write, slice)?;
-        Ok(())
+    /// Read the samples (f16, f32, u32 values) from this line value reference.
+    /// Use `read_samples` if there is not slice available.
+    pub fn read_samples_into_slice<T: crate::io::Data>(self, slice: &mut [T]) -> PassiveResult {
+        assert_eq!(slice.len(), self.location.sample_count);
+        T::read_slice(&mut Cursor::new(self.value), slice)
+    }
+
+    /// Iterate over all samples in this line, from left to right.
+    /// Use `read_sample_into_slice` if you already have a slice of samples.
+    pub fn read_samples<T: crate::io::Data>(&self) -> impl Iterator<Item = Result<T>> + '_ {
+        let mut read = self.value.clone(); // FIXME deep data
+        (0..self.location.sample_count).map(move |_| T::read(&mut read))
     }
 }
 
@@ -122,7 +150,7 @@ pub fn read_all_lines_from_buffered<T>(
     read: impl Read + Send, // FIXME does not actually need to be send, only for parallel writing
     parallel: bool,
     new: impl Fn(&[Header]) -> Result<T>,
-    mut insert: impl FnMut(&mut T, Line<'_>) -> PassiveResult
+    mut insert: impl FnMut(&mut T, LineRef<'_>) -> PassiveResult
 ) -> Result<T>
 {
     let (meta_data, mut read_chunk) = self::read_all_compressed_chunks_from_buffered(read)?;
@@ -149,7 +177,7 @@ pub fn read_filtered_lines_from_buffered<T>(
     parallel: bool,
     filter: impl Fn(&Header, &TileIndices) -> bool,
     new: impl Fn(&[Header]) -> Result<T>,
-    mut insert: impl FnMut(&mut T, Line<'_>) -> PassiveResult
+    mut insert: impl FnMut(&mut T, LineRef<'_>) -> PassiveResult
 ) -> Result<T>
 {
     let (meta_data, mut read_chunk) = self::read_filtered_chunks_from_buffered(read, filter)?;
@@ -166,7 +194,11 @@ pub fn read_filtered_lines_from_buffered<T>(
 
 /// Iterates through all lines of all supplied chunks.
 /// Decompresses the chunks either in parallel or sequentially.
-fn for_lines_in_chunks(chunks: impl Send + Iterator<Item = Result<Chunk>>, meta_data: &MetaData, parallel: bool, mut for_each: impl FnMut(Line<'_>) -> PassiveResult) -> PassiveResult {
+fn for_lines_in_chunks(
+    chunks: impl Send + Iterator<Item = Result<Chunk>>,
+    meta_data: &MetaData, parallel: bool, mut for_each: impl FnMut(LineRef<'_>) -> PassiveResult
+) -> PassiveResult
+{
     let has_compression = meta_data.headers.iter() // do not use parallel stuff for uncompressed images
         .find(|header| header.compression != Compression::Uncompressed).is_some();
 
@@ -184,7 +216,7 @@ fn for_lines_in_chunks(chunks: impl Send + Iterator<Item = Result<Chunk>>, meta_
                 .ok_or(Error::invalid("chunk index"))?;
 
             for (bytes, line) in decompressed.index.line_indices(header) {
-                for_each(Line { location: line, value: &decompressed.data[bytes] })?;
+                for_each(LineSlice { location: line, value: &decompressed.data[bytes] })?;
             }
         }
 
@@ -197,7 +229,7 @@ fn for_lines_in_chunks(chunks: impl Send + Iterator<Item = Result<Chunk>>, meta_
                 .ok_or(Error::invalid("chunk index"))?;
 
             for (bytes, line) in decompressed.index.line_indices(header) {
-                for_each(Line { location: line, value: &decompressed.data[bytes] })?;
+                for_each(LineSlice { location: line, value: &decompressed.data[bytes] })?;
             }
         }
 
@@ -269,7 +301,7 @@ pub fn read_filtered_chunks_from_buffered<'m>(
 /// Returns blocks in `LineOrder::Increasing`, unless the line order is requested to be decreasing.
 pub fn uncompressed_image_blocks_ordered<'l>(
     meta_data: &'l MetaData,
-    get_line: &'l (impl Fn(LineIndex, &mut [u8]) + Send + Sync + 'l) // TODO reduce sync requirements, at least if parrallel is false
+    get_line: &'l (impl Fn(LineRefMut<'_>) + Send + Sync + 'l) // TODO reduce sync requirements, at least if parrallel is false
 ) -> impl Iterator<Item = (usize, UncompressedBlock)> + 'l + Send // TODO reduce sync requirements, at least if parrallel is false
 {
     meta_data.headers.iter().enumerate()
@@ -286,7 +318,13 @@ pub fn uncompressed_image_blocks_ordered<'l>(
                 let mut block_bytes = Vec::with_capacity(header.max_block_byte_size());
                 for (byte_range, line_index) in block_indices.line_indices(header) {
                     block_bytes.resize(byte_range.end, 0_u8);
-                    get_line(line_index, &mut block_bytes[byte_range]);
+
+                    let line_mut = LineRefMut {
+                        value: &mut block_bytes[byte_range],
+                        location: line_index,
+                    };
+
+                    get_line(line_mut);
                 }
 
                 // byte length is validated in block::compress_to_chunk
@@ -306,7 +344,7 @@ pub fn uncompressed_image_blocks_ordered<'l>(
 /// Attention: Currently, using multicore compression with `LineOrder::Increasing` or `LineOrder::Decreasing` in any header
 /// will allocate large amounts of memory while writing the file. Use unspecified line order for lower memory usage.
 pub fn for_compressed_blocks_in_image(
-    meta_data: &MetaData, get_line: impl Fn(LineIndex, &mut [u8]) + Send + Sync,
+    meta_data: &MetaData, get_line: impl Fn(LineRefMut<'_>) + Send + Sync,
     parallel: bool, mut write_chunk: impl FnMut(usize, Chunk) -> PassiveResult
 ) -> PassiveResult
 {
@@ -388,7 +426,7 @@ pub fn write_all_lines_to_buffered(
     write: impl Write + Seek,
     parallel: bool, pedantic: bool,
     mut meta_data: MetaData,
-    get_line: impl Fn(LineIndex, &mut [u8]) + Send + Sync
+    get_line: impl Fn(LineRefMut<'_>) + Send + Sync
 ) -> PassiveResult
 {
     // if non-parallel compression, we always use increasing order anyways
@@ -463,7 +501,7 @@ impl BlockIndex {
                             layer: self.layer,
                             level: self.level,
                             position: Vec2(self.x, self.y),
-                            width: self.width,
+                            sample_count: self.width,
                         }
                     );
 
