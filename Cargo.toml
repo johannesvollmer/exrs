@@ -26,17 +26,17 @@ proc-macro = false
 
 [dependencies]
 lebe = "0.5.0"        # generic binary serialization
-half = "1.4.0"        # 16 bit float pixel data type
+half = "1.4.1"        # 16 bit float pixel data type
 bit_field = "0.10.0"  # exr file version bit flags
 libflate = "0.1.27"   # zlib compression
-smallvec = "1.1.0"    # make cache friendly allocations             TODO profile if smallvec is really an improvement!
-rayon = "1.2.1"       # multicore compression and decompression     TODO make this an optional feature?
+smallvec = "1.2.0"    # make cache friendly allocations             TODO profile if smallvec is really an improvement!
+rayon = "1.3.0"       # multicore compression and decompression     TODO make this an optional feature?
 
 [dev-dependencies]
 bencher = "0.1.5"
-image = "0.23.0-preview.0"  # used to convert one exr to some pngs
-walkdir = "2.2.9"           # automatically test things for all files in a directory
-rand = "0.7.2"              # used for fuzz testing
+image = "0.23.0"          # used to convert one exr to some pngs
+walkdir = "2.3.1"         # automatically test things for all files in a directory
+rand = "0.7.3"            # used for fuzz testing
 
 
 [[bench]]
