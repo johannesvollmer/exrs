@@ -38,14 +38,6 @@ pub struct WriteOptions {
     /// Enable multicore compression.
     pub parallel_compression: bool,
 
-    /// Override the line order of all headers in the image.
-    pub override_line_order: Option<LineOrder>,
-
-    /// Override the block type of all headers in the image.
-    pub override_blocks: Option<Blocks>,
-
-    /// Override the compression method of all headers in the image.
-    pub override_compression: Option<Compression>,
 }
 
 /// Specify how to read an exr image.
@@ -252,40 +244,11 @@ impl Default for ReadOptions {
 
 
 impl WriteOptions {
-    /*pub fn fast_writing() -> Self { // TODO rethink overrides
-        WriteOptions {
-            parallel_compression: true,
-            override_line_order: Some(LineOrder::Unspecified),
-            override_compression: Some(Compression::Uncompressed),
-            override_blocks: None,
-        }
-    }
-
-    pub fn small_image() -> Self {
-        WriteOptions {
-            parallel_compression: true,
-            override_line_order: Some(LineOrder::Unspecified),
-            override_compression: Some(Compression::ZIP16),
-            override_blocks: None,
-        }
-    }
-
-    pub fn small_writing() -> Self {
-        WriteOptions {
-            parallel_compression: false,
-            override_line_order: Some(LineOrder::Unspecified),
-            override_compression: Some(Compression::Uncompressed),
-            override_blocks: None,
-        }
-    }*/
 
     /// Higher speed but also higher memory requirements.
     pub fn high() -> Self {
         WriteOptions {
             parallel_compression: true,
-            override_line_order: None,
-            override_blocks: None,
-            override_compression: None
         }
     }
 
@@ -293,9 +256,6 @@ impl WriteOptions {
     pub fn low() -> Self {
         WriteOptions {
             parallel_compression: false,
-            override_line_order: None,
-            override_blocks: None,
-            override_compression: None
         }
     }
 }
@@ -377,7 +337,7 @@ impl Image {
     #[must_use]
     pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions) -> PassiveResult {
         crate::image::write_all_lines_to_buffered(
-            write, options.parallel_compression, self.infer_meta_data(options),
+            write, options.parallel_compression, self.infer_meta_data(),
             |location, write| {
                 self.extract_line(location, write)
             }
@@ -430,9 +390,9 @@ impl Image {
 
     /// Create the meta data that describes this image.
     /// May produce invalid meta data. The meta data will be validated just before writing.
-    pub fn infer_meta_data(&self, options: WriteOptions) -> MetaData {
+    pub fn infer_meta_data(&self) -> MetaData {
         let headers: Headers = self.parts.iter()
-            .map(|part| part.infer_header(self.display_window, self.pixel_aspect, options))
+            .map(|part| part.infer_header(self.display_window, self.pixel_aspect))
             .collect();
 
         MetaData::new(headers)
@@ -497,7 +457,7 @@ impl Part {
 
     /// Create the meta data that describes this image part.
     /// May produce invalid meta data. The meta data will be validated just before writing.
-    pub fn infer_header(&self, display_window: IntRect, pixel_aspect: f32, options: WriteOptions) -> Header {
+    pub fn infer_header(&self, display_window: IntRect, pixel_aspect: f32) -> Header {
         let chunk_count = compute_chunk_count(
             self.compression, self.data_window, self.blocks
         );
@@ -509,10 +469,10 @@ impl Part {
             data_window: self.data_window,
             screen_window_center: self.screen_window_center,
             screen_window_width: self.screen_window_width,
-            compression: options.override_compression.unwrap_or(self.compression),
-            blocks: options.override_blocks.unwrap_or(self.blocks),
+            compression: self.compression,
+            blocks: self.blocks,
             channels: ChannelList::new(self.channels.iter().map(Channel::infer_channel_attribute).collect()),
-            line_order: options.override_line_order.unwrap_or(self.line_order),
+            line_order: self.line_order,
 
             custom_attributes: self.attributes.clone(),
             display_window, pixel_aspect,

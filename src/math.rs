@@ -46,12 +46,6 @@ impl Vec2<i32> {
         Ok(Vec2(x, y))
     }
 
-    // Try to convert to `Vec2<u32>`, returning an error on negative numbers.
-    /*pub fn to_u32(self, error_message: &'static str) -> Result<Vec2<u32>> {
-        let x = i32_to_u32(self.0, error_message)?;
-        let y = i32_to_u32(self.1, error_message)?;
-        Ok(Vec2(x, y))
-    }*/
 }
 
 impl Vec2<usize> {
@@ -65,32 +59,6 @@ impl Vec2<usize> {
 
 }
 
-/*impl Vec2<u32> {
-
-    /// Panics on too large value
-    pub fn to_usize(self) -> Vec2<usize> {
-        let x = usize::try_from(self.0).expect("max value overflow");
-        let y = usize::try_from(self.1).expect("max value overflow");
-        Vec2(x, y)
-    }
-
-    /// Panics on too large value
-    pub fn to_i32(self) -> Vec2<i32> {
-        let x = i32::try_from(self.0).expect("max value overflow");
-        let y = i32::try_from(self.1).expect("max value overflow");
-        Vec2(x, y)
-    }
-}*/
-
-/*impl Vec2<usize> {
-
-    /// Panics on too large value
-    pub fn to_u32(self) -> Vec2<u32> {
-        let x = u32::try_from(self.0).expect("max value overflow");
-        let y = u32::try_from(self.1).expect("max value overflow");
-        Vec2(x, y)
-    }
-}*/
 
 impl<T: std::ops::Add<T>> std::ops::Add<Vec2<T>> for Vec2<T> {
     type Output = Vec2<T::Output>;
