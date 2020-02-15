@@ -322,9 +322,11 @@ impl ImagePart {
 
     /// Create a new image part with all required fields.
     /// Uses scan line blocks, and no custom attributes.
+    /// Use `ImagePart::with_encoding` to further configure the file.
+    ///
     /// Panics if anything is invalid or missing.
     /// Will sort channels to correct order if necessary.
-    pub fn new(name: Text, compression: Compression, data_window: IntRect, mut channels: Channels) -> Self {
+    pub fn new(name: Text, data_window: IntRect, mut channels: Channels) -> Self {
         assert!(!channels.is_empty(), "at least one channel is required");
 
         assert!(
@@ -341,7 +343,7 @@ impl ImagePart {
             data_window,
             name: Some(name),
             attributes: Vec::new(),
-            compression,
+            compression: Compression::Uncompressed,
 
             tiles: None,
             line_order: LineOrder::Unspecified, // non-parallel write will set this to increasing if possible
@@ -350,9 +352,9 @@ impl ImagePart {
         }
     }
 
-    /// Update the line order of this image. See `Part::line_order` for more information.
-    pub fn with_line_order(self, line_order: LineOrder) -> Self {
-        Self { line_order, ..self }
+    /// Set compression, tiling, and line order.
+    pub fn with_encoding(self, compression: Compression, tiles: Option<Vec2<usize>>, line_order: LineOrder) -> Self {
+        Self { compression, tiles, line_order, .. self }
     }
 }
 

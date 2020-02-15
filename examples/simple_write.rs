@@ -45,16 +45,17 @@ fn write_noisy_hdr() {
         Samples::F32(generate_f16_vector(size).into_iter().map(f16::to_f32).collect())
     );
 
-    let image = Image::new_from_single_part(simple::ImagePart::new(
+    let part = simple::ImagePart::new(
         "test-image".try_into().unwrap(),
-        Compression::RLE,
-
         IntRect::from_dimensions(size),
         smallvec![ r, g, b ],
-    ).with_line_order(attributes::LineOrder::Increasing));
+    );
+
+    let part = part.with_encoding(Compression::RLE, None, attributes::LineOrder::Increasing);
+    let image = Image::new_from_single_part(part);
 
     println!("writing image {:#?}", image);
     image.write_to_file("./testout/noisy.exr", WriteOptions::high()).unwrap(); // FIXME parallel produces invalid files
 
-    assert!(Image::read_from_file("./testout/noisy.exr", ReadOptions::debug()).is_ok())
+    assert!(Image::read_from_file("./testout/noisy.exr", ReadOptions::high()).is_ok())
 }

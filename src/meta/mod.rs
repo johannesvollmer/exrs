@@ -584,6 +584,23 @@ impl Header {
         Self { custom_attributes: attributes, .. self }
     }
 
+    /// Iterate over all blocks, in the order specified by the headers line order attribute,
+    /// with an index returning the original index of the block if it were `LineOrder::Increasing`.
+    pub fn enumerate_ordered_blocks(&self) -> impl Iterator<Item = (usize, TileIndices)> + Send {
+        let increasing_y = self.blocks_increasing_y_order().enumerate();
+
+        let ordered: Box<dyn Send + Iterator<Item = (usize, TileIndices)>> = {
+            if self.line_order == LineOrder::Decreasing {
+                Box::new(increasing_y.rev()) // TODO without box?
+            }
+            else {
+                Box::new(increasing_y)
+            }
+        };
+
+        ordered
+    }
+
     /// Iterate over all tile indices in this header in `LineOrder::Increasing` order.
     pub fn blocks_increasing_y_order(&self) -> impl Iterator<Item = TileIndices> + ExactSizeIterator + DoubleEndedIterator {
         fn tiles_of(image_size: Vec2<usize>, tile_size: Vec2<usize>, level_index: Vec2<usize>) -> impl Iterator<Item=TileIndices> {
@@ -696,7 +713,7 @@ impl Header {
                 }
             },
 
-            _ => return Err(Error::unsupported("deep data"))
+            _ => return Err(Error::unsupported("deep data not supported yet"))
         })
     }
 
@@ -1012,7 +1029,7 @@ impl Requirements {
 
     pub fn validate(&self) -> PassiveResult {
         if self.has_deep_data { // TODO deep data (and then remove this check)
-            return Err(Error::unsupported("deep data"));
+            return Err(Error::unsupported("deep data not supported yet"));
         }
 
         if let 1..=2 = self.file_format_version {

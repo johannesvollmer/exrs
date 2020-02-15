@@ -18,7 +18,7 @@ use exr::meta::Blocks;
 
 
 #[test]
-fn write_noisy_hdr() {
+fn write_generated_noisy_hdr() {
     fn generate_f16s(length: usize) -> impl Iterator<Item = f16> {
         let mut values = vec![ f16::from_f32(0.5); length ];
 

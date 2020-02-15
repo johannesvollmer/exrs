@@ -18,6 +18,7 @@ use crate::io::Data;
 use smallvec::SmallVec;
 use std::ops::Range;
 use std::convert::TryFrom;
+use std::collections::BTreeMap;
 
 
 /// Specifies where a block of pixel data should be placed in the actual image.
@@ -273,7 +274,7 @@ pub fn uncompressed_image_blocks_ordered<'l>(
 {
     meta_data.headers.iter().enumerate()
         .flat_map(move |(part_index, header)|{
-            let blocks_increasing_y = header.blocks_increasing_y_order().enumerate().map(move |(chunk_index, tile)|{
+            header.enumerate_ordered_blocks().map(move |(chunk_index, tile)|{
                 let data_indices = header.get_absolute_block_indices(tile.location).expect("tile coordinate bug");
 
                 let block_indices = BlockIndex {
@@ -296,18 +297,7 @@ pub fn uncompressed_image_blocks_ordered<'l>(
                     index: block_indices,
                     data: block_bytes
                 })
-            });
-
-            let chunks_in_header: Box<dyn Send + Iterator<Item = (usize, UncompressedBlock)>> = {
-                if header.line_order == LineOrder::Decreasing {
-                    Box::new(blocks_increasing_y.rev()) // TODO without box?
-                }
-                else {
-                    Box::new(blocks_increasing_y)
-                }
-            };
-
-            chunks_in_header
+            })
         })
 }
 
@@ -326,10 +316,10 @@ pub fn for_compressed_blocks_in_image(
     let blocks = uncompressed_image_blocks_ordered(meta_data, &get_line);
 
     let parallel = parallel && meta_data.headers.iter() // do not use parallel stuff for uncompressed images
-        .find(|header| header.compression != Compression::Uncompressed).is_some();
+        .any(|header| header.compression != Compression::Uncompressed);
 
-    let requires_sorting = meta_data.headers.iter() // TODO only sort the specific headers that need sorting
-        .find(|header| header.line_order != LineOrder::Unspecified).is_some();
+    let requires_sorting = meta_data.headers.iter()
+        .any(|header| header.line_order != LineOrder::Unspecified);
 
 
     if parallel {
@@ -351,33 +341,31 @@ pub fn for_compressed_blocks_in_image(
 
         // write parallel chunks with sorting
         else {
-            let mut sorted_chunks = Vec::new(); // TODO without allocating the whole file!
 
+            // the block indices, in the order which must be apparent in the file
+            let mut expected_id_order = meta_data.headers.iter().enumerate()
+                .flat_map(|(part, header)| header.enumerate_ordered_blocks().map(move |(chunk, _)| (part, chunk)));
+
+            // the next id, pulled from expected_id_order: the next block that must be written
+            let mut next_id = expected_id_order.next();
+
+            // set of blocks that have been compressed but not written yet
+            let mut pending_blocks = BTreeMap::new();
+
+            // receive the compressed blocks
             for (chunk_index, compressed_chunk) in receiver {
-                sorted_chunks.push((chunk_index, compressed_chunk));
+                pending_blocks.insert((compressed_chunk.part_index, chunk_index), compressed_chunk);
+
+                // write all pending blocks that are immediate successors
+                while let Some(pending_chunk) = next_id.as_ref().and_then(|id| pending_blocks.remove(id)) {
+                    let pending_chunk_index = next_id.unwrap().1; // must be safe in this branch
+                    write_chunk(pending_chunk_index, pending_chunk)?;
+                    next_id = expected_id_order.next();
+                }
             }
 
-            // sort by header index, and
-            // inside each header, sort by chunk index (depending on line order)
-            // TODO not sort the whole array but only the headers that need sorting??
-            sorted_chunks.sort_by_key(|(chunk_index, compressed_chunk)| {
-                let header: &Header = meta_data.headers.get(compressed_chunk.part_index)
-                    .expect("header index bug");
-
-                let chunk_priority = match header.line_order {
-                    // hopefully increase performance by not restricting chunk order in unspecified headers
-                    LineOrder::Unspecified => 0,
-
-                    LineOrder::Decreasing => -(*chunk_index as i64),
-                    LineOrder::Increasing => *chunk_index as i64,
-                };
-
-                (compressed_chunk.part_index, chunk_priority)
-            });
-
-            for (chunk_index, compressed_chunk) in sorted_chunks {
-                write_chunk(chunk_index, compressed_chunk)?;
-            }
+            assert!(expected_id_order.next().is_none(), "expected more blocks bug");
+            assert_eq!(pending_blocks.len(), 0, "pending blocks left after processing bug");
         }
     }
 
@@ -543,7 +531,7 @@ impl UncompressedBlock {
                 }
             }),
 
-            _ => return Err(Error::unsupported("deep data"))
+            _ => return Err(Error::unsupported("deep data not supported yet"))
         }
     }
 

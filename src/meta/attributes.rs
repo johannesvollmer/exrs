@@ -190,15 +190,19 @@ pub struct KeyCode {
 /// In what order the `Block`s of pixel data appear in a file.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum LineOrder {
-    /// The blocks are ordered in rows from top to bottom.
-    /// Each row contains the blocks ordered from left to right.
+
+    /// The blocks in the file are ordered in descending rows from left to right.
+    /// When compressing in parallel, this option requires potentially large amounts of memory.
+    /// In that case, use `LineOrder::Unspecified` for best performance.
     Increasing,
 
-    /// The blocks are ordered in rows from bottom to top.
-    /// Each row contains the blocks ordered from right to left.
+    /// The blocks in the file are ordered in ascending rows from right to left.
+    /// When compressing in parallel, this option requires potentially large amounts of memory.
+    /// In that case, use `LineOrder::Unspecified` for best performance.
     Decreasing,
 
     /// The blocks are not ordered in a specific way inside the file.
+    /// In multicore file writing, this option offers the best performance.
     Unspecified,
 }
 
