@@ -235,16 +235,9 @@ This library is modeled after the
 official [`OpenEXRFileLayout.pdf`](http://www.openexr.com/documentation.html)
 document. Unspecified behavior is concluded from the C++ library.
 
-__Things that are not as specified in the PDF file__ (Or were forgotten):
-
--   String Attributes don't store their length,
-    because it can be inferred from the Attribute byte-size.
--   Chunk Part-Number is not u64, but i32.
-
 ### PRIORITIES
-1. Publish version 1.0
-1. Deep Data
-1. Decode all compression formats
+1. Support all compression formats
+1. Support Deep Data
 1. Simple rendering of common image formats
 1. Profiling and other optimization
 1. Tooling (Image Viewer App)
