@@ -487,10 +487,11 @@ impl MetaData {
     }
 
     /// Validates the meta data and writes it to the stream.
-    pub(crate) fn write_validating_to_buffered(&self, write: &mut impl Write) -> PassiveResult {
+    /// If pedantic, throws errors for files that may produce errors in other exr readers.
+    pub(crate) fn write_validating_to_buffered(&self, write: &mut impl Write, pedantic: bool) -> PassiveResult {
         // pedantic validation to not allow slightly invalid files
         // that still could be read correctly in theory
-        self.validate(true)?;
+        self.validate(pedantic)?;
 
         magic_number::write(write)?;
         self.requirements.write(write)?;

@@ -21,6 +21,10 @@ pub struct WriteOptions {
 
     /// Enable multicore compression.
     pub parallel_compression: bool,
+
+    /// If enabled, writing an image throws errors
+    /// for files that may look invalid to other exr readers.
+    pub pedantic: bool,
 }
 
 
@@ -179,11 +183,14 @@ impl Default for ReadOptions {
 
 impl WriteOptions {
 
+    /// Higher speed, but higher memory requirements, and __higher risk of incompatibility to other exr readers__.
+    pub fn higher() -> Self { WriteOptions { parallel_compression: true, pedantic: false } }
+
     /// Higher speed but also higher memory requirements.
-    pub fn high() -> Self { WriteOptions { parallel_compression: true, } }
+    pub fn high() -> Self { WriteOptions { parallel_compression: true, pedantic: true } }
 
     /// Lower speed but also lower memory requirements.
-    pub fn low() -> Self { WriteOptions { parallel_compression: false } }
+    pub fn low() -> Self { WriteOptions { parallel_compression: false, pedantic: true } }
 }
 
 impl ReadOptions {
@@ -314,7 +321,7 @@ impl Image {
     #[must_use]
     pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions) -> PassiveResult {
         crate::image::write_all_lines_to_buffered(
-            write, options.parallel_compression, self.infer_meta_data(),
+            write, options.parallel_compression, options.pedantic, self.infer_meta_data(),
             |location, write| {
                 self.extract_line(location, write);
             }

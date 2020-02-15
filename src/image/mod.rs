@@ -385,10 +385,11 @@ pub fn for_compressed_blocks_in_image(
 /// will allocate large amounts of memory while writing the file. Use unspecified line order for lower memory usage.
 ///
 /// Does not buffer the writer, you should always pass a `BufWriter`.
+/// If pedantic, throws errors for files that may produce errors in other exr readers.
 #[must_use]
 pub fn write_all_lines_to_buffered(
     write: impl Write + Seek,
-    parallel: bool,
+    parallel: bool, pedantic: bool,
     mut meta_data: MetaData,
     get_line: impl Fn(LineIndex, &mut Vec<u8>) + Send + Sync
 ) -> PassiveResult
@@ -403,7 +404,7 @@ pub fn write_all_lines_to_buffered(
     }
 
     let mut write = Tracking::new(write);
-    meta_data.write_validating_to_buffered(&mut write)?; // also validates meta data
+    meta_data.write_validating_to_buffered(&mut write, pedantic)?; // also validates meta data
 
     let offset_table_start_byte = write.byte_position();
 
