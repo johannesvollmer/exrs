@@ -69,18 +69,18 @@ pub struct LineSlice<T> {
 }
 
 
-/// A single line of pixels.
+/// An reference to a single line of pixels.
 /// May go across the whole image or just a tile section of it.
 pub type LineRef<'s> = LineSlice<&'s [u8]>;
 
-/// A single mutable line of pixels.
+/// A reference to a single mutable line of pixels.
 /// May go across the whole image or just a tile section of it.
 pub type LineRefMut<'s> = LineSlice<&'s mut [u8]>;
 
 
 /// Specifies where a row of pixels lies inside an image.
-/// This is a globally unique identifier which
-/// includes the layer, channel index, and pixel location.
+/// This is a globally unique identifier which includes
+/// the layer, channel index, and pixel location.
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Hash)]
 pub struct LineIndex {
 
@@ -96,7 +96,7 @@ pub struct LineIndex {
     /// Position of the most left pixel of the row.
     pub position: Vec2<usize>,
 
-    /// Width of the line: The number of samples in this row,
+    /// The width of the line; the number of samples in this row,
     /// that is, the number of f16, f32, or u32 values.
     pub sample_count: usize,
 }
