@@ -13,7 +13,6 @@ fn read_single_image(bench: &mut Bencher) {
 
     bench.iter(||{
         Image::read_from_file(path, ReadOptions::low()).unwrap();
-        Image::read_from_file(path, ReadOptions::high()).unwrap();
     })
 }
 
@@ -23,7 +22,6 @@ fn read_single_image_from_buffer(bench: &mut Bencher) {
 
     bench.iter(||{
         Image::read_from_buffered(file.as_slice(), ReadOptions::low()).unwrap();
-        Image::read_from_buffered(file.as_slice(), ReadOptions::high()).unwrap();
     })
 }
 
