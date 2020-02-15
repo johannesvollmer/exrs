@@ -13,7 +13,7 @@ is the de-facto standard image format in animation, VFX, and
 other computer graphics pipelines, for it can represent an immense variety of pixel data with lossless compression. 
 
 Features include:
-- any number of images placed anywhere in 2d space
+- any number of layers placed anywhere in 2d space
 - any number of channels in an image (rgb, xyz, lab, depth, motion, mask, ...)
 - any type of high dynamic range values (16bit float, 32bit float, 32bit unsigned integer) per channel
 - any number of samples per pixel ("deep data")
