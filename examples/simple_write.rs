@@ -46,7 +46,7 @@ fn write_noisy_hdr() {
         Samples::F32(generate_f16_vector(size).into_iter().map(f16::to_f32).collect())
     );
 
-    let layer = simple::Layer::new(
+    let layer = Layer::new(
         "test-image".try_into().unwrap(),
         IntRect::from_dimensions(size),
         smallvec![ r, g, b ],

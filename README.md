@@ -179,7 +179,7 @@ fn main() {
         Samples::F32(generate_f32_vector(size))
     );
 
-    let layer = simple::Layer::new(
+    let layer = Layer::new(
         "test-image".try_into().unwrap(), // layer name
         IntRect::from_dimensions(size.to_u32()), // set position to (0,0) and size to 1025x512
         smallvec![ luma ], // include the one channel we created
