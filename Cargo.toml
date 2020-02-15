@@ -12,11 +12,19 @@ keywords = ["exr", "openexr", "file", "binary", "io"]
 categories = ["encoding", "filesystem", "graphics", "multimedia"]
 maintenance = { status = "actively-maintained" }
 
+[lib]
+path = "src/lib.rs"
+test = true
+doctest = true
+bench = true
+doc = true
+plugin = false
+proc-macro = false
 
 [dependencies]
+lebe = { git = "http://github.com/johannesvollmer/lebe" } # generic binary serialization
 half = "1.4.0"        # 16 bit float pixel data type
 smallvec = "1.1.0"    # make cache friendly allocations     TODO profile if smallvec is really an improvement!
-lebe = { git = "http://github.com/johannesvollmer/lebe" } # generic binary serialization
 bit_field = "0.10.0"  # exr file version bit flags
 libflate = "0.1.27"   # zlib compression
 rayon = "1.2.1"       # multicore compression and decompression TODO make this an optional feature?
