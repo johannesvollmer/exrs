@@ -9,7 +9,7 @@ use crate::meta::*;
 use crate::meta::attributes::*;
 use crate::error::{Result, PassiveResult, Error};
 use crate::math::*;
-use std::io::{Seek, BufReader, BufWriter};
+use std::io::{Seek, BufReader, BufWriter, Cursor};
 use crate::image::{Line, LineIndex};
 
 // TODO dry this module with image::full?
@@ -323,7 +323,7 @@ impl Image {
         crate::image::write_all_lines_to_buffered(
             write, options.parallel_compression, options.pedantic, self.infer_meta_data(),
             |location, write| {
-                self.extract_line(location, write);
+                self.extract_line(location, &mut Cursor::new(write));
             }
         )
     }

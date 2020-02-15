@@ -269,7 +269,7 @@ pub fn read_filtered_chunks_from_buffered<'m>(
 /// Returns blocks in `LineOrder::Increasing`, unless the line order is requested to be decreasing.
 pub fn uncompressed_image_blocks_ordered<'l>(
     meta_data: &'l MetaData,
-    get_line: &'l (impl Fn(LineIndex, &mut Vec<u8>) + Send + Sync + 'l) // TODO reduce sync requirements, at least if parrallel is false
+    get_line: &'l (impl Fn(LineIndex, &mut [u8]) + Send + Sync + 'l) // TODO reduce sync requirements, at least if parrallel is false
 ) -> impl Iterator<Item = (usize, UncompressedBlock)> + 'l + Send // TODO reduce sync requirements, at least if parrallel is false
 {
     meta_data.headers.iter().enumerate()
@@ -285,11 +285,8 @@ pub fn uncompressed_image_blocks_ordered<'l>(
 
                 let mut block_bytes = Vec::with_capacity(header.max_block_byte_size());
                 for (byte_range, line_index) in block_indices.line_indices(header) {
-                    debug_assert_eq!(byte_range.start, block_bytes.len(), "line_indices byte range calculation bug");
-
-                    get_line(line_index, &mut block_bytes);
-
-                    debug_assert_eq!(byte_range.end, block_bytes.len(), "line_indices byte range calculation bug");
+                    block_bytes.resize(byte_range.end, 0_u8);
+                    get_line(line_index, &mut block_bytes[byte_range]);
                 }
 
                 // byte length is validated in block::compress_to_chunk
@@ -309,7 +306,7 @@ pub fn uncompressed_image_blocks_ordered<'l>(
 /// Attention: Currently, using multicore compression with `LineOrder::Increasing` or `LineOrder::Decreasing` in any header
 /// will allocate large amounts of memory while writing the file. Use unspecified line order for lower memory usage.
 pub fn for_compressed_blocks_in_image(
-    meta_data: &MetaData, get_line: impl Fn(LineIndex, &mut Vec<u8>) + Send + Sync,
+    meta_data: &MetaData, get_line: impl Fn(LineIndex, &mut [u8]) + Send + Sync,
     parallel: bool, mut write_chunk: impl FnMut(usize, Chunk) -> PassiveResult
 ) -> PassiveResult
 {
@@ -391,7 +388,7 @@ pub fn write_all_lines_to_buffered(
     write: impl Write + Seek,
     parallel: bool, pedantic: bool,
     mut meta_data: MetaData,
-    get_line: impl Fn(LineIndex, &mut Vec<u8>) + Send + Sync
+    get_line: impl Fn(LineIndex, &mut [u8]) + Send + Sync
 ) -> PassiveResult
 {
     // if non-parallel compression, we always use increasing order anyways

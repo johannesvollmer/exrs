@@ -10,7 +10,7 @@ use rand::Rng;
 // exr imports
 extern crate exr;
 use exr::prelude::*;
-use std::io::{BufWriter};
+use std::io::{BufWriter, Cursor};
 use std::fs::File;
 use exr::meta::attributes::{Channel, PixelType, LineOrder};
 use exr::io::Data;
@@ -19,7 +19,7 @@ use exr::meta::Blocks;
 /// Generate a noisy image on the fly and directly write that to a file without allocating the whole image at once.
 #[test]
 fn write_generated_noisy_hdr() {
-    fn generate_f16s(length: usize) -> impl Iterator<Item = f16> {
+    fn generate_f16s(length: usize) -> Vec<f16> {
         let mut values = vec![ f16::from_f32(0.5); length ];
 
         for _ in 0..(length / 4) {
@@ -29,7 +29,7 @@ fn write_generated_noisy_hdr() {
             values[index] = f16::from_f32(value);
         }
 
-        values.into_iter()
+        values
     }
 
     let size = Vec2(1024, 512);
@@ -53,10 +53,9 @@ fn write_generated_noisy_hdr() {
 
     let meta = MetaData::new(smallvec![ header ]);
 
-    exr::image::write_all_lines_to_buffered(file, true, meta, |line, write|{
-        for value in generate_f16s(line.width) {
-            f16::write(value, write).expect("collect pixel error");
-        }
+    exr::image::write_all_lines_to_buffered(file, true,  true,meta, |line, bytes|{
+        let f16_vec = generate_f16s(line.width);
+        f16::write_slice(&mut Cursor::new(bytes), &f16_vec).expect("error writing pixel bytes"); // TODO make this easier in exr::io
     }).unwrap();
 
     assert!(exr::image::full::Image::read_from_file("./testout/noisy.exr", exr::image::full::ReadOptions::high()).is_ok())
