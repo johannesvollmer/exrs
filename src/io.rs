@@ -341,7 +341,7 @@ mod test {
         assert_eq!(peek.peek_u8().as_ref().unwrap(), &0);
         assert_eq!(peek.peek_u8().as_ref().unwrap(), &0);
         assert_eq!(peek.peek_u8().as_ref().unwrap(), &0);
-        assert_eq!(u8::read_from_little_endian(&mut peek).unwrap(), 0_u8); // TODO rename to "read u8 from little endian"?
+        assert_eq!(u8::read_from_little_endian(&mut peek).unwrap(), 0_u8);
 
         assert_eq!(peek.read(&mut [0,0]).unwrap(), 2);
 

@@ -47,7 +47,7 @@ pub fn test_write_file() {
     let path =
         "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
 
-//            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"  // FIXME attempts to sub with overflow in parrallel mode
+//            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
 //            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
 //"D:/Pictures/openexr/crowskull/crow_zips.exr"
 //            "D:/Pictures/openexr/crowskull/crow_rle.exr"

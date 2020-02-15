@@ -33,8 +33,6 @@ pub struct ReadOptions {
     pub parallel_decompression: bool,
 }
 
-// FIXME will allocate but not overwrite deep data contents????
-
 /// An exr image.
 ///
 /// Supports all possible exr image features.
@@ -77,7 +75,7 @@ pub struct Layer {
     pub data_window: IntRect,
 
     /// Part of the perspective projection. Default should be `(0, 0)`.
-    pub screen_window_center: Vec2<f32>, // TODO use sensible defaults instead of returning an error on missing?
+    pub screen_window_center: Vec2<f32>,
 
     /// Part of the perspective projection. Default should be `1`.
     pub screen_window_width: f32,
@@ -222,7 +220,7 @@ impl Image {
     ///
     /// Consider using `Image::new_from_layers` for more complex cases.
     /// Use the raw `Image { .. }` constructor for more complex cases.
-    pub fn new_from_single_layer(layer: Layer) -> Self { // TODO inline layer parameters?
+    pub fn new_from_single_layer(layer: Layer) -> Self {
         Self {
             pixel_aspect: 1.0,
             display_window: layer.data_window,
@@ -372,8 +370,6 @@ impl Layer {
 
 impl Channel {
 
-    // TODO do not debug print pixel values
-
     /// Create a Channel from name and samples.
     /// Set `is_linear` if the color space of the samples values is linear.
     /// Panics if anything is invalid or missing.
@@ -452,21 +448,6 @@ impl Image {
 
         MetaData::new(headers)
     }
-
-    /// Compute the version number that this image requires to be decoded.
-    /// For simple images, this should return `1`.
-    ///
-    /// Currently always returns `2`.
-    pub fn minimum_version(&self) -> u8 {
-        2 // TODO pick lowest possible
-    }
-
-    /// Check if this file has long name strings.
-    ///
-    /// Currently always returns `true`.
-    pub fn has_long_names(&self) -> bool {
-        true // TODO check all name string lengths
-    }
 }
 
 
@@ -497,8 +478,8 @@ impl Layer {
     /// Insert one line of pixel data into this layer.
     /// Returns an error for invalid index or line contents.
     pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
-        debug_assert!(line.location.position.0 + line.location.width <= self.data_window.size.0);
-        debug_assert!(line.location.position.1 < self.data_window.size.1);
+        debug_assert!(line.location.position.0 + line.location.width <= self.data_window.size.0, "line index calculation bug");
+        debug_assert!(line.location.position.1 < self.data_window.size.1, "line index calculation bug");
 
         self.channels.get_mut(line.location.channel)
             .expect("invalid channel index")
@@ -508,8 +489,8 @@ impl Layer {
     /// Read one line of pixel data from this layer.
     /// Panics for an invalid index or write error.
     pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
-        debug_assert!(index.position.0 + index.width <= self.data_window.size.0);
-        debug_assert!(index.position.1 < self.data_window.size.1);
+        debug_assert!(index.position.0 + index.width <= self.data_window.size.0, "line index calculation bug");
+        debug_assert!(index.position.1 < self.data_window.size.1, "line index calculation bug");
 
         self.channels.get(index.channel)
             .expect("invalid channel index")
@@ -543,7 +524,7 @@ impl Layer {
             screen_window_center: self.screen_window_center,
             screen_window_width: self.screen_window_width,
             compression: self.compression,
-            channels: ChannelList::new(channels), // FIXME this would sort channels, but line index would be mixed up if the original channels were not sorted
+            channels: ChannelList::new(channels),
             line_order: self.line_order,
             custom_attributes: self.attributes.clone(),
             display_window, pixel_aspect,
@@ -573,14 +554,14 @@ impl Channel {
 
     /// Insert one line of pixel data into this channel.
     pub fn insert_line(&mut self, line: Line<'_>, resolution: Vec2<usize>) -> PassiveResult {
-        assert_eq!(line.location.level, Vec2(0,0));
+        assert_eq!(line.location.level, Vec2(0,0), "line index calculation bug");
         self.samples.insert_line(resolution / self.sampling, line)
     }
 
     /// Read one line of pixel data from this channel.
     /// Panics for an invalid index or write error.
     pub fn extract_line(&self, index: LineIndex, resolution: Vec2<usize>, write: &mut impl Write) {
-        debug_assert_eq!(index.level, Vec2(0,0));
+        debug_assert_eq!(index.level, Vec2(0,0), "line index calculation bug");
         self.samples.extract_line(index, resolution / self.sampling, write)
     }
 
@@ -616,7 +597,7 @@ impl Samples {
 
     /// Insert one line of pixel data into this sample block.
     pub fn insert_line(&mut self, resolution: Vec2<usize>, line: Line<'_>) -> PassiveResult {
-        debug_assert_ne!(line.location.width, 0);
+        debug_assert_ne!(line.location.width, 0, "line index calculation bug");
 
         if line.location.position.0 + line.location.width > resolution.0 {
             return Err(Error::invalid("data block x coordinate"))
@@ -626,8 +607,8 @@ impl Samples {
             return Err(Error::invalid("data block y coordinate"))
         }
 
-        debug_assert_ne!(resolution.0, 0);
-        debug_assert_ne!(line.location.width, 0);
+        debug_assert_ne!(resolution.0, 0, "sample size bug");
+        debug_assert_ne!(line.location.width, 0, "line index calculation bug");
 
         let start_index = line.location.position.1 * resolution.0 + line.location.position.0;
         let end_index = start_index + line.location.width;
@@ -642,12 +623,12 @@ impl Samples {
     /// Read one line of pixel data from this sample block.
     /// Panics for an invalid index or write error.
     pub fn extract_line(&self, index: LineIndex, resolution: Vec2<usize>, write: &mut impl Write) {
-        debug_assert!(index.position.0 + index.width <= resolution.0, "x max {} of width {}", index.position.0 + index.width, resolution.0); // TODO this should Err() instead
-        debug_assert!(index.position.1 < resolution.1, "y: {}, height: {}", index.position.1, resolution.1);
-        debug_assert_ne!(index.width, 0);
+        debug_assert!(index.position.0 + index.width <= resolution.0, "line index calculation bug");
+        debug_assert!(index.position.1 < resolution.1, "line index calculation bug");
+        debug_assert_ne!(index.width, 0, "line index bug");
 
-        debug_assert_ne!(resolution.0, 0);
-        debug_assert_ne!(index.width, 0);
+        debug_assert_ne!(resolution.0, 0, "sample size but");
+        debug_assert_ne!(index.width, 0, "line index bug");
 
         let start_index = index.position.1 * resolution.0 + index.position.0;
         let end_index = start_index + index.width;

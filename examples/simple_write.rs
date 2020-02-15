@@ -57,7 +57,7 @@ fn write_noisy_hdr() {
     let image = Image::new_from_single_layer(layer);
 
     println!("writing image {:#?}", image);
-    image.write_to_file("./testout/noisy.exr", WriteOptions::high()).unwrap(); // FIXME parallel produces invalid files
+    image.write_to_file("./testout/noisy.exr", WriteOptions::high()).unwrap();
 
     assert!(Image::read_from_file("./testout/noisy.exr", ReadOptions::high()).is_ok())
 }

@@ -27,11 +27,6 @@ use crate::image::{Line, LineIndex};
 // FIXME this needs some of the changes that were made in simple.rs !!!
 
 /// Specify how to write an exr image.
-/// Contains several `override` fields,
-/// that, if set, take precedence over
-/// the regular image properties.
-/// They can be used to write an image with a different
-/// configuration than it was read with.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct WriteOptions {
 
@@ -397,21 +392,6 @@ impl Image {
 
         MetaData::new(headers)
     }
-
-    /// Compute the version number that this image requires to be decoded.
-    /// For simple images, this should return `1`.
-    ///
-    /// Currently always returns `2`.
-    pub fn minimum_version(&self) -> u8 {
-        2 // TODO pick lowest possible
-    }
-
-    /// Check if this file has long name strings.
-    ///
-    /// Currently always returns `true`.
-    pub fn has_long_names(&self) -> bool {
-        true // TODO check all name string lengths
-    }
 }
 
 
@@ -477,7 +457,7 @@ impl Layer {
             custom_attributes: self.attributes.clone(),
             display_window, pixel_aspect,
 
-            // TODO deep/multipart data:
+            // TODO deep data:
             deep_data_version: None,
             max_samples_per_pixel: None,
             deep: false

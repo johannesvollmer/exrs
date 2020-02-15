@@ -4,8 +4,6 @@
 
 use crate::meta::attributes::{IntRect};
 
-// TODO SEE PAGE 14 IN TECHNICAL INTRODUCTION
-
 /// A generic block of pixel information.
 /// Contains pixel data and an index to the corresponding header.
 /// All pixel data in a file is split into a list of chunks.
@@ -217,7 +215,6 @@ impl DeepScanLineBlock {
         let compressed_sample_data_size = u64_to_usize(u64::read(read)?);
         let decompressed_sample_data_size = u64_to_usize(u64::read(read)?);
 
-        // TODO don't just panic-cast
         // doc said i32, try u8
         let compressed_pixel_offset_table = i8::read_vec(
             read, compressed_pixel_offset_table_size,

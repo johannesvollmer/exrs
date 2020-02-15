@@ -52,7 +52,6 @@ pub type OffsetTable = Vec<u64>;
 /// Describes a single layer in a file.
 /// A file can have any number of layers.
 /// The meta data contains one header per layer.
-// TODO non-public fields?
 #[derive(Clone, Debug, PartialEq)]
 pub struct Header {
 
@@ -69,19 +68,15 @@ pub struct Header {
     pub display_window: IntRect,
 
     /// In what order the tiles of this header occur in the file.
-    // todo: make optional?
     pub line_order: LineOrder,
 
     /// Aspect ratio of each pixel in this header.
-    // todo: make optional?
     pub pixel_aspect: f32,
 
     /// Part of the perspective projection. Default should be `(0, 0)`.
-    // todo: make optional?
     pub screen_window_center: Vec2<f32>,
 
     /// Part of the perspective projection. Default should be `1`.
-    // todo: make optional?
     pub screen_window_width: f32,
 
     /// The name of this layer.
@@ -104,7 +99,6 @@ pub struct Header {
     pub deep: bool,
 
     /// This library supports only deep data version 1.
-    // TODO throw error on other version found
     pub deep_data_version: Option<i32>,
 
     /// Number of chunks, that is, scan line blocks or tiles, that this image has been divided into.
@@ -400,7 +394,6 @@ pub fn compute_chunk_count(compression: Compression, data_window: IntRect, block
             },
 
             RipMap => {
-                // TODO test this
                 rip_map_levels(round, data_size).map(|(_, Vec2(level_width, level_height))| {
                     compute_block_count(level_width, tile_width) * compute_block_count(level_height, tile_height)
                 }).sum()
@@ -770,7 +763,7 @@ impl Header {
         );
 
         if strict && requirements.is_multilayer() {
-            if self.name.is_none() { // TODO only be pedantic on write, but not on read?
+            if self.name.is_none() {
                 return Err(missing_attribute("layer name"));
             }
         }
@@ -811,7 +804,7 @@ impl Header {
     }
 
     pub fn read_all(read: &mut PeekRead<impl Read>, version: &Requirements) -> Result<Headers> {
-        if !version.is_multilayer() { // TODO check a different way?
+        if !version.is_multilayer() {
             Ok(smallvec![ Header::read(read, version)? ])
         }
         else {
@@ -886,7 +879,7 @@ impl Header {
                     i32_to_usize(value.to_i32()?, "chunk count")?
                 ),
 
-                _ => custom.push(Attribute { name: attribute_name, value }), // TODO only requested attributes?
+                _ => custom.push(Attribute { name: attribute_name, value }),
             }
         }
 

@@ -393,7 +393,7 @@ pub fn write_all_lines_to_buffered(
     get_line: impl Fn(LineIndex, &mut Vec<u8>) + Send + Sync
 ) -> PassiveResult
 {
-    // if non-parallel compression, we always use increasing order anyways TODO
+    // if non-parallel compression, we always use increasing order anyways
     if !parallel {
         for header in &mut meta_data.headers {
             if header.line_order == LineOrder::Unspecified {

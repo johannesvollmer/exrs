@@ -947,9 +947,7 @@ impl Preview {
         let width = u32::read(read)? as usize;
         let height = u32::read(read)? as usize;
 
-        // TODO carefully allocate
-        let mut pixel_data = vec![0; width * height * components_per_pixel];
-        i8::read_slice(read, &mut pixel_data)?;
+        let pixel_data = i8::read_vec(read, width * height * components_per_pixel, 1024*1024*4, None)?;
 
         let preview = Preview {
             size: Vec2(width, height),
@@ -1059,7 +1057,6 @@ impl Attribute {
         self.value.write(write)
     }
 
-    // TODO parse lazily, always skip size, ... ?
     pub fn read(read: &mut PeekRead<impl Read>, max_size: usize) -> Result<Self> {
         let name = Text::read_null_terminated(read, max_size)?;
         let kind = Text::read_null_terminated(read, max_size)?;
@@ -1215,7 +1212,7 @@ impl AnyValue {
                 let b = u32::read(read)?;
                 (a, b)
             }),
-            // FIXME argument order not guaranteed??
+
             ty::TIME_CODE => TimeCode(self::TimeCode::read(read)?),
 
             ty::I32VEC2 => IntVec2({

@@ -36,7 +36,7 @@ fn check_files<T>(operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -
     let files: Vec<PathBuf> = exr_files().collect();
     let mut results: Vec<(PathBuf, Result)> = files.into_par_iter()
         .map(|file| {
-            let result = catch_unwind(||{ // FIXME does not catch errors from other thread?
+            let result = catch_unwind(||{
                 let prev_hook = panic::take_hook();
                 panic::set_hook(Box::new(|_| (/* do not println panics */)));
                 let result = operation(&file);

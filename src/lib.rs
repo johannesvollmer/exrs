@@ -27,8 +27,7 @@
 )]
 
 #![forbid(unsafe_code)]
-
-// TODO #![warn(missing_docs)]
+#![warn(missing_docs)]
 
 
 pub mod io; // public to allow for custom attribute byte parsing
