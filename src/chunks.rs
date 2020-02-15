@@ -10,22 +10,22 @@ use crate::meta::attributes::{IntRect};
 /// Contains pixel data and an index to the corresponding header.
 /// All pixel data in a file is split into a list of chunks.
 /// Also contains positioning information that locates this
-/// data block in the referenced image part.
+/// data block in the referenced layer.
 #[derive(Debug, Clone)]
 pub struct Chunk {
-    /// The index of the image part that the block belongs to.
+    /// The index of the layer that the block belongs to.
     /// This is required as the pixel data can appear in any order in a file.
     // PDF says u64, but source code seems to be i32
-    pub part_index: usize,
+    pub layer_index: usize,
 
     /// The compressed pixel contents.
     pub block: Block,
 }
 
 /// The raw, possibly compressed pixel data of a file.
-/// Each image part in a file can have a different type.
+/// Each layer in a file can have a different type.
 /// Also contains positioning information that locates this
-/// data block in the corresponding image part.
+/// data block in the corresponding layer.
 /// Exists inside a `Chunk`.
 #[derive(Debug, Clone)]
 pub enum Block {
@@ -283,10 +283,10 @@ use crate::math::Vec2;
 /// Validation of chunks is done while reading and writing the actual data. (For example in exr::full_image)
 impl Chunk {
     pub fn write(&self, write: &mut impl Write, headers: &[Header]) -> PassiveResult {
-        debug_assert!(self.part_index < headers.len()); // validation is done in full_image or simple_image
+        debug_assert!(self.layer_index < headers.len()); // validation is done in full_image or simple_image
 
-        if headers.len() != 1 { i32::write(self.part_index as i32, write)?; }
-        else { assert_eq!(self.part_index, 0); }
+        if headers.len() != 1 { i32::write(self.layer_index as i32, write)?; }
+        else { assert_eq!(self.layer_index, 0); }
 
         match self.block {
             Block::ScanLine     (ref value) => value.write(write),
@@ -297,21 +297,21 @@ impl Chunk {
     }
 
     pub fn read(read: &mut impl Read, meta_data: &MetaData) -> Result<Self> {
-        let part_number = {
-            if meta_data.requirements.is_multipart() { i32::read(read)? } // documentation says u64, but is i32
-            else { 0_i32 } // reference the first header for single-part images
+        let layer_number = {
+            if meta_data.requirements.is_multilayer() { i32::read(read)? } // documentation says u64, but is i32
+            else { 0_i32 } // reference the first header for single-layer images
         };
 
-        if part_number < 0 || part_number >= meta_data.headers.len() as i32 {
+        if layer_number < 0 || layer_number >= meta_data.headers.len() as i32 {
             return Err(Error::invalid("chunk data part number"));
         }
 
-        let part_number = part_number as usize;
-        let header = &meta_data.headers[part_number];
+        let layer_number = layer_number as usize;
+        let header = &meta_data.headers[layer_number];
         let max_block_byte_size = header.max_block_byte_size();
 
         let chunk = Chunk {
-            part_index: part_number,
+            layer_index: layer_number,
             block: match header.blocks {
                 // flat data
                 Blocks::ScanLines if !header.deep => Block::ScanLine(ScanLineBlock::read(read, max_block_byte_size)?),

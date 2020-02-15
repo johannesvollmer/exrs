@@ -27,7 +27,7 @@ pub struct MetaData {
     /// Some flags summarizing the features that must be supported to decode the file.
     pub requirements: Requirements,
 
-    /// One header to describe each image part in this file.
+    /// One header to describe each layer in this file.
     pub headers: Headers,
 }
 
@@ -49,20 +49,20 @@ pub type OffsetTables = SmallVec<[OffsetTable; 3]>;
 // chunkCount attribute, that contains the length of the offset table.
 pub type OffsetTable = Vec<u64>;
 
-/// Describes a single image part in a file.
-/// A file can have any number of image parts.
-/// The meta data contains one header per image part.
+/// Describes a single layer in a file.
+/// A file can have any number of layers.
+/// The meta data contains one header per layer.
 // TODO non-public fields?
 #[derive(Clone, Debug, PartialEq)]
 pub struct Header {
 
-    /// List of channels in this image part.
+    /// List of channels in this layer.
     pub channels: ChannelList,
 
-    /// How the pixel data of all channels in this image part is compressed. May be `Compression::Uncompressed`.
+    /// How the pixel data of all channels in this layer is compressed. May be `Compression::Uncompressed`.
     pub compression: Compression,
 
-    /// The rectangle that positions this image part within the infinite 2D space.
+    /// The rectangle that positions this layer within the infinite 2D space.
     pub data_window: IntRect,
 
     /// The rectangle anywhere in 2D space that clips all contents of the file.
@@ -84,23 +84,23 @@ pub struct Header {
     // todo: make optional?
     pub screen_window_width: f32,
 
-    /// The name of this image part.
-    /// Required if this file contains deep data or multiple image parts.
+    /// The name of this layer.
+    /// Required if this file contains deep data or multiple layers.
     // As this is an attribute value, it is not restricted in length, may even be empty
     pub name: Option<Text>,
 
-    /// Describes how the pixels of this image part are divided into smaller blocks.
+    /// Describes how the pixels of this layer are divided into smaller blocks.
     /// A single block can be loaded without processing all bytes of a file.
     ///
     /// Also describes whether a file contains multiple resolution levels: mip maps or rip maps.
     /// This allows loading not the full resolution, but the smallest sensible resolution.
     //
-    // Required if file contains deep data or multiple image parts.
+    // Required if file contains deep data or multiple layers.
     // Note: This value must agree with the version field's tile bit and deep data bit.
     // In this crate, this attribute will always have a value, for simplicity.
     pub blocks: Blocks,
 
-    /// Whether this image part contains deep data.
+    /// Whether this layer contains deep data.
     pub deep: bool,
 
     /// This library supports only deep data version 1.
@@ -119,7 +119,7 @@ pub struct Header {
     /// which automatically updates the chunk count._
     pub chunk_count: usize,
 
-    // Required for deep data (deepscanline and deeptile) parts.
+    // Required for deep data (deepscanline and deeptile) layers.
     // Note: Since the value of "maxSamplesPerPixel"
     // maybe be unknown at the time of opening the
     // file, the value “ -1 ” is written to the file to
@@ -128,7 +128,7 @@ pub struct Header {
     // If file writing does not complete
     // correctly due to an error, the value -1 will
     // remain. In this case, the value must be derived
-    // by decoding each chunk in the part
+    // by decoding each chunk in the layer
     /// Maximum number of samples in a single pixel in a deep image.
     pub max_samples_per_pixel: Option<usize>,
 
@@ -149,20 +149,20 @@ pub struct Requirements {
     // TODO write version 1 for simple images
     file_format_version: u8,
 
-    /// If true, this image has tiled blocks and contains only a single image part.
-    /// If false and not deep and not multipart, this image is a single part image with scan line blocks.
-    is_single_part_and_tiled: bool,
+    /// If true, this image has tiled blocks and contains only a single layer.
+    /// If false and not deep and not multilayer, this image is a single layer image with scan line blocks.
+    is_single_layer_and_tiled: bool,
 
     // in c or bad c++ this might have been relevant (omg is he allowed to say that)
     /// Whether this file has strings with a length greater than 31.
     /// Strings can never be longer than 255.
     has_long_names: bool,
 
-    /// This image contains at least one image part with deep data.
+    /// This image contains at least one layer with deep data.
     has_deep_data: bool,
 
-    /// Whether this file contains multiple image parts.
-    has_multiple_parts: bool,
+    /// Whether this file contains multiple layers.
+    has_multiple_layers: bool,
 }
 
 
@@ -374,7 +374,7 @@ pub fn mip_map_indices(round: RoundingMode, max_resolution: Vec2<usize>) -> impl
 }
 
 /// Compute the number of chunks that an image is divided into. May be an expensive operation.
-// If not multipart and chunkCount not present,
+// If not multilayer and chunkCount not present,
 // the number of entries in the chunk table is computed
 // using the dataWindow and tileDesc attributes and the compression format
 pub fn compute_chunk_count(compression: Compression, data_window: IntRect, blocks: Blocks) -> usize {
@@ -488,7 +488,7 @@ impl MetaData {
 
         magic_number::write(write)?;
         self.requirements.write(write)?;
-        Header::write_all(self.headers.as_slice(), write, self.requirements.has_multiple_parts)?;
+        Header::write_all(self.headers.as_slice(), write, self.requirements.has_multiple_layers)?;
         Ok(())
     }
 
@@ -515,14 +515,14 @@ impl MetaData {
         let headers = self.headers.len();
 
         if headers == 0 {
-            return Err(Error::invalid("at least one image part is required"));
+            return Err(Error::invalid("at least one layer is required"));
         }
 
         if strict { // check for duplicate header names
             let mut header_names = HashSet::with_capacity(headers);
             for header in &self.headers {
                 if !header_names.insert(&header.name) {
-                    return Err(Error::invalid("duplicate image part name"));
+                    return Err(Error::invalid("duplicate layer name"));
                 }
             }
         }
@@ -530,7 +530,7 @@ impl MetaData {
         if strict && headers > 1 { // check for attributes that should not differ in between headers
             fn get_attributes(header: &'_ Header) -> HashMap<&'_ [u8], &'_ AnyValue> {
                 header.custom_attributes.iter()
-                    // if the headers include timeCode and chromaticities attributes, then the values of those attributes must be the same for all parts of a file
+                    // if the headers include timeCode and chromaticities attributes, then the values of those attributes must be the same for all layers of a file
                     .filter(|attribute| attribute.value.to_time_code().is_ok() || attribute.value.to_chromaticities().is_ok())
                     .map(|attribute| (attribute.name.bytes(), &attribute.value))
                     .collect()
@@ -546,7 +546,7 @@ impl MetaData {
             }
         }
 
-        if self.requirements.file_format_version == 1 || !self.requirements.has_multiple_parts {
+        if self.requirements.file_format_version == 1 || !self.requirements.has_multiple_layers {
             if headers != 1 {
                 return Err(Error::invalid("multipart flag for header count"));
             }
@@ -769,9 +769,9 @@ impl Header {
             "chunk count attribute not corretly set"
         );
 
-        if strict && requirements.is_multipart() {
+        if strict && requirements.is_multilayer() {
             if self.name.is_none() { // TODO only be pedantic on write, but not on read?
-                return Err(missing_attribute("image part name"));
+                return Err(missing_attribute("layer name"));
             }
         }
 
@@ -789,7 +789,7 @@ impl Header {
 
         if self.deep {
             if strict && self.name.is_none() {
-                return Err(missing_attribute("image part name"));
+                return Err(missing_attribute("layer name"));
             }
 
             match self.deep_data_version {
@@ -811,7 +811,7 @@ impl Header {
     }
 
     pub fn read_all(read: &mut PeekRead<impl Read>, version: &Requirements) -> Result<Headers> {
-        if !version.is_multipart() { // TODO check a different way?
+        if !version.is_multilayer() { // TODO check a different way?
             Ok(smallvec![ Header::read(read, version)? ])
         }
         else {
@@ -825,12 +825,12 @@ impl Header {
         }
     }
 
-    pub fn write_all(headers: &[Header], write: &mut impl Write, is_multipart: bool) -> PassiveResult {
+    pub fn write_all(headers: &[Header], write: &mut impl Write, is_multilayer: bool) -> PassiveResult {
         for header in headers {
             header.write(write)?;
         }
 
-        if is_multipart {
+        if is_multilayer {
             sequence_end::write(write)?;
         }
 
@@ -894,7 +894,7 @@ impl Header {
         let data_window = data_window.ok_or(missing_attribute("data window"))?;
 
         let blocks = match block_type {
-            None if requirements.is_single_part_and_tiled => {
+            None if requirements.is_single_layer_and_tiled => {
                 Blocks::Tiles(tiles.ok_or(missing_attribute("tiles"))?)
             },
             Some(BlockType::Tile) | Some(BlockType::DeepTile) => {
@@ -993,22 +993,22 @@ impl Requirements {
         let first_header_has_tiles = headers.iter().next()
             .map_or(false, |header| header.blocks.has_tiles());
 
-        let is_multipart = headers.len() > 1;
+        let is_multilayer = headers.len() > 1;
         let deep = false; // TODO deep data
 
         Requirements {
             file_format_version: 2, // TODO find minimum
-            is_single_part_and_tiled: !is_multipart && first_header_has_tiles,
+            is_single_layer_and_tiled: !is_multilayer && first_header_has_tiles,
             has_long_names: true, // TODO query header?
-            has_multiple_parts: is_multipart,
+            has_multiple_layers: is_multilayer,
             has_deep_data: deep,
         }
     }
 
 
-    // this is actually used for control flow, as the number of headers may be 1 in a multipart file
-    pub fn is_multipart(&self) -> bool {
-        self.has_multiple_parts
+    // this is actually used for control flow, as the number of headers may be 1 in a multilayer file
+    pub fn is_multilayer(&self) -> bool {
+        self.has_multiple_layers
     }
 
     /// Does not validate.
@@ -1024,7 +1024,7 @@ impl Requirements {
         let is_single_tile = version_and_flags.get_bit(9);
         let has_long_names = version_and_flags.get_bit(10);
         let has_deep_data = version_and_flags.get_bit(11);
-        let has_multiple_parts = version_and_flags.get_bit(12);
+        let has_multiple_layers = version_and_flags.get_bit(12);
 
         // all remaining bits except 9, 10, 11 and 12 are reserved and should be 0
         // if a file has any of these bits set to 1, it means this file contains
@@ -1037,8 +1037,8 @@ impl Requirements {
 
         let version = Requirements {
             file_format_version: version,
-            is_single_part_and_tiled: is_single_tile, has_long_names,
-            has_deep_data, has_multiple_parts,
+            is_single_layer_and_tiled: is_single_tile, has_long_names,
+            has_deep_data, has_multiple_layers,
         };
 
         Ok(version)
@@ -1053,10 +1053,10 @@ impl Requirements {
         let mut version_and_flags = self.file_format_version as u32;
 
         // the 24 most significant bits are treated as a set of boolean flags
-        version_and_flags.set_bit(9, self.is_single_part_and_tiled);
+        version_and_flags.set_bit(9, self.is_single_layer_and_tiled);
         version_and_flags.set_bit(10, self.has_long_names);
         version_and_flags.set_bit(11, self.has_deep_data);
-        version_and_flags.set_bit(12, self.has_multiple_parts);
+        version_and_flags.set_bit(12, self.has_multiple_layers);
         // all remaining bits except 9, 10, 11 and 12 are reserved and should be 0
 
         version_and_flags.write(write)?;
@@ -1071,7 +1071,7 @@ impl Requirements {
         if let 1..=2 = self.file_format_version {
 
             match (
-                self.is_single_part_and_tiled, self.has_deep_data, self.has_multiple_parts,
+                self.is_single_layer_and_tiled, self.has_deep_data, self.has_multiple_layers,
                 self.file_format_version
             ) {
                 // Single-part scan line. One normal scan line image.

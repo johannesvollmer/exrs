@@ -51,39 +51,39 @@ pub struct ReadOptions {
 /// An exr image.
 ///
 /// Supports all possible exr image features.
-/// An exr image may contain multiple image parts.
+/// An exr image may contain multiple layers.
 /// All meta data is encoded in this image,
 /// including custom attributes.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Image {
 
-    /// All image parts contained in the image file
-    pub parts: Parts,
+    /// All layers contained in the image file
+    pub layers: Layers,
 
     /// The rectangle positioned anywhere in the infinite 2D space that
     /// clips all contents of the file, limiting what should be rendered.
     pub display_window: IntRect,
 
-    /// Aspect ratio of each pixel in this image part.
+    /// Aspect ratio of each pixel in this layer.
     pub pixel_aspect: f32,
 }
 
-pub type Parts = SmallVec<[Part; 3]>;
+pub type Layers = SmallVec<[Layer; 3]>;
 
-/// A single image part of an exr image.
+/// A single layer of an exr image.
 /// Contains meta data and actual pixel information of the channels.
 #[derive(Clone, PartialEq, Debug)]
-pub struct Part {
+pub struct Layer {
 
-    /// The name of the image part.
-    /// This is optional for files with only one image part.
+    /// The name of the layer.
+    /// This is optional for files with only one layer.
     pub name: Option<Text>,
 
-    /// The remaining attributes which are not already in the `Part`.
+    /// The remaining attributes which are not already in the `Layer`.
     /// Includes custom attributes.
     pub attributes: Attributes,
 
-    /// The rectangle that positions this image part
+    /// The rectangle that positions this layer
     /// within the global infinite 2D space of the file.
     pub data_window: IntRect,
 
@@ -96,17 +96,17 @@ pub struct Part {
     /// In what order the tiles of this header occur in the file.
     pub line_order: LineOrder,
 
-    /// How the pixel data of all channels in this image part is compressed. May be `Compression::Uncompressed`.
+    /// How the pixel data of all channels in this layer is compressed. May be `Compression::Uncompressed`.
     pub compression: Compression,
 
-    /// Describes how the pixels of this image part are divided into smaller blocks in the file.
+    /// Describes how the pixels of this layer are divided into smaller blocks in the file.
     /// A single block can be loaded without processing all bytes of a file.
     ///
     /// Also describes whether a file contains multiple resolution levels: mip maps or rip maps.
     /// This allows loading not the full resolution, but the smallest sensible resolution.
     pub blocks: Blocks,
 
-    /// List of channels in this image part.
+    /// List of channels in this layer.
     /// Contains the actual pixel data of the image.
     pub channels: Channels,
 }
@@ -129,7 +129,7 @@ pub struct Channel {
     /// Are the samples in this channel in linear color space?
     pub is_linear: bool,
 
-    /// How many of the samples are skipped compared to the other channels in this image part.
+    /// How many of the samples are skipped compared to the other channels in this layer.
     ///
     /// Can be used for chroma subsampling for manual lossy data compression.
     /// Values other than 1 are allowed only in flat, scan-line based images.
@@ -150,7 +150,7 @@ pub enum ChannelData {
     F32(SampleMaps<f32>),
 
     /// 32-bit unsigned int samples.
-    /// Used for segmentation of image parts.
+    /// Used for segmentation of layers.
     U32(SampleMaps<u32>),
 }
 
@@ -165,7 +165,7 @@ pub enum SampleMaps<Sample> {
     Deep (Levels<DeepSamples<Sample>>),
 }
 
-/// The different resolution levels of the image part.
+/// The different resolution levels of the layer.
 // FIXME should be descending and starting with full-res instead!
 #[derive(Clone, PartialEq)]
 pub enum Levels<Samples> {
@@ -357,10 +357,10 @@ impl Image {
             .map(|header| header.pixel_aspect)
             .next().unwrap_or(1.0); // default value if no headers are found
 
-        let headers : Result<_> = headers.iter().map(Part::allocate).collect();
+        let headers : Result<_> = headers.iter().map(Layer::allocate).collect();
 
         Ok(Image {
-            parts: headers?,
+            layers: headers?,
             display_window,
             pixel_aspect
         })
@@ -371,10 +371,10 @@ impl Image {
     pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
         debug_assert_ne!(line.location.width, 0);
 
-        let part = self.parts.get_mut(line.location.part)
-            .ok_or(Error::invalid("chunk part index"))?;
+        let layer = self.layers.get_mut(line.location.layer)
+            .ok_or(Error::invalid("chunk layer index"))?;
 
-        part.insert_line(line)
+        layer.insert_line(line)
     }
 
     /// Read one line of pixel data from this channel.
@@ -382,17 +382,17 @@ impl Image {
     pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
         debug_assert_ne!(index.width, 0);
 
-        let part = self.parts.get(index.part)
-            .expect("invalid part index");
+        let layer = self.layers.get(index.layer)
+            .expect("invalid layer index");
 
-        part.extract_line(index, write)
+        layer.extract_line(index, write)
     }
 
     /// Create the meta data that describes this image.
     /// May produce invalid meta data. The meta data will be validated just before writing.
     pub fn infer_meta_data(&self) -> MetaData {
-        let headers: Headers = self.parts.iter()
-            .map(|part| part.infer_header(self.display_window, self.pixel_aspect))
+        let headers: Headers = self.layers.iter()
+            .map(|layer| layer.infer_header(self.display_window, self.pixel_aspect))
             .collect();
 
         MetaData::new(headers)
@@ -416,11 +416,11 @@ impl Image {
 
 
 
-impl Part {
+impl Layer {
 
-    /// Allocate an image part ready to be filled with pixel data.
+    /// Allocate an layer ready to be filled with pixel data.
     pub fn allocate(header: &Header) -> Result<Self> {
-        Ok(Part {
+        Ok(Layer {
             data_window: header.data_window,
             screen_window_center: header.screen_window_center,
             screen_window_width: header.screen_window_width,
@@ -433,7 +433,7 @@ impl Part {
         })
     }
 
-    /// Insert one line of pixel data into this image part.
+    /// Insert one line of pixel data into this layer.
     /// Returns an error for invalid index or line contents.
     pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
         debug_assert!(line.location.position.0 + line.location.width <= self.data_window.size.0);
@@ -444,7 +444,7 @@ impl Part {
             .insert_line(line)
     }
 
-    /// Read one line of pixel data from this image part.
+    /// Read one line of pixel data from this layer.
     /// Panics for an invalid index or write error.
     pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
         debug_assert!(index.position.0 + index.width <= self.data_window.size.0);
@@ -455,7 +455,7 @@ impl Part {
             .extract_line(index, write)
     }
 
-    /// Create the meta data that describes this image part.
+    /// Create the meta data that describes this layer.
     /// May produce invalid meta data. The meta data will be validated just before writing.
     pub fn infer_header(&self, display_window: IntRect, pixel_aspect: f32) -> Header {
         let chunk_count = compute_chunk_count(

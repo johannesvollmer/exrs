@@ -1,6 +1,6 @@
 
 //! Contains all meta data attributes.
-//! Each image part can have any number of [`Attribute`]s, including custom attributes.
+//! Each layer can have any number of [`Attribute`]s, including custom attributes.
 
 use smallvec::SmallVec;
 
@@ -61,7 +61,7 @@ pub struct TimeCode {
     user_data: u32,
 }
 
-/// Image part type, specifies block type and deepness.
+/// layer type, specifies block type and deepness.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum BlockType {
     /// Corresponds to the string value `scanlineimage`.
@@ -88,7 +88,7 @@ pub mod block_type_strings {
 
 pub use crate::compression::Compression;
 
-/// The integer rectangle describing where an image part is placed on the infinite 2D global space.
+/// The integer rectangle describing where an layer is placed on the infinite 2D global space.
 pub type DataWindow = IntRect;
 
 /// The integer rectangle limiting part of the infinite 2D global space should be displayed.
@@ -124,7 +124,7 @@ pub struct ChannelList {
     pub bytes_per_pixel: usize, // FIXME only makes sense for flat images!
 }
 
-/// A single channel in an image part.
+/// A single channel in an layer.
 /// Does not contain the actual pixel data,
 /// but instead merely describes it.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -139,7 +139,7 @@ pub struct Channel {
     /// Are the samples in this channel in a linear space or not?
     pub is_linear: bool,
 
-    /// How many of the samples are skipped compared to the other channels in this image part.
+    /// How many of the samples are skipped compared to the other channels in this layer.
     ///
     /// Can be used for chroma subsampling for manual lossy data compression.
     /// Values other than 1 are allowed only in flat, scan-line based images.
@@ -219,7 +219,7 @@ pub struct Preview {
     pub pixel_data: Vec<i8>,
 }
 
-/// Describes how the image part is divided into tiles.
+/// Describes how the layer is divided into tiles.
 /// Specifies the size of each tile in the image
 /// and whether this image contains multiple resolution levels.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

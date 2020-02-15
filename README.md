@@ -49,6 +49,7 @@ __Currently supported:__
         - [ ] dwaa, dwab
 
 - Nice Things
+    - [x] no external dependency or environment variable paths to set up
     - [x] read meta data without having to load image data
     - [x] read all contents at once
         - [x] decompress image sections either 
@@ -130,10 +131,10 @@ __Currently supported:__
     - [x] If the headers include timeCode and chromaticities attributes, then the values of those attributes must also be the same for all parts of a file
     - [x] Scan-line based images cannot be multi-resolution images. (encoded in type system)
     - [x] Scan-line based images cannot have unspecified line order apparently?
-    - [x] Image part name is required for multipart images
+    - [x] layer name is required for multipart images
     - [x] Enforce minimum length of 1 for arrays
     - [x] [Validate data_window matches data size when writing images] is not required because one is inferred from the other
-    - [x] Channel names and image part names must be unique
+    - [x] Channel names and layer names must be unique
     
 - [ ] Explore different APIs
     - [x] Let user decide how to store data
@@ -165,13 +166,13 @@ fn main() {
         Samples::F32(generate_f32_vector(size))
     );
 
-    let layer = simple::Part::new(
+    let layer = simple::Layer::new(
         "test-image".try_into().unwrap(), // layer name
         IntRect::from_dimensions(size.to_u32()), // set position to (0,0) and size to 1025x512
         smallvec![ luma ], // include the one channel we created
     );
     
-    // create an exr file from a single image part (an exr file can have multiple image parts)
+    // create an exr file from a single layer (an exr file can have multiple layers)
     let image = Image::new_from_single_part(layer.with_compression(Compression::RLE));
 
     println!("writing image with meta data {:#?}", image);
@@ -181,7 +182,7 @@ fn main() {
 }
 ```
 
-See the examples folder for a full example.
+See the examples folder for more examples.
 
 
 ### Cleanup Tasks Before Version 1.0

@@ -7,7 +7,7 @@ use std::{fs};
 use exr::math::Vec2;
 use std::cmp::Ordering;
 
-/// For each image part in the exr file,
+/// For each layer in the exr file,
 /// extract each channel as grayscale png,
 /// including all multiresolution levels.
 //
@@ -76,7 +76,7 @@ pub fn convert_to_png() {
     fs::remove_dir_all("testout").unwrap_or_default();
     fs::create_dir("testout").unwrap();
 
-    for (part_index, part) in image.parts.iter().enumerate() {
+    for (part_index, part) in image.layers.iter().enumerate() {
         for channel in &part.channels {
             match &channel.content {
                 ChannelData::F16(levels) => {

@@ -12,7 +12,7 @@ fn print_custom_meta() {
 
     for image_part in meta_data.headers {
         println!(
-            "custom meta data of image part `{}`: {:#?}",
+            "custom meta data of layer `{}`: {:#?}",
             image_part.name.map_or(String::new(), |text| text.to_string()),
             image_part.custom_attributes
         );

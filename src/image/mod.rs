@@ -23,12 +23,12 @@ use std::collections::BTreeMap;
 
 /// Specifies where a block of pixel data should be placed in the actual image.
 /// This is a globally unique identifier which
-/// includes the image part, level index, and pixel location.
+/// includes the layer, level index, and pixel location.
 #[derive(Clone, Copy, Eq, Hash, PartialEq, Debug)]
 pub struct BlockIndex {
 
-    /// Index of the image part.
-    pub part: usize,
+    /// Index of the layer.
+    pub layer: usize,
 
     /// Pixel position of the bottom left corner of the block.
     pub pixel_position: Vec2<usize>,
@@ -70,14 +70,14 @@ pub struct Line<'s> {
 
 /// Specifies where a row of pixels lies inside an image.
 /// This is a globally unique identifier which
-/// includes the image part, channel index, and pixel location.
+/// includes the layer, channel index, and pixel location.
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Hash)]
 pub struct LineIndex {
 
-    /// Index of the image part.
-    pub part: usize,
+    /// Index of the layer.
+    pub layer: usize,
 
-    /// The channel index of the image part.
+    /// The channel index of the layer.
     pub channel: usize,
 
     /// Index of the mip or rip level in the image.
@@ -180,7 +180,7 @@ fn for_lines_in_chunks(chunks: impl Send + Iterator<Item = Result<Chunk>>, meta_
             })?;
 
         for decompressed in receiver {
-            let header = meta_data.headers.get(decompressed.index.part)
+            let header = meta_data.headers.get(decompressed.index.layer)
                 .ok_or(Error::invalid("chunk index"))?;
 
             for (bytes, line) in decompressed.index.line_indices(header) {
@@ -193,7 +193,7 @@ fn for_lines_in_chunks(chunks: impl Send + Iterator<Item = Result<Chunk>>, meta_
     else {
         for chunk in chunks {
             let decompressed = UncompressedBlock::decompress_chunk(chunk?, &meta_data)?;
-            let header = meta_data.headers.get(decompressed.index.part)
+            let header = meta_data.headers.get(decompressed.index.layer)
                 .ok_or(Error::invalid("chunk index"))?;
 
             for (bytes, line) in decompressed.index.line_indices(header) {
@@ -273,12 +273,12 @@ pub fn uncompressed_image_blocks_ordered<'l>(
 ) -> impl Iterator<Item = (usize, UncompressedBlock)> + 'l + Send // TODO reduce sync requirements, at least if parrallel is false
 {
     meta_data.headers.iter().enumerate()
-        .flat_map(move |(part_index, header)|{
+        .flat_map(move |(layer_index, header)|{
             header.enumerate_ordered_blocks().map(move |(chunk_index, tile)|{
                 let data_indices = header.get_absolute_block_indices(tile.location).expect("tile coordinate bug");
 
                 let block_indices = BlockIndex {
-                    part: part_index, level: tile.location.level_index,
+                    layer: layer_index, level: tile.location.level_index,
                     pixel_position: data_indices.start.to_usize("data indices start").expect("data index bug"),
                     pixel_size: data_indices.size,
                 };
@@ -344,7 +344,7 @@ pub fn for_compressed_blocks_in_image(
 
             // the block indices, in the order which must be apparent in the file
             let mut expected_id_order = meta_data.headers.iter().enumerate()
-                .flat_map(|(part, header)| header.enumerate_ordered_blocks().map(move |(chunk, _)| (part, chunk)));
+                .flat_map(|(layer, header)| header.enumerate_ordered_blocks().map(move |(chunk, _)| (layer, chunk)));
 
             // the next id, pulled from expected_id_order: the next block that must be written
             let mut next_id = expected_id_order.next();
@@ -354,7 +354,7 @@ pub fn for_compressed_blocks_in_image(
 
             // receive the compressed blocks
             for (chunk_index, compressed_chunk) in receiver {
-                pending_blocks.insert((compressed_chunk.part_index, chunk_index), compressed_chunk);
+                pending_blocks.insert((compressed_chunk.layer_index, chunk_index), compressed_chunk);
 
                 // write all pending blocks that are immediate successors
                 while let Some(pending_chunk) = next_id.as_ref().and_then(|id| pending_blocks.remove(id)) {
@@ -418,7 +418,7 @@ pub fn write_all_lines_to_buffered(
 
     // line order is respected in here
     for_compressed_blocks_in_image(&meta_data, get_line, parallel, |chunk_index, chunk|{
-        offset_tables[chunk.part_index][chunk_index] = write.byte_position() as u64; // safe indices from `enumerate()`
+        offset_tables[chunk.layer_index][chunk_index] = write.byte_position() as u64; // safe indices from `enumerate()`
         chunk.write(&mut write, meta_data.headers.as_slice())
     })?;
 
@@ -439,11 +439,11 @@ impl BlockIndex {
     /// For each line in this block, this iterator steps once through each channel.
     /// This is how lines are stored in a pixel data block.
     ///
-    /// Does not check whether `self.part_index`, `self.level`, `self.size` and `self.position` are valid indices.__
+    /// Does not check whether `self.layer_index`, `self.level`, `self.size` and `self.position` are valid indices.__
     // TODO be sure this cannot produce incorrect data, as this is not further checked but only handled with panics
     pub fn line_indices(&self, header: &Header) -> impl Iterator<Item=(Range<usize>, LineIndex)> {
         struct LineIter {
-            part: usize, level: Vec2<usize>, width: usize,
+            layer: usize, level: Vec2<usize>, width: usize,
             end_y: usize, x: usize, channel_sizes: SmallVec<[usize; 8]>,
             byte: usize, channel: usize, y: usize,
         };
@@ -461,7 +461,7 @@ impl BlockIndex {
                         (self.byte .. self.byte + byte_len),
                         LineIndex {
                             channel: self.channel,
-                            part: self.part,
+                            layer: self.layer,
                             level: self.level,
                             position: Vec2(self.x, self.y),
                             width: self.width,
@@ -492,7 +492,7 @@ impl BlockIndex {
             .collect();
 
         LineIter {
-            part: self.part,
+            layer: self.layer,
             level: self.level,
             width: self.pixel_size.0,
             x: self.pixel_position.0,
@@ -511,8 +511,8 @@ impl UncompressedBlock {
     /// Decompress the possibly compressed chunk and returns an `UncompressedBlock`.
     // for uncompressed data, the ByteVec in the chunk is moved all the way
     pub fn decompress_chunk(chunk: Chunk, meta_data: &MetaData) -> Result<Self> {
-        let header: &Header = meta_data.headers.get(chunk.part_index)
-            .ok_or(Error::invalid("chunk part index"))?;
+        let header: &Header = meta_data.headers.get(chunk.layer_index)
+            .ok_or(Error::invalid("chunk layer index"))?;
 
         let tile_data_indices = header.get_block_data_indices(&chunk.block)?;
         let absolute_indices = header.get_absolute_block_indices(tile_data_indices)?;
@@ -524,7 +524,7 @@ impl UncompressedBlock {
             Block::ScanLine(ScanLineBlock { compressed_pixels, .. }) => Ok(UncompressedBlock {
                 data: header.compression.decompress_image_section(header, compressed_pixels, absolute_indices)?,
                 index: BlockIndex {
-                    part: chunk.part_index,
+                    layer: chunk.layer_index,
                     pixel_position: absolute_indices.start.to_usize("data indices start")?,
                     level: tile_data_indices.level_index,
                     pixel_size: absolute_indices.size,
@@ -540,8 +540,8 @@ impl UncompressedBlock {
     pub fn compress_to_chunk(self, meta_data: &MetaData) -> Result<Chunk> {
         let UncompressedBlock { data, index } = self;
 
-        let header: &Header = meta_data.headers.get(index.part)
-            .expect("block part index bug");
+        let header: &Header = meta_data.headers.get(index.layer)
+            .expect("block layer index bug");
 
         let expected_byte_size = header.channels.bytes_per_pixel * self.index.pixel_size.area(); // TODO sampling??
         if expected_byte_size != data.len() {
@@ -551,7 +551,7 @@ impl UncompressedBlock {
         let compressed_data = header.compression.compress_image_section(data)?;
 
         Ok(Chunk {
-            part_index: index.part,
+            layer_index: index.layer,
             block : match header.blocks {
                 Blocks::ScanLines => Block::ScanLine(ScanLineBlock {
                     compressed_pixels: compressed_data,

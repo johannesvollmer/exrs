@@ -56,7 +56,7 @@ fn analyze_image() {
         ) },
 
         |averages, line| {
-            let part = &mut averages[line.location.part];
+            let part = &mut averages[line.location.layer];
             let channel = &mut part.channels[line.location.channel];
             let channel_sample_count = part.data_window.size.area() as f32;
 
