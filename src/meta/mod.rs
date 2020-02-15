@@ -414,7 +414,7 @@ pub fn compute_chunk_count(compression: Compression, data_window: IntRect, block
         }
     }
 
-    // scan line blocks never have mip maps // TODO check if this is true
+    // scan line blocks never have mip maps
     else {
         compute_block_count(data_size.1, compression.scan_lines_per_block())
     }
