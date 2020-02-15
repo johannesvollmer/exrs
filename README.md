@@ -42,7 +42,6 @@ __Currently supported:__
           including files with deep data and any compression format
     - [ ] channel subsampling
     - [ ] deep data
-        
     - [ ] compression methods (help wanted)
         - [x] uncompressed
         - [x] zip line
