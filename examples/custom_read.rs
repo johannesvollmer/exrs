@@ -34,12 +34,12 @@ fn analyze_image() {
 
     let averages = image::read_filtered_lines_from_buffered(
         file, true,
-        |header, tile| {
+        |_header, tile| {
             // do not worry about multiresolution levels
             tile.location.level_index == Vec2(0,0)
         },
 
-        |headers| -> exr::prelude::Result<Vec<Layer>> { Ok(
+        |headers| -> exr::error::Result<Vec<Layer>> { Ok(
             headers.iter()
                 .map(|header| Layer {
                     name: header.name.clone(),
