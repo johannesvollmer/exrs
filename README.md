@@ -152,9 +152,15 @@ please leave an issue on this repository, containing the image file.
 
 ### Usage
 
+Add this to your `Cargo.toml`:
 ```toml
 [dependencies]
 exr = "0.6.0"
+
+# also, optionally add this to your crate for smaller binary size 
+# and better runtime performance
+[profile.release]
+lto = true
 ```
 
 The master branch of this repository is always an up-to-date version.
