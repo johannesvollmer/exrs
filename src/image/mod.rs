@@ -95,7 +95,7 @@ impl<'s> Line<'s> {
     /// Read the values of this line into a slice of samples.
     /// Panics if the slice is not as long as `self.location.width`.
     pub fn read_samples<T: crate::io::Data>(&self, slice: &mut [T]) -> PassiveResult {
-        debug_assert_eq!(slice.len(), self.location.width);
+        debug_assert_eq!(slice.len(), self.location.width, "line value width bug");
         T::read_slice(&mut self.value.clone(), slice)
     }
 
@@ -285,11 +285,11 @@ pub fn uncompressed_image_blocks_ordered<'l>(
 
                 let mut block_bytes = Vec::with_capacity(header.max_block_byte_size());
                 for (byte_range, line_index) in block_indices.line_indices(header) {
-                    debug_assert_eq!(byte_range.start, block_bytes.len());
+                    debug_assert_eq!(byte_range.start, block_bytes.len(), "line_indices byte range calculation bug");
 
                     get_line(line_index, &mut block_bytes);
 
-                    debug_assert_eq!(byte_range.end, block_bytes.len());
+                    debug_assert_eq!(byte_range.end, block_bytes.len(), "line_indices byte range calculation bug");
                 }
 
                 // byte length is validated in block::compress_to_chunk

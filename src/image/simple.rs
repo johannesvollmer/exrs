@@ -421,7 +421,7 @@ impl Image {
     /// Insert one line of pixel data into this image.
     /// Returns an error for invalid index or line contents.
     pub fn insert_line(&mut self, line: Line<'_>) -> PassiveResult {
-        debug_assert_ne!(line.location.width, 0);
+        debug_assert_ne!(line.location.width, 0, "line width calculation bug");
 
         let layer = self.layers.get_mut(line.location.layer)
             .ok_or(Error::invalid("chunk part index"))?;
@@ -432,7 +432,7 @@ impl Image {
     /// Read one line of pixel data from this channel.
     /// Panics for an invalid index or write error.
     pub fn extract_line(&self, index: LineIndex, write: &mut impl Write) {
-        debug_assert_ne!(index.width, 0);
+        debug_assert_ne!(index.width, 0, "line width calculation bug");
 
         let layer = self.layers.get(index.layer)
             .expect("invalid part index");

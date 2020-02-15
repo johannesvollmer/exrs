@@ -17,7 +17,7 @@ pub fn skip_bytes(read: &mut impl Read, count: usize) -> IoResult<()> {
         &mut std::io::sink()
     )?;
 
-    debug_assert_eq!(skipped, count as u64);
+    debug_assert_eq!(skipped, count as u64, "skip bytes bug");
     Ok(())
 }
 

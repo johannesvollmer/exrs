@@ -315,7 +315,7 @@ impl Text {
 
     /// Write the length of a string and then the contents with that length.
     pub fn write_i32_sized<W: Write>(&self, write: &mut W) -> PassiveResult {
-        debug_assert!(self.validate( false, None).is_ok());
+        debug_assert!(self.validate( false, None).is_ok(), "text size bug");
         i32::write(usize_to_i32(self.bytes.len()), write)?;
         Self::write_unsized_bytes(self.bytes.as_slice(), write)
     }
@@ -358,7 +358,7 @@ impl Text {
 
     /// Write the string contents and a null-terminator.
     fn write_null_terminated_bytes<W: Write>(bytes: &[u8], write: &mut W) -> PassiveResult {
-        debug_assert!(!bytes.is_empty(), "text is empty"); // required to avoid mixup with "sequece_end"
+        debug_assert!(!bytes.is_empty(), "text is empty bug"); // required to avoid mixup with "sequece_end"
 
         Text::write_unsized_bytes(bytes, write)?;
         sequence_end::write(write)?;

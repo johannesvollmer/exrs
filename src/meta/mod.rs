@@ -759,7 +759,7 @@ impl Header {
     pub fn validate(&self, requirements: &Requirements, strict: bool) -> PassiveResult {
         debug_assert_eq!(
             self.chunk_count, compute_chunk_count(self.compression, self.data_window, self.blocks),
-            "chunk count attribute not corretly set"
+            "chunk count attribute not correctly set"
         );
 
         if strict && requirements.is_multilayer() {

@@ -166,7 +166,7 @@ use crate::meta::{Header, MetaData, Blocks, calculate_block_size};
 
 impl ScanLineBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        debug_assert_ne!(self.compressed_pixels.len(), 0, "empty blocks should not be put in the file");
+        debug_assert_ne!(self.compressed_pixels.len(), 0, "empty blocks should not be put in the file bug");
 
         i32::write(self.y_coordinate, write)?;
         u8::write_i32_sized_slice(write, &self.compressed_pixels)?;
@@ -182,7 +182,7 @@ impl ScanLineBlock {
 
 impl TileBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        debug_assert_ne!(self.compressed_pixels.len(), 0, "empty blocks should not be put in the file");
+        debug_assert_ne!(self.compressed_pixels.len(), 0, "empty blocks should not be put in the file bug");
 
         self.coordinates.write(write)?;
         u8::write_i32_sized_slice(write, &self.compressed_pixels)?;
@@ -198,7 +198,7 @@ impl TileBlock {
 
 impl DeepScanLineBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        debug_assert_ne!(self.compressed_sample_data.len(), 0, "empty blocks should not be put in the file");
+        debug_assert_ne!(self.compressed_sample_data.len(), 0, "empty blocks should not be put in the file bug");
 
         i32::write(self.y_coordinate, write)?;
         u64::write(self.compressed_pixel_offset_table.len() as u64, write)?;
@@ -238,7 +238,7 @@ impl DeepScanLineBlock {
 
 impl DeepTileBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        debug_assert_ne!(self.compressed_sample_data.len(), 0, "empty blocks should not be put in the file");
+        debug_assert_ne!(self.compressed_sample_data.len(), 0, "empty blocks should not be put in the file bug");
 
         self.coordinates.write(write)?;
         u64::write(self.compressed_pixel_offset_table.len() as u64, write)?;
@@ -280,7 +280,7 @@ use crate::math::Vec2;
 /// Validation of chunks is done while reading and writing the actual data. (For example in exr::full_image)
 impl Chunk {
     pub fn write(&self, write: &mut impl Write, headers: &[Header]) -> PassiveResult {
-        debug_assert!(self.layer_index < headers.len()); // validation is done in full_image or simple_image
+        debug_assert!(self.layer_index < headers.len(), "layer index bug"); // validation is done in full_image or simple_image
 
         if headers.len() != 1 { i32::write(self.layer_index as i32, write)?; }
         else { assert_eq!(self.layer_index, 0); }
