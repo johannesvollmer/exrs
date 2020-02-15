@@ -6,10 +6,13 @@ edition = "2018"
 
 description = "Read and write OpenEXR files without any unsafe code"
 repository = "https://github.com/johannesvollmer/exrs"
+documentation = "https://docs.rs/crate/exrs/"
 readme = "README.md"
-license = "LICENSE.md"
+license-file = "LICENSE.md"
 keywords = ["exr", "openexr", "file", "binary", "io"]
 categories = ["encoding", "filesystem", "graphics", "multimedia"]
+
+[badges]
 maintenance = { status = "actively-maintained" }
 
 [lib]
