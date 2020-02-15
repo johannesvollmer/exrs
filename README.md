@@ -1,9 +1,14 @@
+[![Rust Docs](https://docs.rs/exr/badge.svg)](https://docs.rs/exr) 
+[![Crate Crate](https://img.shields.io/crates/v/exr.svg)](https://crates.io/crates/exr) 
+[![Rust Lang Version](https://img.shields.io/badge/rustc-1.40+-lightgray.svg)](https://blog.rust-lang.org/2019/12/19/Rust-1.40.0.html) 
+
 # exrs (exr-rs)
 
 This library is a 100% Rust and 100% safe code 
 encoding and decoding library for the OpenEXR image file format.
+See [the examples](https://github.com/johannesvollmer/exrs/tree/master/examples) for a first impression.
 
-[OpenEXR](http://www.openexr.com/) 
+[OpenEXR](http://www.openexr.com/)
 is the de-facto standard image format in animation, VFX, and 
 other computer graphics pipelines, for it can represent an immense variety of pixel data with lossless compression. 
 
@@ -61,6 +66,10 @@ __Currently supported:__
     - [ ] progress callback
     - [ ] memory mapping
     
+
+If you encounter an exr file that cannot be opened by this crate, 
+please leave an issue on this repository, containing the image file.
+
     
 <!--
 - [x] Inspecting Metadata
@@ -144,11 +153,9 @@ __Currently supported:__
 
 ### Usage
 
-Until we have a package on crates.io, include this git repository:
-
 ```toml
 [dependencies]
-exr = { git = "http://github.com/johannesvollmer/exrs" }
+exr = "0.6.0"
 ```
 
 The master branch of this repository is always an up-to-date version.
@@ -156,6 +163,7 @@ The master branch of this repository is always an up-to-date version.
 ### Example
 
 Example: Write all image contents to an exr file at once.
+
 ```rust
 fn main() {
     let size = Vec2(1024, 512);
