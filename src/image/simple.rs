@@ -237,11 +237,7 @@ impl Image {
     /// Consider using `Image::from_single_part` for simpler cases.
     /// Use the raw `Image { .. }` constructor for more complex cases.
     pub fn new_from_parts(parts: ImageParts, display_window: IntRect) -> Self {
-        Self {
-            parts: parts,
-            display_window,
-            pixel_aspect: 1.0,
-        }
+        Self { parts, display_window, pixel_aspect: 1.0, }
     }
 
 
@@ -256,6 +252,10 @@ impl Image {
     /// Buffer the reader and then read the exr image from it.
     /// Use `read_from_buffered` instead, if your reader is an in-memory reader.
     /// Use `read_from_file` instead, if you have a file path.
+    ///
+    ///
+    /// _Note: If you encounter a reader that is not send or not seek,
+    /// open an issue on the github repository._
     #[must_use]
     pub fn read_from_unbuffered(unbuffered: impl Read + Send + Seek, options: ReadOptions) -> Result<Self> { // TODO not need be seek nor send
         Self::read_from_buffered(BufReader::new(unbuffered), options)
@@ -264,6 +264,10 @@ impl Image {
     /// Read the exr image from a reader.
     /// Use `read_from_file` instead, if you have a file path.
     /// Use `read_from_unbuffered` instead, if this is not an in-memory reader.
+    ///
+    ///
+    /// _Note: If you encounter a reader that is not send or not seek,
+    /// open an issue on the github repository._
     #[must_use]
     pub fn read_from_buffered(read: impl Read + Send + Seek, options: ReadOptions) -> Result<Self> { // TODO not need be seek nor send
         let mut image: Image = crate::image::read_filtered_lines_from_buffered(
