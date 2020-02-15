@@ -326,7 +326,8 @@ impl ImagePart {
 
     /// Create a new image part with all required fields.
     /// Uses scan line blocks, and no custom attributes.
-    /// Use `ImagePart::with_encoding` to further configure the file.
+    /// Use `ImagePart::with_compression` or `ImagePart::with_block_format`
+    /// to further configure the file.
     ///
     /// Panics if anything is invalid or missing.
     /// Will sort channels to correct order if necessary.
@@ -356,9 +357,15 @@ impl ImagePart {
         }
     }
 
-    /// Set compression, tiling, and line order.
-    pub fn with_encoding(self, compression: Compression, tiles: Option<Vec2<usize>>, line_order: LineOrder) -> Self {
-        Self { compression, tiles, line_order, .. self }
+    /// Specify how the image is split into blocks in the file.
+    /// See `Image::tiles` and `Image::line_order` for more information.
+    pub fn with_block_format(self, tiles: Option<Vec2<usize>>, line_order: LineOrder) -> Self {
+        Self { tiles, line_order, .. self }
+    }
+
+    /// Set the compression of this image part.
+    pub fn with_compression(self, compression: Compression) -> Self {
+        Self { compression, .. self }
     }
 }
 

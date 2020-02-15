@@ -159,21 +159,24 @@ Example: Write all image contents to an exr file at once.
 fn main() {
     let size = Vec2(1024, 512);
 
+    // create a channel containing 1024x512 f32 values
     let luma = Channel::new_linear(
-        "Y".try_into().unwrap(),
+        "Y".try_into().unwrap(), // OpenEXR only supports ascii, so this may fail
         Samples::F32(generate_f32_vector(size))
     );
 
-    let image = Image::new_from_single_part(simple::Part::new(
-        "test-image".try_into().unwrap(),
-        Compression::RLE,
-
-        IntRect::from_dimensions(size.to_u32()),
-        smallvec![ luma ],
-    ));
+    let layer = simple::Part::new(
+        "test-image".try_into().unwrap(), // layer name
+        IntRect::from_dimensions(size.to_u32()), // set position to (0,0) and size to 1025x512
+        smallvec![ luma ], // include the one channel we created
+    );
+    
+    // create an exr file from a single image part (an exr file can have multiple image parts)
+    let image = Image::new_from_single_part(layer.with_compression(Compression::RLE));
 
     println!("writing image with meta data {:#?}", image);
 
+    // write the image, compressing in parallel with all available cpus
     image.write_to_file("./testout/constructed.exr", WriteOptions::high()).unwrap();
 }
 ```

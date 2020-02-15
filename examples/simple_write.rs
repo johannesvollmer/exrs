@@ -51,7 +51,9 @@ fn write_noisy_hdr() {
         smallvec![ r, g, b ],
     );
 
-    let part = part.with_encoding(Compression::RLE, None, attributes::LineOrder::Increasing);
+    let part = part.with_compression(Compression::RLE)
+        .with_block_format(None, attributes::LineOrder::Increasing); // apparently, some software only supports increasing line order
+
     let image = Image::new_from_single_part(part);
 
     println!("writing image {:#?}", image);
