@@ -126,18 +126,17 @@ __Currently supported:__
 - [ ] IO Progress callback?
 - [ ] SIMD
 - [ ] Detailed file validation
-    - [ ] Channels with an x or y sampling rate other than 1 are allowed only in flat, scan-line based images.
-    - [ ] If an image is deep or tiled, then the x and y sampling rates for all of its channels must be 1.
-    - [ ] If the headers include timeCode and chromaticities attributes, then the values of those attributes must also be the same for all parts of a file
-    - [ ] Scan-line based images cannot be multi-resolution images.
-    - [ ] Scan-line based images cannot have unspecified line order?
+    - [x] Channels with an x or y sampling rate other than 1 are allowed only in flat, scan-line based images.
+    - [x] If the headers include timeCode and chromaticities attributes, then the values of those attributes must also be the same for all parts of a file
+    - [x] Scan-line based images cannot be multi-resolution images. (encoded in type system)
+    - [x] Scan-line based images cannot have unspecified line order apparently?
     - [x] Image part name is required for multipart images
-    - [ ] Enforce minimum length of 1 for arrays
+    - [x] Enforce minimum length of 1 for arrays
     - [x] [Validate data_window matches data size when writing images] is not required because one is inferred from the other
     - [x] Channel names and image part names must be unique
     
 - [ ] Explore different APIs
-    - [ ] Let user decide how to store data
+    - [x] Let user decide how to store data
     - [x] Loading Metadata and specific tiles or blocks separately
 -->
     

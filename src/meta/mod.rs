@@ -12,7 +12,7 @@ use crate::error::*;
 use std::fs::File;
 use std::io::{BufReader};
 use crate::math::*;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 
 
 
@@ -472,13 +472,19 @@ impl MetaData {
     #[must_use]
     pub(crate) fn read_from_buffered_peekable(read: &mut PeekRead<impl Read>) -> Result<Self> {
         let meta_data = Self::read_unvalidated_from_buffered_peekable(read)?;
-        meta_data.validate()?;
+
+        // relaxed validation to allow slightly invalid files
+        // that still can be read correctly
+        meta_data.validate(false)?;
+
         Ok(meta_data)
     }
 
     /// Validates the meta data and writes it to the stream.
     pub(crate) fn write_validating_to_buffered(&self, write: &mut impl Write) -> PassiveResult {
-        self.validate()?;
+        // pedantic validation to not allow slightly invalid files
+        // that still could be read correctly in theory
+        self.validate(true)?;
 
         magic_number::write(write)?;
         self.requirements.write(write)?;
@@ -501,8 +507,9 @@ impl MetaData {
         Ok(chunk_count)
     }
 
-    // TODO also check for writing valid files
-    pub fn validate(&self) -> PassiveResult {
+    /// Validates this meta data.
+    /// Set strict to false when reading and true when writing for maximum compatibility.
+    pub fn validate(&self, strict: bool) -> PassiveResult {
         self.requirements.validate()?;
 
         let headers = self.headers.len();
@@ -511,11 +518,30 @@ impl MetaData {
             return Err(Error::invalid("at least one image part is required"));
         }
 
-        {   // check for duplicate header names
+        if strict { // check for duplicate header names
             let mut header_names = HashSet::with_capacity(headers);
             for header in &self.headers {
                 if !header_names.insert(&header.name) {
                     return Err(Error::invalid("duplicate image part name"));
+                }
+            }
+        }
+
+        if strict && headers > 1 { // check for attributes that should not differ in between headers
+            fn get_attributes(header: &'_ Header) -> HashMap<&'_ [u8], &'_ AnyValue> {
+                header.custom_attributes.iter()
+                    // if the headers include timeCode and chromaticities attributes, then the values of those attributes must be the same for all parts of a file
+                    .filter(|attribute| attribute.value.to_time_code().is_ok() || attribute.value.to_chromaticities().is_ok())
+                    .map(|attribute| (attribute.name.bytes(), &attribute.value))
+                    .collect()
+            };
+
+            let first_header_attributes = get_attributes(self.headers.first().expect("header count validation bug"));
+
+            for header in &self.headers[1..] {
+                let attributes = get_attributes(header);
+                if attributes != first_header_attributes {
+                    return Err(Error::invalid("chromaticities and time code attributes must be equal for all headers"))
                 }
             }
         }
@@ -527,7 +553,7 @@ impl MetaData {
         }
 
         for header in &self.headers {
-            header.validate(&self.requirements)?;
+            header.validate(&self.requirements, strict)?;
         }
 
         Ok(())
@@ -737,25 +763,32 @@ impl Header {
         }
     }
 
-    pub fn validate(&self, requirements: &Requirements) -> PassiveResult {
+    pub fn validate(&self, requirements: &Requirements, strict: bool) -> PassiveResult {
         debug_assert_eq!(
             self.chunk_count, compute_chunk_count(self.compression, self.data_window, self.blocks),
             "chunk count attribute not corretly set"
         );
 
-        if requirements.is_multipart() {
+        if strict && requirements.is_multipart() {
             if self.name.is_none() { // TODO only be pedantic on write, but not on read?
                 return Err(missing_attribute("image part name"));
             }
         }
 
-        self.channels.validate()?;
+        // TODO is this really a required?
+        if strict && self.blocks == Blocks::ScanLines && self.line_order == LineOrder::Unspecified {
+            return Err(Error::invalid("scan line images cannot have an unspecified line order"));
+        }
+
+        let allow_subsampling = !self.deep && self.blocks == Blocks::ScanLines;
+
+        self.channels.validate(allow_subsampling, strict)?;
         for attribute in &self.custom_attributes {
-            attribute.validate(requirements.has_long_names)?;
+            attribute.validate(requirements.has_long_names, allow_subsampling, strict)?;
         }
 
         if self.deep {
-            if self.name.is_none() { // TODO only be pedantic on write, but not on read?
+            if strict && self.name.is_none() {
                 return Err(missing_attribute("image part name"));
             }
 
@@ -765,18 +798,13 @@ impl Header {
                 None => return Err(missing_attribute("deep data version")),
             }
 
-            // make maxSamplesPerPixel optional because some files don't have it
-            /*if self.indices.max_samples_per_pixel.is_none() {
-                return Err(Invalid::Missing(Value::Attribute("maxSamplesPerPixel (for deepdata)")).into());
-            }*/
+            if strict && self.max_samples_per_pixel.is_none() {
+                return Err(Error::invalid("missing max samples per pixel attribute for deepdata"));
+            }
 
-//            if !self.compression.supports_deep_data() {
-//                return Err(Error::invalid("compress deep data"))
-//                return Err(Invalid::Content(
-//                    Value::Attribute("compression (for deepdata)"),
-//                    Required::OneOf(&["none", "rle", "zips", "zip"])
-//                ).into());
-//            }
+            if !self.compression.supports_deep_data() {
+                return Err(Error::invalid("compression method does not support deep data"));
+            }
         }
 
         Ok(())

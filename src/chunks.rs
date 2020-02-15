@@ -168,6 +168,8 @@ use crate::meta::{Header, MetaData, Blocks, calculate_block_size};
 
 impl ScanLineBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+        debug_assert_ne!(self.compressed_pixels.len(), 0, "empty blocks should not be put in the file");
+
         i32::write(self.y_coordinate, write)?;
         u8::write_i32_sized_slice(write, &self.compressed_pixels)?;
         Ok(())
@@ -182,6 +184,8 @@ impl ScanLineBlock {
 
 impl TileBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+        debug_assert_ne!(self.compressed_pixels.len(), 0, "empty blocks should not be put in the file");
+
         self.coordinates.write(write)?;
         u8::write_i32_sized_slice(write, &self.compressed_pixels)?;
         Ok(())
@@ -196,6 +200,8 @@ impl TileBlock {
 
 impl DeepScanLineBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+        debug_assert_ne!(self.compressed_sample_data.len(), 0, "empty blocks should not be put in the file");
+
         i32::write(self.y_coordinate, write)?;
         u64::write(self.compressed_pixel_offset_table.len() as u64, write)?;
         u64::write(self.compressed_sample_data.len() as u64, write)?; // TODO just guessed
@@ -235,6 +241,8 @@ impl DeepScanLineBlock {
 
 impl DeepTileBlock {
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+        debug_assert_ne!(self.compressed_sample_data.len(), 0, "empty blocks should not be put in the file");
+
         self.coordinates.write(write)?;
         u64::write(self.compressed_pixel_offset_table.len() as u64, write)?;
         u64::write(self.compressed_sample_data.len() as u64, write)?; // TODO just guessed

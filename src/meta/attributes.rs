@@ -701,12 +701,16 @@ impl Channel {
         })
     }
 
-    pub fn validate(&self) -> PassiveResult {
-        if self.sampling.0 == 0 || self.sampling.1 == 0 {
+    pub fn validate(&self, allow_sampling: bool, strict: bool) -> PassiveResult {
+        if strict && (self.sampling.0 == 0 || self.sampling.1 == 0) {
             return Err(Error::invalid("zero sampling factor"));
         }
 
-        if self.sampling.0 != 1 || self.sampling.1 != 1 {
+        if strict && allow_sampling && self.sampling != Vec2(1,1) {
+            return Err(Error::invalid("sub sampling is only allowed in flat scan line images"));
+        }
+
+        if self.sampling != Vec2(1,1) {
             // TODO this must only be implemented in the crate::image module and child modules,
             //      should not be too difficult
 
@@ -743,13 +747,13 @@ impl ChannelList {
     }
 
     /// Check if channels are valid and sorted.
-    pub fn validate(&self) -> PassiveResult {
-        let mut iter = self.list.iter().map(|chan| chan.validate().map(|_| &chan.name));
+    pub fn validate(&self, allow_sampling: bool, strict: bool) -> PassiveResult {
+        let mut iter = self.list.iter().map(|chan| chan.validate(allow_sampling, strict).map(|_| &chan.name));
         let mut previous = iter.next().ok_or(Error::invalid("at least one channel is required"))??;
 
         for result in iter {
             let value = result?;
-            if previous == value { return Err(Error::invalid("channel names are not unique")); }
+            if strict && previous == value { return Err(Error::invalid("channel names are not unique")); }
             else if previous > value { return Err(Error::invalid("channel names are not sorted alphabetically")); }
             else { previous = value; }
         }
@@ -955,8 +959,8 @@ impl Preview {
         Ok(preview)
     }
 
-    pub fn validate(&self) -> PassiveResult {
-        if self.size.0 * self.size.1 * 4 != self.pixel_data.len() {
+    pub fn validate(&self, strict: bool) -> PassiveResult {
+        if strict && (self.size.0 * self.size.1 * 4 != self.pixel_data.len()) {
             return Err(Error::invalid("preview dimensions do not match content length"))
         }
 
@@ -1064,9 +1068,9 @@ impl Attribute {
         Ok(Attribute { name, value, })
     }
 
-    pub fn validate(&self, long_names: bool) -> PassiveResult {
+    pub fn validate(&self, long_names: bool, allow_sampling: bool, strict: bool) -> PassiveResult {
         self.name.validate(true, Some(long_names))?; // only name text has length restriction
-        self.value.validate() // attribute value text length is never restricted
+        self.value.validate(allow_sampling, strict) // attribute value text length is never restricted
     }
 }
 
@@ -1276,13 +1280,18 @@ impl AnyValue {
         })
     }
 
-    pub fn validate(&self) -> PassiveResult {
+    pub fn validate(&self, allow_sampling: bool, strict: bool) -> PassiveResult {
         use self::AnyValue::*;
 
         match *self {
-            ChannelList(ref channels) => channels.validate()?,
+            ChannelList(ref channels) => channels.validate(allow_sampling, strict)?,
             TileDescription(ref value) => value.validate()?,
-            Preview(ref value) => value.validate()?,
+            Preview(ref value) => value.validate(strict)?,
+
+            TextVector(ref vec) => if strict && vec.is_empty() {
+                return Err(Error::invalid("text vector may not be empty"))
+            },
+
             _ => {}
         };
 
