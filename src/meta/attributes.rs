@@ -285,28 +285,22 @@ impl Text {
     }
 
     /// Check whether this string is valid, considering the maximum text length.
-    pub fn validate(&self, long_names: Option<bool>) -> PassiveResult {
-        Self::validate_bytes(self.bytes(), long_names)
+    pub fn validate(&self, null_terminated: bool, long_names: Option<bool>) -> PassiveResult {
+        Self::validate_bytes(self.bytes(), null_terminated, long_names)
     }
 
     /// Check whether some bytes are valid, considering the maximum text length.
-    pub fn validate_bytes(text: &[u8], long_names: Option<bool>) -> PassiveResult {
-        let is_valid = !text.is_empty() && match long_names {
-            Some(false) => text.len() < 32,
-            Some(true) => text.len() < 256,
-            None => true,
-        };
+    pub fn validate_bytes(text: &[u8], null_terminated: bool, long_names: Option<bool>) -> PassiveResult {
+        if null_terminated && text.is_empty() {
+            return Err(Error::invalid("text must not be empty"));
+        }
 
-        if is_valid {
-            Ok(())
+        if let Some(long) = long_names {
+            if long && text.len() >= 256 { return Err(Error::invalid("text must not be longer than 255")); }
+            if !long && text.len() >= 32 { return Err(Error::invalid("text must not be longer than 31")); }
         }
-        else {
-            match long_names {
-                Some(true) => Err(Error::invalid("text longer than 255")),
-                Some(false) => Err(Error::invalid("text longer than 31")),
-                None => Err(Error::invalid("text is empty"))
-            }
-        }
+
+        Ok(())
     }
 
     /// The byte count this string would occupy if it were encoded as a null-terminated string.
@@ -320,13 +314,14 @@ impl Text {
     }
 
     /// Write the length of a string and then the contents with that length.
-    pub fn write_i32_sized<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> PassiveResult {
+    pub fn write_i32_sized<W: Write>(&self, write: &mut W) -> PassiveResult {
+        debug_assert!(self.validate( false, None).is_ok());
         i32::write(usize_to_i32(self.bytes.len()), write)?;
-        Self::write_unsized_bytes(self.bytes.as_slice(), write, long_names)
+        Self::write_unsized_bytes(self.bytes.as_slice(), write)
     }
 
-    fn write_unsized_bytes<W: Write>(bytes: &[u8], write: &mut W, long_names: Option<bool>) -> PassiveResult {
-        Text::validate_bytes(bytes, long_names)?;
+    /// Assumes is valid.
+    fn write_unsized_bytes<W: Write>(bytes: &[u8], write: &mut W) -> PassiveResult {
         u8::write_slice(write, bytes)?;
         Ok(())
     }
@@ -357,14 +352,15 @@ impl Text {
     }
 
     /// Write the string contents and a null-terminator.
-    pub fn write_null_terminated<W: Write>(&self, write: &mut W, long_names: Option<bool>) -> PassiveResult {
-        Self::write_null_terminated_bytes(self.bytes(), write, long_names)
+    pub fn write_null_terminated<W: Write>(&self, write: &mut W) -> PassiveResult {
+        Self::write_null_terminated_bytes(self.bytes(), write)
     }
 
     /// Write the string contents and a null-terminator.
-    fn write_null_terminated_bytes<W: Write>(bytes: &[u8], write: &mut W, long_names: Option<bool>) -> PassiveResult {
-        if bytes.is_empty() { return Err(Error::invalid("text is empty")) } // required to avoid mixup with "sequece_end"
-        Text::write_unsized_bytes(bytes, write, long_names)?;
+    fn write_null_terminated_bytes<W: Write>(bytes: &[u8], write: &mut W) -> PassiveResult {
+        debug_assert!(!bytes.is_empty(), "text is empty"); // required to avoid mixup with "sequece_end"
+
+        Text::write_unsized_bytes(bytes, write)?;
         sequence_end::write(write)?;
         Ok(())
     }
@@ -419,7 +415,7 @@ impl Text {
     fn write_vec_of_i32_sized_texts<W: Write>(write: &mut W, texts: &[Text]) -> PassiveResult {
         // length of the text-vector can be inferred from attribute size
         for text in texts {
-            text.write_i32_sized(write, None)?;
+            text.write_i32_sized(write)?;
         }
 
         Ok(())
@@ -668,8 +664,8 @@ impl Channel {
             + 2 * u32::BYTE_SIZE // sampling x, y
     }
 
-    pub fn write<W: Write>(&self, write: &mut W, long_names: bool) -> PassiveResult {
-        Text::write_null_terminated(&self.name, write, Some(long_names))?;
+    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+        Text::write_null_terminated(&self.name, write)?;
         self.pixel_type.write(write)?;
 
         match self.is_linear {
@@ -727,10 +723,10 @@ impl ChannelList {
         self.list.iter().map(Channel::byte_size).sum::<usize>() + sequence_end::byte_size()
     }
 
-    /// Assumes channels are sorted alphabetically.
-    pub fn write(&self, write: &mut impl Write, long_names: bool) -> PassiveResult {
+    /// Assumes channels are sorted alphabetically and all values are validated.
+    pub fn write(&self, write: &mut impl Write) -> PassiveResult {
         for channel in &self.list {
-            channel.write(write, long_names)?;
+            channel.write(write)?;
         }
 
         sequence_end::write(write)?;
@@ -1052,11 +1048,11 @@ impl Attribute {
             + self.value.byte_size()
     }
 
-    pub fn write<W: Write>(&self, write: &mut W, long_names: bool) -> PassiveResult {
-        self.name.write_null_terminated(write, Some(long_names))?;
-        Text::write_null_terminated_bytes(self.value.kind_name(), write, Some(long_names))?;
+    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+        self.name.write_null_terminated(write)?;
+        Text::write_null_terminated_bytes(self.value.kind_name(), write)?;
         i32::write(self.value.byte_size() as i32, write)?;
-        self.value.write(write, long_names)
+        self.value.write(write)
     }
 
     // TODO parse lazily, always skip size, ... ?
@@ -1068,8 +1064,9 @@ impl Attribute {
         Ok(Attribute { name, value, })
     }
 
-    pub fn validate(&self) -> PassiveResult {
-        self.value.validate()
+    pub fn validate(&self, long_names: bool) -> PassiveResult {
+        self.name.validate(true, Some(long_names))?; // only name text has length restriction
+        self.value.validate() // attribute value text length is never restricted
     }
 }
 
@@ -1153,7 +1150,7 @@ impl AnyValue {
         }
     }
 
-    pub fn write<W: Write>(&self, write: &mut W, long_names: bool) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         use self::AnyValue::*;
         match *self {
             IntRect(value) => value.write(write)?,
@@ -1171,7 +1168,7 @@ impl AnyValue {
             IntVec3((x, y, z)) => { x.write(write)?; y.write(write)?; z.write(write)?; },
             FloatVec3((x, y, z)) => { x.write(write)?; y.write(write)?; z.write(write)?; },
 
-            ChannelList(ref channels) => channels.write(write, long_names)?,
+            ChannelList(ref channels) => channels.write(write)?,
             Chromaticities(ref value) => value.write(write)?,
             Compression(value) => value.write(write)?,
             EnvironmentMap(value) => value.write(write)?,
@@ -1182,7 +1179,7 @@ impl AnyValue {
             F32Matrix3x3(mut value) => f32::write_slice(write, &mut value)?,
             F32Matrix4x4(mut value) => f32::write_slice(write, &mut value)?,
 
-            Preview(ref value) => { value.validate()?; value.write(write)?; },
+            Preview(ref value) => { value.write(write)?; },
 
             // attribute value texts never have limited size.
             // also, don't serialize size, as it can be inferred from attribute size
@@ -1292,6 +1289,7 @@ impl AnyValue {
         Ok(())
     }
 
+    /// Return `Ok(TileDescription)` if this attribute is a tile description.
     pub fn to_tile_description(&self) -> Result<TileDescription> {
         match *self {
             AnyValue::TileDescription(value) => Ok(value),
@@ -1299,6 +1297,15 @@ impl AnyValue {
         }
     }
 
+    /// Return `Ok(TimeCode)` if this attribute is a time code.
+    pub fn to_time_code(&self) -> Result<TimeCode> {
+        match *self {
+            AnyValue::TimeCode(value) => Ok(value),
+            _ => Err(invalid_type())
+        }
+    }
+
+    /// Return `Ok(i32)` if this attribute is an i32.
     pub fn to_i32(&self) -> Result<i32> {
         match *self {
             AnyValue::I32(value) => Ok(value),
@@ -1306,6 +1313,7 @@ impl AnyValue {
         }
     }
 
+    /// Return `Ok(f32)` if this attribute is an f32.
     pub fn to_f32(&self) -> Result<f32> {
         match *self {
             AnyValue::F32(value) => Ok(value),
@@ -1313,6 +1321,7 @@ impl AnyValue {
         }
     }
 
+    /// Return `Ok(IntRect)` if this attribute is a integer rectangle.
     pub fn to_i32_box_2(&self) -> Result<IntRect> {
         match *self {
             AnyValue::IntRect(value) => Ok(value),
@@ -1320,6 +1329,7 @@ impl AnyValue {
         }
     }
 
+    /// Return `Ok(f32)` if this attribute is a 2d vector of f32 numbers.
     pub fn to_f32_vec_2(&self) -> Result<Vec2<f32>> {
         match *self {
             AnyValue::FloatVec2(vec) => Ok(vec),
@@ -1327,6 +1337,7 @@ impl AnyValue {
         }
     }
 
+    /// Return `Ok(LineOrder)` if this attribute is a line order.
     pub fn to_line_order(&self) -> Result<LineOrder> {
         match *self {
             AnyValue::LineOrder(value) => Ok(value),
@@ -1334,6 +1345,7 @@ impl AnyValue {
         }
     }
 
+    /// Return `Ok(Compression)` if this attribute is a compression.
     pub fn to_compression(&self) -> Result<Compression> {
         match *self {
             AnyValue::Compression(value) => Ok(value),
@@ -1341,6 +1353,7 @@ impl AnyValue {
         }
     }
 
+    /// Return `Ok(Text)` if this attribute is a text.
     pub fn into_text(self) -> Result<Text> {
         match self {
             AnyValue::Text(value) => Ok(value),
@@ -1348,13 +1361,15 @@ impl AnyValue {
         }
     }
 
-    pub fn into_kind(self) -> Result<BlockType> {
+    /// Return `Ok(BlockType)` if this attribute is a block type.
+    pub fn into_block_type(self) -> Result<BlockType> {
         match self {
             AnyValue::BlockType(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
 
+    /// Return `Ok(ChannelList)` if this attribute is a channel list.
     pub fn into_channel_list(self) -> Result<ChannelList> {
         match self {
             AnyValue::ChannelList(value) => Ok(value),
@@ -1362,6 +1377,7 @@ impl AnyValue {
         }
     }
 
+    /// Return `Ok(Chromaticities)` if this attribute is a chromaticities attribute.
     pub fn to_chromaticities(&self) -> Result<Chromaticities> {
         match *self {
             AnyValue::Chromaticities(value) => Ok(value),

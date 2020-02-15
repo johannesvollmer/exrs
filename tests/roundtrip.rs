@@ -71,17 +71,15 @@ fn read_all_files() {
 fn round_trip_all_files() {
     check_files(|path| {
         let image = Image::read_from_file(path, ReadOptions::low())?;
-        let write_options = WriteOptions::low();
 
         let mut tmp_bytes = Vec::new();
-        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options)?;
+        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), WriteOptions::low())?; // not multi threaded to produce exact same byte sequence
 
         let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::low())?;
-
         assert_eq!(image, image2);
 
         let mut tmp_bytes2 = Vec::new();
-        image2.write_to_buffered(&mut Cursor::new(&mut tmp_bytes2), write_options)?;
+        image2.write_to_buffered(&mut Cursor::new(&mut tmp_bytes2), WriteOptions::low())?; // not multi threaded to produce exact same byte sequence
 
         assert_eq!(tmp_bytes, tmp_bytes2);
         Ok(())

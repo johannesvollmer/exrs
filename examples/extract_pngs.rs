@@ -1,25 +1,26 @@
 extern crate exr;
-
-extern crate smallvec;
+extern crate image;
 
 use exr::prelude::*;
 use exr::image::full::*;
-use std::{fs, panic, io};
-use std::io::{Cursor, Write};
-use std::panic::catch_unwind;
-use std::path::{PathBuf, Path};
-use std::ffi::OsStr;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use std::{fs};
 use exr::math::Vec2;
 use std::cmp::Ordering;
 
-
+/// For each image part in the exr file,
+/// extract each channel as grayscale png,
+/// including all multiresolution levels.
+//
+// FIXME throws "acces denied" sometimes, simply trying again usually works.
+//
 #[test]
 pub fn convert_to_png() {
     let now = ::std::time::Instant::now();
 
     let path =
         "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
+
+
 //        "D:/Pictures/openexr/Tiles/Ocean.exr"
 //        "D:/Pictures/openexr/MultiResolution/Kapaa.exr"
 //        "D:/Pictures/openexr/MultiView/Impact.exr"
@@ -38,13 +39,15 @@ pub fn convert_to_png() {
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
     ;
 
-    let image = Image::read_from_file(path, ReadOptions::debug()).unwrap();
+    let image = Image::read_from_file(path, ReadOptions::high()).unwrap();
 
     // warning: highly unscientific benchmarks ahead!
     let elapsed = now.elapsed();
     let millis = elapsed.as_secs() * 1000 + elapsed.subsec_millis() as u64;
-    println!("\ndecoded file in {:?}s", millis as f32 * 0.001);
+    println!("\ndecoded exr file in {:?}s", millis as f32 * 0.001);
 
+
+    /// convert raw float data to a png, doing automatic brightness adjustments
     fn save_f32_image_as_png(data: &[f32], size: Vec2<usize>, name: String) {
         let mut png_buffer = image::GrayImage::new(size.0 as u32, size.1 as u32);
         let mut sorted = Vec::from(data);
@@ -77,7 +80,9 @@ pub fn convert_to_png() {
         for channel in &part.channels {
             match &channel.content {
                 ChannelData::F16(levels) => {
-                    let levels = levels.as_flat_samples().unwrap();
+                    let levels = levels.as_flat_samples()
+                        .expect("deep data to png not supported");
+
                     for sample_block in levels.as_slice() {
                         let data : Vec<f32> = sample_block.samples.iter().map(|f16| f16.to_f32()).collect();
 
@@ -91,6 +96,7 @@ pub fn convert_to_png() {
                         ))
                     }
                 },
+
                 ChannelData::F32(levels) => {
                     let levels = levels.as_flat_samples().unwrap();
                     for sample_block in levels.as_slice() {
@@ -104,7 +110,22 @@ pub fn convert_to_png() {
                         ))
                     }
                 },
-                _ => panic!()
+
+                ChannelData::U32(levels) => {
+                    let levels = levels.as_flat_samples().unwrap();
+                    for sample_block in levels.as_slice() {
+                        let data : Vec<f32> = sample_block.samples.iter().map(|value| *value as f32).collect();
+
+                        save_f32_image_as_png(&data, sample_block.resolution, format!(
+                            "testout/{} ({}) {}_f16_{}x{}.png",
+                            part_index,
+                            part.name.as_ref().map(attributes::Text::to_string).unwrap_or(String::from("1")),
+                            channel.name,
+                            sample_block.resolution.0,
+                            sample_block.resolution.1,
+                        ))
+                    }
+                },
             }
         }
     }

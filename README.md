@@ -33,6 +33,8 @@ __Currently supported:__
     - [x] multi-part images
     - [x] multi-resolution images: mip maps, rip maps
     - [x] any line order
+    - [x] extract meta data of any file, 
+          including files with deep data and any compression format
     - [ ] channel subsampling
     - [ ] deep data
         

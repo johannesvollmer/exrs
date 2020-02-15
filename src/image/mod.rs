@@ -403,7 +403,7 @@ pub fn write_all_lines_to_buffered(
     }
 
     let mut write = Tracking::new(write);
-    meta_data.write_to_buffered(&mut write)?; // also validates meta data
+    meta_data.write_validating_to_buffered(&mut write)?; // also validates meta data
 
     let offset_table_start_byte = write.byte_position();
 

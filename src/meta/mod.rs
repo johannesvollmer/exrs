@@ -86,6 +86,7 @@ pub struct Header {
 
     /// The name of this image part.
     /// Required if this file contains deep data or multiple image parts.
+    // As this is an attribute value, it is not restricted in length, may even be empty
     pub name: Option<Text>,
 
     /// Describes how the pixels of this image part are divided into smaller blocks.
@@ -417,7 +418,7 @@ pub fn compute_chunk_count(compression: Compression, data_window: IntRect, block
 
 impl MetaData {
 
-    /// Infer version requirements from headers.
+    /// Infers version requirements from headers.
     pub fn new(headers: Headers) -> Self {
         MetaData {
             requirements: Requirements::infer(headers.as_slice()),
@@ -427,6 +428,7 @@ impl MetaData {
 
     /// Read the exr meta data from a file.
     /// Use `read_from_unbuffered` instead if you do not have a file.
+    /// Does not validate the meta data.
     #[must_use]
     pub fn read_from_file(path: impl AsRef<::std::path::Path>) -> Result<Self> {
         Self::read_from_unbuffered(File::open(path)?)
@@ -435,6 +437,7 @@ impl MetaData {
     /// Buffer the reader and then read the exr meta data from it.
     /// Use `read_from_buffered` if your reader is an in-memory reader.
     /// Use `read_from_file` if you have a file path.
+    /// Does not validate the meta data.
     #[must_use]
     pub fn read_from_unbuffered(unbuffered: impl Read) -> Result<Self> {
         Self::read_from_buffered(BufReader::new(unbuffered))
@@ -443,36 +446,43 @@ impl MetaData {
     /// Read the exr meta data from a reader.
     /// Use `read_from_file` if you have a file path.
     /// Use `read_from_unbuffered` if this is not an in-memory reader.
+    /// Does not validate the meta data.
     #[must_use]
     pub fn read_from_buffered(buffered: impl Read) -> Result<Self> {
         let mut read = PeekRead::new(buffered);
-        MetaData::read_from_buffered_peekable(&mut read)
+        MetaData::read_unvalidated_from_buffered_peekable(&mut read)
     }
 
-    /// Validates the meta data.
+    /// Does __not validate__ the meta data.
     #[must_use]
-    pub(crate) fn read_from_buffered_peekable(read: &mut PeekRead<impl Read>) -> Result<Self> {
+    pub(crate) fn read_unvalidated_from_buffered_peekable(read: &mut PeekRead<impl Read>) -> Result<Self> {
         magic_number::validate_exr(read)?;
         let requirements = Requirements::read(read)?;
         let headers = Header::read_all(read, &requirements)?;
 
         // TODO check if supporting requirements 2 always implies supporting requirements 1
-        let meta = MetaData { requirements, headers };
-        meta.validate()?;
 
         // TODO only validate the read data that may produce errors later on,
         //      not because of missing attributes that nobody needs
 
-        Ok(meta)
+        Ok(MetaData { requirements, headers })
     }
 
     /// Validates the meta data.
-    pub(crate) fn write_to_buffered(&self, write: &mut impl Write) -> PassiveResult {
+    #[must_use]
+    pub(crate) fn read_from_buffered_peekable(read: &mut PeekRead<impl Read>) -> Result<Self> {
+        let meta_data = Self::read_unvalidated_from_buffered_peekable(read)?;
+        meta_data.validate()?;
+        Ok(meta_data)
+    }
+
+    /// Validates the meta data and writes it to the stream.
+    pub(crate) fn write_validating_to_buffered(&self, write: &mut impl Write) -> PassiveResult {
         self.validate()?;
 
         magic_number::write(write)?;
         self.requirements.write(write)?;
-        Header::write_all(self.headers.as_slice(), write, &self.requirements)?;
+        Header::write_all(self.headers.as_slice(), write, self.requirements.has_multiple_parts)?;
         Ok(())
     }
 
@@ -493,6 +503,8 @@ impl MetaData {
 
     // TODO also check for writing valid files
     pub fn validate(&self) -> PassiveResult {
+        self.requirements.validate()?;
+
         let headers = self.headers.len();
 
         if headers == 0 {
@@ -508,7 +520,6 @@ impl MetaData {
             }
         }
 
-        self.requirements.validate()?;
         if self.requirements.file_format_version == 1 || !self.requirements.has_multiple_parts {
             if headers != 1 {
                 return Err(Error::invalid("multipart flag for header count"));
@@ -740,7 +751,7 @@ impl Header {
 
         self.channels.validate()?;
         for attribute in &self.custom_attributes {
-            attribute.validate()?;
+            attribute.validate(requirements.has_long_names)?;
         }
 
         if self.deep {
@@ -786,12 +797,12 @@ impl Header {
         }
     }
 
-    pub fn write_all(headers: &[Header], write: &mut impl Write, version: &Requirements) -> PassiveResult {
+    pub fn write_all(headers: &[Header], write: &mut impl Write, is_multipart: bool) -> PassiveResult {
         for header in headers {
-            header.write(write, version)?;
+            header.write(write)?;
         }
 
-        if version.is_multipart() {
+        if is_multipart {
             sequence_end::write(write)?;
         }
 
@@ -889,27 +900,25 @@ impl Header {
             deep: block_type == Some(BlockType::DeepScanLine) || block_type == Some(BlockType::DeepTile)
         };
 
-        header.validate(requirements)?;
         Ok(header)
     }
 
-    /// Validates the header and then writes it
-    pub fn write(&self, write: &mut impl Write, version: &Requirements) -> PassiveResult {
-        self.validate(version)?;
+    /// Does not validate the header
+    pub fn write(&self, write: &mut impl Write) -> PassiveResult {
 
         // FIXME do not allocate text object for writing!
-        fn write_attr<T>(write: &mut impl Write, long: bool, name: &[u8], value: T, variant: impl Fn(T) -> AnyValue) -> PassiveResult {
+        fn write_attr<T>(write: &mut impl Write, name: &[u8], value: T, variant: impl Fn(T) -> AnyValue) -> PassiveResult {
             Attribute { name: Text::from_bytes_unchecked(SmallVec::from_slice(name)), value: variant(value) }
-                .write(write, long)
+                .write(write)
         };
 
-        fn write_opt_attr<T>(write: &mut impl Write, long: bool, name: &[u8], attribute: Option<T>, variant: impl Fn(T) -> AnyValue) -> PassiveResult {
-            if let Some(value) = attribute { write_attr(write, long, name, value, variant) }
+        fn write_opt_attr<T>(write: &mut impl Write, name: &[u8], attribute: Option<T>, variant: impl Fn(T) -> AnyValue) -> PassiveResult {
+            if let Some(value) = attribute { write_attr(write, name, value, variant) }
             else { Ok(()) }
         };
 
         {
-            let long = version.has_long_names;
+//            let long = version.has_long_names;
             use crate::meta::attributes::required::*;
             use AnyValue::*;
 
@@ -919,28 +928,28 @@ impl Header {
                 Blocks::Tiles(tiles) => (attributes::BlockType::Tile, Some(tiles))
             };
 
-            write_opt_attr(write, long, TILES, tiles, TileDescription)?;
+            write_opt_attr(write, TILES, tiles, TileDescription)?;
 
-            write_opt_attr(write, long, NAME, self.name.clone(), Text)?;
-            write_opt_attr(write, long, VERSION, self.deep_data_version, I32)?;
-            write_opt_attr(write, long, MAX_SAMPLES, self.max_samples_per_pixel, |u| I32(u as i32))?;
+            write_opt_attr(write, NAME, self.name.clone(), Text)?;
+            write_opt_attr(write, VERSION, self.deep_data_version, I32)?;
+            write_opt_attr(write, MAX_SAMPLES, self.max_samples_per_pixel, |u| I32(u as i32))?;
 
             // not actually required, but always computed in this library anyways
-            write_attr(write, long, CHUNKS, self.chunk_count, |u| I32(u as i32))?;
-            write_attr(write, long, BLOCK_TYPE, block_type, BlockType)?;
+            write_attr(write, CHUNKS, self.chunk_count, |u| I32(u as i32))?;
+            write_attr(write, BLOCK_TYPE, block_type, BlockType)?;
 
-            write_attr(write, long, CHANNELS, self.channels.clone(), ChannelList)?; // FIXME do not clone
-            write_attr(write, long, COMPRESSION, self.compression, Compression)?;
-            write_attr(write, long, DATA_WINDOW, self.data_window, IntRect)?;
-            write_attr(write, long, DISPLAY_WINDOW, self.display_window, IntRect)?;
-            write_attr(write, long, LINE_ORDER, self.line_order, LineOrder)?;
-            write_attr(write, long, PIXEL_ASPECT, self.pixel_aspect, F32)?;
-            write_attr(write, long, WINDOW_WIDTH, self.screen_window_width, F32)?;
-            write_attr(write, long, WINDOW_CENTER, self.screen_window_center, FloatVec2)?;
+            write_attr(write, CHANNELS, self.channels.clone(), ChannelList)?; // FIXME do not clone
+            write_attr(write, COMPRESSION, self.compression, Compression)?;
+            write_attr(write, DATA_WINDOW, self.data_window, IntRect)?;
+            write_attr(write, DISPLAY_WINDOW, self.display_window, IntRect)?;
+            write_attr(write, LINE_ORDER, self.line_order, LineOrder)?;
+            write_attr(write, PIXEL_ASPECT, self.pixel_aspect, F32)?;
+            write_attr(write, WINDOW_WIDTH, self.screen_window_width, F32)?;
+            write_attr(write, WINDOW_CENTER, self.screen_window_center, FloatVec2)?;
         }
 
         for attrib in &self.custom_attributes {
-            attrib.write(write, version.has_long_names)?;
+            attrib.write(write)?;
         }
 
         sequence_end::write(write)?;
@@ -974,6 +983,7 @@ impl Requirements {
         self.has_multiple_parts
     }
 
+    /// Does not validate.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         use ::bit_field::BitField;
 
@@ -1003,14 +1013,12 @@ impl Requirements {
             has_deep_data, has_multiple_parts,
         };
 
-        version.validate()?;
         Ok(version)
     }
 
+    /// Does not validate.
     pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
         use ::bit_field::BitField;
-
-        self.validate()?;
 
         // the 8 least significant bits contain the file format version number
         // and the flags are set to 0
@@ -1130,7 +1138,7 @@ mod test {
 
 
         let mut data: Vec<u8> = Vec::new();
-        meta.write_to_buffered(&mut data).unwrap();
+        meta.write_validating_to_buffered(&mut data).unwrap();
         let meta2 = MetaData::read_from_buffered(data.as_slice()).unwrap();
         assert_eq!(meta, meta2);
     }
