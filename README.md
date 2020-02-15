@@ -139,11 +139,21 @@ __Currently supported:__
     - [x] Loading Metadata and specific tiles or blocks separately
 -->
     
-__Be sure to come back in a few weeks.__
 
-### Example Usage
+### Usage
 
-Writing all image contents at once:
+Until we have a package on crates.io, include this git repository:
+
+```toml
+[dependencies]
+exr = { git = "http://github.com/johannesvollmer/exrs" }
+```
+
+The master branch of this repository is always an up-to-date version.
+
+### Example
+
+Example: Write all image contents to an exr file at once.
 ```rust
 fn main() {
     let size = Vec2(1024, 512);

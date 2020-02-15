@@ -323,6 +323,7 @@ impl ImagePart {
     /// Create a new image part with all required fields.
     /// Uses scan line blocks, and no custom attributes.
     /// Panics if anything is invalid or missing.
+    /// Will sort channels to correct order if necessary.
     pub fn new(name: Text, compression: Compression, data_window: IntRect, mut channels: Channels) -> Self {
         assert!(!channels.is_empty(), "at least one channel is required");
 
@@ -436,16 +437,7 @@ impl Image {
             .map(|part| part.infer_header(self.display_window, self.pixel_aspect))
             .collect();
 
-        let has_tiles = headers.iter().any(|header| header.blocks.has_tiles());
-
-        MetaData {
-            requirements: Requirements::new(
-                self.minimum_version(), headers.len() > 1, has_tiles,
-                self.has_long_names(), false // TODO deep data
-            ),
-
-            headers
-        }
+        MetaData::new(headers)
     }
 
     /// Compute the version number that this image requires to be decoded.
@@ -513,16 +505,6 @@ impl ImagePart {
 
     /// Create the meta data that describes this image part.
     pub fn infer_header(&self, display_window: IntRect, pixel_aspect: f32) -> Header {
-        debug_assert_eq!( // TODO performance: use real is_sorted
-            {
-                let mut cloned = self.channels.clone();
-                cloned.sort_by_key(|c| c.name.clone());
-                cloned
-            },
-            self.channels,
-            "channels must be sorted alphabetically"
-        );
-
         let blocks = match self.tiles {
             Some(tiles) => Blocks::Tiles(TileDescription {
                 tile_size: tiles,
@@ -532,6 +514,9 @@ impl ImagePart {
 
             None => Blocks::ScanLines,
         };
+
+        let channels = self.channels.iter()
+            .map(Channel::infer_channel_attribute).collect();
 
         let chunk_count = compute_chunk_count(
             self.compression, self.data_window, blocks
@@ -545,7 +530,7 @@ impl ImagePart {
             screen_window_center: self.screen_window_center,
             screen_window_width: self.screen_window_width,
             compression: self.compression,
-            channels: ChannelList::new(self.channels.iter().map(Channel::infer_channel_attribute).collect()), // FIXME this would sort channels, but line index would be mixed up if the original channels were not sorted
+            channels: ChannelList::new(channels), // FIXME this would sort channels, but line index would be mixed up if the original channels were not sorted
             line_order: self.line_order,
             custom_attributes: self.attributes.clone(),
             display_window, pixel_aspect,

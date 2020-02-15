@@ -291,9 +291,7 @@ pub fn uncompressed_image_blocks_ordered<'l>(
                     debug_assert_eq!(byte_range.end, block_bytes.len());
                 }
 
-                // TODO check size of block_bytes to mach expected length
-                //      which is required to avoid compression errors
-
+                // byte length is validated in block::compress_to_chunk
                 (chunk_index, UncompressedBlock {
                     index: block_indices,
                     data: block_bytes
@@ -557,9 +555,12 @@ impl UncompressedBlock {
         let header: &Header = meta_data.headers.get(index.part)
             .expect("block part index bug");
 
-        // TODO check data length?
-        let compressed_data = header.compression
-            .compress_image_section(data)?;
+        let expected_byte_size = header.channels.bytes_per_pixel * self.index.pixel_size.area(); // TODO sampling??
+        if expected_byte_size != data.len() {
+            panic!("get_line byte size should be {} but was {}", expected_byte_size, data.len());
+        }
+
+        let compressed_data = header.compression.compress_image_section(data)?;
 
         Ok(Chunk {
             part_index: index.part,

@@ -640,6 +640,11 @@ impl PixelType {
 
 impl Channel {
 
+    /// Create a new channel with the specified properties and a sampling rate of (1,1).
+    pub fn new(name: Text, pixel_type: PixelType, is_linear: bool) -> Self {
+        Self { name, pixel_type, is_linear, sampling: Vec2(1, 1) }
+    }
+
     /// The count of pixels this channel contains, respecting subsampling.
     // FIXME this must be used everywhere
     pub fn subsampled_pixels(&self, dimensions: Vec2<usize>) -> usize {
@@ -737,6 +742,7 @@ impl ChannelList {
         Ok(ChannelList::new(channels))
     }
 
+    /// Check if channels are valid and sorted.
     pub fn validate(&self) -> PassiveResult {
         let mut iter = self.list.iter().map(|chan| chan.validate().map(|_| &chan.name));
         let mut previous = iter.next().ok_or(Error::invalid("at least one channel is required"))??;

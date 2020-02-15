@@ -435,16 +435,7 @@ impl Image {
             .map(|part| part.infer_header(self.display_window, self.pixel_aspect, options))
             .collect();
 
-        let has_tiles = headers.iter().any(|header| header.blocks.has_tiles());
-
-        MetaData {
-            requirements: Requirements::new(
-                self.minimum_version(), headers.len() > 1, has_tiles,
-                self.has_long_names(), false // TODO deep data
-            ),
-
-            headers
-        }
+        MetaData::new(headers)
     }
 
     /// Compute the version number that this image requires to be decoded.
@@ -523,11 +514,12 @@ impl Part {
             channels: ChannelList::new(self.channels.iter().map(Channel::infer_channel_attribute).collect()),
             line_order: options.override_line_order.unwrap_or(self.line_order),
 
+            custom_attributes: self.attributes.clone(),
+            display_window, pixel_aspect,
+
             // TODO deep/multipart data:
             deep_data_version: None,
             max_samples_per_pixel: None,
-            custom_attributes: self.attributes.clone(),
-            display_window, pixel_aspect,
             deep: false
         }
     }

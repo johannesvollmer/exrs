@@ -108,9 +108,14 @@ pub struct Header {
 
     /// Number of chunks, that is, scan line blocks or tiles, that this image has been divided into.
     /// This number is calculated once at the beginning
-    /// of the read process or when creating a channel object.
+    /// of the read process or when creating a header object.
     ///
     /// This value includes all chunks of all resolution levels.
+    ///
+    ///
+    /// __Warning__
+    /// _This value is relied upon. You should probably use `Header::with_encoding`,
+    /// which automatically updates the chunk count._
     pub chunk_count: usize,
 
     // Required for deep data (deepscanline and deeptile) parts.
@@ -412,6 +417,14 @@ pub fn compute_chunk_count(compression: Compression, data_window: IntRect, block
 
 impl MetaData {
 
+    /// Infer version requirements from headers.
+    pub fn new(headers: Headers) -> Self {
+        MetaData {
+            requirements: Requirements::infer(headers.as_slice()),
+            headers
+        }
+    }
+
     /// Read the exr meta data from a file.
     /// Use `read_from_unbuffered` instead if you do not have a file.
     #[must_use]
@@ -513,6 +526,63 @@ impl MetaData {
 
 
 impl Header {
+
+    /// Create a new Header with the specified name, display window and channels.
+    /// Use `Header::with_encoding` and the similar methods to add further properties to the header.
+    ///
+    /// The other settings are left to their default values:
+    /// - no compression
+    /// - display window equal to data window
+    /// - scan line blocks
+    /// - unspecified line order
+    /// - no custom attributes
+    pub fn new(name: Text, data_window: IntRect, channels: SmallVec<[Channel; 5]>) -> Self {
+        let compression = Compression::Uncompressed;
+        let blocks = Blocks::ScanLines;
+
+        Self {
+            data_window,
+            display_window: data_window,
+
+            compression,
+            channels: ChannelList::new(channels),
+            line_order: LineOrder::Unspecified,
+
+            name: Some(name),
+            custom_attributes: Vec::new(),
+
+            pixel_aspect: 1.0,
+            screen_window_width: 1.0,
+            screen_window_center: Vec2(0.0, 0.0),
+
+            blocks,
+            chunk_count: compute_chunk_count(compression, data_window, blocks),
+
+            deep: false,
+            deep_data_version: None,
+            max_samples_per_pixel: None,
+        }
+    }
+
+    /// Set the display window, that is, the global clipping rectangle.
+    /// Must be the same for all headers of a file.
+    pub fn with_display_window(self, display_window: IntRect) -> Self {
+        Self { display_window, .. self }
+    }
+
+    /// Set compression, tiling, and line order. Automatically computes chunk count.
+    pub fn with_encoding(self, compression: Compression, blocks: Blocks, line_order: LineOrder) -> Self {
+        Self {
+            chunk_count: compute_chunk_count(compression, self.data_window, blocks),
+            compression, blocks, line_order,
+            .. self
+        }
+    }
+
+    /// Add some custom attributes to the header.
+    pub fn with_attributes(self, attributes: Attributes) -> Self {
+        Self { custom_attributes: attributes, .. self }
+    }
 
     /// Iterate over all tile indices in this header in `LineOrder::Increasing` order.
     pub fn blocks_increasing_y_order(&self) -> impl Iterator<Item = TileIndices> + ExactSizeIterator + DoubleEndedIterator {
@@ -640,6 +710,11 @@ impl Header {
     }
 
     pub fn validate(&self, requirements: &Requirements) -> PassiveResult {
+        debug_assert_eq!(
+            self.chunk_count, compute_chunk_count(self.compression, self.data_window, self.blocks),
+            "chunk count attribute not corretly set"
+        );
+
         if requirements.is_multipart() {
             if self.name.is_none() { // TODO only be pedantic on write, but not on read?
                 return Err(missing_attribute("image part name"));
@@ -858,15 +933,24 @@ impl Header {
 
 
 impl Requirements {
-    pub fn new(version: u8, multipart: bool, has_tiles: bool, long_names: bool, deep: bool) -> Self {
+
+    /// Infer version requirements from headers.
+    pub fn infer(headers: &[Header]) -> Self {
+        let first_header_has_tiles = headers.iter().next()
+            .map_or(false, |header| header.blocks.has_tiles());
+
+        let is_multipart = headers.len() > 1;
+        let deep = false; // TODO deep data
+
         Requirements {
-            file_format_version: version,
-            is_single_part_and_tiled: !multipart && has_tiles,
-            has_long_names: long_names,
-            has_deep_data: deep, // TODO
-            has_multiple_parts: multipart
+            file_format_version: 2, // TODO find minimum
+            is_single_part_and_tiled: !is_multipart && first_header_has_tiles,
+            has_long_names: true, // TODO query header?
+            has_multiple_parts: is_multipart,
+            has_deep_data: deep,
         }
     }
+
 
     // this is actually used for control flow, as the number of headers may be 1 in a multipart file
     pub fn is_multipart(&self) -> bool {
