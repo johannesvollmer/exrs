@@ -29,7 +29,7 @@ pub enum AnyValue {
     BlockType(BlockType),
     TextVector(Vec<Text>),
     TileDescription(TileDescription),
-    TimeCode(TimeCodes),
+    TimeCode(TimeCode),
 
     Text(Text),
     F64(f64),
@@ -56,7 +56,7 @@ pub struct Text {
 
 // TODO enable conversion to rust time
 #[derive(Copy, Debug, Clone, Eq, PartialEq, Hash)]
-pub struct TimeCodes {
+pub struct TimeCode {
     time_and_flags: u32,
     user_data: u32,
 }
@@ -762,6 +762,22 @@ impl ChannelList {
     }
 }
 
+impl TimeCode {
+    pub const BYTE_SIZE: usize = 2 * u32::BYTE_SIZE;
+
+    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+        self.time_and_flags.write(write)?;
+        self.user_data.write(write)?;
+        Ok(())
+    }
+
+    pub fn read<R: Read>(read: &mut R) -> Result<Self> {
+        let time_and_flags = u32::read(read)?;
+        let user_data = u32::read(read)?;
+        Ok(Self { time_and_flags, user_data })
+    }
+}
+
 impl Chromaticities {
     pub fn byte_size() -> usize {
         8 * f32::BYTE_SIZE
@@ -1072,7 +1088,7 @@ impl AnyValue {
             F64(_) => f64::BYTE_SIZE,
 
             Rational(_) => { i32::BYTE_SIZE + u32::BYTE_SIZE },
-            TimeCode(_) => { 2 * u32::BYTE_SIZE },
+            TimeCode(_) => self::TimeCode::BYTE_SIZE,
 
             IntVec2(_) => { 2 * i32::BYTE_SIZE },
             FloatVec2(_) => { 2 * f32::BYTE_SIZE },
@@ -1148,7 +1164,7 @@ impl AnyValue {
             F64(value) => value.write(write)?,
 
             Rational((a, b)) => { a.write(write)?; b.write(write)?; },
-            TimeCode(codes) => { codes.time_and_flags.write(write)?; codes.user_data.write(write)?; },
+            TimeCode(codes) => { codes.write(write)?; },
 
             IntVec2(Vec2(x, y)) => { x.write(write)?; y.write(write)?; },
             FloatVec2(Vec2(x, y)) => { x.write(write)?; y.write(write)?; },
@@ -1199,11 +1215,7 @@ impl AnyValue {
                 (a, b)
             }),
             // FIXME argument order not guaranteed??
-            ty::TIME_CODE => TimeCode({
-                let time_and_flags = u32::read(read)?;
-                let user_data = u32::read(read)?;
-                TimeCodes { time_and_flags, user_data }
-            }),
+            ty::TIME_CODE => TimeCode(self::TimeCode::read(read)?),
 
             ty::I32VEC2 => IntVec2({
                 let a = i32::read(read)?;
