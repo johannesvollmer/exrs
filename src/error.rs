@@ -8,7 +8,11 @@ pub use std::io::Result as IoResult;
 use std::convert::TryFrom;
 
 // Export types
+
+/// A result that may contain an exr error.
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// A that returns nothing and may contain an exr error.
 pub type PassiveResult = Result<()>;
 
 
@@ -34,6 +38,7 @@ pub enum Error {
 
 
 impl Error {
+
     /// Create an error of the variant `Invalid`.
     pub(crate) fn invalid(message: impl Into<Cow<'static, str>>) -> Self {
         Error::Invalid(message.into())

@@ -135,6 +135,7 @@ pub struct Channel {
 /// Actual pixel data in a channel. Is either one of f16, f32, or u32.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChannelData {
+
     /// The representation of 16-bit floating-point numbers is analogous to IEEE 754,
     /// but with 5 exponent bits and 10 bits for the fraction.
     ///
@@ -256,6 +257,7 @@ impl WriteOptions {
 }
 
 impl ReadOptions {
+
     /// Higher speed but also higher memory requirements.
     pub fn high() -> Self { ReadOptions { parallel_decompression: true } }
 
@@ -750,7 +752,7 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
 //        Ok(())
     }
 
-    fn extract_line(&self, index: LineIndex, _write: &mut impl Write, image_width: usize) {
+    fn extract_line(&self, _index: LineIndex, _write: &mut impl Write, image_width: usize) {
         debug_assert_ne!(image_width, 0, "deep image width bug");
         unimplemented!("deep data not supported yet");
     }

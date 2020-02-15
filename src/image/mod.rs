@@ -455,6 +455,7 @@ impl BlockIndex {
 
             fn next(&mut self) -> Option<Self::Item> {
                 if self.y < self.end_y {
+
                     // compute return value before incrementing
                     let byte_len = self.channel_sizes[self.channel];
                     let return_value = (

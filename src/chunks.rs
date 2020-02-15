@@ -11,6 +11,7 @@ use crate::meta::attributes::{IntRect};
 /// data block in the referenced layer.
 #[derive(Debug, Clone)]
 pub struct Chunk {
+
     /// The index of the layer that the block belongs to.
     /// This is required as the pixel data can appear in any order in a file.
     // PDF says u64, but source code seems to be i32
@@ -27,9 +28,17 @@ pub struct Chunk {
 /// Exists inside a `Chunk`.
 #[derive(Debug, Clone)]
 pub enum Block {
+
+    /// Scan line blocks of flat data.
     ScanLine(ScanLineBlock),
+
+    /// Tiles of flat data.
     Tile(TileBlock),
+
+    /// Scan line blocks of deep data.
     DeepScanLine(DeepScanLineBlock),
+
+    /// Tiles of deep data.
     DeepTile(DeepTileBlock),
 }
 
@@ -37,6 +46,7 @@ pub enum Block {
 /// Corresponds to type attribute `scanlineimage`.
 #[derive(Debug, Clone)]
 pub struct ScanLineBlock {
+
     /// The block's y coordinate is the pixel space y coordinate of the top scan line in the block.
     /// The top scan line block in the image is aligned with the top edge of the data window.
     pub y_coordinate: i32,
@@ -51,6 +61,7 @@ pub struct ScanLineBlock {
 /// Corresponds to type attribute `tiledimage`.
 #[derive(Debug, Clone)]
 pub struct TileBlock {
+
     /// The tile location.
     pub coordinates: TileCoordinates,
 
@@ -75,10 +86,12 @@ pub struct TileCoordinates {
 /// Corresponds to type attribute `deepscanline`.
 #[derive(Debug, Clone)]
 pub struct DeepScanLineBlock {
+
     /// The block's y coordinate is the pixel space y coordinate of the top scan line in the block.
     /// The top scan line block in the image is aligned with the top edge of the data window.
     pub y_coordinate: i32,
 
+    /// Count of samples.
     pub decompressed_sample_data_size: usize,
 
     /// The pixel offset table is a list of integers, one for each pixel column within the data window.
@@ -100,6 +113,7 @@ pub struct DeepTileBlock {
     /// The tile location.
     pub coordinates: TileCoordinates,
 
+    /// Count of samples.
     pub decompressed_sample_data_size: usize,
 
     /// The pixel offset table is a list of integers, one for each pixel column within the data window.
@@ -117,6 +131,8 @@ pub struct DeepTileBlock {
 use crate::io::*;
 
 impl TileCoordinates {
+
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         i32::write(usize_to_i32(self.tile_index.0), write)?;
         i32::write(usize_to_i32(self.tile_index.1), write)?;
@@ -125,6 +141,7 @@ impl TileCoordinates {
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read(read: &mut impl Read) -> Result<Self> {
         let tile_x = i32::read(read)?;
         let tile_y = i32::read(read)?;
@@ -165,6 +182,8 @@ impl TileCoordinates {
 use crate::meta::{Header, MetaData, Blocks, calculate_block_size};
 
 impl ScanLineBlock {
+
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         debug_assert_ne!(self.compressed_pixels.len(), 0, "empty blocks should not be put in the file bug");
 
@@ -173,6 +192,7 @@ impl ScanLineBlock {
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let y_coordinate = i32::read(read)?;
         let compressed_pixels = u8::read_i32_sized_vec(read, max_block_byte_size, Some(max_block_byte_size))?;
@@ -181,6 +201,8 @@ impl ScanLineBlock {
 }
 
 impl TileBlock {
+
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         debug_assert_ne!(self.compressed_pixels.len(), 0, "empty blocks should not be put in the file bug");
 
@@ -189,6 +211,7 @@ impl TileBlock {
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let coordinates = TileCoordinates::read(read)?;
         let compressed_pixels = u8::read_i32_sized_vec(read, max_block_byte_size, Some(max_block_byte_size))?;
@@ -197,6 +220,8 @@ impl TileBlock {
 }
 
 impl DeepScanLineBlock {
+
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         debug_assert_ne!(self.compressed_sample_data.len(), 0, "empty blocks should not be put in the file bug");
 
@@ -209,6 +234,7 @@ impl DeepScanLineBlock {
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let y_coordinate = i32::read(read)?;
         let compressed_pixel_offset_table_size = u64_to_usize(u64::read(read)?);
@@ -237,6 +263,8 @@ impl DeepScanLineBlock {
 
 
 impl DeepTileBlock {
+
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         debug_assert_ne!(self.compressed_sample_data.len(), 0, "empty blocks should not be put in the file bug");
 
@@ -249,6 +277,7 @@ impl DeepTileBlock {
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read(read: &mut impl Read, hard_max_block_byte_size: usize) -> Result<Self> {
         let coordinates = TileCoordinates::read(read)?;
         let compressed_pixel_offset_table_size = u64_to_usize(u64::read(read)?);
@@ -279,6 +308,8 @@ use crate::math::Vec2;
 
 /// Validation of chunks is done while reading and writing the actual data. (For example in exr::full_image)
 impl Chunk {
+
+    /// Without validation, write this instance to the byte stream.
     pub fn write(&self, write: &mut impl Write, headers: &[Header]) -> PassiveResult {
         debug_assert!(self.layer_index < headers.len(), "layer index bug"); // validation is done in full_image or simple_image
 
@@ -293,6 +324,7 @@ impl Chunk {
         }
     }
 
+    /// Read the value without validating.
     pub fn read(read: &mut impl Read, meta_data: &MetaData) -> Result<Self> {
         let layer_number = {
             if meta_data.requirements.is_multilayer() { i32::read(read)? } // documentation says u64, but is i32

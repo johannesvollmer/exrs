@@ -16,7 +16,7 @@ use exr::meta::attributes::{Channel, PixelType, LineOrder};
 use exr::io::Data;
 use exr::meta::Blocks;
 
-
+/// Generate a noisy image on the fly and directly write that to a file without allocating the whole image at once.
 #[test]
 fn write_generated_noisy_hdr() {
     fn generate_f16s(length: usize) -> impl Iterator<Item = f16> {

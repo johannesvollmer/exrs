@@ -13,6 +13,7 @@ use exr::prelude::*;
 use exr::image::simple::*;
 
 
+/// Generate a noisy image and write it to a file.
 #[test]
 fn write_noisy_hdr() {
     fn generate_f16_vector(size: Vec2<usize>) -> Vec<f16> {

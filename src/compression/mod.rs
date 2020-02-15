@@ -13,7 +13,10 @@ use crate::error::{Result, Error};
 
 
 
+/// A byte vector.
 pub type ByteVec = Vec<u8>;
+
+/// A byte slice.
 pub type Bytes<'s> = &'s [u8];
 
 /// Specifies which compression method to use.
@@ -135,6 +138,7 @@ impl std::fmt::Display for Compression {
 
 impl Compression {
 
+    /// Compress the image section of bytes.
     pub fn compress_image_section(self, packed: ByteVec) -> Result<ByteVec> {
         use self::Compression::*;
 
@@ -228,6 +232,7 @@ impl Compression {
         }
     }
 
+    /// Deep data can only be compressed using RLE or ZIP compression.
     pub fn supports_deep_data(self) -> bool {
         use self::Compression::*;
         match self {

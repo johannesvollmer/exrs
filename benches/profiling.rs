@@ -8,7 +8,7 @@ use exr::image::full::*;
 use bencher::Bencher;
 use std::fs;
 
-
+/// Read RLE image from file
 fn read_single_image_uncompressed(bench: &mut Bencher) {
     let path = "D:/Pictures/openexr/crowskull/crow_rle.exr";
 
@@ -17,6 +17,7 @@ fn read_single_image_uncompressed(bench: &mut Bencher) {
     })
 }
 
+/// Read zip image from in-memory buffer
 fn read_single_image_uncompressed_from_buffer(bench: &mut Bencher) {
     let file = fs::read("D:/Pictures/openexr/crowskull/crow_zips.exr").unwrap();
 

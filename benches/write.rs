@@ -8,7 +8,7 @@ use exr::image::full::*;
 use bencher::Bencher;
 use std::io::Cursor;
 
-
+/// Write with multicore zip compression
 fn write_single_image_parallel_zip(bench: &mut Bencher) {
     let path = "D:/Pictures/openexr/crowskull/crow_zips.exr";
     let image = Image::read_from_file(path, ReadOptions::high()).unwrap();
@@ -20,6 +20,7 @@ fn write_single_image_parallel_zip(bench: &mut Bencher) {
     })
 }
 
+/// Write with singlecore zip compression
 fn write_single_image_zip(bench: &mut Bencher) {
     let path = "D:/Pictures/openexr/crowskull/crow_zips.exr";
     let image = Image::read_from_file(path, ReadOptions::high()).unwrap();

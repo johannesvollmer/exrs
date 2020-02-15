@@ -32,7 +32,10 @@ pub struct MetaData {
 }
 
 
+/// List of `Header`s.
 pub type Headers = SmallVec<[Header; 3]>;
+
+/// List of `OffsetTable`s.
 pub type OffsetTables = SmallVec<[OffsetTable; 3]>;
 
 
@@ -131,6 +134,7 @@ pub struct Header {
     pub custom_attributes: Attributes,
 }
 
+/// List of custom attributes.
 pub type Attributes = Vec<Attribute>;
 
 /// A summary of requirements that must be met to read this exr file.
@@ -163,13 +167,18 @@ pub struct Requirements {
 /// Locates a rectangular section of pixels in an image.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct TileIndices {
+
+    /// Index of the tile.
     pub location: TileCoordinates,
+
+    /// Pixel size of the tile.
     pub size: Vec2<usize>,
 }
 
 /// How the image pixels are split up into separate blocks.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Blocks {
+
     /// The image is divided into scan line blocks.
     /// The number of scan lines in a block depends on the compression method.
     ScanLines,
@@ -225,6 +234,7 @@ pub mod magic_number {
     /// The first four bytes of each exr file.
     pub const BYTES: [u8; 4] = [0x76, 0x2f, 0x31, 0x01];
 
+    /// Without validation, write this instance to the byte stream.
     pub fn write(write: &mut impl Write) -> Result<()> {
         u8::write_slice(write, &self::BYTES)
     }
@@ -237,6 +247,7 @@ pub mod magic_number {
         Ok(magic_num == self::BYTES)
     }
 
+    /// Validate this image. If it is an exr file, return `Ok(())`.
     pub fn validate_exr(read: &mut impl Read) -> PassiveResult {
         if self::is_exr(read)? {
             Ok(())
@@ -251,10 +262,12 @@ pub mod magic_number {
 pub mod sequence_end {
     use super::*;
 
+    /// Number of bytes this would consume in an exr file.
     pub fn byte_size() -> usize {
         1
     }
 
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(write: &mut W) -> PassiveResult {
         0_u8.write(write)
     }
@@ -756,6 +769,7 @@ impl Header {
         }
     }
 
+    /// Validate this instance.
     pub fn validate(&self, requirements: &Requirements, strict: bool) -> PassiveResult {
         debug_assert_eq!(
             self.chunk_count, compute_chunk_count(self.compression, self.data_window, self.blocks),
@@ -774,10 +788,40 @@ impl Header {
         }
 
         let allow_subsampling = !self.deep && self.blocks == Blocks::ScanLines;
-
         self.channels.validate(allow_subsampling, strict)?;
+
         for attribute in &self.custom_attributes {
             attribute.validate(requirements.has_long_names, allow_subsampling, strict)?;
+        }
+
+
+        // check if attribute names appear twice
+        if strict {
+
+            let mut custom_names = HashSet::with_capacity(self.custom_attributes.len());
+
+            for attribute in &self.custom_attributes {
+                if !custom_names.insert(attribute.name.bytes()) {
+                    return Err(Error::invalid("attribute names should be unique"));
+                }
+            }
+
+            use attributes::required_attribute_names::*;
+            let reserved_names = [
+                TILES, NAME, BLOCK_TYPE, VERSION, CHUNKS, MAX_SAMPLES, CHANNELS, COMPRESSION,
+                DATA_WINDOW, DISPLAY_WINDOW, LINE_ORDER, PIXEL_ASPECT, WINDOW_CENTER, WINDOW_WIDTH
+            ];
+
+
+            for &reserved in &reserved_names {
+                if custom_names.contains(reserved) {
+
+                    return Err(Error::invalid(format!(
+                        "attribute name `{}` is already required attribute",
+                         Text::from_bytes_unchecked(reserved.into()).to_string()
+                    )));
+                }
+            }
         }
 
         if self.deep {
@@ -803,6 +847,7 @@ impl Header {
         Ok(())
     }
 
+    /// Read the headers without validating them.
     pub fn read_all(read: &mut PeekRead<impl Read>, version: &Requirements) -> Result<Headers> {
         if !version.is_multilayer() {
             Ok(smallvec![ Header::read(read, version)? ])
@@ -818,6 +863,7 @@ impl Header {
         }
     }
 
+    /// Without validation, write the headers to the byte stream.
     pub fn write_all(headers: &[Header], write: &mut impl Write, is_multilayer: bool) -> PassiveResult {
         for header in headers {
             header.write(write)?;
@@ -830,6 +876,7 @@ impl Header {
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read(read: &mut PeekRead<impl Read>, requirements: &Requirements) -> Result<Self> {
         let max_string_len = if requirements.has_long_names { 256 } else { 32 }; // TODO DRY this information
         let mut custom = Vec::new();
@@ -856,7 +903,7 @@ impl Header {
 
             // if the attribute is a required attribute, set the corresponding variable directly.
             // otherwise, add the attribute to the vector of custom attributes
-            use crate::meta::attributes::required::*;
+            use crate::meta::attributes::required_attribute_names::*;
             match attribute_name.bytes() {
                 TILES => tiles = Some(value.to_tile_description()?),
                 NAME => name = Some(value.into_text()?),
@@ -924,15 +971,17 @@ impl Header {
         Ok(header)
     }
 
-    /// Does not validate the header
+    /// Without validation, write this instance to the byte stream.
     pub fn write(&self, write: &mut impl Write) -> PassiveResult {
 
         // FIXME do not allocate text object for writing!
+        /// Write a mandatory attribute.
         fn write_attr<T>(write: &mut impl Write, name: &[u8], value: T, variant: impl Fn(T) -> AnyValue) -> PassiveResult {
             Attribute { name: Text::from_bytes_unchecked(SmallVec::from_slice(name)), value: variant(value) }
                 .write(write)
         };
 
+        /// Write an optional attribute without validation.
         fn write_opt_attr<T>(write: &mut impl Write, name: &[u8], attribute: Option<T>, variant: impl Fn(T) -> AnyValue) -> PassiveResult {
             if let Some(value) = attribute { write_attr(write, name, value, variant) }
             else { Ok(()) }
@@ -940,7 +989,7 @@ impl Header {
 
         {
 //            let long = version.has_long_names;
-            use crate::meta::attributes::required::*;
+            use crate::meta::attributes::required_attribute_names::*;
             use AnyValue::*;
 
 
@@ -1000,11 +1049,12 @@ impl Requirements {
 
 
     // this is actually used for control flow, as the number of headers may be 1 in a multilayer file
+    /// Is this file declared to contain multiple layers?
     pub fn is_multilayer(&self) -> bool {
         self.has_multiple_layers
     }
 
-    /// Does not validate.
+    /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         use ::bit_field::BitField;
 
@@ -1037,7 +1087,7 @@ impl Requirements {
         Ok(version)
     }
 
-    /// Does not validate.
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
         use ::bit_field::BitField;
 
@@ -1056,6 +1106,7 @@ impl Requirements {
         Ok(())
     }
 
+    /// Validate this instance.
     pub fn validate(&self) -> PassiveResult {
         if self.has_deep_data { // TODO deep data (and then remove this check)
             return Err(Error::unsupported("deep data not supported yet"));

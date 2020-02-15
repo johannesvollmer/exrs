@@ -24,6 +24,7 @@ pub fn skip_bytes(read: &mut impl Read, count: usize) -> IoResult<()> {
 /// Peek a single byte without consuming it.
 #[derive(Debug)]
 pub struct PeekRead<T> {
+
     /// Cannot be exposed as it will not contain peeked values anymore.
     inner: T,
 
@@ -32,6 +33,7 @@ pub struct PeekRead<T> {
 
 impl<T: Read> PeekRead<T> {
 
+    /// Wrap a reader to make it peekable.
     #[inline]
     pub fn new(inner: T) -> Self {
         Self { inner, peeked: None }
@@ -86,6 +88,7 @@ impl<T: Read> Read for PeekRead<T> {
 }
 
 impl<T: Read + Seek> PeekRead<Tracking<T>> {
+
     /// Seek this read to the specified byte position.
     /// Discards any previously peeked value.
     pub fn skip_to(&mut self, position: usize) -> std::io::Result<()> {
@@ -183,6 +186,8 @@ impl<T: Write + Seek> Tracking<T> {
 
 /// Generic trait that defines common binary operations such as reading and writing for this type.
 pub trait Data: Sized + Default + Clone {
+
+    /// Number of bytes this would consume in an exr file.
     const BYTE_SIZE: usize = ::std::mem::size_of::<Self>();
 
     /// Read a value of type `Self`.

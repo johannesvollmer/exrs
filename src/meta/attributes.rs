@@ -7,7 +7,11 @@ use smallvec::SmallVec;
 /// A named attribute value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attribute {
+
+    /// Identifier of the attribute.
     pub name: Text,
+
+    /// Content of the attribute.
     pub value: AnyValue,
 }
 
@@ -15,35 +19,90 @@ pub struct Attribute {
 /// Includes a variant for custom attributes.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AnyValue {
+
+    /// Channel meta data.
     ChannelList(ChannelList),
+
+    /// Color space definition.
     Chromaticities(Chromaticities),
+
+    /// Compression method of this layer.
     Compression(Compression),
+
+    /// This image is an environment map.
     EnvironmentMap(EnvironmentMap),
+
+    /// Film roll information.
     KeyCode(KeyCode),
+
+    /// Order of the bocks in the file.
     LineOrder(LineOrder),
+
+    /// A 3x3 matrix of floats.
     F32Matrix3x3([f32; 9]),
+
+    /// A 4x4 matrix of floats.
     F32Matrix4x4([f32; 16]),
+
+    /// 8-bit RGBA Preview of the image.
     Preview(Preview),
+
+    /// A number a divided by number b.
     Rational((i32, u32)),
 
+    /// Deep or flat and tiled or scan line.
     BlockType(BlockType),
+
+    /// List of texts.
     TextVector(Vec<Text>),
+
+    /// How to tile up the image.
     TileDescription(TileDescription),
+
+    /// Timepoint and more.
     TimeCode(TimeCode),
 
+    /// ASCII String.
     Text(Text),
+
+    /// 64-bit float
     F64(f64),
+
+    /// 32-bit float
     F32(f32),
+
+    /// 32-bit signed integer
     I32(i32),
 
+    /// 2D integer rectangle.
     IntRect(IntRect),
+
+    /// 2D float rectangle.
     FloatRect(FloatRect),
+
+    /// 2D integer vector.
     IntVec2(Vec2<i32>),
+
+    /// 2D float vector.
     FloatVec2(Vec2<f32>),
+
+    /// 3D integer vector.
     IntVec3((i32, i32, i32)),
+
+    /// 3D float vector.
     FloatVec3((f32, f32, f32)),
 
-    Custom { kind: Text, bytes: Vec<u8> }
+    /// A custom attribute.
+    /// Contains the type name of this value.
+    Custom {
+
+        /// The name of the type this attribute is an instance of.
+        kind: Text,
+
+        /// The value, stored in little-endian byte order, of the value.
+        /// Use the `exr::io::Data` trait to extract binary values from this vector.
+        bytes: Vec<u8>
+    }
 }
 
 /// A byte array with each byte being a char.
@@ -54,6 +113,7 @@ pub struct Text {
     bytes: TextBytes,
 }
 
+/// Contains time information.
 // TODO enable conversion to rust time
 #[derive(Copy, Debug, Clone, Eq, PartialEq, Hash)]
 pub struct TimeCode {
@@ -64,6 +124,7 @@ pub struct TimeCode {
 /// layer type, specifies block type and deepness.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum BlockType {
+
     /// Corresponds to the string value `scanlineimage`.
     ScanLine,
 
@@ -79,9 +140,17 @@ pub enum BlockType {
 
 /// The string literals used to represent a `BlockType` in a file.
 pub mod block_type_strings {
+
+    /// Type attribute text value of flat scan lines
     pub const SCAN_LINE: &'static [u8] = b"scanlineimage";
+
+    /// Type attribute text value of flat tiles
     pub const TILE: &'static [u8] = b"tiledimage";
+
+    /// Type attribute text value of deep scan lines
     pub const DEEP_SCAN_LINE: &'static [u8] = b"deepscanline";
+
+    /// Type attribute text value of deep tiles
     pub const DEEP_TILE: &'static [u8] = b"deeptile";
 }
 
@@ -97,6 +166,7 @@ pub type DisplayWindow = IntRect;
 /// A rectangular section anywhere in 2D integer space.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct IntRect {
+
     /// The top left corner of this rectangle.
     /// The `Box2I32` includes this pixel if the size is not zero.
     pub start: Vec2<i32>,
@@ -116,6 +186,7 @@ pub struct FloatRect {
 /// A List of channels. Channels must be sorted alphabetically.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChannelList {
+
     /// The channels in this list.
     pub list: SmallVec<[Channel; 5]>,
 
@@ -150,7 +221,15 @@ pub struct Channel {
 /// What kind of pixels are in this channel.
 #[derive(Clone, Debug, Eq, PartialEq, Copy)]
 pub enum PixelType {
-    U32, F16, F32,
+
+    /// This channel contains 32-bit unsigned int values.
+    U32,
+
+    /// This channel contains 16-bit float values.
+    F16,
+
+    /// This channel contains 32-bit float values.
+    F32,
 }
 
 /// The color space of the pixels.
@@ -159,31 +238,55 @@ pub enum PixelType {
 /// should assume that the file's primaries and the white point match `Rec. ITU-R BT.709-3`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Chromaticities {
-    pub red_x: f32,     pub red_y: f32,
-    pub green_x: f32,   pub green_y: f32,
-    pub blue_x: f32,    pub blue_y: f32,
-    pub white_x: f32,   pub white_y: f32
+
+    /// "Red" location on the CIE XY chromaticity diagram.
+    pub red: Vec2<f32>,
+
+    /// "Green" location on the CIE XY chromaticity diagram.
+    pub green: Vec2<f32>,
+
+    /// "Blue" location on the CIE XY chromaticity diagram.
+    pub blue: Vec2<f32>,
+
+    /// "White" location on the CIE XY chromaticity diagram.
+    pub white: Vec2<f32>
 }
 
 /// If this attribute is present, it describes
 /// how this texture should be projected onto an environment.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum EnvironmentMap {
+
+    /// This image is an environment map projected like a world map.
     LatitudeLongitude,
+
+    /// This image contains the six sides of a cube.
     Cube,
 }
 
 /// Uniquely identifies a motion picture film frame.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct KeyCode {
+
+    /// Identifies a film manufacturer.
     pub film_manufacturer_code: i32,
+
+    /// Identifies a film type.
     pub film_type: i32,
+
+    /// Specifies the film roll prefix.
     pub film_roll_prefix: i32,
 
+    /// Specifies the film count.
     pub count: i32,
 
+    /// Specifies the perforation offset.
     pub perforation_offset: i32,
+
+    /// Specifies the perforation count of each single frame.
     pub perforations_per_frame: i32,
+
+    /// Specifies the perforation count of each single film.
     pub perforations_per_count: i32,
 }
 
@@ -207,6 +310,7 @@ pub enum LineOrder {
 }
 
 /// A small `rgba` image of `i8` values that approximates the real exr image.
+// TODO is this linear?
 #[derive(Clone, Eq, PartialEq)]
 pub struct Preview {
 
@@ -239,7 +343,15 @@ pub struct TileDescription {
 /// Whether to also store increasingly smaller versions of the original image.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum LevelMode {
-    Singular, MipMap, RipMap,
+
+    /// Only a single level.
+    Singular,
+
+    /// Levels with a similar aspect ratio.
+    MipMap,
+
+    /// Levels with all possible aspect ratios.
+    RipMap,
 }
 
 
@@ -264,6 +376,8 @@ fn invalid_type() -> Error {
 
 
 impl Text {
+
+    /// The internal ASCII bytes this text is made of.
     pub fn bytes(&self) -> &[u8] {
         self.bytes.as_slice()
     }
@@ -320,7 +434,7 @@ impl Text {
         Self::write_unsized_bytes(self.bytes.as_slice(), write)
     }
 
-    /// Assumes is valid.
+    /// Without validation, write this instance to the byte stream.
     fn write_unsized_bytes<W: Write>(bytes: &[u8], write: &mut W) -> PassiveResult {
         u8::write_slice(write, bytes)?;
         Ok(())
@@ -469,9 +583,11 @@ impl ChannelList {
 }
 
 impl BlockType {
+
     /// The corresponding attribute type name literal
     const TYPE_NAME: &'static [u8] = attribute_type_names::TEXT;
 
+    /// Return a `BlockType` object from the specified attribute text value.
     pub fn parse(text: Text) -> Result<Self> {
         match text.bytes() {
             block_type_strings::SCAN_LINE => Ok(BlockType::ScanLine),
@@ -484,11 +600,13 @@ impl BlockType {
         }
     }
 
+    /// Without validation, write this instance to the byte stream.
     pub fn write(&self, write: &mut impl Write) -> PassiveResult {
         u8::write_slice(write, self.to_text_bytes())?;
         Ok(())
     }
 
+    /// Returns the raw attribute text value this type is represented by in a file.
     pub fn to_text_bytes(&self) -> &[u8] {
         match self {
             BlockType::ScanLine => block_type_strings::SCAN_LINE,
@@ -498,6 +616,7 @@ impl BlockType {
         }
     }
 
+    /// Number of bytes this would consume in an exr file.
     pub fn byte_size(&self) -> usize {
         self.to_text_bytes().len()
     }
@@ -533,6 +652,7 @@ impl IntRect {
         self.end() - Vec2(1,1)
     }
 
+    /// Validate this instance.
     pub fn validate(&self, max: Vec2<usize>) -> PassiveResult {
         if self.size.0 > max.0 || self.size.1 > max.1  {
             return Err(Error::invalid("window attribute dimension value"));
@@ -541,10 +661,12 @@ impl IntRect {
         Ok(())
     }
 
+    /// Number of bytes this would consume in an exr file.
     pub fn byte_size() -> usize {
         4 * i32::BYTE_SIZE
     }
 
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         let Vec2(x_min, y_min) = self.start;
         let Vec2(x_max, y_max) = self.max();
@@ -556,6 +678,7 @@ impl IntRect {
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         let x_min = i32::read(read)?;
         let y_min = i32::read(read)?;
@@ -578,10 +701,13 @@ impl IntRect {
 
 
 impl FloatRect {
+
+    /// Number of bytes this would consume in an exr file.
     pub fn byte_size() -> usize {
         4 * f32::BYTE_SIZE
     }
 
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         self.min.0.write(write)?;
         self.min.1.write(write)?;
@@ -590,6 +716,7 @@ impl FloatRect {
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         let x_min = f32::read(read)?;
         let y_min = f32::read(read)?;
@@ -604,6 +731,7 @@ impl FloatRect {
 }
 
 impl PixelType {
+
     /// How many bytes a single sample takes up.
     pub fn bytes_per_sample(&self) -> usize {
         match self {
@@ -613,10 +741,12 @@ impl PixelType {
         }
     }
 
+    /// Number of bytes this would consume in an exr file.
     pub fn byte_size() -> usize {
         i32::BYTE_SIZE
     }
 
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         match *self {
             PixelType::U32 => 0_i32,
@@ -627,6 +757,7 @@ impl PixelType {
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         // there's definitely going to be more than 255 different pixel types in the future
         Ok(match i32::read(read)? {
@@ -656,6 +787,7 @@ impl Channel {
         dimensions / self.sampling
     }
 
+    /// Number of bytes this would consume in an exr file.
     pub fn byte_size(&self) -> usize {
         self.name.null_terminated_byte_size()
             + PixelType::byte_size()
@@ -664,6 +796,7 @@ impl Channel {
             + 2 * u32::BYTE_SIZE // sampling x, y
     }
 
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         Text::write_null_terminated(&self.name, write)?;
         self.pixel_type.write(write)?;
@@ -679,6 +812,7 @@ impl Channel {
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         let name = Text::read_null_terminated(read, 256)?;
         let pixel_type = PixelType::read(read)?;
@@ -701,6 +835,7 @@ impl Channel {
         })
     }
 
+    /// Validate this instance.
     pub fn validate(&self, allow_sampling: bool, strict: bool) -> PassiveResult {
         if strict && (self.sampling.0 == 0 || self.sampling.1 == 0) {
             return Err(Error::invalid("zero sampling factor"));
@@ -722,11 +857,14 @@ impl Channel {
 }
 
 impl ChannelList {
+
+    /// Number of bytes this would consume in an exr file.
     pub fn byte_size(&self) -> usize {
         // FIXME this needs to account for subsampling anywhere?
         self.list.iter().map(Channel::byte_size).sum::<usize>() + sequence_end::byte_size()
     }
 
+    /// Without validation, write this instance to the byte stream.
     /// Assumes channels are sorted alphabetically and all values are validated.
     pub fn write(&self, write: &mut impl Write) -> PassiveResult {
         for channel in &self.list {
@@ -737,6 +875,7 @@ impl ChannelList {
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read(read: &mut PeekRead<impl Read>) -> Result<Self> {
         let mut channels = SmallVec::new();
         while !sequence_end::has_come(read)? {
@@ -763,14 +902,18 @@ impl ChannelList {
 }
 
 impl TimeCode {
+
+    /// Number of bytes this would consume in an exr file.
     pub const BYTE_SIZE: usize = 2 * u32::BYTE_SIZE;
 
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         self.time_and_flags.write(write)?;
         self.user_data.write(write)?;
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         let time_and_flags = u32::read(read)?;
         let user_data = u32::read(read)?;
@@ -779,41 +922,47 @@ impl TimeCode {
 }
 
 impl Chromaticities {
+
+    /// Number of bytes this would consume in an exr file.
     pub fn byte_size() -> usize {
         8 * f32::BYTE_SIZE
     }
 
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        self.red_x.write(write)?;
-        self.red_y.write(write)?;
-        self.green_x.write(write)?;
-        self.green_y.write(write)?;
-        self.blue_x.write(write)?;
-        self.blue_y.write(write)?;
-        self.white_x.write(write)?;
-        self.white_y.write(write)?;
+        self.red.0.write(write)?;
+        self.red.1.write(write)?;
+
+        self.green.0.write(write)?;
+        self.green.1.write(write)?;
+
+        self.blue.0.write(write)?;
+        self.blue.1.write(write)?;
+
+        self.white.0.write(write)?;
+        self.white.1.write(write)?;
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         Ok(Chromaticities {
-            red_x: f32::read(read)?,
-            red_y: f32::read(read)?,
-            green_x: f32::read(read)?,
-            green_y: f32::read(read)?,
-            blue_x: f32::read(read)?,
-            blue_y: f32::read(read)?,
-            white_x: f32::read(read)?,
-            white_y: f32::read(read)?,
+            red: Vec2(f32::read(read)?, f32::read(read)?), // TODO does this respect struct init order?
+            green: Vec2(f32::read(read)?, f32::read(read)?),
+            blue: Vec2(f32::read(read)?, f32::read(read)?),
+            white: Vec2(f32::read(read)?, f32::read(read)?),
         })
     }
 }
 
 impl Compression {
+
+    /// Number of bytes this would consume in an exr file.
     pub fn byte_size() -> usize {
         1
     }
 
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
         use self::Compression::*;
         match self {
@@ -831,6 +980,7 @@ impl Compression {
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         use self::Compression::*;
         Ok(match u8::read(read)? {
@@ -850,10 +1000,13 @@ impl Compression {
 }
 
 impl EnvironmentMap {
+
+    /// Number of bytes this would consume in an exr file.
     pub fn byte_size() -> usize {
         u32::BYTE_SIZE
     }
 
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
         use self::EnvironmentMap::*;
         match self {
@@ -864,6 +1017,7 @@ impl EnvironmentMap {
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         use self::EnvironmentMap::*;
         Ok(match u8::read(read)? {
@@ -875,10 +1029,13 @@ impl EnvironmentMap {
 }
 
 impl KeyCode {
+
+    /// Number of bytes this would consume in an exr file.
     pub fn byte_size() -> usize {
         6 * i32::BYTE_SIZE
     }
 
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         self.film_manufacturer_code.write(write)?;
         self.film_type.write(write)?;
@@ -889,6 +1046,7 @@ impl KeyCode {
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         Ok(KeyCode {
             film_manufacturer_code: i32::read(read)?,
@@ -903,10 +1061,13 @@ impl KeyCode {
 }
 
 impl LineOrder {
+
+    /// Number of bytes this would consume in an exr file.
     pub fn byte_size() -> usize {
         u32::BYTE_SIZE
     }
 
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
         use self::LineOrder::*;
         match self {
@@ -918,6 +1079,7 @@ impl LineOrder {
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         use self::LineOrder::*;
         Ok(match u8::read(read)? {
@@ -930,10 +1092,13 @@ impl LineOrder {
 }
 
 impl Preview {
+
+    /// Number of bytes this would consume in an exr file.
     pub fn byte_size(&self) -> usize {
         2 * u32::BYTE_SIZE + self.pixel_data.len()
     }
 
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         u32::write(self.size.0 as u32, write)?;
         u32::write(self.size.1 as u32, write)?;
@@ -942,6 +1107,7 @@ impl Preview {
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         let components_per_pixel = 4;
         let width = u32::read(read)? as usize;
@@ -957,6 +1123,7 @@ impl Preview {
         Ok(preview)
     }
 
+    /// Validate this instance.
     pub fn validate(&self, strict: bool) -> PassiveResult {
         if strict && (self.size.0 * self.size.1 * 4 != self.pixel_data.len()) {
             return Err(Error::invalid("preview dimensions do not match content length"))
@@ -974,10 +1141,12 @@ impl ::std::fmt::Debug for Preview {
 
 impl TileDescription {
 
+    /// Number of bytes this would consume in an exr file.
     pub fn byte_size() -> usize {
         2 * u32::BYTE_SIZE + 1 // size x,y + (level mode + rounding mode)
     }
 
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         u32::write(self.tile_size.0 as u32, write)?;
         u32::write(self.tile_size.1 as u32, write)?;
@@ -998,6 +1167,7 @@ impl TileDescription {
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         let x_size = u32::read(read)? as usize;
         let y_size = u32::read(read)? as usize;
@@ -1025,6 +1195,7 @@ impl TileDescription {
         Ok(TileDescription { tile_size: Vec2(x_size, y_size), level_mode, rounding_mode, })
     }
 
+    /// Validate this instance.
     pub fn validate(&self) -> PassiveResult {
         if self.tile_size.0 == 0 || self.tile_size.1 == 0 {
             return Err(Error::invalid("zero tile size"))
@@ -1042,6 +1213,7 @@ impl Attribute {
     }
 
 
+    /// Number of bytes this would consume in an exr file.
     // TODO instead of pre calculating byte size, write to a tmp buffer whose length is inspected before actually writing?
     pub fn byte_size(&self) -> usize {
         self.name.null_terminated_byte_size()
@@ -1050,6 +1222,7 @@ impl Attribute {
             + self.value.byte_size()
     }
 
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         self.name.write_null_terminated(write)?;
         Text::write_null_terminated_bytes(self.value.kind_name(), write)?;
@@ -1057,6 +1230,7 @@ impl Attribute {
         self.value.write(write)
     }
 
+    /// Read the value without validating.
     pub fn read(read: &mut PeekRead<impl Read>, max_size: usize) -> Result<Self> {
         let name = Text::read_null_terminated(read, max_size)?;
         let kind = Text::read_null_terminated(read, max_size)?;
@@ -1065,6 +1239,7 @@ impl Attribute {
         Ok(Attribute { name, value, })
     }
 
+    /// Validate this instance.
     pub fn validate(&self, long_names: bool, allow_sampling: bool, strict: bool) -> PassiveResult {
         self.name.validate(true, Some(long_names))?; // only name text has length restriction
         self.value.validate(allow_sampling, strict) // attribute value text length is never restricted
@@ -1074,6 +1249,8 @@ impl Attribute {
 
 
 impl AnyValue {
+
+    /// Number of bytes this would consume in an exr file.
     pub fn byte_size(&self) -> usize {
         use self::AnyValue::*;
 
@@ -1151,6 +1328,7 @@ impl AnyValue {
         }
     }
 
+    /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
         use self::AnyValue::*;
         match *self {
@@ -1195,6 +1373,7 @@ impl AnyValue {
         Ok(())
     }
 
+    /// Read the value without validating.
     pub fn read(read: &mut PeekRead<impl Read>, kind: Text, byte_size: usize) -> Result<Self> {
         use self::AnyValue::*;
         use self::attribute_type_names as ty;
@@ -1277,6 +1456,7 @@ impl AnyValue {
         })
     }
 
+    /// Validate this instance.
     pub fn validate(&self, allow_sampling: bool, strict: bool) -> PassiveResult {
         use self::AnyValue::*;
 
@@ -1397,6 +1577,7 @@ pub mod attribute_type_names {
     macro_rules! define_attribute_type_names {
         ( $($name: ident : $value: expr),* ) => {
             $(
+                /// The byte-string name of this attribute type as it appears in an exr file.
                 pub const $name: &'static [u8] = $value;
             )*
         };
@@ -1429,10 +1610,12 @@ pub mod attribute_type_names {
     }
 }
 
-pub mod required {
+/// Collection of required attribute names
+pub mod required_attribute_names {
     macro_rules! define_required_attribute_names {
         ( $($name: ident : $value: expr),* ) => {
             $(
+                /// The byte-string name of this required attribute as it appears in an exr file.
                 pub const $name: &'static [u8] = $value;
             )*
         };

@@ -7,7 +7,7 @@ use exr::image::full;
 use bencher::Bencher;
 use std::fs;
 
-
+/// Read uncompressed (always single core)
 fn read_single_image_uncompressed(bench: &mut Bencher) {
     bench.iter(||{
         let path = "D:/Pictures/openexr/crowskull/crow_uncompressed.exr";
@@ -17,6 +17,7 @@ fn read_single_image_uncompressed(bench: &mut Bencher) {
     })
 }
 
+/// Read from in-memory in parallel
 fn read_single_image_uncompressed_from_buffer(bench: &mut Bencher) {
     let file = fs::read("D:/Pictures/openexr/crowskull/crow_uncompressed.exr").unwrap();
 
@@ -26,6 +27,7 @@ fn read_single_image_uncompressed_from_buffer(bench: &mut Bencher) {
     })
 }
 
+/// Read with multicore zip decompression
 fn read_single_image_zips(bench: &mut Bencher) {
     bench.iter(||{
         let path = "D:/Pictures/openexr/crowskull/crow_zips.exr";
@@ -34,6 +36,7 @@ fn read_single_image_zips(bench: &mut Bencher) {
     })
 }
 
+/// Read with multicore RLE decompression
 fn read_single_image_rle(bench: &mut Bencher) {
     bench.iter(||{
         let path = "D:/Pictures/openexr/crowskull/crow_rle.exr";
@@ -42,12 +45,13 @@ fn read_single_image_rle(bench: &mut Bencher) {
     })
 }
 
+/// Read without multicore ZIP decompression
 fn read_single_image_non_parallel_zips(bench: &mut Bencher) {
     bench.iter(||{
         let path = "D:/Pictures/openexr/crowskull/crow_zips.exr";
         let options = full::ReadOptions {
             parallel_decompression: false,
-            .. full::ReadOptions::default()
+            .. full::ReadOptions::low()
         };
 
         let image = full::Image::read_from_file(path, options).unwrap();

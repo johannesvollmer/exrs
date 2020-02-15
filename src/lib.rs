@@ -1,5 +1,11 @@
 
 
+//! Read and write OpenEXR images.
+//! This library uses no foreign code or unsafe Rust.
+//!
+//! See the [README.md](https://github.com/johannesvollmer/exrs/blob/master/README.md) for more information,
+//! or check out the [examples](https://github.com/johannesvollmer/exrs/tree/master/examples).
+
 #![warn(
     rust_2018_idioms,
     future_incompatible,
@@ -47,6 +53,7 @@ extern crate image as piston_image;
 
 /// Re-exports of all modules types commonly required for simple reading and writing of an exr image.
 pub mod prelude {
+
     // main exports
     pub use crate::meta::MetaData;
 

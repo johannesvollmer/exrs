@@ -62,6 +62,7 @@ fn check_files<T>(operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -
     }).collect::<Vec<_>>());
 }
 
+/// Read all files without checking anything
 #[test]
 fn read_all_files() {
     check_files(|path| Image::read_from_file(path, ReadOptions::low()))

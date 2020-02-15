@@ -53,7 +53,7 @@ pub struct Image {
     pub pixel_aspect: f32,
 }
 
-
+/// List of layers in an image.
 pub type Layers = SmallVec<[Layer; 3]>;
 
 
@@ -97,6 +97,7 @@ pub struct Layer {
 }
 
 
+/// List of channels in a Layer
 // TODO API use sorted set by name instead??
 pub type Channels = SmallVec<[Channel; 5]>;
 
@@ -177,6 +178,7 @@ impl Default for ReadOptions {
 
 
 impl WriteOptions {
+
     /// Higher speed but also higher memory requirements.
     pub fn high() -> Self { WriteOptions { parallel_compression: true, } }
 
@@ -185,6 +187,7 @@ impl WriteOptions {
 }
 
 impl ReadOptions {
+
     /// Higher speed but also higher memory requirements.
     pub fn high() -> Self { ReadOptions { parallel_decompression: true } }
 
@@ -386,6 +389,8 @@ impl Channel {
 }
 
 impl Samples {
+
+    /// Number of samples in this vector.
     pub fn len(&self) -> usize {
         match self {
             Samples::F16(vec) => vec.len(),

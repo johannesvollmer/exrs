@@ -15,6 +15,7 @@ use crate::error::Result;
 pub struct Vec2<T> (pub T, pub T);
 
 impl<T> Vec2<T> {
+
     /// Maps all components of this vector to a new type, yielding a vector of that new type.
     pub fn map<B>(self, map: impl Fn(T) -> B) -> Vec2<B> {
         Vec2(map(self.0), map(self.1))
@@ -128,7 +129,12 @@ pub(crate) fn ceil_log_2(mut number: u32) -> u32 {
 /// Round up or down in specific calculations.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum RoundingMode {
-    Down, Up,
+
+    /// Round down.
+    Down,
+
+    /// Round up.
+    Up,
 }
 
 impl RoundingMode {
