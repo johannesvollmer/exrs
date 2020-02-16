@@ -34,9 +34,8 @@ pub enum Channel {
 // TODO also use a trait inside exr::image::read_filtered_lines_from_buffered?
 
 pub trait NewImage: Sized {
-    fn new(size: Vec2<usize>, attributes: Attributes) -> Self;
+    fn new(size: Vec2<usize>, attributes: &Attributes) -> Self;
     fn set_sample(&mut self, index: Vec2<usize>, channel: Channel, value: f32);
-
 
     fn read_from_file(path: impl AsRef<Path>, parallel: bool) -> Result<Self> {
         Self::read_from_unbuffered(File::open(path)?, parallel)
@@ -61,7 +60,7 @@ pub trait NewImage: Sized {
                         && channels[3].name == "R".try_into().unwrap()
                         && channels.iter().all(|channel| channel.pixel_type == PixelType::F32) // TODO also other formats!
                     {
-                        return Ok(Self::new(header.data_window.size))
+                        return Ok(Self::new(header.data_window.size, &header.custom_attributes))
                     }
                 }
 
@@ -85,7 +84,9 @@ pub trait NewImage: Sized {
                 }
 
                 Ok(())
-            }
+            },
+
+            () // TODO progress callback
         )
     }
 }
@@ -95,7 +96,7 @@ pub trait GetImage: Sync { // TODO avoid sync requirement
     fn get_sample(&self, index: Vec2<usize>, channel: Channel) -> f32;
     fn attributes(&self) -> Attributes;
 
-
+    // TODO delete file on error
     fn write_to_file(&self, path: impl AsRef<Path>, parallel: bool, pedantic: bool) -> PassiveResult {
         self.write_to_unbuffered(File::create(path)?, parallel, pedantic)
     }
@@ -132,11 +133,14 @@ pub trait GetImage: Sync { // TODO avoid sync requirement
                 };
 
                 let position = line_mut.location.position;
+
                 line_mut.write_samples(|sample_index|{
                     let location = position + Vec2(sample_index, 0);
                     self.get_sample(location, channel)
-                }).expect("sample writing gone wrong"); // TODO no expect??
-            }
+                })
+            },
+
+            () // TODO progress callback
         )
     }
 }

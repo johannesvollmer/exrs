@@ -10,14 +10,14 @@ use crate::meta::attributes::*;
 use crate::error::{Result, PassiveResult, Error};
 use crate::math::*;
 use std::io::{Seek, BufReader, BufWriter};
-use crate::image::{LineRefMut, LineRef};
+use crate::image::{LineRefMut, LineRef, OnWriteProgress, OnReadProgress};
 
 // TODO dry this module with image::full?
 
 
 /// Specify how to write an exr image.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct WriteOptions {
+#[derive(Debug)]
+pub struct WriteOptions<P: OnWriteProgress> {
 
     /// Enable multicore compression.
     pub parallel_compression: bool,
@@ -25,16 +25,29 @@ pub struct WriteOptions {
     /// If enabled, writing an image throws errors
     /// for files that may look invalid to other exr readers.
     pub pedantic: bool,
+
+    /// Called occasionally while writing a file.
+    /// The first argument is the progress, a float from 0 to 1.
+    /// The second argument contains the total number of bytes written.
+    /// May return `Error::Abort` to cancel writing the file.
+    /// Can be a closure accepting a float and a usize, see `OnWriteProgress`.
+    on_progress: P,
 }
 
 
 
 /// Specify how to read an exr image.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct ReadOptions {
+#[derive(Debug)]
+pub struct ReadOptions<P: OnReadProgress> {
 
     /// Enable multicore decompression.
     pub parallel_decompression: bool,
+
+    /// Called occasionally while reading a file.
+    /// The argument is the progress, a float from 0 to 1.
+    /// May return `Error::Abort` to cancel reading the file.
+    /// Can be a closure accepting a float, see `OnWriteProgress`.
+    on_progress: P,
 }
 
 /// An exr image.
@@ -172,34 +185,62 @@ impl SampleStorage<f16> for Fn(Vec2) -> Iterator<Item=f16> { }*/
 
 
 
-impl Default for WriteOptions {
-    fn default() -> Self { Self::high() }
-}
 
-impl Default for ReadOptions {
-    fn default() -> Self { Self::high() }
-}
+/// A collection of preset `WriteOptions` values.
+pub mod write_options {
+    use super::*;
 
+    /// High speed but also slightly higher memory requirements.
+    pub fn default() -> WriteOptions<()> { self::high() }
 
-impl WriteOptions {
+    /// Higher speed, but slightly higher memory requirements, and __higher risk of incompatibility to other exr readers__.
+    pub fn higher() -> WriteOptions<()> {
+        WriteOptions {
+            parallel_compression: true,
+            pedantic: false,
+            on_progress: (),
+        }
+    }
 
-    /// Higher speed, but higher memory requirements, and __higher risk of incompatibility to other exr readers__.
-    pub fn higher() -> Self { WriteOptions { parallel_compression: true, pedantic: false } }
-
-    /// Higher speed but also higher memory requirements.
-    pub fn high() -> Self { WriteOptions { parallel_compression: true, pedantic: true } }
+    /// High speed but also slightly higher memory requirements.
+    pub fn high() -> WriteOptions<()> {
+        WriteOptions {
+            parallel_compression: true, pedantic: true,
+            on_progress: (),
+        }
+    }
 
     /// Lower speed but also lower memory requirements.
-    pub fn low() -> Self { WriteOptions { parallel_compression: false, pedantic: true } }
+    pub fn low() -> WriteOptions<()> {
+        WriteOptions {
+            parallel_compression: false, pedantic: true,
+            on_progress: (),
+        }
+    }
 }
 
-impl ReadOptions {
+/// A collection of preset `ReadOptions` values.
+pub mod read_options {
+    use super::*;
 
-    /// Higher speed but also higher memory requirements.
-    pub fn high() -> Self { ReadOptions { parallel_decompression: true } }
+    /// High speed but also slightly higher memory requirements.
+    pub fn default() -> ReadOptions<()> { self::high() }
+
+    /// High speed but also slightly higher memory requirements.
+    pub fn high() -> ReadOptions<()> {
+        ReadOptions {
+            parallel_decompression: true,
+            on_progress: (),
+        }
+    }
 
     /// Lower speed but also lower memory requirements.
-    pub fn low() -> Self { ReadOptions { parallel_decompression: false } }
+    pub fn low() -> ReadOptions<()> {
+        ReadOptions {
+            parallel_decompression: false,
+            on_progress: (),
+        }
+    }
 }
 
 
@@ -253,7 +294,7 @@ impl Image {
     /// Use `read_from_unbuffered` instead, if you do not have a file.
     /// Returns an empty image in case only deep data exists in the file.
     #[must_use]
-    pub fn read_from_file(path: impl AsRef<std::path::Path>, options: ReadOptions) -> Result<Self> {
+    pub fn read_from_file(path: impl AsRef<std::path::Path>, options: ReadOptions<impl OnReadProgress>) -> Result<Self> {
         Self::read_from_unbuffered(std::fs::File::open(path)?, options)
     }
 
@@ -265,7 +306,7 @@ impl Image {
     /// _Note: If you encounter a reader that is not send or not seek,
     /// open an issue on the github repository._
     #[must_use]
-    pub fn read_from_unbuffered(unbuffered: impl Read + Send + Seek, options: ReadOptions) -> Result<Self> { // TODO not need be seek nor send
+    pub fn read_from_unbuffered(unbuffered: impl Read + Send + Seek, options: ReadOptions<impl OnReadProgress>) -> Result<Self> { // TODO not need be seek nor send
         Self::read_from_buffered(BufReader::new(unbuffered), options)
     }
 
@@ -277,13 +318,15 @@ impl Image {
     /// _Note: If you encounter a reader that is not send or not seek,
     /// open an issue on the github repository._
     #[must_use]
-    pub fn read_from_buffered(read: impl Read + Send + Seek, options: ReadOptions) -> Result<Self> { // TODO not need be seek nor send
+    pub fn read_from_buffered(read: impl Read + Send + Seek, options: ReadOptions<impl OnReadProgress>) -> Result<Self> { // TODO not need be seek nor send
         let mut image: Image = crate::image::read_filtered_lines_from_buffered(
             read, options.parallel_decompression,
             |header, tile_index| {
                 !header.deep && tile_index.location.level_index == Vec2(0,0)
             },
-            Image::allocate, Image::insert_line
+            Image::allocate, Image::insert_line,
+
+            options.on_progress
         )?;
 
         {   // remove channels that had no data (deep data is not loaded)
@@ -300,9 +343,17 @@ impl Image {
 
     /// Write the exr image to a file.
     /// Use `write_to_unbuffered` instead if you do not have a file.
+    /// If an error occurs, attempts to delete the partially written file.
     #[must_use]
-    pub fn write_to_file(&self, path: impl AsRef<std::path::Path>, options: WriteOptions) -> PassiveResult {
-        self.write_to_unbuffered(std::fs::File::create(path)?, options)
+    pub fn write_to_file(&self, path: impl AsRef<std::path::Path>, options: WriteOptions<impl OnWriteProgress>) -> PassiveResult {
+        match self.write_to_unbuffered(std::fs::File::create(path.as_ref())?, options) {
+            Err(error) => {
+                let _deleted = std::fs::remove_file(path); // do not handle deletion errors
+                Err(error)
+            },
+
+            ok => ok,
+        }
     }
 
     /// Buffer the reader and then write the exr image to it.
@@ -310,7 +361,7 @@ impl Image {
     /// Use `read_from_file` instead, if you have a file path.
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first, using `write_to_buffered`.
     #[must_use]
-    pub fn write_to_unbuffered(&self, unbuffered: impl Write + Seek, options: WriteOptions) -> PassiveResult {
+    pub fn write_to_unbuffered(&self, unbuffered: impl Write + Seek, options: WriteOptions<impl OnWriteProgress>) -> PassiveResult {
         self.write_to_buffered(BufWriter::new(unbuffered), options)
     }
 
@@ -319,10 +370,14 @@ impl Image {
     /// Use `read_from_unbuffered` instead, if this is not an in-memory writer.
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first.
     #[must_use]
-    pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions) -> PassiveResult {
+    pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions<impl OnWriteProgress>) -> PassiveResult {
         crate::image::write_all_lines_to_buffered(
             write, options.parallel_compression, options.pedantic, self.infer_meta_data(),
-            |line_mut| self.extract_line(line_mut)
+            |line_mut| {
+                self.extract_line(line_mut);
+                Ok(()) // TODO abort also on line but not only chunk
+            },
+            options.on_progress
         )
     }
 }

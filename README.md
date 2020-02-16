@@ -61,8 +61,9 @@ __Currently supported:__
     - [x] write all contents at once
         - [x] compress blocks in parallel
     - [x] read only some blocks dynamically
+    - [x] read and write progress callback
+    - [x] abortable read and write
     - [ ] write blocks streams, one after another
-    - [ ] progress callback
     - [ ] memory mapping
     
 
@@ -191,7 +192,7 @@ fn main() {
     println!("writing image with meta data {:#?}", image);
 
     // write the image, compressing in parallel with all available cpus
-    image.write_to_file("./testout/constructed.exr", WriteOptions::high()).unwrap();
+    image.write_to_file("./testout/constructed.exr", write_options::high()).unwrap();
 }
 ```
 

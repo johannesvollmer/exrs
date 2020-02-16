@@ -58,7 +58,7 @@ fn write_noisy_hdr() {
     let image = Image::new_from_single_layer(layer);
 
     println!("writing image {:#?}", image);
-    image.write_to_file("./testout/noisy.exr", WriteOptions::high()).unwrap();
+    image.write_to_file("./testout/noisy.exr", write_options::high()).unwrap();
 
-    assert!(Image::read_from_file("./testout/noisy.exr", ReadOptions::high()).is_ok())
+    assert!(Image::read_from_file("./testout/noisy.exr", read_options::high()).is_ok())
 }

@@ -39,7 +39,7 @@ pub fn convert_to_png() {
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
     ;
 
-    let image = Image::read_from_file(path, ReadOptions::high()).unwrap();
+    let image = Image::read_from_file(path, read_options::high()).unwrap();
 
     // warning: highly unscientific benchmarks ahead!
     let elapsed = now.elapsed();

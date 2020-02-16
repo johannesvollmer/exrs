@@ -57,7 +57,7 @@ pub fn test_write_file() {
 //        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
     ;
 
-    let image = Image::read_from_file(path, ReadOptions::high()).unwrap();
-    Image::write_to_file(&image, "./testout/written.exr", WriteOptions::high()).unwrap();
+    let image = Image::read_from_file(path, read_options::high()).unwrap();
+    Image::write_to_file(&image, "./testout/written.exr", write_options::high()).unwrap();
 }
 

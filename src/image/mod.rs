@@ -106,10 +106,49 @@ pub struct LineIndex {
     pub sample_count: usize,
 }
 
+/// Called occasionally when writing a file.
+/// Implemented by any closure that matches `|progress: f32, bytes_written: usize| -> PassiveResult`.
+pub trait OnWriteProgress {
+
+    /// The progress is a float from 0 to 1.
+    /// May return `Error::Abort` to cancel writing the file.
+    #[must_use]
+    fn on_write_progressed(&mut self, progress: f32, bytes_written: usize) -> PassiveResult;
+}
+
+/// Called occasionally when reading a file.
+/// Implemented by any closure that matches `|progress: f32| -> PassiveResult`.
+pub trait OnReadProgress {
+
+    /// The progress is a float from 0 to 1.
+    /// May return `Error::Abort` to cancel reading the file.
+    #[must_use]
+    fn on_read_progressed(&mut self, progress: f32) -> PassiveResult;
+}
+
+impl<F> OnWriteProgress for F where F: FnMut(f32, usize) -> PassiveResult {
+    #[inline] fn on_write_progressed(&mut self, progress: f32, bytes_written: usize) -> PassiveResult { self(progress, bytes_written) }
+}
+
+impl<F> OnReadProgress for F where F: FnMut(f32) -> PassiveResult {
+    #[inline] fn on_read_progressed(&mut self, progress: f32) -> PassiveResult { self(progress) }
+}
+
+impl OnWriteProgress for () {
+    #[inline] fn on_write_progressed(&mut self, _progress: f32, _bytes_written: usize) -> PassiveResult { Ok(()) }
+}
+
+impl OnReadProgress for () {
+    #[inline] fn on_read_progressed(&mut self, _progress: f32) -> PassiveResult { Ok(()) }
+}
+
+
 impl<'s> LineRefMut<'s> {
 
     /// Writes the samples (f16, f32, u32 values) into this line value reference.
     /// Use `write_samples` if there is not slice available.
+    #[inline]
+    #[must_use]
     pub fn write_samples_from_slice<T: crate::io::Data>(self, slice: &[T]) -> PassiveResult {
         debug_assert_eq!(slice.len(), self.location.sample_count, "slice size does not match the line width");
         debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
@@ -122,6 +161,8 @@ impl<'s> LineRefMut<'s> {
     /// for a given sample index within the line,
     /// which starts at zero for each individual line.
     /// Use `write_samples_from_slice` if you already have a slice of samples.
+    #[inline]
+    #[must_use]
     pub fn write_samples<T: crate::io::Data>(self, mut get_sample: impl FnMut(usize) -> T) -> PassiveResult {
         debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
 
@@ -159,14 +200,18 @@ impl LineRef<'_> {
 
 /// Reads and decompresses all chunks of a file sequentially without seeking.
 /// Will not skip any parts of the file. Does not buffer the reader, you should always pass a `BufReader`.
+/// The progress argument may be a closure.
+#[inline]
+#[must_use]
 pub fn read_all_lines_from_buffered<T>(
     read: impl Read + Send, // FIXME does not actually need to be send, only for parallel writing
     parallel: bool,
     new: impl Fn(&[Header]) -> Result<T>,
-    mut insert: impl FnMut(&mut T, LineRef<'_>) -> PassiveResult
+    mut insert: impl FnMut(&mut T, LineRef<'_>) -> PassiveResult,
+    on_progress: impl OnReadProgress,
 ) -> Result<T>
 {
-    let (meta_data, mut read_chunk) = self::read_all_compressed_chunks_from_buffered(read)?;
+    let (meta_data, chunk_count, mut read_chunk) = self::read_all_compressed_chunks_from_buffered(read)?;
     let meta_data_ref = &meta_data;
 
     let read_chunks = std::iter::from_fn(move || read_chunk(meta_data_ref));
@@ -174,7 +219,8 @@ pub fn read_all_lines_from_buffered<T>(
 
     for_lines_in_chunks(
         read_chunks, &meta_data, parallel,
-        |line| insert(&mut result, line)
+        |line| insert(&mut result, line),
+        chunk_count, on_progress
     )?;
 
     Ok(result)
@@ -185,21 +231,26 @@ pub fn read_all_lines_from_buffered<T>(
 /// Will skip any parts of the file that do not match the specified filter condition.
 /// Will never seek if the filter condition matches all chunks.
 /// Does not buffer the reader, you should always pass a `BufReader`.
+/// The progress argument may be a closure.
+#[inline]
+#[must_use]
 pub fn read_filtered_lines_from_buffered<T>(
     read: impl Read + Seek + Send, // FIXME does not always need be Send
     parallel: bool,
     filter: impl Fn(&Header, &TileIndices) -> bool,
-    new: impl Fn(&[Header]) -> Result<T>,
-    mut insert: impl FnMut(&mut T, LineRef<'_>) -> PassiveResult
+    new: impl Fn(&[Header]) -> Result<T>, // TODO put these into a trait?
+    mut insert: impl FnMut(&mut T, LineRef<'_>) -> PassiveResult,
+    on_progress: impl OnReadProgress,
 ) -> Result<T>
 {
-    let (meta_data, mut read_chunk) = self::read_filtered_chunks_from_buffered(read, filter)?;
+    let (meta_data, chunk_count, mut read_chunk) = self::read_filtered_chunks_from_buffered(read, filter)?;
     let read_chunks = std::iter::from_fn(|| read_chunk(&meta_data));
     let mut value = new(meta_data.headers.as_slice())?;
 
     for_lines_in_chunks(
         read_chunks, &meta_data, parallel,
-        |line| insert(&mut value, line)
+        |line| insert(&mut value, line),
+        chunk_count, on_progress
     )?;
 
     Ok(value)
@@ -207,13 +258,21 @@ pub fn read_filtered_lines_from_buffered<T>(
 
 /// Iterates through all lines of all supplied chunks.
 /// Decompresses the chunks either in parallel or sequentially.
+/// The progress argument may be a closure.
+#[inline]
+#[must_use]
 fn for_lines_in_chunks(
     chunks: impl Send + Iterator<Item = Result<Chunk>>,
-    meta_data: &MetaData, parallel: bool, mut for_each: impl FnMut(LineRef<'_>) -> PassiveResult
+    meta_data: &MetaData, parallel: bool,
+    mut for_each: impl FnMut(LineRef<'_>) -> PassiveResult,
+    total_chunk_count: usize,
+    mut on_progress: impl OnReadProgress,
 ) -> PassiveResult
 {
     let has_compression = meta_data.headers.iter() // do not use parallel stuff for uncompressed images
         .find(|header| header.compression != Compression::Uncompressed).is_some();
+
+    let mut processed_chunk_count = 0;
 
     if parallel && has_compression {
         let (sender, receiver) = std::sync::mpsc::channel();
@@ -225,11 +284,14 @@ fn for_lines_in_chunks(
             })?;
 
         for decompressed in receiver {
+            on_progress.on_read_progressed(processed_chunk_count as f32 / total_chunk_count as f32)?;
+            processed_chunk_count += 1;
+
             let header = meta_data.headers.get(decompressed.index.layer)
                 .ok_or(Error::invalid("chunk index"))?;
 
             for (bytes, line) in decompressed.index.line_indices(header) {
-                for_each(LineSlice { location: line, value: &decompressed.data[bytes] })?;
+                for_each(LineSlice { location: line, value: &decompressed.data[bytes] })?; // allows returning `Error::Abort`
             }
         }
 
@@ -237,6 +299,9 @@ fn for_lines_in_chunks(
     }
     else {
         for chunk in chunks {
+            on_progress.on_read_progressed(processed_chunk_count as f32 / total_chunk_count as f32)?;
+            processed_chunk_count += 1;
+
             let decompressed = UncompressedBlock::decompress_chunk(chunk?, &meta_data)?;
             let header = meta_data.headers.get(decompressed.index.layer)
                 .ok_or(Error::invalid("chunk index"))?;
@@ -253,16 +318,18 @@ fn for_lines_in_chunks(
 /// Read all chunks without seeking.
 /// Returns the compressed chunks.
 /// Does not buffer the reader, you should always pass a `BufReader`.
+#[inline]
+#[must_use]
 pub fn read_all_compressed_chunks_from_buffered<'m>(
     read: impl Read + Send, // FIXME does not actually need to be send, only for parallel writing
-) -> Result<(MetaData, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
+) -> Result<(MetaData, usize, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
 {
     let mut read = PeekRead::new(read);
     let meta_data = MetaData::read_from_buffered_peekable(&mut read)?;
     let mut remaining_chunk_count = usize::try_from(MetaData::skip_offset_tables(&mut read, &meta_data.headers)?)
         .expect("too large chunk count for this machine");
 
-    Ok((meta_data, move |meta_data| {
+    Ok((meta_data, remaining_chunk_count, move |meta_data| {
         if remaining_chunk_count > 0 {
             remaining_chunk_count -= 1;
             Some(Chunk::read(&mut read, meta_data))
@@ -277,10 +344,12 @@ pub fn read_all_compressed_chunks_from_buffered<'m>(
 /// Read all desired chunks, possibly seeking. Skips all chunks that do not match the filter.
 /// Returns the compressed chunks. Does not buffer the reader, you should always pass a `BufReader`.
 // TODO this must be tested more
+#[inline]
+#[must_use]
 pub fn read_filtered_chunks_from_buffered<'m>(
     read: impl Read + Seek + Send, // FIXME does not always need be Send
     filter: impl Fn(&Header, &TileIndices) -> bool,
-) -> Result<(MetaData, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
+) -> Result<(MetaData, usize, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
 {
     let skip_read = Tracking::new(read);
     let mut read = PeekRead::new(skip_read);
@@ -296,10 +365,11 @@ pub fn read_filtered_chunks_from_buffered<'m>(
         };
     }
 
-    offsets.sort(); // enables reading continuously if possible
+    offsets.sort(); // enables reading continuously if possible (is probably already sorted)
     let mut offsets = offsets.into_iter();
+    let block_count = offsets.len();
 
-    Ok((meta_data, move |meta_data| {
+    Ok((meta_data, block_count, move |meta_data| {
         offsets.next().map(|offset|{
             read.skip_to(usize::try_from(offset).expect("too large chunk position for this machine"))?; // no-op for seek at current position, uses skip_bytes for small amounts
             Chunk::read(&mut read, meta_data)
@@ -312,10 +382,12 @@ pub fn read_filtered_chunks_from_buffered<'m>(
 /// Iterate over all uncompressed blocks of an image.
 /// The image contents are collected by the `get_line` function parameter.
 /// Returns blocks in `LineOrder::Increasing`, unless the line order is requested to be decreasing.
+#[inline]
+#[must_use]
 pub fn uncompressed_image_blocks_ordered<'l>(
     meta_data: &'l MetaData,
-    get_line: &'l (impl Fn(LineRefMut<'_>) + 'l + Sync) // TODO reduce sync requirements, at least if parrallel is false
-) -> impl Iterator<Item = (usize, UncompressedBlock)> + 'l + Send // TODO reduce sync requirements, at least if parrallel is false
+    get_line: &'l (impl Sync + 'l + (Fn(LineRefMut<'_>) -> PassiveResult)) // TODO reduce sync requirements, at least if parrallel is false
+) -> impl Iterator<Item = Result<(usize, UncompressedBlock)>> + 'l + Send // TODO reduce sync requirements, at least if parrallel is false
 {
     meta_data.headers.iter().enumerate()
         .flat_map(move |(layer_index, header)|{
@@ -328,23 +400,25 @@ pub fn uncompressed_image_blocks_ordered<'l>(
                     pixel_size: data_indices.size,
                 };
 
-                let mut block_bytes = Vec::with_capacity(header.max_block_byte_size());
+                let mut block_bytes = Vec::with_capacity(header.max_block_byte_size()); // TODO vec![] instead and use byte ranges
+                // let mut written_block_count = 0;
+
                 for (byte_range, line_index) in block_indices.line_indices(header) {
-                    block_bytes.resize(byte_range.end, 0_u8);
+                    block_bytes.resize(byte_range.end, 0_u8); // TODO this is a performance bottleneck? for uncompressed streaming exr files
 
                     let line_mut = LineRefMut {
                         value: &mut block_bytes[byte_range],
                         location: line_index,
                     };
 
-                    get_line(line_mut);
+                    get_line(line_mut)?; // enables returning `Error::Abort`
                 }
 
                 // byte length is validated in block::compress_to_chunk
-                (chunk_index, UncompressedBlock {
+                Ok((chunk_index, UncompressedBlock {
                     index: block_indices,
                     data: block_bytes
-                })
+                }))
             })
         })
 }
@@ -356,8 +430,10 @@ pub fn uncompressed_image_blocks_ordered<'l>(
 ///
 /// Attention: Currently, using multicore compression with `LineOrder::Increasing` or `LineOrder::Decreasing` in any header
 /// will allocate large amounts of memory while writing the file. Use unspecified line order for lower memory usage.
+#[inline]
+#[must_use]
 pub fn for_compressed_blocks_in_image(
-    meta_data: &MetaData, get_line: impl Fn(LineRefMut<'_>) + Sync,
+    meta_data: &MetaData, get_line: impl Sync + Fn(LineRefMut<'_>) -> PassiveResult,
     parallel: bool, mut write_chunk: impl FnMut(usize, Chunk) -> PassiveResult
 ) -> PassiveResult
 {
@@ -374,7 +450,11 @@ pub fn for_compressed_blocks_in_image(
         let (sender, receiver) = std::sync::mpsc::channel();
 
         blocks.par_bridge()
-            .map(|(chunk_index, block)| Ok((chunk_index, block.compress_to_chunk(meta_data)?)))
+            .map(|result| Ok({
+                let (chunk_index, block) = result?;
+                let block = block.compress_to_chunk(meta_data)?;
+                (chunk_index, block)
+            }))
             .try_for_each_with(sender, |sender, result: Result<(usize, Chunk)>| {
                 result.map(|block| sender.send(block).expect("threading error"))
             })?;
@@ -418,7 +498,8 @@ pub fn for_compressed_blocks_in_image(
     }
 
     else {
-        for (chunk_index, uncompressed_block) in blocks {
+        for result in blocks {
+            let (chunk_index, uncompressed_block) = result?; // enable `Error::Abort`
             let chunk = uncompressed_block.compress_to_chunk(meta_data)?;
             write_chunk(chunk_index, chunk)?;
         }
@@ -434,12 +515,16 @@ pub fn for_compressed_blocks_in_image(
 ///
 /// Does not buffer the writer, you should always pass a `BufWriter`.
 /// If pedantic, throws errors for files that may produce errors in other exr readers.
+///
+/// The progress argument may be a closure.
+#[inline]
 #[must_use]
 pub fn write_all_lines_to_buffered(
     write: impl Write + Seek,
     parallel: bool, pedantic: bool,
     mut meta_data: MetaData,
-    get_line: impl Fn(LineRefMut<'_>) + Sync // TODO why is this sync or send????
+    get_line: impl Sync + Fn(LineRefMut<'_>) -> PassiveResult, // TODO put these three parameters into a trait?  // TODO why is this sync or send????
+    mut on_progress: impl OnWriteProgress, // called occasionally, receives progress, returns whether to carry on // TODO put these three parameters into a trait?
 ) -> PassiveResult
 {
     // if non-parallel compression, we always use increasing order anyways
@@ -465,10 +550,18 @@ pub fn write_all_lines_to_buffered(
     let mut offset_tables: Vec<Vec<u64>> = meta_data.headers.iter()
         .map(|header| vec![0; header.chunk_count]).collect();
 
+    let total_chunk_count = offset_table_size as f32;
+    let mut processed_chunk_count = 0; // very simple on_progress feedback
+
     // line order is respected in here
     for_compressed_blocks_in_image(&meta_data, get_line, parallel, |chunk_index, chunk|{
         offset_tables[chunk.layer_index][chunk_index] = write.byte_position() as u64; // safe indices from `enumerate()`
-        chunk.write(&mut write, meta_data.headers.as_slice())
+        chunk.write(&mut write, meta_data.headers.as_slice())?;
+
+        on_progress.on_write_progressed(processed_chunk_count as f32 / total_chunk_count, write.byte_position())?;
+        processed_chunk_count += 1;
+
+        Ok(())
     })?;
 
     // write all offset tables
@@ -490,6 +583,8 @@ impl BlockIndex {
     ///
     /// Does not check whether `self.layer_index`, `self.level`, `self.size` and `self.position` are valid indices.__
     // TODO be sure this cannot produce incorrect data, as this is not further checked but only handled with panics
+    #[inline]
+    #[must_use]
     pub fn line_indices(&self, header: &Header) -> impl Iterator<Item=(Range<usize>, LineIndex)> {
         struct LineIter {
             layer: usize, level: Vec2<usize>, width: usize,
@@ -560,6 +655,8 @@ impl UncompressedBlock {
 
     /// Decompress the possibly compressed chunk and returns an `UncompressedBlock`.
     // for uncompressed data, the ByteVec in the chunk is moved all the way
+    #[inline]
+    #[must_use]
     pub fn decompress_chunk(chunk: Chunk, meta_data: &MetaData) -> Result<Self> {
         let header: &Header = meta_data.headers.get(chunk.layer_index)
             .ok_or(Error::invalid("chunk layer index"))?;
@@ -587,6 +684,8 @@ impl UncompressedBlock {
 
     /// Consume this block by compressing it, returning a `Chunk`.
     // for uncompressed data, the ByteVec in the chunk is moved all the way
+    #[inline]
+    #[must_use]
     pub fn compress_to_chunk(self, meta_data: &MetaData) -> Result<Chunk> {
         let UncompressedBlock { data, index } = self;
 

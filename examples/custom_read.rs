@@ -14,6 +14,7 @@ use exr::meta::attributes::PixelType;
 
 /// Collects the average pixel value for each channel.
 /// Does not load the whole image into memory at once: only processes the image block by block.
+/// On my machine, this program analyzes a 3GB file while only allocating 5MB.
 #[test]
 fn analyze_image() {
     let file = BufReader::new(File::open("./testout/noisy.exr").unwrap());
@@ -81,7 +82,9 @@ fn analyze_image() {
             }
 
             Ok(())
-        }
+        },
+
+        ()
     ).unwrap();
 
     println!("average values: {:#?}", averages);

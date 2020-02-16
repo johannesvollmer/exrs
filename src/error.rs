@@ -22,6 +22,11 @@ pub type PassiveResult = Result<()>;
 #[derive(Debug)]
 pub enum Error {
 
+    /// Reading or Writing the file has been aborted by the caller.
+    /// This error will never be triggered by this crate itself,
+    /// only by users of this library.
+    Aborted,
+
     /// The contents of the file are not supported by
     /// this specific implementation of open exr,
     /// even though the data may be valid.

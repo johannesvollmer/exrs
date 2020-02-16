@@ -3,6 +3,7 @@
 extern crate exr;
 use exr::image::rgba::*;
 use exr::math::Vec2;
+use exr::meta::Attributes;
 
 /// Read an RGBA image.
 /// Uses multicore decompression where appropriate.
@@ -22,7 +23,7 @@ fn read_image() {
     }
 
     impl NewImage for Image {
-        fn new(size: Vec2<usize>) -> Self {
+        fn new(size: Vec2<usize>, _attributes: &Attributes) -> Self {
             Self {
                 size: (size.0, size.1),
                 rgba: vec![ 0.0; size.area() * 4 ]
