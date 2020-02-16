@@ -396,7 +396,7 @@ pub fn uncompressed_image_blocks_ordered<'l>(
 
                 let block_indices = BlockIndex {
                     layer: layer_index, level: tile.location.level_index,
-                    pixel_position: data_indices.start.to_usize("data indices start").expect("data index bug"),
+                    pixel_position: data_indices.position.to_usize("data indices start").expect("data index bug"),
                     pixel_size: data_indices.size,
                 };
 
@@ -666,7 +666,7 @@ impl UncompressedBlock {
         let tile_data_indices = header.get_block_data_indices(&chunk.block)?;
         let absolute_indices = header.get_absolute_block_indices(tile_data_indices)?;
 
-        absolute_indices.validate(header.data_window.size)?;
+        absolute_indices.validate(header.data_size)?;
 
         match chunk.block {
             Block::Tile(TileBlock { compressed_pixels, .. }) |
@@ -674,7 +674,7 @@ impl UncompressedBlock {
                 data: header.compression.decompress_image_section(header, compressed_pixels, absolute_indices)?,
                 index: BlockIndex {
                     layer: chunk.layer_index,
-                    pixel_position: absolute_indices.start.to_usize("data indices start")?,
+                    pixel_position: absolute_indices.position.to_usize("data indices start")?,
                     level: tile_data_indices.level_index,
                     pixel_size: absolute_indices.size,
                 }
@@ -708,7 +708,7 @@ impl UncompressedBlock {
                     compressed_pixels: compressed_data,
 
                     // FIXME this calculation should not be made here but elsewhere instead (in meta::header?)
-                    y_coordinate: usize_to_i32(index.pixel_position.1) + header.data_window.start.1,
+                    y_coordinate: usize_to_i32(index.pixel_position.1) + header.own_attributes.data_position.1,
                 }),
 
                 Blocks::Tiles(tiles) => Block::Tile(TileBlock {

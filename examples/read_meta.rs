@@ -11,9 +11,8 @@ fn print_custom_meta() {
 
     for image_layer in meta_data.headers {
         println!(
-            "custom meta data of layer `{}`: {:#?}",
-            image_layer.name.map_or(String::new(), |text| text.to_string()),
-            image_layer.custom_attributes
+            "custom meta data of layer: {:#?}",
+            image_layer.own_attributes
         );
     }
 }

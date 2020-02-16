@@ -162,7 +162,7 @@ impl TileCoordinates {
         let start = self.tile_index * tile_size;
 
         Ok(IntRect {
-            start: start.to_i32(),
+            position: start.to_i32(),
             size: Vec2(
                 calculate_block_size(max.0, tile_size.0, start.0)?,
                 calculate_block_size(max.1, tile_size.0, start.1)?,
@@ -173,7 +173,7 @@ impl TileCoordinates {
     /// Absolute coordinates inside the global 2D space of a file, may be negative.
     pub fn to_absolute_indices(&self, tile_size: Vec2<usize>, data_window: IntRect) -> Result<IntRect> {
         let data = self.to_data_indices(tile_size, data_window.size)?;
-        Ok(data.with_origin(data_window.start))
+        Ok(data.with_origin(data_window.position))
     }
 }
 

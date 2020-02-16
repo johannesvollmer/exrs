@@ -31,7 +31,7 @@ fn search_previews_of_all_files() {
 
     files.into_par_iter().for_each(|path| {
         let meta = MetaData::read_from_file(&path).unwrap();
-        let attributes = meta.headers.iter().flat_map(|header| header.custom_attributes.iter());
+        let attributes = meta.headers.iter().flat_map(|header| header.own_attributes.list.iter());
         let values = attributes.filter(|attribute| attribute.value.to_preview().is_ok());
         let values: Vec<&Attribute> = values.collect();
 

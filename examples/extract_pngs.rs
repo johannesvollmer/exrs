@@ -6,6 +6,7 @@ use exr::image::full::*;
 use std::{fs};
 use exr::math::Vec2;
 use std::cmp::Ordering;
+use std::io::ErrorKind;
 
 /// For each layer in the exr file,
 /// extract each channel as grayscale png,
@@ -73,7 +74,12 @@ pub fn convert_to_png() {
         png_buffer.save(&name).unwrap();
     }
 
-    fs::remove_dir_all("testout").unwrap_or_default();
+    if let Err(error) = fs::remove_dir_all("testout") {
+        if error.kind() != ErrorKind::NotFound {
+            println!("{}", error);
+        }
+    }
+
     fs::create_dir("testout").unwrap();
 
     for (layer_index, layer) in image.layers.iter().enumerate() {
@@ -89,7 +95,7 @@ pub fn convert_to_png() {
                         save_f32_image_as_png(&data, sample_block.resolution, format!(
                             "testout/{} ({}) {}_f16_{}x{}.png",
                             layer_index,
-                            layer.name.as_ref().map(attributes::Text::to_string).unwrap_or(String::from("1")),
+                            layer.attributes.name.as_ref().map(attributes::Text::to_string).unwrap_or(String::from("1")),
                             channel.name,
                             sample_block.resolution.0,
                             sample_block.resolution.1,
@@ -103,7 +109,7 @@ pub fn convert_to_png() {
                         save_f32_image_as_png(&sample_block.samples, sample_block.resolution, format!(
                             "testout/{} ({}) {}_f16_{}x{}.png",
                             layer_index,
-                            layer.name.as_ref().map(attributes::Text::to_string).unwrap_or(String::from("1")),
+                            layer.attributes.name.as_ref().map(attributes::Text::to_string).unwrap_or(String::from("1")),
                             channel.name,
                             sample_block.resolution.0,
                             sample_block.resolution.1,
@@ -119,7 +125,7 @@ pub fn convert_to_png() {
                         save_f32_image_as_png(&data, sample_block.resolution, format!(
                             "testout/{} ({}) {}_f16_{}x{}.png",
                             layer_index,
-                            layer.name.as_ref().map(attributes::Text::to_string).unwrap_or(String::from("1")),
+                            layer.attributes.name.as_ref().map(attributes::Text::to_string).unwrap_or(String::from("1")),
                             channel.name,
                             sample_block.resolution.0,
                             sample_block.resolution.1,

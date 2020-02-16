@@ -29,7 +29,7 @@ fn write_generated_stripes() {
 
     let header = exr::meta::Header::new(
         "test-image".try_into().unwrap(),
-        IntRect::from_dimensions(size),
+        size,
         smallvec![
             Channel::new("B".try_into().unwrap(), PixelType::F32, true),
             Channel::new("G".try_into().unwrap(), PixelType::F32, true),

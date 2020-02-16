@@ -1,7 +1,5 @@
-use std::panic::{catch_unwind, resume_unwind};
-use std::panic;
-use rayon::prelude::*;
-use rand::{thread_rng, Rng, SeedableRng};
+use std::panic::{catch_unwind};
+use rand::{Rng};
 use rand::rngs::StdRng;
 use std::io::Read;
 
@@ -47,7 +45,7 @@ impl Read for RandomReader {
 pub fn incremental(){
     println!("started incremental fuzzing");
 //    panic::set_hook(Box::new(|_| (/* do not println panics */)));
-    let mut pool = rayon::ThreadPoolBuilder::new().build().unwrap();
+    let pool = rayon::ThreadPoolBuilder::new().build().unwrap();
 
     for len in 0 .. 32 {
         println!("starting fuzzy testing for byte length of {}", len);
@@ -75,7 +73,7 @@ pub fn incremental(){
 #[test]
 pub fn stochastic(){
     println!("started stochastic fuzzing");
-    let mut pool = rayon::ThreadPoolBuilder::new().build().unwrap();
+    let pool = rayon::ThreadPoolBuilder::new().build().unwrap();
 
     for index in 0..1024_u64 * 2048 * 4 {
         pool.install(move || {

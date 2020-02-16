@@ -182,7 +182,7 @@ fn main() {
 
     let layer = Layer::new(
         "test-image".try_into().unwrap(), // layer name
-        IntRect::from_dimensions(size.to_u32()), // set position to (0,0) and size to 1025x512
+        size, // resolution
         smallvec![ luma ], // include the one channel we created
     );
     

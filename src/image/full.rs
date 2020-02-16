@@ -71,12 +71,9 @@ pub struct Image {
     /// All layers contained in the image file
     pub layers: Layers,
 
-    /// The rectangle positioned anywhere in the infinite 2D space that
-    /// clips all contents of the file, limiting what should be rendered.
-    pub display_window: IntRect,
-
-    /// Aspect ratio of each pixel in this layer.
-    pub pixel_aspect: f32,
+    /// Attributes that apply to the whole image file.
+    /// Excludes technical meta data.
+    pub attributes: ImageAttributes,
 }
 
 pub type Layers = SmallVec<[Layer; 3]>;
@@ -86,23 +83,17 @@ pub type Layers = SmallVec<[Layer; 3]>;
 #[derive(Clone, PartialEq, Debug)]
 pub struct Layer {
 
-    /// The name of the layer.
-    /// This is optional for files with only one layer.
-    pub name: Option<Text>,
+    /// List of channels in this layer.
+    /// Contains the actual pixel data of the image.
+    pub channels: Channels,
 
-    /// The remaining attributes which are not already in the `Layer`.
-    /// Includes custom attributes.
-    pub attributes: Attributes,
+    /// Attributes that apply to this layer. Excludes technical meta data.
+    /// May still contain attributes that should be considered global for an image file.
+    pub attributes: LayerAttributes,
 
     /// The rectangle that positions this layer
     /// within the global infinite 2D space of the file.
-    pub data_window: IntRect,
-
-    /// Part of the perspective projection. Default should be `(0, 0)`.
-    pub screen_window_center: Vec2<f32>,
-
-    /// Part of the perspective projection. Default should be `1`.
-    pub screen_window_width: f32,
+    pub data_size: Vec2<usize>,
 
     /// In what order the tiles of this header occur in the file.
     pub line_order: LineOrder,
@@ -116,10 +107,6 @@ pub struct Layer {
     /// Also describes whether a file contains multiple resolution levels: mip maps or rip maps.
     /// This allows loading not the full resolution, but the smallest sensible resolution.
     pub blocks: Blocks,
-
-    /// List of channels in this layer.
-    /// Contains the actual pixel data of the image.
-    pub channels: Channels,
 }
 
 
@@ -405,20 +392,17 @@ impl Image {
 
     /// Allocate an image ready to be filled with pixel data.
     pub fn allocate(headers: &[Header]) -> Result<Self> {
-        let display_window = headers.iter()
-            .map(|header| header.display_window)
-            .next().unwrap_or(IntRect::zero()); // default value if no headers are found
-
-        let pixel_aspect = headers.iter()
-            .map(|header| header.pixel_aspect)
-            .next().unwrap_or(1.0); // default value if no headers are found
+        let shared_attributes = &headers.iter()
+            // pick the header with the most attributes
+            // (all headers should have the same shared attributes anyways)
+            .max_by_key(|header| header.shared_attributes.list.len())
+            .expect("no headers found").shared_attributes;
 
         let headers : Result<_> = headers.iter().map(Layer::allocate).collect();
 
         Ok(Image {
             layers: headers?,
-            display_window,
-            pixel_aspect
+            attributes: shared_attributes.clone(),
         })
     }
 
@@ -448,7 +432,7 @@ impl Image {
     /// May produce invalid meta data. The meta data will be validated just before writing.
     pub fn infer_meta_data(&self) -> MetaData {
         let headers: Headers = self.layers.iter()
-            .map(|layer| layer.infer_header(self.display_window, self.pixel_aspect))
+            .map(|layer| layer.infer_header(&self.attributes))
             .collect();
 
         MetaData::new(headers)
@@ -462,11 +446,8 @@ impl Layer {
     /// Allocate an layer ready to be filled with pixel data.
     pub fn allocate(header: &Header) -> Result<Self> {
         Ok(Layer {
-            data_window: header.data_window,
-            screen_window_center: header.screen_window_center,
-            screen_window_width: header.screen_window_width,
-            name: header.name.clone(),
-            attributes: header.custom_attributes.clone(),
+            data_size: header.data_size,
+            attributes: header.own_attributes.clone(),
             channels: header.channels.list.iter().map(|channel| Channel::allocate(header, channel)).collect(),
             compression: header.compression,
             blocks: header.blocks,
@@ -477,8 +458,8 @@ impl Layer {
     /// Insert one line of pixel data into this layer.
     /// Returns an error for invalid index or line contents.
     pub fn insert_line(&mut self, line: LineRef<'_>) -> PassiveResult {
-        debug_assert!(line.location.position.0 + line.location.sample_count <= self.data_window.size.0, "line index bug");
-        debug_assert!(line.location.position.1 < self.data_window.size.1, "line index bug");
+        debug_assert!(line.location.position.0 + line.location.sample_count <= self.data_size.0, "line index bug");
+        debug_assert!(line.location.position.1 < self.data_size.1, "line index bug");
 
         self.channels.get_mut(line.location.channel)
             .expect("invalid channel index")
@@ -488,8 +469,8 @@ impl Layer {
     /// Read one line of pixel data from this layer.
     /// Panics for an invalid index or write error.
     pub fn extract_line(&self, line: LineRefMut<'_>) {
-        debug_assert!(line.location.position.0 + line.location.sample_count <= self.data_window.size.0, "line index bug");
-        debug_assert!(line.location.position.1 < self.data_window.size.1, "line index bug");
+        debug_assert!(line.location.position.0 + line.location.sample_count <= self.data_size.0, "line index bug");
+        debug_assert!(line.location.position.1 < self.data_size.1, "line index bug");
 
         self.channels.get(line.location.channel)
             .expect("invalid channel index")
@@ -498,30 +479,27 @@ impl Layer {
 
     /// Create the meta data that describes this layer.
     /// May produce invalid meta data. The meta data will be validated just before writing.
-    pub fn infer_header(&self, display_window: IntRect, pixel_aspect: f32) -> Header {
+    pub fn infer_header(&self, shared_attributes: &ImageAttributes) -> Header {
         let chunk_count = compute_chunk_count(
-            self.compression, self.data_window, self.blocks
+            self.compression, self.data_size, self.blocks
         );
 
         Header {
             chunk_count,
 
-            name: self.name.clone(),
-            data_window: self.data_window,
-            screen_window_center: self.screen_window_center,
-            screen_window_width: self.screen_window_width,
             compression: self.compression,
             blocks: self.blocks,
             channels: ChannelList::new(self.channels.iter().map(Channel::infer_channel_attribute).collect()),
             line_order: self.line_order,
 
-            custom_attributes: self.attributes.clone(),
-            display_window, pixel_aspect,
+            data_size: self.data_size,
+            own_attributes: self.attributes.clone(),
+            shared_attributes: shared_attributes.clone(),
 
             // TODO deep data:
             deep_data_version: None,
             max_samples_per_pixel: None,
-            deep: false
+            deep: false,
         }
     }
 
@@ -636,7 +614,7 @@ impl<S: Samples> Levels<S> {
 
     /// Allocate a collection of resolution maps ready to be filled with pixel data.
     pub fn allocate(header: &Header, channel: &attributes::Channel) -> Self {
-        let data_size = header.data_window.size / channel.sampling;
+        let data_size = header.data_size / channel.sampling;
 
         if let Blocks::Tiles(tiles) = &header.blocks {
             let round = tiles.rounding_mode;

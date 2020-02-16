@@ -167,9 +167,9 @@ pub type DisplayWindow = IntRect;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct IntRect {
 
-    /// The top left corner of this rectangle.
+    /// The bottom left corner of this rectangle.
     /// The `Box2I32` includes this pixel if the size is not zero.
-    pub start: Vec2<i32>,
+    pub position: Vec2<i32>,
 
     /// How many pixels to include in this `Box2I32`.
     /// Does not include the actual boundary, just like `Vec::len()`.
@@ -553,7 +553,7 @@ impl<'s> TryFrom<&'s str> for Text {
 
 impl ::std::fmt::Debug for Text {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        write!(f, "exr::Text(\"{}\")", self.to_string())
+        write!(f, "exr::Text(\"{}\")", self)
     }
 }
 
@@ -637,14 +637,14 @@ impl IntRect {
 
     /// Create a box with a size and an origin point.
     pub fn new(start: Vec2<i32>, size: Vec2<usize>) -> Self {
-        Self { start, size }
+        Self { position: start, size }
     }
 
     /// Returns the top-right coordinate of the rectangle.
     /// The row and column described by this vector are not included in the rectangle,
     /// just like `Vec::len()`.
     pub fn end(self) -> Vec2<i32> {
-        self.start + self.size.to_i32() // larger than max int32 is panic
+        self.position + self.size.to_i32() // larger than max int32 is panic
     }
 
     /// Returns the maximum coordinate that a value in this rectangle may have.
@@ -668,7 +668,7 @@ impl IntRect {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        let Vec2(x_min, y_min) = self.start;
+        let Vec2(x_min, y_min) = self.position;
         let Vec2(x_max, y_max) = self.max();
 
         x_min.write(write)?;
@@ -690,12 +690,12 @@ impl IntRect {
         let size = Vec2(max.0 + 1 - min.0, max.1 + 1 - min.1); // which is why we add 1
         let size = size.to_usize("box coordinates")?;
 
-        Ok(IntRect { start: min, size })
+        Ok(IntRect { position: min, size })
     }
 
     /// Create a new rectangle which is offset by the specified origin.
     pub fn with_origin(self, origin: Vec2<i32>) -> Self {
-        IntRect { start: self.start + origin, .. self }
+        IntRect { position: self.position + origin, .. self }
     }
 }
 
@@ -1633,7 +1633,7 @@ pub mod required_attribute_names {
         TILES: b"tiles",
         NAME: b"name",
         BLOCK_TYPE: b"type",
-        VERSION: b"version",
+        DEEP_DATA_VERSION: b"version",
         CHUNKS: b"chunkCount",
         MAX_SAMPLES: b"maxSamplesPerPixel",
         CHANNELS: b"channels",

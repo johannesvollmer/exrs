@@ -48,7 +48,7 @@ fn write_noisy_hdr() {
 
     let layer = Layer::new(
         "test-image".try_into().unwrap(),
-        IntRect::from_dimensions(size),
+        size,
         smallvec![ r, g, b ],
     );
 

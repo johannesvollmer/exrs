@@ -47,8 +47,8 @@ fn analyze_image() {
         |headers| -> exr::error::Result<Vec<Layer>> { Ok(
             headers.iter()
                 .map(|header| Layer {
-                    name: header.name.clone(),
-                    data_window: header.data_window,
+                    name: header.own_attributes.name.clone(),
+                    data_window: header.data_window(),
                     channels: header.channels.list.iter()
                         .map(|channel| Channel {
                             name: channel.name.clone(),

@@ -10,7 +10,7 @@ use crate::math::Vec2;
 use crate::error::{Result, Error, PassiveResult};
 use crate::meta::attributes::PixelType;
 use std::convert::TryInto;
-use crate::meta::{MetaData, Header, attributes::{self, IntRect}, Attributes};
+use crate::meta::{MetaData, Header, attributes::{self}, ImageAttributes, LayerAttributes};
 
 
 /// References one of the RGBA channels, like an index.
@@ -30,21 +30,37 @@ pub enum Channel {
     Alpha
 }
 
+impl Channel {
+
+    /// Returns the index of the channel when indexing into an `[r, g, b, a]` sequence.
+    pub fn as_rgba_index(self) -> usize {
+        match self {
+            Channel::Red => 0,
+            Channel::Green => 1,
+            Channel::Blue => 2,
+            Channel::Alpha => 3,
+        }
+    }
+}
+
 
 // TODO also use a trait inside exr::image::read_filtered_lines_from_buffered?
 
 pub trait NewImage: Sized {
-    fn new(size: Vec2<usize>, attributes: &Attributes) -> Self;
-    fn set_sample(&mut self, index: Vec2<usize>, channel: Channel, value: f32);
+    fn new(size: Vec2<usize>, alpha_channel: bool, image: &ImageAttributes, layer: &LayerAttributes) -> Self;
+    fn set_sample(&mut self, pixel: Vec2<usize>, channel: Channel, value: f32);
 
+    #[must_use]
     fn read_from_file(path: impl AsRef<Path>, parallel: bool) -> Result<Self> {
         Self::read_from_unbuffered(File::open(path)?, parallel)
     }
 
+    #[must_use]
     fn read_from_unbuffered(read: impl Read + Seek + Send, parallel: bool) -> Result<Self> {
         Self::read_from_buffered(BufReader::new(read), parallel)
     }
 
+    #[must_use]
     fn read_from_buffered(read: impl Read + Seek + Send, parallel: bool) -> Result<Self> {
         crate::image::read_all_lines_from_buffered(
             read, parallel,
@@ -60,7 +76,7 @@ pub trait NewImage: Sized {
                         && channels[3].name == "R".try_into().unwrap()
                         && channels.iter().all(|channel| channel.pixel_type == PixelType::F32) // TODO also other formats!
                     {
-                        return Ok(Self::new(header.data_window.size, &header.custom_attributes))
+                        return Ok(Self::new(header.data_size, true, &header.shared_attributes, &header.own_attributes))
                     }
                 }
 
@@ -94,24 +110,28 @@ pub trait NewImage: Sized {
 pub trait GetImage: Sync { // TODO avoid sync requirement
     fn size(&self) -> Vec2<usize>;
     fn get_sample(&self, index: Vec2<usize>, channel: Channel) -> f32;
-    fn attributes(&self) -> Attributes;
+    fn layer_attributes(&self) -> LayerAttributes;
+    fn image_attributes(&self) -> ImageAttributes;
 
     // TODO delete file on error
+    #[must_use]
     fn write_to_file(&self, path: impl AsRef<Path>, parallel: bool, pedantic: bool) -> PassiveResult {
         self.write_to_unbuffered(File::create(path)?, parallel, pedantic)
     }
 
+    #[must_use]
     fn write_to_unbuffered(&self, write: impl Write + Seek, parallel: bool, pedantic: bool) -> PassiveResult {
         self.write_to_buffered(BufWriter::new(write), parallel, pedantic)
     }
 
+    #[must_use]
     fn write_to_buffered(&self, write: impl Write + Seek, parallel: bool, pedantic: bool) -> PassiveResult {
         crate::image::write_all_lines_to_buffered(
             write, parallel, pedantic,
             MetaData::new(smallvec![
                 Header::new(
                     "rgba-image".try_into().unwrap(),
-                    IntRect::from_dimensions(self.size()),
+                    self.size(),
                     smallvec![
                         attributes::Channel::new("A".try_into().unwrap(), PixelType::F32, true), // TODO make linear a parameter
                         attributes::Channel::new("B".try_into().unwrap(), PixelType::F32, true),

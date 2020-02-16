@@ -11,6 +11,7 @@ use crate::error::{Result, PassiveResult, Error};
 use crate::math::*;
 use std::io::{Seek, BufReader, BufWriter};
 use crate::image::{LineRefMut, LineRef, OnWriteProgress, OnReadProgress};
+use std::collections::HashSet;
 
 // TODO dry this module with image::full?
 
@@ -62,12 +63,10 @@ pub struct Image {
     /// All layers contained in the image file
     pub layers: Layers,
 
-    /// The rectangle positioned anywhere in the infinite 2D space that
-    /// clips all contents of the file, limiting what should be rendered.
-    pub display_window: IntRect,
-
-    /// Aspect ratio of each pixel in this layer.
-    pub pixel_aspect: f32,
+    /// Attributes that apply to the whole image file.
+    /// These attributes appear in each layer of the file.
+    /// Excludes technical meta data.
+    pub attributes: ImageAttributes,
 }
 
 /// List of layers in an image.
@@ -79,23 +78,17 @@ pub type Layers = SmallVec<[Layer; 3]>;
 #[derive(Clone, PartialEq, Debug)]
 pub struct Layer {
 
-    /// The name of the layer.
-    /// This is optional for files with only one layer.
-    pub name: Option<Text>,
+    /// List of channels in this layer.
+    /// Contains the actual pixel data of the image.
+    pub channels: Channels,
 
-    /// The remaining attributes which are not already in the `Layer`.
-    /// Includes custom attributes.
-    pub attributes: Attributes,
+    /// Attributes that apply to this layer. Excludes technical meta data.
+    /// May still contain attributes that should be considered global for an image file.
+    pub attributes: LayerAttributes,
 
     /// The rectangle that positions this layer
     /// within the global infinite 2D space of the file.
-    pub data_window: IntRect,
-
-    /// Part of the perspective projection. Default should be `(0, 0)`.
-    pub screen_window_center: Vec2<f32>,
-
-    /// Part of the perspective projection. Default should be `1`.
-    pub screen_window_width: f32,
+    pub data_size: Vec2<usize>,
 
     /// In what order the tiles of this header occur in the file.
     /// Does not change any actual image orientation.
@@ -108,9 +101,6 @@ pub struct Layer {
     /// If this is none, the image is divided into scan line blocks, depending on the compression method.
     pub tiles: Option<Vec2<usize>>,
 
-    /// List of channels in this layer.
-    /// Contains the actual pixel data of the image.
-    pub channels: Channels,
 }
 
 
@@ -267,27 +257,36 @@ impl<'t, T> ChannelSampler<'t, T> {
 impl Image {
 
     /// Create an image that is to be written to a file.
-    /// Defined the `display_window` to define
-    /// the area in the infinite 2D space that should be visible.
     ///
-    /// Consider using `Image::new_from_layers` for more complex cases.
-    /// Use the raw `Image { .. }` constructor for more complex cases.
+    /// Consider using `Image::new_from_layers` for creating an image with multiple layers.
+    /// Use the raw `Image { .. }` constructor for even more complex cases.
     pub fn new_from_single_layer(layer: Layer) -> Self {
         Self {
-            pixel_aspect: 1.0,
-            display_window: layer.data_window,
+            attributes: ImageAttributes {
+                display_window: layer.data_window(),
+                pixel_aspect: 1.0,
+                list: Vec::new()
+            },
+
             layers: smallvec![ layer ],
         }
     }
 
     /// Create an image that is to be written to a file.
-    /// Defined the `display_window` to define
-    /// the area in the infinite 2D space that should be visible.
+    /// Define the `display_window` to describe the area
+    /// within the infinite 2D space that should be visible.
     ///
     /// Consider using `Image::new_from_single_layer` for simpler cases.
     /// Use the raw `Image { .. }` constructor for more complex cases.
     pub fn new_from_layers(layers: Layers, display_window: IntRect) -> Self {
-        Self { layers, display_window, pixel_aspect: 1.0, }
+        Self {
+            layers,
+            attributes: ImageAttributes {
+                display_window,
+                pixel_aspect: 1.0,
+                list: Vec::new()
+            }
+        }
     }
 
 
@@ -391,14 +390,17 @@ impl Layer {
     /// Use `Layer::with_compression` or `Layer::with_block_format`
     /// to further configure the file.
     ///
+    /// Infers the display window from the data size.
+    /// Note that for all layers of a file, the display window must be the same.
+    ///
     /// Panics if anything is invalid or missing.
     /// Will sort channels to correct order if necessary.
-    pub fn new(name: Text, data_window: IntRect, mut channels: Channels) -> Self {
+    pub fn new(name: Text, data_size: Vec2<usize>, mut channels: Channels) -> Self {
         assert!(!channels.is_empty(), "at least one channel is required");
 
         assert!(
             channels.iter().all(|chan|
-                chan.samples.len() / (chan.sampling.0 * chan.sampling.1) == data_window.size.area()
+                chan.samples.len() / (chan.sampling.0 * chan.sampling.1) == data_size.area()
             ),
             "channel data size must conform to data window size (scaled by channel sampling)"
         );
@@ -407,15 +409,19 @@ impl Layer {
 
         Layer {
             channels,
-            data_window,
-            name: Some(name),
-            attributes: Vec::new(),
+            data_size,
             compression: Compression::Uncompressed,
 
             tiles: None,
             line_order: LineOrder::Unspecified, // non-parallel write will set this to increasing if possible
-            screen_window_center: Vec2(0.0, 0.0),
-            screen_window_width: 1.0,
+
+            attributes: LayerAttributes {
+                name: Some(name),
+                data_position: Vec2(0, 0),
+                screen_window_center: Vec2(0.0, 0.0),
+                screen_window_width: 1.0,
+                list: Vec::new(),
+            }
         }
     }
 
@@ -428,6 +434,12 @@ impl Layer {
     /// Set the compression of this layer.
     pub fn with_compression(self, compression: Compression) -> Self {
         Self { compression, .. self }
+    }
+
+    /// The rectangle describing the bounding box of this layer
+    /// within the infinite global 2D space of the file.
+    pub fn data_window(&self) -> IntRect {
+        IntRect::new(self.attributes.data_position, self.data_size)
     }
 }
 
@@ -467,20 +479,18 @@ impl Image {
 
     /// Allocate an image ready to be filled with pixel data.
     pub fn allocate(headers: &[Header]) -> Result<Self> {
-        let display_window = headers.iter()
-            .map(|header| header.display_window)
-            .next().unwrap_or(IntRect::zero()); // default value if no headers are found
+        let shared_attributes = &headers.iter()
+            // pick the header with the most attributes
+            // (all headers should have the same shared attributes anyways)
+            .max_by_key(|header| header.shared_attributes.list.len())
+            .expect("no headers found").shared_attributes;
 
-        let pixel_aspect = headers.iter()
-            .map(|header| header.pixel_aspect)
-            .next().unwrap_or(1.0); // default value if no headers are found
-
-        let headers : Result<_> = headers.iter().map(Layer::allocate).collect();
+        let headers : Result<_> = headers.iter()
+            .map(Layer::allocate).collect();
 
         Ok(Image {
             layers: headers?,
-            display_window,
-            pixel_aspect
+            attributes: shared_attributes.clone(),
         })
     }
 
@@ -509,7 +519,7 @@ impl Image {
     /// Create the meta data that describes this image.
     pub fn infer_meta_data(&self) -> MetaData {
         let headers: Headers = self.layers.iter()
-            .map(|layer| layer.infer_header(self.display_window, self.pixel_aspect))
+            .map(|layer| layer.infer_header(&self.attributes))
             .collect();
 
         MetaData::new(headers)
@@ -522,11 +532,8 @@ impl Layer {
     /// Allocate an layer ready to be filled with pixel data.
     pub fn allocate(header: &Header) -> Result<Self> {
         Ok(Layer {
-            data_window: header.data_window,
-            screen_window_center: header.screen_window_center,
-            screen_window_width: header.screen_window_width,
-            name: header.name.clone(),
-            attributes: header.custom_attributes.clone(),
+            data_size: header.data_size,
+            attributes: header.own_attributes.clone(),
             channels: header.channels.list.iter().map(|channel| Channel::allocate(header, channel)).collect(),
             compression: header.compression,
             line_order: header.line_order,
@@ -544,27 +551,27 @@ impl Layer {
     /// Insert one line of pixel data into this layer.
     /// Returns an error for invalid index or line contents.
     pub fn insert_line(&mut self, line: LineRef<'_>) -> PassiveResult {
-        debug_assert!(line.location.position.0 + line.location.sample_count <= self.data_window.size.0, "line index calculation bug");
-        debug_assert!(line.location.position.1 < self.data_window.size.1, "line index calculation bug");
+        debug_assert!(line.location.position.0 + line.location.sample_count <= self.data_size.0, "line index calculation bug");
+        debug_assert!(line.location.position.1 < self.data_size.1, "line index calculation bug");
 
         self.channels.get_mut(line.location.channel)
             .expect("invalid channel index")
-            .insert_line(line, self.data_window.size)
+            .insert_line(line, self.data_size)
     }
 
     /// Read one line of pixel data from this layer.
     /// Panics for an invalid index or write error.
     pub fn extract_line(&self, line: LineRefMut<'_>) {
-        debug_assert!(line.location.position.0 + line.location.sample_count <= self.data_window.size.0, "line index calculation bug");
-        debug_assert!(line.location.position.1 < self.data_window.size.1, "line index calculation bug");
+        debug_assert!(line.location.position.0 + line.location.sample_count <= self.data_size.0, "line index calculation bug");
+        debug_assert!(line.location.position.1 < self.data_size.1, "line index calculation bug");
 
         self.channels.get(line.location.channel)
             .expect("invalid channel index")
-            .extract_line(line, self.data_window.size)
+            .extract_line(line, self.data_size)
     }
 
     /// Create the meta data that describes this layer.
-    pub fn infer_header(&self, display_window: IntRect, pixel_aspect: f32) -> Header {
+    pub fn infer_header(&self, shared_attributes: &ImageAttributes) -> Header {
         let blocks = match self.tiles {
             Some(tiles) => Blocks::Tiles(TileDescription {
                 tile_size: tiles,
@@ -579,26 +586,25 @@ impl Layer {
             .map(Channel::infer_channel_attribute).collect();
 
         let chunk_count = compute_chunk_count(
-            self.compression, self.data_window, blocks
+            self.compression, self.data_size, blocks
         );
 
         Header {
             chunk_count,
 
-            name: self.name.clone(),
-            data_window: self.data_window,
-            screen_window_center: self.screen_window_center,
-            screen_window_width: self.screen_window_width,
+            data_size: self.data_size,
             compression: self.compression,
             channels: ChannelList::new(channels),
             line_order: self.line_order,
-            custom_attributes: self.attributes.clone(),
-            display_window, pixel_aspect,
+
+            own_attributes: self.attributes.clone(), // TODO no clone?
+            shared_attributes: shared_attributes.clone(),
+
             blocks,
 
             deep_data_version: None,
             max_samples_per_pixel: None,
-            deep: false
+            deep: false,
         }
     }
 }
@@ -609,7 +615,7 @@ impl Channel {
     pub fn allocate(header: &Header, channel: &crate::meta::attributes::Channel) -> Self {
         // do not allocate for deep data
         let size = if header.deep { Vec2(0, 0) } else {
-            header.data_window.size / channel.sampling
+            header.data_size / channel.sampling
         };
 
         Channel {
