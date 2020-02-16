@@ -384,8 +384,8 @@ impl Text {
 
     /// Create a `Text` from an `str` reference.
     /// Returns `None` if this string contains unsupported chars.
-    pub fn from_str(str: &str) -> Option<Self> {
-        let vec : Option<TextBytes> = str.chars()
+    pub fn from(str: impl AsRef<str>) -> Option<Self> {
+        let vec : Option<TextBytes> = str.as_ref().chars()
             .map(|character| u8::try_from(character as u64).ok())
             .collect();
 
@@ -546,7 +546,7 @@ impl<'s> TryFrom<&'s str> for Text {
     type Error = &'static str;
 
     fn try_from(value: &'s str) -> std::result::Result<Self, Self::Error> {
-        Text::from_str(value).ok_or("exr text does not support unicode characters")
+        Text::from(value).ok_or("exr text does not support unicode characters")
     }
 }
 
@@ -1721,59 +1721,59 @@ mod test {
     fn attribute_write_read_roundtrip_and_byte_size(){
         let attributes = [
             Attribute {
-                name: Text::from_str("greeting").unwrap(),
-                value: AnyValue::Text(Text::from_str("hello").unwrap()),
+                name: Text::from("greeting").unwrap(),
+                value: AnyValue::Text(Text::from("hello").unwrap()),
             },
             Attribute {
-                name: Text::from_str("age").unwrap(),
+                name: Text::from("age").unwrap(),
                 value: AnyValue::I32(923),
             },
             Attribute {
-                name: Text::from_str("leg count").unwrap(),
+                name: Text::from("leg count").unwrap(),
                 value: AnyValue::F64(9.114939599234),
             },
             Attribute {
-                name: Text::from_str("rabbit area").unwrap(),
+                name: Text::from("rabbit area").unwrap(),
                 value: AnyValue::FloatRect(FloatRect {
                     min: Vec2(23.4234, 345.23),
                     max: Vec2(68623.0, 3.12425926538),
                 }),
             },
             Attribute {
-                name: Text::from_str("tests are difficult").unwrap(),
+                name: Text::from("tests are difficult").unwrap(),
                 value: AnyValue::TextVector(vec![
-                    Text::from_str("sdoifjpsdv").unwrap(),
-                    Text::from_str("sdoifjpsdvxxxx").unwrap(),
-                    Text::from_str("sdoifjasd").unwrap(),
-                    Text::from_str("sdoifj").unwrap(),
-                    Text::from_str("sdoifjddddddddasdasd").unwrap(),
+                    Text::from("sdoifjpsdv").unwrap(),
+                    Text::from("sdoifjpsdvxxxx").unwrap(),
+                    Text::from("sdoifjasd").unwrap(),
+                    Text::from("sdoifj").unwrap(),
+                    Text::from("sdoifjddddddddasdasd").unwrap(),
                 ]),
             },
             Attribute {
-                name: Text::from_str("what should we eat tonight").unwrap(),
+                name: Text::from("what should we eat tonight").unwrap(),
                 value: AnyValue::Preview(Preview {
                     size: Vec2(10, 30),
                     pixel_data: vec![31; 10 * 30 * 4],
                 }),
             },
             Attribute {
-                name: Text::from_str("leg count, again").unwrap(),
+                name: Text::from("leg count, again").unwrap(),
                 value: AnyValue::ChannelList(ChannelList {
                     list: smallvec![
                         Channel {
-                            name: Text::from_str("Green").unwrap(),
+                            name: Text::from("Green").unwrap(),
                             pixel_type: PixelType::F16,
                             is_linear: false,
                             sampling: Vec2(1,2)
                         },
                         Channel {
-                            name: Text::from_str("Red").unwrap(),
+                            name: Text::from("Red").unwrap(),
                             pixel_type: PixelType::F32,
                             is_linear: true,
                             sampling: Vec2(1,2)
                         },
                         Channel {
-                            name: Text::from_str("Purple").unwrap(),
+                            name: Text::from("Purple").unwrap(),
                             pixel_type: PixelType::U32,
                             is_linear: false,
                             sampling: Vec2(0,0)
@@ -1786,7 +1786,7 @@ mod test {
 
         for attribute in &attributes {
             let mut bytes = Vec::new();
-            attribute.write(&mut bytes, true).unwrap();
+            attribute.write(&mut bytes).unwrap();
             assert_eq!(attribute.byte_size(), bytes.len(), "attribute.byte_size() for {:?}", attribute);
 
             let new_attribute = Attribute::read(&mut PeekRead::new(Cursor::new(bytes)), 300).unwrap();
@@ -1796,22 +1796,22 @@ mod test {
 
         {
             let too_large_named = Attribute {
-                name: Text::from_str("asdkaspfokpaosdkfpaokswdpoakpsfokaposdkf").unwrap(),
+                name: Text::from("asdkaspfokpaosdkfpaokswdpoakpsfokaposdkf").unwrap(),
                 value: AnyValue::I32(0),
             };
 
             let mut bytes = Vec::new();
-            too_large_named.write(&mut bytes, false).expect_err("name length check failed");
+            too_large_named.write(&mut bytes).expect_err("name length check failed");
         }
 
         {
             let way_too_large_named = Attribute {
-                name: Text::from_str("sdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfpo").unwrap(),
+                name: Text::from("sdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfpo").unwrap(),
                 value: AnyValue::I32(0),
             };
 
             let mut bytes = Vec::new();
-            way_too_large_named.write(&mut bytes, true).expect_err("name length check failed");
+            way_too_large_named.write(&mut bytes).expect_err("name length check failed");
         }
     }
 }

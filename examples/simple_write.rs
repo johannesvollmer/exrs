@@ -14,8 +14,7 @@ use exr::image::simple::*;
 
 
 /// Generate a noisy image and write it to a file.
-#[test]
-fn write_noisy_hdr() {
+fn main() {
     fn generate_f16_vector(size: Vec2<usize>) -> Vec<f16> {
         let mut values = vec![ f16::from_f32(0.5); size.area() ];
 

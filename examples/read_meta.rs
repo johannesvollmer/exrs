@@ -5,8 +5,7 @@ extern crate exr;
 use exr::prelude::*;
 
 /// Print the custom meta data of a file, excluding technical file meta data.
-#[test]
-fn print_custom_meta() {
+fn main() {
     let meta_data = MetaData::read_from_file("D:/Pictures/openexr/crowskull/crow_uncompressed.exr").unwrap();
 
     for image_layer in meta_data.headers {

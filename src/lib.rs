@@ -48,6 +48,7 @@ pub mod error;
 #[macro_use]
 extern crate smallvec;
 
+#[allow(unused)] // this is a dev dependency
 #[cfg(test)]
 extern crate image as piston_image;
 

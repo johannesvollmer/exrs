@@ -1121,6 +1121,8 @@ impl Header {
         Ok(())
     }
 
+    /// The rectangle describing the bounding box of this layer
+    /// within the infinite global 2D space of the file.
     pub fn data_window(&self) -> IntRect {
         IntRect::new(self.own_attributes.data_position, self.data_size)
     }
@@ -1249,7 +1251,7 @@ impl Requirements {
 
 #[cfg(test)]
 mod test {
-    use crate::meta::{MetaData, Requirements, Header};
+    use crate::meta::{MetaData, Requirements, Header, ImageAttributes, LayerAttributes};
     use crate::meta::attributes::{Text, ChannelList, IntRect, LineOrder, Channel, PixelType};
     use crate::compression::Compression;
     use crate::meta::Blocks;
@@ -1257,7 +1259,13 @@ mod test {
 
     #[test]
     fn round_trip_requirements() {
-        let requirements = Requirements::new(2, true, true, true, true);
+        let requirements = Requirements {
+            file_format_version: 2,
+            is_single_layer_and_tiled: true,
+            has_long_names: false,
+            has_deep_data: true,
+            has_multiple_layers: false
+        };
 
         let mut data: Vec<u8> = Vec::new();
         requirements.write(&mut data).unwrap();
@@ -1267,49 +1275,58 @@ mod test {
 
     #[test]
     fn round_trip(){
-        let meta = MetaData {
-            requirements: Requirements::new(2, false, false, false, false),
-            headers: smallvec![
-                Header {
-                    channels: ChannelList {
-                        list: smallvec![
-                            Channel {
-                                name: Text::from_str("main").unwrap(),
-                                pixel_type: PixelType::U32,
-                                is_linear: false,
-                                sampling: Vec2(1, 1)
-                            }
-                        ],
-                        bytes_per_pixel: 4
-                    },
-                    compression: Compression::Uncompressed,
-                    data_window: Box2I32 {
-                        start: Vec2(-3,-1),
-                        size: Vec2(22, 21)
-                    },
-                    display_window: Box2I32 {
-                        start: Vec2(2,1),
-                        size: Vec2(11, 9)
-                    },
-                    line_order: LineOrder::Increasing,
-                    pixel_aspect: 1.0,
-                    screen_window_center: Vec2(5.0, 5.0),
-                    screen_window_width: 10.0,
-                    name: None,
-                    deep_data_version: None,
-                    chunk_count: 1,
-                    max_samples_per_pixel: None,
-                    custom_attributes: vec![ /* TODO */ ],
+        let header = Header {
+            channels: ChannelList {
+                list: smallvec![
+                    Channel {
+                        name: Text::from("main").unwrap(),
+                        pixel_type: PixelType::U32,
+                        is_linear: false,
+                        sampling: Vec2(1, 1)
+                    }
+                ],
+                bytes_per_pixel: 4
+            },
+            compression: Compression::Uncompressed,
+            line_order: LineOrder::Increasing,
+            deep_data_version: Some(1),
+            chunk_count: 12033,
+            max_samples_per_pixel: Some(4),
+            shared_attributes: ImageAttributes {
+                display_window: IntRect {
+                    position: Vec2(2,1),
+                    size: Vec2(11, 9)
+                },
+                pixel_aspect: -3.0,
+                list: vec![ /* TODO */ ]
+            },
 
-                    blocks: Blocks::ScanLines,
-                    deep: false,
-                }
-            ],
+            blocks: Blocks::ScanLines,
+            deep: false,
+            data_size: Vec2(2000, 333),
+            own_attributes: LayerAttributes {
+                name: Some(Text::from("test name lol").unwrap()),
+                data_position: Vec2(3, -5),
+                screen_window_center: Vec2(0.3, 99.0),
+                screen_window_width: -0.19,
+                list: vec![ /* TODO */ ]
+            }
+        };
+
+        let meta = MetaData {
+            requirements: Requirements {
+                file_format_version: 2,
+                is_single_layer_and_tiled: false,
+                has_long_names: false,
+                has_deep_data: false,
+                has_multiple_layers: false
+            },
+            headers: smallvec![ header ],
         };
 
 
         let mut data: Vec<u8> = Vec::new();
-        meta.write_validating_to_buffered(&mut data).unwrap();
+        meta.write_validating_to_buffered(&mut data, true).unwrap();
         let meta2 = MetaData::read_from_buffered(data.as_slice()).unwrap();
         assert_eq!(meta, meta2);
     }

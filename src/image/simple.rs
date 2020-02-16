@@ -11,7 +11,6 @@ use crate::error::{Result, PassiveResult, Error};
 use crate::math::*;
 use std::io::{Seek, BufReader, BufWriter};
 use crate::image::{LineRefMut, LineRef, OnWriteProgress, OnReadProgress};
-use std::collections::HashSet;
 
 // TODO dry this module with image::full?
 

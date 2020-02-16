@@ -7,8 +7,7 @@ use exr::meta::{LayerAttributes, ImageAttributes};
 
 /// Read an RGBA image.
 /// Uses multicore decompression where appropriate.
-#[test]
-fn read_rgba_image() {
+fn main() {
 
     struct Image {
 

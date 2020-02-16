@@ -14,8 +14,7 @@ use std::io::ErrorKind;
 //
 // FIXME throws "acces denied" sometimes, simply trying again usually works.
 //
-#[test]
-pub fn convert_to_png() {
+pub fn main() {
     let now = ::std::time::Instant::now();
 
     let path =

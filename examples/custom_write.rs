@@ -17,8 +17,7 @@ use exr::math::RoundingMode;
 
 /// Generate a striped image on the fly and directly write that to a file without allocating the whole image at once.
 /// On my machine, this program produces a 3GB file while only ever allocating 5MB memory (takes a while though).
-#[test]
-fn write_generated_stripes() {
+fn main() {
 
     let random_values: Vec<f32> = (0..64)
         .map(|_| rand::random::<f32>())
