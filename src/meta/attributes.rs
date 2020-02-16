@@ -1779,7 +1779,7 @@ mod test {
                             sampling: Vec2(0,0)
                         }
                     ],
-                    bytes_per_pixel: 0
+                    bytes_per_pixel: 10
                 }),
             },
         ];
@@ -1800,18 +1800,16 @@ mod test {
                 value: AnyValue::I32(0),
             };
 
-            let mut bytes = Vec::new();
-            too_large_named.write(&mut bytes).expect_err("name length check failed");
+            too_large_named.validate(false, false, false).expect_err("name length check failed");
         }
 
         {
             let way_too_large_named = Attribute {
-                name: Text::from("sdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfpo").unwrap(),
+                name: Text::from("sdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfpo").unwrap(),
                 value: AnyValue::I32(0),
             };
 
-            let mut bytes = Vec::new();
-            way_too_large_named.write(&mut bytes).expect_err("name length check failed");
+            way_too_large_named.validate(true, false, false).expect_err("name length check failed");
         }
     }
 }

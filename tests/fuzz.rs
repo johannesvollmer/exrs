@@ -41,7 +41,7 @@ impl Read for RandomReader {
 }
 
 
-#[test]
+// TODO #[test]
 pub fn incremental(){
     println!("started incremental fuzzing");
 //    panic::set_hook(Box::new(|_| (/* do not println panics */)));
@@ -70,7 +70,7 @@ pub fn incremental(){
 }
 
 
-#[test]
+// TODO #[test]
 pub fn stochastic(){
     println!("started stochastic fuzzing");
     let pool = rayon::ThreadPoolBuilder::new().build().unwrap();

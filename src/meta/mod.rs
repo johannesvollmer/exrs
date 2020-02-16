@@ -1251,7 +1251,7 @@ impl Requirements {
 
 #[cfg(test)]
 mod test {
-    use crate::meta::{MetaData, Requirements, Header, ImageAttributes, LayerAttributes};
+    use crate::meta::{MetaData, Requirements, Header, ImageAttributes, LayerAttributes, compute_chunk_count};
     use crate::meta::attributes::{Text, ChannelList, IntRect, LineOrder, Channel, PixelType};
     use crate::compression::Compression;
     use crate::meta::Blocks;
@@ -1290,7 +1290,7 @@ mod test {
             compression: Compression::Uncompressed,
             line_order: LineOrder::Increasing,
             deep_data_version: Some(1),
-            chunk_count: 12033,
+            chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), Blocks::ScanLines),
             max_samples_per_pixel: Some(4),
             shared_attributes: ImageAttributes {
                 display_window: IntRect {
@@ -1328,6 +1328,7 @@ mod test {
         let mut data: Vec<u8> = Vec::new();
         meta.write_validating_to_buffered(&mut data, true).unwrap();
         let meta2 = MetaData::read_from_buffered(data.as_slice()).unwrap();
+        meta2.validate(true).unwrap();
         assert_eq!(meta, meta2);
     }
 }
