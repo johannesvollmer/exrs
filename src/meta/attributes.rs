@@ -1491,6 +1491,14 @@ impl AnyValue {
         }
     }
 
+    /// Return `Ok(Preview)` if this attribute is an image preview.
+    pub fn to_preview(&self) -> Result<&Preview> {
+        match self {
+            AnyValue::Preview(value) => Ok(value),
+            _ => Err(invalid_type())
+        }
+    }
+
     /// Return `Ok(i32)` if this attribute is an i32.
     pub fn to_i32(&self) -> Result<i32> {
         match *self {

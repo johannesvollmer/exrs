@@ -7,7 +7,7 @@ use exr::image::full::*;
 use std::path::{PathBuf};
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use exr::meta::attributes::TimeCode;
+use exr::meta::attributes::{Attribute};
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter()
@@ -26,17 +26,17 @@ fn print_meta_of_all_files() {
 }
 
 #[test]
-fn search_time_codes_of_all_files() {
+fn search_previews_of_all_files() {
     let files: Vec<PathBuf> = exr_files().collect();
 
     files.into_par_iter().for_each(|path| {
         let meta = MetaData::read_from_file(&path).unwrap();
         let attributes = meta.headers.iter().flat_map(|header| header.custom_attributes.iter());
-        let time_codes = attributes.filter_map(|attribute| attribute.value.to_time_code().ok());
-        let time_codes: Vec<TimeCode> = time_codes.collect();
+        let values = attributes.filter(|attribute| attribute.value.to_preview().is_ok());
+        let values: Vec<&Attribute> = values.collect();
 
-        if !time_codes.is_empty() {
-            println!("{:?}: \t\t\t {:?}", path.file_name().unwrap(), time_codes);
+        if !values.is_empty() {
+            println!("{:?}: \t\t\t {:?}", path.file_name().unwrap(), values);
         }
     });
 }
