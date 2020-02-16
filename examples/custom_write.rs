@@ -9,23 +9,28 @@ use std::convert::TryInto;
 // exr imports
 extern crate exr;
 use exr::prelude::*;
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter};
 use std::fs::File;
 use exr::meta::attributes::{Channel, PixelType, LineOrder, TileDescription, LevelMode};
 use exr::meta::Blocks;
 use exr::math::RoundingMode;
 
 /// Generate a striped image on the fly and directly write that to a file without allocating the whole image at once.
-/// On my machine, this program produces a 3GB file while only ever allocating 5MB memory (takes a while though).
+/// On my machine, this program produces a 3GB file while only ever allocating 4MB memory (takes a while though).
 fn main() {
 
+    // pre-compute a list of random values
     let random_values: Vec<f32> = (0..64)
         .map(|_| rand::random::<f32>())
         .collect();
 
-    let size = Vec2(2048*8, 2048*8); // this file will be 3GB on disk, but not in memory. on my machine, running this program uses 5MB memory.
-    let file = BufWriter::new(File::create("./testout/noisy.exr").unwrap());
+    // resulting resolution (268 megapixels for 3GB files)
+    let size = Vec2(2048*8, 2048*8);
 
+    // specify output path, and buffer it for better performance
+    let file = BufWriter::new(File::create("C:/Users/Johannes/Desktop/3GB.exr").unwrap());
+
+    // define meta data header that will be written
     let header = exr::meta::Header::new(
         "test-image".try_into().unwrap(),
         size,
@@ -36,6 +41,7 @@ fn main() {
         ],
     );
 
+    // define encoding that will be written
     let header = header.with_encoding(
         Compression::Uncompressed,
 
@@ -50,31 +56,39 @@ fn main() {
 
     let meta = MetaData::new(smallvec![ header ]);
 
-    let stdout = std::io::stdout();
-    let mut stdout = stdout.lock(); // do not lock on every progress callback
-    let mut count_to_100_and_then_print = 0;
+    // print progress only every 100th time
+    let mut count_to_1000_and_then_print = 0;
+    let start_time = ::std::time::Instant::now();
 
+    // finally write the image
     exr::image::write_all_lines_to_buffered(
         file, false,
         true,meta,
+
+        // fill the image file contents with one of the precomputed random values,
+        // picking a different one per channel
         |line_mut|{
             let chan = line_mut.location.channel;
             line_mut.write_samples(|sample_index| random_values[(sample_index + chan) % random_values.len()])
         },
 
+        // print progress occasionally
         |progress, bytes| {
-            count_to_100_and_then_print += 1;
-            if count_to_100_and_then_print == 100 {
-                count_to_100_and_then_print = 0;
+            count_to_1000_and_then_print += 1;
+            if count_to_1000_and_then_print == 1000 {
+                count_to_1000_and_then_print = 0;
 
                 let mega_bytes = bytes / 1000000;
                 let percent = (progress * 100.0) as usize;
-                stdout.write_all(format!("progress: {}%, wrote {} megabytes\n", percent, mega_bytes).as_bytes()).unwrap();
+                println!("progress: {}%, wrote {} megabytes", percent, mega_bytes);
             }
 
             Ok(())
         },
     ).unwrap();
 
-    // assert!(exr::image::full::Image::read_from_file("./testout/noisy.exr", exr::image::full::read_options::high()).is_ok())
+    // warning: highly unscientific benchmarks ahead!
+    let duration = start_time.elapsed();
+    let millis = duration.as_secs() * 1000 + duration.subsec_millis() as u64;
+    println!("\nWrote exr file in {:?}s", millis as f32 * 0.001);
 }

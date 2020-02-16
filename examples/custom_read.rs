@@ -2,7 +2,7 @@
 extern crate rand;
 extern crate half;
 
-use std::io::{BufReader, Write};
+use std::io::{BufReader};
 use std::fs::File;
 
 // exr imports
@@ -14,40 +14,52 @@ use exr::meta::attributes::PixelType;
 
 /// Collects the average pixel value for each channel.
 /// Does not load the whole image into memory at once: only processes the image block by block.
-/// On my machine, this program analyzes a 3GB file while only allocating 1.2MB.
+/// On my machine, this program analyzes a 3GB file while only allocating 1.1MB.
 fn main() {
     let file = BufReader::new(File::open("./testout/noisy.exr").unwrap());
 
+    /// Collect averages for each layer
     #[derive(Debug)]
     struct Layer {
         name: Option<Text>,
         data_window: IntRect,
+
+        /// Collect one average float per channel
         channels: Vec<Channel>,
     }
 
+    /// A single channel
     #[derive(Debug)]
     struct Channel {
         name: Text,
-        pixel_type: PixelType,
+        pixel_type: PixelType, // f32, u32, or f16
         average: f32,
     }
 
-    let stdout = std::io::stdout();
-    let mut stdout = stdout.lock(); // do not lock on every progress callback
-    let mut count_to_100_and_then_print = 0;
+    // used later for printing the progress occasionally
+    let mut count_to_1000_and_then_print = 0;
+    let start_time = ::std::time::Instant::now();
+
 
     let averages = image::read_filtered_lines_from_buffered(
         file, true,
+
+        // specify what parts of the file should be loaded (skips mip maps)
         |_header, tile| {
             // do not worry about multiresolution levels
             tile.location.level_index == Vec2(0,0)
         },
 
+        // create an instance of our resulting image struct from the loaded file meta data
+        // that will be filled with information later
         |headers| -> exr::error::Result<Vec<Layer>> { Ok(
             headers.iter()
+                // create a layer for each header in the file
                 .map(|header| Layer {
                     name: header.own_attributes.name.clone(),
                     data_window: header.data_window(),
+
+                    // create a averaging channel for each channel in the file
                     channels: header.channels.list.iter()
                         .map(|channel| Channel {
                             name: channel.name.clone(),
@@ -59,46 +71,49 @@ fn main() {
                 .collect()
         ) },
 
+        // fill the layers with actual average information
+        // `line` contains a few samples from one channel of the image,
+        // we will iterate through all samples of it
         |averages, line| {
             let layer = &mut averages[line.location.layer];
             let channel = &mut layer.channels[line.location.channel];
             let channel_sample_count = layer.data_window.size.area() as f32;
 
+            // now sum the average based on the values in this line section of pixels
             match channel.pixel_type {
-                PixelType::F16 => {
-                    for value in line.read_samples::<f16>() {
-                        channel.average += value?.to_f32() / channel_sample_count;
-                    }
+                PixelType::F16 => for value in line.read_samples::<f16>() {
+                    channel.average += value?.to_f32() / channel_sample_count;
                 },
 
-                PixelType::F32 => {
-                    for value in line.read_samples::<f32>() {
-                        channel.average += value? / channel_sample_count;
-                    }
+                PixelType::F32 => for value in line.read_samples::<f32>() {
+                    channel.average += value? / channel_sample_count;
                 },
 
-                PixelType::U32 => {
-                    for value in line.read_samples::<f32>() {
-                        channel.average += (value? as f32) / channel_sample_count;
-                    }
+                PixelType::U32 => for value in line.read_samples::<f32>() {
+                    channel.average += (value? as f32) / channel_sample_count;
                 },
             }
 
             Ok(())
         },
 
+        // print file processing progress into the console, occasionally (important for large files)
         |progress| {
-            count_to_100_and_then_print += 1;
-            if count_to_100_and_then_print == 100 {
-                count_to_100_and_then_print = 0;
+            count_to_1000_and_then_print += 1;
+            if count_to_1000_and_then_print == 1000 {
+                count_to_1000_and_then_print = 0;
 
-                let percent = (progress * 100.0) as usize;
-                stdout.write_all(format!("progress: {}%\n", percent).as_bytes()).unwrap();
+                println!("progress: {}%", (progress * 100.0) as usize);
             }
 
             Ok(())
         },
     ).unwrap();
 
-    println!("average values: {:#?}", averages);
+    println!("Average values: {:#?}", averages);
+
+    // warning: highly unscientific benchmarks ahead!
+    let duration = start_time.elapsed();
+    let millis = duration.as_secs() * 1000 + duration.subsec_millis() as u64;
+    println!("\nRead exr file in {:?}s", millis as f32 * 0.001);
 }
