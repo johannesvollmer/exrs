@@ -400,19 +400,21 @@ pub fn uncompressed_image_blocks_ordered<'l>(
                     pixel_size: data_indices.size,
                 };
 
-                let mut block_bytes = Vec::with_capacity(header.max_block_byte_size()); // TODO vec![] instead and use byte ranges
-                // let mut written_block_count = 0;
+                let mut block_bytes = vec![0_u8; header.max_block_byte_size()];
+                let mut written_block_byte_count = 0; // used to truncate block_bytes after writing
 
                 for (byte_range, line_index) in block_indices.line_indices(header) {
-                    block_bytes.resize(byte_range.end, 0_u8); // TODO this is a performance bottleneck? for uncompressed streaming exr files
+                    written_block_byte_count = byte_range.end;
 
                     let line_mut = LineRefMut {
                         value: &mut block_bytes[byte_range],
                         location: line_index,
                     };
 
-                    get_line(line_mut)?; // enables returning `Error::Abort`
+                    get_line(line_mut)?; // enabless returning `Error::Abort`
                 }
+
+                block_bytes.truncate(written_block_byte_count);
 
                 // byte length is validated in block::compress_to_chunk
                 Ok((chunk_index, UncompressedBlock {
