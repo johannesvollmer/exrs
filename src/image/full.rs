@@ -255,6 +255,7 @@ pub mod write_options {
     pub fn default() -> WriteOptions<()> { self::high() }
 
     /// Higher speed, but slightly higher memory requirements, and __higher risk of incompatibility to other exr readers__.
+    /// Only use this if you are confident that the file to write is valid.
     pub fn higher() -> WriteOptions<()> {
         WriteOptions {
             parallel_compression: true,
