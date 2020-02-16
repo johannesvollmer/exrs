@@ -2,7 +2,7 @@
 extern crate rand;
 extern crate half;
 
-use std::io::BufReader;
+use std::io::{BufReader, Write};
 use std::fs::File;
 
 // exr imports
@@ -14,7 +14,7 @@ use exr::meta::attributes::PixelType;
 
 /// Collects the average pixel value for each channel.
 /// Does not load the whole image into memory at once: only processes the image block by block.
-/// On my machine, this program analyzes a 3GB file while only allocating 5MB.
+/// On my machine, this program analyzes a 3GB file while only allocating 1.2MB.
 #[test]
 fn analyze_image() {
     let file = BufReader::new(File::open("./testout/noisy.exr").unwrap());
@@ -32,6 +32,10 @@ fn analyze_image() {
         pixel_type: PixelType,
         average: f32,
     }
+
+    let stdout = std::io::stdout();
+    let mut stdout = stdout.lock(); // do not lock on every progress callback
+    let mut count_to_100_and_then_print = 0;
 
     let averages = image::read_filtered_lines_from_buffered(
         file, true,
@@ -84,7 +88,17 @@ fn analyze_image() {
             Ok(())
         },
 
-        ()
+        |progress| {
+            count_to_100_and_then_print += 1;
+            if count_to_100_and_then_print == 100 {
+                count_to_100_and_then_print = 0;
+
+                let percent = (progress * 100.0) as usize;
+                stdout.write_all(format!("progress: {}%\n", percent).as_bytes()).unwrap();
+            }
+
+            Ok(())
+        },
     ).unwrap();
 
     println!("average values: {:#?}", averages);
