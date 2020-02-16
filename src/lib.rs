@@ -58,7 +58,7 @@ pub mod prelude {
     // main exports
     pub use crate::meta::MetaData;
 
-    pub use crate::image::{simple};
+    pub use crate::image::{simple, rgba, write_options, read_options, WriteOptions, ReadOptions};
 
     // secondary data types
     pub use crate::meta;

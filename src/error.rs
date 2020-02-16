@@ -12,8 +12,8 @@ use std::convert::TryFrom;
 /// A result that may contain an exr error.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// A that returns nothing and may contain an exr error.
-pub type PassiveResult = Result<()>;
+/// A that, if ok, contains nothing, and otherwise contains an exr error.
+pub type UnitResult = Result<()>;
 
 
 /// An error that may happen while reading or writing an exr file.

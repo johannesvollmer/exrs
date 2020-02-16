@@ -62,29 +62,34 @@ fn main() {
 
     // finally write the image
     exr::image::write_all_lines_to_buffered(
-        file, false,
-        true,meta,
+        file,
+        meta,
 
         // fill the image file contents with one of the precomputed random values,
         // picking a different one per channel
-        |line_mut|{
+        |_meta, line_mut|{
             let chan = line_mut.location.channel;
             line_mut.write_samples(|sample_index| random_values[(sample_index + chan) % random_values.len()])
         },
 
         // print progress occasionally
-        |progress, bytes| {
-            count_to_1000_and_then_print += 1;
-            if count_to_1000_and_then_print == 1000 {
-                count_to_1000_and_then_print = 0;
+        WriteOptions {
+            parallel_compression: false,
+            pedantic: true,
 
-                let mega_bytes = bytes / 1000000;
-                let percent = (progress * 100.0) as usize;
-                println!("progress: {}%, wrote {} megabytes", percent, mega_bytes);
-            }
+            on_progress: |progress, bytes| {
+                count_to_1000_and_then_print += 1;
+                if count_to_1000_and_then_print == 1000 {
+                    count_to_1000_and_then_print = 0;
 
-            Ok(())
-        },
+                    let mega_bytes = bytes / 1000000;
+                    let percent = (progress * 100.0) as usize;
+                    println!("progress: {}%, wrote {} megabytes", percent, mega_bytes);
+                }
+
+                Ok(())
+            },
+        }
     ).unwrap();
 
     // warning: highly unscientific benchmarks ahead!

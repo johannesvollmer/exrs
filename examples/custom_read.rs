@@ -42,13 +42,7 @@ fn main() {
 
 
     let averages = image::read_filtered_lines_from_buffered(
-        file, true,
-
-        // specify what parts of the file should be loaded (skips mip maps)
-        |_header, tile| {
-            // do not worry about multiresolution levels
-            tile.location.level_index == Vec2(0,0)
-        },
+        file,
 
         // create an instance of our resulting image struct from the loaded file meta data
         // that will be filled with information later
@@ -71,10 +65,16 @@ fn main() {
                 .collect()
         ) },
 
+        // specify what parts of the file should be loaded (skips mip maps)
+        |_header, _meta, tile| {
+            // do not worry about multiresolution levels
+            tile.location.level_index == Vec2(0,0)
+        },
+
         // fill the layers with actual average information
         // `line` contains a few samples from one channel of the image,
         // we will iterate through all samples of it
-        |averages, line| {
+        |averages, _meta, line| {
             let layer = &mut averages[line.location.layer];
             let channel = &mut layer.channels[line.location.channel];
             let channel_sample_count = layer.data_window.size.area() as f32;
@@ -98,16 +98,20 @@ fn main() {
         },
 
         // print file processing progress into the console, occasionally (important for large files)
-        |progress| {
-            count_to_1000_and_then_print += 1;
-            if count_to_1000_and_then_print == 1000 {
-                count_to_1000_and_then_print = 0;
+        ReadOptions {
+            parallel_decompression: false,
+            on_progress: |progress| {
+                count_to_1000_and_then_print += 1;
+                if count_to_1000_and_then_print == 1000 {
+                    count_to_1000_and_then_print = 0;
 
-                println!("progress: {}%", (progress * 100.0) as usize);
+                    println!("progress: {}%", (progress * 100.0) as usize);
+                }
+
+                Ok(())
             }
-
-            Ok(())
         },
+
     ).unwrap();
 
     println!("Average values: {:#?}", averages);

@@ -7,48 +7,14 @@ use half::f16;
 use crate::io::*;
 use crate::meta::*;
 use crate::meta::attributes::*;
-use crate::error::{Result, PassiveResult, Error};
+use crate::error::{Result, UnitResult, Error};
 use crate::math::*;
 use std::io::{Seek, BufReader, BufWriter};
-use crate::image::{LineRefMut, LineRef, OnWriteProgress, OnReadProgress};
+use crate::image::{LineRefMut, LineRef, OnWriteProgress, OnReadProgress, WriteOptions, ReadOptions};
 
 // TODO dry this module with image::full?
 
 
-/// Specify how to write an exr image.
-#[derive(Debug)]
-pub struct WriteOptions<P: OnWriteProgress> {
-
-    /// Enable multicore compression.
-    pub parallel_compression: bool,
-
-    /// If enabled, writing an image throws errors
-    /// for files that may look invalid to other exr readers.
-    pub pedantic: bool,
-
-    /// Called occasionally while writing a file.
-    /// The first argument is the progress, a float from 0 to 1.
-    /// The second argument contains the total number of bytes written.
-    /// May return `Error::Abort` to cancel writing the file.
-    /// Can be a closure accepting a float and a usize, see `OnWriteProgress`.
-    on_progress: P,
-}
-
-
-
-/// Specify how to read an exr image.
-#[derive(Debug)]
-pub struct ReadOptions<P: OnReadProgress> {
-
-    /// Enable multicore decompression.
-    pub parallel_decompression: bool,
-
-    /// Called occasionally while reading a file.
-    /// The argument is the progress, a float from 0 to 1.
-    /// May return `Error::Abort` to cancel reading the file.
-    /// Can be a closure accepting a float, see `OnWriteProgress`.
-    on_progress: P,
-}
 
 /// An exr image.
 ///
@@ -175,66 +141,6 @@ impl SampleStorage<f16> for Fn(Vec2) -> Iterator<Item=f16> { }*/
 
 
 
-/// A collection of preset `WriteOptions` values.
-pub mod write_options {
-    use super::*;
-
-    /// High speed but also slightly higher memory requirements.
-    pub fn default() -> WriteOptions<()> { self::high() }
-
-    /// Higher speed, but slightly higher memory requirements, and __higher risk of incompatibility to other exr readers__.
-    /// Only use this if you are confident that the file to write is valid.
-    pub fn higher() -> WriteOptions<()> {
-        WriteOptions {
-            parallel_compression: true,
-            pedantic: false,
-            on_progress: (),
-        }
-    }
-
-    /// High speed but also slightly higher memory requirements.
-    pub fn high() -> WriteOptions<()> {
-        WriteOptions {
-            parallel_compression: true, pedantic: true,
-            on_progress: (),
-        }
-    }
-
-    /// Lower speed but also lower memory requirements.
-    pub fn low() -> WriteOptions<()> {
-        WriteOptions {
-            parallel_compression: false, pedantic: true,
-            on_progress: (),
-        }
-    }
-}
-
-/// A collection of preset `ReadOptions` values.
-pub mod read_options {
-    use super::*;
-
-    /// High speed but also slightly higher memory requirements.
-    pub fn default() -> ReadOptions<()> { self::high() }
-
-    /// High speed but also slightly higher memory requirements.
-    pub fn high() -> ReadOptions<()> {
-        ReadOptions {
-            parallel_decompression: true,
-            on_progress: (),
-        }
-    }
-
-    /// Lower speed but also lower memory requirements.
-    pub fn low() -> ReadOptions<()> {
-        ReadOptions {
-            parallel_decompression: false,
-            on_progress: (),
-        }
-    }
-}
-
-
-
 /*#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct ChannelSampler<'t, T: 't> {
     samples: &'t [T],
@@ -319,13 +225,16 @@ impl Image {
     #[must_use]
     pub fn read_from_buffered(read: impl Read + Send + Seek, options: ReadOptions<impl OnReadProgress>) -> Result<Self> { // TODO not need be seek nor send
         let mut image: Image = crate::image::read_filtered_lines_from_buffered(
-            read, options.parallel_decompression,
-            |header, tile_index| {
+            read,
+            Image::allocate,
+
+            |_image, header, tile_index| {
                 !header.deep && tile_index.location.level_index == Vec2(0,0)
             },
-            Image::allocate, Image::insert_line,
 
-            options.on_progress
+            |image, _meta, line| Image::insert_line(image, line),
+
+            options
         )?;
 
         {   // remove channels that had no data (deep data is not loaded)
@@ -344,39 +253,34 @@ impl Image {
     /// Use `write_to_unbuffered` instead if you do not have a file.
     /// If an error occurs, attempts to delete the partially written file.
     #[must_use]
-    pub fn write_to_file(&self, path: impl AsRef<std::path::Path>, options: WriteOptions<impl OnWriteProgress>) -> PassiveResult {
-        match self.write_to_unbuffered(std::fs::File::create(path.as_ref())?, options) {
-            Err(error) => {
-                let _deleted = std::fs::remove_file(path); // do not handle deletion errors
-                Err(error)
-            },
-
-            ok => ok,
-        }
+    pub fn write_to_file(&self, path: impl AsRef<std::path::Path>, options: WriteOptions<impl OnWriteProgress>) -> UnitResult {
+        crate::io::attempt_delete_file_on_write_error(path, |write|
+            self.write_to_unbuffered(write, options)
+        )
     }
 
-    /// Buffer the reader and then write the exr image to it.
+    /// Buffer the writer and then write the exr image to it.
     /// Use `read_from_buffered` instead, if your reader is an in-memory writer.
     /// Use `read_from_file` instead, if you have a file path.
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first, using `write_to_buffered`.
     #[must_use]
-    pub fn write_to_unbuffered(&self, unbuffered: impl Write + Seek, options: WriteOptions<impl OnWriteProgress>) -> PassiveResult {
+    pub fn write_to_unbuffered(&self, unbuffered: impl Write + Seek, options: WriteOptions<impl OnWriteProgress>) -> UnitResult {
         self.write_to_buffered(BufWriter::new(unbuffered), options)
     }
 
-    /// Write the exr image from a reader.
+    /// Write the exr image to a writer.
     /// Use `read_from_file` instead, if you have a file path.
     /// Use `read_from_unbuffered` instead, if this is not an in-memory writer.
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first.
     #[must_use]
-    pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions<impl OnWriteProgress>) -> PassiveResult {
+    pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions<impl OnWriteProgress>) -> UnitResult {
         crate::image::write_all_lines_to_buffered(
-            write, options.parallel_compression, options.pedantic, self.infer_meta_data(),
-            |line_mut| {
+            write,  self.infer_meta_data(),
+            |_meta, line_mut| {
                 self.extract_line(line_mut);
                 Ok(()) // TODO abort also on line but not only chunk
             },
-            options.on_progress
+            options
         )
     }
 }
@@ -495,7 +399,7 @@ impl Image {
 
     /// Insert one line of pixel data into this image.
     /// Returns an error for invalid index or line contents.
-    pub fn insert_line(&mut self, line: LineRef<'_>) -> PassiveResult {
+    pub fn insert_line(&mut self, line: LineRef<'_>) -> UnitResult {
         debug_assert_ne!(line.location.sample_count, 0, "line width calculation bug");
 
         let layer = self.layers.get_mut(line.location.layer)
@@ -549,7 +453,7 @@ impl Layer {
 
     /// Insert one line of pixel data into this layer.
     /// Returns an error for invalid index or line contents.
-    pub fn insert_line(&mut self, line: LineRef<'_>) -> PassiveResult {
+    pub fn insert_line(&mut self, line: LineRef<'_>) -> UnitResult {
         debug_assert!(line.location.position.0 + line.location.sample_count <= self.data_size.0, "line index calculation bug");
         debug_assert!(line.location.position.1 < self.data_size.1, "line index calculation bug");
 
@@ -624,7 +528,7 @@ impl Channel {
     }
 
     /// Insert one line of pixel data into this channel.
-    pub fn insert_line(&mut self, line: LineRef<'_>, resolution: Vec2<usize>) -> PassiveResult {
+    pub fn insert_line(&mut self, line: LineRef<'_>, resolution: Vec2<usize>) -> UnitResult {
         assert_eq!(line.location.level, Vec2(0,0), "line index calculation bug");
         self.samples.insert_line(resolution / self.sampling, line)
     }
@@ -667,7 +571,7 @@ impl Samples {
     }
 
     /// Insert one line of pixel data into this sample block.
-    pub fn insert_line(&mut self, resolution: Vec2<usize>, line: LineRef<'_>) -> PassiveResult {
+    pub fn insert_line(&mut self, resolution: Vec2<usize>, line: LineRef<'_>) -> UnitResult {
         debug_assert_ne!(line.location.sample_count, 0, "line index calculation bug");
 
         if line.location.position.0 + line.location.sample_count > resolution.0 {

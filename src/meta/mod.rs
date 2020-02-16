@@ -280,7 +280,7 @@ pub mod magic_number {
     }
 
     /// Validate this image. If it is an exr file, return `Ok(())`.
-    pub fn validate_exr(read: &mut impl Read) -> PassiveResult {
+    pub fn validate_exr(read: &mut impl Read) -> UnitResult {
         if self::is_exr(read)? {
             Ok(())
 
@@ -300,7 +300,7 @@ pub mod sequence_end {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(write: &mut W) -> UnitResult {
         0_u8.write(write)
     }
 
@@ -519,7 +519,7 @@ impl MetaData {
 
     /// Validates the meta data and writes it to the stream.
     /// If pedantic, throws errors for files that may produce errors in other exr readers.
-    pub(crate) fn write_validating_to_buffered(&self, write: &mut impl Write, pedantic: bool) -> PassiveResult {
+    pub(crate) fn write_validating_to_buffered(&self, write: &mut impl Write, pedantic: bool) -> UnitResult {
         // pedantic validation to not allow slightly invalid files
         // that still could be read correctly in theory
         self.validate(pedantic)?;
@@ -547,7 +547,7 @@ impl MetaData {
 
     /// Validates this meta data.
     /// Set strict to false when reading and true when writing for maximum compatibility.
-    pub fn validate(&self, strict: bool) -> PassiveResult {
+    pub fn validate(&self, strict: bool) -> UnitResult {
         self.requirements.validate()?;
 
         let headers = self.headers.len();
@@ -664,6 +664,13 @@ impl Header {
     pub fn with_display_window(self, display_window: IntRect) -> Self {
         let mut self1 = self;
         self1.shared_attributes.display_window = display_window;
+        self1
+    }
+
+    /// Set the offset of this layer.
+    pub fn with_position(self, position: Vec2<i32>) -> Self {
+        let mut self1 = self;
+        self1.own_attributes.data_position = position;
         self1
     }
 
@@ -829,7 +836,7 @@ impl Header {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, requirements: &Requirements, strict: bool) -> PassiveResult {
+    pub fn validate(&self, requirements: &Requirements, strict: bool) -> UnitResult {
         debug_assert_eq!(
             self.chunk_count, compute_chunk_count(self.compression, self.data_size, self.blocks),
             "chunk count attribute not correctly set"
@@ -934,7 +941,7 @@ impl Header {
     }
 
     /// Without validation, write the headers to the byte stream.
-    pub fn write_all(headers: &[Header], write: &mut impl Write, is_multilayer: bool) -> PassiveResult {
+    pub fn write_all(headers: &[Header], write: &mut impl Write, is_multilayer: bool) -> UnitResult {
         for header in headers {
             header.write(write)?;
         }
@@ -1064,17 +1071,16 @@ impl Header {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write(&self, write: &mut impl Write) -> PassiveResult {
+    pub fn write(&self, write: &mut impl Write) -> UnitResult {
 
         // FIXME do not allocate text object for writing!
         /// Write a mandatory attribute.
-        fn write_attr<T>(write: &mut impl Write, name: &[u8], value: T, variant: impl Fn(T) -> AnyValue) -> PassiveResult {
-            Attribute { name: Text::from_bytes_unchecked(SmallVec::from_slice(name)), value: variant(value) }
-                .write(write)
+        fn write_attr<T>(write: &mut impl Write, name: &'static [u8], value: T, variant: impl Fn(T) -> AnyValue) -> UnitResult {
+            Attribute::predefined(name, variant(value)).write(write)
         };
 
         /// Write an optional attribute without validation.
-        fn write_opt_attr<T>(write: &mut impl Write, name: &[u8], attribute: Option<T>, variant: impl Fn(T) -> AnyValue) -> PassiveResult {
+        fn write_opt_attr<T>(write: &mut impl Write, name: &'static [u8], attribute: Option<T>, variant: impl Fn(T) -> AnyValue) -> UnitResult {
             if let Some(value) = attribute { write_attr(write, name, value, variant) }
             else { Ok(()) }
         };
@@ -1189,7 +1195,7 @@ impl Requirements {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(self, write: &mut W) -> UnitResult {
         use ::bit_field::BitField;
 
         // the 8 least significant bits contain the file format version number
@@ -1208,7 +1214,7 @@ impl Requirements {
     }
 
     /// Validate this instance.
-    pub fn validate(&self) -> PassiveResult {
+    pub fn validate(&self) -> UnitResult {
         if self.has_deep_data { // TODO deep data (and then remove this check)
             return Err(Error::unsupported("deep data not supported yet"));
         }

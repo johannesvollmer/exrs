@@ -4,6 +4,7 @@ use rand::rngs::StdRng;
 use std::io::Read;
 
 extern crate exr;
+use exr::prelude::*;
 
 struct RandomReader {
     generator: StdRng,
@@ -100,6 +101,6 @@ pub fn stochastic(){
 // should not panic
 pub fn test_bytes(bytes: impl Read + Send) -> exr::error::Result<exr::image::full::Image> {
     bencher::black_box(exr::image::full::Image::read_from_buffered(
-        bytes, exr::image::full::read_options::low()
+        bytes, read_options::low()
     ))
 }

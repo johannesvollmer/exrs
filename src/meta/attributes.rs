@@ -399,12 +399,12 @@ impl Text {
     }
 
     /// Check whether this string is valid, considering the maximum text length.
-    pub fn validate(&self, null_terminated: bool, long_names: Option<bool>) -> PassiveResult {
+    pub fn validate(&self, null_terminated: bool, long_names: Option<bool>) -> UnitResult {
         Self::validate_bytes(self.bytes(), null_terminated, long_names)
     }
 
     /// Check whether some bytes are valid, considering the maximum text length.
-    pub fn validate_bytes(text: &[u8], null_terminated: bool, long_names: Option<bool>) -> PassiveResult {
+    pub fn validate_bytes(text: &[u8], null_terminated: bool, long_names: Option<bool>) -> UnitResult {
         if null_terminated && text.is_empty() {
             return Err(Error::invalid("text must not be empty"));
         }
@@ -428,14 +428,14 @@ impl Text {
     }
 
     /// Write the length of a string and then the contents with that length.
-    pub fn write_i32_sized<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write_i32_sized<W: Write>(&self, write: &mut W) -> UnitResult {
         debug_assert!(self.validate( false, None).is_ok(), "text size bug");
         i32::write(usize_to_i32(self.bytes.len()), write)?;
         Self::write_unsized_bytes(self.bytes.as_slice(), write)
     }
 
     /// Without validation, write this instance to the byte stream.
-    fn write_unsized_bytes<W: Write>(bytes: &[u8], write: &mut W) -> PassiveResult {
+    fn write_unsized_bytes<W: Write>(bytes: &[u8], write: &mut W) -> UnitResult {
         u8::write_slice(write, bytes)?;
         Ok(())
     }
@@ -466,12 +466,12 @@ impl Text {
     }
 
     /// Write the string contents and a null-terminator.
-    pub fn write_null_terminated<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write_null_terminated<W: Write>(&self, write: &mut W) -> UnitResult {
         Self::write_null_terminated_bytes(self.bytes(), write)
     }
 
     /// Write the string contents and a null-terminator.
-    fn write_null_terminated_bytes<W: Write>(bytes: &[u8], write: &mut W) -> PassiveResult {
+    fn write_null_terminated_bytes<W: Write>(bytes: &[u8], write: &mut W) -> UnitResult {
         debug_assert!(!bytes.is_empty(), "text is empty bug"); // required to avoid mixup with "sequece_end"
 
         Text::write_unsized_bytes(bytes, write)?;
@@ -526,7 +526,7 @@ impl Text {
 
     /// Allows any text length since it is only used for attribute values,
     /// but not attribute names, attribute type names, or channel names.
-    fn write_vec_of_i32_sized_texts<W: Write>(write: &mut W, texts: &[Text]) -> PassiveResult {
+    fn write_vec_of_i32_sized_texts<W: Write>(write: &mut W, texts: &[Text]) -> UnitResult {
         // length of the text-vector can be inferred from attribute size
         for text in texts {
             text.write_i32_sized(write)?;
@@ -601,7 +601,7 @@ impl BlockType {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write(&self, write: &mut impl Write) -> PassiveResult {
+    pub fn write(&self, write: &mut impl Write) -> UnitResult {
         u8::write_slice(write, self.to_text_bytes())?;
         Ok(())
     }
@@ -653,7 +653,7 @@ impl IntRect {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, max: Vec2<usize>) -> PassiveResult {
+    pub fn validate(&self, max: Vec2<usize>) -> UnitResult {
         if self.size.0 > max.0 || self.size.1 > max.1  {
             return Err(Error::invalid("window attribute dimension value"));
         }
@@ -667,7 +667,7 @@ impl IntRect {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         let Vec2(x_min, y_min) = self.position;
         let Vec2(x_max, y_max) = self.max();
 
@@ -708,7 +708,7 @@ impl FloatRect {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         self.min.0.write(write)?;
         self.min.1.write(write)?;
         self.max.0.write(write)?;
@@ -747,7 +747,7 @@ impl PixelType {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         match *self {
             PixelType::U32 => 0_i32,
             PixelType::F16 => 1_i32,
@@ -797,7 +797,7 @@ impl Channel {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         Text::write_null_terminated(&self.name, write)?;
         self.pixel_type.write(write)?;
 
@@ -836,7 +836,7 @@ impl Channel {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, allow_sampling: bool, strict: bool) -> PassiveResult {
+    pub fn validate(&self, allow_sampling: bool, strict: bool) -> UnitResult {
         if strict && (self.sampling.0 == 0 || self.sampling.1 == 0) {
             return Err(Error::invalid("zero sampling factor"));
         }
@@ -866,7 +866,7 @@ impl ChannelList {
 
     /// Without validation, write this instance to the byte stream.
     /// Assumes channels are sorted alphabetically and all values are validated.
-    pub fn write(&self, write: &mut impl Write) -> PassiveResult {
+    pub fn write(&self, write: &mut impl Write) -> UnitResult {
         for channel in &self.list {
             channel.write(write)?;
         }
@@ -886,7 +886,7 @@ impl ChannelList {
     }
 
     /// Check if channels are valid and sorted.
-    pub fn validate(&self, allow_sampling: bool, strict: bool) -> PassiveResult {
+    pub fn validate(&self, allow_sampling: bool, strict: bool) -> UnitResult {
         let mut iter = self.list.iter().map(|chan| chan.validate(allow_sampling, strict).map(|_| &chan.name));
         let mut previous = iter.next().ok_or(Error::invalid("at least one channel is required"))??;
 
@@ -907,7 +907,7 @@ impl TimeCode {
     pub const BYTE_SIZE: usize = 2 * u32::BYTE_SIZE;
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         self.time_and_flags.write(write)?;
         self.user_data.write(write)?;
         Ok(())
@@ -929,7 +929,7 @@ impl Chromaticities {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         self.red.0.write(write)?;
         self.red.1.write(write)?;
 
@@ -963,7 +963,7 @@ impl Compression {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(self, write: &mut W) -> UnitResult {
         use self::Compression::*;
         match self {
             Uncompressed => 0_u8,
@@ -1007,7 +1007,7 @@ impl EnvironmentMap {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(self, write: &mut W) -> UnitResult {
         use self::EnvironmentMap::*;
         match self {
             LatitudeLongitude => 0_u8,
@@ -1036,7 +1036,7 @@ impl KeyCode {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         self.film_manufacturer_code.write(write)?;
         self.film_type.write(write)?;
         self.film_roll_prefix.write(write)?;
@@ -1068,7 +1068,7 @@ impl LineOrder {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(self, write: &mut W) -> UnitResult {
         use self::LineOrder::*;
         match self {
             Increasing => 0_u8,
@@ -1099,7 +1099,7 @@ impl Preview {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         u32::write(self.size.0 as u32, write)?;
         u32::write(self.size.1 as u32, write)?;
 
@@ -1124,7 +1124,7 @@ impl Preview {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, strict: bool) -> PassiveResult {
+    pub fn validate(&self, strict: bool) -> UnitResult {
         if strict && (self.size.0 * self.size.1 * 4 != self.pixel_data.len()) {
             return Err(Error::invalid("preview dimensions do not match content length"))
         }
@@ -1147,7 +1147,7 @@ impl TileDescription {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         u32::write(self.tile_size.0 as u32, write)?;
         u32::write(self.tile_size.1 as u32, write)?;
 
@@ -1196,7 +1196,7 @@ impl TileDescription {
     }
 
     /// Validate this instance.
-    pub fn validate(&self) -> PassiveResult {
+    pub fn validate(&self) -> UnitResult {
         if self.tile_size.0 == 0 || self.tile_size.1 == 0 {
             return Err(Error::invalid("zero tile size"))
         }
@@ -1212,6 +1212,11 @@ impl Attribute {
         Self { name, value }
     }
 
+    /// Create a new attribute from a predefined byte slice and value.
+    pub fn predefined(name: &'static [u8], value: AnyValue) -> Self {
+        Self { name: Text::from_bytes_unchecked(SmallVec::from_slice(name)), value }
+    }
+
 
     /// Number of bytes this would consume in an exr file.
     // TODO instead of pre calculating byte size, write to a tmp buffer whose length is inspected before actually writing?
@@ -1223,7 +1228,7 @@ impl Attribute {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         self.name.write_null_terminated(write)?;
         Text::write_null_terminated_bytes(self.value.kind_name(), write)?;
         i32::write(self.value.byte_size() as i32, write)?;
@@ -1240,7 +1245,7 @@ impl Attribute {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, long_names: bool, allow_sampling: bool, strict: bool) -> PassiveResult {
+    pub fn validate(&self, long_names: bool, allow_sampling: bool, strict: bool) -> UnitResult {
         self.name.validate(true, Some(long_names))?; // only name text has length restriction
         self.value.validate(allow_sampling, strict) // attribute value text length is never restricted
     }
@@ -1329,7 +1334,7 @@ impl AnyValue {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         use self::AnyValue::*;
         match *self {
             IntRect(value) => value.write(write)?,
@@ -1457,7 +1462,7 @@ impl AnyValue {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, allow_sampling: bool, strict: bool) -> PassiveResult {
+    pub fn validate(&self, allow_sampling: bool, strict: bool) -> UnitResult {
         use self::AnyValue::*;
 
         match *self {
