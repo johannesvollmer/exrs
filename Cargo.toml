@@ -52,6 +52,11 @@ name = "write"
 harness = false
 
 
+# test with fast runtime speed and moderate build speed
+[profile.dev]
+opt-level = 3
+debug = true
+
 # release with fastest runtime speed
 [profile.release]
 opt-level = 3
@@ -60,7 +65,7 @@ debug = false
 codegen-units = 1
 
 # test with fast runtime speed and moderate build speed
-[profile.dev]
+[profile.test]
 opt-level = 3
 debug = true
 
