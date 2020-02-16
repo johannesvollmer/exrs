@@ -14,8 +14,7 @@ use exr::image::simple::*;
 
 
 /// Generate a noisy image and write it to a file.
-#[test]
-fn write_noisy_hdr() {
+fn main() {
     fn generate_f16_vector(size: Vec2<usize>) -> Vec<f16> {
         let mut values = vec![ f16::from_f32(0.5); size.area() ];
 
@@ -46,9 +45,9 @@ fn write_noisy_hdr() {
         Samples::F32(generate_f16_vector(size).into_iter().map(f16::to_f32).collect())
     );
 
-    let layer = simple::Layer::new(
+    let layer = Layer::new(
         "test-image".try_into().unwrap(),
-        IntRect::from_dimensions(size),
+        size,
         smallvec![ r, g, b ],
     );
 
@@ -58,7 +57,7 @@ fn write_noisy_hdr() {
     let image = Image::new_from_single_layer(layer);
 
     println!("writing image {:#?}", image);
-    image.write_to_file("./testout/noisy.exr", WriteOptions::high()).unwrap();
+    image.write_to_file("./testout/noisy.exr", write_options::high()).unwrap();
 
-    assert!(Image::read_from_file("./testout/noisy.exr", ReadOptions::high()).is_ok())
+    assert!(Image::read_from_file("./testout/noisy.exr", read_options::high()).is_ok())
 }

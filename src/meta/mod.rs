@@ -64,29 +64,6 @@ pub struct Header {
     /// How the pixel data of all channels in this layer is compressed. May be `Compression::Uncompressed`.
     pub compression: Compression,
 
-    /// The rectangle that positions this layer within the infinite 2D space.
-    pub data_window: IntRect,
-
-    /// The rectangle anywhere in 2D space that clips all contents of the file.
-    pub display_window: IntRect,
-
-    /// In what order the tiles of this header occur in the file.
-    pub line_order: LineOrder,
-
-    /// Aspect ratio of each pixel in this header.
-    pub pixel_aspect: f32,
-
-    /// Part of the perspective projection. Default should be `(0, 0)`.
-    pub screen_window_center: Vec2<f32>,
-
-    /// Part of the perspective projection. Default should be `1`.
-    pub screen_window_width: f32,
-
-    /// The name of this layer.
-    /// Required if this file contains deep data or multiple layers.
-    // As this is an attribute value, it is not restricted in length, may even be empty
-    pub name: Option<Text>,
-
     /// Describes how the pixels of this layer are divided into smaller blocks.
     /// A single block can be loaded without processing all bytes of a file.
     ///
@@ -97,6 +74,12 @@ pub struct Header {
     // Note: This value must agree with the version field's tile bit and deep data bit.
     // In this crate, this attribute will always have a value, for simplicity.
     pub blocks: Blocks,
+
+    /// In what order the tiles of this header occur in the file.
+    pub line_order: LineOrder,
+
+    /// The resolution of this layer. Equals the size of the data window.
+    pub data_size: Vec2<usize>,
 
     /// Whether this layer contains deep data.
     pub deep: bool,
@@ -129,13 +112,62 @@ pub struct Header {
     /// Maximum number of samples in a single pixel in a deep image.
     pub max_samples_per_pixel: Option<usize>,
 
-    /// Optional attributes. May contain custom attributes.
-    /// Does not contain the attributes already present in the `Header` struct.
-    pub custom_attributes: Attributes,
+    /// Includes mandatory fields like pixel aspect or display window
+    /// which must be the same for all layers.
+    pub shared_attributes: ImageAttributes,
+
+    /// Does not include the attributes required for reading the file contents.
+    /// Excludes standard fields that must be the same for all headers.
+    pub own_attributes: LayerAttributes,
 }
 
-/// List of custom attributes.
-pub type Attributes = Vec<Attribute>;
+
+/// Includes mandatory fields like pixel aspect or display window
+/// which must be the same for all layers.
+#[derive(Clone, PartialEq, Debug)]
+pub struct ImageAttributes {
+
+    /// The rectangle anywhere in the global infinite 2D space
+    /// that clips all contents of the file.
+    pub display_window: IntRect,
+
+    /// Aspect ratio of each pixel in this header.
+    pub pixel_aspect: f32, // TODO integrate into `list`
+
+    /// Optional attributes. Contains custom attributes.
+    /// Does not contain the attributes already present in the `ImageAttributes`.
+    /// Contains only attributes that are standardized to be the same for all headers: chromaticities and time codes.
+    pub list: Vec<Attribute>,
+}
+
+/// Does not include the attributes required for reading the file contents.
+/// Excludes standard fields that must be the same for all headers.
+#[derive(Clone, PartialEq, Debug)]
+pub struct LayerAttributes {
+
+    /// The name of this layer.
+    /// Required if this file contains deep data or multiple layers.
+    // As this is an attribute value, it is not restricted in length, may even be empty
+    pub name: Option<Text>,
+
+    /// The bottom left corner of the rectangle that positions this layer
+    /// within the global infinite 2D space of the whole file.
+    /// Equals the position of the data window.
+    pub data_position: Vec2<i32>,
+
+    /// Part of the perspective projection. Default should be `(0, 0)`.
+    // TODO same for all layers?
+    pub screen_window_center: Vec2<f32>, // TODO integrate into `list`
+
+    /// Part of the perspective projection. Default should be `1`.
+    // TODO same for all layers?
+    pub screen_window_width: f32, // TODO integrate into `list`
+
+    /// Optional attributes. Contains custom attributes.
+    /// Does not contain the attributes already present in the `Header` or `Attributes` struct.
+    /// Does not contain attributes that are standardized to be the same for all layers: no chromaticities and no time codes.
+    pub list: Vec<Attribute>,
+}
 
 /// A summary of requirements that must be met to read this exr file.
 /// Used to determine whether this file can be read by a given reader.
@@ -248,7 +280,7 @@ pub mod magic_number {
     }
 
     /// Validate this image. If it is an exr file, return `Ok(())`.
-    pub fn validate_exr(read: &mut impl Read) -> PassiveResult {
+    pub fn validate_exr(read: &mut impl Read) -> UnitResult {
         if self::is_exr(read)? {
             Ok(())
 
@@ -268,7 +300,7 @@ pub mod sequence_end {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(write: &mut W) -> UnitResult {
         0_u8.write(write)
     }
 
@@ -384,8 +416,7 @@ pub fn mip_map_indices(round: RoundingMode, max_resolution: Vec2<usize>) -> impl
 // If not multilayer and chunkCount not present,
 // the number of entries in the chunk table is computed
 // using the dataWindow and tileDesc attributes and the compression format
-pub fn compute_chunk_count(compression: Compression, data_window: IntRect, blocks: Blocks) -> usize {
-    let data_size = data_window.size;
+pub fn compute_chunk_count(compression: Compression, data_size: Vec2<usize>, blocks: Blocks) -> usize {
 
     if let Blocks::Tiles(tiles) = blocks {
         let round = tiles.rounding_mode;
@@ -414,7 +445,7 @@ pub fn compute_chunk_count(compression: Compression, data_window: IntRect, block
         }
     }
 
-    // scan line blocks never have mip maps // TODO check if this is true
+    // scan line blocks never have mip maps
     else {
         compute_block_count(data_size.1, compression.scan_lines_per_block())
     }
@@ -488,7 +519,7 @@ impl MetaData {
 
     /// Validates the meta data and writes it to the stream.
     /// If pedantic, throws errors for files that may produce errors in other exr readers.
-    pub(crate) fn write_validating_to_buffered(&self, write: &mut impl Write, pedantic: bool) -> PassiveResult {
+    pub(crate) fn write_validating_to_buffered(&self, write: &mut impl Write, pedantic: bool) -> UnitResult {
         // pedantic validation to not allow slightly invalid files
         // that still could be read correctly in theory
         self.validate(pedantic)?;
@@ -516,7 +547,7 @@ impl MetaData {
 
     /// Validates this meta data.
     /// Set strict to false when reading and true when writing for maximum compatibility.
-    pub fn validate(&self, strict: bool) -> PassiveResult {
+    pub fn validate(&self, strict: bool) -> UnitResult {
         self.requirements.validate()?;
 
         let headers = self.headers.len();
@@ -525,30 +556,48 @@ impl MetaData {
             return Err(Error::invalid("at least one layer is required"));
         }
 
+        for header in &self.headers {
+            header.validate(&self.requirements, strict)?;
+        }
+
         if strict { // check for duplicate header names
             let mut header_names = HashSet::with_capacity(headers);
             for header in &self.headers {
-                if !header_names.insert(&header.name) {
-                    return Err(Error::invalid("duplicate layer name"));
+                if !header_names.insert(&header.own_attributes.name) {
+                    return Err(Error::invalid(format!(
+                        "duplicate layer name: `{}`",
+                        header.own_attributes.name.as_ref().expect("header validation bug")
+                    )));
                 }
+            }
+        }
+
+        if strict {
+            let must_share = self.headers.iter().flat_map(|header| header.own_attributes.list.iter())
+                .any(|attribute| attribute.value.to_chromaticities().is_ok() || attribute.value.to_time_code().is_ok());
+
+            if must_share {
+                return Err(Error::invalid("chromaticities and time code attributes must must not exist in own attributes but shared instead"));
             }
         }
 
         if strict && headers > 1 { // check for attributes that should not differ in between headers
             fn get_attributes(header: &'_ Header) -> HashMap<&'_ [u8], &'_ AnyValue> {
-                header.custom_attributes.iter()
-                    // if the headers include timeCode and chromaticities attributes, then the values of those attributes must be the same for all layers of a file
-                    .filter(|attribute| attribute.value.to_time_code().is_ok() || attribute.value.to_chromaticities().is_ok())
+                header.shared_attributes.list.iter()
                     .map(|attribute| (attribute.name.bytes(), &attribute.value))
                     .collect()
             };
 
-            let first_header_attributes = get_attributes(self.headers.first().expect("header count validation bug"));
+            let first_header = self.headers.first().expect("header count validation bug");
+            let first_header_attributes = get_attributes(first_header);
 
             for header in &self.headers[1..] {
                 let attributes = get_attributes(header);
-                if attributes != first_header_attributes {
-                    return Err(Error::invalid("chromaticities and time code attributes must be equal for all headers"))
+                if attributes != first_header_attributes
+                    || header.shared_attributes.display_window != first_header.shared_attributes.display_window
+                    || header.shared_attributes.pixel_aspect != first_header.shared_attributes.pixel_aspect
+                {
+                    return Err(Error::invalid("display window, pixel aspect, chromaticities, and time code attributes must be equal for all headers"))
                 }
             }
         }
@@ -557,10 +606,6 @@ impl MetaData {
             if headers != 1 {
                 return Err(Error::invalid("multipart flag for header count"));
             }
-        }
-
-        for header in &self.headers {
-            header.validate(&self.requirements, strict)?;
         }
 
         Ok(())
@@ -580,27 +625,33 @@ impl Header {
     /// - scan line blocks
     /// - unspecified line order
     /// - no custom attributes
-    pub fn new(name: Text, data_window: IntRect, channels: SmallVec<[Channel; 5]>) -> Self {
+    pub fn new(name: Text, data_size: Vec2<usize>, channels: SmallVec<[Channel; 5]>) -> Self {
         let compression = Compression::Uncompressed;
         let blocks = Blocks::ScanLines;
 
         Self {
-            data_window,
-            display_window: data_window,
-
+            data_size,
             compression,
+            blocks,
+
             channels: ChannelList::new(channels),
             line_order: LineOrder::Unspecified,
 
-            name: Some(name),
-            custom_attributes: Vec::new(),
+            shared_attributes: ImageAttributes { // TODO use  LayerAttributes::new(data_size)
+                display_window: IntRect::new(Vec2(0, 0), data_size),
+                pixel_aspect: 1.0,
+                list: Vec::new(),
+            },
 
-            pixel_aspect: 1.0,
-            screen_window_width: 1.0,
-            screen_window_center: Vec2(0.0, 0.0),
+            own_attributes: LayerAttributes { // TODO use  LayerAttributes::new(name)
+                name: Some(name),
+                data_position: Vec2(0,0),
+                screen_window_center: Vec2(0.0, 0.0),
+                screen_window_width: 1.0,
+                list: Vec::new()
+            },
 
-            blocks,
-            chunk_count: compute_chunk_count(compression, data_window, blocks),
+            chunk_count: compute_chunk_count(compression, data_size, blocks),
 
             deep: false,
             deep_data_version: None,
@@ -609,23 +660,37 @@ impl Header {
     }
 
     /// Set the display window, that is, the global clipping rectangle.
-    /// Must be the same for all headers of a file.
+    /// __Must be the same for all headers of a file.__
     pub fn with_display_window(self, display_window: IntRect) -> Self {
-        Self { display_window, .. self }
+        let mut self1 = self;
+        self1.shared_attributes.display_window = display_window;
+        self1
+    }
+
+    /// Set the offset of this layer.
+    pub fn with_position(self, position: Vec2<i32>) -> Self {
+        let mut self1 = self;
+        self1.own_attributes.data_position = position;
+        self1
     }
 
     /// Set compression, tiling, and line order. Automatically computes chunk count.
     pub fn with_encoding(self, compression: Compression, blocks: Blocks, line_order: LineOrder) -> Self {
         Self {
-            chunk_count: compute_chunk_count(compression, self.data_window, blocks),
+            chunk_count: compute_chunk_count(compression, self.data_size, blocks),
             compression, blocks, line_order,
             .. self
         }
     }
 
-    /// Add some custom attributes to the header.
-    pub fn with_attributes(self, attributes: Attributes) -> Self {
-        Self { custom_attributes: attributes, .. self }
+    /// Add some custom attributes to the header that are not shared with all other headers in the image.
+    pub fn with_attributes(self, own_attributes: LayerAttributes) -> Self {
+        Self { own_attributes, .. self }
+    }
+
+    /// Add some custom attributes to the header that are shared with all other headers in the image.
+    pub fn with_shared_attributes(self, shared_attributes: ImageAttributes) -> Self {
+        Self { shared_attributes, .. self }
     }
 
     /// Iterate over all blocks, in the order specified by the headers line order attribute,
@@ -669,17 +734,17 @@ impl Header {
             if let Blocks::Tiles(tiles) = self.blocks {
                 match tiles.level_mode {
                     LevelMode::Singular => {
-                        tiles_of(self.data_window.size, tiles.tile_size, Vec2(0, 0)).collect()
+                        tiles_of(self.data_size, tiles.tile_size, Vec2(0, 0)).collect()
                     },
                     LevelMode::MipMap => {
-                        mip_map_levels(tiles.rounding_mode, self.data_window.size)
+                        mip_map_levels(tiles.rounding_mode, self.data_size)
                             .flat_map(move |(level_index, level_size)|{
                                 tiles_of(level_size, tiles.tile_size, Vec2(level_index, level_index))
                             })
                             .collect()
                     },
                     LevelMode::RipMap => {
-                        rip_map_levels(tiles.rounding_mode, self.data_window.size)
+                        rip_map_levels(tiles.rounding_mode, self.data_size)
                             .flat_map(move |(level_index, level_size)| {
                                 tiles_of(level_size, tiles.tile_size, level_index)
                             })
@@ -688,8 +753,8 @@ impl Header {
                 }
             }
             else {
-                let tiles = Vec2(self.data_window.size.0, self.compression.scan_lines_per_block());
-                tiles_of(self.data_window.size, tiles, Vec2(0,0)).collect()
+                let tiles = Vec2(self.data_size.0, self.compression.scan_lines_per_block());
+                tiles_of(self.data_size, tiles, Vec2(0,0)).collect()
             }
         };
 
@@ -699,19 +764,19 @@ impl Header {
     /// Calculate the position of a block in the global infinite 2D space of a file. May be negative.
     pub fn get_block_data_window_coordinates(&self, tile: TileCoordinates) -> Result<IntRect> {
         let data = self.get_absolute_block_indices(tile)?;
-        Ok(data.with_origin(self.data_window.start))
+        Ok(data.with_origin(self.own_attributes.data_position))
     }
 
     /// Calculate the pixel index rectangle inside this header. Is not negative. Starts at `0`.
     pub fn get_absolute_block_indices(&self, tile: TileCoordinates) -> Result<IntRect> {
         Ok(if let Blocks::Tiles(tiles) = self.blocks {
-            let Vec2(data_width, data_height) = self.data_window.size;
+            let Vec2(data_width, data_height) = self.data_size;
 
             let data_width = compute_level_size(tiles.rounding_mode, data_width, tile.level_index.0);
             let data_height = compute_level_size(tiles.rounding_mode, data_height, tile.level_index.1);
             let absolute_tile_coordinates = tile.to_data_indices(tiles.tile_size, Vec2(data_width, data_height))?;
 
-            if absolute_tile_coordinates.start.0 as i64 >= data_width as i64 || absolute_tile_coordinates.start.1 as i64 >= data_height as i64 {
+            if absolute_tile_coordinates.position.0 as i64 >= data_width as i64 || absolute_tile_coordinates.position.1 as i64 >= data_height as i64 {
                 return Err(Error::invalid("data block tile index"))
             }
 
@@ -721,14 +786,14 @@ impl Header {
             debug_assert_eq!(tile.tile_index.0, 0, "block index calculation bug");
 
             let (y, height) = calculate_block_position_and_size(
-                self.data_window.size.1,
+                self.data_size.1,
                 self.compression.scan_lines_per_block(),
                 tile.tile_index.1
             )?;
 
             IntRect {
-                start: Vec2(0, usize_to_i32(y)),
-                size: Vec2(self.data_window.size.0, height)
+                position: Vec2(0, usize_to_i32(y)),
+                size: Vec2(self.data_size.0, height)
             }
         })
 
@@ -745,7 +810,7 @@ impl Header {
 
             Block::ScanLine(ref block) => {
                 let size = self.compression.scan_lines_per_block() as i32;
-                let y = (block.y_coordinate - self.data_window.start.1) / size;
+                let y = (block.y_coordinate - self.own_attributes.data_position.1) / size;
 
                 if y < 0 {
                     panic!("y index calculation bug");
@@ -765,21 +830,21 @@ impl Header {
     pub fn max_block_byte_size(&self) -> usize {
         self.channels.bytes_per_pixel * match self.blocks {
             Blocks::Tiles(tiles) => tiles.tile_size.0 * tiles.tile_size.1,
-            Blocks::ScanLines => self.compression.scan_lines_per_block() * self.data_window.size.0
+            Blocks::ScanLines => self.compression.scan_lines_per_block() * self.data_size.0
             // TODO What about deep data???
         }
     }
 
     /// Validate this instance.
-    pub fn validate(&self, requirements: &Requirements, strict: bool) -> PassiveResult {
+    pub fn validate(&self, requirements: &Requirements, strict: bool) -> UnitResult {
         debug_assert_eq!(
-            self.chunk_count, compute_chunk_count(self.compression, self.data_window, self.blocks),
+            self.chunk_count, compute_chunk_count(self.compression, self.data_size, self.blocks),
             "chunk count attribute not correctly set"
         );
 
         if strict && requirements.is_multilayer() {
-            if self.name.is_none() {
-                return Err(missing_attribute("layer name"));
+            if self.own_attributes.name.is_none() {
+                return Err(missing_attribute("layer name for multi layer file"));
             }
         }
 
@@ -791,25 +856,36 @@ impl Header {
         let allow_subsampling = !self.deep && self.blocks == Blocks::ScanLines;
         self.channels.validate(allow_subsampling, strict)?;
 
-        for attribute in &self.custom_attributes {
+        for attribute in &self.shared_attributes.list {
+            attribute.validate(requirements.has_long_names, allow_subsampling, strict)?;
+        }
+
+        for attribute in &self.own_attributes.list {
             attribute.validate(requirements.has_long_names, allow_subsampling, strict)?;
         }
 
 
         // check if attribute names appear twice
         if strict {
+            let mut custom_names = HashSet::with_capacity(
+                self.own_attributes.list.len() + self.shared_attributes.list.len()
+            );
 
-            let mut custom_names = HashSet::with_capacity(self.custom_attributes.len());
-
-            for attribute in &self.custom_attributes {
+            for attribute in &self.own_attributes.list {
                 if !custom_names.insert(attribute.name.bytes()) {
-                    return Err(Error::invalid("attribute names should be unique"));
+                    return Err(Error::invalid(format!("duplicate attribute name: `{}`", attribute.name)));
+                }
+            }
+
+            for attribute in &self.shared_attributes.list {
+                if !custom_names.insert(attribute.name.bytes()) {
+                    return Err(Error::invalid(format!("duplicate attribute name: `{}`", attribute.name)));
                 }
             }
 
             use attributes::required_attribute_names::*;
             let reserved_names = [
-                TILES, NAME, BLOCK_TYPE, VERSION, CHUNKS, MAX_SAMPLES, CHANNELS, COMPRESSION,
+                TILES, NAME, BLOCK_TYPE, DEEP_DATA_VERSION, CHUNKS, MAX_SAMPLES, CHANNELS, COMPRESSION,
                 DATA_WINDOW, DISPLAY_WINDOW, LINE_ORDER, PIXEL_ASPECT, WINDOW_CENTER, WINDOW_WIDTH
             ];
 
@@ -818,16 +894,16 @@ impl Header {
                 if custom_names.contains(reserved) {
 
                     return Err(Error::invalid(format!(
-                        "attribute name `{}` is already required attribute",
-                         Text::from_bytes_unchecked(reserved.into()).to_string()
+                        "attribute name `{}` is already a required attribute",
+                         Text::from_bytes_unchecked(reserved.into())
                     )));
                 }
             }
         }
 
         if self.deep {
-            if strict && self.name.is_none() {
-                return Err(missing_attribute("layer name"));
+            if strict && self.own_attributes.name.is_none() {
+                return Err(missing_attribute("layer name for deep file"));
             }
 
             match self.deep_data_version {
@@ -865,7 +941,7 @@ impl Header {
     }
 
     /// Without validation, write the headers to the byte stream.
-    pub fn write_all(headers: &[Header], write: &mut impl Write, is_multilayer: bool) -> PassiveResult {
+    pub fn write_all(headers: &[Header], write: &mut impl Write, is_multilayer: bool) -> UnitResult {
         for header in headers {
             header.write(write)?;
         }
@@ -880,7 +956,9 @@ impl Header {
     /// Read the value without validating.
     pub fn read(read: &mut PeekRead<impl Read>, requirements: &Requirements) -> Result<Self> {
         let max_string_len = if requirements.has_long_names { 256 } else { 32 }; // TODO DRY this information
-        let mut custom = Vec::new();
+
+        let mut shared_custom = Vec::new();
+        let mut own_custom = Vec::new();
 
         // these required attributes will be filled when encountered while parsing
         let mut tiles = None;
@@ -917,7 +995,7 @@ impl Header {
                 PIXEL_ASPECT => pixel_aspect = Some(value.to_f32()?),
                 WINDOW_CENTER => screen_window_center = Some(value.to_f32_vec_2()?),
                 WINDOW_WIDTH => screen_window_width = Some(value.to_f32()?),
-                VERSION => version = Some(value.to_i32()?),
+                DEEP_DATA_VERSION => version = Some(value.to_i32()?),
 
                 MAX_SAMPLES => max_samples_per_pixel = Some(
                     i32_to_usize(value.to_i32()?, "max sample count")?
@@ -927,12 +1005,20 @@ impl Header {
                     i32_to_usize(value.to_i32()?, "chunk count")?
                 ),
 
-                _ => custom.push(Attribute { name: attribute_name, value }),
+                _ => {
+                    if value.to_chromaticities().is_ok() || value.to_time_code().is_ok() {
+                        shared_custom.push(Attribute { name: attribute_name, value })
+                    }
+                    else {
+                        own_custom.push(Attribute { name: attribute_name, value })
+                    }
+                },
             }
         }
 
         let compression = compression.ok_or(missing_attribute("compression"))?;
         let data_window = data_window.ok_or(missing_attribute("data window"))?;
+        let data_size = data_window.size;
 
         let blocks = match block_type {
             None if requirements.is_single_layer_and_tiled => {
@@ -946,53 +1032,62 @@ impl Header {
         };
 
         let chunk_count = match chunk_count {
-            None => compute_chunk_count(compression, data_window, blocks),
+            None => compute_chunk_count(compression, data_size, blocks),
             Some(count) => count,
         };
 
+
         let header = Header {
-            compression, data_window, chunk_count,
+            compression,
+            chunk_count,
+            data_size,
+
+            shared_attributes: ImageAttributes {
+                display_window: display_window.ok_or(missing_attribute("display window"))?,
+                pixel_aspect: pixel_aspect.unwrap_or(1.0),
+                list: shared_custom
+            },
+
+            own_attributes: LayerAttributes {
+                name,
+
+                data_position: data_window.position,
+                screen_window_center: screen_window_center.unwrap_or(Vec2(0.0, 0.0)),
+                screen_window_width: screen_window_width.unwrap_or(1.0),
+                list: own_custom,
+            },
 
             channels: channels.ok_or(missing_attribute("channels"))?,
-            display_window: display_window.ok_or(missing_attribute("display window"))?,
-
-            pixel_aspect: pixel_aspect.unwrap_or(1.0),
-            screen_window_center: screen_window_center.unwrap_or(Vec2(0.0, 0.0)),
-            screen_window_width: screen_window_width.unwrap_or(1.0),
             line_order: line_order.unwrap_or(LineOrder::Unspecified),
 
             blocks,
-            name,
             max_samples_per_pixel,
             deep_data_version: version,
-            custom_attributes: custom,
-            deep: block_type == Some(BlockType::DeepScanLine) || block_type == Some(BlockType::DeepTile)
+            deep: block_type == Some(BlockType::DeepScanLine) || block_type == Some(BlockType::DeepTile),
+
         };
 
         Ok(header)
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write(&self, write: &mut impl Write) -> PassiveResult {
+    pub fn write(&self, write: &mut impl Write) -> UnitResult {
 
         // FIXME do not allocate text object for writing!
         /// Write a mandatory attribute.
-        fn write_attr<T>(write: &mut impl Write, name: &[u8], value: T, variant: impl Fn(T) -> AnyValue) -> PassiveResult {
-            Attribute { name: Text::from_bytes_unchecked(SmallVec::from_slice(name)), value: variant(value) }
-                .write(write)
+        fn write_attr<T>(write: &mut impl Write, name: &'static [u8], value: T, variant: impl Fn(T) -> AnyValue) -> UnitResult {
+            Attribute::predefined(name, variant(value)).write(write)
         };
 
         /// Write an optional attribute without validation.
-        fn write_opt_attr<T>(write: &mut impl Write, name: &[u8], attribute: Option<T>, variant: impl Fn(T) -> AnyValue) -> PassiveResult {
+        fn write_opt_attr<T>(write: &mut impl Write, name: &'static [u8], attribute: Option<T>, variant: impl Fn(T) -> AnyValue) -> UnitResult {
             if let Some(value) = attribute { write_attr(write, name, value, variant) }
             else { Ok(()) }
         };
 
         {
-//            let long = version.has_long_names;
             use crate::meta::attributes::required_attribute_names::*;
             use AnyValue::*;
-
 
             let (block_type, tiles) = match self.blocks {
                 Blocks::ScanLines => (attributes::BlockType::ScanLine, None),
@@ -1001,8 +1096,8 @@ impl Header {
 
             write_opt_attr(write, TILES, tiles, TileDescription)?;
 
-            write_opt_attr(write, NAME, self.name.clone(), Text)?;
-            write_opt_attr(write, VERSION, self.deep_data_version, I32)?;
+            write_opt_attr(write, NAME, self.own_attributes.name.clone(), Text)?; // TODO no clone
+            write_opt_attr(write, DEEP_DATA_VERSION, self.deep_data_version, I32)?;
             write_opt_attr(write, MAX_SAMPLES, self.max_samples_per_pixel, |u| I32(u as i32))?;
 
             // not actually required, but always computed in this library anyways
@@ -1011,20 +1106,31 @@ impl Header {
 
             write_attr(write, CHANNELS, self.channels.clone(), ChannelList)?; // FIXME do not clone
             write_attr(write, COMPRESSION, self.compression, Compression)?;
-            write_attr(write, DATA_WINDOW, self.data_window, IntRect)?;
-            write_attr(write, DISPLAY_WINDOW, self.display_window, IntRect)?;
             write_attr(write, LINE_ORDER, self.line_order, LineOrder)?;
-            write_attr(write, PIXEL_ASPECT, self.pixel_aspect, F32)?;
-            write_attr(write, WINDOW_WIDTH, self.screen_window_width, F32)?;
-            write_attr(write, WINDOW_CENTER, self.screen_window_center, FloatVec2)?;
+
+            write_attr(write, DATA_WINDOW, self.data_window(), IntRect)?;
+            write_attr(write, DISPLAY_WINDOW, self.shared_attributes.display_window, IntRect)?;
+            write_attr(write, PIXEL_ASPECT, self.shared_attributes.pixel_aspect, F32)?;
+            write_attr(write, WINDOW_WIDTH, self.own_attributes.screen_window_width, F32)?;
+            write_attr(write, WINDOW_CENTER, self.own_attributes.screen_window_center, FloatVec2)?;
         }
 
-        for attrib in &self.custom_attributes {
+        for attrib in &self.shared_attributes.list {
+            attrib.write(write)?;
+        }
+
+        for attrib in &self.own_attributes.list {
             attrib.write(write)?;
         }
 
         sequence_end::write(write)?;
         Ok(())
+    }
+
+    /// The rectangle describing the bounding box of this layer
+    /// within the infinite global 2D space of the file.
+    pub fn data_window(&self) -> IntRect {
+        IntRect::new(self.own_attributes.data_position, self.data_size)
     }
 }
 
@@ -1089,7 +1195,7 @@ impl Requirements {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(self, write: &mut W) -> UnitResult {
         use ::bit_field::BitField;
 
         // the 8 least significant bits contain the file format version number
@@ -1108,7 +1214,7 @@ impl Requirements {
     }
 
     /// Validate this instance.
-    pub fn validate(&self) -> PassiveResult {
+    pub fn validate(&self) -> UnitResult {
         if self.has_deep_data { // TODO deep data (and then remove this check)
             return Err(Error::unsupported("deep data not supported yet"));
         }
@@ -1151,7 +1257,7 @@ impl Requirements {
 
 #[cfg(test)]
 mod test {
-    use crate::meta::{MetaData, Requirements, Header};
+    use crate::meta::{MetaData, Requirements, Header, ImageAttributes, LayerAttributes, compute_chunk_count};
     use crate::meta::attributes::{Text, ChannelList, IntRect, LineOrder, Channel, PixelType};
     use crate::compression::Compression;
     use crate::meta::Blocks;
@@ -1159,7 +1265,13 @@ mod test {
 
     #[test]
     fn round_trip_requirements() {
-        let requirements = Requirements::new(2, true, true, true, true);
+        let requirements = Requirements {
+            file_format_version: 2,
+            is_single_layer_and_tiled: true,
+            has_long_names: false,
+            has_deep_data: true,
+            has_multiple_layers: false
+        };
 
         let mut data: Vec<u8> = Vec::new();
         requirements.write(&mut data).unwrap();
@@ -1169,50 +1281,60 @@ mod test {
 
     #[test]
     fn round_trip(){
-        let meta = MetaData {
-            requirements: Requirements::new(2, false, false, false, false),
-            headers: smallvec![
-                Header {
-                    channels: ChannelList {
-                        list: smallvec![
-                            Channel {
-                                name: Text::from_str("main").unwrap(),
-                                pixel_type: PixelType::U32,
-                                is_linear: false,
-                                sampling: Vec2(1, 1)
-                            }
-                        ],
-                        bytes_per_pixel: 4
-                    },
-                    compression: Compression::Uncompressed,
-                    data_window: Box2I32 {
-                        start: Vec2(-3,-1),
-                        size: Vec2(22, 21)
-                    },
-                    display_window: Box2I32 {
-                        start: Vec2(2,1),
-                        size: Vec2(11, 9)
-                    },
-                    line_order: LineOrder::Increasing,
-                    pixel_aspect: 1.0,
-                    screen_window_center: Vec2(5.0, 5.0),
-                    screen_window_width: 10.0,
-                    name: None,
-                    deep_data_version: None,
-                    chunk_count: 1,
-                    max_samples_per_pixel: None,
-                    custom_attributes: vec![ /* TODO */ ],
+        let header = Header {
+            channels: ChannelList {
+                list: smallvec![
+                    Channel {
+                        name: Text::from("main").unwrap(),
+                        pixel_type: PixelType::U32,
+                        is_linear: false,
+                        sampling: Vec2(1, 1)
+                    }
+                ],
+                bytes_per_pixel: 4
+            },
+            compression: Compression::Uncompressed,
+            line_order: LineOrder::Increasing,
+            deep_data_version: Some(1),
+            chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), Blocks::ScanLines),
+            max_samples_per_pixel: Some(4),
+            shared_attributes: ImageAttributes {
+                display_window: IntRect {
+                    position: Vec2(2,1),
+                    size: Vec2(11, 9)
+                },
+                pixel_aspect: -3.0,
+                list: vec![ /* TODO */ ]
+            },
 
-                    blocks: Blocks::ScanLines,
-                    deep: false,
-                }
-            ],
+            blocks: Blocks::ScanLines,
+            deep: false,
+            data_size: Vec2(2000, 333),
+            own_attributes: LayerAttributes {
+                name: Some(Text::from("test name lol").unwrap()),
+                data_position: Vec2(3, -5),
+                screen_window_center: Vec2(0.3, 99.0),
+                screen_window_width: -0.19,
+                list: vec![ /* TODO */ ]
+            }
+        };
+
+        let meta = MetaData {
+            requirements: Requirements {
+                file_format_version: 2,
+                is_single_layer_and_tiled: false,
+                has_long_names: false,
+                has_deep_data: false,
+                has_multiple_layers: false
+            },
+            headers: smallvec![ header ],
         };
 
 
         let mut data: Vec<u8> = Vec::new();
-        meta.write_validating_to_buffered(&mut data).unwrap();
+        meta.write_validating_to_buffered(&mut data, true).unwrap();
         let meta2 = MetaData::read_from_buffered(data.as_slice()).unwrap();
+        meta2.validate(true).unwrap();
         assert_eq!(meta, meta2);
     }
 }

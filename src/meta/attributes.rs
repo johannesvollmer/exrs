@@ -167,9 +167,9 @@ pub type DisplayWindow = IntRect;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct IntRect {
 
-    /// The top left corner of this rectangle.
+    /// The bottom left corner of this rectangle.
     /// The `Box2I32` includes this pixel if the size is not zero.
-    pub start: Vec2<i32>,
+    pub position: Vec2<i32>,
 
     /// How many pixels to include in this `Box2I32`.
     /// Does not include the actual boundary, just like `Vec::len()`.
@@ -384,8 +384,8 @@ impl Text {
 
     /// Create a `Text` from an `str` reference.
     /// Returns `None` if this string contains unsupported chars.
-    pub fn from_str(str: &str) -> Option<Self> {
-        let vec : Option<TextBytes> = str.chars()
+    pub fn from(str: impl AsRef<str>) -> Option<Self> {
+        let vec : Option<TextBytes> = str.as_ref().chars()
             .map(|character| u8::try_from(character as u64).ok())
             .collect();
 
@@ -399,12 +399,12 @@ impl Text {
     }
 
     /// Check whether this string is valid, considering the maximum text length.
-    pub fn validate(&self, null_terminated: bool, long_names: Option<bool>) -> PassiveResult {
+    pub fn validate(&self, null_terminated: bool, long_names: Option<bool>) -> UnitResult {
         Self::validate_bytes(self.bytes(), null_terminated, long_names)
     }
 
     /// Check whether some bytes are valid, considering the maximum text length.
-    pub fn validate_bytes(text: &[u8], null_terminated: bool, long_names: Option<bool>) -> PassiveResult {
+    pub fn validate_bytes(text: &[u8], null_terminated: bool, long_names: Option<bool>) -> UnitResult {
         if null_terminated && text.is_empty() {
             return Err(Error::invalid("text must not be empty"));
         }
@@ -428,14 +428,14 @@ impl Text {
     }
 
     /// Write the length of a string and then the contents with that length.
-    pub fn write_i32_sized<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write_i32_sized<W: Write>(&self, write: &mut W) -> UnitResult {
         debug_assert!(self.validate( false, None).is_ok(), "text size bug");
         i32::write(usize_to_i32(self.bytes.len()), write)?;
         Self::write_unsized_bytes(self.bytes.as_slice(), write)
     }
 
     /// Without validation, write this instance to the byte stream.
-    fn write_unsized_bytes<W: Write>(bytes: &[u8], write: &mut W) -> PassiveResult {
+    fn write_unsized_bytes<W: Write>(bytes: &[u8], write: &mut W) -> UnitResult {
         u8::write_slice(write, bytes)?;
         Ok(())
     }
@@ -466,12 +466,12 @@ impl Text {
     }
 
     /// Write the string contents and a null-terminator.
-    pub fn write_null_terminated<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write_null_terminated<W: Write>(&self, write: &mut W) -> UnitResult {
         Self::write_null_terminated_bytes(self.bytes(), write)
     }
 
     /// Write the string contents and a null-terminator.
-    fn write_null_terminated_bytes<W: Write>(bytes: &[u8], write: &mut W) -> PassiveResult {
+    fn write_null_terminated_bytes<W: Write>(bytes: &[u8], write: &mut W) -> UnitResult {
         debug_assert!(!bytes.is_empty(), "text is empty bug"); // required to avoid mixup with "sequece_end"
 
         Text::write_unsized_bytes(bytes, write)?;
@@ -526,7 +526,7 @@ impl Text {
 
     /// Allows any text length since it is only used for attribute values,
     /// but not attribute names, attribute type names, or channel names.
-    fn write_vec_of_i32_sized_texts<W: Write>(write: &mut W, texts: &[Text]) -> PassiveResult {
+    fn write_vec_of_i32_sized_texts<W: Write>(write: &mut W, texts: &[Text]) -> UnitResult {
         // length of the text-vector can be inferred from attribute size
         for text in texts {
             text.write_i32_sized(write)?;
@@ -546,14 +546,14 @@ impl<'s> TryFrom<&'s str> for Text {
     type Error = &'static str;
 
     fn try_from(value: &'s str) -> std::result::Result<Self, Self::Error> {
-        Text::from_str(value).ok_or("exr text does not support unicode characters")
+        Text::from(value).ok_or("exr text does not support unicode characters")
     }
 }
 
 
 impl ::std::fmt::Debug for Text {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        write!(f, "exr::Text(\"{}\")", self.to_string())
+        write!(f, "exr::Text(\"{}\")", self)
     }
 }
 
@@ -601,7 +601,7 @@ impl BlockType {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write(&self, write: &mut impl Write) -> PassiveResult {
+    pub fn write(&self, write: &mut impl Write) -> UnitResult {
         u8::write_slice(write, self.to_text_bytes())?;
         Ok(())
     }
@@ -637,14 +637,14 @@ impl IntRect {
 
     /// Create a box with a size and an origin point.
     pub fn new(start: Vec2<i32>, size: Vec2<usize>) -> Self {
-        Self { start, size }
+        Self { position: start, size }
     }
 
     /// Returns the top-right coordinate of the rectangle.
     /// The row and column described by this vector are not included in the rectangle,
     /// just like `Vec::len()`.
     pub fn end(self) -> Vec2<i32> {
-        self.start + self.size.to_i32() // larger than max int32 is panic
+        self.position + self.size.to_i32() // larger than max int32 is panic
     }
 
     /// Returns the maximum coordinate that a value in this rectangle may have.
@@ -653,7 +653,7 @@ impl IntRect {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, max: Vec2<usize>) -> PassiveResult {
+    pub fn validate(&self, max: Vec2<usize>) -> UnitResult {
         if self.size.0 > max.0 || self.size.1 > max.1  {
             return Err(Error::invalid("window attribute dimension value"));
         }
@@ -667,8 +667,8 @@ impl IntRect {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
-        let Vec2(x_min, y_min) = self.start;
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
+        let Vec2(x_min, y_min) = self.position;
         let Vec2(x_max, y_max) = self.max();
 
         x_min.write(write)?;
@@ -690,12 +690,12 @@ impl IntRect {
         let size = Vec2(max.0 + 1 - min.0, max.1 + 1 - min.1); // which is why we add 1
         let size = size.to_usize("box coordinates")?;
 
-        Ok(IntRect { start: min, size })
+        Ok(IntRect { position: min, size })
     }
 
     /// Create a new rectangle which is offset by the specified origin.
     pub fn with_origin(self, origin: Vec2<i32>) -> Self {
-        IntRect { start: self.start + origin, .. self }
+        IntRect { position: self.position + origin, .. self }
     }
 }
 
@@ -708,7 +708,7 @@ impl FloatRect {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         self.min.0.write(write)?;
         self.min.1.write(write)?;
         self.max.0.write(write)?;
@@ -747,7 +747,7 @@ impl PixelType {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         match *self {
             PixelType::U32 => 0_i32,
             PixelType::F16 => 1_i32,
@@ -797,7 +797,7 @@ impl Channel {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         Text::write_null_terminated(&self.name, write)?;
         self.pixel_type.write(write)?;
 
@@ -836,7 +836,7 @@ impl Channel {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, allow_sampling: bool, strict: bool) -> PassiveResult {
+    pub fn validate(&self, allow_sampling: bool, strict: bool) -> UnitResult {
         if strict && (self.sampling.0 == 0 || self.sampling.1 == 0) {
             return Err(Error::invalid("zero sampling factor"));
         }
@@ -866,7 +866,7 @@ impl ChannelList {
 
     /// Without validation, write this instance to the byte stream.
     /// Assumes channels are sorted alphabetically and all values are validated.
-    pub fn write(&self, write: &mut impl Write) -> PassiveResult {
+    pub fn write(&self, write: &mut impl Write) -> UnitResult {
         for channel in &self.list {
             channel.write(write)?;
         }
@@ -886,7 +886,7 @@ impl ChannelList {
     }
 
     /// Check if channels are valid and sorted.
-    pub fn validate(&self, allow_sampling: bool, strict: bool) -> PassiveResult {
+    pub fn validate(&self, allow_sampling: bool, strict: bool) -> UnitResult {
         let mut iter = self.list.iter().map(|chan| chan.validate(allow_sampling, strict).map(|_| &chan.name));
         let mut previous = iter.next().ok_or(Error::invalid("at least one channel is required"))??;
 
@@ -907,7 +907,7 @@ impl TimeCode {
     pub const BYTE_SIZE: usize = 2 * u32::BYTE_SIZE;
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         self.time_and_flags.write(write)?;
         self.user_data.write(write)?;
         Ok(())
@@ -929,7 +929,7 @@ impl Chromaticities {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         self.red.0.write(write)?;
         self.red.1.write(write)?;
 
@@ -963,7 +963,7 @@ impl Compression {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(self, write: &mut W) -> UnitResult {
         use self::Compression::*;
         match self {
             Uncompressed => 0_u8,
@@ -1007,7 +1007,7 @@ impl EnvironmentMap {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(self, write: &mut W) -> UnitResult {
         use self::EnvironmentMap::*;
         match self {
             LatitudeLongitude => 0_u8,
@@ -1036,7 +1036,7 @@ impl KeyCode {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         self.film_manufacturer_code.write(write)?;
         self.film_type.write(write)?;
         self.film_roll_prefix.write(write)?;
@@ -1068,7 +1068,7 @@ impl LineOrder {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(self, write: &mut W) -> UnitResult {
         use self::LineOrder::*;
         match self {
             Increasing => 0_u8,
@@ -1099,7 +1099,7 @@ impl Preview {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         u32::write(self.size.0 as u32, write)?;
         u32::write(self.size.1 as u32, write)?;
 
@@ -1124,7 +1124,7 @@ impl Preview {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, strict: bool) -> PassiveResult {
+    pub fn validate(&self, strict: bool) -> UnitResult {
         if strict && (self.size.0 * self.size.1 * 4 != self.pixel_data.len()) {
             return Err(Error::invalid("preview dimensions do not match content length"))
         }
@@ -1147,7 +1147,7 @@ impl TileDescription {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         u32::write(self.tile_size.0 as u32, write)?;
         u32::write(self.tile_size.1 as u32, write)?;
 
@@ -1196,7 +1196,7 @@ impl TileDescription {
     }
 
     /// Validate this instance.
-    pub fn validate(&self) -> PassiveResult {
+    pub fn validate(&self) -> UnitResult {
         if self.tile_size.0 == 0 || self.tile_size.1 == 0 {
             return Err(Error::invalid("zero tile size"))
         }
@@ -1212,6 +1212,11 @@ impl Attribute {
         Self { name, value }
     }
 
+    /// Create a new attribute from a predefined byte slice and value.
+    pub fn predefined(name: &'static [u8], value: AnyValue) -> Self {
+        Self { name: Text::from_bytes_unchecked(SmallVec::from_slice(name)), value }
+    }
+
 
     /// Number of bytes this would consume in an exr file.
     // TODO instead of pre calculating byte size, write to a tmp buffer whose length is inspected before actually writing?
@@ -1223,7 +1228,7 @@ impl Attribute {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         self.name.write_null_terminated(write)?;
         Text::write_null_terminated_bytes(self.value.kind_name(), write)?;
         i32::write(self.value.byte_size() as i32, write)?;
@@ -1240,7 +1245,7 @@ impl Attribute {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, long_names: bool, allow_sampling: bool, strict: bool) -> PassiveResult {
+    pub fn validate(&self, long_names: bool, allow_sampling: bool, strict: bool) -> UnitResult {
         self.name.validate(true, Some(long_names))?; // only name text has length restriction
         self.value.validate(allow_sampling, strict) // attribute value text length is never restricted
     }
@@ -1329,7 +1334,7 @@ impl AnyValue {
     }
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         use self::AnyValue::*;
         match *self {
             IntRect(value) => value.write(write)?,
@@ -1457,7 +1462,7 @@ impl AnyValue {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, allow_sampling: bool, strict: bool) -> PassiveResult {
+    pub fn validate(&self, allow_sampling: bool, strict: bool) -> UnitResult {
         use self::AnyValue::*;
 
         match *self {
@@ -1487,6 +1492,14 @@ impl AnyValue {
     pub fn to_time_code(&self) -> Result<TimeCode> {
         match *self {
             AnyValue::TimeCode(value) => Ok(value),
+            _ => Err(invalid_type())
+        }
+    }
+
+    /// Return `Ok(Preview)` if this attribute is an image preview.
+    pub fn to_preview(&self) -> Result<&Preview> {
+        match self {
+            AnyValue::Preview(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1625,7 +1638,7 @@ pub mod required_attribute_names {
         TILES: b"tiles",
         NAME: b"name",
         BLOCK_TYPE: b"type",
-        VERSION: b"version",
+        DEEP_DATA_VERSION: b"version",
         CHUNKS: b"chunkCount",
         MAX_SAMPLES: b"maxSamplesPerPixel",
         CHANNELS: b"channels",
@@ -1713,72 +1726,72 @@ mod test {
     fn attribute_write_read_roundtrip_and_byte_size(){
         let attributes = [
             Attribute {
-                name: Text::from_str("greeting").unwrap(),
-                value: AnyValue::Text(Text::from_str("hello").unwrap()),
+                name: Text::from("greeting").unwrap(),
+                value: AnyValue::Text(Text::from("hello").unwrap()),
             },
             Attribute {
-                name: Text::from_str("age").unwrap(),
+                name: Text::from("age").unwrap(),
                 value: AnyValue::I32(923),
             },
             Attribute {
-                name: Text::from_str("leg count").unwrap(),
+                name: Text::from("leg count").unwrap(),
                 value: AnyValue::F64(9.114939599234),
             },
             Attribute {
-                name: Text::from_str("rabbit area").unwrap(),
+                name: Text::from("rabbit area").unwrap(),
                 value: AnyValue::FloatRect(FloatRect {
                     min: Vec2(23.4234, 345.23),
                     max: Vec2(68623.0, 3.12425926538),
                 }),
             },
             Attribute {
-                name: Text::from_str("tests are difficult").unwrap(),
+                name: Text::from("tests are difficult").unwrap(),
                 value: AnyValue::TextVector(vec![
-                    Text::from_str("sdoifjpsdv").unwrap(),
-                    Text::from_str("sdoifjpsdvxxxx").unwrap(),
-                    Text::from_str("sdoifjasd").unwrap(),
-                    Text::from_str("sdoifj").unwrap(),
-                    Text::from_str("sdoifjddddddddasdasd").unwrap(),
+                    Text::from("sdoifjpsdv").unwrap(),
+                    Text::from("sdoifjpsdvxxxx").unwrap(),
+                    Text::from("sdoifjasd").unwrap(),
+                    Text::from("sdoifj").unwrap(),
+                    Text::from("sdoifjddddddddasdasd").unwrap(),
                 ]),
             },
             Attribute {
-                name: Text::from_str("what should we eat tonight").unwrap(),
+                name: Text::from("what should we eat tonight").unwrap(),
                 value: AnyValue::Preview(Preview {
                     size: Vec2(10, 30),
                     pixel_data: vec![31; 10 * 30 * 4],
                 }),
             },
             Attribute {
-                name: Text::from_str("leg count, again").unwrap(),
+                name: Text::from("leg count, again").unwrap(),
                 value: AnyValue::ChannelList(ChannelList {
                     list: smallvec![
                         Channel {
-                            name: Text::from_str("Green").unwrap(),
+                            name: Text::from("Green").unwrap(),
                             pixel_type: PixelType::F16,
                             is_linear: false,
                             sampling: Vec2(1,2)
                         },
                         Channel {
-                            name: Text::from_str("Red").unwrap(),
+                            name: Text::from("Red").unwrap(),
                             pixel_type: PixelType::F32,
                             is_linear: true,
                             sampling: Vec2(1,2)
                         },
                         Channel {
-                            name: Text::from_str("Purple").unwrap(),
+                            name: Text::from("Purple").unwrap(),
                             pixel_type: PixelType::U32,
                             is_linear: false,
                             sampling: Vec2(0,0)
                         }
                     ],
-                    bytes_per_pixel: 0
+                    bytes_per_pixel: 10
                 }),
             },
         ];
 
         for attribute in &attributes {
             let mut bytes = Vec::new();
-            attribute.write(&mut bytes, true).unwrap();
+            attribute.write(&mut bytes).unwrap();
             assert_eq!(attribute.byte_size(), bytes.len(), "attribute.byte_size() for {:?}", attribute);
 
             let new_attribute = Attribute::read(&mut PeekRead::new(Cursor::new(bytes)), 300).unwrap();
@@ -1788,22 +1801,20 @@ mod test {
 
         {
             let too_large_named = Attribute {
-                name: Text::from_str("asdkaspfokpaosdkfpaokswdpoakpsfokaposdkf").unwrap(),
+                name: Text::from("asdkaspfokpaosdkfpaokswdpoakpsfokaposdkf").unwrap(),
                 value: AnyValue::I32(0),
             };
 
-            let mut bytes = Vec::new();
-            too_large_named.write(&mut bytes, false).expect_err("name length check failed");
+            too_large_named.validate(false, false, false).expect_err("name length check failed");
         }
 
         {
             let way_too_large_named = Attribute {
-                name: Text::from_str("sdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfpo").unwrap(),
+                name: Text::from("sdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfpo").unwrap(),
                 value: AnyValue::I32(0),
             };
 
-            let mut bytes = Vec::new();
-            way_too_large_named.write(&mut bytes, true).expect_err("name length check failed");
+            way_too_large_named.validate(true, false, false).expect_err("name length check failed");
         }
     }
 }

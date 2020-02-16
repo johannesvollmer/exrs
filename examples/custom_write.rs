@@ -5,59 +5,95 @@ extern crate rand;
 extern crate half;
 
 use std::convert::TryInto;
-use rand::Rng;
 
 // exr imports
 extern crate exr;
 use exr::prelude::*;
 use std::io::{BufWriter};
 use std::fs::File;
-use exr::meta::attributes::{Channel, PixelType, LineOrder};
-use exr::io::Data;
+use exr::meta::attributes::{Channel, PixelType, LineOrder, TileDescription, LevelMode};
 use exr::meta::Blocks;
+use exr::math::RoundingMode;
 
-/// Generate a noisy image on the fly and directly write that to a file without allocating the whole image at once.
-#[test]
-fn write_generated_noisy_hdr() {
-    fn generate_f16s(length: usize) -> impl Iterator<Item = f16> {
-        let mut values = vec![ f16::from_f32(0.5); length ];
+/// Generate a striped image on the fly and directly write that to a file without allocating the whole image at once.
+/// On my machine, this program produces a 3GB file while only ever allocating 4MB memory (takes a while though).
+fn main() {
 
-        for _ in 0..(length / 4) {
-            let index = rand::thread_rng().gen_range(0, values.len());
-            let value = 1.0 / rand::random::<f32>() - 1.0;
-            let value = if !value.is_normal() || value > 1000.0 { 1000.0 } else { value };
-            values[index] = f16::from_f32(value);
-        }
+    // pre-compute a list of random values
+    let random_values: Vec<f32> = (0..64)
+        .map(|_| rand::random::<f32>())
+        .collect();
 
-        values.into_iter()
-    }
+    // resulting resolution (268 megapixels for 3GB files)
+    let size = Vec2(2048*8, 2048*8);
 
-    let size = Vec2(1024, 512);
-    let file = BufWriter::new(File::create("./testout/noisy.exr").unwrap());
+    // specify output path, and buffer it for better performance
+    let file = BufWriter::new(File::create("C:/Users/Johannes/Desktop/3GB.exr").unwrap());
 
+    // define meta data header that will be written
     let header = exr::meta::Header::new(
         "test-image".try_into().unwrap(),
-        IntRect::from_dimensions(size),
+        size,
         smallvec![
-            Channel::new("B".try_into().unwrap(), PixelType::F16, true),
-            Channel::new("G".try_into().unwrap(), PixelType::F16, true),
-            Channel::new("R".try_into().unwrap(), PixelType::F16, true),
+            Channel::new("B".try_into().unwrap(), PixelType::F32, true),
+            Channel::new("G".try_into().unwrap(), PixelType::F32, true),
+            Channel::new("R".try_into().unwrap(), PixelType::F32, true),
         ],
     );
 
+    // define encoding that will be written
     let header = header.with_encoding(
-        Compression::RLE,
-        Blocks::ScanLines,
+        Compression::Uncompressed,
+
+        Blocks::Tiles(TileDescription {
+            tile_size: Vec2(64, 64),
+            level_mode: LevelMode::Singular,
+            rounding_mode: RoundingMode::Down
+        }),
+
         LineOrder::Increasing
     );
 
     let meta = MetaData::new(smallvec![ header ]);
 
-    exr::image::write_all_lines_to_buffered(file, true, meta, |line, write|{
-        for value in generate_f16s(line.width) {
-            f16::write(value, write).expect("collect pixel error");
-        }
-    }).unwrap();
+    // print progress only every 100th time
+    let mut count_to_1000_and_then_print = 0;
+    let start_time = ::std::time::Instant::now();
 
-    assert!(exr::image::full::Image::read_from_file("./testout/noisy.exr", exr::image::full::ReadOptions::high()).is_ok())
+    // finally write the image
+    exr::image::write_all_lines_to_buffered(
+        file,
+        meta,
+
+        // fill the image file contents with one of the precomputed random values,
+        // picking a different one per channel
+        |_meta, line_mut|{
+            let chan = line_mut.location.channel;
+            line_mut.write_samples(|sample_index| random_values[(sample_index + chan) % random_values.len()])
+        },
+
+        // print progress occasionally
+        WriteOptions {
+            parallel_compression: false,
+            pedantic: true,
+
+            on_progress: |progress, bytes| {
+                count_to_1000_and_then_print += 1;
+                if count_to_1000_and_then_print == 1000 {
+                    count_to_1000_and_then_print = 0;
+
+                    let mega_bytes = bytes / 1000000;
+                    let percent = (progress * 100.0) as usize;
+                    println!("progress: {}%, wrote {} megabytes", percent, mega_bytes);
+                }
+
+                Ok(())
+            },
+        }
+    ).unwrap();
+
+    // warning: highly unscientific benchmarks ahead!
+    let duration = start_time.elapsed();
+    let millis = duration.as_secs() * 1000 + duration.subsec_millis() as u64;
+    println!("\nWrote exr file in {:?}s", millis as f32 * 0.001);
 }

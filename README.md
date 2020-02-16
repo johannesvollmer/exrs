@@ -13,7 +13,7 @@ is the de-facto standard image format in animation, VFX, and
 other computer graphics pipelines, for it can represent an immense variety of pixel data with lossless compression. 
 
 Features include:
-- any number of images placed anywhere in 2d space
+- any number of layers placed anywhere in 2d space
 - any number of channels in an image (rgb, xyz, lab, depth, motion, mask, ...)
 - any type of high dynamic range values (16bit float, 32bit float, 32bit unsigned integer) per channel
 - any number of samples per pixel ("deep data")
@@ -61,8 +61,9 @@ __Currently supported:__
     - [x] write all contents at once
         - [x] compress blocks in parallel
     - [x] read only some blocks dynamically
+    - [x] read and write progress callback
+    - [x] abortable read and write
     - [ ] write blocks streams, one after another
-    - [ ] progress callback
     - [ ] memory mapping
     
 
@@ -152,9 +153,15 @@ please leave an issue on this repository, containing the image file.
 
 ### Usage
 
+Add this to your `Cargo.toml`:
 ```toml
 [dependencies]
 exr = "0.6.0"
+
+# also, optionally add this to your crate for smaller binary size 
+# and better runtime performance
+[profile.release]
+lto = true
 ```
 
 The master branch of this repository is always an up-to-date version.
@@ -173,9 +180,9 @@ fn main() {
         Samples::F32(generate_f32_vector(size))
     );
 
-    let layer = simple::Layer::new(
+    let layer = Layer::new(
         "test-image".try_into().unwrap(), // layer name
-        IntRect::from_dimensions(size.to_u32()), // set position to (0,0) and size to 1025x512
+        size, // resolution
         smallvec![ luma ], // include the one channel we created
     );
     
@@ -185,7 +192,7 @@ fn main() {
     println!("writing image with meta data {:#?}", image);
 
     // write the image, compressing in parallel with all available cpus
-    image.write_to_file("./testout/constructed.exr", WriteOptions::high()).unwrap();
+    image.write_to_file("./testout/constructed.exr", write_options::high()).unwrap();
 }
 ```
 

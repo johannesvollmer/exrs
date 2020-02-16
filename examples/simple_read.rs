@@ -1,15 +1,14 @@
 
 // exr imports
 extern crate exr;
-use exr::image::simple::*;
+use exr::prelude::*;
 
 /// Read an image and print information about the image into the console.
 /// Uses multicore decompression where appropriate.
-#[test]
-fn read_image() {
-    let image = Image::read_from_file(
+fn main() {
+    let image = simple::Image::read_from_file(
         "./testout/noisy.exr",
-        ReadOptions::high()
+        read_options::high()
     ).unwrap();
 
     println!("image was read: {:#?}", image);

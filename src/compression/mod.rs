@@ -334,7 +334,6 @@ mod optimize_bytes {
             let mut modified = source.clone();
 
             super::samples_to_differences(&mut modified);
-            println!("differences {:?}", modified);
 
             super::differences_to_samples(&mut modified);
 

@@ -48,6 +48,7 @@ pub mod error;
 #[macro_use]
 extern crate smallvec;
 
+#[allow(unused)] // this is a dev dependency
 #[cfg(test)]
 extern crate image as piston_image;
 
@@ -57,7 +58,7 @@ pub mod prelude {
     // main exports
     pub use crate::meta::MetaData;
 
-    pub use crate::image::{simple};
+    pub use crate::image::{simple, rgba, write_options, read_options, WriteOptions, ReadOptions};
 
     // secondary data types
     pub use crate::meta;

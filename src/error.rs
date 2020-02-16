@@ -12,8 +12,8 @@ use std::convert::TryFrom;
 /// A result that may contain an exr error.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// A that returns nothing and may contain an exr error.
-pub type PassiveResult = Result<()>;
+/// A that, if ok, contains nothing, and otherwise contains an exr error.
+pub type UnitResult = Result<()>;
 
 
 /// An error that may happen while reading or writing an exr file.
@@ -21,6 +21,11 @@ pub type PassiveResult = Result<()>;
 /// unsupported features, invalid data, and file system errors.
 #[derive(Debug)]
 pub enum Error {
+
+    /// Reading or Writing the file has been aborted by the caller.
+    /// This error will never be triggered by this crate itself,
+    /// only by users of this library.
+    Aborted,
 
     /// The contents of the file are not supported by
     /// this specific implementation of open exr,

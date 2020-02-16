@@ -6,8 +6,10 @@ pub use ::std::io::{Read, Write};
 use half::slice::{HalfFloatSliceExt};
 use lebe::prelude::*;
 use ::half::f16;
-use crate::error::{Error, Result, PassiveResult, IoResult};
+use crate::error::{Error, Result, UnitResult, IoResult};
 use std::io::{Seek, SeekFrom};
+use std::path::Path;
+use std::fs::File;
 
 /// Skip reading uninteresting bytes without allocating.
 #[inline]
@@ -19,6 +21,19 @@ pub fn skip_bytes(read: &mut impl Read, count: usize) -> IoResult<()> {
 
     debug_assert_eq!(skipped, count as u64, "skip bytes bug");
     Ok(())
+}
+
+/// If an error occurs while writing, attempts to delete the partially written file.
+#[inline]
+pub fn attempt_delete_file_on_write_error(path: impl AsRef<Path>, write: impl FnOnce(File) -> UnitResult) -> UnitResult {
+    match write(std::fs::File::create(path.as_ref())?) {
+        Err(error) => {
+            let _deleted = std::fs::remove_file(path); // ignore deletion errors
+            Err(error)
+        },
+
+        ok => ok,
+    }
 }
 
 /// Peek a single byte without consuming it.
@@ -195,7 +210,7 @@ pub trait Data: Sized + Default + Clone {
 
     /// Read as many values of type `Self` as fit into the specified slice.
     /// If the slice cannot be filled completely, returns `Error::Invalid`.
-    fn read_slice(read: &mut impl Read, slice: &mut[Self]) -> PassiveResult;
+    fn read_slice(read: &mut impl Read, slice: &mut[Self]) -> UnitResult;
 
     /// Read as many values of type `Self` as specified with `data_size`.
     ///
@@ -210,10 +225,10 @@ pub trait Data: Sized + Default + Clone {
     }
 
     /// Write this value to the writer.
-    fn write(self, write: &mut impl Write) -> PassiveResult;
+    fn write(self, write: &mut impl Write) -> UnitResult;
 
     /// Write all values of that slice to the writer.
-    fn write_slice(write: &mut impl Write, slice: &[Self]) -> PassiveResult;
+    fn write_slice(write: &mut impl Write, slice: &[Self]) -> UnitResult;
 
 
     /// Read as many values of type `Self` as specified with `data_size` into the provided vector.
@@ -222,7 +237,7 @@ pub trait Data: Sized + Default + Clone {
     /// If `hard_max` is specified, it will never read any more than that.
     /// Returns `Error::Invalid` if reader does not contain the desired number of elements.
     #[inline]
-    fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, soft_max: usize, hard_max: Option<usize>) -> PassiveResult {
+    fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, soft_max: usize, hard_max: Option<usize>) -> UnitResult {
         if let Some(max) = hard_max {
             if data_size > max {
                 return Err(Error::invalid("content size"))
@@ -247,7 +262,7 @@ pub trait Data: Sized + Default + Clone {
 
     /// Write the length of the slice and then its contents.
     #[inline]
-    fn write_i32_sized_slice<W: Write>(write: &mut W, slice: &[Self]) -> PassiveResult {
+    fn write_i32_sized_slice<W: Write>(write: &mut W, slice: &[Self]) -> UnitResult {
         i32::write(slice.len() as i32, write)?;
         Self::write_slice(write, slice)
     }

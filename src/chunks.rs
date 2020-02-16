@@ -133,7 +133,7 @@ use crate::io::*;
 impl TileCoordinates {
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         i32::write(usize_to_i32(self.tile_index.0), write)?;
         i32::write(usize_to_i32(self.tile_index.1), write)?;
         i32::write(usize_to_i32(self.level_index.0), write)?;
@@ -162,7 +162,7 @@ impl TileCoordinates {
         let start = self.tile_index * tile_size;
 
         Ok(IntRect {
-            start: start.to_i32(),
+            position: start.to_i32(),
             size: Vec2(
                 calculate_block_size(max.0, tile_size.0, start.0)?,
                 calculate_block_size(max.1, tile_size.0, start.1)?,
@@ -173,7 +173,7 @@ impl TileCoordinates {
     /// Absolute coordinates inside the global 2D space of a file, may be negative.
     pub fn to_absolute_indices(&self, tile_size: Vec2<usize>, data_window: IntRect) -> Result<IntRect> {
         let data = self.to_data_indices(tile_size, data_window.size)?;
-        Ok(data.with_origin(data_window.start))
+        Ok(data.with_origin(data_window.position))
     }
 }
 
@@ -184,7 +184,7 @@ use crate::meta::{Header, MetaData, Blocks, calculate_block_size};
 impl ScanLineBlock {
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         debug_assert_ne!(self.compressed_pixels.len(), 0, "empty blocks should not be put in the file bug");
 
         i32::write(self.y_coordinate, write)?;
@@ -203,7 +203,7 @@ impl ScanLineBlock {
 impl TileBlock {
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         debug_assert_ne!(self.compressed_pixels.len(), 0, "empty blocks should not be put in the file bug");
 
         self.coordinates.write(write)?;
@@ -222,7 +222,7 @@ impl TileBlock {
 impl DeepScanLineBlock {
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         debug_assert_ne!(self.compressed_sample_data.len(), 0, "empty blocks should not be put in the file bug");
 
         i32::write(self.y_coordinate, write)?;
@@ -265,7 +265,7 @@ impl DeepScanLineBlock {
 impl DeepTileBlock {
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write<W: Write>(&self, write: &mut W) -> PassiveResult {
+    pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         debug_assert_ne!(self.compressed_sample_data.len(), 0, "empty blocks should not be put in the file bug");
 
         self.coordinates.write(write)?;
@@ -303,14 +303,14 @@ impl DeepTileBlock {
     }
 }
 
-use crate::error::{PassiveResult, Result, Error, u64_to_usize, usize_to_i32};
+use crate::error::{UnitResult, Result, Error, u64_to_usize, usize_to_i32};
 use crate::math::Vec2;
 
 /// Validation of chunks is done while reading and writing the actual data. (For example in exr::full_image)
 impl Chunk {
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write(&self, write: &mut impl Write, headers: &[Header]) -> PassiveResult {
+    pub fn write(&self, write: &mut impl Write, headers: &[Header]) -> UnitResult {
         debug_assert!(self.layer_index < headers.len(), "layer index bug"); // validation is done in full_image or simple_image
 
         if headers.len() != 1 { i32::write(self.layer_index as i32, write)?; }

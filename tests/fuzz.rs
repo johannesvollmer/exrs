@@ -1,11 +1,10 @@
-use std::panic::{catch_unwind, resume_unwind};
-use std::panic;
-use rayon::prelude::*;
-use rand::{thread_rng, Rng, SeedableRng};
+use std::panic::{catch_unwind};
+use rand::{Rng};
 use rand::rngs::StdRng;
 use std::io::Read;
 
 extern crate exr;
+use exr::prelude::*;
 
 struct RandomReader {
     generator: StdRng,
@@ -43,11 +42,11 @@ impl Read for RandomReader {
 }
 
 
-#[test]
+// TODO #[test]
 pub fn incremental(){
     println!("started incremental fuzzing");
 //    panic::set_hook(Box::new(|_| (/* do not println panics */)));
-    let mut pool = rayon::ThreadPoolBuilder::new().build().unwrap();
+    let pool = rayon::ThreadPoolBuilder::new().build().unwrap();
 
     for len in 0 .. 32 {
         println!("starting fuzzy testing for byte length of {}", len);
@@ -72,10 +71,10 @@ pub fn incremental(){
 }
 
 
-#[test]
+// TODO #[test]
 pub fn stochastic(){
     println!("started stochastic fuzzing");
-    let mut pool = rayon::ThreadPoolBuilder::new().build().unwrap();
+    let pool = rayon::ThreadPoolBuilder::new().build().unwrap();
 
     for index in 0..1024_u64 * 2048 * 4 {
         pool.install(move || {
@@ -102,6 +101,6 @@ pub fn stochastic(){
 // should not panic
 pub fn test_bytes(bytes: impl Read + Send) -> exr::error::Result<exr::image::full::Image> {
     bencher::black_box(exr::image::full::Image::read_from_buffered(
-        bytes, exr::image::full::ReadOptions::debug()
+        bytes, read_options::low()
     ))
 }

@@ -189,19 +189,19 @@ pub fn decompress_bytes(
 //        maxX = _maxX;
 
 
-    let _min_x = rectangle.start.0;
-    let min_y = rectangle.start.1;
+    let _min_x = rectangle.position.0;
+    let min_y = rectangle.position.1;
 
     let mut _max_x = rectangle.max().0;
     let mut max_y = rectangle.max().1;
 
     // TODO rustify
-    if _max_x > header.data_window.max().0 {
-        _max_x = header.data_window.max().0;
+    if _max_x > header.data_window().max().0 {
+        _max_x = header.data_window().max().0;
     }
 
-    if max_y > header.data_window.max().1 {
-        max_y = header.data_window.max().1;
+    if max_y > header.data_window().max().1 {
+        max_y = header.data_window().max().1;
     }
 
 //
@@ -225,7 +225,7 @@ pub fn decompress_bytes(
 
     let mut channel_data: Vec<ChannelData> = Vec::new();
 
-    let mut tmp_buffer = vec![0_u16; header.data_window.size.0]; // TODO better size calculation?
+    let mut tmp_buffer = vec![0_u16; header.data_size.0]; // TODO better size calculation?
     let mut tmp_buffer_end = 0_u32;
 
     for (_index, channel) in header.channels.list.iter().enumerate() {

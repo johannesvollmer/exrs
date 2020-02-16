@@ -10,6 +10,7 @@ use std::panic::catch_unwind;
 use std::path::{PathBuf, Path};
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use exr::image::{read_options, write_options};
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter()
@@ -65,22 +66,22 @@ fn check_files<T>(operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -
 /// Read all files without checking anything
 #[test]
 fn read_all_files() {
-    check_files(|path| Image::read_from_file(path, ReadOptions::low()))
+    check_files(|path| Image::read_from_file(path, read_options::low()))
 }
 
 #[test]
 fn round_trip_all_files() {
     check_files(|path| {
-        let image = Image::read_from_file(path, ReadOptions::low())?;
+        let image = Image::read_from_file(path, read_options::low())?;
 
         let mut tmp_bytes = Vec::new();
-        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), WriteOptions::low())?; // not multi threaded to produce exact same byte sequence
+        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low())?; // not multi threaded to produce exact same byte sequence
 
-        let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::low())?;
+        let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), read_options::low())?;
         assert_eq!(image, image2);
 
         let mut tmp_bytes2 = Vec::new();
-        image2.write_to_buffered(&mut Cursor::new(&mut tmp_bytes2), WriteOptions::low())?; // not multi threaded to produce exact same byte sequence
+        image2.write_to_buffered(&mut Cursor::new(&mut tmp_bytes2), write_options::low())?; // not multi threaded to produce exact same byte sequence
 
         assert_eq!(tmp_bytes, tmp_bytes2);
         Ok(())
@@ -90,12 +91,12 @@ fn round_trip_all_files() {
 #[test]
 fn round_trip_parallel_files() {
     check_files(|path| {
-        let image = Image::read_from_file(path, ReadOptions::high())?;
+        let image = Image::read_from_file(path, read_options::high())?;
 
         let mut tmp_bytes = Vec::new();
-        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), WriteOptions::high())?;
+        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::high())?;
 
-        let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::high())?;
+        let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), read_options::high())?;
 
         assert_eq!(image, image2);
         Ok(())
@@ -125,10 +126,10 @@ pub fn test_roundtrip() {
     print!("starting read 1... ");
     io::stdout().flush().unwrap();
 
-    let image = Image::read_from_file(path, ReadOptions::high()).unwrap();
+    let image = Image::read_from_file(path, read_options::high()).unwrap();
     println!("...read 1 successfull");
 
-    let write_options = WriteOptions::high();
+    let write_options = write_options::high();
     let mut tmp_bytes = Vec::new();
 
     print!("starting write... ");
@@ -140,7 +141,7 @@ pub fn test_roundtrip() {
     print!("starting read 2... ");
     io::stdout().flush().unwrap();
 
-    let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions::high()).unwrap();
+    let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), read_options::high()).unwrap();
     println!("...read 2 successfull");
 
     assert_eq!(image, image2);
