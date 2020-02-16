@@ -71,10 +71,14 @@ pub struct LineSlice<T> {
 
 /// An reference to a single line of pixels.
 /// May go across the whole image or just a tile section of it.
+///
+/// This line contains an immutable slice that all samples will be read from.
 pub type LineRef<'s> = LineSlice<&'s [u8]>;
 
 /// A reference to a single mutable line of pixels.
 /// May go across the whole image or just a tile section of it.
+///
+/// This line contains a mutable slice that all samples will be written to.
 pub type LineRefMut<'s> = LineSlice<&'s mut [u8]>;
 
 
