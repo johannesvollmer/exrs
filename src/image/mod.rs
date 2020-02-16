@@ -4,6 +4,7 @@
 
 pub mod full;
 pub mod simple;
+pub mod rgba;
 
 use crate::meta::attributes::*;
 use crate::compression::{Compression, ByteVec};
@@ -110,7 +111,9 @@ impl<'s> LineRefMut<'s> {
     /// Writes the samples (f16, f32, u32 values) into this line value reference.
     /// Use `write_samples` if there is not slice available.
     pub fn write_samples_from_slice<T: crate::io::Data>(self, slice: &[T]) -> PassiveResult {
-        assert_eq!(slice.len(), self.location.sample_count);
+        debug_assert_eq!(slice.len(), self.location.sample_count, "slice size does not match the line width");
+        debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
+
         T::write_slice(&mut Cursor::new(self.value), slice)
     }
 
@@ -120,6 +123,8 @@ impl<'s> LineRefMut<'s> {
     /// which starts at zero for each individual line.
     /// Use `write_samples_from_slice` if you already have a slice of samples.
     pub fn write_samples<T: crate::io::Data>(self, mut get_sample: impl FnMut(usize) -> T) -> PassiveResult {
+        debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
+
         let mut write = Cursor::new(self.value);
 
         for index in 0..self.location.sample_count {
@@ -135,13 +140,17 @@ impl LineRef<'_> {
     /// Read the samples (f16, f32, u32 values) from this line value reference.
     /// Use `read_samples` if there is not slice available.
     pub fn read_samples_into_slice<T: crate::io::Data>(self, slice: &mut [T]) -> PassiveResult {
-        assert_eq!(slice.len(), self.location.sample_count);
+        debug_assert_eq!(slice.len(), self.location.sample_count, "slice size does not match the line width");
+        debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
+
         T::read_slice(&mut Cursor::new(self.value), slice)
     }
 
     /// Iterate over all samples in this line, from left to right.
     /// Use `read_sample_into_slice` if you already have a slice of samples.
     pub fn read_samples<T: crate::io::Data>(&self) -> impl Iterator<Item = Result<T>> + '_ {
+        debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
+
         let mut read = self.value.clone(); // FIXME deep data
         (0..self.location.sample_count).map(move |_| T::read(&mut read))
     }
@@ -305,7 +314,7 @@ pub fn read_filtered_chunks_from_buffered<'m>(
 /// Returns blocks in `LineOrder::Increasing`, unless the line order is requested to be decreasing.
 pub fn uncompressed_image_blocks_ordered<'l>(
     meta_data: &'l MetaData,
-    get_line: &'l (impl Fn(LineRefMut<'_>) + Send + Sync + 'l) // TODO reduce sync requirements, at least if parrallel is false
+    get_line: &'l (impl Fn(LineRefMut<'_>) + 'l + Sync) // TODO reduce sync requirements, at least if parrallel is false
 ) -> impl Iterator<Item = (usize, UncompressedBlock)> + 'l + Send // TODO reduce sync requirements, at least if parrallel is false
 {
     meta_data.headers.iter().enumerate()
@@ -348,7 +357,7 @@ pub fn uncompressed_image_blocks_ordered<'l>(
 /// Attention: Currently, using multicore compression with `LineOrder::Increasing` or `LineOrder::Decreasing` in any header
 /// will allocate large amounts of memory while writing the file. Use unspecified line order for lower memory usage.
 pub fn for_compressed_blocks_in_image(
-    meta_data: &MetaData, get_line: impl Fn(LineRefMut<'_>) + Send + Sync,
+    meta_data: &MetaData, get_line: impl Fn(LineRefMut<'_>) + Sync,
     parallel: bool, mut write_chunk: impl FnMut(usize, Chunk) -> PassiveResult
 ) -> PassiveResult
 {
@@ -430,7 +439,7 @@ pub fn write_all_lines_to_buffered(
     write: impl Write + Seek,
     parallel: bool, pedantic: bool,
     mut meta_data: MetaData,
-    get_line: impl Fn(LineRefMut<'_>) + Send + Sync
+    get_line: impl Fn(LineRefMut<'_>) + Sync // TODO why is this sync or send????
 ) -> PassiveResult
 {
     // if non-parallel compression, we always use increasing order anyways
