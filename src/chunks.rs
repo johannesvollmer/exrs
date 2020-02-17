@@ -175,6 +175,11 @@ impl TileCoordinates {
         let data = self.to_data_indices(tile_size, data_window.size)?;
         Ok(data.with_origin(data_window.position))
     }
+
+    /// Returns if this is the original resolution or a smaller copy.
+    pub fn is_largest_resolution_level(&self) -> bool {
+        self.level_index == Vec2(0, 0)
+    }
 }
 
 

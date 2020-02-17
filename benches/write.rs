@@ -6,6 +6,7 @@ use exr::image::full::*;
 
 use bencher::Bencher;
 use std::io::Cursor;
+use exr::image::{read_options, write_options};
 
 /// Write with multicore zip compression
 fn write_single_image_parallel(bench: &mut Bencher) {

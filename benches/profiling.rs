@@ -6,6 +6,7 @@ use exr::image::full::*;
 
 use bencher::Bencher;
 use std::fs;
+use exr::image::read_options;
 
 /// Read RLE image from file
 fn read_single_image(bench: &mut Bencher) {

@@ -68,7 +68,7 @@ fn main() {
         // specify what parts of the file should be loaded (skips mip maps)
         |_header, _meta, tile| {
             // do not worry about multiresolution levels
-            tile.location.level_index == Vec2(0,0)
+            tile.location.is_largest_resolution_level()
         },
 
         // fill the layers with actual average information
