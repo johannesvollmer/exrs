@@ -1,6 +1,6 @@
 [package]
 name = "exr"
-version = "0.7.0"
+version = "0.7.1"
 authors = ["johannesvollmer <johannes596@t-online.de>"]
 edition = "2018"
 

@@ -11,13 +11,14 @@
 use std::path::Path;
 use std::fs::File;
 use std::io::{Read, Seek, BufReader, Write, BufWriter};
-use crate::math::Vec2;
+use crate::math::{Vec2, RoundingMode};
 use crate::error::{Result, Error, UnitResult};
-use crate::meta::attributes::{PixelType, Channel, Text};
+use crate::meta::attributes::{PixelType, Channel, Text, LineOrder, TileDescription, LevelMode};
 use std::convert::TryInto;
-use crate::meta::{Header, ImageAttributes, LayerAttributes, MetaData};
+use crate::meta::{Header, ImageAttributes, LayerAttributes, MetaData, Blocks};
 use half::f16;
 use crate::image::{ReadOptions, OnReadProgress, WriteOptions, OnWriteProgress};
+use crate::compression::Compression;
 
 
 /// A simple RGBA with one 32-bit float per pixel for each channel.
@@ -30,6 +31,9 @@ pub struct Image {
     ///
     /// Stores in order red, green, blue, then alpha components.
     /// All lines of the image are appended one after another, __bottom to top__.
+    ///
+    /// To calculate an index, you can use `Image::vector_index_of_first_pixel_component(Vec2<usize>) -> usize`,
+    /// which returns the corresponding one-dimensional index of a pixel in this array.
     pub data: Pixels,
 
     /// The dimensions of this Image, width times height.
@@ -46,6 +50,28 @@ pub struct Image {
 
     /// The attributes of the exr layer.
     pub layer_attributes: LayerAttributes,
+
+    /// Specifies how the pixel data is formatted inside the file,
+    /// for example, compression and tiling.
+    pub encoding: Encoding,
+}
+
+/// Specifies how the pixel data is formatted inside the file.
+/// Does not affect any visual aspect, like positioning or orientation.
+// TODO alsop nest encoding like this for meta::Header and simple::Image
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct Encoding {
+
+    /// What type of compression the pixel data in the file is compressed with.
+    pub compression: Compression,
+
+    /// If this is some pair of numbers, the image is divided into tiles of that size.
+    /// If this is none, the image is divided into scan line blocks, depending on the compression method.
+    pub tiles: Option<Vec2<usize>>,
+
+    /// In what order the tiles of this header occur in the file.
+    /// Does not change any actual image orientation.
+    pub line_order: LineOrder,
 }
 
 /// A one dimensional array of samples.
@@ -76,16 +102,20 @@ impl Image {
     /// Computes the one-dimensional index from a two-dimensional pixel location.
     /// The index points to the red component of the pixel.
     /// The green and blue pixel values can be found directly after it.
+    #[inline]
+    pub fn calculate_vector_index_of_first_pixel_component(resolution: Vec2<usize>, channel_count: usize, pixel: Vec2<usize>) -> usize {
+        debug_assert!(pixel.0 < resolution.0 && pixel.1 < resolution.1, "coordinate out of range");
+        (pixel.1 * resolution.0 + pixel.0) * channel_count
+    }
+
+    /// Computes the one-dimensional index from a two-dimensional pixel location.
+    /// The index points to the red component of the pixel.
+    /// The green and blue pixel values can be found directly after it.
     /// Does not consider data window offset or display window offset.
+    /// Also see `Image::calculate_vector_index_of_first_pixel_component`.
     #[inline]
     pub fn vector_index_of_first_pixel_component(&self, pixel: Vec2<usize>) -> usize {
-        debug_assert!(
-            pixel.0 < self.resolution.0 && pixel.1 < self.resolution.1,
-            "coordinate out of range"
-        );
-
-        let flat = pixel.1 * self.resolution.0 + pixel.0;
-        flat * self.channel_count()
+        Self::calculate_vector_index_of_first_pixel_component(self.resolution, self.channel_count(), pixel)
     }
 
     /// Read the exr image from a file.
@@ -173,12 +203,12 @@ impl Image {
 
 
     /// Allocate the memory for an image that could contain the described data.
-    fn allocate(data_size: Vec2<usize>, linear: bool, alpha: bool, pixel_type: PixelType, image: &ImageAttributes, layer: &LayerAttributes) -> Self {
+    fn allocate(header: &Header, linear: bool, alpha: bool, pixel_type: PixelType) -> Self {
         let components = if alpha { 4 } else { 3 };
-        let samples = components * data_size.area();
+        let samples = components * header.data_size.area();
 
         Self {
-            resolution: data_size,
+            resolution: header.data_size,
             has_alpha_channel: alpha,
 
             data: match pixel_type {
@@ -189,8 +219,17 @@ impl Image {
 
             is_linear: linear,
 
-            layer_attributes: layer.clone(),
-            image_attributes: image.clone(),
+            layer_attributes: header.own_attributes.clone(),
+            image_attributes: header.shared_attributes.clone(),
+
+            encoding: Encoding {
+                compression: header.compression,
+                line_order: header.line_order,
+                tiles: match header.blocks {
+                    Blocks::Tiles(tiles) => Some(tiles.tile_size),
+                    Blocks::ScanLines => None,
+                },
+            }
         }
     }
 
@@ -231,10 +270,7 @@ impl Image {
 
             if pixel_type_mismatch { continue; }
 
-            return Ok(Self::allocate(
-                header.data_size, first_channel.is_linear, is_rgba, first_channel.pixel_type,
-                &header.shared_attributes, &header.own_attributes,
-            ))
+            return Ok(Self::allocate(header, first_channel.is_linear, is_rgba, first_channel.pixel_type))
         }
 
         Err(Error::invalid("no valid RGB or RGBA image part"))
@@ -290,7 +326,21 @@ impl Image {
 
         let header = header
             .with_shared_attributes(self.image_attributes.clone())
-            .with_attributes(self.layer_attributes.clone());
+            .with_attributes(self.layer_attributes.clone())
+            .with_encoding(
+                self.encoding.compression,
+
+                match self.encoding.tiles {
+                    None => Blocks::ScanLines,
+                    Some(size) => Blocks::Tiles(TileDescription {
+                        tile_size: size,
+                        level_mode: LevelMode::Singular,
+                        rounding_mode: RoundingMode::Down
+                    })
+                },
+
+                self.encoding.line_order,
+            );
 
         crate::image::write_all_lines_to_buffered(
             write,
