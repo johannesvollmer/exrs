@@ -2,7 +2,7 @@
 
 // exr imports
 extern crate exr;
-use exr::prelude::*;
+use exr::meta::MetaData;
 
 /// Print the custom meta data of a file, excluding technical file meta data.
 fn main() {

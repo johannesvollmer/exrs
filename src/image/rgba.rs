@@ -34,6 +34,7 @@ pub struct Image {
     ///
     /// To calculate an index, you can use `Image::vector_index_of_first_pixel_component(Vec2<usize>) -> usize`,
     /// which returns the corresponding one-dimensional index of a pixel in this array.
+    // TODO make this an interface for custom data storage.
     pub data: Pixels,
 
     /// The dimensions of this Image, width times height.
@@ -58,7 +59,7 @@ pub struct Image {
 
 /// Specifies how the pixel data is formatted inside the file.
 /// Does not affect any visual aspect, like positioning or orientation.
-// TODO alsop nest encoding like this for meta::Header and simple::Image
+// TODO alsop nest encoding like this for meta::Header and simple::Image or even reuse this in image::simple
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Encoding {
 
@@ -67,7 +68,7 @@ pub struct Encoding {
 
     /// If this is some pair of numbers, the image is divided into tiles of that size.
     /// If this is none, the image is divided into scan line blocks, depending on the compression method.
-    pub tiles: Option<Vec2<usize>>,
+    pub tile_size: Option<Vec2<usize>>,
 
     /// In what order the tiles of this header occur in the file.
     /// Does not change any actual image orientation.
@@ -91,7 +92,94 @@ pub enum Pixels {
     U32(Vec<u32>),
 }
 
+
+impl Encoding {
+
+    /// Chooses an optimal tile size and line order for the specified compression.
+    #[inline]
+    pub fn compress(compression: Compression) -> Self {
+        match compression {
+            Compression::Uncompressed => Self {
+                tile_size: None, // scan lines have maximum width, which is best for efficient line memcpy
+                line_order: LineOrder::Increasing, // order does not really matter, as no compression is parrallelized
+                compression,
+            },
+
+            Compression::RLE => Self {
+                tile_size: None, // scan lines have maximum width, which is best for long RLE runs
+                line_order: LineOrder::Increasing, // cannot be unspecified with scan line blocks??
+                compression,
+            },
+
+            Compression::ZIP16 | Compression::ZIP1 => Self {
+                tile_size: None, // maximum data size for zip compression
+                line_order: LineOrder::Increasing, // cannot be unspecified with scan line blocks??
+                compression,
+            },
+
+            _ => Self {
+                compression,
+                tile_size: None,
+                line_order: LineOrder::Increasing // scan line blocks cannot have unspecified order??
+            }
+        }
+    }
+
+    /// Uses RLE compression with scan line blocks.
+    #[inline]
+    pub fn fast() -> Self {
+        Self::compress(Compression::RLE)
+    }
+
+    /// Uses ZIP16 compression with scan line blocks.
+    #[inline]
+    pub fn small() -> Self {
+        Self::compress(Compression::ZIP16)
+    }
+}
+
+
 impl Image {
+
+    /// Create an image with the resolution, alpha channel, linearity, and actual pixel data.
+    pub fn new(resolution: Vec2<usize>, has_alpha_channel: bool, is_linear: bool, data: Pixels) -> Self {
+        let result = Self {
+            data, resolution, has_alpha_channel, is_linear,
+            image_attributes: ImageAttributes::new(resolution),
+            layer_attributes: LayerAttributes::new(Text::from("RGBA").expect("ascii bug")),
+            encoding: Encoding::fast(),
+        };
+
+        let data_len = result.channel_count() * resolution.area();
+        debug_assert_eq!(data_len, result.data.len(), "pixel data length must be {} but was {}", data_len, result.data.len());
+
+        result
+    }
+
+    /// Set the display window and data window position of this image.
+    pub fn with_position(mut self, position: Vec2<i32>) -> Self {
+        self.image_attributes.display_window.position = position;
+        self.layer_attributes.data_position = position;
+        self
+    }
+
+    /// Set custom attributes for the exr image.
+    #[inline]
+    pub fn with_image_attributes(self, image_attributes: ImageAttributes) -> Self {
+        Self { image_attributes, ..self }
+    }
+
+    /// Set custom attributes for the layer in the exr image.
+    #[inline]
+    pub fn with_layer_attributes(self, layer_attributes: LayerAttributes) -> Self {
+        Self { layer_attributes, ..self }
+    }
+
+    /// Specify how this image should be formatted in the file. Does not affect visual content.
+    #[inline]
+    pub fn with_encoding(self, encoding: Encoding) -> Self {
+        Self { encoding, ..self }
+    }
 
     /// Is 4 if this is an RGBA image. Is 3 if this is an RGB image.
     #[inline]
@@ -121,6 +209,7 @@ impl Image {
     /// Read the exr image from a file.
     /// Use `read_from_unbuffered` instead, if you do not have a file.
     /// Returns `Error::Invalid` if not at least one image part with RGB channels can be found in the file.
+    // TODO add read option: skip alpha channel even if present.
     #[inline]
     #[must_use]
     pub fn read_from_file(path: impl AsRef<Path>, options: ReadOptions<impl OnReadProgress>) -> Result<Self> {
@@ -225,7 +314,7 @@ impl Image {
             encoding: Encoding {
                 compression: header.compression,
                 line_order: header.line_order,
-                tiles: match header.blocks {
+                tile_size: match header.blocks {
                     Blocks::Tiles(tiles) => Some(tiles.tile_size),
                     Blocks::ScanLines => None,
                 },
@@ -330,7 +419,7 @@ impl Image {
             .with_encoding(
                 self.encoding.compression,
 
-                match self.encoding.tiles {
+                match self.encoding.tile_size {
                     None => Blocks::ScanLines,
                     Some(size) => Blocks::Tiles(TileDescription {
                         tile_size: size,
@@ -351,6 +440,7 @@ impl Image {
                 let line_position = line.location.position;
                 let Vec2(width, height) = self.resolution;
                 let channel_count = self.channel_count();
+                debug_assert!(line.location.channel < self.channel_count(), "channel count bug");
 
                 let get_index_of_sample = move |sample_index| {
                     let location = line_position + Vec2(sample_index, 0);
@@ -383,8 +473,21 @@ impl Image {
     }
 }
 
+impl Pixels {
+
+    /// The number of samples, that is, the number of all r, g, b, and a samples in the image, summed.
+    /// For example, an RGBA image with 6x5 pixels has `6 * 5 * 4 = 120` samples.
+    pub fn len(&self) -> usize {
+        match self {
+            Pixels::F16(vec) => vec.len(),
+            Pixels::F32(vec) => vec.len(),
+            Pixels::U32(vec) => vec.len(),
+        }
+    }
+}
 
 
+// Do not print the actual pixel contents into the console.
 impl std::fmt::Debug for Pixels {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

@@ -3,10 +3,8 @@ extern crate image;
 
 use exr::prelude::*;
 use exr::image::full::*;
-use std::{fs};
 use exr::math::Vec2;
 use std::cmp::Ordering;
-use std::io::ErrorKind;
 
 /// For each layer in the exr file,
 /// extract each channel as grayscale png,
@@ -26,16 +24,6 @@ pub fn main() {
     let elapsed = now.elapsed();
     let millis = elapsed.as_secs() * 1000 + elapsed.subsec_millis() as u64;
     println!("\nDecoded exr file in {:?}s", millis as f32 * 0.001);
-
-    {   // clear output directory
-        if let Err(error) = fs::remove_dir_all("testout") {
-            if error.kind() != ErrorKind::NotFound {
-                println!("{}", error);
-            }
-        }
-
-        fs::create_dir("testout").unwrap();
-    }
 
     println!("Writing PNG images...");
 

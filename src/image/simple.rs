@@ -1,6 +1,6 @@
 
-//! Read and write all supported aspects of an exr image, including deep data and multiresolution levels.
-//! Use `exr::image::simple` if you do not need deep data or resolution levels.
+//! Read and write all supported aspects of an exr image, excluding deep data and multiresolution levels.
+//! Use `exr::image::full` if you do need deep data or resolution levels.
 
 use smallvec::SmallVec;
 use half::f16;
@@ -64,7 +64,7 @@ pub struct Layer {
 
     /// If this is some pair of numbers, the image is divided into tiles of that size.
     /// If this is none, the image is divided into scan line blocks, depending on the compression method.
-    pub tiles: Option<Vec2<usize>>,
+    pub tile_size: Option<Vec2<usize>>,
 
 }
 
@@ -315,7 +315,7 @@ impl Layer {
             data_size,
             compression: Compression::Uncompressed,
 
-            tiles: None,
+            tile_size: None,
             line_order: LineOrder::Unspecified, // non-parallel write will set this to increasing if possible
 
             attributes: LayerAttributes {
@@ -331,7 +331,7 @@ impl Layer {
     /// Specify how the image is split into blocks in the file.
     /// See `Image::tiles` and `Image::line_order` for more information.
     pub fn with_block_format(self, tiles: Option<Vec2<usize>>, line_order: LineOrder) -> Self {
-        Self { tiles, line_order, .. self }
+        Self { tile_size: tiles, line_order, .. self }
     }
 
     /// Set the compression of this layer.
@@ -441,7 +441,7 @@ impl Layer {
             compression: header.compression,
             line_order: header.line_order,
 
-            tiles: match header.blocks {
+            tile_size: match header.blocks {
                 Blocks::ScanLines => None,
                 Blocks::Tiles(tiles) => Some(tiles.tile_size),
             }
@@ -475,7 +475,7 @@ impl Layer {
 
     /// Create the meta data that describes this layer.
     pub fn infer_header(&self, shared_attributes: &ImageAttributes) -> Header {
-        let blocks = match self.tiles {
+        let blocks = match self.tile_size {
             Some(tiles) => Blocks::Tiles(TileDescription {
                 tile_size: tiles,
                 level_mode: LevelMode::Singular,
