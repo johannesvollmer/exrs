@@ -202,9 +202,10 @@ See the examples folder for more examples.
 
 ### Motivation
 
-Using the [Rust bindings to OpenEXR](https://github.com/cessen/openexr-rs) 
+Using the any bindings to the original OpenEXR 
+library unfortunately always
 requires compiling multiple C++ Libraries 
-and setting environment variables, 
+and possibly setting environment variables, 
 which I didn't quite feel like to do, 
 so I wrote this library instead.
 
