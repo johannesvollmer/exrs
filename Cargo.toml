@@ -1,16 +1,17 @@
 [package]
 name = "exr"
-version = "0.7.1"
-authors = ["johannesvollmer <johannes596@t-online.de>"]
-edition = "2018"
-
 description = "Read and write OpenEXR files without any unsafe code"
-repository = "https://github.com/johannesvollmer/exrs"
-documentation = "https://docs.rs/crate/exrs/"
-readme = "README.md"
-license-file = "LICENSE.md"
 keywords = ["exr", "openexr", "file", "binary", "io"]
 categories = ["encoding", "filesystem", "graphics", "multimedia"]
+
+version = "0.7.1"
+edition = "2018"
+authors = ["johannesvollmer <johannes596@t-online.de>"]
+
+repository = "https://github.com/johannesvollmer/exrs"
+readme = "README.md"
+license-file = "LICENSE.md"
+exclude = [ "specification" ]
 
 [badges]
 maintenance = { status = "actively-developed" }
