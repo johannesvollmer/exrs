@@ -12,7 +12,7 @@ use exr::prelude::*;
 use std::io::{BufWriter};
 use std::fs::File;
 use exr::meta::attributes::{Channel, PixelType, LineOrder, TileDescription, LevelMode};
-use exr::meta::Blocks;
+use exr::meta::{Blocks, MetaData};
 use exr::math::RoundingMode;
 
 /// Generate a striped image on the fly and directly write that to a file without allocating the whole image at once.

@@ -2,7 +2,6 @@
 // exr imports
 extern crate exr;
 use exr::prelude::*;
-use exr::image::rgba::Pixels;
 
 /// Read an RGBA image and then write it back.
 /// Uses multicore compression where appropriate.
@@ -15,7 +14,7 @@ fn main() {
     for x in 0..image.resolution.0 {
         let index = image.vector_index_of_first_pixel_component(Vec2(x, y));
         match &mut image.data {
-            Pixels::F16(rgba) => {
+            rgba::Pixels::F16(rgba) => {
                 invert(&mut rgba[index + 0]);
                 invert(&mut rgba[index + 1]);
                 invert(&mut rgba[index + 2]);

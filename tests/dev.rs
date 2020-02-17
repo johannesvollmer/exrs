@@ -8,10 +8,11 @@ use std::path::{PathBuf};
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use exr::meta::attributes::{Attribute};
+use exr::meta::MetaData;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter()
-        .map(Result::unwrap).filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
+        .map(std::result::Result::unwrap).filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
         .map(walkdir::DirEntry::into_path)
 }
 
