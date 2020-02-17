@@ -34,6 +34,7 @@ pub struct Image {
     ///
     /// To calculate an index, you can use `Image::vector_index_of_first_pixel_component(Vec2<usize>) -> usize`,
     /// which returns the corresponding one-dimensional index of a pixel in this array.
+    // TODO make this an interface for custom data storage.
     pub data: Pixels,
 
     /// The dimensions of this Image, width times height.
