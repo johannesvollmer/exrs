@@ -129,7 +129,7 @@ impl Image {
 
             // only keep the one header we selected earlier
             |image, header, tile| {
-                tile.location.level_index == Vec2(1,1) // also skip multiresolution shenanigans
+                tile.location.is_largest_resolution_level() // also skip multiresolution shenanigans
                     && header.own_attributes.name == image.layer_attributes.name // header names were checked to be unique earlier
             },
 

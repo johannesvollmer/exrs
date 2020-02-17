@@ -2,7 +2,7 @@
 extern crate bencher;
 
 extern crate exr;
-use exr::image::full;
+use exr::image::{full, read_options};
 
 use bencher::Bencher;
 use std::fs;
@@ -12,7 +12,7 @@ fn read_single_image_uncompressed(bench: &mut Bencher) {
     bench.iter(||{
         let path = "D:/Pictures/openexr/crowskull/crow_uncompressed.exr";
 
-        let image = full::Image::read_from_file(path, full::read_options::high()).unwrap();
+        let image = full::Image::read_from_file(path, read_options::high()).unwrap();
         bencher::black_box(image);
     })
 }
@@ -22,7 +22,7 @@ fn read_single_image_uncompressed_from_buffer(bench: &mut Bencher) {
     let file = fs::read("D:/Pictures/openexr/crowskull/crow_uncompressed.exr").unwrap();
 
     bench.iter(||{
-        let image = full::Image::read_from_buffered(file.as_slice(), full::read_options::high()).unwrap();
+        let image = full::Image::read_from_buffered(file.as_slice(), read_options::high()).unwrap();
         bencher::black_box(image);
     })
 }
@@ -31,7 +31,7 @@ fn read_single_image_uncompressed_from_buffer(bench: &mut Bencher) {
 fn read_single_image_zips(bench: &mut Bencher) {
     bench.iter(||{
         let path = "D:/Pictures/openexr/crowskull/crow_zips.exr";
-        let image = full::Image::read_from_file(path, full::read_options::low()).unwrap();
+        let image = full::Image::read_from_file(path, read_options::low()).unwrap();
         bencher::black_box(image);
     })
 }
@@ -40,7 +40,7 @@ fn read_single_image_zips(bench: &mut Bencher) {
 fn read_single_image_rle(bench: &mut Bencher) {
     bench.iter(||{
         let path = "D:/Pictures/openexr/crowskull/crow_rle.exr";
-        let image = full::Image::read_from_file(path, full::read_options::high()).unwrap();
+        let image = full::Image::read_from_file(path, read_options::high()).unwrap();
         bencher::black_box(image);
     })
 }
@@ -49,7 +49,7 @@ fn read_single_image_rle(bench: &mut Bencher) {
 fn read_single_image_non_parallel_zips(bench: &mut Bencher) {
     bench.iter(||{
         let path = "D:/Pictures/openexr/crowskull/crow_zips.exr";
-        let image = full::Image::read_from_file(path, full::read_options::low()).unwrap();
+        let image = full::Image::read_from_file(path, read_options::low()).unwrap();
         bencher::black_box(image);
     })
 }

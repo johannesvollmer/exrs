@@ -229,7 +229,7 @@ impl Image {
             Image::allocate,
 
             |_image, header, tile_index| {
-                !header.deep && tile_index.location.level_index == Vec2(0,0)
+                !header.deep && tile_index.location.is_largest_resolution_level()
             },
 
             |image, _meta, line| Image::insert_line(image, line),
