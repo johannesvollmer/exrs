@@ -28,21 +28,21 @@ fn main() {
         values
     }
 
-    let size = Vec2(1024, 512);
+    let size = (1024, 512);
 
     let r = Channel::new_linear(
         "R".try_into().unwrap(),
-        Samples::F16(generate_f16_vector(size))
+        Samples::F16(generate_f16_vector(size.into()))
     );
 
     let g = Channel::new_linear(
         "G".try_into().unwrap(),
-        Samples::F16(generate_f16_vector(size))
+        Samples::F16(generate_f16_vector(size.into()))
     );
 
     let b = Channel::new_linear(
         "B".try_into().unwrap(),
-        Samples::F32(generate_f16_vector(size).into_iter().map(f16::to_f32).collect())
+        Samples::F32(generate_f16_vector(size.into()).into_iter().map(f16::to_f32).collect())
     );
 
     let layer = Layer::new(

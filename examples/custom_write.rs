@@ -25,7 +25,7 @@ fn main() {
         .collect();
 
     // resulting resolution (268 megapixels for 3GB files)
-    let size = Vec2(2048*8, 2048*8);
+    let size = (2048*8, 2048*8);
 
     // specify output path, and buffer it for better performance
     let file = BufWriter::new(File::create("./testout/3GB.exr").unwrap());

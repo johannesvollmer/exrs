@@ -298,7 +298,9 @@ impl Layer {
     ///
     /// Panics if anything is invalid or missing.
     /// Will sort channels to correct order if necessary.
-    pub fn new(name: Text, data_size: Vec2<usize>, mut channels: Channels) -> Self {
+    pub fn new(name: Text, data_size: impl Into<Vec2<usize>>, mut channels: Channels) -> Self {
+        let data_size: Vec2<usize> = data_size.into();
+
         assert!(!channels.is_empty(), "at least one channel is required");
 
         assert!(

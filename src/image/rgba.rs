@@ -142,9 +142,11 @@ impl Encoding {
 impl Image {
 
     /// Create an image with the resolution, alpha channel, linearity, and actual pixel data.
-    pub fn new(resolution: Vec2<usize>, has_alpha_channel: bool, is_linear: bool, data: Pixels) -> Self {
+    pub fn new(resolution: impl Into<Vec2<usize>>, has_alpha_channel: bool, is_linear: bool, data: Pixels) -> Self {
+        let resolution: Vec2<usize> = resolution.into();
+
         let result = Self {
-            data, resolution, has_alpha_channel, is_linear,
+            data, resolution: resolution.into(), has_alpha_channel, is_linear,
             image_attributes: ImageAttributes::new(resolution),
             layer_attributes: LayerAttributes::new(Text::from("RGBA").expect("ascii bug")),
             encoding: Encoding::fast(),
@@ -157,7 +159,8 @@ impl Image {
     }
 
     /// Set the display window and data window position of this image.
-    pub fn with_position(mut self, position: Vec2<i32>) -> Self {
+    pub fn with_position(mut self, position: impl Into<Vec2<i32>>) -> Self {
+        let position: Vec2<i32> = position.into();
         self.image_attributes.display_window.position = position;
         self.layer_attributes.data_position = position;
         self

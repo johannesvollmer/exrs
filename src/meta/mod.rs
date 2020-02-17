@@ -280,7 +280,7 @@ impl ImageAttributes {
 
     /// Create default image attributes with the specified display window size.
     /// The display window position is set to zero.
-    pub fn new(display_size: Vec2<usize>) -> Self {
+    pub fn new(display_size: impl Into<Vec2<usize>>) -> Self {
         Self {
             display_window: IntRect::from_dimensions(display_size),
             pixel_aspect: 1.0,
@@ -662,7 +662,8 @@ impl Header {
     /// - scan line blocks
     /// - unspecified line order
     /// - no custom attributes
-    pub fn new(name: Text, data_size: Vec2<usize>, channels: SmallVec<[Channel; 5]>) -> Self {
+    pub fn new(name: Text, data_size: impl Into<Vec2<usize>>, channels: SmallVec<[Channel; 5]>) -> Self {
+        let data_size: Vec2<usize> = data_size.into();
         let compression = Compression::Uncompressed;
         let blocks = Blocks::ScanLines;
 
