@@ -12,7 +12,7 @@ use exr::prelude::*;
 use std::io::{BufWriter};
 use std::fs::File;
 use exr::meta::attributes::{Channel, PixelType, LineOrder, TileDescription, LevelMode};
-use exr::meta::Blocks;
+use exr::meta::{Blocks, MetaData};
 use exr::math::RoundingMode;
 
 /// Generate a striped image on the fly and directly write that to a file without allocating the whole image at once.
@@ -28,7 +28,7 @@ fn main() {
     let size = Vec2(2048*8, 2048*8);
 
     // specify output path, and buffer it for better performance
-    let file = BufWriter::new(File::create("C:/Users/Johannes/Desktop/3GB.exr").unwrap());
+    let file = BufWriter::new(File::create("./testout/3GB.exr").unwrap());
 
     // define meta data header that will be written
     let header = exr::meta::Header::new(

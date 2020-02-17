@@ -2,7 +2,6 @@ extern crate exr;
 
 extern crate smallvec;
 
-use exr::prelude::*;
 use exr::image::full::*;
 use std::{panic, io};
 use std::io::{Cursor, Write};
@@ -11,10 +10,11 @@ use std::path::{PathBuf, Path};
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use exr::image::{read_options, write_options};
+use exr::meta::MetaData;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter()
-        .map(Result::unwrap).filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
+        .map(std::result::Result::unwrap).filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
         .map(walkdir::DirEntry::into_path)
 }
 

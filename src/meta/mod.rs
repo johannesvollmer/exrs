@@ -257,6 +257,43 @@ impl Blocks {
     }
 }
 
+impl LayerAttributes {
+
+    /// Create default layer attributes with a data position of zero.
+    pub fn new(layer_name: Text) -> Self {
+        Self {
+            name: Some(layer_name),
+            data_position: Vec2(0, 0),
+            screen_window_center: Vec2(0.0, 0.0),
+            screen_window_width: 1.0,
+            list: Vec::new()
+        }
+    }
+
+    /// Set the data position of this layer.
+    pub fn with_position(self, data_position: Vec2<i32>) -> Self {
+        Self { data_position, ..self }
+    }
+}
+
+impl ImageAttributes {
+
+    /// Create default image attributes with the specified display window size.
+    /// The display window position is set to zero.
+    pub fn new(display_size: Vec2<usize>) -> Self {
+        Self {
+            display_window: IntRect::from_dimensions(display_size),
+            pixel_aspect: 1.0,
+            list: Vec::new()
+        }
+    }
+
+    /// Set the data position of this layer.
+    pub fn with_display_window(self, display_window: IntRect) -> Self {
+        Self { display_window, ..self }
+    }
+}
+
 
 /// The first four bytes of each exr file.
 /// Used to abort reading non-exr files.
@@ -661,17 +698,15 @@ impl Header {
 
     /// Set the display window, that is, the global clipping rectangle.
     /// __Must be the same for all headers of a file.__
-    pub fn with_display_window(self, display_window: IntRect) -> Self {
-        let mut self1 = self;
-        self1.shared_attributes.display_window = display_window;
-        self1
+    pub fn with_display_window(mut self, display_window: IntRect) -> Self {
+        self.shared_attributes.display_window = display_window;
+        self
     }
 
     /// Set the offset of this layer.
-    pub fn with_position(self, position: Vec2<i32>) -> Self {
-        let mut self1 = self;
-        self1.own_attributes.data_position = position;
-        self1
+    pub fn with_position(mut self, position: Vec2<i32>) -> Self {
+        self.own_attributes.data_position = position;
+        self
     }
 
     /// Set compression, tiling, and line order. Automatically computes chunk count.

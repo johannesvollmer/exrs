@@ -1,6 +1,7 @@
 [![Rust Docs](https://docs.rs/exr/badge.svg)](https://docs.rs/exr) 
 [![Crate Crate](https://img.shields.io/crates/v/exr.svg)](https://crates.io/crates/exr) 
-[![Rust Lang Version](https://img.shields.io/badge/rustc-1.40+-lightgray.svg)](https://blog.rust-lang.org/2019/12/19/Rust-1.40.0.html) 
+[![Rust Lang Version](https://img.shields.io/badge/rustc-1.41+-lightgray.svg)](https://blog.rust-lang.org/2020/01/30/Rust-1.41.0.html) 
+[![Lines of Code](https://tokei.rs/b1/github/johannesvollmer/exrs?category=code)](https://github.com/johannesvollmer/exrs)
 
 # exrs (exr-rs)
 
@@ -129,13 +130,13 @@ please leave an issue on this repository, containing the image file.
         - [ ] DWAA, DWAB
     
 - [x] Decompressing multiple blocks in parallel
-- [ ] Compressing multiple blocks in parallel
+- [x] Compressing multiple blocks in parallel
 
 - [ ] Profiling and real optimization
     - [ ] Memory Mapping?
-- [ ] IO Progress callback?
+- [x] IO Progress callback?
 - [ ] SIMD
-- [ ] Detailed file validation
+- [x] Detailed file validation
     - [x] Channels with an x or y sampling rate other than 1 are allowed only in flat, scan-line based images.
     - [x] If the headers include timeCode and chromaticities attributes, then the values of those attributes must also be the same for all parts of a file
     - [x] Scan-line based images cannot be multi-resolution images. (encoded in type system)
@@ -145,7 +146,7 @@ please leave an issue on this repository, containing the image file.
     - [x] [Validate data_window matches data size when writing images] is not required because one is inferred from the other
     - [x] Channel names and layer names must be unique
     
-- [ ] Explore different APIs
+- [x] Explore different APIs
     - [x] Let user decide how to store data
     - [x] Loading Metadata and specific tiles or blocks separately
 -->
@@ -156,7 +157,7 @@ please leave an issue on this repository, containing the image file.
 Add this to your `Cargo.toml`:
 ```toml
 [dependencies]
-exr = "0.6.0"
+exr = "0.7.0"
 
 # also, optionally add this to your crate for smaller binary size 
 # and better runtime performance
@@ -201,9 +202,10 @@ See the examples folder for more examples.
 
 ### Motivation
 
-Using the [Rust bindings to OpenEXR](https://github.com/cessen/openexr-rs) 
+Using the any bindings to the original OpenEXR 
+library unfortunately always
 requires compiling multiple C++ Libraries 
-and setting environment variables, 
+and possibly setting environment variables, 
 which I didn't quite feel like to do, 
 so I wrote this library instead.
 
