@@ -1,103 +1,87 @@
-use self::validity::*;
-use crate::file::data::compression::{Error as CompressionError};
 
-pub type WriteResult = ::std::result::Result<(), WriteError>;
-pub type ReadResult<T> = ::std::result::Result<T, ReadError>;
+//! Error type definitions.
+
+use std::borrow::Cow;
+use std::io::ErrorKind;
+pub use std::io::Error as IoError;
+pub use std::io::Result as IoResult;
+use std::convert::TryFrom;
+
+// Export types
+
+/// A result that may contain an exr error.
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// A that, if ok, contains nothing, and otherwise contains an exr error.
+pub type UnitResult = Result<()>;
 
 
+/// An error that may happen while reading or writing an exr file.
+/// Distinguishes between three types of errors:
+/// unsupported features, invalid data, and file system errors.
 #[derive(Debug)]
-pub enum WriteError {
-    CompressionError(CompressionError),
-    IoError(::std::io::Error),
-    Invalid(Invalid),
+pub enum Error {
+
+    /// Reading or Writing the file has been aborted by the caller.
+    /// This error will never be triggered by this crate itself,
+    /// only by users of this library.
+    Aborted,
+
+    /// The contents of the file are not supported by
+    /// this specific implementation of open exr,
+    /// even though the data may be valid.
+    NotSupported(Cow<'static, str>),
+
+    /// The contents of the image are contradicting or insufficient.
+    /// Also returned for `ErrorKind::UnexpectedEof` errors.
+    Invalid(Cow<'static, str>),
+
+    /// The underlying byte stream could not be read successfully,
+    /// probably due to file system related errors.
+    Io(IoError),
 }
 
 
-// TODO implement Display for all errors
-#[derive(Debug)]
-pub enum ReadError {
-    NotEXR,
-    Invalid(Invalid),
-//    UnknownAttributeType { bytes_to_skip: u32 },
+impl Error {
 
-    IoError(::std::io::Error),
-    CompressionError(Box<CompressionError>),
-}
+    /// Create an error of the variant `Invalid`.
+    pub(crate) fn invalid(message: impl Into<Cow<'static, str>>) -> Self {
+        Error::Invalid(message.into())
+    }
 
-
-/// Enable using the `?` operator on io::Result
-impl From<::std::io::Error> for ReadError {
-    fn from(io_err: ::std::io::Error) -> Self {
-        ReadError::IoError(io_err)
+    /// Create an error of the variant `NotSupported`.
+    pub(crate) fn unsupported(message: impl Into<Cow<'static, str>>) -> Self {
+        Error::NotSupported(message.into())
     }
 }
 
-/// Enable using the `?` operator on compress::Result
-impl From<CompressionError> for ReadError {
-    fn from(compress_err: CompressionError) -> Self {
-        ReadError::CompressionError(Box::new(compress_err))
-    }
-}
-
-/// Enable using the `?` operator on Validity
-impl From<Invalid> for ReadError {
-    fn from(err: Invalid) -> Self {
-        ReadError::Invalid(err)
+/// Enable using the `?` operator on `exr::io::Result`.
+impl From<IoError> for Error {
+    fn from(error: IoError) -> Self {
+        if error.kind() == ErrorKind::UnexpectedEof {
+            Error::invalid("content size")
+        }
+        else {
+            Error::Io(error)
+        }
     }
 }
 
 
-/// enable using the `?` operator on io errors
-impl From<::std::io::Error> for WriteError {
-    fn from(err: ::std::io::Error) -> Self {
-        WriteError::IoError(err)
-    }
+/// Return error on invalid range.
+#[inline]
+pub(crate) fn i32_to_usize(value: i32, error_message: &'static str) -> Result<usize> {
+    usize::try_from(value).map_err(|_| Error::invalid(error_message))
 }
 
-/// Enable using the `?` operator on Validity
-impl From<Invalid> for WriteError {
-    fn from(err: Invalid) -> Self {
-        WriteError::Invalid(err)
-    }
+/// Panic on overflow.
+#[inline]
+pub(crate) fn u64_to_usize(value: u64) -> usize {
+    usize::try_from(value).expect("(u64 as usize) overflowed")
 }
 
-pub mod validity {
-    // TODO put validation into own module
-    pub type Validity = Result<(), Invalid>;
-
-    #[derive(Debug, Clone, Copy)]
-    pub enum Invalid {
-        Missing(Value),
-        NotSupported(&'static str),
-        Combination(&'static [Value]),
-        Content(Value, Required),
-        Type(Required),
-    }
-
-    #[derive(Debug, Clone, Copy)]
-    pub enum Value {
-        Attribute(&'static str),
-        Version(&'static str),
-        Chunk(&'static str),
-        Type(&'static str),
-        Part(&'static str),
-        Enum(&'static str),
-        Text,
-        MapLevel,
-    }
-
-    #[derive(Debug, Clone, Copy)]
-    pub enum Required {
-        Max(usize),
-        Min(usize),
-        Exact(&'static str),
-        OneOf(&'static [&'static str]),
-        Range {
-            /// inclusive
-            min: usize,
-
-            /// inclusive
-            max: usize
-        },
-    }
+/// Panic on overflow.
+#[inline]
+pub(crate) fn usize_to_i32(value: usize) -> i32 {
+    i32::try_from(value).expect("(usize as i32) overflowed")
 }

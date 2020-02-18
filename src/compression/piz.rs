@@ -1,11 +1,13 @@
+#![allow(dead_code)] // TODO remove
+
 use super::*;
 use super::Result;
-use crate::file::meta::attributes::{I32Box2, PixelType};
-use crate::file::meta::{Header};
-use crate::file::data::compression::Error::InvalidData;
-use crate::error::ReadResult;
-use crate::file::io::{Data, Write, Read};
-use byteorder::{WriteBytesExt, ReadBytesExt};
+use crate::meta::attributes::{IntRect, PixelType};
+use crate::meta::{Header};
+use crate::io::Data;
+use crate::error::IoResult;
+use crate::math::Vec2;
+
 
 // inspired by  https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfPizCompressor.cpp
 
@@ -48,24 +50,23 @@ fn mod_p(x: i32, y: i32) -> i32 {
 }
 
 
-const u16_range: i32 = (1 << 16);
-const bitmap_size: i32  = (u16_range >> 3); // rly
+const U16_RANGE: i32 = (1 << 16);
+const BITMAP_SIZE: i32  = (U16_RANGE >> 3); // rly
 
 
 
 pub fn decompress_bytes(
     header: &Header,
     compressed: ByteVec,
-    rectangle: I32Box2,
-    expected_byte_size: usize,
+    rectangle: IntRect,
+    _expected_byte_size: usize,
 ) -> Result<Vec<u8>>
 {
 
     struct ChannelData {
         start_index: u32,
         end_index: u32,
-        number_samples_x: u32,
-        number_samples_y: u32,
+        number_samples: Vec2<u32>,
         y_samples: u32,
         size: u32,
     }
@@ -136,7 +137,7 @@ pub fn decompress_bytes(
 //        // native represenations of a half have the same size.
 //        //
 
-    let use_native_format = has_only_half_channels; // half is always 16 bit
+    let _use_native_format = has_only_half_channels; // half is always 16 bit
 
 //
 //        if (onlyHalfChannels && (sizeof (half) == pixelTypeSize (HALF)))
@@ -188,19 +189,19 @@ pub fn decompress_bytes(
 //        maxX = _maxX;
 
 
-    let min_x = rectangle.x_min;
-    let min_y = rectangle.y_min;
+    let _min_x = rectangle.position.0;
+    let min_y = rectangle.position.1;
 
-    let mut max_x = rectangle.x_max;
-    let mut max_y = rectangle.y_max;
+    let mut _max_x = rectangle.max().0;
+    let mut max_y = rectangle.max().1;
 
     // TODO rustify
-    if max_x > header.data_window.x_max {
-        max_x = header.data_window.x_max;
+    if _max_x > header.data_window().max().0 {
+        _max_x = header.data_window().max().0;
     }
 
-    if max_y > header.data_window.y_max {
-        max_y = header.data_window.y_max;
+    if max_y > header.data_window().max().1 {
+        max_y = header.data_window().max().1;
     }
 
 //
@@ -224,21 +225,21 @@ pub fn decompress_bytes(
 
     let mut channel_data: Vec<ChannelData> = Vec::new();
 
-    let mut tmp_buffer = vec![0_u16; header.data_window.dimensions().0 as usize]; // TODO better size calculation?
+    let mut tmp_buffer = vec![0_u16; header.data_size.0]; // TODO better size calculation?
     let mut tmp_buffer_end = 0_u32;
 
-    for (index, channel) in header.channels.list.iter().enumerate() {
-        let (number_samples_x, number_samples_y) = channel.subsampled_resolution(rectangle.dimensions());
+    for (_index, channel) in header.channels.list.iter().enumerate() {
 
         let channel = ChannelData {
             start_index: tmp_buffer_end,
             end_index: tmp_buffer_end,
-            y_samples: channel.y_sampling as u32,
-            number_samples_x, number_samples_y,
-            size: channel.pixel_type.bytes_per_sample() / PixelType::F16.bytes_per_sample()
+            y_samples: channel.sampling.1 as u32,
+            number_samples: channel.subsampled_resolution(rectangle.size).map(|x| x as u32),
+            // number_samples_x, number_samples_y,
+            size: (channel.pixel_type.bytes_per_sample() / PixelType::F16.bytes_per_sample()) as u32
         };
 
-        tmp_buffer_end += channel.number_samples_x * channel.number_samples_y * channel.size;
+        tmp_buffer_end += channel.number_samples.0 * channel.number_samples.1 * channel.size;
         channel_data.push(channel);
     }
 
@@ -254,7 +255,7 @@ pub fn decompress_bytes(
 //        AutoArray <unsigned char, BITMAP_SIZE> bitmap;
 //        memset (bitmap, 0, sizeof (unsigned char) * BITMAP_SIZE);
 
-    let mut bitmap = vec![0_u8; bitmap_size as usize];
+    let mut bitmap = vec![0_u8; BITMAP_SIZE as usize];
 
 
 //
@@ -272,9 +273,9 @@ pub fn decompress_bytes(
 //            throw InputExc ("Error in header for PIZ-compressed data "
 //            "(invalid bitmap size).");
 //        }
-    if max_non_zero as i32 >= bitmap_size {
+    if max_non_zero as i32 >= BITMAP_SIZE {
         println!("invalid bitmap size");
-        return Err(InvalidData);
+        return Err(Error::invalid("compression data"));
     }
 //
 //        if (minNonZero <= maxNonZero)
@@ -315,7 +316,7 @@ pub fn decompress_bytes(
 
     if length as usize > read.len() {
         println!("invalid array length");
-        return Err(InvalidData);
+        return Err(Error::invalid("compression data"));
     }
 
     // TODO use DynamicHuffmanCodec?
@@ -342,8 +343,8 @@ pub fn decompress_bytes(
         for size in 0..channel.size {
             wave_2_decode(
                 &mut tmp_buffer[(channel.start_index + size) as usize..],
-                channel.number_samples_x, channel.size, channel.number_samples_y,
-                channel.number_samples_x * channel.size, max_value
+                channel.number_samples.0, channel.size, channel.number_samples.1,
+                channel.number_samples.0 * channel.size, max_value
             )?;
         }
     }
@@ -399,7 +400,7 @@ pub fn decompress_bytes(
                 }
 
                 // TODO this should be a simple mirroring slice copy?
-                for x in (0 .. channel.number_samples_x * channel.size).rev() {
+                for _x in (0 .. channel.number_samples.0 * channel.size).rev() {
                     out.push(tmp_buffer[channel.end_index as usize]);
                     channel.end_index += 1;
                 }
@@ -439,7 +440,7 @@ pub fn decompress_bytes(
                 }
 
                 // copy each channel
-                let n = channel.number_samples_x * channel.size;
+                let n = channel.number_samples.0 * channel.size;
                 out.extend_from_slice(&tmp_buffer[channel.end_index as usize .. (channel.end_index + n) as usize]);
                 channel.end_index += n;
             }
@@ -468,272 +469,18 @@ pub fn decompress_bytes(
     unimplemented!("Ok(out)")
 }
 
-
-// https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfHuf.cpp
-fn huffman_decompress(data: &[u8], result: &mut [u16]) -> ReadResult<()> {
-
-
-    const HUF_ENCBITS : i32 = 16;			// literal (value) bit length
-    const HUF_DECBITS : i32 = 14;			// decoding bit size (>= 8)
-
-    const HUF_ENCSIZE : i32 = (1 << HUF_ENCBITS) + 1;	// encoding table size
-    const HUF_DECSIZE : i32 =  1 << HUF_DECBITS;	// decoding table size
-    const HUF_DECMASK : i32 = HUF_DECSIZE - 1;
-
-    struct HufDecoder {
-        len: i32,
-        lit: i32,
-        p: i32
-    }
-
-
-    fn huf_length (code: i64) -> i64 {
-        return code & 63;
-    }
-
-    fn huf_code (code: i64) -> i64 {
-        return code >> 6;
-    }
-
-//    inline void
-//    outputBits (int nBits, Int64 bits, Int64 &c, int &lc, char *&out)
-//    {
-//        c <<= nBits;
-//        lc += nBits;
-//
-//        c |= bits;
-//
-//        while (lc >= 8)
-//            *out++ = (c >> (lc -= 8));
-//    }
-
-    /*fn output_bits (bits: i64, bit_count: i32, c: &mut i64, lc: &mut i32, out: &mut impl Write) {
-        *c = *c << bit_count;
-        *lc += bit_count;
-        *c = *c | bits;
-
-        while *lc >= 8 {
-            out.write_u8(c >> (lc -= 8))
-        }
-    }*/
-
-//    inline Int64
-//    getBits (int nBits, Int64 &c, int &lc, const char *&in)
-//    {
-//        while (lc < nBits)
-//        {
-    //        c = (c << 8) | *(unsigned char *)(in++);
-    //        lc += 8;
-//        }
-//
-//        lc -= nBits;
-//        return (c >> lc) & ((1 << nBits) - 1);
-//    }
-
-    fn get_bits (bit_count: i32, c: &mut i64, lc: &mut i32, input: &mut impl Read) -> std::io::Result<i64> {
-        while *lc < bit_count {
-            *c = (*c << 8) | input.read_u8()? as i64;
-            *lc += 8;
-        }
-
-        *lc -= bit_count;
-        Ok((*c >> *lc as i64) & ((1 >> bit_count as i64) - 1))
-    }
-
-
-//    void
-//    hufCanonicalCodeTable (Int64 hcode[HUF_ENCSIZE])
-//    {
-    fn canonical_code_table(table: &mut [i64]) {
-        let mut count = [0_i64; 59];
-
-//        Int64 n[59];
-//
-//        //
-//        // For each i from 0 through 58, count the
-//        // number of different codes of length i, and
-//        // store the count in n[i].
-//        //
-//
-//        for (int i = 0; i <= 58; ++i)
-//        n[i] = 0;
-//
-//        for (int i = 0; i < HUF_ENCSIZE; ++i)
-//        n[hcode[i]] += 1;
-        for entry_index in 0 .. HUF_ENCSIZE {
-            count[table[entry_index as usize] as usize] += 1;
-        }
-//
-//        //
-//        // For each i from 58 through 1, compute the
-//        // numerically lowest code with length i, and
-//        // store that code in n[i].
-//        //
-//
-//        Int64 c = 0;
-//
-//        for (int i = 58; i > 0; --i)
-//        {
-//            Int64 nc = ((c + n[i]) >> 1);
-//            n[i] = c;
-//            c = nc;
-//        }
-        let mut c = 0;
-        for i in (0 .. 59).rev() {
-            let nc = ((c + count[i]) >> 1);
-            count[i] = c;
-            c = nc;
-        }
-//
-//        //
-//        // hcode[i] contains the length, l, of the
-//        // code for symbol i.  Assign the next available
-//        // code of length l to the symbol and store both
-//        // l and the code in hcode[i].
-//        //
-//
-//        for (int i = 0; i < HUF_ENCSIZE; ++i)
-//        {
-//            int l = hcode[i];
-//
-//            if (l > 0)
-//            hcode[i] = l | (n[l]++ << 6);
-//        }
-
-        for entry_index in 0 .. HUF_ENCSIZE {
-            let l = table[entry_index as usize];
-            if l > 0 {
-                table[entry_index as usize] = l | (count[l as usize] << 6);
-                count[l as usize] += 1;
-            }
-        }
-//    }
-    }
-
-
-
-//    void
-//    hufDecode
-//        (const Int64 * 	hcode,	// i : encoding table
-//    const HufDec * 	hdecod,	// i : decoding table
-//    const char* 	in,	// i : compressed input buffer
-//    int		ni,	// i : input size (in bits)
-//    int		rlc,	// i : run-length code
-//    int		no,	// i : expected output size (in bytes)
-//    unsigned short*	out)	//  o: uncompressed output buffer
-//    {
-//        Int64 c = 0;
-//        int lc = 0;
-//        unsigned short * outb = out;
-//        unsigned short * oe = out + no;
-//        const char * ie = in + (ni + 7) / 8; // input byte size
-//
-//        //
-//        // Loop on input bytes
-//        //
-//
-//        while (in < ie)
-//        {
-//            getChar (c, lc, in);
-//
-//            //
-//            // Access decoding table
-//            //
-//
-//            while (lc >= HUF_DECBITS)
-//                {
-//                    const HufDec pl = hdecod[(c >> (lc-HUF_DECBITS)) & HUF_DECMASK];
-//
-//                    if (pl.len)
-//                    {
-//                        //
-//                        // Get short code
-//                        //
-//
-//                        lc -= pl.len;
-//                        getCode (pl.lit, rlc, c, lc, in, out, outb, oe);
-//                    }
-//                    else
-//                    {
-//                        if (!pl.p)
-//                        invalidCode(); // wrong code
-//
-//                        //
-//                        // Search long code
-//                        //
-//
-//                        int j;
-//
-//                        for (j = 0; j < pl.lit; j++)
-//                        {
-//                            int	l = hufLength (hcode[pl.p[j]]);
-//
-//                            while (lc < l && in < ie)	// get more bits
-//                            getChar (c, lc, in);
-//
-//                            if (lc >= l)
-//                            {
-//                                if (hufCode (hcode[pl.p[j]]) ==
-//                                    ((c >> (lc - l)) & ((Int64(1) << l) - 1)))
-//                                {
-//                                    //
-//                                    // Found : get long code
-//                                    //
-//
-//                                    lc -= l;
-//                                    getCode (pl.p[j], rlc, c, lc, in, out, outb, oe);
-//                                    break;
-//                                }
-//                            }
-//                        }
-//
-//                        if (j == pl.lit)
-//                        invalidCode(); // Not found
-//                    }
-//                }
-//        }
-//
-//        //
-//        // Get remaining (short) codes
-//        //
-//
-//        int i = (8 - ni) & 7;
-//        c >>= i;
-//        lc -= i;
-//
-//        while (lc > 0)
-//            {
-//                const HufDec pl = hdecod[(c << (HUF_DECBITS - lc)) & HUF_DECMASK];
-//
-//                if (pl.len)
-//                {
-//                    lc -= pl.len;
-//                    getCode (pl.lit, rlc, c, lc, in, out, outb, oe);
-//                }
-//                else
-//                {
-//                    invalidCode(); // wrong (long) code
-//                }
-//            }
-//
-//        if (out - outb != no)
-//        notEnoughData ();
-//    }
-
-
-
-
-
+fn huffman_decompress(_data: &[u8], _result: &mut [u16]) -> IoResult<()> {
+    unimplemented!()
 }
 
 
 
 // https://github.com/AcademySoftwareFoundation/openexr/blob/8cd1b9210855fa4f6923c1b94df8a86166be19b1/OpenEXR/IlmImf/ImfWav.cpp
-fn wave_2_decode(buffer: &[u16], x_size: u32, x_offset: u32, y_size: u32, y_offset: u32, max: u16 ) -> ReadResult<()> {
+fn wave_2_decode(_buffer: &[u16], _x_size: u32, _x_offset: u32, _y_size: u32, _y_offset: u32, _max: u16 ) -> IoResult<()> {
     unimplemented!()
 }
 
-fn reverse_lookup_table_from_bitmap(bitmap: Bytes) -> (Vec<u16>, u16) {
+fn reverse_lookup_table_from_bitmap(bitmap: Bytes<'_>) -> (Vec<u16>, u16) {
 //    int k = 0;
 //
 //    for (int i = 0; i < USHORT_RANGE; ++i)
@@ -751,11 +498,11 @@ fn reverse_lookup_table_from_bitmap(bitmap: Bytes) -> (Vec<u16>, u16) {
 
 //    let mut k = 0;
 
-    assert_eq!(u16_range as u16 as i32, u16_range);
+    assert_eq!(U16_RANGE as u16 as i32, U16_RANGE);
 
-    let mut table = Vec::with_capacity(u16_range as usize);
+    let mut table = Vec::with_capacity(U16_RANGE as usize);
 
-    for index in 0 .. u16_range as u16 {
+    for index in 0 .. U16_RANGE as u16 {
         if index == 0 || (bitmap[index as usize >> 3] as usize & (1 << (index as usize & 7)) != 0) { // TODO where should be cast?
 //            lut[k] = i;
 //            k += 1;
@@ -766,7 +513,7 @@ fn reverse_lookup_table_from_bitmap(bitmap: Bytes) -> (Vec<u16>, u16) {
     let n = table.len() as u16;
     assert_eq!(table.len() as u16 as usize, table.len());
 
-    table.resize(u16_range as usize, 0);
+    table.resize(U16_RANGE as usize, 0);
 
     (table, n)
 }
@@ -780,6 +527,6 @@ fn apply_lookup_table(data: &mut [u16], table: &[u16]) {
 }
 
 
-pub fn compress_bytes(_packed: Bytes) -> Result<ByteVec> {
+pub fn compress_bytes(_packed: Bytes<'_>) -> Result<ByteVec> {
     unimplemented!();
 }

@@ -15,7 +15,7 @@ fn take_1(slice: &mut &[u8]) -> Result<u8> {
         Ok(result)
 
     } else {
-        Err(Error::InvalidData)
+        Err(Error::invalid("compressed data"))
     }
 }
 
@@ -26,13 +26,12 @@ fn take_n<'s>(slice: &mut &'s [u8], n: usize) -> Result<&'s [u8]> {
         Ok(front)
 
     } else {
-        Err(Error::InvalidData)
+        Err(Error::invalid("compressed data"))
     }
 }
 
-pub fn decompress_bytes(compressed: ByteVec, expected_byte_size: usize) -> Result<ByteVec> {
+pub fn decompress_bytes(mut remaining: Bytes<'_>, expected_byte_size: usize) -> Result<ByteVec> {
     let mut decompressed = Vec::with_capacity(expected_byte_size);
-    let mut remaining = &compressed[..];
 
     while !remaining.is_empty() {
         let count = take_1(&mut remaining)? as i8 as i32;
@@ -41,40 +40,29 @@ pub fn decompress_bytes(compressed: ByteVec, expected_byte_size: usize) -> Resul
             // take the next '-count' bytes as-is
             let values = take_n(&mut remaining, (-count) as usize)?;
             decompressed.extend_from_slice(values);
-
-        } else {
-            // repeat the next value 'count' times
+        }
+        else {
+            // repeat the next value 'count + 1' times
             let value = take_1(&mut remaining)?;
-            for _ in 0..count + 1 { // TODO explicit memset?
-                decompressed.push(value);
-            }
+            decompressed.resize(decompressed.len() + count as usize + 1, value);
         }
     }
 
     differences_to_samples(&mut decompressed);
-    decompressed = interleave_byte_blocks(&decompressed);
+    interleave_byte_blocks(&mut decompressed);
     Ok(decompressed)
 }
 
-// TODO use BytesRef = &[u8] instead of Bytes!
-pub fn compress_bytes(packed: Bytes) -> Result<ByteVec> {
-    let mut data = separate_bytes_fragments(&packed);
+pub fn compress_bytes(data: Bytes<'_>) -> Result<ByteVec> {
+    let mut data = Vec::from(data); // TODO no alloc
+    separate_bytes_fragments(&mut data);
     samples_to_differences(&mut data);
 
-    // signed char *outWrite = out;
-    // const char *runStart = in;
-    // const char *runEnd = in + 1;
-    // const char *inEnd = in + inLength;
     let mut compressed = Vec::with_capacity(data.len());
     let mut run_start = 0;
     let mut run_end = 1;
 
-
-    // while (runStart < inEnd) {
     while run_start < data.len() {
-        // while (runEnd < inEnd && *runStart == *runEnd && runEnd - runStart - 1 < MAX_RUN_LENGTH) {
-        //     ++runEnd;
-        // }
         while
             run_end < data.len()
                 && data[run_start] == data[run_end]
@@ -83,26 +71,12 @@ pub fn compress_bytes(packed: Bytes) -> Result<ByteVec> {
                 run_end += 1;
             }
 
-        // if (runEnd - runStart >= MIN_RUN_LENGTH) {
         if run_end - run_start >= MIN_RUN_LENGTH {
-            // *outWrite++ = (runEnd - runStart) - 1;
-            // *outWrite++ = *(signed char *) runStart;
-            // runStart = runEnd;
             compressed.push(((run_end - run_start) as i32 - 1) as u8);
             compressed.push(data[run_start]);
             run_start = run_end;
 
         } else {
-            //    while (
-            //          runEnd < inEnd
-            //          && (
-            //                 (runEnd + 1 >= inEnd || *runEnd != *(runEnd + 1))
-            //              || (runEnd + 2 >= inEnd || *(runEnd + 1) != *(runEnd + 2))
-            //          )
-            //          && runEnd - runStart < MAX_RUN_LENGTH)
-            //    {
-            //        ++runEnd;
-            //    }
             while
                 run_end < data.len() && (
                     (run_end + 1 >= data.len() || data[run_end] != data[run_end + 1])
@@ -112,22 +86,28 @@ pub fn compress_bytes(packed: Bytes) -> Result<ByteVec> {
                     run_end += 1;
                 }
 
-            // *outWrite++ = runStart - runEnd;
             compressed.push((run_start as i32 - run_end as i32) as u8);
+            compressed.extend_from_slice(&data[run_start .. run_end]);
 
-            // TODO use memcpy?
-            //    while (runStart < runEnd) {
-            //        *outWrite++ = *(signed char *) (runStart++);
-            //    }
-            while run_start < run_end {
-                compressed.push(data[run_start]);
-                run_start += 1;
-            }
-
-            // ++runEnd;
+            run_start = run_end;
             run_end += 1;
         }
     }
 
     Ok(compressed)
+}
+
+#[cfg(test)]
+mod test {
+
+    #[test]
+    fn test(){
+        let data = vec![ 0, 23, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 0, 0, 0, 1, 23, 43, 4];
+        let compressed = super::compress_bytes(&data).unwrap();
+        let decompressed = super::decompress_bytes(&compressed, data.len()).unwrap();
+
+        assert_eq!(decompressed, data);
+    }
+
+    // TODO fuzz testing
 }

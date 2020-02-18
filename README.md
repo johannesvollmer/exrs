@@ -1,27 +1,79 @@
-# rs-exr
+[![Rust Docs](https://docs.rs/exr/badge.svg)](https://docs.rs/exr) 
+[![Crate Crate](https://img.shields.io/crates/v/exr.svg)](https://crates.io/crates/exr) 
+[![Rust Lang Version](https://img.shields.io/badge/rustc-1.41+-lightgray.svg)](https://blog.rust-lang.org/2020/01/30/Rust-1.41.0.html) 
+[![Lines of Code](https://tokei.rs/b1/github/johannesvollmer/exrs?category=code)](https://github.com/johannesvollmer/exrs)
 
-This library is a draft of a 100%-Rust and 100%-safe-code 
-implementation of the OpenEXR image file format.
+# exrs (exr-rs)
 
-[OpenEXR](http://www.openexr.com/) 
-files are widely used in animation, VFX, or 
-other computer graphics pipelines, because it offers
-a high flexibility regarding the data it is able to hold. 
+This library is a 100% Rust and 100% safe code 
+encoding and decoding library for the OpenEXR image file format.
+See [the examples](https://github.com/johannesvollmer/exrs/tree/master/examples) for a first impression.
 
+[OpenEXR](http://www.openexr.com/)
+is the de-facto standard image format in animation, VFX, and 
+other computer graphics pipelines, for it can represent an immense variety of pixel data with lossless compression. 
+
+Features include:
+- any number of layers placed anywhere in 2d space
+- any number of channels in an image (rgb, xyz, lab, depth, motion, mask, ...)
+- any type of high dynamic range values (16bit float, 32bit float, 32bit unsigned integer) per channel
+- any number of samples per pixel ("deep data")
+- uncompressed pixel data for fast file access
+- lossless compression for any image type 
+- lossy compression for non-deep image types for very small files
+- load specific sections of an image without processing the whole file
+- compress and decompress images in parallel
+- embed any kind of meta data, including custom bytes, with full backwards compatibility
 
 ### Current Status
 
-Because rs-exr is currently a draft, it doesn't write images yet.
-However, it is already able to decode the metadata of all files from the
-[OpenEXR test file repository](https://github.com/openexr/openexr-images/tree/master/TestImages). 
+This library is in an early stage of development. It only supports a few of all possible image types.
+Currently, deep data and complex compression algorithms are not supported yet.
 
-Regarding the actual pixel content, only a few compression methods are supported. 
-They are not tested very well yet.
 _Highly experimental!_
 
 __Currently supported:__
 
-- [x] Loading Metadata
+- Supported OpenEXR Features
+    - [x] custom attributes
+    - [x] multi-part images
+    - [x] multi-resolution images: mip maps, rip maps
+    - [x] any line order
+    - [x] extract meta data of any file, 
+          including files with deep data and any compression format
+    - [ ] channel subsampling
+    - [ ] deep data
+    - [ ] compression methods (help wanted)
+        - [x] uncompressed
+        - [x] zip line
+        - [x] zip block
+        - [x] rle
+        - [ ] piz
+        - [ ] pxr24
+        - [ ] b44, b44a
+        - [ ] dwaa, dwab
+
+- Nice Things
+    - [x] no external dependency or environment variable paths to set up
+    - [x] read meta data without having to load image data
+    - [x] read all contents at once
+        - [x] decompress image sections either 
+              in parallel or with low memory overhead
+    - [x] write all contents at once
+        - [x] compress blocks in parallel
+    - [x] read only some blocks dynamically
+    - [x] read and write progress callback
+    - [x] abortable read and write
+    - [ ] write blocks streams, one after another
+    - [ ] memory mapping
+    
+
+If you encounter an exr file that cannot be opened by this crate, 
+please leave an issue on this repository, containing the image file.
+
+    
+<!--
+- [x] Inspecting Metadata
     - [x] Singlepart
         - [x] Tiles
         - [x] Scan lines
@@ -35,51 +87,125 @@ __Currently supported:__
     - [x] Multi Resolution
         - [x] Singular Resolution
         - [x] MipMaps
-        - [ ] RipMaps _(coded, but untested)_
+        - [x] RipMaps _(coded, but untested)_
     - [x] Non-Standard Attributes
-        - [x] Reading those with known and unknown names
+        - [x] Reading those with known names and unknown names
         - [x] Reading those with known types
-        - [x] Saving those with unknown types into a plain byte buffer
-    - [ ] Simple preview attribute extraction
+        - [x] Reading those with unknown types into a plain byte buffer
+    - [ ] Nice API for preview attribute extraction
     
-- [ ] Interpreting loaded data as image pixels
-    - [ ] Pixel Data Compression
-        - [ ] Uncompressed
-            - [x] (Half, Float) + scan line + IncreasingY + no mip map levels + no sub sampling + single-part + no deep data, 
-            - [ ] Other (untested)
-        - [ ] ZIPS
-            - [x] (Half, Float) + scan line + IncreasingY + no mip map levels + no sub sampling + single-part + no deep data, 
-            - [ ] Other (untested)
-        - [ ] ZIP
-            - [x] (Half, Float) + scan line + IncreasingY + no mip map levels + no sub sampling + single-part + no deep data, 
-            - [ ] Other (untested)
-        - [ ] RLE
-            - [x] Half + scan line + IncreasingY + no mip map levels + no sub sampling + single-part + no deep data, 
-            - [ ] Other (untested)
+- [ ] Decompressing Pixel Data
+    - [x] Any LineOrder
+    - [x] Any Pixel Type (`f16`, `f32`, `u32`)
+    - [x] Multipart
+    - [ ] Deep Data
+    - [x] Rip/Mip Maps  _(coded, but untested)_
+    - [ ] Nice API for RGBA conversion and displaying other color spaces?
+    - [ ] Compression Methods
+        - [x] Uncompressed
+        - [x] ZIPS
+        - [x] ZIP
+        - [x] RLE
         - [ ] PIZ
-            - [ ] Half + scan line + IncreasingY + no mip map levels + no sub sampling + single-part + no deep data, 
-            - [ ] Other (untested)
         - [ ] RXR24
-        - [ ] B44 / B44A
-        - [ ] DWAA / DWAB
-    - [ ] Simple RGBA conversion
+        - [ ] B44, B44A
+        - [ ] DWAA, DWAB
+
+- [ ] Writing images
+    - [x] Scan Lines
+    - [x] Tiles
+    - [x] Multipart
+    - [ ] Deep Data
+    - [ ] User supplied line order
+    - [x] Rip/Mip Maps _(coded, but untested)_
+    - [ ] 100% correct meta data
+    - [x] Compression Methods
+        - [x] Uncompressed
+        - [x] ZIPS
+        - [x] ZIP
+        - [x] RLE
+        - [ ] PIZ
+        - [ ] RXR24
+        - [ ] B44, B44A
+        - [ ] DWAA, DWAB
     
 - [x] Decompressing multiple blocks in parallel
-- [ ] Loading Metadata and specific tiles or blocks separately
-- [ ] Writing images
+- [x] Compressing multiple blocks in parallel
+
 - [ ] Profiling and real optimization
     - [ ] Memory Mapping?
-- [x] Allowing you to parse your own attribute types
-- [ ] IO Progress callback
+- [x] IO Progress callback?
 - [ ] SIMD
+- [x] Detailed file validation
+    - [x] Channels with an x or y sampling rate other than 1 are allowed only in flat, scan-line based images.
+    - [x] If the headers include timeCode and chromaticities attributes, then the values of those attributes must also be the same for all parts of a file
+    - [x] Scan-line based images cannot be multi-resolution images. (encoded in type system)
+    - [x] Scan-line based images cannot have unspecified line order apparently?
+    - [x] layer name is required for multipart images
+    - [x] Enforce minimum length of 1 for arrays
+    - [x] [Validate data_window matches data size when writing images] is not required because one is inferred from the other
+    - [x] Channel names and layer names must be unique
+    
+- [x] Explore different APIs
+    - [x] Let user decide how to store data
+    - [x] Loading Metadata and specific tiles or blocks separately
+-->
+    
 
-__Be sure to come back in a few weeks.__
+### Usage
+
+Add this to your `Cargo.toml`:
+```toml
+[dependencies]
+exr = "0.7.0"
+
+# also, optionally add this to your crate for smaller binary size 
+# and better runtime performance
+[profile.release]
+lto = true
+```
+
+The master branch of this repository is always an up-to-date version.
+
+### Example
+
+Example: Write all image contents to an exr file at once.
+
+```rust
+fn main() {
+    let size = Vec2(1024, 512);
+
+    // create a channel containing 1024x512 f32 values
+    let luma = Channel::new_linear(
+        "Y".try_into().unwrap(), // OpenEXR only supports ascii, so this may fail
+        Samples::F32(generate_f32_vector(size))
+    );
+
+    let layer = Layer::new(
+        "test-image".try_into().unwrap(), // layer name
+        size, // resolution
+        smallvec![ luma ], // include the one channel we created
+    );
+    
+    // create an exr file from a single layer (an exr file can have multiple layers)
+    let image = Image::new_from_single_layer(layer.with_compression(Compression::RLE));
+
+    println!("writing image with meta data {:#?}", image);
+
+    // write the image, compressing in parallel with all available cpus
+    image.write_to_file("./testout/constructed.exr", write_options::high()).unwrap();
+}
+```
+
+See the examples folder for more examples.
+
 
 ### Motivation
 
-Using the [Rust bindings to OpenEXR](https://github.com/cessen/openexr-rs) 
+Using the any bindings to the original OpenEXR 
+library unfortunately always
 requires compiling multiple C++ Libraries 
-and setting environment variables, 
+and possibly setting environment variables, 
 which I didn't quite feel like to do, 
 so I wrote this library instead.
 
@@ -88,43 +214,27 @@ which had an 'X' in its name in my git repositories.
 
 ### Goals
 
-`rs-exr` aims to provide a safe and convenient 
+`exrs` aims to provide a safe and convenient 
 interface to the OpenEXR file format.
-We try to prevent writing invalid OpenEXR files by
-either taking advantage of Rusts type system, 
-or runtime checks if the type system does not suffice.
 
-_Quite unfortunately, there is a ton of unsafe code in the low-level `file` 
-decoding and encoding, where an array of i8 is reinterpreted as an array
-of u8 in order to write it to memory. I hope we can eventually get rid of that._
+This library does not try to be a general purpose image file or image processing library.
+Therefore, color conversion, subsampling, and mip map generation are left to other crates for now.
+As the original OpenEXR implementation supports those operations, this library may choose to support them later.
+Furthermore, this implementation does not try to produce byte-exact file output
+matching the original implementation, but only correct output.
 
-### Architecture
+#### Safety
+This library uses no unsafe code. In fact, this crate is annotated with `#[forbid(unsafe_code)]`.
+Its dependencies use unsafe code, though.
 
-The main parts of this library are:
+All information from a file is handled with caution.
+Allocations have a safe maximum size that will not be exceeded at once.
 
--   `file` - Provides raw access to the files contents.
-
-    The File is loaded from a byte stream into really
-    low level structures. No decompression will take place up to this stage,
-    and no data will be rearranged compared to the file layout.
-    This representation is as close to the file layout as feasible,
-    in order to be really fast if no decompression is required.
-    Basic file content validation is made to avoid processing invalid files.
-    
--   `image` - Supports interpreting the raw file 
-    and supports (but is not enforcing) exr conventions.
- 
-    It is able to convert between the raw file contents
-    and usable formats, for example `RGBA` arrays. This is optional
-    because the OpenEXR format is very detailed, and converting to
-    simpler representation will lose that detail. This part of the 
-    library is provided mainly for some very simple use-cases, like
-    displaying a larger preview than OpenEXR already contains.
 
 ### What I am proud of
 
--   For simple files, very few heap allocations are made during loading
-    (only for offset table data and actual pixel data)
+-   Flexible API allows for custom parallelization
+-   Difficult to misuse API
 -   This is a pretty detailed README
 -   (more to come)
 
@@ -132,21 +242,11 @@ The main parts of this library are:
 
 This library is modeled after the 
 official [`OpenEXRFileLayout.pdf`](http://www.openexr.com/documentation.html)
-document, but it's not completely up to date
-(the C++ library has greater priority).
-
-__Things that are not as specified in the PDF file__ (Or were forgotten):
-
--   String Attributes don't store their length,
-    because it can be inferred from the Attribute byte-size.
--   Chunk Part-Number is not u64, but i32.
--   Calculating the offset table is really really complicated,
-    and it could have been a single u64 in the file
-    (which would not even need more memory if one decided to make
-    the `type` attribute an enum instead of a string)
-    
-Okay, the last one was a rant, you got me.
+document. Unspecified behavior is concluded from the C++ library.
 
 ### PRIORITIES
-1. Also write simple exr files 
-1. Decode all compression formats
+1. Support all compression formats
+1. Support Deep Data
+1. Simple rendering of common image formats
+1. Profiling and other optimization
+1. Tooling (Image Viewer App)
