@@ -499,14 +499,16 @@ pub fn uncompressed_image_blocks_ordered<'l>(
                     pixel_size: data_indices.size,
                 };
 
-                let mut block_bytes = vec![0_u8; header.max_block_byte_size().min(1024*1024)];
+                let max_allocation_size = 1024*512;
+                let max_block_size = header.max_block_byte_size();
+                let mut block_bytes = vec![0_u8; max_block_size.min(max_allocation_size)];
                 let mut written_block_byte_count = 0; // used to truncate block_bytes after writing
 
                 for (byte_range, line_index) in block_indices.line_indices(header) {
                     let end = byte_range.clone().end;
 
                     if block_bytes.len() < end {
-                        block_bytes.resize(end, 0);
+                        block_bytes.resize((end + max_allocation_size).min(max_block_size), 0);
                     }
 
                     let line_mut = LineRefMut {
