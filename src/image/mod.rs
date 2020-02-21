@@ -767,7 +767,7 @@ impl UncompressedBlock {
             .ok_or(Error::invalid("chunk layer index"))?;
 
         let tile_data_indices = header.get_block_data_indices(&chunk.block)?;
-        let absolute_indices = header.get_absolute_block_indices(tile_data_indices)?;
+        let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_data_indices)?;
 
         absolute_indices.validate(header.data_size)?;
 
@@ -797,34 +797,37 @@ impl UncompressedBlock {
         let header: &Header = meta_data.headers.get(index.layer)
             .expect("block layer index bug");
 
-        let expected_byte_size = header.channels.bytes_per_pixel * self.index.pixel_size.area(); // TODO sampling??
-        if expected_byte_size != data.len() {
-            panic!("get_line byte size should be {} but was {}", expected_byte_size, data.len());
-        }
+        let block_indices = TileCoordinates {
+            tile_index: index.pixel_position / header.default_block_pixel_size(), // TODO this calculation should be done elswhere
+            level_index: index.level,
+        };
 
-        let compressed_data = header.compression.compress_image_section(data)?;
+        let pixel_coordinates = header.get_absolute_block_pixel_coordinates(block_indices)?;
+
+        debug_assert_eq!(data.len(), header.channels.bytes_per_pixel * self.index.pixel_size.area(), "data vector to compress has wrong size"); // TODO sampling??
+        let compressed_data = header.compression.compress_image_section(header, data, pixel_coordinates)?; // TODO test with mip levels and such
+
+        let block = match header.blocks {
+            Blocks::ScanLines => Block::ScanLine(ScanLineBlock {
+                compressed_pixels: compressed_data,
+
+                // FIXME this calculation should not be made here but elsewhere instead (in meta::header?)
+                y_coordinate: usize_to_i32(index.pixel_position.1) + header.own_attributes.data_position.1,
+            }),
+
+            Blocks::Tiles(tiles) => Block::Tile(TileBlock {
+                compressed_pixels: compressed_data,
+                coordinates: TileCoordinates {
+                    // FIXME this calculation should not be made here but elsewhere instead (in meta::header?)
+                    tile_index: index.pixel_position / tiles.tile_size,
+                    level_index: index.level,
+                },
+            }),
+        };
 
         Ok(Chunk {
             layer_index: index.layer,
-            block : match header.blocks {
-                Blocks::ScanLines => Block::ScanLine(ScanLineBlock {
-                    compressed_pixels: compressed_data,
-
-                    // FIXME this calculation should not be made here but elsewhere instead (in meta::header?)
-                    y_coordinate: usize_to_i32(index.pixel_position.1) + header.own_attributes.data_position.1,
-                }),
-
-                Blocks::Tiles(tiles) => Block::Tile(TileBlock {
-                    compressed_pixels: compressed_data,
-                    coordinates: TileCoordinates {
-                        level_index: index.level,
-
-                        // FIXME this calculation should not be made here but elsewhere instead (in meta::header?)
-                        tile_index: index.pixel_position / tiles.tile_size,
-                    },
-
-                }),
-            }
+            block,
         })
     }
 }

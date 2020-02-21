@@ -45,8 +45,6 @@ pub enum Compression {
     /// which can be read with moderate speed. This compression method is lossless.
     ZIP16,
 
-    /// __PIZ compression is not yet supported by this implementation.__
-    ///
     /// PIZ compression works well for noisy and natural images. Works better with larger tiles.
     /// Only supported for flat images, but not for deep data.
     /// This compression method is lossless.
@@ -139,33 +137,35 @@ impl std::fmt::Display for Compression {
 impl Compression {
 
     /// Compress the image section of bytes.
-    pub fn compress_image_section(self, packed: ByteVec) -> Result<ByteVec> {
-        use self::Compression::*;
+    pub fn compress_image_section(self, header: &Header, packed: ByteVec, pixel_section: IntRect) -> Result<ByteVec> {
+        let dimensions = header.default_block_pixel_size();
+        assert!(pixel_section.validate(dimensions).is_ok(), "decompress tile coordinate bug");
 
+        use self::Compression::*;
         let compressed = match self {
             Uncompressed => return Ok(packed),
             ZIP16 => zip::compress_bytes(&packed),
             ZIP1 => zip::compress_bytes(&packed),
             RLE => rle::compress_bytes(&packed),
-//            PIZ => piz::compress_bytes(packed)?,
+            PIZ => piz::compress_bytes(header, &data, pixel_section)?,
             _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
         };
 
         let compressed = compressed
-            .map_err(|_| Error::invalid("compressed content"))?;
+            .map_err(|_| Error::invalid(format!("pixels cannot be compressed ({})", self)))?;
 
         if compressed.len() < packed.len() {
-            Ok(compressed)
+            Ok(compressed) // only return compressed data if it is smaller than uncompressed
         }
         else {
             Ok(packed)
         }
     }
 
-    /// Panics for invalid tile coordinates.
-    pub fn decompress_image_section(self, header: &Header, data: ByteVec, tile: IntRect) -> Result<ByteVec> {
-        let dimensions = tile.size;
-        debug_assert!(tile.validate(dimensions).is_ok(), "decompress tile coordinate bug");
+    /// Decompress the image section of bytes.
+    pub fn decompress_image_section(self, header: &Header, data: ByteVec, pixel_section: IntRect) -> Result<ByteVec> {
+        let dimensions = header.default_block_pixel_size();
+        assert!(pixel_section.validate(dimensions).is_ok(), "decompress tile coordinate bug");
 
         let expected_byte_size = dimensions.0 * dimensions.1 * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
 
@@ -180,8 +180,8 @@ impl Compression {
                 ZIP16 => zip::decompress_bytes(&data, expected_byte_size),
                 ZIP1 => zip::decompress_bytes(&data, expected_byte_size),
                 RLE => rle::decompress_bytes(&data, expected_byte_size),
-//                PIZ => piz::decompress_bytes(header, data, tile, expected_byte_size),
-                _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
+               PIZ => piz::decompress_bytes(header, data, pixel_section, expected_byte_size),
+                _ => return Err(Error::unsupported(format!("yet unimplemented decompression method: {}", self)))
             };
 
             // map all errors to compression errors

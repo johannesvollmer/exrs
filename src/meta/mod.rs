@@ -796,15 +796,27 @@ impl Header {
         vec.into_iter() // TODO without collect
     }
 
+    /// The dimensions, in pixels, of every block in this image.
+    /// The default block size may be deviated from in the last column or row of an image.
+    /// Those blocks only have the size necessary to include all pixels of the image,
+    /// which may be smaller than the default block size.
+    // TODO reuse this function everywhere
+    pub fn default_block_pixel_size(&self) -> Vec2<usize> {
+        match self.blocks {
+            Blocks::ScanLines => Vec2(self.data_size.0, self.compression.scan_lines_per_block()),
+            Blocks::Tiles(tiles) => tiles.tile_size,
+        }
+    }
+
     /// Calculate the position of a block in the global infinite 2D space of a file. May be negative.
-    pub fn get_block_data_window_coordinates(&self, tile: TileCoordinates) -> Result<IntRect> {
-        let data = self.get_absolute_block_indices(tile)?;
+    pub fn get_block_data_window_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntRect> {
+        let data = self.get_absolute_block_pixel_coordinates(tile)?;
         Ok(data.with_origin(self.own_attributes.data_position))
     }
 
     /// Calculate the pixel index rectangle inside this header. Is not negative. Starts at `0`.
-    pub fn get_absolute_block_indices(&self, tile: TileCoordinates) -> Result<IntRect> {
-        Ok(if let Blocks::Tiles(tiles) = self.blocks {
+    pub fn get_absolute_block_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntRect> {
+        if let Blocks::Tiles(tiles) = self.blocks {
             let Vec2(data_width, data_height) = self.data_size;
 
             let data_width = compute_level_size(tiles.rounding_mode, data_width, tile.level_index.0);
@@ -815,7 +827,7 @@ impl Header {
                 return Err(Error::invalid("data block tile index"))
             }
 
-            absolute_tile_coordinates
+            Ok(absolute_tile_coordinates)
         }
         else { // this is a scanline image
             debug_assert_eq!(tile.tile_index.0, 0, "block index calculation bug");
@@ -826,11 +838,11 @@ impl Header {
                 tile.tile_index.1
             )?;
 
-            IntRect {
+            Ok(IntRect {
                 position: Vec2(0, usize_to_i32(y)),
                 size: Vec2(self.data_size.0, height)
-            }
-        })
+            })
+        }
 
         // TODO deep data?
     }
@@ -839,25 +851,25 @@ impl Header {
     /// Starts at `0` and is not negative.
     pub fn get_block_data_indices(&self, block: &Block) -> Result<TileCoordinates> {
         Ok(match block {
-            Block::Tile(ref tile) => {
-                tile.coordinates
-            },
-
-            Block::ScanLine(ref block) => {
-                let size = self.compression.scan_lines_per_block() as i32;
-                let y = (block.y_coordinate - self.own_attributes.data_position.1) / size;
-
-                if y < 0 {
-                    panic!("y index calculation bug");
-                }
-
-                TileCoordinates {
-                    tile_index: Vec2(0, y as usize),
-                    level_index: Vec2(0, 0)
-                }
-            },
-
+            Block::Tile(ref tile) => tile.coordinates,
+            Block::ScanLine(ref block) => self.get_scan_line_block_tile_coordinates(block.y_coordinate),
             _ => return Err(Error::unsupported("deep data not supported yet"))
+        })
+    }
+
+    /// Computes the absolute tile coordinate data indices, which start at `0`.
+    pub fn get_scan_line_block_tile_coordinates(&self, block_y_coordinate: i32) -> Result<TileCoordinates> {
+        let size = self.compression.scan_lines_per_block() as i32;
+        let y = (block_y_coordinate - self.own_attributes.data_position.1) / size;
+
+        if y < 0 {
+            // panic!("block y coordinate calculation bug");
+            return Err(Error::invalid("y block coordinate for data window"))
+        }
+
+        Ok(TileCoordinates {
+            tile_index: Vec2(0, y as usize),
+            level_index: Vec2(0, 0)
         })
     }
 

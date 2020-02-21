@@ -26,7 +26,7 @@ plugin = false
 proc-macro = false
 
 [dependencies]
-lebe = "0.5.0"        # generic binary serialization
+lebe = "0.5.1"        # generic binary serialization
 half = "1.4.1"        # 16 bit float pixel data type
 bit_field = "0.10.0"  # exr file version bit flags
 libflate = "0.1.27"   # zlib compression
