@@ -147,7 +147,7 @@ impl Compression {
             ZIP16 => zip::compress_bytes(&packed),
             ZIP1 => zip::compress_bytes(&packed),
             RLE => rle::compress_bytes(&packed),
-            PIZ => piz::compress_bytes(header, &data, pixel_section)?,
+            PIZ => piz::compress_bytes(header, &packed, pixel_section),
             _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
         };
 

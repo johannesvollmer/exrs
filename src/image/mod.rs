@@ -491,7 +491,7 @@ pub fn uncompressed_image_blocks_ordered<'l>(
     meta_data.headers.iter().enumerate()
         .flat_map(move |(layer_index, header)|{
             header.enumerate_ordered_blocks().map(move |(chunk_index, tile)|{
-                let data_indices = header.get_absolute_block_indices(tile.location).expect("tile coordinate bug");
+                let data_indices = header.get_absolute_block_pixel_coordinates(tile.location).expect("tile coordinate bug");
 
                 let block_indices = BlockIndex {
                     layer: layer_index, level: tile.location.level_index,

@@ -4,10 +4,17 @@
 //!	by Christian Rouet for his PIZ image file format.
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/88246d991e0318c043e6f584f7493da08a31f9f8/OpenEXR/IlmImf/ImfHuf.cpp
 
+#![allow(unused, dead_code)]
+
 use std::io::{Read, Write};
+use crate::error::IoResult;
 
-fn huffman_decompress(data: &[u8], result: &mut [u16]) -> IoResult<()> {
+pub fn compress(_uncompressed: &[u16], _result: &mut [u8]) -> IoResult<()> {
+    unimplemented!()
+}
 
+pub fn decompress(_compressed: &[u8], _result: &mut [u16]) -> IoResult<()> {
+    unimplemented!()
 }
 
 
@@ -65,7 +72,7 @@ fn write_bits(count: i64, bits: i64, c: &mut i64, lc: &mut i64, mut out: impl Wr
 
     while *lc >= 8 {
         *lc -= 8;
-        out.write(&[ (c >> *lc) as u8 ]); // TODO make sure never or always wraps?
+        out.write(&[ (*c >> *lc) as u8 ]).expect("bit write err"); // TODO make sure never or always wraps?
     }
 }
 
@@ -84,7 +91,7 @@ fn write_bits(count: i64, bits: i64, c: &mut i64, lc: &mut i64, mut out: impl Wr
 fn read_bits(count: i64, c: &mut i64, lc: &mut i64, mut read: impl Read) -> i64 {
     while *lc < count {
         use crate::io::Data;
-        *c = (*c << 8) | (u8::read(&mut read) as i64);
+        *c = (*c << 8) | (u8::read(&mut read).expect("huffman read err") as i64);
         *lc += 8;
     }
 
@@ -124,8 +131,8 @@ fn canonical_table(h_code: &mut [i64]) {
     //
     //    for (int i = 0; i < HUF_ENCSIZE; ++i)
     //        n[hcode[i]] += 1;
-    for &code in &h_code {
-        n[code] += 1;
+    for &code in h_code.iter() {
+        n[code as usize] += 1;
     }
 
     // For each i from 58 through 1, compute the
@@ -159,11 +166,11 @@ fn canonical_table(h_code: &mut [i64]) {
     //        if (l > 0)
     //        hcode[i] = l | (n[l]++ << 6);
     //    }
-    for &code in &h_code {
-        let l = code;
+    for code_i in h_code.iter_mut() {
+        let l = *code_i;
         if l > 0 {
-            *h_code = l | (n << 6);
-            n[l] += 1;
+            *code_i = l | (n[l as usize] << 6);
+            n[l as usize] += 1;
         }
     }
 }
@@ -200,7 +207,7 @@ fn compare_heap(a: &i64, b: &i64) -> bool {
 //    {
 fn build_encoding_table(
     frequencies: &mut [i64],  // input frequencies, output encoding table
-) -> Range<i64> // return frequency max min range
+) -> (usize, usize) // return frequency max min range
 {
     debug_assert_eq!(frequencies.len(), ENCODE_SIZE);
 
@@ -235,7 +242,7 @@ fn build_encoding_table(
     //        (*im)++;
     let min_frequency_index = {
         let mut index = 0;
-        while ![frequencies[index]] { index += 1; }
+        while frequencies[index] != 0 { index += 1; }
         index
     };
 
@@ -309,8 +316,8 @@ fn build_encoding_table(
     //
     //    AutoArray <Int64, HUF_ENCSIZE> scode;
     //    memset (scode, 0, sizeof (Int64) * HUF_ENCSIZE);
-    make_heap(&f_heap[0], &f_heap[nf], compare_heap); // TODO use a rust heap crate?
-    let s_code = vec![ 0_i64; ENCODE_SIZE ];
+    // make_heap(&f_heap[0], &f_heap[nf], compare_heap); // TODO use a rust heap crate?
+    let _s_code = vec![ 0_i64; ENCODE_SIZE ];
 
     //    while (nf > 1)
     //    {
@@ -324,8 +331,8 @@ fn build_encoding_table(
         //        int mm = fHeap[0] - frq;
         //        pop_heap (&fHeap[0], &fHeap[nf], FHeapCompare());
         //        --nf;
-        let mm = f_heap[0];
-        pop_heap(f_heap[0], f_hea[nf], compare_heap);
+        let _mm = f_heap[0];
+        // pop_heap(f_heap[0], f_heap[nf], compare_heap);
         nf -= 1;
 
         //

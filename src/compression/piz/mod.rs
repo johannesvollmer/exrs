@@ -10,19 +10,16 @@ mod wavelet;
 use super::*;
 use super::Result;
 use crate::meta::attributes::{IntRect, PixelType};
-use crate::meta::{Header, Blocks};
+use crate::meta::{Header};
 use crate::io::Data;
-use crate::error::IoResult;
 use crate::math::Vec2;
-use std::io::{Write, Read};
-use std::hash::Hasher;
-use std::ops::Range;
 
 
 
 const U16_RANGE: i32 = (1 << 16);
 const BITMAP_SIZE: i32  = (U16_RANGE >> 3);
 
+#[derive(Eq, PartialEq, Ord, PartialOrd, Debug, Copy, Clone)]
 enum Format {
     Independent,
     Native
@@ -37,11 +34,11 @@ pub fn decompress_bytes(
 {
 
     struct ChannelData {
-        start_index: u32,
-        end_index: u32,
-        number_samples: Vec2<u32>,
-        y_samples: u32,
-        size: u32,
+        start_index: usize,
+        end_index: usize,
+        number_samples: Vec2<usize>,
+        y_samples: usize,
+        size: usize,
     }
 
     let Vec2(max_scan_line_size, scan_line_count) = header.default_block_pixel_size();
@@ -75,7 +72,7 @@ pub fn decompress_bytes(
     let mut tmp_buffer = vec![0_u16; tmp_buffer_size];
 
 //        _outBuffer = new char [outBufferSize];
-    let mut out_buffer = vec![0_u8; out_buffer_size];
+    let mut out = Vec::with_capacity(out_buffer_size);
 
 
 //
@@ -204,17 +201,16 @@ pub fn decompress_bytes(
 
     let mut channel_data: Vec<ChannelData> = Vec::new();
 
-    let mut tmp_buffer_end = 0_u32;
+    let mut tmp_buffer_end = 0;
 
     for (_index, channel) in header.channels.list.iter().enumerate() {
 
         let channel = ChannelData {
             start_index: tmp_buffer_end,
             end_index: tmp_buffer_end,
-            y_samples: channel.sampling.1 as u32,
-            number_samples: channel.subsampled_resolution(rectangle.size).map(|x| x as u32),
-            // number_samples_x, number_samples_y,
-            size: (channel.pixel_type.bytes_per_sample() / PixelType::F16.bytes_per_sample()) as u32
+            y_samples: channel.sampling.1,
+            number_samples: channel.subsampled_resolution(rectangle.size),
+            size: (channel.pixel_type.bytes_per_sample() / PixelType::F16.bytes_per_sample())
         };
 
         tmp_buffer_end += channel.number_samples.0 * channel.number_samples.1 * channel.size;
@@ -298,7 +294,7 @@ pub fn decompress_bytes(
     }
 
     // TODO use DynamicHuffmanCodec?
-    huffman_decompress(&read[..length as usize], &mut tmp_buffer)?;
+    huffman::decompress(&read[..length as usize], &mut tmp_buffer)?;
 
 //
 //        //
@@ -317,12 +313,14 @@ pub fn decompress_bytes(
 //                            maxValue);
 //            }
 //        }
+
     for channel in &channel_data {
         for size in 0..channel.size {
-            wave_2_decode(
-                &mut tmp_buffer[(channel.start_index + size) as usize..],
-                channel.number_samples.0, channel.size, channel.number_samples.1,
-                channel.number_samples.0 * channel.size, max_value
+            wavelet::decode(
+                &mut tmp_buffer[(channel.start_index + size) ..],
+                channel.number_samples,
+                Vec2(channel.size, channel.number_samples.0 * channel.size),
+                max_value
             )?;
         }
     }
@@ -343,7 +341,7 @@ pub fn decompress_bytes(
 //
 //        char *outEnd = _outBuffer;
 //
-    let mut out: Vec<u8> = Vec::new();
+//     let mut out: Vec<u8> = Vec::new();
 
 //        if (_format == XDR)
 //        {
@@ -378,9 +376,7 @@ pub fn decompress_bytes(
 
                 // TODO this should be a simple mirroring slice copy?
                 for _x in (0 .. channel.number_samples.0 * channel.size).rev() {
-                    use crate::io::Data;
-
-                    u16::write(&tmp_buffer[channel.end_index as usize], &mut out)?;
+                    u16::write(tmp_buffer[channel.end_index], &mut out)?;
                     // out.push(tmp_buffer[channel.end_index as usize]);
                     channel.end_index += 1;
                 }
@@ -425,8 +421,7 @@ pub fn decompress_bytes(
                 let n = channel.number_samples.0 * channel.size;
                 // out.extend_from_slice(&tmp_buffer[channel.end_index as usize .. (channel.end_index + n) as usize]);
 
-                use lebe::prelude::*;
-                out.write_as_native_endian(&tmp_buffer[channel.end_index as usize .. (channel.end_index + n) as usize])?;
+                out.write_as_native_endian(&tmp_buffer[channel.end_index .. (channel.end_index + n)])?;
 
                 // #[cfg(target_endian = "little")] { out.write_le(&tmp_buffer[channel.end_index as usize .. (channel.end_index + n) as usize])?; }
                 // #[cfg(target_endian = "big")] { out.write_be(&tmp_buffer[channel.end_index as usize .. (channel.end_index + n) as usize])?; }
@@ -452,7 +447,7 @@ pub fn decompress_bytes(
         assert_eq!(channel_data[index - 1].end_index, channel_data[index].start_index);
     }
 
-    assert_eq!(channel_data.last().unwrap().end_index as usize, tmp_buffer.len());
+    assert_eq!(channel_data.last().unwrap().end_index, tmp_buffer.len());
     assert_eq!(out.len(), expected_byte_size);
 
     Ok(out)
@@ -544,9 +539,9 @@ fn apply_lookup_table(data: &mut [u16], table: &[u16]) {
 
 
 pub fn compress_bytes(
-    header: &Header,
-    packed: Bytes<'_>,
-    rectangle: IntRect
+    _header: &Header,
+    _packed: Bytes<'_>,
+    _rectangle: IntRect
 ) -> Result<ByteVec>
 {
     unimplemented!();

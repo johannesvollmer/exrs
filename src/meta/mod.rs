@@ -852,7 +852,7 @@ impl Header {
     pub fn get_block_data_indices(&self, block: &Block) -> Result<TileCoordinates> {
         Ok(match block {
             Block::Tile(ref tile) => tile.coordinates,
-            Block::ScanLine(ref block) => self.get_scan_line_block_tile_coordinates(block.y_coordinate),
+            Block::ScanLine(ref block) => self.get_scan_line_block_tile_coordinates(block.y_coordinate)?,
             _ => return Err(Error::unsupported("deep data not supported yet"))
         })
     }
