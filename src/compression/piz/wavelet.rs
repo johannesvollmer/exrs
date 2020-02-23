@@ -2,6 +2,8 @@
 //! Wavelet encoding and decoding.
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/8cd1b9210855fa4f6923c1b94df8a86166be19b1/OpenEXR/IlmImf/ImfWav.cpp
 
+#![allow(dead_code)]
+
 use crate::error::IoResult;
 use crate::math::Vec2;
 
@@ -586,7 +588,7 @@ fn decode_16bit(l: u16, h: u16) -> (u16, u16) {
     let b = (m - (d >> 1)) & MOD_MASK;
     let a = (d + b - OFFSET_A) & MOD_MASK;
 
-    (b as u16, a as u16) // TODO explicitly wrap?
+    (a as u16, b as u16) // TODO explicitly wrap?
 }
 
 
@@ -594,6 +596,34 @@ fn decode_16bit(l: u16, h: u16) -> (u16, u16) {
 #[cfg(test)]
 mod test {
     use crate::math::Vec2;
+
+    #[test]
+    fn roundtrip_14_bit_values(){
+        let data = [
+            (13,54), (3,123),(423,53), (1,23),(23,515),(513,43),
+            (16374,16381),(16284,3),(2,1), (0,0),(0,4),(3,0)
+        ];
+
+        for &values in &data {
+            let (l, h) = super::encode_14bit(values.0, values.1);
+            let result = super::decode_14bit(l, h);
+            assert_eq!(values, result);
+        }
+    }
+
+    #[test]
+    fn roundtrip_16_bit_values(){
+        let data = [
+            (13,54), (3,123),(423,53), (1,23),(23,515),(513,43),
+            (16385,56384),(18384,36384),(2,1), (0,0),(0,4),(3,0)
+        ];
+
+        for &values in &data {
+            let (l, h) = super::encode_16bit(values.0, values.1);
+            let result = super::decode_16bit(l, h);
+            assert_eq!(values, result);
+        }
+    }
 
     #[test]
     fn roundtrip_14bit(){
