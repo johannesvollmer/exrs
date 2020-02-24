@@ -12,149 +12,96 @@ pub fn encode(
     max: u16 //  maximum buffer[i] value
 ) -> IoResult<()>
 {
-    // bool w14 = (mx < (1 << 14));
-    //     int	n  = (nx > ny)? ny: nx;
-    //     int	p  = 1;			// == 1 <<  level
-    //     int p2 = 2;			// == 1 << (level+1)
     let is_14_bit = max < (1 << 14);
     let count = count_x.min(count_y);
     let mut p: usize = 1; // TODO i32?
     let mut p2: usize = 2;
 
-    //     while (p2 <= n)
     while p2 <= count {
 
-        // 	unsigned short *py = in;
-        // 	unsigned short *ey = in + oy * (ny - p2);
-        // 	int oy1 = oy * p;
-        // 	int oy2 = oy * p2;
-        // 	int ox1 = ox * p;
-        // 	int ox2 = ox * p2;
-        // 	unsigned short i00,i01,i10,i11;
         let mut position_y = 0;
         let end_y = 0 + offset_y * (count_y - p2);
         let (offset1_x, offset1_y) = (offset_x * p, offset_y * p);
         let (offset2_x, offset2_y) = (offset_x * p2, offset_y * p2);
 
-        // 	for (; py <= ey; py += oy2)
-
         // y-loop
         while position_y <= end_y { // TODO: for py in (index..ey).nth(offset_2.0)
 
-            // 	    unsigned short *px = py;
-            // 	    unsigned short *ex = py + ox * (nx - p2);
             let mut position_x = position_y;
             let end_x = position_x + offset_x * (count_x - p2);
 
-            // 	    for (; px <= ex; px += ox2)
-
             // x-loop
             while position_x <= end_x {
-                // 		unsigned short *p01 = px  + ox1;
-                // 		unsigned short *p10 = px  + oy1;
-                // 		unsigned short *p11 = p10 + ox1;
-                let p01 = position_x + offset1_x;
-                let p10 = position_x + offset1_y;
-                let p11 = p10 + offset1_x;
+                let pos_right = position_x + offset1_x;
+                let pos_top = position_x + offset1_y;
+                let pos_top_right = pos_top + offset1_x;
 
                 assert!(position_x < buffer.len());
-                assert!(p01 < buffer.len());
-                assert!(p10 < buffer.len());
-                assert!(p11 < buffer.len());
+                assert!(pos_right < buffer.len());
+                assert!(pos_top < buffer.len());
+                assert!(pos_top_right < buffer.len());
 
-                if is_14_bit {
-                    // 		    wenc14 (*px,  *p01, i00, i01);
-                    // 		    wenc14 (*p10, *p11, i10, i11);
-                    // 		    wenc14 (i00, i10, *px,  *p10);
-                    // 		    wenc14 (i01, i11, *p01, *p11);
-
+                let encode = if is_14_bit {
                     debug_assert!(buffer[position_x] < (1 << 14));
-                    debug_assert!(buffer[p01] < (1 << 14));
+                    debug_assert!(buffer[pos_right] < (1 << 14));
 
-                    let (i00, i01) = encode_14bit(buffer[position_x], buffer[p01]);
-                    let (i10, i11) = encode_14bit(buffer[p10], buffer[p11]);
-
-                    let (px_, p10_) = encode_14bit(i00, i10);
-                    let (p01_, p11_) = encode_14bit(i01, i11);
-
-                    buffer[position_x] = px_; // TODO rustify
-                    buffer[p10] = p10_;
-                    buffer[p01] = p01_;
-                    buffer[p11] = p11_;
+                    encode_14bit
                 }
                 else {
-                    // 		    wenc16 (*px,  *p01, i00, i01);
-                    // 		    wenc16 (*p10, *p11, i10, i11);
-                    // 		    wenc16 (i00, i10, *px,  *p10);
-                    // 		    wenc16 (i01, i11, *p01, *p11);
-                    let (i00, i01) = encode_16bit(buffer[position_x], buffer[p01]);
-                    let (i10, i11) = encode_16bit(buffer[p10], buffer[p11]);
+                    encode_16bit
+                };
 
-                    let (px_, p10_) = encode_16bit(i00, i10);
-                    let (p01_, p11_) = encode_16bit(i01, i11);
+                let (center, right) = encode(buffer[position_x], buffer[pos_right]);
+                let (top, top_right) = encode(buffer[pos_top], buffer[pos_top_right]);
 
-                    buffer[position_x] = px_; // TODO rustify
-                    buffer[p10] = p10_;
-                    buffer[p01] = p01_;
-                    buffer[p11] = p11_;
-                }
+                let (center, top) = encode(center, top);
+                let (right, top_right) = encode(right, top_right);
+
+                buffer[position_x] = center; // TODO rustify
+                buffer[pos_top] = top;
+                buffer[pos_right] = right;
+                buffer[pos_top_right] = top_right;
 
                 position_x += offset2_x;
             }
 
-            // 	    if (nx & p)
-            // 		unsigned short *p10 = px + oy1;
-            // 		if (w14) wenc14 (*px, *p10, i00, *p10);
-            // 		else wenc16 (*px, *p10, i00, *p10);
-            // 		*px= i00;
-
             // encode remaining odd pixel column
             if count_x & p != 0 {
-                let p10 = position_x + offset1_y;
-                let (i00, p10_) = {
-                    if is_14_bit { encode_14bit(buffer[position_x], buffer[p10]) }
-                    else { encode_16bit(buffer[position_x], buffer[p10]) }
+                let pos_top = position_x + offset1_y;
+                let (center, top) = {
+                    if is_14_bit { encode_14bit(buffer[position_x], buffer[pos_top]) }
+                    else { encode_16bit(buffer[position_x], buffer[pos_top]) }
                 };
 
-                buffer[position_x] = i00;
-                buffer[p10] = p10_;
+                buffer[position_x] = center;
+                buffer[pos_top] = top;
             }
 
             position_y += offset2_y;
         }
 
-        // 	if (ny & p)
         // encode possibly remaining odd row
         if count_y & p != 0 {
             let mut position_x = position_y;
             let end_x = position_y + offset_x * (count_x - p2);
 
-            // 	    unsigned short *px = py;
-            // 	    unsigned short *ex = py + ox * (nx - p2);
-            // 	    for (; px <= ex; px += ox2) {
-            // 		   unsigned short *p01 = px + ox1;
-            // 		   if (w14) wenc14 (*px, *p01, i00, *p01);
-            // 		   else wenc16 (*px, *p01, i00, *p01);
-            // 		   *px= i00;
             while position_x <= end_x {
                 println!("odd x loop: position_x = {}, end = {}", position_x, end_x);
 
-                let p01 = position_x + offset1_x;
+                let pos_right = position_x + offset1_x;
 
-                let (px_, p01_) = {
-                    if is_14_bit { encode_14bit(buffer[position_x], buffer[p01]) }
-                    else { encode_16bit(buffer[position_x], buffer[p01]) }
+                let (center, right) = {
+                    if is_14_bit { encode_14bit(buffer[position_x], buffer[pos_right]) }
+                    else { encode_16bit(buffer[position_x], buffer[pos_right]) }
                 };
 
-                buffer[p01] = p01_;
-                buffer[position_x] = px_;
+                buffer[pos_right] = right;
+                buffer[position_x] = center;
 
                 position_x += offset2_x;
             }
         }
 
-        // 	p = p2;
-        // 	p2 <<= 1;
         p = p2;
         p2 <<= 1;
     }
@@ -170,126 +117,71 @@ pub fn decode(
     max: u16 //  maximum buffer[i] value
 ) -> IoResult<()>
 {
-    //     bool w14 = (mx < (1 << 14));
-    //     int	n = (nx > ny)? ny: nx;
-    //     int	p = 1;
     let is_14_bit = max < (1 << 14);
     let count = count_x.min(count_y);
     let mut p: usize = 1; // TODO i32?
     let mut p2: usize; // TODO i32?
-
-    //     while (p <= n)
-    // 	    p <<= 1;
 
     // search max level
     while p <= count {
         p <<= 1;
     }
 
-    //     p >>= 1;
-    //     p2 = p;
-    //     p >>= 1;
     p >>= 1;
     p2 = p;
     p >>= 1;
 
-    //     // Hierarchical loop on smaller dimension n
-    //     while (p >= 1)
     while p >= 1 {
 
-        // 	unsigned short *py = in;
-        // 	unsigned short *ey = in + oy * (ny - p2);
         let mut position_y = 0;
         let end_y = 0 + offset_y * (count_y - p2);
 
-        // 	int oy1 = oy * p;
-        // 	int oy2 = oy * p2;
-        // 	int ox1 = ox * p;
-        // 	int ox2 = ox * p2;
         let (offset1_x, offset1_y) = (offset_x * p, offset_y * p);
         let (offset2_x, offset2_y) = (offset_x * p2, offset_y * p2);
 
         debug_assert_ne!(offset_x, 0, "offset is zero (but shouldnt be???)"); // ????
         debug_assert_ne!(offset_y, 0, "offset is zero (but shouldnt be???)"); // ????
 
-
-        // 	unsigned short i00,i01,i10,i11;
-        // 	for (; py <= ey; py += oy2)
-
         while position_y <= end_y {
-
-            // 	    unsigned short *px = py;
-            // 	    unsigned short *ex = py + ox * (nx - p2);
             let mut position_x = position_y;
             let end_x = position_x + offset_x * (count_x - p2);
 
-            // 	    for (; px <= ex; px += ox2)
             while position_x <= end_x {
-
-                // 		unsigned short *p01 = px  + ox1;
-                // 		unsigned short *p10 = px  + oy1;
-                // 		unsigned short *p11 = p10 + ox1;
-                let p01 = position_x + offset1_x;
-                let p10 = position_x + offset1_y;
-                let p11 = p10 + offset1_x;
+                let pos_right = position_x + offset1_x;
+                let pos_top = position_x + offset1_y;
+                let pos_top_right = pos_top + offset1_x;
 
                 assert!(position_x < buffer.len());
-                assert!(p01 < buffer.len());
-                assert!(p10 < buffer.len());
-                assert!(p11 < buffer.len());
+                assert!(pos_right < buffer.len());
+                assert!(pos_top < buffer.len());
+                assert!(pos_top_right < buffer.len());
 
-                // 		if (w14)
-                // 		    wdec14 (*px,  *p10, i00, i10);
-                // 		    wdec14 (*p01, *p11, i01, i11);
-                // 		    wdec14 (i00, i01, *px,  *p01);
-                // 		    wdec14 (i10, i11, *p10, *p11);
-                if is_14_bit {
-                    let (i00, i10) = decode_14bit(buffer[position_x], buffer[p10]);
-                    let (i01, i11) = decode_14bit(buffer[p01], buffer[p11]);
+                let decode = if is_14_bit { decode_14bit } else { decode_16bit };
 
-                    let (px_, p01_) = decode_14bit(i00, i01);
-                    let (p10_, p11_) = decode_14bit(i10, i11);
+                let (center, top) = decode(buffer[position_x], buffer[pos_top]);
+                let (right, top_right) = decode(buffer[pos_right], buffer[pos_top_right]);
 
-                    buffer[position_x] = px_; // TODO rustify
-                    buffer[p10] = p10_;
-                    buffer[p01] = p01_;
-                    buffer[p11] = p11_;
-                }
+                let (center, right) = decode(center, right);
+                let (top, top_right) = decode(top, top_right);
 
-                // 		    wdec16 (*px,  *p10, i00, i10);
-                // 		    wdec16 (*p01, *p11, i01, i11);
-                // 		    wdec16 (i00, i01, *px,  *p01);
-                // 		    wdec16 (i10, i11, *p10, *p11);
-                else {
-                    let (i00, i10) = decode_16bit(buffer[position_x], buffer[p10]);
-                    let (i01, i11) = decode_16bit(buffer[p01], buffer[p11]);
-                    let (px_, p01_) = decode_16bit(i00, i01);
-                    let (p10_, p11_) = decode_16bit(i10, i11);
-
-                    buffer[position_x] = px_; // TODO rustify
-                    buffer[p10] = p10_;
-                    buffer[p01] = p01_;
-                    buffer[p11] = p11_;
-                }
+                buffer[position_x] = center; // TODO rustify
+                buffer[pos_top] = top;
+                buffer[pos_right] = right;
+                buffer[pos_top_right] = top_right;
 
                 position_x += offset2_x;
             }
 
             // decode last odd remaining x value
             if count_x & p != 0 {
-
-            // 		unsigned short *p10 = px + oy1;
-            // 		if (w14) wdec14 (*px, *p10, i00, *p10);
-            // 		else wdec16 (*px, *p10, i00, *p10);
-            // 		*px= i00;
-                let p10 = position_x + offset1_y;
-                let (px_, p10_) = {
-                    if is_14_bit { decode_14bit(buffer[position_x], buffer[p10]) }
-                    else { decode_16bit(buffer[position_x], buffer[p10]) }
+                let pos_top = position_x + offset1_y;
+                let (center, top) = {
+                    if is_14_bit { decode_14bit(buffer[position_x], buffer[pos_top]) }
+                    else { decode_16bit(buffer[position_x], buffer[pos_top]) }
                 };
 
-                buffer[position_x] = px_;
-                buffer[p10] = p10_;
+                buffer[position_x] = center;
+                buffer[pos_top] = top;
             }
 
             position_y += offset2_y;
@@ -300,35 +192,23 @@ pub fn decode(
             let mut position_x = position_y;
             let end_x = position_x + offset_x * (count_x - p2);
 
-            // 	    unsigned short *px = py;
-            // 	    unsigned short *ex = py + ox * (nx - p2);
-            // 	    for (; px <= ex; px += ox2) {
-            // 		    unsigned short *p01 = px + ox1;
-            // 		    if (w14) wdec14 (*px, *p01, i00, *p01);
-            // 		    else wdec16 (*px, *p01, i00, *p01);
-            // 		    *px= i00;
-
             while position_x <= end_x {
-                let p01 = position_x + offset1_x;
+                let pos_right = position_x + offset1_x;
 
-                let (px_, p01_) = {
-                    if is_14_bit { decode_14bit(buffer[position_x], buffer[p01]) }
-                    else { decode_16bit(buffer[position_x], buffer[p01]) }
+                let (center, right) = {
+                    if is_14_bit { decode_14bit(buffer[position_x], buffer[pos_right]) }
+                    else { decode_16bit(buffer[position_x], buffer[pos_right]) }
                 };
 
-                buffer[position_x] = px_;
-                buffer[p01] = p01_;
+                buffer[position_x] = center;
+                buffer[pos_right] = right;
 
                 position_x += offset2_x;
             }
-
         }
 
-        // 	p2 = p;
-        // 	p >>= 1;
         p2 = p;
         p >>= 1;
-
     }
 
     Ok(())
