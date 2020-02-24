@@ -4,10 +4,9 @@
 //!	by Christian Rouet for his PIZ image file format.
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/88246d991e0318c043e6f584f7493da08a31f9f8/OpenEXR/IlmImf/ImfHuf.cpp
 
-#![allow(unused, dead_code)]
-
 use std::io::{Read, Write};
 use crate::error::IoResult;
+use smallvec::alloc::collections::BinaryHeap;
 
 pub fn compress(_uncompressed: &[u16], _result: &mut [u8]) -> IoResult<()> {
     unimplemented!()
@@ -40,17 +39,11 @@ struct Decode {
 }
 
 //    inline Int64
-//    hufLength (Int64 code)
-//    {
-//        return code & 63;
-//    }
+//    hufLength (Int64 code) code & 63;
 fn length(code: i64) -> i64 { code & 63 }
 
 //    inline Int64
-//    hufCode (Int64 code)
-//    {
-//        return code >> 6;
-//    }
+//    hufCode (Int64 code) code >> 6;
 fn code(code: i64) -> i64 { code >> 6 }
 
 //    inline void
@@ -195,9 +188,9 @@ fn canonical_table(h_code: &mut [i64]) {
 //    return ((*a > *b) || ((*a == *b) && (a > b)));
 //    }
 //    };
-fn compare_heap(a: &i64, b: &i64) -> bool {
+/*fn compare_heap(a: &i64, b: &i64) -> bool {
     (*a > *b) || ((*a == *b) && (a > b))
-}
+}*/
 
 
 //    hufBuildEncTable
@@ -313,36 +306,36 @@ fn build_encoding_table(
     // of the tree) are incremented by one.
 
     //    make_heap (&fHeap[0], &fHeap[nf], FHeapCompare());
-    //
+    let mut heap = BinaryHeap::from(f_heap); // TODO do not create vec in the first place?
+
     //    AutoArray <Int64, HUF_ENCSIZE> scode;
     //    memset (scode, 0, sizeof (Int64) * HUF_ENCSIZE);
-    // make_heap(&f_heap[0], &f_heap[nf], compare_heap); // TODO use a rust heap crate?
-    let _s_code = vec![ 0_i64; ENCODE_SIZE ];
+    let mut s_code = vec![0_i64; ENCODE_SIZE ];
 
     //    while (nf > 1)
     //    {
     while nf > 1 {
 
-        //        // Find the indices, mm and m, of the two smallest non-zero frq
-        //        // values in fHeap, add the smallest frq to the second-smallest
-        //        // frq, and remove the smallest frq value from fHeap.
-        //        //
+        // Find the indices, mm and m, of the two smallest non-zero frq
+        // values in fHeap, add the smallest frq to the second-smallest
+        // frq, and remove the smallest frq value from fHeap.
         //
         //        int mm = fHeap[0] - frq;
         //        pop_heap (&fHeap[0], &fHeap[nf], FHeapCompare());
         //        --nf;
-        let _mm = f_heap[0];
-        // pop_heap(f_heap[0], f_heap[nf], compare_heap);
+        let mm = heap.pop().expect("cannot pop heap bug");
         nf -= 1;
 
-        //
         //        int m = fHeap[0] - frq;
         //        pop_heap (&fHeap[0], &fHeap[nf], FHeapCompare());
-        //
+        let m = heap.pop().expect("cannot pop heap bug");
+
         //        frq[m ] += frq[mm];
         //        push_heap (&fHeap[0], &fHeap[nf], FHeapCompare());
+        frequencies[m] += frequencies[mm];
+        heap.push(m); // m?????
+
         //
-        //        //
         //        // The entries in scode are linked into lists with the
         //        // entries in hlink serving as "next" pointers and with
         //        // the end of a list marked by hlink[j] == j.
@@ -355,53 +348,44 @@ fn build_encoding_table(
         //        //
         //        // Merge the lists that start at scode[m] and scode[mm]
         //        // into a single list that starts at scode[m].
-        //        //
         //
-        //        //
         //        // Add a bit to all codes in the first list.
-        //        //
-        //
-        //        for (int j = m; true; j = hlink[j])
-        //        {
+
+        //        TODO
+        //        for (int j = m; true; j = hlink[j]) {
         //            scode[j]++;
-        //
         //            assert (scode[j] <= 58);
         //
-        //            if (hlink[j] == j)
-        //            {
-        //                //
+        //            if (hlink[j] == j) {
         //                // Merge the two lists.
-        //                //
         //
         //                hlink[j] = mm;
         //                break;
         //            }
         //        }
         //
-        //        //
         //        // Add a bit to all codes in the second list
-        //        //
-        //
-        //        for (int j = mm; true; j = hlink[j])
-        //        {
+        //        for (int j = mm; true; j = hlink[j]) {
         //            scode[j]++;
-        //
         //            assert (scode[j] <= 58);
         //
         //            if (hlink[j] == j)
-        //            break;
+        //              break;
         //        }
         //    }
 
-        //
         // Build a canonical Huffman code table, replacing the code
         // lengths in scode with (code, code length) pairs.  Copy the
         // code table from scode into frq.
-        //
 
         //    hufCanonicalCodeTable (scode);
         //    memcpy (frq, scode, sizeof (Int64) * HUF_ENCSIZE);
 
+        debug_assert_eq!(s_code.len(), ENCODE_SIZE);
+        debug_assert_eq!(frequencies.len(), ENCODE_SIZE);
+
+        canonical_table(&mut s_code);
+        frequencies.copy_from_slice(&s_code);
     }
 
     (min_frequency_index, max_frequency_index)
