@@ -9,21 +9,19 @@ use crate::math::Vec2;
 
 pub fn encode(
     buffer: &mut [u16], // contains input and output
-    size: Vec2<usize>,
-    offset: Vec2<usize>,
+    Vec2(count_x, count_y): Vec2<usize>, // (nx, ny)
+    Vec2(offset_x, offset_y): Vec2<usize>, // (ox, oy)
     max: u16 //  maximum buffer[x][y] value
 ) -> IoResult<()>
 {
-
     // bool w14 = (mx < (1 << 14));
     //     int	n  = (nx > ny)? ny: nx;
     //     int	p  = 1;			// == 1 <<  level
     //     int p2 = 2;			// == 1 << (level+1)
     let is_14_bit = max < (1 << 14);
-    let count = size.0.min(size.1);
+    let count = count_x.min(count_y);
     let mut p: usize = 1; // TODO i32?
     let mut p2: usize = 2;
-    let index: usize = 0;
 
     //
     //     //
@@ -33,7 +31,6 @@ pub fn encode(
     //     while (p2 <= n)
     //     {
     while p2 <= count {
-        println!("main loop: p2 = {}", p2);
 
         // 	unsigned short *py = in;
         // 	unsigned short *ey = in + oy * (ny - p2);
@@ -42,12 +39,10 @@ pub fn encode(
         // 	int ox1 = ox * p;
         // 	int ox2 = ox * p2;
         // 	unsigned short i00,i01,i10,i11;
-        let mut position_y = index;
-        let end_y = index + offset.1 * (size.1 - p2);
-        let offset1 = offset * Vec2(p, p); // remove * 1
-        let offset2 = offset * Vec2(p2, p2);
-
-        debug_assert_ne!(offset, Vec2(0,0), "offset is zero (but shouldnt be???)"); // ????
+        let mut position_y = 0;
+        let end_y = 0 + offset_y * (count_y - p2);
+        let (offset1_x, offset1_y) = (offset_x * p, offset_y * p);
+        let (offset2_x, offset2_y) = (offset_x * p2, offset_y * p2);
 
         //
         // 	//
@@ -59,12 +54,11 @@ pub fn encode(
 
         // y-loop
         while position_y <= end_y { // TODO: for py in (index..ey).nth(offset_2.0)
-            println!("y loop: position_y = {}, end = {}", position_y, end_y);
 
             // 	    unsigned short *px = py;
             // 	    unsigned short *ex = py + ox * (nx - p2);
             let mut position_x = position_y;
-            let end_x = position_y + offset.0 * (size.0 - p2);
+            let end_x = position_x + offset_x * (count_x - p2);
 
             //
             // 	    //
@@ -79,9 +73,9 @@ pub fn encode(
                 // 		unsigned short *p01 = px  + ox1;
                 // 		unsigned short *p10 = px  + oy1;
                 // 		unsigned short *p11 = p10 + ox1;
-                let p01 = position_x + offset1.0;
-                let p10 = position_x + offset1.1;
-                let p11 = p10 + offset1.0;
+                let p01 = position_x + offset1_x;
+                let p10 = position_x + offset1_y;
+                let p11 = p10 + offset1_x;
 
                 assert!(position_x < buffer.len());
                 assert!(p01 < buffer.len());
@@ -89,27 +83,21 @@ pub fn encode(
                 assert!(p11 < buffer.len());
 
                 //
-                // 		//
                 // 		// 2D wavelet encoding
-                // 		//
                 //
-                // 		if (w14)
-                // 		{
-                // 		    wenc14 (*px,  *p01, i00, i01);
-                // 		    wenc14 (*p10, *p11, i10, i11);
-                // 		    wenc14 (i00, i10, *px,  *p10);
-                // 		    wenc14 (i01, i11, *p01, *p11);
-                // 		}
-                // 		else
-                // 		{
-                // 		    wenc16 (*px,  *p01, i00, i01);
-                // 		    wenc16 (*p10, *p11, i10, i11);
-                // 		    wenc16 (i00, i10, *px,  *p10);
-                // 		    wenc16 (i01, i11, *p01, *p11);
-                // 		}
+                // 		if (w14) {
                 if is_14_bit {
+                    // 		    wenc14 (*px,  *p01, i00, i01);
+                    // 		    wenc14 (*p10, *p11, i10, i11);
+                    // 		    wenc14 (i00, i10, *px,  *p10);
+                    // 		    wenc14 (i01, i11, *p01, *p11);
+
+                    debug_assert!(buffer[position_x] < (1 << 14));
+                    debug_assert!(buffer[p01] < (1 << 14));
+
                     let (i00, i01) = encode_14bit(buffer[position_x], buffer[p01]);
                     let (i10, i11) = encode_14bit(buffer[p10], buffer[p11]);
+
                     let (px_, p10_) = encode_14bit(i00, i10);
                     let (p01_, p11_) = encode_14bit(i01, i11);
 
@@ -119,8 +107,13 @@ pub fn encode(
                     buffer[p11] = p11_;
                 }
                 else {
+                    // 		    wenc16 (*px,  *p01, i00, i01);
+                    // 		    wenc16 (*p10, *p11, i10, i11);
+                    // 		    wenc16 (i00, i10, *px,  *p10);
+                    // 		    wenc16 (i01, i11, *p01, *p11);
                     let (i00, i01) = encode_16bit(buffer[position_x], buffer[p01]);
                     let (i10, i11) = encode_16bit(buffer[p10], buffer[p11]);
+
                     let (px_, p10_) = encode_16bit(i00, i10);
                     let (p01_, p11_) = encode_16bit(i01, i11);
 
@@ -132,7 +125,7 @@ pub fn encode(
 
                 // 	    }
 
-                position_x += offset2.0;
+                position_x += offset2_x;
             }
 
             // 	    //
@@ -143,18 +136,16 @@ pub fn encode(
             // 	    {
             // 		unsigned short *p10 = px + oy1;
             //
-            // 		if (w14)
-            // 		    wenc14 (*px, *p10, i00, *p10);
-            // 		else
-            // 		    wenc16 (*px, *p10, i00, *p10);
+            // 		if (w14) wenc14 (*px, *p10, i00, *p10);
+            // 		else wenc16 (*px, *p10, i00, *p10);
             //
             // 		*px= i00;
             // 	    }
             // 	}
 
             // encode remaining odd pixel column
-            if size.0 & p != 0 {
-                let p10 = position_x + offset1.1;
+            if count_x & p != 0 {
+                let p10 = position_x + offset1_y;
                 let (i00, p10_) = {
                     if is_14_bit { encode_14bit(buffer[position_x], buffer[p10]) }
                     else { encode_16bit(buffer[position_x], buffer[p10]) }
@@ -164,57 +155,48 @@ pub fn encode(
                 buffer[p10] = p10_;
             }
 
-            position_y += offset2.1;
+            position_y += offset2_y;
         }
 
-        // 	//
         // 	// Encode (1D) odd line (must loop in X)
-        // 	//
-        //
         // 	if (ny & p)
         // 	{
 
         // encode possibly remaining odd row
-        if size.1 & p != 0 {
+        if count_y & p != 0 {
             let mut position_x = position_y;
-            let end_x = position_y + offset.0 * (size.0 - p2);
+            let end_x = position_y + offset_x * (count_x - p2);
 
             // 	    unsigned short *px = py;
             // 	    unsigned short *ex = py + ox * (nx - p2);
             //
-            // 	    for (; px <= ex; px += ox2)
-            // 	    {
-            // 		unsigned short *p01 = px + ox1;
+            // 	    for (; px <= ex; px += ox2) {
+            // 		   unsigned short *p01 = px + ox1;
             //
-            // 		if (w14)
-            // 		    wenc14 (*px, *p01, i00, *p01);
-            // 		else
-            // 		    wenc16 (*px, *p01, i00, *p01);
+            // 		   if (w14) wenc14 (*px, *p01, i00, *p01);
+            // 		   else wenc16 (*px, *p01, i00, *p01);
             //
-            // 		*px= i00;
+            // 		   *px= i00;
             // 	    }
             while position_x <= end_x {
                 println!("odd x loop: position_x = {}, end = {}", position_x, end_x);
 
-                let p01 = position_x + offset1.0;
+                let p01 = position_x + offset1_x;
 
-                let (i00, p01_) = {
+                let (px_, p01_) = {
                     if is_14_bit { encode_14bit(buffer[position_x], buffer[p01]) }
                     else { encode_16bit(buffer[position_x], buffer[p01]) }
                 };
 
                 buffer[p01] = p01_;
-                buffer[position_x] = i00;
-                position_x += offset2.0;
+                buffer[position_x] = px_;
+
+                position_x += offset2_x;
             }
             // 	}
         }
 
-        //
-        // 	//
         // 	// Next level
-        // 	//
-        //
         // 	p = p2;
         // 	p2 <<= 1;
         //     }
@@ -230,8 +212,8 @@ pub fn encode(
 
 pub fn decode(
     buffer: &mut [u16], // contains input and output
-    size: Vec2<usize>,
-    offset: Vec2<usize>,
+    Vec2(count_x, count_y): Vec2<usize>, // (nx, ny)
+    Vec2(offset_x, offset_y): Vec2<usize>, // (ox, oy)
     max: u16 //  maximum buffer[x][y] value
 ) -> IoResult<()>
 {
@@ -240,23 +222,17 @@ pub fn decode(
     //     int	p = 1;
     //     int p2;
     let is_14_bit = max < (1 << 14);
-    let count = size.0.min(size.1);
+    let count = count_x.min(count_y);
     let mut p: usize = 1; // TODO i32?
     let mut p2: usize; // TODO i32?
-    let index: usize = 0;
 
-    //
-    //     //
     //     // Search max level
-    //     //
-    //
     //     while (p <= n)
-    // 	p <<= 1;
+    // 	    p <<= 1;
     while p <= count {
         p <<= 1;
     }
 
-    //
     //     p >>= 1;
     //     p2 = p;
     //     p >>= 1;
@@ -264,10 +240,7 @@ pub fn decode(
     p2 = p;
     p >>= 1;
 
-    //
-    //     //
     //     // Hierarchical loop on smaller dimension n
-    //     //
     //
     //     while (p >= 1)
     //     {
@@ -275,22 +248,22 @@ pub fn decode(
 
         // 	unsigned short *py = in;
         // 	unsigned short *ey = in + oy * (ny - p2);
-        let mut position_y = index;
-        let end_y = index + offset.1 * (size.1 - p2);
-        let offset1 = offset * Vec2(p, p);
-        let offset2 = offset * Vec2(p2, p2);
-
+        let mut position_y = 0;
+        let end_y = 0 + offset_y * (count_y - p2);
 
         // 	int oy1 = oy * p;
         // 	int oy2 = oy * p2;
         // 	int ox1 = ox * p;
         // 	int ox2 = ox * p2;
+        let (offset1_x, offset1_y) = (offset_x * p, offset_y * p);
+        let (offset2_x, offset2_y) = (offset_x * p2, offset_y * p2);
+
+        debug_assert_ne!(offset_x, 0, "offset is zero (but shouldnt be???)"); // ????
+        debug_assert_ne!(offset_y, 0, "offset is zero (but shouldnt be???)"); // ????
+
+
         // 	unsigned short i00,i01,i10,i11;
-        //
-        // 	//
         // 	// Y loop
-        // 	//
-        //
         // 	for (; py <= ey; py += oy2)
         // 	{
 
@@ -299,13 +272,9 @@ pub fn decode(
             // 	    unsigned short *px = py;
             // 	    unsigned short *ex = py + ox * (nx - p2);
             let mut position_x = position_y;
-            let end_x = position_x + offset.0 * (size.0 - p2);
+            let end_x = position_x + offset_x * (count_x - p2);
 
-            //
-            // 	    //
             // 	    // X loop
-            // 	    //
-            //
             // 	    for (; px <= ex; px += ox2)
             // 	    {
             while position_x <= end_x {
@@ -313,49 +282,46 @@ pub fn decode(
                 // 		unsigned short *p01 = px  + ox1;
                 // 		unsigned short *p10 = px  + oy1;
                 // 		unsigned short *p11 = p10 + ox1;
-                let p01 = position_x + offset1.0;
-                let p10 = position_x + offset1.1;
-                let p11 = p10 + offset1.0;
+                let p01 = position_x + offset1_x;
+                let p10 = position_x + offset1_y;
+                let p11 = p10 + offset1_x;
 
                 assert!(position_x < buffer.len());
                 assert!(p01 < buffer.len());
                 assert!(p10 < buffer.len());
                 assert!(p11 < buffer.len());
 
-                // 		//
                 // 		// 2D wavelet decoding
-                // 		//
-                //
-                // 		if (w14)
-                // 		{
+                // 		if (w14) {
                 // 		    wdec14 (*px,  *p10, i00, i10);
                 // 		    wdec14 (*p01, *p11, i01, i11);
                 // 		    wdec14 (i00, i01, *px,  *p01);
                 // 		    wdec14 (i10, i11, *p10, *p11);
                 // 		}
-                // 		else
-                // 		{
-                // 		    wdec16 (*px,  *p10, i00, i10);
-                // 		    wdec16 (*p01, *p11, i01, i11);
-                // 		    wdec16 (i00, i01, *px,  *p01);
-                // 		    wdec16 (i10, i11, *p10, *p11);
-                // 		}
                 if is_14_bit {
-                    let (i00, i10) = encode_14bit(buffer[position_x], buffer[p10]);
-                    let (i01, i11) = encode_14bit(buffer[p01], buffer[p11]);
-                    let (px_, p01_) = encode_14bit(i00, i01);
-                    let (p10_, p11_) = encode_14bit(i10, i11);
+                    let (i00, i10) = decode_14bit(buffer[position_x], buffer[p10]);
+                    let (i01, i11) = decode_14bit(buffer[p01], buffer[p11]);
+
+                    let (px_, p01_) = decode_14bit(i00, i01);
+                    let (p10_, p11_) = decode_14bit(i10, i11);
 
                     buffer[position_x] = px_; // TODO rustify
                     buffer[p10] = p10_;
                     buffer[p01] = p01_;
                     buffer[p11] = p11_;
                 }
+
+                // 		else {
+                // 		    wdec16 (*px,  *p10, i00, i10);
+                // 		    wdec16 (*p01, *p11, i01, i11);
+                // 		    wdec16 (i00, i01, *px,  *p01);
+                // 		    wdec16 (i10, i11, *p10, *p11);
+                // 		}
                 else {
-                    let (i00, i10) = encode_16bit(buffer[position_x], buffer[p10]);
-                    let (i01, i11) = encode_16bit(buffer[p01], buffer[p11]);
-                    let (px_, p01_) = encode_16bit(i00, i01);
-                    let (p10_, p11_) = encode_16bit(i10, i11);
+                    let (i00, i10) = decode_16bit(buffer[position_x], buffer[p10]);
+                    let (i01, i11) = decode_16bit(buffer[p01], buffer[p11]);
+                    let (px_, p01_) = decode_16bit(i00, i01);
+                    let (p10_, p11_) = decode_16bit(i10, i11);
 
                     buffer[position_x] = px_; // TODO rustify
                     buffer[p10] = p10_;
@@ -364,77 +330,60 @@ pub fn decode(
                 }
 
                 //
-                position_x += offset2.0;
+                position_x += offset2_x;
                 // 	    }
             }
-            // 	    //
+
             // 	    // Decode (1D) odd column (still in Y loop)
-            // 	    //
-            //
-            // 	    if (nx & p)
-            // 	    {
-            if size.0 & p != 0 {
+            // 	    if (nx & p) {
+            if count_x & p != 0 {
 
             // 		unsigned short *p10 = px + oy1;
-            //
-            // 		if (w14)
-            // 		    wdec14 (*px, *p10, i00, *p10);
-            // 		else
-            // 		    wdec16 (*px, *p10, i00, *p10);
-            //
+            // 		if (w14) wdec14 (*px, *p10, i00, *p10);
+            // 		else wdec16 (*px, *p10, i00, *p10);
             // 		*px= i00;
             // 	    }
-                let p10 = position_x + offset1.1;
-                let (i00, p10_) = {
+                let p10 = position_x + offset1_y;
+                let (px_, p10_) = {
                     if is_14_bit { decode_14bit(buffer[position_x], buffer[p10]) }
                     else { decode_16bit(buffer[position_x], buffer[p10]) }
                 };
 
-                buffer[position_x] = i00;
+                buffer[position_x] = px_;
                 buffer[p10] = p10_;
             }
 
             // 	}
-            position_y += offset2.1;
+            position_y += offset2_y;
         }
 
-        //
-        // 	//
         // 	// Decode (1D) odd line (must loop in X)
-        // 	//
-        //
-        // 	if (ny & p)
-        // 	{
-        if size.1 & p != 0 {
+        // 	if (ny & p) {
+        if count_y & p != 0 {
             let mut position_x = position_y;
-            let end_x = position_x + offset.0 * (size.0 - p2);
+            let end_x = position_x + offset_x * (count_x - p2);
 
             // 	    unsigned short *px = py;
             // 	    unsigned short *ex = py + ox * (nx - p2);
             //
-            // 	    for (; px <= ex; px += ox2)
-            // 	    {
-            // 		unsigned short *p01 = px + ox1;
-            //
-            // 		if (w14)
-            // 		    wdec14 (*px, *p01, i00, *p01);
-            // 		else
-            // 		    wdec16 (*px, *p01, i00, *p01);
-            //
-            // 		*px= i00;
+            // 	    for (; px <= ex; px += ox2) {
+            // 		    unsigned short *p01 = px + ox1;
+            // 		    if (w14) wdec14 (*px, *p01, i00, *p01);
+            // 		    else wdec16 (*px, *p01, i00, *p01);
+            // 		    *px= i00;
 
             while position_x <= end_x {
-                let p01 = position_x + offset1.0;
+                let p01 = position_x + offset1_x;
 
-                let (i00, p01_) = {
+                let (px_, p01_) = {
                     if is_14_bit { decode_14bit(buffer[position_x], buffer[p01]) }
                     else { decode_16bit(buffer[position_x], buffer[p01]) }
                 };
 
-                buffer[position_x] = i00;
+                buffer[position_x] = px_;
                 buffer[p01] = p01_;
 
-                position_x += offset2.0;
+                position_x += offset2_x;
             // 	    }
             }
 
@@ -480,9 +429,6 @@ pub fn decode(
 // }
 #[inline(never)] //FIXME not never
 fn encode_14bit(a: u16, b: u16) -> (u16, u16) {
-    debug_assert!(a < (1 << 14), "value {} is not 14-bit", a);
-    debug_assert!(b < (1 << 14), "value {} is not 14-bit", b);
-
     let (a, b) = (a as i16, b as i16);
 
     let m = (a + b) >> 1;
@@ -578,8 +524,8 @@ fn encode_16bit(a: u16, b: u16) -> (u16, u16) {
 //     int d = h;
 //     int bb = (m - (d >> 1)) & MOD_MASK;
 //     int aa = (d + bb - A_OFFSET) & MOD_MASK;
-//     b = bb;
 //     a = aa;
+//     b = bb;
 // }
 #[inline]
 fn decode_16bit(l: u16, h: u16) -> (u16, u16) {
@@ -638,10 +584,7 @@ mod test {
 
         let mut transformed = data.clone();
 
-        println!("encoding...");
         super::encode(&mut transformed, Vec2(6, 4), Vec2(1,6), max).unwrap();
-
-        println!("decoding...");
         super::decode(&mut transformed, Vec2(6, 4), Vec2(1,6), max).unwrap();
 
         assert_eq!(data, transformed);
@@ -660,10 +603,7 @@ mod test {
 
         let mut transformed = data.clone();
 
-        println!("encoding...");
         super::encode(&mut transformed, Vec2(6, 4), Vec2(1,6), max).unwrap();
-
-        println!("decoding...");
         super::decode(&mut transformed, Vec2(6, 4), Vec2(1,6), max).unwrap();
 
         assert_eq!(data, transformed);
