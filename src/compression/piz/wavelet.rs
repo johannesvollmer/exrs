@@ -86,8 +86,6 @@ pub fn encode(
             let end_x = position_y + offset_x * (count_x - p2);
 
             while position_x <= end_x {
-                println!("odd x loop: position_x = {}, end = {}", position_x, end_x);
-
                 let pos_right = position_x + offset1_x;
 
                 let (center, right) = {
