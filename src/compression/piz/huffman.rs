@@ -4,17 +4,105 @@
 //!	by Christian Rouet for his PIZ image file format.
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/88246d991e0318c043e6f584f7493da08a31f9f8/OpenEXR/IlmImf/ImfHuf.cpp
 
-use std::io::{Read, Write};
+use std::io::{Read, Write, ErrorKind, Error};
 use crate::error::IoResult;
 use smallvec::alloc::collections::BinaryHeap;
+
+// void
+// hufUncompress (const char compressed[],
+// 	       int nCompressed,
+// 	       unsigned short raw[],
+// 	       int nRaw)
+// {
+pub fn decompress(compressed: &[u8], result: &mut [u16]) -> IoResult<()> {
+//     //
+//     // need at least 20 bytes for header
+//     //
+//     if (nCompressed < 20 )
+//     {
+// 	if (nRaw != 0)
+// 	    notEnoughData();
+//
+// 	return;
+//     }
+    if compressed.len() < 20 && !result.is_empty() {
+        return Err(std::io::Error::new(ErrorKind::UnexpectedEof, "invalid huffman input"));
+    }
+//
+//     int im = readUInt (compressed);
+//     int iM = readUInt (compressed + 4);
+//     // int tableLength = readUInt (compressed + 8);
+//     int nBits = readUInt (compressed + 12);
+    let mut read = compressed.as_slice();
+    let im = u32::read(read)?;
+    let iM = u32::read(read)?;
+    let _table_len = u32::read(read);
+    let bit_count = u32::read(read);
+//
+//     if (im < 0 || im >= HUF_ENCSIZE || iM < 0 || iM >= HUF_ENCSIZE)
+// 	invalidTableSize();
+    if im < 0 || im >= ENCODE_SIZE || iM < 0 || iM >= ENCODE_SIZE {
+        return Err(Error::new(ErrorKind::InvalidData, "huffman table size"));
+    }
+
+//     TODO
+//     const char *ptr = compressed + 20;
+//
+//     if ( ptr + (nBits+7 )/8 > compressed+nCompressed)
+//     {
+//         notEnoughData();
+//         return;
+//     }
+//
+//     //
+//     // Fast decoder needs at least 2x64-bits of compressed data, and
+//     // needs to be run-able on this platform. Otherwise, fall back
+//     // to the original decoder
+//     //
+//
+//     if (FastHufDecoder::enabled() && nBits > 128)
+//     {
+//         FastHufDecoder fhd (ptr, nCompressed - (ptr - compressed), im, iM, iM);
+//         fhd.decode ((unsigned char*)ptr, nBits, raw, nRaw);
+//     }
+//     else
+//     {
+//         AutoArray <Int64, HUF_ENCSIZE> freq;
+//         AutoArray <HufDec, HUF_DECSIZE> hdec;
+//
+//         hufClearDecTable (hdec);
+//
+//         hufUnpackEncTable (&ptr,
+//                            nCompressed - (ptr - compressed),
+//                            im,
+//                            iM,
+//                            freq);
+//
+//         try
+//         {
+//             if (nBits > 8 * (nCompressed - (ptr - compressed)))
+//                 invalidNBits();
+//
+//             hufBuildDecTable (freq, im, iM, hdec);
+//             hufDecode (freq, hdec, ptr, nBits, iM, nRaw, raw);
+//         }
+//         catch (...)
+//         {
+//             hufFreeDecTable (hdec);
+//             throw;
+//         }
+//
+//         hufFreeDecTable (hdec);
+//     }
+// }
+
+    Ok(())
+}
 
 pub fn compress(_uncompressed: &[u16], _result: &mut [u8]) -> IoResult<()> {
     unimplemented!()
 }
 
-pub fn decompress(_compressed: &[u8], _result: &mut [u16]) -> IoResult<()> {
-    unimplemented!()
-}
 
 
 const ENCODE_BITS: usize = 16;			// literal (value) bit length
@@ -335,7 +423,6 @@ fn build_encoding_table(
         frequencies[m] += frequencies[mm];
         heap.push(m); // m?????
 
-        //
         //        // The entries in scode are linked into lists with the
         //        // entries in hlink serving as "next" pointers and with
         //        // the end of a list marked by hlink[j] == j.
@@ -363,6 +450,20 @@ fn build_encoding_table(
         //                break;
         //            }
         //        }
+        let mut j = m;
+        loop {
+            s_code[j] += 1;
+            assert!(s_code[j] <= 58);
+
+            if h_link[j] == j {
+                // merge the two lists
+                h_link[j] = mm;
+                break;
+            }
+
+            j = hlink[j];
+        }
+
         //
         //        // Add a bit to all codes in the second list
         //        for (int j = mm; true; j = hlink[j]) {
@@ -373,6 +474,19 @@ fn build_encoding_table(
         //              break;
         //        }
         //    }
+        let mut j = mm;
+        loop {
+            s_code[j] += 1;
+            assert!(s_code[j] <= 58);
+
+            if h_link[j] == j {
+                // merge the two lists
+                h_link[j] = mm;
+                break;
+            }
+
+            j = hlink[j];
+        }
 
         // Build a canonical Huffman code table, replacing the code
         // lengths in scode with (code, code length) pairs.  Copy the
