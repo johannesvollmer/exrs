@@ -33,43 +33,44 @@ pub fn decompress(compressed: &[u8], result: &mut [u16]) -> IoResult<()> {
 //     int iM = readUInt (compressed + 4);
 //     // int tableLength = readUInt (compressed + 8);
 //     int nBits = readUInt (compressed + 12);
-    let mut read = compressed.as_slice();
-    let im = u32::read(read)?;
-    let iM = u32::read(read)?;
-    let _table_len = u32::read(read);
-    let bit_count = u32::read(read);
+    let mut remaining_bytes = compressed;
+
+    let min_hcode_index = u32::read(remaining_bytes)?;
+    let max_hcode_index = u32::read(remaining_bytes)?;
+    let _table_len = u32::read(remaining_bytes)?;
+    let bit_count = u32::read(remaining_bytes)?;
 //
 //     if (im < 0 || im >= HUF_ENCSIZE || iM < 0 || iM >= HUF_ENCSIZE)
 // 	invalidTableSize();
-    if im < 0 || im >= ENCODE_SIZE || iM < 0 || iM >= ENCODE_SIZE {
+    if min_hcode_index < 0 || min_hcode_index >= ENCODE_SIZE || max_hcode_index < 0 || max_hcode_index >= ENCODE_SIZE {
         return Err(Error::new(ErrorKind::InvalidData, "huffman table size"));
     }
 
 //     TODO
 //     const char *ptr = compressed + 20;
+    let _padding = u32::read(remaining_bytes)?;
+
 //
 //     if ( ptr + (nBits+7 )/8 > compressed+nCompressed)
 //     {
 //         notEnoughData();
 //         return;
 //     }
-//
-//     //
+    if compressed.len() < (bit_count + 7) / 8 {
+        return Err(Error::new(ErrorKind::InvalidData, "huffman content length"));
+    }
+
 //     // Fast decoder needs at least 2x64-bits of compressed data, and
 //     // needs to be run-able on this platform. Otherwise, fall back
 //     // to the original decoder
-//     //
 //
-//     if (FastHufDecoder::enabled() && nBits > 128)
-//     {
+//     if (FastHufDecoder::enabled() && nBits > 128) { // TODO
 //         FastHufDecoder fhd (ptr, nCompressed - (ptr - compressed), im, iM, iM);
 //         fhd.decode ((unsigned char*)ptr, nBits, raw, nRaw);
 //     }
-//     else
-//     {
+//     else {
 //         AutoArray <Int64, HUF_ENCSIZE> freq;
 //         AutoArray <HufDec, HUF_DECSIZE> hdec;
-//
 //         hufClearDecTable (hdec);
 //
 //         hufUnpackEncTable (&ptr,
@@ -77,17 +78,21 @@ pub fn decompress(compressed: &[u8], result: &mut [u16]) -> IoResult<()> {
 //                            im,
 //                            iM,
 //                            freq);
+
+    let mut frequencies = [0_i64; ENCODE_SIZE];
+    let h_decode = [Decode::default(); DECODE_SIZE];
+    unpack_encoding_table(remaining_bytes, min_hcode_index, max_hcode_index, &mut frequencies);
+
+
 //
-//         try
-//         {
+//         try {
 //             if (nBits > 8 * (nCompressed - (ptr - compressed)))
 //                 invalidNBits();
 //
 //             hufBuildDecTable (freq, im, iM, hdec);
 //             hufDecode (freq, hdec, ptr, nBits, iM, nRaw, raw);
 //         }
-//         catch (...)
-//         {
+//         catch (...) {
 //             hufFreeDecTable (hdec);
 //             throw;
 //         }
@@ -112,6 +117,10 @@ const ENCODE_SIZE: usize = (1 << ENCODE_BITS) + 1;	// encoding table size
 const DECODE_SIZE: usize =  1 << DECODE_BITS;	        // decoding table size
 const DECODE_MASK: usize = DECODE_SIZE - 1;
 
+const SHORT_ZEROCODE_RUN: i64 = 59;
+const LONG_ZEROCODE_RUN: i64  = 63;
+const SHORTEST_LONG_RUN: i64  = 2 + LONG_ZEROCODE_RUN - SHORT_ZEROCODE_RUN;
+const LONGEST_LONG_RUN: i64   = 255 + SHORTEST_LONG_RUN;
 
 //    struct HufDec
 //    {				// short code		long code
@@ -125,6 +134,111 @@ struct Decode {
     lit_24b: i32,           // short: lit           | long: p size
     start_index: usize,     // short: 0,            | long: lits
 }
+
+// void
+// hufUnpackEncTable
+//     (const char**	pcode,		// io: ptr to packed table (updated)
+//      int		ni,		// i : input size (in bytes)
+//      int		im,		// i : min hcode index
+//      int		iM,		// i : max hcode index
+//      Int64*		hcode)		//  o: encoding table [HUF_ENCSIZE]
+
+/// run-length-decompresses all zero runs from the packed table to the encoding table
+fn unpack_encoding_table(packed: &mut &[u8], mut min_hcode_index: usize, max_hcode_index: usize, encoding_table: &mut [i64]) -> IoResult<()> {
+//     const char *p = *pcode;
+//     Int64 c = 0;
+//     int lc = 0;
+    let mut remaining_bytes = *packed;
+    let mut c = 0;
+    let mut lc = 0;
+
+//
+//     for (; im <= iM; im++)
+//     {
+    // for code_index in min_hcode_index ..= max_hcode_index {
+    while min_hcode_index <= max_hcode_index {
+
+// 	        if (p - *pcode > ni)
+// 	            unexpectedEndOfTable();
+        if remaining_bytes.len() < 1 { // TODO we do not need these errors as `read` handles those for us
+            return Err(Error::new(ErrorKind::InvalidData, "huffman table length"));
+        }
+//
+// 	        Int64 l = hcode[im] = getBits (6, c, lc, p); // code length
+        let code_len = read_bits(6, &mut c, &mut lc, &mut remaining_bytes);
+        encoding_table[code_index] = code_len;
+
+//
+// 	        if (l == (Int64) LONG_ZEROCODE_RUN)
+// 	        {
+        if code_len == LONG_ZEROCODE_RUN as i64 {
+// 	            if (p - *pcode > ni)
+// 		        unexpectedEndOfTable();
+            if remaining_bytes.len() < 1 {
+                return Err(Error::new(ErrorKind::InvalidData, "huffman table length"));
+            }
+//
+// 	            int zerun = getBits (8, c, lc, p) + SHORTEST_LONG_RUN;
+            let zerun = read_bits(8, &mut c, &mut lc, &mut remaining_bytes) + SHORTEST_LONG_RUN;
+//
+// 	            if (im + zerun > iM + 1) // TODO open new issue in openexr for negative length?
+// 		            tableTooLong();
+            if zerun < 0 || min_hcode_index as i64 + zerun > max_hcode_index as i64 + 1 {
+                return Err(Error::new(ErrorKind::InvalidData, "huffman table length"));
+            }
+//
+// 	            while (zerun--)
+// 		            hcode[im++] = 0;
+//
+// 	            im--;
+            for value in &mut encoding_table[min_hcode_index .. min_hcode_index + zerun as usize] {
+                *value = 0;
+            }
+
+            min_hcode_index += zerun as usize; // TODO + or - 1
+
+// 	        }
+        }
+// 	        else if (l >= (Int64) SHORT_ZEROCODE_RUN)
+// 	        {
+        else if code_len >= SHORT_ZEROCODE_RUN as i64 {
+// 	            int zerun = l - SHORT_ZEROCODE_RUN + 2;
+//
+// 	            if (im + zerun > iM + 1)
+// 		            tableTooLong();
+//
+// 	            while (zerun--)
+// 		            hcode[im++] = 0;
+//
+// 	            im--;
+// 	        }
+
+            let zerun = code_len - SHORT_ZEROCODE_RUN + 2;
+            if zerun < 0 || min_hcode_index as i64 + zerun > max_hcode_index as i64 + 1 {
+                return Err(Error::new(ErrorKind::InvalidData, "huffman table length"));
+            }
+
+            for value in &mut encoding_table[min_hcode_index .. min_hcode_index + zerun as usize] {
+                *value = 0;
+            }
+
+            min_hcode_index += zerun as usize; // TODO + or - 1
+//     }
+        }
+        else {
+            min_hcode_index += 1;
+        }
+    }
+//
+//     *pcode = const_cast<char *>(p);
+    *packed = remaining_bytes;
+//
+//     hufCanonicalCodeTable (hcode);
+    canonical_table(encoding_table);
+
+    Ok(())
+}
+
 
 //    inline Int64
 //    hufLength (Int64 code) code & 63;
@@ -169,6 +283,7 @@ fn write_bits(count: i64, bits: i64, c: &mut i64, lc: &mut i64, mut out: impl Wr
 //      lc -= nBits;
 //      return (c >> lc) & ((1 << nBits) - 1);
 //    }
+// TODO replace this function with a `Reader` struct that remembers all the parameters??
 fn read_bits(count: i64, c: &mut i64, lc: &mut i64, mut read: impl Read) -> i64 {
     while *lc < count {
         use crate::io::Data;
@@ -314,8 +429,8 @@ fn build_encoding_table(
 
     //    AutoArray <int, HUF_ENCSIZE> hlink;
     //    AutoArray <Int64 *, HUF_ENCSIZE> fHeap;
-    let mut h_link = vec![0_i32; ENCODE_SIZE];
-    let mut f_heap = vec![0_i64; ENCODE_SIZE];
+    let mut h_link = [0_i32; ENCODE_SIZE];
+    let mut f_heap = [0_i64; ENCODE_SIZE];
 
     //    *im = 0;
     //
@@ -394,11 +509,11 @@ fn build_encoding_table(
     // of the tree) are incremented by one.
 
     //    make_heap (&fHeap[0], &fHeap[nf], FHeapCompare());
-    let mut heap = BinaryHeap::from(f_heap); // TODO do not create vec in the first place?
+    let mut heap = BinaryHeap::from(f_heap.to_vec()); // TODO do not create vec in the first place?
 
     //    AutoArray <Int64, HUF_ENCSIZE> scode;
     //    memset (scode, 0, sizeof (Int64) * HUF_ENCSIZE);
-    let mut s_code = vec![0_i64; ENCODE_SIZE ];
+    let mut s_code = [0_i64; ENCODE_SIZE ];
 
     //    while (nf > 1)
     //    {
