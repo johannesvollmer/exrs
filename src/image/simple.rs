@@ -254,11 +254,9 @@ impl Image {
     /// If an error occurs, attempts to delete the partially written file.
     #[must_use]
     pub fn write_to_file(&self, path: impl AsRef<std::path::Path>, options: WriteOptions<impl OnWriteProgress>) -> UnitResult {
-        crate::io::attempt_delete_file_on_write_error(path, |mut write|{
-            self.write_to_unbuffered(&mut write, options)?;
-            write.flush()?; // make sure we catch all (possibly delayed) io errors before returning
-            Ok(())
-        })
+        crate::io::attempt_delete_file_on_write_error(path, |write|
+            self.write_to_unbuffered(write, options)
+        )
     }
 
     /// Buffer the writer and then write the exr image to it.

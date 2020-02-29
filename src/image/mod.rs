@@ -617,9 +617,10 @@ pub fn for_compressed_blocks_in_image(
 }
 
 /// Compresses and writes all lines of an image described by `meta_data` and `get_line` to the writer.
+/// Flushes the writer to explicitly handle all errors.
 ///
 /// Attention: Currently, using multicore compression with `LineOrder::Increasing` or `LineOrder::Decreasing` in any header
-/// will allocate large amounts of memory while writing the file. Use unspecified line order for lower memory usage.
+/// can potentially allocate large amounts of memory while writing the file. Use unspecified line order for lower memory usage.
 ///
 /// Does not buffer the writer, you should always pass a `BufWriter`.
 /// If pedantic, throws errors for files that may produce errors in other exr readers.
@@ -682,6 +683,8 @@ pub fn write_all_lines_to_buffered(
     for offset_table in offset_tables {
         u64::write_slice(&mut write, offset_table.as_slice())?;
     }
+
+    write.flush()?; // make sure we catch all (possibly delayed) io errors before returning
 
     Ok(())
 }
