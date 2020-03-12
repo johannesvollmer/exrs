@@ -574,7 +574,7 @@ impl MetaData {
     // TODO use seek for large (probably all) tables!
     pub fn skip_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<usize> {
         let chunk_count: usize = headers.iter().map(|header| header.chunk_count).sum();
-        crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE)?;
+        crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE)?; // TODO this should seek for large tables
         Ok(chunk_count)
     }
 
