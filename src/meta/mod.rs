@@ -535,10 +535,6 @@ impl MetaData {
         let headers = Header::read_all(read, &requirements)?;
 
         // TODO check if supporting requirements 2 always implies supporting requirements 1
-
-        // TODO only validate the read data that may produce errors later on,
-        //      not because of missing attributes that nobody needs
-
         Ok(MetaData { requirements, headers })
     }
 
@@ -874,29 +870,59 @@ impl Header {
     pub fn validate(&self, requirements: &Requirements, strict: bool) -> UnitResult {
         debug_assert_eq!(
             self.chunk_count, compute_chunk_count(self.compression, self.data_size, self.blocks),
-            "chunk count attribute not correctly set"
+            "incorrect chunk count value"
         );
 
-        if strict && requirements.is_multilayer() {
-            if self.own_attributes.name.is_none() {
-                return Err(missing_attribute("layer name for multi layer file"));
+        if strict {
+            if requirements.is_multilayer() {
+                if self.own_attributes.name.is_none() {
+                    return Err(missing_attribute("layer name for multi layer file"));
+                }
+            }
+
+            if self.blocks == Blocks::ScanLines && self.line_order == LineOrder::Unspecified {
+                return Err(Error::invalid("unspecified line order in scan line images"));
+            }
+
+            if self.data_size == Vec2(0,0) {
+                return Err(Error::invalid("empty data window"));
+            }
+
+            if self.shared_attributes.display_window.size == Vec2(0,0) {
+                return Err(Error::invalid("empty display window"));
+            }
+
+            let max_int = std::i32::MAX / 2;
+            let (data_min, data_max) = (self.data_window().position, self.data_window().max());
+            let (display_min, display_max) = (self.shared_attributes.display_window.position, self.shared_attributes.display_window.max());
+
+            if data_max.0 >= max_int || data_min.0 <= -max_int || data_max.1 >= max_int || data_min.1 <= -max_int {
+                return Err(Error::invalid("data window integers"));
+            }
+
+            if display_max.0 >= max_int || display_min.0 <= -max_int || display_max.1 >= max_int || display_min.1 <= -max_int {
+                return Err(Error::invalid("display window integers"));
+            }
+
+            if !self.shared_attributes.pixel_aspect.is_normal() || self.shared_attributes.pixel_aspect < 1.0e-6 || self.shared_attributes.pixel_aspect > 1.0e6 {
+                return Err(Error::invalid("pixel aspect ratio"));
+            }
+
+            if self.own_attributes.screen_window_width < 0.0 {
+                return Err(Error::invalid("screen window width"));
             }
         }
 
-        // TODO is this really a required?
-        if strict && self.blocks == Blocks::ScanLines && self.line_order == LineOrder::Unspecified {
-            return Err(Error::invalid("scan line images cannot have an unspecified line order"));
-        }
 
         let allow_subsampling = !self.deep && self.blocks == Blocks::ScanLines;
-        self.channels.validate(allow_subsampling, strict)?;
+        self.channels.validate(allow_subsampling, self.data_window(), strict)?;
 
         for attribute in &self.shared_attributes.list {
-            attribute.validate(requirements.has_long_names, allow_subsampling, strict)?;
+            attribute.validate(requirements.has_long_names, allow_subsampling, self.data_window(), strict)?;
         }
 
         for attribute in &self.own_attributes.list {
-            attribute.validate(requirements.has_long_names, allow_subsampling, strict)?;
+            attribute.validate(requirements.has_long_names, allow_subsampling, self.data_window(), strict)?;
         }
 
 
@@ -924,7 +950,6 @@ impl Header {
                 DATA_WINDOW, DISPLAY_WINDOW, LINE_ORDER, PIXEL_ASPECT, WINDOW_CENTER, WINDOW_WIDTH
             ];
 
-
             for &reserved in &reserved_names {
                 if custom_names.contains(reserved) {
 
@@ -937,18 +962,20 @@ impl Header {
         }
 
         if self.deep {
-            if strict && self.own_attributes.name.is_none() {
-                return Err(missing_attribute("layer name for deep file"));
+            if strict {
+                if self.own_attributes.name.is_none() {
+                    return Err(missing_attribute("layer name for deep file"));
+                }
+
+                if self.max_samples_per_pixel.is_none() {
+                    return Err(Error::invalid("missing max samples per pixel attribute for deepdata"));
+                }
             }
 
             match self.deep_data_version {
                 Some(1) => {},
                 Some(_) => return Err(Error::unsupported("deep data version")),
                 None => return Err(missing_attribute("deep data version")),
-            }
-
-            if strict && self.max_samples_per_pixel.is_none() {
-                return Err(Error::invalid("missing max samples per pixel attribute for deepdata"));
             }
 
             if !self.compression.supports_deep_data() {
@@ -1338,7 +1365,7 @@ mod test {
                     position: Vec2(2,1),
                     size: Vec2(11, 9)
                 },
-                pixel_aspect: -3.0,
+                pixel_aspect: 3.0,
                 list: vec![ /* TODO */ ]
             },
 
@@ -1349,7 +1376,7 @@ mod test {
                 name: Some(Text::from("test name lol").unwrap()),
                 data_position: Vec2(3, -5),
                 screen_window_center: Vec2(0.3, 99.0),
-                screen_window_width: -0.19,
+                screen_window_width: 0.19,
                 list: vec![ /* TODO */ ]
             }
         };

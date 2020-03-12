@@ -836,13 +836,21 @@ impl Channel {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, allow_sampling: bool, strict: bool) -> UnitResult {
-        if strict && (self.sampling.0 == 0 || self.sampling.1 == 0) {
+    pub fn validate(&self, allow_sampling: bool, data_window: IntRect, strict: bool) -> UnitResult {
+        if self.sampling.0 == 0 || self.sampling.1 == 0 {
             return Err(Error::invalid("zero sampling factor"));
         }
 
         if strict && allow_sampling && self.sampling != Vec2(1,1) {
             return Err(Error::invalid("sub sampling is only allowed in flat scan line images"));
+        }
+
+        if data_window.position.0 % self.sampling.0 as i32 != 0 || data_window.position.1 % self.sampling.1 as i32 != 0 {
+            return Err(Error::invalid("channel sampling factor not dividing data window position"));
+        }
+
+        if data_window.size.0 % self.sampling.0 != 0 || data_window.size.1 % self.sampling.1 != 0 {
+            return Err(Error::invalid("channel sampling factor not dividing data window size"));
         }
 
         if self.sampling != Vec2(1,1) {
@@ -886,8 +894,8 @@ impl ChannelList {
     }
 
     /// Check if channels are valid and sorted.
-    pub fn validate(&self, allow_sampling: bool, strict: bool) -> UnitResult {
-        let mut iter = self.list.iter().map(|chan| chan.validate(allow_sampling, strict).map(|_| &chan.name));
+    pub fn validate(&self, allow_sampling: bool, data_window: IntRect, strict: bool) -> UnitResult {
+        let mut iter = self.list.iter().map(|chan| chan.validate(allow_sampling, data_window, strict).map(|_| &chan.name));
         let mut previous = iter.next().ok_or(Error::invalid("at least one channel is required"))??;
 
         for result in iter {
@@ -1197,8 +1205,10 @@ impl TileDescription {
 
     /// Validate this instance.
     pub fn validate(&self) -> UnitResult {
-        if self.tile_size.0 == 0 || self.tile_size.1 == 0 {
-            return Err(Error::invalid("zero tile size"))
+        let max = std::i32::MAX as i64 / 2;
+
+        if self.tile_size.0 == 0 || self.tile_size.1 == 0 || self.tile_size.0 as i64 > max || self.tile_size.1 as i64 > max  {
+            return Err(Error::invalid("tile size"))
         }
 
         Ok(())
@@ -1245,9 +1255,9 @@ impl Attribute {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, long_names: bool, allow_sampling: bool, strict: bool) -> UnitResult {
+    pub fn validate(&self, long_names: bool, allow_sampling: bool, data_window: IntRect, strict: bool) -> UnitResult {
         self.name.validate(true, Some(long_names))?; // only name text has length restriction
-        self.value.validate(allow_sampling, strict) // attribute value text length is never restricted
+        self.value.validate(allow_sampling, data_window, strict) // attribute value text length is never restricted
     }
 }
 
@@ -1462,11 +1472,11 @@ impl AnyValue {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, allow_sampling: bool, strict: bool) -> UnitResult {
+    pub fn validate(&self, allow_sampling: bool, data_window: IntRect, strict: bool) -> UnitResult {
         use self::AnyValue::*;
 
         match *self {
-            ChannelList(ref channels) => channels.validate(allow_sampling, strict)?,
+            ChannelList(ref channels) => channels.validate(allow_sampling, data_window, strict)?,
             TileDescription(ref value) => value.validate()?,
             Preview(ref value) => value.validate(strict)?,
 
@@ -1805,7 +1815,7 @@ mod test {
                 value: AnyValue::I32(0),
             };
 
-            too_large_named.validate(false, false, false).expect_err("name length check failed");
+            too_large_named.validate(false, false, IntRect::zero(), false).expect_err("name length check failed");
         }
 
         {
@@ -1814,7 +1824,7 @@ mod test {
                 value: AnyValue::I32(0),
             };
 
-            way_too_large_named.validate(true, false, false).expect_err("name length check failed");
+            way_too_large_named.validate(true, false, IntRect::zero(), false).expect_err("name length check failed");
         }
     }
 }
