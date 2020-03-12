@@ -675,6 +675,8 @@ pub trait Samples {
 
 impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
     fn allocate(resolution: Vec2<usize>) -> Self {
+        debug_assert!(resolution.area() < 1920*10 * 1920*10, "suspiciously large image");
+
         vec![
             DeepLine { samples: Vec::new(), index_table: vec![0; resolution.0] };
             resolution.1
@@ -704,8 +706,10 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
 
 impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for FlatSamples<Sample> {
     fn allocate(resolution: Vec2<usize>) -> Self {
-        let resolution = (resolution.0, resolution.1);
-        vec![Sample::default(); resolution.0 * resolution.1]
+        let count = resolution.area();
+        debug_assert!(count < 1920*10 * 1920*10, "suspiciously large image");
+
+        vec![Sample::default(); count]
     }
 
     fn insert_line(&mut self, line: LineRef<'_>, image_width: usize) -> UnitResult {
