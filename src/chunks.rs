@@ -162,7 +162,7 @@ impl TileCoordinates {
         let start = self.tile_index * tile_size;
 
         Ok(IntRect {
-            position: start.to_i32(),
+            position: start.to_i32(), // FIXME this may panic for an invalid file (fuzz tested)
             size: Vec2(
                 calculate_block_size(max.0, tile_size.0, start.0)?,
                 calculate_block_size(max.1, tile_size.0, start.1)?,
