@@ -202,9 +202,8 @@ See the examples folder for more examples.
 
 ### Motivation
 
-Using the any bindings to the original OpenEXR 
-library unfortunately always
-requires compiling multiple C++ Libraries 
+Using any Rust bindings to the original OpenEXR 
+library unfortunately requires compiling multiple C++ Libraries 
 and possibly setting environment variables, 
 which I didn't quite feel like to do, 
 so I wrote this library instead.
