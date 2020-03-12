@@ -4,10 +4,11 @@
 //!	by Christian Rouet for his PIZ image file format.
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/88246d991e0318c043e6f584f7493da08a31f9f8/OpenEXR/IlmImf/ImfHuf.cpp
 
-use std::io::{Read, Write, ErrorKind, Error};
-use crate::error::{IoResult, UnitResult};
+use std::io::{Read, Write};
+use crate::error::{UnitResult, Error, Result};
 use smallvec::alloc::collections::BinaryHeap;
 use crate::math::RoundingMode;
+use crate::io::Data;
 
 // void
 // hufUncompress (const char compressed[],
@@ -15,7 +16,7 @@ use crate::math::RoundingMode;
 // 	       unsigned short raw[],
 // 	       int nRaw)
 // {
-pub fn decompress(compressed: &[u8], result: &mut [u16]) -> IoResult<()> {
+pub fn decompress(compressed: &[u8], result: &mut Vec<u16>) -> UnitResult {
 //     //
 //     // need at least 20 bytes for header
 //     //
@@ -27,29 +28,30 @@ pub fn decompress(compressed: &[u8], result: &mut [u16]) -> IoResult<()> {
 // 	return;
 //     }
     if compressed.len() < 20 && !result.is_empty() {
-        return Err(std::io::Error::new(ErrorKind::UnexpectedEof, "invalid huffman input"));
+        return Err(Error::invalid("invalid huffman data size"));
     }
 //
 //     int im = readUInt (compressed);
 //     int iM = readUInt (compressed + 4);
 //     // int tableLength = readUInt (compressed + 8);
 //     int nBits = readUInt (compressed + 12);
+
     let mut remaining_bytes = compressed;
 
-    let min_hcode_index = u32::read(remaining_bytes)?;
-    let max_hcode_index = u32::read(remaining_bytes)?;
-    let _table_len = u32::read(remaining_bytes)?;
-    let bit_count = u32::read(remaining_bytes)?;
+    let min_hcode_index = u32::read(&mut remaining_bytes)? as usize;
+    let max_hcode_index = u32::read(&mut remaining_bytes)? as usize;
+    let _table_len = u32::read(&mut remaining_bytes)? as usize;
+    let bit_count = u32::read(&mut remaining_bytes)? as usize;
 //
 //     if (im < 0 || im >= HUF_ENCSIZE || iM < 0 || iM >= HUF_ENCSIZE)
 // 	invalidTableSize();
-    if min_hcode_index < 0 || min_hcode_index >= ENCODE_SIZE || max_hcode_index < 0 || max_hcode_index >= ENCODE_SIZE {
-        return Err(Error::new(ErrorKind::InvalidData, "huffman table size"));
+    if min_hcode_index < 0 || min_hcode_index >= ENCODING_TABLE_SIZE || max_hcode_index < 0 || max_hcode_index >= ENCODING_TABLE_SIZE {
+        return Err(Error::invalid("huffman table size"));
     }
 
 //     TODO
 //     const char *ptr = compressed + 20;
-    let _padding = u32::read(remaining_bytes)?;
+    let _padding = u32::read(&mut remaining_bytes)?;
 
 //
 //     if ( ptr + (nBits+7 )/8 > compressed+nCompressed)
@@ -58,7 +60,7 @@ pub fn decompress(compressed: &[u8], result: &mut [u16]) -> IoResult<()> {
 //         return;
 //     }
     if compressed.len() < RoundingMode::Up.divide(bit_count, 8) {
-        return Err(Error::new(ErrorKind::InvalidData, "huffman content length"));
+        return Err(Error::invalid("huffman data size"));
     }
 
 //     // Fast decoder needs at least 2x64-bits of compressed data, and
@@ -80,8 +82,8 @@ pub fn decompress(compressed: &[u8], result: &mut [u16]) -> IoResult<()> {
 //                            iM,
 //                            freq);
 
-    let mut frequencies = [0_i64; ENCODE_SIZE];
-    let mut h_decode = [Decode::default(); DECODE_SIZE];
+    let mut frequencies = [0_i64; ENCODING_TABLE_SIZE];
+    let mut h_decode = [Code::default(); DECODING_TABLE_SIZE];
     unpack_encoding_table(&mut remaining_bytes, min_hcode_index, max_hcode_index, &mut frequencies);
 
 
@@ -100,10 +102,10 @@ pub fn decompress(compressed: &[u8], result: &mut [u16]) -> IoResult<()> {
 //
 //         hufFreeDecTable (hdec);
     if bit_count > 8 * remaining_bytes.len() {
-        return Err(Error::new(ErrorKind::InvalidData, "invalid bit count"))
+        return Err(Error::invalid("bit count"))
     }
 
-    build_decoding_table(frequencies, min_hcode_index, max_hcode_index, &mut h_decode);
+    build_decoding_table(&frequencies, min_hcode_index, max_hcode_index, &mut h_decode);
     decode(&frequencies, &h_decode, remaining_bytes, bit_count, min_hcode_index, result);
 
 //     }
@@ -112,7 +114,7 @@ pub fn decompress(compressed: &[u8], result: &mut [u16]) -> IoResult<()> {
     Ok(())
 }
 
-pub fn compress(_uncompressed: &[u16], _result: &mut [u8]) -> IoResult<()> {
+pub fn compress(_uncompressed: &[u16], _result: &mut [u8]) -> UnitResult {
     unimplemented!()
 }
 
@@ -121,9 +123,9 @@ pub fn compress(_uncompressed: &[u16], _result: &mut [u8]) -> IoResult<()> {
 const ENCODE_BITS: usize = 16;			// literal (value) bit length
 const DECODE_BITS: usize = 14;			// decoding bit size (>= 8)
 
-const ENCODE_SIZE: usize = (1 << ENCODE_BITS) + 1;	// encoding table size
-const DECODE_SIZE: usize =  1 << DECODE_BITS;	        // decoding table size
-const DECODE_MASK: usize = DECODE_SIZE - 1;
+const ENCODING_TABLE_SIZE: usize = (1 << ENCODE_BITS) + 1;
+const DECODING_TABLE_SIZE: usize =  1 << DECODE_BITS;
+const DECODE_MASK: usize = DECODING_TABLE_SIZE - 1;
 
 const SHORT_ZEROCODE_RUN: i64 = 59;
 const LONG_ZEROCODE_RUN: i64  = 63;
@@ -137,11 +139,32 @@ const LONGEST_LONG_RUN: i64   = 255 + SHORTEST_LONG_RUN;
 //    int		lit:24;		// lit			p size
 //    int	*	p;		// 0			lits
 //    };
-struct Decode {
-    len_8b: i8,             // short: code length   | long: 0
-    lit_24b: i32,           // short: lit           | long: p size
-    lits: u16,              // short: 0,            | long: lits
+
+#[derive(Default, Clone, Debug, Eq, PartialEq)]
+struct Code { // TODO use enum
+    short_code_len: i8,             // short: code length   | long: 0
+    short_code_lit: i32,           // short: lit           | long: p size
+
+    lits: Vec<u16>,         // short: [],           | long: lits
 }
+
+
+// FIXME
+/*#[derive(Default, Clone, Debug, Eq, PartialEq)]
+// TODO repr(packed)?
+enum Code {
+    Short (ShortCode),
+    Long (LongCode)
+}
+
+struct LongCode {
+    value: i32,
+    len: u8
+}
+
+struct ShortCode {
+    values: Vec<u16>
+}*/
 
 
 // void
@@ -156,12 +179,14 @@ struct Decode {
 // {
 fn decode(
     encoding_table: &[i64],
-    decoding_table: &[Decode],
+    decoding_table: &[Code],
     input: &[u8],
     input_bit_count: usize,
     run_length_code: usize,
-    output: &mut [u16]
-) -> IoResult<()> {
+    expected_ouput_size: usize,
+) -> Result<Vec<u16>> {
+    let mut output = Vec::with_capacity(expected_ouput_size);
+
 //      Int64 c = 0;
 //     int lc = 0;
 //     unsigned short * outb = out;
@@ -171,7 +196,6 @@ fn decode(
     let mut lc  = 0;
 
     let mut read = input;
-    let mut write = output;
     debug_assert_eq!(input.len(), RoundingMode::Up.divide(input_bit_count, 8) /*(input_bit_count + 7) / 8*/);
 
 //     // Loop on input bytes
@@ -187,10 +211,10 @@ fn decode(
 // 	// Access decoding table
 // 	while (lc >= HUF_DECBITS)
 // 	{
-        while *lc >= DECODE_BITS {
+        while lc >= DECODE_BITS as i64 {
 
 // 	    const HufDec pl = hdecod[(c >> (lc-HUF_DECBITS)) & HUF_DECMASK];
-            let pl = &decoding_table[(c >> (lc - DECODE_BITS as i64)) & DECODE_MASK as i64];
+            let pl = &decoding_table[((c >> (lc - DECODE_BITS as i64)) & DECODE_MASK as i64) as usize];
 
 // 	    if (pl.len){
 // 		// Get short code
@@ -198,9 +222,9 @@ fn decode(
 // 		lc -= pl.len;
 // 		getCode (pl.lit, rlc, c, lc, in, out, outb, oe);
 // 	    }
-            if pl.len() != 0 { // this is a short code
-                lc -= pl.len();
-                read_code(pl.lits, run_length_code, &mut c, &mut lc, &mut read, &mut write);
+            if pl.short_code_len != 0 { // this is a short code
+                lc -= pl.short_code_len as i64;
+                read_code(&pl.lits, run_length_code, &mut c, &mut lc, &mut read, &mut output);
             }
 
 // 	    else
@@ -209,8 +233,8 @@ fn decode(
 // 		    invalidCode(); // wrong code
 //
             else {
-                if !pl.p {
-                    return Err(Error::new(ErrorKind::InvalidData, "invalid huffman code"));
+                if pl.lits.is_empty() {
+                    return Err(Error::invalid("huffman code"));
                 }
 
 // 		// Search long code
@@ -225,8 +249,8 @@ fn decode(
 
 
 // 		    int	l = hufLength (hcode[pl.p[j]]);
-                    let plpj = pl.p[j];
-                    let encoded_plpj = encoding_table[plpj];
+                    let plpj = pl.lits[j];
+                    let encoded_plpj = encoding_table[plpj as usize];
 
                     let l = length(encoded_plpj);
 //
@@ -254,7 +278,7 @@ fn decode(
                     if lc >= l {
                         if code(plpj) == ((c >> (lc - l)) & ((1 << l) - 1)) {
                             lc -= l;
-                            read_code(plpj, run_length_code, &mut c, &mut lc, &mut read, &mut write);
+                            read_code(plpj, run_length_code, &mut c, &mut lc, &mut read, &mut output);
                             break;
                         }
 
@@ -262,12 +286,12 @@ fn decode(
 
                     j += 1;
                 }
+                if j == pl.short_code_lit { // loop ran through without finding the code
+                    return Err(Error::invalid("huffman code"))
+                }
 // 		}
             }
 
-            if j == pl.lit { // loop ran through without finding the code
-                return Err(Error::new(ErrorKind::InvalidData, "invalid huffman code"))
-            }
 //
 // 		if (j == pl.lit)
 // 		    invalidCode(); // Not found
@@ -312,23 +336,142 @@ fn decode(
 
         if pl.len != 0 {
             lc -= pl.len;
-            read_code(pl.lit, run_length_code, &mut c, &mut lc, &mut read, &mut write);
+            read_code(pl.lit, run_length_code, &mut c, &mut lc, &mut read, &mut output);
         }
         else {
-            return Err(Error::new(ErrorKind::InvalidData, "invalid huffman code"))
-
+            return Err(Error::invalid("huffman code"))
         }
     }
 
 //
 //     if (out - outb != no)
 // 	notEnoughData ();
-    if !write.is_empty() {
-        return Err(Error::new(ErrorKind::InvalidData, "invalid huffman data length"))
+    if output.len() != expected_ouput_size {
+        return Err(Error::invalid("huffman data length"))
+    }
+
+    Ok(output)
+}
+
+// // Build a decoding hash table based on the encoding table hcode:
+// //	- short codes (<= HUF_DECBITS) are resolved with a single table access;
+// //	- long code entry allocations are not optimized, because long codes are
+// //	  unfrequent;
+// //	- decoding tables are used by hufDecode();
+// void
+// hufBuildDecTable
+//     (const Int64*	hcode,		// i : encoding table
+//      int		im,		// i : min index in hcode
+//      int		iM,		// i : max index in hcode
+//      HufDec *		hdecod)		//  o: (allocated by caller)
+//      					//     decoding table [HUF_DECSIZE]
+// {
+fn build_decoding_table(h_code: &[i64], min_hcode_index: usize, max_hcode_index: usize, decoding_table: &mut [Code]) -> UnitResult { // TODO use slices instead of slice+min/max
+    debug_assert_eq!(decoding_table.len(), DECODING_TABLE_SIZE);
+
+    for hcode in h_code[min_hcode_index .. max_hcode_index] {
+
+//     // Init hashtable & loop on all codes.
+//     // Assumes that hufClearDecTable(hdecod) has already been called.
+//     for (; im <= iM; im++)
+//     {
+// 	Int64 c = hufCode (hcode[im]);
+// 	int l = hufLength (hcode[im]);
+        let c = code(hcode);
+        let l = length(hcode);
+//
+// 	if (c >> l)
+// 	{
+// 	    //
+// 	    // Error: c is supposed to be an l-bit code,
+// 	    // but c contains a value that is greater
+// 	    // than the largest l-bit number.
+// 	    //
+//
+// 	    invalidTableEntry();
+// 	}
+        if c >> l != 0 {
+            return Err(Error::invalid("huffman table entry"));
+        }
+//
+// 	if (l > HUF_DECBITS)
+// 	{
+// 	    //
+// 	    // Long code: add a secondary entry
+// 	    //
+        if l > DECODE_BITS as i64 {
+
+//
+// 	    HufDec *pl = hdecod + (c >> (l - HUF_DECBITS));
+//
+// 	    if (pl->len)
+// 	    {
+// 		//
+// 		// Error: a short code has already
+// 		// been stored in table entry *pl.
+// 		//
+//
+// 		invalidTableEntry();
+// 	    }
+            let pl = decoding_table[(c >> (l - DECODE_BITS as i64)) as usize];
+            let pl = if let Code::Long(code) = pl { code }
+            else {
+                return Err(Error::invalid("huffman table entry"));
+            };
+//
+// 	    pl->lit++;
+//
+// 	    if (pl->p)
+// 	    {
+// 		    int *p = pl->p;
+// 		    pl->p = new int [pl->lit];
+//
+// 		    for (int i = 0; i < pl->lit - 1; ++i)
+// 		        pl->p[i] = p[i];
+//
+// 		    delete [] p;
+// 	    }
+// 	    else
+// 	    {
+// 		    pl->p = new int [1];
+// 	    }
+// 	    pl->p[pl->lit - 1]= im;
+// 	}
+            pl.values.push(min_hcode_index);
+
+        }
+// 	else if (l)
+// 	{
+// 	    //
+// 	    // Short code: init all primary entries
+// 	    //
+//
+// 	    HufDec *pl = hdecod + (c << (HUF_DECBITS - l));
+//
+// 	    for (Int64 i = 1 << (HUF_DECBITS - l); i > 0; i--, pl++)
+// 	    {
+// 		if (pl->len || pl->p)
+// 		{
+// 		    //
+// 		    // Error: a short code or a long code has
+// 		    // already been stored in table entry *pl.
+// 		    //
+//
+// 		    invalidTableEntry();
+// 		}
+//
+// 		pl->len = l;
+// 		pl->lit = im;
+// 	    }
+// 	}
+//     }
+// }
     }
 
     Ok(())
 }
+
+
 
 // void
 // hufUnpackEncTable
@@ -339,7 +482,7 @@ fn decode(
 //      Int64*		hcode)		//  o: encoding table [HUF_ENCSIZE]
 
 /// run-length-decompresses all zero runs from the packed table to the encoding table
-fn unpack_encoding_table(packed: &mut &[u8], mut min_hcode_index: usize, max_hcode_index: usize, encoding_table: &mut [i64]) -> IoResult<()> {
+fn unpack_encoding_table(packed: &mut &[u8], mut min_hcode_index: usize, max_hcode_index: usize, encoding_table: &mut [i64]) -> UnitResult {
 //     const char *p = *pcode;
 //     Int64 c = 0;
 //     int lc = 0;
@@ -356,12 +499,12 @@ fn unpack_encoding_table(packed: &mut &[u8], mut min_hcode_index: usize, max_hco
 // 	        if (p - *pcode > ni)
 // 	            unexpectedEndOfTable();
         if remaining_bytes.len() < 1 { // TODO we do not need these errors as `read` handles those for us
-            return Err(Error::new(ErrorKind::InvalidData, "huffman table length"));
+            return Err(Error::invalid("huffman table length"));
         }
 //
 // 	        Int64 l = hcode[im] = getBits (6, c, lc, p); // code length
         let code_len = read_bits(6, &mut c, &mut lc, &mut remaining_bytes);
-        encoding_table[code_index] = code_len;
+        encoding_table[min_hcode_index] = code_len;
 
 //
 // 	        if (l == (Int64) LONG_ZEROCODE_RUN)
@@ -370,7 +513,7 @@ fn unpack_encoding_table(packed: &mut &[u8], mut min_hcode_index: usize, max_hco
 // 	            if (p - *pcode > ni)
 // 		        unexpectedEndOfTable();
             if remaining_bytes.len() < 1 {
-                return Err(Error::new(ErrorKind::InvalidData, "huffman table length"));
+                return Err(Error::invalid("huffman table length"));
             }
 //
 // 	            int zerun = getBits (8, c, lc, p) + SHORTEST_LONG_RUN;
@@ -379,7 +522,7 @@ fn unpack_encoding_table(packed: &mut &[u8], mut min_hcode_index: usize, max_hco
 // 	            if (im + zerun > iM + 1) // TODO open new issue in openexr for negative length?
 // 		            tableTooLong();
             if zerun < 0 || min_hcode_index as i64 + zerun > max_hcode_index as i64 + 1 {
-                return Err(Error::new(ErrorKind::InvalidData, "huffman table length"));
+                return Err(Error::invalid("huffman table length"));
             }
 //
 // 	            while (zerun--)
@@ -410,7 +553,7 @@ fn unpack_encoding_table(packed: &mut &[u8], mut min_hcode_index: usize, max_hco
 
             let zerun = code_len - SHORT_ZEROCODE_RUN + 2;
             if zerun < 0 || min_hcode_index as i64 + zerun > max_hcode_index as i64 + 1 {
-                return Err(Error::new(ErrorKind::InvalidData, "huffman table length"));
+                return Err(Error::invalid("huffman table length"));
             }
 
             for value in &mut encoding_table[min_hcode_index .. min_hcode_index + zerun as usize] {
@@ -498,7 +641,7 @@ fn read_bits(count: i64, c: &mut i64, lc: &mut i64, mut read: impl Read) -> i64 
 // }
 #[inline]
 fn read_byte(c: &mut i64, lc: &mut i64, input: &mut &[u8]) -> UnitResult {
-    *c = (*c << 8) | u8::read(input)?;
+    *c = (*c << 8) | u8::read(input)? as i64;
     *lc += 8;
 
     Ok(())
@@ -507,7 +650,7 @@ fn read_byte(c: &mut i64, lc: &mut i64, input: &mut &[u8]) -> UnitResult {
 // #define getCode(po, rlc, c, lc, in, out, ob, oe)\
 #[inline]
 // pl.lit, run_length_code, c, lc, read, out
-fn read_code(lits: u16, run_length_code: usize, c: &mut i64, lc: &mut i64, read: &mut &[u8], output: &mut &mut[u16]) -> IoResult<()> {
+fn read_code(lits: &[u16], run_length_code: usize, c: &mut i64, lc: &mut i64, read: &mut &[u8], write: &mut Vec<u16>) -> UnitResult {
     if lits as usize == run_length_code {
         if *lc < 8 {
             read_byte(c, lc, read)?;
@@ -516,24 +659,24 @@ fn read_code(lits: u16, run_length_code: usize, c: &mut i64, lc: &mut i64, read:
         *lc -= 8;
 
         let mut cs = *c >> *lc;
-        if cs > output.len() as i64 {
-            return Err(Error::new(ErrorKind::InvalidData, "too much huffman data"));
+        if cs > write.len() as i64 {
+            return Err(Error::invalid("huffman data size"));
         }
-        else if output.is_empty() {
-            return Err(Error::new(ErrorKind::InvalidData, "not enough huffman data"));
+        else if write.is_empty() {
+            return Err(Error::invalid("huffman data size"));
         }
 
-        let s = output[-1];
+        let s = write.last().unwrap();
         while cs > 0 {
-            u16::write(&s, out);
+            write.push(*s);
             cs -= 1;
         }
     }
-    else if !output.is_empty() {
-        u16::write(&lits, out);
+    else if !write.is_empty() {
+        write.extend_from_slice(lits);
     }
     else {
-        return Err(Error::new(ErrorKind::InvalidData, "too much huffman data"));
+        return Err(Error::invalid("huffman data size"));
     }
 
     Ok(())
@@ -549,7 +692,7 @@ fn count_frequencies(frequencies: &mut[i64], data: &[u16]) {
     0_i64.fill_slice(frequencies);
 
     for value in data {
-        frequencies[value] += 1;
+        frequencies[*value as usize] += 1;
     }
 }
 
@@ -590,7 +733,7 @@ fn count_frequencies(frequencies: &mut[i64], data: &[u16]) {
 
 // hufCanonicalCodeTable (Int64 hcode[HUF_ENCSIZE])
 fn canonical_table(h_code: &mut [i64]) {
-    debug_assert_eq!(h_code.len(), ENCODE_SIZE);
+    debug_assert_eq!(h_code.len(), ENCODING_TABLE_SIZE);
 
     // Int64 n[59];
     // for (int i = 0; i <= 58; ++i)
@@ -682,7 +825,7 @@ fn build_encoding_table(
     frequencies: &mut [i64],  // input frequencies, output encoding table
 ) -> (usize, usize) // return frequency max min range
 {
-    debug_assert_eq!(frequencies.len(), ENCODE_SIZE);
+    debug_assert_eq!(frequencies.len(), ENCODING_TABLE_SIZE);
 
     // This function assumes that when it is called, array frq
     // indicates the frequency of all possible symbols in the data
@@ -706,8 +849,8 @@ fn build_encoding_table(
 
     //    AutoArray <int, HUF_ENCSIZE> hlink;
     //    AutoArray <Int64 *, HUF_ENCSIZE> fHeap;
-    let mut h_link = [0_i32; ENCODE_SIZE];
-    let mut f_heap = [0_i64; ENCODE_SIZE];
+    let mut h_link = [0_usize; ENCODING_TABLE_SIZE];
+    let mut f_heap = [0_usize; ENCODING_TABLE_SIZE];
 
     //    *im = 0;
     //
@@ -736,11 +879,11 @@ fn build_encoding_table(
     let mut nf = 0;
     let mut max_frequency_index = 0;
 
-    for index in 0 .. ENCODE_SIZE {
-        h_link[index] = index as i32;
+    for index in 0 ..ENCODING_TABLE_SIZE {
+        h_link[index] = index;
 
         if frequencies[index] != 0 {
-            f_heap[nf] = index as i64; // &frequencies[index];
+            f_heap[nf] = index; // &frequencies[index];
             nf += 1;
             max_frequency_index = index;
         }
@@ -756,7 +899,7 @@ fn build_encoding_table(
     //    nf++;
     max_frequency_index += 1;
     frequencies[max_frequency_index] = 1;
-    f_heap[nf] = max_frequency_index as i64; // &frequencies[max_frequency_index];
+    f_heap[nf] = max_frequency_index; // &frequencies[max_frequency_index];
     nf += 1;
 
     // Build an array, scode, such that scode[i] contains the number
@@ -790,7 +933,7 @@ fn build_encoding_table(
 
     //    AutoArray <Int64, HUF_ENCSIZE> scode;
     //    memset (scode, 0, sizeof (Int64) * HUF_ENCSIZE);
-    let mut s_code = [0_i64; ENCODE_SIZE ];
+    let mut s_code = [0_i64; ENCODING_TABLE_SIZE];
 
     //    while (nf > 1)
     //    {
@@ -852,7 +995,7 @@ fn build_encoding_table(
                 break;
             }
 
-            j = hlink[j];
+            j = h_link[j];
         }
 
         //
@@ -876,7 +1019,7 @@ fn build_encoding_table(
                 break;
             }
 
-            j = hlink[j];
+            j = h_link[j];
         }
 
         // Build a canonical Huffman code table, replacing the code
@@ -886,8 +1029,8 @@ fn build_encoding_table(
         //    hufCanonicalCodeTable (scode);
         //    memcpy (frq, scode, sizeof (Int64) * HUF_ENCSIZE);
 
-        debug_assert_eq!(s_code.len(), ENCODE_SIZE);
-        debug_assert_eq!(frequencies.len(), ENCODE_SIZE);
+        debug_assert_eq!(s_code.len(), ENCODING_TABLE_SIZE);
+        debug_assert_eq!(frequencies.len(), ENCODING_TABLE_SIZE);
 
         canonical_table(&mut s_code);
         frequencies.copy_from_slice(&s_code);
