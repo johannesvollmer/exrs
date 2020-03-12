@@ -13,8 +13,8 @@ use exr::image::{read_options, write_options};
 use exr::meta::MetaData;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
-    walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter()
-        .map(std::result::Result::unwrap).filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
+    walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter().map(std::result::Result::unwrap)
+        .filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
         .map(walkdir::DirEntry::into_path)
 }
 
