@@ -562,7 +562,7 @@ impl Samples {
     /// Allocate a sample block ready to be filled with pixel data.
     pub fn allocate(resolution: Vec2<usize>, pixel_type: PixelType) -> Self {
         let count = resolution.area();
-        debug_assert!(count < 1920*10 * 1920*10, "suspiciously large image");
+        debug_assert!(count < 1920*10 * 1920*10, "suspiciously large image: {} mega pixels", count / 1_000_000);
 
         match pixel_type {
             PixelType::F16 => Samples::F16(vec![ f16::ZERO; count ] ),
