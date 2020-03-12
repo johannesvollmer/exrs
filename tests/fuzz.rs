@@ -26,33 +26,26 @@ pub fn fuzz(){
     let seed = [92,1,0,30,2,8,21,70,74,4,9,9,0,23,0,3,20,5,6,5,9,30,0,34,8,0,40,7,5,02,7,0,];
     let mut random: StdRng = rand::SeedableRng::from_seed(seed);
 
-    // let tasks = rayon::ThreadPoolBuilder::new().build().unwrap();
-    for _ in 0..1024_u64 * 2048 * 4 {
+    let start_index = 0; // increase this integer for debugging a specific fuzz case
+    for fuzz_index in start_index .. 1024_u64 * 2048 * 4 {
 
         let file_1_name = &files[random.gen_range(0, files.len())];
         let mutation_point = random.gen::<f32>().powi(3);
         let mutation = random.gen::<u8>();
 
+        let mut file = std::fs::read(file_1_name).unwrap();
+        let index = (mutation_point * file.len() as f32) as usize % file.len();
+        file[index] = mutation;
 
-        // tasks.install(move || {
-            let mut file = std::fs::read(file_1_name).unwrap();
-
-            let index = (mutation_point * file.len() as f32) as usize % file.len();
-            file[index] = mutation;
-
-            println!("reading file {:?} with mutation [{}] = {}", file_1_name, index, mutation);
-
-            let result = catch_unwind(move || {
-                match exr::image::full::Image::read_from_buffered(file.as_slice(), read_options::low()) {
-                    Err(Error::Invalid(error)) => println!("    ... found invalid image at byte sequence (invalid {})", error),
-                    Ok(_) => println!("    ... found valid image"),
-                    _ => {},
-                }
-            });
-
-            if let Err(error) = result {
-                println!("+++ !!! {:?}", error);
+        let result = catch_unwind(move || {
+            match exr::image::full::Image::read_from_buffered(file.as_slice(), read_options::low()) {
+                Err(Error::Invalid(error)) => println!("    [{}]: invalid. {}.", fuzz_index, error),
+                _ => {},
             }
-        // })
+        });
+
+        if let Err(error) = result {
+            println!("!!! [{}]: {:?}", fuzz_index, error);
+        }
     }
 }
