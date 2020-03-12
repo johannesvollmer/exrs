@@ -56,8 +56,12 @@ pub struct ReadOptions<P: OnReadProgress> {
     /// Called occasionally while reading a file.
     /// The argument is the progress, a float from 0 to 1.
     /// May return `Error::Abort` to cancel reading the file.
-    /// Can be a closure accepting a float, see `OnWriteProgress`.
+    /// Can be a closure accepting a float, see `OnReadProgress`.
     pub on_progress: P,
+
+    /// Reading an image is aborted if the memory required for the pixels is too large.
+    /// The default value of 1GB avoids reading invalid files.
+    pub max_pixel_bytes: Option<usize>,
 }
 
 
@@ -99,21 +103,28 @@ pub mod write_options {
 pub mod read_options {
     use super::*;
 
+    const GIGABYTE: usize = 1_000_000_000;
+
+
     /// High speed but also slightly higher memory requirements.
     pub fn default() -> ReadOptions<()> { self::high() }
 
     /// High speed but also slightly higher memory requirements.
+    /// Aborts reading images that would require more than 1GB of memory.
     pub fn high() -> ReadOptions<()> {
         ReadOptions {
             parallel_decompression: true,
+            max_pixel_bytes: Some(GIGABYTE),
             on_progress: (),
         }
     }
 
     /// Lower speed but also lower memory requirements.
+    /// Aborts reading images that would require more than 1GB of memory.
     pub fn low() -> ReadOptions<()> {
         ReadOptions {
             parallel_decompression: false,
+            max_pixel_bytes: Some(GIGABYTE),
             on_progress: (),
         }
     }
@@ -308,7 +319,7 @@ pub fn read_all_lines_from_buffered<T>(
     options: ReadOptions<impl OnReadProgress>,
 ) -> Result<T>
 {
-    let (meta_data, chunk_count, mut read_chunk) = self::read_all_compressed_chunks_from_buffered(read)?;
+    let (meta_data, chunk_count, mut read_chunk) = self::read_all_compressed_chunks_from_buffered(read, options.max_pixel_bytes)?;
     let meta_data_ref = &meta_data;
 
     let read_chunks = std::iter::from_fn(move || read_chunk(meta_data_ref));
@@ -339,7 +350,10 @@ pub fn read_filtered_lines_from_buffered<T>(
     options: ReadOptions<impl OnReadProgress>,
 ) -> Result<T>
 {
-    let (meta_data, mut value, chunk_count, mut read_chunk) = self::read_filtered_chunks_from_buffered(read, new, filter)?;
+    let (meta_data, mut value, chunk_count, mut read_chunk) = self::read_filtered_chunks_from_buffered(
+        read, new, filter, options.max_pixel_bytes
+    )?;
+
     let read_chunks = std::iter::from_fn(|| read_chunk(&meta_data));
 
     for_lines_in_chunks(
@@ -411,16 +425,17 @@ fn for_lines_in_chunks(
 }
 
 /// Read all chunks without seeking.
-/// Returns the compressed chunks.
+/// Returns the meta data, number of chunks, and a compressed chunk reader.
 /// Does not buffer the reader, you should always pass a `BufReader`.
 #[inline]
 #[must_use]
 pub fn read_all_compressed_chunks_from_buffered<'m>(
     read: impl Read + Send, // FIXME does not actually need to be send, only for parallel writing
+    max_pixel_bytes: Option<usize>,
 ) -> Result<(MetaData, usize, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
 {
     let mut read = PeekRead::new(read);
-    let meta_data = MetaData::read_from_buffered_peekable(&mut read)?;
+    let meta_data = MetaData::read_from_buffered_peekable(&mut read, max_pixel_bytes)?;
     let mut remaining_chunk_count = usize::try_from(MetaData::skip_offset_tables(&mut read, &meta_data.headers)?)
         .expect("too large chunk count for this machine");
 
@@ -445,11 +460,12 @@ pub fn read_filtered_chunks_from_buffered<'m, T>(
     read: impl Read + Seek + Send, // FIXME does not always need be Send
     new: impl Fn(&[Header]) -> Result<T>,
     filter: impl Fn(&T, &Header, &TileIndices) -> bool,
+    max_pixel_bytes: Option<usize>,
 ) -> Result<(MetaData, T, usize, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
 {
     let skip_read = Tracking::new(read);
     let mut read = PeekRead::new(skip_read);
-    let meta_data = MetaData::read_from_buffered_peekable(&mut read)?;
+    let meta_data = MetaData::read_from_buffered_peekable(&mut read, max_pixel_bytes)?;
 
     let value = new(meta_data.headers.as_slice())?;
 

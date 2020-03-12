@@ -707,7 +707,7 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
 impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for FlatSamples<Sample> {
     fn allocate(resolution: Vec2<usize>) -> Self {
         let count = resolution.area();
-        debug_assert!(count < 1920*10 * 1920*10, "suspiciously large image: {} mega pixels", count / 1_000_000);
+        debug_assert!(count < 1920*20 * 1920*20, "suspiciously large image: {} mega pixels", count / 1_000_000);
 
         vec![Sample::default(); count]
     }

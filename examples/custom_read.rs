@@ -100,6 +100,7 @@ fn main() {
         // print file processing progress into the console, occasionally (important for large files)
         ReadOptions {
             parallel_decompression: false,
+            max_pixel_bytes: None,
             on_progress: |progress| {
                 count_to_1000_and_then_print += 1;
                 if count_to_1000_and_then_print == 1000 {

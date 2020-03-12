@@ -540,12 +540,12 @@ impl MetaData {
 
     /// Validates the meta data.
     #[must_use]
-    pub(crate) fn read_from_buffered_peekable(read: &mut PeekRead<impl Read>) -> Result<Self> {
+    pub(crate) fn read_from_buffered_peekable(read: &mut PeekRead<impl Read>, max_pixel_bytes: Option<usize>) -> Result<Self> {
         let meta_data = Self::read_unvalidated_from_buffered_peekable(read)?;
 
         // relaxed validation to allow slightly invalid files
         // that still can be read correctly
-        meta_data.validate(false)?;
+        meta_data.validate(max_pixel_bytes, false)?;
 
         Ok(meta_data)
     }
@@ -555,7 +555,7 @@ impl MetaData {
     pub(crate) fn write_validating_to_buffered(&self, write: &mut impl Write, pedantic: bool) -> UnitResult {
         // pedantic validation to not allow slightly invalid files
         // that still could be read correctly in theory
-        self.validate(pedantic)?;
+        self.validate(None, pedantic)?;
 
         magic_number::write(write)?;
         self.requirements.write(write)?;
@@ -580,7 +580,7 @@ impl MetaData {
 
     /// Validates this meta data.
     /// Set strict to false when reading and true when writing for maximum compatibility.
-    pub fn validate(&self, strict: bool) -> UnitResult {
+    pub fn validate(&self, max_pixel_bytes: Option<usize>, strict: bool) -> UnitResult {
         self.requirements.validate()?;
 
         let headers = self.headers.len();
@@ -591,6 +591,16 @@ impl MetaData {
 
         for header in &self.headers {
             header.validate(&self.requirements, strict)?;
+        }
+
+        if let Some(max) = max_pixel_bytes {
+            let byte_size: usize = self.headers.iter()
+                .map(|header| header.data_size.area() * header.channels.bytes_per_pixel)
+                .sum();
+
+            if byte_size > max {
+                return Err(Error::invalid("image larger than specified maximum"));
+            }
         }
 
         if strict { // check for duplicate header names
@@ -1396,7 +1406,7 @@ mod test {
         let mut data: Vec<u8> = Vec::new();
         meta.write_validating_to_buffered(&mut data, true).unwrap();
         let meta2 = MetaData::read_from_buffered(data.as_slice()).unwrap();
-        meta2.validate(true).unwrap();
+        meta2.validate(None, true).unwrap();
         assert_eq!(meta, meta2);
     }
 }
