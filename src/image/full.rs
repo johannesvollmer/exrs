@@ -302,8 +302,8 @@ impl Image {
         let shared_attributes = &headers.iter()
             // pick the header with the most attributes
             // (all headers should have the same shared attributes anyways)
-            .max_by_key(|header| header.shared_attributes.list.len())
-            .expect("no headers found").shared_attributes;
+            .max_by_key(|header| header.shared_attributes.custom.len())
+            .expect("at least one header is required").shared_attributes;
 
         let headers : Result<_> = headers.iter().map(Layer::allocate).collect();
 

@@ -7,8 +7,7 @@ use exr::image::full::*;
 use std::path::{PathBuf};
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use exr::meta::attributes::{Attribute};
-use exr::meta::MetaData;
+use exr::meta::{MetaData, Header};
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter().map(std::result::Result::unwrap)
@@ -32,12 +31,13 @@ fn search_previews_of_all_files() {
 
     files.into_par_iter().for_each(|path| {
         let meta = MetaData::read_from_file(&path).unwrap();
-        let attributes = meta.headers.iter().flat_map(|header| header.own_attributes.list.iter());
-        let values = attributes.filter(|attribute| attribute.value.to_preview().is_ok());
-        let values: Vec<&Attribute> = values.collect();
+        let has_preview = meta.headers.iter().any(|header: &Header|
+            header.own_attributes.preview.is_some() || header.own_attributes.custom.values()
+                .find(|value| value.to_preview().is_ok()).is_some()
+        );
 
-        if !values.is_empty() {
-            println!("{:?}: \t\t\t {:?}", path.file_name().unwrap(), values);
+        if has_preview {
+            println!("Found preview attribute in {:?}", path.file_name().unwrap());
         }
     });
 }
