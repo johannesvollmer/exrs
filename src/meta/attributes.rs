@@ -150,7 +150,7 @@ pub use crate::compression::Compression;
 /// The integer rectangle describing where an layer is placed on the infinite 2D global space.
 pub type DataWindow = IntRect;
 
-/// The integer rectangle limiting part of the infinite 2D global space should be displayed.
+/// The integer rectangle limiting which part of the infinite 2D global space should be displayed.
 pub type DisplayWindow = IntRect;
 
 /// An integer dividend and divisor, together forming a ratio.
