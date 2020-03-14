@@ -309,7 +309,6 @@ impl LineRef<'_> {
 
 /// Reads and decompresses all chunks of a file sequentially without seeking.
 /// Will not skip any parts of the file. Does not buffer the reader, you should always pass a `BufReader`.
-/// The progress argument may be a closure.
 #[inline]
 #[must_use]
 pub fn read_all_lines_from_buffered<T>(
@@ -325,7 +324,7 @@ pub fn read_all_lines_from_buffered<T>(
     let read_chunks = std::iter::from_fn(move || read_chunk(meta_data_ref));
     let mut result = new(meta_data.headers.as_slice())?;
 
-    for_lines_in_chunks(
+    for_decompressed_lines_in_chunks(
         read_chunks, &meta_data,
         |meta, line| insert(&mut result, meta, line),
         chunk_count, options
@@ -339,7 +338,6 @@ pub fn read_all_lines_from_buffered<T>(
 /// Will skip any parts of the file that do not match the specified filter condition.
 /// Will never seek if the filter condition matches all chunks.
 /// Does not buffer the reader, you should always pass a `BufReader`.
-/// The progress argument may be a closure.
 #[inline]
 #[must_use]
 pub fn read_filtered_lines_from_buffered<T>(
@@ -350,14 +348,12 @@ pub fn read_filtered_lines_from_buffered<T>(
     options: ReadOptions<impl OnReadProgress>,
 ) -> Result<T>
 {
-    let (meta_data, mut value, chunk_count, mut read_chunk) = self::read_filtered_chunks_from_buffered(
-        read, new, filter, options.max_pixel_bytes
-    )?;
+    let (meta_data, mut value, chunk_count, mut read_chunk) = {
+        self::read_filtered_chunks_from_buffered(read, new, filter, options.max_pixel_bytes)?
+    };
 
-    let read_chunks = std::iter::from_fn(|| read_chunk(&meta_data));
-
-    for_lines_in_chunks(
-        read_chunks, &meta_data,
+    for_decompressed_lines_in_chunks(
+        std::iter::from_fn(|| read_chunk(&meta_data)), &meta_data,
         |meta, line| insert(&mut value, meta, line),
         chunk_count, options
     )?;
@@ -367,10 +363,9 @@ pub fn read_filtered_lines_from_buffered<T>(
 
 /// Iterates through all lines of all supplied chunks.
 /// Decompresses the chunks either in parallel or sequentially.
-/// The progress argument may be a closure.
 #[inline]
 #[must_use]
-fn for_lines_in_chunks(
+fn for_decompressed_lines_in_chunks(
     chunks: impl Send + Iterator<Item = Result<Chunk>>,
     meta_data: &MetaData,
     mut for_each: impl FnMut(&[Header], LineRef<'_>) -> UnitResult,
@@ -640,8 +635,6 @@ pub fn for_compressed_blocks_in_image(
 ///
 /// Does not buffer the writer, you should always pass a `BufWriter`.
 /// If pedantic, throws errors for files that may produce errors in other exr readers.
-///
-/// The progress argument may be a closure.
 #[inline]
 #[must_use]
 pub fn write_all_lines_to_buffered(

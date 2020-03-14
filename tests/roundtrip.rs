@@ -75,7 +75,7 @@ fn round_trip_all_files() {
         let image = Image::read_from_file(path, read_options::low())?;
 
         let mut tmp_bytes = Vec::new();
-        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low())?; // not multi threaded to produce exact same byte sequence
+        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low())?;
 
         let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), read_options::low())?;
         assert_eq!(image, image2);
