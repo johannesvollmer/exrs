@@ -8,7 +8,7 @@ use smallvec::SmallVec;
 /// Contains one of all possible attributes.
 /// Includes a variant for custom attributes.
 #[derive(Debug, Clone, PartialEq)]
-pub enum AnyValue { // TODO rename to "attribute value"?
+pub enum AttributeValue {
 
     /// Channel meta data.
     ChannelList(ChannelList),
@@ -29,10 +29,10 @@ pub enum AnyValue { // TODO rename to "attribute value"?
     LineOrder(LineOrder),
 
     /// A 3x3 matrix of floats.
-    F32Matrix3x3(Matrix3x3),
+    Matrix3x3(Matrix3x3),
 
     /// A 4x4 matrix of floats.
-    F32Matrix4x4(Matrix4x4),
+    Matrix4x4(Matrix4x4),
 
     /// 8-bit RGBA Preview of the image.
     Preview(Preview),
@@ -971,9 +971,7 @@ impl Chromaticities {
 impl Compression {
 
     /// Number of bytes this would consume in an exr file.
-    pub fn byte_size() -> usize {
-        1
-    }
+    pub fn byte_size() -> usize { 1 }
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(self, write: &mut W) -> UnitResult {
@@ -1223,7 +1221,7 @@ impl TileDescription {
 
 /// Number of bytes this attribute would consume in an exr file.
 // TODO instead of pre calculating byte size, write to a tmp buffer whose length is inspected before actually writing?
-pub fn byte_size(name: &Text, value: &AnyValue) -> usize {
+pub fn byte_size(name: &Text, value: &AttributeValue) -> usize {
     name.null_terminated_byte_size()
         + value.kind_name().len() + sequence_end::byte_size()
         + i32::BYTE_SIZE // serialized byte size
@@ -1231,7 +1229,7 @@ pub fn byte_size(name: &Text, value: &AnyValue) -> usize {
 }
 
 /// Without validation, write this attribute to the byte stream.
-pub fn write<W: Write>(name: &[u8], value: &AnyValue, write: &mut W) -> UnitResult {
+pub fn write<W: Write>(name: &[u8], value: &AttributeValue, write: &mut W) -> UnitResult {
     Text::write_null_terminated_bytes(name, write)?;
     Text::write_null_terminated_bytes(value.kind_name(), write)?;
     i32::write(value.byte_size() as i32, write)?;
@@ -1239,26 +1237,26 @@ pub fn write<W: Write>(name: &[u8], value: &AnyValue, write: &mut W) -> UnitResu
 }
 
 /// Read the attribute without validating.
-pub fn read(read: &mut PeekRead<impl Read>, max_size: usize) -> Result<(Text, AnyValue)> {
+pub fn read(read: &mut PeekRead<impl Read>, max_size: usize) -> Result<(Text, AttributeValue)> {
     let name = Text::read_null_terminated(read, max_size)?;
     let kind = Text::read_null_terminated(read, max_size)?;
     let size = i32_to_usize(i32::read(read)?, "attribute size")?;
-    let value = AnyValue::read(read, kind, size)?;
+    let value = AttributeValue::read(read, kind, size)?;
     Ok((name, value))
 }
 
 /// Validate this attribute.
-pub fn validate(name: &Text, value: &AnyValue, long_names: bool, allow_sampling: bool, data_window: IntRect, strict: bool) -> UnitResult {
+pub fn validate(name: &Text, value: &AttributeValue, long_names: bool, allow_sampling: bool, data_window: IntRect, strict: bool) -> UnitResult {
     name.validate(true, Some(long_names))?; // only name text has length restriction
     value.validate(allow_sampling, data_window, strict) // attribute value text length is never restricted
 }
 
 
-impl AnyValue {
+impl AttributeValue {
 
     /// Number of bytes this would consume in an exr file.
     pub fn byte_size(&self) -> usize {
-        use self::AnyValue::*;
+        use self::AttributeValue::*;
 
         match *self {
             IntRect(_) => self::IntRect::byte_size(),
@@ -1284,8 +1282,8 @@ impl AnyValue {
             KeyCode(_) => self::KeyCode::byte_size(),
             LineOrder(_) => self::LineOrder::byte_size(),
 
-            F32Matrix3x3(ref value) => value.len() * f32::BYTE_SIZE,
-            F32Matrix4x4(ref value) => value.len() * f32::BYTE_SIZE,
+            Matrix3x3(ref value) => value.len() * f32::BYTE_SIZE,
+            Matrix4x4(ref value) => value.len() * f32::BYTE_SIZE,
 
             Preview(ref value) => value.byte_size(),
 
@@ -1302,7 +1300,7 @@ impl AnyValue {
 
     /// The exr name string of the type that an attribute can have.
     pub fn kind_name(&self) -> &[u8] {
-        use self::AnyValue::*;
+        use self::AttributeValue::*;
         use self::attribute_type_names as ty;
 
         match *self {
@@ -1323,8 +1321,8 @@ impl AnyValue {
             EnvironmentMap(_) =>  ty::ENVIRONMENT_MAP,
             KeyCode(_) =>  ty::KEY_CODE,
             LineOrder(_) =>  ty::LINE_ORDER,
-            F32Matrix3x3(_) =>  ty::F32MATRIX3X3,
-            F32Matrix4x4(_) =>  ty::F32MATRIX4X4,
+            Matrix3x3(_) =>  ty::F32MATRIX3X3,
+            Matrix4x4(_) =>  ty::F32MATRIX4X4,
             Preview(_) =>  ty::PREVIEW,
             Text(_) =>  ty::TEXT,
             TextVector(_) =>  ty::TEXT_VECTOR,
@@ -1336,7 +1334,7 @@ impl AnyValue {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
-        use self::AnyValue::*;
+        use self::AttributeValue::*;
         match *self {
             IntRect(value) => value.write(write)?,
             FloatRect(value) => value.write(write)?,
@@ -1361,8 +1359,8 @@ impl AnyValue {
             KeyCode(value) => value.write(write)?,
             LineOrder(value) => value.write(write)?,
 
-            F32Matrix3x3(mut value) => f32::write_slice(write, &mut value)?,
-            F32Matrix4x4(mut value) => f32::write_slice(write, &mut value)?,
+            Matrix3x3(mut value) => f32::write_slice(write, &mut value)?,
+            Matrix4x4(mut value) => f32::write_slice(write, &mut value)?,
 
             Preview(ref value) => { value.write(write)?; },
 
@@ -1381,7 +1379,7 @@ impl AnyValue {
 
     /// Read the value without validating.
     pub fn read(read: &mut PeekRead<impl Read>, kind: Text, byte_size: usize) -> Result<Self> {
-        use self::AnyValue::*;
+        use self::AttributeValue::*;
         use self::attribute_type_names as ty;
 
         Ok(match kind.bytes.as_slice() {
@@ -1434,13 +1432,13 @@ impl AnyValue {
             ty::KEY_CODE   => KeyCode(self::KeyCode::read(read)?),
             ty::LINE_ORDER => LineOrder(self::LineOrder::read(read)?),
 
-            ty::F32MATRIX3X3 => F32Matrix3x3({
+            ty::F32MATRIX3X3 => Matrix3x3({
                 let mut result = [0.0_f32; 9];
                 f32::read_slice(read, &mut result)?;
                 result
             }),
 
-            ty::F32MATRIX4X4 => F32Matrix4x4({
+            ty::F32MATRIX4X4 => Matrix4x4({
                 let mut result = [0.0_f32; 16];
                 f32::read_slice(read, &mut result)?;
                 result
@@ -1464,7 +1462,7 @@ impl AnyValue {
 
     /// Validate this instance.
     pub fn validate(&self, allow_sampling: bool, data_window: IntRect, strict: bool) -> UnitResult {
-        use self::AnyValue::*;
+        use self::AttributeValue::*;
 
         match *self {
             ChannelList(ref channels) => channels.validate(allow_sampling, data_window, strict)?,
@@ -1484,7 +1482,7 @@ impl AnyValue {
     /// Return `Ok(TileDescription)` if this attribute is a tile description.
     pub fn to_tile_description(&self) -> Result<TileDescription> {
         match *self {
-            AnyValue::TileDescription(value) => Ok(value),
+            AttributeValue::TileDescription(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1492,7 +1490,7 @@ impl AnyValue {
     /// Return `Ok(TimeCode)` if this attribute is a time code.
     pub fn to_time_code(&self) -> Result<TimeCode> {
         match *self {
-            AnyValue::TimeCode(value) => Ok(value),
+            AttributeValue::TimeCode(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1500,7 +1498,7 @@ impl AnyValue {
     /// Return `Ok(&Preview)` if this attribute is an image preview.
     pub fn to_preview(&self) -> Result<&Preview> {
         match self {
-            AnyValue::Preview(value) => Ok(value),
+            AttributeValue::Preview(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1508,7 +1506,7 @@ impl AnyValue {
     /// Return `Ok(Preview)` if this attribute is an image preview.
     pub fn into_preview(self) -> Result<Preview> {
         match self {
-            AnyValue::Preview(value) => Ok(value),
+            AttributeValue::Preview(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1516,7 +1514,7 @@ impl AnyValue {
     /// Return `Ok(i32)` if this attribute is an i32.
     pub fn to_i32(&self) -> Result<i32> {
         match *self {
-            AnyValue::I32(value) => Ok(value),
+            AttributeValue::I32(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1524,7 +1522,7 @@ impl AnyValue {
     /// Return `Ok(f32)` if this attribute is an f32.
     pub fn to_f32(&self) -> Result<f32> {
         match *self {
-            AnyValue::F32(value) => Ok(value),
+            AttributeValue::F32(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1532,7 +1530,7 @@ impl AnyValue {
     /// Return `Ok(IntRect)` if this attribute is a integer rectangle.
     pub fn to_i32_box_2(&self) -> Result<IntRect> { // TODO rename to_intrect
         match *self {
-            AnyValue::IntRect(value) => Ok(value),
+            AttributeValue::IntRect(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1540,7 +1538,7 @@ impl AnyValue {
     /// Return `Ok(f32)` if this attribute is a 2d vector of f32 numbers.
     pub fn to_f32_vec_2(&self) -> Result<Vec2<f32>> {
         match *self {
-            AnyValue::FloatVec2(vec) => Ok(vec),
+            AttributeValue::FloatVec2(vec) => Ok(vec),
             _ => Err(invalid_type())
         }
     }
@@ -1548,7 +1546,7 @@ impl AnyValue {
     /// Return `Ok(LineOrder)` if this attribute is a line order.
     pub fn to_line_order(&self) -> Result<LineOrder> {
         match *self {
-            AnyValue::LineOrder(value) => Ok(value),
+            AttributeValue::LineOrder(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1556,7 +1554,7 @@ impl AnyValue {
     /// Return `Ok(Compression)` if this attribute is a compression.
     pub fn to_compression(&self) -> Result<Compression> {
         match *self {
-            AnyValue::Compression(value) => Ok(value),
+            AttributeValue::Compression(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1564,7 +1562,7 @@ impl AnyValue {
     /// Return `Ok(Text)` if this attribute is a text.
     pub fn into_text(self) -> Result<Text> {
         match self {
-            AnyValue::Text(value) => Ok(value),
+            AttributeValue::Text(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1572,7 +1570,7 @@ impl AnyValue {
     /// Return `Ok(BlockType)` if this attribute is a block type.
     pub fn into_block_type(self) -> Result<BlockType> {
         match self {
-            AnyValue::BlockType(value) => Ok(value),
+            AttributeValue::BlockType(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1580,7 +1578,7 @@ impl AnyValue {
     /// Return `Ok(ChannelList)` if this attribute is a channel list.
     pub fn into_channel_list(self) -> Result<ChannelList> {
         match self {
-            AnyValue::ChannelList(value) => Ok(value),
+            AttributeValue::ChannelList(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1588,7 +1586,7 @@ impl AnyValue {
     /// Return `Ok(Chromaticities)` if this attribute is a chromaticities attribute.
     pub fn to_chromaticities(&self) -> Result<Chromaticities> {
         match *self {
-            AnyValue::Chromaticities(value) => Ok(value),
+            AttributeValue::Chromaticities(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1596,7 +1594,7 @@ impl AnyValue {
     /// Return `Ok(EnvironmentMap)` if this attribute is an environment map.
     pub fn to_environment_map(&self) -> Result<EnvironmentMap> {
         match *self {
-            AnyValue::EnvironmentMap(value) => Ok(value),
+            AttributeValue::EnvironmentMap(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1604,7 +1602,7 @@ impl AnyValue {
     /// Return `Ok(KeyCode)` if this attribute is a key code.
     pub fn to_key_code(&self) -> Result<KeyCode> {
         match *self {
-            AnyValue::KeyCode(value) => Ok(value),
+            AttributeValue::KeyCode(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1612,23 +1610,23 @@ impl AnyValue {
     /// Return `Ok(Rational)` if this attribute is a rational.
     pub fn to_rational(&self) -> Result<Rational> {
         match *self {
-            AnyValue::Rational(value) => Ok(value),
+            AttributeValue::Rational(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
 
     /// Return `Ok(Matrix4x4)` if this attribute is a rational.
-    pub fn to_float_matrix4x4(&self) -> Result<Matrix4x4> { // TODO naming!
+    pub fn to_matrix4x4(&self) -> Result<Matrix4x4> { // TODO naming!
         match *self {
-            AnyValue::F32Matrix4x4(value) => Ok(value),
+            AttributeValue::Matrix4x4(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
 
     /// Return `Ok(Matrix3x3)` if this attribute is a rational.
-    pub fn to_float_matrix3x3(&self) -> Result<Matrix3x3> {
+    pub fn to_matrix3x3(&self) -> Result<Matrix3x3> {
         match *self {
-            AnyValue::F32Matrix3x3(value) => Ok(value),
+            AttributeValue::Matrix3x3(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1636,7 +1634,7 @@ impl AnyValue {
     /// Return `Ok(Vec<Text>)` if this attribute is a text vector.
     pub fn into_text_vector(self) -> Result<Vec<Text>> {
         match self {
-            AnyValue::TextVector(value) => Ok(value),
+            AttributeValue::TextVector(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1813,26 +1811,26 @@ mod test {
         let attributes = [
             (
                 Text::from("greeting").unwrap(),
-                AnyValue::Text(Text::from("hello").unwrap()),
+                AttributeValue::Text(Text::from("hello").unwrap()),
             ),
             (
                 Text::from("age").unwrap(),
-                AnyValue::I32(923),
+                AttributeValue::I32(923),
             ),
             (
                 Text::from("leg count").unwrap(),
-                AnyValue::F64(9.114939599234),
+                AttributeValue::F64(9.114939599234),
             ),
             (
                 Text::from("rabbit area").unwrap(),
-                AnyValue::FloatRect(FloatRect {
+                AttributeValue::FloatRect(FloatRect {
                     min: Vec2(23.4234, 345.23),
                     max: Vec2(68623.0, 3.12425926538),
                 }),
             ),
             (
                 Text::from("tests are difficult").unwrap(),
-                AnyValue::TextVector(vec![
+                AttributeValue::TextVector(vec![
                     Text::from("sdoifjpsdv").unwrap(),
                     Text::from("sdoifjpsdvxxxx").unwrap(),
                     Text::from("sdoifjasd").unwrap(),
@@ -1842,14 +1840,14 @@ mod test {
             ),
             (
                 Text::from("what should we eat tonight").unwrap(),
-                AnyValue::Preview(Preview {
+                AttributeValue::Preview(Preview {
                     size: Vec2(10, 30),
                     pixel_data: vec![31; 10 * 30 * 4],
                 }),
             ),
             (
                 Text::from("leg count, again").unwrap(),
-                AnyValue::ChannelList(ChannelList {
+                AttributeValue::ChannelList(ChannelList {
                     list: smallvec![
                         Channel {
                             name: Text::from("Green").unwrap(),
@@ -1888,7 +1886,7 @@ mod test {
         {
             let (name, value) = (
                 Text::from("asdkaspfokpaosdkfpaokswdpoakpsfokaposdkf").unwrap(),
-                AnyValue::I32(0),
+                AttributeValue::I32(0),
             );
 
             super::validate(&name, &value, false, false, IntRect::zero(), false).expect_err("name length check failed");
@@ -1897,7 +1895,7 @@ mod test {
         {
             let (name, value) = (
                 Text::from("sdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfpo").unwrap(),
-                AnyValue::I32(0),
+                AttributeValue::I32(0),
             );
 
             super::validate(&name, &value, true, false, IntRect::zero(), false).expect_err("name length check failed");

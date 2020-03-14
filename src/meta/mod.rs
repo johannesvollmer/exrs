@@ -143,7 +143,7 @@ pub struct ImageAttributes {
     /// Optional attributes. Contains custom attributes.
     /// Does not contain the attributes already present in the `ImageAttributes`.
     /// Contains only attributes that are standardized to be the same for all headers: chromaticities and time codes.
-    pub custom: HashMap<Text, AnyValue>,
+    pub custom: HashMap<Text, AttributeValue>,
 }
 
 /// Does not include the attributes required for reading the file contents.
@@ -268,7 +268,7 @@ pub struct LayerAttributes {
     /// Optional attributes. Contains custom attributes.
     /// Does not contain the attributes already present in the `Header` or `LayerAttributes` struct.
     /// Does not contain attributes that are standardized to be the same for all layers: no chromaticities and no time codes.
-    pub custom: HashMap<Text, AnyValue>,
+    pub custom: HashMap<Text, AttributeValue>,
 }
 
 /// A summary of requirements that must be met to read this exr file.
@@ -1033,7 +1033,7 @@ impl Header {
             use attributes::required_attribute_names::*;
             let reserved_names = [
                 TILES, NAME, BLOCK_TYPE, DEEP_DATA_VERSION, CHUNKS, MAX_SAMPLES, CHANNELS, COMPRESSION,
-                DATA_WINDOW, DISPLAY_WINDOW, LINE_ORDER, PIXEL_ASPECT, WINDOW_CENTER, WINDOW_WIDTH, // TODO close fixed issue
+                DATA_WINDOW, DISPLAY_WINDOW, LINE_ORDER, PIXEL_ASPECT, WINDOW_CENTER, WINDOW_WIDTH,
                 WHITE_LUMINANCE, ADOPTED_NEUTRAL, RENDERING_TRANSFORM, LOOK_MOD_TRANSFORM, X_DENSITY,
                 OWNER, COMMENTS, CAPTURE_DATE, UTC_OFFSET, LONGITUDE, LATITUDE, ALTITUDE, FOCUS,
                 EXPOSURE_TIME, APERTURE, ISO_SPEED, ENVIRONMENT_MAP, KEY_CODE, TIME_CODE, WRAP_MODES,
@@ -1178,8 +1178,8 @@ impl Header {
                 WRAP_MODES => layer_attributes.wrap_modes = Some(value.into_text()?),
                 FRAMES_PER_SECOND => layer_attributes.frames_per_second = Some(value.to_rational()?),
                 MULTI_VIEW => layer_attributes.multi_view = Some(value.into_text_vector()?),
-                WORLD_TO_CAMERA => layer_attributes.world_to_camera = Some(value.to_float_matrix4x4()?),
-                WORLD_TO_NDC => layer_attributes.world_to_normalized_device = Some(value.to_float_matrix4x4()?),
+                WORLD_TO_CAMERA => layer_attributes.world_to_camera = Some(value.to_matrix4x4()?),
+                WORLD_TO_NDC => layer_attributes.world_to_normalized_device = Some(value.to_matrix4x4()?),
                 DEEP_IMAGE_STATE => layer_attributes.deep_image_state = Some(value.to_rational()?),
                 ORIGINAL_DATA_WINDOW => layer_attributes.original_data_window = Some(value.to_i32_box_2()?),
                 DWA_COMPRESSION_LEVEL => layer_attributes.dwa_compression_level = Some(value.to_f32()?),
@@ -1267,14 +1267,14 @@ impl Header {
 
         {
             use crate::meta::attributes::required_attribute_names::*;
-            use AnyValue::*;
+            use AttributeValue::*;
 
             let (block_type, tiles) = match self.blocks {
                 Blocks::ScanLines => (attributes::BlockType::ScanLine, None),
                 Blocks::Tiles(tiles) => (attributes::BlockType::Tile, Some(tiles))
             };
 
-            fn usize_as_i32(value: usize) -> AnyValue {
+            fn usize_as_i32(value: usize) -> AttributeValue {
                 I32(i32::try_from(value).expect("u32 exceeds i32 range"))
             }
 
@@ -1301,36 +1301,6 @@ impl Header {
                 WINDOW_WIDTH: F32 = &self.own_attributes.screen_window_width
             );
 
-            // write_opt_attr(write, NAME, &self.own_attributes.name, Text)?;
-            // write_opt_attr(write, WHITE_LUMINANCE, &self.own_attributes.white_luminance, F32)?;
-            // write_opt_attr(write, ADOPTED_NEUTRAL, &self.own_attributes.adopted_neutral, FloatVec2)?;
-            // write_opt_attr(write, RENDERING_TRANSFORM, &self.own_attributes.rendering_transform, Text)?;
-            // write_opt_attr(write, LOOK_MOD_TRANSFORM, &self.own_attributes.look_mod_transform, Text)?;
-            // write_opt_attr(write, X_DENSITY, &self.own_attributes.x_density, F32)?;
-            // write_opt_attr(write, OWNER, &self.own_attributes.owner, Text)?;
-            // write_opt_attr(write, COMMENTS, &self.own_attributes.comments, Text)?;
-            // write_opt_attr(write, CAPTURE_DATE, &self.own_attributes.capture_date, Text)?;
-            // write_opt_attr(write, UTC_OFFSET, &self.own_attributes.utc_offset, F32)?;
-            // write_opt_attr(write, LONGITUDE, &self.own_attributes.longitude, F32)?;
-            // write_opt_attr(write, LATITUDE, &self.own_attributes.latitude, F32)?;
-            // write_opt_attr(write, ALTITUDE, &self.own_attributes.altitude, F32)?;
-            // write_opt_attr(write, FOCUS, &self.own_attributes.focus, F32)?;
-            // write_opt_attr(write, EXPOSURE_TIME, &self.own_attributes.exposure, F32)?;
-            // write_opt_attr(write, APERTURE, &self.own_attributes.aperture, F32)?;
-            // write_opt_attr(write, ISO_SPEED, &self.own_attributes.iso_speed, F32)?;
-            // write_opt_attr(write, ENVIRONMENT_MAP, &self.own_attributes.name, F32)?;
-            // write_opt_attr(write, KEY_CODE, &self.own_attributes.key_code, KeyCode)?;
-            // write_opt_attr(write, TIME_CODE, &self.shared_attributes.time_code, TimeCode)?;
-            // write_opt_attr(write, WRAP_MODES, &self.own_attributes.wrap_modes, Text)?;
-            // write_opt_attr(write, FRAMES_PER_SECOND, &self.own_attributes.frames_per_second, Rational)?;
-            // write_opt_attr(write, MULTI_VIEW, &self.own_attributes.multi_view, TextVector)?;
-            // write_opt_attr(write, WORLD_TO_CAMERA, &self.own_attributes.world_to_camera, F32Matrix4x4)?;
-            // write_opt_attr(write, WORLD_TO_NDC, &self.own_attributes.world_to_ndc, F32Matrix4x4)?;
-            // write_opt_attr(write, DEEP_IMAGE_STATE, &self.own_attributes.deep_image_state, Rational)?;
-            // write_opt_attr(write, ORIGINAL_DATA_WINDOW, &self.own_attributes.original_data_window, IntRect)?;
-            // write_opt_attr(write, DWA_COMPRESSION_LEVEL, &self.own_attributes.dwa_compression_level, F32)?;
-            // write_opt_attr(write, PREVIEW, &self.own_attributes.preview, Preview)?;
-            // write_opt_attr(write, VIEW, &self.own_attributes.view, Text)?;
             write_optional_attributes!(
                 NAME: Text = &self.own_attributes.name,
                 WHITE_LUMINANCE: F32 = &self.own_attributes.white_luminance,
@@ -1355,8 +1325,8 @@ impl Header {
                 WRAP_MODES: Text = &self.own_attributes.wrap_modes,
                 FRAMES_PER_SECOND: Rational = &self.own_attributes.frames_per_second,
                 MULTI_VIEW: TextVector = &self.own_attributes.multi_view,
-                WORLD_TO_CAMERA: F32Matrix4x4 = &self.own_attributes.world_to_camera,
-                WORLD_TO_NDC: F32Matrix4x4 = &self.own_attributes.world_to_normalized_device,
+                WORLD_TO_CAMERA: Matrix4x4 = &self.own_attributes.world_to_camera,
+                WORLD_TO_NDC: Matrix4x4 = &self.own_attributes.world_to_normalized_device,
                 DEEP_IMAGE_STATE: Rational = &self.own_attributes.deep_image_state,
                 ORIGINAL_DATA_WINDOW: IntRect = &self.own_attributes.original_data_window,
                 DWA_COMPRESSION_LEVEL: F32 = &self.own_attributes.dwa_compression_level,

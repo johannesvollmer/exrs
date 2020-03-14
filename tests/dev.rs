@@ -33,7 +33,7 @@ fn search_previews_of_all_files() {
         let meta = MetaData::read_from_file(&path).unwrap();
         let has_preview = meta.headers.iter().any(|header: &Header|
             header.own_attributes.preview.is_some() || header.own_attributes.custom.values()
-                .find(|value| value.to_preview().is_ok()).is_some()
+                .any(|value| value.to_preview().is_ok())
         );
 
         if has_preview {

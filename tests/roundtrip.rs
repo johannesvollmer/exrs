@@ -80,10 +80,6 @@ fn round_trip_all_files() {
         let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), read_options::low())?;
         assert_eq!(image, image2);
 
-        let mut tmp_bytes2 = Vec::new();
-        image2.write_to_buffered(&mut Cursor::new(&mut tmp_bytes2), write_options::low())?; // not multi threaded to produce exact same byte sequence
-
-        assert_eq!(tmp_bytes, tmp_bytes2);
         Ok(())
     })
 }
@@ -109,12 +105,12 @@ pub fn test_roundtrip() {
     let path =
 
 //        "D:/Pictures/openexr/TestImages/BrightRingsNanInf.exr"
-        "D:/Pictures/openexr/Tiles/Ocean.exr"
+//         "D:/Pictures/openexr/Tiles/Ocean.exr"
 //        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
 //            "D:/Pictures/openexr/v2/Stereo/composited.exr"
 //            "D:/Pictures/openexr/MultiResolution/Bonita.exr"
 
-//            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
+           "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
 //        "D:/Pictures/openexr/crowskull/crow_zips.exr"
 //"D:/Pictures/openexr/crowskull/crow_rle.exr"
 //"D:/Pictures/openexr/crowskull/crow_zip_half.exr"
