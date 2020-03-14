@@ -1241,6 +1241,8 @@ pub fn read(read: &mut PeekRead<impl Read>, max_size: usize) -> Result<(Text, At
     let name = Text::read_null_terminated(read, max_size)?;
     let kind = Text::read_null_terminated(read, max_size)?;
     let size = i32_to_usize(i32::read(read)?, "attribute size")?;
+
+    // TODO remember position, seek to position + size on value read fail, return result<value>
     let value = AttributeValue::read(read, kind, size)?;
     Ok((name, value))
 }
@@ -1567,6 +1569,14 @@ impl AttributeValue {
         }
     }
 
+    /// Return `Ok(Text)` if this attribute is a text.
+    pub fn to_text(&self) -> Result<&Text> {
+        match self {
+            AttributeValue::Text(value) => Ok(value),
+            _ => Err(invalid_type())
+        }
+    }
+
     /// Return `Ok(BlockType)` if this attribute is a block type.
     pub fn into_block_type(self) -> Result<BlockType> {
         match self {
@@ -1633,6 +1643,14 @@ impl AttributeValue {
 
     /// Return `Ok(Vec<Text>)` if this attribute is a text vector.
     pub fn into_text_vector(self) -> Result<Vec<Text>> {
+        match self {
+            AttributeValue::TextVector(value) => Ok(value),
+            _ => Err(invalid_type())
+        }
+    }
+
+    /// Return `Ok(Vec<Text>)` if this attribute is a text vector.
+    pub fn to_text_vector(&self) -> Result<&Vec<Text>> {
         match self {
             AttributeValue::TextVector(value) => Ok(value),
             _ => Err(invalid_type())

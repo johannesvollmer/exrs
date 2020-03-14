@@ -1155,48 +1155,49 @@ impl Header {
                 WINDOW_CENTER => layer_attributes.screen_window_center = value.to_f32_vec_2()?,
                 WINDOW_WIDTH => layer_attributes.screen_window_width = value.to_f32()?,
 
-                // TODO not throw error on wrong type?
-                WHITE_LUMINANCE => layer_attributes.white_luminance = Some(value.to_f32()?),
-                ADOPTED_NEUTRAL => layer_attributes.adopted_neutral = Some(value.to_f32_vec_2()?),
-                RENDERING_TRANSFORM => layer_attributes.rendering_transform = Some(value.into_text()?),
-                LOOK_MOD_TRANSFORM => layer_attributes.look_modification_transform = Some(value.into_text()?),
-                X_DENSITY => layer_attributes.x_density = Some(value.to_f32()?),
-                OWNER => layer_attributes.owner = Some(value.into_text()?),
-                COMMENTS => layer_attributes.comments = Some(value.into_text()?),
-                CAPTURE_DATE => layer_attributes.capture_date = Some(value.into_text()?),
-                UTC_OFFSET => layer_attributes.utc_offset = Some(value.to_f32()?),
-                LONGITUDE => layer_attributes.longitude = Some(value.to_f32()?),
-                LATITUDE => layer_attributes.latitude = Some(value.to_f32()?),
-                ALTITUDE => layer_attributes.altitude = Some(value.to_f32()?),
-                FOCUS => layer_attributes.focus = Some(value.to_f32()?),
-                EXPOSURE_TIME => layer_attributes.exposure = Some(value.to_f32()?),
-                APERTURE => layer_attributes.aperture = Some(value.to_f32()?),
-                ISO_SPEED => layer_attributes.iso_speed = Some(value.to_f32()?),
-                ENVIRONMENT_MAP => layer_attributes.environment_map = Some(value.to_environment_map()?),
-                KEY_CODE => layer_attributes.key_code = Some(value.to_key_code()?),
-                TIME_CODE => image_attributes.time_code = Some(value.to_time_code()?),
-                WRAP_MODES => layer_attributes.wrap_modes = Some(value.into_text()?),
-                FRAMES_PER_SECOND => layer_attributes.frames_per_second = Some(value.to_rational()?),
-                MULTI_VIEW => layer_attributes.multi_view = Some(value.into_text_vector()?),
-                WORLD_TO_CAMERA => layer_attributes.world_to_camera = Some(value.to_matrix4x4()?),
-                WORLD_TO_NDC => layer_attributes.world_to_normalized_device = Some(value.to_matrix4x4()?),
-                DEEP_IMAGE_STATE => layer_attributes.deep_image_state = Some(value.to_rational()?),
-                ORIGINAL_DATA_WINDOW => layer_attributes.original_data_window = Some(value.to_i32_box_2()?),
-                DWA_COMPRESSION_LEVEL => layer_attributes.dwa_compression_level = Some(value.to_f32()?),
-                CHROMATICITIES => image_attributes.chromaticities = Some(value.to_chromaticities()?),
-                PREVIEW => layer_attributes.preview = Some(value.into_preview()?),
+                // the following attributes will only be set if the type matches the commonly used type for that attribute
+                WHITE_LUMINANCE if value.to_f32().is_ok() => layer_attributes.white_luminance = Some(value.to_f32().unwrap()),
+                ADOPTED_NEUTRAL if value.to_f32_vec_2().is_ok() => layer_attributes.adopted_neutral = Some(value.to_f32_vec_2()?),
+                RENDERING_TRANSFORM if value.to_text().is_ok() => layer_attributes.rendering_transform = Some(value.into_text()?),
+                LOOK_MOD_TRANSFORM if value.to_text().is_ok() => layer_attributes.look_modification_transform = Some(value.into_text()?),
+                X_DENSITY if value.to_f32().is_ok() => layer_attributes.x_density = Some(value.to_f32()?),
+                OWNER if value.to_text().is_ok() => layer_attributes.owner = Some(value.into_text()?),
+                COMMENTS if value.to_text().is_ok() => layer_attributes.comments = Some(value.into_text()?),
+                CAPTURE_DATE if value.to_text().is_ok() => layer_attributes.capture_date = Some(value.into_text()?),
+                UTC_OFFSET if value.to_f32().is_ok() => layer_attributes.utc_offset = Some(value.to_f32()?),
+                LONGITUDE if value.to_f32().is_ok() => layer_attributes.longitude = Some(value.to_f32()?),
+                LATITUDE if value.to_f32().is_ok() => layer_attributes.latitude = Some(value.to_f32()?),
+                ALTITUDE if value.to_f32().is_ok() => layer_attributes.altitude = Some(value.to_f32()?),
+                FOCUS if value.to_f32().is_ok() => layer_attributes.focus = Some(value.to_f32()?),
+                EXPOSURE_TIME if value.to_f32().is_ok() => layer_attributes.exposure = Some(value.to_f32()?),
+                APERTURE if value.to_f32().is_ok() => layer_attributes.aperture = Some(value.to_f32()?),
+                ISO_SPEED if value.to_f32().is_ok() => layer_attributes.iso_speed = Some(value.to_f32()?),
+                ENVIRONMENT_MAP if value.to_environment_map().is_ok() => layer_attributes.environment_map = Some(value.to_environment_map()?),
+                KEY_CODE if value.to_key_code().is_ok() => layer_attributes.key_code = Some(value.to_key_code()?),
+                TIME_CODE if value.to_time_code().is_ok() => image_attributes.time_code = Some(value.to_time_code()?),
+                WRAP_MODES if value.to_text().is_ok() => layer_attributes.wrap_modes = Some(value.into_text()?),
+                FRAMES_PER_SECOND if value.to_rational().is_ok() => layer_attributes.frames_per_second = Some(value.to_rational()?),
+                MULTI_VIEW if value.to_text_vector().is_ok() => layer_attributes.multi_view = Some(value.into_text_vector()?),
+                WORLD_TO_CAMERA if value.to_matrix4x4().is_ok() => layer_attributes.world_to_camera = Some(value.to_matrix4x4()?),
+                WORLD_TO_NDC if value.to_matrix4x4().is_ok() => layer_attributes.world_to_normalized_device = Some(value.to_matrix4x4()?),
+                DEEP_IMAGE_STATE if value.to_rational().is_ok() => layer_attributes.deep_image_state = Some(value.to_rational()?),
+                ORIGINAL_DATA_WINDOW if value.to_i32_box_2().is_ok() => layer_attributes.original_data_window = Some(value.to_i32_box_2()?),
+                DWA_COMPRESSION_LEVEL if value.to_f32().is_ok() => layer_attributes.dwa_compression_level = Some(value.to_f32()?),
+                CHROMATICITIES if value.to_chromaticities().is_ok() => image_attributes.chromaticities = Some(value.to_chromaticities()?),
+                PREVIEW if value.to_preview().is_ok() => layer_attributes.preview = Some(value.into_preview()?),
 
                 _ => {
                     if value.to_chromaticities().is_ok() || value.to_time_code().is_ok() {
+                        // these must be the same for all headers
                         image_attributes.custom.insert(attribute_name, value);
                     }
+
                     else {
                         layer_attributes.custom.insert(attribute_name, value);
                     }
                 },
             }
         }
-
 
         let compression = compression.ok_or(missing_attribute("compression"))?;
         let data_window = data_window.ok_or(missing_attribute("data window"))?;
