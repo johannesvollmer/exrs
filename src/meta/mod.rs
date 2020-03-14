@@ -1222,8 +1222,8 @@ impl Header {
             None => compute_chunk_count(compression, data_size, blocks),
 
             Some(count) => {
-                // TODO this must be sanity-checked somewhere later on instead of here!
-                debug_assert_eq!(count, compute_chunk_count(compression, data_size, blocks));
+                // TODO this must be sanity-checked somewhere later on instead of here! may fail for invalid files (fuzzy tested).
+                debug_assert_eq!(count, compute_chunk_count(compression, data_size, blocks), "invalid chunk count attribute");
 
                 count
             },

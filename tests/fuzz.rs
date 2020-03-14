@@ -30,12 +30,12 @@ pub fn fuzz(){
     for fuzz_index in 0 .. 1024_u64 * 2048 * 4 {
 
         let file_1_name = &files[random.gen_range(0, files.len())];
-        let mutation_point = random.gen::<f32>().powi(3);
+        let mutation_point = random.gen::<f32>().powi(12);
         let mutation = random.gen::<u8>();
 
         if fuzz_index >= start_index {
             let mut file = std::fs::read(file_1_name).unwrap();
-            let index = (mutation_point * file.len() as f32) as usize % file.len();
+            let index = ((mutation_point * file.len() as f32) as usize + 4) % file.len();
             file[index] = mutation;
 
             let result = catch_unwind(move || {
