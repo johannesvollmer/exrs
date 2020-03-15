@@ -137,7 +137,7 @@ impl TileCoordinates {
         i32::write(usize_to_i32(self.tile_index.0), write)?;
         i32::write(usize_to_i32(self.tile_index.1), write)?;
         i32::write(usize_to_i32(self.level_index.0), write)?;
-        i32::write(usize_to_i32(self.level_index.1 ), write)?;
+        i32::write(usize_to_i32(self.level_index.1), write)?;
         Ok(())
     }
 
@@ -165,10 +165,10 @@ impl TileCoordinates {
     /// These coordinates are only valid inside the corresponding one header.
     /// Will start at 0 and always be positive.
     pub fn to_data_indices(&self, tile_size: Vec2<usize>, max: Vec2<usize>) -> Result<IntRect> {
-        let start = self.tile_index * tile_size;
+        let start = self.tile_index * tile_size; // TODO check overflow
 
         Ok(IntRect {
-            position: start.to_i32(), // FIXME this may panic for an invalid file (fuzz tested)
+            position: start.to_i32(), // FIXME this may theoretically panic for an invalid file (fuzz tested)
             size: Vec2(
                 calculate_block_size(max.0, tile_size.0, start.0)?,
                 calculate_block_size(max.1, tile_size.0, start.1)?,
