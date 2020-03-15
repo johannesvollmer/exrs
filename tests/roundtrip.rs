@@ -143,10 +143,10 @@ pub fn test_roundtrip() {
     print!("starting read 1... ");
     io::stdout().flush().unwrap();
 
-    let image = Image::read_from_file(path, read_options::high()).unwrap();
+    let image = rgba::Image::read_from_file(path, read_options::low()).unwrap();
     println!("...read 1 successfull");
 
-    let write_options = write_options::high();
+    let write_options = write_options::low();
     let mut tmp_bytes = Vec::new();
 
     print!("starting write... ");
@@ -158,7 +158,7 @@ pub fn test_roundtrip() {
     print!("starting read 2... ");
     io::stdout().flush().unwrap();
 
-    let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), read_options::high()).unwrap();
+    let image2 = rgba::Image::read_from_buffered(Cursor::new(&tmp_bytes), read_options::low()).unwrap();
     println!("...read 2 successfull");
 
     if !path.to_lowercase().contains("nan") {

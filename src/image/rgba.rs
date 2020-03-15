@@ -255,10 +255,15 @@ impl Image {
             |image, meta, line| {
                 debug_assert_eq!(meta[line.location.layer].own_attributes.name, image.layer_attributes.name, "irrelevant header should be filtered out"); // TODO this should be an error right?
 
-                let channel_index = 3 - line.location.channel; // convert ABGR index to RGBA index
+                let channel_count = image.channel_count();
+                let channel_index = channel_count - 1 - line.location.channel; // convert ABGR index to RGBA index
                 let line_position = line.location.position;
                 let Vec2(width, height) = image.resolution;
-                let channel_count = image.channel_count();
+
+                println!("channel_index: {}", channel_index);
+                println!("channel_count: {}", channel_count);
+                println!("self res: {:?}", image.resolution);
+                println!("line index: {:?}", line);
 
                 let get_index_of_sample = move |sample_index| {
                     let location = line_position + Vec2(sample_index, 0);
@@ -271,15 +276,15 @@ impl Image {
 
                 match &mut image.data {
                     Pixels::F16(vec) => for (sample_index, sample) in line.read_samples().enumerate() { // TODO any pixel_type?
-                        vec[get_index_of_sample(sample_index)] = sample?;
+                        *vec.get_mut(get_index_of_sample(sample_index)).expect("rgba sample index calculation bug") = sample?;
                     },
 
                     Pixels::F32(vec) => for (sample_index, sample) in line.read_samples().enumerate() { // TODO any pixel_type?
-                        vec[get_index_of_sample(sample_index)] = sample?;
+                        *vec.get_mut(get_index_of_sample(sample_index)).expect("rgba sample index calculation bug") = sample?;
                     },
 
                     Pixels::U32(vec) => for (sample_index, sample) in line.read_samples().enumerate() { // TODO any pixel_type?
-                        vec[get_index_of_sample(sample_index)] = sample?;
+                        *vec.get_mut(get_index_of_sample(sample_index)).expect("rgba sample index calculation bug") = sample?;
                     },
                 };
 
@@ -324,6 +329,8 @@ impl Image {
 
     /// Try to find a header matching the RGBA requirements.
     fn extract(headers: &[Header]) -> Result<Self> {
+        println!("allocating for meta data {:#?}", headers);
+
         let first_header_name = headers.first()
             .and_then(|header| header.own_attributes.name.as_ref());
 
@@ -436,10 +443,10 @@ impl Image {
             MetaData::new(smallvec![ header ]),
 
             |_meta, line| {
-                let channel_index = 3 - line.location.channel; // convert ABGR index to RGBA index
+                let channel_count = self.channel_count();
+                let channel_index = channel_count - 1 - line.location.channel; // convert ABGR index to RGBA index
                 let line_position = line.location.position;
                 let Vec2(width, height) = self.resolution;
-                let channel_count = self.channel_count();
                 debug_assert!(line.location.channel < self.channel_count(), "channel count bug");
 
                 let get_index_of_sample = move |sample_index| {
