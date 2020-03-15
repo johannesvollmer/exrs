@@ -249,7 +249,7 @@ Allocations have a safe maximum size that will not be exceeded at once.
 ### Running Tests
 
 To run all fast tests, use `cargo test --no-fail-fast`.
-To start fuzzing indefinitely, use `cargo test --package exr --test fuzz fuzz -- --exact --ignored`
+To start fuzzing indefinitely, use `cargo test --package exr --test fuzz fuzz -- --exact --ignored`.
 
 ### Specification
 
