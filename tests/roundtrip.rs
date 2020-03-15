@@ -9,7 +9,7 @@ use std::panic::catch_unwind;
 use std::path::{PathBuf, Path};
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use exr::image::{read_options, write_options};
+use exr::image::{read_options, write_options, simple, rgba};
 use exr::meta::MetaData;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
@@ -66,32 +66,8 @@ fn check_files<T>(operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -
     assert_ne!(results.last().unwrap().1, Result::Panic, "A file triggered a panic");
 }
 
-/// Read all files fully without checking anything
 #[test]
-fn read_all_files_full() {
-    check_files(|path| {
-        Image::read_from_file(path, read_options::low())
-    })
-}
-
-/// Read all files into a simple image without checking anything
-#[test]
-fn read_all_files_simple() {
-    check_files(|path| {
-        exr::image::simple::Image::read_from_file(path, read_options::low())
-    })
-}
-
-/// Read all files into an rgba image without checking anything
-#[test]
-fn read_all_files_rgba() {
-    check_files(|path| {
-        exr::image::rgba::Image::read_from_file(path, read_options::low())
-    })
-}
-
-#[test]
-fn round_trip_all_files() {
+fn round_trip_all_files_full() {
     check_files(|path| {
         let image = Image::read_from_file(path, read_options::low())?;
 
@@ -99,6 +75,40 @@ fn round_trip_all_files() {
         image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low())?;
 
         let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), read_options::low())?;
+        if !path.to_str().unwrap().to_lowercase().contains("nan") {
+            assert_eq!(image, image2);
+        }
+
+        Ok(())
+    })
+}
+
+#[test]
+fn round_trip_all_files_simple() {
+    check_files(|path| {
+        let image = simple::Image::read_from_file(path, read_options::low())?;
+
+        let mut tmp_bytes = Vec::new();
+        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low())?;
+
+        let image2 = simple::Image::read_from_buffered(Cursor::new(&tmp_bytes), read_options::low())?;
+        if !path.to_str().unwrap().to_lowercase().contains("nan") {
+            assert_eq!(image, image2);
+        }
+
+        Ok(())
+    })
+}
+
+#[test]
+fn round_trip_all_files_rgba() {
+    check_files(|path| {
+        let image = rgba::Image::read_from_file(path, read_options::low())?;
+
+        let mut tmp_bytes = Vec::new();
+        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low())?;
+
+        let image2 = rgba::Image::read_from_buffered(Cursor::new(&tmp_bytes), read_options::low())?;
         if !path.to_str().unwrap().to_lowercase().contains("nan") {
             assert_eq!(image, image2);
         }
