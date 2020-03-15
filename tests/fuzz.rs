@@ -68,7 +68,7 @@ pub fn fuzz(){
     println!("started fuzzing");
     let files: Vec<PathBuf> = exr_files("tests/images", true).collect();
 
-    let seed = [92,1,0,30,2,8,21,70,74,4,9,5,0,23,0,3,20,5,6,5,9,30,0,34,8,0,40,7,5,2,7,0,];
+    let seed = [92,1,0,130,211,8,21,70,74,4,9,5,0,23,0,3,20,25,6,5,229,30,0,34,218,0,40,7,5,2,7,0,];
     let mut random: StdRng = rand::SeedableRng::from_seed(seed);
 
     let mut records = File::create("tests/images/out/fuzz.txt").unwrap();
