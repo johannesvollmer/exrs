@@ -55,9 +55,9 @@ pub fn damaged(){
                 false
             },
         };
-
-        assert!(passed, "A damaged file was not handled correctly");
     }
+
+    assert!(passed, "A damaged file was not handled correctly");
 }
 
 #[test]

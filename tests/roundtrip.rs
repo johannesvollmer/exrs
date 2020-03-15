@@ -66,13 +66,27 @@ fn check_files<T>(operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -
     assert_ne!(results.last().unwrap().1, Result::Panic, "A file triggered a panic");
 }
 
-/// Read all files without checking anything
+/// Read all files fully without checking anything
 #[test]
-fn read_all_files() {
+fn read_all_files_full() {
     check_files(|path| {
         Image::read_from_file(path, read_options::low())
-            .and(exr::image::simple::Image::read_from_file(path, read_options::low()))
-            .and(exr::image::rgba::Image::read_from_file(path, read_options::low()))
+    })
+}
+
+/// Read all files into a simple image without checking anything
+#[test]
+fn read_all_files_simple() {
+    check_files(|path| {
+        exr::image::simple::Image::read_from_file(path, read_options::low())
+    })
+}
+
+/// Read all files into an rgba image without checking anything
+#[test]
+fn read_all_files_rgba() {
+    check_files(|path| {
+        exr::image::rgba::Image::read_from_file(path, read_options::low())
     })
 }
 
