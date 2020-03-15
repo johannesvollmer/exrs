@@ -29,6 +29,8 @@ pub fn damaged(){
 
         let result = catch_unwind(move || {
             exr::image::full::Image::read_from_file(file, read_options::high())
+                .and_then(|_| exr::image::simple::Image::read_from_file(file, read_options::high()))
+                .and_then(|_| exr::image::rgba::Image::read_from_file(file, read_options::high()))
         });
 
         // this should not panic, only err:
