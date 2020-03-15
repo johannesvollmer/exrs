@@ -174,26 +174,35 @@ Example: Write all image contents to an exr file at once.
 ```rust
 fn main() {
     let size = Vec2(1024, 512);
+    
+    let r = Channel::new_linear(
+        "R".try_into().unwrap(),
+        Samples::F16(generate_f16_vec(size))
+    );
 
-    // create a channel containing 1024x512 f32 values
-    let luma = Channel::new_linear(
-        "Y".try_into().unwrap(), // OpenEXR only supports ascii, so this may fail
-        Samples::F32(generate_f32_vector(size))
+    let g = Channel::new_linear(
+        "G".try_into().unwrap(),
+        Samples::F16(generate_f16_vec(size))
+    );
+
+    let b = Channel::new_linear(
+        "B".try_into().unwrap(),
+        Samples::F32(generate_f16_vec(size).into_iter().map(f16::to_f32).collect())
     );
 
     let layer = Layer::new(
-        "test-image".try_into().unwrap(), // layer name
-        size, // resolution
-        smallvec![ luma ], // include the one channel we created
+        "test-image".try_into().unwrap(),
+        size,
+        smallvec![ r, g, b ],
     );
-    
-    // create an exr file from a single layer (an exr file can have multiple layers)
-    let image = Image::new_from_single_layer(layer.with_compression(Compression::RLE));
 
-    println!("writing image with meta data {:#?}", image);
+    let layer = layer.with_compression(Compression::RLE)
+        .with_block_format(None, attributes::LineOrder::Increasing);
 
-    // write the image, compressing in parallel with all available cpus
-    image.write_to_file("./testout/constructed.exr", write_options::high()).unwrap();
+    let image = Image::new_from_single_layer(layer);
+
+    println!("writing image {:#?}", image);
+    image.write_to_file("tests/images/out/noisy.exr", write_options::high()).unwrap();
 }
 ```
 

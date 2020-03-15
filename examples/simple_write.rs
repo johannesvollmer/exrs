@@ -52,7 +52,7 @@ fn main() {
     );
 
     let layer = layer.with_compression(Compression::RLE)
-        .with_block_format(None, attributes::LineOrder::Increasing); // apparently, some software only supports increasing line order
+        .with_block_format(None, attributes::LineOrder::Increasing);
 
     let image = Image::new_from_single_layer(layer);
 
