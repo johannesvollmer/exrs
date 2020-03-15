@@ -373,6 +373,7 @@ fn for_decompressed_lines_in_chunks(
     mut options: ReadOptions<impl OnReadProgress>,
 ) -> UnitResult
 {
+    // TODO bit-vec keep check that all pixels have been read?
     let has_compression = meta_data.headers.iter() // do not use parallel stuff for uncompressed images
         .find(|header| header.compression != Compression::Uncompressed).is_some();
 

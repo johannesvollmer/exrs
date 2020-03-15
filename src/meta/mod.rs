@@ -501,8 +501,6 @@ pub fn compute_level_count(round: RoundingMode, full_res: usize) -> usize {
 /// Calculate the size of a single mip level by index.
 // TODO this should be cached? log2 may be very expensive
 pub fn compute_level_size(round: RoundingMode, full_res: usize, level_index: usize) -> usize {
-    // FIXME this may panic for an invalid file (fuzz tested): attempt to shift left with overflow
-    // TODO err on invalid level_index
     assert!(level_index < std::mem::size_of::<usize>() * 8, "largest level size exceeds maximum integer value");
     round.divide(full_res,  1 << level_index).max(1)
 }
@@ -943,7 +941,7 @@ impl Header {
                 let y = (block.y_coordinate - self.own_attributes.data_position.1) / size;
 
                 if y < 0 {
-                    panic!("y index calculation bug"); // FIXME fuzz tested, may panic when reading an invalid file
+                    return Err(Error::invalid("scan block y coordinate"));
                 }
 
                 TileCoordinates {

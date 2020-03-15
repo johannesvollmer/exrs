@@ -149,6 +149,12 @@ impl TileCoordinates {
         let level_x = i32::read(read)?;
         let level_y = i32::read(read)?;
 
+        if level_x > 31 || level_y > 31 {
+            // there can be at most 31 levels, because the largest level would have a size of 2^31,
+            // which exceeds the maximum 32-bit integer value.
+            return Err(Error::invalid("level index exceeding integer maximum"));
+        }
+
         Ok(TileCoordinates {
             tile_index: Vec2(tile_x, tile_y).to_usize("tile coordinate index")?,
             level_index: Vec2(level_x, level_y).to_usize("tile coordinate level")?

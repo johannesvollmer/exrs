@@ -24,7 +24,7 @@ fn exr_files(path: &'static str, filter: bool) -> impl Iterator<Item=PathBuf> {
 pub fn damaged(){
     let mut passed = true;
 
-    for file in exr_files("tests/images/invalid", false) {
+    for file in exr_files("tests/images", false) {
         let file = &file;
 
         let result = catch_unwind(move || {
@@ -46,14 +46,12 @@ pub fn damaged(){
                 println!("✗ Unexpected IO Error: {:?}, {:?}", file, error);
                 false
             },
-            Ok(_) => {
-                println!("✗ Unexpected Ok: {:?}", file);
-                false
-            },
             Err(_) => {
                 println!("✗ Panic: {:?}", file);
                 false
             },
+
+            Ok(_) => true, // ignore ok images
         };
     }
 
