@@ -237,6 +237,11 @@ Allocations have a safe maximum size that will not be exceeded at once.
 -   This is a pretty detailed README
 -   (more to come)
 
+### Running Tests
+
+To run all fast tests, use `cargo test --no-fail-fast`.
+To start fuzzing indefinitely, use `cargo test --package exr --test fuzz fuzz -- --exact --ignored`
+
 ### Specification
 
 This library is modeled after the 

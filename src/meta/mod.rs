@@ -940,7 +940,7 @@ impl Header {
                 let y = (block.y_coordinate - self.own_attributes.data_position.1) / size;
 
                 if y < 0 {
-                    panic!("y index calculation bug");
+                    panic!("y index calculation bug"); // FIXME fuzz tested, may panic when reading an invalid file
                 }
 
                 TileCoordinates {

@@ -11,17 +11,60 @@ use exr::prelude::*;
 use std::path::PathBuf;
 use std::ffi::OsStr;
 
-fn exr_files() -> impl Iterator<Item=PathBuf> {
-    walkdir::WalkDir::new("tests/images").into_iter().map(std::result::Result::unwrap)
-        .filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
+fn exr_files(path: &'static str, filter: bool) -> impl Iterator<Item=PathBuf> {
+    walkdir::WalkDir::new(path).into_iter().map(std::result::Result::unwrap)
+        .filter(|entry| entry.path().is_file())
+
+        .filter(move |entry| !filter || entry.path().extension() == Some(OsStr::new("exr")))
         .map(walkdir::DirEntry::into_path)
+}
+
+
+#[test]
+pub fn damaged(){
+    let mut passed = true;
+
+    for file in exr_files("tests/images", false) {
+        let file = &file;
+
+        let result = catch_unwind(move || {
+            exr::image::full::Image::read_from_file(file, read_options::high())
+        });
+
+        // this should not panic, only err:
+        passed = passed && match result {
+            Ok(Err(Error::Invalid(_))) => {
+                println!("✓ No Panic: {:?}", file);
+                true
+            },
+            Ok(Err(Error::NotSupported(_))) => {
+                println!("✓ No Panic: {:?}", file);
+                true
+            },
+
+            Ok(Err(Error::Io(error))) => {
+                println!("✗ Unexpected IO Error: {:?}, {:?}", file, error);
+                false
+            },
+            Ok(_) => {
+                println!("✗ Unexpected Ok: {:?}", file);
+                false
+            },
+            Err(_) => {
+                println!("✗ Panic: {:?}", file);
+                false
+            },
+        };
+
+        assert!(passed, "A damaged file was not handled correctly");
+    }
 }
 
 #[test]
 #[ignore]
 pub fn fuzz(){
     println!("started fuzzing");
-    let files: Vec<PathBuf> = exr_files().collect();
+    let files: Vec<PathBuf> = exr_files("tests/images", true).collect();
 
     let seed = [92,1,0,30,2,8,21,70,74,4,9,9,0,23,0,3,20,5,6,5,9,30,0,34,8,0,40,7,5,02,7,0,];
     let mut random: StdRng = rand::SeedableRng::from_seed(seed);
