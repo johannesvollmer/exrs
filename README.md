@@ -20,10 +20,10 @@ Features include:
 - any number of samples per pixel ("deep data")
 - uncompressed pixel data for fast file access
 - lossless compression for any image type 
-- lossy compression for non-deep image types for very small files
+- lossy compression for non-deep image types to produce very small files
 - load specific sections of an image without processing the whole file
-- compress and decompress images in parallel
-- embed any kind of meta data, including custom bytes, with full backwards compatibility
+- compress and decompress image pixels in parallel
+- embed any kind of meta data, including custom structs, with full backwards compatibility
 
 ### Current Status
 
