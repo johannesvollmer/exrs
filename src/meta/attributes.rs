@@ -1693,7 +1693,6 @@ pub mod attribute_type_names {
         TEXT:           b"string",
         TEXT_VECTOR:    b"stringvector",
         TILES:          b"tiledesc"
-        // TODO add VIEW: b"view" // probably either left or right for each eye view
     }
 }
 
@@ -1751,6 +1750,7 @@ pub mod required_attribute_names {
         ORIGINAL_DATA_WINDOW: b"originalDataWindow",
         DWA_COMPRESSION_LEVEL: b"dwaCompressionLevel",
         PREVIEW: b"preview",
+        VIEW: b"view",
         CHROMATICITIES: b"chromaticities"
     }
 }

@@ -265,6 +265,9 @@ pub struct LayerAttributes {
     /// An 8-bit RGBA image representing the rendered image.
     pub preview: Option<Preview>,
 
+    /// Name of the view, which is probably either `"right"` or `"left"` for a stereoscopic image.
+    pub view: Option<Text>,
+
     /// Optional attributes. Contains custom attributes.
     /// Does not contain the attributes already present in the `Header` or `LayerAttributes` struct.
     /// Does not contain attributes that are standardized to be the same for all layers: no chromaticities and no time codes.
@@ -1038,7 +1041,7 @@ impl Header {
                 OWNER, COMMENTS, CAPTURE_DATE, UTC_OFFSET, LONGITUDE, LATITUDE, ALTITUDE, FOCUS,
                 EXPOSURE_TIME, APERTURE, ISO_SPEED, ENVIRONMENT_MAP, KEY_CODE, TIME_CODE, WRAP_MODES,
                 FRAMES_PER_SECOND, MULTI_VIEW, WORLD_TO_CAMERA, WORLD_TO_NDC, DEEP_IMAGE_STATE,
-                ORIGINAL_DATA_WINDOW, DWA_COMPRESSION_LEVEL, PREVIEW, CHROMATICITIES
+                ORIGINAL_DATA_WINDOW, DWA_COMPRESSION_LEVEL, PREVIEW, VIEW, CHROMATICITIES
             ];
 
             for &reserved in reserved_names.iter() {
@@ -1185,6 +1188,7 @@ impl Header {
                 DWA_COMPRESSION_LEVEL if value.to_f32().is_ok() => layer_attributes.dwa_compression_level = Some(value.to_f32()?),
                 CHROMATICITIES if value.to_chromaticities().is_ok() => image_attributes.chromaticities = Some(value.to_chromaticities()?),
                 PREVIEW if value.to_preview().is_ok() => layer_attributes.preview = Some(value.into_preview()?),
+                VIEW if value.to_text().is_ok() => layer_attributes.view = Some(value.into_text()?),
 
                 _ => {
                     if value.to_chromaticities().is_ok() || value.to_time_code().is_ok() {
@@ -1332,7 +1336,8 @@ impl Header {
                 ORIGINAL_DATA_WINDOW: IntRect = &self.own_attributes.original_data_window,
                 DWA_COMPRESSION_LEVEL: F32 = &self.own_attributes.dwa_compression_level,
                 CHROMATICITIES: Chromaticities = &self.shared_attributes.chromaticities,
-                PREVIEW: Preview = &self.own_attributes.preview
+                PREVIEW: Preview = &self.own_attributes.preview,
+                VIEW: Text = &self.own_attributes.view
             );
         }
 
@@ -1509,6 +1514,7 @@ impl Default for LayerAttributes {
             original_data_window: None,
             dwa_compression_level: None,
             preview: None,
+            view: None,
             custom: Default::default()
         }
     }
