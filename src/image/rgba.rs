@@ -260,11 +260,6 @@ impl Image {
                 let line_position = line.location.position;
                 let Vec2(width, height) = image.resolution;
 
-                println!("channel_index: {}", channel_index);
-                println!("channel_count: {}", channel_count);
-                println!("self res: {:?}", image.resolution);
-                println!("line index: {:?}", line);
-
                 let get_index_of_sample = move |sample_index| {
                     let location = line_position + Vec2(sample_index, 0);
                     debug_assert!(location.0 < width && location.1 < height, "coordinate out of range: {:?}", location);
@@ -329,8 +324,6 @@ impl Image {
 
     /// Try to find a header matching the RGBA requirements.
     fn extract(headers: &[Header]) -> Result<Self> {
-        println!("allocating for meta data {:#?}", headers);
-
         let first_header_name = headers.first()
             .and_then(|header| header.own_attributes.name.as_ref());
 
