@@ -165,7 +165,7 @@ impl Compression {
     /// Panics for invalid tile coordinates.
     pub fn decompress_image_section(self, header: &Header, data: ByteVec, tile: IntRect) -> Result<ByteVec> {
         let dimensions = tile.size;
-        debug_assert!(tile.validate(dimensions).is_ok(), "decompress tile coordinate bug");
+        debug_assert!(tile.validate(Some(dimensions)).is_ok(), "decompress tile coordinate bug");
 
         let expected_byte_size = dimensions.0 * dimensions.1 * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
 

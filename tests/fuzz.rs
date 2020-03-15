@@ -24,7 +24,7 @@ fn exr_files(path: &'static str, filter: bool) -> impl Iterator<Item=PathBuf> {
 pub fn damaged(){
     let mut passed = true;
 
-    for file in exr_files("tests/images", false) {
+    for file in exr_files("tests/images/invalid", false) {
         let file = &file;
 
         let result = catch_unwind(move || {

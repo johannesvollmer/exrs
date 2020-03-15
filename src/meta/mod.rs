@@ -972,6 +972,9 @@ impl Header {
             "incorrect chunk count value"
         );
 
+        self.data_window().validate(None)?;
+        self.shared_attributes.display_window.validate(None)?;
+
         if strict {
             if requirements.is_multilayer() {
                 if self.own_attributes.name.is_none() {
@@ -989,18 +992,6 @@ impl Header {
 
             if self.shared_attributes.display_window.size == Vec2(0,0) {
                 return Err(Error::invalid("empty display window"));
-            }
-
-            let max_int = std::i32::MAX / 2;
-            let (data_min, data_max) = (self.data_window().position, self.data_window().max());
-            let (display_min, display_max) = (self.shared_attributes.display_window.position, self.shared_attributes.display_window.max());
-
-            if data_max.0 >= max_int || data_min.0 <= -max_int || data_max.1 >= max_int || data_min.1 <= -max_int {
-                return Err(Error::invalid("data window integers"));
-            }
-
-            if display_max.0 >= max_int || display_min.0 <= -max_int || display_max.1 >= max_int || display_min.1 <= -max_int {
-                return Err(Error::invalid("display window integers"));
             }
 
             if !self.shared_attributes.pixel_aspect.is_normal() || self.shared_attributes.pixel_aspect < 1.0e-6 || self.shared_attributes.pixel_aspect > 1.0e6 {
@@ -1222,20 +1213,20 @@ impl Header {
             _ => Blocks::ScanLines,
         };
 
-        let chunk_count = match chunk_count {
-            None => compute_chunk_count(compression, data_size, blocks),
+        // check size now to prevent panics while computing the chunk size
+        data_window.validate(None)?;
 
-            Some(count) => {
-                // TODO this must be sanity-checked somewhere later on instead of here! may fail for invalid files (fuzzy tested).
-                debug_assert_eq!(count, compute_chunk_count(compression, data_size, blocks), "invalid chunk count attribute");
-
-                count
-            },
-        };
+        let computed_chunk_count = compute_chunk_count(compression, data_size, blocks);
+        if chunk_count.is_some() && chunk_count != Some(computed_chunk_count) {
+            return Err(Error::invalid("chunk count not matching data size"));
+        }
 
         let header = Header {
             compression,
-            chunk_count,
+
+            // always compute ourselves, because we cannot trust anyone out there 😱
+            chunk_count: computed_chunk_count,
+
             data_size,
 
             shared_attributes: image_attributes,

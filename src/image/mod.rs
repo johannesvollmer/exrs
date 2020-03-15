@@ -788,7 +788,7 @@ impl UncompressedBlock {
         let tile_data_indices = header.get_block_data_indices(&chunk.block)?;
         let absolute_indices = header.get_absolute_block_indices(tile_data_indices)?;
 
-        absolute_indices.validate(header.data_size)?;
+        absolute_indices.validate(Some(header.data_size))?;
 
         match chunk.block {
             Block::Tile(TileBlock { compressed_pixels, .. }) |

@@ -658,9 +658,25 @@ impl IntRect {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, max: Vec2<usize>) -> UnitResult {
-        if self.size.0 > max.0 || self.size.1 > max.1  {
-            return Err(Error::invalid("window attribute dimension value"));
+    pub fn validate(&self, max: Option<Vec2<usize>>) -> UnitResult {
+        if let Some(max) = max {
+            if self.size.0 > max.0 || self.size.1 > max.1  {
+                return Err(Error::invalid("window attribute dimension value"));
+            }
+        }
+
+        let max_int = std::i32::MAX as i64 / 2; // cannot go bigger than that ever
+
+        let self_max = Vec2(
+            self.position.0 as i64 + self.size.0 as i64,
+            self.position.1 as i64 + self.size.1 as i64,
+        );
+
+        if self_max.0 >= max_int || self_max.1 >= max_int
+            || self.position.0 as i64 <= -max_int
+            || self.position.1 as i64 <= -max_int
+        {
+            return Err(Error::invalid("window size exceeding integer maximum"));
         }
 
         Ok(())
@@ -1210,7 +1226,7 @@ impl TileDescription {
     pub fn validate(&self) -> UnitResult {
         let max = std::i32::MAX as i64 / 2;
 
-        if self.tile_size.0 == 0 || self.tile_size.1 == 0 || self.tile_size.0 as i64 > max || self.tile_size.1 as i64 > max  {
+        if self.tile_size.0 == 0 || self.tile_size.1 == 0 || self.tile_size.0 as i64 >= max || self.tile_size.1 as i64 >= max  {
             return Err(Error::invalid("tile size"))
         }
 
