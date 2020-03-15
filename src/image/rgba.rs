@@ -337,7 +337,7 @@ impl Image {
 
             // channels are always sorted alphabetically
             let is_rgba = channels.len() == 4
-                && channels[0].name == "A".try_into().unwrap()
+                && channels[0].name == "A".try_into().unwrap() // TODO case insensitivity
                 && channels[1].name == "B".try_into().unwrap()
                 && channels[2].name == "G".try_into().unwrap()
                 && channels[3].name == "R".try_into().unwrap();
