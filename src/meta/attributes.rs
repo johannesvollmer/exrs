@@ -1693,6 +1693,7 @@ pub mod attribute_type_names {
         TEXT:           b"string",
         TEXT_VECTOR:    b"stringvector",
         TILES:          b"tiledesc"
+        // TODO add VIEW: b"view" // probably either left or right for each eye view
     }
 }
 

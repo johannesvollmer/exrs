@@ -7,7 +7,7 @@ use exr::prelude::*;
 /// Uses multicore decompression where appropriate.
 fn main() {
     let image = simple::Image::read_from_file(
-        "./testout/noisy.exr",
+        "tests/images/valid/openexr/Beachball/multipart.0004.exr",
         read_options::high()
     ).unwrap();
 

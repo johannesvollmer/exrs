@@ -16,7 +16,9 @@ use exr::meta::attributes::PixelType;
 /// Does not load the whole image into memory at once: only processes the image block by block.
 /// On my machine, this program analyzes a 3GB file while only allocating 1.1MB.
 fn main() {
-    let file = BufReader::new(File::open("./testout/noisy.exr").unwrap());
+
+    // If this file does not exist yet, you can generate it by running the `custom_write.rs` example once.
+    let file = BufReader::new(File::open("tests/images/out/3GB.exr").unwrap());
 
     /// Collect averages for each layer
     #[derive(Debug)]

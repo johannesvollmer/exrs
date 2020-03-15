@@ -6,7 +6,8 @@ use exr::prelude::*;
 /// Read an RGBA image and then write it back.
 /// Uses multicore compression where appropriate.
 fn main() {
-    let mut image = rgba::Image::read_from_file("./testout/written.exr", read_options::high()).unwrap();
+    // FIXME this panics?!?!?!?!!?!
+    let mut image = rgba::Image::read_from_file("tests/images/valid/openexr/MultiResolution/PeriodicPattern.exr", read_options::high()).unwrap();
     println!("loaded image {:#?}", image);
 
     // invert the central horizontal line:

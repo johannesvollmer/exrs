@@ -11,7 +11,7 @@ authors = ["johannesvollmer <johannes596@t-online.de>"]
 repository = "https://github.com/johannesvollmer/exrs"
 readme = "README.md"
 license-file = "LICENSE.md"
-exclude = [ "specification/*", "specification/**" ]
+exclude = [ "specification/*", "specification/**", "tests/images/*", "tests/images/**" ]
 
 [badges]
 maintenance = { status = "actively-developed" }

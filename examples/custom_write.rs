@@ -28,7 +28,7 @@ fn main() {
     let size = Vec2(2048*8, 2048*8);
 
     // specify output path, and buffer it for better performance
-    let file = BufWriter::new(File::create("./testout/3GB.exr").unwrap());
+    let file = BufWriter::new(File::create("tests/images/out/3GB.exr").unwrap());
 
     // define meta data header that will be written
     let header = exr::meta::Header::new(

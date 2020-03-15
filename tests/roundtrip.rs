@@ -13,7 +13,7 @@ use exr::image::{read_options, write_options};
 use exr::meta::MetaData;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
-    walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter().map(std::result::Result::unwrap)
+    walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
         .filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
         .map(walkdir::DirEntry::into_path)
 }
@@ -102,22 +102,7 @@ fn round_trip_parallel_files() {
 
 #[test]
 pub fn test_roundtrip() {
-    let path =
-
-//        "D:/Pictures/openexr/TestImages/BrightRingsNanInf.exr"
-//         "D:/Pictures/openexr/Tiles/Ocean.exr"
-//        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
-//            "D:/Pictures/openexr/v2/Stereo/composited.exr"
-//            "D:/Pictures/openexr/MultiResolution/Bonita.exr"
-
-           "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
-//        "D:/Pictures/openexr/crowskull/crow_zips.exr"
-//"D:/Pictures/openexr/crowskull/crow_rle.exr"
-//"D:/Pictures/openexr/crowskull/crow_zip_half.exr"
-
-
-//        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
-    ;
+    let path = "tests/images/valid/openexr/MultiResolution/Bonita.exr";
 
     print!("starting read 1... ");
     io::stdout().flush().unwrap();

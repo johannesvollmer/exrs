@@ -10,7 +10,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use exr::meta::{MetaData, Header};
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
-    walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter().map(std::result::Result::unwrap)
+    walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
         .filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
         .map(walkdir::DirEntry::into_path)
 }
@@ -45,20 +45,9 @@ fn search_previews_of_all_files() {
 
 #[test]
 pub fn test_write_file() {
-    let path =
-        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
-
-//            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
-//            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
-//"D:/Pictures/openexr/crowskull/crow_zips.exr"
-//            "D:/Pictures/openexr/crowskull/crow_rle.exr"
-//"D:/Pictures/openexr/crowskull/crow_zip_half.exr"
-
-
-//        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
-    ;
+    let path = "tests/images/valid/openexr/BeachBall/multipart.0001.exr";
 
     let image = Image::read_from_file(path, read_options::high()).unwrap();
-    Image::write_to_file(&image, "./testout/written.exr", write_options::high()).unwrap();
+    Image::write_to_file(&image, "tests/images/out/written.exr", write_options::high()).unwrap();
 }
 

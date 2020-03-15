@@ -4,7 +4,7 @@
 
 use std::panic::{catch_unwind};
 use rand::{Rng};
-use rand::rngs::StdRng;
+use rand::rngs::{StdRng};
 
 extern crate exr;
 use exr::prelude::*;
@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::ffi::OsStr;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
-    walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter().map(std::result::Result::unwrap)
+    walkdir::WalkDir::new("tests/images").into_iter().map(std::result::Result::unwrap)
         .filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
         .map(walkdir::DirEntry::into_path)
 }
