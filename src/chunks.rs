@@ -137,7 +137,7 @@ impl TileCoordinates {
         i32::write(usize_to_i32(self.tile_index.0), write)?;
         i32::write(usize_to_i32(self.tile_index.1), write)?;
         i32::write(usize_to_i32(self.level_index.0), write)?;
-        i32::write(usize_to_i32(self.level_index.1 ), write)?;
+        i32::write(usize_to_i32(self.level_index.1), write)?;
         Ok(())
     }
 
@@ -149,6 +149,12 @@ impl TileCoordinates {
         let level_x = i32::read(read)?;
         let level_y = i32::read(read)?;
 
+        if level_x > 31 || level_y > 31 {
+            // there can be at most 31 levels, because the largest level would have a size of 2^31,
+            // which exceeds the maximum 32-bit integer value.
+            return Err(Error::invalid("level index exceeding integer maximum"));
+        }
+
         Ok(TileCoordinates {
             tile_index: Vec2(tile_x, tile_y).to_usize("tile coordinate index")?,
             level_index: Vec2(level_x, level_y).to_usize("tile coordinate level")?
@@ -159,15 +165,21 @@ impl TileCoordinates {
     /// These coordinates are only valid inside the corresponding one header.
     /// Will start at 0 and always be positive.
     pub fn to_data_indices(&self, tile_size: Vec2<usize>, max: Vec2<usize>) -> Result<IntRect> {
-        let start = self.tile_index * tile_size;
+        let x = self.tile_index.0 as u64 * tile_size.0 as u64;
+        let y = self.tile_index.1 as u64 * tile_size.1 as u64;
 
-        Ok(IntRect {
-            position: start.to_i32(),
-            size: Vec2(
-                calculate_block_size(max.0, tile_size.0, start.0)?,
-                calculate_block_size(max.1, tile_size.0, start.1)?,
-            ),
-        })
+        if x >= max.0 as u64 || y >= max.1 as u64 {
+            Err(Error::invalid("tile index"))
+        }
+        else {
+            Ok(IntRect {
+                position: Vec2(x as i32, y as i32),
+                size: Vec2(
+                    calculate_block_size(max.0, tile_size.0, x as usize)?,
+                    calculate_block_size(max.1, tile_size.0, y as usize)?,
+                ),
+            })
+        }
     }
 
     /// Absolute coordinates inside the global 2D space of a file, may be negative.

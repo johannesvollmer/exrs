@@ -167,12 +167,7 @@ impl Image {
     /// Use the raw `Image { .. }` constructor for even more complex cases.
     pub fn new_from_single_layer(layer: Layer) -> Self {
         Self {
-            attributes: ImageAttributes {
-                display_window: layer.data_window(),
-                pixel_aspect: 1.0,
-                list: Vec::new()
-            },
-
+            attributes: ImageAttributes::new(layer.data_size),
             layers: smallvec![ layer ],
         }
     }
@@ -184,14 +179,7 @@ impl Image {
     /// Consider using `Image::new_from_single_layer` for simpler cases.
     /// Use the raw `Image { .. }` constructor for more complex cases.
     pub fn new_from_layers(layers: Layers, display_window: IntRect) -> Self {
-        Self {
-            layers,
-            attributes: ImageAttributes {
-                display_window,
-                pixel_aspect: 1.0,
-                list: Vec::new()
-            }
-        }
+        Self { layers, attributes: ImageAttributes::default().with_display_window(display_window) }
     }
 
 
@@ -318,13 +306,7 @@ impl Layer {
             tile_size: None,
             line_order: LineOrder::Unspecified, // non-parallel write will set this to increasing if possible
 
-            attributes: LayerAttributes {
-                name: Some(name),
-                data_position: Vec2(0, 0),
-                screen_window_center: Vec2(0.0, 0.0),
-                screen_window_width: 1.0,
-                list: Vec::new(),
-            }
+            attributes: LayerAttributes::new(name),
         }
     }
 
@@ -383,9 +365,9 @@ impl Image {
     /// Allocate an image ready to be filled with pixel data.
     pub fn allocate(headers: &[Header]) -> Result<Self> {
         let shared_attributes = &headers.iter()
-            // pick the header with the most attributes
+            // pick the header with the most attributes (ignoring optional default attributes)
             // (all headers should have the same shared attributes anyways)
-            .max_by_key(|header| header.shared_attributes.list.len())
+            .max_by_key(|header| header.shared_attributes.custom.len())
             .expect("no headers found").shared_attributes;
 
         let headers : Result<_> = headers.iter()
@@ -523,7 +505,7 @@ impl Channel {
 
         Channel {
             name: channel.name.clone(), is_linear: channel.is_linear, sampling: channel.sampling,
-            samples: Samples::allocate(size, channel.pixel_type)
+            samples: Samples::allocate(size, channel.sample_type)
         }
     }
 
@@ -543,10 +525,10 @@ impl Channel {
     /// Create the meta data that describes this channel.
     pub fn infer_channel_attribute(&self) -> attributes::Channel {
         attributes::Channel {
-            pixel_type: match self.samples {
-                Samples::F16(_) => PixelType::F16,
-                Samples::F32(_) => PixelType::F32,
-                Samples::U32(_) => PixelType::U32,
+            sample_type: match self.samples {
+                Samples::F16(_) => SampleType::F16,
+                Samples::F32(_) => SampleType::F32,
+                Samples::U32(_) => SampleType::U32,
             },
 
             name: self.name.clone(),
@@ -560,20 +542,19 @@ impl Channel {
 impl Samples {
 
     /// Allocate a sample block ready to be filled with pixel data.
-    pub fn allocate(resolution: Vec2<usize>, pixel_type: PixelType) -> Self {
+    pub fn allocate(resolution: Vec2<usize>, sample_type: SampleType) -> Self {
         let count = resolution.area();
+        debug_assert!(count < 1920*20 * 1920*20, "suspiciously large image: {} mega pixels", count / 1_000_000);
 
-        match pixel_type {
-            PixelType::F16 => Samples::F16(vec![ f16::ZERO; count ] ),
-            PixelType::F32 => Samples::F32(vec![ 0.0; count ] ),
-            PixelType::U32 => Samples::U32(vec![ 0; count ] ),
+        match sample_type {
+            SampleType::F16 => Samples::F16(vec![f16::ZERO; count ] ),
+            SampleType::F32 => Samples::F32(vec![0.0; count ] ),
+            SampleType::U32 => Samples::U32(vec![0; count ] ),
         }
     }
 
     /// Insert one line of pixel data into this sample block.
     pub fn insert_line(&mut self, resolution: Vec2<usize>, line: LineRef<'_>) -> UnitResult {
-        debug_assert_ne!(line.location.sample_count, 0, "line index calculation bug");
-
         if line.location.position.0 + line.location.sample_count > resolution.0 {
             return Err(Error::invalid("data block x coordinate"))
         }
@@ -581,9 +562,6 @@ impl Samples {
         if line.location.position.1 > resolution.1 {
             return Err(Error::invalid("data block y coordinate"))
         }
-
-        debug_assert_ne!(resolution.0, 0, "sample size bug");
-        debug_assert_ne!(line.location.sample_count, 0, "line index calculation bug");
 
         let start_index = line.location.position.1 * resolution.0 + line.location.position.0;
         let end_index = start_index + line.location.sample_count;
@@ -600,12 +578,10 @@ impl Samples {
     pub fn extract_line(&self, line: LineRefMut<'_>, resolution: Vec2<usize>) {
         let index = line.location;
 
+        // the index is generated by ourselves and must always be correct
         debug_assert!(index.position.0 + index.sample_count <= resolution.0, "line index calculation bug");
         debug_assert!(index.position.1 < resolution.1, "line index calculation bug");
-        debug_assert_ne!(index.sample_count, 0, "line index bug");
-
         debug_assert_ne!(resolution.0, 0, "sample size but");
-        debug_assert_ne!(index.sample_count, 0, "line index bug");
 
         let start_index = index.position.1 * resolution.0 + index.position.0;
         let end_index = start_index + index.sample_count;

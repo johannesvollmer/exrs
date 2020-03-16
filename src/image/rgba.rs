@@ -1,10 +1,9 @@
 
-//! Read and write a truly minimal RGBA image.
-//! This module loads only images with RGBA channels if they all have the same data type (either f16, f32, or u32).
-//! Returns `Error::Invalid` if not at least one image part with RGB channels can be found in the file.
+//! Read and write a simple RGBA image.
+//! This module loads the RGBA channels of any layer that contains RGB or RGBA channels.
+//! Returns `Error::Invalid` if none can be found in the file.
 //!
-//! This module should rather be seen as an example
-//! and only be used if you are confident that your images are really RGBA.
+//! This module should only be used if you are confident that your images are really RGBA.
 //! Use `exr::image::simple` if you need custom channels or specialized error handling.
 
 
@@ -13,38 +12,219 @@ use std::fs::File;
 use std::io::{Read, Seek, BufReader, Write, BufWriter};
 use crate::math::{Vec2, RoundingMode};
 use crate::error::{Result, Error, UnitResult};
-use crate::meta::attributes::{PixelType, Channel, Text, LineOrder, TileDescription, LevelMode};
+use crate::meta::attributes::{SampleType, Text, LineOrder, TileDescription, LevelMode};
 use std::convert::TryInto;
 use crate::meta::{Header, ImageAttributes, LayerAttributes, MetaData, Blocks};
 use half::f16;
 use crate::image::{ReadOptions, OnReadProgress, WriteOptions, OnWriteProgress};
 use crate::compression::Compression;
 
+/// Contains some predefined pixel storages to put into the `rgba::Image<T>` type parameter.
+/// Example:
+/// ```
+/// # use exr::prelude::*;
+/// use exr::image::rgba::{ Image, pixels::Flattened as FlatPixels };
+///
+/// let image = Image::<FlatPixels<f16>>::read_from_file("file.exr", read_options::high());
+/// ```
+pub mod pixels {
+    use super::*;
 
-/// A simple RGBA with one 32-bit float per pixel for each channel.
-/// Stores all samples in a flattened vector.
+    /// Store all samples in a single array.
+    /// All samples will be converted to the type `T`.
+    /// This currently supports the sample types `f16`, `f32`, and `u32`.
+    ///
+    #[derive(PartialEq, Clone)]
+    pub struct Flattened<T> {
+
+        /// The flattened vector contains all rows one after another.
+        /// In each row, for each pixel, its red, green, blue, and then alpha
+        /// samples are stored one after another.
+        ///
+        /// Use `Flattened::flatten_sample_index(image, sample_index)`
+        /// to compute the flat index of a specific sample.
+        samples: Vec<T>,
+    }
+
+    impl<T> Flattened<T> {
+
+        /// Compute the flat index of a specific sample. The computed index can be used with `Flattened.samples[index]`.
+        /// Panics for invalid sample coordinates.
+        #[inline]
+        pub fn flatten_sample_index(image: &Image<Self>, index: SampleIndex) -> usize {
+            debug_assert!(index.position.0 < image.resolution.0 && index.position.1 < image.resolution.1, "invalid pixel position");
+            debug_assert!(index.channel < image.channel_count(), "invalid channel index");
+
+            let pixel_index = index.position.1 * image.resolution.0 + index.position.0;
+            pixel_index * image.channel_count() + index.channel
+        }
+    }
+
+    impl ExposePixels for Flattened<f16> {
+        #[inline]
+        fn sample_f32(image: &Image<Self>, index: SampleIndex) -> f32 {
+            image.data.samples[Flattened::flatten_sample_index(image, index)].to_f32()
+        }
+    }
+
+    impl ConsumePixels for Flattened<f16> {
+        #[inline]
+        fn new(image: &Image<()>) -> Self {
+            Flattened { samples: vec![f16::ZERO; image.resolution.area() * image.channel_count()] }
+        }
+
+        #[inline]
+        fn store_f32(image: &mut Image<Self>, index: SampleIndex, sample: f32) {
+            let index = Self::flatten_sample_index(image, index);
+            image.data.samples[index] = f16::from_f32(sample)
+        }
+    }
+
+    impl ExposePixels for Flattened<f32> {
+        #[inline]
+        fn sample_f32(image: &Image<Self>, index: SampleIndex) -> f32 {
+            image.data.samples[Flattened::flatten_sample_index(image, index)]
+        }
+    }
+
+    impl ConsumePixels for Flattened<f32> {
+        #[inline]
+        fn new(image: &Image<()>) -> Self {
+            Flattened { samples: vec![0.0; image.resolution.area() * image.channel_count()] }
+        }
+
+        #[inline]
+        fn store_f32(image: &mut Image<Self>, index: SampleIndex, sample: f32) {
+            let index = Self::flatten_sample_index(image, index);
+            image.data.samples[index] = sample
+        }
+    }
+
+    impl ExposePixels for Flattened<u32> {
+        #[inline]
+        fn sample_f32(image: &Image<Self>, index: SampleIndex) -> f32 {
+            Self::sample_u32(image, index) as f32
+        }
+
+        #[inline]
+        fn sample_u32(image: &Image<Self>, index: SampleIndex) -> u32 {
+            image.data.samples[Flattened::flatten_sample_index(image, index)]
+        }
+    }
+
+    impl ConsumePixels for Flattened<u32> {
+        #[inline]
+        fn new(image: &Image<()>) -> Self {
+            Flattened { samples: vec![0; image.resolution.area() * image.channel_count()] }
+        }
+
+        #[inline]
+        fn store_f32(image: &mut Image<Self>, index: SampleIndex, sample: f32) {
+            Self::store_u32(image, index, sample as u32)
+        }
+
+        #[inline]
+        fn store_u32(image: &mut Image<Self>, index: SampleIndex, sample: u32) {
+            let index = Self::flatten_sample_index(image, index);
+            image.data.samples[index] = sample
+        }
+    }
+
+    use std::fmt::*;
+    impl<T> Debug for Flattened<T> {
+        #[inline]
+        fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(formatter, "[{}; {}]", std::any::type_name::<T>(), self.samples.len())
+        }
+    }
+}
+
+
+/// An index that uniquely identifies each `f16`, `f32`, or `u32` in an RGBA image.
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
+pub struct SampleIndex {
+
+    /// The x and y index of the pixel.
+    pub position: Vec2<usize>,
+
+    /// The index of the channel.
+    /// Red is zero, green is one, blue is two, and alpha is three.
+    pub channel: usize,
+}
+
+/// Expose the pixels of an image. Implement this on your own image type to write your image to a file.
+///
+/// Contains a separate method for each of the three possible sample types.
+/// The actual sample type of the file is specified within `Image.channels`.
+/// Implementing only the `f32` method will automatically convert all samples to that type, if necessary.
+pub trait ExposePixels: Sized + Sync { // TODO does not actually always need sync
+
+    /// Extract a single `f32` value out of your image. Should panic for invalid sample indices.
+    fn sample_f32(image: &Image<Self>, index: SampleIndex) -> f32;
+
+    /// Extract a single `u32` value out of your image. Should panic for invalid sample indices.
+    #[inline] fn sample_u32(image: &Image<Self>, index: SampleIndex) -> u32 { Self::sample_f32(image, index) as u32 }
+
+    /// Extract a single `f16` value out of your image. Should panic for invalid sample indices.
+    #[inline] fn sample_f16(image: &Image<Self>, index: SampleIndex) -> f16 { f16::from_f32(Self::sample_f32(image, index)) }
+}
+
+/// Consume the pixels of an image file. Implement this on your own image type to read a file into your image.
+///
+/// Contains a separate method for each of the three possible sample types.
+/// Implementing only the `f32` method will automatically convert all samples to that type, if necessary.
+pub trait ConsumePixels: Sized {
+
+    /// Create a new pixel storage for the supplied image.
+    /// The returned value will be put into the `data` field of the supplied image.
+    fn new(image: &Image<()>) -> Self;
+
+    /// Set the value of a single `f32`. Should panic on invalid sample indices.
+    fn store_f32(image: &mut Image<Self>, index: SampleIndex, sample: f32);
+
+    /// Set the value of a single `u32`. Should panic on invalid sample indices.
+    #[inline] fn store_u32(image: &mut Image<Self>, index: SampleIndex, sample: u32) { Self::store_f32(image, index, sample as f32) }
+
+    /// Set the value of a single `f16`. Should panic on invalid sample indices.
+    #[inline] fn store_f16(image: &mut Image<Self>, index: SampleIndex, sample: f16) { Self::store_f32(image, index, sample.to_f32()) }
+}
+
+/// The RGBA channels of an image. The alpha channel is optional.
+/// The first channel is red, the second blue, the third green, and the fourth alpha.
+pub type Channels = (Channel, Channel, Channel, Option<Channel>);
+
+/// Describes a single channel of red, green, blue, or alpha samples.
+#[derive(Copy, Debug, Clone, PartialEq, Eq)]
+pub struct Channel {
+
+    /// Are the samples stored in a linear color space?
+    is_linear: bool,
+
+    /// The type of the samples in this channel.
+    sample_type: SampleType,
+}
+
+/// An image with a custom pixel storage.
+/// Use `Image::read_from_file` to actually load an image.
+///
+/// See the `exr::image::rgba::pixels` module
+/// if you do not want to implement your own pixel storage.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Image {
+pub struct Image<Storage> {
 
-    /// A typical flattened RGBA sample array.
-    /// If `has_alpha_channel` is false, this contains only RGB values.
-    ///
-    /// Stores in order red, green, blue, then alpha components.
-    /// All lines of the image are appended one after another, __bottom to top__.
-    ///
-    /// To calculate an index, you can use `Image::vector_index_of_first_pixel_component(Vec2<usize>) -> usize`,
-    /// which returns the corresponding one-dimensional index of a pixel in this array.
-    // TODO make this an interface for custom data storage.
-    pub data: Pixels,
+    /// The user-specified pixel storage containing the actual pixel data.
+    /// This is a type parameter which should implement either `ExposePixels` or `ConsumePixels`.
+    pub data: Storage,
 
-    /// The dimensions of this Image, width times height.
+    /// The channel types of the written file.
+    /// For each channel, the appropriate method is called on `Image.data`.
+    ///
+    /// Careful: Not all applications may support
+    /// RGBA images with arbitrary sample types.
+    pub channels: Channels,
+
+    /// The dimensions of this image, width and height.
     pub resolution: Vec2<usize>,
-
-    /// Specifies if the `data` vector contains 3 or 4 values per pixel.
-    pub has_alpha_channel: bool,
-
-    /// Specifies if this image is in a linear color space.
-    pub is_linear: bool,
 
     /// The attributes of the exr image.
     pub image_attributes: ImageAttributes,
@@ -74,24 +254,6 @@ pub struct Encoding {
     /// Does not change any actual image orientation.
     pub line_order: LineOrder,
 }
-
-/// A one dimensional array of samples.
-///
-/// Stores in order red, green, blue, then alpha components.
-/// All lines of the image are appended one after another, top to bottom.
-#[derive(Clone, PartialEq)]
-pub enum Pixels {
-
-    /// 16-bit floating point number samples in a flattened array.
-    F16(Vec<f16>),
-
-    /// 32-bit floating point number samples in a flattened array.
-    F32(Vec<f32>),
-
-    /// 32-bit unsigned integer samples in a flattened array.
-    U32(Vec<u32>),
-}
-
 
 impl Encoding {
 
@@ -139,21 +301,16 @@ impl Encoding {
 }
 
 
-impl Image {
+impl<S> Image<S> {
 
-    /// Create an image with the resolution, alpha channel, linearity, and actual pixel data.
-    pub fn new(resolution: Vec2<usize>, has_alpha_channel: bool, is_linear: bool, data: Pixels) -> Self {
-        let result = Self {
-            data, resolution, has_alpha_channel, is_linear,
+    /// Create an image with the resolution, channels, and actual pixel data.
+    pub fn new(resolution: Vec2<usize>, channels: Channels, data: S) -> Self {
+        Self {
+            data, resolution, channels,
             image_attributes: ImageAttributes::new(resolution),
             layer_attributes: LayerAttributes::new(Text::from("RGBA").expect("ascii bug")),
-            encoding: Encoding::fast(),
-        };
-
-        let data_len = result.channel_count() * resolution.area();
-        debug_assert_eq!(data_len, result.data.len(), "pixel data length must be {} but was {}", data_len, result.data.len());
-
-        result
+            encoding: Encoding::fast()
+        }
     }
 
     /// Set the display window and data window position of this image.
@@ -181,38 +338,32 @@ impl Image {
         Self { encoding, ..self }
     }
 
-    /// Is 4 if this is an RGBA image. Is 3 if this is an RGB image.
+    /// Is 4 if this is an RGBA image, 3 for an RGB image.
     #[inline]
     pub fn channel_count(&self) -> usize {
-        if self.has_alpha_channel { 4 } else { 3 }
-    }
-
-    /// Computes the one-dimensional index from a two-dimensional pixel location.
-    /// The index points to the red component of the pixel.
-    /// The green and blue pixel values can be found directly after it.
-    #[inline]
-    pub fn calculate_vector_index_of_first_pixel_component(resolution: Vec2<usize>, channel_count: usize, pixel: Vec2<usize>) -> usize {
-        debug_assert!(pixel.0 < resolution.0 && pixel.1 < resolution.1, "coordinate out of range");
-        (pixel.1 * resolution.0 + pixel.0) * channel_count
-    }
-
-    /// Computes the one-dimensional index from a two-dimensional pixel location.
-    /// The index points to the red component of the pixel.
-    /// The green and blue pixel values can be found directly after it.
-    /// Does not consider data window offset or display window offset.
-    /// Also see `Image::calculate_vector_index_of_first_pixel_component`.
-    #[inline]
-    pub fn vector_index_of_first_pixel_component(&self, pixel: Vec2<usize>) -> usize {
-        Self::calculate_vector_index_of_first_pixel_component(self.resolution, self.channel_count(), pixel)
+        if self.channels.3.is_some() { 4 } else { 3 }
     }
 
     /// Read the exr image from a file.
     /// Use `read_from_unbuffered` instead, if you do not have a file.
     /// Returns `Error::Invalid` if not at least one image part with RGB channels can be found in the file.
     // TODO add read option: skip alpha channel even if present.
+    ///
+    /// Example:
+    /// ```
+    /// use exr::prelude::*;
+    /// let image = rgba::Image::<rgba::pixels::Flattened<f16>>::read_from_file("file.exr", read_options::high());
+    /// ```
+    ///
+    /// You should rather implement `rgba::ConsumePixels` on your own image type
+    /// instead of using `pixels::Flattened<f16>`.
     #[inline]
     #[must_use]
-    pub fn read_from_file(path: impl AsRef<Path>, options: ReadOptions<impl OnReadProgress>) -> Result<Self> {
+    pub fn read_from_file(
+        path: impl AsRef<Path>,
+        options: ReadOptions<impl OnReadProgress>
+    ) -> Result<Self> where S: ConsumePixels
+    {
         Self::read_from_unbuffered(File::open(path)?, options)
     }
 
@@ -226,7 +377,11 @@ impl Image {
     /// open an issue on the github repository._
     #[inline]
     #[must_use]
-    pub fn read_from_unbuffered(read: impl Read + Seek + Send, options: ReadOptions<impl OnReadProgress>) -> Result<Self> {
+    pub fn read_from_unbuffered(
+        read: impl Read + Seek + Send,
+        options: ReadOptions<impl OnReadProgress>
+    ) -> Result<Self> where S: ConsumePixels
+    {
         Self::read_from_buffered(BufReader::new(read), options)
     }
 
@@ -240,7 +395,11 @@ impl Image {
     /// open an issue on the github repository._
     #[inline]
     #[must_use]
-    pub fn read_from_buffered(read: impl Read + Seek + Send, options: ReadOptions<impl OnReadProgress>) -> Result<Self> {
+    pub fn read_from_buffered(
+        read: impl Read + Seek + Send,
+        options: ReadOptions<impl OnReadProgress>
+    ) -> Result<Self> where S: ConsumePixels
+    {
         crate::image::read_filtered_lines_from_buffered(
             read,
 
@@ -253,33 +412,44 @@ impl Image {
             },
 
             |image, meta, line| {
-                debug_assert_eq!(meta[line.location.layer].own_attributes.name, image.layer_attributes.name, "irrelevant header should be filtered out"); // TODO this should be an error right?
+                let header = &meta[line.location.layer];
+                debug_assert_eq!(header.own_attributes.name, image.layer_attributes.name, "irrelevant header should be filtered out"); // TODO this should be an error right?
+                let channel = &header.channels.list[line.location.channel];
 
-                let channel_index = 3 - line.location.channel; // convert ABGR index to RGBA index
+                let channel_index = {
+                    if      channel.name.eq_case_insensitive("a") { 3 }
+                    else if channel.name.eq_case_insensitive("b") { 2 }
+                    else if channel.name.eq_case_insensitive("g") { 1 }
+                    else if channel.name.eq_case_insensitive("r") { 0 }
+                    else { return Ok(()); } // ignore non-rgba channels
+                };
+
                 let line_position = line.location.position;
                 let Vec2(width, height) = image.resolution;
-                let channel_count = image.channel_count();
 
                 let get_index_of_sample = move |sample_index| {
                     let location = line_position + Vec2(sample_index, 0);
                     debug_assert!(location.0 < width && location.1 < height, "coordinate out of range: {:?}", location);
-
-                    let flat = location.1 * width + location.0;
-                    let r_index = flat * channel_count;
-                    r_index + channel_index
+                    SampleIndex { position: location, channel: channel_index }
                 };
 
-                match &mut image.data {
-                    Pixels::F16(vec) => for (sample_index, sample) in line.read_samples().enumerate() { // TODO any pixel_type?
-                        vec[get_index_of_sample(sample_index)] = sample?;
+                let channel = match channel_index {
+                    0 => image.channels.0, 1 => image.channels.1, 2 => image.channels.2,
+                    3 => image.channels.3.expect("invalid alpha channel index"),
+                    _ => panic!("invalid channel index"),
+                };
+
+                match channel.sample_type {
+                    SampleType::F16 => for (sample_index, sample) in line.read_samples().enumerate() {
+                        S::store_f16(image, get_index_of_sample(sample_index), sample?);
                     },
 
-                    Pixels::F32(vec) => for (sample_index, sample) in line.read_samples().enumerate() { // TODO any pixel_type?
-                        vec[get_index_of_sample(sample_index)] = sample?;
+                    SampleType::F32 => for (sample_index, sample) in line.read_samples().enumerate() {
+                        S::store_f32(image, get_index_of_sample(sample_index), sample?);
                     },
 
-                    Pixels::U32(vec) => for (sample_index, sample) in line.read_samples().enumerate() { // TODO any pixel_type?
-                        vec[get_index_of_sample(sample_index)] = sample?;
+                    SampleType::U32 => for (sample_index, sample) in line.read_samples().enumerate() {
+                        S::store_u32(image, get_index_of_sample(sample_index), sample?);
                     },
                 };
 
@@ -290,23 +460,13 @@ impl Image {
         )
     }
 
-
     /// Allocate the memory for an image that could contain the described data.
-    fn allocate(header: &Header, linear: bool, alpha: bool, pixel_type: PixelType) -> Self {
-        let components = if alpha { 4 } else { 3 };
-        let samples = components * header.data_size.area();
-
-        Self {
+    fn allocate(header: &Header, channels: Channels) -> Self where S: ConsumePixels {
+        let meta = Image {
             resolution: header.data_size,
-            has_alpha_channel: alpha,
+            channels,
 
-            data: match pixel_type {
-                PixelType::F16 => Pixels::F16(vec![f16::from_f32(0.0); samples]),
-                PixelType::F32 => Pixels::F32(vec![0.0; samples]),
-                PixelType::U32 => Pixels::U32(vec![0; samples]),
-            },
-
-            is_linear: linear,
+            data: (),
 
             layer_attributes: header.own_attributes.clone(),
             image_attributes: header.shared_attributes.clone(),
@@ -319,11 +479,24 @@ impl Image {
                     Blocks::ScanLines => None,
                 },
             }
+        };
+
+        let data = S::new(&meta);
+
+        Image {
+            data,
+
+            // .. meta
+            resolution: meta.resolution,
+            channels: meta.channels,
+            image_attributes: meta.image_attributes,
+            layer_attributes: meta.layer_attributes,
+            encoding: meta.encoding
         }
     }
 
     /// Try to find a header matching the RGBA requirements.
-    fn extract(headers: &[Header]) -> Result<Self> {
+    fn extract(headers: &[Header]) -> Result<Self> where S: ConsumePixels {
         let first_header_name = headers.first()
             .and_then(|header| header.own_attributes.name.as_ref());
 
@@ -333,43 +506,37 @@ impl Image {
                 return Err(Error::invalid("duplicate header name"))
             }
 
-            let channels = &header.channels.list;
+            let mut rgba = [None; 4];
 
-            // channels are always sorted alphabetically
-            let is_rgba = channels.len() == 4
-                && channels[0].name == "A".try_into().unwrap()
-                && channels[1].name == "B".try_into().unwrap()
-                && channels[2].name == "G".try_into().unwrap()
-                && channels[3].name == "R".try_into().unwrap();
+            for channel in &header.channels.list {
+                let rgba_channel = Some(Channel {
+                    is_linear: channel.is_linear,
+                    sample_type: channel.sample_type,
+                });
 
-            // channels are always sorted alphabetically
-            let is_rgb = channels.len() == 3
-                && channels[0].name == "B".try_into().unwrap()
-                && channels[1].name == "G".try_into().unwrap()
-                && channels[2].name == "R".try_into().unwrap();
+                if      channel.name.eq_case_insensitive("a") { rgba[3] = rgba_channel; }
+                else if channel.name.eq_case_insensitive("b") { rgba[2] = rgba_channel; }
+                else if channel.name.eq_case_insensitive("g") { rgba[1] = rgba_channel; }
+                else if channel.name.eq_case_insensitive("r") { rgba[0] = rgba_channel; }
+            }
 
-            if !is_rgba && !is_rgb { continue; }
-
-            let first_channel: &Channel = &channels[0];
-            let pixel_type_mismatch = channels[1..].iter()
-                .any(|channel|
-                    channel.pixel_type != first_channel.pixel_type
-                        && channel.is_linear == first_channel.is_linear
-                );
-
-            if pixel_type_mismatch { continue; }
-
-            return Ok(Self::allocate(header, first_channel.is_linear, is_rgba, first_channel.pixel_type))
+            if let [Some(r), Some(g), Some(b), a] = rgba {
+                return Ok(Self::allocate(header, (r,g,b,a)))
+            }
         }
 
-        Err(Error::invalid("no valid RGB or RGBA image part"))
+        Err(Error::invalid("no valid RGB or RGBA image layer"))
     }
 
     /// Write the exr image to a file.
     /// Use `write_to_unbuffered` instead if you do not have a file.
     /// If an error occurs, attempts to delete the partially written file.
     #[must_use]
-    pub fn write_to_file(&self, path: impl AsRef<Path>, options: WriteOptions<impl OnWriteProgress>) -> UnitResult {
+    pub fn write_to_file(
+        &self, path: impl AsRef<Path>,
+        options: WriteOptions<impl OnWriteProgress>
+    ) -> UnitResult where S: ExposePixels
+    {
         crate::io::attempt_delete_file_on_write_error(path, |write|
             self.write_to_unbuffered(write, options)
         )
@@ -380,7 +547,11 @@ impl Image {
     /// Use `read_from_file` instead, if you have a file path.
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first, using `write_to_buffered`.
     #[must_use]
-    pub fn write_to_unbuffered(&self, write: impl Write + Seek, options: WriteOptions<impl OnWriteProgress>) -> UnitResult {
+    pub fn write_to_unbuffered(
+        &self, write: impl Write + Seek,
+        options: WriteOptions<impl OnWriteProgress>
+    ) -> UnitResult where S: ExposePixels
+    {
         self.write_to_buffered(BufWriter::new(write), options)
     }
 
@@ -389,27 +560,27 @@ impl Image {
     /// Use `read_from_unbuffered` instead, if this is not an in-memory writer.
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first.
     #[must_use]
-    pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions<impl OnWriteProgress>) -> UnitResult {
-        let pixel_type = match self.data {
-            Pixels::F16(_) => PixelType::F16,
-            Pixels::F32(_) => PixelType::F32,
-            Pixels::U32(_) => PixelType::U32,
-        };
+    pub fn write_to_buffered(
+        &self, write: impl Write + Seek,
+        options: WriteOptions<impl OnWriteProgress>
+    ) -> UnitResult where S: ExposePixels
+    {
+        use crate::meta::attributes as meta;
 
         let header = Header::new(
             self.layer_attributes.name.clone().unwrap_or(Text::from("RGBA").unwrap()),
             self.resolution,
-    if self.has_alpha_channel { smallvec![
-                Channel::new("A".try_into().unwrap(), pixel_type, self.is_linear), // TODO make linear a parameter
-                Channel::new("B".try_into().unwrap(), pixel_type, self.is_linear),
-                Channel::new("G".try_into().unwrap(), pixel_type, self.is_linear),
-                Channel::new("R".try_into().unwrap(), pixel_type, self.is_linear),
+    if let Some(alpha) = self.channels.3 { smallvec![
+                meta::Channel::new("A".try_into().unwrap(), alpha.sample_type, alpha.is_linear),
+                meta::Channel::new("B".try_into().unwrap(), self.channels.2.sample_type, self.channels.2.is_linear),
+                meta::Channel::new("G".try_into().unwrap(), self.channels.1.sample_type, self.channels.1.is_linear),
+                meta::Channel::new("R".try_into().unwrap(), self.channels.0.sample_type, self.channels.0.is_linear),
             ] }
 
             else { smallvec![
-                Channel::new("B".try_into().unwrap(), pixel_type, self.is_linear),
-                Channel::new("G".try_into().unwrap(), pixel_type, self.is_linear),
-                Channel::new("R".try_into().unwrap(), pixel_type, self.is_linear),
+                meta::Channel::new("B".try_into().unwrap(), self.channels.2.sample_type, self.channels.2.is_linear),
+                meta::Channel::new("G".try_into().unwrap(), self.channels.1.sample_type, self.channels.1.is_linear),
+                meta::Channel::new("R".try_into().unwrap(), self.channels.0.sample_type, self.channels.0.is_linear),
             ] }
         );
 
@@ -436,33 +607,38 @@ impl Image {
             MetaData::new(smallvec![ header ]),
 
             |_meta, line| {
-                let channel_index = 3 - line.location.channel; // convert ABGR index to RGBA index
+                let channel_count = self.channel_count();
+                let channel_index = channel_count - 1 - line.location.channel; // convert ABGR index to RGBA index
                 let line_position = line.location.position;
                 let Vec2(width, height) = self.resolution;
-                let channel_count = self.channel_count();
                 debug_assert!(line.location.channel < self.channel_count(), "channel count bug");
 
                 let get_index_of_sample = move |sample_index| {
                     let location = line_position + Vec2(sample_index, 0);
                     debug_assert!(location.0 < width && location.1 < height, "coordinate out of range: {:?}", location);
-
-                    let flat = location.1 * width + location.0;
-                    let r_index = flat * channel_count;
-                    r_index + channel_index
+                    SampleIndex { position: location, channel: channel_index }
                 };
 
-                match &self.data {
-                    Pixels::F16(vec) => line.write_samples(|sample_index|{
-                        vec[get_index_of_sample(sample_index)]
-                    })?,
+                let channel = match channel_index {
+                    0 => self.channels.0,
+                    1 => self.channels.1,
+                    2 => self.channels.2,
+                    3 => self.channels.3.expect("invalid alpha channel index"),
+                    _ => panic!("invalid channel index"),
+                };
 
-                    Pixels::F32(vec) => line.write_samples(|sample_index|{
-                        vec[get_index_of_sample(sample_index)]
-                    })?,
+                match channel.sample_type {
+                    SampleType::F16 => line.write_samples(|sample_index|{
+                        S::sample_f16(self, get_index_of_sample(sample_index))
+                    }).expect("rgba line write error"),
 
-                    Pixels::U32(vec) => line.write_samples(|sample_index|{
-                        vec[get_index_of_sample(sample_index)]
-                    })?,
+                    SampleType::F32 => line.write_samples(|sample_index|{
+                        S::sample_f32(self, get_index_of_sample(sample_index))
+                    }).expect("rgba line write error"),
+
+                    SampleType::U32 => line.write_samples(|sample_index|{
+                        S::sample_u32(self, get_index_of_sample(sample_index))
+                    }).expect("rgba line write error"),
                 };
 
                 Ok(())
@@ -470,30 +646,5 @@ impl Image {
 
             options
         )
-    }
-}
-
-impl Pixels {
-
-    /// The number of samples, that is, the number of all r, g, b, and a samples in the image, summed.
-    /// For example, an RGBA image with 6x5 pixels has `6 * 5 * 4 = 120` samples.
-    pub fn len(&self) -> usize {
-        match self {
-            Pixels::F16(vec) => vec.len(),
-            Pixels::F32(vec) => vec.len(),
-            Pixels::U32(vec) => vec.len(),
-        }
-    }
-}
-
-
-// Do not print the actual pixel contents into the console.
-impl std::fmt::Debug for Pixels {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Pixels::F16(ref vec) => write!(formatter, "[F16; {}]", vec.len()),
-            Pixels::F32(ref vec) => write!(formatter, "[F32; {}]", vec.len()),
-            Pixels::U32(ref vec) => write!(formatter, "[U32; {}]", vec.len()),
-        }
     }
 }

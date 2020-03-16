@@ -13,7 +13,7 @@ use std::cmp::Ordering;
 // FIXME throws "acces denied" sometimes, simply trying again usually works.
 //
 pub fn main() {
-    let path = "D:/Pictures/openexr/BeachBall/multipart.0001.exr";
+    let path = "tests/images/valid/openexr/BeachBall/multipart.0001.exr";
 
     let now = ::std::time::Instant::now();
 
@@ -41,7 +41,7 @@ pub fn main() {
                         let data : Vec<f32> = sample_block.samples.iter().map(|f16| f16.to_f32()).collect();
 
                         save_f32_image_as_png(&data, sample_block.resolution, format!(
-                            "testout/{} ({}) {}_f16_{}x{}.png",
+                            "tests/images/out/{} ({}) {}_f16_{}x{}.png",
                             layer_index, layer_name, channel.name,
                             sample_block.resolution.0, sample_block.resolution.1,
                         ))
@@ -54,7 +54,7 @@ pub fn main() {
 
                     for sample_block in levels.as_slice() {
                         save_f32_image_as_png(&sample_block.samples, sample_block.resolution, format!(
-                            "testout/{} ({}) {}_f32_{}x{}.png",
+                            "tests/images/out/{} ({}) {}_f32_{}x{}.png",
                             layer_index, layer_name, channel.name,
                             sample_block.resolution.0, sample_block.resolution.1,
                         ))
@@ -69,7 +69,7 @@ pub fn main() {
                         let data : Vec<f32> = sample_block.samples.iter().map(|value| *value as f32).collect();
 
                         save_f32_image_as_png(&data, sample_block.resolution, format!(
-                            "testout/{} ({}) {}_u32_{}x{}.png",
+                            "tests/images/out/{} ({}) {}_u32_{}x{}.png",
                             layer_index, layer_name, channel.name,
                             sample_block.resolution.0, sample_block.resolution.1,
                         ))

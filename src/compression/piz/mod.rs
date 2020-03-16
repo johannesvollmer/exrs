@@ -9,7 +9,7 @@ mod wavelet;
 
 use super::*;
 use super::Result;
-use crate::meta::attributes::{IntRect, PixelType};
+use crate::meta::attributes::{IntRect, SampleType};
 use crate::meta::{Header};
 use crate::io::Data;
 use crate::math::Vec2;
@@ -93,7 +93,7 @@ pub fn decompress_bytes(
 
     // TODO only once per header!
     let has_only_half_channels = header.channels.list
-        .iter().all(|channel| channel.pixel_type == PixelType::F16);
+        .iter().all(|channel| channel.sample_type == SampleType::F16);
 
 //
 //        _channelData = new ChannelData[_numChans];

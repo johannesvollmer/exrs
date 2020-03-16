@@ -56,8 +56,12 @@ pub struct ReadOptions<P: OnReadProgress> {
     /// Called occasionally while reading a file.
     /// The argument is the progress, a float from 0 to 1.
     /// May return `Error::Abort` to cancel reading the file.
-    /// Can be a closure accepting a float, see `OnWriteProgress`.
+    /// Can be a closure accepting a float, see `OnReadProgress`.
     pub on_progress: P,
+
+    /// Reading an image is aborted if the memory required for the pixels is too large.
+    /// The default value of 1GB avoids reading invalid files.
+    pub max_pixel_bytes: Option<usize>,
 }
 
 
@@ -99,21 +103,28 @@ pub mod write_options {
 pub mod read_options {
     use super::*;
 
+    const GIGABYTE: usize = 1_000_000_000;
+
+
     /// High speed but also slightly higher memory requirements.
     pub fn default() -> ReadOptions<()> { self::high() }
 
     /// High speed but also slightly higher memory requirements.
+    /// Aborts reading images that would require more than 1GB of memory.
     pub fn high() -> ReadOptions<()> {
         ReadOptions {
             parallel_decompression: true,
+            max_pixel_bytes: Some(GIGABYTE),
             on_progress: (),
         }
     }
 
     /// Lower speed but also lower memory requirements.
+    /// Aborts reading images that would require more than 1GB of memory.
     pub fn low() -> ReadOptions<()> {
         ReadOptions {
             parallel_decompression: false,
+            max_pixel_bytes: Some(GIGABYTE),
             on_progress: (),
         }
     }
@@ -298,7 +309,6 @@ impl LineRef<'_> {
 
 /// Reads and decompresses all chunks of a file sequentially without seeking.
 /// Will not skip any parts of the file. Does not buffer the reader, you should always pass a `BufReader`.
-/// The progress argument may be a closure.
 #[inline]
 #[must_use]
 pub fn read_all_lines_from_buffered<T>(
@@ -308,13 +318,13 @@ pub fn read_all_lines_from_buffered<T>(
     options: ReadOptions<impl OnReadProgress>,
 ) -> Result<T>
 {
-    let (meta_data, chunk_count, mut read_chunk) = self::read_all_compressed_chunks_from_buffered(read)?;
+    let (meta_data, chunk_count, mut read_chunk) = self::read_all_compressed_chunks_from_buffered(read, options.max_pixel_bytes)?;
     let meta_data_ref = &meta_data;
 
     let read_chunks = std::iter::from_fn(move || read_chunk(meta_data_ref));
     let mut result = new(meta_data.headers.as_slice())?;
 
-    for_lines_in_chunks(
+    for_decompressed_lines_in_chunks(
         read_chunks, &meta_data,
         |meta, line| insert(&mut result, meta, line),
         chunk_count, options
@@ -328,7 +338,6 @@ pub fn read_all_lines_from_buffered<T>(
 /// Will skip any parts of the file that do not match the specified filter condition.
 /// Will never seek if the filter condition matches all chunks.
 /// Does not buffer the reader, you should always pass a `BufReader`.
-/// The progress argument may be a closure.
 #[inline]
 #[must_use]
 pub fn read_filtered_lines_from_buffered<T>(
@@ -339,11 +348,12 @@ pub fn read_filtered_lines_from_buffered<T>(
     options: ReadOptions<impl OnReadProgress>,
 ) -> Result<T>
 {
-    let (meta_data, mut value, chunk_count, mut read_chunk) = self::read_filtered_chunks_from_buffered(read, new, filter)?;
-    let read_chunks = std::iter::from_fn(|| read_chunk(&meta_data));
+    let (meta_data, mut value, chunk_count, mut read_chunk) = {
+        self::read_filtered_chunks_from_buffered(read, new, filter, options.max_pixel_bytes)?
+    };
 
-    for_lines_in_chunks(
-        read_chunks, &meta_data,
+    for_decompressed_lines_in_chunks(
+        std::iter::from_fn(|| read_chunk(&meta_data)), &meta_data,
         |meta, line| insert(&mut value, meta, line),
         chunk_count, options
     )?;
@@ -353,10 +363,9 @@ pub fn read_filtered_lines_from_buffered<T>(
 
 /// Iterates through all lines of all supplied chunks.
 /// Decompresses the chunks either in parallel or sequentially.
-/// The progress argument may be a closure.
 #[inline]
 #[must_use]
-fn for_lines_in_chunks(
+fn for_decompressed_lines_in_chunks(
     chunks: impl Send + Iterator<Item = Result<Chunk>>,
     meta_data: &MetaData,
     mut for_each: impl FnMut(&[Header], LineRef<'_>) -> UnitResult,
@@ -364,6 +373,7 @@ fn for_lines_in_chunks(
     mut options: ReadOptions<impl OnReadProgress>,
 ) -> UnitResult
 {
+    // TODO bit-vec keep check that all pixels have been read?
     let has_compression = meta_data.headers.iter() // do not use parallel stuff for uncompressed images
         .find(|header| header.compression != Compression::Uncompressed).is_some();
 
@@ -411,16 +421,17 @@ fn for_lines_in_chunks(
 }
 
 /// Read all chunks without seeking.
-/// Returns the compressed chunks.
+/// Returns the meta data, number of chunks, and a compressed chunk reader.
 /// Does not buffer the reader, you should always pass a `BufReader`.
 #[inline]
 #[must_use]
 pub fn read_all_compressed_chunks_from_buffered<'m>(
     read: impl Read + Send, // FIXME does not actually need to be send, only for parallel writing
+    max_pixel_bytes: Option<usize>,
 ) -> Result<(MetaData, usize, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
 {
     let mut read = PeekRead::new(read);
-    let meta_data = MetaData::read_from_buffered_peekable(&mut read)?;
+    let meta_data = MetaData::read_from_buffered_peekable(&mut read, max_pixel_bytes)?;
     let mut remaining_chunk_count = usize::try_from(MetaData::skip_offset_tables(&mut read, &meta_data.headers)?)
         .expect("too large chunk count for this machine");
 
@@ -445,11 +456,12 @@ pub fn read_filtered_chunks_from_buffered<'m, T>(
     read: impl Read + Seek + Send, // FIXME does not always need be Send
     new: impl Fn(&[Header]) -> Result<T>,
     filter: impl Fn(&T, &Header, &TileIndices) -> bool,
+    max_pixel_bytes: Option<usize>,
 ) -> Result<(MetaData, T, usize, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
 {
     let skip_read = Tracking::new(read);
     let mut read = PeekRead::new(skip_read);
-    let meta_data = MetaData::read_from_buffered_peekable(&mut read)?;
+    let meta_data = MetaData::read_from_buffered_peekable(&mut read, max_pixel_bytes)?;
 
     let value = new(meta_data.headers.as_slice())?;
 
@@ -499,11 +511,17 @@ pub fn uncompressed_image_blocks_ordered<'l>(
                     pixel_size: data_indices.size,
                 };
 
-                let mut block_bytes = vec![0_u8; header.max_block_byte_size()];
+                let max_allocation_size = 1024*512;
+                let max_block_size = header.max_block_byte_size();
+                let mut block_bytes = vec![0_u8; max_block_size.min(max_allocation_size)];
                 let mut written_block_byte_count = 0; // used to truncate block_bytes after writing
 
                 for (byte_range, line_index) in block_indices.line_indices(header) {
-                    written_block_byte_count = byte_range.end;
+                    let end = byte_range.clone().end;
+
+                    if block_bytes.len() < end {
+                        block_bytes.resize((end + max_allocation_size).min(max_block_size), 0);
+                    }
 
                     let line_mut = LineRefMut {
                         value: &mut block_bytes[byte_range],
@@ -511,6 +529,7 @@ pub fn uncompressed_image_blocks_ordered<'l>(
                     };
 
                     get_line(meta_data.headers.as_slice(), line_mut)?; // enabless returning `Error::Abort`
+                    written_block_byte_count = end;
                 }
 
                 block_bytes.truncate(written_block_byte_count);
@@ -610,14 +629,13 @@ pub fn for_compressed_blocks_in_image(
 }
 
 /// Compresses and writes all lines of an image described by `meta_data` and `get_line` to the writer.
+/// Flushes the writer to explicitly handle all errors.
 ///
 /// Attention: Currently, using multicore compression with `LineOrder::Increasing` or `LineOrder::Decreasing` in any header
-/// will allocate large amounts of memory while writing the file. Use unspecified line order for lower memory usage.
+/// can potentially allocate large amounts of memory while writing the file. Use unspecified line order for lower memory usage.
 ///
 /// Does not buffer the writer, you should always pass a `BufWriter`.
 /// If pedantic, throws errors for files that may produce errors in other exr readers.
-///
-/// The progress argument may be a closure.
 #[inline]
 #[must_use]
 pub fn write_all_lines_to_buffered(
@@ -675,6 +693,8 @@ pub fn write_all_lines_to_buffered(
     for offset_table in offset_tables {
         u64::write_slice(&mut write, offset_table.as_slice())?;
     }
+
+    write.flush()?; // make sure we catch all (possibly delayed) io errors before returning
 
     Ok(())
 }
@@ -738,7 +758,7 @@ impl BlockIndex {
         }
 
         let channel_line_sizes: SmallVec<[usize; 8]> = header.channels.list.iter()
-            .map(move |channel| self.pixel_size.0 * channel.pixel_type.bytes_per_sample()) // FIXME is it fewer samples per tile or just fewer tiles for sampled images???
+            .map(move |channel| self.pixel_size.0 * channel.sample_type.bytes_per_sample()) // FIXME is it fewer samples per tile or just fewer tiles for sampled images???
             .collect();
 
         LineIter {
@@ -769,7 +789,7 @@ impl UncompressedBlock {
         let tile_data_indices = header.get_block_data_indices(&chunk.block)?;
         let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_data_indices)?;
 
-        absolute_indices.validate(header.data_size)?;
+        absolute_indices.validate(Some(header.data_size))?;
 
         match chunk.block {
             Block::Tile(TileBlock { compressed_pixels, .. }) |

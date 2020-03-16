@@ -4,14 +4,14 @@ description = "Read and write OpenEXR files without any unsafe code"
 keywords = ["exr", "openexr", "file", "binary", "io"]
 categories = ["encoding", "filesystem", "graphics", "multimedia"]
 
-version = "0.7.2"
+version = "0.7.3"
 edition = "2018"
 authors = ["johannesvollmer <johannes596@t-online.de>"]
 
 repository = "https://github.com/johannesvollmer/exrs"
 readme = "README.md"
 license-file = "LICENSE.md"
-exclude = [ "specification/*", "specification/**" ]
+exclude = [ "specification/*", "specification/**", "tests/images/*", "tests/images/**" ]
 
 [badges]
 maintenance = { status = "actively-developed" }

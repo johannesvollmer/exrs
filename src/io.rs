@@ -20,6 +20,14 @@ pub fn skip_bytes(read: &mut impl Read, count: usize) -> IoResult<()> {
         &mut std::io::sink()
     )?;
 
+    // the reader may have ended before we skipped the desired number of bytes
+    if skipped < count as u64 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "cannot skip more bytes than exist"
+        ));
+    }
+
     debug_assert_eq!(skipped, count as u64, "skip bytes bug");
     Ok(())
 }
