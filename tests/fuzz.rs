@@ -89,7 +89,7 @@ pub fn fuzz(){
 
             let result = catch_unwind(move || {
                 match exr::image::full::Image::read_from_buffered(file.as_slice(), read_options::low()) {
-                    Err(Error::Invalid(error)) => println!("✓ [{}]: Invalid: {}.", fuzz_index, error),
+                    Err(Error::Invalid(error)) => println!("✓ No Panic. [{}]: Invalid: {}.", fuzz_index, error),
                     _ => {},
                 }
             });
