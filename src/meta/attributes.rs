@@ -204,7 +204,7 @@ pub struct Channel {
     pub name: Text,
 
     /// U32, F16 or F32.
-    pub pixel_type: PixelType,
+    pub sample_type: SampleType,
 
     /// Are the samples in this channel in a linear space or not?
     pub is_linear: bool,
@@ -218,8 +218,8 @@ pub struct Channel {
 }
 
 /// What kind of pixels are in this channel.
-#[derive(Clone, Debug, Eq, PartialEq, Copy)]
-pub enum PixelType {
+#[derive(Clone, Debug, Eq, PartialEq, Copy, Hash)]
+pub enum SampleType {
 
     /// This channel contains 32-bit unsigned int values.
     U32,
@@ -539,6 +539,20 @@ impl Text {
 
         Ok(())
     }
+
+    /// Compare this `exr::Text` with a plain `&str`.
+    pub fn eq(&self, string: &str) -> bool {
+        string.chars().eq(self.bytes.iter().map(|&byte| byte as char))
+    }
+
+    /// Compare this `exr::Text` with a plain `&str` ignoring capitalization.
+    pub fn eq_case_insensitive(&self, string: &str) -> bool {
+        // TODO this is technically not working for a "turkish i"
+        let self_chars = self.bytes.iter().map(|&byte| (byte as char).to_ascii_lowercase());
+        let string_chars = string.chars().flat_map(|ch| ch.to_lowercase());
+
+        string_chars.eq(self_chars)
+    }
 }
 
 impl Into<String> for Text {
@@ -581,7 +595,7 @@ impl ChannelList {
     /// Does not validate channel order.
     pub fn new(channels: SmallVec<[Channel; 5]>) -> Self {
         ChannelList {
-            bytes_per_pixel: channels.iter().map(|channel| channel.pixel_type.bytes_per_sample()).sum(),
+            bytes_per_pixel: channels.iter().map(|channel| channel.sample_type.bytes_per_sample()).sum(),
             list: channels,
         }
     }
@@ -751,14 +765,14 @@ impl FloatRect {
     }
 }
 
-impl PixelType {
+impl SampleType {
 
     /// How many bytes a single sample takes up.
     pub fn bytes_per_sample(&self) -> usize {
         match self {
-            PixelType::F16 => f16::BYTE_SIZE,
-            PixelType::F32 => f32::BYTE_SIZE,
-            PixelType::U32 => u32::BYTE_SIZE,
+            SampleType::F16 => f16::BYTE_SIZE,
+            SampleType::F32 => f32::BYTE_SIZE,
+            SampleType::U32 => u32::BYTE_SIZE,
         }
     }
 
@@ -770,9 +784,9 @@ impl PixelType {
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         match *self {
-            PixelType::U32 => 0_i32,
-            PixelType::F16 => 1_i32,
-            PixelType::F32 => 2_i32,
+            SampleType::U32 => 0_i32,
+            SampleType::F16 => 1_i32,
+            SampleType::F32 => 2_i32,
         }.write(write)?;
 
         Ok(())
@@ -782,9 +796,9 @@ impl PixelType {
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         // there's definitely going to be more than 255 different pixel types in the future
         Ok(match i32::read(read)? {
-            0 => PixelType::U32,
-            1 => PixelType::F16,
-            2 => PixelType::F32,
+            0 => SampleType::U32,
+            1 => SampleType::F16,
+            2 => SampleType::F32,
             _ => return Err(Error::invalid("pixel type attribute value")),
         })
     }
@@ -793,8 +807,8 @@ impl PixelType {
 impl Channel {
 
     /// Create a new channel with the specified properties and a sampling rate of (1,1).
-    pub fn new(name: Text, pixel_type: PixelType, is_linear: bool) -> Self {
-        Self { name, pixel_type, is_linear, sampling: Vec2(1, 1) }
+    pub fn new(name: Text, sample_type: SampleType, is_linear: bool) -> Self {
+        Self { name, sample_type: sample_type, is_linear, sampling: Vec2(1, 1) }
     }
 
     /// The count of pixels this channel contains, respecting subsampling.
@@ -811,7 +825,7 @@ impl Channel {
     /// Number of bytes this would consume in an exr file.
     pub fn byte_size(&self) -> usize {
         self.name.null_terminated_byte_size()
-            + PixelType::byte_size()
+            + SampleType::byte_size()
             + 1 // is_linear
             + 3 // reserved bytes
             + 2 * u32::BYTE_SIZE // sampling x, y
@@ -820,7 +834,7 @@ impl Channel {
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         Text::write_null_terminated(&self.name, write)?;
-        self.pixel_type.write(write)?;
+        self.sample_type.write(write)?;
 
         match self.is_linear {
             false => 0_u8,
@@ -836,7 +850,7 @@ impl Channel {
     /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         let name = Text::read_null_terminated(read, 256)?;
-        let pixel_type = PixelType::read(read)?;
+        let sample_type = SampleType::read(read)?;
 
         let is_linear = match u8::read(read)? {
             1 => true,
@@ -851,7 +865,8 @@ impl Channel {
         let y_sampling = i32_to_usize(i32::read(read)?, "y channel sampling")?;
 
         Ok(Channel {
-            name, pixel_type, is_linear,
+            name,
+            sample_type: sample_type, is_linear,
             sampling: Vec2(x_sampling, y_sampling),
         })
     }
@@ -1886,19 +1901,19 @@ mod test {
                     list: smallvec![
                         Channel {
                             name: Text::from("Green").unwrap(),
-                            pixel_type: PixelType::F16,
+                            sample_type: SampleType::F16,
                             is_linear: false,
                             sampling: Vec2(1,2)
                         },
                         Channel {
                             name: Text::from("Red").unwrap(),
-                            pixel_type: PixelType::F32,
+                            sample_type: SampleType::F32,
                             is_linear: true,
                             sampling: Vec2(1,2)
                         },
                         Channel {
                             name: Text::from("Purple").unwrap(),
-                            pixel_type: PixelType::U32,
+                            sample_type: SampleType::U32,
                             is_linear: false,
                             sampling: Vec2(0,0)
                         }

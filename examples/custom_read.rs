@@ -9,7 +9,7 @@ use std::fs::File;
 extern crate exr;
 use exr::prelude::*;
 use exr::image;
-use exr::meta::attributes::PixelType;
+use exr::meta::attributes::SampleType;
 
 
 /// Collects the average pixel value for each channel.
@@ -34,7 +34,7 @@ fn main() {
     #[derive(Debug)]
     struct Channel {
         name: Text,
-        pixel_type: PixelType, // f32, u32, or f16
+        sample_type: SampleType, // f32, u32, or f16
         average: f32,
     }
 
@@ -59,7 +59,7 @@ fn main() {
                     channels: header.channels.list.iter()
                         .map(|channel| Channel {
                             name: channel.name.clone(),
-                            pixel_type: channel.pixel_type,
+                            sample_type: channel.sample_type,
                             average: 0.0
                         })
                         .collect()
@@ -82,16 +82,16 @@ fn main() {
             let channel_sample_count = layer.data_window.size.area() as f32;
 
             // now sum the average based on the values in this line section of pixels
-            match channel.pixel_type {
-                PixelType::F16 => for value in line.read_samples::<f16>() {
+            match channel.sample_type {
+                SampleType::F16 => for value in line.read_samples::<f16>() {
                     channel.average += value?.to_f32() / channel_sample_count;
                 },
 
-                PixelType::F32 => for value in line.read_samples::<f32>() {
+                SampleType::F32 => for value in line.read_samples::<f32>() {
                     channel.average += value? / channel_sample_count;
                 },
 
-                PixelType::U32 => for value in line.read_samples::<f32>() {
+                SampleType::U32 => for value in line.read_samples::<f32>() {
                     channel.average += (value? as f32) / channel_sample_count;
                 },
             }

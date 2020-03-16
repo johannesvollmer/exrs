@@ -758,7 +758,7 @@ impl BlockIndex {
         }
 
         let channel_line_sizes: SmallVec<[usize; 8]> = header.channels.list.iter()
-            .map(move |channel| self.pixel_size.0 * channel.pixel_type.bytes_per_sample()) // FIXME is it fewer samples per tile or just fewer tiles for sampled images???
+            .map(move |channel| self.pixel_size.0 * channel.sample_type.bytes_per_sample()) // FIXME is it fewer samples per tile or just fewer tiles for sampled images???
             .collect();
 
         LineIter {

@@ -505,7 +505,7 @@ impl Channel {
 
         Channel {
             name: channel.name.clone(), is_linear: channel.is_linear, sampling: channel.sampling,
-            samples: Samples::allocate(size, channel.pixel_type)
+            samples: Samples::allocate(size, channel.sample_type)
         }
     }
 
@@ -525,10 +525,10 @@ impl Channel {
     /// Create the meta data that describes this channel.
     pub fn infer_channel_attribute(&self) -> attributes::Channel {
         attributes::Channel {
-            pixel_type: match self.samples {
-                Samples::F16(_) => PixelType::F16,
-                Samples::F32(_) => PixelType::F32,
-                Samples::U32(_) => PixelType::U32,
+            sample_type: match self.samples {
+                Samples::F16(_) => SampleType::F16,
+                Samples::F32(_) => SampleType::F32,
+                Samples::U32(_) => SampleType::U32,
             },
 
             name: self.name.clone(),
@@ -542,14 +542,14 @@ impl Channel {
 impl Samples {
 
     /// Allocate a sample block ready to be filled with pixel data.
-    pub fn allocate(resolution: Vec2<usize>, pixel_type: PixelType) -> Self {
+    pub fn allocate(resolution: Vec2<usize>, sample_type: SampleType) -> Self {
         let count = resolution.area();
         debug_assert!(count < 1920*20 * 1920*20, "suspiciously large image: {} mega pixels", count / 1_000_000);
 
-        match pixel_type {
-            PixelType::F16 => Samples::F16(vec![ f16::ZERO; count ] ),
-            PixelType::F32 => Samples::F32(vec![ 0.0; count ] ),
-            PixelType::U32 => Samples::U32(vec![ 0; count ] ),
+        match sample_type {
+            SampleType::F16 => Samples::F16(vec![f16::ZERO; count ] ),
+            SampleType::F32 => Samples::F32(vec![0.0; count ] ),
+            SampleType::U32 => Samples::U32(vec![0; count ] ),
         }
     }
 

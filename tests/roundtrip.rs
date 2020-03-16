@@ -3,29 +3,19 @@ extern crate exr;
 extern crate smallvec;
 
 use exr::image::full::*;
-use std::{panic, io};
-use std::io::{Cursor, Write};
+use std::{panic};
+use std::io::{Cursor};
 use std::panic::catch_unwind;
 use std::path::{PathBuf, Path};
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use exr::image::{read_options, write_options, simple, rgba};
-use exr::meta::MetaData;
+use half::f16;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
         .filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
         .map(walkdir::DirEntry::into_path)
-}
-
-#[test]
-fn print_meta_of_all_files() {
-    let files: Vec<PathBuf> = exr_files().collect();
-
-    files.into_par_iter().for_each(|path| {
-        let meta = MetaData::read_from_file(&path);
-        println!("{:?}: \t\t\t {:?}", path.file_name().unwrap(), meta.unwrap());
-    });
 }
 
 /// read all images in a directory.
@@ -52,6 +42,11 @@ fn check_files<T>(operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -
                 Err(_) => Result::Panic,
             };
 
+            match &result {
+                Result::Panic => println!("✗ Panic when processing {:?}", file),
+                _ => println!("✓ No Panic when processing {:?}", file)
+            };
+
             (file, result)
         })
         .collect();
@@ -62,7 +57,7 @@ fn check_files<T>(operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -
         format!("{:?}: {}", result, path.to_str().unwrap())
     }).collect::<Vec<_>>());
 
-    assert!(!results.is_empty(), "No files were tested!");
+    assert!(results.len() >= 100, "Not all files were tested!");
     assert_ne!(results.last().unwrap().1, Result::Panic, "A file triggered a panic");
 }
 
@@ -103,7 +98,7 @@ fn round_trip_all_files_simple() {
 #[test]
 fn round_trip_all_files_rgba() {
     check_files(|path| {
-        let image = rgba::Image::read_from_file(path, read_options::low())?;
+        let image: rgba::Image<rgba::pixels::Flattened<f16>> = rgba::Image::read_from_file(path, read_options::low())?;
 
         let mut tmp_bytes = Vec::new();
         image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low())?;
@@ -135,34 +130,4 @@ fn round_trip_parallel_files() {
     })
 }
 
-
-#[test]
-pub fn test_roundtrip() {
-    let path = "tests/images/valid/openexr/MultiResolution/Bonita.exr";
-
-    print!("starting read 1... ");
-    io::stdout().flush().unwrap();
-
-    let image = rgba::Image::read_from_file(path, read_options::low()).unwrap();
-    println!("...read 1 successfull");
-
-    let write_options = write_options::low();
-    let mut tmp_bytes = Vec::new();
-
-    print!("starting write... ");
-    io::stdout().flush().unwrap();
-
-    image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options).unwrap();
-    println!("...write successfull");
-
-    print!("starting read 2... ");
-    io::stdout().flush().unwrap();
-
-    let image2 = rgba::Image::read_from_buffered(Cursor::new(&tmp_bytes), read_options::low()).unwrap();
-    println!("...read 2 successfull");
-
-    if !path.to_lowercase().contains("nan") {
-        assert_eq!(image, image2);
-    }
-}
 

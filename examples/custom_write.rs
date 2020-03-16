@@ -11,7 +11,7 @@ extern crate exr;
 use exr::prelude::*;
 use std::io::{BufWriter};
 use std::fs::File;
-use exr::meta::attributes::{Channel, PixelType, LineOrder, TileDescription, LevelMode};
+use exr::meta::attributes::{Channel, SampleType, LineOrder, TileDescription, LevelMode};
 use exr::meta::{Blocks, MetaData};
 use exr::math::RoundingMode;
 
@@ -35,9 +35,9 @@ fn main() {
         "test-image".try_into().unwrap(),
         size,
         smallvec![
-            Channel::new("B".try_into().unwrap(), PixelType::F32, true),
-            Channel::new("G".try_into().unwrap(), PixelType::F32, true),
-            Channel::new("R".try_into().unwrap(), PixelType::F32, true),
+            Channel::new("B".try_into().unwrap(), SampleType::F32, true),
+            Channel::new("G".try_into().unwrap(), SampleType::F32, true),
+            Channel::new("R".try_into().unwrap(), SampleType::F32, true),
         ],
     );
 

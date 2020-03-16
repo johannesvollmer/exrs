@@ -422,10 +422,10 @@ impl Channel {
             is_linear: channel.is_linear,
             sampling: channel.sampling,
 
-            content: match channel.pixel_type {
-                PixelType::F16 => ChannelData::F16(SampleMaps::allocate(header, channel)),
-                PixelType::F32 => ChannelData::F32(SampleMaps::allocate(header, channel)),
-                PixelType::U32 => ChannelData::U32(SampleMaps::allocate(header, channel)),
+            content: match channel.sample_type {
+                SampleType::F16 => ChannelData::F16(SampleMaps::allocate(header, channel)),
+                SampleType::F32 => ChannelData::F32(SampleMaps::allocate(header, channel)),
+                SampleType::U32 => ChannelData::U32(SampleMaps::allocate(header, channel)),
             },
         }
     }
@@ -452,10 +452,10 @@ impl Channel {
     /// Create the meta data that describes this channel.
     pub fn infer_channel_attribute(&self) -> attributes::Channel {
         attributes::Channel {
-            pixel_type: match self.content {
-                ChannelData::F16(_) => PixelType::F16,
-                ChannelData::F32(_) => PixelType::F32,
-                ChannelData::U32(_) => PixelType::U32,
+            sample_type: match self.content {
+                ChannelData::F16(_) => SampleType::F16,
+                ChannelData::F32(_) => SampleType::F32,
+                ChannelData::U32(_) => SampleType::U32,
             },
 
             name: self.name.clone(),

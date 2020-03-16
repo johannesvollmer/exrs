@@ -1524,7 +1524,7 @@ impl Default for ImageAttributes {
 #[cfg(test)]
 mod test {
     use crate::meta::{MetaData, Requirements, Header, ImageAttributes, LayerAttributes, compute_chunk_count};
-    use crate::meta::attributes::{Text, ChannelList, IntRect, LineOrder, Channel, PixelType};
+    use crate::meta::attributes::{Text, ChannelList, IntRect, LineOrder, Channel, SampleType};
     use crate::compression::Compression;
     use crate::meta::Blocks;
     use crate::math::*;
@@ -1552,7 +1552,7 @@ mod test {
                 list: smallvec![
                     Channel {
                         name: Text::from("main").unwrap(),
-                        pixel_type: PixelType::U32,
+                        sample_type: SampleType::U32,
                         is_linear: false,
                         sampling: Vec2(1, 1)
                     }
