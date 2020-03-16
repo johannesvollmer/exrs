@@ -210,7 +210,7 @@ pub fn decompress_bytes(
             end_index: tmp_buffer_end,
             y_samples: channel.sampling.1,
             number_samples: channel.subsampled_resolution(rectangle.size),
-            size: (channel.pixel_type.bytes_per_sample() / PixelType::F16.bytes_per_sample())
+            size: (channel.sample_type.bytes_per_sample() / SampleType::F16.bytes_per_sample())
         };
 
         tmp_buffer_end += channel.number_samples.0 * channel.number_samples.1 * channel.size;
@@ -271,17 +271,13 @@ pub fn decompress_bytes(
 //
     let (lookup_table, max_value) = reverse_lookup_table_from_bitmap(&bitmap);
 
-//        //
 //        // Huffman decoding
-//        //
-//
 //        int length;
 //        Xdr::read <CharPtrIO> (inPtr, length);
 //
     let length = i32::read(&mut read)?;
 
-//        if (length > inSize)
-//        {
+//        if (length > inSize) {
 //            throw InputExc ("Error in header for PIZ-compressed data "
 //            "(invalid array length).");
 //        }
@@ -301,12 +297,9 @@ pub fn decompress_bytes(
 //        // Wavelet decoding
 //        //
 //
-//        for (int i = 0; i < _numChans; ++i)
-//        {
+//        for (int i = 0; i < _numChans; ++i) {
 //            ChannelData &cd = _channelData[i];
-//
-//            for (int j = 0; j < cd.size; ++j)
-//            {
+//            for (int j = 0; j < cd.size; ++j) {
 //                wav2Decode (cd.start + j,
 //                            cd.nx, cd.size,
 //                            cd.ny, cd.nx * cd.size,
@@ -325,41 +318,28 @@ pub fn decompress_bytes(
         }
     }
 
-//
-//        //
 //        // Expand the pixel data to their original range
-//        //
-//
 //        applyLut (lut, _tmpBuffer, tmpBufferEnd - _tmpBuffer);
     apply_lookup_table(&mut tmp_buffer, &lookup_table);
 
 
-//
-//        //
 //        // Rearrange the pixel data into the format expected by the caller.
-//        //
-//
 //        char *outEnd = _outBuffer;
-//
 //     let mut out: Vec<u8> = Vec::new();
 
-//        if (_format == XDR)
-//        {
+//        if (_format == XDR) {
 //            //
 //            // Machine-independent (Xdr) data format
 //            //
 //
-//            for (int y = minY; y <= maxY; ++y)
-//            {
-//                for (int i = 0; i < _numChans; ++i)
-//                {
+//            for (int y = minY; y <= maxY; ++y) {
+//                for (int i = 0; i < _numChans; ++i) {
 //                    ChannelData &cd = _channelData[i];
 //
 //                    if (modp (y, cd.ys) != 0)
 //                    continue;
 //
-//                    for (int x = cd.nx * cd.size; x > 0; --x)
-//                    {
+//                    for (int x = cd.nx * cd.size; x > 0; --x) {
 //                        Xdr::write <CharPtrIO> (outEnd, *cd.end);
 //                        ++cd.end;
 //                    }
@@ -385,16 +365,10 @@ pub fn decompress_bytes(
     }
 
 
-//        else
-//        {
-//            //
+//        else {
 //            // Native, machine-dependent data format
-//            //
-//
-//            for (int y = minY; y <= maxY; ++y)
-//            {
-//                for (int i = 0; i < _numChans; ++i)
-//                {
+//            for (int y = minY; y <= maxY; ++y) {
+//                for (int i = 0; i < _numChans; ++i) {
 //                    ChannelData &cd = _channelData[i];
 //
 //                    if (modp (y, cd.ys) != 0)

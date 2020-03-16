@@ -139,7 +139,7 @@ impl Compression {
     /// Compress the image section of bytes.
     pub fn compress_image_section(self, header: &Header, packed: ByteVec, pixel_section: IntRect) -> Result<ByteVec> {
         let dimensions = header.default_block_pixel_size();
-        assert!(pixel_section.validate(dimensions).is_ok(), "decompress tile coordinate bug");
+        assert!(pixel_section.validate(Some(dimensions)).is_ok(), "decompress tile coordinate bug");
 
         use self::Compression::*;
         let compressed = match self {
@@ -165,7 +165,7 @@ impl Compression {
     /// Decompress the image section of bytes.
     pub fn decompress_image_section(self, header: &Header, data: ByteVec, pixel_section: IntRect) -> Result<ByteVec> {
         let dimensions = header.default_block_pixel_size();
-        assert!(pixel_section.validate(dimensions).is_ok(), "decompress tile coordinate bug");
+        assert!(pixel_section.validate(Some(dimensions)).is_ok(), "decompress tile coordinate bug");
 
         let expected_byte_size = dimensions.0 * dimensions.1 * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
 

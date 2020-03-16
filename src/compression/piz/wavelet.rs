@@ -5,6 +5,7 @@
 use crate::error::IoResult;
 use crate::math::Vec2;
 
+#[allow(unused)]
 pub fn encode(
     buffer: &mut [u16],
     Vec2(count_x, count_y): Vec2<usize>,
@@ -215,6 +216,7 @@ pub fn decode(
 
 /// Untransformed data values should be less than (1 << 14).
 #[inline]
+#[allow(unused)]
 fn encode_14bit(a: u16, b: u16) -> (u16, u16) {
     let (a, b) = (a as i16, b as i16);
 
@@ -225,6 +227,7 @@ fn encode_14bit(a: u16, b: u16) -> (u16, u16) {
 }
 
 #[inline]
+#[allow(unused)]
 fn decode_14bit(l: u16, h: u16) -> (u16, u16) {
     let (l, h) = (l as i16, h as i16);
 
