@@ -36,6 +36,17 @@
 #![warn(missing_docs)]
 
 
+#[macro_export]
+macro_rules! debug {
+    ( $( $var: ident ),* ) => {
+        {
+            $(
+                println!("{} = {}", stringify!($var), $var);
+            )*
+        }
+    };
+}
+
 pub mod io; // public to allow for custom attribute byte parsing
 
 pub mod math;
@@ -43,6 +54,7 @@ pub mod chunks;
 pub mod compression;
 pub mod meta;
 pub mod image;
+
 pub mod error;
 
 #[macro_use]

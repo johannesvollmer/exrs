@@ -27,7 +27,8 @@ pub fn decompress(compressed: &[u8], result: &mut Vec<u16>) -> UnitResult {
 //
 // 	return;
 //     }
-    if compressed.len() < 20 && !result.is_empty() {
+    if compressed.len() < 20 /*&& !result.is_empty()*/ {
+        panic!();
         return Err(Error::invalid("invalid huffman data size"));
     }
 //
@@ -46,6 +47,7 @@ pub fn decompress(compressed: &[u8], result: &mut Vec<u16>) -> UnitResult {
 //     if (im < 0 || im >= HUF_ENCSIZE || iM < 0 || iM >= HUF_ENCSIZE)
 // 	invalidTableSize();
     if /*min_hcode_index < 0 ||*/ min_hcode_index >= ENCODING_TABLE_SIZE || /*max_hcode_index < 0 ||*/ max_hcode_index >= ENCODING_TABLE_SIZE {
+        panic!();
         return Err(Error::invalid("huffman table size"));
     }
 
@@ -60,6 +62,7 @@ pub fn decompress(compressed: &[u8], result: &mut Vec<u16>) -> UnitResult {
 //         return;
 //     }
     if compressed.len() < RoundingMode::Up.divide(bit_count, 8) {
+        panic!();
         return Err(Error::invalid("huffman data size"));
     }
 
@@ -102,6 +105,7 @@ pub fn decompress(compressed: &[u8], result: &mut Vec<u16>) -> UnitResult {
 //
 //         hufFreeDecTable (hdec);
     if bit_count > 8 * remaining_bytes.len() {
+        panic!();
         return Err(Error::invalid("bit count"))
     }
 
@@ -241,6 +245,7 @@ fn decode(
 //
             else {
                 if pl.lits.is_empty() {
+                    panic!();
                     return Err(Error::invalid("huffman code"));
                 }
 
@@ -296,6 +301,7 @@ fn decode(
                     j += 1;
                 }
                 if j == pl.short_code_lit { // loop ran through without finding the code
+                    panic!();
                     return Err(Error::invalid("huffman code"))
                 }
 // 		}
@@ -348,6 +354,7 @@ fn decode(
             read_code(pl.short_code_lit as u16, run_length_code, &mut c, &mut lc, &mut read, &mut output)?;
         }
         else {
+            panic!();
             return Err(Error::invalid("huffman code"))
         }
     }
@@ -356,6 +363,7 @@ fn decode(
 //     if (out - outb != no)
 // 	notEnoughData ();
     if output.len() != expected_ouput_size {
+        panic!();
         return Err(Error::invalid("huffman data length"))
     }
 
@@ -400,6 +408,7 @@ fn build_decoding_table(h_code: &[i64], min_hcode_index: usize, max_hcode_index:
 // 	    invalidTableEntry();
 // 	}
         if c >> l != 0 {
+            panic!();
             return Err(Error::invalid("huffman table entry"));
         }
 //
@@ -423,7 +432,10 @@ fn build_decoding_table(h_code: &[i64], min_hcode_index: usize, max_hcode_index:
 // 		invalidTableEntry();
 // 	    }
             let pl = &mut decoding_table[(c >> (l - DECODE_BITS as i64)) as usize];
-            if pl.lits.len() != 0 { return Err(Error::invalid("huffman table entry")); }
+            if pl.lits.len() != 0 {
+                panic!();
+                return Err(Error::invalid("huffman table entry"));
+            }
             /*let pl = if let Code::Long(code) = pl { code }
             else {
                 return Err(Error::invalid("huffman table entry"));
@@ -509,6 +521,7 @@ fn unpack_encoding_table(packed: &mut &[u8], mut min_hcode_index: usize, max_hco
 // 	        if (p - *pcode > ni)
 // 	            unexpectedEndOfTable();
         if remaining_bytes.len() < 1 { // TODO we do not need these errors as `read` handles those for us
+            panic!();
             return Err(Error::invalid("huffman table length"));
         }
 //
@@ -523,6 +536,7 @@ fn unpack_encoding_table(packed: &mut &[u8], mut min_hcode_index: usize, max_hco
 // 	            if (p - *pcode > ni)
 // 		        unexpectedEndOfTable();
             if remaining_bytes.len() < 1 {
+                panic!();
                 return Err(Error::invalid("huffman table length"));
             }
 //
@@ -532,6 +546,7 @@ fn unpack_encoding_table(packed: &mut &[u8], mut min_hcode_index: usize, max_hco
 // 	            if (im + zerun > iM + 1) // TODO open new issue in openexr for negative length?
 // 		            tableTooLong();
             if zerun < 0 || min_hcode_index as i64 + zerun > max_hcode_index as i64 + 1 {
+                panic!();
                 return Err(Error::invalid("huffman table length"));
             }
 //
@@ -563,6 +578,7 @@ fn unpack_encoding_table(packed: &mut &[u8], mut min_hcode_index: usize, max_hco
 
             let zerun = code_len - SHORT_ZEROCODE_RUN + 2;
             if zerun < 0 || min_hcode_index as i64 + zerun > max_hcode_index as i64 + 1 {
+                panic!();
                 return Err(Error::invalid("huffman table length"));
             }
 
@@ -669,9 +685,11 @@ fn read_code(lits: u16, run_length_code: usize, c: &mut i64, lc: &mut i64, read:
 
         let mut cs = *c >> *lc;
         if cs > write.len() as i64 {
+            panic!();
             return Err(Error::invalid("huffman data size"));
         }
         else if write.is_empty() {
+            panic!();
             return Err(Error::invalid("huffman data size"));
         }
 
@@ -685,6 +703,7 @@ fn read_code(lits: u16, run_length_code: usize, c: &mut i64, lc: &mut i64, read:
         write.push(lits);
     }
     else {
+        panic!();
         return Err(Error::invalid("huffman data size"));
     }
 

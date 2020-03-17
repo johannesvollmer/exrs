@@ -15,7 +15,6 @@ use crate::io::Data;
 use crate::math::Vec2;
 
 
-
 const U16_RANGE: i32 = (1 << 16);
 const BITMAP_SIZE: i32  = (U16_RANGE >> 3);
 
@@ -74,8 +73,6 @@ pub fn decompress_bytes(
 //        _outBuffer = new char [outBufferSize];
     let mut out = Vec::with_capacity(out_buffer_size);
 
-
-//
 //        const ChannelList &channels = header().channels();
 //        bool onlyHalfChannels = true;
 //
@@ -88,7 +85,7 @@ pub fn decompress_bytes(
 //            assert (pixelTypeSize (c.channel().type) % pixelTypeSize (HALF) == 0);
 //
 //            if (c.channel().type != HALF)
-//            onlyHalfChannels = false;
+//              onlyHalfChannels = false;
 //        }
 
     // TODO only once per header!
@@ -145,10 +142,7 @@ pub fn decompress_bytes(
         return Ok(Vec::new())
     }
 
-//        //
 //        // Determine the layout of the compressed pixel data
-//        //
-//
 //        _minX = dataWindow.min.x;
 //        _maxX = dataWindow.max.x;
 //        _maxY = dataWindow.max.y;
@@ -176,6 +170,7 @@ pub fn decompress_bytes(
         _max_x = header.data_window().max().0;
     }
 
+    // let max_y = max_y.min(_max_y);
     if max_y > header.data_window().max().1 {
         max_y = header.data_window().max().1;
     }
@@ -276,6 +271,7 @@ pub fn decompress_bytes(
 //        Xdr::read <CharPtrIO> (inPtr, length);
 //
     let length = i32::read(&mut read)?;
+    debug!(length);
 
 //        if (length > inSize) {
 //            throw InputExc ("Error in header for PIZ-compressed data "
