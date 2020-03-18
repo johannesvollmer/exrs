@@ -19,138 +19,73 @@ use half::f16;
 use crate::image::{ReadOptions, OnReadProgress, WriteOptions, OnWriteProgress};
 use crate::compression::Compression;
 
-/// Contains some predefined pixel storages to put into the `rgba::Image<T>` type parameter.
-/// Example:
-/// ```
-/// # use exr::prelude::*;
-/// use exr::image::rgba::{ Image, pixels::Flattened as FlatPixels };
+
+/// An image with a custom pixel storage.
+/// Use `Image::read_from_file` to actually load an image.
 ///
-/// let image = Image::<FlatPixels<f16>>::read_from_file("file.exr", read_options::high());
-/// ```
-pub mod pixels {
-    use super::*;
+/// See the `exr::image::rgba::pixels` module
+/// if you do not want to implement your own pixel storage.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Image<Storage> {
 
-    /// Store all samples in a single array.
-    /// All samples will be converted to the type `T`.
-    /// This currently supports the sample types `f16`, `f32`, and `u32`.
+    /// The user-specified pixel storage containing the actual pixel data.
+    /// This is a type parameter which should implement either `ExposePixels` or `ConsumePixels`.
+    pub data: Storage,
+
+    /// The channel types of the written file.
+    /// For each channel, the appropriate method is called on `Image.data`.
     ///
-    #[derive(PartialEq, Clone)]
-    pub struct Flattened<T> {
+    /// Careful: Not all applications may support
+    /// RGBA images with arbitrary sample types.
+    pub channels: Channels,
 
-        /// The flattened vector contains all rows one after another.
-        /// In each row, for each pixel, its red, green, blue, and then alpha
-        /// samples are stored one after another.
-        ///
-        /// Use `Flattened::flatten_sample_index(image, sample_index)`
-        /// to compute the flat index of a specific sample.
-        samples: Vec<T>,
-    }
+    /// The dimensions of this image, width and height.
+    pub resolution: Vec2<usize>,
 
-    impl<T> Flattened<T> {
+    /// The attributes of the exr image.
+    pub image_attributes: ImageAttributes,
 
-        /// Compute the flat index of a specific sample. The computed index can be used with `Flattened.samples[index]`.
-        /// Panics for invalid sample coordinates.
-        #[inline]
-        pub fn flatten_sample_index(image: &Image<Self>, index: SampleIndex) -> usize {
-            debug_assert!(index.position.0 < image.resolution.0 && index.position.1 < image.resolution.1, "invalid pixel position");
-            debug_assert!(index.channel < image.channel_count(), "invalid channel index");
+    /// The attributes of the exr layer.
+    pub layer_attributes: LayerAttributes,
 
-            let pixel_index = index.position.1 * image.resolution.0 + index.position.0;
-            pixel_index * image.channel_count() + index.channel
-        }
-    }
-
-    impl ExposePixels for Flattened<f16> {
-        #[inline]
-        fn sample_f32(image: &Image<Self>, index: SampleIndex) -> f32 {
-            image.data.samples[Flattened::flatten_sample_index(image, index)].to_f32()
-        }
-    }
-
-    impl ConsumePixels for Flattened<f16> {
-        #[inline]
-        fn new(image: &Image<()>) -> Self {
-            Flattened { samples: vec![f16::ZERO; image.resolution.area() * image.channel_count()] }
-        }
-
-        #[inline]
-        fn store_f32(image: &mut Image<Self>, index: SampleIndex, sample: f32) {
-            let index = Self::flatten_sample_index(image, index);
-            image.data.samples[index] = f16::from_f32(sample)
-        }
-    }
-
-    impl ExposePixels for Flattened<f32> {
-        #[inline]
-        fn sample_f32(image: &Image<Self>, index: SampleIndex) -> f32 {
-            image.data.samples[Flattened::flatten_sample_index(image, index)]
-        }
-    }
-
-    impl ConsumePixels for Flattened<f32> {
-        #[inline]
-        fn new(image: &Image<()>) -> Self {
-            Flattened { samples: vec![0.0; image.resolution.area() * image.channel_count()] }
-        }
-
-        #[inline]
-        fn store_f32(image: &mut Image<Self>, index: SampleIndex, sample: f32) {
-            let index = Self::flatten_sample_index(image, index);
-            image.data.samples[index] = sample
-        }
-    }
-
-    impl ExposePixels for Flattened<u32> {
-        #[inline]
-        fn sample_f32(image: &Image<Self>, index: SampleIndex) -> f32 {
-            Self::sample_u32(image, index) as f32
-        }
-
-        #[inline]
-        fn sample_u32(image: &Image<Self>, index: SampleIndex) -> u32 {
-            image.data.samples[Flattened::flatten_sample_index(image, index)]
-        }
-    }
-
-    impl ConsumePixels for Flattened<u32> {
-        #[inline]
-        fn new(image: &Image<()>) -> Self {
-            Flattened { samples: vec![0; image.resolution.area() * image.channel_count()] }
-        }
-
-        #[inline]
-        fn store_f32(image: &mut Image<Self>, index: SampleIndex, sample: f32) {
-            Self::store_u32(image, index, sample as u32)
-        }
-
-        #[inline]
-        fn store_u32(image: &mut Image<Self>, index: SampleIndex, sample: u32) {
-            let index = Self::flatten_sample_index(image, index);
-            image.data.samples[index] = sample
-        }
-    }
-
-    use std::fmt::*;
-    impl<T> Debug for Flattened<T> {
-        #[inline]
-        fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-            write!(formatter, "[{}; {}]", std::any::type_name::<T>(), self.samples.len())
-        }
-    }
+    /// Specifies how the pixel data is formatted inside the file,
+    /// for example, compression and tiling.
+    pub encoding: Encoding,
 }
 
+/// The RGBA channels of an image. The alpha channel is optional.
+/// The first channel is red, the second blue, the third green, and the fourth alpha.
+pub type Channels = (Channel, Channel, Channel, Option<Channel>);
 
-/// An index that uniquely identifies each `f16`, `f32`, or `u32` in an RGBA image.
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
-pub struct SampleIndex {
+/// Describes a single channel of red, green, blue, or alpha samples.
+#[derive(Copy, Debug, Clone, PartialEq, Eq)]
+pub struct Channel {
 
-    /// The x and y index of the pixel.
-    pub position: Vec2<usize>,
+    /// Are the samples stored in a linear color space?
+    is_linear: bool,
 
-    /// The index of the channel.
-    /// Red is zero, green is one, blue is two, and alpha is three.
-    pub channel: usize,
+    /// The type of the samples in this channel.
+    sample_type: SampleType,
 }
+
+/// Specifies how the pixel data is formatted inside the file.
+/// Does not affect any visual aspect, like positioning or orientation.
+// TODO alsop nest encoding like this for meta::Header and simple::Image or even reuse this in image::simple
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct Encoding {
+
+    /// What type of compression the pixel data in the file is compressed with.
+    pub compression: Compression,
+
+    /// If this is some pair of numbers, the image is divided into tiles of that size.
+    /// If this is none, the image is divided into scan line blocks, depending on the compression method.
+    pub tile_size: Option<Vec2<usize>>,
+
+    /// In what order the tiles of this header occur in the file.
+    /// Does not change any actual image orientation.
+    pub line_order: LineOrder,
+}
+
 
 /// Expose the pixels of an image. Implement this on your own image type to write your image to a file.
 ///
@@ -189,71 +124,18 @@ pub trait ConsumePixels: Sized {
     #[inline] fn store_f16(image: &mut Image<Self>, index: SampleIndex, sample: f16) { Self::store_f32(image, index, sample.to_f32()) }
 }
 
-/// The RGBA channels of an image. The alpha channel is optional.
-/// The first channel is red, the second blue, the third green, and the fourth alpha.
-pub type Channels = (Channel, Channel, Channel, Option<Channel>);
+/// An index that uniquely identifies each `f16`, `f32`, or `u32` in an RGBA image.
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
+pub struct SampleIndex {
 
-/// Describes a single channel of red, green, blue, or alpha samples.
-#[derive(Copy, Debug, Clone, PartialEq, Eq)]
-pub struct Channel {
+    /// The x and y index of the pixel.
+    pub position: Vec2<usize>,
 
-    /// Are the samples stored in a linear color space?
-    is_linear: bool,
-
-    /// The type of the samples in this channel.
-    sample_type: SampleType,
+    /// The index of the channel.
+    /// Red is zero, green is one, blue is two, and alpha is three.
+    pub channel: usize,
 }
 
-/// An image with a custom pixel storage.
-/// Use `Image::read_from_file` to actually load an image.
-///
-/// See the `exr::image::rgba::pixels` module
-/// if you do not want to implement your own pixel storage.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Image<Storage> {
-
-    /// The user-specified pixel storage containing the actual pixel data.
-    /// This is a type parameter which should implement either `ExposePixels` or `ConsumePixels`.
-    pub data: Storage,
-
-    /// The channel types of the written file.
-    /// For each channel, the appropriate method is called on `Image.data`.
-    ///
-    /// Careful: Not all applications may support
-    /// RGBA images with arbitrary sample types.
-    pub channels: Channels,
-
-    /// The dimensions of this image, width and height.
-    pub resolution: Vec2<usize>,
-
-    /// The attributes of the exr image.
-    pub image_attributes: ImageAttributes,
-
-    /// The attributes of the exr layer.
-    pub layer_attributes: LayerAttributes,
-
-    /// Specifies how the pixel data is formatted inside the file,
-    /// for example, compression and tiling.
-    pub encoding: Encoding,
-}
-
-/// Specifies how the pixel data is formatted inside the file.
-/// Does not affect any visual aspect, like positioning or orientation.
-// TODO alsop nest encoding like this for meta::Header and simple::Image or even reuse this in image::simple
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct Encoding {
-
-    /// What type of compression the pixel data in the file is compressed with.
-    pub compression: Compression,
-
-    /// If this is some pair of numbers, the image is divided into tiles of that size.
-    /// If this is none, the image is divided into scan line blocks, depending on the compression method.
-    pub tile_size: Option<Vec2<usize>>,
-
-    /// In what order the tiles of this header occur in the file.
-    /// Does not change any actual image orientation.
-    pub line_order: LineOrder,
-}
 
 impl Encoding {
 
@@ -646,5 +528,125 @@ impl<S> Image<S> {
 
             options
         )
+    }
+}
+
+/// Contains some predefined pixel storages to put into the `rgba::Image<T>` type parameter.
+/// Example:
+/// ```
+/// # use exr::prelude::*;
+/// use exr::image::rgba::{ Image, pixels::Flattened as FlatPixels };
+///
+/// let image = Image::<FlatPixels<f16>>::read_from_file("file.exr", read_options::high());
+/// ```
+pub mod pixels {
+    use super::*;
+
+    /// Store all samples in a single array.
+    /// All samples will be converted to the type `T`.
+    /// This currently supports the sample types `f16`, `f32`, and `u32`.
+    ///
+    #[derive(PartialEq, Clone)]
+    pub struct Flattened<T> {
+
+        /// The flattened vector contains all rows one after another.
+        /// In each row, for each pixel, its red, green, blue, and then alpha
+        /// samples are stored one after another.
+        ///
+        /// Use `Flattened::flatten_sample_index(image, sample_index)`
+        /// to compute the flat index of a specific sample.
+        samples: Vec<T>,
+    }
+
+    impl<T> Flattened<T> {
+
+        /// Compute the flat index of a specific sample. The computed index can be used with `Flattened.samples[index]`.
+        /// Panics for invalid sample coordinates.
+        #[inline]
+        pub fn flatten_sample_index(image: &Image<Self>, index: SampleIndex) -> usize {
+            debug_assert!(index.position.0 < image.resolution.0 && index.position.1 < image.resolution.1, "invalid pixel position");
+            debug_assert!(index.channel < image.channel_count(), "invalid channel index");
+
+            let pixel_index = index.position.1 * image.resolution.0 + index.position.0;
+            pixel_index * image.channel_count() + index.channel
+        }
+    }
+
+    impl ExposePixels for Flattened<f16> {
+        #[inline]
+        fn sample_f32(image: &Image<Self>, index: SampleIndex) -> f32 {
+            image.data.samples[Flattened::flatten_sample_index(image, index)].to_f32()
+        }
+    }
+
+    impl ConsumePixels for Flattened<f16> {
+        #[inline]
+        fn new(image: &Image<()>) -> Self {
+            Flattened { samples: vec![f16::ZERO; image.resolution.area() * image.channel_count()] }
+        }
+
+        #[inline]
+        fn store_f32(image: &mut Image<Self>, index: SampleIndex, sample: f32) {
+            let index = Self::flatten_sample_index(image, index);
+            image.data.samples[index] = f16::from_f32(sample)
+        }
+    }
+
+    impl ExposePixels for Flattened<f32> {
+        #[inline]
+        fn sample_f32(image: &Image<Self>, index: SampleIndex) -> f32 {
+            image.data.samples[Flattened::flatten_sample_index(image, index)]
+        }
+    }
+
+    impl ConsumePixels for Flattened<f32> {
+        #[inline]
+        fn new(image: &Image<()>) -> Self {
+            Flattened { samples: vec![0.0; image.resolution.area() * image.channel_count()] }
+        }
+
+        #[inline]
+        fn store_f32(image: &mut Image<Self>, index: SampleIndex, sample: f32) {
+            let index = Self::flatten_sample_index(image, index);
+            image.data.samples[index] = sample
+        }
+    }
+
+    impl ExposePixels for Flattened<u32> {
+        #[inline]
+        fn sample_f32(image: &Image<Self>, index: SampleIndex) -> f32 {
+            Self::sample_u32(image, index) as f32
+        }
+
+        #[inline]
+        fn sample_u32(image: &Image<Self>, index: SampleIndex) -> u32 {
+            image.data.samples[Flattened::flatten_sample_index(image, index)]
+        }
+    }
+
+    impl ConsumePixels for Flattened<u32> {
+        #[inline]
+        fn new(image: &Image<()>) -> Self {
+            Flattened { samples: vec![0; image.resolution.area() * image.channel_count()] }
+        }
+
+        #[inline]
+        fn store_f32(image: &mut Image<Self>, index: SampleIndex, sample: f32) {
+            Self::store_u32(image, index, sample as u32)
+        }
+
+        #[inline]
+        fn store_u32(image: &mut Image<Self>, index: SampleIndex, sample: u32) {
+            let index = Self::flatten_sample_index(image, index);
+            image.data.samples[index] = sample
+        }
+    }
+
+    use std::fmt::*;
+    impl<T> Debug for Flattened<T> {
+        #[inline]
+        fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(formatter, "[{}; {}]", std::any::type_name::<T>(), self.samples.len())
+        }
     }
 }
