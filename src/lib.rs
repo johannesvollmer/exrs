@@ -35,14 +35,21 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-
+/// Print the name and value of each variable.
 #[macro_export]
 macro_rules! debug {
-    ( $( $var: ident ),* ) => {
+    ( $( $var: expr ),* ) => {
         {
             $(
-                println!("{} = {}", stringify!($var), $var);
+                println!("{} = {:?}", stringify!($var), $var);
             )*
+        }
+    };
+
+    ($name: expr, $val: expr) => {
+        {
+            println!("{} = {:?}", name, $val);
+            $val
         }
     };
 }

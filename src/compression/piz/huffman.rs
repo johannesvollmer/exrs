@@ -28,8 +28,8 @@ pub fn decompress(compressed: &[u8], result: &mut Vec<u16>) -> UnitResult {
 // 	return;
 //     }
     if compressed.len() < 20 /*&& !result.is_empty()*/ {
-        panic!();
-        return Err(Error::invalid("invalid huffman data size"));
+        panic!("invalid compressed huffman data size");
+        // return Err(Error::invalid("invalid huffman data size"));
     }
 //
 //     int im = readUInt (compressed);
@@ -48,7 +48,7 @@ pub fn decompress(compressed: &[u8], result: &mut Vec<u16>) -> UnitResult {
 // 	invalidTableSize();
     if /*min_hcode_index < 0 ||*/ min_hcode_index >= ENCODING_TABLE_SIZE || /*max_hcode_index < 0 ||*/ max_hcode_index >= ENCODING_TABLE_SIZE {
         panic!();
-        return Err(Error::invalid("huffman table size"));
+        // return Err(Error::invalid("huffman table size"));
     }
 
 //     TODO
@@ -63,7 +63,7 @@ pub fn decompress(compressed: &[u8], result: &mut Vec<u16>) -> UnitResult {
 //     }
     if compressed.len() < RoundingMode::Up.divide(bit_count, 8) {
         panic!();
-        return Err(Error::invalid("huffman data size"));
+        // return Err(Error::invalid("huffman data size"));
     }
 
 //     // Fast decoder needs at least 2x64-bits of compressed data, and
@@ -106,7 +106,7 @@ pub fn decompress(compressed: &[u8], result: &mut Vec<u16>) -> UnitResult {
 //         hufFreeDecTable (hdec);
     if bit_count > 8 * remaining_bytes.len() {
         panic!();
-        return Err(Error::invalid("bit count"))
+        // return Err(Error::invalid("bit count"))
     }
 
     build_decoding_table(&frequencies, min_hcode_index, max_hcode_index, &mut h_decode)?;
@@ -244,10 +244,10 @@ fn decode(
 // 		    invalidCode(); // wrong code
 //
             else {
-                if pl.lits.is_empty() {
+                /*if pl.lits.is_empty() {
                     panic!();
-                    return Err(Error::invalid("huffman code"));
-                }
+                    // return Err(Error::invalid("huffman code"));
+                }*/
 
 // 		// Search long code
 //
@@ -300,9 +300,10 @@ fn decode(
 
                     j += 1;
                 }
+
                 if j == pl.short_code_lit { // loop ran through without finding the code
                     panic!();
-                    return Err(Error::invalid("huffman code"))
+                    // return Err(Error::invalid("huffman code"))
                 }
 // 		}
             }
@@ -355,7 +356,7 @@ fn decode(
         }
         else {
             panic!();
-            return Err(Error::invalid("huffman code"))
+            // return Err(Error::invalid("huffman code"))
         }
     }
 
@@ -364,7 +365,7 @@ fn decode(
 // 	notEnoughData ();
     if output.len() != expected_ouput_size {
         panic!();
-        return Err(Error::invalid("huffman data length"))
+        // return Err(Error::invalid("huffman data length"))
     }
 
     Ok(output)
@@ -409,7 +410,7 @@ fn build_decoding_table(h_code: &[i64], min_hcode_index: usize, max_hcode_index:
 // 	}
         if c >> l != 0 {
             panic!();
-            return Err(Error::invalid("huffman table entry"));
+            // return Err(Error::invalid("huffman table entry"));
         }
 //
 // 	if (l > HUF_DECBITS)
@@ -434,7 +435,7 @@ fn build_decoding_table(h_code: &[i64], min_hcode_index: usize, max_hcode_index:
             let pl = &mut decoding_table[(c >> (l - DECODE_BITS as i64)) as usize];
             if pl.lits.len() != 0 {
                 panic!();
-                return Err(Error::invalid("huffman table entry"));
+                // return Err(Error::invalid("huffman table entry"));
             }
             /*let pl = if let Code::Long(code) = pl { code }
             else {
@@ -522,7 +523,7 @@ fn unpack_encoding_table(packed: &mut &[u8], mut min_hcode_index: usize, max_hco
 // 	            unexpectedEndOfTable();
         if remaining_bytes.len() < 1 { // TODO we do not need these errors as `read` handles those for us
             panic!();
-            return Err(Error::invalid("huffman table length"));
+            // return Err(Error::invalid("huffman table length"));
         }
 //
 // 	        Int64 l = hcode[im] = getBits (6, c, lc, p); // code length
@@ -537,7 +538,7 @@ fn unpack_encoding_table(packed: &mut &[u8], mut min_hcode_index: usize, max_hco
 // 		        unexpectedEndOfTable();
             if remaining_bytes.len() < 1 {
                 panic!();
-                return Err(Error::invalid("huffman table length"));
+                // return Err(Error::invalid("huffman table length"));
             }
 //
 // 	            int zerun = getBits (8, c, lc, p) + SHORTEST_LONG_RUN;
@@ -547,7 +548,7 @@ fn unpack_encoding_table(packed: &mut &[u8], mut min_hcode_index: usize, max_hco
 // 		            tableTooLong();
             if zerun < 0 || min_hcode_index as i64 + zerun > max_hcode_index as i64 + 1 {
                 panic!();
-                return Err(Error::invalid("huffman table length"));
+                // return Err(Error::invalid("huffman table length"));
             }
 //
 // 	            while (zerun--)
@@ -579,7 +580,7 @@ fn unpack_encoding_table(packed: &mut &[u8], mut min_hcode_index: usize, max_hco
             let zerun = code_len - SHORT_ZEROCODE_RUN + 2;
             if zerun < 0 || min_hcode_index as i64 + zerun > max_hcode_index as i64 + 1 {
                 panic!();
-                return Err(Error::invalid("huffman table length"));
+                // return Err(Error::invalid("huffman table length"));
             }
 
             for value in &mut encoding_table[min_hcode_index .. min_hcode_index + zerun as usize] {
@@ -686,11 +687,11 @@ fn read_code(lits: u16, run_length_code: usize, c: &mut i64, lc: &mut i64, read:
         let mut cs = *c >> *lc;
         if cs > write.len() as i64 {
             panic!();
-            return Err(Error::invalid("huffman data size"));
+            // return Err(Error::invalid("huffman data size"));
         }
         else if write.is_empty() {
             panic!();
-            return Err(Error::invalid("huffman data size"));
+            // return Err(Error::invalid("huffman data size"));
         }
 
         let s = *write.last().unwrap();
@@ -704,7 +705,7 @@ fn read_code(lits: u16, run_length_code: usize, c: &mut i64, lc: &mut i64, read:
     }
     else {
         panic!();
-        return Err(Error::invalid("huffman data size"));
+        // return Err(Error::invalid("huffman data size"));
     }
 
     Ok(())

@@ -32,6 +32,7 @@ pub fn decompress_bytes(
 ) -> Result<Vec<u8>>
 {
 
+    #[derive(Debug)]
     struct ChannelData {
         start_index: usize,
         end_index: usize,
@@ -41,6 +42,8 @@ pub fn decompress_bytes(
     }
 
     let Vec2(max_scan_line_size, scan_line_count) = header.default_block_pixel_size();
+
+    debug!(max_scan_line_size, scan_line_count);
 
 //    PizCompressor::PizCompressor
 //        (const Header &hdr,
@@ -60,6 +63,7 @@ pub fn decompress_bytes(
 //        (void) _maxScanLineSize;
 //        size_t tmpBufferSize = uiMult (maxScanLineSize, numScanLines) / 2;
     let tmp_buffer_size = (max_scan_line_size * scan_line_count) / 2;
+    debug!(tmp_buffer_size);
 //
 //        size_t outBufferSize =
 //        uiAdd (uiMult (maxScanLineSize, numScanLines),
@@ -92,6 +96,8 @@ pub fn decompress_bytes(
     let has_only_half_channels = header.channels.list
         .iter().all(|channel| channel.sample_type == SampleType::F16);
 
+    debug!(has_only_half_channels);
+
 //
 //        _channelData = new ChannelData[_numChans];
 //
@@ -102,16 +108,15 @@ pub fn decompress_bytes(
 //        _maxX = dataWindow.max.x;
 //        _maxY = dataWindow.max.y;
 //
-//        //
 //        // We can support uncompressed data in the machine's native format
 //        // if all image channels are of type HALF, and if the Xdr and the
 //        // native represenations of a half have the same size.
-//        //
 
     let format =
         if has_only_half_channels { Format::Native }
         else { Format::Independent }; // half is always 16 bit in Rust???
 
+    debug!(format);
 //
 //        if (onlyHalfChannels && (sizeof (half) == pixelTypeSize (HALF)))
 //        _format = NATIVE;
@@ -175,7 +180,8 @@ pub fn decompress_bytes(
         max_y = header.data_window().max().1;
     }
 
-//
+    debug!(max_y);
+
 //        unsigned short *tmpBufferEnd = _tmpBuffer;
 //        int i = 0;
 //
@@ -212,11 +218,9 @@ pub fn decompress_bytes(
         channel_data.push(channel);
     }
 
-//
-//        //
-//        //
+    debug!(channel_data);
+
 //        // Read range compression data
-//        //
 //
 //        unsigned short minNonZero;
 //        unsigned short maxNonZero;
@@ -224,10 +228,8 @@ pub fn decompress_bytes(
 //        AutoArray <unsigned char, BITMAP_SIZE> bitmap;
 //        memset (bitmap, 0, sizeof (unsigned char) * BITMAP_SIZE);
 
-    let mut bitmap = vec![0_u8; BITMAP_SIZE as usize];
+    let mut bitmap = vec![0_u8; BITMAP_SIZE as usize]; // TODO no vec?
 
-
-//
 //        Xdr::read <CharPtrIO> (inPtr, minNonZero);
 //        Xdr::read <CharPtrIO> (inPtr, maxNonZero);
 
@@ -235,6 +237,7 @@ pub fn decompress_bytes(
 
     let min_non_zero = u16::read(&mut read)?;
     let max_non_zero = u16::read(&mut read)?;
+    debug!(min_non_zero, max_non_zero);
 
 //
 //        if (maxNonZero >= BITMAP_SIZE)
@@ -254,17 +257,18 @@ pub fn decompress_bytes(
 //        }
 
     if min_non_zero <= max_non_zero {
-        let length = max_non_zero - min_non_zero + 1;
-
-        bitmap[ min_non_zero as usize .. (min_non_zero + length) as usize ]
-            .copy_from_slice(&read[.. length as usize]);
-
+        u8::read_slice(&mut read, &mut bitmap[min_non_zero as usize .. (max_non_zero as usize + 1)])?; // TODO +1/-1?
+        // bitmap[ min_non_zero as usize .. (min_non_zero + length) as usize ]
+        //     .copy_from_slice(&read[.. length as usize]);
     }
+
 //
 //        AutoArray <unsigned short, USHORT_RANGE> lut;
 //        unsigned short maxValue = reverseLutFromBitmap (bitmap, lut);
 //
+
     let (lookup_table, max_value) = reverse_lookup_table_from_bitmap(&bitmap);
+    debug!(bitmap, lookup_table, max_value);
 
 //        // Huffman decoding
 //        int length;
