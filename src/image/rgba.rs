@@ -92,36 +92,36 @@ pub struct Encoding {
 /// Contains a separate method for each of the three possible sample types.
 /// The actual sample type of the file is specified within `Image.channels`.
 /// Implementing only the `f32` method will automatically convert all samples to that type, if necessary.
-pub trait ExposePixels: Sized + Sync { // TODO does not actually always need sync
+pub trait GetPixels: Sized + Sync { // TODO does not actually always need sync
 
     /// Extract a single `f32` value out of your image. Should panic for invalid sample indices.
-    fn sample_f32(image: &Image<Self>, index: SampleIndex) -> f32;
+    fn get_sample_f32(image: &Image<Self>, index: SampleIndex) -> f32;
 
     /// Extract a single `u32` value out of your image. Should panic for invalid sample indices.
-    #[inline] fn sample_u32(image: &Image<Self>, index: SampleIndex) -> u32 { Self::sample_f32(image, index) as u32 }
+    #[inline] fn get_sample_u32(image: &Image<Self>, index: SampleIndex) -> u32 { Self::get_sample_f32(image, index) as u32 }
 
     /// Extract a single `f16` value out of your image. Should panic for invalid sample indices.
-    #[inline] fn sample_f16(image: &Image<Self>, index: SampleIndex) -> f16 { f16::from_f32(Self::sample_f32(image, index)) }
+    #[inline] fn get_sample_f16(image: &Image<Self>, index: SampleIndex) -> f16 { f16::from_f32(Self::get_sample_f32(image, index)) }
 }
 
 /// Consume the pixels of an image file. Implement this on your own image type to read a file into your image.
 ///
 /// Contains a separate method for each of the three possible sample types.
 /// Implementing only the `f32` method will automatically convert all samples to that type, if necessary.
-pub trait ConsumePixels: Sized {
+pub trait CreatePixels: Sized {
 
     /// Create a new pixel storage for the supplied image.
     /// The returned value will be put into the `data` field of the supplied image.
     fn new(image: &Image<()>) -> Self;
 
     /// Set the value of a single `f32`. Should panic on invalid sample indices.
-    fn store_f32(image: &mut Image<Self>, index: SampleIndex, sample: f32);
+    fn set_sample_f32(image: &mut Image<Self>, index: SampleIndex, sample: f32);
 
     /// Set the value of a single `u32`. Should panic on invalid sample indices.
-    #[inline] fn store_u32(image: &mut Image<Self>, index: SampleIndex, sample: u32) { Self::store_f32(image, index, sample as f32) }
+    #[inline] fn set_sample_u32(image: &mut Image<Self>, index: SampleIndex, sample: u32) { Self::set_sample_f32(image, index, sample as f32) }
 
     /// Set the value of a single `f16`. Should panic on invalid sample indices.
-    #[inline] fn store_f16(image: &mut Image<Self>, index: SampleIndex, sample: f16) { Self::store_f32(image, index, sample.to_f32()) }
+    #[inline] fn set_sample_f16(image: &mut Image<Self>, index: SampleIndex, sample: f16) { Self::set_sample_f32(image, index, sample.to_f32()) }
 }
 
 /// An index that uniquely identifies each `f16`, `f32`, or `u32` in an RGBA image.
@@ -244,7 +244,7 @@ impl<S> Image<S> {
     pub fn read_from_file(
         path: impl AsRef<Path>,
         options: ReadOptions<impl OnReadProgress>
-    ) -> Result<Self> where S: ConsumePixels
+    ) -> Result<Self> where S: CreatePixels
     {
         Self::read_from_unbuffered(File::open(path)?, options)
     }
@@ -262,7 +262,7 @@ impl<S> Image<S> {
     pub fn read_from_unbuffered(
         read: impl Read + Seek + Send,
         options: ReadOptions<impl OnReadProgress>
-    ) -> Result<Self> where S: ConsumePixels
+    ) -> Result<Self> where S: CreatePixels
     {
         Self::read_from_buffered(BufReader::new(read), options)
     }
@@ -280,7 +280,7 @@ impl<S> Image<S> {
     pub fn read_from_buffered(
         read: impl Read + Seek + Send,
         options: ReadOptions<impl OnReadProgress>
-    ) -> Result<Self> where S: ConsumePixels
+    ) -> Result<Self> where S: CreatePixels
     {
         crate::image::read_filtered_lines_from_buffered(
             read,
@@ -323,15 +323,15 @@ impl<S> Image<S> {
 
                 match channel.sample_type {
                     SampleType::F16 => for (sample_index, sample) in line.read_samples().enumerate() {
-                        S::store_f16(image, get_index_of_sample(sample_index), sample?);
+                        S::set_sample_f16(image, get_index_of_sample(sample_index), sample?);
                     },
 
                     SampleType::F32 => for (sample_index, sample) in line.read_samples().enumerate() {
-                        S::store_f32(image, get_index_of_sample(sample_index), sample?);
+                        S::set_sample_f32(image, get_index_of_sample(sample_index), sample?);
                     },
 
                     SampleType::U32 => for (sample_index, sample) in line.read_samples().enumerate() {
-                        S::store_u32(image, get_index_of_sample(sample_index), sample?);
+                        S::set_sample_u32(image, get_index_of_sample(sample_index), sample?);
                     },
                 };
 
@@ -343,7 +343,7 @@ impl<S> Image<S> {
     }
 
     /// Allocate the memory for an image that could contain the described data.
-    fn allocate(header: &Header, channels: Channels) -> Self where S: ConsumePixels {
+    fn allocate(header: &Header, channels: Channels) -> Self where S: CreatePixels {
         let meta = Image {
             resolution: header.data_size,
             channels,
@@ -378,7 +378,7 @@ impl<S> Image<S> {
     }
 
     /// Try to find a header matching the RGBA requirements.
-    fn extract(headers: &[Header]) -> Result<Self> where S: ConsumePixels {
+    fn extract(headers: &[Header]) -> Result<Self> where S: CreatePixels {
         let first_header_name = headers.first()
             .and_then(|header| header.own_attributes.name.as_ref());
 
@@ -417,7 +417,7 @@ impl<S> Image<S> {
     pub fn write_to_file(
         &self, path: impl AsRef<Path>,
         options: WriteOptions<impl OnWriteProgress>
-    ) -> UnitResult where S: ExposePixels
+    ) -> UnitResult where S: GetPixels
     {
         crate::io::attempt_delete_file_on_write_error(path, |write|
             self.write_to_unbuffered(write, options)
@@ -432,7 +432,7 @@ impl<S> Image<S> {
     pub fn write_to_unbuffered(
         &self, write: impl Write + Seek,
         options: WriteOptions<impl OnWriteProgress>
-    ) -> UnitResult where S: ExposePixels
+    ) -> UnitResult where S: GetPixels
     {
         self.write_to_buffered(BufWriter::new(write), options)
     }
@@ -445,7 +445,7 @@ impl<S> Image<S> {
     pub fn write_to_buffered(
         &self, write: impl Write + Seek,
         options: WriteOptions<impl OnWriteProgress>
-    ) -> UnitResult where S: ExposePixels
+    ) -> UnitResult where S: GetPixels
     {
         use crate::meta::attributes as meta;
 
@@ -511,15 +511,15 @@ impl<S> Image<S> {
 
                 match channel.sample_type {
                     SampleType::F16 => line.write_samples(|sample_index|{
-                        S::sample_f16(self, get_index_of_sample(sample_index))
+                        S::get_sample_f16(self, get_index_of_sample(sample_index))
                     }).expect("rgba line write error"),
 
                     SampleType::F32 => line.write_samples(|sample_index|{
-                        S::sample_f32(self, get_index_of_sample(sample_index))
+                        S::get_sample_f32(self, get_index_of_sample(sample_index))
                     }).expect("rgba line write error"),
 
                     SampleType::U32 => line.write_samples(|sample_index|{
-                        S::sample_u32(self, get_index_of_sample(sample_index))
+                        S::get_sample_u32(self, get_index_of_sample(sample_index))
                     }).expect("rgba line write error"),
                 };
 
@@ -572,71 +572,71 @@ pub mod pixels {
         }
     }
 
-    impl ExposePixels for Flattened<f16> {
+    impl GetPixels for Flattened<f16> {
         #[inline]
-        fn sample_f32(image: &Image<Self>, index: SampleIndex) -> f32 {
+        fn get_sample_f32(image: &Image<Self>, index: SampleIndex) -> f32 {
             image.data.samples[Flattened::flatten_sample_index(image, index)].to_f32()
         }
     }
 
-    impl ConsumePixels for Flattened<f16> {
+    impl CreatePixels for Flattened<f16> {
         #[inline]
         fn new(image: &Image<()>) -> Self {
             Flattened { samples: vec![f16::ZERO; image.resolution.area() * image.channel_count()] }
         }
 
         #[inline]
-        fn store_f32(image: &mut Image<Self>, index: SampleIndex, sample: f32) {
+        fn set_sample_f32(image: &mut Image<Self>, index: SampleIndex, sample: f32) {
             let index = Self::flatten_sample_index(image, index);
             image.data.samples[index] = f16::from_f32(sample)
         }
     }
 
-    impl ExposePixels for Flattened<f32> {
+    impl GetPixels for Flattened<f32> {
         #[inline]
-        fn sample_f32(image: &Image<Self>, index: SampleIndex) -> f32 {
+        fn get_sample_f32(image: &Image<Self>, index: SampleIndex) -> f32 {
             image.data.samples[Flattened::flatten_sample_index(image, index)]
         }
     }
 
-    impl ConsumePixels for Flattened<f32> {
+    impl CreatePixels for Flattened<f32> {
         #[inline]
         fn new(image: &Image<()>) -> Self {
             Flattened { samples: vec![0.0; image.resolution.area() * image.channel_count()] }
         }
 
         #[inline]
-        fn store_f32(image: &mut Image<Self>, index: SampleIndex, sample: f32) {
+        fn set_sample_f32(image: &mut Image<Self>, index: SampleIndex, sample: f32) {
             let index = Self::flatten_sample_index(image, index);
             image.data.samples[index] = sample
         }
     }
 
-    impl ExposePixels for Flattened<u32> {
+    impl GetPixels for Flattened<u32> {
         #[inline]
-        fn sample_f32(image: &Image<Self>, index: SampleIndex) -> f32 {
-            Self::sample_u32(image, index) as f32
+        fn get_sample_f32(image: &Image<Self>, index: SampleIndex) -> f32 {
+            Self::get_sample_u32(image, index) as f32
         }
 
         #[inline]
-        fn sample_u32(image: &Image<Self>, index: SampleIndex) -> u32 {
+        fn get_sample_u32(image: &Image<Self>, index: SampleIndex) -> u32 {
             image.data.samples[Flattened::flatten_sample_index(image, index)]
         }
     }
 
-    impl ConsumePixels for Flattened<u32> {
+    impl CreatePixels for Flattened<u32> {
         #[inline]
         fn new(image: &Image<()>) -> Self {
             Flattened { samples: vec![0; image.resolution.area() * image.channel_count()] }
         }
 
         #[inline]
-        fn store_f32(image: &mut Image<Self>, index: SampleIndex, sample: f32) {
-            Self::store_u32(image, index, sample as u32)
+        fn set_sample_f32(image: &mut Image<Self>, index: SampleIndex, sample: f32) {
+            Self::set_sample_u32(image, index, sample as u32)
         }
 
         #[inline]
-        fn store_u32(image: &mut Image<Self>, index: SampleIndex, sample: u32) {
+        fn set_sample_u32(image: &mut Image<Self>, index: SampleIndex, sample: u32) {
             let index = Self::flatten_sample_index(image, index);
             image.data.samples[index] = sample
         }

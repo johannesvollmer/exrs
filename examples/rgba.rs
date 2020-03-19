@@ -2,7 +2,7 @@
 // exr imports
 extern crate exr;
 use exr::prelude::*;
-use exr::image::rgba::{SampleIndex, ExposePixels};
+use exr::image::rgba::{SampleIndex, GetPixels};
 
 /// Read an RGBA image and then write it back.
 /// Uses multicore compression where appropriate.
@@ -16,7 +16,7 @@ fn main() {
 
     // read the image from a file
     let mut image = {
-        impl rgba::ConsumePixels for CustomUserPixels {
+        impl rgba::CreatePixels for CustomUserPixels {
 
             // allocate a new pixel storage based on the (still empty) image
             fn new(image: &rgba::Image<()>) -> Self {
@@ -29,7 +29,7 @@ fn main() {
 
             // set a single value, which is either red, green, blue, or alpha.
             // (this method is also called for f16 or u32 values, if you do not implement the other methods in this trait)
-            fn store_f32(image: &mut rgba::Image<Self>, index: SampleIndex, sample: f32) {
+            fn set_sample_f32(image: &mut rgba::Image<Self>, index: SampleIndex, sample: f32) {
                 image.data.lines[index.position.1][index.position.0][index.channel] = f16::from_f32(sample); // TODO gamma correction & more?
             }
         }
@@ -54,10 +54,10 @@ fn main() {
     }
 
     {   // write the image to a file
-        impl ExposePixels for CustomUserPixels {
+        impl GetPixels for CustomUserPixels {
             // query a single sample, which is either red, green, blue, or alpha.
             // (this method is also called for f16 or u32 values, if you do not implement the other methods in this trait)
-            fn sample_f32(image: &rgba::Image<Self>, index: SampleIndex) -> f32 {
+            fn get_sample_f32(image: &rgba::Image<Self>, index: SampleIndex) -> f32 {
                 image.data.lines[index.position.1][index.position.0][index.channel].to_f32()
             }
         }
