@@ -4,7 +4,7 @@ extern crate exr;
 use exr::prelude::*;
 use exr::image::rgba::{SampleIndex, GetPixels};
 
-/// Read an RGBA image and then write it back.
+/// Read an RGBA image, increase the exposure, and then write it back.
 /// Uses multicore compression where appropriate.
 fn main() {
 
@@ -41,15 +41,32 @@ fn main() {
     };
 
 
-    {   // brighten up the line in the middle
-        let y = image.resolution.1 / 2;
-        let channel_index = 2; // [r,g,b,a] [2]: blue channel
+    {
+        let channel_linearity = [
+            image.channels.0.is_linear,
+            image.channels.1.is_linear,
+            image.channels.2.is_linear
+        ];
 
-        for x in 0..image.resolution.0 {
-            let sample = image.data.lines[y][x][channel_index].to_f32();
-            let new_sample = sample * 3.0;
+        // increase exposure of all pixels
+        for line in &mut image.data.lines {
+            for pixel in line {
+                for (channel_index, sample) in (&mut pixel[0..3]).iter_mut().enumerate() { // rgb, but not alpha
+                    let sample_32 = sample.to_f32();
+                    let is_linear = channel_linearity[channel_index];
+                    let linear = if is_linear { sample_32 } else { sample_32.powf(2.2) };
 
-            image.data.lines[y][x][channel_index] = f16::from_f32(new_sample);
+                    let brightened = linear * 3.0;
+
+                    let sample_32 = if is_linear { brightened } else { brightened.powf(1.0/2.2) };
+                    *sample = f16::from_f32(sample_32);
+                }
+            }
+        }
+
+        // also update meta data after modifying the image
+        if let Some(exposure) = &mut image.layer_attributes.exposure {
+            *exposure *= 3.0;
         }
     }
 

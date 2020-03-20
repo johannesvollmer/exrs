@@ -62,10 +62,10 @@ pub type Channels = (Channel, Channel, Channel, Option<Channel>);
 pub struct Channel {
 
     /// Are the samples stored in a linear color space?
-    is_linear: bool,
+    pub is_linear: bool,
 
     /// The type of the samples in this channel.
-    sample_type: SampleType,
+    pub sample_type: SampleType,
 }
 
 /// Specifies how the pixel data is formatted inside the file.
@@ -224,6 +224,12 @@ impl<S> Image<S> {
     #[inline]
     pub fn channel_count(&self) -> usize {
         if self.channels.3.is_some() { 4 } else { 3 }
+    }
+
+    /// Return the red green and blue channels as an indexable array.
+    #[inline]
+    pub fn rgb_channels(&self) -> [Channel; 3] {
+        [self.channels.0, self.channels.1, self.channels.2]
     }
 
     /// Read the exr image from a file.
