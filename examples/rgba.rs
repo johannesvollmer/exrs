@@ -35,30 +35,27 @@ fn main() {
         }
 
         rgba::Image::<CustomUserPixels>::read_from_file(
-            "tests/images/valid/openexr/Beachball/multipart.0004.exr",
+            "tests/images/valid/openexr/MultiResolution/Kapaa.exr",
             read_options::high()
         ).unwrap()
     };
 
 
     {
-        let channel_linearity = [
-            image.channels.0.is_linear,
-            image.channels.1.is_linear,
-            image.channels.2.is_linear
-        ];
+        assert!(
+            !image.channels.0.is_linear && !image.channels.0.is_linear && !image.channels.0.is_linear,
+            "exposure adjustment is only implemented for srgb data"
+        );
 
         // increase exposure of all pixels
         for line in &mut image.data.lines {
             for pixel in line {
-                for (channel_index, sample) in (&mut pixel[0..3]).iter_mut().enumerate() { // rgb, but not alpha
-                    let sample_32 = sample.to_f32();
-                    let is_linear = channel_linearity[channel_index];
-                    let linear = if is_linear { sample_32 } else { sample_32.powf(2.2) };
+                for sample in &mut pixel[0..3] { // only modify rgb, not alpha
+                    let linear = sample.to_f32().powf(2.2);
 
                     let brightened = linear * 3.0;
 
-                    let sample_32 = if is_linear { brightened } else { brightened.powf(1.0/2.2) };
+                    let sample_32 = brightened.powf(1.0/2.2);
                     *sample = f16::from_f32(sample_32);
                 }
             }
@@ -79,6 +76,6 @@ fn main() {
             }
         }
 
-        image.write_to_file("tests/images/out/written_copy.exr", write_options::high()).unwrap();
+        image.write_to_file("tests/images/out/exposure_adjusted.exr", write_options::high()).unwrap();
     }
 }

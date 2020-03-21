@@ -64,7 +64,7 @@ pub struct Channel {
     /// Are the samples stored in a linear color space?
     pub is_linear: bool,
 
-    /// The type of the samples in this channel.
+    /// The type of the samples in this channel. Either f32, f16, or u32.
     pub sample_type: SampleType,
 }
 
@@ -137,6 +137,19 @@ pub struct SampleIndex {
 }
 
 
+impl Channel {
+
+    /// A new channel in linear color space.
+    pub fn linear(sample_type: SampleType) -> Self {
+        Self { is_linear: true, sample_type }
+    }
+
+    /// A new channel in non-linear color space.
+    pub fn non_linear(sample_type: SampleType) -> Self {
+        Self { is_linear: false, sample_type }
+    }
+}
+
 impl Encoding {
 
     /// Chooses an optimal tile size and line order for the specified compression.
@@ -184,6 +197,16 @@ impl Encoding {
 
 
 impl<S> Image<S> {
+
+    /// Create an Image with an alpha channel. Each channel will be the same as the specified channel.
+    pub fn with_alpha(resolution: Vec2<usize>, channel: Channel, data: S) -> Self {
+        Self::new(resolution, (channel, channel, channel, Some(channel)), data)
+    }
+
+    /// Create an Image without an alpha channel. Each channel will be the same as the specified channel.
+    pub fn without_alpha(resolution: Vec2<usize>, channel: Channel, data: S) -> Self {
+        Self::new(resolution, (channel, channel, channel, None), data)
+    }
 
     /// Create an image with the resolution, channels, and actual pixel data.
     pub fn new(resolution: Vec2<usize>, channels: Channels, data: S) -> Self {
