@@ -3,7 +3,7 @@
 [![Rust Lang Version](https://img.shields.io/badge/rustc-1.41+-lightgray.svg)](https://blog.rust-lang.org/2020/01/30/Rust-1.41.0.html) 
 [![Lines of Code](https://tokei.rs/b1/github/johannesvollmer/exrs?category=code)](https://tokei.rs)
 
-# exrs (exr-rs)
+# EXRS
 
 This library is a 100% Rust and 100% safe code 
 encoding and decoding library for the OpenEXR image file format.
