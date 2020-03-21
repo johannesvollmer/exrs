@@ -27,7 +27,7 @@ fn read_single_image_uncompressed_from_buffer(bench: &mut Bencher) {
     })
 }
 
-/// Read with multicore zip decompression
+/// Read with multi-core zip decompression
 fn read_single_image_zips(bench: &mut Bencher) {
     bench.iter(||{
         let path = "tests/images/valid/openexr/crowskull/crow_zips.exr";
@@ -36,7 +36,7 @@ fn read_single_image_zips(bench: &mut Bencher) {
     })
 }
 
-/// Read with multicore RLE decompression
+/// Read with multi-core RLE decompression
 fn read_single_image_rle(bench: &mut Bencher) {
     bench.iter(||{
         let path = "tests/images/valid/openexr/crowskull/crow_rle.exr";
@@ -45,7 +45,7 @@ fn read_single_image_rle(bench: &mut Bencher) {
     })
 }
 
-/// Read without multicore ZIP decompression
+/// Read without multi-core ZIP decompression
 fn read_single_image_non_parallel_zips(bench: &mut Bencher) {
     bench.iter(||{
         let path = "tests/images/valid/custom/crowskull/crow_zips.exr";

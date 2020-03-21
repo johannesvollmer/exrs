@@ -1,5 +1,5 @@
 
-//! Read and write all supported aspects of an exr image, including deep data and multiresolution levels.
+//! Read and write all supported aspects of an exr image, including deep data and multi-resolution levels.
 //! Use `exr::image::simple` if you do not need deep data or resolution levels.
 //!
 //! __This module is currently under construction.__

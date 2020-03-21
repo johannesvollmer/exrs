@@ -5,7 +5,7 @@ use exr::prelude::*;
 use exr::image::rgba::{SampleIndex, GetPixels};
 
 /// Read an RGBA image, increase the exposure, and then write it back.
-/// Uses multicore compression where appropriate.
+/// Uses multi-core compression where appropriate.
 fn main() {
 
     /// This is an example of a custom image type.

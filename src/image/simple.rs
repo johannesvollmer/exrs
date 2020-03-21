@@ -1,5 +1,5 @@
 
-//! Read and write all supported aspects of an exr image, excluding deep data and multiresolution levels.
+//! Read and write all supported aspects of an exr image, excluding deep data and multi-resolution levels.
 //! Use `exr::image::full` if you do need deep data or resolution levels.
 
 use smallvec::SmallVec;

@@ -28,7 +28,7 @@ use std::collections::BTreeMap;
 #[derive(Debug)]
 pub struct WriteOptions<P: OnWriteProgress> {
 
-    /// Enable multicore compression.
+    /// Enable multi-core compression.
     pub parallel_compression: bool,
 
     /// If enabled, writing an image throws errors
@@ -50,7 +50,7 @@ pub struct WriteOptions<P: OnWriteProgress> {
 #[derive(Debug)]
 pub struct ReadOptions<P: OnReadProgress> {
 
-    /// Enable multicore decompression.
+    /// Enable multi-core decompression.
     pub parallel_decompression: bool,
 
     /// Called occasionally while reading a file.
@@ -548,7 +548,7 @@ pub fn uncompressed_image_blocks_ordered<'l>(
 /// Compress all chunks in the image described by `meta_data` and `get_line`.
 /// Calls `write_chunk` for each compressed chunk, while respecting the `line_order` of the image.
 ///
-/// Attention: Currently, using multicore compression with `LineOrder::Increasing` or `LineOrder::Decreasing` in any header
+/// Attention: Currently, using multi-core compression with `LineOrder::Increasing` or `LineOrder::Decreasing` in any header
 /// will allocate large amounts of memory while writing the file. Use unspecified line order for lower memory usage.
 #[inline]
 #[must_use]
@@ -631,7 +631,7 @@ pub fn for_compressed_blocks_in_image(
 /// Compresses and writes all lines of an image described by `meta_data` and `get_line` to the writer.
 /// Flushes the writer to explicitly handle all errors.
 ///
-/// Attention: Currently, using multicore compression with `LineOrder::Increasing` or `LineOrder::Decreasing` in any header
+/// Attention: Currently, using multi-core compression with `LineOrder::Increasing` or `LineOrder::Decreasing` in any header
 /// can potentially allocate large amounts of memory while writing the file. Use unspecified line order for lower memory usage.
 ///
 /// Does not buffer the writer, you should always pass a `BufWriter`.

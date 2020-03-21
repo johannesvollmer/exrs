@@ -8,7 +8,7 @@ use bencher::Bencher;
 use std::io::Cursor;
 use exr::image::{read_options, write_options};
 
-/// Write with multicore zip compression
+/// Write with multi-core zip compression
 fn write_single_image_parallel(bench: &mut Bencher) {
     let path = "tests/images/valid/custom/crowskull/crow_rle.exr";
     let image = Image::read_from_file(path, read_options::high()).unwrap();

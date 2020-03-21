@@ -304,7 +304,7 @@ pub enum LineOrder {
     Decreasing,
 
     /// The blocks are not ordered in a specific way inside the file.
-    /// In multicore file writing, this option offers the best performance.
+    /// In multi-core file writing, this option offers the best performance.
     Unspecified,
 }
 
