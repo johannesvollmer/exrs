@@ -17,6 +17,7 @@ fn main() {
     let (mut image, mut pixels) = {
 
         // allocate a new pixel storage based on the image
+        // (you can also `impl CreatePixels` alternatively)
         fn create_pixels(image: &rgba::Image) -> CustomUserPixels {
             println!("loaded image {:#?}", image);
 
@@ -72,8 +73,9 @@ fn main() {
 
 
     {   // write the image to a file
+
         // query a single sample, which is either red, green, blue, or alpha.
-        // (this method is also called for f16 or u32 values, if you do not implement the other methods in this trait)
+        // you can also manually `impl rgba::GetPixels for CustomUserPixels` alternatively.
         let get_pixel = |_image: &rgba::Image, position: Vec2<usize>| {
             let [r, g, b, a] = pixels.lines[position.1][position.0];
             rgba::Pixel::rgba(r, g, b, a)
