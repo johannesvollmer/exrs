@@ -670,30 +670,17 @@ pub fn write_all_lines_to_buffered(
 {
     let get_block = |headers: &[Header], block_index: BlockIndex| {
         let header: &Header = &headers.get(block_index.layer).expect("invalid block index");
-        // TODO let bytes = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
 
-        let max_allocation_size = 1024*512; // TODO there probably does not have to be an allocation limit on write
-        let max_block_size = header.max_block_byte_size();
-        let mut block_bytes = vec![0_u8; max_block_size.min(max_allocation_size)];
-        let mut written_block_byte_count = 0; // used to truncate block_bytes after writing
+        let bytes = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
+        let mut block_bytes = vec![0_u8; bytes];
 
         for (byte_range, line_index) in block_index.line_indices(header) {
-            let end = byte_range.clone().end;
-
-            if block_bytes.len() < end {
-                block_bytes.resize((end + max_allocation_size).min(max_block_size), 0);
-            }
-
-            let line_mut = LineRefMut {
+            get_line(headers, LineRefMut {
                 value: &mut block_bytes[byte_range],
                 location: line_index,
-            };
-
-            get_line(headers, line_mut);
-            written_block_byte_count = end;
+            });
         }
 
-        block_bytes.truncate(written_block_byte_count);
         block_bytes
     };
 

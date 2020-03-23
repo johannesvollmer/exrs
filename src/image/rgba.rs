@@ -21,6 +21,7 @@ use crate::meta::{Header, ImageAttributes, LayerAttributes, MetaData, Blocks};
 use half::f16;
 use crate::image::{ReadOptions, OnReadProgress, WriteOptions, OnWriteProgress};
 use crate::compression::Compression;
+use std::collections::HashSet;
 
 /// A summary of an image file.
 /// Does not contain any actual pixel data.
@@ -348,6 +349,8 @@ impl Image {
     /// Read the exr image from a file.
     /// Use `read_from_unbuffered` instead, if you do not have a file.
     /// Returns `Error::Invalid` if not at least one image part with RGB channels can be found in the file.
+    ///
+    /// The `create_pixels` parameter can be a closure of type `Fn(&Image) -> impl SetPixels`.
     #[inline]
     #[must_use]
     pub fn read_from_file<P: CreatePixels>(
@@ -364,6 +367,8 @@ impl Image {
     /// Use `read_from_file` instead, if you have a file path.
     ///
     /// Returns `Error::Invalid` if not at least one image part with RGB channels can be found in the file.
+    ///
+    /// The `create_pixels` parameter can be a closure of type `Fn(&Image) -> impl SetPixels`.
     ///
     /// _Note: If you encounter a reader that is not send or not seek,
     /// open an issue on the github repository._
@@ -383,6 +388,8 @@ impl Image {
     /// Use `read_from_unbuffered` instead, if this is not an in-memory reader.
     ///
     /// Returns `Error::Invalid` if not at least one image part with RGB channels can be found in the file.
+    ///
+    /// The `create_pixels` parameter can be a closure of type `Fn(&Image) -> impl SetPixels`.
     ///
     /// _Note: If you encounter a reader that is not send or not seek,
     /// open an issue on the github repository._
@@ -417,30 +424,35 @@ impl Image {
 
                 let header: &Header = &meta[block.index.layer];
                 debug_assert_eq!(header.own_attributes.name, image.layer_attributes.name, "irrelevant header should be filtered out"); // TODO this should be an error right?
+                let line_bytes = block.index.pixel_size.0 * header.channels.bytes_per_pixel;
 
+                // TODO compute this once per image, not per block
+                let (mut r_range, mut g_range, mut b_range, mut a_range) = (0..0, 0..0, 0..0, 0..0);
                 let mut byte_index = 0;
-                for y in 0..block.index.pixel_size.1 {
-                    let (mut r_range, mut g_range, mut b_range, mut a_range) = (0..0, 0..0, 0..0, 0..0);
-                     // TODO compute this once per image, not per block
 
-                    for channel in &header.channels.list {
-                        let sample_bytes = channel.sample_type.bytes_per_sample();
-                        let line_bytes = block.index.pixel_size.0 * sample_bytes;
-                        let byte_range = byte_index .. byte_index + line_bytes;
-                        byte_index = byte_range.end;
+                for channel in &header.channels.list {
+                    let sample_bytes = channel.sample_type.bytes_per_sample();
+                    let channel_bytes = block.index.pixel_size.0 * sample_bytes;
+                    let byte_range = byte_index .. byte_index + channel_bytes;
+                    byte_index = byte_range.end;
 
-                        if      channel.name.eq_case_insensitive("a") { a_range = byte_range }
-                        else if channel.name.eq_case_insensitive("b") { b_range = byte_range }
-                        else if channel.name.eq_case_insensitive("g") { g_range = byte_range }
-                        else if channel.name.eq_case_insensitive("r") { r_range = byte_range }
-                        else { continue; } // ignore non-rgba channels
-                    };
+                    if      channel.name.eq_case_insensitive("a") { a_range = byte_range }
+                    else if channel.name.eq_case_insensitive("b") { b_range = byte_range }
+                    else if channel.name.eq_case_insensitive("g") { g_range = byte_range }
+                    else if channel.name.eq_case_insensitive("r") { r_range = byte_range }
+                    else { continue; } // ignore non-rgba channels
+                };
 
 
-                    let mut next_r = sample_reader(r_type, &block.data[r_range]);
-                    let mut next_g = sample_reader(g_type, &block.data[g_range]);
-                    let mut next_b = sample_reader(b_type, &block.data[b_range]);
-                    let mut next_a = a_type.map(|a_type| sample_reader(a_type, &block.data[a_range]));
+                let byte_lines = block.data.chunks_exact(line_bytes);
+                let y_coords = 0 .. block.index.pixel_size.1;
+                for (y, byte_line) in y_coords.zip(byte_lines) {
+
+                    let mut next_r = sample_reader(r_type, &byte_line[r_range.clone()]);
+                    let mut next_g = sample_reader(g_type, &byte_line[g_range.clone()]);
+                    let mut next_b = sample_reader(b_type, &byte_line[b_range.clone()]);
+                    let mut next_a = a_type
+                        .map(|a_type| sample_reader(a_type, &block.data[a_range.clone()]));
 
                     fn sample_reader(sample_type: SampleType, mut read: impl Read) -> impl (FnMut() -> Result<Sample>) {
                         use crate::io::Data;
@@ -453,11 +465,10 @@ impl Image {
                     }
 
                     for x in 0..block.index.pixel_size.0 {
-                        let pixel = if let Some(next_a) = &mut next_a {
-                            Pixel::rgba(next_r()?, next_g()?, next_b()?, next_a()?)
-                        }
-
-                        else { Pixel::rgb(next_r()?, next_g()?, next_b()?) };
+                        let pixel = Pixel::new(
+                            next_r()?, next_g()?, next_b()?,
+                            if let Some(a) = &mut next_a { Some(a()?) } else { None }
+                        );
 
                         let position = block.index.pixel_position + Vec2(x,y);
                         pixels.set_pixel(image, position, pixel);
@@ -493,12 +504,11 @@ impl Image {
 
     /// Try to find a header matching the RGBA requirements.
     fn extract(headers: &[Header]) -> Result<Self> {
-        let first_header_name = headers.first()
-            .and_then(|header| header.own_attributes.name.as_ref());
+        let mut header_names = HashSet::with_capacity(headers.len());
 
-        for (header_index, header) in headers.iter().enumerate() {
+        for header in headers {
             // the following check is required because filtering works by name in this RGBA implementation
-            if header_index != 0 && header.own_attributes.name.as_ref() == first_header_name {
+            if !header_names.insert(&header.own_attributes.name) { // none twice is also catched
                 return Err(Error::invalid("duplicate header name"))
             }
 
@@ -527,6 +537,8 @@ impl Image {
     /// Write the exr image to a file.
     /// Use `write_to_unbuffered` instead if you do not have a file.
     /// If an error occurs, attempts to delete the partially written file.
+    ///
+    /// The `pixels` parameter can be a closure of type `Fn(&Image, Vec2<usize>) -> Pixel`.
     #[must_use]
     pub fn write_to_file(
         &self, path: impl AsRef<Path>,
@@ -543,6 +555,8 @@ impl Image {
     /// Use `read_from_buffered` instead, if your reader is an in-memory writer.
     /// Use `read_from_file` instead, if you have a file path.
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first, using `write_to_buffered`.
+    ///
+    /// The `pixels` parameter can be a closure of type `Fn(&Image, Vec2<usize>) -> Pixel`.
     #[must_use]
     pub fn write_to_unbuffered(
         &self, write: impl Write + Seek,
@@ -557,6 +571,8 @@ impl Image {
     /// Use `read_from_file` instead, if you have a file path.
     /// Use `read_from_unbuffered` instead, if this is not an in-memory writer.
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first.
+    ///
+    /// The `pixels` parameter can be a closure of type `Fn(&Image, Vec2<usize>) -> Pixel`.
     #[must_use]
     pub fn write_to_buffered(
         &self, write: impl Write + Seek,
@@ -627,12 +643,12 @@ impl Image {
                     .map(|a_type| width * a_type.bytes_per_sample())
                     .unwrap_or(0);
 
-
                 let mut block_bytes = vec![0_u8; block_bytes];
 
                 let y_coordinates = 0..block_index.pixel_size.1;
                 let byte_lines = block_bytes.chunks_exact_mut(line_bytes);
                 for (y, line_bytes) in y_coordinates.zip(byte_lines) {
+
                     let (a, line_bytes) = line_bytes.split_at_mut(a_line_bytes);
                     let (b, line_bytes) = line_bytes.split_at_mut(b_line_bytes);
                     let (g, line_bytes) = line_bytes.split_at_mut(g_line_bytes);
