@@ -10,7 +10,7 @@ use exr::image::read_options;
 
 /// Read RLE image from file
 fn read_single_image(bench: &mut Bencher) {
-    let path = "tests/images/valid/openexr/crowskull/crow_rle.exr";
+    let path = "tests/images/valid/custom/crowskull/crow_rle.exr";
 
     bench.iter(||{
         Image::read_from_file(path, read_options::low()).unwrap();
@@ -19,7 +19,7 @@ fn read_single_image(bench: &mut Bencher) {
 
 /// Read zip image from in-memory buffer
 fn read_single_image_from_buffer(bench: &mut Bencher) {
-    let file = fs::read("tests/images/valid/openexr/crowskull/crow_rle.exr").unwrap();
+    let file = fs::read("tests/images/valid/custom/crowskull/crow_rle.exr").unwrap();
 
     bench.iter(||{
         Image::read_from_buffered(file.as_slice(), read_options::low()).unwrap();

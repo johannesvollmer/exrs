@@ -98,14 +98,18 @@ fn round_trip_all_files_simple() {
 #[test]
 fn round_trip_all_files_rgba() {
     check_files(|path| {
-        let image: rgba::Image<rgba::pixels::Flattened<f16>> = rgba::Image::read_from_file(path, read_options::low())?;
+        let (image, pixels) = rgba::Image::read_from_file(path, read_options::low(), rgba::pixels::flat_f16)?;
 
         let mut tmp_bytes = Vec::new();
-        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low())?;
+        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low(), &pixels)?;
 
-        let image2 = rgba::Image::read_from_buffered(Cursor::new(&tmp_bytes), read_options::low())?;
+        let (image2, pixels2) = rgba::Image::read_from_buffered(
+            Cursor::new(&tmp_bytes), read_options::low(), rgba::pixels::flat_f16
+        )?;
+
         if !path.to_str().unwrap().to_lowercase().contains("nan") {
             assert_eq!(image, image2);
+            assert_eq!(pixels, pixels2);
         }
 
         Ok(())

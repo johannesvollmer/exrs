@@ -286,10 +286,7 @@ impl Image {
     pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions<impl OnWriteProgress>) -> UnitResult {
         crate::image::write_all_lines_to_buffered(
             write,  self.infer_meta_data(),
-            |_meta, line_mut| {
-                self.extract_line(line_mut);
-                Ok(())
-            },
+            |_meta, line_mut| self.extract_line(line_mut),
             options
         )
     }

@@ -52,6 +52,10 @@ harness = false
 name = "write"
 harness = false
 
+[[bench]]
+name = "rgba"
+harness = false
+
 
 # test with fast runtime speed and moderate build speed
 [profile.dev]
