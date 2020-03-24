@@ -254,8 +254,8 @@ impl Encoding {
             },
 
             Compression::RLE => Self {
-                tile_size: None, // scan lines have maximum width, which is best for long RLE runs
-                line_order: LineOrder::Increasing, // cannot be unspecified with scan line blocks??
+                tile_size: Some(Vec2(128, 128)), // favor tiles with one solid color
+                line_order: LineOrder::Unspecified, // tiles can be compressed in parallel
                 compression,
             },
 
@@ -268,7 +268,7 @@ impl Encoding {
             _ => Self {
                 compression,
                 tile_size: None,
-                line_order: LineOrder::Increasing // scan line blocks cannot have unspecified order??
+                line_order: LineOrder::Increasing // basically free
             }
         }
     }
