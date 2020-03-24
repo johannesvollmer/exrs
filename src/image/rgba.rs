@@ -444,7 +444,6 @@ impl Image {
                     else { continue; } // ignore non-rgba channels
                 };
 
-
                 let byte_lines = block.data.chunks_exact(line_bytes);
                 let y_coords = 0 .. block.index.pixel_size.1;
                 for (y, byte_line) in y_coords.zip(byte_lines) {
@@ -458,7 +457,7 @@ impl Image {
                     fn sample_reader(sample_type: SampleType, mut read: impl Read) -> impl (FnMut() -> Result<Sample>) {
                         use crate::io::Data;
 
-                        move || Ok(match sample_type {
+                        move || Ok(match sample_type { // TODO this is the hot path
                             SampleType::F16 => Sample::F16(f16::read(&mut read)?),
                             SampleType::F32 => Sample::F32(f32::read(&mut read)?),
                             SampleType::U32 => Sample::U32(u32::read(&mut read)?),
