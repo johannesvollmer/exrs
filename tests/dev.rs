@@ -1,22 +1,24 @@
-extern crate exr;
+//! Contains some "test" functions that were be used for developing.
 
+extern crate exr;
 extern crate smallvec;
 
-use exr::prelude::*;
-use exr::image::full::*;
 use std::path::{PathBuf};
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use exr::meta::attributes::{Attribute};
-use exr::meta::MetaData;
+use exr::meta::{MetaData, Header};
+use std::io;
+use exr::prelude::*;
+use std::io::{Write, Cursor};
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
-    walkdir::WalkDir::new("D:\\Pictures\\openexr").into_iter()
-        .map(std::result::Result::unwrap).filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
+    walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
+        .filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
         .map(walkdir::DirEntry::into_path)
 }
 
 #[test]
+#[ignore]
 fn print_meta_of_all_files() {
     let files: Vec<PathBuf> = exr_files().collect();
 
@@ -27,38 +29,59 @@ fn print_meta_of_all_files() {
 }
 
 #[test]
+#[ignore]
 fn search_previews_of_all_files() {
     let files: Vec<PathBuf> = exr_files().collect();
 
     files.into_par_iter().for_each(|path| {
         let meta = MetaData::read_from_file(&path).unwrap();
-        let attributes = meta.headers.iter().flat_map(|header| header.own_attributes.list.iter());
-        let values = attributes.filter(|attribute| attribute.value.to_preview().is_ok());
-        let values: Vec<&Attribute> = values.collect();
+        let has_preview = meta.headers.iter().any(|header: &Header|
+            header.own_attributes.preview.is_some() || header.own_attributes.custom.values()
+                .any(|value| value.to_preview().is_ok())
+        );
 
-        if !values.is_empty() {
-            println!("{:?}: \t\t\t {:?}", path.file_name().unwrap(), values);
+        if has_preview {
+            println!("Found preview attribute in {:?}", path.file_name().unwrap());
         }
     });
 }
 
-
 #[test]
-pub fn test_write_file() {
-    let path =
-        "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
+#[ignore]
+pub fn test_roundtrip() {
+    let path = "tests/images/valid/openexr/MultiResolution/Kapaa.exr";
 
-//            "D:/Pictures/openexr/BeachBall/multipart.0001.exr"
-//            "D:/Pictures/openexr/crowskull/crow_uncompressed.exr"
-//"D:/Pictures/openexr/crowskull/crow_zips.exr"
-//            "D:/Pictures/openexr/crowskull/crow_rle.exr"
-//"D:/Pictures/openexr/crowskull/crow_zip_half.exr"
+    print!("starting read 1... ");
+    io::stdout().flush().unwrap();
 
+    let meta = MetaData::read_from_file(path).unwrap();
+    println!("{:#?}", meta);
 
-//        "D:/Pictures/openexr/v2/Stereo/Trunks.exr" // deep data, stereo
-    ;
+    let (image, pixels) = rgba::Image::read_from_file(path, read_options::low(), rgba::pixels::flat_f16).unwrap();
+    println!("...read 1 successfull");
 
-    let image = Image::read_from_file(path, read_options::high()).unwrap();
-    Image::write_to_file(&image, "./testout/written.exr", write_options::high()).unwrap();
+    let write_options = write_options::low();
+    let mut tmp_bytes = Vec::new();
+
+    print!("starting write... ");
+    io::stdout().flush().unwrap();
+
+    image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options, &pixels).unwrap();
+    println!("...write successfull");
+
+    print!("starting read 2... ");
+    io::stdout().flush().unwrap();
+
+    let (image2, pixels2) = rgba::Image::read_from_buffered(
+        Cursor::new(&tmp_bytes),
+        read_options::low(),
+        rgba::pixels::flat_f16
+    ).unwrap();
+
+    println!("...read 2 successfull");
+
+    if !path.to_lowercase().contains("nan") {
+        assert_eq!(image, image2);
+        assert_eq!(pixels, pixels2);
+    }
 }
-

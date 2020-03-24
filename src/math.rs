@@ -11,7 +11,7 @@ use crate::error::Result;
 /// Simple two-dimensional vector of any numerical type.
 /// Supports only few mathematical operations
 /// as this is used mainly as data struct.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct Vec2<T> (pub T, pub T);
 
 impl<T> Vec2<T> {

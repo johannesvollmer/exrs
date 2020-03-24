@@ -13,7 +13,7 @@ use std::fs::File;
 use std::io::{BufReader};
 use crate::math::*;
 use std::collections::{HashSet, HashMap};
-
+use std::convert::TryFrom;
 
 
 /// Contains the complete meta data of an exr image.
@@ -132,12 +132,18 @@ pub struct ImageAttributes {
     pub display_window: IntRect,
 
     /// Aspect ratio of each pixel in this header.
-    pub pixel_aspect: f32, // TODO integrate into `list`
+    pub pixel_aspect: f32, // TODO integrate into `other`
+
+    /// The chromaticities attribute of the image. See the `Chromaticities` type.
+    pub chromaticities: Option<Chromaticities>,
+
+    /// The time code of the image.
+    pub time_code: Option<TimeCode>,
 
     /// Optional attributes. Contains custom attributes.
     /// Does not contain the attributes already present in the `ImageAttributes`.
     /// Contains only attributes that are standardized to be the same for all headers: chromaticities and time codes.
-    pub list: Vec<Attribute>,
+    pub custom: HashMap<Text, AttributeValue>,
 }
 
 /// Does not include the attributes required for reading the file contents.
@@ -159,14 +165,113 @@ pub struct LayerAttributes {
     // TODO same for all layers?
     pub screen_window_center: Vec2<f32>, // TODO integrate into `list`
 
-    /// Part of the perspective projection. Default should be `1`.
     // TODO same for all layers?
+    /// Part of the perspective projection. Default should be `1`.
     pub screen_window_width: f32, // TODO integrate into `list`
 
+    /// The white luminance of the colors.
+    /// For RGB images, defines the luminance, in Nits
+    /// (candelas per square meter) of the RGB value (1.0, 1.0, 1.0).
+    // If the chromaticities and the whiteLuminance of an RGB image are
+    // known, then it is possible to convert the image's pixels from RGB
+    // to CIE XYZ tristimulus values (see function RGBtoXYZ() in header
+    // file ImfChromaticities.h).
+    pub white_luminance: Option<f32>,
+
+    /// The adopted neutral of the colors. Specifies the CIE (x,y) coordinates that should
+    /// be considered neutral during color rendering. Pixels in the image
+    /// file whose (x,y) coordinates match the adopted neutral value should
+    /// be mapped to neutral values on the display.
+    pub adopted_neutral: Option<Vec2<f32>>,
+
+    /// Name of the color transform function that is applied for rendering the image.
+    pub rendering_transform: Option<Text>,
+
+    /// Name of the color transform function that computes the look modification of the image.
+    pub look_modification_transform: Option<Text>,
+
+    /// The horizontal density, in pixels per inch.
+    /// The image's vertical output density is xDensity * pixelAspectRatio.
+    pub x_density: Option<f32>,
+
+    /// Name of the owner.
+    pub owner: Option<Text>,
+
+    /// Additional textual information.
+    pub comments: Option<Text>,
+
+    /// The date of image creation, in `YYYY:MM:DD hh:mm:ss` format.
+    // TODO parse!
+    pub capture_date: Option<Text>,
+
+    /// Time offset from UTC.
+    pub utc_offset: Option<f32>,
+
+    /// Geographical image location.
+    pub longitude: Option<f32>,
+
+    /// Geographical image location.
+    pub latitude: Option<f32>,
+
+    /// Geographical image location.
+    pub altitude: Option<f32>,
+
+    /// Camera focus in meters.
+    pub focus: Option<f32>,
+
+    /// Exposure time in seconds.
+    pub exposure: Option<f32>,
+
+    /// Camera aperture measured in f-stops. Equals the focal length
+    /// of the lens divided by the diameter of the iris opening.
+    pub aperture: Option<f32>,
+
+    /// Iso-speed of the camera sensor.
+    pub iso_speed: Option<f32>,
+
+    /// If this is an environment map, specifies how to interpret it.
+    pub environment_map: Option<EnvironmentMap>,
+
+    /// Identifies film manufacturer, film type, film roll and frame position within the roll.
+    pub key_code: Option<KeyCode>,
+
+    /// Specifies how texture map images are extrapolated.
+    /// Values can be `black`, `clamp`, `periodic`, or `mirror`.
+    pub wrap_modes: Option<Text>,
+
+    /// Frames per second if this is a frame in a sequence.
+    pub frames_per_second: Option<Rational>,
+
+    /// Specifies the view names for multi-view, for example stereo, image files.
+    pub multi_view: Option<Vec<Text>>,
+
+    /// The matrix that transforms 3D points from the world to the camera coordinate space.
+    /// Left-handed coordinate system, y up, z forward.
+    pub world_to_camera: Option<Matrix4x4>,
+
+    /// The matrix that transforms 3D points from the world to the "Normalized Device Coordinate" space.
+    /// Left-handed coordinate system, y up, z forward.
+    pub world_to_normalized_device: Option<Matrix4x4>,
+
+    /// Specifies whether the pixels in a deep image are sorted and non-overlapping.
+    pub deep_image_state: Option<Rational>,
+
+    /// If the image was cropped, contains the original data window.
+    pub original_data_window: Option<IntRect>,
+
+    /// Level of compression in DWA images.
+    pub dwa_compression_level: Option<f32>,
+
+    /// An 8-bit RGBA image representing the rendered image.
+    pub preview: Option<Preview>,
+
+    /// Name of the view, which is probably either `"right"` or `"left"` for a stereoscopic image.
+    pub view: Option<Text>,
+
     /// Optional attributes. Contains custom attributes.
-    /// Does not contain the attributes already present in the `Header` or `Attributes` struct.
+    /// Does not contain the attributes already present in the `Header` or `LayerAttributes` struct.
     /// Does not contain attributes that are standardized to be the same for all layers: no chromaticities and no time codes.
-    pub list: Vec<Attribute>,
+    pub custom: HashMap<Text, AttributeValue>,
 }
 
 /// A summary of requirements that must be met to read this exr file.
@@ -257,16 +362,15 @@ impl Blocks {
     }
 }
 
+
+
 impl LayerAttributes {
 
     /// Create default layer attributes with a data position of zero.
     pub fn new(layer_name: Text) -> Self {
         Self {
             name: Some(layer_name),
-            data_position: Vec2(0, 0),
-            screen_window_center: Vec2(0.0, 0.0),
-            screen_window_width: 1.0,
-            list: Vec::new()
+            .. Self::default()
         }
     }
 
@@ -283,8 +387,7 @@ impl ImageAttributes {
     pub fn new(display_size: impl Into<Vec2<usize>>) -> Self {
         Self {
             display_window: IntRect::from_dimensions(display_size),
-            pixel_aspect: 1.0,
-            list: Vec::new()
+            .. Self::default()
         }
     }
 
@@ -398,6 +501,7 @@ pub fn compute_level_count(round: RoundingMode, full_res: usize) -> usize {
 /// Calculate the size of a single mip level by index.
 // TODO this should be cached? log2 may be very expensive
 pub fn compute_level_size(round: RoundingMode, full_res: usize, level_index: usize) -> usize {
+    assert!(level_index < std::mem::size_of::<usize>() * 8, "largest level size exceeds maximum integer value");
     round.divide(full_res,  1 << level_index).max(1)
 }
 
@@ -535,21 +639,17 @@ impl MetaData {
         let headers = Header::read_all(read, &requirements)?;
 
         // TODO check if supporting requirements 2 always implies supporting requirements 1
-
-        // TODO only validate the read data that may produce errors later on,
-        //      not because of missing attributes that nobody needs
-
         Ok(MetaData { requirements, headers })
     }
 
     /// Validates the meta data.
     #[must_use]
-    pub(crate) fn read_from_buffered_peekable(read: &mut PeekRead<impl Read>) -> Result<Self> {
+    pub(crate) fn read_from_buffered_peekable(read: &mut PeekRead<impl Read>, max_pixel_bytes: Option<usize>) -> Result<Self> {
         let meta_data = Self::read_unvalidated_from_buffered_peekable(read)?;
 
         // relaxed validation to allow slightly invalid files
         // that still can be read correctly
-        meta_data.validate(false)?;
+        meta_data.validate(max_pixel_bytes, false)?;
 
         Ok(meta_data)
     }
@@ -559,7 +659,7 @@ impl MetaData {
     pub(crate) fn write_validating_to_buffered(&self, write: &mut impl Write, pedantic: bool) -> UnitResult {
         // pedantic validation to not allow slightly invalid files
         // that still could be read correctly in theory
-        self.validate(pedantic)?;
+        self.validate(None, pedantic)?;
 
         magic_number::write(write)?;
         self.requirements.write(write)?;
@@ -578,13 +678,13 @@ impl MetaData {
     // TODO use seek for large (probably all) tables!
     pub fn skip_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<usize> {
         let chunk_count: usize = headers.iter().map(|header| header.chunk_count).sum();
-        crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE)?;
+        crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE)?; // TODO this should seek for large tables
         Ok(chunk_count)
     }
 
     /// Validates this meta data.
     /// Set strict to false when reading and true when writing for maximum compatibility.
-    pub fn validate(&self, strict: bool) -> UnitResult {
+    pub fn validate(&self, max_pixel_bytes: Option<usize>, strict: bool) -> UnitResult {
         self.requirements.validate()?;
 
         let headers = self.headers.len();
@@ -595,6 +695,16 @@ impl MetaData {
 
         for header in &self.headers {
             header.validate(&self.requirements, strict)?;
+        }
+
+        if let Some(max) = max_pixel_bytes {
+            let byte_size: usize = self.headers.iter()
+                .map(|header| header.data_size.area() * header.channels.bytes_per_pixel)
+                .sum();
+
+            if byte_size > max {
+                return Err(Error::invalid("image larger than specified maximum"));
+            }
         }
 
         if strict { // check for duplicate header names
@@ -610,8 +720,8 @@ impl MetaData {
         }
 
         if strict {
-            let must_share = self.headers.iter().flat_map(|header| header.own_attributes.list.iter())
-                .any(|attribute| attribute.value.to_chromaticities().is_ok() || attribute.value.to_time_code().is_ok());
+            let must_share = self.headers.iter().flat_map(|header| header.own_attributes.custom.iter())
+                .any(|(_, value)| value.to_chromaticities().is_ok() || value.to_time_code().is_ok());
 
             if must_share {
                 return Err(Error::invalid("chromaticities and time code attributes must must not exist in own attributes but shared instead"));
@@ -619,17 +729,11 @@ impl MetaData {
         }
 
         if strict && headers > 1 { // check for attributes that should not differ in between headers
-            fn get_attributes(header: &'_ Header) -> HashMap<&'_ [u8], &'_ AnyValue> {
-                header.shared_attributes.list.iter()
-                    .map(|attribute| (attribute.name.bytes(), &attribute.value))
-                    .collect()
-            };
-
             let first_header = self.headers.first().expect("header count validation bug");
-            let first_header_attributes = get_attributes(first_header);
+            let first_header_attributes = &first_header.shared_attributes.custom;
 
             for header in &self.headers[1..] {
-                let attributes = get_attributes(header);
+                let attributes = &header.shared_attributes.custom;
                 if attributes != first_header_attributes
                     || header.shared_attributes.display_window != first_header.shared_attributes.display_window
                     || header.shared_attributes.pixel_aspect != first_header.shared_attributes.pixel_aspect
@@ -675,19 +779,8 @@ impl Header {
             channels: ChannelList::new(channels),
             line_order: LineOrder::Unspecified,
 
-            shared_attributes: ImageAttributes { // TODO use  LayerAttributes::new(data_size)
-                display_window: IntRect::new(Vec2(0, 0), data_size),
-                pixel_aspect: 1.0,
-                list: Vec::new(),
-            },
-
-            own_attributes: LayerAttributes { // TODO use  LayerAttributes::new(name)
-                name: Some(name),
-                data_position: Vec2(0,0),
-                screen_window_center: Vec2(0.0, 0.0),
-                screen_window_width: 1.0,
-                list: Vec::new()
-            },
+            shared_attributes: ImageAttributes::new(data_size),
+            own_attributes: LayerAttributes::new(name),
 
             chunk_count: compute_chunk_count(compression, data_size, blocks),
 
@@ -849,7 +942,7 @@ impl Header {
                 let y = (block.y_coordinate - self.own_attributes.data_position.1) / size;
 
                 if y < 0 {
-                    panic!("y index calculation bug");
+                    return Err(Error::invalid("scan block y coordinate"));
                 }
 
                 TileCoordinates {
@@ -875,62 +968,77 @@ impl Header {
     pub fn validate(&self, requirements: &Requirements, strict: bool) -> UnitResult {
         debug_assert_eq!(
             self.chunk_count, compute_chunk_count(self.compression, self.data_size, self.blocks),
-            "chunk count attribute not correctly set"
+            "incorrect chunk count value"
         );
 
-        if strict && requirements.is_multilayer() {
-            if self.own_attributes.name.is_none() {
-                return Err(missing_attribute("layer name for multi layer file"));
+        self.data_window().validate(None)?;
+        self.shared_attributes.display_window.validate(None)?;
+
+        if strict {
+            if requirements.is_multilayer() {
+                if self.own_attributes.name.is_none() {
+                    return Err(missing_attribute("layer name for multi layer file"));
+                }
+            }
+
+            if self.blocks == Blocks::ScanLines && self.line_order == LineOrder::Unspecified {
+                return Err(Error::invalid("unspecified line order in scan line images"));
+            }
+
+            if self.data_size == Vec2(0,0) {
+                return Err(Error::invalid("empty data window"));
+            }
+
+            if self.shared_attributes.display_window.size == Vec2(0,0) {
+                return Err(Error::invalid("empty display window"));
+            }
+
+            if !self.shared_attributes.pixel_aspect.is_normal() || self.shared_attributes.pixel_aspect < 1.0e-6 || self.shared_attributes.pixel_aspect > 1.0e6 {
+                return Err(Error::invalid("pixel aspect ratio"));
+            }
+
+            if self.own_attributes.screen_window_width < 0.0 {
+                return Err(Error::invalid("screen window width"));
             }
         }
 
-        // TODO is this really a required?
-        if strict && self.blocks == Blocks::ScanLines && self.line_order == LineOrder::Unspecified {
-            return Err(Error::invalid("scan line images cannot have an unspecified line order"));
-        }
 
         let allow_subsampling = !self.deep && self.blocks == Blocks::ScanLines;
-        self.channels.validate(allow_subsampling, strict)?;
+        self.channels.validate(allow_subsampling, self.data_window(), strict)?;
 
-        for attribute in &self.shared_attributes.list {
-            attribute.validate(requirements.has_long_names, allow_subsampling, strict)?;
+        for (name, value) in &self.shared_attributes.custom {
+            attributes::validate(name, value, requirements.has_long_names, allow_subsampling, self.data_window(), strict)?;
         }
 
-        for attribute in &self.own_attributes.list {
-            attribute.validate(requirements.has_long_names, allow_subsampling, strict)?;
+        for (name, value) in &self.own_attributes.custom {
+            attributes::validate(name, value, requirements.has_long_names, allow_subsampling, self.data_window(), strict)?;
         }
 
 
         // check if attribute names appear twice
         if strict {
-            let mut custom_names = HashSet::with_capacity(
-                self.own_attributes.list.len() + self.shared_attributes.list.len()
-            );
-
-            for attribute in &self.own_attributes.list {
-                if !custom_names.insert(attribute.name.bytes()) {
-                    return Err(Error::invalid(format!("duplicate attribute name: `{}`", attribute.name)));
-                }
-            }
-
-            for attribute in &self.shared_attributes.list {
-                if !custom_names.insert(attribute.name.bytes()) {
-                    return Err(Error::invalid(format!("duplicate attribute name: `{}`", attribute.name)));
+            for (name, _) in &self.shared_attributes.custom {
+                if !self.own_attributes.custom.contains_key(&name) {
+                    return Err(Error::invalid(format!("duplicate attribute name: `{}`", name)));
                 }
             }
 
             use attributes::required_attribute_names::*;
             let reserved_names = [
                 TILES, NAME, BLOCK_TYPE, DEEP_DATA_VERSION, CHUNKS, MAX_SAMPLES, CHANNELS, COMPRESSION,
-                DATA_WINDOW, DISPLAY_WINDOW, LINE_ORDER, PIXEL_ASPECT, WINDOW_CENTER, WINDOW_WIDTH
+                DATA_WINDOW, DISPLAY_WINDOW, LINE_ORDER, PIXEL_ASPECT, WINDOW_CENTER, WINDOW_WIDTH,
+                WHITE_LUMINANCE, ADOPTED_NEUTRAL, RENDERING_TRANSFORM, LOOK_MOD_TRANSFORM, X_DENSITY,
+                OWNER, COMMENTS, CAPTURE_DATE, UTC_OFFSET, LONGITUDE, LATITUDE, ALTITUDE, FOCUS,
+                EXPOSURE_TIME, APERTURE, ISO_SPEED, ENVIRONMENT_MAP, KEY_CODE, TIME_CODE, WRAP_MODES,
+                FRAMES_PER_SECOND, MULTI_VIEW, WORLD_TO_CAMERA, WORLD_TO_NDC, DEEP_IMAGE_STATE,
+                ORIGINAL_DATA_WINDOW, DWA_COMPRESSION_LEVEL, PREVIEW, VIEW, CHROMATICITIES
             ];
 
-
-            for &reserved in &reserved_names {
-                if custom_names.contains(reserved) {
-
+            for &reserved in reserved_names.iter() {
+                let name  = Text::from_bytes_unchecked(SmallVec::from_slice(reserved));
+                if self.own_attributes.custom.contains_key(&name) || self.shared_attributes.custom.contains_key(&name) {
                     return Err(Error::invalid(format!(
-                        "attribute name `{}` is already a required attribute",
+                        "attribute name `{}` is reserved and cannot be custom",
                          Text::from_bytes_unchecked(reserved.into())
                     )));
                 }
@@ -938,18 +1046,20 @@ impl Header {
         }
 
         if self.deep {
-            if strict && self.own_attributes.name.is_none() {
-                return Err(missing_attribute("layer name for deep file"));
+            if strict {
+                if self.own_attributes.name.is_none() {
+                    return Err(missing_attribute("layer name for deep file"));
+                }
+
+                if self.max_samples_per_pixel.is_none() {
+                    return Err(Error::invalid("missing max samples per pixel attribute for deepdata"));
+                }
             }
 
             match self.deep_data_version {
                 Some(1) => {},
                 Some(_) => return Err(Error::unsupported("deep data version")),
                 None => return Err(missing_attribute("deep data version")),
-            }
-
-            if strict && self.max_samples_per_pixel.is_none() {
-                return Err(Error::invalid("missing max samples per pixel attribute for deepdata"));
             }
 
             if !self.compression.supports_deep_data() {
@@ -993,12 +1103,8 @@ impl Header {
     pub fn read(read: &mut PeekRead<impl Read>, requirements: &Requirements) -> Result<Self> {
         let max_string_len = if requirements.has_long_names { 256 } else { 32 }; // TODO DRY this information
 
-        let mut shared_custom = Vec::new();
-        let mut own_custom = Vec::new();
-
         // these required attributes will be filled when encountered while parsing
         let mut tiles = None;
-        let mut name = None;
         let mut block_type = None;
         let mut version = None;
         let mut chunk_count = None;
@@ -1008,29 +1114,25 @@ impl Header {
         let mut data_window = None;
         let mut display_window = None;
         let mut line_order = None;
-        let mut pixel_aspect = None;
-        let mut screen_window_center = None;
-        let mut screen_window_width = None;
+        let mut layer_attributes = LayerAttributes::default();
+        let mut image_attributes = ImageAttributes::default();
 
         // read each attribute in this header
         while !sequence_end::has_come(read)? {
-            let Attribute { name: attribute_name, value } = Attribute::read(read, max_string_len)?;
+            let (attribute_name, value) = attributes::read(read, max_string_len)?;
 
             // if the attribute is a required attribute, set the corresponding variable directly.
             // otherwise, add the attribute to the vector of custom attributes
             use crate::meta::attributes::required_attribute_names::*;
+
             match attribute_name.bytes() {
                 TILES => tiles = Some(value.to_tile_description()?),
-                NAME => name = Some(value.into_text()?),
                 BLOCK_TYPE => block_type = Some(BlockType::parse(value.into_text()?)?),
                 CHANNELS => channels = Some(value.into_channel_list()?),
                 COMPRESSION => compression = Some(value.to_compression()?),
                 DATA_WINDOW => data_window = Some(value.to_i32_box_2()?),
                 DISPLAY_WINDOW => display_window = Some(value.to_i32_box_2()?),
                 LINE_ORDER => line_order = Some(value.to_line_order()?),
-                PIXEL_ASPECT => pixel_aspect = Some(value.to_f32()?),
-                WINDOW_CENTER => screen_window_center = Some(value.to_f32_vec_2()?),
-                WINDOW_WIDTH => screen_window_width = Some(value.to_f32()?),
                 DEEP_DATA_VERSION => version = Some(value.to_i32()?),
 
                 MAX_SAMPLES => max_samples_per_pixel = Some(
@@ -1041,12 +1143,51 @@ impl Header {
                     i32_to_usize(value.to_i32()?, "chunk count")?
                 ),
 
+                NAME => layer_attributes.name = Some(value.into_text()?),
+                PIXEL_ASPECT => image_attributes.pixel_aspect = value.to_f32()?,
+                WINDOW_CENTER => layer_attributes.screen_window_center = value.to_f32_vec_2()?,
+                WINDOW_WIDTH => layer_attributes.screen_window_width = value.to_f32()?,
+
+                // the following attributes will only be set if the type matches the commonly used type for that attribute
+                WHITE_LUMINANCE if value.to_f32().is_ok() => layer_attributes.white_luminance = Some(value.to_f32().unwrap()),
+                ADOPTED_NEUTRAL if value.to_f32_vec_2().is_ok() => layer_attributes.adopted_neutral = Some(value.to_f32_vec_2()?),
+                RENDERING_TRANSFORM if value.to_text().is_ok() => layer_attributes.rendering_transform = Some(value.into_text()?),
+                LOOK_MOD_TRANSFORM if value.to_text().is_ok() => layer_attributes.look_modification_transform = Some(value.into_text()?),
+                X_DENSITY if value.to_f32().is_ok() => layer_attributes.x_density = Some(value.to_f32()?),
+                OWNER if value.to_text().is_ok() => layer_attributes.owner = Some(value.into_text()?),
+                COMMENTS if value.to_text().is_ok() => layer_attributes.comments = Some(value.into_text()?),
+                CAPTURE_DATE if value.to_text().is_ok() => layer_attributes.capture_date = Some(value.into_text()?),
+                UTC_OFFSET if value.to_f32().is_ok() => layer_attributes.utc_offset = Some(value.to_f32()?),
+                LONGITUDE if value.to_f32().is_ok() => layer_attributes.longitude = Some(value.to_f32()?),
+                LATITUDE if value.to_f32().is_ok() => layer_attributes.latitude = Some(value.to_f32()?),
+                ALTITUDE if value.to_f32().is_ok() => layer_attributes.altitude = Some(value.to_f32()?),
+                FOCUS if value.to_f32().is_ok() => layer_attributes.focus = Some(value.to_f32()?),
+                EXPOSURE_TIME if value.to_f32().is_ok() => layer_attributes.exposure = Some(value.to_f32()?),
+                APERTURE if value.to_f32().is_ok() => layer_attributes.aperture = Some(value.to_f32()?),
+                ISO_SPEED if value.to_f32().is_ok() => layer_attributes.iso_speed = Some(value.to_f32()?),
+                ENVIRONMENT_MAP if value.to_environment_map().is_ok() => layer_attributes.environment_map = Some(value.to_environment_map()?),
+                KEY_CODE if value.to_key_code().is_ok() => layer_attributes.key_code = Some(value.to_key_code()?),
+                TIME_CODE if value.to_time_code().is_ok() => image_attributes.time_code = Some(value.to_time_code()?),
+                WRAP_MODES if value.to_text().is_ok() => layer_attributes.wrap_modes = Some(value.into_text()?),
+                FRAMES_PER_SECOND if value.to_rational().is_ok() => layer_attributes.frames_per_second = Some(value.to_rational()?),
+                MULTI_VIEW if value.to_text_vector().is_ok() => layer_attributes.multi_view = Some(value.into_text_vector()?),
+                WORLD_TO_CAMERA if value.to_matrix4x4().is_ok() => layer_attributes.world_to_camera = Some(value.to_matrix4x4()?),
+                WORLD_TO_NDC if value.to_matrix4x4().is_ok() => layer_attributes.world_to_normalized_device = Some(value.to_matrix4x4()?),
+                DEEP_IMAGE_STATE if value.to_rational().is_ok() => layer_attributes.deep_image_state = Some(value.to_rational()?),
+                ORIGINAL_DATA_WINDOW if value.to_i32_box_2().is_ok() => layer_attributes.original_data_window = Some(value.to_i32_box_2()?),
+                DWA_COMPRESSION_LEVEL if value.to_f32().is_ok() => layer_attributes.dwa_compression_level = Some(value.to_f32()?),
+                CHROMATICITIES if value.to_chromaticities().is_ok() => image_attributes.chromaticities = Some(value.to_chromaticities()?),
+                PREVIEW if value.to_preview().is_ok() => layer_attributes.preview = Some(value.into_preview()?),
+                VIEW if value.to_text().is_ok() => layer_attributes.view = Some(value.into_text()?),
+
                 _ => {
                     if value.to_chromaticities().is_ok() || value.to_time_code().is_ok() {
-                        shared_custom.push(Attribute { name: attribute_name, value })
+                        // these must be the same for all headers
+                        image_attributes.custom.insert(attribute_name, value);
                     }
+
                     else {
-                        own_custom.push(Attribute { name: attribute_name, value })
+                        layer_attributes.custom.insert(attribute_name, value);
                     }
                 },
             }
@@ -1054,6 +1195,10 @@ impl Header {
 
         let compression = compression.ok_or(missing_attribute("compression"))?;
         let data_window = data_window.ok_or(missing_attribute("data window"))?;
+
+        image_attributes.display_window = display_window.ok_or(missing_attribute("display window"))?;
+        layer_attributes.data_position = data_window.position;
+
         let data_size = data_window.size;
 
         let blocks = match block_type {
@@ -1067,31 +1212,24 @@ impl Header {
             _ => Blocks::ScanLines,
         };
 
-        let chunk_count = match chunk_count {
-            None => compute_chunk_count(compression, data_size, blocks),
-            Some(count) => count,
-        };
+        // check size now to prevent panics while computing the chunk size
+        data_window.validate(None)?;
 
+        let computed_chunk_count = compute_chunk_count(compression, data_size, blocks);
+        if chunk_count.is_some() && chunk_count != Some(computed_chunk_count) {
+            return Err(Error::invalid("chunk count not matching data size"));
+        }
 
         let header = Header {
             compression,
-            chunk_count,
+
+            // always compute ourselves, because we cannot trust anyone out there 😱
+            chunk_count: computed_chunk_count,
+
             data_size,
 
-            shared_attributes: ImageAttributes {
-                display_window: display_window.ok_or(missing_attribute("display window"))?,
-                pixel_aspect: pixel_aspect.unwrap_or(1.0),
-                list: shared_custom
-            },
-
-            own_attributes: LayerAttributes {
-                name,
-
-                data_position: data_window.position,
-                screen_window_center: screen_window_center.unwrap_or(Vec2(0.0, 0.0)),
-                screen_window_width: screen_window_width.unwrap_or(1.0),
-                list: own_custom,
-            },
+            shared_attributes: image_attributes,
+            own_attributes: layer_attributes,
 
             channels: channels.ok_or(missing_attribute("channels"))?,
             line_order: line_order.unwrap_or(LineOrder::Unspecified),
@@ -1100,7 +1238,6 @@ impl Header {
             max_samples_per_pixel,
             deep_data_version: version,
             deep: block_type == Some(BlockType::DeepScanLine) || block_type == Some(BlockType::DeepTile),
-
         };
 
         Ok(header)
@@ -1109,54 +1246,97 @@ impl Header {
     /// Without validation, write this instance to the byte stream.
     pub fn write(&self, write: &mut impl Write) -> UnitResult {
 
-        // FIXME do not allocate text object for writing!
-        /// Write a mandatory attribute.
-        fn write_attr<T>(write: &mut impl Write, name: &'static [u8], value: T, variant: impl Fn(T) -> AnyValue) -> UnitResult {
-            Attribute::predefined(name, variant(value)).write(write)
-        };
+        macro_rules! write_attributes {
+            ( $($name: ident : $variant: ident = $value: expr),* ) => { $(
+                attributes::write($name, & $variant ($value .clone()), write)?; // TODO without clone
+            )* };
+        }
 
-        /// Write an optional attribute without validation.
-        fn write_opt_attr<T>(write: &mut impl Write, name: &'static [u8], attribute: Option<T>, variant: impl Fn(T) -> AnyValue) -> UnitResult {
-            if let Some(value) = attribute { write_attr(write, name, value, variant) }
-            else { Ok(()) }
-        };
+        macro_rules! write_optional_attributes {
+            ( $($name: ident : $variant: ident = $value: expr),* ) => { $(
+                if let Some(value) = $value {
+                    attributes::write($name, & $variant (value.clone()), write)?; // TODO without clone
+                };
+            )* };
+        }
 
         {
             use crate::meta::attributes::required_attribute_names::*;
-            use AnyValue::*;
+            use AttributeValue::*;
 
             let (block_type, tiles) = match self.blocks {
                 Blocks::ScanLines => (attributes::BlockType::ScanLine, None),
                 Blocks::Tiles(tiles) => (attributes::BlockType::Tile, Some(tiles))
             };
 
-            write_opt_attr(write, TILES, tiles, TileDescription)?;
+            fn usize_as_i32(value: usize) -> AttributeValue {
+                I32(i32::try_from(value).expect("u32 exceeds i32 range"))
+            }
 
-            write_opt_attr(write, NAME, self.own_attributes.name.clone(), Text)?; // TODO no clone
-            write_opt_attr(write, DEEP_DATA_VERSION, self.deep_data_version, I32)?;
-            write_opt_attr(write, MAX_SAMPLES, self.max_samples_per_pixel, |u| I32(u as i32))?;
+            write_optional_attributes!(
+                TILES: TileDescription = &tiles,
+                DEEP_DATA_VERSION: I32 = &self.deep_data_version,
+                MAX_SAMPLES: usize_as_i32 = &self.max_samples_per_pixel
+            );
 
-            // not actually required, but always computed in this library anyways
-            write_attr(write, CHUNKS, self.chunk_count, |u| I32(u as i32))?;
-            write_attr(write, BLOCK_TYPE, block_type, BlockType)?;
+            write_attributes!(
+                // chunks is not actually required, but always computed in this library anyways
+                CHUNKS: usize_as_i32 = &self.chunk_count,
 
-            write_attr(write, CHANNELS, self.channels.clone(), ChannelList)?; // FIXME do not clone
-            write_attr(write, COMPRESSION, self.compression, Compression)?;
-            write_attr(write, LINE_ORDER, self.line_order, LineOrder)?;
+                BLOCK_TYPE: BlockType = &block_type,
+                CHANNELS: ChannelList = &self.channels,
+                COMPRESSION: Compression = &self.compression,
+                LINE_ORDER: LineOrder = &self.line_order,
+                DATA_WINDOW: IntRect = &self.data_window(),
 
-            write_attr(write, DATA_WINDOW, self.data_window(), IntRect)?;
-            write_attr(write, DISPLAY_WINDOW, self.shared_attributes.display_window, IntRect)?;
-            write_attr(write, PIXEL_ASPECT, self.shared_attributes.pixel_aspect, F32)?;
-            write_attr(write, WINDOW_WIDTH, self.own_attributes.screen_window_width, F32)?;
-            write_attr(write, WINDOW_CENTER, self.own_attributes.screen_window_center, FloatVec2)?;
+                DISPLAY_WINDOW: IntRect = &self.shared_attributes.display_window,
+                PIXEL_ASPECT: F32 = &self.shared_attributes.pixel_aspect,
+
+                WINDOW_CENTER: FloatVec2 = &self.own_attributes.screen_window_center,
+                WINDOW_WIDTH: F32 = &self.own_attributes.screen_window_width
+            );
+
+            write_optional_attributes!(
+                NAME: Text = &self.own_attributes.name,
+                WHITE_LUMINANCE: F32 = &self.own_attributes.white_luminance,
+                ADOPTED_NEUTRAL: FloatVec2 = &self.own_attributes.adopted_neutral,
+                RENDERING_TRANSFORM: Text = &self.own_attributes.rendering_transform,
+                LOOK_MOD_TRANSFORM: Text = &self.own_attributes.look_modification_transform,
+                X_DENSITY: F32 = &self.own_attributes.x_density,
+                OWNER: Text = &self.own_attributes.owner,
+                COMMENTS: Text = &self.own_attributes.comments,
+                CAPTURE_DATE: Text = &self.own_attributes.capture_date,
+                UTC_OFFSET: F32 = &self.own_attributes.utc_offset,
+                LONGITUDE: F32 = &self.own_attributes.longitude,
+                LATITUDE: F32 = &self.own_attributes.latitude,
+                ALTITUDE: F32 = &self.own_attributes.altitude,
+                FOCUS: F32 = &self.own_attributes.focus,
+                EXPOSURE_TIME: F32 = &self.own_attributes.exposure,
+                APERTURE: F32 = &self.own_attributes.aperture,
+                ISO_SPEED: F32 = &self.own_attributes.iso_speed,
+                ENVIRONMENT_MAP: EnvironmentMap = &self.own_attributes.environment_map,
+                KEY_CODE: KeyCode = &self.own_attributes.key_code,
+                TIME_CODE: TimeCode = &self.shared_attributes.time_code,
+                WRAP_MODES: Text = &self.own_attributes.wrap_modes,
+                FRAMES_PER_SECOND: Rational = &self.own_attributes.frames_per_second,
+                MULTI_VIEW: TextVector = &self.own_attributes.multi_view,
+                WORLD_TO_CAMERA: Matrix4x4 = &self.own_attributes.world_to_camera,
+                WORLD_TO_NDC: Matrix4x4 = &self.own_attributes.world_to_normalized_device,
+                DEEP_IMAGE_STATE: Rational = &self.own_attributes.deep_image_state,
+                ORIGINAL_DATA_WINDOW: IntRect = &self.own_attributes.original_data_window,
+                DWA_COMPRESSION_LEVEL: F32 = &self.own_attributes.dwa_compression_level,
+                CHROMATICITIES: Chromaticities = &self.shared_attributes.chromaticities,
+                PREVIEW: Preview = &self.own_attributes.preview,
+                VIEW: Text = &self.own_attributes.view
+            );
         }
 
-        for attrib in &self.shared_attributes.list {
-            attrib.write(write)?;
+        for (name, value) in &self.shared_attributes.custom {
+            attributes::write(name.bytes(), value, write)?;
         }
 
-        for attrib in &self.own_attributes.list {
-            attrib.write(write)?;
+        for (name, value) in &self.own_attributes.custom {
+            attributes::write(name.bytes(), value, write)?;
         }
 
         sequence_end::write(write)?;
@@ -1290,11 +1470,62 @@ impl Requirements {
     }
 }
 
+impl Default for LayerAttributes {
+    fn default() -> Self {
+        Self {
+            data_position: Vec2(0, 0),
+            screen_window_center: Vec2(0.0, 0.0),
+            screen_window_width: 1.0,
+            name: None,
+            white_luminance: None,
+            adopted_neutral: None,
+            rendering_transform: None,
+            look_modification_transform: None,
+            x_density: None,
+            owner: None,
+            comments: None,
+            capture_date: None,
+            utc_offset: None,
+            longitude: None,
+            latitude: None,
+            altitude: None,
+            focus: None,
+            exposure: None,
+            aperture: None,
+            iso_speed: None,
+            environment_map: None,
+            key_code: None,
+            wrap_modes: None,
+            frames_per_second: None,
+            multi_view: None,
+            world_to_camera: None,
+            world_to_normalized_device: None,
+            deep_image_state: None,
+            original_data_window: None,
+            dwa_compression_level: None,
+            preview: None,
+            view: None,
+            custom: Default::default()
+        }
+    }
+}
+
+impl Default for ImageAttributes {
+    fn default() -> Self {
+        Self {
+            pixel_aspect: 1.0,
+            chromaticities: None,
+            time_code: None,
+            custom: Default::default(),
+            display_window: Default::default(),
+        }
+    }
+}
 
 #[cfg(test)]
 mod test {
     use crate::meta::{MetaData, Requirements, Header, ImageAttributes, LayerAttributes, compute_chunk_count};
-    use crate::meta::attributes::{Text, ChannelList, IntRect, LineOrder, Channel, PixelType};
+    use crate::meta::attributes::{Text, ChannelList, IntRect, LineOrder, Channel, SampleType};
     use crate::compression::Compression;
     use crate::meta::Blocks;
     use crate::math::*;
@@ -1322,7 +1553,7 @@ mod test {
                 list: smallvec![
                     Channel {
                         name: Text::from("main").unwrap(),
-                        pixel_type: PixelType::U32,
+                        sample_type: SampleType::U32,
                         is_linear: false,
                         sampling: Vec2(1, 1)
                     }
@@ -1339,8 +1570,8 @@ mod test {
                     position: Vec2(2,1),
                     size: Vec2(11, 9)
                 },
-                pixel_aspect: -3.0,
-                list: vec![ /* TODO */ ]
+                pixel_aspect: 3.0,
+                .. Default::default()
             },
 
             blocks: Blocks::ScanLines,
@@ -1350,8 +1581,8 @@ mod test {
                 name: Some(Text::from("test name lol").unwrap()),
                 data_position: Vec2(3, -5),
                 screen_window_center: Vec2(0.3, 99.0),
-                screen_window_width: -0.19,
-                list: vec![ /* TODO */ ]
+                screen_window_width: 0.19,
+                .. Default::default()
             }
         };
 
@@ -1370,7 +1601,7 @@ mod test {
         let mut data: Vec<u8> = Vec::new();
         meta.write_validating_to_buffered(&mut data, true).unwrap();
         let meta2 = MetaData::read_from_buffered(data.as_slice()).unwrap();
-        meta2.validate(true).unwrap();
+        meta2.validate(None, true).unwrap();
         assert_eq!(meta, meta2);
     }
 }

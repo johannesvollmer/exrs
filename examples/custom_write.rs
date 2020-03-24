@@ -11,7 +11,7 @@ extern crate exr;
 use exr::prelude::*;
 use std::io::{BufWriter};
 use std::fs::File;
-use exr::meta::attributes::{Channel, PixelType, LineOrder, TileDescription, LevelMode};
+use exr::meta::attributes::{Channel, SampleType, LineOrder, TileDescription, LevelMode};
 use exr::meta::{Blocks, MetaData};
 use exr::math::RoundingMode;
 
@@ -28,16 +28,16 @@ fn main() {
     let size = (2048*8, 2048*8);
 
     // specify output path, and buffer it for better performance
-    let file = BufWriter::new(File::create("./testout/3GB.exr").unwrap());
+    let file = BufWriter::new(File::create("tests/images/out/3GB.exr").unwrap());
 
     // define meta data header that will be written
     let header = exr::meta::Header::new(
         "test-image".try_into().unwrap(),
         size,
         smallvec![
-            Channel::new("B".try_into().unwrap(), PixelType::F32, true),
-            Channel::new("G".try_into().unwrap(), PixelType::F32, true),
-            Channel::new("R".try_into().unwrap(), PixelType::F32, true),
+            Channel::new("B".try_into().unwrap(), SampleType::F32, true),
+            Channel::new("G".try_into().unwrap(), SampleType::F32, true),
+            Channel::new("R".try_into().unwrap(), SampleType::F32, true),
         ],
     );
 
@@ -70,6 +70,7 @@ fn main() {
         |_meta, line_mut|{
             let chan = line_mut.location.channel;
             line_mut.write_samples(|sample_index| random_values[(sample_index + chan) % random_values.len()])
+                .expect("write to line bug");
         },
 
         // print progress occasionally

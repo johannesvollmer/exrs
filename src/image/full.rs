@@ -1,5 +1,5 @@
 
-//! Read and write all supported aspects of an exr image, including deep data and multiresolution levels.
+//! Read and write all supported aspects of an exr image, including deep data and multi-resolution levels.
 //! Use `exr::image::simple` if you do not need deep data or resolution levels.
 //!
 //! __This module is currently under construction.__
@@ -286,10 +286,7 @@ impl Image {
     pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions<impl OnWriteProgress>) -> UnitResult {
         crate::image::write_all_lines_to_buffered(
             write,  self.infer_meta_data(),
-            |_meta, line_mut| {
-                self.extract_line(line_mut);
-                Ok(())
-            },
+            |_meta, line_mut| self.extract_line(line_mut),
             options
         )
     }
@@ -302,8 +299,8 @@ impl Image {
         let shared_attributes = &headers.iter()
             // pick the header with the most attributes
             // (all headers should have the same shared attributes anyways)
-            .max_by_key(|header| header.shared_attributes.list.len())
-            .expect("no headers found").shared_attributes;
+            .max_by_key(|header| header.shared_attributes.custom.len())
+            .expect("at least one header is required").shared_attributes;
 
         let headers : Result<_> = headers.iter().map(Layer::allocate).collect();
 
@@ -422,10 +419,10 @@ impl Channel {
             is_linear: channel.is_linear,
             sampling: channel.sampling,
 
-            content: match channel.pixel_type {
-                PixelType::F16 => ChannelData::F16(SampleMaps::allocate(header, channel)),
-                PixelType::F32 => ChannelData::F32(SampleMaps::allocate(header, channel)),
-                PixelType::U32 => ChannelData::U32(SampleMaps::allocate(header, channel)),
+            content: match channel.sample_type {
+                SampleType::F16 => ChannelData::F16(SampleMaps::allocate(header, channel)),
+                SampleType::F32 => ChannelData::F32(SampleMaps::allocate(header, channel)),
+                SampleType::U32 => ChannelData::U32(SampleMaps::allocate(header, channel)),
             },
         }
     }
@@ -452,10 +449,10 @@ impl Channel {
     /// Create the meta data that describes this channel.
     pub fn infer_channel_attribute(&self) -> attributes::Channel {
         attributes::Channel {
-            pixel_type: match self.content {
-                ChannelData::F16(_) => PixelType::F16,
-                ChannelData::F32(_) => PixelType::F32,
-                ChannelData::U32(_) => PixelType::U32,
+            sample_type: match self.content {
+                ChannelData::F16(_) => SampleType::F16,
+                ChannelData::F32(_) => SampleType::F32,
+                ChannelData::U32(_) => SampleType::U32,
             },
 
             name: self.name.clone(),
@@ -675,6 +672,8 @@ pub trait Samples {
 
 impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
     fn allocate(resolution: Vec2<usize>) -> Self {
+        debug_assert!(resolution.area() < 1920*10 * 1920*10, "suspiciously large image");
+
         vec![
             DeepLine { samples: Vec::new(), index_table: vec![0; resolution.0] };
             resolution.1
@@ -704,8 +703,10 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
 
 impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for FlatSamples<Sample> {
     fn allocate(resolution: Vec2<usize>) -> Self {
-        let resolution = (resolution.0, resolution.1);
-        vec![Sample::default(); resolution.0 * resolution.1]
+        let count = resolution.area();
+        debug_assert!(count < 1920*20 * 1920*20, "suspiciously large image: {} mega pixels", count / 1_000_000);
+
+        vec![Sample::default(); count]
     }
 
     fn insert_line(&mut self, line: LineRef<'_>, image_width: usize) -> UnitResult {

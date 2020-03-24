@@ -52,12 +52,10 @@ fn main() {
     );
 
     let layer = layer.with_compression(Compression::RLE)
-        .with_block_format(None, attributes::LineOrder::Increasing); // apparently, some software only supports increasing line order
+        .with_block_format(None, attributes::LineOrder::Increasing);
 
     let image = Image::new_from_single_layer(layer);
 
     println!("writing image {:#?}", image);
-    image.write_to_file("./testout/noisy.exr", write_options::high()).unwrap();
-
-    assert!(Image::read_from_file("./testout/noisy.exr", read_options::high()).is_ok())
+    image.write_to_file("tests/images/out/noisy.exr", write_options::high()).unwrap();
 }

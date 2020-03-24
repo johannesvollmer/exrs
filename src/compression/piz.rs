@@ -2,7 +2,7 @@
 
 use super::*;
 use super::Result;
-use crate::meta::attributes::{IntRect, PixelType};
+use crate::meta::attributes::{IntRect, SampleType};
 use crate::meta::{Header};
 use crate::io::Data;
 use crate::error::IoResult;
@@ -119,7 +119,7 @@ pub fn decompress_bytes(
 
     // TODO only once per header!
     let has_only_half_channels = header.channels.list
-        .iter().all(|channel| channel.pixel_type == PixelType::F16);
+        .iter().all(|channel| channel.sample_type == SampleType::F16);
 
 //
 //        _channelData = new ChannelData[_numChans];
@@ -236,7 +236,7 @@ pub fn decompress_bytes(
             y_samples: channel.sampling.1 as u32,
             number_samples: channel.subsampled_resolution(rectangle.size).map(|x| x as u32),
             // number_samples_x, number_samples_y,
-            size: (channel.pixel_type.bytes_per_sample() / PixelType::F16.bytes_per_sample()) as u32
+            size: (channel.sample_type.bytes_per_sample() / SampleType::F16.bytes_per_sample()) as u32
         };
 
         tmp_buffer_end += channel.number_samples.0 * channel.number_samples.1 * channel.size;

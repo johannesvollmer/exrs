@@ -9,14 +9,16 @@ use std::fs::File;
 extern crate exr;
 use exr::prelude::*;
 use exr::image;
-use exr::meta::attributes::PixelType;
+use exr::meta::attributes::SampleType;
 
 
 /// Collects the average pixel value for each channel.
 /// Does not load the whole image into memory at once: only processes the image block by block.
 /// On my machine, this program analyzes a 3GB file while only allocating 1.1MB.
 fn main() {
-    let file = BufReader::new(File::open("./testout/noisy.exr").unwrap());
+
+    // If this file does not exist yet, you can generate it by running the `custom_write.rs` example once.
+    let file = BufReader::new(File::open("tests/images/out/3GB.exr").unwrap());
 
     /// Collect averages for each layer
     #[derive(Debug)]
@@ -32,7 +34,7 @@ fn main() {
     #[derive(Debug)]
     struct Channel {
         name: Text,
-        pixel_type: PixelType, // f32, u32, or f16
+        sample_type: SampleType, // f32, u32, or f16
         average: f32,
     }
 
@@ -57,7 +59,7 @@ fn main() {
                     channels: header.channels.list.iter()
                         .map(|channel| Channel {
                             name: channel.name.clone(),
-                            pixel_type: channel.pixel_type,
+                            sample_type: channel.sample_type,
                             average: 0.0
                         })
                         .collect()
@@ -67,7 +69,7 @@ fn main() {
 
         // specify what parts of the file should be loaded (skips mip maps)
         |_header, _meta, tile| {
-            // do not worry about multiresolution levels
+            // do not worry about multi-resolution levels
             tile.location.is_largest_resolution_level()
         },
 
@@ -80,16 +82,16 @@ fn main() {
             let channel_sample_count = layer.data_window.size.area() as f32;
 
             // now sum the average based on the values in this line section of pixels
-            match channel.pixel_type {
-                PixelType::F16 => for value in line.read_samples::<f16>() {
+            match channel.sample_type {
+                SampleType::F16 => for value in line.read_samples::<f16>() {
                     channel.average += value?.to_f32() / channel_sample_count;
                 },
 
-                PixelType::F32 => for value in line.read_samples::<f32>() {
+                SampleType::F32 => for value in line.read_samples::<f32>() {
                     channel.average += value? / channel_sample_count;
                 },
 
-                PixelType::U32 => for value in line.read_samples::<f32>() {
+                SampleType::U32 => for value in line.read_samples::<f32>() {
                     channel.average += (value? as f32) / channel_sample_count;
                 },
             }
@@ -100,6 +102,7 @@ fn main() {
         // print file processing progress into the console, occasionally (important for large files)
         ReadOptions {
             parallel_decompression: false,
+            max_pixel_bytes: None,
             on_progress: |progress| {
                 count_to_1000_and_then_print += 1;
                 if count_to_1000_and_then_print == 1000 {

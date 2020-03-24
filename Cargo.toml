@@ -4,14 +4,14 @@ description = "Read and write OpenEXR files without any unsafe code"
 keywords = ["exr", "openexr", "file", "binary", "io"]
 categories = ["encoding", "filesystem", "graphics", "multimedia"]
 
-version = "0.7.2"
+version = "0.7.3"
 edition = "2018"
 authors = ["johannesvollmer <johannes596@t-online.de>"]
 
 repository = "https://github.com/johannesvollmer/exrs"
 readme = "README.md"
 license-file = "LICENSE.md"
-exclude = [ "specification/*", "specification/**" ]
+exclude = [ "specification/*", "specification/**", "tests/images/*", "tests/images/**" ]
 
 [badges]
 maintenance = { status = "actively-developed" }
@@ -31,7 +31,7 @@ half = "1.4.1"        # 16 bit float pixel data type
 bit_field = "0.10.0"  # exr file version bit flags
 libflate = "0.1.27"   # zlib compression
 smallvec = "1.2.0"    # make cache friendly allocations             TODO profile if smallvec is really an improvement!
-rayon = "1.3.0"       # multicore compression and decompression     TODO make this an optional feature?
+rayon = "1.3.0"       # multi-core compression and decompression     TODO make this an optional feature?
 
 [dev-dependencies]
 bencher = "0.1.5"
@@ -50,6 +50,10 @@ harness = false
 
 [[bench]]
 name = "write"
+harness = false
+
+[[bench]]
+name = "rgba"
 harness = false
 
 

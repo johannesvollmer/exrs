@@ -1,9 +1,9 @@
 [![Rust Docs](https://docs.rs/exr/badge.svg)](https://docs.rs/exr) 
 [![Crate Crate](https://img.shields.io/crates/v/exr.svg)](https://crates.io/crates/exr) 
 [![Rust Lang Version](https://img.shields.io/badge/rustc-1.41+-lightgray.svg)](https://blog.rust-lang.org/2020/01/30/Rust-1.41.0.html) 
-[![Lines of Code](https://tokei.rs/b1/github/johannesvollmer/exrs?category=code)](https://github.com/johannesvollmer/exrs)
+[![Lines of Code](https://tokei.rs/b1/github/johannesvollmer/exrs?category=code)](https://tokei.rs)
 
-# exrs (exr-rs)
+# EXRS
 
 This library is a 100% Rust and 100% safe code 
 encoding and decoding library for the OpenEXR image file format.
@@ -20,10 +20,10 @@ Features include:
 - any number of samples per pixel ("deep data")
 - uncompressed pixel data for fast file access
 - lossless compression for any image type 
-- lossy compression for non-deep image types for very small files
+- lossy compression for non-deep image types to produce very small files
 - load specific sections of an image without processing the whole file
-- compress and decompress images in parallel
-- embed any kind of meta data, including custom bytes, with full backwards compatibility
+- compress and decompress image pixels in parallel
+- embed any kind of meta data, including custom structs, with full backwards compatibility
 
 ### Current Status
 
@@ -174,26 +174,35 @@ Example: Write all image contents to an exr file at once.
 ```rust
 fn main() {
     let size = Vec2(1024, 512);
+    
+    let r = Channel::new_linear(
+        "R".try_into().unwrap(),
+        Samples::F16(generate_f16_vec(size))
+    );
 
-    // create a channel containing 1024x512 f32 values
-    let luma = Channel::new_linear(
-        "Y".try_into().unwrap(), // OpenEXR only supports ascii, so this may fail
-        Samples::F32(generate_f32_vector(size))
+    let g = Channel::new_linear(
+        "G".try_into().unwrap(),
+        Samples::F16(generate_f16_vec(size))
+    );
+
+    let b = Channel::new_linear(
+        "B".try_into().unwrap(),
+        Samples::F32(generate_f16_vec(size).into_iter().map(f16::to_f32).collect())
     );
 
     let layer = Layer::new(
-        "test-image".try_into().unwrap(), // layer name
-        size, // resolution
-        smallvec![ luma ], // include the one channel we created
+        "test-image".try_into().unwrap(),
+        size,
+        smallvec![ r, g, b ],
     );
-    
-    // create an exr file from a single layer (an exr file can have multiple layers)
-    let image = Image::new_from_single_layer(layer.with_compression(Compression::RLE));
 
-    println!("writing image with meta data {:#?}", image);
+    let layer = layer.with_compression(Compression::RLE)
+        .with_block_format(None, attributes::LineOrder::Increasing);
 
-    // write the image, compressing in parallel with all available cpus
-    image.write_to_file("./testout/constructed.exr", write_options::high()).unwrap();
+    let image = Image::new_from_single_layer(layer);
+
+    println!("writing image {:#?}", image);
+    image.write_to_file("tests/images/out/noisy.exr", write_options::high()).unwrap();
 }
 ```
 
@@ -202,9 +211,8 @@ See the examples folder for more examples.
 
 ### Motivation
 
-Using the any bindings to the original OpenEXR 
-library unfortunately always
-requires compiling multiple C++ Libraries 
+Using any Rust bindings to the original OpenEXR 
+library unfortunately requires compiling multiple C++ Libraries 
 and possibly setting environment variables, 
 which I didn't quite feel like to do, 
 so I wrote this library instead.
@@ -237,6 +245,11 @@ Allocations have a safe maximum size that will not be exceeded at once.
 -   Difficult to misuse API
 -   This is a pretty detailed README
 -   (more to come)
+
+### Running Tests
+
+To run all fast tests, use `cargo test --no-fail-fast`.
+To start fuzzing indefinitely, use `cargo test --package exr --test fuzz fuzz -- --exact --ignored`.
 
 ### Specification
 
