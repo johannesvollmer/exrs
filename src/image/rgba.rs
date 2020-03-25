@@ -22,6 +22,7 @@ use half::f16;
 use crate::image::{ReadOptions, OnReadProgress, WriteOptions, OnWriteProgress};
 use crate::compression::Compression;
 use std::collections::HashSet;
+use crate::block::samples::Sample;
 
 /// A summary of an image file.
 /// Does not contain any actual pixel data.
@@ -139,62 +140,6 @@ pub struct Pixel {
     pub alpha: Option<Sample>,
 }
 
-/// A single red, green, blue, or alpha value.
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum Sample {
-
-    /// A 16-bit float sample.
-    F16(f16),
-
-    /// A 32-bit float sample.
-    F32(f32),
-
-    /// An unsigned integer sample.
-    U32(u32)
-}
-
-impl Sample {
-
-    /// Convert the sample to an f16 value. This has lower precision than f32.
-    /// Note: An f32 can only represent integers up to `1024` as precise as a u32 could.
-    #[inline]
-    pub fn to_f16(&self) -> f16 {
-        match *self {
-            Sample::F16(sample) => sample,
-            Sample::F32(sample) => f16::from_f32(sample),
-            Sample::U32(sample) => f16::from_f32(sample as f32),
-        }
-    }
-
-    /// Convert the sample to an f32 value.
-    /// Note: An f32 can only represent integers up to `8388608` as precise as a u32 could.
-    #[inline]
-    pub fn to_f32(&self) -> f32 {
-        match *self {
-            Sample::F32(sample) => sample,
-            Sample::F16(sample) => sample.to_f32(),
-            Sample::U32(sample) => sample as f32,
-        }
-    }
-
-    /// Convert the sample to a u32. Rounds floats to integers the same way that `3.1 as u32` does.
-    #[inline]
-    pub fn to_u32(&self) -> u32 {
-        match *self {
-            Sample::F16(sample) => sample.to_f32() as u32,
-            Sample::F32(sample) => sample as u32,
-            Sample::U32(sample) => sample,
-        }
-    }
-}
-
-impl From<f16> for Sample { #[inline] fn from(f: f16) -> Self { Sample::F16(f) } }
-impl From<f32> for Sample { #[inline] fn from(f: f32) -> Self { Sample::F32(f) } }
-impl From<u32> for Sample { #[inline] fn from(f: u32) -> Self { Sample::U32(f) } }
-impl From<Sample> for f16 { #[inline] fn from(s: Sample) -> Self { s.to_f16() } }
-impl From<Sample> for f32 { #[inline] fn from(s: Sample) -> Self { s.to_f32() } }
-impl From<Sample> for u32 { #[inline] fn from(s: Sample) -> Self { s.to_u32() } }
-
 impl Pixel {
 
     /// Create a new pixel without the specified samples. Accepts f32, u32, and f16 values for each sample.
@@ -310,7 +255,8 @@ impl Image {
     }
 
     /// Set the display window and data window position of this image.
-    pub fn with_position(mut self, position: Vec2<i32>) -> Self {
+    pub fn with_position(mut self, position: impl Into<Vec2<i32>>) -> Self {
+        let position: Vec2<i32> = position.into();
         self.image_attributes.display_window.position = position;
         self.layer_attributes.data_position = position;
         self
@@ -401,7 +347,7 @@ impl Image {
         create_pixels: P,
     ) -> Result<(Self, P::Pixels)>
     {
-        crate::image::read_filtered_tiles_from_buffered(
+        crate::block::read_filtered_blocks_from_buffered(
             read,
 
             move |meta| {
@@ -443,7 +389,6 @@ impl Image {
                     else { continue; } // ignore non-rgba channels
                 };
 
-
                 let byte_lines = block.data.chunks_exact(line_bytes);
                 let y_coords = 0 .. block.index.pixel_size.1;
                 for (y, byte_line) in y_coords.zip(byte_lines) {
@@ -454,14 +399,21 @@ impl Image {
                     let mut next_a = a_type
                         .map(|a_type| sample_reader(a_type, &block.data[a_range.clone()]));
 
-                    fn sample_reader(sample_type: SampleType, mut read: impl Read) -> impl (FnMut() -> Result<Sample>) {
+                    fn sample_reader<'a, R: Read + 'a>(sample_type: SampleType, mut read: R) -> Box<dyn 'a + FnMut() -> Result<Sample>> {
                         use crate::io::Data;
 
-                        move || Ok(match sample_type {
-                            SampleType::F16 => Sample::F16(f16::read(&mut read)?),
-                            SampleType::F32 => Sample::F32(f32::read(&mut read)?),
-                            SampleType::U32 => Sample::U32(u32::read(&mut read)?),
-                        })
+                        // WITH ENUM MATCHING EACH SAMPLE:
+                        // test read_full   ... bench:  31,670,900 ns/iter (+/- 2,653,097)
+                        // test read_rgba   ... bench: 120,208,940 ns/iter (+/- 2,972,441)
+
+                        // WITH DYNAMIC DISPATCH:
+                        // test read_full   ... bench:  31,387,880 ns/iter (+/- 1,100,514)
+                        // test read_rgba   ... bench: 111,231,040 ns/iter (+/- 2,872,627)
+                        match sample_type {
+                            SampleType::F16 => Box::new(move || Ok(Sample::from(f16::read(&mut read)?))),
+                            SampleType::F32 => Box::new(move || Ok(Sample::from(f32::read(&mut read)?))),
+                            SampleType::U32 => Box::new(move || Ok(Sample::from(u32::read(&mut read)?))),
+                        }
                     }
 
                     for x in 0..block.index.pixel_size.0 {
@@ -618,7 +570,7 @@ impl Image {
             );
 
 
-        crate::image::write_all_tiles_to_buffered(
+        crate::block::lines::write_all_tiles_to_buffered(
             write,
             MetaData::new(smallvec![ header ]),
 
@@ -695,26 +647,26 @@ impl Image {
 }
 
 
-/// Provides some predefined pixel storages for RGBA images.
+/// Provides some predefined pixel containers for RGBA images.
 /// Currently contains a homogeneous flattened vector storage.
 pub mod pixels {
     use super::*;
 
-    /// Constructor for a flat f16 pixel storage.
+    /// Constructor for a flattened f16 pixel storage.
     /// This function an directly be passed to `rgba::Image::load_from_file` and friends.
     /// It will construct a `rgba::pixels::Flattened<f16>` image.
     #[inline] pub fn flat_f16(image: &Image) -> Flattened<f16> {
         Flattened { samples: vec![f16::ZERO; image.resolution.area() * image.channel_count()] }
     }
 
-    /// Constructor for a flat f32 pixel storage.
+    /// Constructor for a flattened f32 pixel storage.
     /// This function an directly be passed to `rgba::Image::load_from_file` and friends.
     /// It will construct a `rgba::pixels::Flattened<f32>` image.
     #[inline] pub fn flat_f32(image: &Image) -> Flattened<f32> {
         Flattened { samples: vec![0.0; image.resolution.area() * image.channel_count()] }
     }
 
-    /// Constructor for a flat u32 pixel storage.
+    /// Constructor for a flattened u32 pixel storage.
     /// This function an directly be passed to `rgba::Image::load_from_file` and friends.
     /// It will construct a `rgba::pixels::Flattened<u32>` image.
     #[inline] pub fn flat_u32(image: &Image) -> Flattened<u32> {
