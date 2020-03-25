@@ -244,7 +244,7 @@ pub fn uncompressed_image_blocks_ordered<'l>(
     meta_data.headers.iter().enumerate()
         .flat_map(move |(layer_index, header)|{
             header.enumerate_ordered_blocks().map(move |(chunk_index, tile)|{
-                let data_indices = header.get_absolute_block_indices(tile.location).expect("tile coordinate bug");
+                let data_indices = header.get_absolute_block_pixel_coordinates(tile.location).expect("tile coordinate bug");
 
                 let block_indices = BlockIndex {
                     layer: layer_index, level: tile.location.level_index,
@@ -360,7 +360,7 @@ impl UncompressedBlock {
             .ok_or(Error::invalid("chunk layer index"))?;
 
         let tile_data_indices = header.get_block_data_indices(&chunk.block)?;
-        let absolute_indices = header.get_absolute_block_indices(tile_data_indices)?;
+        let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_data_indices)?;
 
         absolute_indices.validate(Some(header.data_size))?;
 
@@ -395,7 +395,13 @@ impl UncompressedBlock {
             panic!("get_line byte size should be {} but was {}", expected_byte_size, data.len());
         }
 
-        let compressed_data = header.compression.compress_image_section(data)?;
+        let block_indices = TileCoordinates {
+            tile_index: index.pixel_position / header.default_block_pixel_size(), // TODO this calculation should be done elsewhere
+            level_index: index.level,
+        };
+
+        let pixel_coordinates = header.get_absolute_block_pixel_coordinates(block_indices)?;
+        let compressed_data = header.compression.compress_image_section(header, data, pixel_coordinates)?;
 
         Ok(Chunk {
             layer_index: index.layer,
