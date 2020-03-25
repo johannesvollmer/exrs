@@ -89,6 +89,13 @@ impl<T: std::ops::Mul<T>> std::ops::Mul<Vec2<T>> for Vec2<T> {
     }
 }
 
+impl<T> From<(T, T)> for Vec2<T> {
+    fn from((x, y): (T, T)) -> Self { Vec2(x, y) }
+}
+
+impl<T> From<Vec2<T>> for (T, T) {
+    fn from(vec2: Vec2<T>) -> Self { (vec2.0, vec2.1) }
+}
 
 /// Computes `floor(log(x)/log(2))`. Returns 0 where argument is 0.
 // TODO does rust std not provide this?

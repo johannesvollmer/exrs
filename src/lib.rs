@@ -57,12 +57,13 @@ macro_rules! debug {
 pub mod io; // public to allow for custom attribute byte parsing
 
 pub mod math;
-pub mod chunks;
+pub mod chunk;
 pub mod compression;
 pub mod meta;
 pub mod image;
 
 pub mod error;
+pub mod block;
 
 #[macro_use]
 extern crate smallvec;
@@ -75,7 +76,7 @@ extern crate image as piston_image;
 pub mod prelude {
 
     pub use crate::meta::{ self, attributes, LayerAttributes, ImageAttributes };
-    pub use self::attributes::{ Compression, Text, IntRect, LineOrder };
+    pub use self::attributes::{ Compression, Text, IntRect, LineOrder, SampleType, TileDescription };
     pub use crate::error::{ Result, Error };
     pub use crate::math::Vec2;
 

@@ -650,13 +650,13 @@ impl IntRect {
     }
 
     /// Create a box with a size starting at zero.
-    pub fn from_dimensions(size: Vec2<usize>) -> Self {
+    pub fn from_dimensions(size: impl Into<Vec2<usize>>) -> Self {
         Self::new(Vec2(0,0), size)
     }
 
     /// Create a box with a size and an origin point.
-    pub fn new(start: Vec2<i32>, size: Vec2<usize>) -> Self {
-        Self { position: start, size }
+    pub fn new(start: impl Into<Vec2<i32>>, size: impl Into<Vec2<usize>>) -> Self {
+        Self { position: start.into(), size: size.into() }
     }
 
     /// Returns the top-right coordinate of the rectangle.
