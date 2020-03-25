@@ -154,9 +154,9 @@ const _LONGEST_LONG_RUN: i64   = 255 + SHORTEST_LONG_RUN;
 #[derive(Default, Clone, Debug, Eq, PartialEq)]
 struct Code { // TODO use enum
     short_code_len: i8,             // short: code length   | long: 0
-    short_code_lit: i32,           // short: lit           | long: p size TODO make this a u16???
+    short_code_lit: i32,            // short: lit           | long: p size TODO make this a u16???
 
-    lits: Vec<u16>,         // short: [],           | long: lits
+    lits: Vec<u16>,                 // short: [],           | long: lits
 }
 
 
@@ -408,7 +408,7 @@ fn build_decoding_table(h_code: &[i64], min_hcode_index: usize, max_hcode_index:
 //
 // 	    invalidTableEntry();
 // 	}
-        if c >> l != 0 {
+        if (c >> l) != 0 {
             panic!();
             // return Err(Error::invalid("huffman table entry"));
         }
@@ -422,6 +422,7 @@ fn build_decoding_table(h_code: &[i64], min_hcode_index: usize, max_hcode_index:
 
 //
 // 	    HufDec *pl = hdecod + (c >> (l - HUF_DECBITS));
+            let pl = &mut decoding_table[(c >> (l - DECODE_BITS as i64)) as usize];
 //
 // 	    if (pl->len)
 // 	    {
@@ -432,12 +433,11 @@ fn build_decoding_table(h_code: &[i64], min_hcode_index: usize, max_hcode_index:
 //
 // 		invalidTableEntry();
 // 	    }
-            let pl = &mut decoding_table[(c >> (l - DECODE_BITS as i64)) as usize];
-            if pl.lits.len() != 0 {
+            if pl.short_code_len != 0 {
                 panic!();
                 // return Err(Error::invalid("huffman table entry"));
             }
-            /*let pl = if let Code::Long(code) = pl { code }
+            /* TODO: enum with: let pl = if let Code::Long(code) = pl { code }
             else {
                 return Err(Error::invalid("huffman table entry"));
             };*/
@@ -463,6 +463,7 @@ fn build_decoding_table(h_code: &[i64], min_hcode_index: usize, max_hcode_index:
             pl.lits.push(min_hcode_index as u16);
 
         }
+        else if l != 0 {
 // 	else if (l)
 // 	{
 // 	    //
@@ -473,22 +474,40 @@ fn build_decoding_table(h_code: &[i64], min_hcode_index: usize, max_hcode_index:
 //
 // 	    for (Int64 i = 1 << (HUF_DECBITS - l); i > 0; i--, pl++)
 // 	    {
-// 		if (pl->len || pl->p)
-// 		{
-// 		    //
-// 		    // Error: a short code or a long code has
-// 		    // already been stored in table entry *pl.
-// 		    //
+// 		    if (pl->len || pl->p)
+// 		    {
+// 		        //
+// 		        // Error: a short code or a long code has
+// 		        // already been stored in table entry *pl.
+// 		        //
 //
-// 		    invalidTableEntry();
-// 		}
+// 		        invalidTableEntry();
+// 		    }
 //
-// 		pl->len = l;
-// 		pl->lit = im;
+// 		    pl->len = l;
+// 		    pl->lit = im;
+
+            let default_value = Code {
+                short_code_len: l as i8, // TODO wrap or not wrap?
+                short_code_lit: min_hcode_index as i32,
+                lits: Vec::new()
+            };
+
+            let start_index = (c << (DECODE_BITS as i64 - l)) as usize;
+            let count = (1 << (DECODE_BITS as i64 - l)) as usize;
+
+            for value in &mut decoding_table[start_index .. start_index + count] {
+                assert!(value.lits.is_empty() && value.short_code_len == 0);
+
+                *value = default_value.clone();
+            }
+
 // 	    }
 // 	}
 //     }
 // }
+
+        }
     }
 
     Ok(())

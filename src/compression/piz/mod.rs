@@ -260,6 +260,10 @@ pub fn decompress_bytes(
         u8::read_slice(&mut read, &mut bitmap[min_non_zero as usize .. (max_non_zero as usize + 1)])?; // TODO +1/-1?
         // bitmap[ min_non_zero as usize .. (min_non_zero + length) as usize ]
         //     .copy_from_slice(&read[.. length as usize]);
+
+        // TODO why does bitmap contain many zeroes??
+        // let rle_compressed = super::rle::compress_bytes(&bitmap[min_non_zero as usize .. (max_non_zero as usize + 1)]).unwrap();
+        // debug!(max_non_zero - min_non_zero, rle_compressed.len(), rle_compressed);
     }
 
 //
@@ -485,19 +489,18 @@ fn reverse_lookup_table_from_bitmap(bitmap: Bytes<'_>) -> (Vec<u16>, u16) {
 //    return n;		// maximum k where lut[k] is non-zero,
 
 
-    // assert_eq!(U16_RANGE as u16 as i32, U16_RANGE); // TODO remove
-
     let mut table = Vec::with_capacity(U16_RANGE as usize);
 
-    for index in 0 .. U16_RANGE as u16 {
-        if index == 0 || (bitmap[index as usize >> 3] as usize & (1 << (index as usize & 7)) != 0) { // TODO where should be cast?
-            table.push(index);
+    for index in 0 .. U16_RANGE as usize {
+        if index == 0 || ((bitmap[index >> 3] as usize & (1 << (index & 7))) != 0) {
+            table.push(index as u16);
         }
     }
 
     let max_value = table.len() as u16;
-    // assert_eq!(table.len() as u16 as usize, table.len());  // TODO remove
 
+    // fill remaining up to u16 range
+    debug_assert!(table.len() < U16_RANGE as usize);
     table.resize(U16_RANGE as usize, 0);
 
     (table, max_value)
