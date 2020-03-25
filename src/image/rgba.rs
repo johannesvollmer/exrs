@@ -403,8 +403,8 @@ impl Image {
                         use crate::io::Data;
 
                         // WITH ENUM MATCHING EACH SAMPLE:
-                        // test read_full   ... bench:  33,859,670 ns/iter (+/- 27,859,234)
-                        // test read_rgba   ... bench: 130,197,690 ns/iter (+/- 18,934,790)
+                        // test read_full   ... bench:  31,670,900 ns/iter (+/- 2,653,097)
+                        // test read_rgba   ... bench: 120,208,940 ns/iter (+/- 2,972,441)
 
                         // WITH DYNAMIC DISPATCH:
                         // test read_full   ... bench:  31,387,880 ns/iter (+/- 1,100,514)
