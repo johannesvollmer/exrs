@@ -693,6 +693,35 @@ fn read_byte(c: &mut i64, lc: &mut i64, input: &mut &[u8]) -> UnitResult {
 }
 
 // #define getCode(po, rlc, c, lc, in, out, ob, oe)\
+// {						\
+// if (po == rlc)				\
+// {						\
+// if (lc < 8)				\
+// getChar(c, lc, in);			\
+// \
+// lc -= 8;				\
+// \
+// unsigned char cs = (c >> lc);		\
+// \
+// if (out + cs > oe)			\
+// tooMuchData();			\
+// else if (out - 1 < ob)			\
+// notEnoughData();			\
+// \
+// unsigned short s = out[-1];		\
+// \
+// while (cs-- > 0)			\
+// *out++ = s;				\
+// }						\
+// else if (out < oe)				\
+// {						\
+// *out++ = po;				\
+// }						\
+// else					\
+// {						\
+// tooMuchData();				\
+// }						\
+// }
 #[inline]
 // pl.lit, run_length_code, c, lc, read, out
 fn read_code(lits: u16, run_length_code: usize, c: &mut i64, lc: &mut i64, read: &mut &[u8], write: &mut Vec<u16>) -> UnitResult {
@@ -704,12 +733,12 @@ fn read_code(lits: u16, run_length_code: usize, c: &mut i64, lc: &mut i64, read:
         *lc -= 8;
 
         let mut cs = *c >> *lc;
-        if cs > write.len() as i64 {
+        /*if cs > write.len() as i64 {
             panic!();
             // return Err(Error::invalid("huffman data size"));
         }
-        else if write.is_empty() {
-            panic!();
+        else*/ if write.is_empty() { // (out - 1 < ob)
+            panic!("cannot get last value because none were written yet");
             // return Err(Error::invalid("huffman data size"));
         }
 
