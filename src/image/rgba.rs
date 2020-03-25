@@ -399,14 +399,21 @@ impl Image {
                     let mut next_a = a_type
                         .map(|a_type| sample_reader(a_type, &block.data[a_range.clone()]));
 
-                    fn sample_reader(sample_type: SampleType, mut read: impl Read) -> impl (FnMut() -> Result<Sample>) {
+                    fn sample_reader<'a, R: Read + 'a>(sample_type: SampleType, mut read: R) -> Box<dyn 'a + FnMut() -> Result<Sample>> {
                         use crate::io::Data;
 
-                        move || Ok(match sample_type { // TODO this is the hot path
-                            SampleType::F16 => Sample::F16(f16::read(&mut read)?),
-                            SampleType::F32 => Sample::F32(f32::read(&mut read)?),
-                            SampleType::U32 => Sample::U32(u32::read(&mut read)?),
-                        })
+                        // WITH ENUM MATCHING EACH SAMPLE:
+                        // test read_full   ... bench:  33,859,670 ns/iter (+/- 27,859,234)
+                        // test read_rgba   ... bench: 130,197,690 ns/iter (+/- 18,934,790)
+
+                        // WITH DYNAMIC DISPATCH:
+                        // test read_full   ... bench:  31,387,880 ns/iter (+/- 1,100,514)
+                        // test read_rgba   ... bench: 111,231,040 ns/iter (+/- 2,872,627)
+                        match sample_type {
+                            SampleType::F16 => Box::new(move || Ok(Sample::from(f16::read(&mut read)?))),
+                            SampleType::F32 => Box::new(move || Ok(Sample::from(f32::read(&mut read)?))),
+                            SampleType::U32 => Box::new(move || Ok(Sample::from(u32::read(&mut read)?))),
+                        }
                     }
 
                     for x in 0..block.index.pixel_size.0 {
