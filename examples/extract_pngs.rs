@@ -8,16 +8,16 @@ use std::cmp::Ordering;
 
 /// For each layer in the exr file,
 /// extract each channel as grayscale png,
-/// including all multiresolution levels.
+/// including all multi-resolution levels.
 //
-// FIXME throws "acces denied" sometimes, simply trying again usually works.
+// FIXME throws "access denied" sometimes, simply trying again usually works.
 //
 pub fn main() {
     let path = "tests/images/valid/openexr/BeachBall/multipart.0001.exr";
 
     let now = ::std::time::Instant::now();
 
-    // load the exr file from disk with multicore decompression
+    // load the exr file from disk with multi-core decompression
     let image = Image::read_from_file(path, read_options::high()).unwrap();
 
     // warning: highly unscientific benchmarks ahead!

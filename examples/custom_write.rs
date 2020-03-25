@@ -70,6 +70,7 @@ fn main() {
         |_meta, line_mut|{
             let chan = line_mut.location.channel;
             line_mut.write_samples(|sample_index| random_values[(sample_index + chan) % random_values.len()])
+                .expect("write to line bug");
         },
 
         // print progress occasionally

@@ -4,7 +4,7 @@ extern crate exr;
 use exr::prelude::*;
 
 /// Read an image and print information about the image into the console.
-/// Uses multicore decompression where appropriate.
+/// Uses multi-core decompression where appropriate.
 fn main() {
     let image = simple::Image::read_from_file(
         "tests/images/valid/openexr/Beachball/multipart.0004.exr",

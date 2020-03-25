@@ -1,5 +1,5 @@
 
-//! Read and write all supported aspects of an exr image, excluding deep data and multiresolution levels.
+//! Read and write all supported aspects of an exr image, excluding deep data and multi-resolution levels.
 //! Use `exr::image::full` if you do need deep data or resolution levels.
 
 use smallvec::SmallVec;
@@ -264,10 +264,7 @@ impl Image {
     pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions<impl OnWriteProgress>) -> UnitResult {
         crate::image::write_all_lines_to_buffered(
             write,  self.infer_meta_data(),
-            |_meta, line_mut| {
-                self.extract_line(line_mut);
-                Ok(()) // TODO abort also on line but not only chunk
-            },
+            |_meta, line_mut| self.extract_line(line_mut),
             options
         )
     }

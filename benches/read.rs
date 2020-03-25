@@ -10,7 +10,7 @@ use std::fs;
 /// Read uncompressed (always single core)
 fn read_single_image_uncompressed(bench: &mut Bencher) {
     bench.iter(||{
-        let path = "tests/images/valid/openexr/crowskull/crow_uncompressed.exr";
+        let path = "tests/images/valid/custom/crowskull/crow_uncompressed.exr";
 
         let image = full::Image::read_from_file(path, read_options::high()).unwrap();
         bencher::black_box(image);
@@ -19,7 +19,7 @@ fn read_single_image_uncompressed(bench: &mut Bencher) {
 
 /// Read from in-memory in parallel
 fn read_single_image_uncompressed_from_buffer(bench: &mut Bencher) {
-    let file = fs::read("tests/images/valid/openexr/crowskull/crow_uncompressed.exr").unwrap();
+    let file = fs::read("tests/images/valid/custom/crowskull/crow_uncompressed.exr").unwrap();
 
     bench.iter(||{
         let image = full::Image::read_from_buffered(file.as_slice(), read_options::high()).unwrap();
@@ -27,25 +27,25 @@ fn read_single_image_uncompressed_from_buffer(bench: &mut Bencher) {
     })
 }
 
-/// Read with multicore zip decompression
+/// Read with multi-core zip decompression
 fn read_single_image_zips(bench: &mut Bencher) {
     bench.iter(||{
-        let path = "tests/images/valid/openexr/crowskull/crow_zips.exr";
+        let path = "tests/images/valid/custom/crowskull/crow_zips.exr";
         let image = full::Image::read_from_file(path, read_options::low()).unwrap();
         bencher::black_box(image);
     })
 }
 
-/// Read with multicore RLE decompression
+/// Read with multi-core RLE decompression
 fn read_single_image_rle(bench: &mut Bencher) {
     bench.iter(||{
-        let path = "tests/images/valid/openexr/crowskull/crow_rle.exr";
+        let path = "tests/images/valid/custom/crowskull/crow_rle.exr";
         let image = full::Image::read_from_file(path, read_options::high()).unwrap();
         bencher::black_box(image);
     })
 }
 
-/// Read without multicore ZIP decompression
+/// Read without multi-core ZIP decompression
 fn read_single_image_non_parallel_zips(bench: &mut Bencher) {
     bench.iter(||{
         let path = "tests/images/valid/custom/crowskull/crow_zips.exr";

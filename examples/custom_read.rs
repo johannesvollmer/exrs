@@ -69,7 +69,7 @@ fn main() {
 
         // specify what parts of the file should be loaded (skips mip maps)
         |_header, _meta, tile| {
-            // do not worry about multiresolution levels
+            // do not worry about multi-resolution levels
             tile.location.is_largest_resolution_level()
         },
 

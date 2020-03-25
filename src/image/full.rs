@@ -1,5 +1,5 @@
 
-//! Read and write all supported aspects of an exr image, including deep data and multiresolution levels.
+//! Read and write all supported aspects of an exr image, including deep data and multi-resolution levels.
 //! Use `exr::image::simple` if you do not need deep data or resolution levels.
 //!
 //! __This module is currently under construction.__
@@ -286,10 +286,7 @@ impl Image {
     pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions<impl OnWriteProgress>) -> UnitResult {
         crate::image::write_all_lines_to_buffered(
             write,  self.infer_meta_data(),
-            |_meta, line_mut| {
-                self.extract_line(line_mut);
-                Ok(())
-            },
+            |_meta, line_mut| self.extract_line(line_mut),
             options
         )
     }
