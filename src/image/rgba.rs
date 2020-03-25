@@ -640,26 +640,26 @@ impl Image {
 }
 
 
-/// Provides some predefined pixel storages for RGBA images.
+/// Provides some predefined pixel containers for RGBA images.
 /// Currently contains a homogeneous flattened vector storage.
 pub mod pixels {
     use super::*;
 
-    /// Constructor for a flat f16 pixel storage.
+    /// Constructor for a flattened f16 pixel storage.
     /// This function an directly be passed to `rgba::Image::load_from_file` and friends.
     /// It will construct a `rgba::pixels::Flattened<f16>` image.
     #[inline] pub fn flat_f16(image: &Image) -> Flattened<f16> {
         Flattened { samples: vec![f16::ZERO; image.resolution.area() * image.channel_count()] }
     }
 
-    /// Constructor for a flat f32 pixel storage.
+    /// Constructor for a flattened f32 pixel storage.
     /// This function an directly be passed to `rgba::Image::load_from_file` and friends.
     /// It will construct a `rgba::pixels::Flattened<f32>` image.
     #[inline] pub fn flat_f32(image: &Image) -> Flattened<f32> {
         Flattened { samples: vec![0.0; image.resolution.area() * image.channel_count()] }
     }
 
-    /// Constructor for a flat u32 pixel storage.
+    /// Constructor for a flattened u32 pixel storage.
     /// This function an directly be passed to `rgba::Image::load_from_file` and friends.
     /// It will construct a `rgba::pixels::Flattened<u32>` image.
     #[inline] pub fn flat_u32(image: &Image) -> Flattened<u32> {
