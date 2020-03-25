@@ -11,7 +11,7 @@ use crate::io::Data;
 use smallvec::SmallVec;
 use std::ops::Range;
 use crate::block::{BlockIndex, UncompressedBlock};
-use crate::image::{WriteOptions, OnWriteProgress, OnReadProgress, ReadOptions, read_all_blocks_from_buffered, read_filtered_blocks_from_buffered, for_compressed_blocks_in_image};
+use crate::image::*;
 
 /// A single line of pixels.
 /// Use `LineRef` or `LineRefMut` for easier type names.
@@ -87,7 +87,7 @@ pub fn read_all_lines_from_buffered<T>(
         Ok(())
     };
 
-    read_all_blocks_from_buffered(read, new, insert, options)
+    crate::block::read_all_blocks_from_buffered(read, new, insert, options)
 }
 
 /// Reads and decompresses all desired chunks of a file sequentially, possibly seeking.
@@ -115,7 +115,7 @@ pub fn read_filtered_lines_from_buffered<T>(
         Ok(())
     };
 
-    read_filtered_blocks_from_buffered(read, new, filter, insert, options)
+    crate::block::read_filtered_blocks_from_buffered(read, new, filter, insert, options)
 }
 
 
@@ -202,7 +202,7 @@ pub fn write_all_tiles_to_buffered(
     let mut processed_chunk_count = 0; // very simple on_progress feedback
 
     // line order is respected in here
-    for_compressed_blocks_in_image(&meta_data, get_tile, options.parallel_compression, |chunk_index, chunk|{
+    crate::block::for_compressed_blocks_in_image(&meta_data, get_tile, options.parallel_compression, |chunk_index, chunk|{
         offset_tables[chunk.layer_index][chunk_index] = write.byte_position() as u64; // safe indices from `enumerate()`
         chunk.write(&mut write, meta_data.headers.as_slice())?;
 

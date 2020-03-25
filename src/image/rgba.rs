@@ -347,7 +347,7 @@ impl Image {
         create_pixels: P,
     ) -> Result<(Self, P::Pixels)>
     {
-        crate::image::read_filtered_blocks_from_buffered(
+        crate::block::read_filtered_blocks_from_buffered(
             read,
 
             move |meta| {
