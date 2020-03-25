@@ -1,4 +1,4 @@
-//! Extract bundled samples from a block of pixel bytes.
+//! Extract pixel samples from a block of pixel bytes.
 
 use crate::prelude::f16;
 

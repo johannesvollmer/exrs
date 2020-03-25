@@ -1,5 +1,5 @@
-//! Handle uncompressed pixel byte blocks.
-//! Includes compression and decompression.
+//! Handle uncompressed pixel byte blocks. Includes compression and decompression,
+//! and some functions that completely read an image into blocks.
 
 pub mod lines;
 pub mod samples;
@@ -17,6 +17,8 @@ use std::convert::TryFrom;
 use crate::io::{Tracking, PeekRead};
 use std::io::{Seek, Read};
 use crate::image::{ReadOptions, OnReadProgress};
+
+
 
 
 /// Specifies where a block of pixel data should be placed in the actual image.

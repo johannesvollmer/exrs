@@ -13,6 +13,8 @@ use std::ops::Range;
 use crate::block::{BlockIndex, UncompressedBlock};
 use crate::image::*;
 
+
+
 /// A single line of pixels.
 /// Use `LineRef` or `LineRefMut` for easier type names.
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
