@@ -37,18 +37,25 @@
 
 /// Print the name and value of each variable.
 #[macro_export]
-macro_rules! debug {
+macro_rules! inspect {
     ( $( $var: expr ),* ) => {
         {
+            println!("\nInspecting at {}:{}", file!(), line!());
+
             $(
-                println!("{} = {:?}", stringify!($var), $var);
+                println!("\t{} = {:?}", stringify!($var), $var);
             )*
+
+            print!("\n");
         }
     };
 
     ($name: expr, $val: expr) => {
         {
+            print!("\nInspecting at {}:{} expression ", file!(), line!());
             println!("{} = {:?}", name, $val);
+            print!("\n");
+
             $val
         }
     };

@@ -235,7 +235,8 @@ fn decode(
 // 	    }
             if pl.short_code_len != 0 { // this is a short code
                 lc -= pl.short_code_len as i64;
-                read_code(pl.short_code_lit as u16/*TODO*/, run_length_code, &mut c, &mut lc, &mut read, &mut output)?;
+                inspect!(pl.short_code_lit, run_length_code, c, lc, output);
+                read_code(pl.short_code_lit as u16/*TODO*/, run_length_code, &mut c, &mut lc, &mut read, &mut output, expected_ouput_size)?;
             }
 
 // 	    else
@@ -292,7 +293,7 @@ fn decode(
                     if lc >= l {
                         if code(plpj as i64) == ((c >> (lc - l)) & ((1 << l) - 1)) {
                             lc -= l;
-                            read_code(pl.lits[j as usize], run_length_code, &mut c, &mut lc, &mut read, &mut output)?;
+                            read_code(pl.lits[j as usize], run_length_code, &mut c, &mut lc, &mut read, &mut output, expected_ouput_size)?;
                             break;
                         }
 
@@ -352,7 +353,7 @@ fn decode(
 
         if pl.short_code_len != 0 {
             lc -= pl.short_code_len as i64;
-            read_code(pl.short_code_lit as u16, run_length_code, &mut c, &mut lc, &mut read, &mut output)?;
+            read_code(pl.short_code_lit as u16, run_length_code, &mut c, &mut lc, &mut read, &mut output, expected_ouput_size)?;
         }
         else {
             panic!();
@@ -724,7 +725,7 @@ fn read_byte(c: &mut i64, lc: &mut i64, input: &mut &[u8]) -> UnitResult {
 // }
 #[inline]
 // pl.lit, run_length_code, c, lc, read, out
-fn read_code(lits: u16, run_length_code: usize, c: &mut i64, lc: &mut i64, read: &mut &[u8], write: &mut Vec<u16>) -> UnitResult {
+fn read_code(lits: u16, run_length_code: usize, c: &mut i64, lc: &mut i64, read: &mut &[u8], out: &mut Vec<u16>, max_len: usize) -> UnitResult {
     if lits as usize == run_length_code {
         if *lc < 8 {
             read_byte(c, lc, read)?;
@@ -733,23 +734,23 @@ fn read_code(lits: u16, run_length_code: usize, c: &mut i64, lc: &mut i64, read:
         *lc -= 8;
 
         let mut cs = *c >> *lc;
-        /*if cs > write.len() as i64 {
-            panic!();
+        if out.len() as i64 + cs > max_len as i64 {
+            panic!("more data than expected");
             // return Err(Error::invalid("huffman data size"));
         }
-        else*/ if write.is_empty() { // (out - 1 < ob)
+        else if out.is_empty() {
             panic!("cannot get last value because none were written yet");
             // return Err(Error::invalid("huffman data size"));
         }
 
-        let s = *write.last().unwrap();
+        let s = *out.last().unwrap();
         while cs > 0 {
-            write.push(s);
+            out.push(s);
             cs -= 1;
         }
     }
-    else if !write.is_empty() {
-        write.push(lits);
+    else if !out.is_empty() {
+        out.push(lits);
     }
     else {
         panic!();

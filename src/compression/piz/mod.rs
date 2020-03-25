@@ -43,7 +43,7 @@ pub fn decompress_bytes(
 
     let Vec2(max_scan_line_size, scan_line_count) = header.default_block_pixel_size();
 
-    debug!(max_scan_line_size, scan_line_count);
+    inspect!(max_scan_line_size, scan_line_count);
 
 //    PizCompressor::PizCompressor
 //        (const Header &hdr,
@@ -63,7 +63,7 @@ pub fn decompress_bytes(
 //        (void) _maxScanLineSize;
 //        size_t tmpBufferSize = uiMult (maxScanLineSize, numScanLines) / 2;
     let tmp_buffer_size = (max_scan_line_size * scan_line_count) / 2;
-    debug!(tmp_buffer_size);
+    inspect!(tmp_buffer_size);
 //
 //        size_t outBufferSize =
 //        uiAdd (uiMult (maxScanLineSize, numScanLines),
@@ -96,7 +96,7 @@ pub fn decompress_bytes(
     let has_only_half_channels = header.channels.list
         .iter().all(|channel| channel.sample_type == SampleType::F16);
 
-    debug!(has_only_half_channels);
+    inspect!(has_only_half_channels);
 
 //
 //        _channelData = new ChannelData[_numChans];
@@ -116,7 +116,7 @@ pub fn decompress_bytes(
         if has_only_half_channels { Format::Native }
         else { Format::Independent }; // half is always 16 bit in Rust???
 
-    debug!(format);
+    inspect!(format);
 //
 //        if (onlyHalfChannels && (sizeof (half) == pixelTypeSize (HALF)))
 //        _format = NATIVE;
@@ -180,7 +180,7 @@ pub fn decompress_bytes(
         max_y = header.data_window().max().1;
     }
 
-    debug!(max_y);
+    inspect!(max_y);
 
 //        unsigned short *tmpBufferEnd = _tmpBuffer;
 //        int i = 0;
@@ -218,7 +218,7 @@ pub fn decompress_bytes(
         channel_data.push(channel);
     }
 
-    debug!(channel_data);
+    inspect!(channel_data);
 
 //        // Read range compression data
 //
@@ -237,7 +237,7 @@ pub fn decompress_bytes(
 
     let min_non_zero = u16::read(&mut read)?;
     let max_non_zero = u16::read(&mut read)?;
-    debug!(min_non_zero, max_non_zero);
+    inspect!(min_non_zero, max_non_zero);
 
 //
 //        if (maxNonZero >= BITMAP_SIZE)
@@ -263,7 +263,7 @@ pub fn decompress_bytes(
 
         // TODO why does bitmap contain many zeroes??
         // let rle_compressed = super::rle::compress_bytes(&bitmap[min_non_zero as usize .. (max_non_zero as usize + 1)]).unwrap();
-        // debug!(max_non_zero - min_non_zero, rle_compressed.len(), rle_compressed);
+        // inspect!(max_non_zero - min_non_zero, rle_compressed.len(), rle_compressed);
     }
 
 //
@@ -272,14 +272,14 @@ pub fn decompress_bytes(
 //
 
     let (lookup_table, max_value) = reverse_lookup_table_from_bitmap(&bitmap);
-    debug!(bitmap, lookup_table, max_value);
+    inspect!(bitmap, lookup_table, max_value);
 
 //        // Huffman decoding
 //        int length;
 //        Xdr::read <CharPtrIO> (inPtr, length);
 //
     let length = i32::read(&mut read)?;
-    debug!(length);
+    inspect!(length);
 
 //        if (length > inSize) {
 //            throw InputExc ("Error in header for PIZ-compressed data "
