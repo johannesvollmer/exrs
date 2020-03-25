@@ -61,7 +61,7 @@ fn main() {
     let start_time = ::std::time::Instant::now();
 
     // finally write the image
-    exr::image::write_all_lines_to_buffered(
+    exr::block::lines::write_all_lines_to_buffered(
         file,
         meta,
 

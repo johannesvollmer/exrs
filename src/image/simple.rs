@@ -10,7 +10,8 @@ use crate::meta::attributes::*;
 use crate::error::{Result, UnitResult, Error};
 use crate::math::*;
 use std::io::{Seek, BufReader, BufWriter};
-use crate::image::{LineRefMut, LineRef, OnWriteProgress, OnReadProgress, WriteOptions, ReadOptions};
+use crate::image::{OnWriteProgress, OnReadProgress, WriteOptions, ReadOptions};
+use crate::block::lines::{LineRef, LineRefMut};
 
 // TODO dry this module with image::full?
 
@@ -212,7 +213,7 @@ impl Image {
     /// open an issue on the github repository._
     #[must_use]
     pub fn read_from_buffered(read: impl Read + Send + Seek, options: ReadOptions<impl OnReadProgress>) -> Result<Self> { // TODO not need be seek nor send
-        let mut image: Image = crate::image::read_filtered_lines_from_buffered(
+        let mut image: Image = crate::block::lines::read_filtered_lines_from_buffered(
             read,
             Image::allocate,
 
@@ -262,7 +263,7 @@ impl Image {
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first.
     #[must_use]
     pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions<impl OnWriteProgress>) -> UnitResult {
-        crate::image::write_all_lines_to_buffered(
+        crate::block::lines::write_all_lines_to_buffered(
             write,  self.infer_meta_data(),
             |_meta, line_mut| self.extract_line(line_mut),
             options

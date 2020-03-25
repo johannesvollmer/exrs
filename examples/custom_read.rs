@@ -8,8 +8,6 @@ use std::fs::File;
 // exr imports
 extern crate exr;
 use exr::prelude::*;
-use exr::image;
-use exr::meta::attributes::SampleType;
 
 
 /// Collects the average pixel value for each channel.
@@ -43,7 +41,7 @@ fn main() {
     let start_time = ::std::time::Instant::now();
 
 
-    let averages = image::read_filtered_lines_from_buffered(
+    let averages = exr::block::lines::read_filtered_lines_from_buffered(
         file,
 
         // create an instance of our resulting image struct from the loaded file meta data

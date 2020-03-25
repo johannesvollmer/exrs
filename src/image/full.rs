@@ -22,7 +22,8 @@ use crate::error::{Result, UnitResult, Error};
 use crate::math::*;
 use std::io::{Seek, BufReader, BufWriter};
 use crate::io::Data;
-use crate::image::{LineRefMut, LineRef, OnWriteProgress, OnReadProgress, ReadOptions, WriteOptions};
+use crate::image::{OnWriteProgress, OnReadProgress, ReadOptions, WriteOptions};
+use crate::block::lines::{LineRef, LineRefMut};
 
 // FIXME this needs some of the changes that were made in simple.rs !!!
 
@@ -248,7 +249,7 @@ impl Image {
     #[inline]
     #[must_use]
     pub fn read_from_buffered(read: impl Read + Send, options: ReadOptions<impl OnReadProgress>) -> Result<Self> {
-        crate::image::read_all_lines_from_buffered(
+        crate::block::lines::read_all_lines_from_buffered(
             read,
             Image::allocate,
             |image, _meta, line| Image::insert_line(image, line),
@@ -284,7 +285,7 @@ impl Image {
     #[inline]
     #[must_use]
     pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions<impl OnWriteProgress>) -> UnitResult {
-        crate::image::write_all_lines_to_buffered(
+        crate::block::lines::write_all_lines_to_buffered(
             write,  self.infer_meta_data(),
             |_meta, line_mut| self.extract_line(line_mut),
             options

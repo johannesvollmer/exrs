@@ -7,7 +7,7 @@ pub mod attributes;
 use crate::io::*;
 use ::smallvec::SmallVec;
 use self::attributes::*;
-use crate::chunks::{TileCoordinates, Block};
+use crate::chunk::{TileCoordinates, Block};
 use crate::error::*;
 use std::fs::File;
 use std::io::{BufReader};
