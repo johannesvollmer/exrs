@@ -52,8 +52,8 @@ macro_rules! inspect {
 
     ($name: expr, $val: expr) => {
         {
-            print!("\nInspecting at {}:{} expression ", file!(), line!());
-            println!("{} = {:?}", name, $val);
+            print!("\nInspecting at {}:{} expression {}: ", file!(), line!(), $name);
+            println!("{} = {:?}", stringify!($val), $val);
             print!("\n");
 
             $val
