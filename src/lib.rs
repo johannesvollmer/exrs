@@ -43,7 +43,7 @@ macro_rules! inspect {
             println!("\nInspecting at {}:{}", file!(), line!());
 
             $(
-                println!("\t{} = {:?}", stringify!($var), $var);
+                println!("\t{} => {:?}", stringify!($var), $var);
             )*
 
             print!("\n");
@@ -53,7 +53,7 @@ macro_rules! inspect {
     ($name: expr, $val: expr) => {
         {
             print!("\nInspecting at {}:{} expression {}: ", file!(), line!(), $name);
-            println!("{} = {:?}", stringify!($val), $val);
+            println!("{} => {:?}", stringify!($val), $val);
             print!("\n");
 
             $val

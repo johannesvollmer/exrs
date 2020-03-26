@@ -264,15 +264,16 @@ fn decode(
                 let mut j = 0;
 
                 inspect!(pl_index, pl);
-                debug_assert_ne!(pl.short_code_lit, 0);
+                debug_assert_ne!(pl.lits.len(), 0);
 
-                while j < pl.short_code_lit {
+                // TODO pl.lits.find(|lit| ...).ok_or(Err())
+                while j < pl.lits.len() {
 
 
 // 		    int	l = hufLength (hcode[pl.p[j]]);
 //                     debug_assert!(j > 0);
 
-                    let plpj = pl.lits[j as usize];
+                    let plpj = pl.lits[j];
                     let encoded_plpj = encoding_table[plpj as usize];
                     let l = length(encoded_plpj);
 //
@@ -297,7 +298,8 @@ fn decode(
 // 			    break;
 // 			}
 // 		    }
-                    if lc >= l && code(plpj as i64) == (c >> (lc - l)) & ((1 << l) - 1) {
+                    inspect!(lc, l, code(encoded_plpj), (c >> (lc - l)) & ((1 << l) - 1));
+                    if lc >= l && code(encoded_plpj) == (c >> (lc - l)) & ((1 << l) - 1) {
                         println!("found long code");
                         lc -= l;
                         read_code(plpj, run_length_code, &mut c, &mut lc, &mut read, &mut output, expected_ouput_size)?;
@@ -307,9 +309,9 @@ fn decode(
                     j += 1;
                 }
 
-                if j == pl.short_code_lit { // loop ran through without finding the code
-                    inspect!(j, pl.short_code_lit);
-                    panic!();
+                if j == pl.lits.len() { // loop ran through without finding the code
+                    inspect!(pl.lits);
+                    panic!("could not find long code");
                     // return Err(Error::invalid("huffman code"))
                 }
 // 		}
@@ -393,8 +395,6 @@ fn decode(
 // {
 fn build_decoding_table(h_code: &[i64], min_hcode_index: usize, max_hcode_index: usize, decoding_table: &mut [Code]) -> UnitResult { // TODO use slices instead of slice+min/max
     debug_assert_eq!(decoding_table.len(), DECODING_TABLE_SIZE);
-
-    println!("min hcode index (should not be 0?): {}", min_hcode_index);
 
     for im in min_hcode_index ..= max_hcode_index {
         let hcode = h_code[im];
