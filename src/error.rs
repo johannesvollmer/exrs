@@ -80,7 +80,7 @@ impl error::Error for Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", <Self as error::Error>::description(self))
+        write!(f, "{}", self)
     }
 }
 
