@@ -6,6 +6,8 @@ use std::io::ErrorKind;
 pub use std::io::Error as IoError;
 pub use std::io::Result as IoResult;
 use std::convert::TryFrom;
+use std::error;
+use std::fmt;
 
 // Export types
 
@@ -67,6 +69,20 @@ impl From<IoError> for Error {
     }
 }
 
+impl error::Error for Error {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match *self {
+            Error::Io(ref err) => Some(err),
+            _                  => None,
+        }
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", <Self as error::Error>::description(self))
+    }
+}
 
 /// Return error on invalid range.
 #[inline]
