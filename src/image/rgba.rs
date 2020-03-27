@@ -260,7 +260,7 @@ impl Encoding {
         }
     }
 
-    /// Uses RLE compression with scan line blocks.
+    /// Uses RLE compression with tiled 128x128 blocks.
     #[inline]
     pub fn fast() -> Self {
         Self::compress(Compression::RLE)
