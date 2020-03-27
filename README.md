@@ -116,9 +116,9 @@ please leave an issue on this repository, containing the image file.
     - [x] Tiles
     - [x] Multipart
     - [ ] Deep Data
-    - [ ] User supplied line order
+    - [x] User supplied line order
     - [x] Rip/Mip Maps _(coded, but untested)_
-    - [ ] 100% correct meta data
+    - [x] 100% correct meta data
     - [x] Compression Methods
         - [x] Uncompressed
         - [x] ZIPS
