@@ -92,7 +92,6 @@ pub fn decompress(compressed: &[u8], result: &mut Vec<u16>) -> UnitResult {
     let mut h_decode = vec![Code::default(); DECODING_TABLE_SIZE];
     unpack_encoding_table(&mut remaining_bytes, min_hcode_index, max_hcode_index, &mut frequencies)?;
 
-
 //
 //         try {
 //             if (nBits > 8 * (nCompressed - (ptr - compressed)))
@@ -168,16 +167,12 @@ struct Code { // TODO use enum
 // TODO repr(packed)?
 enum Code {
     Short (ShortCode),
-    Long (LongCode)
-}
-
-struct LongCode {
-    value: i32,
-    len: u8
+    Long (Vec<u16>)
 }
 
 struct ShortCode {
-    values: Vec<u16>
+    value: i32,
+    len: u8
 }*/
 
 
@@ -266,7 +261,7 @@ fn decode(
                 inspect!(pl_index, pl);
                 debug_assert_ne!(pl.lits.len(), 0);
 
-                // TODO pl.lits.find(|lit| ...).ok_or(Err())
+                // TODO pl.lits.iter().find(|lit| ...).ok_or(Err())
                 while j < pl.lits.len() {
 
 
@@ -274,32 +269,30 @@ fn decode(
 //                     debug_assert!(j > 0);
 
                     let plpj = pl.lits[j];
-                    let encoded_plpj = encoding_table[plpj as usize];
-                    let l = length(encoded_plpj);
+                    let hcode_plpj = encoding_table[plpj as usize];
+                    let l = length(hcode_plpj);
 //
 // 		    while (lc < l && in < ie)	// get more bits
 // 			getChar (c, lc, in);
                     while lc < l && !read.is_empty() {
                         read_byte(&mut c, &mut lc, &mut read)?;
                     }
-//
+
 // 		    if (lc >= l)
 // 		    {
 
 // 			if (hufCode (hcode[pl.p[j]]) ==
 // 				((c >> (lc - l)) & ((Int64(1) << l) - 1)))
 // 			{
-// 			    //
 // 			    // Found : get long code
-// 			    //
-//
 // 			    lc -= l;
 // 			    getCode (pl.p[j], rlc, c, lc, in, out, outb, oe);
 // 			    break;
 // 			}
 // 		    }
-                    inspect!(lc, l, code(encoded_plpj), (c >> (lc - l)) & ((1 << l) - 1));
-                    if lc >= l && code(encoded_plpj) == (c >> (lc - l)) & ((1 << l) - 1) {
+                    inspect!(lc, l, code(hcode_plpj), (c >> (lc - l)) & ((1 << l) - 1));
+                    if lc >= l && code(hcode_plpj) == ((c >> (lc - l)) & ((1 << l) - 1)) {
+
                         println!("found long code");
                         lc -= l;
                         read_code(plpj, run_length_code, &mut c, &mut lc, &mut read, &mut output, expected_ouput_size)?;
@@ -476,21 +469,14 @@ fn build_decoding_table(h_code: &[i64], min_hcode_index: usize, max_hcode_index:
         else if l != 0 {
 // 	else if (l)
 // 	{
-// 	    //
 // 	    // Short code: init all primary entries
-// 	    //
-//
 // 	    HufDec *pl = hdecod + (c << (HUF_DECBITS - l));
 //
 // 	    for (Int64 i = 1 << (HUF_DECBITS - l); i > 0; i--, pl++)
 // 	    {
-// 		    if (pl->len || pl->p)
-// 		    {
-// 		        //
+// 		    if (pl->len || pl->p) {
 // 		        // Error: a short code or a long code has
 // 		        // already been stored in table entry *pl.
-// 		        //
-//
 // 		        invalidTableEntry();
 // 		    }
 
