@@ -878,7 +878,7 @@ impl Channel {
         }
 
         if strict && allow_sampling && self.sampling != Vec2(1,1) {
-            return Err(Error::invalid("sub sampling is only allowed in flat scan line images"));
+            return Err(Error::invalid("subsampling is only allowed in flat scan line images"));
         }
 
         if data_window.position.0 % self.sampling.0 as i32 != 0 || data_window.position.1 % self.sampling.1 as i32 != 0 {
@@ -893,7 +893,7 @@ impl Channel {
             // TODO this must only be implemented in the crate::image module and child modules,
             //      should not be too difficult
 
-            return Err(Error::unsupported("channel sub sampling not supported yet"));
+            return Err(Error::unsupported("channel subsampling not supported yet"));
         }
 
         Ok(())

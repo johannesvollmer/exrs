@@ -39,10 +39,10 @@ fn main() {
             fn set_pixel(&mut self, _: &rgba::Image, position: Vec2<usize>, pixel: rgba::Pixel) {
 
                 // convert all samples, including alpha, to 16-bit floats, and then store them in the array
-                self.lines[position.1][position.0] = [
-                    pixel.red.to_f16(), pixel.green.to_f16(), pixel.blue.to_f16(),
-                    pixel.alpha.map(|a| a.to_f16()).unwrap_or(f16::ONE),
-                ];
+                // (inserts 1.0 as default alpha if no alpha channel is in the file)
+                let pixel_f16_array: [f16; 4] = pixel.into();
+
+                self.lines[position.1][position.0] = pixel_f16_array;
             }
         }
 
@@ -77,7 +77,7 @@ fn main() {
 
         // also update meta data after modifying the image
         if let Some(exposure) = &mut image.layer_attributes.exposure {
-            println!("increased exposure from {} to {}", exposure, *exposure * 3.0);
+            println!("increased exposure from {}s to {}s", exposure, *exposure * 3.0);
             *exposure *= 3.0;
         }
     }
@@ -89,8 +89,8 @@ fn main() {
 
             // extract a single pixel with red, green, blue, and optionally and alpha value.
             fn get_pixel(&self, _image: &Image, position: Vec2<usize>) -> Pixel {
-                let [r, g, b, a] = self.lines[position.1][position.0];
-                rgba::Pixel::rgba(r, g, b, a)
+                let rgba_f16_array: [f16; 4] = self.lines[position.1][position.0];
+                rgba::Pixel::from(rgba_f16_array)
             }
         }
 

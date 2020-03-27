@@ -26,14 +26,15 @@ fn main() {
         )
     };
 
-    rgba::Image
-        // create the image with the generator as content
-        ::without_alpha(
-            Vec2(2*2048, 2*2048),
-            rgba::Channel::linear(SampleType::F16), // the generated f32 is converted to an f16 while writing the file
-        )
+    let image_info = rgba::Image::rgb(
+        Vec2(2*2048, 2*2048),
 
-        // write it to a file with all cores in parallel
+        // the generated f32 is converted to an f16 while writing the file
+        rgba::Channel::linear(SampleType::F16),
+    );
+
+    // write it to a file with all cores in parallel
+    image_info
         .with_encoding(rgba::Encoding::compress(Compression::RLE))
         .write_to_file(
             "tests/images/out/generated_rgba.exr",

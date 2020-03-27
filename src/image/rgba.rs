@@ -24,6 +24,7 @@ use crate::compression::Compression;
 use std::collections::HashSet;
 use crate::block::samples::Sample;
 
+
 /// A summary of an image file.
 /// Does not contain any actual pixel data.
 ///
@@ -123,6 +124,9 @@ pub trait SetPixels {
 
 /// A single pixel with red, green, blue, and alpha samples.
 /// Each channel may have a different sample type.
+///
+/// A Pixel can be created using `Pixel::rgb(0_f32, 0_u32, f16::ONE)` or `Pixel::rgba(0_f32, 0_u32, 0_f32, f16::ONE)`.
+/// Additionally, a pixel can be converted from a tuple or array with either three or four components using `Pixel::from((0_u32, 0_f32, f16::ONE))`.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Pixel {
 
@@ -156,6 +160,44 @@ impl Pixel {
     #[inline] pub fn rgba(red: impl Into<Sample>, green: impl Into<Sample>, blue: impl Into<Sample>, alpha: impl Into<Sample>) -> Self {
         Self::new(red, green, blue, Some(alpha))
     }
+}
+
+impl<R, G, B> From<(R, G, B)> for Pixel where R: Into<Sample>, G: Into<Sample>, B: Into<Sample> {
+    fn from((r,g,b): (R, G, B)) -> Self { Self::rgb(r,g,b) }
+}
+
+impl<R, G, B, A> From<(R, G, B, A)> for Pixel where R: Into<Sample>, G: Into<Sample>, B: Into<Sample>, A: Into<Sample> {
+    fn from((r,g,b,a): (R, G, B, A)) -> Self { Self::rgba(r,g,b, a) }
+}
+
+impl<R, G, B> From<Pixel> for (R, G, B) where R: From<Sample>, G: From<Sample>, B: From<Sample> {
+    fn from(pixel: Pixel) -> Self { (R::from(pixel.red), G::from(pixel.green), B::from(pixel.blue)) }
+}
+
+impl<R, G, B, A> From<Pixel> for (R, G, B, A) where R: From<Sample>, G: From<Sample>, B: From<Sample>, A: From<Sample> {
+    fn from(pixel: Pixel) -> Self { (
+        R::from(pixel.red), G::from(pixel.green), B::from(pixel.blue),
+        A::from(pixel.alpha.unwrap_or(Sample::default_alpha()))
+    ) }
+}
+
+impl<S> From<[S; 3]> for Pixel where S: Into<Sample> {
+    fn from([r,g,b]: [S; 3]) -> Self { Self::rgb(r,g,b) }
+}
+
+impl<S> From<[S; 4]> for Pixel where S: Into<Sample> {
+    fn from([r,g,b, a]: [S; 4]) -> Self { Self::rgba(r,g,b, a) }
+}
+
+impl<S> From<Pixel> for [S; 3] where S: From<Sample> {
+    fn from(pixel: Pixel) -> Self { [S::from(pixel.red), S::from(pixel.green), S::from(pixel.blue)] }
+}
+
+impl<S> From<Pixel> for [S; 4] where S: From<Sample> {
+    fn from(pixel: Pixel) -> Self { [
+        S::from(pixel.red), S::from(pixel.green), S::from(pixel.blue),
+        S::from(pixel.alpha.unwrap_or(Sample::default_alpha()))
+    ] }
 }
 
 impl Channel {
@@ -235,12 +277,12 @@ impl Encoding {
 impl Image {
 
     /// Create an Image with an alpha channel. Each channel will be the same as the specified channel.
-    pub fn with_alpha(resolution: Vec2<usize>, channel: Channel) -> Self {
+    pub fn rgba(resolution: Vec2<usize>, channel: Channel) -> Self {
         Self::new(resolution, (channel, channel, channel, Some(channel)))
     }
 
     /// Create an Image without an alpha channel. Each channel will be the same as the specified channel.
-    pub fn without_alpha(resolution: Vec2<usize>, channel: Channel) -> Self {
+    pub fn rgb(resolution: Vec2<usize>, channel: Channel) -> Self {
         Self::new(resolution, (channel, channel, channel, None))
     }
 
@@ -633,7 +675,7 @@ impl Image {
                         write_b(pixel.blue);
 
                         if let Some(write_a) = &mut write_a {
-                            write_a(pixel.alpha.unwrap_or(Sample::F32(1.0))); // no alpha channel provided = not transparent
+                            write_a(pixel.alpha.unwrap_or(Sample::default_alpha())); // no alpha channel provided = not transparent
                         }
                     }
                 }
@@ -655,21 +697,21 @@ pub mod pixels {
     /// Constructor for a flattened f16 pixel storage.
     /// This function an directly be passed to `rgba::Image::load_from_file` and friends.
     /// It will construct a `rgba::pixels::Flattened<f16>` image.
-    #[inline] pub fn flat_f16(image: &Image) -> Flattened<f16> {
+    #[inline] pub fn flattened_f16(image: &Image) -> Flattened<f16> {
         Flattened { samples: vec![f16::ZERO; image.resolution.area() * image.channel_count()] }
     }
 
     /// Constructor for a flattened f32 pixel storage.
     /// This function an directly be passed to `rgba::Image::load_from_file` and friends.
     /// It will construct a `rgba::pixels::Flattened<f32>` image.
-    #[inline] pub fn flat_f32(image: &Image) -> Flattened<f32> {
+    #[inline] pub fn flattened_f32(image: &Image) -> Flattened<f32> {
         Flattened { samples: vec![0.0; image.resolution.area() * image.channel_count()] }
     }
 
     /// Constructor for a flattened u32 pixel storage.
     /// This function an directly be passed to `rgba::Image::load_from_file` and friends.
     /// It will construct a `rgba::pixels::Flattened<u32>` image.
-    #[inline] pub fn flat_u32(image: &Image) -> Flattened<u32> {
+    #[inline] pub fn flattened_u32(image: &Image) -> Flattened<u32> {
         Flattened { samples: vec![0; image.resolution.area() * image.channel_count()] }
     }
 
@@ -684,52 +726,51 @@ pub mod pixels {
         /// In each row, for each pixel, its red, green, blue, and then alpha
         /// samples are stored one after another.
         ///
-        /// Use `Flattened::flatten_sample_index(image, sample_index)`
-        /// to compute the flat index of a specific sample.
+        /// Use `Flattened::compute_pixel_index(image, position)`
+        /// to compute the flat index of a specific pixel.
         samples: Vec<T>,
     }
 
     impl<T> Flattened<T> {
 
-        /// Compute the flat index of a specific sample. The computed index can be used with `Flattened.samples[index]`.
+        /// Compute the flat index of a specific pixel. Returns a range of either 3 or 4 samples.
+        /// The computed index can be used with `Flattened.samples[index]`.
         /// Panics for invalid sample coordinates.
         #[inline]
-        pub fn flatten_sample_index(image: &Image, position: Vec2<usize>, channel: usize) -> usize {
+        pub fn compute_pixel_index(image: &Image, position: Vec2<usize>) -> std::ops::Range<usize> {
             debug_assert!(position.0 < image.resolution.0 && position.1 < image.resolution.1, "invalid pixel position");
-            debug_assert!(channel < image.channel_count(), "invalid channel index");
 
             let pixel_index = position.1 * image.resolution.0 + position.0;
-            pixel_index * image.channel_count() + channel
+            let red_index = pixel_index * image.channel_count();
+            (red_index .. red_index + image.channel_count())
         }
+
     }
 
     impl<T> GetPixels for Flattened<T> where T: Sync + Copy + Into<Sample> {
         #[inline] fn get_pixel(&self, image: &Image, position: Vec2<usize>) -> Pixel {
-            Pixel::new(
-                self.samples[Self::flatten_sample_index(image, position, 0)],
-                self.samples[Self::flatten_sample_index(image, position, 1)],
-                self.samples[Self::flatten_sample_index(image, position, 2)],
-                image.channels.3.map(|_| self.samples[Self::flatten_sample_index(image, position, 3)]),
-            )
+            let pixel = &self.samples[Self::compute_pixel_index(image, position)];
+            Pixel::new(pixel[0], pixel[1], pixel[2], pixel.get(3).cloned())
         }
     }
 
-    impl<T> SetPixels for Flattened<T> where T: From<Sample> {
+    impl<T> SetPixels for Flattened<T> where T: Copy + From<Sample> {
         #[inline] fn set_pixel(&mut self, image: &Image, position: Vec2<usize>, pixel: Pixel) {
-            self.samples[Self::flatten_sample_index(image, position, 0)] = T::from(pixel.red);
-            self.samples[Self::flatten_sample_index(image, position, 1)] = T::from(pixel.green);
-            self.samples[Self::flatten_sample_index(image, position, 2)] = T::from(pixel.blue);
+            let samples = &mut self.samples[Self::compute_pixel_index(image, position)];
 
-            if let Some(a) = pixel.alpha {
-                self.samples[Self::flatten_sample_index(image, position, 3)] = T::from(a);
+            samples[0] = pixel.red.into();
+            samples[1] = pixel.green.into();
+            samples[2] = pixel.blue.into();
+
+            if samples.len() == 4 {
+                samples[3] = pixel.alpha.unwrap_or(Sample::default_alpha()).into();
             }
         }
     }
 
     use std::fmt::*;
     impl<T> Debug for Flattened<T> {
-        #[inline]
-        fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        #[inline] fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
             write!(formatter, "[{}; {}]", std::any::type_name::<T>(), self.samples.len())
         }
     }
