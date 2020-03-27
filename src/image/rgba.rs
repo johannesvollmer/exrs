@@ -101,7 +101,7 @@ pub trait GetPixels: Sync { // TODO does not actually always need sync
     /// The alpha value may be ignored by the image.
     /// If the image has an alpha channel but no alpha value is provided,
     /// a value of `1.0` is used as default alpha.
-    fn get_pixel(&self, image: &Image, position: Vec2<usize>) -> Pixel;
+    fn get_pixel(&self, position: Vec2<usize>) -> Pixel;
 }
 
 /// Create the pixels of an image file. Implement this for your own image type to read a file into your image.
@@ -119,7 +119,7 @@ pub trait CreatePixels {
 pub trait SetPixels {
 
     /// Set the value of a single pixel.
-    fn set_pixel(&mut self, image: &Image, position: Vec2<usize>, pixel: Pixel);
+    fn set_pixel(&mut self, position: Vec2<usize>, pixel: Pixel);
 }
 
 /// A single pixel with red, green, blue, and alpha samples.
@@ -214,8 +214,8 @@ impl Channel {
 }
 
 
-impl<F> GetPixels for F where F: Sync + Fn(&Image, Vec2<usize>) -> Pixel {
-    #[inline] fn get_pixel(&self, image: &Image, position: Vec2<usize>) -> Pixel { self(image, position) }
+impl<F> GetPixels for F where F: Sync + Fn(Vec2<usize>) -> Pixel {
+    #[inline] fn get_pixel(&self, position: Vec2<usize>) -> Pixel { self(position) }
 }
 
 impl<F, T> CreatePixels for F where F: FnOnce(&Image) -> T, T: SetPixels {
@@ -223,8 +223,8 @@ impl<F, T> CreatePixels for F where F: FnOnce(&Image) -> T, T: SetPixels {
     #[inline] fn new(self, image: &Image) -> Self::Pixels { self(image) }
 }
 
-impl<F> SetPixels for F where F: FnMut(&Image, Vec2<usize>, Pixel) {
-    #[inline] fn set_pixel(&mut self, image: &Image, position: Vec2<usize>, pixel: Pixel) { self(image, position, pixel) }
+impl<F> SetPixels for F where F: FnMut(Vec2<usize>, Pixel) {
+    #[inline] fn set_pixel(&mut self, position: Vec2<usize>, pixel: Pixel) { self(position, pixel) }
 }
 
 
@@ -434,7 +434,7 @@ impl Image {
                 };
 
                 let byte_lines = block.data.chunks_exact(line_bytes);
-                let y_coords = 0 .. block.index.pixel_size.1;
+                let y_coords = 0 .. block.index.pixel_size.height();
                 for (y, byte_line) in y_coords.zip(byte_lines) {
 
                     let mut next_r = sample_reader(r_type, &byte_line[r_range.clone()]);
@@ -467,7 +467,7 @@ impl Image {
                         );
 
                         let position = block.index.pixel_position + Vec2(x,y);
-                        pixels.set_pixel(image, position, pixel);
+                        pixels.set_pixel(position, pixel);
                     }
                 }
 
@@ -641,7 +641,7 @@ impl Image {
 
                 let mut block_bytes = vec![0_u8; block_bytes];
 
-                let y_coordinates = 0..block_index.pixel_size.1;
+                let y_coordinates = 0..block_index.pixel_size.height();
                 let byte_lines = block_bytes.chunks_exact_mut(line_bytes);
                 for (y, line_bytes) in y_coordinates.zip(byte_lines) {
 
@@ -670,7 +670,7 @@ impl Image {
 
                     for x in 0..width {
                         let position = block_index.pixel_position + Vec2(x,y);
-                        let pixel = pixels.get_pixel(self, position);
+                        let pixel = pixels.get_pixel(position);
 
                         write_r(pixel.red);
                         write_g(pixel.green);
@@ -700,21 +700,33 @@ pub mod pixels {
     /// This function an directly be passed to `rgba::Image::load_from_file` and friends.
     /// It will construct a `rgba::pixels::Flattened<f16>` image.
     #[inline] pub fn flattened_f16(image: &Image) -> Flattened<f16> {
-        Flattened { samples: vec![f16::ZERO; image.resolution.area() * image.channel_count()] }
+        Flattened {
+            width: image.resolution.0,
+            channels: image.channel_count(),
+            samples: vec![f16::ZERO; image.resolution.area() * image.channel_count()]
+        }
     }
 
     /// Constructor for a flattened f32 pixel storage.
     /// This function an directly be passed to `rgba::Image::load_from_file` and friends.
     /// It will construct a `rgba::pixels::Flattened<f32>` image.
     #[inline] pub fn flattened_f32(image: &Image) -> Flattened<f32> {
-        Flattened { samples: vec![0.0; image.resolution.area() * image.channel_count()] }
+        Flattened {
+            width: image.resolution.0,
+            channels: image.channel_count(),
+            samples: vec![0.0; image.resolution.area() * image.channel_count()]
+        }
     }
 
     /// Constructor for a flattened u32 pixel storage.
     /// This function an directly be passed to `rgba::Image::load_from_file` and friends.
     /// It will construct a `rgba::pixels::Flattened<u32>` image.
     #[inline] pub fn flattened_u32(image: &Image) -> Flattened<u32> {
-        Flattened { samples: vec![0; image.resolution.area() * image.channel_count()] }
+        Flattened {
+            width: image.resolution.0,
+            channels: image.channel_count(),
+            samples: vec![0; image.resolution.area() * image.channel_count()]
+        }
     }
 
     /// Store all samples in a single array.
@@ -724,13 +736,16 @@ pub mod pixels {
     #[derive(PartialEq, Clone)]
     pub struct Flattened<T> {
 
+        channels: usize,
+        width: usize,
+
         /// The flattened vector contains all rows one after another.
         /// In each row, for each pixel, its red, green, blue, and then alpha
         /// samples are stored one after another.
         ///
         /// Use `Flattened::compute_pixel_index(image, position)`
         /// to compute the flat index of a specific pixel.
-        samples: Vec<T>,
+        pub samples: Vec<T>,
     }
 
     impl<T> Flattened<T> {
@@ -739,26 +754,25 @@ pub mod pixels {
         /// The computed index can be used with `Flattened.samples[index]`.
         /// Panics for invalid sample coordinates.
         #[inline]
-        pub fn compute_pixel_index(image: &Image, position: Vec2<usize>) -> std::ops::Range<usize> {
-            debug_assert!(position.0 < image.resolution.0 && position.1 < image.resolution.1, "invalid pixel position");
-
-            let pixel_index = position.1 * image.resolution.0 + position.0;
-            let red_index = pixel_index * image.channel_count();
-            (red_index .. red_index + image.channel_count())
+        pub fn compute_pixel_index(&self, position: Vec2<usize>) -> std::ops::Range<usize> {
+            let pixel_index = position.y() * self.width + position.x();
+            let red_index = pixel_index * self.channels;
+            (red_index .. red_index + self.channels)
         }
 
     }
 
     impl<T> GetPixels for Flattened<T> where T: Sync + Copy + Into<Sample> {
-        #[inline] fn get_pixel(&self, image: &Image, position: Vec2<usize>) -> Pixel {
-            let pixel = &self.samples[Self::compute_pixel_index(image, position)];
+        #[inline] fn get_pixel(&self, position: Vec2<usize>) -> Pixel {
+            let pixel = &self.samples[self.compute_pixel_index(position)];
             Pixel::new(pixel[0], pixel[1], pixel[2], pixel.get(3).cloned())
         }
     }
 
     impl<T> SetPixels for Flattened<T> where T: Copy + From<Sample> {
-        #[inline] fn set_pixel(&mut self, image: &Image, position: Vec2<usize>, pixel: Pixel) {
-            let samples = &mut self.samples[Self::compute_pixel_index(image, position)];
+        #[inline] fn set_pixel(&mut self, position: Vec2<usize>, pixel: Pixel) {
+            let index = self.compute_pixel_index(position);
+            let samples = &mut self.samples[index];
 
             samples[0] = pixel.red.into();
             samples[1] = pixel.green.into();

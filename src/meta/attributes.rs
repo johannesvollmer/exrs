@@ -674,7 +674,7 @@ impl IntRect {
     /// Validate this instance.
     pub fn validate(&self, max: Option<Vec2<usize>>) -> UnitResult {
         if let Some(max) = max {
-            if self.size.0 > max.0 || self.size.1 > max.1  {
+            if self.size.width() > max.width() || self.size.height() > max.height()  {
                 return Err(Error::invalid("window attribute dimension value"));
             }
         }
@@ -682,13 +682,13 @@ impl IntRect {
         let max_int = std::i32::MAX as i64 / 2; // cannot go bigger than that ever
 
         let self_max = Vec2(
-            self.position.0 as i64 + self.size.0 as i64,
-            self.position.1 as i64 + self.size.1 as i64,
+            self.position.x() as i64 + self.size.width() as i64,
+            self.position.y() as i64 + self.size.height() as i64,
         );
 
-        if self_max.0 >= max_int || self_max.1 >= max_int
-            || self.position.0 as i64 <= -max_int
-            || self.position.1 as i64 <= -max_int
+        if self_max.x() >= max_int || self_max.y() >= max_int
+            || self.position.x() as i64 <= -max_int
+            || self.position.y() as i64 <= -max_int
         {
             return Err(Error::invalid("window size exceeding integer maximum"));
         }
@@ -722,7 +722,7 @@ impl IntRect {
 
         let min = Vec2(x_min.min(x_max), y_min.min(y_max));
         let max  = Vec2(x_min.max(x_max), y_min.max(y_max)); // these are inclusive!
-        let size = Vec2(max.0 + 1 - min.0, max.1 + 1 - min.1); // which is why we add 1
+        let size = Vec2(max.x() + 1 - min.x(), max.y() + 1 - min.y()); // which is why we add 1
         let size = size.to_usize("box coordinates")?;
 
         Ok(IntRect { position: min, size })
@@ -744,10 +744,10 @@ impl FloatRect {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
-        self.min.0.write(write)?;
-        self.min.1.write(write)?;
-        self.max.0.write(write)?;
-        self.max.1.write(write)?;
+        self.min.x().write(write)?;
+        self.min.y().write(write)?;
+        self.max.x().write(write)?;
+        self.max.y().write(write)?;
         Ok(())
     }
 
@@ -842,8 +842,8 @@ impl Channel {
         }.write(write)?;
 
         i8::write_slice(write, &[0_i8, 0_i8, 0_i8])?;
-        i32::write(usize_to_i32(self.sampling.0), write)?;
-        i32::write(usize_to_i32(self.sampling.1), write)?;
+        i32::write(usize_to_i32(self.sampling.x()), write)?;
+        i32::write(usize_to_i32(self.sampling.y()), write)?;
         Ok(())
     }
 
@@ -873,7 +873,7 @@ impl Channel {
 
     /// Validate this instance.
     pub fn validate(&self, allow_sampling: bool, data_window: IntRect, strict: bool) -> UnitResult {
-        if self.sampling.0 == 0 || self.sampling.1 == 0 {
+        if self.sampling.x() == 0 || self.sampling.y() == 0 {
             return Err(Error::invalid("zero sampling factor"));
         }
 
@@ -881,11 +881,11 @@ impl Channel {
             return Err(Error::invalid("subsampling is only allowed in flat scan line images"));
         }
 
-        if data_window.position.0 % self.sampling.0 as i32 != 0 || data_window.position.1 % self.sampling.1 as i32 != 0 {
+        if data_window.position.x() % self.sampling.x() as i32 != 0 || data_window.position.y() % self.sampling.y() as i32 != 0 {
             return Err(Error::invalid("channel sampling factor not dividing data window position"));
         }
 
-        if data_window.size.0 % self.sampling.0 != 0 || data_window.size.1 % self.sampling.1 != 0 {
+        if data_window.size.x() % self.sampling.x() != 0 || data_window.size.y() % self.sampling.y() != 0 {
             return Err(Error::invalid("channel sampling factor not dividing data window size"));
         }
 
@@ -974,17 +974,17 @@ impl Chromaticities {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
-        self.red.0.write(write)?;
-        self.red.1.write(write)?;
+        self.red.x().write(write)?;
+        self.red.y().write(write)?;
 
-        self.green.0.write(write)?;
-        self.green.1.write(write)?;
+        self.green.x().write(write)?;
+        self.green.y().write(write)?;
 
-        self.blue.0.write(write)?;
-        self.blue.1.write(write)?;
+        self.blue.x().write(write)?;
+        self.blue.y().write(write)?;
 
-        self.white.0.write(write)?;
-        self.white.1.write(write)?;
+        self.white.x().write(write)?;
+        self.white.y().write(write)?;
         Ok(())
     }
 
@@ -1142,8 +1142,8 @@ impl Preview {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
-        u32::write(self.size.0 as u32, write)?;
-        u32::write(self.size.1 as u32, write)?;
+        u32::write(self.size.width() as u32, write)?;
+        u32::write(self.size.height() as u32, write)?;
 
         i8::write_slice(write, &self.pixel_data)?;
         Ok(())
@@ -1167,7 +1167,7 @@ impl Preview {
 
     /// Validate this instance.
     pub fn validate(&self, strict: bool) -> UnitResult {
-        if strict && (self.size.0 * self.size.1 * 4 != self.pixel_data.len()) {
+        if strict && (self.size.area() * 4 != self.pixel_data.len()) {
             return Err(Error::invalid("preview dimensions do not match content length"))
         }
 
@@ -1177,7 +1177,7 @@ impl Preview {
 
 impl ::std::fmt::Debug for Preview {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        write!(f, "Preview ({}x{} px)", self.size.0, self.size.1)
+        write!(f, "Preview ({}x{} px)", self.size.width(), self.size.height())
     }
 }
 
@@ -1190,8 +1190,8 @@ impl TileDescription {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
-        u32::write(self.tile_size.0 as u32, write)?;
-        u32::write(self.tile_size.1 as u32, write)?;
+        u32::write(self.tile_size.width() as u32, write)?;
+        u32::write(self.tile_size.height() as u32, write)?;
 
         let level_mode = match self.level_mode {
             LevelMode::Singular => 0_u8,
@@ -1241,7 +1241,9 @@ impl TileDescription {
     pub fn validate(&self) -> UnitResult {
         let max = std::i32::MAX as i64 / 2;
 
-        if self.tile_size.0 == 0 || self.tile_size.1 == 0 || self.tile_size.0 as i64 >= max || self.tile_size.1 as i64 >= max  {
+        if self.tile_size.width() == 0 || self.tile_size.height() == 0
+            || self.tile_size.width() as i64 >= max || self.tile_size.height() as i64 >= max
+        {
             return Err(Error::invalid("tile size"))
         }
 

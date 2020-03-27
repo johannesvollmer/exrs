@@ -189,19 +189,19 @@ pub fn decompress_bytes(
 //        maxX = _maxX;
 
 
-    let _min_x = rectangle.position.0;
-    let min_y = rectangle.position.1;
+    let _min_x = rectangle.position.x();
+    let min_y = rectangle.position.y();
 
-    let mut _max_x = rectangle.max().0;
-    let mut max_y = rectangle.max().1;
+    let mut _max_x = rectangle.max().x();
+    let mut max_y = rectangle.max().y();
 
     // TODO rustify
-    if _max_x > header.data_window().max().0 {
-        _max_x = header.data_window().max().0;
+    if _max_x > header.data_window().max().x() {
+        _max_x = header.data_window().max().x();
     }
 
-    if max_y > header.data_window().max().1 {
-        max_y = header.data_window().max().1;
+    if max_y > header.data_window().max().y() {
+        max_y = header.data_window().max().y();
     }
 
 //
@@ -233,13 +233,13 @@ pub fn decompress_bytes(
         let channel = ChannelData {
             start_index: tmp_buffer_end,
             end_index: tmp_buffer_end,
-            y_samples: channel.sampling.1 as u32,
+            y_samples: channel.sampling.y() as u32,
             number_samples: channel.subsampled_resolution(rectangle.size).map(|x| x as u32),
             // number_samples_x, number_samples_y,
             size: (channel.sample_type.bytes_per_sample() / SampleType::F16.bytes_per_sample()) as u32
         };
 
-        tmp_buffer_end += channel.number_samples.0 * channel.number_samples.1 * channel.size;
+        tmp_buffer_end += channel.number_samples.area() * channel.size;
         channel_data.push(channel);
     }
 
@@ -343,8 +343,8 @@ pub fn decompress_bytes(
         for size in 0..channel.size {
             wave_2_decode(
                 &mut tmp_buffer[(channel.start_index + size) as usize..],
-                channel.number_samples.0, channel.size, channel.number_samples.1,
-                channel.number_samples.0 * channel.size, max_value
+                channel.number_samples.x(), channel.size, channel.number_samples.y(),
+                channel.number_samples.x() * channel.size, max_value
             )?;
         }
     }

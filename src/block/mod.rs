@@ -404,7 +404,7 @@ impl UncompressedBlock {
                     compressed_pixels: compressed_data,
 
                     // FIXME this calculation should not be made here but elsewhere instead (in meta::header?)
-                    y_coordinate: usize_to_i32(index.pixel_position.1) + header.own_attributes.data_position.1,
+                    y_coordinate: usize_to_i32(index.pixel_position.y()) + header.own_attributes.data_position.y(),
                 }),
 
                 Blocks::Tiles(tiles) => Block::Tile(TileBlock {
