@@ -181,7 +181,7 @@ fn main() {
     };
 
     let image_info = rgba::Image::rgb(
-        (my_image.width, image.height), 
+        (my_image.width, my_image.height), 
 
         // all numbers will be converted to f16 automatically
         rgba::Channel::linear(SampleType::F16), 
