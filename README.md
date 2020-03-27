@@ -175,7 +175,7 @@ Example: Write all image contents to an exr file at once.
 fn main() {
     let my_image = unimplemented!();
 
-    let get_pixel = |image: &Image, position: Vec2<usize>| {
+    let get_pixel = |_image_info: &Image, position: Vec2<usize>| {
         let [r, g, b, a] = my_image[position];
         rgba::Pixel::rgba(r, g, b, a)
     };
