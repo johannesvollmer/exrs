@@ -277,17 +277,19 @@ impl Encoding {
 impl Image {
 
     /// Create an Image with an alpha channel. Each channel will be the same as the specified channel.
-    pub fn rgba(resolution: Vec2<usize>, channel: Channel) -> Self {
+    pub fn rgba(resolution: impl Into<Vec2<usize>>, channel: Channel) -> Self {
         Self::new(resolution, (channel, channel, channel, Some(channel)))
     }
 
     /// Create an Image without an alpha channel. Each channel will be the same as the specified channel.
-    pub fn rgb(resolution: Vec2<usize>, channel: Channel) -> Self {
+    pub fn rgb(resolution: impl Into<Vec2<usize>>, channel: Channel) -> Self {
         Self::new(resolution, (channel, channel, channel, None))
     }
 
     /// Create an image with the resolution and channels.
-    pub fn new(resolution: Vec2<usize>, channels: Channels) -> Self {
+    pub fn new(resolution: impl Into<Vec2<usize>>, channels: Channels) -> Self {
+        let resolution = resolution.into();
+
         Self {
             resolution, channels,
             image_attributes: ImageAttributes::new(resolution),

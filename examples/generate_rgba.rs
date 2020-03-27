@@ -27,7 +27,7 @@ fn main() {
     };
 
     let image_info = rgba::Image::rgb(
-        Vec2(2*2048, 2*2048),
+        (2*2048, 2*2048),
 
         // the generated f32 is converted to an f16 while writing the file
         rgba::Channel::linear(SampleType::F16),

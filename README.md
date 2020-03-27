@@ -173,21 +173,23 @@ Example: Write all image contents to an exr file at once.
 
 ```rust
 fn main() {
-    let my_image = unimplemented!();
+    let my_image = unimplemented!("this is your own image value");
 
     let get_pixel = |_image_info: &Image, position: Vec2<usize>| {
-        let [r, g, b, a] = my_image[position];
+        let [r, g, b, a] = my_image.pixel_at_xy(position.0, position.1);
         rgba::Pixel::rgba(r, g, b, a)
     };
 
-    // all numbers will be converted to f16 automatically
     let image_info = rgba::Image::rgb(
-        Vec2(2048, 2048), rgba::Channel::linear(SampleType::F16), 
+        (my_image.width, image.height), 
+
+        // all numbers will be converted to f16 automatically
+        rgba::Channel::linear(SampleType::F16), 
     );
 
     // write the pixels to a file
     image_info
-        .with_encoding(rgba::Encoding::fast())
+        .with_encoding(rgba::Encoding::small())
         .write_to_file(
             "tests/images/out/generated_rgba.exr",
             write_options::high(), // using all CPUs
