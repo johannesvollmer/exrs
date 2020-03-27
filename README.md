@@ -116,9 +116,9 @@ please leave an issue on this repository, containing the image file.
     - [x] Tiles
     - [x] Multipart
     - [ ] Deep Data
-    - [ ] User supplied line order
+    - [x] User supplied line order
     - [x] Rip/Mip Maps _(coded, but untested)_
-    - [ ] 100% correct meta data
+    - [x] 100% correct meta data
     - [x] Compression Methods
         - [x] Uncompressed
         - [x] ZIPS
@@ -173,36 +173,28 @@ Example: Write all image contents to an exr file at once.
 
 ```rust
 fn main() {
-    let size = Vec2(1024, 512);
-    
-    let r = Channel::new_linear(
-        "R".try_into().unwrap(),
-        Samples::F16(generate_f16_vec(size))
+    let my_image = unimplemented!("this is your own image value");
+
+    let get_pixel = |position: Vec2<usize>| {
+        let [r, g, b, a] = my_image.pixel_at_xy(position.0, position.1);
+        rgba::Pixel::rgba(r, g, b, a)
+    };
+
+    let image_info = rgba::Image::rgb(
+        (my_image.width, my_image.height), 
+
+        // all numbers will be converted to f16 automatically
+        rgba::Channel::linear(SampleType::F16), 
     );
 
-    let g = Channel::new_linear(
-        "G".try_into().unwrap(),
-        Samples::F16(generate_f16_vec(size))
-    );
-
-    let b = Channel::new_linear(
-        "B".try_into().unwrap(),
-        Samples::F32(generate_f16_vec(size).into_iter().map(f16::to_f32).collect())
-    );
-
-    let layer = Layer::new(
-        "test-image".try_into().unwrap(),
-        size,
-        smallvec![ r, g, b ],
-    );
-
-    let layer = layer.with_compression(Compression::RLE)
-        .with_block_format(None, attributes::LineOrder::Increasing);
-
-    let image = Image::new_from_single_layer(layer);
-
-    println!("writing image {:#?}", image);
-    image.write_to_file("tests/images/out/noisy.exr", write_options::high()).unwrap();
+    // write the pixels to a file
+    image_info
+        .with_encoding(rgba::Encoding::small())
+        .write_to_file(
+            "tests/images/out/generated_rgba.exr",
+            write_options::high(), // using all CPUs
+            &get_pixel // and our custom pixels
+        ).unwrap();
 }
 ```
 

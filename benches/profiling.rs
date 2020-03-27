@@ -12,7 +12,7 @@ fn read_single_image(bench: &mut Bencher) {
     let path = "tests/images/valid/custom/crowskull/crow_uncompressed.exr";
 
     bench.iter(||{
-        rgba::Image::read_from_file(path, read_options::low(), rgba::pixels::flat_f16).unwrap();
+        rgba::Image::read_from_file(path, read_options::low(), rgba::pixels::flattened_f16).unwrap();
     })
 }
 
@@ -21,7 +21,7 @@ fn read_single_image_from_buffer(bench: &mut Bencher) {
     let file = fs::read("tests/images/valid/custom/crowskull/crow_uncompressed.exr").unwrap();
 
     bench.iter(||{
-        rgba::Image::read_from_buffered(std::io::Cursor::new(&file), read_options::low(), rgba::pixels::flat_f16).unwrap();
+        rgba::Image::read_from_buffered(std::io::Cursor::new(&file), read_options::low(), rgba::pixels::flattened_f16).unwrap();
     })
 }
 

@@ -19,6 +19,11 @@ pub enum Sample {
 
 impl Sample {
 
+    /// Returns the default value of `1.0`, which is used for a missing alpha channel.
+    pub fn default_alpha() -> Self {
+        Sample::F32(1.0)
+    }
+
     /// Convert the sample to an f16 value. This has lower precision than f32.
     /// Note: An f32 can only represent integers up to `1024` as precise as a u32 could.
     #[inline]

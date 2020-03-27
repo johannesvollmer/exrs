@@ -31,9 +31,21 @@ impl<T> Vec2<T> {
 
     /// Seeing this vector as a dimension or size (width and height),
     /// this returns the area that this dimensions contains (`width * height`).
-    pub fn area(self) -> T where T: std::ops::Mul<T, Output = T> {
+    #[inline] pub fn area(self) -> T where T: std::ops::Mul<T, Output = T> {
         self.0 * self.1
     }
+
+    /// The first component of this 2D vector.
+    #[inline] pub fn x(self) -> T { self.0 }
+
+    /// The second component of this 2D vector.
+    #[inline] pub fn y(self) -> T { self.1 }
+
+    /// The first component of this 2D vector.
+    #[inline] pub fn width(self) -> T { self.0 }
+
+    /// The second component of this 2D vector.
+    #[inline] pub fn height(self) -> T { self.1 }
 }
 
 

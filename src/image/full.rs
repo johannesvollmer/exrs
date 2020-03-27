@@ -210,7 +210,7 @@ impl<S> std::fmt::Debug for Levels<S> {
         match self {
             Levels::Singular(image) => write!(
                 formatter, "Singular ([{}x{}])",
-                image.resolution.0, image.resolution.1
+                image.resolution.x(), image.resolution.y()
             ),
             Levels::Mip(levels) => write!(
                 formatter, "Mip ({:?})",
@@ -363,8 +363,8 @@ impl Layer {
     /// Insert one line of pixel data into this layer.
     /// Returns an error for invalid index or line contents.
     pub fn insert_line(&mut self, line: LineRef<'_>) -> UnitResult {
-        debug_assert!(line.location.position.0 + line.location.sample_count <= self.data_size.0, "line index bug");
-        debug_assert!(line.location.position.1 < self.data_size.1, "line index bug");
+        debug_assert!(line.location.position.x() + line.location.sample_count <= self.data_size.width(), "line index bug");
+        debug_assert!(line.location.position.y() < self.data_size.height(), "line index bug");
 
         self.channels.get_mut(line.location.channel)
             .expect("invalid channel index")
@@ -374,8 +374,8 @@ impl Layer {
     /// Read one line of pixel data from this layer.
     /// Panics for an invalid index or write error.
     pub fn extract_line(&self, line: LineRefMut<'_>) {
-        debug_assert!(line.location.position.0 + line.location.sample_count <= self.data_size.0, "line index bug");
-        debug_assert!(line.location.position.1 < self.data_size.1, "line index bug");
+        debug_assert!(line.location.position.x() + line.location.sample_count <= self.data_size.width(), "line index bug");
+        debug_assert!(line.location.position.y() < self.data_size.height(), "line index bug");
 
         self.channels.get(line.location.channel)
             .expect("invalid channel index")
@@ -534,8 +534,8 @@ impl<S: Samples> Levels<S> {
 
                 // TODO put this into Levels::new(..) ?
                 LevelMode::RipMap => Levels::Rip({
-                    let level_count_x = compute_level_count(round, data_size.0);
-                    let level_count_y = compute_level_count(round, data_size.1);
+                    let level_count_x = compute_level_count(round, data_size.width());
+                    let level_count_y = compute_level_count(round, data_size.height());
                     let maps = rip_map_levels(round, data_size)
                         .map(|(_, level_size)| SampleBlock::allocate(level_size)).collect();
 
@@ -574,8 +574,8 @@ impl<S: Samples> Levels<S> {
             },
 
             Levels::Mip(block) => {
-                debug_assert_eq!(level.0, level.1, "mip map levels must be equal on x and y bug");
-                block.get(level.0).ok_or(Error::invalid("block mip level index"))
+                debug_assert_eq!(level.x(), level.y(), "mip map levels must be equal on x and y bug");
+                block.get(level.x()).ok_or(Error::invalid("block mip level index"))
             },
 
             Levels::Rip(block) => {
@@ -592,8 +592,8 @@ impl<S: Samples> Levels<S> {
             },
 
             Levels::Mip(block) => {
-                debug_assert_eq!(level.0, level.1, "mip map levels must be equal on x and y bug");
-                block.get_mut(level.0).ok_or(Error::invalid("block mip level index"))
+                debug_assert_eq!(level.x(), level.y(), "mip map levels must be equal on x and y bug");
+                block.get_mut(level.x()).ok_or(Error::invalid("block mip level index"))
             },
 
             Levels::Rip(block) => {
@@ -636,25 +636,25 @@ impl<S: Samples> SampleBlock<S> {
     pub fn insert_line(&mut self, line: LineRef<'_>) -> UnitResult {
         debug_assert_ne!(line.location.sample_count, 0, "line index bug");
 
-        if line.location.position.0 + line.location.sample_count > self.resolution.0 {
+        if line.location.position.x() + line.location.sample_count > self.resolution.width() {
             return Err(Error::invalid("data block x coordinate"))
         }
 
-        if line.location.position.1 > self.resolution.1 {
+        if line.location.position.y() > self.resolution.height() {
             return Err(Error::invalid("data block y coordinate"))
         }
 
-        self.samples.insert_line(line, self.resolution.0)
+        self.samples.insert_line(line, self.resolution.width())
     }
 
     /// Read one line of pixel data from this sample block.
     /// Panics for an invalid index or write error.
     pub fn extract_line(&self, line: LineRefMut<'_>) {
-        debug_assert!(line.location.position.0 + line.location.sample_count <= self.resolution.0, "line index bug");
-        debug_assert!(line.location.position.1 < self.resolution.1, "line index bug");
+        debug_assert!(line.location.position.x() + line.location.sample_count <= self.resolution.width(), "line index bug");
+        debug_assert!(line.location.position.y() < self.resolution.height(), "line index bug");
         debug_assert_ne!(line.location.sample_count, 0, "line index bug");
 
-        self.samples.extract_line(line, self.resolution.0)
+        self.samples.extract_line(line, self.resolution.width())
     }
 }
 
@@ -676,8 +676,8 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
         debug_assert!(resolution.area() < 1920*10 * 1920*10, "suspiciously large image");
 
         vec![
-            DeepLine { samples: Vec::new(), index_table: vec![0; resolution.0] };
-            resolution.1
+            DeepLine { samples: Vec::new(), index_table: vec![0; resolution.width()] };
+            resolution.height()
         ]
     }
 
@@ -714,7 +714,7 @@ impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for Fl
         debug_assert_ne!(image_width, 0, "image width calculation bug");
         debug_assert_ne!(line.location.sample_count, 0, "line width calculation bug");
 
-        let start_index = line.location.position.1 * image_width + line.location.position.0;
+        let start_index = line.location.position.y() * image_width + line.location.position.x();
         let end_index = start_index + line.location.sample_count;
 
         line.read_samples_into_slice(&mut self[start_index .. end_index])
@@ -723,7 +723,7 @@ impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for Fl
     fn extract_line(&self, line: LineRefMut<'_>, image_width: usize) {
         debug_assert_ne!(image_width, 0, "image width calculation bug");
 
-        let start_index = line.location.position.1 * image_width + line.location.position.0;
+        let start_index = line.location.position.y() * image_width + line.location.position.x();
         let end_index = start_index + line.location.sample_count;
 
         line.write_samples_from_slice(&self[start_index .. end_index])
@@ -735,7 +735,7 @@ impl<Samples> RipMaps<Samples> {
 
     /// Flatten the 2D level index to a one dimensional index.
     pub fn get_level_index(&self, level: Vec2<usize>) -> usize {
-        self.level_count.0 * level.1 + level.0
+        self.level_count.0 * level.y() + level.x()
     }
 
     /// Return a level by level index. Level `0` has the largest resolution.

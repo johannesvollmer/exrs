@@ -2,7 +2,7 @@
 // exr imports
 extern crate exr;
 use exr::prelude::*;
-use exr::image::rgba::{Image, Pixel};
+use exr::image::rgba::{Pixel};
 
 /// Read an RGBA image, increase the exposure, and then write it back.
 /// Uses multi-core compression where appropriate.
@@ -26,8 +26,8 @@ fn main() {
                 println!("loaded image {:#?}", image);
 
                 let default_rgba_pixel = [f16::ZERO, f16::ZERO, f16::ZERO, f16::ONE];
-                let default_line = vec![default_rgba_pixel; image.resolution.0];
-                let lines = vec![default_line; image.resolution.1];
+                let default_line = vec![default_rgba_pixel; image.resolution.width()];
+                let lines = vec![default_line; image.resolution.height()];
                 CustomPixels { lines }
             }
         }
@@ -36,13 +36,13 @@ fn main() {
 
             // set a single pixel with red, green, blue, and optionally and alpha value.
             // (this method is also called for f16 or u32 values, if you do not implement the other methods in this trait)
-            fn set_pixel(&mut self, _: &rgba::Image, position: Vec2<usize>, pixel: rgba::Pixel) {
+            fn set_pixel(&mut self, position: Vec2<usize>, pixel: rgba::Pixel) {
 
                 // convert all samples, including alpha, to 16-bit floats, and then store them in the array
-                self.lines[position.1][position.0] = [
-                    pixel.red.to_f16(), pixel.green.to_f16(), pixel.blue.to_f16(),
-                    pixel.alpha.map(|a| a.to_f16()).unwrap_or(f16::ONE),
-                ];
+                // (inserts 1.0 as default alpha if no alpha channel is in the file)
+                let pixel_f16_array: [f16; 4] = pixel.into();
+
+                self.lines[position.y()][position.x()] = pixel_f16_array;
             }
         }
 
@@ -77,7 +77,7 @@ fn main() {
 
         // also update meta data after modifying the image
         if let Some(exposure) = &mut image.layer_attributes.exposure {
-            println!("increased exposure from {} to {}", exposure, *exposure * 3.0);
+            println!("increased exposure from {}s to {}s", exposure, *exposure * 3.0);
             *exposure *= 3.0;
         }
     }
@@ -88,9 +88,9 @@ fn main() {
         impl rgba::GetPixels for CustomPixels {
 
             // extract a single pixel with red, green, blue, and optionally and alpha value.
-            fn get_pixel(&self, _image: &Image, position: Vec2<usize>) -> Pixel {
-                let [r, g, b, a] = self.lines[position.1][position.0];
-                rgba::Pixel::rgba(r, g, b, a)
+            fn get_pixel(&self, position: Vec2<usize>) -> Pixel {
+                let rgba_f16_array: [f16; 4] = self.lines[position.y()][position.x()];
+                rgba::Pixel::from(rgba_f16_array)
             }
         }
 

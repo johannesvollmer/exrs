@@ -512,8 +512,8 @@ pub fn compute_level_size(round: RoundingMode, full_res: usize, level_index: usi
 pub fn rip_map_levels(round: RoundingMode, max_resolution: Vec2<usize>) -> impl Iterator<Item=(Vec2<usize>, Vec2<usize>)> {
     rip_map_indices(round, max_resolution).map(move |level_indices|{
         // TODO progressively divide instead??
-        let width = compute_level_size(round, max_resolution.0, level_indices.0);
-        let height = compute_level_size(round, max_resolution.1, level_indices.1);
+        let width = compute_level_size(round, max_resolution.width(), level_indices.x());
+        let height = compute_level_size(round, max_resolution.height(), level_indices.y());
         (level_indices, Vec2(width, height))
     })
 }
@@ -526,8 +526,8 @@ pub fn mip_map_levels(round: RoundingMode, max_resolution: Vec2<usize>) -> impl 
     mip_map_indices(round, max_resolution)
         .map(move |level_index|{
             // TODO progressively divide instead??
-            let width = compute_level_size(round, max_resolution.0, level_index);
-            let height = compute_level_size(round, max_resolution.1, level_index);
+            let width = compute_level_size(round, max_resolution.width(), level_index);
+            let height = compute_level_size(round, max_resolution.height(), level_index);
             (level_index, Vec2(width, height))
         })
 }
@@ -536,8 +536,8 @@ pub fn mip_map_levels(round: RoundingMode, max_resolution: Vec2<usize>) -> impl 
 /// The order of iteration conforms to `LineOrder::Increasing`.
 pub fn rip_map_indices(round: RoundingMode, max_resolution: Vec2<usize>) -> impl Iterator<Item=Vec2<usize>> {
     let (width, height) = (
-        compute_level_count(round, max_resolution.0),
-        compute_level_count(round, max_resolution.1)
+        compute_level_count(round, max_resolution.width()),
+        compute_level_count(round, max_resolution.height())
     );
 
     (0..height).flat_map(move |y_level|{
@@ -550,7 +550,7 @@ pub fn rip_map_indices(round: RoundingMode, max_resolution: Vec2<usize>) -> impl
 /// Iterates over all mip map level indices of a given size.
 /// The order of iteration conforms to `LineOrder::Increasing`.
 pub fn mip_map_indices(round: RoundingMode, max_resolution: Vec2<usize>) -> impl Iterator<Item=usize> {
-    (0..compute_level_count(round, max_resolution.0.max(max_resolution.1)))
+    (0..compute_level_count(round, max_resolution.width().max(max_resolution.height())))
 }
 
 /// Compute the number of chunks that an image is divided into. May be an expensive operation.
@@ -567,8 +567,8 @@ pub fn compute_chunk_count(compression: Compression, data_size: Vec2<usize>, blo
         use crate::meta::attributes::LevelMode::*;
         match tiles.level_mode {
             Singular => {
-                let tiles_x = compute_block_count(data_size.0, tile_width);
-                let tiles_y = compute_block_count(data_size.1, tile_height);
+                let tiles_x = compute_block_count(data_size.width(), tile_width);
+                let tiles_y = compute_block_count(data_size.height(), tile_height);
                 tiles_x * tiles_y
             }
 
@@ -588,7 +588,7 @@ pub fn compute_chunk_count(compression: Compression, data_size: Vec2<usize>, blo
 
     // scan line blocks never have mip maps
     else {
-        compute_block_count(data_size.1, compression.scan_lines_per_block())
+        compute_block_count(data_size.height(), compression.scan_lines_per_block())
     }
 }
 
@@ -849,8 +849,8 @@ impl Header {
                 ))
             }
 
-            divide_and_rest(image_size.1, tile_size.1).flat_map(move |(y_index, tile_height)|{
-                divide_and_rest(image_size.0, tile_size.0).map(move |(x_index, tile_width)|{
+            divide_and_rest(image_size.height(), tile_size.height()).flat_map(move |(y_index, tile_height)|{
+                divide_and_rest(image_size.width(), tile_size.width()).map(move |(x_index, tile_width)|{
                     TileIndices {
                         size: Vec2(tile_width, tile_height),
                         location: TileCoordinates { tile_index: Vec2(x_index, y_index), level_index, },
@@ -913,11 +913,11 @@ impl Header {
         if let Blocks::Tiles(tiles) = self.blocks {
             let Vec2(data_width, data_height) = self.data_size;
 
-            let data_width = compute_level_size(tiles.rounding_mode, data_width, tile.level_index.0);
-            let data_height = compute_level_size(tiles.rounding_mode, data_height, tile.level_index.1);
+            let data_width = compute_level_size(tiles.rounding_mode, data_width, tile.level_index.x());
+            let data_height = compute_level_size(tiles.rounding_mode, data_height, tile.level_index.y());
             let absolute_tile_coordinates = tile.to_data_indices(tiles.tile_size, Vec2(data_width, data_height))?;
 
-            if absolute_tile_coordinates.position.0 as i64 >= data_width as i64 || absolute_tile_coordinates.position.1 as i64 >= data_height as i64 {
+            if absolute_tile_coordinates.position.x() as i64 >= data_width as i64 || absolute_tile_coordinates.position.y() as i64 >= data_height as i64 {
                 return Err(Error::invalid("data block tile index"))
             }
 
@@ -927,14 +927,14 @@ impl Header {
             debug_assert_eq!(tile.tile_index.0, 0, "block index calculation bug");
 
             let (y, height) = calculate_block_position_and_size(
-                self.data_size.1,
+                self.data_size.height(),
                 self.compression.scan_lines_per_block(),
-                tile.tile_index.1
+                tile.tile_index.y()
             )?;
 
             Ok(IntRect {
                 position: Vec2(0, usize_to_i32(y)),
-                size: Vec2(self.data_size.0, height)
+                size: Vec2(self.data_size.width(), height)
             })
         }
 
@@ -945,8 +945,24 @@ impl Header {
     /// Starts at `0` and is not negative.
     pub fn get_block_data_indices(&self, block: &Block) -> Result<TileCoordinates> {
         Ok(match block {
-            Block::Tile(ref tile) => tile.coordinates,
-            Block::ScanLine(ref block) => self.get_scan_line_block_tile_coordinates(block.y_coordinate)?,
+            Block::Tile(ref tile) => {
+                tile.coordinates
+            },
+
+            Block::ScanLine(ref block) => {
+                let size = self.compression.scan_lines_per_block() as i32;
+                let y = (block.y_coordinate - self.own_attributes.data_position.y()) / size;
+
+                if y < 0 {
+                    return Err(Error::invalid("scan block y coordinate"));
+                }
+
+                TileCoordinates {
+                    tile_index: Vec2(0, y as usize),
+                    level_index: Vec2(0, 0)
+                }
+            },
+
             _ => return Err(Error::unsupported("deep data not supported yet"))
         })
     }
@@ -969,8 +985,8 @@ impl Header {
     /// Maximum byte length of an uncompressed or compressed block, used for validation.
     pub fn max_block_byte_size(&self) -> usize {
         self.channels.bytes_per_pixel * match self.blocks {
-            Blocks::Tiles(tiles) => tiles.tile_size.0 * tiles.tile_size.1,
-            Blocks::ScanLines => self.compression.scan_lines_per_block() * self.data_size.0
+            Blocks::Tiles(tiles) => tiles.tile_size.area(),
+            Blocks::ScanLines => self.compression.scan_lines_per_block() * self.data_size.width()
             // TODO What about deep data???
         }
     }

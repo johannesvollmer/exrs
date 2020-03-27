@@ -167,7 +167,7 @@ impl Compression {
         let dimensions = header.default_block_pixel_size();
         assert!(pixel_section.validate(Some(dimensions)).is_ok(), "decompress tile coordinate bug");
 
-        let expected_byte_size = dimensions.0 * dimensions.1 * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
+        let expected_byte_size = dimensions.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
 
         if data.len() == expected_byte_size {
             Ok(data) // the raw data was smaller than the compressed data, so the raw data has been written

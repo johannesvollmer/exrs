@@ -134,10 +134,10 @@ impl TileCoordinates {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
-        i32::write(usize_to_i32(self.tile_index.0), write)?;
-        i32::write(usize_to_i32(self.tile_index.1), write)?;
-        i32::write(usize_to_i32(self.level_index.0), write)?;
-        i32::write(usize_to_i32(self.level_index.1), write)?;
+        i32::write(usize_to_i32(self.tile_index.x()), write)?;
+        i32::write(usize_to_i32(self.tile_index.y()), write)?;
+        i32::write(usize_to_i32(self.level_index.x()), write)?;
+        i32::write(usize_to_i32(self.level_index.y()), write)?;
         Ok(())
     }
 
@@ -165,18 +165,18 @@ impl TileCoordinates {
     /// These coordinates are only valid inside the corresponding one header.
     /// Will start at 0 and always be positive.
     pub fn to_data_indices(&self, tile_size: Vec2<usize>, max: Vec2<usize>) -> Result<IntRect> {
-        let x = self.tile_index.0 as u64 * tile_size.0 as u64;
-        let y = self.tile_index.1 as u64 * tile_size.1 as u64;
+        let x = self.tile_index.x() as u64 * tile_size.x() as u64;
+        let y = self.tile_index.y() as u64 * tile_size.y() as u64;
 
-        if x >= max.0 as u64 || y >= max.1 as u64 {
+        if x >= max.x() as u64 || y >= max.y() as u64 {
             Err(Error::invalid("tile index"))
         }
         else {
             Ok(IntRect {
                 position: Vec2(x as i32, y as i32),
                 size: Vec2(
-                    calculate_block_size(max.0, tile_size.0, x as usize)?,
-                    calculate_block_size(max.1, tile_size.0, y as usize)?,
+                    calculate_block_size(max.x(), tile_size.x(), x as usize)?,
+                    calculate_block_size(max.y(), tile_size.y(), y as usize)?,
                 ),
             })
         }
