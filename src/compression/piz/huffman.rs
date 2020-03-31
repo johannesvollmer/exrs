@@ -480,6 +480,8 @@ fn build_decoding_table(encoding_table: &[i64], min_hcode_index: usize, max_hcod
 // 	    }
 // 	    pl->p[pl->lit - 1]= im;
 // 	}
+            println!("adding long code {}", code_index);
+
             match code {
                 Code::Empty => *code = Code::Long(vec![code_index as u16]),
                 Code::Long(lits) => lits.push(code_index as u16),
@@ -517,6 +519,7 @@ fn build_decoding_table(encoding_table: &[i64], min_hcode_index: usize, max_hcod
                 len: length as u8 // TODO wrap or not wrap? signed or not?
             });
 
+            println!("adding short code {}", code_index);
             // inspect!(default_value);
 
             let start_index = (code << (DECODE_BITS as i64 - length)) as usize;
@@ -536,6 +539,7 @@ fn build_decoding_table(encoding_table: &[i64], min_hcode_index: usize, max_hcod
         }
     }
 
+    inspect!(decoding_table);
     Ok(decoding_table)
 }
 
