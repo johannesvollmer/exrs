@@ -80,7 +80,12 @@ impl error::Error for Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self)
+        match self {
+            Error::Io(err) => err.fmt(f),
+            Error::NotSupported(message) => write!(f, "not supported: {}", message),
+            Error::Invalid(message) => write!(f, "invalid: {}", message),
+            _ => write!(f, "{}", self),
+        }
     }
 }
 
