@@ -4,7 +4,8 @@
 extern crate exr;
 use exr::meta::MetaData;
 
-/// Print the custom meta data of a file, excluding technical file meta data.
+/// Print the custom meta data of a file, excluding technical encoding meta data.
+/// Prints compression method and tile size, but not chunk count.
 fn main() {
     let meta_data = MetaData::read_from_file("tests/images/valid/custom/crowskull/crow_uncompressed.exr").unwrap();
 

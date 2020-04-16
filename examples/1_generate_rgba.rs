@@ -5,9 +5,11 @@ use exr::prelude::*;
 use exr::meta::attributes::SampleType;
 
 /// Write an RGBA exr file, generating the pixel values on the fly.
+/// This streams the generated pixel directly to the file,
+/// never allocating the actual total pixel memory of the image.
 fn main() {
 
-    // this function can generate a color for each pixel
+    // this function can generate a color for any pixel
     let generate_pixels = |position: Vec2<usize>| {
 
         // generate some arbitrary rgb colors, with varying size per channel
@@ -26,7 +28,8 @@ fn main() {
         )
     };
 
-    let image_info = rgba::Image::rgb(
+
+    let image_info = rgba::ImageInfo::rgb(
         (2*2048, 2*2048),
 
         // the generated f32 is converted to an f16 while writing the file
@@ -35,9 +38,10 @@ fn main() {
 
     // write it to a file with all cores in parallel
     image_info
-        .with_encoding(rgba::Encoding::compress(Compression::RLE))
-        .write_to_file(
+        .with_encoding(rgba::Encoding::for_compression(Compression::RLE))
+        .write_pixels_to_file(
             "tests/images/out/generated_rgba.exr",
-            write_options::high(), &generate_pixels
+            write_options::high(), // this will actually generate the pixels in parallel on all cores
+            &generate_pixels
         ).unwrap();
 }

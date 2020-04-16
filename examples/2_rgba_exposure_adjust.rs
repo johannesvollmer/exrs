@@ -16,21 +16,7 @@ fn main() {
     struct CustomPixels { lines: Vec<Vec<[f16; 4]>> };
 
     // read the image from a file
-    let (mut image, mut pixels) = {
-
-        impl CustomPixels {
-
-            // allocate a new pixel storage based on the image
-            // (you can also `impl CreatePixels` alternatively)
-            pub fn new(image: &rgba::Image) -> Self {
-                println!("loaded image {:#?}", image);
-
-                let default_rgba_pixel = [f16::ZERO, f16::ZERO, f16::ZERO, f16::ONE];
-                let default_line = vec![default_rgba_pixel; image.resolution.width()];
-                let lines = vec![default_line; image.resolution.height()];
-                CustomPixels { lines }
-            }
-        }
+    let (mut image_info, mut pixels) = {
 
         impl rgba::SetPixels for CustomPixels {
 
@@ -46,11 +32,20 @@ fn main() {
             }
         }
 
+        let create_image = |image: &rgba::ImageInfo| {
+            println!("loaded image {:#?}", image);
+
+            let default_rgba_pixel = [f16::ZERO, f16::ZERO, f16::ZERO, f16::ONE];
+            let default_line = vec![default_rgba_pixel; image.resolution.width()];
+            let lines = vec![default_line; image.resolution.height()];
+            CustomPixels { lines }
+        };
+
         // actually start reading the file with custom pixels
-        rgba::Image::read_from_file(
+        rgba::ImageInfo::read_pixels_from_file(
             "tests/images/valid/openexr/MultiResolution/Kapaa.exr",
             read_options::high(),
-            CustomPixels::new
+            create_image
         ).unwrap()
     };
 
@@ -58,7 +53,7 @@ fn main() {
     {   // increase exposure of all pixels
 
         assert!(
-            !image.channels.0.is_linear && !image.channels.0.is_linear && !image.channels.0.is_linear,
+            !image_info.channels.0.is_linear && !image_info.channels.0.is_linear && !image_info.channels.0.is_linear,
             "exposure adjustment is only implemented for srgb data"
         );
 
@@ -76,7 +71,7 @@ fn main() {
         }
 
         // also update meta data after modifying the image
-        if let Some(exposure) = &mut image.layer_attributes.exposure {
+        if let Some(exposure) = &mut image_info.layer_attributes.exposure {
             println!("increased exposure from {}s to {}s", exposure, *exposure * 3.0);
             *exposure *= 3.0;
         }
@@ -85,6 +80,7 @@ fn main() {
 
     {   // write the image to a file
 
+        // expose the pixels of our image (you could also pass a closure capturing our image variable)
         impl rgba::GetPixels for CustomPixels {
 
             // extract a single pixel with red, green, blue, and optionally and alpha value.
@@ -94,6 +90,6 @@ fn main() {
             }
         }
 
-        image.write_to_file("tests/images/out/exposure_adjusted.exr", write_options::high(), &pixels).unwrap();
+        image_info.write_pixels_to_file("tests/images/out/exposure_adjusted.exr", write_options::high(), &pixels).unwrap();
     }
 }
