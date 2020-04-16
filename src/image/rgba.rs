@@ -761,38 +761,38 @@ impl<F> SetPixels for F where F: FnMut(Vec2<usize>, Pixel) {
 
 
 impl<R, G, B> From<(R, G, B)> for Pixel where R: Into<Sample>, G: Into<Sample>, B: Into<Sample> {
-    fn from((r,g,b): (R, G, B)) -> Self { Self::rgb(r,g,b) }
+    #[inline] fn from((r,g,b): (R, G, B)) -> Self { Self::rgb(r,g,b) }
 }
 
 impl<R, G, B, A> From<(R, G, B, A)> for Pixel where R: Into<Sample>, G: Into<Sample>, B: Into<Sample>, A: Into<Sample> {
-    fn from((r,g,b,a): (R, G, B, A)) -> Self { Self::rgba(r,g,b, a) }
+    #[inline] fn from((r,g,b,a): (R, G, B, A)) -> Self { Self::rgba(r,g,b, a) }
 }
 
 impl<R, G, B> From<Pixel> for (R, G, B) where R: From<Sample>, G: From<Sample>, B: From<Sample> {
-    fn from(pixel: Pixel) -> Self { (R::from(pixel.red), G::from(pixel.green), B::from(pixel.blue)) }
+    #[inline] fn from(pixel: Pixel) -> Self { (R::from(pixel.red), G::from(pixel.green), B::from(pixel.blue)) }
 }
 
 impl<R, G, B, A> From<Pixel> for (R, G, B, A) where R: From<Sample>, G: From<Sample>, B: From<Sample>, A: From<Sample> {
-    fn from(pixel: Pixel) -> Self { (
+    #[inline] fn from(pixel: Pixel) -> Self { (
         R::from(pixel.red), G::from(pixel.green), B::from(pixel.blue),
         A::from(pixel.alpha.unwrap_or(Sample::default_alpha()))
     ) }
 }
 
 impl<S> From<[S; 3]> for Pixel where S: Into<Sample> {
-    fn from([r,g,b]: [S; 3]) -> Self { Self::rgb(r,g,b) }
+    #[inline] fn from([r,g,b]: [S; 3]) -> Self { Self::rgb(r,g,b) }
 }
 
 impl<S> From<[S; 4]> for Pixel where S: Into<Sample> {
-    fn from([r,g,b, a]: [S; 4]) -> Self { Self::rgba(r,g,b, a) }
+    #[inline] fn from([r,g,b, a]: [S; 4]) -> Self { Self::rgba(r,g,b, a) }
 }
 
 impl<S> From<Pixel> for [S; 3] where S: From<Sample> {
-    fn from(pixel: Pixel) -> Self { [S::from(pixel.red), S::from(pixel.green), S::from(pixel.blue)] }
+    #[inline] fn from(pixel: Pixel) -> Self { [S::from(pixel.red), S::from(pixel.green), S::from(pixel.blue)] }
 }
 
 impl<S> From<Pixel> for [S; 4] where S: From<Sample> {
-    fn from(pixel: Pixel) -> Self { [
+    #[inline] fn from(pixel: Pixel) -> Self { [
         S::from(pixel.red), S::from(pixel.green), S::from(pixel.blue),
         S::from(pixel.alpha.unwrap_or(Sample::default_alpha()))
     ] }

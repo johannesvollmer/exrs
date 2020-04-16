@@ -38,6 +38,7 @@ fn main() {
         .with_encoding(rgba::Encoding::compress(Compression::RLE))
         .write_pixels_to_file(
             "tests/images/out/generated_rgba.exr",
-            write_options::high(), &generate_pixels
+            write_options::high(), // this will actually generate the pixels in parallel on all cores
+            &generate_pixels
         ).unwrap();
 }

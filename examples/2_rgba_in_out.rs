@@ -80,7 +80,7 @@ fn main() {
 
     {   // write the image to a file
 
-        // expose the pixels of our image (this could also be a closure capturing our image variable)
+        // expose the pixels of our image (you could also pass a closure capturing our image variable)
         impl rgba::GetPixels for CustomPixels {
 
             // extract a single pixel with red, green, blue, and optionally and alpha value.
