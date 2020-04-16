@@ -57,7 +57,7 @@ pub fn test_roundtrip() {
     let meta = MetaData::read_from_file(path).unwrap();
     println!("{:#?}", meta);
 
-    let (image, pixels) = rgba::Image::read_from_file(path, read_options::low(), rgba::pixels::flattened_f16).unwrap();
+    let (image, pixels) = rgba::ImageInfo::read_pixels_from_file(path, read_options::low(), rgba::pixels::flattened_f16).unwrap();
     println!("...read 1 successfull");
 
     let write_options = write_options::low();
@@ -66,13 +66,13 @@ pub fn test_roundtrip() {
     print!("starting write... ");
     io::stdout().flush().unwrap();
 
-    image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options, &pixels).unwrap();
+    image.write_pixels_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options, &pixels).unwrap();
     println!("...write successfull");
 
     print!("starting read 2... ");
     io::stdout().flush().unwrap();
 
-    let (image2, pixels2) = rgba::Image::read_from_buffered(
+    let (image2, pixels2) = rgba::ImageInfo::read_pixels_from_buffered(
         Cursor::new(&tmp_bytes),
         read_options::low(),
         rgba::pixels::flattened_f16

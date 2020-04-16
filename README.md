@@ -176,11 +176,11 @@ fn main() {
     let my_image = unimplemented!("this is your own image value");
 
     let get_pixel = |position: Vec2<usize>| {
-        let [r, g, b, a] = my_image.pixel_at_xy(position.0, position.1);
+        let [r, g, b, a] = my_image.pixel_at_xy(position.x(), position.y());
         rgba::Pixel::rgba(r, g, b, a)
     };
 
-    let image_info = rgba::Image::rgb(
+    let image_info = rgba::ImageInfo::rgb(
         (my_image.width, my_image.height), 
 
         // all numbers will be converted to f16 automatically
@@ -240,7 +240,7 @@ Allocations have a safe maximum size that will not be exceeded at once.
 
 ### Running Tests
 
-To run all fast tests, use `cargo test --no-fail-fast`.
+To run all fast tests, use `cargo test`.
 To start fuzzing indefinitely, use `cargo test --package exr --test fuzz fuzz -- --exact --ignored`.
 
 ### Specification

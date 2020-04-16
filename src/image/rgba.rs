@@ -30,13 +30,12 @@ use crate::block::samples::Sample;
 ///
 /// The given pixel values will be automatically converted to the type found in `Image.channels`.
 ///
-/// To load an image, use `Image::load_from_file` or similar.
-/// To store an image, use `image.write_to_file` or similar.
+/// To load an image, use `Image::load_pixels_from_file` or similar.
+/// To store an image, use `image.write_pixels_to_file` or similar.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Image {
+pub struct ImageInfo {
 
     /// The channel types of the written file.
-    /// For each channel, the appropriate method is called on `Image.data`.
     ///
     /// Careful: Not all applications may support
     /// RGBA images with arbitrary sample types.
@@ -112,7 +111,7 @@ pub trait CreatePixels {
     type Pixels: SetPixels;
 
     /// Create a new pixel storage for the supplied image.
-    fn new(self, image: &Image) -> Self::Pixels;
+    fn new(self, image: &ImageInfo) -> Self::Pixels;
 }
 
 /// Consume the pixels of an image file. Implement this on your own image type to read a file into your image.
@@ -122,7 +121,7 @@ pub trait SetPixels {
     fn set_pixel(&mut self, position: Vec2<usize>, pixel: Pixel);
 }
 
-/// A single pixel with red, green, blue, and alpha samples.
+/// A single pixel with red, green, blue, and alpha values.
 /// Each channel may have a different sample type.
 ///
 /// A Pixel can be created using `Pixel::rgb(0_f32, 0_u32, f16::ONE)` or `Pixel::rgba(0_f32, 0_u32, 0_f32, f16::ONE)`.
@@ -162,43 +161,6 @@ impl Pixel {
     }
 }
 
-impl<R, G, B> From<(R, G, B)> for Pixel where R: Into<Sample>, G: Into<Sample>, B: Into<Sample> {
-    fn from((r,g,b): (R, G, B)) -> Self { Self::rgb(r,g,b) }
-}
-
-impl<R, G, B, A> From<(R, G, B, A)> for Pixel where R: Into<Sample>, G: Into<Sample>, B: Into<Sample>, A: Into<Sample> {
-    fn from((r,g,b,a): (R, G, B, A)) -> Self { Self::rgba(r,g,b, a) }
-}
-
-impl<R, G, B> From<Pixel> for (R, G, B) where R: From<Sample>, G: From<Sample>, B: From<Sample> {
-    fn from(pixel: Pixel) -> Self { (R::from(pixel.red), G::from(pixel.green), B::from(pixel.blue)) }
-}
-
-impl<R, G, B, A> From<Pixel> for (R, G, B, A) where R: From<Sample>, G: From<Sample>, B: From<Sample>, A: From<Sample> {
-    fn from(pixel: Pixel) -> Self { (
-        R::from(pixel.red), G::from(pixel.green), B::from(pixel.blue),
-        A::from(pixel.alpha.unwrap_or(Sample::default_alpha()))
-    ) }
-}
-
-impl<S> From<[S; 3]> for Pixel where S: Into<Sample> {
-    fn from([r,g,b]: [S; 3]) -> Self { Self::rgb(r,g,b) }
-}
-
-impl<S> From<[S; 4]> for Pixel where S: Into<Sample> {
-    fn from([r,g,b, a]: [S; 4]) -> Self { Self::rgba(r,g,b, a) }
-}
-
-impl<S> From<Pixel> for [S; 3] where S: From<Sample> {
-    fn from(pixel: Pixel) -> Self { [S::from(pixel.red), S::from(pixel.green), S::from(pixel.blue)] }
-}
-
-impl<S> From<Pixel> for [S; 4] where S: From<Sample> {
-    fn from(pixel: Pixel) -> Self { [
-        S::from(pixel.red), S::from(pixel.green), S::from(pixel.blue),
-        S::from(pixel.alpha.unwrap_or(Sample::default_alpha()))
-    ] }
-}
 
 impl Channel {
 
@@ -214,18 +176,6 @@ impl Channel {
 }
 
 
-impl<F> GetPixels for F where F: Sync + Fn(Vec2<usize>) -> Pixel {
-    #[inline] fn get_pixel(&self, position: Vec2<usize>) -> Pixel { self(position) }
-}
-
-impl<F, T> CreatePixels for F where F: FnOnce(&Image) -> T, T: SetPixels {
-    type Pixels = T;
-    #[inline] fn new(self, image: &Image) -> Self::Pixels { self(image) }
-}
-
-impl<F> SetPixels for F where F: FnMut(Vec2<usize>, Pixel) {
-    #[inline] fn set_pixel(&mut self, position: Vec2<usize>, pixel: Pixel) { self(position, pixel) }
-}
 
 
 impl Encoding {
@@ -274,7 +224,7 @@ impl Encoding {
 }
 
 
-impl Image {
+impl ImageInfo {
 
     /// Create an Image with an alpha channel. Each channel will be the same as the specified channel.
     pub fn rgba(resolution: impl Into<Vec2<usize>>, channel: Channel) -> Self {
@@ -337,24 +287,24 @@ impl Image {
     }
 
     /// Read the exr image from a file.
-    /// Use `read_from_unbuffered` instead, if you do not have a file.
+    /// Use `read_pixels_from_unbuffered` instead, if you do not have a file.
     /// Returns `Error::Invalid` if not at least one image part with RGB channels can be found in the file.
     ///
     /// The `create_pixels` parameter can be a closure of type `Fn(&Image) -> impl SetPixels`.
     #[inline]
     #[must_use]
-    pub fn read_from_file<P: CreatePixels>(
+    pub fn read_pixels_from_file<P: CreatePixels>(
         path: impl AsRef<Path>,
         options: ReadOptions<impl OnReadProgress>,
         create_pixels: P,
     ) -> Result<(Self, P::Pixels)>
     {
-        Self::read_from_unbuffered(File::open(path)?, options, create_pixels)
+        Self::read_pixels_from_unbuffered(File::open(path)?, options, create_pixels)
     }
 
     /// Buffer the reader and then read the exr image from it.
-    /// Use `read_from_buffered` instead, if your reader is an in-memory reader.
-    /// Use `read_from_file` instead, if you have a file path.
+    /// Use `read_pixels_from_buffered` instead, if your reader is an in-memory reader.
+    /// Use `read_pixels_from_file` instead, if you have a file path.
     ///
     /// Returns `Error::Invalid` if not at least one image part with RGB channels can be found in the file.
     ///
@@ -364,18 +314,18 @@ impl Image {
     /// open an issue on the github repository._
     #[inline]
     #[must_use]
-    pub fn read_from_unbuffered<P: CreatePixels>(
+    pub fn read_pixels_from_unbuffered<P: CreatePixels>(
         read: impl Read + Seek + Send,
         options: ReadOptions<impl OnReadProgress>,
         create_pixels: P,
     ) -> Result<(Self, P::Pixels)>
     {
-        Self::read_from_buffered(BufReader::new(read), options, create_pixels)
+        Self::read_pixels_from_buffered(BufReader::new(read), options, create_pixels)
     }
 
     /// Read the exr image from a reader.
-    /// Use `read_from_file` instead, if you have a file path.
-    /// Use `read_from_unbuffered` instead, if this is not an in-memory reader.
+    /// Use `read_pixels_from_file` instead, if you have a file path.
+    /// Use `read_pixels_from_unbuffered` instead, if this is not an in-memory reader.
     ///
     /// Returns `Error::Invalid` if not at least one image part with RGB channels can be found in the file.
     ///
@@ -385,7 +335,7 @@ impl Image {
     /// open an issue on the github repository._
     #[inline]
     #[must_use]
-    pub fn read_from_buffered<P: CreatePixels>(
+    pub fn read_pixels_from_buffered<P: CreatePixels>(
         read: impl Read + Seek + Send,
         options: ReadOptions<impl OnReadProgress>,
         create_pixels: P,
@@ -480,7 +430,7 @@ impl Image {
 
     /// Allocate the memory for an image that could contain the described data.
     fn allocate(header: &Header, channels: Channels) -> Self {
-        Image {
+        ImageInfo {
             resolution: header.data_size,
             channels,
 
@@ -531,46 +481,46 @@ impl Image {
     }
 
     /// Write the exr image to a file.
-    /// Use `write_to_unbuffered` instead if you do not have a file.
+    /// Use `write_pixels_to_unbuffered` instead if you do not have a file.
     /// If an error occurs, attempts to delete the partially written file.
     ///
     /// The `pixels` parameter can be a closure of type `Fn(&Image, Vec2<usize>) -> Pixel`.
     #[must_use]
-    pub fn write_to_file(
+    pub fn write_pixels_to_file(
         &self, path: impl AsRef<Path>,
         options: WriteOptions<impl OnWriteProgress>,
         pixels: &impl GetPixels,
     ) -> UnitResult
     {
         crate::io::attempt_delete_file_on_write_error(path, |write|
-            self.write_to_unbuffered(write, options, pixels)
+            self.write_pixels_to_unbuffered(write, options, pixels)
         )
     }
 
     /// Buffer the writer and then write the exr image to it.
-    /// Use `read_from_buffered` instead, if your reader is an in-memory writer.
-    /// Use `read_from_file` instead, if you have a file path.
+    /// Use `write_pixels_to_unbuffered` instead, if your reader is an in-memory writer.
+    /// Use `write_pixels_to_file` instead, if you have a file path.
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first, using `write_to_buffered`.
     ///
     /// The `pixels` parameter can be a closure of type `Fn(&Image, Vec2<usize>) -> Pixel`.
     #[must_use]
-    pub fn write_to_unbuffered(
+    pub fn write_pixels_to_unbuffered(
         &self, write: impl Write + Seek,
         options: WriteOptions<impl OnWriteProgress>,
         pixels: &impl GetPixels,
     ) -> UnitResult
     {
-        self.write_to_buffered(BufWriter::new(write), options, pixels)
+        self.write_pixels_to_buffered(BufWriter::new(write), options, pixels)
     }
 
     /// Write the exr image to a writer.
-    /// Use `read_from_file` instead, if you have a file path.
-    /// Use `read_from_unbuffered` instead, if this is not an in-memory writer.
+    /// Use `write_pixels_to_file` instead, if you have a file path.
+    /// Use `write_pixels_to_unbuffered` instead, if this is not an in-memory writer.
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first.
     ///
     /// The `pixels` parameter can be a closure of type `Fn(&Image, Vec2<usize>) -> Pixel`.
     #[must_use]
-    pub fn write_to_buffered(
+    pub fn write_pixels_to_buffered(
         &self, write: impl Write + Seek,
         options: WriteOptions<impl OnWriteProgress>,
         pixels: &impl GetPixels,
@@ -697,9 +647,9 @@ pub mod pixels {
     use super::*;
 
     /// Constructor for a flattened f16 pixel storage.
-    /// This function an directly be passed to `rgba::Image::load_from_file` and friends.
+    /// This function an directly be passed to `rgba::ImageInfo::load_from_file` and friends.
     /// It will construct a `rgba::pixels::Flattened<f16>` image.
-    #[inline] pub fn flattened_f16(image: &Image) -> Flattened<f16> {
+    #[inline] pub fn flattened_f16(image: &ImageInfo) -> Flattened<f16> {
         Flattened {
             width: image.resolution.0,
             channels: image.channel_count(),
@@ -708,9 +658,9 @@ pub mod pixels {
     }
 
     /// Constructor for a flattened f32 pixel storage.
-    /// This function an directly be passed to `rgba::Image::load_from_file` and friends.
+    /// This function an directly be passed to `rgba::ImageInfo::load_from_file` and friends.
     /// It will construct a `rgba::pixels::Flattened<f32>` image.
-    #[inline] pub fn flattened_f32(image: &Image) -> Flattened<f32> {
+    #[inline] pub fn flattened_f32(image: &ImageInfo) -> Flattened<f32> {
         Flattened {
             width: image.resolution.0,
             channels: image.channel_count(),
@@ -719,9 +669,9 @@ pub mod pixels {
     }
 
     /// Constructor for a flattened u32 pixel storage.
-    /// This function an directly be passed to `rgba::Image::load_from_file` and friends.
+    /// This function an directly be passed to `rgba::ImageInfo::load_from_file` and friends.
     /// It will construct a `rgba::pixels::Flattened<u32>` image.
-    #[inline] pub fn flattened_u32(image: &Image) -> Flattened<u32> {
+    #[inline] pub fn flattened_u32(image: &ImageInfo) -> Flattened<u32> {
         Flattened {
             width: image.resolution.0,
             channels: image.channel_count(),
@@ -792,3 +742,58 @@ pub mod pixels {
     }
 }
 
+
+
+
+impl<F> GetPixels for F where F: Sync + Fn(Vec2<usize>) -> Pixel {
+    #[inline] fn get_pixel(&self, position: Vec2<usize>) -> Pixel { self(position) }
+}
+
+impl<F, T> CreatePixels for F where F: FnOnce(&ImageInfo) -> T, T: SetPixels {
+    type Pixels = T;
+    #[inline] fn new(self, image: &ImageInfo) -> Self::Pixels { self(image) }
+}
+
+impl<F> SetPixels for F where F: FnMut(Vec2<usize>, Pixel) {
+    #[inline] fn set_pixel(&mut self, position: Vec2<usize>, pixel: Pixel) { self(position, pixel) }
+}
+
+
+
+impl<R, G, B> From<(R, G, B)> for Pixel where R: Into<Sample>, G: Into<Sample>, B: Into<Sample> {
+    fn from((r,g,b): (R, G, B)) -> Self { Self::rgb(r,g,b) }
+}
+
+impl<R, G, B, A> From<(R, G, B, A)> for Pixel where R: Into<Sample>, G: Into<Sample>, B: Into<Sample>, A: Into<Sample> {
+    fn from((r,g,b,a): (R, G, B, A)) -> Self { Self::rgba(r,g,b, a) }
+}
+
+impl<R, G, B> From<Pixel> for (R, G, B) where R: From<Sample>, G: From<Sample>, B: From<Sample> {
+    fn from(pixel: Pixel) -> Self { (R::from(pixel.red), G::from(pixel.green), B::from(pixel.blue)) }
+}
+
+impl<R, G, B, A> From<Pixel> for (R, G, B, A) where R: From<Sample>, G: From<Sample>, B: From<Sample>, A: From<Sample> {
+    fn from(pixel: Pixel) -> Self { (
+        R::from(pixel.red), G::from(pixel.green), B::from(pixel.blue),
+        A::from(pixel.alpha.unwrap_or(Sample::default_alpha()))
+    ) }
+}
+
+impl<S> From<[S; 3]> for Pixel where S: Into<Sample> {
+    fn from([r,g,b]: [S; 3]) -> Self { Self::rgb(r,g,b) }
+}
+
+impl<S> From<[S; 4]> for Pixel where S: Into<Sample> {
+    fn from([r,g,b, a]: [S; 4]) -> Self { Self::rgba(r,g,b, a) }
+}
+
+impl<S> From<Pixel> for [S; 3] where S: From<Sample> {
+    fn from(pixel: Pixel) -> Self { [S::from(pixel.red), S::from(pixel.green), S::from(pixel.blue)] }
+}
+
+impl<S> From<Pixel> for [S; 4] where S: From<Sample> {
+    fn from(pixel: Pixel) -> Self { [
+        S::from(pixel.red), S::from(pixel.green), S::from(pixel.blue),
+        S::from(pixel.alpha.unwrap_or(Sample::default_alpha()))
+    ] }
+}

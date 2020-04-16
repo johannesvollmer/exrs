@@ -26,7 +26,7 @@ fn main() {
         )
     };
 
-    let image_info = rgba::Image::rgb(
+    let image_info = rgba::ImageInfo::rgb(
         (2*2048, 2*2048),
 
         // the generated f32 is converted to an f16 while writing the file
@@ -36,7 +36,7 @@ fn main() {
     // write it to a file with all cores in parallel
     image_info
         .with_encoding(rgba::Encoding::compress(Compression::RLE))
-        .write_to_file(
+        .write_pixels_to_file(
             "tests/images/out/generated_rgba.exr",
             write_options::high(), &generate_pixels
         ).unwrap();
