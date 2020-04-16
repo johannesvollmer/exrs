@@ -15,6 +15,7 @@ fn main() {
 
     // output the average value for each channel of each layer
     for layer in &image.layers {
+
         for channel in &layer.channels {
             let average = match &channel.samples {
                 simple::Samples::F16(f16_vec) => f16_vec.iter().map(|f| f.to_f32()).sum::<f32>() / f16_vec.len() as f32,
@@ -22,10 +23,12 @@ fn main() {
                 simple::Samples::U32(u32_vec) => u32_vec.iter().sum::<u32>() as f32 / u32_vec.len() as f32,
             };
 
-            println!(
-                "Channel {} of Layer {:?} has an average value of {}",
-                channel.name, layer.attributes.name, average
-            );
+            if let Some(layer_name) = &layer.attributes.name {
+                println!("Channel `{}` of Layer `{}` has an average value of {}", channel.name, layer_name, average);
+            }
+            else {
+                println!("Channel `{}` has an average value of {}", channel.name, average);
+            }
         }
     }
 }
