@@ -180,46 +180,52 @@ impl Channel {
 
 impl Encoding {
 
-    /// Chooses an optimal tile size and line order for the specified compression.
+    /// Chooses an adequate block size and line order for the specified compression.
     #[inline]
-    pub fn compress(compression: Compression) -> Self {
+    pub fn for_compression(compression: Compression) -> Self {
         match compression {
             Compression::Uncompressed => Self {
                 tile_size: None, // scan lines have maximum width, which is best for efficient line memcpy
-                line_order: LineOrder::Increasing, // order does not really matter, as no compression is parrallelized
+                line_order: LineOrder::Increasing, // order does not really matter, no compression to be parallelized
                 compression,
             },
 
             Compression::RLE => Self {
                 tile_size: Some(Vec2(128, 128)), // favor tiles with one solid color
-                line_order: LineOrder::Unspecified, // tiles can be compressed in parallel
+                line_order: LineOrder::Unspecified, // tiles can be compressed in parallel without sorting
                 compression,
             },
 
             Compression::ZIP16 | Compression::ZIP1 => Self {
                 tile_size: None, // maximum data size for zip compression
-                line_order: LineOrder::Increasing, // cannot be unspecified with scan line blocks??
+                line_order: LineOrder::Increasing, // cannot be unspecified with scan line blocks!
                 compression,
             },
 
             _ => Self {
                 compression,
-                tile_size: None,
-                line_order: LineOrder::Increasing // basically free
+                tile_size: Some(Vec2(256, 256)), // use tiles to enable unspecified line order
+                line_order: LineOrder::Unspecified
             }
         }
+    }
+
+    /// Uses no compression with scan line blocks.
+    #[inline]
+    pub fn uncompressed() -> Self {
+        Self::for_compression(Compression::Uncompressed)
     }
 
     /// Uses RLE compression with tiled 128x128 blocks.
     #[inline]
     pub fn fast() -> Self {
-        Self::compress(Compression::RLE)
+        Self::for_compression(Compression::RLE)
     }
 
     /// Uses ZIP16 compression with scan line blocks.
     #[inline]
     pub fn small() -> Self {
-        Self::compress(Compression::ZIP16)
+        Self::for_compression(Compression::ZIP16)
     }
 }
 
