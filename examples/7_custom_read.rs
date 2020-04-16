@@ -119,6 +119,5 @@ fn main() {
 
     // warning: highly unscientific benchmarks ahead!
     let duration = start_time.elapsed();
-    let millis = duration.as_secs() * 1000 + duration.subsec_millis() as u64;
-    println!("\nRead exr file in {:?}s", millis as f32 * 0.001);
+    println!("\nRead exr file in {:?}s", duration.as_secs_f32());
 }

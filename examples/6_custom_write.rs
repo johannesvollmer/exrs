@@ -38,6 +38,7 @@ fn main() {
             Channel::new("B".try_into().unwrap(), SampleType::F32, true),
             Channel::new("G".try_into().unwrap(), SampleType::F32, true),
             Channel::new("R".try_into().unwrap(), SampleType::F32, true),
+            Channel::new("Z".try_into().unwrap(), SampleType::F32, true),
         ],
     );
 
@@ -69,8 +70,17 @@ fn main() {
         // picking a different one per channel
         |_meta, line_mut|{
             let chan = line_mut.location.channel;
-            line_mut.write_samples(|sample_index| random_values[(sample_index + chan) % random_values.len()])
-                .expect("write to line bug");
+
+            if chan == 3 { // write time as depth (could also do _meta.channels[chan].name == "Z")
+                line_mut.write_samples(|_| start_time.elapsed().as_secs_f32())
+                    .expect("write to line bug");
+            }
+
+            else { // write rgba color
+                line_mut
+                    .write_samples(|sample_index| random_values[(sample_index + chan) % random_values.len()])
+                    .expect("write to line bug");
+            }
         },
 
         // print progress occasionally
@@ -95,6 +105,5 @@ fn main() {
 
     // warning: highly unscientific benchmarks ahead!
     let duration = start_time.elapsed();
-    let millis = duration.as_secs() * 1000 + duration.subsec_millis() as u64;
-    println!("\nWrote exr file in {:?}s", millis as f32 * 0.001);
+    println!("\nWrote exr file in {:?}s", duration.as_secs_f32());
 }
