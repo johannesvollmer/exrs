@@ -5,8 +5,8 @@
 
 # EXRS
 
-This library is a 100% Rust and 100% safe code 
-encoding and decoding library for the OpenEXR image file format.
+This library is a 100% Rust and 100% safe code library for
+reading and writing OpenEXR images.
 See [the examples](https://github.com/johannesvollmer/exrs/tree/master/examples) for a first impression.
 
 [OpenEXR](http://www.openexr.com/)
