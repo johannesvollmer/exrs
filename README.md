@@ -157,7 +157,7 @@ please leave an issue on this repository, containing the image file.
 Add this to your `Cargo.toml`:
 ```toml
 [dependencies]
-exr = "0.7.0"
+exr = "0.7.4"
 
 # also, optionally add this to your crate for smaller binary size 
 # and better runtime performance
