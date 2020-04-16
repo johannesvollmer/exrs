@@ -14,6 +14,7 @@ use std::io::{BufReader};
 use crate::math::*;
 use std::collections::{HashSet, HashMap};
 use std::convert::TryFrom;
+use smallvec::alloc::fmt::Formatter;
 
 
 /// Contains the complete meta data of an exr image.
@@ -148,7 +149,7 @@ pub struct ImageAttributes {
 
 /// Does not include the attributes required for reading the file contents.
 /// Excludes standard fields that must be the same for all headers.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq)]
 pub struct LayerAttributes {
 
     /// The name of this layer.
@@ -1507,6 +1508,48 @@ impl Default for LayerAttributes {
             view: None,
             custom: Default::default()
         }
+    }
+}
+
+impl std::fmt::Debug for LayerAttributes {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        let default_self = Self::default();
+
+        let mut debug = formatter.debug_struct("LayerAttributes (only relevant attributes)");
+
+        // always debug the following fields
+        debug.field("data_position", &self.data_position);
+        debug.field("name", &self.name);
+
+        macro_rules! debug_non_default_fields {
+            ( $( $name: ident ),* ) => { $(
+
+                if self.$name != default_self.$name {
+                    debug.field(stringify!($name), &self.$name);
+                }
+
+            )* };
+        }
+
+        // only debug these fields if they are not the default value
+        debug_non_default_fields! {
+            screen_window_center, screen_window_width,
+            white_luminance, adopted_neutral, x_density,
+            rendering_transform, look_modification_transform,
+            owner, comments,
+            capture_date, utc_offset,
+            longitude, latitude, altitude,
+            focus, exposure, aperture, iso_speed,
+            environment_map, key_code, wrap_modes,
+            frames_per_second, multi_view,
+            world_to_camera, world_to_normalized_device,
+            deep_image_state, original_data_window,
+            dwa_compression_level,
+            preview, view,
+            custom
+        }
+
+        debug.finish()
     }
 }
 
