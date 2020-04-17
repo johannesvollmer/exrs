@@ -15,7 +15,7 @@ use exr::prelude::*;
 /// On my machine, this program analyzes a 3GB file while only allocating 1.1MB.
 fn main() {
 
-    // If this file does not exist yet, you can generate it by running the `custom_write.rs` example once.
+    // If this file does not exist yet, you can generate it by running the `5_custom_write` example once.
     let file = BufReader::new(File::open("tests/images/out/3GB.exr").unwrap());
 
     /// Collect averages for each layer
@@ -119,6 +119,5 @@ fn main() {
 
     // warning: highly unscientific benchmarks ahead!
     let duration = start_time.elapsed();
-    let millis = duration.as_secs() * 1000 + duration.subsec_millis() as u64;
-    println!("\nRead exr file in {:?}s", millis as f32 * 0.001);
+    println!("\nRead exr file in {:?}s", duration.as_secs_f32());
 }
