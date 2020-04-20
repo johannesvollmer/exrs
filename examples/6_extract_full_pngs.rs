@@ -38,7 +38,7 @@ pub fn main() {
                         save_f32_image_as_png(&data, sample_block.resolution, format!(
                             "tests/images/out/{} ({}) {}_f16_{}x{}.png",
                             layer_index, layer_name, channel.name,
-                            sample_block.resolution.x(), sample_block.resolution.y(),
+                            sample_block.resolution.width(), sample_block.resolution.height(),
                         ))
                     }
                 },
@@ -51,7 +51,7 @@ pub fn main() {
                         save_f32_image_as_png(&sample_block.samples, sample_block.resolution, format!(
                             "tests/images/out/{} ({}) {}_f32_{}x{}.png",
                             layer_index, layer_name, channel.name,
-                            sample_block.resolution.x(), sample_block.resolution.y(),
+                            sample_block.resolution.width(), sample_block.resolution.height(),
                         ))
                     }
                 },
@@ -66,7 +66,7 @@ pub fn main() {
                         save_f32_image_as_png(&data, sample_block.resolution, format!(
                             "tests/images/out/{} ({}) {}_u32_{}x{}.png",
                             layer_index, layer_name, channel.name,
-                            sample_block.resolution.x(), sample_block.resolution.y(),
+                            sample_block.resolution.width(), sample_block.resolution.height(),
                         ))
                     }
                 },
@@ -76,7 +76,7 @@ pub fn main() {
 
     /// Save raw float data to a PNG file, doing automatic brightness adjustments per channel
     fn save_f32_image_as_png(data: &[f32], size: Vec2<usize>, name: String) {
-        let mut png_buffer = image::GrayImage::new(size.x() as u32, size.y() as u32);
+        let mut png_buffer = image::GrayImage::new(size.width() as u32, size.height() as u32);
         let mut sorted = Vec::from(data);
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Less));
 
