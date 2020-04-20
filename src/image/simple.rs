@@ -32,6 +32,7 @@ pub struct Image {
     /// Attributes that apply to the whole image file.
     /// These attributes appear in each layer of the file.
     /// Excludes technical meta data.
+    /// Each layer in this image also has its own attributes.
     pub attributes: ImageAttributes,
 }
 
@@ -50,17 +51,22 @@ pub struct Layer {
 
     /// Attributes that apply to this layer. Excludes technical meta data.
     /// May still contain attributes that should be considered global for an image file.
+    /// Does not contain data window size, line order, tiling, or compression attributes.
+    /// The image also has attributes that do not differ per layer.
     pub attributes: LayerAttributes,
 
     /// The rectangle that positions this layer
     /// within the global infinite 2D space of the file.
+    /// See `layer.attributes` for more attributes.
     pub data_size: Vec2<usize>,
 
     /// In what order the tiles of this header occur in the file.
     /// Does not change any actual image orientation.
+    /// See `layer.attributes` for more attributes.
     pub line_order: LineOrder,
 
     /// How the pixel data of all channels in this layer is compressed. May be `Compression::Uncompressed`.
+    /// See `layer.attributes` for more attributes.
     pub compression: Compression,
 
     /// If this is some pair of numbers, the image is divided into tiles of that size.

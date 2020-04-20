@@ -125,6 +125,7 @@ pub struct Header {
 
 /// Includes mandatory fields like pixel aspect or display window
 /// which must be the same for all layers.
+/// For more attributes, see struct `LayerAttributes`.
 #[derive(Clone, PartialEq, Debug)]
 pub struct ImageAttributes {
 
@@ -133,7 +134,7 @@ pub struct ImageAttributes {
     pub display_window: IntRect,
 
     /// Aspect ratio of each pixel in this header.
-    pub pixel_aspect: f32, // TODO integrate into `other`
+    pub pixel_aspect: f32,
 
     /// The chromaticities attribute of the image. See the `Chromaticities` type.
     pub chromaticities: Option<Chromaticities>,
@@ -149,6 +150,7 @@ pub struct ImageAttributes {
 
 /// Does not include the attributes required for reading the file contents.
 /// Excludes standard fields that must be the same for all headers.
+/// For more attributes, see struct `ImageAttributes`.
 #[derive(Clone, PartialEq)]
 pub struct LayerAttributes {
 
@@ -171,18 +173,17 @@ pub struct LayerAttributes {
     pub screen_window_width: f32, // TODO integrate into `list`
 
     /// The white luminance of the colors.
-    /// For RGB images, defines the luminance, in Nits
-    /// (candelas per square meter) of the RGB value (1.0, 1.0, 1.0).
+    /// Defines the luminance in candelas per square meter, Nits, of the RGB value `(1, 1, 1)`.
     // If the chromaticities and the whiteLuminance of an RGB image are
     // known, then it is possible to convert the image's pixels from RGB
     // to CIE XYZ tristimulus values (see function RGBtoXYZ() in header
     // file ImfChromaticities.h).
     pub white_luminance: Option<f32>,
 
-    /// The adopted neutral of the colors. Specifies the CIE (x,y) coordinates that should
+    /// The adopted neutral of the colors. Specifies the CIE (x,y) frequency coordinates that should
     /// be considered neutral during color rendering. Pixels in the image
-    /// file whose (x,y) coordinates match the adopted neutral value should
-    /// be mapped to neutral values on the display.
+    /// whose CIE (x,y) frequency coordinates match the adopted neutral value should
+    /// be mapped to neutral values on the given display.
     pub adopted_neutral: Option<Vec2<f32>>,
 
     /// Name of the color transform function that is applied for rendering the image.
@@ -192,7 +193,7 @@ pub struct LayerAttributes {
     pub look_modification_transform: Option<Text>,
 
     /// The horizontal density, in pixels per inch.
-    /// The image's vertical output density is xDensity * pixelAspectRatio.
+    /// The image's vertical output density can be computed using `x_density * pixel_aspect_ratio`.
     pub x_density: Option<f32>,
 
     /// Name of the owner.
