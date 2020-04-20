@@ -7,7 +7,8 @@ use exr::prelude::*;
 
 fn main() {
 
-    /// This buffer can be consumed by the PNG crate and created from a file to by the EXR crate
+    /// This buffer can be written to a file by the PNG crate
+    /// and can be created from a file by the EXR crate
     struct PngPixels(image::RgbaImage);
 
     // tell exrs how to load an exr image into our custom png buffer
@@ -19,9 +20,9 @@ fn main() {
 
             /// compress any possible f32 into the range of [0,1].
             /// and then convert it to an unsigned byte.
-            fn tone_map(v: f32) -> u8 {
-                let f01 = (v - 0.5).tanh() * 0.5 + 0.5;
-                (f01 * 255.0) as u8
+            fn tone_map(raw: f32) -> u8 {
+                let clamped = (raw - 0.5).tanh() * 0.5 + 0.5;
+                (clamped * 255.0) as u8
             };
 
             self.0.put_pixel(
