@@ -51,8 +51,11 @@ fn main() {
         smallvec![ r, g, b ],
     );
 
-    let layer = layer.with_compression(Compression::RLE)
+    let mut layer = layer.with_compression(Compression::RLE)
         .with_block_format(None, attributes::LineOrder::Increasing);
+
+    layer.attributes.owner = Some("It's you!".try_into().unwrap());
+    layer.attributes.comments = Some("This image was procedurally generated".try_into().unwrap());
 
     let image = Image::new_from_single_layer(layer);
 

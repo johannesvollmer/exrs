@@ -3,6 +3,7 @@
 extern crate exr;
 use exr::prelude::*;
 use exr::meta::attributes::SampleType;
+use std::convert::TryInto;
 
 /// Write an RGBA exr file, generating the pixel values on the fly.
 /// This streams the generated pixel directly to the file,
@@ -29,11 +30,16 @@ fn main() {
     };
 
 
-    let image_info = rgba::ImageInfo::rgb(
+    let mut image_info = rgba::ImageInfo::rgb(
         (2*2048, 2*2048),
 
         // the generated f32 is converted to an f16 while writing the file
         rgba::Channel::linear(SampleType::F16),
+    );
+
+    image_info.layer_attributes.owner = Some("Unknown Owner".try_into().unwrap());
+    image_info.layer_attributes.comments = Some(
+        "This image was generated as part of an example".try_into().unwrap()
     );
 
     // write it to a file with all cores in parallel
