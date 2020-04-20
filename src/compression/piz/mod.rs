@@ -227,7 +227,8 @@ pub fn decompress_bytes(
 //        AutoArray <unsigned char, BITMAP_SIZE> bitmap;
 //        memset (bitmap, 0, sizeof (unsigned char) * BITMAP_SIZE);
 
-    let mut bitmap = vec![0_u8; BITMAP_SIZE as usize]; // TODO no vec?
+    let mut bitmap = vec![0_u8; BITMAP_SIZE as usize]; // FIXME use bit_vec!
+
 
 //        Xdr::read <CharPtrIO> (inPtr, minNonZero);
 //        Xdr::read <CharPtrIO> (inPtr, maxNonZero);
@@ -236,7 +237,7 @@ pub fn decompress_bytes(
 
     let min_non_zero = u16::read(&mut read)?;
     let max_non_zero = u16::read(&mut read)?;
-    inspect!(min_non_zero, max_non_zero);
+    inspect!(min_non_zerob, max_non_zero);
 
 //
 //        if (maxNonZero >= BITMAP_SIZE)
