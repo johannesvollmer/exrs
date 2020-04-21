@@ -118,6 +118,5 @@ fn main() {
     println!("Average values: {:#?}", averages);
 
     // warning: highly unscientific benchmarks ahead!
-    let duration = start_time.elapsed();
-    println!("\nRead exr file in {:?}s", duration.as_secs_f32());
+    println!("\nRead exr file in {:?}s", start_time.elapsed().as_secs_f32());
 }

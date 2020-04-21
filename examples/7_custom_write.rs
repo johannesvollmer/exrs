@@ -43,7 +43,7 @@ fn main() {
     );
 
     // define encoding that will be written
-    let header = header.with_encoding(
+    let mut header = header.with_encoding(
         Compression::Uncompressed,
 
         Blocks::Tiles(TileDescription {
@@ -54,6 +54,10 @@ fn main() {
 
         LineOrder::Increasing
     );
+
+    // add some random meta data
+    header.own_attributes.exposure = Some(1.0);
+
 
     let meta = MetaData::new(smallvec![ header ]);
 
@@ -104,6 +108,5 @@ fn main() {
     ).unwrap();
 
     // warning: highly unscientific benchmarks ahead!
-    let duration = start_time.elapsed();
-    println!("\nWrote exr file in {:?}s", duration.as_secs_f32());
+    println!("\nWrote exr file in {:?}s", start_time.elapsed().as_secs_f32());
 }
