@@ -295,7 +295,7 @@ impl LineIndex {
             level: block.level,
             width: block.pixel_size.0,
             x: block.pixel_position.0,
-            end_y: block.pixel_position.y() + block.pixel_size.y(),
+            end_y: block.pixel_position.y() + block.pixel_size.height(),
             channel_sizes: channel_line_sizes,
 
             byte: 0,

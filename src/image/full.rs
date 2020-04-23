@@ -210,7 +210,7 @@ impl<S> std::fmt::Debug for Levels<S> {
         match self {
             Levels::Singular(image) => write!(
                 formatter, "Singular ([{}x{}])",
-                image.resolution.x(), image.resolution.y()
+                image.resolution.width(), image.resolution.height()
             ),
             Levels::Mip(levels) => write!(
                 formatter, "Mip ({:?})",

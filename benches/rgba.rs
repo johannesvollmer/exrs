@@ -11,7 +11,11 @@ fn read_rgba(bench: &mut Bencher) {
     bench.iter(||{
         let path = "tests/images/valid/custom/crowskull/crow_uncompressed.exr";
 
-        let image = rgba::ImageInfo::read_pixels_from_file(path, read_options::low(), rgba::pixels::flattened_f16).unwrap();
+        let image = rgba::ImageInfo::read_pixels_from_file(
+            path, read_options::low(),
+            rgba::pixels::create_flattened_f16,
+            rgba::pixels::flattened_pixel_setter()
+        ).unwrap();
         bencher::black_box(image);
     })
 }

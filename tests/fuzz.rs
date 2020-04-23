@@ -32,7 +32,11 @@ pub fn damaged(){
         let result = catch_unwind(move || {
             let _ = exr::image::full::Image::read_from_file(file, read_options::high())?;
             let _ = exr::image::simple::Image::read_from_file(file, read_options::high())?;
-            let _ = exr::image::rgba::ImageInfo::read_pixels_from_file(file, read_options::high(), rgba::pixels::flattened_f16)?;
+            let _ = exr::image::rgba::ImageInfo::read_pixels_from_file(
+                file, read_options::high(),
+                rgba::pixels::create_flattened_f16,
+                rgba::pixels::flattened_pixel_setter()
+            )?;
             Ok(())
         });
 
