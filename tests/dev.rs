@@ -70,7 +70,11 @@ pub fn test_roundtrip() {
     print!("starting write... ");
     io::stdout().flush().unwrap();
 
-    image.write_pixels_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options, &pixels).unwrap();
+    image.write_pixels_to_buffered(
+        &mut Cursor::new(&mut tmp_bytes), write_options,
+        rgba::pixels::flattened_pixel_getter(&pixels)
+    ).unwrap();
+
     println!("...write successfull");
 
     print!("starting read 2... ");

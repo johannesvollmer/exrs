@@ -104,7 +104,10 @@ fn round_trip_all_files_rgba() {
         )?;
 
         let mut tmp_bytes = Vec::new();
-        image.write_pixels_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low(), &pixels)?;
+        image.write_pixels_to_buffered(
+            &mut Cursor::new(&mut tmp_bytes), write_options::low(),
+            rgba::pixels::flattened_pixel_getter(&pixels)
+        )?;
 
         let (image2, pixels2) = rgba::ImageInfo::read_pixels_from_buffered(
             Cursor::new(&tmp_bytes), read_options::low(),

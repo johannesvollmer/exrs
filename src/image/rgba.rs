@@ -7,7 +7,7 @@
 //! Use `exr::image::simple` if you need custom channels or specialized error handling.
 //!
 //! Also, the luxury of automatic conversion comes with a cost.
-//! Using `image::simple` might be slightly faster in special cases.
+//! Using `image::simple` might be faster in special cases.
 
 
 use std::path::Path;
@@ -88,40 +88,36 @@ pub struct Encoding {
     pub line_order: LineOrder,
 }
 
+/// This is the closure alias to `pub type CreatePixels<T> = impl FnOnce(&ImageInfo) -> T;`
+///
+/// The created value will later be filled with pixels.
+///
+/// This is a macro because type impl aliases are still unstable,
+/// see https://github.com/rust-lang/rust/issues/63063
+macro_rules! CreatePixels { ($T: ty) => { impl (FnOnce(&crate::image::rgba::ImageInfo) -> $T) }; }
 
-/// Expose the pixels of an image. Implement this on your own image type to write your image to a file.
-/// The actual sample type of the file is specified within `Image.channels`.
-/// All provided samples will automatically be converted to the desired channel type.
-pub trait GetPixels: Sync { // TODO does not actually always need sync
+/// This is the closure alias to `pub type SetPixels<T> = impl FnMut(&T, Vec2<usize>, Pixel);`
+///
+/// This is a macro because type impl aliases are still unstable,
+/// see https://github.com/rust-lang/rust/issues/63063
+macro_rules! SetPixels { ($T: ty) => { impl (FnMut(&mut $T, Vec2<usize>, Pixel)) }; }
 
-    /// Extract a single RGBA pixel out of your image.
-    /// May return any variant of samples, and any alpha channel.
-    /// The samples will be converted to the type specified in the image.
-    /// The alpha value may be ignored by the image.
-    /// If the image has an alpha channel but no alpha value is provided,
-    /// a value of `1.0` is used as default alpha.
-    fn get_pixel(&self, position: Vec2<usize>) -> Pixel;
+/// This is the closure alias to `pub type GetPixels<'t> = impl Sync + Fn(Vec2<usize>) -> Pixel + 't;`
+///
+/// Extract a single RGBA pixel out of your image.
+/// May return any variant of samples, and any alpha channel.
+/// The samples will be converted to the type specified in the `ImageInfo::channels`.
+/// The alpha value may be ignored by the image.
+/// If the image has an alpha channel but no alpha value is provided,
+/// a value of `1.0` is used as default alpha.
+///
+/// This is a macro because type impl aliases are still unstable,
+/// see https://github.com/rust-lang/rust/issues/63063
+macro_rules! GetPixels {
+    () => { impl Sync + Fn(Vec2<usize>) -> Pixel };
+    ($time: lifetime) => { impl Sync + Fn(Vec2<usize>) -> Pixel + $time };
 }
 
-/// Create the pixels of an image file.
-/// This is also implemented by closures of type `FnOnce(&ImageInfo) -> impl SetPixels`.
-pub trait CreatePixels {
-
-    /// Your custom type of Pixels created by this object.
-    /// The created value will later be filled with pixels.
-    type Pixels;
-
-    /// Create a new pixel storage for the supplied image.
-    fn new(self, image: &ImageInfo) -> Self::Pixels;
-}
-
-/// Consume the pixels of an image file.
-/// This is also implemented by closures of type `FnMut(&mut T, Vec2<usize>, Pixel)`.
-pub trait SetPixels<Image> {
-
-    /// Set the value of a single pixel.
-    fn set_pixel(&mut self, image: &mut Image, position: Vec2<usize>, pixel: Pixel);
-}
 
 /// A single pixel with red, green, blue, and alpha values.
 /// Each channel may have a different sample type.
@@ -303,15 +299,16 @@ impl ImageInfo {
     /// Use `read_pixels_from_unbuffered` instead, if you do not have a file.
     /// Returns `Error::Invalid` if not at least one image part with RGB channels can be found in the file.
     ///
-    /// The `create_pixels` parameter can be a closure of type `Fn(&Image) -> impl SetPixels`.
-    /// The `set_pixels` parameter can be a closure of type `Fn(&mut T, Vec2<usize>, Pixel)`.
+    /// The `create_pixels` parameter is a closure of type `FnOnce(&Image) -> T`.
+    /// The `set_pixels` parameter is a closure of type `FnMut(&mut T, Vec2<usize>, Pixel)`.
     #[inline]
     #[must_use]
-    pub fn read_pixels_from_file<P: CreatePixels, S: SetPixels<P::Pixels>>(
+    pub fn read_pixels_from_file<T>(
         path: impl AsRef<Path>,
         options: ReadOptions<impl OnReadProgress>,
-        create_pixels: P, set_pixels: S,
-    ) -> Result<(Self, P::Pixels)>
+        create_pixels: CreatePixels!(T),
+        set_pixels: SetPixels!(T),
+    ) -> Result<(Self, T)>
     {
         Self::read_pixels_from_unbuffered(File::open(path)?, options, create_pixels, set_pixels)
     }
@@ -322,18 +319,19 @@ impl ImageInfo {
     ///
     /// Returns `Error::Invalid` if not at least one image part with RGB channels can be found in the file.
     ///
-    /// The `create_pixels` parameter can be a closure of type `Fn(&Image) -> impl SetPixels`.
-    /// The `set_pixels` parameter can be a closure of type `Fn(&mut T, Vec2<usize>, Pixel)`.
+    /// The `create_pixels` parameter is a closure of type `FnOnce(&Image) -> T`.
+    /// The `set_pixels` parameter is a closure of type `FnMut(&mut T, Vec2<usize>, Pixel)`.
     ///
     /// _Note: If you encounter a reader that is not send or not seek,
     /// open an issue on the github repository._
     #[inline]
     #[must_use]
-    pub fn read_pixels_from_unbuffered<P: CreatePixels, S: SetPixels<P::Pixels>>(
+    pub fn read_pixels_from_unbuffered<T>(
         read: impl Read + Seek + Send,
         options: ReadOptions<impl OnReadProgress>,
-        create_pixels: P, set_pixels: S,
-    ) -> Result<(Self, P::Pixels)>
+        create_pixels: CreatePixels!(T),
+        set_pixels: SetPixels!(T),
+    ) -> Result<(Self, T)>
     {
         Self::read_pixels_from_buffered(BufReader::new(read), options, create_pixels, set_pixels)
     }
@@ -344,25 +342,26 @@ impl ImageInfo {
     ///
     /// Returns `Error::Invalid` if not at least one image part with RGB channels can be found in the file.
     ///
-    /// The `create_pixels` parameter can be a closure of type `Fn(&Image) -> impl SetPixels`.
-    /// The `set_pixels` parameter can be a closure of type `Fn(&mut T, Vec2<usize>, Pixel)`.
+    /// The `create_pixels` parameter is a closure of type `FnOnce(&Image) -> T`.
+    /// The `set_pixels` parameter is a closure of type `FnMut(&mut T, Vec2<usize>, Pixel)`.
     ///
     /// _Note: If you encounter a reader that is not send or not seek,
     /// open an issue on the github repository._
     #[inline]
     #[must_use]
-    pub fn read_pixels_from_buffered<P: CreatePixels, S: SetPixels<P::Pixels>>(
+    pub fn read_pixels_from_buffered<T>(
         read: impl Read + Seek + Send,
         options: ReadOptions<impl OnReadProgress>,
-        create_pixels: P, mut set_pixels: S,
-    ) -> Result<(Self, P::Pixels)>
+        create_pixels: CreatePixels!(T),
+        mut set_pixels: SetPixels!(T),
+    ) -> Result<(Self, T)>
     {
         crate::block::read_filtered_blocks_from_buffered(
             read,
 
             move |meta| {
                 let image = Self::extract(meta)?;
-                let pixels = create_pixels.new(&image);
+                let pixels = create_pixels(&image);
                 Ok((image, pixels))
             },
 
@@ -433,7 +432,7 @@ impl ImageInfo {
                         );
 
                         let position = block.index.pixel_position + Vec2(x,y);
-                        set_pixels.set_pixel(pixels, position, pixel);
+                        set_pixels(pixels, position, pixel);
                     }
                 }
 
@@ -500,12 +499,12 @@ impl ImageInfo {
     /// Use `write_pixels_to_unbuffered` instead if you do not have a file.
     /// If an error occurs, attempts to delete the partially written file.
     ///
-    /// The `pixels` parameter can be a closure of type `Fn(&Image, Vec2<usize>) -> Pixel`.
+    /// The `pixels` parameter is a closure of type `Fn(&Image, Vec2<usize>) -> Pixel`.
     #[must_use]
     pub fn write_pixels_to_file(
         &self, path: impl AsRef<Path>,
         options: WriteOptions<impl OnWriteProgress>,
-        pixels: &impl GetPixels,
+        pixels: GetPixels!(),
     ) -> UnitResult
     {
         crate::io::attempt_delete_file_on_write_error(path, |write|
@@ -518,12 +517,12 @@ impl ImageInfo {
     /// Use `write_pixels_to_file` instead, if you have a file path.
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first, using `write_to_buffered`.
     ///
-    /// The `pixels` parameter can be a closure of type `Fn(&Image, Vec2<usize>) -> Pixel`.
+    /// The `pixels` parameter is a closure of type `Fn(&Image, Vec2<usize>) -> Pixel`.
     #[must_use]
     pub fn write_pixels_to_unbuffered(
         &self, write: impl Write + Seek,
         options: WriteOptions<impl OnWriteProgress>,
-        pixels: &impl GetPixels,
+        pixels: GetPixels!(),
     ) -> UnitResult
     {
         self.write_pixels_to_buffered(BufWriter::new(write), options, pixels)
@@ -534,12 +533,12 @@ impl ImageInfo {
     /// Use `write_pixels_to_unbuffered` instead, if this is not an in-memory writer.
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first.
     ///
-    /// The `pixels` parameter can be a closure of type `Fn(&Image, Vec2<usize>) -> Pixel`.
+    /// The `pixels` parameter is a closure of type `Fn(&Image, Vec2<usize>) -> Pixel`.
     #[must_use]
     pub fn write_pixels_to_buffered(
         &self, write: impl Write + Seek,
         options: WriteOptions<impl OnWriteProgress>,
-        pixels: &impl GetPixels,
+        pixels: GetPixels!(),
     ) -> UnitResult
     {
         use crate::meta::attributes as meta;
@@ -636,7 +635,7 @@ impl ImageInfo {
 
                     for x in 0..width {
                         let position = block_index.pixel_position + Vec2(x,y);
-                        let pixel = pixels.get_pixel(position);
+                        let pixel = pixels(position);
 
                         write_r(pixel.red);
                         write_g(pixel.green);
@@ -661,6 +660,38 @@ impl ImageInfo {
 /// Currently contains a homogeneous flattened vector storage.
 pub mod pixels {
     use super::*;
+
+
+    /// Store all samples in a single array.
+    /// All samples will be converted to the type `T`.
+    /// This currently supports the sample types `f16`, `f32`, and `u32`.
+    #[derive(PartialEq, Clone)]
+    pub struct Flattened<T> {
+
+        channels: usize,
+        width: usize,
+
+        /// The flattened vector contains all rows one after another.
+        /// In each row, for each pixel, its red, green, blue, and then alpha
+        /// samples are stored one after another.
+        ///
+        /// Use `Flattened::compute_pixel_index(image, position)`
+        /// to compute the flat index of a specific pixel.
+        pub samples: Vec<T>,
+    }
+
+    impl<T> Flattened<T> {
+
+        /// Compute the flat index of a specific pixel. Returns a range of either 3 or 4 samples.
+        /// The computed index can be used with `Flattened.samples[index]`.
+        /// Panics for invalid sample coordinates.
+        #[inline]
+        pub fn compute_pixel_index(&self, position: Vec2<usize>) -> std::ops::Range<usize> {
+            let pixel_index = position.y() * self.width + position.x();
+            let red_index = pixel_index * self.channels;
+            (red_index .. red_index + self.channels)
+        }
+    }
 
     /// Constructor for a flattened f16 pixel storage.
     /// This function an directly be passed to `rgba::ImageInfo::load_from_file` and friends.
@@ -695,47 +726,20 @@ pub mod pixels {
         }
     }
 
-    /// Store all samples in a single array.
-    /// All samples will be converted to the type `T`.
-    /// This currently supports the sample types `f16`, `f32`, and `u32`.
-    #[derive(PartialEq, Clone)]
-    pub struct Flattened<T> {
-
-        channels: usize,
-        width: usize,
-
-        /// The flattened vector contains all rows one after another.
-        /// In each row, for each pixel, its red, green, blue, and then alpha
-        /// samples are stored one after another.
-        ///
-        /// Use `Flattened::compute_pixel_index(image, position)`
-        /// to compute the flat index of a specific pixel.
-        pub samples: Vec<T>,
-    }
-
-    impl<T> Flattened<T> {
-
-        /// Compute the flat index of a specific pixel. Returns a range of either 3 or 4 samples.
-        /// The computed index can be used with `Flattened.samples[index]`.
-        /// Panics for invalid sample coordinates.
-        #[inline]
-        pub fn compute_pixel_index(&self, position: Vec2<usize>) -> std::ops::Range<usize> {
-            let pixel_index = position.y() * self.width + position.x();
-            let red_index = pixel_index * self.channels;
-            (red_index .. red_index + self.channels)
-        }
-    }
-
-    impl<T> GetPixels for Flattened<T> where T: Sync + Copy + Into<Sample> {
-        #[inline] fn get_pixel(&self, position: Vec2<usize>) -> Pixel {
-            let pixel = &self.samples[self.compute_pixel_index(position)];
+    /// Create an object that can examine the pixels of a `Flattened<T>` image.
+    #[inline]
+    pub fn flattened_pixel_getter<T>(image: &Flattened<T>) -> GetPixels!('_)
+        where T: Sync + Copy + Into<Sample>
+    {
+        move |position: Vec2<usize>| {
+            let pixel = &image.samples[image.compute_pixel_index(position)];
             Pixel::new(pixel[0], pixel[1], pixel[2], pixel.get(3).cloned())
         }
     }
 
     /// Create an object that can update the pixels of a `Flattened<T>` image.
     #[inline]
-    pub fn flattened_pixel_setter<T>() -> impl SetPixels<Flattened<T>> where T: Copy + From<Sample> {
+    pub fn flattened_pixel_setter<T>() -> SetPixels!(Flattened<T>) where T: Copy + From<Sample> {
         |image: &mut Flattened<T>, position: Vec2<usize>, pixel: Pixel| {
             let index = image.compute_pixel_index(position);
             let samples = &mut image.samples[index];
@@ -759,21 +763,6 @@ pub mod pixels {
     }
 }
 
-
-
-
-impl<F> GetPixels for F where F: Sync + Fn(Vec2<usize>) -> Pixel {
-    #[inline] fn get_pixel(&self, position: Vec2<usize>) -> Pixel { self(position) }
-}
-
-impl<F, T> CreatePixels for F where F: FnOnce(&ImageInfo) -> T {
-    type Pixels = T;
-    #[inline] fn new(self, image: &ImageInfo) -> Self::Pixels { self(image) }
-}
-
-impl<F, Image> SetPixels<Image> for F where F: FnMut(&mut Image, Vec2<usize>, Pixel) {
-    #[inline] fn set_pixel(&mut self, image: &mut Image, position: Vec2<usize>, pixel: Pixel) { self(image, position, pixel) }
-}
 
 
 
