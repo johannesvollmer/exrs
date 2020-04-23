@@ -57,7 +57,11 @@ pub fn test_roundtrip() {
     let meta = MetaData::read_from_file(path).unwrap();
     println!("{:#?}", meta);
 
-    let (image, pixels) = rgba::ImageInfo::read_pixels_from_file(path, read_options::low(), rgba::pixels::flattened_f16).unwrap();
+    let (image, pixels) = rgba::ImageInfo::read_pixels_from_file(
+        path, read_options::low(),
+        rgba::pixels::create_flattened_f16,
+        rgba::pixels::flattened_pixel_setter()
+    ).unwrap();
     println!("...read 1 successfull");
 
     let write_options = write_options::low();
@@ -75,7 +79,8 @@ pub fn test_roundtrip() {
     let (image2, pixels2) = rgba::ImageInfo::read_pixels_from_buffered(
         Cursor::new(&tmp_bytes),
         read_options::low(),
-        rgba::pixels::flattened_f16
+        rgba::pixels::create_flattened_f16,
+        rgba::pixels::flattened_pixel_setter()
     ).unwrap();
 
     println!("...read 2 successfull");

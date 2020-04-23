@@ -16,38 +16,30 @@ fn main() {
     struct CustomPixels { lines: Vec<Vec<[f16; 4]>> };
 
     // read the image from a file
-    let (mut image_info, mut pixels) = {
+    let (mut image_info, mut pixels) = rgba::ImageInfo::read_pixels_from_file(
+        "tests/images/valid/openexr/MultiResolution/Kapaa.exr",
+        read_options::high(),
 
-        impl rgba::SetPixels for CustomPixels {
-
-            // set a single pixel with red, green, blue, and optionally and alpha value.
-            // (this method is also called for f16 or u32 values, if you do not implement the other methods in this trait)
-            fn set_pixel(&mut self, position: Vec2<usize>, pixel: rgba::Pixel) {
-
-                // convert all samples, including alpha, to 16-bit floats, and then store them in the array
-                // (inserts 1.0 as default alpha if no alpha channel is in the file)
-                let pixel_f16_array: [f16; 4] = pixel.into();
-
-                self.lines[position.y()][position.x()] = pixel_f16_array;
-            }
-        }
-
-        let create_image = |image: &rgba::ImageInfo| {
+        // create our custom image based on the file info
+        |image: &rgba::ImageInfo| {
             println!("loaded image {:#?}", image);
 
             let default_rgba_pixel = [f16::ZERO, f16::ZERO, f16::ZERO, f16::ONE];
             let default_line = vec![default_rgba_pixel; image.resolution.width()];
             let lines = vec![default_line; image.resolution.height()];
             CustomPixels { lines }
-        };
+        },
 
-        // actually start reading the file with custom pixels
-        rgba::ImageInfo::read_pixels_from_file(
-            "tests/images/valid/openexr/MultiResolution/Kapaa.exr",
-            read_options::high(),
-            create_image
-        ).unwrap()
-    };
+        // set a single pixel with red, green, blue, and optionally and alpha value.
+        |image: &mut CustomPixels, position: Vec2<usize>, pixel: Pixel| {
+
+            // convert all samples, including alpha, to four 16-bit floats
+            let pixel_f16_array: [f16; 4] = pixel.into();
+
+            // insert the values into out custom image
+            image.lines[position.y()][position.x()] = pixel_f16_array;
+        }
+    ).unwrap();
 
 
     {   // increase exposure of all pixels
@@ -77,19 +69,12 @@ fn main() {
         }
     }
 
-
-    {   // write the image to a file
-
-        // expose the pixels of our image (you could also pass a closure capturing our image variable)
-        impl rgba::GetPixels for CustomPixels {
-
-            // extract a single pixel with red, green, blue, and optionally and alpha value.
-            fn get_pixel(&self, position: Vec2<usize>) -> Pixel {
-                let rgba_f16_array: [f16; 4] = self.lines[position.y()][position.x()];
-                rgba::Pixel::from(rgba_f16_array)
-            }
+     // write the image to a file
+    image_info.write_pixels_to_file(
+        "tests/images/out/exposure_adjusted.exr", write_options::high(),
+        &|position: Vec2<usize>| -> Pixel {
+            let rgba_f16_array: [f16; 4] = pixels.lines[position.y()][position.x()];
+            rgba::Pixel::from(rgba_f16_array)
         }
-
-        image_info.write_pixels_to_file("tests/images/out/exposure_adjusted.exr", write_options::high(), &pixels).unwrap();
-    }
+    ).unwrap();
 }

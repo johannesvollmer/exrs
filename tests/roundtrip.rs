@@ -97,13 +97,19 @@ fn round_trip_all_files_simple() {
 #[test]
 fn round_trip_all_files_rgba() {
     check_files(|path| {
-        let (image, pixels) = rgba::ImageInfo::read_pixels_from_file(path, read_options::low(), rgba::pixels::flattened_f16)?;
+        let (image, pixels) = rgba::ImageInfo::read_pixels_from_file(
+            path, read_options::low(),
+            rgba::pixels::create_flattened_f16,
+            rgba::pixels::flattened_pixel_setter()
+        )?;
 
         let mut tmp_bytes = Vec::new();
         image.write_pixels_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low(), &pixels)?;
 
         let (image2, pixels2) = rgba::ImageInfo::read_pixels_from_buffered(
-            Cursor::new(&tmp_bytes), read_options::low(), rgba::pixels::flattened_f16
+            Cursor::new(&tmp_bytes), read_options::low(),
+            rgba::pixels::create_flattened_f16,
+            rgba::pixels::flattened_pixel_setter()
         )?;
 
         if !path.to_str().unwrap().to_lowercase().contains("nan") {
