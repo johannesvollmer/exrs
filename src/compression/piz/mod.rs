@@ -237,7 +237,7 @@ pub fn decompress_bytes(
 
     let min_non_zero = u16::read(&mut read)?;
     let max_non_zero = u16::read(&mut read)?;
-    inspect!(min_non_zerob, max_non_zero);
+    inspect!(min_non_zero, max_non_zero);
 
 //
 //        if (maxNonZero >= BITMAP_SIZE)
