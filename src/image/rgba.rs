@@ -159,6 +159,11 @@ impl Pixel {
     #[inline] pub fn rgba(red: impl Into<Sample>, green: impl Into<Sample>, blue: impl Into<Sample>, alpha: impl Into<Sample>) -> Self {
         Self::new(red, green, blue, Some(alpha))
     }
+
+    /// Returns this pixel's alpha value, or the default value of `1.0` if no alpha is present.
+    #[inline] pub fn alpha_or_default(&self) -> Sample {
+        self.alpha.unwrap_or(Sample::default_alpha())
+    }
 }
 
 
@@ -633,7 +638,7 @@ impl ImageInfo {
                         write_b(pixel.blue);
 
                         if let Some(write_a) = &mut write_a {
-                            write_a(pixel.alpha.unwrap_or(Sample::default_alpha())); // no alpha channel provided = not transparent
+                            write_a(pixel.alpha_or_default()); // no alpha channel provided = not transparent
                         }
                     }
                 }
@@ -735,7 +740,7 @@ pub mod pixels {
             samples[2] = pixel.blue.into();
 
             if samples.len() == 4 {
-                samples[3] = pixel.alpha.unwrap_or(Sample::default_alpha()).into();
+                samples[3] = pixel.alpha_or_default().into();
             }
         }
     }
@@ -781,7 +786,7 @@ impl<R, G, B> From<Pixel> for (R, G, B) where R: From<Sample>, G: From<Sample>, 
 impl<R, G, B, A> From<Pixel> for (R, G, B, A) where R: From<Sample>, G: From<Sample>, B: From<Sample>, A: From<Sample> {
     #[inline] fn from(pixel: Pixel) -> Self { (
         R::from(pixel.red), G::from(pixel.green), B::from(pixel.blue),
-        A::from(pixel.alpha.unwrap_or(Sample::default_alpha()))
+        A::from(pixel.alpha_or_default())
     ) }
 }
 
@@ -800,6 +805,6 @@ impl<S> From<Pixel> for [S; 3] where S: From<Sample> {
 impl<S> From<Pixel> for [S; 4] where S: From<Sample> {
     #[inline] fn from(pixel: Pixel) -> Self { [
         S::from(pixel.red), S::from(pixel.green), S::from(pixel.blue),
-        S::from(pixel.alpha.unwrap_or(Sample::default_alpha()))
+        S::from(pixel.alpha_or_default())
     ] }
 }

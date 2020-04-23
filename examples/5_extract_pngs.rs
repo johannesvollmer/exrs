@@ -2,7 +2,7 @@ extern crate exr;
 extern crate image;
 
 use exr::prelude::*;
-use exr::image::full::*;
+use exr::image::simple::*;
 use exr::math::Vec2;
 use std::cmp::Ordering;
 
@@ -21,59 +21,41 @@ pub fn main() {
     let image = Image::read_from_file(path, read_options::high()).unwrap();
 
     // warning: highly unscientific benchmarks ahead!
-    let elapsed = now.elapsed();
-    let millis = elapsed.as_secs() * 1000 + elapsed.subsec_millis() as u64;
-    println!("\nDecoded exr file in {:?}s", millis as f32 * 0.001);
-
+    println!("\nDecoded exr file in {:?}s", now.elapsed().as_secs_f32());
     println!("Writing PNG images...");
 
     for (layer_index, layer) in image.layers.iter().enumerate() {
         let layer_name = layer.attributes.name.as_ref()
-            .map_or(String::from("1"), attributes::Text::to_string);
+            .map_or(String::from("main_layer"), attributes::Text::to_string);
 
         for channel in &layer.channels {
-            match &channel.content {
-                ChannelData::F16(levels) => {
-                    let levels = levels.as_flat_samples()
-                        .expect("deep data to png not supported");
+            match &channel.samples {
+                Samples::F16(samples) => {
+                    let data : Vec<f32> = samples.iter().map(|f16| f16.to_f32()).collect();
 
-                    for sample_block in levels.as_slice() {
-                        let data : Vec<f32> = sample_block.samples.iter().map(|f16| f16.to_f32()).collect();
-
-                        save_f32_image_as_png(&data, sample_block.resolution, format!(
-                            "tests/images/out/{} ({}) {}_f16_{}x{}.png",
-                            layer_index, layer_name, channel.name,
-                            sample_block.resolution.width(), sample_block.resolution.height(),
-                        ))
-                    }
+                    save_f32_image_as_png(&data, layer.data_size, format!(
+                        "tests/images/out/{} ({}) {}_f16_{}x{}.png",
+                        layer_index, layer_name, channel.name,
+                        layer.data_size.width(), layer.data_size.height(),
+                    ))
                 },
 
-                ChannelData::F32(levels) => {
-                    let levels = levels.as_flat_samples()
-                        .expect("deep data to png not supported");
-
-                    for sample_block in levels.as_slice() {
-                        save_f32_image_as_png(&sample_block.samples, sample_block.resolution, format!(
-                            "tests/images/out/{} ({}) {}_f32_{}x{}.png",
-                            layer_index, layer_name, channel.name,
-                            sample_block.resolution.width(), sample_block.resolution.height(),
-                        ))
-                    }
+                Samples::F32(samples) => {
+                    save_f32_image_as_png(samples, layer.data_size, format!(
+                        "tests/images/out/{} ({}) {}_f32_{}x{}.png",
+                        layer_index, layer_name, channel.name,
+                        layer.data_size.width(), layer.data_size.height(),
+                    ))
                 },
 
-                ChannelData::U32(levels) => {
-                    let levels = levels.as_flat_samples()
-                        .expect("deep data to png not supported");
+                Samples::U32(samples) => {
+                    let data : Vec<f32> = samples.iter().map(|value| *value as f32).collect();
 
-                    for sample_block in levels.as_slice() {
-                        let data : Vec<f32> = sample_block.samples.iter().map(|value| *value as f32).collect();
-
-                        save_f32_image_as_png(&data, sample_block.resolution, format!(
-                            "tests/images/out/{} ({}) {}_u32_{}x{}.png",
-                            layer_index, layer_name, channel.name,
-                            sample_block.resolution.width(), sample_block.resolution.height(),
-                        ))
-                    }
+                    save_f32_image_as_png(&data, layer.data_size, format!(
+                        "tests/images/out/{} ({}) {}_u32_{}x{}.png",
+                        layer_index, layer_name, channel.name,
+                        layer.data_size.width(), layer.data_size.height(),
+                    ))
                 },
             }
         }
