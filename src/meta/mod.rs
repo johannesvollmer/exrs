@@ -1598,7 +1598,7 @@ mod test {
                     Channel {
                         name: Text::from("main").unwrap(),
                         sample_type: SampleType::U32,
-                        is_linear: false,
+                        quantize_linearly: false,
                         sampling: Vec2(1, 1)
                     }
                 ],

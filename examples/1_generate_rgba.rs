@@ -33,8 +33,8 @@ fn main() {
     let mut image_info = rgba::ImageInfo::rgb(
         (2*2048, 2*2048),
 
-        // the generated f32 is converted to an f16 while writing the file
-        rgba::Channel::linear(SampleType::F16),
+        // all generated f32 values are converted to an f16 while writing the file
+        SampleType::F16,
     );
 
     image_info.layer_attributes.owner = Some("Unknown Owner".try_into().unwrap());

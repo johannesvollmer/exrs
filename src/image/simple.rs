@@ -99,8 +99,12 @@ pub struct Channel {
     /// `samples[(y_index / sampling_y) * width + (x_index / sampling_x)]`.
     pub samples: Samples,
 
-    /// Are the samples in this channel in linear color space?
-    pub is_linear: bool,
+    /// This attribute only tells lossy compression methods
+    /// whether this value should be quantized exponentially or linearly.
+    ///
+    /// Should be `false` for red, green, or blue channels.
+    /// Should be `true` for hue, chroma, saturation, or alpha channels.
+    pub quantize_linearly: bool,
 
     /// How many of the samples are skipped compared to the other channels in this layer.
     ///
@@ -338,17 +342,15 @@ impl Layer {
 impl Channel {
 
     /// Create a Channel from name and samples.
-    /// Set `is_linear` if the color space of the samples values is linear.
-    /// Panics if anything is invalid or missing.
-    pub fn new(name: Text, is_linear: bool, samples: Samples) -> Self {
-        Self { name, samples, is_linear, sampling: Vec2(1, 1) }
+    /// Use this for red, green, blue, and luminance channels, but use `non_color_data` otherwise.
+    pub fn color_data(name: Text, samples: Samples) -> Self {
+        Self { name, samples, quantize_linearly: false, sampling: Vec2(1, 1) }
     }
 
     /// Create a Channel from name and samples.
-    /// Use this if the color space of the samples values is linear, otherwise, use `Channel::new`.
-    /// Panics if anything is invalid or missing.
-    pub fn new_linear(name: Text, samples: Samples) -> Self {
-        Self::new(name, true, samples)
+    /// Use this for alpha, depth, hue, and saturation channels, but use `color_data` otherwise.
+    pub fn non_color_data(name: Text, samples: Samples) -> Self {
+        Self { name, samples, quantize_linearly: true, sampling: Vec2(1, 1) }
     }
 }
 
@@ -510,7 +512,7 @@ impl Channel {
         };
 
         Channel {
-            name: channel.name.clone(), is_linear: channel.is_linear, sampling: channel.sampling,
+            name: channel.name.clone(), quantize_linearly: channel.quantize_linearly, sampling: channel.sampling,
             samples: Samples::allocate(size, channel.sample_type)
         }
     }
@@ -538,7 +540,7 @@ impl Channel {
             },
 
             name: self.name.clone(),
-            is_linear: self.is_linear,
+            quantize_linearly: self.quantize_linearly,
             sampling: self.sampling,
         }
     }

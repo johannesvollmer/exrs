@@ -206,8 +206,12 @@ pub struct Channel {
     /// U32, F16 or F32.
     pub sample_type: SampleType,
 
-    /// Are the samples in this channel in a linear space or not?
-    pub is_linear: bool,
+    /// This attribute only tells lossy compression methods
+    /// whether this value should be quantized exponentially or linearly.
+    ///
+    /// Should be `false` for red, green, or blue channels.
+    /// Should be `true` for hue, chroma, saturation, or alpha channels.
+    pub quantize_linearly: bool,
 
     /// How many of the samples are skipped compared to the other channels in this layer.
     ///
@@ -807,8 +811,8 @@ impl SampleType {
 impl Channel {
 
     /// Create a new channel with the specified properties and a sampling rate of (1,1).
-    pub fn new(name: Text, sample_type: SampleType, is_linear: bool) -> Self {
-        Self { name, sample_type: sample_type, is_linear, sampling: Vec2(1, 1) }
+    pub fn new(name: Text, sample_type: SampleType, quantize_linearly: bool) -> Self {
+        Self { name, sample_type, quantize_linearly, sampling: Vec2(1, 1) }
     }
 
     /// The count of pixels this channel contains, respecting subsampling.
@@ -836,7 +840,7 @@ impl Channel {
         Text::write_null_terminated(&self.name, write)?;
         self.sample_type.write(write)?;
 
-        match self.is_linear {
+        match self.quantize_linearly {
             false => 0_u8,
             true  => 1_u8,
         }.write(write)?;
@@ -865,8 +869,8 @@ impl Channel {
         let y_sampling = i32_to_usize(i32::read(read)?, "y channel sampling")?;
 
         Ok(Channel {
-            name,
-            sample_type: sample_type, is_linear,
+            name, sample_type,
+            quantize_linearly: is_linear,
             sampling: Vec2(x_sampling, y_sampling),
         })
     }
@@ -1904,19 +1908,19 @@ mod test {
                         Channel {
                             name: Text::from("Green").unwrap(),
                             sample_type: SampleType::F16,
-                            is_linear: false,
+                            quantize_linearly: false,
                             sampling: Vec2(1,2)
                         },
                         Channel {
                             name: Text::from("Red").unwrap(),
                             sample_type: SampleType::F32,
-                            is_linear: true,
+                            quantize_linearly: true,
                             sampling: Vec2(1,2)
                         },
                         Channel {
                             name: Text::from("Purple").unwrap(),
                             sample_type: SampleType::U32,
-                            is_linear: false,
+                            quantize_linearly: false,
                             sampling: Vec2(0,0)
                         }
                     ],

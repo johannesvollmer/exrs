@@ -38,8 +38,9 @@ fn main() {
 
     /// compress any possible f32 into the range of [0,1].
     /// and then convert it to an unsigned byte.
-    fn tone_map(raw: f32) -> u8 {
-        let clamped = (raw - 0.5).tanh() * 0.5 + 0.5;
+    fn tone_map(linear: f32) -> u8 {
+        let srgb = linear.powf(1.0/2.2); // the image crate probably expects srgb data, not linear data? TODO check this
+        let clamped = (srgb - 0.5).tanh() * 0.5 + 0.5;
         (clamped * 255.0) as u8
     };
 
