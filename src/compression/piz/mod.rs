@@ -129,17 +129,11 @@ pub fn decompress_bytes(
 //    IMATH_NAMESPACE::Box2i range,
 //    const char *&outPtr)
 //    {
-//        //
 //        // This is the cunompress function which is used by both the tiled and
 //        // scanline decompression routines.
-//        //
-//
-//        //
 //        // Special case - empty input buffer
-//        //
 //
-//        if (inSize == 0)
-//        {
+//        if (inSize == 0) {
 //            outPtr = _outBuffer;
 //            return 0;
 //        }
