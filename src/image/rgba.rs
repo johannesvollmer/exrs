@@ -55,20 +55,9 @@ pub struct ImageInfo {
     pub encoding: Encoding,
 }
 
-/// The RGBA channels of an image. The alpha channel is optional.
+/// The sample type of the image's RGBA channels. The alpha channel is optional.
 /// The first channel is red, the second blue, the third green, and the fourth alpha.
-pub type Channels = (Channel, Channel, Channel, Option<Channel>);
-
-/// Describes a single channel of red, green, blue, or alpha samples.
-#[derive(Copy, Debug, Clone, PartialEq, Eq)]
-pub struct Channel {
-
-    /// Are the samples stored in a linear color space?
-    pub is_linear: bool,
-
-    /// The type of the samples in this channel. Either f32, f16, or u32.
-    pub sample_type: SampleType,
-}
+pub type Channels = (SampleType, SampleType, SampleType, Option<SampleType>);
 
 /// Specifies how the pixel data is formatted inside the file.
 /// Does not affect any visual aspect, like positioning or orientation.
@@ -94,12 +83,14 @@ pub struct Encoding {
 ///
 /// This is a macro because type impl aliases are still unstable,
 /// see https://github.com/rust-lang/rust/issues/63063
+#[allow(non_snake_case)]
 macro_rules! CreatePixels { ($T: ty) => { impl (FnOnce(&crate::image::rgba::ImageInfo) -> $T) }; }
 
 /// This is the closure alias to `pub type SetPixels<T> = impl FnMut(&T, Vec2<usize>, Pixel);`
 ///
 /// This is a macro because type impl aliases are still unstable,
 /// see https://github.com/rust-lang/rust/issues/63063
+#[allow(non_snake_case)]
 macro_rules! SetPixels { ($T: ty) => { impl (FnMut(&mut $T, Vec2<usize>, Pixel)) }; }
 
 /// This is the closure alias to `pub type GetPixels<'t> = impl Sync + Fn(Vec2<usize>) -> Pixel + 't;`
@@ -113,6 +104,7 @@ macro_rules! SetPixels { ($T: ty) => { impl (FnMut(&mut $T, Vec2<usize>, Pixel))
 ///
 /// This is a macro because type impl aliases are still unstable,
 /// see https://github.com/rust-lang/rust/issues/63063
+#[allow(non_snake_case)]
 macro_rules! GetPixels {
     () => { impl Sync + Fn(Vec2<usize>) -> Pixel };
     ($time: lifetime) => { impl Sync + Fn(Vec2<usize>) -> Pixel + $time };
@@ -163,21 +155,6 @@ impl Pixel {
         self.alpha.unwrap_or(Sample::default_alpha())
     }
 }
-
-
-impl Channel {
-
-    /// A new channel in linear color space.
-    pub fn linear(sample_type: SampleType) -> Self {
-        Self { is_linear: true, sample_type }
-    }
-
-    /// A new channel in non-linear color space.
-    pub fn non_linear(sample_type: SampleType) -> Self {
-        Self { is_linear: false, sample_type }
-    }
-}
-
 
 
 
@@ -235,14 +212,20 @@ impl Encoding {
 
 impl ImageInfo {
 
-    /// Create an Image with an alpha channel. Each channel will be the same as the specified channel.
-    pub fn rgba(resolution: impl Into<Vec2<usize>>, channel: Channel) -> Self {
-        Self::new(resolution, (channel, channel, channel, Some(channel)))
+    /// Create an Image with an alpha channel.
+    /// All channels will have the specified sample type.
+    /// Data is automatically converted to that type.
+    /// Use `ImageInfo::new` where each channel should have a different sample type.
+    pub fn rgba(resolution: impl Into<Vec2<usize>>, sample_type: SampleType) -> Self {
+        Self::new(resolution, (sample_type, sample_type, sample_type, Some(sample_type)))
     }
 
-    /// Create an Image without an alpha channel. Each channel will be the same as the specified channel.
-    pub fn rgb(resolution: impl Into<Vec2<usize>>, channel: Channel) -> Self {
-        Self::new(resolution, (channel, channel, channel, None))
+    /// Create an Image without an alpha channel.
+    /// All channels will have the specified sample type.
+    /// Data is automatically converted to that type.
+    /// Use `ImageInfo::new` where each channel should have a different sample type.
+    pub fn rgb(resolution: impl Into<Vec2<usize>>, sample_type: SampleType) -> Self {
+        Self::new(resolution, (sample_type, sample_type, sample_type, None))
     }
 
     /// Create an image with the resolution and channels.
@@ -291,7 +274,7 @@ impl ImageInfo {
 
     /// Return the red green and blue channels as an indexable array.
     #[inline]
-    pub fn rgb_channels(&self) -> [Channel; 3] {
+    pub fn rgb_channels(&self) -> [SampleType; 3] {
         [self.channels.0, self.channels.1, self.channels.2]
     }
 
@@ -372,10 +355,7 @@ impl ImageInfo {
             },
 
             |(image, pixels), meta, block| {
-                let r_type = image.channels.0.sample_type;
-                let g_type = image.channels.1.sample_type;
-                let b_type = image.channels.2.sample_type;
-                let a_type = image.channels.3.map(|a| a.sample_type);
+                let (r_type, g_type, b_type, a_type) = image.channels;
 
                 let header: &Header = &meta[block.index.layer];
                 debug_assert_eq!(header.own_attributes.name, image.layer_attributes.name, "irrelevant header should be filtered out"); // TODO this should be an error right?
@@ -476,10 +456,7 @@ impl ImageInfo {
             let mut rgba = [None; 4];
 
             for channel in &header.channels.list {
-                let rgba_channel = Some(Channel {
-                    is_linear: channel.is_linear,
-                    sample_type: channel.sample_type,
-                });
+                let rgba_channel = Some(channel.sample_type);
 
                 if      channel.name.eq_case_insensitive("a") { rgba[3] = rgba_channel; }
                 else if channel.name.eq_case_insensitive("b") { rgba[2] = rgba_channel; }
@@ -547,16 +524,16 @@ impl ImageInfo {
             self.layer_attributes.name.clone().unwrap_or(Text::from("RGBA").unwrap()),
             self.resolution,
     if let Some(alpha) = self.channels.3 { smallvec![
-                meta::Channel::new("A".try_into().unwrap(), alpha.sample_type, alpha.is_linear),
-                meta::Channel::new("B".try_into().unwrap(), self.channels.2.sample_type, self.channels.2.is_linear),
-                meta::Channel::new("G".try_into().unwrap(), self.channels.1.sample_type, self.channels.1.is_linear),
-                meta::Channel::new("R".try_into().unwrap(), self.channels.0.sample_type, self.channels.0.is_linear),
+                meta::Channel::new("A".try_into().unwrap(), alpha, true), // store as linear data
+                meta::Channel::new("B".try_into().unwrap(), self.channels.2, false),
+                meta::Channel::new("G".try_into().unwrap(), self.channels.1, false),
+                meta::Channel::new("R".try_into().unwrap(), self.channels.0, false),
             ] }
 
             else { smallvec![
-                meta::Channel::new("B".try_into().unwrap(), self.channels.2.sample_type, self.channels.2.is_linear),
-                meta::Channel::new("G".try_into().unwrap(), self.channels.1.sample_type, self.channels.1.is_linear),
-                meta::Channel::new("R".try_into().unwrap(), self.channels.0.sample_type, self.channels.0.is_linear),
+                meta::Channel::new("B".try_into().unwrap(), self.channels.2, false),
+                meta::Channel::new("G".try_into().unwrap(), self.channels.1, false),
+                meta::Channel::new("R".try_into().unwrap(), self.channels.0, false),
             ] }
         );
 
@@ -591,12 +568,7 @@ impl ImageInfo {
                 let line_bytes = width * header.channels.bytes_per_pixel;
 
                 // alpha would always start at 0, then comes b, g, r.
-                // let a_byte_range = a_type.map(|a| b_byte_range.end .. b_byte_range.end + width * a.bytes_per_sample());
-                let a_type = self.channels.3.map(|a| a.sample_type);
-                let (r_type, g_type, b_type) = (
-                    self.channels.0.sample_type, self.channels.1.sample_type, self.channels.2.sample_type
-                );
-
+                let (r_type, g_type, b_type, a_type) = self.channels;
                 let r_line_bytes = width * r_type.bytes_per_sample();
                 let g_line_bytes = width * g_type.bytes_per_sample();
                 let b_line_bytes = width * b_type.bytes_per_sample();

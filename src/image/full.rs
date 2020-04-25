@@ -93,8 +93,12 @@ pub struct Channel {
     /// Actual pixel data.
     pub content: ChannelData,
 
-    /// Are the samples in this channel in linear color space?
-    pub is_linear: bool,
+    /// This attribute only tells lossy compression methods
+    /// whether this value should be quantized exponentially or linearly.
+    ///
+    /// Should be `false` for red, green, or blue channels.
+    /// Should be `true` for hue, chroma, saturation, or alpha channels.
+    pub quantize_linearly: bool,
 
     /// How many of the samples are skipped compared to the other channels in this layer.
     ///
@@ -417,7 +421,7 @@ impl Channel {
     pub fn allocate(header: &Header, channel: &attributes::Channel) -> Self {
         Channel {
             name: channel.name.clone(),
-            is_linear: channel.is_linear,
+            quantize_linearly: channel.quantize_linearly,
             sampling: channel.sampling,
 
             content: match channel.sample_type {
@@ -457,7 +461,7 @@ impl Channel {
             },
 
             name: self.name.clone(),
-            is_linear: self.is_linear,
+            quantize_linearly: self.quantize_linearly,
             sampling: self.sampling,
         }
     }

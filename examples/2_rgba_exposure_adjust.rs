@@ -43,21 +43,12 @@ fn main() {
 
 
     {   // increase exposure of all pixels
-
-        assert!(
-            !image_info.channels.0.is_linear && !image_info.channels.0.is_linear && !image_info.channels.0.is_linear,
-            "exposure adjustment is only implemented for srgb data"
-        );
-
         for line in &mut pixels.lines {
             for pixel in line {
                 for sample in &mut pixel[0..3] { // only modify rgb, not alpha
-                    let linear = sample.to_f32().powf(2.2); // convert srgb to linear rgb
-
-                    let brightened = linear * 3.0;
-
-                    let sample_32 = brightened.powf(1.0/2.2); // convert linear rgb to srgb
-                    *sample = f16::from_f32(sample_32);
+                    // no gamma correction necessary because
+                    // exposure adjustment should be done in linear color space
+                    *sample = f16::from_f32(sample.to_f32() * 3.0);
                 }
             }
         }

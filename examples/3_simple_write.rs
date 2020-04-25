@@ -30,17 +30,17 @@ fn main() {
 
     let size = (1024, 512);
 
-    let r = Channel::new_linear(
+    let r = Channel::color_data(
         "R".try_into().unwrap(),
         Samples::F16(generate_f16_vector(size.into()))
     );
 
-    let g = Channel::new_linear(
+    let g = Channel::color_data(
         "G".try_into().unwrap(),
         Samples::F16(generate_f16_vector(size.into()))
     );
 
-    let b = Channel::new_linear(
+    let b = Channel::color_data(
         "B".try_into().unwrap(),
         Samples::F32(generate_f16_vector(size.into()).into_iter().map(f16::to_f32).collect())
     );

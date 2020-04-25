@@ -83,7 +83,9 @@ pub fn main() {
             let v = tone(v);
 
             let v = (v - min_toned) / (max_toned - min_toned);
-            *pixel = image::Luma([(v.max(0.0).min(1.0) * 255.0) as u8]);
+
+            let srgb = v.powf(1.0/2.2); // the image crate probably expects srgb data, not linear data? TODO check this
+            *pixel = image::Luma([(srgb.max(0.0).min(1.0) * 255.0) as u8]);
         }
 
         png_buffer.save(&name).unwrap();
