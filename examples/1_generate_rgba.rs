@@ -50,4 +50,6 @@ fn main() {
             write_options::high(), // this will actually generate the pixels in parallel on all cores
             &generate_pixels
         ).unwrap();
+
+    println!("created file generated_rgba.exr");
 }

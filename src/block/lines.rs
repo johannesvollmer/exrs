@@ -101,7 +101,7 @@ pub fn read_all_lines_from_buffered<T>(
 pub fn read_filtered_lines_from_buffered<T>(
     read: impl Read + Seek + Send, // FIXME does not always need be Send
     new: impl Fn(&[Header]) -> Result<T>, // TODO put these into a trait?
-    filter: impl Fn(&T, &Header, &TileIndices) -> bool,
+    filter: impl Fn(&T, (usize, &Header), (usize, &TileIndices)) -> bool,
     mut insert: impl FnMut(&mut T, &[Header], LineRef<'_>) -> UnitResult,
     options: ReadOptions<impl OnReadProgress>,
 ) -> Result<T>

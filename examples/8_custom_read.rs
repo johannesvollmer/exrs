@@ -66,7 +66,7 @@ fn main() {
         ) },
 
         // specify what parts of the file should be loaded (skips mip maps)
-        |_header, _meta, tile| {
+        |_pixels, _header, (_, tile)| {
             // do not worry about multi-resolution levels
             tile.location.is_largest_resolution_level()
         },
@@ -99,6 +99,7 @@ fn main() {
 
         // print file processing progress into the console, occasionally (important for large files)
         ReadOptions {
+            skip_invalid_attributes: false,
             parallel_decompression: false,
             max_pixel_bytes: None,
             on_progress: |progress| {
@@ -110,13 +111,13 @@ fn main() {
                 }
 
                 Ok(())
-            }
+            },
         },
 
     ).unwrap();
 
-    println!("Average values: {:#?}", averages);
+    println!("average values: {:#?}", averages);
 
     // warning: highly unscientific benchmarks ahead!
-    println!("\nRead exr file in {:?}s", start_time.elapsed().as_secs_f32());
+    println!("\nprocessed file in {:?}s", start_time.elapsed().as_secs_f32());
 }

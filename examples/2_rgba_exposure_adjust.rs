@@ -41,6 +41,7 @@ fn main() {
         }
     ).unwrap();
 
+    let exposure_multiplier = 2.0;
 
     {   // increase exposure of all pixels
         for line in &mut pixels.lines {
@@ -48,24 +49,29 @@ fn main() {
                 for sample in &mut pixel[0..3] { // only modify rgb, not alpha
                     // no gamma correction necessary because
                     // exposure adjustment should be done in linear color space
-                    *sample = f16::from_f32(sample.to_f32() * 3.0);
+                    *sample = f16::from_f32(sample.to_f32() * exposure_multiplier);
                 }
             }
         }
 
         // also update meta data after modifying the image
         if let Some(exposure) = &mut image_info.layer_attributes.exposure {
-            println!("increased exposure from {}s to {}s", exposure, *exposure * 3.0);
-            *exposure *= 3.0;
+            println!("increased exposure from {}s to {}s", exposure, *exposure * exposure_multiplier);
+            *exposure *= exposure_multiplier;
         }
     }
 
      // write the image to a file
-    image_info.write_pixels_to_file(
-        "tests/images/out/exposure_adjusted.exr", write_options::high(),
-        &|position: Vec2<usize>| -> Pixel {
-            let rgba_f16_array: [f16; 4] = pixels.lines[position.y()][position.x()];
-            rgba::Pixel::from(rgba_f16_array)
-        }
-    ).unwrap();
+    image_info
+        .write_pixels_to_file(
+            "tests/images/out/exposure_adjusted.exr", write_options::high(),
+            &|position: Vec2<usize>| -> Pixel {
+                let rgba_f16_array: [f16; 4] = pixels.lines[position.y()][position.x()];
+                rgba::Pixel::from(rgba_f16_array)
+            }
+        )
+        .unwrap();
+
+
+    println!("created file exposure_adjusted.exr");
 }

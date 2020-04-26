@@ -227,7 +227,7 @@ impl Image {
             read,
             Image::allocate,
 
-            |_image, header, tile_index| {
+            |_image, (_, header), (_, tile_index)| {
                 !header.deep && tile_index.location.is_largest_resolution_level()
             },
 

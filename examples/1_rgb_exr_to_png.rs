@@ -39,12 +39,12 @@ fn main() {
     /// compress any possible f32 into the range of [0,1].
     /// and then convert it to an unsigned byte.
     fn tone_map(linear: f32) -> u8 {
-        let srgb = linear.powf(1.0/2.2); // the image crate probably expects srgb data, not linear data? TODO check this
-        let clamped = (srgb - 0.5).tanh() * 0.5 + 0.5;
+        // TODO does the `image` crate expect gamma corrected data?
+        let clamped = (linear - 0.5).tanh() * 0.5 + 0.5;
         (clamped * 255.0) as u8
     };
 
     // save the png buffer to a png file
     png_buffer.save("tests/images/out/rgb.png").unwrap();
-    println!("Saved PNG image `rgb.png`")
+    println!("created image rgb.png")
 }

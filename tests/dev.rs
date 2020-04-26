@@ -23,7 +23,7 @@ fn print_meta_of_all_files() {
     let files: Vec<PathBuf> = exr_files().collect();
 
     files.into_par_iter().for_each(|path| {
-        let meta = MetaData::read_from_file(&path);
+        let meta = MetaData::read_from_file(&path, false);
         println!("{:?}: \t\t\t {:?}", path.file_name().unwrap(), meta.unwrap());
     });
 }
@@ -34,10 +34,10 @@ fn search_previews_of_all_files() {
     let files: Vec<PathBuf> = exr_files().collect();
 
     files.into_par_iter().for_each(|path| {
-        let meta = MetaData::read_from_file(&path).unwrap();
+        let meta = MetaData::read_from_file(&path, false).unwrap();
         let has_preview = meta.headers.iter().any(|header: &Header|
             header.own_attributes.preview.is_some() || header.own_attributes.custom.values()
-                .any(|value| value.to_preview().is_ok())
+                .any(|value| match value { AttributeValue::Preview(_) => true, _ => false })
         );
 
         if has_preview {
@@ -54,7 +54,7 @@ pub fn test_roundtrip() {
     print!("starting read 1... ");
     io::stdout().flush().unwrap();
 
-    let meta = MetaData::read_from_file(path).unwrap();
+    let meta = MetaData::read_from_file(path, false).unwrap();
     println!("{:#?}", meta);
 
     let (image, pixels) = rgba::ImageInfo::read_pixels_from_file(
