@@ -92,7 +92,7 @@ pub enum AttributeValue {
         /// The value, stored in little-endian byte order, of the value.
         /// Use the `exr::io::Data` trait to extract binary values from this vector.
         bytes: Vec<u8>
-    }
+    },
 }
 
 /// A byte array with each byte being a char.
@@ -908,7 +908,6 @@ impl ChannelList {
 
     /// Number of bytes this would consume in an exr file.
     pub fn byte_size(&self) -> usize {
-        // FIXME this needs to account for subsampling anywhere?
         self.list.iter().map(Channel::byte_size).sum::<usize>() + sequence_end::byte_size()
     }
 
@@ -1006,7 +1005,7 @@ impl Chromaticities {
 impl Compression {
 
     /// Number of bytes this would consume in an exr file.
-    pub fn byte_size() -> usize { 1 }
+    pub fn byte_size() -> usize { u8::BYTE_SIZE }
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(self, write: &mut W) -> UnitResult {
@@ -1049,7 +1048,7 @@ impl EnvironmentMap {
 
     /// Number of bytes this would consume in an exr file.
     pub fn byte_size() -> usize {
-        u32::BYTE_SIZE
+        u8::BYTE_SIZE
     }
 
     /// Without validation, write this instance to the byte stream.
@@ -1110,7 +1109,7 @@ impl LineOrder {
 
     /// Number of bytes this would consume in an exr file.
     pub fn byte_size() -> usize {
-        u32::BYTE_SIZE
+        u8::BYTE_SIZE
     }
 
     /// Without validation, write this instance to the byte stream.
@@ -1273,13 +1272,14 @@ pub fn write<W: Write>(name: &[u8], value: &AttributeValue, write: &mut W) -> Un
     value.write(write)
 }
 
-/// Read the attribute without validating.
-pub fn read(read: &mut PeekRead<impl Read>, max_size: usize) -> Result<(Text, AttributeValue)> {
+/// Read the attribute without validating. The result may be `Ok` even if this single attribute is invalid.
+pub fn read(read: &mut PeekRead<impl Read>, max_size: usize) -> Result<(Text, Result<AttributeValue>)> {
     let name = Text::read_null_terminated(read, max_size)?;
     let kind = Text::read_null_terminated(read, max_size)?;
     let size = i32_to_usize(i32::read(read)?, "attribute size")?;
 
-    // TODO remember position, seek to position + size on value read fail, return result<value>
+    // TODO instead of reading into a vector,
+    //      remember position, seek to position + size on value read fail, return result<value>
     let value = AttributeValue::read(read, kind, size)?;
     Ok((name, value))
 }
@@ -1417,86 +1417,98 @@ impl AttributeValue {
     }
 
     /// Read the value without validating.
-    pub fn read(read: &mut PeekRead<impl Read>, kind: Text, byte_size: usize) -> Result<Self> {
+    /// Returns `Ok(Ok(attribute))` for valid attributes.
+    /// Returns `Ok(Err(Error))` for invalid attributes from a valid byte source.
+    /// Returns `Err(Error)` for invalid byte sources, for example for invalid files.
+    pub fn read(read: &mut PeekRead<impl Read>, kind: Text, byte_size: usize) -> Result<Result<Self>> {
         use self::AttributeValue::*;
         use self::attribute_type_names as ty;
 
-        Ok(match kind.bytes.as_slice() {
-            ty::I32BOX2 => IntRect(self::IntRect::read(read)?),
-            ty::F32BOX2 => FloatRect(self::FloatRect::read(read)?),
+        // always read bytes
+        let attribute_bytes = u8::read_vec(read, byte_size, 128, None)?;
+        // TODO no allocation for small attributes // : SmallVec<[u8; 64]> = smallvec![0; byte_size];
 
-            ty::I32 => I32(i32::read(read)?),
-            ty::F32 => F32(f32::read(read)?),
-            ty::F64 => F64(f64::read(read)?),
+        let parse_attribute = move || {
+            let reader = &mut attribute_bytes.as_slice();
 
-            ty::RATIONAL => Rational({
-                let a = i32::read(read)?;
-                let b = u32::read(read)?;
-                (a, b)
-            }),
+            Ok(match kind.bytes.as_slice() {
+                ty::I32BOX2 => IntRect(self::IntRect::read(reader)?),
+                ty::F32BOX2 => FloatRect(self::FloatRect::read(reader)?),
 
-            ty::TIME_CODE => TimeCode(self::TimeCode::read(read)?),
+                ty::I32 => I32(i32::read(reader)?),
+                ty::F32 => F32(f32::read(reader)?),
+                ty::F64 => F64(f64::read(reader)?),
 
-            ty::I32VEC2 => IntVec2({
-                let a = i32::read(read)?;
-                let b = i32::read(read)?;
-                Vec2(a, b)
-            }),
+                ty::RATIONAL => Rational({
+                    let a = i32::read(reader)?;
+                    let b = u32::read(reader)?;
+                    (a, b)
+                }),
 
-            ty::F32VEC2 => FloatVec2({
-                let a = f32::read(read)?;
-                let b = f32::read(read)?;
-                Vec2(a, b)
-            }),
+                ty::TIME_CODE => TimeCode(self::TimeCode::read(reader)?),
 
-            ty::I32VEC3 => IntVec3({
-                let a = i32::read(read)?;
-                let b = i32::read(read)?;
-                let c = i32::read(read)?;
-                (a, b, c)
-            }),
+                ty::I32VEC2 => IntVec2({
+                    let a = i32::read(reader)?;
+                    let b = i32::read(reader)?;
+                    Vec2(a, b)
+                }),
 
-            ty::F32VEC3 => FloatVec3({
-                let a = f32::read(read)?;
-                let b = f32::read(read)?;
-                let c = f32::read(read)?;
-                (a, b, c)
-            }),
+                ty::F32VEC2 => FloatVec2({
+                    let a = f32::read(reader)?;
+                    let b = f32::read(reader)?;
+                    Vec2(a, b)
+                }),
 
-            ty::CHANNEL_LIST    => ChannelList(self::ChannelList::read(read)?),
-            ty::CHROMATICITIES  => Chromaticities(self::Chromaticities::read(read)?),
-            ty::COMPRESSION     => Compression(self::Compression::read(read)?),
-            ty::ENVIRONMENT_MAP => EnvironmentMap(self::EnvironmentMap::read(read)?),
+                ty::I32VEC3 => IntVec3({
+                    let a = i32::read(reader)?;
+                    let b = i32::read(reader)?;
+                    let c = i32::read(reader)?;
+                    (a, b, c)
+                }),
 
-            ty::KEY_CODE   => KeyCode(self::KeyCode::read(read)?),
-            ty::LINE_ORDER => LineOrder(self::LineOrder::read(read)?),
+                ty::F32VEC3 => FloatVec3({
+                    let a = f32::read(reader)?;
+                    let b = f32::read(reader)?;
+                    let c = f32::read(reader)?;
+                    (a, b, c)
+                }),
 
-            ty::F32MATRIX3X3 => Matrix3x3({
-                let mut result = [0.0_f32; 9];
-                f32::read_slice(read, &mut result)?;
-                result
-            }),
+                ty::CHANNEL_LIST    => ChannelList(self::ChannelList::read(&mut PeekRead::new(attribute_bytes.as_slice()))?),
+                ty::CHROMATICITIES  => Chromaticities(self::Chromaticities::read(reader)?),
+                ty::COMPRESSION     => Compression(self::Compression::read(reader)?),
+                ty::ENVIRONMENT_MAP => EnvironmentMap(self::EnvironmentMap::read(reader)?),
 
-            ty::F32MATRIX4X4 => Matrix4x4({
-                let mut result = [0.0_f32; 16];
-                f32::read_slice(read, &mut result)?;
-                result
-            }),
+                ty::KEY_CODE   => KeyCode(self::KeyCode::read(reader)?),
+                ty::LINE_ORDER => LineOrder(self::LineOrder::read(reader)?),
 
-            ty::PREVIEW     => Preview(self::Preview::read(read)?),
-            ty::TEXT        => Text(self::Text::read_sized(read, byte_size)?),
+                ty::F32MATRIX3X3 => Matrix3x3({
+                    let mut result = [0.0_f32; 9];
+                    f32::read_slice(reader, &mut result)?;
+                    result
+                }),
 
-            // the number of strings can be inferred from the total attribute size
-            ty::TEXT_VECTOR => TextVector(self::Text::read_vec_of_i32_sized(read, byte_size)?),
+                ty::F32MATRIX4X4 => Matrix4x4({
+                    let mut result = [0.0_f32; 16];
+                    f32::read_slice(reader, &mut result)?;
+                    result
+                }),
 
-            ty::TILES       => TileDescription(self::TileDescription::read(read)?),
+                ty::PREVIEW     => Preview(self::Preview::read(reader)?),
+                ty::TEXT        => Text(self::Text::read_sized(reader, byte_size)?),
 
-            _ => {
-                let mut bytes = vec![0_u8; byte_size];
-                u8::read_slice(read, &mut bytes)?;
-                Custom { kind, bytes }
-            }
-        })
+                // the number of strings can be inferred from the total attribute size
+                ty::TEXT_VECTOR => TextVector(self::Text::read_vec_of_i32_sized(
+                    &mut PeekRead::new(attribute_bytes.as_slice()),
+                    byte_size
+                )?),
+
+                ty::TILES       => TileDescription(self::TileDescription::read(reader)?),
+
+                _ => Custom { kind: kind.clone(), bytes: attribute_bytes.clone() } // TODO no clone
+            })
+        };
+
+        Ok(parse_attribute())
     }
 
     /// Validate this instance.
@@ -1518,37 +1530,6 @@ impl AttributeValue {
         Ok(())
     }
 
-    /// Return `Ok(TileDescription)` if this attribute is a tile description.
-    pub fn to_tile_description(&self) -> Result<TileDescription> {
-        match *self {
-            AttributeValue::TileDescription(value) => Ok(value),
-            _ => Err(invalid_type())
-        }
-    }
-
-    /// Return `Ok(TimeCode)` if this attribute is a time code.
-    pub fn to_time_code(&self) -> Result<TimeCode> {
-        match *self {
-            AttributeValue::TimeCode(value) => Ok(value),
-            _ => Err(invalid_type())
-        }
-    }
-
-    /// Return `Ok(&Preview)` if this attribute is an image preview.
-    pub fn to_preview(&self) -> Result<&Preview> {
-        match self {
-            AttributeValue::Preview(value) => Ok(value),
-            _ => Err(invalid_type())
-        }
-    }
-
-    /// Return `Ok(Preview)` if this attribute is an image preview.
-    pub fn into_preview(self) -> Result<Preview> {
-        match self {
-            AttributeValue::Preview(value) => Ok(value),
-            _ => Err(invalid_type())
-        }
-    }
 
     /// Return `Ok(i32)` if this attribute is an i32.
     pub fn to_i32(&self) -> Result<i32> {
@@ -1562,38 +1543,6 @@ impl AttributeValue {
     pub fn to_f32(&self) -> Result<f32> {
         match *self {
             AttributeValue::F32(value) => Ok(value),
-            _ => Err(invalid_type())
-        }
-    }
-
-    /// Return `Ok(IntRect)` if this attribute is a integer rectangle.
-    pub fn to_i32_box_2(&self) -> Result<IntRect> { // TODO rename to_intrect
-        match *self {
-            AttributeValue::IntRect(value) => Ok(value),
-            _ => Err(invalid_type())
-        }
-    }
-
-    /// Return `Ok(f32)` if this attribute is a 2d vector of f32 numbers.
-    pub fn to_f32_vec_2(&self) -> Result<Vec2<f32>> {
-        match *self {
-            AttributeValue::FloatVec2(vec) => Ok(vec),
-            _ => Err(invalid_type())
-        }
-    }
-
-    /// Return `Ok(LineOrder)` if this attribute is a line order.
-    pub fn to_line_order(&self) -> Result<LineOrder> {
-        match *self {
-            AttributeValue::LineOrder(value) => Ok(value),
-            _ => Err(invalid_type())
-        }
-    }
-
-    /// Return `Ok(Compression)` if this attribute is a compression.
-    pub fn to_compression(&self) -> Result<Compression> {
-        match *self {
-            AttributeValue::Compression(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1614,22 +1563,6 @@ impl AttributeValue {
         }
     }
 
-    /// Return `Ok(BlockType)` if this attribute is a block type.
-    pub fn into_block_type(self) -> Result<BlockType> {
-        match self {
-            AttributeValue::BlockType(value) => Ok(value),
-            _ => Err(invalid_type())
-        }
-    }
-
-    /// Return `Ok(ChannelList)` if this attribute is a channel list.
-    pub fn into_channel_list(self) -> Result<ChannelList> {
-        match self {
-            AttributeValue::ChannelList(value) => Ok(value),
-            _ => Err(invalid_type())
-        }
-    }
-
     /// Return `Ok(Chromaticities)` if this attribute is a chromaticities attribute.
     pub fn to_chromaticities(&self) -> Result<Chromaticities> {
         match *self {
@@ -1638,58 +1571,10 @@ impl AttributeValue {
         }
     }
 
-    /// Return `Ok(EnvironmentMap)` if this attribute is an environment map.
-    pub fn to_environment_map(&self) -> Result<EnvironmentMap> {
+    /// Return `Ok(TimeCode)` if this attribute is a time code.
+    pub fn to_time_code(&self) -> Result<TimeCode> {
         match *self {
-            AttributeValue::EnvironmentMap(value) => Ok(value),
-            _ => Err(invalid_type())
-        }
-    }
-
-    /// Return `Ok(KeyCode)` if this attribute is a key code.
-    pub fn to_key_code(&self) -> Result<KeyCode> {
-        match *self {
-            AttributeValue::KeyCode(value) => Ok(value),
-            _ => Err(invalid_type())
-        }
-    }
-
-    /// Return `Ok(Rational)` if this attribute is a rational.
-    pub fn to_rational(&self) -> Result<Rational> {
-        match *self {
-            AttributeValue::Rational(value) => Ok(value),
-            _ => Err(invalid_type())
-        }
-    }
-
-    /// Return `Ok(Matrix4x4)` if this attribute is a rational.
-    pub fn to_matrix4x4(&self) -> Result<Matrix4x4> { // TODO naming!
-        match *self {
-            AttributeValue::Matrix4x4(value) => Ok(value),
-            _ => Err(invalid_type())
-        }
-    }
-
-    /// Return `Ok(Matrix3x3)` if this attribute is a rational.
-    pub fn to_matrix3x3(&self) -> Result<Matrix3x3> {
-        match *self {
-            AttributeValue::Matrix3x3(value) => Ok(value),
-            _ => Err(invalid_type())
-        }
-    }
-
-    /// Return `Ok(Vec<Text>)` if this attribute is a text vector.
-    pub fn into_text_vector(self) -> Result<Vec<Text>> {
-        match self {
-            AttributeValue::TextVector(value) => Ok(value),
-            _ => Err(invalid_type())
-        }
-    }
-
-    /// Return `Ok(Vec<Text>)` if this attribute is a text vector.
-    pub fn to_text_vector(&self) -> Result<&Vec<Text>> {
-        match self {
-            AttributeValue::TextVector(value) => Ok(value),
+            AttributeValue::TimeCode(value) => Ok(value),
             _ => Err(invalid_type())
         }
     }
@@ -1935,7 +1820,7 @@ mod test {
             assert_eq!(super::byte_size(name, value), bytes.len(), "attribute.byte_size() for {:?}", (name, value));
 
             let new_attribute = super::read(&mut PeekRead::new(Cursor::new(bytes)), 300).unwrap();
-            assert_eq!((name.clone(), value.clone()), new_attribute, "attribute round trip");
+            assert_eq!((name.clone(), value.clone()), (new_attribute.0, new_attribute.1.unwrap()), "attribute round trip");
         }
 
 

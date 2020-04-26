@@ -452,9 +452,8 @@ pub mod sequence_end {
     }
 }
 
-
 fn missing_attribute(name: &str) -> Error {
-    Error::invalid(format!("missing `{}` attribute", name))
+    Error::invalid(format!("missing or invalid {} attribute", name))
 }
 
 
@@ -1123,75 +1122,95 @@ impl Header {
         while !sequence_end::has_come(read)? {
             let (attribute_name, value) = attributes::read(read, max_string_len)?;
 
-            // if the attribute is a required attribute, set the corresponding variable directly.
-            // otherwise, add the attribute to the vector of custom attributes
-            use crate::meta::attributes::required_attribute_names::*;
+            // if the attribute value itself is ok, record it
+            match value {
+                Ok(value) => {
+                    use crate::meta::attributes::required_attribute_names as ty;
+                    use crate::meta::attributes::AttributeValue::*;
 
-            match attribute_name.bytes() {
-                TILES => tiles = Some(value.to_tile_description()?),
-                BLOCK_TYPE => block_type = Some(BlockType::parse(value.into_text()?)?),
-                CHANNELS => channels = Some(value.into_channel_list()?),
-                COMPRESSION => compression = Some(value.to_compression()?),
-                DATA_WINDOW => data_window = Some(value.to_i32_box_2()?),
-                DISPLAY_WINDOW => display_window = Some(value.to_i32_box_2()?),
-                LINE_ORDER => line_order = Some(value.to_line_order()?),
-                DEEP_DATA_VERSION => version = Some(value.to_i32()?),
+                    // if the attribute is a required attribute, set the corresponding variable directly.
+                    // otherwise, add the attribute to the vector of custom attributes
 
-                MAX_SAMPLES => max_samples_per_pixel = Some(
-                    i32_to_usize(value.to_i32()?, "max sample count")?
-                ),
+                    // the following attributes will only be set if the type matches the commonly used type for that attribute
+                    match (attribute_name.bytes(), value) {
+                        (ty::BLOCK_TYPE, Text(value)) => block_type = Some(attributes::BlockType::parse(value)?),
+                        (ty::TILES, TileDescription(value)) => tiles = Some(value),
+                        (ty::CHANNELS, ChannelList(value)) => channels = Some(value),
+                        (ty::COMPRESSION, Compression(value)) => compression = Some(value),
+                        (ty::DATA_WINDOW, IntRect(value)) => data_window = Some(value),
+                        (ty::DISPLAY_WINDOW, IntRect(value)) => display_window = Some(value),
+                        (ty::LINE_ORDER, LineOrder(value)) => line_order = Some(value),
+                        (ty::DEEP_DATA_VERSION, I32(value)) => version = Some(value),
 
-                CHUNKS => chunk_count = Some(
-                    i32_to_usize(value.to_i32()?, "chunk count")?
-                ),
+                        (ty::MAX_SAMPLES, I32(value)) => max_samples_per_pixel = Some(
+                            i32_to_usize(value, "max sample count")?
+                        ),
 
-                NAME => layer_attributes.name = Some(value.into_text()?),
-                PIXEL_ASPECT => image_attributes.pixel_aspect = value.to_f32()?,
-                WINDOW_CENTER => layer_attributes.screen_window_center = value.to_f32_vec_2()?,
-                WINDOW_WIDTH => layer_attributes.screen_window_width = value.to_f32()?,
+                        (ty::CHUNKS, I32(value)) => chunk_count = Some(
+                            i32_to_usize(value, "chunk count")?
+                        ),
 
-                // the following attributes will only be set if the type matches the commonly used type for that attribute
-                WHITE_LUMINANCE if value.to_f32().is_ok() => layer_attributes.white_luminance = Some(value.to_f32().unwrap()),
-                ADOPTED_NEUTRAL if value.to_f32_vec_2().is_ok() => layer_attributes.adopted_neutral = Some(value.to_f32_vec_2()?),
-                RENDERING_TRANSFORM if value.to_text().is_ok() => layer_attributes.rendering_transform = Some(value.into_text()?),
-                LOOK_MOD_TRANSFORM if value.to_text().is_ok() => layer_attributes.look_modification_transform = Some(value.into_text()?),
-                X_DENSITY if value.to_f32().is_ok() => layer_attributes.x_density = Some(value.to_f32()?),
-                OWNER if value.to_text().is_ok() => layer_attributes.owner = Some(value.into_text()?),
-                COMMENTS if value.to_text().is_ok() => layer_attributes.comments = Some(value.into_text()?),
-                CAPTURE_DATE if value.to_text().is_ok() => layer_attributes.capture_date = Some(value.into_text()?),
-                UTC_OFFSET if value.to_f32().is_ok() => layer_attributes.utc_offset = Some(value.to_f32()?),
-                LONGITUDE if value.to_f32().is_ok() => layer_attributes.longitude = Some(value.to_f32()?),
-                LATITUDE if value.to_f32().is_ok() => layer_attributes.latitude = Some(value.to_f32()?),
-                ALTITUDE if value.to_f32().is_ok() => layer_attributes.altitude = Some(value.to_f32()?),
-                FOCUS if value.to_f32().is_ok() => layer_attributes.focus = Some(value.to_f32()?),
-                EXPOSURE_TIME if value.to_f32().is_ok() => layer_attributes.exposure = Some(value.to_f32()?),
-                APERTURE if value.to_f32().is_ok() => layer_attributes.aperture = Some(value.to_f32()?),
-                ISO_SPEED if value.to_f32().is_ok() => layer_attributes.iso_speed = Some(value.to_f32()?),
-                ENVIRONMENT_MAP if value.to_environment_map().is_ok() => layer_attributes.environment_map = Some(value.to_environment_map()?),
-                KEY_CODE if value.to_key_code().is_ok() => layer_attributes.key_code = Some(value.to_key_code()?),
-                TIME_CODE if value.to_time_code().is_ok() => image_attributes.time_code = Some(value.to_time_code()?),
-                WRAP_MODES if value.to_text().is_ok() => layer_attributes.wrap_modes = Some(value.into_text()?),
-                FRAMES_PER_SECOND if value.to_rational().is_ok() => layer_attributes.frames_per_second = Some(value.to_rational()?),
-                MULTI_VIEW if value.to_text_vector().is_ok() => layer_attributes.multi_view = Some(value.into_text_vector()?),
-                WORLD_TO_CAMERA if value.to_matrix4x4().is_ok() => layer_attributes.world_to_camera = Some(value.to_matrix4x4()?),
-                WORLD_TO_NDC if value.to_matrix4x4().is_ok() => layer_attributes.world_to_normalized_device = Some(value.to_matrix4x4()?),
-                DEEP_IMAGE_STATE if value.to_rational().is_ok() => layer_attributes.deep_image_state = Some(value.to_rational()?),
-                ORIGINAL_DATA_WINDOW if value.to_i32_box_2().is_ok() => layer_attributes.original_data_window = Some(value.to_i32_box_2()?),
-                DWA_COMPRESSION_LEVEL if value.to_f32().is_ok() => layer_attributes.dwa_compression_level = Some(value.to_f32()?),
-                CHROMATICITIES if value.to_chromaticities().is_ok() => image_attributes.chromaticities = Some(value.to_chromaticities()?),
-                PREVIEW if value.to_preview().is_ok() => layer_attributes.preview = Some(value.into_preview()?),
-                VIEW if value.to_text().is_ok() => layer_attributes.view = Some(value.into_text()?),
+                        (ty::NAME, Text(value)) => layer_attributes.name = Some(value),
+                        (ty::WINDOW_CENTER, FloatVec2(value)) => layer_attributes.screen_window_center = value,
+                        (ty::WINDOW_WIDTH, F32(value)) => layer_attributes.screen_window_width = value,
 
-                _ => {
-                    if value.to_chromaticities().is_ok() || value.to_time_code().is_ok() {
-                        // these must be the same for all headers
-                        image_attributes.custom.insert(attribute_name, value);
-                    }
+                        (ty::WHITE_LUMINANCE, F32(value)) => layer_attributes.white_luminance = Some(value),
+                        (ty::ADOPTED_NEUTRAL, FloatVec2(value)) => layer_attributes.adopted_neutral = Some(value),
+                        (ty::RENDERING_TRANSFORM, Text(value)) => layer_attributes.rendering_transform = Some(value),
+                        (ty::LOOK_MOD_TRANSFORM, Text(value)) => layer_attributes.look_modification_transform = Some(value),
+                        (ty::X_DENSITY, F32(value)) => layer_attributes.x_density = Some(value),
 
-                    else {
-                        layer_attributes.custom.insert(attribute_name, value);
+                        (ty::OWNER, Text(value)) => layer_attributes.owner = Some(value),
+                        (ty::COMMENTS, Text(value)) => layer_attributes.comments = Some(value),
+                        (ty::CAPTURE_DATE, Text(value)) => layer_attributes.capture_date = Some(value),
+                        (ty::UTC_OFFSET, F32(value)) => layer_attributes.utc_offset = Some(value),
+                        (ty::LONGITUDE, F32(value)) => layer_attributes.longitude = Some(value),
+                        (ty::LATITUDE, F32(value)) => layer_attributes.latitude = Some(value),
+                        (ty::ALTITUDE, F32(value)) => layer_attributes.altitude = Some(value),
+                        (ty::FOCUS, F32(value)) => layer_attributes.focus = Some(value),
+                        (ty::EXPOSURE_TIME, F32(value)) => layer_attributes.exposure = Some(value),
+                        (ty::APERTURE, F32(value)) => layer_attributes.aperture = Some(value),
+                        (ty::ISO_SPEED, F32(value)) => layer_attributes.iso_speed = Some(value),
+                        (ty::ENVIRONMENT_MAP, EnvironmentMap(value)) => layer_attributes.environment_map = Some(value),
+                        (ty::KEY_CODE, KeyCode(value)) => layer_attributes.key_code = Some(value),
+                        (ty::WRAP_MODES, Text(value)) => layer_attributes.wrap_modes = Some(value),
+                        (ty::FRAMES_PER_SECOND, Rational(value)) => layer_attributes.frames_per_second = Some(value),
+                        (ty::MULTI_VIEW, TextVector(value)) => layer_attributes.multi_view = Some(value),
+                        (ty::WORLD_TO_CAMERA, Matrix4x4(value)) => layer_attributes.world_to_camera = Some(value),
+                        (ty::WORLD_TO_NDC, Matrix4x4(value)) => layer_attributes.world_to_normalized_device = Some(value),
+                        (ty::DEEP_IMAGE_STATE, Rational(value)) => layer_attributes.deep_image_state = Some(value),
+                        (ty::ORIGINAL_DATA_WINDOW, IntRect(value)) => layer_attributes.original_data_window = Some(value),
+                        (ty::DWA_COMPRESSION_LEVEL, F32(value)) => layer_attributes.dwa_compression_level = Some(value),
+                        (ty::PREVIEW, Preview(value)) => layer_attributes.preview = Some(value),
+                        (ty::VIEW, Text(value)) => layer_attributes.view = Some(value),
+
+                        (ty::PIXEL_ASPECT, F32(value)) => image_attributes.pixel_aspect = value,
+                        (ty::TIME_CODE, TimeCode(value)) => image_attributes.time_code = Some(value),
+                        (ty::CHROMATICITIES, Chromaticities(value)) => image_attributes.chromaticities = Some(value),
+
+                        // insert unknown attributes of these types into image attributes,
+                        // as these must be the same for all headers
+                        (_, value @ Chromaticities(_)) |
+                        (_, value @ TimeCode(_)) => {
+                            image_attributes.custom.insert(attribute_name, value);
+                        },
+
+                        // insert unknown attributes into layer attributes
+                        (_, value) => {
+                            layer_attributes.custom.insert(attribute_name, value);
+                        },
+
                     }
                 },
+
+                // in case the attribute value itself is not ok, but the rest of the image is
+                // only abort reading the image if desired
+                Err(error) => {
+
+                    // if !ignore_invalid_attributes {
+                    return Err(error); // FIXME ignore instead??
+                    // }
+                }
             }
         }
 
