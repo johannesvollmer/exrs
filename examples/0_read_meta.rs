@@ -9,13 +9,13 @@ use exr::meta::MetaData;
 fn main() {
     let meta_data = MetaData::read_from_file(
         "tests/images/valid/custom/crowskull/crow_uncompressed.exr",
-        true // do not throw an error for invalid attributes, but skip those instead
+        true // do not throw an error for invalid attributes, skipping them instead
     ).unwrap();
 
-    for image_layer in meta_data.headers {
+    for (layer_index, image_layer) in meta_data.headers.iter().enumerate() {
         println!(
-            "custom meta data of layer: {:#?}",
-            image_layer.own_attributes
+            "custom meta data of layer #{}:\n{:#?}",
+            layer_index, image_layer.own_attributes
         );
     }
 }
