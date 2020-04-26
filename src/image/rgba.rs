@@ -21,7 +21,6 @@ use crate::meta::{Header, ImageAttributes, LayerAttributes, MetaData, Blocks};
 use half::f16;
 use crate::image::{ReadOptions, OnReadProgress, WriteOptions, OnWriteProgress};
 use crate::compression::Compression;
-use std::collections::HashSet;
 use crate::block::samples::Sample;
 
 
@@ -210,6 +209,13 @@ impl Encoding {
 }
 
 
+/// Used to remember which header and which channels should be extracted from an image
+struct ExtractionInfo {
+    header_index: usize,
+    channel_indices: (usize, usize, usize, Option<usize>),
+}
+
+
 impl ImageInfo {
 
     /// Create an Image with an alpha channel.
@@ -339,22 +345,22 @@ impl ImageInfo {
         mut set_pixels: SetPixels!(T),
     ) -> Result<(Self, T)>
     {
-        crate::block::read_filtered_blocks_from_buffered(
+        let (_extraction, info, pixels) = crate::block::read_filtered_blocks_from_buffered(
             read,
 
             move |meta| {
-                let image = Self::extract(meta)?;
+                let (extraction, image) = Self::extract(meta)?;
                 let pixels = create_pixels(&image);
-                Ok((image, pixels))
+                Ok((extraction, image, pixels))
             },
 
             // only keep the one header we selected earlier
-            |(image, _pixels), header, tile| {
+            |(extraction, _image, _pixels), (header_index, _header), (_tile_index, tile)| {
                 tile.location.is_largest_resolution_level() // also skip multi-resolution shenanigans
-                    && header.own_attributes.name == image.layer_attributes.name // header names were checked to be unique earlier
+                    && header_index == extraction.header_index
             },
 
-            |(image, pixels), meta, block| {
+            |(extraction, image, pixels), meta, block| {
                 let (r_type, g_type, b_type, a_type) = image.channels;
 
                 let header: &Header = &meta[block.index.layer];
@@ -365,16 +371,16 @@ impl ImageInfo {
                 let (mut r_range, mut g_range, mut b_range, mut a_range) = (0..0, 0..0, 0..0, 0..0);
                 let mut byte_index = 0;
 
-                for channel in &header.channels.list {
+                for (channel_index, channel) in header.channels.list.iter().enumerate() {
                     let sample_bytes = channel.sample_type.bytes_per_sample();
                     let channel_bytes = block.index.pixel_size.0 * sample_bytes;
                     let byte_range = byte_index .. byte_index + channel_bytes;
                     byte_index = byte_range.end;
 
-                    if      channel.name.eq_case_insensitive("a") { a_range = byte_range }
-                    else if channel.name.eq_case_insensitive("b") { b_range = byte_range }
-                    else if channel.name.eq_case_insensitive("g") { g_range = byte_range }
-                    else if channel.name.eq_case_insensitive("r") { r_range = byte_range }
+                    if      Some(channel_index) == extraction.channel_indices.3 { a_range = byte_range }
+                    else if channel_index == extraction.channel_indices.2 { b_range = byte_range }
+                    else if channel_index == extraction.channel_indices.1 { g_range = byte_range }
+                    else if channel_index == extraction.channel_indices.0 { r_range = byte_range }
                     else { continue; } // ignore non-rgba channels
                 };
 
@@ -420,14 +426,16 @@ impl ImageInfo {
             },
 
             options
-        )
+        )?;
+
+        Ok((info, pixels))
     }
 
     /// Allocate the memory for an image that could contain the described data.
     fn allocate(header: &Header, channels: Channels) -> Self {
         ImageInfo {
-            resolution: header.data_size,
             channels,
+            resolution: header.data_size,
 
             layer_attributes: header.own_attributes.clone(),
             image_attributes: header.shared_attributes.clone(),
@@ -444,28 +452,24 @@ impl ImageInfo {
     }
 
     /// Try to find a header matching the RGBA requirements.
-    fn extract(headers: &[Header]) -> Result<Self> {
-        let mut header_names = HashSet::with_capacity(headers.len());
+    fn extract(headers: &[Header]) -> Result<(ExtractionInfo, Self)> {
+        for (header_index, header) in headers.iter().enumerate() {
+            let mut rgba_types  = [None; 4];
 
-        for header in headers {
-            // the following check is required because filtering works by name in this RGBA implementation
-            if !header_names.insert(&header.own_attributes.name) { // none twice is also catched
-                return Err(Error::invalid("duplicate header name"))
+            for (channel_index, channel) in header.channels.list.iter().enumerate() {
+                let channel_type = Some((channel_index, channel.sample_type));
+
+                if      channel.name.eq_case_insensitive("a") { rgba_types[3] = channel_type; }
+                else if channel.name.eq_case_insensitive("b") { rgba_types[2] = channel_type; }
+                else if channel.name.eq_case_insensitive("g") { rgba_types[1] = channel_type; }
+                else if channel.name.eq_case_insensitive("r") { rgba_types[0] = channel_type; }
             }
 
-            let mut rgba = [None; 4];
-
-            for channel in &header.channels.list {
-                let rgba_channel = Some(channel.sample_type);
-
-                if      channel.name.eq_case_insensitive("a") { rgba[3] = rgba_channel; }
-                else if channel.name.eq_case_insensitive("b") { rgba[2] = rgba_channel; }
-                else if channel.name.eq_case_insensitive("g") { rgba[1] = rgba_channel; }
-                else if channel.name.eq_case_insensitive("r") { rgba[0] = rgba_channel; }
-            }
-
-            if let [Some(r), Some(g), Some(b), a] = rgba {
-                return Ok(Self::allocate(header, (r,g,b,a)))
+            if let [Some(r), Some(g), Some(b), a] = rgba_types {
+                return Ok((
+                    ExtractionInfo { header_index, channel_indices: (r.0, g.0, b.0, a.map(|a| a.0)) },
+                    Self::allocate(header, (r.1, g.1, b.1, a.map(|a| a.1)))
+                ))
             }
         }
 

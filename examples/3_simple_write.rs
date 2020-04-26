@@ -61,4 +61,6 @@ fn main() {
 
     println!("writing image {:#?}", image);
     image.write_to_file("tests/images/out/noisy.exr", write_options::high()).unwrap();
+
+    println!("created file noisy.exr");
 }

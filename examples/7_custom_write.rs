@@ -108,5 +108,5 @@ fn main() {
     ).unwrap();
 
     // warning: highly unscientific benchmarks ahead!
-    println!("\nWrote exr file in {:?}s", start_time.elapsed().as_secs_f32());
+    println!("\ncreated file 3GB.exr in {:?}s", start_time.elapsed().as_secs_f32());
 }

@@ -66,7 +66,7 @@ fn main() {
         ) },
 
         // specify what parts of the file should be loaded (skips mip maps)
-        |_header, _meta, tile| {
+        |_pixels, _header, (_, tile)| {
             // do not worry about multi-resolution levels
             tile.location.is_largest_resolution_level()
         },
@@ -115,8 +115,8 @@ fn main() {
 
     ).unwrap();
 
-    println!("Average values: {:#?}", averages);
+    println!("average values: {:#?}", averages);
 
     // warning: highly unscientific benchmarks ahead!
-    println!("\nRead exr file in {:?}s", start_time.elapsed().as_secs_f32());
+    println!("\nprocessed file in {:?}s", start_time.elapsed().as_secs_f32());
 }

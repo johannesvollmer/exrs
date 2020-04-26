@@ -94,7 +94,7 @@ pub fn read_all_blocks_from_buffered<T>(
 pub fn read_filtered_blocks_from_buffered<T>(
     read: impl Read + Seek + Send, // FIXME does not always need be Send
     new: impl FnOnce(&[Header]) -> Result<T>, // TODO put these into a trait?
-    filter: impl Fn(&T, &Header, &TileIndices) -> bool,
+    filter: impl Fn(&T, (usize, &Header), (usize, &TileIndices)) -> bool,
     mut insert: impl FnMut(&mut T, &[Header], UncompressedBlock) -> UnitResult,
     options: ReadOptions<impl OnReadProgress>,
 ) -> Result<T>
@@ -196,7 +196,7 @@ pub fn read_all_compressed_chunks_from_buffered<'m>(
 pub fn read_filtered_chunks_from_buffered<'m, T>(
     read: impl Read + Seek + Send, // FIXME does not always need be Send
     new: impl FnOnce(&[Header]) -> Result<T>,
-    filter: impl Fn(&T, &Header, &TileIndices) -> bool,
+    filter: impl Fn(&T, (usize, &Header), (usize, &TileIndices)) -> bool,
     max_pixel_bytes: Option<usize>,
 ) -> Result<(MetaData, T, usize, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
 {
@@ -211,7 +211,7 @@ pub fn read_filtered_chunks_from_buffered<'m, T>(
     let mut offsets = Vec::with_capacity(meta_data.headers.len() * 32);
     for (header_index, header) in meta_data.headers.iter().enumerate() { // offset tables are stored same order as headers
         for (block_index, block) in header.blocks_increasing_y_order().enumerate() { // in increasing_y order
-            if filter(&value, header, &block) {
+            if filter(&value, (header_index, header), (block_index, &block)) {
                 offsets.push(offset_tables[header_index][block_index]) // safe indexing from `enumerate()`
             }
         };
