@@ -68,7 +68,7 @@ pub fn read_all_blocks_from_buffered<T>(
     options: ReadOptions<impl OnReadProgress>,
 ) -> Result<T>
 {
-    let (meta_data, chunk_count, mut read_chunk) = self::read_all_compressed_chunks_from_buffered(read, options.max_pixel_bytes)?;
+    let (meta_data, chunk_count, mut read_chunk) = self::read_all_compressed_chunks_from_buffered(read, options.max_pixel_bytes, options.skip_invalid_attributes)?;
     let meta_data_ref = &meta_data;
 
     let read_chunks = std::iter::from_fn(move || read_chunk(meta_data_ref));
@@ -100,7 +100,7 @@ pub fn read_filtered_blocks_from_buffered<T>(
 ) -> Result<T>
 {
     let (meta_data, mut value, chunk_count, mut read_chunk) = {
-        self::read_filtered_chunks_from_buffered(read, new, filter, options.max_pixel_bytes)?
+        self::read_filtered_chunks_from_buffered(read, new, filter, options.max_pixel_bytes, options.skip_invalid_attributes)?
     };
 
     for_decompressed_blocks_in_chunks(
@@ -169,10 +169,11 @@ fn for_decompressed_blocks_in_chunks(
 pub fn read_all_compressed_chunks_from_buffered<'m>(
     read: impl Read + Send, // FIXME does not actually need to be send, only for parallel writing
     max_pixel_bytes: Option<usize>,
+    skip_invalid_attributes: bool
 ) -> Result<(MetaData, usize, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
 {
     let mut read = PeekRead::new(read);
-    let meta_data = MetaData::read_from_buffered_peekable(&mut read, max_pixel_bytes)?;
+    let meta_data = MetaData::read_from_buffered_peekable(&mut read, max_pixel_bytes, skip_invalid_attributes)?;
     let mut remaining_chunk_count = usize::try_from(MetaData::skip_offset_tables(&mut read, &meta_data.headers)?)
         .expect("too large chunk count for this machine");
 
@@ -198,11 +199,12 @@ pub fn read_filtered_chunks_from_buffered<'m, T>(
     new: impl FnOnce(&[Header]) -> Result<T>,
     filter: impl Fn(&T, (usize, &Header), (usize, &TileIndices)) -> bool,
     max_pixel_bytes: Option<usize>,
+    skip_invalid_attributes: bool
 ) -> Result<(MetaData, T, usize, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
 {
     let skip_read = Tracking::new(read);
     let mut read = PeekRead::new(skip_read);
-    let meta_data = MetaData::read_from_buffered_peekable(&mut read, max_pixel_bytes)?;
+    let meta_data = MetaData::read_from_buffered_peekable(&mut read, max_pixel_bytes, skip_invalid_attributes)?;
 
     let value = new(meta_data.headers.as_slice())?;
 

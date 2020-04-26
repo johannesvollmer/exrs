@@ -609,8 +609,8 @@ impl MetaData {
     /// Use `read_from_unbuffered` instead if you do not have a file.
     /// Does not validate the meta data.
     #[must_use]
-    pub fn read_from_file(path: impl AsRef<::std::path::Path>) -> Result<Self> {
-        Self::read_from_unbuffered(File::open(path)?)
+    pub fn read_from_file(path: impl AsRef<::std::path::Path>, skip_invalid_attributes: bool) -> Result<Self> {
+        Self::read_from_unbuffered(File::open(path)?, skip_invalid_attributes)
     }
 
     /// Buffer the reader and then read the exr meta data from it.
@@ -618,8 +618,8 @@ impl MetaData {
     /// Use `read_from_file` if you have a file path.
     /// Does not validate the meta data.
     #[must_use]
-    pub fn read_from_unbuffered(unbuffered: impl Read) -> Result<Self> {
-        Self::read_from_buffered(BufReader::new(unbuffered))
+    pub fn read_from_unbuffered(unbuffered: impl Read, skip_invalid_attributes: bool) -> Result<Self> {
+        Self::read_from_buffered(BufReader::new(unbuffered), skip_invalid_attributes)
     }
 
     /// Read the exr meta data from a reader.
@@ -627,17 +627,17 @@ impl MetaData {
     /// Use `read_from_unbuffered` if this is not an in-memory reader.
     /// Does not validate the meta data.
     #[must_use]
-    pub fn read_from_buffered(buffered: impl Read) -> Result<Self> {
+    pub fn read_from_buffered(buffered: impl Read, skip_invalid_attributes: bool) -> Result<Self> {
         let mut read = PeekRead::new(buffered);
-        MetaData::read_unvalidated_from_buffered_peekable(&mut read)
+        MetaData::read_unvalidated_from_buffered_peekable(&mut read, skip_invalid_attributes)
     }
 
     /// Does __not validate__ the meta data.
     #[must_use]
-    pub(crate) fn read_unvalidated_from_buffered_peekable(read: &mut PeekRead<impl Read>) -> Result<Self> {
+    pub(crate) fn read_unvalidated_from_buffered_peekable(read: &mut PeekRead<impl Read>, skip_invalid_attributes: bool) -> Result<Self> {
         magic_number::validate_exr(read)?;
         let requirements = Requirements::read(read)?;
-        let headers = Header::read_all(read, &requirements)?;
+        let headers = Header::read_all(read, &requirements, skip_invalid_attributes)?;
 
         // TODO check if supporting requirements 2 always implies supporting requirements 1
         Ok(MetaData { requirements, headers })
@@ -645,8 +645,8 @@ impl MetaData {
 
     /// Validates the meta data.
     #[must_use]
-    pub(crate) fn read_from_buffered_peekable(read: &mut PeekRead<impl Read>, max_pixel_bytes: Option<usize>) -> Result<Self> {
-        let meta_data = Self::read_unvalidated_from_buffered_peekable(read)?;
+    pub(crate) fn read_from_buffered_peekable(read: &mut PeekRead<impl Read>, max_pixel_bytes: Option<usize>, skip_invalid_attributes: bool) -> Result<Self> {
+        let meta_data = Self::read_unvalidated_from_buffered_peekable(read, skip_invalid_attributes)?;
 
         // relaxed validation to allow slightly invalid files
         // that still can be read correctly
@@ -1072,15 +1072,15 @@ impl Header {
     }
 
     /// Read the headers without validating them.
-    pub fn read_all(read: &mut PeekRead<impl Read>, version: &Requirements) -> Result<Headers> {
+    pub fn read_all(read: &mut PeekRead<impl Read>, version: &Requirements, skip_invalid_attributes: bool) -> Result<Headers> {
         if !version.is_multilayer() {
-            Ok(smallvec![ Header::read(read, version)? ])
+            Ok(smallvec![ Header::read(read, version, skip_invalid_attributes)? ])
         }
         else {
             let mut headers = SmallVec::new();
 
             while !sequence_end::has_come(read)? {
-                headers.push(Header::read(read, version)?);
+                headers.push(Header::read(read, version, skip_invalid_attributes)?);
             }
 
             Ok(headers)
@@ -1101,7 +1101,7 @@ impl Header {
     }
 
     /// Read the value without validating.
-    pub fn read(read: &mut PeekRead<impl Read>, requirements: &Requirements) -> Result<Self> {
+    pub fn read(read: &mut PeekRead<impl Read>, requirements: &Requirements, skip_invalid_attributes: bool) -> Result<Self> {
         let max_string_len = if requirements.has_long_names { 256 } else { 32 }; // TODO DRY this information
 
         // these required attributes will be filled when encountered while parsing
@@ -1206,10 +1206,7 @@ impl Header {
                 // in case the attribute value itself is not ok, but the rest of the image is
                 // only abort reading the image if desired
                 Err(error) => {
-
-                    // if !ignore_invalid_attributes {
-                    return Err(error); // FIXME ignore instead??
-                    // }
+                    if !skip_invalid_attributes { return Err(error); }
                 }
             }
         }
@@ -1663,7 +1660,7 @@ mod test {
 
         let mut data: Vec<u8> = Vec::new();
         meta.write_validating_to_buffered(&mut data, true).unwrap();
-        let meta2 = MetaData::read_from_buffered(data.as_slice()).unwrap();
+        let meta2 = MetaData::read_from_buffered(data.as_slice(), false).unwrap();
         meta2.validate(None, true).unwrap();
         assert_eq!(meta, meta2);
     }
