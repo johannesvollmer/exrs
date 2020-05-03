@@ -180,20 +180,17 @@ fn main() {
         rgba::Pixel::rgba(r, g, b, a)
     };
 
-    let image_info = rgba::ImageInfo::rgb(
-        (my_image.width, my_image.height), 
-
-        // all numbers will be converted to f16 automatically
-        rgba::Channel::linear(SampleType::F16), 
-    );
+    // make exr convert all numbers to f16 automatically 
+    let mut image_info = rgba::ImageInfo::rgb((my_image.width, my_image.height), SampleType::F16);
+    image_info.layer_attributes.comments = "Generated with Rust".try_into().unwrap();
 
     // write the pixels to a file
     image_info
-        .with_encoding(rgba::Encoding::small())
+        .with_encoding(rgba::Encoding::small()) // compress image contents to keep the file small
         .write_to_file(
             "tests/images/out/generated_rgba.exr",
             write_options::high(), // using all CPUs
-            &get_pixel // and our custom pixels
+            &get_pixel // and our custom image pixels
         ).unwrap();
 }
 ```
