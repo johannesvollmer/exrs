@@ -11,7 +11,7 @@ use super::optimize_bytes::*;
 use std::io;
 use crate::error::Result;
 use deflate::write::ZlibEncoder;
-use inflate::inflate_bytes;
+use inflate::inflate_bytes_zlib;
 
 // scanline decompression routine, see https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfScanLineInputFile.cpp
 // 1. Uncompress the data, if necessary (If the line is uncompressed, it's in XDR format, regardless of the compressor's output format.)
@@ -20,7 +20,7 @@ use inflate::inflate_bytes;
 
 
 pub fn decompress_bytes(data: Bytes<'_>, _expected_byte_size: usize) -> Result<ByteVec> {
-    let mut decompressed = inflate_bytes(data)?;
+    let mut decompressed = inflate_bytes_zlib(data)?;
 
     differences_to_samples(&mut decompressed);
     interleave_byte_blocks(&mut decompressed);
