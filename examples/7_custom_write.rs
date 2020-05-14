@@ -5,15 +5,15 @@ extern crate rand;
 extern crate half;
 
 use std::convert::TryInto;
+use std::io::BufWriter;
+use std::fs::File;
 
 // exr imports
 extern crate exr;
-use exr::prelude::*;
-use std::io::{BufWriter};
-use std::fs::File;
-use exr::meta::attribute::{Channel, SampleType, LineOrder, TileDescription, LevelMode};
-use exr::meta::{Blocks, MetaData};
-use exr::math::RoundingMode;
+use exr::prelude::common::*;
+use attribute::*;
+use exr::meta::*;
+use exr::math::*;
 
 /// Generate a striped image on the fly and directly write that to a file without allocating the whole image at once.
 /// On my machine, this program produces a 3GB file while only ever allocating 4MB memory (takes a while though).
@@ -35,10 +35,10 @@ fn main() {
         "test-image".try_into().unwrap(),
         size,
         smallvec![
-            Channel::new("B".try_into().unwrap(), SampleType::F32, true),
-            Channel::new("G".try_into().unwrap(), SampleType::F32, true),
-            Channel::new("R".try_into().unwrap(), SampleType::F32, true),
-            Channel::new("Z".try_into().unwrap(), SampleType::F32, true),
+            ChannelInfo::new("B".try_into().unwrap(), SampleType::F32, true),
+            ChannelInfo::new("G".try_into().unwrap(), SampleType::F32, true),
+            ChannelInfo::new("R".try_into().unwrap(), SampleType::F32, true),
+            ChannelInfo::new("Z".try_into().unwrap(), SampleType::F32, true),
         ],
     );
 

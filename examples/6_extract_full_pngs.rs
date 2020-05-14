@@ -1,11 +1,10 @@
 // FIXME Attention: The API in this example is not ready for usage as it is still being worked on.
 
-extern crate exr;
-extern crate image;
+extern crate image as png;
 
-use exr::prelude::*;
+extern crate exr;
+use exr::prelude::common::*;
 use exr::image::full::*;
-use exr::math::Vec2;
 use std::cmp::Ordering;
 
 
@@ -76,7 +75,7 @@ pub fn main() {
 
     /// Save raw float data to a PNG file, doing automatic brightness adjustments per channel
     fn save_f32_image_as_png(data: &[f32], size: Vec2<usize>, name: String) {
-        let mut png_buffer = image::GrayImage::new(size.width() as u32, size.height() as u32);
+        let mut png_buffer = png::GrayImage::new(size.width() as u32, size.height() as u32);
         let mut sorted = Vec::from(data);
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Less));
 
@@ -98,7 +97,7 @@ pub fn main() {
             let v = (v - min_toned) / (max_toned - min_toned);
 
             // TODO does the `image` crate expect gamma corrected data?
-            *pixel = image::Luma([(v.max(0.0).min(1.0) * 255.0) as u8]);
+            *pixel = png::Luma([(v.max(0.0).min(1.0) * 255.0) as u8]);
         }
 
         png_buffer.save(&name).unwrap();

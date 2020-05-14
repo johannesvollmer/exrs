@@ -9,15 +9,16 @@
 //! Also, the luxury of automatic conversion comes with a cost.
 //! Using `image::simple` might be faster in special cases.
 
+use crate::prelude::common::*;
 
 use std::path::Path;
 use std::fs::File;
 use std::io::{Read, Seek, BufReader, Write, BufWriter, Cursor};
-use crate::math::{Vec2, RoundingMode};
+use crate::math::{RoundingMode};
 use crate::error::{Result, Error, UnitResult};
 use crate::meta::attribute::{SampleType, Text, LineOrder, TileDescription, LevelMode};
 use std::convert::TryInto;
-use crate::meta::{Header, ImageAttributes, LayerAttributes, MetaData, Blocks};
+use crate::meta::{Header, MetaData, Blocks};
 use half::f16;
 use crate::image::{ReadOptions, OnReadProgress, WriteOptions, OnWriteProgress};
 use crate::compression::Compression;
@@ -528,16 +529,16 @@ impl ImageInfo {
             self.layer_attributes.name.clone().unwrap_or(Text::from("RGBA").unwrap()),
             self.resolution,
     if let Some(alpha) = self.channels.3 { smallvec![
-                meta::Channel::new("A".try_into().unwrap(), alpha, true), // store as linear data
-                meta::Channel::new("B".try_into().unwrap(), self.channels.2, false),
-                meta::Channel::new("G".try_into().unwrap(), self.channels.1, false),
-                meta::Channel::new("R".try_into().unwrap(), self.channels.0, false),
+                meta::ChannelInfo::new("A".try_into().unwrap(), alpha, true), // store as linear data
+                meta::ChannelInfo::new("B".try_into().unwrap(), self.channels.2, false),
+                meta::ChannelInfo::new("G".try_into().unwrap(), self.channels.1, false),
+                meta::ChannelInfo::new("R".try_into().unwrap(), self.channels.0, false),
             ] }
 
             else { smallvec![
-                meta::Channel::new("B".try_into().unwrap(), self.channels.2, false),
-                meta::Channel::new("G".try_into().unwrap(), self.channels.1, false),
-                meta::Channel::new("R".try_into().unwrap(), self.channels.0, false),
+                meta::ChannelInfo::new("B".try_into().unwrap(), self.channels.2, false),
+                meta::ChannelInfo::new("G".try_into().unwrap(), self.channels.1, false),
+                meta::ChannelInfo::new("R".try_into().unwrap(), self.channels.0, false),
             ] }
         );
 

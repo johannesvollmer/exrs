@@ -187,7 +187,7 @@ pub struct FloatRect {
 pub struct ChannelList {
 
     /// The channels in this list.
-    pub list: SmallVec<[Channel; 5]>,
+    pub list: SmallVec<[ChannelInfo; 5]>,
 
     /// The number of bytes that one pixel in this image needs.
     // FIXME this needs to account for subsampling anywhere?
@@ -198,7 +198,7 @@ pub struct ChannelList {
 /// Does not contain the actual pixel data,
 /// but instead merely describes it.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Channel {
+pub struct ChannelInfo {
 
     /// One of "R", "G", or "B" most of the time.
     pub name: Text,
@@ -603,7 +603,7 @@ impl ::std::fmt::Display for Text {
 impl ChannelList {
 
     /// Does not validate channel order.
-    pub fn new(channels: SmallVec<[Channel; 5]>) -> Self {
+    pub fn new(channels: SmallVec<[ChannelInfo; 5]>) -> Self {
         ChannelList {
             bytes_per_pixel: channels.iter().map(|channel| channel.sample_type.bytes_per_sample()).sum(),
             list: channels,
@@ -614,7 +614,7 @@ impl ChannelList {
 impl BlockType {
 
     /// The corresponding attribute type name literal
-    const TYPE_NAME: &'static [u8] = attribute_type_names::TEXT;
+    const TYPE_NAME: &'static [u8] = type_names::TEXT;
 
     /// Return a `BlockType` object from the specified attribute text value.
     pub fn parse(text: Text) -> Result<Self> {
@@ -814,7 +814,7 @@ impl SampleType {
     }
 }
 
-impl Channel {
+impl ChannelInfo {
 
     /// Create a new channel with the specified properties and a sampling rate of (1,1).
     pub fn new(name: Text, sample_type: SampleType, quantize_linearly: bool) -> Self {
@@ -874,7 +874,7 @@ impl Channel {
         let x_sampling = i32_to_usize(i32::read(read)?, "x channel sampling")?;
         let y_sampling = i32_to_usize(i32::read(read)?, "y channel sampling")?;
 
-        Ok(Channel {
+        Ok(ChannelInfo {
             name, sample_type,
             quantize_linearly: is_linear,
             sampling: Vec2(x_sampling, y_sampling),
@@ -914,7 +914,7 @@ impl ChannelList {
 
     /// Number of bytes this would consume in an exr file.
     pub fn byte_size(&self) -> usize {
-        self.list.iter().map(Channel::byte_size).sum::<usize>() + sequence_end::byte_size()
+        self.list.iter().map(ChannelInfo::byte_size).sum::<usize>() + sequence_end::byte_size()
     }
 
     /// Without validation, write this instance to the byte stream.
@@ -932,7 +932,7 @@ impl ChannelList {
     pub fn read(read: &mut PeekRead<impl Read>) -> Result<Self> {
         let mut channels = SmallVec::new();
         while !sequence_end::has_come(read)? {
-            channels.push(Channel::read(read)?);
+            channels.push(ChannelInfo::read(read)?);
         }
 
         Ok(ChannelList::new(channels))
@@ -1346,7 +1346,7 @@ impl AttributeValue {
     /// The exr name string of the type that an attribute can have.
     pub fn kind_name(&self) -> &[u8] {
         use self::AttributeValue::*;
-        use self::attribute_type_names as ty;
+        use self::type_names as ty;
 
         match *self {
             IntRect(_) =>  ty::I32BOX2,
@@ -1428,7 +1428,7 @@ impl AttributeValue {
     /// Returns `Err(Error)` for invalid byte sources, for example for invalid files.
     pub fn read(read: &mut PeekRead<impl Read>, kind: Text, byte_size: usize) -> Result<Result<Self>> {
         use self::AttributeValue::*;
-        use self::attribute_type_names as ty;
+        use self::type_names as ty;
 
         // always read bytes
         let attribute_bytes = u8::read_vec(read, byte_size, 128, None)?;
@@ -1586,8 +1586,10 @@ impl AttributeValue {
     }
 }
 
+
+
 /// Contains string literals identifying the type of an attribute.
-pub mod attribute_type_names {
+pub mod type_names {
     macro_rules! define_attribute_type_names {
         ( $($name: ident : $value: expr),* ) => {
             $(
@@ -1621,71 +1623,6 @@ pub mod attribute_type_names {
         TEXT:           b"string",
         TEXT_VECTOR:    b"stringvector",
         TILES:          b"tiledesc"
-    }
-}
-
-/// Collection of required attribute names
-pub mod required_attribute_names {
-    macro_rules! define_required_attribute_names {
-        ( $($name: ident  :  $value: expr),* ) => {
-
-            /// A list containing all reserved names.
-            pub const ALL: &'static [&'static [u8]] = &[
-                $( $value ),*
-            ];
-
-            $(
-                /// The byte-string name of this required attribute as it appears in an exr file.
-                pub const $name: &'static [u8] = $value;
-            )*
-        };
-    }
-
-    define_required_attribute_names! {
-        TILES: b"tiles",
-        NAME: b"name",
-        BLOCK_TYPE: b"type",
-        DEEP_DATA_VERSION: b"version",
-        CHUNKS: b"chunkCount",
-        MAX_SAMPLES: b"maxSamplesPerPixel",
-        CHANNELS: b"channels",
-        COMPRESSION: b"compression",
-        DATA_WINDOW: b"dataWindow",
-        DISPLAY_WINDOW: b"displayWindow",
-        LINE_ORDER: b"lineOrder",
-        PIXEL_ASPECT: b"pixelAspectRatio",
-        WINDOW_CENTER: b"screenWindowCenter",
-        WINDOW_WIDTH: b"screenWindowWidth",
-        WHITE_LUMINANCE: b"whiteLuminance",
-        ADOPTED_NEUTRAL: b"adoptedNeutral",
-        RENDERING_TRANSFORM: b"renderingTransform",
-        LOOK_MOD_TRANSFORM: b"lookModTransform",
-        X_DENSITY: b"xDensity",
-        OWNER: b"owner",
-        COMMENTS: b"comments",
-        CAPTURE_DATE: b"capDate",
-        UTC_OFFSET: b"utcOffset",
-        LONGITUDE: b"longitude",
-        LATITUDE: b"latitude",
-        ALTITUDE: b"altitude",
-        FOCUS: b"focus",
-        EXPOSURE_TIME: b"expTime",
-        APERTURE: b"aperture",
-        ISO_SPEED: b"isoSpeed",
-        ENVIRONMENT_MAP: b"envmap",
-        KEY_CODE: b"keyCode",
-        TIME_CODE: b"timeCode",
-        WRAP_MODES: b"wrapmodes",
-        FRAMES_PER_SECOND: b"framesPerSecond",
-        MULTI_VIEW: b"multiView",
-        WORLD_TO_CAMERA: b"worldToCamera",
-        WORLD_TO_NDC: b"worldToNDC",
-        DEEP_IMAGE_STATE: b"deepImageState",
-        ORIGINAL_DATA_WINDOW: b"originalDataWindow",
-        DWA_COMPRESSION_LEVEL: b"dwaCompressionLevel",
-        PREVIEW: b"preview",
-        VIEW: b"view",
-        CHROMATICITIES: b"chromaticities"
     }
 }
 
@@ -1802,19 +1739,19 @@ mod test {
                 Text::from("leg count, again").unwrap(),
                 AttributeValue::ChannelList(ChannelList {
                     list: smallvec![
-                        Channel {
+                        ChannelInfo {
                             name: Text::from("Green").unwrap(),
                             sample_type: SampleType::F16,
                             quantize_linearly: false,
                             sampling: Vec2(1,2)
                         },
-                        Channel {
+                        ChannelInfo {
                             name: Text::from("Red").unwrap(),
                             sample_type: SampleType::F32,
                             quantize_linearly: true,
                             sampling: Vec2(1,2)
                         },
-                        Channel {
+                        ChannelInfo {
                             name: Text::from("Purple").unwrap(),
                             sample_type: SampleType::U32,
                             quantize_linearly: false,

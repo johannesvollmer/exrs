@@ -7,7 +7,7 @@ use std::fs::File;
 
 // exr imports
 extern crate exr;
-use exr::prelude::*;
+use exr::prelude::common::*;
 
 
 /// Collects the average pixel value for each channel.

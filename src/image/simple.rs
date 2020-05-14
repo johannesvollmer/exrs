@@ -2,8 +2,8 @@
 //! Read and write all supported aspects of an exr image, excluding deep data and multi-resolution levels.
 //! Use `exr::image::full` if you do need deep data or resolution levels.
 
-use smallvec::SmallVec;
-use half::f16;
+use crate::prelude::common::*;
+
 use crate::io::*;
 use crate::meta::*;
 use crate::meta::attribute::*;
@@ -505,7 +505,7 @@ impl Layer {
 impl Channel {
 
     /// Allocate a channel ready to be filled with pixel data.
-    pub fn allocate(header: &Header, channel: &crate::meta::attribute::Channel) -> Self {
+    pub fn allocate(header: &Header, channel: &crate::meta::attribute::ChannelInfo) -> Self {
         // do not allocate for deep data
         let size = if header.deep { Vec2(0, 0) } else {
             header.data_size / channel.sampling
@@ -531,8 +531,8 @@ impl Channel {
     }
 
     /// Create the meta data that describes this channel.
-    pub fn infer_channel_attribute(&self) -> attribute::Channel {
-        attribute::Channel {
+    pub fn infer_channel_attribute(&self) -> attribute::ChannelInfo {
+        attribute::ChannelInfo {
             sample_type: match self.samples {
                 Samples::F16(_) => SampleType::F16,
                 Samples::F32(_) => SampleType::F32,

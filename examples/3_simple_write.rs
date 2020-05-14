@@ -4,13 +4,11 @@ extern crate smallvec;
 extern crate rand;
 extern crate half;
 
-use std::convert::TryInto;
 use rand::Rng;
 
 // exr imports
 extern crate exr;
-use exr::prelude::*;
-use exr::image::simple::*;
+use exr::prelude::simple_image::*;
 
 
 /// Generate a noisy image and write it to a file.

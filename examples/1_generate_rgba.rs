@@ -1,9 +1,7 @@
 
 // exr imports
 extern crate exr;
-use exr::prelude::*;
-use exr::meta::attribute::SampleType;
-use std::convert::TryInto;
+use exr::prelude::rgba_image::*;
 
 /// Write an RGBA exr file, generating the pixel values on the fly.
 /// This streams the generated pixel directly to the file,
@@ -22,7 +20,7 @@ fn main() {
             value.powf((position.y() as f32 / scale.y()).sin() * 0.5 + 0.5)
         }
 
-        rgba::Pixel::rgb(
+        Pixel::rgb(
             get_sample_f32(position, 0),
             get_sample_f32(position, 1),
             get_sample_f32(position, 2),
@@ -30,7 +28,7 @@ fn main() {
     };
 
 
-    let mut image_info = rgba::ImageInfo::rgb(
+    let mut image_info = ImageInfo::rgb(
         (2*2048, 2*2048),
 
         // all generated f32 values are converted to an f16 while writing the file
@@ -44,7 +42,7 @@ fn main() {
 
     // write it to a file with all cores in parallel
     image_info
-        .with_encoding(rgba::Encoding::for_compression(Compression::RLE))
+        .with_encoding(Encoding::for_compression(Compression::RLE))
         .write_pixels_to_file(
             "tests/images/out/generated_rgba.exr",
             write_options::high(), // this will actually generate the pixels in parallel on all cores

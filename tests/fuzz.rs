@@ -4,10 +4,11 @@
 
 use std::panic::{catch_unwind};
 use rand::rngs::{StdRng};
-use rand::{Rng};
+use rand::{Rng, SeedableRng};
 
 extern crate exr;
-use exr::prelude::*;
+use exr::prelude::common::*;
+use exr::prelude::rgba_image;
 use std::path::PathBuf;
 use std::ffi::OsStr;
 use std::fs::File;
@@ -34,8 +35,8 @@ pub fn damaged(){
             let _ = exr::image::simple::Image::read_from_file(file, read_options::high())?;
             let _ = exr::image::rgba::ImageInfo::read_pixels_from_file(
                 file, read_options::high(),
-                rgba::pixels::create_flattened_f16,
-                rgba::pixels::flattened_pixel_setter()
+                rgba_image::pixels::create_flattened_f16,
+                rgba_image::pixels::flattened_pixel_setter()
             )?;
             Ok(())
         });
