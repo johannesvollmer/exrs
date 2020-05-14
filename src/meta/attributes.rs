@@ -1628,6 +1628,12 @@ pub mod attribute_type_names {
 pub mod required_attribute_names {
     macro_rules! define_required_attribute_names {
         ( $($name: ident  :  $value: expr),* ) => {
+
+            /// A list containing all reserved names.
+            pub const ALL: &'static [&'static [u8]] = &[
+                $( $value ),*
+            ];
+
             $(
                 /// The byte-string name of this required attribute as it appears in an exr file.
                 pub const $name: &'static [u8] = $value;

@@ -1024,18 +1024,7 @@ impl Header {
                 }
             }
 
-            use attributes::required_attribute_names::*;
-            let reserved_names = [
-                TILES, NAME, BLOCK_TYPE, DEEP_DATA_VERSION, CHUNKS, MAX_SAMPLES, CHANNELS, COMPRESSION,
-                DATA_WINDOW, DISPLAY_WINDOW, LINE_ORDER, PIXEL_ASPECT, WINDOW_CENTER, WINDOW_WIDTH,
-                WHITE_LUMINANCE, ADOPTED_NEUTRAL, RENDERING_TRANSFORM, LOOK_MOD_TRANSFORM, X_DENSITY,
-                OWNER, COMMENTS, CAPTURE_DATE, UTC_OFFSET, LONGITUDE, LATITUDE, ALTITUDE, FOCUS,
-                EXPOSURE_TIME, APERTURE, ISO_SPEED, ENVIRONMENT_MAP, KEY_CODE, TIME_CODE, WRAP_MODES,
-                FRAMES_PER_SECOND, MULTI_VIEW, WORLD_TO_CAMERA, WORLD_TO_NDC, DEEP_IMAGE_STATE,
-                ORIGINAL_DATA_WINDOW, DWA_COMPRESSION_LEVEL, PREVIEW, VIEW, CHROMATICITIES
-            ];
-
-            for &reserved in reserved_names.iter() {
+            for &reserved in attributes::required_attribute_names::ALL.iter() {
                 let name  = Text::from_bytes_unchecked(SmallVec::from_slice(reserved));
                 if self.own_attributes.custom.contains_key(&name) || self.shared_attributes.custom.contains_key(&name) {
                     return Err(Error::invalid(format!(
@@ -1125,7 +1114,7 @@ impl Header {
             // if the attribute value itself is ok, record it
             match value {
                 Ok(value) => {
-                    use crate::meta::attributes::required_attribute_names as ty;
+                    use crate::meta::attributes::required_attribute_names as name;
                     use crate::meta::attributes::AttributeValue::*;
 
                     // if the attribute is a required attribute, set the corresponding variable directly.
@@ -1133,60 +1122,60 @@ impl Header {
 
                     // the following attributes will only be set if the type matches the commonly used type for that attribute
                     match (attribute_name.bytes(), value) {
-                        (ty::BLOCK_TYPE, Text(value)) => block_type = Some(attributes::BlockType::parse(value)?),
-                        (ty::TILES, TileDescription(value)) => tiles = Some(value),
-                        (ty::CHANNELS, ChannelList(value)) => channels = Some(value),
-                        (ty::COMPRESSION, Compression(value)) => compression = Some(value),
-                        (ty::DATA_WINDOW, IntRect(value)) => data_window = Some(value),
-                        (ty::DISPLAY_WINDOW, IntRect(value)) => display_window = Some(value),
-                        (ty::LINE_ORDER, LineOrder(value)) => line_order = Some(value),
-                        (ty::DEEP_DATA_VERSION, I32(value)) => version = Some(value),
+                        (name::BLOCK_TYPE, Text(value)) => block_type = Some(attributes::BlockType::parse(value)?),
+                        (name::TILES, TileDescription(value)) => tiles = Some(value),
+                        (name::CHANNELS, ChannelList(value)) => channels = Some(value),
+                        (name::COMPRESSION, Compression(value)) => compression = Some(value),
+                        (name::DATA_WINDOW, IntRect(value)) => data_window = Some(value),
+                        (name::DISPLAY_WINDOW, IntRect(value)) => display_window = Some(value),
+                        (name::LINE_ORDER, LineOrder(value)) => line_order = Some(value),
+                        (name::DEEP_DATA_VERSION, I32(value)) => version = Some(value),
 
-                        (ty::MAX_SAMPLES, I32(value)) => max_samples_per_pixel = Some(
+                        (name::MAX_SAMPLES, I32(value)) => max_samples_per_pixel = Some(
                             i32_to_usize(value, "max sample count")?
                         ),
 
-                        (ty::CHUNKS, I32(value)) => chunk_count = Some(
+                        (name::CHUNKS, I32(value)) => chunk_count = Some(
                             i32_to_usize(value, "chunk count")?
                         ),
 
-                        (ty::NAME, Text(value)) => layer_attributes.name = Some(value),
-                        (ty::WINDOW_CENTER, FloatVec2(value)) => layer_attributes.screen_window_center = value,
-                        (ty::WINDOW_WIDTH, F32(value)) => layer_attributes.screen_window_width = value,
+                        (name::NAME, Text(value)) => layer_attributes.name = Some(value),
+                        (name::WINDOW_CENTER, FloatVec2(value)) => layer_attributes.screen_window_center = value,
+                        (name::WINDOW_WIDTH, F32(value)) => layer_attributes.screen_window_width = value,
 
-                        (ty::WHITE_LUMINANCE, F32(value)) => layer_attributes.white_luminance = Some(value),
-                        (ty::ADOPTED_NEUTRAL, FloatVec2(value)) => layer_attributes.adopted_neutral = Some(value),
-                        (ty::RENDERING_TRANSFORM, Text(value)) => layer_attributes.rendering_transform = Some(value),
-                        (ty::LOOK_MOD_TRANSFORM, Text(value)) => layer_attributes.look_modification_transform = Some(value),
-                        (ty::X_DENSITY, F32(value)) => layer_attributes.x_density = Some(value),
+                        (name::WHITE_LUMINANCE, F32(value)) => layer_attributes.white_luminance = Some(value),
+                        (name::ADOPTED_NEUTRAL, FloatVec2(value)) => layer_attributes.adopted_neutral = Some(value),
+                        (name::RENDERING_TRANSFORM, Text(value)) => layer_attributes.rendering_transform = Some(value),
+                        (name::LOOK_MOD_TRANSFORM, Text(value)) => layer_attributes.look_modification_transform = Some(value),
+                        (name::X_DENSITY, F32(value)) => layer_attributes.x_density = Some(value),
 
-                        (ty::OWNER, Text(value)) => layer_attributes.owner = Some(value),
-                        (ty::COMMENTS, Text(value)) => layer_attributes.comments = Some(value),
-                        (ty::CAPTURE_DATE, Text(value)) => layer_attributes.capture_date = Some(value),
-                        (ty::UTC_OFFSET, F32(value)) => layer_attributes.utc_offset = Some(value),
-                        (ty::LONGITUDE, F32(value)) => layer_attributes.longitude = Some(value),
-                        (ty::LATITUDE, F32(value)) => layer_attributes.latitude = Some(value),
-                        (ty::ALTITUDE, F32(value)) => layer_attributes.altitude = Some(value),
-                        (ty::FOCUS, F32(value)) => layer_attributes.focus = Some(value),
-                        (ty::EXPOSURE_TIME, F32(value)) => layer_attributes.exposure = Some(value),
-                        (ty::APERTURE, F32(value)) => layer_attributes.aperture = Some(value),
-                        (ty::ISO_SPEED, F32(value)) => layer_attributes.iso_speed = Some(value),
-                        (ty::ENVIRONMENT_MAP, EnvironmentMap(value)) => layer_attributes.environment_map = Some(value),
-                        (ty::KEY_CODE, KeyCode(value)) => layer_attributes.key_code = Some(value),
-                        (ty::WRAP_MODES, Text(value)) => layer_attributes.wrap_modes = Some(value),
-                        (ty::FRAMES_PER_SECOND, Rational(value)) => layer_attributes.frames_per_second = Some(value),
-                        (ty::MULTI_VIEW, TextVector(value)) => layer_attributes.multi_view = Some(value),
-                        (ty::WORLD_TO_CAMERA, Matrix4x4(value)) => layer_attributes.world_to_camera = Some(value),
-                        (ty::WORLD_TO_NDC, Matrix4x4(value)) => layer_attributes.world_to_normalized_device = Some(value),
-                        (ty::DEEP_IMAGE_STATE, Rational(value)) => layer_attributes.deep_image_state = Some(value),
-                        (ty::ORIGINAL_DATA_WINDOW, IntRect(value)) => layer_attributes.original_data_window = Some(value),
-                        (ty::DWA_COMPRESSION_LEVEL, F32(value)) => layer_attributes.dwa_compression_level = Some(value),
-                        (ty::PREVIEW, Preview(value)) => layer_attributes.preview = Some(value),
-                        (ty::VIEW, Text(value)) => layer_attributes.view = Some(value),
+                        (name::OWNER, Text(value)) => layer_attributes.owner = Some(value),
+                        (name::COMMENTS, Text(value)) => layer_attributes.comments = Some(value),
+                        (name::CAPTURE_DATE, Text(value)) => layer_attributes.capture_date = Some(value),
+                        (name::UTC_OFFSET, F32(value)) => layer_attributes.utc_offset = Some(value),
+                        (name::LONGITUDE, F32(value)) => layer_attributes.longitude = Some(value),
+                        (name::LATITUDE, F32(value)) => layer_attributes.latitude = Some(value),
+                        (name::ALTITUDE, F32(value)) => layer_attributes.altitude = Some(value),
+                        (name::FOCUS, F32(value)) => layer_attributes.focus = Some(value),
+                        (name::EXPOSURE_TIME, F32(value)) => layer_attributes.exposure = Some(value),
+                        (name::APERTURE, F32(value)) => layer_attributes.aperture = Some(value),
+                        (name::ISO_SPEED, F32(value)) => layer_attributes.iso_speed = Some(value),
+                        (name::ENVIRONMENT_MAP, EnvironmentMap(value)) => layer_attributes.environment_map = Some(value),
+                        (name::KEY_CODE, KeyCode(value)) => layer_attributes.key_code = Some(value),
+                        (name::WRAP_MODES, Text(value)) => layer_attributes.wrap_modes = Some(value),
+                        (name::FRAMES_PER_SECOND, Rational(value)) => layer_attributes.frames_per_second = Some(value),
+                        (name::MULTI_VIEW, TextVector(value)) => layer_attributes.multi_view = Some(value),
+                        (name::WORLD_TO_CAMERA, Matrix4x4(value)) => layer_attributes.world_to_camera = Some(value),
+                        (name::WORLD_TO_NDC, Matrix4x4(value)) => layer_attributes.world_to_normalized_device = Some(value),
+                        (name::DEEP_IMAGE_STATE, Rational(value)) => layer_attributes.deep_image_state = Some(value),
+                        (name::ORIGINAL_DATA_WINDOW, IntRect(value)) => layer_attributes.original_data_window = Some(value),
+                        (name::DWA_COMPRESSION_LEVEL, F32(value)) => layer_attributes.dwa_compression_level = Some(value),
+                        (name::PREVIEW, Preview(value)) => layer_attributes.preview = Some(value),
+                        (name::VIEW, Text(value)) => layer_attributes.view = Some(value),
 
-                        (ty::PIXEL_ASPECT, F32(value)) => image_attributes.pixel_aspect = value,
-                        (ty::TIME_CODE, TimeCode(value)) => image_attributes.time_code = Some(value),
-                        (ty::CHROMATICITIES, Chromaticities(value)) => image_attributes.chromaticities = Some(value),
+                        (name::PIXEL_ASPECT, F32(value)) => image_attributes.pixel_aspect = value,
+                        (name::TIME_CODE, TimeCode(value)) => image_attributes.time_code = Some(value),
+                        (name::CHROMATICITIES, Chromaticities(value)) => image_attributes.chromaticities = Some(value),
 
                         // insert unknown attributes of these types into image attributes,
                         // as these must be the same for all headers
