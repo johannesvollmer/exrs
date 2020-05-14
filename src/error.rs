@@ -69,6 +69,13 @@ impl From<IoError> for Error {
     }
 }
 
+/// Special case for `inflate_bytes` where the error is a String
+impl From<String> for Error {
+    fn from(msg: String) -> Self {
+        Error::Invalid(msg.into())
+    }
+}
+
 impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match *self {
