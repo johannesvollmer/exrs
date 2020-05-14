@@ -83,7 +83,7 @@ extern crate image as piston_image;
 pub mod prelude {
 
     pub use crate::meta::{ self, attributes, LayerAttributes, ImageAttributes };
-    pub use self::attributes::{ Compression, Text, IntRect, LineOrder, SampleType, TileDescription };
+    pub use self::attributes::{ AttributeValue, Compression, Text, IntRect, LineOrder, SampleType, TileDescription };
     pub use crate::error::{ Result, Error };
     pub use crate::math::Vec2;
 

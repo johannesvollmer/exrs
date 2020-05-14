@@ -21,8 +21,8 @@ pub fn main() {
     let image = Image::read_from_file(path, read_options::high()).unwrap();
 
     // warning: highly unscientific benchmarks ahead!
-    println!("\nDecoded exr file in {:?}s", now.elapsed().as_secs_f32());
-    println!("Writing PNG images...");
+    println!("\nloaded file in {:?}s", now.elapsed().as_secs_f32());
+    println!("writing images...");
 
     for (layer_index, layer) in image.layers.iter().enumerate() {
         let layer_name = layer.attributes.name.as_ref()
@@ -83,12 +83,14 @@ pub fn main() {
             let v = tone(v);
 
             let v = (v - min_toned) / (max_toned - min_toned);
+
+            // TODO does the `image` crate expect gamma corrected data?
             *pixel = image::Luma([(v.max(0.0).min(1.0) * 255.0) as u8]);
         }
 
         png_buffer.save(&name).unwrap();
     }
 
-    println!("Saved PNG images.");
+    println!("created all images");
 }
 

@@ -47,6 +47,10 @@ pub struct ReadOptions<P: OnReadProgress> {
     /// Reading an image is aborted if the memory required for the pixels is too large.
     /// The default value of 1GB avoids reading invalid files.
     pub max_pixel_bytes: Option<usize>,
+
+    /// If true, single invalid attributes do not abort the whole reading process.
+    /// If false, reading the file is stopped when an attribute appears to be invalid.
+    pub skip_invalid_attributes: bool,
 }
 
 
@@ -92,24 +96,29 @@ pub mod read_options {
 
 
     /// High speed but also slightly higher memory requirements.
+    /// Skips invalid attributes instead of aborting the reading process.
     pub fn default() -> ReadOptions<()> { self::high() }
 
     /// High speed but also slightly higher memory requirements.
     /// Aborts reading images that would require more than 1GB of memory.
+    /// Skips invalid attributes instead of aborting the reading process.
     pub fn high() -> ReadOptions<()> {
         ReadOptions {
             parallel_decompression: true,
             max_pixel_bytes: Some(GIGABYTE),
+            skip_invalid_attributes: true,
             on_progress: (),
         }
     }
 
     /// Lower speed but also lower memory requirements.
     /// Aborts reading images that would require more than 1GB of memory.
+    /// Skips invalid attributes instead of aborting the reading process.
     pub fn low() -> ReadOptions<()> {
         ReadOptions {
             parallel_decompression: false,
             max_pixel_bytes: Some(GIGABYTE),
+            skip_invalid_attributes: true,
             on_progress: (),
         }
     }

@@ -165,8 +165,8 @@ impl TileCoordinates {
     /// These coordinates are only valid inside the corresponding one header.
     /// Will start at 0 and always be positive.
     pub fn to_data_indices(&self, tile_size: Vec2<usize>, max: Vec2<usize>) -> Result<IntRect> {
-        let x = self.tile_index.x() as u64 * tile_size.x() as u64;
-        let y = self.tile_index.y() as u64 * tile_size.y() as u64;
+        let x = self.tile_index.x() as u64 * tile_size.width() as u64;
+        let y = self.tile_index.y() as u64 * tile_size.height() as u64;
 
         if x >= max.x() as u64 || y >= max.y() as u64 {
             Err(Error::invalid("tile index"))
@@ -175,8 +175,8 @@ impl TileCoordinates {
             Ok(IntRect {
                 position: Vec2(x as i32, y as i32),
                 size: Vec2(
-                    calculate_block_size(max.x(), tile_size.x(), x as usize)?,
-                    calculate_block_size(max.y(), tile_size.y(), y as usize)?,
+                    calculate_block_size(max.x(), tile_size.width(), x as usize)?,
+                    calculate_block_size(max.y(), tile_size.height(), y as usize)?,
                 ),
             })
         }

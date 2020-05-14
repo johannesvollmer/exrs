@@ -2,7 +2,9 @@
 //! Specialized binary input and output.
 //! Uses the error handling for this crate.
 
+#![doc(hidden)]
 pub use ::std::io::{Read, Write};
+
 use half::slice::{HalfFloatSliceExt};
 use lebe::prelude::*;
 use ::half::f16;
