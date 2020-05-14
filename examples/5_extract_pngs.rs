@@ -1,8 +1,8 @@
 extern crate image as png;
+use std::cmp::Ordering;
 
 extern crate exr;
 use exr::prelude::simple_image::*;
-use std::cmp::Ordering;
 
 /// For each layer in the exr file,
 /// extract each channel as grayscale png,

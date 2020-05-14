@@ -1,11 +1,11 @@
 // FIXME Attention: The API in this example is not ready for usage as it is still being worked on.
 
 extern crate image as png;
+use std::cmp::Ordering;
 
 extern crate exr;
 use exr::prelude::common::*;
 use exr::image::full::*;
-use std::cmp::Ordering;
 
 
 /// Attention: The API in this example is not ready for usage as it is still being worked on.
