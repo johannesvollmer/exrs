@@ -10,6 +10,7 @@ use std::path::{PathBuf, Path};
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use exr::image::{read_options, write_options, simple, rgba};
+use exr::error::Error;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
@@ -19,13 +20,20 @@ fn exr_files() -> impl Iterator<Item=PathBuf> {
 
 /// read all images in a directory.
 /// does not check any content, just checks whether a read error or panic happened.
-fn check_files<T>(operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -> exr::error::Result<T>) {
+fn check_files<T>(
+    ignore: Vec<PathBuf>,
+    operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -> exr::error::Result<T>
+) {
     #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
-    enum Result { Ok, Error(String), Panic };
+    enum Result { Ok, Skipped, Unsupported(String), Error(String) };
 
     let files: Vec<PathBuf> = exr_files().collect();
     let mut results: Vec<(PathBuf, Result)> = files.into_par_iter()
         .map(|file| {
+            if ignore.contains(&file) {
+                return (file, Result::Skipped);
+            }
+
             let result = catch_unwind(||{
                 let prev_hook = panic::take_hook();
                 panic::set_hook(Box::new(|_| (/* do not println panics */)));
@@ -37,13 +45,18 @@ fn check_files<T>(operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -
 
             let result = match result {
                 Ok(Ok(_)) => Result::Ok,
-                Ok(Err(error)) => Result::Error(format!("{:?}", error)),
-                Err(_) => Result::Panic,
+                Ok(Err(Error::NotSupported(message))) => Result::Unsupported(format!("Not Supported: {:?}", message)),
+
+                Ok(Err(Error::Io(io))) => Result::Error(format!("IoError: {:?}", io)),
+                Ok(Err(Error::Invalid(message))) => Result::Error(format!("Invalid: {:?}", message)),
+                Ok(Err(Error::Aborted)) => panic!("a test produced `Error::Abort`"),
+
+                Err(_) => Result::Error("Panic".to_owned()),
             };
 
             match &result {
-                Result::Panic => println!("✗ Panic when processing {:?}", file),
-                _ => println!("✓ No Panic when processing {:?}", file)
+                Result::Error(_) => println!("✗ Error when processing {:?}", file),
+                _ => println!("✓ No error when processing {:?}", file)
             };
 
             (file, result)
@@ -57,12 +70,15 @@ fn check_files<T>(operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -
     }).collect::<Vec<_>>());
 
     assert!(results.len() >= 100, "Not all files were tested!");
-    assert_ne!(results.last().unwrap().1, Result::Panic, "A file triggered a panic");
+
+    if let Result::Error(_) = results.last().unwrap().1 {
+        panic!("A file triggered a panic");
+    }
 }
 
 #[test]
 fn round_trip_all_files_full() {
-    check_files(|path| {
+    check_files(vec![], |path| {
         let image = Image::read_from_file(path, read_options::low())?;
 
         let mut tmp_bytes = Vec::new();
@@ -79,7 +95,7 @@ fn round_trip_all_files_full() {
 
 #[test]
 fn round_trip_all_files_simple() {
-    check_files(|path| {
+    check_files(vec![], |path| {
         let image = simple::Image::read_from_file(path, read_options::low())?;
 
         let mut tmp_bytes = Vec::new();
@@ -96,7 +112,17 @@ fn round_trip_all_files_simple() {
 
 #[test]
 fn round_trip_all_files_rgba() {
-    check_files(|path| {
+
+    // these files are known to be invalid, because they do not contain any rgb channels
+    let blacklist = vec![
+        PathBuf::from("tests/images/valid/openexr/LuminanceChroma/Garden.exr"),
+        PathBuf::from("tests/images/valid/openexr/MultiView/Fog.exr"),
+        PathBuf::from("tests/images/valid/openexr/TestImages/GrayRampsDiagonal.exr"),
+        PathBuf::from("tests/images/valid/openexr/TestImages/GrayRampsHorizontal.exr"),
+        PathBuf::from("tests/images/valid/openexr/TestImages/WideFloatRange.exr"),
+    ];
+
+    check_files(blacklist, |path| {
         let (image, pixels) = rgba::ImageInfo::read_pixels_from_file(
             path, read_options::low(),
             rgba::pixels::create_flattened_f16,
@@ -126,7 +152,7 @@ fn round_trip_all_files_rgba() {
 
 #[test]
 fn round_trip_parallel_files() {
-    check_files(|path| {
+    check_files(vec![], |path| {
         let image = Image::read_from_file(path, read_options::high())?;
 
         let mut tmp_bytes = Vec::new();

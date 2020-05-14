@@ -544,15 +544,21 @@ impl Text {
         Ok(())
     }
 
+    /// Iterate over the individual chars in this text, similar to `String::chars()`.
+    /// Does not do any heap-allocation but borrows from this instance instead.
+    pub fn chars(&self) -> impl '_ + Iterator<Item = char> {
+        self.bytes.iter().map(|&byte| byte as char)
+    }
+
     /// Compare this `exr::Text` with a plain `&str`.
     pub fn eq(&self, string: &str) -> bool {
-        string.chars().eq(self.bytes.iter().map(|&byte| byte as char))
+        string.chars().eq(self.chars())
     }
 
     /// Compare this `exr::Text` with a plain `&str` ignoring capitalization.
     pub fn eq_case_insensitive(&self, string: &str) -> bool {
-        // TODO this is technically not working for a "turkish i"
-        let self_chars = self.bytes.iter().map(|&byte| (byte as char).to_ascii_lowercase());
+        // this is technically not working for a "turkish i", but those cannot be encoded in exr files anyways
+        let self_chars = self.chars().map(|char| char.to_ascii_lowercase());
         let string_chars = string.chars().flat_map(|ch| ch.to_lowercase());
 
         string_chars.eq(self_chars)
