@@ -20,12 +20,12 @@ use io::Write;
 // 4. Fill the frame buffer with pixel data, respective to sampling and whatnot
 
 
-pub fn decompress_bytes(data: Bytes<'_>, _expected_byte_size: usize) -> Result<ByteVec> {
-    //let mut decompressed = Vec::with_capacity(expected_byte_size);
-
-    let mut decompressor = InflateWriter::new(Vec::new());
-    decompressor.write(&data)?;
-    let mut decompressed = decompressor.finish()?;
+pub fn decompress_bytes(data: Bytes<'_>, expected_byte_size: usize) -> Result<ByteVec> {
+    let mut decompressed = {
+        let mut decompressor = InflateWriter::new(Vec::with_capacity(expected_byte_size));
+        decompressor.write(&data)?;
+        decompressor.finish()?
+    };
 
     differences_to_samples(&mut decompressed);
     interleave_byte_blocks(&mut decompressed);
