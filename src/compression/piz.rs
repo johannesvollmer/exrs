@@ -2,7 +2,7 @@
 
 use super::*;
 use super::Result;
-use crate::meta::attributes::{IntRect, SampleType};
+use crate::meta::attribute::{IntRect, SampleType};
 use crate::meta::{Header};
 use crate::io::Data;
 use crate::error::IoResult;

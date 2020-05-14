@@ -6,7 +6,7 @@ use smallvec::SmallVec;
 use half::f16;
 use crate::io::*;
 use crate::meta::*;
-use crate::meta::attributes::*;
+use crate::meta::attribute::*;
 use crate::error::{Result, UnitResult, Error};
 use crate::math::*;
 use std::io::{Seek, BufReader, BufWriter};
@@ -505,7 +505,7 @@ impl Layer {
 impl Channel {
 
     /// Allocate a channel ready to be filled with pixel data.
-    pub fn allocate(header: &Header, channel: &crate::meta::attributes::Channel) -> Self {
+    pub fn allocate(header: &Header, channel: &crate::meta::attribute::Channel) -> Self {
         // do not allocate for deep data
         let size = if header.deep { Vec2(0, 0) } else {
             header.data_size / channel.sampling
@@ -531,8 +531,8 @@ impl Channel {
     }
 
     /// Create the meta data that describes this channel.
-    pub fn infer_channel_attribute(&self) -> attributes::Channel {
-        attributes::Channel {
+    pub fn infer_channel_attribute(&self) -> attribute::Channel {
+        attribute::Channel {
             sample_type: match self.samples {
                 Samples::F16(_) => SampleType::F16,
                 Samples::F32(_) => SampleType::F32,

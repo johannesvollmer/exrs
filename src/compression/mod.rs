@@ -8,7 +8,7 @@ mod piz;
 
 
 use crate::meta::Header;
-use crate::meta::attributes::IntRect;
+use crate::meta::attribute::IntRect;
 use crate::error::{Result, Error};
 
 

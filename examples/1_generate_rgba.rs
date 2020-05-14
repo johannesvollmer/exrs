@@ -2,7 +2,7 @@
 // exr imports
 extern crate exr;
 use exr::prelude::*;
-use exr::meta::attributes::SampleType;
+use exr::meta::attribute::SampleType;
 use std::convert::TryInto;
 
 /// Write an RGBA exr file, generating the pixel values on the fly.

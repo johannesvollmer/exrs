@@ -52,7 +52,7 @@ fn main() {
     );
 
     let mut layer = layer.with_compression(Compression::RLE)
-        .with_block_format(None, attributes::LineOrder::Increasing);
+        .with_block_format(None, attribute::LineOrder::Increasing);
 
     layer.attributes.owner = Some("It's you!".try_into().unwrap());
     layer.attributes.comments = Some("This image was procedurally generated".try_into().unwrap());

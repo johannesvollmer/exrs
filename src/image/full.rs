@@ -17,7 +17,7 @@ use smallvec::SmallVec;
 use half::f16;
 use crate::io::*;
 use crate::meta::*;
-use crate::meta::attributes::*;
+use crate::meta::attribute::*;
 use crate::error::{Result, UnitResult, Error};
 use crate::math::*;
 use std::io::{Seek, BufReader, BufWriter};
@@ -418,7 +418,7 @@ impl Layer {
 impl Channel {
 
     /// Allocate a channel ready to be filled with pixel data.
-    pub fn allocate(header: &Header, channel: &attributes::Channel) -> Self {
+    pub fn allocate(header: &Header, channel: &attribute::Channel) -> Self {
         Channel {
             name: channel.name.clone(),
             quantize_linearly: channel.quantize_linearly,
@@ -452,8 +452,8 @@ impl Channel {
     }
 
     /// Create the meta data that describes this channel.
-    pub fn infer_channel_attribute(&self) -> attributes::Channel {
-        attributes::Channel {
+    pub fn infer_channel_attribute(&self) -> attribute::Channel {
+        attribute::Channel {
             sample_type: match self.content {
                 ChannelData::F16(_) => SampleType::F16,
                 ChannelData::F32(_) => SampleType::F32,
@@ -471,7 +471,7 @@ impl Channel {
 impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
 
     /// Allocate a collection of resolution maps ready to be filled with pixel data.
-    pub fn allocate(header: &Header, channel: &attributes::Channel) -> Self {
+    pub fn allocate(header: &Header, channel: &attribute::Channel) -> Self {
         if header.deep {
             SampleMaps::Deep(Levels::allocate(header, channel))
         }
@@ -522,7 +522,7 @@ impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
 impl<S: Samples> Levels<S> {
 
     /// Allocate a collection of resolution maps ready to be filled with pixel data.
-    pub fn allocate(header: &Header, channel: &attributes::Channel) -> Self {
+    pub fn allocate(header: &Header, channel: &attribute::Channel) -> Self {
         let data_size = header.data_size / channel.sampling;
 
         if let Blocks::Tiles(tiles) = &header.blocks {

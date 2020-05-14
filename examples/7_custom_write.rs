@@ -11,7 +11,7 @@ extern crate exr;
 use exr::prelude::*;
 use std::io::{BufWriter};
 use std::fs::File;
-use exr::meta::attributes::{Channel, SampleType, LineOrder, TileDescription, LevelMode};
+use exr::meta::attribute::{Channel, SampleType, LineOrder, TileDescription, LevelMode};
 use exr::meta::{Blocks, MetaData};
 use exr::math::RoundingMode;
 

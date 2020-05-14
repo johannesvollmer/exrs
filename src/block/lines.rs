@@ -1,6 +1,6 @@
 //! Extract lines from a block of pixel bytes.
 
-use crate::meta::attributes::*;
+use crate::meta::attribute::*;
 use crate::compression::{Compression};
 use crate::math::*;
 use std::io::{Read, Seek, Write, Cursor};

@@ -9,7 +9,7 @@ use crate::math::*;
 use crate::error::{Result, Error, usize_to_i32, UnitResult};
 use crate::meta::{MetaData, Header, Blocks, TileIndices};
 use crate::chunk::{Chunk, Block, TileBlock, ScanLineBlock, TileCoordinates};
-use crate::meta::attributes::LineOrder;
+use crate::meta::attribute::LineOrder;
 use rayon::prelude::ParallelBridge;
 use rayon::iter::ParallelIterator;
 use smallvec::alloc::collections::BTreeMap;
@@ -30,10 +30,10 @@ pub struct BlockIndex {
     /// Index of the layer.
     pub layer: usize,
 
-    /// Pixel position of the bottom left corner of the block.
+    /// Index of the bottom left pixel from the block.
     pub pixel_position: Vec2<usize>,
 
-    /// Pixel size of the block.
+    /// Number of pixels in this block.
     pub pixel_size: Vec2<usize>,
 
     /// Index of the mip or rip level in the image.

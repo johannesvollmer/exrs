@@ -15,7 +15,7 @@ use std::fs::File;
 use std::io::{Read, Seek, BufReader, Write, BufWriter, Cursor};
 use crate::math::{Vec2, RoundingMode};
 use crate::error::{Result, Error, UnitResult};
-use crate::meta::attributes::{SampleType, Text, LineOrder, TileDescription, LevelMode};
+use crate::meta::attribute::{SampleType, Text, LineOrder, TileDescription, LevelMode};
 use std::convert::TryInto;
 use crate::meta::{Header, ImageAttributes, LayerAttributes, MetaData, Blocks};
 use half::f16;
@@ -522,7 +522,7 @@ impl ImageInfo {
         pixels: GetPixels!(),
     ) -> UnitResult
     {
-        use crate::meta::attributes as meta;
+        use crate::meta::attribute as meta;
 
         let header = Header::new(
             self.layer_attributes.name.clone().unwrap_or(Text::from("RGBA").unwrap()),

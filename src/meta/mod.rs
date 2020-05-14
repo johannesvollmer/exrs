@@ -1,12 +1,12 @@
 
 //! Describes all meta data possible in an exr file.
 
-pub mod attributes;
+pub mod attribute;
 
 
 use crate::io::*;
 use ::smallvec::SmallVec;
-use self::attributes::*;
+use self::attribute::*;
 use crate::chunk::{TileCoordinates, Block};
 use crate::error::*;
 use std::fs::File;
@@ -565,7 +565,7 @@ pub fn compute_chunk_count(compression: Compression, data_size: Vec2<usize>, blo
         let Vec2(tile_width, tile_height) = tiles.tile_size;
 
         // TODO cache all these level values??
-        use crate::meta::attributes::LevelMode::*;
+        use crate::meta::attribute::LevelMode::*;
         match tiles.level_mode {
             Singular => {
                 let tiles_x = compute_block_count(data_size.width(), tile_width);
@@ -1008,11 +1008,11 @@ impl Header {
         self.channels.validate(allow_subsampling, self.data_window(), strict)?;
 
         for (name, value) in &self.shared_attributes.custom {
-            attributes::validate(name, value, requirements.has_long_names, allow_subsampling, self.data_window(), strict)?;
+            attribute::validate(name, value, requirements.has_long_names, allow_subsampling, self.data_window(), strict)?;
         }
 
         for (name, value) in &self.own_attributes.custom {
-            attributes::validate(name, value, requirements.has_long_names, allow_subsampling, self.data_window(), strict)?;
+            attribute::validate(name, value, requirements.has_long_names, allow_subsampling, self.data_window(), strict)?;
         }
 
 
@@ -1024,7 +1024,7 @@ impl Header {
                 }
             }
 
-            for &reserved in attributes::required_attribute_names::ALL.iter() {
+            for &reserved in attribute::required_attribute_names::ALL.iter() {
                 let name  = Text::from_bytes_unchecked(SmallVec::from_slice(reserved));
                 if self.own_attributes.custom.contains_key(&name) || self.shared_attributes.custom.contains_key(&name) {
                     return Err(Error::invalid(format!(
@@ -1109,20 +1109,20 @@ impl Header {
 
         // read each attribute in this header
         while !sequence_end::has_come(read)? {
-            let (attribute_name, value) = attributes::read(read, max_string_len)?;
+            let (attribute_name, value) = attribute::read(read, max_string_len)?;
 
             // if the attribute value itself is ok, record it
             match value {
                 Ok(value) => {
-                    use crate::meta::attributes::required_attribute_names as name;
-                    use crate::meta::attributes::AttributeValue::*;
+                    use crate::meta::attribute::required_attribute_names as name;
+                    use crate::meta::attribute::AttributeValue::*;
 
                     // if the attribute is a required attribute, set the corresponding variable directly.
                     // otherwise, add the attribute to the vector of custom attributes
 
                     // the following attributes will only be set if the type matches the commonly used type for that attribute
                     match (attribute_name.bytes(), value) {
-                        (name::BLOCK_TYPE, Text(value)) => block_type = Some(attributes::BlockType::parse(value)?),
+                        (name::BLOCK_TYPE, Text(value)) => block_type = Some(attribute::BlockType::parse(value)?),
                         (name::TILES, TileDescription(value)) => tiles = Some(value),
                         (name::CHANNELS, ChannelList(value)) => channels = Some(value),
                         (name::COMPRESSION, Compression(value)) => compression = Some(value),
@@ -1255,25 +1255,25 @@ impl Header {
 
         macro_rules! write_attributes {
             ( $($name: ident : $variant: ident = $value: expr),* ) => { $(
-                attributes::write($name, & $variant ($value .clone()), write)?; // TODO without clone
+                attribute::write($name, & $variant ($value .clone()), write)?; // TODO without clone
             )* };
         }
 
         macro_rules! write_optional_attributes {
             ( $($name: ident : $variant: ident = $value: expr),* ) => { $(
                 if let Some(value) = $value {
-                    attributes::write($name, & $variant (value.clone()), write)?; // TODO without clone
+                    attribute::write($name, & $variant (value.clone()), write)?; // TODO without clone
                 };
             )* };
         }
 
         {
-            use crate::meta::attributes::required_attribute_names::*;
+            use crate::meta::attribute::required_attribute_names::*;
             use AttributeValue::*;
 
             let (block_type, tiles) = match self.blocks {
-                Blocks::ScanLines => (attributes::BlockType::ScanLine, None),
-                Blocks::Tiles(tiles) => (attributes::BlockType::Tile, Some(tiles))
+                Blocks::ScanLines => (attribute::BlockType::ScanLine, None),
+                Blocks::Tiles(tiles) => (attribute::BlockType::Tile, Some(tiles))
             };
 
             fn usize_as_i32(value: usize) -> AttributeValue {
@@ -1339,11 +1339,11 @@ impl Header {
         }
 
         for (name, value) in &self.shared_attributes.custom {
-            attributes::write(name.bytes(), value, write)?;
+            attribute::write(name.bytes(), value, write)?;
         }
 
         for (name, value) in &self.own_attributes.custom {
-            attributes::write(name.bytes(), value, write)?;
+            attribute::write(name.bytes(), value, write)?;
         }
 
         sequence_end::write(write)?;
@@ -1574,7 +1574,7 @@ impl Default for ImageAttributes {
 #[cfg(test)]
 mod test {
     use crate::meta::{MetaData, Requirements, Header, ImageAttributes, LayerAttributes, compute_chunk_count};
-    use crate::meta::attributes::{Text, ChannelList, IntRect, LineOrder, Channel, SampleType};
+    use crate::meta::attribute::{Text, ChannelList, IntRect, LineOrder, Channel, SampleType};
     use crate::compression::Compression;
     use crate::meta::Blocks;
     use crate::math::*;

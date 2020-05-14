@@ -2,7 +2,7 @@
 //! Handle raw pixel data bytes.
 //! Does not include compression and decompression.
 
-use crate::meta::attributes::{IntRect};
+use crate::meta::attribute::{IntRect};
 
 /// A generic block of pixel information.
 /// Contains pixel data and an index to the corresponding header.

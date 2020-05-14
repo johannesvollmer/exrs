@@ -24,7 +24,7 @@ pub fn main() {
 
     for (layer_index, layer) in image.layers.iter().enumerate() {
         let layer_name = layer.attributes.name.as_ref()
-            .map_or(String::from("1"), attributes::Text::to_string);
+            .map_or(String::from("1"), attribute::Text::to_string);
 
         for channel in &layer.channels {
             match &channel.content {

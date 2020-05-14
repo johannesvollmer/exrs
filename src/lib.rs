@@ -56,8 +56,8 @@ extern crate image as piston_image;
 /// Re-exports of all modules types commonly required for simple reading and writing of an exr image.
 pub mod prelude {
 
-    pub use crate::meta::{ self, attributes, LayerAttributes, ImageAttributes };
-    pub use self::attributes::{ AttributeValue, Compression, Text, IntRect, LineOrder, SampleType, TileDescription };
+    pub use crate::meta::{self, attribute, LayerAttributes, ImageAttributes };
+    pub use self::attribute::{AttributeValue, Compression, Text, IntRect, LineOrder, SampleType, TileDescription };
     pub use crate::error::{ Result, Error };
     pub use crate::math::Vec2;
 
