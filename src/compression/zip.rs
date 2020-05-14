@@ -20,7 +20,7 @@ use inflate::inflate_bytes_zlib;
 
 
 pub fn decompress_bytes(data: Bytes<'_>, _expected_byte_size: usize) -> Result<ByteVec> {
-    let mut decompressed = inflate_bytes_zlib(data)?;
+    let mut decompressed = inflate_bytes_zlib(data).map_err(|msg| Error::invalid(msg))?;
 
     differences_to_samples(&mut decompressed);
     interleave_byte_blocks(&mut decompressed);
