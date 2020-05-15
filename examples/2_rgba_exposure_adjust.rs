@@ -20,7 +20,7 @@ fn main() {
         read_options::high(),
 
         // create our custom image based on the file info
-        |image: &ImageInfo| {
+        |image: &ImageInfo| -> CustomPixels {
             println!("loaded image {:#?}", image);
 
             let default_rgba_pixel = [f16::ZERO, f16::ZERO, f16::ZERO, f16::ONE];

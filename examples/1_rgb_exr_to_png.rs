@@ -13,7 +13,7 @@ fn main() {
         rgb_exr::read_options::high(),
 
         // how to create an empty png buffer from exr image meta data (used for loading the exr image)
-        |info: &rgb_exr::ImageInfo| {
+        |info: &rgb_exr::ImageInfo| -> png::RgbaImage {
             png::ImageBuffer::new(
                 info.resolution.width() as u32,
                 info.resolution.height() as u32
