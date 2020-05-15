@@ -29,7 +29,7 @@
     unused_must_use,
     missing_copy_implementations,
     trivial_numeric_casts,
-    redundant_semicolon
+    redundant_semicolons
 )]
 
 #![forbid(unsafe_code)]
@@ -49,9 +49,6 @@ pub mod block;
 #[macro_use]
 extern crate smallvec;
 
-#[allow(unused)] // this is a dev dependency
-#[cfg(test)]
-extern crate image as piston_image;
 
 /// Use either `exr::prelude::rgba_image::*` or `exr::prelude::simple_image::*` for simply reading an image.
 pub mod prelude {

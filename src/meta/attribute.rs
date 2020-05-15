@@ -689,7 +689,7 @@ impl IntRect {
             }
         }
 
-        let max_int = std::i32::MAX as i64 / 2; // cannot go bigger than that ever
+        let max_int = i32::MAX as i64 / 2; // cannot go bigger than that ever
 
         let self_max = Vec2(
             self.position.x() as i64 + self.size.width() as i64,
@@ -1248,7 +1248,7 @@ impl TileDescription {
 
     /// Validate this instance.
     pub fn validate(&self) -> UnitResult {
-        let max = std::i32::MAX as i64 / 2;
+        let max = i32::MAX as i64 / 2;
 
         if self.tile_size.width() == 0 || self.tile_size.height() == 0
             || self.tile_size.width() as i64 >= max || self.tile_size.height() as i64 >= max

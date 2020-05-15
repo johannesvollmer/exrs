@@ -669,7 +669,7 @@ pub mod pixels {
         pub fn compute_pixel_index(&self, position: Vec2<usize>) -> std::ops::Range<usize> {
             let pixel_index = position.y() * self.width + position.x();
             let red_index = pixel_index * self.channels;
-            (red_index .. red_index + self.channels)
+            red_index .. red_index + self.channels
         }
     }
 

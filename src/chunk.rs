@@ -261,12 +261,12 @@ impl DeepScanLineBlock {
         // doc said i32, try u8
         let compressed_pixel_offset_table = i8::read_vec(
             read, compressed_pixel_offset_table_size,
-            6 * std::u16::MAX as usize, Some(max_block_byte_size)
+            6 * u16::MAX as usize, Some(max_block_byte_size)
         )?;
 
         let compressed_sample_data = u8::read_vec(
             read, compressed_sample_data_size,
-            6 * std::u16::MAX as usize, Some(max_block_byte_size)
+            6 * u16::MAX as usize, Some(max_block_byte_size)
         )?;
 
         Ok(DeepScanLineBlock {
@@ -303,12 +303,12 @@ impl DeepTileBlock {
 
         let compressed_pixel_offset_table = i8::read_vec(
             read, compressed_pixel_offset_table_size,
-            6 * std::u16::MAX as usize, Some(hard_max_block_byte_size)
+            6 * u16::MAX as usize, Some(hard_max_block_byte_size)
         )?;
 
         let compressed_sample_data = u8::read_vec(
             read, compressed_sample_data_size,
-            6 * std::u16::MAX as usize, Some(hard_max_block_byte_size)
+            6 * u16::MAX as usize, Some(hard_max_block_byte_size)
         )?;
 
         Ok(DeepTileBlock {

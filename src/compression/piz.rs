@@ -50,8 +50,8 @@ fn mod_p(x: i32, y: i32) -> i32 {
 }
 
 
-const U16_RANGE: i32 = (1 << 16);
-const BITMAP_SIZE: i32  = (U16_RANGE >> 3); // rly
+const U16_RANGE: i32 = 1 << 16;
+const BITMAP_SIZE: i32  = U16_RANGE >> 3; // rly
 
 
 

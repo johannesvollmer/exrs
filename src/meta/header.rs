@@ -3,8 +3,7 @@
 //! Defines some data types that list all standard attributes.
 
 use std::collections::HashMap;
-use crate::prelude::common::*;
-use crate::meta::attribute::*;
+use crate::meta::attribute::*; // FIXME shouldn't this need some more imports????
 use crate::meta::*;
 
 

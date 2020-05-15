@@ -298,7 +298,7 @@ pub fn rip_map_indices(round: RoundingMode, max_resolution: Vec2<usize>) -> impl
 /// Iterates over all mip map level indices of a given size.
 /// The order of iteration conforms to `LineOrder::Increasing`.
 pub fn mip_map_indices(round: RoundingMode, max_resolution: Vec2<usize>) -> impl Iterator<Item=usize> {
-    (0..compute_level_count(round, max_resolution.width().max(max_resolution.height())))
+    0..compute_level_count(round, max_resolution.width().max(max_resolution.height()))
 }
 
 /// Compute the number of chunks that an image is divided into. May be an expensive operation.
@@ -418,7 +418,7 @@ impl MetaData {
     /// Read one offset table from the reader for each header.
     pub fn read_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<OffsetTables> {
         headers.iter()
-            .map(|header| u64::read_vec(read, header.chunk_count, std::u16::MAX as usize, None))
+            .map(|header| u64::read_vec(read, header.chunk_count, u16::MAX as usize, None))
             .collect()
     }
 

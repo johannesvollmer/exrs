@@ -4,7 +4,7 @@
 
 use std::panic::{catch_unwind};
 use rand::rngs::{StdRng};
-use rand::{Rng, SeedableRng};
+use rand::{Rng};
 
 extern crate exr;
 use exr::prelude::common::*;

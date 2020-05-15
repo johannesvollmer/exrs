@@ -27,6 +27,7 @@ pub enum Error {
     /// Reading or Writing the file has been aborted by the caller.
     /// This error will never be triggered by this crate itself,
     /// only by users of this library.
+    /// It exists to be returned from a progress callback.
     Aborted,
 
     /// The contents of the file are not supported by
@@ -57,7 +58,7 @@ impl Error {
     }
 }
 
-/// Enable using the `?` operator on `exr::io::Result`.
+/// Enable using the `?` operator on `std::io::Result`.
 impl From<IoError> for Error {
     fn from(error: IoError) -> Self {
         if error.kind() == ErrorKind::UnexpectedEof {
@@ -73,7 +74,7 @@ impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match *self {
             Error::Io(ref err) => Some(err),
-            _                  => None,
+            _ => None,
         }
     }
 }
@@ -84,7 +85,7 @@ impl fmt::Display for Error {
             Error::Io(err) => err.fmt(formatter),
             Error::NotSupported(message) => write!(formatter, "not supported: {}", message),
             Error::Invalid(message) => write!(formatter, "invalid: {}", message),
-            _ => write!(formatter, "{}", self),
+            Error::Aborted => write!(formatter, "cancelled"),
         }
     }
 }
