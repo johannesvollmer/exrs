@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 
 extern crate exr;
 use exr::prelude::common::*;
-use exr::image::full::*;
+use exr::image::full as full_exr;
 
 
 /// Attention: The API in this example is not ready for usage as it is still being worked on.
@@ -15,7 +15,7 @@ pub fn main() {
     let now = ::std::time::Instant::now();
 
     // load the exr file from disk with multi-core decompression
-    let image = Image::read_from_file(path, read_options::high()).unwrap();
+    let image = full_exr::Image::read_from_file(path, read_options::high()).unwrap();
 
     // warning: highly unscientific benchmarks ahead!
     println!("\nloaded file in {:?}s", now.elapsed().as_secs_f32());
@@ -27,7 +27,7 @@ pub fn main() {
 
         for channel in &layer.channels {
             match &channel.content {
-                ChannelData::F16(levels) => {
+                full_exr::ChannelData::F16(levels) => {
                     let levels = levels.as_flat_samples()
                         .expect("deep data to png not supported");
 
@@ -42,7 +42,7 @@ pub fn main() {
                     }
                 },
 
-                ChannelData::F32(levels) => {
+                full_exr::ChannelData::F32(levels) => {
                     let levels = levels.as_flat_samples()
                         .expect("deep data to png not supported");
 
@@ -55,7 +55,7 @@ pub fn main() {
                     }
                 },
 
-                ChannelData::U32(levels) => {
+                full_exr::ChannelData::U32(levels) => {
                     let levels = levels.as_flat_samples()
                         .expect("deep data to png not supported");
 
