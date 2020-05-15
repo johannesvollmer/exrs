@@ -5,14 +5,14 @@ use crate::compression::{Compression};
 use crate::math::*;
 use std::io::{Read, Seek, Write, Cursor};
 use crate::error::{Result, Error, UnitResult};
-use crate::meta::{MetaData, Header, TileIndices};
+use crate::meta::{MetaData, TileIndices};
 use crate::io::{Tracking};
 use crate::io::Data;
 use smallvec::SmallVec;
 use std::ops::Range;
 use crate::block::{BlockIndex, UncompressedBlock};
 use crate::image::*;
-
+use crate::meta::header::Header;
 
 
 /// A single line of pixels.

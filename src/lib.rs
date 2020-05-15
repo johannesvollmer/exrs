@@ -79,7 +79,7 @@ pub mod prelude {
     /// Use either `exr::prelude::rgba_image::*` or `exr::prelude::simple_image::*` for reading an image.
     /// _Note: This includes a type called `Result`, possibly overwriting the default `std::Result` type usage._
     pub mod common {
-        pub use crate::meta::{self, MetaData, attribute, attributes::{ LayerAttributes, ImageAttributes } };
+        pub use crate::meta::{self, MetaData, attribute, header::{LayerAttributes, ImageAttributes } };
         pub use crate::meta::attribute::{ AttributeValue, Compression, Text, IntRect, LineOrder, SampleType, TileDescription };
         pub use crate::error::{ Result, Error };
         pub use crate::math::Vec2;

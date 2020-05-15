@@ -12,6 +12,7 @@ use crate::math::*;
 use std::io::{Seek, BufReader, BufWriter};
 use crate::image::{OnWriteProgress, OnReadProgress, WriteOptions, ReadOptions};
 use crate::block::lines::{LineRef, LineRefMut};
+use crate::meta::header::Header;
 
 // TODO dry this module with image::full?
 

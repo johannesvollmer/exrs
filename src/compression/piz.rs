@@ -3,10 +3,10 @@
 use super::*;
 use super::Result;
 use crate::meta::attribute::{IntRect, SampleType};
-use crate::meta::{Header};
 use crate::io::Data;
 use crate::error::IoResult;
 use crate::math::Vec2;
+use crate::meta::header::Header;
 
 
 // inspired by  https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfPizCompressor.cpp

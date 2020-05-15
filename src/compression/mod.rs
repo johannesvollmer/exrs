@@ -7,10 +7,9 @@ mod rle;
 mod piz;
 
 
-use crate::meta::Header;
 use crate::meta::attribute::IntRect;
 use crate::error::{Result, Error};
-
+use crate::meta::header::Header;
 
 
 /// A byte vector.

@@ -26,6 +26,7 @@ use std::io::{Seek, BufReader, BufWriter};
 use crate::io::Data;
 use crate::image::{OnWriteProgress, OnReadProgress, ReadOptions, WriteOptions};
 use crate::block::lines::{LineRef, LineRefMut};
+use crate::meta::header::Header;
 
 // FIXME this needs some of the changes that were made in simple.rs !!!
 

@@ -18,11 +18,12 @@ use crate::math::{RoundingMode};
 use crate::error::{Result, Error, UnitResult};
 use crate::meta::attribute::{SampleType, Text, LineOrder, TileDescription, LevelMode};
 use std::convert::TryInto;
-use crate::meta::{Header, MetaData, Blocks};
+use crate::meta::{MetaData, Blocks};
 use half::f16;
 use crate::image::{ReadOptions, OnReadProgress, WriteOptions, OnWriteProgress};
 use crate::compression::Compression;
 use crate::block::samples::Sample;
+use crate::meta::header::Header;
 
 
 /// A summary of an image file.
@@ -528,18 +529,20 @@ impl ImageInfo {
         let header = Header::new(
             self.layer_attributes.name.clone().unwrap_or(Text::from("RGBA").unwrap()),
             self.resolution,
-    if let Some(alpha) = self.channels.3 { smallvec![
-                meta::ChannelInfo::new("A".try_into().unwrap(), alpha, true), // store as linear data
-                meta::ChannelInfo::new("B".try_into().unwrap(), self.channels.2, false),
-                meta::ChannelInfo::new("G".try_into().unwrap(), self.channels.1, false),
-                meta::ChannelInfo::new("R".try_into().unwrap(), self.channels.0, false),
-            ] }
+            {
+                if let Some(alpha) = self.channels.3 { smallvec![
+                    meta::ChannelInfo::new("A".try_into().unwrap(), alpha, true), // store as linear data
+                    meta::ChannelInfo::new("B".try_into().unwrap(), self.channels.2, false),
+                    meta::ChannelInfo::new("G".try_into().unwrap(), self.channels.1, false),
+                    meta::ChannelInfo::new("R".try_into().unwrap(), self.channels.0, false),
+                ] }
 
-            else { smallvec![
-                meta::ChannelInfo::new("B".try_into().unwrap(), self.channels.2, false),
-                meta::ChannelInfo::new("G".try_into().unwrap(), self.channels.1, false),
-                meta::ChannelInfo::new("R".try_into().unwrap(), self.channels.0, false),
-            ] }
+                else { smallvec![
+                    meta::ChannelInfo::new("B".try_into().unwrap(), self.channels.2, false),
+                    meta::ChannelInfo::new("G".try_into().unwrap(), self.channels.1, false),
+                    meta::ChannelInfo::new("R".try_into().unwrap(), self.channels.0, false),
+                ] }
+            }
         );
 
         let header = header

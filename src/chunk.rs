@@ -196,7 +196,7 @@ impl TileCoordinates {
 
 
 
-use crate::meta::{Header, MetaData, Blocks, calculate_block_size};
+use crate::meta::{MetaData, Blocks, calculate_block_size};
 
 impl ScanLineBlock {
 
@@ -322,6 +322,7 @@ impl DeepTileBlock {
 
 use crate::error::{UnitResult, Result, Error, u64_to_usize, usize_to_i32};
 use crate::math::Vec2;
+use crate::meta::header::Header;
 
 /// Validation of chunks is done while reading and writing the actual data. (For example in exr::full_image)
 impl Chunk {

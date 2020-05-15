@@ -31,7 +31,7 @@ fn main() {
     let file = BufWriter::new(File::create("tests/images/out/3GB.exr").unwrap());
 
     // define meta data header that will be written
-    let header = exr::meta::Header::new(
+    let header = exr::meta::header::Header::new(
         "test-image".try_into().unwrap(),
         size,
         smallvec![

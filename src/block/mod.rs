@@ -7,7 +7,7 @@ pub mod samples;
 use crate::compression::{ByteVec, Compression};
 use crate::math::*;
 use crate::error::{Result, Error, usize_to_i32, UnitResult};
-use crate::meta::{MetaData, Header, Blocks, TileIndices};
+use crate::meta::{MetaData, Blocks, TileIndices};
 use crate::chunk::{Chunk, Block, TileBlock, ScanLineBlock, TileCoordinates};
 use crate::meta::attribute::LineOrder;
 use rayon::prelude::ParallelBridge;
@@ -17,8 +17,7 @@ use std::convert::TryFrom;
 use crate::io::{Tracking, PeekRead};
 use std::io::{Seek, Read};
 use crate::image::{ReadOptions, OnReadProgress};
-
-
+use crate::meta::header::Header;
 
 
 /// Specifies where a block of pixel data should be placed in the actual image.

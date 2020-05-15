@@ -8,10 +8,10 @@ use exr::prelude::common::*;
 use std::path::{PathBuf};
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use exr::meta::{Header};
 use std::io;
 use std::io::{Write, Cursor};
 use exr::image::rgba;
+use exr::meta::header::Header;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
