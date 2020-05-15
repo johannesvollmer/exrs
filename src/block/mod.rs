@@ -209,7 +209,7 @@ pub fn read_filtered_chunks_from_buffered<'m, T>(
 
     let offset_tables = MetaData::read_offset_tables(&mut read, &meta_data.headers)?;
 
-    let mut offsets = Vec::with_capacity(meta_data.headers.len() * 32);
+    let mut offsets = Vec::with_capacity((meta_data.headers.len() * 32).min(2*2048));
     for (header_index, header) in meta_data.headers.iter().enumerate() { // offset tables are stored same order as headers
         for (block_index, block) in header.blocks_increasing_y_order().enumerate() { // in increasing_y order
             if filter(&value, (header_index, header), (block_index, &block)) {

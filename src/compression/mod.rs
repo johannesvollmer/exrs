@@ -176,8 +176,8 @@ impl Compression {
             use self::Compression::*;
             let bytes = match self {
                 Uncompressed => Ok(data),
-                ZIP16 => zip::decompress_bytes(&data, expected_byte_size),
-                ZIP1 => zip::decompress_bytes(&data, expected_byte_size),
+                ZIP16 => zip::decompress_bytes(&data),
+                ZIP1 => zip::decompress_bytes(&data),
                 RLE => rle::decompress_bytes(&data, expected_byte_size),
 //                PIZ => piz::decompress_bytes(header, data, tile, expected_byte_size),
                 _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
