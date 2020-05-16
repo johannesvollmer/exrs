@@ -476,7 +476,7 @@ impl Header {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, requirements: &Requirements, strict: bool) -> UnitResult {
+    pub fn validate(&self, is_multilayer: bool, long_names: &mut bool, strict: bool) -> UnitResult {
         debug_assert_eq!(
             self.chunk_count, compute_chunk_count(self.compression, self.data_size, self.blocks),
             "incorrect chunk count value"
@@ -486,7 +486,7 @@ impl Header {
         self.shared_attributes.display_window.validate(None)?;
 
         if strict {
-            if requirements.is_multilayer() {
+            if is_multilayer {
                 if self.own_attributes.name.is_none() {
                     return Err(missing_attribute("layer name for multi layer file"));
                 }
@@ -518,11 +518,11 @@ impl Header {
         self.channels.validate(allow_subsampling, self.data_window(), strict)?;
 
         for (name, value) in &self.shared_attributes.custom {
-            attribute::validate(name, value, requirements.has_long_names, allow_subsampling, self.data_window(), strict)?;
+            attribute::validate(name, value, long_names, allow_subsampling, self.data_window(), strict)?;
         }
 
         for (name, value) in &self.own_attributes.custom {
-            attribute::validate(name, value, requirements.has_long_names, allow_subsampling, self.data_window(), strict)?;
+            attribute::validate(name, value, long_names, allow_subsampling, self.data_window(), strict)?;
         }
 
 

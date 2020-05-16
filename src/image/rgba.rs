@@ -18,7 +18,7 @@ use crate::math::{RoundingMode};
 use crate::error::{Result, Error, UnitResult};
 use crate::meta::attribute::{SampleType, Text, LineOrder, TileDescription, LevelMode};
 use std::convert::TryInto;
-use crate::meta::{MetaData, Blocks};
+use crate::meta::{Blocks};
 use half::f16;
 use crate::image::{ReadOptions, OnReadProgress, WriteOptions, OnWriteProgress};
 use crate::compression::Compression;
@@ -566,7 +566,7 @@ impl ImageInfo {
 
         crate::block::lines::write_all_tiles_to_buffered(
             write,
-            MetaData::new(smallvec![ header ]),
+            smallvec![ header ],
 
             |meta, block_index| {
                 let header = &meta.get(block_index.layer).expect("invalid block index");

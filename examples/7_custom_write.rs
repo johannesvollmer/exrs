@@ -59,7 +59,7 @@ fn main() {
     header.own_attributes.exposure = Some(1.0);
 
 
-    let meta = MetaData::new(smallvec![ header ]);
+    let headers = smallvec![ header ];
 
     // print progress only every 100th time
     let mut count_to_1000_and_then_print = 0;
@@ -68,7 +68,7 @@ fn main() {
     // finally write the image
     exr::block::lines::write_all_lines_to_buffered(
         file,
-        meta,
+        headers,
 
         // fill the image file contents with one of the precomputed random values,
         // picking a different one per channel

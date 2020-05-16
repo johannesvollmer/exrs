@@ -201,6 +201,7 @@ pub struct ChannelList {
 pub struct ChannelInfo {
 
     /// One of "R", "G", or "B" most of the time.
+    // FIXME validate length!
     pub name: Text,
 
     /// U32, F16 or F32.
@@ -407,20 +408,22 @@ impl Text {
         Text { bytes }
     }
 
-    /// Check whether this string is valid, considering the maximum text length.
-    pub fn validate(&self, null_terminated: bool, long_names: Option<bool>) -> UnitResult {
+    /// Check whether this string is valid, adjusting `long_names` if required.
+    /// If `long_names` is not provided, text length will be entirely unchecked.
+    pub fn validate(&self, null_terminated: bool, long_names: Option<&mut bool>) -> UnitResult {
         Self::validate_bytes(self.bytes(), null_terminated, long_names)
     }
 
-    /// Check whether some bytes are valid, considering the maximum text length.
-    pub fn validate_bytes(text: &[u8], null_terminated: bool, long_names: Option<bool>) -> UnitResult {
+    /// Check whether some bytes are valid, adjusting `long_names` if required.
+    /// If `long_names` is not provided, text length will be entirely unchecked.
+    pub fn validate_bytes(text: &[u8], null_terminated: bool, long_names: Option<&mut bool>) -> UnitResult {
         if null_terminated && text.is_empty() {
             return Err(Error::invalid("text must not be empty"));
         }
 
         if let Some(long) = long_names {
-            if long && text.len() >= 256 { return Err(Error::invalid("text must not be longer than 255")); }
-            if !long && text.len() >= 32 { return Err(Error::invalid("text must not be longer than 31")); }
+            if text.len() >= 256 { return Err(Error::invalid("text must not be longer than 255")); }
+            if text.len() >= 32 { *long = true; }
         }
 
         Ok(())
@@ -490,7 +493,7 @@ impl Text {
 
     /// Read a string until the null-terminator is found. Then skips the null-terminator.
     pub fn read_null_terminated<R: Read>(read: &mut R, max_len: usize) -> Result<Self> {
-        let mut bytes = SmallVec::new();
+        let mut bytes = smallvec![ u8::read(read)? ]; // null-terminated strings are always at least 1 byte
 
         loop {
             match u8::read(read)? {
@@ -883,6 +886,8 @@ impl ChannelInfo {
 
     /// Validate this instance.
     pub fn validate(&self, allow_sampling: bool, data_window: IntRect, strict: bool) -> UnitResult {
+        self.name.validate(true, None)?; // TODO spec says this does not affect `requirements.long_names` but is that true?
+
         if self.sampling.x() == 0 || self.sampling.y() == 0 {
             return Err(Error::invalid("zero sampling factor"));
         }
@@ -1291,7 +1296,7 @@ pub fn read(read: &mut PeekRead<impl Read>, max_size: usize) -> Result<(Text, Re
 }
 
 /// Validate this attribute.
-pub fn validate(name: &Text, value: &AttributeValue, long_names: bool, allow_sampling: bool, data_window: IntRect, strict: bool) -> UnitResult {
+pub fn validate(name: &Text, value: &AttributeValue, long_names: &mut bool, allow_sampling: bool, data_window: IntRect, strict: bool) -> UnitResult {
     name.validate(true, Some(long_names))?; // only name text has length restriction
     value.validate(allow_sampling, data_window, strict) // attribute value text length is never restricted
 }
@@ -1779,7 +1784,9 @@ mod test {
                 AttributeValue::I32(0),
             );
 
-            super::validate(&name, &value, false, false, IntRect::zero(), false).expect_err("name length check failed");
+            let mut long_names = false;
+            super::validate(&name, &value, &mut long_names, false, IntRect::zero(), false).unwrap();
+            assert!(long_names);
         }
 
         {
@@ -1788,7 +1795,7 @@ mod test {
                 AttributeValue::I32(0),
             );
 
-            super::validate(&name, &value, true, false, IntRect::zero(), false).expect_err("name length check failed");
+            super::validate(&name, &value, &mut false, false, IntRect::zero(), false).expect_err("name length check failed");
         }
     }
 }

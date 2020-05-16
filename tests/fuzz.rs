@@ -32,8 +32,8 @@ pub fn damaged(){
 
         let result = catch_unwind(move || {
             let full = exr::image::full::Image::read_from_file(file, read_options::high())?;
-            let _ = exr::image::simple::Image::read_from_file(file, read_options::high())?;
-            let _ = exr::image::rgba::ImageInfo::read_pixels_from_file(
+            let _ = exr::image::simple::Image::read_from_file(file, read_options::high())?; // FIXME will these be optimized away?
+            let _ = exr::image::rgba::ImageInfo::read_pixels_from_file( // FIXME will these be optimized away?
                 file, read_options::high(),
                 rgba_image::pixels::create_flattened_f16,
                 rgba_image::pixels::flattened_pixel_setter()
@@ -65,7 +65,7 @@ pub fn damaged(){
             },
 
             Ok(Ok(image)) => {
-                if let Err(error) = image.infer_meta_data().validate(None, true) {
+                if let Err(error) = MetaData::validate(image.infer_meta_data().as_slice(), None, true) {
                     println!("✓ Recognized as invalid when pedantic ({}): {:?}", error, file);
                     true
                 }

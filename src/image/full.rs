@@ -342,12 +342,10 @@ impl Image {
 
     /// Create the meta data that describes this image.
     /// May produce invalid meta data. The meta data will be validated just before writing.
-    pub fn infer_meta_data(&self) -> MetaData {
-        let headers: Headers = self.layers.iter()
+    pub fn infer_meta_data(&self) -> Headers {
+        self.layers.iter()
             .map(|layer| layer.infer_header(&self.attributes))
-            .collect();
-
-        MetaData::new(headers)
+            .collect()
     }
 }
 

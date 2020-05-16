@@ -344,14 +344,6 @@ pub fn compute_chunk_count(compression: Compression, data_size: Vec2<usize>, blo
 
 impl MetaData {
 
-    /// Infers version requirements from headers.
-    pub fn new(headers: Headers) -> Self {
-        MetaData {
-            requirements: Requirements::infer(headers.as_slice()),
-            headers
-        }
-    }
-
     /// Read the exr meta data from a file.
     /// Use `read_from_unbuffered` instead if you do not have a file.
     /// Does not validate the meta data.
@@ -379,11 +371,16 @@ impl MetaData {
         MetaData::read_unvalidated_from_buffered_peekable(&mut read, skip_invalid_attributes)
     }
 
-    /// Does __not validate__ the meta data.
+    /// Does __not validate__ the meta data completely.
     #[must_use]
     pub(crate) fn read_unvalidated_from_buffered_peekable(read: &mut PeekRead<impl Read>, skip_invalid_attributes: bool) -> Result<Self> {
         magic_number::validate_exr(read)?;
+
         let requirements = Requirements::read(read)?;
+
+        // do this check now in order to fast-fail for newer versions and features than version 2
+        requirements.validate()?;
+
         let headers = Header::read_all(read, &requirements, skip_invalid_attributes)?;
 
         // TODO check if supporting requirements 2 always implies supporting requirements 1
@@ -396,20 +393,20 @@ impl MetaData {
         read: &mut PeekRead<impl Read>, max_pixel_bytes: Option<usize>, pedantic: bool
     ) -> Result<Self> {
         let meta_data = Self::read_unvalidated_from_buffered_peekable(read, !pedantic)?;
-        meta_data.validate(max_pixel_bytes, pedantic)?;
+        MetaData::validate(meta_data.headers.as_slice(), max_pixel_bytes, pedantic)?;
         Ok(meta_data)
     }
 
     /// Validates the meta data and writes it to the stream.
     /// If pedantic, throws errors for files that may produce errors in other exr readers.
-    pub(crate) fn write_validating_to_buffered(&self, write: &mut impl Write, pedantic: bool) -> UnitResult {
+    pub(crate) fn write_validating_to_buffered(write: &mut impl Write, headers: &[Header], pedantic: bool) -> UnitResult {
         // pedantic validation to not allow slightly invalid files
         // that still could be read correctly in theory
-        self.validate(None, pedantic)?;
+        let minimal_requirements = Self::validate(headers, None, pedantic)?;
 
         magic_number::write(write)?;
-        self.requirements.write(write)?;
-        Header::write_all(self.headers.as_slice(), write, self.requirements.has_multiple_layers)?;
+        minimal_requirements.write(write)?;
+        Header::write_all(headers, write, minimal_requirements.has_multiple_layers)?;
         Ok(())
     }
 
@@ -428,23 +425,34 @@ impl MetaData {
         Ok(chunk_count)
     }
 
-    /// Validates this meta data.
-    /// Set strict to false when reading and true when writing for maximum compatibility.
-    pub fn validate(&self, max_pixel_bytes: Option<usize>, strict: bool) -> UnitResult {
-        self.requirements.validate()?;
-
-        let headers = self.headers.len();
-
-        if headers == 0 {
+    /// Validates this meta data. Returns the minimal possible requirements.
+    pub fn validate(headers: &[Header], max_pixel_bytes: Option<usize>, strict: bool) -> Result<Requirements> {
+        if headers.len() == 0 {
             return Err(Error::invalid("at least one layer is required"));
         }
 
-        for header in &self.headers {
-            header.validate(&self.requirements, strict)?;
+        let deep = false; // TODO deep data
+        let is_multilayer = headers.len() > 1;
+        let must_be_version_2 = is_multilayer || deep;
+        let first_header_has_tiles = headers.iter().next()
+            .map_or(false, |header| header.blocks.has_tiles());
+
+        let mut minimal_requirements = Requirements {
+            // start as low as possible, later increasing if required
+            file_format_version: if must_be_version_2 { 2 } else { 1 },
+            has_long_names: false,
+
+            is_single_layer_and_tiled: !is_multilayer && first_header_has_tiles,
+            has_multiple_layers: is_multilayer,
+            has_deep_data: deep,
+        };
+
+        for header in headers {
+            header.validate(is_multilayer, &mut minimal_requirements.has_long_names, strict)?;
         }
 
         if let Some(max) = max_pixel_bytes {
-            let byte_size: usize = self.headers.iter()
+            let byte_size: usize = headers.iter()
                 .map(|header| header.data_size.area() * header.channels.bytes_per_pixel)
                 .sum();
 
@@ -454,8 +462,8 @@ impl MetaData {
         }
 
         if strict { // check for duplicate header names
-            let mut header_names = HashSet::with_capacity(headers);
-            for header in &self.headers {
+            let mut header_names = HashSet::with_capacity(headers.len());
+            for header in headers {
                 if !header_names.insert(&header.own_attributes.name) {
                     return Err(Error::invalid(format!(
                         "duplicate layer name: `{}`",
@@ -466,7 +474,7 @@ impl MetaData {
         }
 
         if strict {
-            let must_share = self.headers.iter().flat_map(|header| header.own_attributes.custom.iter())
+            let must_share = headers.iter().flat_map(|header| header.own_attributes.custom.iter())
                 .any(|(_, value)| value.to_chromaticities().is_ok() || value.to_time_code().is_ok());
 
             if must_share {
@@ -474,28 +482,19 @@ impl MetaData {
             }
         }
 
-        if strict && headers > 1 { // check for attributes that should not differ in between headers
-            let first_header = self.headers.first().expect("header count validation bug");
-            let first_header_attributes = &first_header.shared_attributes.custom;
+        if strict && headers.len() > 1 { // check for attributes that should not differ in between headers
+            let first_header = headers.first().expect("header count validation bug");
+            let first_header_attributes = &first_header.shared_attributes;
 
-            for header in &self.headers[1..] {
-                let attributes = &header.shared_attributes.custom;
-                if attributes != first_header_attributes
-                    || header.shared_attributes.display_window != first_header.shared_attributes.display_window
-                    || header.shared_attributes.pixel_aspect != first_header.shared_attributes.pixel_aspect
-                {
+            for header in &headers[1..] {
+                if &header.shared_attributes != first_header_attributes {
                     return Err(Error::invalid("display window, pixel aspect, chromaticities, and time code attributes must be equal for all headers"))
                 }
             }
         }
 
-        if self.requirements.file_format_version == 1 || !self.requirements.has_multiple_layers {
-            if headers != 1 {
-                return Err(Error::invalid("multipart flag for header count"));
-            }
-        }
-
-        Ok(())
+        debug_assert!(minimal_requirements.validate().is_ok());
+        Ok(minimal_requirements)
     }
 }
 
@@ -503,24 +502,6 @@ impl MetaData {
 
 
 impl Requirements {
-
-    /// Infer version requirements from headers.
-    pub fn infer(headers: &[Header]) -> Self {
-        let first_header_has_tiles = headers.iter().next()
-            .map_or(false, |header| header.blocks.has_tiles());
-
-        let is_multilayer = headers.len() > 1;
-        let deep = false; // TODO deep data
-
-        Requirements {
-            file_format_version: 2, // TODO find minimum
-            is_single_layer_and_tiled: !is_multilayer && first_header_has_tiles,
-            has_long_names: true, // TODO query header?
-            has_multiple_layers: is_multilayer,
-            has_deep_data: deep,
-        }
-    }
-
 
     // this is actually used for control flow, as the number of headers may be 1 in a multilayer file
     /// Is this file declared to contain multiple layers?
@@ -626,6 +607,7 @@ impl Requirements {
 mod test {
     use super::*;
     use crate::meta::header::{ImageAttributes, LayerAttributes};
+    use std::convert::TryInto;
 
     #[test]
     fn round_trip_requirements() {
@@ -685,7 +667,7 @@ mod test {
 
         let meta = MetaData {
             requirements: Requirements {
-                file_format_version: 2,
+                file_format_version: 1,
                 is_single_layer_and_tiled: false,
                 has_long_names: false,
                 has_deep_data: false,
@@ -696,10 +678,112 @@ mod test {
 
 
         let mut data: Vec<u8> = Vec::new();
-        meta.write_validating_to_buffered(&mut data, true).unwrap();
+        MetaData::write_validating_to_buffered(&mut data, meta.headers.as_slice(), true).unwrap();
         let meta2 = MetaData::read_from_buffered(data.as_slice(), false).unwrap();
-        meta2.validate(None, true).unwrap();
+        MetaData::validate(meta2.headers.as_slice(), None, true).unwrap();
         assert_eq!(meta, meta2);
+    }
+
+    #[test]
+    fn infer_low_requirements() {
+        let header_version_1_short_names = Header {
+            channels: ChannelList {
+                list: smallvec![
+                    ChannelInfo {
+                        name: Text::from("main").unwrap(),
+                        sample_type: SampleType::U32,
+                        quantize_linearly: false,
+                        sampling: Vec2(1, 1)
+                    }
+                ],
+                bytes_per_pixel: 4
+            },
+            compression: Compression::Uncompressed,
+            line_order: LineOrder::Increasing,
+            deep_data_version: Some(1),
+            chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), Blocks::ScanLines),
+            max_samples_per_pixel: Some(4),
+            shared_attributes: ImageAttributes {
+                display_window: IntRect {
+                    position: Vec2(2,1),
+                    size: Vec2(11, 9)
+                },
+                pixel_aspect: 3.0,
+                .. Default::default()
+            },
+            blocks: Blocks::ScanLines,
+            deep: false,
+            data_size: Vec2(2000, 333),
+            own_attributes: LayerAttributes {
+                custom: vec![
+                    (Text::try_from("x").unwrap(), AttributeValue::F32(3.0)),
+                    (Text::try_from("y").unwrap(), AttributeValue::F32(-1.0)),
+                ].into_iter().collect(),
+                .. Default::default()
+            }
+        };
+
+        let low_requirements = MetaData::validate(
+            &[header_version_1_short_names], None, true
+        ).unwrap();
+
+        assert_eq!(low_requirements.has_long_names, false);
+        assert_eq!(low_requirements.file_format_version, 1);
+        assert_eq!(low_requirements.has_deep_data, false);
+        assert_eq!(low_requirements.has_multiple_layers, false);
+    }
+
+    #[test]
+    fn infer_high_requirements() {
+        let header_version_2_long_names = Header {
+            channels: ChannelList {
+                list: smallvec![
+                    ChannelInfo {
+                        name: Text::from("main").unwrap(),
+                        sample_type: SampleType::U32,
+                        quantize_linearly: false,
+                        sampling: Vec2(1, 1)
+                    }
+                ],
+                bytes_per_pixel: 4
+            },
+            compression: Compression::Uncompressed,
+            line_order: LineOrder::Increasing,
+            deep_data_version: Some(1),
+            chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), Blocks::ScanLines),
+            max_samples_per_pixel: Some(4),
+            shared_attributes: ImageAttributes {
+                display_window: IntRect {
+                    position: Vec2(2,1),
+                    size: Vec2(11, 9)
+                },
+                pixel_aspect: 3.0,
+                .. Default::default()
+            },
+            blocks: Blocks::ScanLines,
+            deep: false,
+            data_size: Vec2(2000, 333),
+            own_attributes: LayerAttributes {
+                name: Some("oasdasoidfj".try_into().unwrap()),
+                custom: vec![
+                    (Text::try_from("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx").unwrap(), AttributeValue::F32(3.0)),
+                    (Text::try_from("y").unwrap(), AttributeValue::F32(-1.0)),
+                ].into_iter().collect(),
+                .. Default::default()
+            }
+        };
+
+        let mut layer_2 = header_version_2_long_names.clone();
+        layer_2.own_attributes.name = Some("anythingelse".try_into().unwrap());
+
+        let low_requirements = MetaData::validate(
+            &[header_version_2_long_names, layer_2], None, true
+        ).unwrap();
+
+        assert_eq!(low_requirements.has_long_names, true);
+        assert_eq!(low_requirements.file_format_version, 2);
+        assert_eq!(low_requirements.has_deep_data, false);
+        assert_eq!(low_requirements.has_multiple_layers, true);
     }
 }
 

@@ -238,11 +238,11 @@ pub fn read_filtered_chunks_from_buffered<'m, T>(
 #[inline]
 #[must_use]
 pub fn uncompressed_image_blocks_ordered<'l>(
-    meta_data: &'l MetaData,
+    headers: &'l [Header],
     get_block: &'l (impl 'l + Sync + (Fn(&[Header], BlockIndex) -> Vec<u8>)) // TODO reduce sync requirements, at least if parrallel is false
 ) -> impl 'l + Iterator<Item = Result<(usize, UncompressedBlock)>> + Send // TODO reduce sync requirements, at least if parrallel is false
 {
-    meta_data.headers.iter().enumerate()
+    headers.iter().enumerate()
         .flat_map(move |(layer_index, header)|{
             header.enumerate_ordered_blocks().map(move |(chunk_index, tile)|{
                 let data_indices = header.get_absolute_block_indices(tile.location).expect("tile coordinate bug");
@@ -253,7 +253,7 @@ pub fn uncompressed_image_blocks_ordered<'l>(
                     pixel_size: data_indices.size,
                 };
 
-                let block_bytes = get_block(meta_data.headers.as_slice(), block_indices);
+                let block_bytes = get_block(headers, block_indices);
 
                 // byte length is validated in block::compress_to_chunk
                 Ok((chunk_index, UncompressedBlock {
@@ -274,16 +274,16 @@ pub fn uncompressed_image_blocks_ordered<'l>(
 #[inline]
 #[must_use]
 pub fn for_compressed_blocks_in_image(
-    meta_data: &MetaData, get_tile: impl Sync + Fn(&[Header], BlockIndex) -> Vec<u8>,
+    headers: &[Header], get_tile: impl Sync + Fn(&[Header], BlockIndex) -> Vec<u8>,
     parallel: bool, mut write_chunk: impl FnMut(usize, Chunk) -> UnitResult
 ) -> UnitResult
 {
-    let blocks = uncompressed_image_blocks_ordered(meta_data, &get_tile);
+    let blocks = uncompressed_image_blocks_ordered(headers, &get_tile);
 
-    let parallel = parallel && meta_data.headers.iter() // do not use parallel stuff for uncompressed images
+    let parallel = parallel && headers.iter() // do not use parallel stuff for uncompressed images
         .any(|header| header.compression != Compression::Uncompressed);
 
-    let requires_sorting = meta_data.headers.iter()
+    let requires_sorting = headers.iter()
         .any(|header| header.line_order != LineOrder::Unspecified);
 
 
@@ -293,7 +293,7 @@ pub fn for_compressed_blocks_in_image(
         blocks.par_bridge()
             .map(|result| Ok({
                 let (chunk_index, block) = result?;
-                let block = block.compress_to_chunk(meta_data)?;
+                let block = block.compress_to_chunk(headers)?;
                 (chunk_index, block)
             }))
             .try_for_each_with(sender, |sender, result: Result<(usize, Chunk)>| {
@@ -312,7 +312,7 @@ pub fn for_compressed_blocks_in_image(
         else {
 
             // the block indices, in the order which must be apparent in the file
-            let mut expected_id_order = meta_data.headers.iter().enumerate()
+            let mut expected_id_order = headers.iter().enumerate()
                 .flat_map(|(layer, header)| header.enumerate_ordered_blocks().map(move |(chunk, _)| (layer, chunk)));
 
             // the next id, pulled from expected_id_order: the next block that must be written
@@ -341,7 +341,7 @@ pub fn for_compressed_blocks_in_image(
     else {
         for result in blocks {
             let (chunk_index, uncompressed_block) = result?; // enable `Error::Abort`
-            let chunk = uncompressed_block.compress_to_chunk(meta_data)?;
+            let chunk = uncompressed_block.compress_to_chunk(headers)?;
             write_chunk(chunk_index, chunk)?;
         }
     }
@@ -385,10 +385,10 @@ impl UncompressedBlock {
     // for uncompressed data, the ByteVec in the chunk is moved all the way
     #[inline]
     #[must_use]
-    pub fn compress_to_chunk(self, meta_data: &MetaData) -> Result<Chunk> {
+    pub fn compress_to_chunk(self, headers: &[Header]) -> Result<Chunk> {
         let UncompressedBlock { data, index } = self;
 
-        let header: &Header = meta_data.headers.get(index.layer)
+        let header: &Header = headers.get(index.layer)
             .expect("block layer index bug");
 
         let expected_byte_size = header.channels.bytes_per_pixel * self.index.pixel_size.area(); // TODO sampling??

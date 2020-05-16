@@ -411,12 +411,10 @@ impl Image {
     }
 
     /// Create the meta data that describes this image.
-    pub fn infer_meta_data(&self) -> MetaData {
-        let headers: Headers = self.layers.iter()
+    pub fn infer_meta_data(&self) -> Headers {
+        self.layers.iter()
             .map(|layer| layer.infer_header(&self.attributes))
-            .collect();
-
-        MetaData::new(headers)
+            .collect()
     }
 }
 
