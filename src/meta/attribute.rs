@@ -201,7 +201,6 @@ pub struct ChannelList {
 pub struct ChannelInfo {
 
     /// One of "R", "G", or "B" most of the time.
-    // FIXME validate length!
     pub name: Text,
 
     /// U32, F16 or F32.
@@ -1005,7 +1004,7 @@ impl Chromaticities {
     /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         Ok(Chromaticities {
-            red: Vec2(f32::read(read)?, f32::read(read)?), // TODO does this respect struct init order?
+            red: Vec2(f32::read(read)?, f32::read(read)?),
             green: Vec2(f32::read(read)?, f32::read(read)?),
             blue: Vec2(f32::read(read)?, f32::read(read)?),
             white: Vec2(f32::read(read)?, f32::read(read)?),
@@ -1288,9 +1287,6 @@ pub fn read(read: &mut PeekRead<impl Read>, max_size: usize) -> Result<(Text, Re
     let name = Text::read_null_terminated(read, max_size)?;
     let kind = Text::read_null_terminated(read, max_size)?;
     let size = i32_to_usize(i32::read(read)?, "attribute size")?;
-
-    // TODO instead of reading into a vector,
-    //      remember position, seek to position + size on value read fail, return result<value>
     let value = AttributeValue::read(read, kind, size)?;
     Ok((name, value))
 }

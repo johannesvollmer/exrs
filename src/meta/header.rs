@@ -119,11 +119,11 @@ pub struct LayerAttributes {
 
     /// Part of the perspective projection. Default should be `(0, 0)`.
     // TODO same for all layers?
-    pub screen_window_center: Vec2<f32>, // TODO integrate into `list`
+    pub screen_window_center: Vec2<f32>,
 
     // TODO same for all layers?
     /// Part of the perspective projection. Default should be `1`.
-    pub screen_window_width: f32, // TODO integrate into `list`
+    pub screen_window_width: f32,
 
     /// The white luminance of the colors.
     /// Defines the luminance in candelas per square meter, Nits, of the RGB value `(1, 1, 1)`.
