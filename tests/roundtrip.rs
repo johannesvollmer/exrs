@@ -120,6 +120,7 @@ fn round_trip_all_files_rgba() {
         PathBuf::from("tests/images/valid/openexr/TestImages/GrayRampsDiagonal.exr"),
         PathBuf::from("tests/images/valid/openexr/TestImages/GrayRampsHorizontal.exr"),
         PathBuf::from("tests/images/valid/openexr/TestImages/WideFloatRange.exr"),
+        PathBuf::from("tests/images/valid/openexr/IlmfmlmflmTest/v1.7.test.tiled.exr")
     ];
 
     check_files(blacklist, |path| {

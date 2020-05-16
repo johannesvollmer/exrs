@@ -392,13 +392,11 @@ impl MetaData {
 
     /// Validates the meta data.
     #[must_use]
-    pub(crate) fn read_from_buffered_peekable(read: &mut PeekRead<impl Read>, max_pixel_bytes: Option<usize>, skip_invalid_attributes: bool) -> Result<Self> {
-        let meta_data = Self::read_unvalidated_from_buffered_peekable(read, skip_invalid_attributes)?;
-
-        // relaxed validation to allow slightly invalid files
-        // that still can be read correctly
-        meta_data.validate(max_pixel_bytes, false)?;
-
+    pub(crate) fn read_validated_from_buffered_peekable(
+        read: &mut PeekRead<impl Read>, max_pixel_bytes: Option<usize>, pedantic: bool
+    ) -> Result<Self> {
+        let meta_data = Self::read_unvalidated_from_buffered_peekable(read, !pedantic)?;
+        meta_data.validate(max_pixel_bytes, pedantic)?;
         Ok(meta_data)
     }
 

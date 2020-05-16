@@ -27,28 +27,30 @@ fn exr_files(path: &'static str, filter: bool) -> impl Iterator<Item=PathBuf> {
 pub fn damaged(){
     let mut passed = true;
 
-    for file in exr_files("tests/images", false) {
+    for file in exr_files("tests/images/invalid", false) {
         let file = &file;
 
         let result = catch_unwind(move || {
-            let _ = exr::image::full::Image::read_from_file(file, read_options::high())?;
+            let full = exr::image::full::Image::read_from_file(file, read_options::high())?;
             let _ = exr::image::simple::Image::read_from_file(file, read_options::high())?;
             let _ = exr::image::rgba::ImageInfo::read_pixels_from_file(
                 file, read_options::high(),
                 rgba_image::pixels::create_flattened_f16,
                 rgba_image::pixels::flattened_pixel_setter()
             )?;
-            Ok(())
+
+            Ok(full)
         });
 
         // this should not panic, only err:
         passed = passed && match result {
             Ok(Err(Error::Invalid(_))) => {
-                println!("✓ No Panic: {:?}", file);
+                println!("✓ Recognized as invalid: {:?}", file);
                 true
             },
+
             Ok(Err(Error::NotSupported(_))) => {
-                println!("✓ No Panic: {:?}", file);
+                println!("- Unsupported: {:?}", file);
                 true
             },
 
@@ -56,12 +58,24 @@ pub fn damaged(){
                 println!("✗ Unexpected IO Error: {:?}, {:?}", file, error);
                 false
             },
+
             Err(_) => {
-                println!("✗ Panic: {:?}", file);
+                println!("✗ Not recognized as invalid: {:?}", file);
                 false
             },
 
-            Ok(_) => true, // ignore ok images
+            Ok(Ok(image)) => {
+                if let Err(error) = image.infer_meta_data().validate(None, true) {
+                    println!("✓ Recognized as invalid when pedantic ({}): {:?}", error, file);
+                    true
+                }
+                else {
+                    println!("✗ Oh no, there is nothing wrong with: {:#?}", file);
+                    false
+                }
+            },
+
+            _ => unreachable!(),
         };
     }
 
@@ -95,6 +109,7 @@ pub fn fuzz(){
             let result = catch_unwind(move || {
                 match exr::image::full::Image::read_from_buffered(file.as_slice(), read_options::low()) {
                     Err(Error::Invalid(error)) => println!("✓ No Panic. [{}]: Invalid: {}.", fuzz_index, error),
+                    Err(Error::NotSupported(error)) => println!("- No Panic. [{}]: Unsupported: {}.", fuzz_index, error),
                     _ => {},
                 }
             });
