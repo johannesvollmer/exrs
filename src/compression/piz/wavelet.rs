@@ -342,4 +342,81 @@ mod test {
 
         assert_eq!(data, transformed);
     }
+
+    /// inspired by https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImfTest/testWav.cpp
+    #[test]
+    fn ground_truth(){
+        test_size(1, 1);
+        test_size(2, 2);
+        test_size(32, 32);
+        test_size(1024, 16);
+        test_size(16, 1024);
+        test_size(997, 37);
+        test_size(37, 997);
+        test_size(1024, 1024);
+        test_size(997, 997);
+
+        fn test_size(x: usize, y: usize) {
+            let xy = Vec2(x, y);
+            roundtrip(noise_14bit(xy), xy);
+            roundtrip(noise_16bit(xy), xy);
+            roundtrip(solid(xy, 0), xy);
+            roundtrip(solid(xy, 1), xy);
+            roundtrip(solid(xy, 0xffff), xy);
+            roundtrip(solid(xy, 0x3fff), xy);
+            roundtrip(solid(xy, 0x3ffe), xy);
+            roundtrip(solid(xy, 0x3fff), xy);
+            roundtrip(solid(xy, 0xfffe), xy);
+            roundtrip(solid(xy, 0xffff), xy);
+            roundtrip(verticals(xy, 0xffff), xy);
+            roundtrip(verticals(xy, 0x3fff), xy);
+            roundtrip(horizontals(xy, 0xffff), xy);
+            roundtrip(horizontals(xy, 0x3fff), xy);
+            roundtrip(diagonals(xy, 0xffff), xy);
+            roundtrip(diagonals(xy, 0x3fff), xy);
+        }
+
+        fn roundtrip(data: Vec<u16>, size: Vec2<usize>){
+            assert_eq!(data.len(), size.area());
+
+            let &max = data.iter().max().unwrap();
+            let offset = Vec2(1, size.0);
+
+            let mut transformed = data.clone();
+            super::encode(&mut transformed, size, offset, max).unwrap();
+            super::decode(&mut transformed, size, offset, max).unwrap();
+
+            assert_eq!(data, transformed);
+        }
+
+        fn noise_14bit(size: Vec2<usize>) -> Vec<u16> {
+            (0..size.area()).map(|_| (rand::random::<i32>() & 0x3fff) as u16).collect()
+        }
+
+        fn noise_16bit(size: Vec2<usize>) -> Vec<u16> {
+            (0..size.area()).map(|_| rand::random::<u16>()).collect()
+        }
+
+        fn solid(size: Vec2<usize>, value: u16) -> Vec<u16> {
+            vec![value; size.area()]
+        }
+
+        fn verticals(size: Vec2<usize>, max_value: u16) -> Vec<u16> {
+            std::iter::repeat_with(|| (0 .. size.0).map(|x| if x & 1 != 0 { 0 } else { max_value }))
+                .take(size.1).flatten().collect()
+        }
+
+        fn horizontals(size: Vec2<usize>, max_value: u16) -> Vec<u16> {
+            (0 .. size.1)
+                .flat_map(|y| std::iter::repeat(if y & 1 != 0 { 0 } else { max_value }).take(size.0))
+                .collect()
+        }
+
+        fn diagonals(size: Vec2<usize>, max_value: u16) -> Vec<u16> {
+            (0 .. size.1).flat_map(|y| {
+                (0 .. size.0).map(move |x| if (x + y) & 1 != 0 { 0 } else { max_value })
+            }).collect()
+        }
+
+    }
 }
