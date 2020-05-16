@@ -2,9 +2,13 @@
 //! Contains the compression attribute definition
 //! and methods to compress and decompress data.
 
+
+// private modules make non-breaking changes easier
 mod zip;
 mod rle;
 mod piz;
+mod pxr24;
+
 
 
 use crate::meta::Header;
@@ -45,8 +49,6 @@ pub enum Compression {
     /// which can be read with moderate speed. This compression method is lossless.
     ZIP16,
 
-    /// __PIZ compression is not yet supported by this implementation.__
-    ///
     /// PIZ compression works well for noisy and natural images. Works better with larger tiles.
     /// Only supported for flat images, but not for deep data.
     /// This compression method is lossless.
@@ -62,7 +64,8 @@ pub enum Compression {
     // tends to offset any size reduction of the input.)
     PIZ,
 
-    /// __This lossy compression is not yet supported by this implementation.__
+    /// Lossy compression for F32 data, but lossless compression for U32 and F16 data.
+    /// Only supported for flat images, no deep data.
     // After reducing 32-bit floating-point data to 24 bits by rounding (while leaving 16-bit
     // floating-point data unchanged), differences between horizontally adjacent pixels
     // are compressed with zlib, similar to ZIP. PXR24 compression preserves image
@@ -148,6 +151,7 @@ impl Compression {
             ZIP1 => zip::compress_bytes(&packed),
             RLE => rle::compress_bytes(&packed),
 //            PIZ => piz::compress_bytes(packed)?,
+//             PXR24 => pxr24::compress_image_section(packed),
             _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
         };
 
@@ -155,6 +159,7 @@ impl Compression {
             .map_err(|_| Error::invalid("compressed content"))?;
 
         if compressed.len() < packed.len() {
+            // FIXME handle endianness
             Ok(compressed)
         }
         else {
@@ -170,6 +175,7 @@ impl Compression {
         let expected_byte_size = dimensions.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
 
         if data.len() == expected_byte_size {
+            // FIXME handle endianness
             Ok(data) // the raw data was smaller than the compressed data, so the raw data has been written
         }
 
@@ -181,6 +187,7 @@ impl Compression {
                 ZIP1 => zip::decompress_bytes(&data, expected_byte_size),
                 RLE => rle::decompress_bytes(&data, expected_byte_size),
 //                PIZ => piz::decompress_bytes(header, data, tile, expected_byte_size),
+                PXR24 => pxr24::decompress(&header.channels, &data, tile, expected_byte_size),
                 _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
             };
 
