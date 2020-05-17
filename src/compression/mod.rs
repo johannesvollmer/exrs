@@ -26,7 +26,7 @@ pub type Bytes<'s> = &'s [u8];
 /// Use uncompressed data for fastest loading and writing speeds.
 /// Use RLE compression for fast loading and writing with slight memory savings.
 /// Use ZIP compression for slow processing with large memory savings.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Compression {
 
     /// Store uncompressed values.
@@ -42,11 +42,11 @@ pub enum Compression {
 
     /// Uses ZIP compression to compress each line. Slowly produces small images
     /// which can be read with moderate speed. This compression method is lossless.
-    ZIP1,
+    ZIP1, // TODO specify zip compression level?
 
     /// Uses ZIP compression to compress blocks of 16 lines. Slowly produces small images
     /// which can be read with moderate speed. This compression method is lossless.
-    ZIP16,
+    ZIP16, // TODO specify zip compression level?
 
     /// PIZ compression works well for noisy and natural images. Works better with larger tiles.
     /// Only supported for flat images, but not for deep data.
@@ -76,7 +76,7 @@ pub enum Compression {
     // compression significantly by eliminating the pixels' 8 least significant bits, which
     // tend to be very noisy, and therefore difficult to compress.
     // PXR24 compression is only supported for flat images.
-    PXR24,
+    PXR24, // TODO specify zip compression level?
 
     /// __This lossy compression is not yet supported by this implementation.__
     // lossy 4-by-4 pixel block compression,
@@ -109,7 +109,7 @@ pub enum Compression {
     // value, which are packed into 3 instead of 14 bytes. For images with large uniform
     // areas, B44A produces smaller files than B44 compression.
     // B44A compression is only supported for flat images.
-    DWAA,
+    DWAA(Option<f32>), // TODO does this have a default value? make this non optional?
 
     /// __This lossy compression is not yet supported by this implementation.__
     // lossy DCT based compression, in blocks
@@ -128,7 +128,7 @@ impl std::fmt::Display for Compression {
             Compression::ZIP16 => "zip block",
             Compression::B44 => "b44",
             Compression::B44A => "b44a",
-            Compression::DWAA=> "dwaa",
+            Compression::DWAA(_) => "dwaa",
             Compression::DWAB => "dwab",
             Compression::PIZ => "piz",
             Compression::PXR24 => "pxr24",
@@ -231,10 +231,10 @@ impl Compression {
     pub fn scan_lines_per_block(self) -> usize {
         use self::Compression::*;
         match self {
-            Uncompressed | RLE   | ZIP1  => 1,
-            ZIP16 | PXR24                => 16,
-            PIZ   | B44   | B44A | DWAA  => 32,
-            DWAB                         => 256,
+            Uncompressed | RLE   | ZIP1    => 1,
+            ZIP16 | PXR24                  => 16,
+            PIZ   | B44   | B44A | DWAA(_) => 32,
+            DWAB                           => 256,
         }
     }
 

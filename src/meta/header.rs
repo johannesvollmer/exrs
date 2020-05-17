@@ -214,9 +214,6 @@ pub struct LayerAttributes {
     /// If the image was cropped, contains the original data window.
     pub original_data_window: Option<IntRect>,
 
-    /// Level of compression in DWA images.
-    pub dwa_compression_level: Option<f32>,
-
     /// An 8-bit RGBA image representing the rendered image.
     pub preview: Option<Preview>,
 
@@ -626,6 +623,9 @@ impl Header {
         let mut data_window = None;
         let mut display_window = None;
         let mut line_order = None;
+
+        let mut dwa_compression_level = None;
+
         let mut layer_attributes = LayerAttributes::default();
         let mut image_attributes = ImageAttributes::default();
 
@@ -691,7 +691,7 @@ impl Header {
                         (name::WORLD_TO_NDC, Matrix4x4(value)) => layer_attributes.world_to_normalized_device = Some(value),
                         (name::DEEP_IMAGE_STATE, Rational(value)) => layer_attributes.deep_image_state = Some(value),
                         (name::ORIGINAL_DATA_WINDOW, IntRect(value)) => layer_attributes.original_data_window = Some(value),
-                        (name::DWA_COMPRESSION_LEVEL, F32(value)) => layer_attributes.dwa_compression_level = Some(value),
+                        (name::DWA_COMPRESSION_LEVEL, F32(value)) => dwa_compression_level = Some(value),
                         (name::PREVIEW, Preview(value)) => layer_attributes.preview = Some(value),
                         (name::VIEW, Text(value)) => layer_attributes.view = Some(value),
 
@@ -721,6 +721,12 @@ impl Header {
                 }
             }
         }
+
+        // construct compression with parameters from properties
+        let compression = match (dwa_compression_level, compression) {
+            (Some(level), Some(Compression::DWAA(_))) => Some(Compression::DWAA(Some(level))),
+            (_, other) => other,
+        };
 
         let compression = compression.ok_or(missing_attribute("compression"))?;
         let data_window = data_window.ok_or(missing_attribute("data window"))?;
@@ -789,75 +795,77 @@ impl Header {
             )* };
         }
 
-        {
-            use crate::meta::header::standard_names::*;
-            use AttributeValue::*;
+        use crate::meta::header::standard_names::*;
+        use AttributeValue::*;
 
-            let (block_type, tiles) = match self.blocks {
-                Blocks::ScanLines => (attribute::BlockType::ScanLine, None),
-                Blocks::Tiles(tiles) => (attribute::BlockType::Tile, Some(tiles))
-            };
+        let (block_type, tiles) = match self.blocks {
+            Blocks::ScanLines => (attribute::BlockType::ScanLine, None),
+            Blocks::Tiles(tiles) => (attribute::BlockType::Tile, Some(tiles))
+        };
 
-            fn usize_as_i32(value: usize) -> AttributeValue {
-                I32(i32::try_from(value).expect("u32 exceeds i32 range"))
-            }
+        fn usize_as_i32(value: usize) -> AttributeValue {
+            I32(i32::try_from(value).expect("u32 exceeds i32 range"))
+        }
 
-            write_optional_attributes!(
-                TILES: TileDescription = &tiles,
-                DEEP_DATA_VERSION: I32 = &self.deep_data_version,
-                MAX_SAMPLES: usize_as_i32 = &self.max_samples_per_pixel
-            );
+        write_optional_attributes!(
+            TILES: TileDescription = &tiles,
+            DEEP_DATA_VERSION: I32 = &self.deep_data_version,
+            MAX_SAMPLES: usize_as_i32 = &self.max_samples_per_pixel
+        );
 
-            write_attributes!(
-                // chunks is not actually required, but always computed in this library anyways
-                CHUNKS: usize_as_i32 = &self.chunk_count,
+        write_attributes!(
+            // chunks is not actually required, but always computed in this library anyways
+            CHUNKS: usize_as_i32 = &self.chunk_count,
 
-                BLOCK_TYPE: BlockType = &block_type,
-                CHANNELS: ChannelList = &self.channels,
-                COMPRESSION: Compression = &self.compression,
-                LINE_ORDER: LineOrder = &self.line_order,
-                DATA_WINDOW: IntRect = &self.data_window(),
+            BLOCK_TYPE: BlockType = &block_type,
+            CHANNELS: ChannelList = &self.channels,
+            COMPRESSION: Compression = &self.compression,
+            LINE_ORDER: LineOrder = &self.line_order,
+            DATA_WINDOW: IntRect = &self.data_window(),
 
-                DISPLAY_WINDOW: IntRect = &self.shared_attributes.display_window,
-                PIXEL_ASPECT: F32 = &self.shared_attributes.pixel_aspect,
+            DISPLAY_WINDOW: IntRect = &self.shared_attributes.display_window,
+            PIXEL_ASPECT: F32 = &self.shared_attributes.pixel_aspect,
 
-                WINDOW_CENTER: FloatVec2 = &self.own_attributes.screen_window_center,
-                WINDOW_WIDTH: F32 = &self.own_attributes.screen_window_width
-            );
+            WINDOW_CENTER: FloatVec2 = &self.own_attributes.screen_window_center,
+            WINDOW_WIDTH: F32 = &self.own_attributes.screen_window_width
+        );
 
-            write_optional_attributes!(
-                NAME: Text = &self.own_attributes.name,
-                WHITE_LUMINANCE: F32 = &self.own_attributes.white_luminance,
-                ADOPTED_NEUTRAL: FloatVec2 = &self.own_attributes.adopted_neutral,
-                RENDERING_TRANSFORM: Text = &self.own_attributes.rendering_transform,
-                LOOK_MOD_TRANSFORM: Text = &self.own_attributes.look_modification_transform,
-                X_DENSITY: F32 = &self.own_attributes.x_density,
-                OWNER: Text = &self.own_attributes.owner,
-                COMMENTS: Text = &self.own_attributes.comments,
-                CAPTURE_DATE: Text = &self.own_attributes.capture_date,
-                UTC_OFFSET: F32 = &self.own_attributes.utc_offset,
-                LONGITUDE: F32 = &self.own_attributes.longitude,
-                LATITUDE: F32 = &self.own_attributes.latitude,
-                ALTITUDE: F32 = &self.own_attributes.altitude,
-                FOCUS: F32 = &self.own_attributes.focus,
-                EXPOSURE_TIME: F32 = &self.own_attributes.exposure,
-                APERTURE: F32 = &self.own_attributes.aperture,
-                ISO_SPEED: F32 = &self.own_attributes.iso_speed,
-                ENVIRONMENT_MAP: EnvironmentMap = &self.own_attributes.environment_map,
-                KEY_CODE: KeyCode = &self.own_attributes.key_code,
-                TIME_CODE: TimeCode = &self.shared_attributes.time_code,
-                WRAP_MODES: Text = &self.own_attributes.wrap_modes,
-                FRAMES_PER_SECOND: Rational = &self.own_attributes.frames_per_second,
-                MULTI_VIEW: TextVector = &self.own_attributes.multi_view,
-                WORLD_TO_CAMERA: Matrix4x4 = &self.own_attributes.world_to_camera,
-                WORLD_TO_NDC: Matrix4x4 = &self.own_attributes.world_to_normalized_device,
-                DEEP_IMAGE_STATE: Rational = &self.own_attributes.deep_image_state,
-                ORIGINAL_DATA_WINDOW: IntRect = &self.own_attributes.original_data_window,
-                DWA_COMPRESSION_LEVEL: F32 = &self.own_attributes.dwa_compression_level,
-                CHROMATICITIES: Chromaticities = &self.shared_attributes.chromaticities,
-                PREVIEW: Preview = &self.own_attributes.preview,
-                VIEW: Text = &self.own_attributes.view
-            );
+        write_optional_attributes!(
+            NAME: Text = &self.own_attributes.name,
+            WHITE_LUMINANCE: F32 = &self.own_attributes.white_luminance,
+            ADOPTED_NEUTRAL: FloatVec2 = &self.own_attributes.adopted_neutral,
+            RENDERING_TRANSFORM: Text = &self.own_attributes.rendering_transform,
+            LOOK_MOD_TRANSFORM: Text = &self.own_attributes.look_modification_transform,
+            X_DENSITY: F32 = &self.own_attributes.x_density,
+            OWNER: Text = &self.own_attributes.owner,
+            COMMENTS: Text = &self.own_attributes.comments,
+            CAPTURE_DATE: Text = &self.own_attributes.capture_date,
+            UTC_OFFSET: F32 = &self.own_attributes.utc_offset,
+            LONGITUDE: F32 = &self.own_attributes.longitude,
+            LATITUDE: F32 = &self.own_attributes.latitude,
+            ALTITUDE: F32 = &self.own_attributes.altitude,
+            FOCUS: F32 = &self.own_attributes.focus,
+            EXPOSURE_TIME: F32 = &self.own_attributes.exposure,
+            APERTURE: F32 = &self.own_attributes.aperture,
+            ISO_SPEED: F32 = &self.own_attributes.iso_speed,
+            ENVIRONMENT_MAP: EnvironmentMap = &self.own_attributes.environment_map,
+            KEY_CODE: KeyCode = &self.own_attributes.key_code,
+            TIME_CODE: TimeCode = &self.shared_attributes.time_code,
+            WRAP_MODES: Text = &self.own_attributes.wrap_modes,
+            FRAMES_PER_SECOND: Rational = &self.own_attributes.frames_per_second,
+            MULTI_VIEW: TextVector = &self.own_attributes.multi_view,
+            WORLD_TO_CAMERA: Matrix4x4 = &self.own_attributes.world_to_camera,
+            WORLD_TO_NDC: Matrix4x4 = &self.own_attributes.world_to_normalized_device,
+            DEEP_IMAGE_STATE: Rational = &self.own_attributes.deep_image_state,
+            ORIGINAL_DATA_WINDOW: IntRect = &self.own_attributes.original_data_window,
+            CHROMATICITIES: Chromaticities = &self.shared_attributes.chromaticities,
+            PREVIEW: Preview = &self.own_attributes.preview,
+            VIEW: Text = &self.own_attributes.view
+        );
+
+        // write compression parameters as attribute
+        if let attribute::Compression::DWAA(Some(level)) = self.compression {
+            attribute::write(DWA_COMPRESSION_LEVEL, &F32(level), write)?;
         }
 
         for (name, value) in &self.shared_attributes.custom {
@@ -979,7 +987,6 @@ impl Default for LayerAttributes {
             world_to_normalized_device: None,
             deep_image_state: None,
             original_data_window: None,
-            dwa_compression_level: None,
             preview: None,
             view: None,
             custom: Default::default()
@@ -1020,7 +1027,6 @@ impl std::fmt::Debug for LayerAttributes {
             frames_per_second, multi_view,
             world_to_camera, world_to_normalized_device,
             deep_image_state, original_data_window,
-            dwa_compression_level,
             preview, view,
             custom
         }

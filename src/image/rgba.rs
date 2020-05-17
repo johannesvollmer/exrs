@@ -63,7 +63,7 @@ pub type Channels = (SampleType, SampleType, SampleType, Option<SampleType>);
 /// Specifies how the pixel data is formatted inside the file.
 /// Does not affect any visual aspect, like positioning or orientation.
 // TODO alsop nest encoding like this for meta::Header and simple::Image or even reuse this in image::simple
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Encoding {
 
     /// What type of compression the pixel data in the file is compressed with.
