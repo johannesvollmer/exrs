@@ -64,8 +64,8 @@ pub enum Compression {
     // tends to offset any size reduction of the input.)
     PIZ,
 
-    /// Lossy compression for F32 data, but lossless compression for U32 and F16 data.
-    /// Only supported for flat images, no deep data.
+    /// Like `ZIP1`, but reduces precision of `f32` images to `f24`.
+    /// This produces really small image files. Only supported for flat images, not for deep data.
     // After reducing 32-bit floating-point data to 24 bits by rounding (while leaving 16-bit
     // floating-point data unchanged), differences between horizontally adjacent pixels
     // are compressed with zlib, similar to ZIP. PXR24 compression preserves image
