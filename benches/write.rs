@@ -8,7 +8,7 @@ use bencher::Bencher;
 use std::io::Cursor;
 use exr::image::{read_options, write_options};
 
-/// Write with multi-core zip compression
+/// Write with multi-core compression
 fn write_single_image_parallel(bench: &mut Bencher) {
     let path = "tests/images/valid/custom/crowskull/crow_rle.exr";
     let image = Image::read_from_file(path, read_options::high()).unwrap();
@@ -20,7 +20,7 @@ fn write_single_image_parallel(bench: &mut Bencher) {
     })
 }
 
-/// Write with singlecore zip compression
+/// Write with singlecore compression
 fn write_single_image(bench: &mut Bencher) {
     let path = "tests/images/valid/custom/crowskull/crow_rle.exr";
     let image = Image::read_from_file(path, read_options::high()).unwrap();
@@ -39,7 +39,7 @@ fn write_single_image_uncompressed(bench: &mut Bencher) {
 
     bench.iter(||{
         let mut result = Vec::new();
-        Image::write_to_buffered(&image, Cursor::new(&mut result), write_options::higher()).unwrap();
+        Image::write_to_buffered(&image, Cursor::new(&mut result), write_options::high()).unwrap();
         bencher::black_box(result);
     })
 }

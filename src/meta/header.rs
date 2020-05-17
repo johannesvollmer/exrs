@@ -401,14 +401,26 @@ impl Header {
         vec.into_iter() // TODO without collect
     }
 
+    /// The dimensions, in pixels, of every block in this image.
+    /// The default block size may be deviated from in the last column or row of an image.
+    /// Those blocks only have the size necessary to include all pixels of the image,
+    /// which may be smaller than the default block size.
+    // TODO reuse this function everywhere
+    pub fn default_block_pixel_size(&self) -> Vec2<usize> {
+        match self.blocks {
+            Blocks::ScanLines => Vec2(self.data_size.0, self.compression.scan_lines_per_block()),
+            Blocks::Tiles(tiles) => tiles.tile_size,
+        }
+    }
+
     /// Calculate the position of a block in the global infinite 2D space of a file. May be negative.
-    pub fn get_block_data_window_coordinates(&self, tile: TileCoordinates) -> Result<IntRect> {
-        let data = self.get_absolute_block_indices(tile)?;
+    pub fn get_block_data_window_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntRect> {
+        let data = self.get_absolute_block_pixel_coordinates(tile)?;
         Ok(data.with_origin(self.own_attributes.data_position))
     }
 
     /// Calculate the pixel index rectangle inside this header. Is not negative. Starts at `0`.
-    pub fn get_absolute_block_indices(&self, tile: TileCoordinates) -> Result<IntRect> {
+    pub fn get_absolute_block_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntRect> {
         Ok(if let Blocks::Tiles(tiles) = self.blocks {
             let Vec2(data_width, data_height) = self.data_size;
 
