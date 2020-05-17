@@ -62,72 +62,70 @@ pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: In
             if mod_p(y, channel.sampling.1 as i32) != 0 { continue; }
             let sample_count_x = channel.subsampled_resolution(area.size).0;
 
-            let mut indices = [0_usize; 4];
+            let mut write_indices = [0_usize; 4];
             let mut previous_pixel: u32 = 0;
 
             match channel.sample_type {
                 SampleType::F16 => {
-                    indices[0] = write_index;
-                    indices[1] = indices[0] + sample_count_x;
-                    write_index = indices[1] + sample_count_x;
+                    write_indices[0] = write_index;
+                    write_indices[1] = write_indices[0] + sample_count_x;
+                    write_index = write_indices[1] + sample_count_x;
 
                     for _ in 0..sample_count_x {
                         let pixel = u16::read_from_native_endian(&mut remaining_bytes).unwrap() as u32;
                         let difference = pixel.wrapping_sub(previous_pixel);
                         previous_pixel = pixel;
 
-                        raw[indices[0]] = (difference >> 8) as u8;
-                        raw[indices[1]] = difference as u8;
+                        raw[write_indices[0]] = (difference >> 8) as u8;
+                        raw[write_indices[1]] = difference as u8;
 
-                        indices[0] += 1;
-                        indices[1] += 1;
+                        write_indices[0] += 1;
+                        write_indices[1] += 1;
                     }
                 },
 
                 SampleType::U32 => {
-                    indices[0] = write_index;
-                    indices[1] = indices[0] + sample_count_x;
-                    indices[2] = indices[1] + sample_count_x;
-                    indices[3] = indices[2] + sample_count_x;
-                    write_index = indices[3] + sample_count_x;
+                    write_indices[0] = write_index;
+                    write_indices[1] = write_indices[0] + sample_count_x;
+                    write_indices[2] = write_indices[1] + sample_count_x;
+                    write_indices[3] = write_indices[2] + sample_count_x;
+                    write_index = write_indices[3] + sample_count_x;
 
                     for _ in 0..sample_count_x {
                         let pixel = u32::read_from_native_endian(&mut remaining_bytes).unwrap();
                         let difference = pixel.wrapping_sub(previous_pixel);
                         previous_pixel = pixel;
 
-                        raw[indices[0]] = (difference >> 24) as u8;
-                        raw[indices[1]] = (difference >> 16) as u8;
-                        raw[indices[2]] = (difference >> 8) as u8;
-                        raw[indices[3]] = difference as u8;
+                        raw[write_indices[0]] = (difference >> 24) as u8;
+                        raw[write_indices[1]] = (difference >> 16) as u8;
+                        raw[write_indices[2]] = (difference >> 8) as u8;
+                        raw[write_indices[3]] = difference as u8;
 
-                        indices[0] += 1;
-                        indices[1] += 1;
-                        indices[2] += 1;
-                        indices[3] += 1;
+                        write_indices[0] += 1;
+                        write_indices[1] += 1;
+                        write_indices[2] += 1;
+                        write_indices[3] += 1;
                     }
                 },
 
                 SampleType::F32 => {
-                    indices[0] = write_index;
-                    indices[1] = indices[0] + sample_count_x;
-                    indices[2] = indices[1] + sample_count_x;
-                    write_index = indices[2] + sample_count_x;
+                    write_indices[0] = write_index;
+                    write_indices[1] = write_indices[0] + sample_count_x;
+                    write_indices[2] = write_indices[1] + sample_count_x;
+                    write_index = write_indices[2] + sample_count_x;
 
                     for _ in 0..sample_count_x {
-                        let pixel = f32::read_from_native_endian(&mut remaining_bytes).unwrap();
-                        let pixel = f32_to_f24(pixel);
-
+                        let pixel = f32_to_f24(f32::read_from_native_endian(&mut remaining_bytes).unwrap());
                         let difference = pixel.wrapping_sub(previous_pixel);
                         previous_pixel = pixel;
 
-                        raw[indices[0]] = (difference >> 16) as u8;
-                        raw[indices[1]] = (difference >> 8) as u8;
-                        raw[indices[2]] = difference as u8;
+                        raw[write_indices[0]] = (difference >> 16) as u8;
+                        raw[write_indices[1]] = (difference >> 8) as u8;
+                        raw[write_indices[2]] = difference as u8;
 
-                        indices[0] += 1;
-                        indices[1] += 1;
-                        indices[2] += 1;
+                        write_indices[0] += 1;
+                        write_indices[1] += 1;
+                        write_indices[2] += 1;
                     }
                 },
             }
@@ -161,81 +159,76 @@ pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expec
 
             let sample_count_x = channel.subsampled_resolution(area.size).0;
 
-            let mut indices = [0_usize; 4];
+            let mut read_indices = [0_usize; 4];
             let mut pixel_accumulation: u32 = 0;
 
             match channel.sample_type {
                 SampleType::F16 => {
-                    indices[0] = read_index;
-                    indices[1] = indices[0] + sample_count_x;
-                    read_index = indices[1] + sample_count_x;
+                    read_indices[0] = read_index;
+                    read_indices[1] = read_indices[0] + sample_count_x;
+                    read_index = read_indices[1] + sample_count_x;
 
                     if read_index > raw.len() {
                         return Err(Error::invalid("not enough data"));
                     }
 
                     for _ in 0..sample_count_x {
-
-                        let difference: u32 = ((raw[indices[0]] as u32) << 8) | (raw[indices[1]] as u32);
-                        indices[0] += 1;
-                        indices[1] += 1;
+                        let difference = u16::from_ne_bytes([raw[read_indices[1]], raw[read_indices[0]]]) as u32;
+                        read_indices[0] += 1;
+                        read_indices[1] += 1;
 
                         pixel_accumulation = pixel_accumulation.overflowing_add(difference).0;
-
-                        let value = pixel_accumulation as u16; // TODO like that??
-                        write.extend_from_slice(&value.to_ne_bytes());
+                        write.extend_from_slice(&(pixel_accumulation as u16).to_ne_bytes());
                     }
                 },
 
                 SampleType::U32 => {
-                    indices[0] = read_index;
-                    indices[1] = indices[0] + sample_count_x;
-                    indices[2] = indices[1] + sample_count_x;
-                    indices[3] = indices[2] + sample_count_x;
-                    read_index = indices[3] + sample_count_x;
+                    read_indices[0] = read_index;
+                    read_indices[1] = read_indices[0] + sample_count_x;
+                    read_indices[2] = read_indices[1] + sample_count_x;
+                    read_indices[3] = read_indices[2] + sample_count_x;
+                    read_index = read_indices[3] + sample_count_x;
 
                     if read_index > raw.len() {
                         return Err(Error::invalid("not enough data"));
                     }
 
                     for _ in 0..sample_count_x {
-                        let difference: u32 = ((raw[indices[0]] as u32) << 24)
-                            | ((raw[indices[1]] as u32) << 16)
-                            | ((raw[indices[2]] as u32) << 8)
-                            | (raw[indices[3]] as u32); // TODO use from_le_bytes instead?
+                        let difference = u32::from_ne_bytes([
+                            raw[read_indices[3]], raw[read_indices[2]],
+                            raw[read_indices[1]], raw[read_indices[0]],
+                        ]);
 
-                        indices[0] += 1;
-                        indices[1] += 1;
-                        indices[2] += 1;
-                        indices[3] += 1;
+                        read_indices[0] += 1;
+                        read_indices[1] += 1;
+                        read_indices[2] += 1;
+                        read_indices[3] += 1;
 
                         pixel_accumulation = pixel_accumulation.overflowing_add(difference).0;
-
                         write.extend_from_slice(&pixel_accumulation.to_ne_bytes());
                     }
                 },
 
                 SampleType::F32 => {
-                    indices[0] = read_index;
-                    indices[1] = indices[0] + sample_count_x;
-                    indices[2] = indices[1] + sample_count_x;
-                    read_index = indices[2] + sample_count_x;
+                    read_indices[0] = read_index;
+                    read_indices[1] = read_indices[0] + sample_count_x;
+                    read_indices[2] = read_indices[1] + sample_count_x;
+                    read_index = read_indices[2] + sample_count_x;
 
                     if read_index > raw.len() {
                         return Err(Error::invalid("not enough data"));
                     }
 
                     for _ in 0..sample_count_x {
-                        let difference: u32 = ((raw[indices[0]] as u32) << 24)
-                            | ((raw[indices[1]] as u32) << 16)
-                            | ((raw[indices[2]] as u32) << 8); // TODO use from_le_bytes instead?
+                        let difference = u32::from_ne_bytes([
+                            0, raw[read_indices[2]], raw[read_indices[1]], raw[read_indices[0]],
+                        ]);
 
-                        indices[0] += 1;
-                        indices[1] += 1;
-                        indices[2] += 1;
+                        read_indices[0] += 1;
+                        read_indices[1] += 1;
+                        read_indices[2] += 1;
 
                         pixel_accumulation = pixel_accumulation.overflowing_add(difference).0;
-
                         write.extend_from_slice(&pixel_accumulation.to_ne_bytes());
                     }
                 }
