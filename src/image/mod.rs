@@ -1,6 +1,6 @@
 
-//! Read and write an exr image.
-//! Use `exr::image::simple` or `exr::image::full` for actually reading a complete image.
+//! Main entry point to read and write an exr image.
+//! Use `exr::image::simple` or `exr::image::rgba` for actually reading a complete image.
 
 pub mod full;
 pub mod simple;

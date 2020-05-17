@@ -1,6 +1,6 @@
 
-//! Handle raw pixel data bytes.
-//! Does not include compression and decompression.
+//! Read and write already compressed pixel data blocks.
+//! Does not include the process of compression and decompression.
 
 use crate::meta::attribute::{IntRect};
 

@@ -1,5 +1,6 @@
 
 //! Describes all meta data possible in an exr file.
+//! Contains functionality to read and write meta data from bytes.
 
 pub mod attribute;
 pub mod header;
@@ -8,7 +9,7 @@ pub mod header;
 use crate::io::*;
 use ::smallvec::SmallVec;
 use self::attribute::*;
-use crate::chunk::{TileCoordinates, Block};
+use crate::block::chunk::{TileCoordinates, Block};
 use crate::error::*;
 use std::fs::File;
 use std::io::{BufReader};

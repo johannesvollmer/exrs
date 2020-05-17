@@ -1,14 +1,15 @@
-//! Handle uncompressed pixel byte blocks. Includes compression and decompression,
+//! Handle compressed and uncompressed pixel byte blocks. Includes compression and decompression,
 //! and some functions that completely read an image into blocks.
 
 pub mod lines;
 pub mod samples;
+pub mod chunk;
 
 use crate::compression::{ByteVec, Compression};
 use crate::math::*;
 use crate::error::{Result, Error, usize_to_i32, UnitResult};
 use crate::meta::{MetaData, Blocks, TileIndices};
-use crate::chunk::{Chunk, Block, TileBlock, ScanLineBlock, TileCoordinates};
+use crate::block::chunk::{Chunk, Block, TileBlock, ScanLineBlock, TileCoordinates};
 use crate::meta::attribute::LineOrder;
 use rayon::prelude::ParallelBridge;
 use rayon::iter::ParallelIterator;

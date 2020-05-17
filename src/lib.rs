@@ -39,7 +39,6 @@
 pub mod io; // public to allow for custom attribute byte parsing
 
 pub mod math;
-pub mod chunk;
 pub mod compression;
 pub mod meta;
 pub mod image;
