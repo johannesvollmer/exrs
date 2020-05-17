@@ -45,11 +45,11 @@ __Currently supported:__
     - [ ] deep data
     - [ ] compression methods (help wanted)
         - [x] uncompressed
-        - [x] zip line
-        - [x] zip block
-        - [x] rle
-        - [ ] piz
-        - [ ] pxr24
+        - [x] zip line (lossless)
+        - [x] zip block (lossless)
+        - [x] rle (lossless)
+        - [ ] piz (lossless)
+        - [x] pxr24 (lossless for f16 and u32)
         - [ ] b44, b44a
         - [ ] dwaa, dwab
 
