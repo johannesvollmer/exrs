@@ -1,6 +1,6 @@
 
-//! Read and write an exr image.
-//! Use `exr::image::simple` or `exr::image::full` for actually reading a complete image.
+//! Main entry point to read and write an exr image.
+//! Use `exr::image::simple` or `exr::image::rgba` for actually reading a complete image.
 
 pub mod full;
 pub mod simple;
@@ -52,6 +52,12 @@ pub struct ReadOptions<P: OnReadProgress> {
     /// If true, single invalid attributes do not abort the whole reading process.
     /// If false, reading the file is stopped when an attribute appears to be invalid.
     pub skip_invalid_attributes: bool,
+
+    /// If true, some files will be rejected that are readable but have unconventional properties,
+    /// such as two attributes with the same name, or two headers with the same name,
+    /// invalid attributes will abort the process.
+    /// If false, this will ready any technically valid image file. Invalid attributes will be skipped.
+    pub pedantic: bool,
 }
 
 
@@ -61,16 +67,6 @@ pub mod write_options {
 
     /// High speed but also slightly higher memory requirements.
     pub fn default() -> WriteOptions<()> { self::high() }
-
-    /// Higher speed, but slightly higher memory requirements, and __higher risk of incompatibility to other exr readers__.
-    /// Only use this if you are confident that the file to write is valid.
-    pub fn higher() -> WriteOptions<()> {
-        WriteOptions {
-            parallel_compression: true,
-            pedantic: false,
-            on_progress: (),
-        }
-    }
 
     /// High speed but also slightly higher memory requirements.
     pub fn high() -> WriteOptions<()> {
@@ -109,6 +105,7 @@ pub mod read_options {
             max_pixel_bytes: Some(GIGABYTE),
             skip_invalid_attributes: true,
             on_progress: (),
+            pedantic: false,
         }
     }
 
@@ -121,6 +118,7 @@ pub mod read_options {
             max_pixel_bytes: Some(GIGABYTE),
             skip_invalid_attributes: true,
             on_progress: (),
+            pedantic: false,
         }
     }
 }

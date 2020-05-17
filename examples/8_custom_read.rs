@@ -7,7 +7,7 @@ use std::fs::File;
 
 // exr imports
 extern crate exr;
-use exr::prelude::*;
+use exr::prelude::common::*;
 
 
 /// Collects the average pixel value for each channel.
@@ -102,6 +102,7 @@ fn main() {
             skip_invalid_attributes: false,
             parallel_decompression: false,
             max_pixel_bytes: None,
+            pedantic: false,
             on_progress: |progress| {
                 count_to_1000_and_then_print += 1;
                 if count_to_1000_and_then_print == 1000 {

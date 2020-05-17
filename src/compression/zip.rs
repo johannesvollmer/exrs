@@ -16,8 +16,10 @@ use inflate::inflate_bytes_zlib;
 // 4. Fill the frame buffer with pixel data, respective to sampling and whatnot
 
 
-pub fn decompress_bytes(data: Bytes<'_>, _expected_byte_size: usize) -> Result<ByteVec> {
-    let mut decompressed = inflate_bytes_zlib(data).map_err(|msg| Error::invalid(msg))?;
+pub fn decompress_bytes(data: Bytes<'_>) -> Result<ByteVec> {
+    let mut decompressed = inflate_bytes_zlib(data)
+        .map_err(|msg| Error::invalid(msg))?;
+
     differences_to_samples(&mut decompressed);
     interleave_byte_blocks(&mut decompressed);
     Ok(decompressed)

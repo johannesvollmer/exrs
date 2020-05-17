@@ -1,6 +1,6 @@
 [![Rust Docs](https://docs.rs/exr/badge.svg)](https://docs.rs/exr) 
 [![Crate Crate](https://img.shields.io/crates/v/exr.svg)](https://crates.io/crates/exr) 
-[![Rust Lang Version](https://img.shields.io/badge/rustc-1.41+-lightgray.svg)](https://blog.rust-lang.org/2020/01/30/Rust-1.41.0.html) 
+[![Rust Lang Version](https://img.shields.io/badge/rustc-1.43+-lightgray.svg)](https://blog.rust-lang.org/2020/04/23/Rust-1.43.0.html) 
 [![Lines of Code](https://tokei.rs/b1/github/johannesvollmer/exrs?category=code)](https://tokei.rs)
 
 # EXRS
@@ -172,24 +172,26 @@ The master branch of this repository is always an up-to-date version.
 Example: Write all image contents to an exr file at once.
 
 ```rust
+use exr::prelude::rgba_image as exrs;
+
 fn main() {
     let my_image = unimplemented!("this is your own image value");
 
-    let get_pixel = |position: Vec2<usize>| {
+    let get_pixel = |position: exrs::Vec2<usize>| {
         let [r, g, b, a] = my_image.pixel_at_xy(position.x(), position.y());
-        rgba::Pixel::rgba(r, g, b, a)
+        exrs::Pixel::rgba(r, g, b, a)
     };
 
     // make exr convert all numbers to f16 automatically 
-    let mut image_info = rgba::ImageInfo::rgb((my_image.width, my_image.height), SampleType::F16);
+    let mut image_info = exrs::ImageInfo::rgb((my_image.width, my_image.height), SampleType::F16);
     image_info.layer_attributes.comments = "Generated with Rust".try_into().unwrap();
 
     // write the pixels to a file
     image_info
-        .with_encoding(rgba::Encoding::small()) // compress image contents to keep the file small
+        .with_encoding(exrs::Encoding::small()) // compress image contents to keep the file small
         .write_to_file(
             "tests/images/out/generated_rgba.exr",
-            write_options::high(), // using all CPUs
+            exrs::write_options::high(), // using all CPUs
             &get_pixel // and our custom image pixels
         ).unwrap();
 }

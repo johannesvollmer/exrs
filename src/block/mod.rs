@@ -1,15 +1,16 @@
-//! Handle uncompressed pixel byte blocks. Includes compression and decompression,
+//! Handle compressed and uncompressed pixel byte blocks. Includes compression and decompression,
 //! and some functions that completely read an image into blocks.
 
 pub mod lines;
 pub mod samples;
+pub mod chunk;
 
 use crate::compression::{ByteVec, Compression};
 use crate::math::*;
 use crate::error::{Result, Error, usize_to_i32, UnitResult};
-use crate::meta::{MetaData, Header, Blocks, TileIndices};
-use crate::chunk::{Chunk, Block, TileBlock, ScanLineBlock, TileCoordinates};
-use crate::meta::attributes::LineOrder;
+use crate::meta::{MetaData, Blocks, TileIndices};
+use crate::block::chunk::{Chunk, Block, TileBlock, ScanLineBlock, TileCoordinates};
+use crate::meta::attribute::LineOrder;
 use rayon::prelude::ParallelBridge;
 use rayon::iter::ParallelIterator;
 use smallvec::alloc::collections::BTreeMap;
@@ -17,8 +18,7 @@ use std::convert::TryFrom;
 use crate::io::{Tracking, PeekRead};
 use std::io::{Seek, Read};
 use crate::image::{ReadOptions, OnReadProgress};
-
-
+use crate::meta::header::Header;
 
 
 /// Specifies where a block of pixel data should be placed in the actual image.
@@ -30,10 +30,10 @@ pub struct BlockIndex {
     /// Index of the layer.
     pub layer: usize,
 
-    /// Pixel position of the bottom left corner of the block.
+    /// Index of the bottom left pixel from the block.
     pub pixel_position: Vec2<usize>,
 
-    /// Pixel size of the block.
+    /// Number of pixels in this block.
     pub pixel_size: Vec2<usize>,
 
     /// Index of the mip or rip level in the image.
@@ -68,7 +68,7 @@ pub fn read_all_blocks_from_buffered<T>(
     options: ReadOptions<impl OnReadProgress>,
 ) -> Result<T>
 {
-    let (meta_data, chunk_count, mut read_chunk) = self::read_all_compressed_chunks_from_buffered(read, options.max_pixel_bytes, options.skip_invalid_attributes)?;
+    let (meta_data, chunk_count, mut read_chunk) = self::read_all_compressed_chunks_from_buffered(read, options.max_pixel_bytes, options.pedantic)?;
     let meta_data_ref = &meta_data;
 
     let read_chunks = std::iter::from_fn(move || read_chunk(meta_data_ref));
@@ -100,7 +100,7 @@ pub fn read_filtered_blocks_from_buffered<T>(
 ) -> Result<T>
 {
     let (meta_data, mut value, chunk_count, mut read_chunk) = {
-        self::read_filtered_chunks_from_buffered(read, new, filter, options.max_pixel_bytes, options.skip_invalid_attributes)?
+        self::read_filtered_chunks_from_buffered(read, new, filter, options.max_pixel_bytes, options.pedantic)?
     };
 
     for_decompressed_blocks_in_chunks(
@@ -169,11 +169,11 @@ fn for_decompressed_blocks_in_chunks(
 pub fn read_all_compressed_chunks_from_buffered<'m>(
     read: impl Read + Send, // FIXME does not actually need to be send, only for parallel writing
     max_pixel_bytes: Option<usize>,
-    skip_invalid_attributes: bool
+    pedantic: bool
 ) -> Result<(MetaData, usize, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
 {
     let mut read = PeekRead::new(read);
-    let meta_data = MetaData::read_from_buffered_peekable(&mut read, max_pixel_bytes, skip_invalid_attributes)?;
+    let meta_data = MetaData::read_validated_from_buffered_peekable(&mut read, max_pixel_bytes, pedantic)?;
     let mut remaining_chunk_count = usize::try_from(MetaData::skip_offset_tables(&mut read, &meta_data.headers)?)
         .expect("too large chunk count for this machine");
 
@@ -199,18 +199,18 @@ pub fn read_filtered_chunks_from_buffered<'m, T>(
     new: impl FnOnce(&[Header]) -> Result<T>,
     filter: impl Fn(&T, (usize, &Header), (usize, &TileIndices)) -> bool,
     max_pixel_bytes: Option<usize>,
-    skip_invalid_attributes: bool
+    pedantic: bool
 ) -> Result<(MetaData, T, usize, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
 {
     let skip_read = Tracking::new(read);
     let mut read = PeekRead::new(skip_read);
-    let meta_data = MetaData::read_from_buffered_peekable(&mut read, max_pixel_bytes, skip_invalid_attributes)?;
+    let meta_data = MetaData::read_validated_from_buffered_peekable(&mut read, max_pixel_bytes, pedantic)?;
 
     let value = new(meta_data.headers.as_slice())?;
 
     let offset_tables = MetaData::read_offset_tables(&mut read, &meta_data.headers)?;
 
-    let mut offsets = Vec::with_capacity(meta_data.headers.len() * 32);
+    let mut offsets = Vec::with_capacity((meta_data.headers.len() * 32).min(2*2048));
     for (header_index, header) in meta_data.headers.iter().enumerate() { // offset tables are stored same order as headers
         for (block_index, block) in header.blocks_increasing_y_order().enumerate() { // in increasing_y order
             if filter(&value, (header_index, header), (block_index, &block)) {
@@ -239,11 +239,11 @@ pub fn read_filtered_chunks_from_buffered<'m, T>(
 #[inline]
 #[must_use]
 pub fn uncompressed_image_blocks_ordered<'l>(
-    meta_data: &'l MetaData,
+    headers: &'l [Header],
     get_block: &'l (impl 'l + Sync + (Fn(&[Header], BlockIndex) -> Vec<u8>)) // TODO reduce sync requirements, at least if parrallel is false
 ) -> impl 'l + Iterator<Item = Result<(usize, UncompressedBlock)>> + Send // TODO reduce sync requirements, at least if parrallel is false
 {
-    meta_data.headers.iter().enumerate()
+    headers.iter().enumerate()
         .flat_map(move |(layer_index, header)|{
             header.enumerate_ordered_blocks().map(move |(chunk_index, tile)|{
                 let data_indices = header.get_absolute_block_pixel_coordinates(tile.location).expect("tile coordinate bug");
@@ -254,7 +254,7 @@ pub fn uncompressed_image_blocks_ordered<'l>(
                     pixel_size: data_indices.size,
                 };
 
-                let block_bytes = get_block(meta_data.headers.as_slice(), block_indices);
+                let block_bytes = get_block(headers, block_indices);
 
                 // byte length is validated in block::compress_to_chunk
                 Ok((chunk_index, UncompressedBlock {
@@ -275,16 +275,16 @@ pub fn uncompressed_image_blocks_ordered<'l>(
 #[inline]
 #[must_use]
 pub fn for_compressed_blocks_in_image(
-    meta_data: &MetaData, get_tile: impl Sync + Fn(&[Header], BlockIndex) -> Vec<u8>,
+    headers: &[Header], get_tile: impl Sync + Fn(&[Header], BlockIndex) -> Vec<u8>,
     parallel: bool, mut write_chunk: impl FnMut(usize, Chunk) -> UnitResult
 ) -> UnitResult
 {
-    let blocks = uncompressed_image_blocks_ordered(meta_data, &get_tile);
+    let blocks = uncompressed_image_blocks_ordered(headers, &get_tile);
 
-    let parallel = parallel && meta_data.headers.iter() // do not use parallel stuff for uncompressed images
+    let parallel = parallel && headers.iter() // do not use parallel stuff for uncompressed images
         .any(|header| header.compression != Compression::Uncompressed);
 
-    let requires_sorting = meta_data.headers.iter()
+    let requires_sorting = headers.iter()
         .any(|header| header.line_order != LineOrder::Unspecified);
 
 
@@ -294,7 +294,7 @@ pub fn for_compressed_blocks_in_image(
         blocks.par_bridge()
             .map(|result| Ok({
                 let (chunk_index, block) = result?;
-                let block = block.compress_to_chunk(meta_data)?;
+                let block = block.compress_to_chunk(headers)?;
                 (chunk_index, block)
             }))
             .try_for_each_with(sender, |sender, result: Result<(usize, Chunk)>| {
@@ -313,7 +313,7 @@ pub fn for_compressed_blocks_in_image(
         else {
 
             // the block indices, in the order which must be apparent in the file
-            let mut expected_id_order = meta_data.headers.iter().enumerate()
+            let mut expected_id_order = headers.iter().enumerate()
                 .flat_map(|(layer, header)| header.enumerate_ordered_blocks().map(move |(chunk, _)| (layer, chunk)));
 
             // the next id, pulled from expected_id_order: the next block that must be written
@@ -342,7 +342,7 @@ pub fn for_compressed_blocks_in_image(
     else {
         for result in blocks {
             let (chunk_index, uncompressed_block) = result?; // enable `Error::Abort`
-            let chunk = uncompressed_block.compress_to_chunk(meta_data)?;
+            let chunk = uncompressed_block.compress_to_chunk(headers)?;
             write_chunk(chunk_index, chunk)?;
         }
     }
@@ -386,10 +386,10 @@ impl UncompressedBlock {
     // for uncompressed data, the ByteVec in the chunk is moved all the way
     #[inline]
     #[must_use]
-    pub fn compress_to_chunk(self, meta_data: &MetaData) -> Result<Chunk> {
+    pub fn compress_to_chunk(self, headers: &[Header]) -> Result<Chunk> {
         let UncompressedBlock { data, index } = self;
 
-        let header: &Header = meta_data.headers.get(index.layer)
+        let header: &Header = headers.get(index.layer)
             .expect("block layer index bug");
 
         let expected_byte_size = header.channels.bytes_per_pixel * self.index.pixel_size.area(); // TODO sampling??

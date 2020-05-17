@@ -187,7 +187,7 @@ pub struct FloatRect {
 pub struct ChannelList {
 
     /// The channels in this list.
-    pub list: SmallVec<[Channel; 5]>,
+    pub list: SmallVec<[ChannelInfo; 5]>,
 
     /// The number of bytes that one pixel in this image needs.
     // FIXME this needs to account for subsampling anywhere?
@@ -198,7 +198,7 @@ pub struct ChannelList {
 /// Does not contain the actual pixel data,
 /// but instead merely describes it.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Channel {
+pub struct ChannelInfo {
 
     /// One of "R", "G", or "B" most of the time.
     pub name: Text,
@@ -407,20 +407,22 @@ impl Text {
         Text { bytes }
     }
 
-    /// Check whether this string is valid, considering the maximum text length.
-    pub fn validate(&self, null_terminated: bool, long_names: Option<bool>) -> UnitResult {
+    /// Check whether this string is valid, adjusting `long_names` if required.
+    /// If `long_names` is not provided, text length will be entirely unchecked.
+    pub fn validate(&self, null_terminated: bool, long_names: Option<&mut bool>) -> UnitResult {
         Self::validate_bytes(self.bytes(), null_terminated, long_names)
     }
 
-    /// Check whether some bytes are valid, considering the maximum text length.
-    pub fn validate_bytes(text: &[u8], null_terminated: bool, long_names: Option<bool>) -> UnitResult {
+    /// Check whether some bytes are valid, adjusting `long_names` if required.
+    /// If `long_names` is not provided, text length will be entirely unchecked.
+    pub fn validate_bytes(text: &[u8], null_terminated: bool, long_names: Option<&mut bool>) -> UnitResult {
         if null_terminated && text.is_empty() {
             return Err(Error::invalid("text must not be empty"));
         }
 
         if let Some(long) = long_names {
-            if long && text.len() >= 256 { return Err(Error::invalid("text must not be longer than 255")); }
-            if !long && text.len() >= 32 { return Err(Error::invalid("text must not be longer than 31")); }
+            if text.len() >= 256 { return Err(Error::invalid("text must not be longer than 255")); }
+            if text.len() >= 32 { *long = true; }
         }
 
         Ok(())
@@ -490,7 +492,7 @@ impl Text {
 
     /// Read a string until the null-terminator is found. Then skips the null-terminator.
     pub fn read_null_terminated<R: Read>(read: &mut R, max_len: usize) -> Result<Self> {
-        let mut bytes = SmallVec::new();
+        let mut bytes = smallvec![ u8::read(read)? ]; // null-terminated strings are always at least 1 byte
 
         loop {
             match u8::read(read)? {
@@ -603,7 +605,7 @@ impl ::std::fmt::Display for Text {
 impl ChannelList {
 
     /// Does not validate channel order.
-    pub fn new(channels: SmallVec<[Channel; 5]>) -> Self {
+    pub fn new(channels: SmallVec<[ChannelInfo; 5]>) -> Self {
         ChannelList {
             bytes_per_pixel: channels.iter().map(|channel| channel.sample_type.bytes_per_sample()).sum(),
             list: channels,
@@ -614,7 +616,7 @@ impl ChannelList {
 impl BlockType {
 
     /// The corresponding attribute type name literal
-    const TYPE_NAME: &'static [u8] = attribute_type_names::TEXT;
+    const TYPE_NAME: &'static [u8] = type_names::TEXT;
 
     /// Return a `BlockType` object from the specified attribute text value.
     pub fn parse(text: Text) -> Result<Self> {
@@ -689,7 +691,7 @@ impl IntRect {
             }
         }
 
-        let max_int = std::i32::MAX as i64 / 2; // cannot go bigger than that ever
+        let max_int = i32::MAX as i64 / 2; // cannot go bigger than that ever
 
         let self_max = Vec2(
             self.position.x() as i64 + self.size.width() as i64,
@@ -814,7 +816,7 @@ impl SampleType {
     }
 }
 
-impl Channel {
+impl ChannelInfo {
 
     /// Create a new channel with the specified properties and a sampling rate of (1,1).
     pub fn new(name: Text, sample_type: SampleType, quantize_linearly: bool) -> Self {
@@ -874,7 +876,7 @@ impl Channel {
         let x_sampling = i32_to_usize(i32::read(read)?, "x channel sampling")?;
         let y_sampling = i32_to_usize(i32::read(read)?, "y channel sampling")?;
 
-        Ok(Channel {
+        Ok(ChannelInfo {
             name, sample_type,
             quantize_linearly: is_linear,
             sampling: Vec2(x_sampling, y_sampling),
@@ -883,6 +885,8 @@ impl Channel {
 
     /// Validate this instance.
     pub fn validate(&self, allow_sampling: bool, data_window: IntRect, strict: bool) -> UnitResult {
+        self.name.validate(true, None)?; // TODO spec says this does not affect `requirements.long_names` but is that true?
+
         if self.sampling.x() == 0 || self.sampling.y() == 0 {
             return Err(Error::invalid("zero sampling factor"));
         }
@@ -914,7 +918,7 @@ impl ChannelList {
 
     /// Number of bytes this would consume in an exr file.
     pub fn byte_size(&self) -> usize {
-        self.list.iter().map(Channel::byte_size).sum::<usize>() + sequence_end::byte_size()
+        self.list.iter().map(ChannelInfo::byte_size).sum::<usize>() + sequence_end::byte_size()
     }
 
     /// Without validation, write this instance to the byte stream.
@@ -932,7 +936,7 @@ impl ChannelList {
     pub fn read(read: &mut PeekRead<impl Read>) -> Result<Self> {
         let mut channels = SmallVec::new();
         while !sequence_end::has_come(read)? {
-            channels.push(Channel::read(read)?);
+            channels.push(ChannelInfo::read(read)?);
         }
 
         Ok(ChannelList::new(channels))
@@ -1000,7 +1004,7 @@ impl Chromaticities {
     /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         Ok(Chromaticities {
-            red: Vec2(f32::read(read)?, f32::read(read)?), // TODO does this respect struct init order?
+            red: Vec2(f32::read(read)?, f32::read(read)?),
             green: Vec2(f32::read(read)?, f32::read(read)?),
             blue: Vec2(f32::read(read)?, f32::read(read)?),
             white: Vec2(f32::read(read)?, f32::read(read)?),
@@ -1025,7 +1029,7 @@ impl Compression {
             PXR24 => 5_u8,
             B44 => 6_u8,
             B44A => 7_u8,
-            DWAA => 8_u8,
+            DWAA(_) => 8_u8,
             DWAB => 9_u8,
         }.write(write)?;
         Ok(())
@@ -1043,7 +1047,7 @@ impl Compression {
             5 => PXR24,
             6 => B44,
             7 => B44A,
-            8 => DWAA,
+            8 => DWAA(None),
             9 => DWAB,
             _ => return Err(Error::unsupported("unknown compression method")),
         })
@@ -1248,7 +1252,7 @@ impl TileDescription {
 
     /// Validate this instance.
     pub fn validate(&self) -> UnitResult {
-        let max = std::i32::MAX as i64 / 2;
+        let max = i32::MAX as i64 / 2;
 
         if self.tile_size.width() == 0 || self.tile_size.height() == 0
             || self.tile_size.width() as i64 >= max || self.tile_size.height() as i64 >= max
@@ -1283,15 +1287,12 @@ pub fn read(read: &mut PeekRead<impl Read>, max_size: usize) -> Result<(Text, Re
     let name = Text::read_null_terminated(read, max_size)?;
     let kind = Text::read_null_terminated(read, max_size)?;
     let size = i32_to_usize(i32::read(read)?, "attribute size")?;
-
-    // TODO instead of reading into a vector,
-    //      remember position, seek to position + size on value read fail, return result<value>
     let value = AttributeValue::read(read, kind, size)?;
     Ok((name, value))
 }
 
 /// Validate this attribute.
-pub fn validate(name: &Text, value: &AttributeValue, long_names: bool, allow_sampling: bool, data_window: IntRect, strict: bool) -> UnitResult {
+pub fn validate(name: &Text, value: &AttributeValue, long_names: &mut bool, allow_sampling: bool, data_window: IntRect, strict: bool) -> UnitResult {
     name.validate(true, Some(long_names))?; // only name text has length restriction
     value.validate(allow_sampling, data_window, strict) // attribute value text length is never restricted
 }
@@ -1346,7 +1347,7 @@ impl AttributeValue {
     /// The exr name string of the type that an attribute can have.
     pub fn kind_name(&self) -> &[u8] {
         use self::AttributeValue::*;
-        use self::attribute_type_names as ty;
+        use self::type_names as ty;
 
         match *self {
             IntRect(_) =>  ty::I32BOX2,
@@ -1428,7 +1429,7 @@ impl AttributeValue {
     /// Returns `Err(Error)` for invalid byte sources, for example for invalid files.
     pub fn read(read: &mut PeekRead<impl Read>, kind: Text, byte_size: usize) -> Result<Result<Self>> {
         use self::AttributeValue::*;
-        use self::attribute_type_names as ty;
+        use self::type_names as ty;
 
         // always read bytes
         let attribute_bytes = u8::read_vec(read, byte_size, 128, None)?;
@@ -1586,8 +1587,10 @@ impl AttributeValue {
     }
 }
 
+
+
 /// Contains string literals identifying the type of an attribute.
-pub mod attribute_type_names {
+pub mod type_names {
     macro_rules! define_attribute_type_names {
         ( $($name: ident : $value: expr),* ) => {
             $(
@@ -1621,65 +1624,6 @@ pub mod attribute_type_names {
         TEXT:           b"string",
         TEXT_VECTOR:    b"stringvector",
         TILES:          b"tiledesc"
-    }
-}
-
-/// Collection of required attribute names
-pub mod required_attribute_names {
-    macro_rules! define_required_attribute_names {
-        ( $($name: ident  :  $value: expr),* ) => {
-            $(
-                /// The byte-string name of this required attribute as it appears in an exr file.
-                pub const $name: &'static [u8] = $value;
-            )*
-        };
-    }
-
-    define_required_attribute_names! {
-        TILES: b"tiles",
-        NAME: b"name",
-        BLOCK_TYPE: b"type",
-        DEEP_DATA_VERSION: b"version",
-        CHUNKS: b"chunkCount",
-        MAX_SAMPLES: b"maxSamplesPerPixel",
-        CHANNELS: b"channels",
-        COMPRESSION: b"compression",
-        DATA_WINDOW: b"dataWindow",
-        DISPLAY_WINDOW: b"displayWindow",
-        LINE_ORDER: b"lineOrder",
-        PIXEL_ASPECT: b"pixelAspectRatio",
-        WINDOW_CENTER: b"screenWindowCenter",
-        WINDOW_WIDTH: b"screenWindowWidth",
-        WHITE_LUMINANCE: b"whiteLuminance",
-        ADOPTED_NEUTRAL: b"adoptedNeutral",
-        RENDERING_TRANSFORM: b"renderingTransform",
-        LOOK_MOD_TRANSFORM: b"lookModTransform",
-        X_DENSITY: b"xDensity",
-        OWNER: b"owner",
-        COMMENTS: b"comments",
-        CAPTURE_DATE: b"capDate",
-        UTC_OFFSET: b"utcOffset",
-        LONGITUDE: b"longitude",
-        LATITUDE: b"latitude",
-        ALTITUDE: b"altitude",
-        FOCUS: b"focus",
-        EXPOSURE_TIME: b"expTime",
-        APERTURE: b"aperture",
-        ISO_SPEED: b"isoSpeed",
-        ENVIRONMENT_MAP: b"envmap",
-        KEY_CODE: b"keyCode",
-        TIME_CODE: b"timeCode",
-        WRAP_MODES: b"wrapmodes",
-        FRAMES_PER_SECOND: b"framesPerSecond",
-        MULTI_VIEW: b"multiView",
-        WORLD_TO_CAMERA: b"worldToCamera",
-        WORLD_TO_NDC: b"worldToNDC",
-        DEEP_IMAGE_STATE: b"deepImageState",
-        ORIGINAL_DATA_WINDOW: b"originalDataWindow",
-        DWA_COMPRESSION_LEVEL: b"dwaCompressionLevel",
-        PREVIEW: b"preview",
-        VIEW: b"view",
-        CHROMATICITIES: b"chromaticities"
     }
 }
 
@@ -1796,19 +1740,19 @@ mod test {
                 Text::from("leg count, again").unwrap(),
                 AttributeValue::ChannelList(ChannelList {
                     list: smallvec![
-                        Channel {
+                        ChannelInfo {
                             name: Text::from("Green").unwrap(),
                             sample_type: SampleType::F16,
                             quantize_linearly: false,
                             sampling: Vec2(1,2)
                         },
-                        Channel {
+                        ChannelInfo {
                             name: Text::from("Red").unwrap(),
                             sample_type: SampleType::F32,
                             quantize_linearly: true,
                             sampling: Vec2(1,2)
                         },
-                        Channel {
+                        ChannelInfo {
                             name: Text::from("Purple").unwrap(),
                             sample_type: SampleType::U32,
                             quantize_linearly: false,
@@ -1836,7 +1780,9 @@ mod test {
                 AttributeValue::I32(0),
             );
 
-            super::validate(&name, &value, false, false, IntRect::zero(), false).expect_err("name length check failed");
+            let mut long_names = false;
+            super::validate(&name, &value, &mut long_names, false, IntRect::zero(), false).unwrap();
+            assert!(long_names);
         }
 
         {
@@ -1845,7 +1791,7 @@ mod test {
                 AttributeValue::I32(0),
             );
 
-            super::validate(&name, &value, true, false, IntRect::zero(), false).expect_err("name length check failed");
+            super::validate(&name, &value, &mut false, false, IntRect::zero(), false).expect_err("name length check failed");
         }
     }
 }
