@@ -132,9 +132,10 @@ pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: In
         }
     }
 
+    // TODO fine-tune compression options
     let mut compressor = ZlibEncoder::new(
         Vec::with_capacity(raw.len()),
-        deflate::Compression::Default
+        deflate::Compression::Fast
     );
 
     debug_assert_eq!(raw.len(), write_index);
