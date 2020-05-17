@@ -49,7 +49,7 @@ fn search_previews_of_all_files() {
 #[test]
 #[ignore]
 pub fn test_roundtrip() {
-    let path = "tests/images/valid/openexr/MultiResolution/Kapaa.exr";
+    let path = "tests/images/valid/openexr/TestImages/GammaChart.exr";
 
     print!("starting read 1... ");
     io::stdout().flush().unwrap();

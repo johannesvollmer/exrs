@@ -32,16 +32,123 @@
 use super::*;
 
 use crate::error::Result;
-// use deflate::write::ZlibEncoder;
 use inflate::inflate_bytes_zlib;
 use crate::prelude::attributes::ChannelList;
 use crate::prelude::SampleType;
+use crate::prelude::meta::attributes::Channel;
+use lebe::io::ReadPrimitive;
+use deflate::write::ZlibEncoder;
 
 // scanline decompression routine, see https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfScanLineInputFile.cpp
 // 1. Uncompress the data, if necessary (If the line is uncompressed, it's in XDR format, regardless of the compressor's output format.)
 // 3. Convert one scan line's worth of pixel data back from the machine-independent representation
 // 4. Fill the frame buffer with pixel data, respective to sampling and whatnot
 
+
+pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: IntRect) -> Result<ByteVec> {
+    if remaining_bytes.is_empty() { return Ok(Vec::new()); }
+
+    let mut raw = vec![0_u8; channels.bytes_per_pixel * area.size.area()];
+    let mut write_index = 0;
+
+    for y in area.position.1 .. area.end().1 {
+        for channel in &channels.list {
+            if mod_p(y, channel.sampling.1 as i32) != 0 { continue; }
+            let sample_count_x = channel.subsampled_resolution(area.size).0; // numSamples(channel.sampling.0, area.size.0);
+
+            let mut indices = [0_usize; 4];
+            let mut previous_pixel: u32 = 0;
+
+            match channel.sample_type {
+                SampleType::F16 => {
+                    indices[0] = write_index;
+                    indices[1] = indices[0] + sample_count_x;
+                    write_index = indices[1] + sample_count_x;
+
+                    for _ in 0..sample_count_x {
+                        let pixel = u16::read_from_native_endian(&mut remaining_bytes).unwrap() as u32;
+                        let difference = pixel.wrapping_sub(previous_pixel);
+                        previous_pixel = pixel;
+
+                        raw[indices[0]] = (difference >> 8) as u8;
+                        raw[indices[1]] = difference as u8;
+
+                        indices[0] += 1;
+                        indices[1] += 1;
+                    }
+                    // for (int j = 0; j < n; ++j)
+                    // {
+                    //     half pixel;
+                    //
+                    //     pixel = *(const half *) inPtr;
+                    //     inPtr += sizeof (half);
+                    //
+                    //     unsigned int diff = pixel.bits() - previousPixel;
+                    //     previousPixel = pixel.bits();
+                    //
+                    //     *(ptr[0]++) = diff >> 8;
+                    //     *(ptr[1]++) = diff;
+                    // }
+                },
+
+                SampleType::U32 => {
+                    indices[0] = write_index;
+                    indices[1] = indices[0] + sample_count_x;
+                    indices[2] = indices[1] + sample_count_x;
+                    indices[3] = indices[2] + sample_count_x;
+                    write_index = indices[3] + sample_count_x;
+
+                    for _ in 0..sample_count_x {
+                        let pixel = u32::read_from_native_endian(&mut remaining_bytes).unwrap();
+                        let difference = pixel.wrapping_sub(previous_pixel);
+                        previous_pixel = pixel;
+
+                        raw[indices[0]] = (difference >> 24) as u8;
+                        raw[indices[1]] = (difference >> 16) as u8;
+                        raw[indices[2]] = (difference >> 8) as u8;
+                        raw[indices[3]] = difference as u8;
+
+                        indices[0] += 1;
+                        indices[1] += 1;
+                        indices[2] += 1;
+                        indices[3] += 1;
+                    }
+                },
+
+                SampleType::F32 => {
+                    indices[0] = write_index;
+                    indices[1] = indices[0] + sample_count_x;
+                    indices[2] = indices[1] + sample_count_x;
+                    write_index = indices[2] + sample_count_x;
+
+                    for _ in 0..sample_count_x {
+                        let pixel = f32::read_from_native_endian(&mut remaining_bytes).unwrap();
+                        let pixel = f32_to_f24(pixel);
+
+                        let difference = pixel.wrapping_sub(previous_pixel);
+                        previous_pixel = pixel;
+
+                        raw[indices[0]] = (difference >> 16) as u8;
+                        raw[indices[1]] = (difference >> 8) as u8;
+                        raw[indices[2]] = difference as u8;
+
+                        indices[0] += 1;
+                        indices[1] += 1;
+                        indices[2] += 1;
+                    }
+                },
+            }
+        }
+    }
+
+    let mut compressor = ZlibEncoder::new(
+        Vec::with_capacity(raw.len()),
+        deflate::Compression::Default
+    );
+
+    std::io::copy(&mut raw.as_slice(), &mut compressor)?;
+    Ok(compressor.finish()?)
+}
 
 pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expected_byte_size: usize) -> Result<ByteVec> {
     if bytes.is_empty() { return Ok(Vec::new()) }
@@ -50,9 +157,9 @@ pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expec
         .map_err(|msg| Error::invalid(msg))?; // TODO share code with zip?
 
     let mut read_index = 0;
-    let mut write = Vec::with_capacity(expected_byte_size.min(2048*2));
+    let mut write = Vec::with_capacity(expected_byte_size.min(2048*4));
 
-    for y in area.position.1 .. area.max().1 {
+    for y in area.position.1 .. area.end().1 {
         for channel in &channels.list {
             if mod_p(y, channel.sampling.1 as i32) != 0 { continue; }
 
@@ -70,7 +177,7 @@ pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expec
                     // ptr[1] = ptr[0] + n;
                     // tmpBufferEnd = ptr[1] + n;
 
-                    if read_index >= raw.len() {
+                    if read_index > raw.len() {
                         panic!("not enough data");
                         // return Err();
 
@@ -80,11 +187,11 @@ pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expec
 
                     for _ in 0..sample_count_x {
 
-                        let diff: u32 = ((raw[indices[0]] as u32) << 8) | raw[indices[1]] as u32;
+                        let difference: u32 = ((raw[indices[0]] as u32) << 8) | (raw[indices[1]] as u32);
                         indices[0] += 1;
                         indices[1] += 1;
 
-                        pixel_accumulation += diff;
+                        pixel_accumulation += difference;
 
                         let value = pixel_accumulation as u16; // TODO like that??
                         write.extend_from_slice(&value.to_ne_bytes());
@@ -114,7 +221,7 @@ pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expec
                     // ptr[3] = ptr[2] + n;
                     // tmpBufferEnd = ptr[3] + n;
 
-                    if read_index >= raw.len() {
+                    if read_index > raw.len() {
                         panic!("not enough data");
                         // return Err();
 
@@ -162,7 +269,7 @@ pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expec
                     // ptr[2] = ptr[1] + n;
                     // tmpBufferEnd = ptr[2] + n;
 
-                    if read_index >= raw.len() {
+                    if read_index > raw.len() {
                         panic!("not enough data");
                         // return Err();
 
@@ -231,7 +338,6 @@ fn div_p (x: i32, y: i32) -> i32 {
 
 /// Conversion from 32-bit to 24-bit floating-point numbers.
 /// Reverse conversion is just a simple 8-bit left shift.
-#[allow(unused)]
 pub fn f32_to_f24(float: f32) -> u32 {
     let bits = float.to_bits();
 

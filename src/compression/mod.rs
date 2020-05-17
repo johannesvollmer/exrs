@@ -142,28 +142,28 @@ impl std::fmt::Display for Compression {
 impl Compression {
 
     /// Compress the image section of bytes.
-    pub fn compress_image_section(self, packed: ByteVec) -> Result<ByteVec> {
+    pub fn compress_image_section(self, header: &Header, data: ByteVec, tile: IntRect) -> Result<ByteVec> {
         use self::Compression::*;
 
         let compressed = match self {
-            Uncompressed => return Ok(packed),
-            ZIP16 => zip::compress_bytes(&packed),
-            ZIP1 => zip::compress_bytes(&packed),
-            RLE => rle::compress_bytes(&packed),
+            Uncompressed => return Ok(data),
+            ZIP16 => zip::compress_bytes(&data),
+            ZIP1 => zip::compress_bytes(&data),
+            RLE => rle::compress_bytes(&data),
 //            PIZ => piz::compress_bytes(packed)?,
-//             PXR24 => pxr24::compress_image_section(packed),
+            PXR24 => pxr24::compress(&header.channels, &data, tile),
             _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
         };
 
         let compressed = compressed
             .map_err(|_| Error::invalid("compressed content"))?;
 
-        if compressed.len() < packed.len() {
+        if compressed.len() < data.len() {
             // FIXME handle endianness
             Ok(compressed)
         }
         else {
-            Ok(packed)
+            Ok(data)
         }
     }
 
