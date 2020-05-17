@@ -38,6 +38,8 @@ use crate::prelude::SampleType;
 use crate::prelude::meta::attributes::Channel;
 use lebe::io::ReadPrimitive;
 use deflate::write::ZlibEncoder;
+use std::ops::Index;
+
 
 // scanline decompression routine, see https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfScanLineInputFile.cpp
 // 1. Uncompress the data, if necessary (If the line is uncompressed, it's in XDR format, regardless of the compressor's output format.)
@@ -54,7 +56,7 @@ pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: In
     for y in area.position.1 .. area.end().1 {
         for channel in &channels.list {
             if mod_p(y, channel.sampling.1 as i32) != 0 { continue; }
-            let sample_count_x = channel.subsampled_resolution(area.size).0; // numSamples(channel.sampling.0, area.size.0);
+            let sample_count_x = channel.subsampled_resolution(area.size).0;
 
             let mut indices = [0_usize; 4];
             let mut previous_pixel: u32 = 0;
@@ -76,19 +78,6 @@ pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: In
                         indices[0] += 1;
                         indices[1] += 1;
                     }
-                    // for (int j = 0; j < n; ++j)
-                    // {
-                    //     half pixel;
-                    //
-                    //     pixel = *(const half *) inPtr;
-                    //     inPtr += sizeof (half);
-                    //
-                    //     unsigned int diff = pixel.bits() - previousPixel;
-                    //     previousPixel = pixel.bits();
-                    //
-                    //     *(ptr[0]++) = diff >> 8;
-                    //     *(ptr[1]++) = diff;
-                    // }
                 },
 
                 SampleType::U32 => {
@@ -146,9 +135,11 @@ pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: In
         deflate::Compression::Default
     );
 
-    std::io::copy(&mut raw.as_slice(), &mut compressor)?;
+    std::io::copy(&mut raw.index(0..write_index), &mut compressor)?;
     Ok(compressor.finish()?)
 }
+
+
 
 pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expected_byte_size: usize) -> Result<ByteVec> {
     if bytes.is_empty() { return Ok(Vec::new()) }
@@ -163,7 +154,7 @@ pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expec
         for channel in &channels.list {
             if mod_p(y, channel.sampling.1 as i32) != 0 { continue; }
 
-            let sample_count_x = channel.subsampled_resolution(area.size).0; // numSamples(channel.sampling.0, area.size.0);
+            let sample_count_x = channel.subsampled_resolution(area.size).0;
 
             let mut indices = [0_usize; 4];
             let mut pixel_accumulation: u32 = 0;
@@ -173,16 +164,9 @@ pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expec
                     indices[0] = read_index;
                     indices[1] = indices[0] + sample_count_x;
                     read_index = indices[1] + sample_count_x;
-                    // ptr[0] = tmpBufferEnd;
-                    // ptr[1] = ptr[0] + n;
-                    // tmpBufferEnd = ptr[1] + n;
 
                     if read_index > raw.len() {
-                        panic!("not enough data");
-                        // return Err();
-
-                        // if ( (uLongf)(tmpBufferEnd - _tmpBuffer) > tmpSize)
-                        // notEnoughData();
+                        return Err(Error::invalid("not enough data"));
                     }
 
                     for _ in 0..sample_count_x {
@@ -191,22 +175,11 @@ pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expec
                         indices[0] += 1;
                         indices[1] += 1;
 
-                        pixel_accumulation += difference;
+                        pixel_accumulation = pixel_accumulation.overflowing_add(difference).0;
 
                         let value = pixel_accumulation as u16; // TODO like that??
                         write.extend_from_slice(&value.to_ne_bytes());
                     }
-                    // for (int j = 0; j < n; ++j)
-                    // {
-                    //     unsigned int diff = (*(ptr[0]++) << 8) |
-                    //     *(ptr[1]++);
-                    //
-                    //     pixel += diff;
-                    //
-                    //     half * hPtr = (half *) writePtr;
-                    //     hPtr->setBits ((unsigned short) pixel);
-                    //     writePtr += sizeof (half);
-                    // }
                 },
 
                 SampleType::U32 => {
@@ -215,22 +188,13 @@ pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expec
                     indices[2] = indices[1] + sample_count_x;
                     indices[3] = indices[2] + sample_count_x;
                     read_index = indices[3] + sample_count_x;
-                    // ptr[0] = tmpBufferEnd;
-                    // ptr[1] = ptr[0] + n;
-                    // ptr[2] = ptr[1] + n;
-                    // ptr[3] = ptr[2] + n;
-                    // tmpBufferEnd = ptr[3] + n;
 
                     if read_index > raw.len() {
-                        panic!("not enough data");
-                        // return Err();
-
-                        // if ( (uLongf)(tmpBufferEnd - _tmpBuffer) > tmpSize)
-                        // notEnoughData();
+                        return Err(Error::invalid("not enough data"));
                     }
 
                     for _ in 0..sample_count_x {
-                        let diff: u32 = ((raw[indices[0]] as u32) << 24)
+                        let difference: u32 = ((raw[indices[0]] as u32) << 24)
                             | ((raw[indices[1]] as u32) << 16)
                             | ((raw[indices[2]] as u32) << 8)
                             | (raw[indices[3]] as u32); // TODO use from_le_bytes instead?
@@ -240,23 +204,10 @@ pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expec
                         indices[2] += 1;
                         indices[3] += 1;
 
-                        pixel_accumulation += diff;
+                        pixel_accumulation = pixel_accumulation.overflowing_add(difference).0;
 
                         write.extend_from_slice(&pixel_accumulation.to_ne_bytes());
                     }
-                    // for (int j = 0; j < n; ++j) {
-                    //     unsigned int diff = (*(ptr[0]++) << 24) |
-                    //     (*(ptr[1]++) << 16) |
-                    //     (*(ptr[2]++) <<  8) |
-                    //     *(ptr[3]++);
-                    //
-                    //     pixel += diff;
-                    //
-                    //     char *pPtr = (char *) &pixel;
-                    //
-                    //     for (size_t k = 0; k < sizeof (pixel); ++k)
-                    //     *writePtr++ = *pPtr++;
-                    // }
                 },
 
                 SampleType::F32 => {
@@ -264,21 +215,13 @@ pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expec
                     indices[1] = indices[0] + sample_count_x;
                     indices[2] = indices[1] + sample_count_x;
                     read_index = indices[2] + sample_count_x;
-                    // ptr[0] = tmpBufferEnd;
-                    // ptr[1] = ptr[0] + n;
-                    // ptr[2] = ptr[1] + n;
-                    // tmpBufferEnd = ptr[2] + n;
 
                     if read_index > raw.len() {
-                        panic!("not enough data");
-                        // return Err();
-
-                        // if ( (uLongf)(tmpBufferEnd - _tmpBuffer) > tmpSize)
-                        // notEnoughData();
+                        return Err(Error::invalid("not enough data"));
                     }
 
                     for _ in 0..sample_count_x {
-                        let diff: u32 = ((raw[indices[0]] as u32) << 24)
+                        let difference: u32 = ((raw[indices[0]] as u32) << 24)
                             | ((raw[indices[1]] as u32) << 16)
                             | ((raw[indices[2]] as u32) << 8); // TODO use from_le_bytes instead?
 
@@ -286,30 +229,17 @@ pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expec
                         indices[1] += 1;
                         indices[2] += 1;
 
-                        pixel_accumulation += diff;
+                        pixel_accumulation = pixel_accumulation.overflowing_add(difference).0;
 
                         write.extend_from_slice(&pixel_accumulation.to_ne_bytes());
                     }
-
-                    // for (int j = 0; j < n; ++j){
-                    //     unsigned int diff = (*(ptr[0]++) << 24) |
-                    //     (*(ptr[1]++) << 16) |
-                    //     (*(ptr[2]++) <<  8);
-                    //     pixel += diff;
-                    //
-                    //     char *pPtr = (char *) &pixel;
-                    //
-                    //     for (size_t k = 0; k < sizeof (pixel); ++k)
-                    //     *writePtr++ = *pPtr++;
-                    // }
                 }
             }
         }
     }
 
     if read_index != raw.len() {
-        panic!("too much data");
-        // return Err()
+        return Err(Error::invalid("too much data"));
     }
 
     Ok(write)
