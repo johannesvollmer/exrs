@@ -121,11 +121,11 @@ please leave an issue on this repository, containing the image file.
     - [x] 100% correct meta data
     - [x] Compression Methods
         - [x] Uncompressed
-        - [x] ZIPS
-        - [x] ZIP
-        - [x] RLE
-        - [ ] PIZ
-        - [ ] RXR24
+        - [x] ZIPS (lossless)
+        - [x] ZIP (lossless)
+        - [x] RLE (lossless)
+        - [ ] PIZ (lossless)
+        - [x] RXR24 (lossless for f16 and u32)
         - [ ] B44, B44A
         - [ ] DWAA, DWAB
     
