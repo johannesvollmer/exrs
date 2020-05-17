@@ -139,104 +139,73 @@ pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: In
 }
 
 
-
 pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expected_byte_size: usize) -> Result<ByteVec> {
     if bytes.is_empty() { return Ok(Vec::new()) }
 
     let raw = inflate_bytes_zlib(bytes)
         .map_err(|msg| Error::invalid(msg))?; // TODO share code with zip?
 
-    let mut read_index = 0;
-    let mut write = Vec::with_capacity(expected_byte_size.min(2048*4));
+    let mut read = raw.as_slice();
+    let mut out = Vec::with_capacity(expected_byte_size.min(2048*4));
 
     for y in area.position.1 .. area.end().1 {
         for channel in &channels.list {
             if mod_p(y, channel.sampling.1 as i32) != 0 { continue; }
 
             let sample_count_x = channel.subsampled_resolution(area.size).0;
+            let mut read_samples = ||{
+                if sample_count_x > read.len() { return Err(Error::invalid("not enough data")) }
+                let (samples, rest) = read.split_at(sample_count_x);
+                read = rest;
+                Ok(samples)
+            };
 
-            let mut read_indices = [0_usize; 4];
             let mut pixel_accumulation: u32 = 0;
 
             match channel.sample_type {
                 SampleType::F16 => {
-                    read_indices[0] = read_index;
-                    read_indices[1] = read_indices[0] + sample_count_x;
-                    read_index = read_indices[1] + sample_count_x;
+                    let sample_byte_pairs = read_samples()?.iter()
+                        .zip(read_samples()?);
 
-                    if read_index > raw.len() {
-                        return Err(Error::invalid("not enough data"));
-                    }
-
-                    for _ in 0..sample_count_x {
-                        let difference = u16::from_ne_bytes([raw[read_indices[1]], raw[read_indices[0]]]) as u32;
-                        read_indices[0] += 1;
-                        read_indices[1] += 1;
-
+                    for (&in_byte_0, &in_byte_1) in sample_byte_pairs {
+                        let difference = u16::from_ne_bytes([in_byte_1, in_byte_0]) as u32;
                         pixel_accumulation = pixel_accumulation.overflowing_add(difference).0;
-                        write.extend_from_slice(&(pixel_accumulation as u16).to_ne_bytes());
+                        out.extend_from_slice(&(pixel_accumulation as u16).to_ne_bytes());
                     }
                 },
 
                 SampleType::U32 => {
-                    read_indices[0] = read_index;
-                    read_indices[1] = read_indices[0] + sample_count_x;
-                    read_indices[2] = read_indices[1] + sample_count_x;
-                    read_indices[3] = read_indices[2] + sample_count_x;
-                    read_index = read_indices[3] + sample_count_x;
+                    let sample_byte_quads = read_samples()?.iter()
+                        .zip(read_samples()?)
+                        .zip(read_samples()?)
+                        .zip(read_samples()?);
 
-                    if read_index > raw.len() {
-                        return Err(Error::invalid("not enough data"));
-                    }
-
-                    for _ in 0..sample_count_x {
-                        let difference = u32::from_ne_bytes([
-                            raw[read_indices[3]], raw[read_indices[2]],
-                            raw[read_indices[1]], raw[read_indices[0]],
-                        ]);
-
-                        read_indices[0] += 1;
-                        read_indices[1] += 1;
-                        read_indices[2] += 1;
-                        read_indices[3] += 1;
-
+                    for (((&in_byte_0, &in_byte_1), &in_byte_2), &in_byte_3) in sample_byte_quads {
+                        let difference = u32::from_ne_bytes([in_byte_3, in_byte_2, in_byte_1, in_byte_0]);
                         pixel_accumulation = pixel_accumulation.overflowing_add(difference).0;
-                        write.extend_from_slice(&pixel_accumulation.to_ne_bytes());
+                        out.extend_from_slice(&pixel_accumulation.to_ne_bytes());
                     }
                 },
 
                 SampleType::F32 => {
-                    read_indices[0] = read_index;
-                    read_indices[1] = read_indices[0] + sample_count_x;
-                    read_indices[2] = read_indices[1] + sample_count_x;
-                    read_index = read_indices[2] + sample_count_x;
+                    let sample_byte_triplets = read_samples()?.iter()
+                        .zip(read_samples()?).zip(read_samples()?);
 
-                    if read_index > raw.len() {
-                        return Err(Error::invalid("not enough data"));
-                    }
-
-                    for _ in 0..sample_count_x {
-                        let difference = u32::from_ne_bytes([
-                            0, raw[read_indices[2]], raw[read_indices[1]], raw[read_indices[0]],
-                        ]);
-
-                        read_indices[0] += 1;
-                        read_indices[1] += 1;
-                        read_indices[2] += 1;
-
+                    for ((&in_byte_0, &in_byte_1), &in_byte_2) in sample_byte_triplets {
+                        let difference = u32::from_ne_bytes([0, in_byte_2, in_byte_1, in_byte_0]);
                         pixel_accumulation = pixel_accumulation.overflowing_add(difference).0;
-                        write.extend_from_slice(&pixel_accumulation.to_ne_bytes());
+                        out.extend_from_slice(&pixel_accumulation.to_ne_bytes());
                     }
                 }
             }
         }
     }
 
-    if read_index != raw.len() {
+    if !read.is_empty() {
         return Err(Error::invalid("too much data"));
     }
 
-    Ok(write)
+    Ok(out)
 }
 
 
