@@ -55,81 +55,77 @@ pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: In
         .sum();
 
     let mut raw = vec![0_u8; bytes_per_pixel * area.size.area()];
-    let mut write_index = 0;
 
-    for y in area.position.1 .. area.end().1 {
-        for channel in &channels.list {
-            if mod_p(y, channel.sampling.1 as i32) != 0 { continue; }
-            let sample_count_x = channel.subsampled_resolution(area.size).0;
+    {
+        let mut write = raw.as_mut_slice();
 
-            let mut write_indices = [0_usize; 4];
-            let mut previous_pixel: u32 = 0;
+        for y in area.position.1..area.end().1 {
+            for channel in &channels.list {
+                if mod_p(y, channel.sampling.1 as i32) != 0 { continue; }
 
-            match channel.sample_type {
-                SampleType::F16 => {
-                    write_indices[0] = write_index;
-                    write_indices[1] = write_indices[0] + sample_count_x;
-                    write_index = write_indices[1] + sample_count_x;
+                // this apparently can't be a closure in Rust 1.43 due to borrowing ambiguity
+                let sample_count_x = channel.subsampled_resolution(area.size).0;
+                macro_rules! split_off_write_slice { () => {{
+                    let (slice, rest) = write.split_at_mut(sample_count_x);
+                    write = rest;
+                    slice
+                }}; }
 
-                    for _ in 0..sample_count_x {
-                        let pixel = u16::read_from_native_endian(&mut remaining_bytes).unwrap() as u32;
-                        let difference = pixel.wrapping_sub(previous_pixel);
-                        previous_pixel = pixel;
+                let mut previous_pixel: u32 = 0;
 
-                        raw[write_indices[0]] = (difference >> 8) as u8;
-                        raw[write_indices[1]] = difference as u8;
+                match channel.sample_type {
+                    SampleType::F16 => {
+                        let out_byte_tuples = split_off_write_slice!().iter_mut()
+                            .zip(split_off_write_slice!());
 
-                        write_indices[0] += 1;
-                        write_indices[1] += 1;
-                    }
-                },
+                        for (out_byte_0, out_byte_1) in out_byte_tuples {
+                            let pixel = u16::read_from_native_endian(&mut remaining_bytes).unwrap() as u32;
+                            let [byte_1, byte_0] = (pixel.wrapping_sub(previous_pixel) as u16).to_ne_bytes();
 
-                SampleType::U32 => {
-                    write_indices[0] = write_index;
-                    write_indices[1] = write_indices[0] + sample_count_x;
-                    write_indices[2] = write_indices[1] + sample_count_x;
-                    write_indices[3] = write_indices[2] + sample_count_x;
-                    write_index = write_indices[3] + sample_count_x;
+                            *out_byte_0 = byte_0;
+                            *out_byte_1 = byte_1;
+                            previous_pixel = pixel;
+                        }
+                    },
 
-                    for _ in 0..sample_count_x {
-                        let pixel = u32::read_from_native_endian(&mut remaining_bytes).unwrap();
-                        let difference = pixel.wrapping_sub(previous_pixel);
-                        previous_pixel = pixel;
+                    SampleType::U32 => {
+                        let out_byte_quadruplets = split_off_write_slice!().iter_mut()
+                            .zip(split_off_write_slice!())
+                            .zip(split_off_write_slice!())
+                            .zip(split_off_write_slice!());
 
-                        raw[write_indices[0]] = (difference >> 24) as u8;
-                        raw[write_indices[1]] = (difference >> 16) as u8;
-                        raw[write_indices[2]] = (difference >> 8) as u8;
-                        raw[write_indices[3]] = difference as u8;
+                        for (((out_byte_0, out_byte_1), out_byte_2), out_byte_3) in out_byte_quadruplets {
+                            let pixel = u32::read_from_native_endian(&mut remaining_bytes).unwrap();
+                            let [byte_3, byte_2, byte_1, byte_0] = pixel.wrapping_sub(previous_pixel).to_ne_bytes();
 
-                        write_indices[0] += 1;
-                        write_indices[1] += 1;
-                        write_indices[2] += 1;
-                        write_indices[3] += 1;
-                    }
-                },
+                            *out_byte_0 = byte_0;
+                            *out_byte_1 = byte_1;
+                            *out_byte_2 = byte_2;
+                            *out_byte_3 = byte_3;
+                            previous_pixel = pixel;
+                        }
+                    },
 
-                SampleType::F32 => {
-                    write_indices[0] = write_index;
-                    write_indices[1] = write_indices[0] + sample_count_x;
-                    write_indices[2] = write_indices[1] + sample_count_x;
-                    write_index = write_indices[2] + sample_count_x;
+                    SampleType::F32 => {
+                        let out_byte_triplets = split_off_write_slice!().iter_mut()
+                            .zip(split_off_write_slice!())
+                            .zip(split_off_write_slice!());
 
-                    for _ in 0..sample_count_x {
-                        let pixel = f32_to_f24(f32::read_from_native_endian(&mut remaining_bytes).unwrap());
-                        let difference = pixel.wrapping_sub(previous_pixel);
-                        previous_pixel = pixel;
+                        for ((out_byte_0, out_byte_1), out_byte_2) in out_byte_triplets {
+                            let pixel = f32_to_f24(f32::read_from_native_endian(&mut remaining_bytes).unwrap());
+                            let [byte_2, byte_1, byte_0, _] = pixel.wrapping_sub(previous_pixel).to_ne_bytes();
+                            previous_pixel = pixel;
 
-                        raw[write_indices[0]] = (difference >> 16) as u8;
-                        raw[write_indices[1]] = (difference >> 8) as u8;
-                        raw[write_indices[2]] = difference as u8;
-
-                        write_indices[0] += 1;
-                        write_indices[1] += 1;
-                        write_indices[2] += 1;
-                    }
-                },
+                            *out_byte_0 = byte_0;
+                            *out_byte_1 = byte_1;
+                            *out_byte_2 = byte_2;
+                        }
+                    },
+                }
             }
         }
+
+        debug_assert_eq!(write.len(), 0);
     }
 
     // TODO fine-tune compression options
@@ -138,7 +134,6 @@ pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: In
         deflate::Compression::Fast
     );
 
-    debug_assert_eq!(raw.len(), write_index);
     std::io::copy(&mut raw.as_slice(), &mut compressor)?;
     Ok(compressor.finish()?)
 }
