@@ -1,8 +1,6 @@
 
-// see https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfPxr24Compressor.cpp
-
-
 //! Lossy compression for F32 data, but lossless compression for U32 and F16 data.
+// see https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfPxr24Compressor.cpp
 
 // This compressor is based on source code that was contributed to
 // OpenEXR by Pixar Animation Studios. The compression method was
@@ -50,7 +48,13 @@ use std::ops::Index;
 pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: IntRect) -> Result<ByteVec> {
     if remaining_bytes.is_empty() { return Ok(Vec::new()); }
 
-    let mut raw = vec![0_u8; channels.bytes_per_pixel * area.size.area()];
+    let bytes_per_pixel: usize = channels.list.iter()
+        .map(|channel| match channel.sample_type {
+            SampleType::F16 => 2, SampleType::F32 => 3, SampleType::U32 => 4,
+        })
+        .sum();
+
+    let mut raw = vec![0_u8; bytes_per_pixel * area.size.area()];
     let mut write_index = 0;
 
     for y in area.position.1 .. area.end().1 {
@@ -135,7 +139,8 @@ pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: In
         deflate::Compression::Default
     );
 
-    std::io::copy(&mut raw.index(0..write_index), &mut compressor)?;
+    debug_assert_eq!(raw.len(), write_index);
+    std::io::copy(&mut raw.as_slice(), &mut compressor)?;
     Ok(compressor.finish()?)
 }
 
