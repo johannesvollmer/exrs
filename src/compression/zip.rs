@@ -29,9 +29,10 @@ pub fn compress_bytes(packed: Bytes<'_>) -> Result<ByteVec> {
     samples_to_differences(&mut packed);
 
     {
+        // TODO fine-tune compression options
         let mut compressor = ZlibEncoder::new(
             Vec::with_capacity(packed.len()),
-            deflate::Compression::Default
+            deflate::Compression::Fast
         );
 
         io::copy(&mut packed.as_slice(), &mut compressor)?;

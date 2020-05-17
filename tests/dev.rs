@@ -48,7 +48,7 @@ fn search_previews_of_all_files() {
 
 #[test]
 #[ignore]
-pub fn test_roundtrip() {
+pub fn dev_roundtrip() {
     // let path = "tests/images/valid/openexr/TestImages/GammaChart.exr";
     let path = "tests/images/valid/custom/crowskull/crow_pxr24.exr";
 
@@ -76,7 +76,7 @@ pub fn test_roundtrip() {
         rgba::pixels::flattened_pixel_getter(&pixels)
     ).unwrap();
 
-    println!("...write successfull");
+    println!("...write successfull: {}mb", tmp_bytes.len() as f32/ 1000000.0);
 
     print!("starting read 2... ");
     io::stdout().flush().unwrap();
