@@ -42,10 +42,12 @@ pub enum Compression {
 
     /// Uses ZIP compression to compress each line. Slowly produces small images
     /// which can be read with moderate speed. This compression method is lossless.
+    /// Might be slightly faster but larger than `ZIP16´.
     ZIP1, // TODO specify zip compression level?
 
     /// Uses ZIP compression to compress blocks of 16 lines. Slowly produces small images
     /// which can be read with moderate speed. This compression method is lossless.
+    /// Might be slightly slower but smaller than `ZIP1´.
     ZIP16, // TODO specify zip compression level?
 
     /// PIZ compression works well for noisy and natural images. Works better with larger tiles.

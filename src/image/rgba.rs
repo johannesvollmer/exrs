@@ -191,12 +191,6 @@ impl Encoding {
         }
     }
 
-    /// Uses no compression with scan line blocks.
-    #[inline]
-    pub fn uncompressed() -> Self {
-        Self::for_compression(Compression::Uncompressed)
-    }
-
     /// Uses RLE compression with tiled 128x128 blocks.
     #[inline]
     pub fn fast() -> Self {
