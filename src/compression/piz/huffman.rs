@@ -1,14 +1,13 @@
-
 //! 16-bit Huffman compression and decompression.
 //! Huffman compression and decompression routines written
 //!	by Christian Rouet for his PIZ image file format.
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/88246d991e0318c043e6f584f7493da08a31f9f8/OpenEXR/IlmImf/ImfHuf.cpp
 
-use std::io::{Read, Write};
-use crate::error::{UnitResult, Result};
-use smallvec::alloc::collections::BinaryHeap;
+use crate::error::{Result, UnitResult};
 use crate::math::RoundingMode;
-use crate::io::Data;
+use crate::{inspect, io::Data};
+use min_max_heap::MinMaxHeap;
+use std::io::{Read, Write};
 
 // void
 // hufUncompress (const char compressed[],
@@ -131,23 +130,51 @@ pub fn decompress(compressed: &[u8], result: &mut Vec<u16>) -> UnitResult {
     Ok(())
 }
 
-pub fn _compress(_uncompressed: &[u16], _result: &mut [u8]) -> UnitResult {
-    unimplemented!()
+pub fn compress(uncompressed: &[u16], result: &mut Vec<u8>) -> UnitResult {
+    if uncompressed.is_empty() {
+        return Ok(());
+    }
+    let mut frequencies = vec![0_i64; ENCODING_TABLE_SIZE]; // FIXME May use smallvec
+    count_frequencies(&mut frequencies, uncompressed);
+    let (min_index, max_index) = build_encoding_table(&mut frequencies);
+
+    let table_length = pack_encoding_table(&frequencies, min_index, max_index, &mut result[20..])?;
+    let encode_start = table_length + 20; // We need to add the initial offset
+    
+    let n_bits = encode(
+        &frequencies,
+        uncompressed,
+        max_index,
+        &mut result[encode_start..],
+    )?;
+    let data_length = (n_bits + 7) / 8;
+
+    let mut buffer = std::io::Cursor::new(result);
+    buffer.set_position(0);
+
+    (min_index as u32).write(&mut buffer)?;
+    (max_index as u32).write(&mut buffer)?;
+    (table_length as u32).write(&mut buffer)?;
+    u32::from(n_bits).write(&mut buffer)?;
+    0_u32.write(&mut buffer)?;
+
+    let result = buffer.into_inner();
+    let final_size = table_length + data_length as usize + 19;
+    result.resize(final_size, 0);
+    Ok(())
 }
 
-
-
-const ENCODE_BITS: usize = 16;			// literal (value) bit length
-const DECODE_BITS: usize = 14;			// decoding bit size (>= 8)
+const ENCODE_BITS: usize = 16; // literal (value) bit length
+const DECODE_BITS: usize = 14; // decoding bit size (>= 8)
 
 const ENCODING_TABLE_SIZE: usize = (1 << ENCODE_BITS) + 1;
-const DECODING_TABLE_SIZE: usize =  1 << DECODE_BITS;
+const DECODING_TABLE_SIZE: usize = 1 << DECODE_BITS;
 const DECODE_MASK: usize = DECODING_TABLE_SIZE - 1;
 
 const SHORT_ZEROCODE_RUN: i64 = 59;
-const LONG_ZEROCODE_RUN: i64  = 63;
-const SHORTEST_LONG_RUN: i64  = 2 + LONG_ZEROCODE_RUN - SHORT_ZEROCODE_RUN;
-const _LONGEST_LONG_RUN: i64   = 255 + SHORTEST_LONG_RUN;
+const LONG_ZEROCODE_RUN: i64 = 63;
+const SHORTEST_LONG_RUN: i64 = 2 + LONG_ZEROCODE_RUN - SHORT_ZEROCODE_RUN;
+const LONGEST_LONG_RUN: i64 = 255 + SHORTEST_LONG_RUN;
 
 //    struct HufDec
 //    {				// short code		long code
@@ -157,7 +184,6 @@ const _LONGEST_LONG_RUN: i64   = 255 + SHORTEST_LONG_RUN;
 //    int	*	p;		// 0			lits
 //    };
 
-
 // #[derive(Default, Clone, Debug, Eq, PartialEq)]
 // struct Code { // TODO use enum
 //     short_code_len: i8,             // short: code length   | long: 0
@@ -165,7 +191,6 @@ const _LONGEST_LONG_RUN: i64   = 255 + SHORTEST_LONG_RUN;
 //
 //     long_code_lits: Vec<u16>,       // short: [],           | long: lits
 // }
-
 
 // FIXME
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -181,7 +206,6 @@ struct ShortCode {
     value: i32,
     len: u8
 }
-
 
 // void
 // hufDecode
@@ -219,7 +243,6 @@ fn decode(
 //     while (in < ie)
 //     {
     while !read.is_empty() {
-
 // 	getChar (c, lc, in);
         read_byte(&mut code_bits, &mut code_bit_count, &mut read)?;
 
@@ -228,7 +251,6 @@ fn decode(
 // 	while (lc >= HUF_DECBITS)
 // 	{
         while code_bit_count >= DECODE_BITS as i64 {
-
 // 	    const HufDec pl = hdecod[(c >> (lc-HUF_DECBITS)) & HUF_DECMASK];
             let pl_index = ((code_bits >> (code_bit_count - DECODE_BITS as i64)) & DECODE_MASK as i64) as usize;
             let pl = &decoding_table[pl_index];
@@ -239,7 +261,6 @@ fn decode(
 // 		lc -= pl.len;
 // 		getCode (pl.lit, rlc, c, lc, in, out, outb, oe);
 // 	    }
-
 
             if let Code::Short(code) = pl {
                 code_bit_count -= code.len as i64;
@@ -277,8 +298,6 @@ fn decode(
 
                 // TODO pl.lits.iter().find(|lit| ...).ok_or(Err())
                 while code_search_index < long_codes.len() {
-
-
 // 		    int	l = hufLength (hcode[pl.p[j]]);
 //                     debug_assert!(j > 0);
 
@@ -336,10 +355,7 @@ fn decode(
 // 	    }
 // 	}
 //     }
-
-
         }
-
     }
 
 //
@@ -446,7 +462,6 @@ fn build_decoding_table(encoding_table: &[i64], min_hcode_index: usize, max_hcod
 // 	    // Long code: add a secondary entry
 // 	    //
         if length > DECODE_BITS as i64 {
-
 //
 // 	    HufDec *pl = hdecod + (c >> (l - HUF_DECBITS));
             let code = &mut decoding_table[(code >> (length - DECODE_BITS as i64)) as usize];
@@ -511,7 +526,6 @@ fn build_decoding_table(encoding_table: &[i64], min_hcode_index: usize, max_hcod
             debug_assert!(length >= 0, "ShortCode.len must be signed???");
 
             let default_value = Code::Short(ShortCode {
-
                 // short_code_len: l as i8, // TODO wrap or not wrap?
                 // short_code_lit: im as i32,
                 // long_code_lits: Vec::new()
@@ -535,15 +549,12 @@ fn build_decoding_table(encoding_table: &[i64], min_hcode_index: usize, max_hcod
 // 	}
 //     }
 // }
-
         }
     }
 
     inspect!(decoding_table);
     Ok(decoding_table)
 }
-
-
 
 // void
 // hufUnpackEncTable
@@ -569,7 +580,6 @@ fn read_encoding_table(packed: &mut &[u8], mut min_hcode_index: usize, max_hcode
 //     {
     // for code_index in min_hcode_index ..= max_hcode_index {
     while min_hcode_index <= max_hcode_index {
-
 // 	        if (p - *pcode > ni)
 // 	            unexpectedEndOfTable();
         if remaining_bytes.len() < 1 { // TODO we do not need these errors as `read` handles those for us
@@ -655,7 +665,6 @@ fn read_encoding_table(packed: &mut &[u8], mut min_hcode_index: usize, max_hcode
     Ok(encoding_table)
 }
 
-
 //    inline Int64
 //    hufLength (Int64 code) code & 63;
 fn length(code: i64) -> i64 { code & 63 }
@@ -663,7 +672,6 @@ fn length(code: i64) -> i64 { code & 63 }
 //    inline Int64
 //    hufCode (Int64 code) code >> 6;
 fn code(code: i64) -> i64 { code >> 6 }
-
 
 //    inline void
 //    outputBits (int nBits, Int64 bits, Int64 &c, int &lc, char *&out)
@@ -676,7 +684,7 @@ fn code(code: i64) -> i64 { code >> 6 }
 //        while (lc >= 8)
 //            *out++ = (c >> (lc -= 8));
 //    }
-fn _write_bits(count: i64, bits: i64, code_bits: &mut i64, code_bit_count: &mut i64, mut out: impl Write) {
+fn write_bits(count: i64, bits: i64, code_bits: &mut i64, code_bit_count: &mut i64, mut out: impl Write) {
     *code_bits = *code_bits << count;
     *code_bit_count += count;
 
@@ -801,15 +809,7 @@ fn read_code_into_vec(
     Ok(())
 }
 
-fn _count_frequencies(frequencies: &mut[i64], data: &[u16]) {
-    // for (int i = 0; i < HUF_ENCSIZE; ++i)
-    // 	freq[i] = 0;
-    //
-    //     for (int i = 0; i < n; ++i)
-    // 	++freq[data[i]];
-
-    0_i64.fill_slice(frequencies);
-
+fn count_frequencies(frequencies: &mut [i64], data: &[u16]) {
     for value in data {
         frequencies[*value as usize] += 1;
     }
@@ -833,39 +833,193 @@ fn _count_frequencies(frequencies: &mut[i64], data: &[u16]) {
 //     u32::read_from_native_endian(read)
 // }
 
+fn write_code(scode: i64, code_bits: &mut i64, code_bit_count: &mut i64, mut out: impl Write) {
+    write_bits(
+        length(scode),
+        code(scode),
+        code_bits,
+        code_bit_count,
+        &mut out,
+    )
+}
 
+#[inline(always)]
+fn send_code(
+    scode: i64,
+    run_count: i32,
+    run_code: i64,
+    code_bits: &mut i64,
+    code_bit_count: &mut i64,
+    mut out: impl Write,
+) {
+    //
+    // Output a run of runCount instances of the symbol sCount.
+    // Output the symbols explicitly, or if that is shorter, output
+    // the sCode symbol once followed by a runCode symbol and runCount
+    // expressed as an 8-bit number.
+    //
+    if length(scode) + length(run_code) + 8 < length(scode) * i64::from(run_count) {
+        write_code(scode, code_bits, code_bit_count, &mut out);
+        write_code(run_code, code_bits, code_bit_count, &mut out);
+        write_bits(8, run_count as i64, code_bits, code_bit_count, &mut out);
+    } else {
+        for _ in 0..=(run_count as i64) {
+            write_code(scode, code_bits, code_bit_count, &mut out);
+        }
+    }
+}
 
+fn encode(
+    frequencies: &[i64],
+    uncompressed: &[u16],
+    run_length_code: usize,
+    compressed: &mut [u8],
+) -> Result<u32> {
+    let mut code_bits = 0;
+    let mut code_bit_count = 0;
+    let mut s = uncompressed[0];
+    let mut cs = 0;
+    let mut out = std::io::Cursor::new(compressed);
 
-// Build a "canonical" Huffman code table:
-//	- for each (uncompressed) symbol, hcode contains the length
-//	  of the corresponding code (in the compressed data)
-//	- canonical codes are computed and stored in hcode
-//	- the rules for constructing canonical codes are as follows:
-//	  * shorter codes (if filled with zeroes to the right)
-//	    have a numerically higher value than longer codes
-//	  * for codes with the same length, numerical values
-//	    increase with numerical symbol values
-//	- because the canonical code table can be constructed from
-//	  symbol lengths alone, the code table can be transmitted
-//	  without sending the actual code values
-//	- see http://www.compressconsult.com/huffman/
+    for index in 1..uncompressed.len() {
+        if s == uncompressed[index] && cs < 255 {
+            cs += 1;
+        } else {
+            send_code(
+                frequencies[s as usize],
+                cs,
+                frequencies[run_length_code],
+                &mut code_bits,
+                &mut code_bit_count,
+                &mut out,
+            );
+            cs = 0;
+        }
 
-// hufCanonicalCodeTable (Int64 hcode[HUF_ENCSIZE])
+        s = uncompressed[index];
+    }
+    //
+    // Send remaining code
+    //
+    send_code(
+        frequencies[s as usize],
+        cs,
+        frequencies[run_length_code],
+        &mut code_bits,
+        &mut code_bit_count,
+        &mut out,
+    );
+
+    if code_bit_count > 0 {
+        out.write(&[(code_bits << (8 - code_bit_count) & 0xff) as u8])?;
+    }
+
+    let data_length = out.position();
+    Ok((data_length * 8 + code_bit_count as u64) as u32)
+}
+
+///
+/// Pack an encoding table:
+///	- only code lengths, not actual codes, are stored
+///	- runs of zeroes are compressed as follows:
+///
+///	  unpacked		packed
+///	  --------------------------------
+///	  1 zero		0	(6 bits)
+///	  2 zeroes		59
+///	  3 zeroes		60
+///	  4 zeroes		61
+///	  5 zeroes		62
+///	  n zeroes (6 or more)	63 n-6	(6 + 8 bits)
+///
+fn pack_encoding_table(
+    frequencies: &[i64],
+    min_index: usize,
+    max_index: usize,
+    table: &mut [u8],
+) -> Result<usize> {
+    let mut out = std::io::Cursor::new(table);
+    let mut code_bits = 0_i64;
+    let mut code_bit_count = 0_i64;
+
+    let mut index = min_index;
+    while index <= max_index {
+        let code_length = length(frequencies[index]);
+
+        if code_length == 0 {
+            let mut zero_run = 1;
+
+            while index < max_index && zero_run < LONGEST_LONG_RUN {
+                if length(frequencies[index + 1]) > 0 {
+                    break;
+                }
+                index += 1;
+                zero_run += 1;
+            }
+
+            if zero_run >= 2 {
+                if zero_run >= SHORTEST_LONG_RUN {
+                    write_bits(
+                        6,
+                        LONG_ZEROCODE_RUN,
+                        &mut code_bits,
+                        &mut code_bit_count,
+                        &mut out,
+                    );
+                    write_bits(
+                        8,
+                        zero_run - SHORTEST_LONG_RUN,
+                        &mut code_bits,
+                        &mut code_bit_count,
+                        &mut out,
+                    );
+                } else {
+                    write_bits(
+                        6,
+                        SHORT_ZEROCODE_RUN + zero_run - 2,
+                        &mut code_bits,
+                        &mut code_bit_count,
+                        &mut out,
+                    );
+                }
+                index += 1; // we must increment or else this may go very wrong
+                continue;
+            }
+        }
+        write_bits(
+            6,
+            code_length,
+            &mut code_bits,
+            &mut code_bit_count,
+            &mut out,
+        );
+        index += 1;
+    }
+
+    if code_bit_count > 0 {
+        out.write(&[(code_bits << (8 - code_bit_count)) as u8])?;
+    }
+    Ok(out.position() as usize)
+}
+
+/// Build a "canonical" Huffman code table:
+///	- for each (uncompressed) symbol, hcode contains the length
+///	  of the corresponding code (in the compressed data)
+///	- canonical codes are computed and stored in hcode
+///	- the rules for constructing canonical codes are as follows:
+///	  * shorter codes (if filled with zeroes to the right)
+///	    have a numerically higher value than longer codes
+///	  * for codes with the same length, numerical values
+///	    increase with numerical symbol values
+///	- because the canonical code table can be constructed from
+///	  symbol lengths alone, the code table can be transmitted
+///	  without sending the actual code values
+///	- see http://www.compressconsult.com/huffman/
 fn build_canonical_table(code_table: &mut [i64]) {
     debug_assert_eq!(code_table.len(), ENCODING_TABLE_SIZE);
 
-    // Int64 n[59];
-    // for (int i = 0; i <= 58; ++i)
-    //    n[i] = 0;
-    let mut count_per_code = [ 0_i64; 59 ];
+    let mut count_per_code = [0_i64; 59];
 
-
-    // For each i from 0 through 58, count the
-    // number of different codes of length i, and
-    // store the count in n[i].
-    //
-    //    for (int i = 0; i < HUF_ENCSIZE; ++i)
-    //        n[hcode[i]] += 1;
     for &code in code_table.iter() {
         count_per_code[code as usize] += 1;
     }
@@ -873,15 +1027,6 @@ fn build_canonical_table(code_table: &mut [i64]) {
     // For each i from 58 through 1, compute the
     // numerically lowest code with length i, and
     // store that code in n[i].
-    //    Int64 c = 0;
-    //
-    //    for (int i = 58; i > 0; --i)
-    //    {
-    //        Int64 nc = ((c + n[i]) >> 1);
-    //        n[i] = c;
-    //        c = nc;
-    //    }
-
     let mut c = 0_i64;
     for count in &mut count_per_code.iter_mut().rev() {
         let nc = (c + *count) >> 1;
@@ -893,14 +1038,6 @@ fn build_canonical_table(code_table: &mut [i64]) {
     // code for symbol i.  Assign the next available
     // code of length l to the symbol and store both
     // l and the code in hcode[i].
-
-    //    for (int i = 0; i < HUF_ENCSIZE; ++i)
-    //    {
-    //        int l = hcode[i];
-    //
-    //        if (l > 0)
-    //        hcode[i] = l | (n[l]++ << 6);
-    //    }
     for code_i in code_table.iter_mut() {
         let l = *code_i;
         if l > 0 {
@@ -910,38 +1047,19 @@ fn build_canonical_table(code_table: &mut [i64]) {
     }
 }
 
-
-// Compute Huffman codes (based on frq input) and store them in frq:
-//	- code structure is : [63:lsb - 6:msb] | [5-0: bit length];
-//	- max code length is 58 bits;
-//	- codes outside the range [im-iM] have a null length (unused values);
-//	- original frequencies are destroyed;
-//	- encoding tables are used by hufEncode() and hufBuildDecTable();
-//
-// NB: The following code "(*a == *b) && (a > b))" was added to ensure
-//     elements in the heap with the same value are sorted by index.
-//     This is to ensure, the STL make_heap()/pop_heap()/push_heap() methods
-//     produced a resultant sorted heap that is identical across OSes.
-
-//    struct FHeapCompare
-//    {
-//        bool operator () (Int64 *a, Int64 *b)
-//    {
-//    return ((*a > *b) || ((*a == *b) && (a > b)));
-//    }
-//    };
-/*fn compare_heap(a: &i64, b: &i64) -> bool {
-    (*a > *b) || ((*a == *b) && (a > b))
-}*/
-
-
-//    hufBuildEncTable
-//        (Int64*	frq,	// io: input frequencies [HUF_ENCSIZE], output table
-//         int*	im,	//  o: min frq index
-//         int*	iM)	//  o: max frq index
-//    {
-pub fn _build_encoding_table(
-    frequencies: &mut [i64],  // input frequencies, output encoding table
+/// Compute Huffman codes (based on frq input) and store them in frq:
+///	- code structure is : [63:lsb - 6:msb] | [5-0: bit length];
+///	- max code length is 58 bits;
+///	- codes outside the range [im-iM] have a null length (unused values);
+///	- original frequencies are destroyed;
+///	- encoding tables are used by hufEncode() and hufBuildDecTable();
+///
+/// NB: The following code "(*a == *b) && (a > b))" was added to ensure
+///     elements in the heap with the same value are sorted by index.
+///     This is to ensure, the STL make_heap()/pop_heap()/push_heap() methods
+///     produced a resultant sorted heap that is identical across OSes.
+fn build_encoding_table(
+    frequencies: &mut [i64], // input frequencies, output encoding table
 ) -> (usize, usize) // return frequency max min range
 {
     debug_assert_eq!(frequencies.len(), ENCODING_TABLE_SIZE);
@@ -965,40 +1083,18 @@ pub fn _build_encoding_table(
     // 3) Initializes array hlink such that hlink[i] == i
     //    for all array entries.
 
+    // We need to use vec here our we overflow the stack.
+    let mut h_link = vec![0_usize; ENCODING_TABLE_SIZE];
+    let mut frequency_heap = vec![0_usize; ENCODING_TABLE_SIZE];
 
-    //    AutoArray <int, HUF_ENCSIZE> hlink;
-    //    AutoArray <Int64 *, HUF_ENCSIZE> fHeap;
-    let mut h_link = [0_usize; ENCODING_TABLE_SIZE];
-    let mut frequency_heap = [0_usize; ENCODING_TABLE_SIZE];
+    // This is a good solution since we don't have usize::MAX items (no panics or UB),
+    // and since this is short-circuit, it stops at the first in order non zero element.
+    let min_frequency_index = frequencies.iter().position(|f| *f != 0).unwrap_or(0);
 
-    //    *im = 0;
-    //
-    //    while (!frq[*im])
-    //        (*im)++;
-    let min_frequency_index = {
-        let mut index = 0;
-        while frequencies[index] != 0 { index += 1; }
-        index
-    };
-
-    //
-    //    int nf = 0;
-    //
-    //    for (int i = *im; i < HUF_ENCSIZE; i++)
-    //    {
-    //        hlink[i] = i;
-    //
-    //        if (frq[i])
-    //        {
-    //            fHeap[nf] = &frq[i];
-    //            nf++;
-    //            *iM = i;
-    //        }
-    //    }
     let mut frequency_count = 0;
     let mut max_frequency_index = 0;
 
-    for index in 0 ..ENCODING_TABLE_SIZE {
+    for index in min_frequency_index..ENCODING_TABLE_SIZE {
         h_link[index] = index;
 
         if frequencies[index] != 0 {
@@ -1012,10 +1108,6 @@ pub fn _build_encoding_table(
     // adjust the fHeap and hlink array accordingly.  Function
     // hufEncode() uses the pseudo-symbol for run-length encoding.
 
-    //    (*iM)++;
-    //    frq[*iM] = 1;
-    //    fHeap[nf] = &frq[*iM];
-    //    nf++;
     max_frequency_index += 1;
     frequencies[max_frequency_index] = 1;
     frequency_heap[frequency_count] = max_frequency_index; // &frequencies[max_frequency_index];
@@ -1047,62 +1139,54 @@ pub fn _build_encoding_table(
     // lengths of the descendants (that is, their distance from the root
     // of the tree) are incremented by one.
 
-    //    make_heap (&fHeap[0], &fHeap[nf], FHeapCompare());
-    let mut heap = BinaryHeap::from(frequency_heap.to_vec()); // TODO do not create vec in the first place?
+    let mut heap = MinMaxHeap::with_capacity(frequency_count);
 
-    //    AutoArray <Int64, HUF_ENCSIZE> scode;
-    //    memset (scode, 0, sizeof (Int64) * HUF_ENCSIZE);
-    let mut s_code = [0_i64; ENCODING_TABLE_SIZE];
+    for index in frequency_heap.drain(..frequency_count) {
+        heap.push(index);
+    }
 
-    //    while (nf > 1)
-    //    {
+    let mut s_code = vec![0_i64; ENCODING_TABLE_SIZE];
+
+    // FIXME
+    // We need this to simulate how make_heap works cpp std.
+    // There should be a much better way to do this in rust.
+    let mut back_store: Vec<usize> = vec![];
+    #[inline(always)]
+    fn fill_up(queue: &mut MinMaxHeap<usize>, store: &mut Vec<usize>) {
+        if queue.is_empty() {
+            queue.extend(store.drain(..));
+        }
+    }
+
     while frequency_count > 1 {
-
         // Find the indices, mm and m, of the two smallest non-zero frq
         // values in fHeap, add the smallest frq to the second-smallest
         // frq, and remove the smallest frq value from fHeap.
-        //
-        //        int mm = fHeap[0] - frq;
-        //        pop_heap (&fHeap[0], &fHeap[nf], FHeapCompare());
-        //        --nf;
-        let mm = heap.pop().expect("cannot pop heap bug");
+        fill_up(&mut heap, &mut back_store);
+        let mm = heap.pop_min().expect("Cannot pop heap bug");
         frequency_count -= 1;
 
-        //        int m = fHeap[0] - frq;
-        //        pop_heap (&fHeap[0], &fHeap[nf], FHeapCompare());
-        let m = heap.pop().expect("cannot pop heap bug");
+        fill_up(&mut heap, &mut back_store);
+        let m = heap.pop_min().expect("Cannot pop heap bug");
 
-        //        frq[m ] += frq[mm];
-        //        push_heap (&fHeap[0], &fHeap[nf], FHeapCompare());
         frequencies[m] += frequencies[mm];
-        heap.push(m); // m?????
+        back_store.push(m); // heap.push(m);
+                            // m????? -> it is m, but it stays unsorted until the end of the queue
 
-        //        // The entries in scode are linked into lists with the
-        //        // entries in hlink serving as "next" pointers and with
-        //        // the end of a list marked by hlink[j] == j.
-        //        //
-        //        // Traverse the lists that start at scode[m] and scode[mm].
-        //        // For each element visited, increment the length of the
-        //        // corresponding code by one bit. (If we visit scode[j]
-        //        // during the traversal, then the code for symbol j becomes
-        //        // one bit longer.)
-        //        //
-        //        // Merge the lists that start at scode[m] and scode[mm]
-        //        // into a single list that starts at scode[m].
+        // The entries in scode are linked into lists with the
+        // entries in hlink serving as "next" pointers and with
+        // the end of a list marked by hlink[j] == j.
         //
-        //        // Add a bit to all codes in the first list.
+        // Traverse the lists that start at scode[m] and scode[mm].
+        // For each element visited, increment the length of the
+        // corresponding code by one bit. (If we visit scode[j]
+        // during the traversal, then the code for symbol j becomes
+        // one bit longer.)
+        //
+        // Merge the lists that start at scode[m] and scode[mm]
+        // into a single list that starts at scode[m].
 
-        //        for (int j = m; true; j = hlink[j]) {
-        //            scode[j]++;
-        //            assert (scode[j] <= 58);
-        //
-        //            if (hlink[j] == j) {
-        //                // Merge the two lists.
-        //
-        //                hlink[j] = mm;
-        //                break;
-        //            }
-        //        }
+        // Add a bit to all codes in the first list.
         let mut j = m;
         loop {
             s_code[j] += 1;
@@ -1113,47 +1197,106 @@ pub fn _build_encoding_table(
                 h_link[j] = mm;
                 break;
             }
-
             j = h_link[j];
         }
 
         //
-        //        // Add a bit to all codes in the second list
-        //        for (int j = mm; true; j = hlink[j]) {
-        //            scode[j]++;
-        //            assert (scode[j] <= 58);
+        // Add a bit to all codes in the second list
         //
-        //            if (hlink[j] == j)
-        //              break;
-        //        }
-        //    }
         let mut j = mm;
         loop {
             s_code[j] += 1;
             assert!(s_code[j] <= 58);
 
             if h_link[j] == j {
-                // merge the two lists
-                h_link[j] = mm;
                 break;
             }
 
             j = h_link[j];
         }
-
-        // Build a canonical Huffman code table, replacing the code
-        // lengths in scode with (code, code length) pairs.  Copy the
-        // code table from scode into frq.
-
-        //    hufCanonicalCodeTable (scode);
-        //    memcpy (frq, scode, sizeof (Int64) * HUF_ENCSIZE);
-
-        debug_assert_eq!(s_code.len(), ENCODING_TABLE_SIZE);
-        debug_assert_eq!(frequencies.len(), ENCODING_TABLE_SIZE);
-
-        build_canonical_table(&mut s_code);
-        frequencies.copy_from_slice(&s_code);
     }
 
+    // Build a canonical Huffman code table, replacing the code
+    // lengths in scode with (code, code length) pairs.  Copy the
+    // code table from scode into frq.
+
+    debug_assert_eq!(s_code.len(), ENCODING_TABLE_SIZE);
+    debug_assert_eq!(frequencies.len(), ENCODING_TABLE_SIZE);
+
+    build_canonical_table(&mut s_code);
+    frequencies.copy_from_slice(&s_code);
+
     (min_frequency_index, max_frequency_index)
+}
+
+
+#[cfg(test)]
+mod test {
+    const UNCOMPRESSED_ARRAY: [u16; 100] = [
+        3852, 2432, 33635, 49381, 10100, 15095, 62693, 63738, 62359, 5013, 7715, 59875, 28182,
+        34449, 19983, 20399, 63407, 29486, 4877, 26738, 44815, 14042, 46091, 48228, 25682, 35412,
+        7582, 65069, 6632, 54124, 13798, 27503, 52154, 61961, 30474, 46880, 39097, 15754, 52897,
+        42371, 54053, 14178, 48276, 34591, 42602, 32126, 42062, 31474, 16274, 55991, 2882, 17039,
+        56389, 20835, 57057, 54081, 3414, 33957, 52584, 10222, 25139, 40002, 44980, 1602, 48021,
+        19703, 6562, 61777, 41582, 201, 31253, 51790, 15888, 40921, 3627, 12184, 16036, 26349,
+        3159, 29002, 14535, 50632, 18118, 33583, 18878, 59470, 32835, 9347, 16991, 21303, 26263,
+        8312, 14017, 41777, 43240, 3500, 60250, 52437, 45715, 61520,
+    ];
+    const COMPRESSED_ARRAY: [u8; 703] = [
+        0xc9, 0x0, 0x0, 0x0, 0x2e, 0xfe, 0x0, 0x0, 0x56, 0x2, 0x0, 0x0, 0xa2, 0x2, 0x0, 0x0, 0x0,
+        0x0, 0x0, 0x0, 0x1f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xd6, 0x47,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x28, 0x1f, 0xff, 0xff, 0xed, 0x87, 0xff, 0xff, 0xf0,
+        0x91, 0xff, 0xf8, 0x1f, 0xf4, 0xf1, 0xff, 0x78, 0x1f, 0xfd, 0xa1, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xfa, 0xc7, 0xfe, 0x4, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xed, 0x1f, 0xf3, 0xf1, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xe8, 0x7, 0xfd, 0xf8,
+        0x7f, 0xff, 0xff, 0xff, 0xfd, 0x10, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x51, 0xff,
+        0xff, 0xff, 0xff, 0xfe, 0x1, 0xff, 0x73, 0x1f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xfe, 0x0, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xfc, 0xa4, 0x7f, 0xf5, 0x7, 0xfc, 0x48, 0x7f, 0xe0, 0x47, 0xff, 0xff,
+        0xf5, 0x91, 0xff, 0xff, 0xff, 0xff, 0xf1, 0xf1, 0xff, 0xff, 0xff, 0xff, 0xf8, 0x21, 0xff,
+        0x7f, 0x1f, 0xf8, 0xd1, 0xff, 0xe7, 0x1f, 0xff, 0xff, 0xff, 0xff, 0xbc, 0x1f, 0xf2, 0x91,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x1c, 0x1f, 0xff, 0xff, 0xff, 0xff, 0xe7,
+        0x1f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfc, 0x8c, 0x7f, 0xff, 0xff, 0xc, 0x1f, 0xff, 0xff,
+        0xe5, 0x7, 0xff, 0xff, 0xfa, 0x81, 0xff, 0xff, 0xff, 0x20, 0x7f, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xfe, 0xbc, 0x7f, 0xff, 0xff, 0xff, 0xfc, 0x38, 0x7f, 0xff,
+        0xff, 0xff, 0xfc, 0xd0, 0x7f, 0xd3, 0xc7, 0xff, 0xff, 0xf7, 0x91, 0xff, 0xff, 0xff, 0xff,
+        0xfe, 0xc1, 0xff, 0xff, 0xff, 0xff, 0xf9, 0x61, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xc7,
+        0x87, 0xff, 0xff, 0xfd, 0x81, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf1, 0x87, 0xff, 0xff,
+        0xff, 0xff, 0xfe, 0x87, 0xff, 0x58, 0x7f, 0xff, 0xff, 0xff, 0xfd, 0xec, 0x7f, 0xff, 0xff,
+        0xff, 0xfe, 0xd0, 0x7f, 0xff, 0xff, 0xff, 0xff, 0x6c, 0x7f, 0xcb, 0x47, 0xff, 0xff, 0xf3,
+        0x61, 0xff, 0xff, 0xff, 0x80, 0x7f, 0xe1, 0xc7, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x1f,
+        0x1f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x18, 0x1f, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xfd, 0xcc, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf8, 0x11, 0xff, 0xff,
+        0xff, 0xff, 0xf8, 0x41, 0xff, 0xbc, 0x1f, 0xff, 0xff, 0xc4, 0x47, 0xff, 0xff, 0xf2, 0x91,
+        0xff, 0xe0, 0x1f, 0xff, 0xff, 0xff, 0xff, 0x6d, 0x1f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0x2, 0x1f, 0xf9, 0xe1, 0xff, 0xff, 0xff, 0xff, 0xfc, 0xe1,
+        0xff, 0xff, 0xfd, 0xb0, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xe1, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0x5a, 0x1f, 0xfc, 0x81, 0xbf, 0x29, 0x1b, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xf3, 0x61, 0xbf, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xc8, 0x1b,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf6, 0xb1, 0xbf, 0xff, 0xfd, 0x80, 0x6f, 0xff,
+        0xff, 0xf, 0x1b, 0xf8, 0xc1, 0xbf, 0xff, 0xfc, 0xb4, 0x6f, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xda, 0x46, 0xfc, 0x54, 0x6f, 0xc9, 0x6, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x21, 0x1b, 0xff, 0xff, 0xe0, 0x86, 0xff, 0xff,
+        0xff, 0xff, 0xe2, 0xc6, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xf3, 0x91, 0xbf, 0xff, 0xfe, 0x24, 0x6f, 0xff, 0xff, 0x6b,
+        0x1b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfd, 0xb1, 0xbf, 0xfa, 0x1b, 0xfb, 0x11,
+        0xbf, 0xff, 0xfe, 0x8, 0x6f, 0xff, 0xff, 0x42, 0x1b, 0xff, 0xff, 0xff, 0xff, 0xb9, 0x1b,
+        0xff, 0xff, 0xcf, 0xc6, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf1, 0x31,
+        0x86, 0x10, 0x9, 0xb4, 0xe4, 0x4c, 0xf7, 0xef, 0x42, 0x87, 0x6a, 0xb5, 0xc2, 0x34, 0x9e,
+        0x2f, 0x12, 0xae, 0x21, 0x68, 0xf2, 0xa8, 0x74, 0x37, 0xe1, 0x98, 0x14, 0x59, 0x57, 0x2c,
+        0x24, 0x3b, 0x35, 0x6c, 0x1b, 0x8b, 0xcc, 0xe6, 0x13, 0x38, 0xc, 0x8e, 0xe2, 0xc, 0xfe,
+        0x49, 0x73, 0xbc, 0x2b, 0x7b, 0x9, 0x27, 0x79, 0x14, 0xc, 0x94, 0x42, 0xf8, 0x7c, 0x1,
+        0x8d, 0x26, 0xde, 0x87, 0x26, 0x71, 0x50, 0x45, 0xc6, 0x28, 0x40, 0xd5, 0xe, 0x8d, 0x8,
+        0x1e, 0x4c, 0xa4, 0x79, 0x57, 0xf0, 0xc3, 0x6d, 0x5c, 0x6d, 0xc0,
+    ];
+
+    /// Test using both input and output from a custom ILM OpenEXR test.
+    #[test]
+    fn compression_comparation() {
+        let mut result = Vec::new();
+        super::compress(&UNCOMPRESSED_ARRAY, &mut result).unwrap();
+        assert_eq!(result, COMPRESSED_ARRAY.to_vec());
+    }
 }

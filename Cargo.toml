@@ -31,6 +31,7 @@ half = "1.6.0"        # 16 bit float pixel data type
 bit_field = "0.10.0"  # exr file version bit flags
 deflate = "0.8.4"     # DEFLATE compression
 inflate = "0.4.5"     # DEFLATE decompression
+min-max-heap = "1.3.0"# MinHeap used for Huffman compression
 smallvec = "1.3.0"    # make cache friendly allocations             TODO profile if smallvec is really an improvement!
 rayon = "1.3.0"       # multi-core compression and decompression     TODO make this an optional feature?
 
