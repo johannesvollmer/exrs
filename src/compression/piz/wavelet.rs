@@ -6,15 +6,24 @@ use crate::error::IoResult;
 use crate::math::Vec2;
 
 #[allow(unused)]
-pub fn encode(
+#[inline]
+pub fn encode(buffer: &mut [u16], count: Vec2<usize>, size: Vec2<usize>, max_value: u16) -> IoResult<()> {
+    if is_14_bit(max_value) { encode_14_or_16_bit(buffer, count, size, true) }
+    else { encode_14_or_16_bit(buffer, count, size, false) }
+}
+
+#[allow(unused)]
+#[inline]
+pub fn encode_14_or_16_bit(
     buffer: &mut [u16],
     Vec2(count_x, count_y): Vec2<usize>,
     Vec2(offset_x, offset_y): Vec2<usize>,
-    max: u16 //  maximum buffer[i] value
+    is_14_bit: bool // true if maximum buffer[i] value < (1 << 14)
 ) -> IoResult<()>
 {
-    let is_14_bit = max < (1 << 14);
     let count = count_x.min(count_y);
+    let encode = if is_14_bit { encode_14bit } else { encode_16bit }; // assume inlining and constant propagation
+
     let mut p: usize = 1; // TODO i32?
     let mut p2: usize = 2;
 
@@ -42,15 +51,10 @@ pub fn encode(
                 assert!(pos_top < buffer.len());
                 assert!(pos_top_right < buffer.len());
 
-                let encode = if is_14_bit {
-                    debug_assert!(buffer[position_x] < (1 << 14));
-                    debug_assert!(buffer[pos_right] < (1 << 14));
-
-                    encode_14bit
+                if is_14_bit {
+                    debug_assert!(self::is_14_bit(buffer[position_x]));
+                    debug_assert!(self::is_14_bit(buffer[pos_right]));
                 }
-                else {
-                    encode_16bit
-                };
 
                 let (center, right) = encode(buffer[position_x], buffer[pos_right]);
                 let (top, top_right) = encode(buffer[pos_top], buffer[pos_top_right]);
@@ -69,10 +73,7 @@ pub fn encode(
             // encode remaining odd pixel column
             if count_x & p != 0 {
                 let pos_top = position_x + offset1_y;
-                let (center, top) = {
-                    if is_14_bit { encode_14bit(buffer[position_x], buffer[pos_top]) }
-                    else { encode_16bit(buffer[position_x], buffer[pos_top]) }
-                };
+                let (center, top) = encode(buffer[position_x], buffer[pos_top]);
 
                 buffer[position_x] = center;
                 buffer[pos_top] = top;
@@ -88,11 +89,7 @@ pub fn encode(
 
             while position_x <= end_x {
                 let pos_right = position_x + offset1_x;
-
-                let (center, right) = {
-                    if is_14_bit { encode_14bit(buffer[position_x], buffer[pos_right]) }
-                    else { encode_16bit(buffer[position_x], buffer[pos_right]) }
-                };
+                let (center, right) = encode(buffer[position_x], buffer[pos_right]);
 
                 buffer[pos_right] = right;
                 buffer[position_x] = center;
@@ -108,16 +105,23 @@ pub fn encode(
     Ok(())
 }
 
+#[inline]
+pub fn decode(buffer: &mut [u16], count: Vec2<usize>, size: Vec2<usize>, max_value: u16) -> IoResult<()> {
+    if is_14_bit(max_value) { decode_14_or_16_bit(buffer, count, size, true) }
+    else { decode_14_or_16_bit(buffer, count, size, false) }
+}
 
-pub fn decode(
+#[inline]
+pub fn decode_14_or_16_bit(
     buffer: &mut [u16],
     Vec2(count_x, count_y): Vec2<usize>,
     Vec2(offset_x, offset_y): Vec2<usize>,
-    max: u16 //  maximum buffer[i] value
+    is_14_bit: bool // true if maximum buffer[i] value < (1 << 14)
 ) -> IoResult<()>
 {
-    let is_14_bit = max < (1 << 14);
     let count = count_x.min(count_y);
+    let decode = if is_14_bit { decode_14bit } else { decode_16bit }; // assume inlining and constant propagation
+
     let mut p: usize = 1; // TODO i32?
     let mut p2: usize; // TODO i32?
 
@@ -155,8 +159,6 @@ pub fn decode(
                 assert!(pos_top < buffer.len());
                 assert!(pos_top_right < buffer.len());
 
-                let decode = if is_14_bit { decode_14bit } else { decode_16bit };
-
                 let (center, top) = decode(buffer[position_x], buffer[pos_top]);
                 let (right, top_right) = decode(buffer[pos_right], buffer[pos_top_right]);
 
@@ -174,10 +176,7 @@ pub fn decode(
             // decode last odd remaining x value
             if count_x & p != 0 {
                 let pos_top = position_x + offset1_y;
-                let (center, top) = {
-                    if is_14_bit { decode_14bit(buffer[position_x], buffer[pos_top]) }
-                    else { decode_16bit(buffer[position_x], buffer[pos_top]) }
-                };
+                let (center, top) = decode(buffer[position_x], buffer[pos_top]);
 
                 buffer[position_x] = center;
                 buffer[pos_top] = top;
@@ -193,11 +192,7 @@ pub fn decode(
 
             while position_x <= end_x {
                 let pos_right = position_x + offset1_x;
-
-                let (center, right) = {
-                    if is_14_bit { decode_14bit(buffer[position_x], buffer[pos_right]) }
-                    else { decode_16bit(buffer[position_x], buffer[pos_right]) }
-                };
+                let (center, right) = decode(buffer[position_x], buffer[pos_right]);
 
                 buffer[position_x] = center;
                 buffer[pos_right] = right;
@@ -213,6 +208,10 @@ pub fn decode(
     Ok(())
 }
 
+#[inline]
+fn is_14_bit(value: u16) -> bool {
+    value < (1 << 14)
+}
 
 /// Untransformed data values should be less than (1 << 14).
 #[inline]
@@ -274,6 +273,7 @@ fn decode_16bit(l: u16, h: u16) -> (u16, u16) {
 #[cfg(test)]
 mod test {
     use crate::math::Vec2;
+    use crate::compression::piz::wavelet::is_14_bit;
 
     #[test]
     fn roundtrip_14_bit_values(){
@@ -313,7 +313,7 @@ mod test {
         ];
 
         let max = *data.iter().max().unwrap();
-        debug_assert!(max < (1 << 14));
+        debug_assert!(is_14_bit(max));
 
         let mut transformed = data.clone();
 
@@ -333,7 +333,7 @@ mod test {
         ];
 
         let max = *data.iter().max().unwrap();
-        debug_assert!(max >= (1 << 14));
+        debug_assert!(!is_14_bit(max));
 
         let mut transformed = data.clone();
 
@@ -341,5 +341,82 @@ mod test {
         super::decode(&mut transformed, Vec2(6, 4), Vec2(1,6), max).unwrap();
 
         assert_eq!(data, transformed);
+    }
+
+    /// inspired by https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImfTest/testWav.cpp
+    #[test]
+    fn ground_truth(){
+        test_size(1, 1);
+        test_size(2, 2);
+        test_size(32, 32);
+        test_size(1024, 16);
+        test_size(16, 1024);
+        test_size(997, 37);
+        test_size(37, 997);
+        test_size(1024, 1024);
+        test_size(997, 997);
+
+        fn test_size(x: usize, y: usize) {
+            let xy = Vec2(x, y);
+            roundtrip(noise_14bit(xy), xy);
+            roundtrip(noise_16bit(xy), xy);
+            roundtrip(solid(xy, 0), xy);
+            roundtrip(solid(xy, 1), xy);
+            roundtrip(solid(xy, 0xffff), xy);
+            roundtrip(solid(xy, 0x3fff), xy);
+            roundtrip(solid(xy, 0x3ffe), xy);
+            roundtrip(solid(xy, 0x3fff), xy);
+            roundtrip(solid(xy, 0xfffe), xy);
+            roundtrip(solid(xy, 0xffff), xy);
+            roundtrip(verticals(xy, 0xffff), xy);
+            roundtrip(verticals(xy, 0x3fff), xy);
+            roundtrip(horizontals(xy, 0xffff), xy);
+            roundtrip(horizontals(xy, 0x3fff), xy);
+            roundtrip(diagonals(xy, 0xffff), xy);
+            roundtrip(diagonals(xy, 0x3fff), xy);
+        }
+
+        fn roundtrip(data: Vec<u16>, size: Vec2<usize>){
+            assert_eq!(data.len(), size.area());
+
+            let max = *data.iter().max().unwrap();
+            let offset = Vec2(1, size.0);
+
+            let mut transformed = data.clone();
+            super::encode(&mut transformed, size, offset, max).unwrap();
+            super::decode(&mut transformed, size, offset, max).unwrap();
+
+            assert_eq!(data, transformed);
+        }
+
+        fn noise_14bit(size: Vec2<usize>) -> Vec<u16> {
+            (0..size.area()).map(|_| (rand::random::<i32>() & 0x3fff) as u16).collect()
+        }
+
+        fn noise_16bit(size: Vec2<usize>) -> Vec<u16> {
+            (0..size.area()).map(|_| rand::random::<u16>()).collect()
+        }
+
+        fn solid(size: Vec2<usize>, value: u16) -> Vec<u16> {
+            vec![value; size.area()]
+        }
+
+        fn verticals(size: Vec2<usize>, max_value: u16) -> Vec<u16> {
+            std::iter::repeat_with(|| (0 .. size.0).map(|x| if x & 1 != 0 { 0 } else { max_value }))
+                .take(size.1).flatten().collect()
+        }
+
+        fn horizontals(size: Vec2<usize>, max_value: u16) -> Vec<u16> {
+            (0 .. size.1)
+                .flat_map(|y| std::iter::repeat(if y & 1 != 0 { 0 } else { max_value }).take(size.0))
+                .collect()
+        }
+
+        fn diagonals(size: Vec2<usize>, max_value: u16) -> Vec<u16> {
+            (0 .. size.1).flat_map(|y| {
+                (0 .. size.0).map(move |x| if (x + y) & 1 != 0 { 0 } else { max_value })
+            }).collect()
+        }
+
     }
 }
