@@ -5,7 +5,7 @@
 pub mod full;
 pub mod simple;
 pub mod rgba;
-pub mod omni;
+pub mod read;
 
 use crate::error::{UnitResult};
 
