@@ -9,20 +9,30 @@ mod wavelet;
 
 use super::*;
 use super::Result;
-use crate::meta::attributes::{IntRect, SampleType};
+use crate::meta::attributes::{IntRect, SampleType, Channel};
 use crate::meta::{Header};
 use crate::io::Data;
 use crate::math::Vec2;
 
 
-const U16_RANGE: i32 = (1 << 16);
-const BITMAP_SIZE: i32  = (U16_RANGE >> 3);
+const U16_RANGE: usize = (1_i32 << 16_i32) as usize;
+const BITMAP_SIZE: usize  = (U16_RANGE as i32 >> 3_i32) as usize;
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Debug, Copy, Clone)]
 enum Format {
     Independent,
     Native
 }
+
+#[derive(Debug)]
+struct ChannelData {
+    tmp_start_index: usize,
+    tmp_end_index: usize,
+    number_samples: Vec2<usize>,
+    y_sampling: usize,
+    size: usize,
+}
+
 
 pub fn decompress_bytes(
     header: &Header,
@@ -32,14 +42,6 @@ pub fn decompress_bytes(
 ) -> Result<Vec<u8>>
 {
 
-    #[derive(Debug)]
-    struct ChannelData {
-        start_index: usize,
-        end_index: usize,
-        number_samples: Vec2<usize>,
-        y_samples: usize,
-        size: usize,
-    }
 
     let Vec2(max_scan_line_size, scan_line_count) = header.default_block_pixel_size();
 
@@ -161,17 +163,9 @@ pub fn decompress_bytes(
     let _min_x = rectangle.position.x();
     let min_y = rectangle.position.y();
 
-    let mut _max_x = rectangle.max().x();
-    let mut max_y = rectangle.max().y();
+    let _max_x = rectangle.max().x();
+    let max_y = rectangle.max().y();
 
-    // TODO rustify
-    if _max_x > header.data_window().max().x() {
-        _max_x = header.data_window().max().x();
-    }
-
-    if max_y > header.data_window().max().y() {
-        max_y = header.data_window().max().y();
-    }
 
     inspect!(max_y);
 
@@ -200,9 +194,9 @@ pub fn decompress_bytes(
     for (_index, channel) in header.channels.list.iter().enumerate() {
 
         let channel = ChannelData {
-            start_index: tmp_buffer_end,
-            end_index: tmp_buffer_end,
-            y_samples: channel.sampling.y(),
+            tmp_start_index: tmp_buffer_end,
+            tmp_end_index: tmp_buffer_end,
+            y_sampling: channel.sampling.y(),
             number_samples: channel.subsampled_resolution(rectangle.size),
             size: (channel.sample_type.bytes_per_sample() / SampleType::F16.bytes_per_sample())
         };
@@ -221,7 +215,7 @@ pub fn decompress_bytes(
 //        AutoArray <unsigned char, BITMAP_SIZE> bitmap;
 //        memset (bitmap, 0, sizeof (unsigned char) * BITMAP_SIZE);
 
-    let mut bitmap = vec![0_u8; BITMAP_SIZE as usize]; // FIXME use bit_vec!
+    let mut bitmap = vec![0_u8; BITMAP_SIZE]; // FIXME use bit_vec!
 
 
 //        Xdr::read <CharPtrIO> (inPtr, minNonZero);
@@ -239,7 +233,7 @@ pub fn decompress_bytes(
 //            throw InputExc ("Error in header for PIZ-compressed data "
 //            "(invalid bitmap size).");
 //        }
-    if max_non_zero as i32 >= BITMAP_SIZE {
+    if max_non_zero as usize >= BITMAP_SIZE {
         println!("invalid bitmap size");
         return Err(Error::invalid("compression data"));
     }
@@ -308,7 +302,7 @@ pub fn decompress_bytes(
     for channel in &channel_data {
         for size in 0..channel.size {
             wavelet::decode(
-                &mut tmp_buffer[(channel.start_index + size) ..],
+                &mut tmp_buffer[(channel.tmp_start_index + size) ..],
                 channel.number_samples,
                 Vec2(channel.size, channel.number_samples.x() * channel.size),
                 max_value
@@ -348,15 +342,15 @@ pub fn decompress_bytes(
     if format == Format::Independent {
         for y in min_y ..= max_y {
             for channel in &mut channel_data {
-                if mod_p(y, channel.y_samples as i32) != 0 {
+                if mod_p(y, channel.y_sampling as i32) != 0 {
                     continue;
                 }
 
                 // TODO this should be a simple mirroring slice copy?
                 for _x in (0 .. channel.number_samples.0 * channel.size).rev() {
-                    u16::write(tmp_buffer[channel.end_index], &mut out)?;
+                    u16::write(tmp_buffer[channel.tmp_end_index], &mut out)?;
                     // out.push(tmp_buffer[channel.end_index as usize]);
-                    channel.end_index += 1;
+                    channel.tmp_end_index += 1;
                 }
             }
         }
@@ -383,7 +377,7 @@ pub fn decompress_bytes(
     else { // native format
         for y in min_y ..= max_y {
             for channel in &mut channel_data {
-                if mod_p(y, channel.y_samples as i32) != 0 {
+                if mod_p(y, channel.y_sampling as i32) != 0 {
                     continue;
                 }
 
@@ -393,12 +387,12 @@ pub fn decompress_bytes(
                 let n = channel.number_samples.0 * channel.size;
                 // out.extend_from_slice(&tmp_buffer[channel.end_index as usize .. (channel.end_index + n) as usize]);
 
-                out.write_as_native_endian(&tmp_buffer[channel.end_index .. (channel.end_index + n)])?;
+                out.write_as_native_endian(&tmp_buffer[channel.tmp_end_index.. (channel.tmp_end_index + n)])?;
 
                 // #[cfg(target_endian = "little")] { out.write_le(&tmp_buffer[channel.end_index as usize .. (channel.end_index + n) as usize])?; }
                 // #[cfg(target_endian = "big")] { out.write_be(&tmp_buffer[channel.end_index as usize .. (channel.end_index + n) as usize])?; }
 
-                channel.end_index += n;
+                channel.tmp_end_index += n;
             }
         }
     }
@@ -416,10 +410,10 @@ pub fn decompress_bytes(
 //        return outEnd - _outBuffer;
 //    }
     for index in 1..channel_data.len() {
-        assert_eq!(channel_data[index - 1].end_index, channel_data[index].start_index);
+        assert_eq!(channel_data[index - 1].tmp_end_index, channel_data[index].tmp_start_index);
     }
 
-    assert_eq!(channel_data.last().unwrap().end_index, tmp_buffer.len());
+    assert_eq!(channel_data.last().unwrap().tmp_end_index, tmp_buffer.len());
     assert_eq!(out.len(), expected_byte_size);
 
     Ok(out)
@@ -483,9 +477,9 @@ fn reverse_lookup_table_from_bitmap(bitmap: Bytes<'_>) -> (Vec<u16>, u16) {
 //    return n;		// maximum k where lut[k] is non-zero,
 
 
-    let mut table = Vec::with_capacity(U16_RANGE as usize);
+    let mut table = Vec::with_capacity(U16_RANGE);
 
-    for index in 0 .. U16_RANGE as usize {
+    for index in 0 .. U16_RANGE {
         if index == 0 || ((bitmap[index >> 3] as usize & (1 << (index & 7))) != 0) {
             table.push(index as u16);
         }
@@ -494,15 +488,13 @@ fn reverse_lookup_table_from_bitmap(bitmap: Bytes<'_>) -> (Vec<u16>, u16) {
     let max_value = table.len() as u16;
 
     // fill remaining up to u16 range
-    debug_assert!(table.len() < U16_RANGE as usize);
-    table.resize(U16_RANGE as usize, 0);
+    debug_assert!(table.len() < U16_RANGE);
+    table.resize(U16_RANGE, 0);
 
     (table, max_value)
 }
 
 fn apply_lookup_table(data: &mut [u16], table: &[u16]) {
-//    for (int i = 0; i < nData; ++i)
-//        data[i] = lut[data[i]];
     for data in data {
         *data = table[*data as usize];
     }
@@ -510,14 +502,117 @@ fn apply_lookup_table(data: &mut [u16], table: &[u16]) {
 
 
 pub fn compress_bytes(
-    _header: &Header,
-    _packed: Bytes<'_>,
-    _rectangle: IntRect
+    header: &Header,
+    bytes: Bytes<'_>,
+    rectangle: IntRect
 ) -> Result<ByteVec>
 {
-    unimplemented!();
+    if bytes.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut tmp = vec![ 0_u16; bytes.len() / 2 ];
+    let mut channel_data = Vec::new();
+
+    let mut tmp_end_index = 0;
+    for channel in &header.channels.list {
+        let number_samples = channel.subsampled_resolution(rectangle.size);
+        let byte_size = channel.sample_type.bytes_per_sample() / SampleType::F16.bytes_per_sample();
+        let byte_count = byte_size * number_samples.area();
+
+        let channel = ChannelData {
+            tmp_end_index,
+            tmp_start_index: tmp_end_index,
+            y_sampling: channel.sampling.y(),
+            number_samples,
+            size: byte_size,
+        };
+
+        tmp_end_index += byte_count;
+        channel_data.push(channel);
+    }
+
+    debug_assert_eq!(tmp_end_index, tmp.len());
+
+    let mut byte_read = bytes;
+    for y in rectangle.position.y() .. rectangle.end().y() {
+        for channel in &channel_data {
+            if mod_p(y, channel.y_sampling as i32) != 0 { continue; }
+            let bytes_per_line = channel.number_samples.x() * channel.size;
+
+            // if format == Format::Independent {
+                u16::read_slice(&mut byte_read, &mut tmp[channel.tmp_start_index .. channel.tmp_start_index + bytes_per_line])
+                    .expect("in-memory read failed")
+            // } else { panic!() }
+        }
+    }
+
+
+    let (min_non_zero, max_non_zero, bitmap) = bitmap_from_data(&tmp);
+    let (max_value, table) = forward_lookup_table_from_bitmap(&bitmap);
+    apply_lookup_table(&mut tmp, &table);
+
+    let mut output = Vec::with_capacity(bytes.len() / 3);
+    (min_non_zero as u16).write(&mut output)?;
+    (max_non_zero as u16).write(&mut output)?;
+
+    if min_non_zero <= max_non_zero {
+        output.extend_from_slice(&bitmap[min_non_zero ..= max_non_zero]);
+    }
+
+    for channel in channel_data {
+        wavelet::encode(
+            &mut tmp[channel.tmp_start_index .. channel.tmp_end_index],
+            channel.number_samples,
+            Vec2(channel.size, channel.number_samples.0 * channel.size),
+            max_value
+        )?;
+    }
+
+    let compressed: Vec<u8> = huffman::compress(&tmp)?;
+    (compressed.len() as i32).write(&mut output).expect("in-memory write failed");
+    output.extend_from_slice(&compressed);
+
+    Ok(output)
 }
 
+pub fn bitmap_from_data(data: &[u16]) -> (usize, usize, [u8; BITMAP_SIZE]) {
+    let mut bitmap = [0_u8; BITMAP_SIZE];
+
+    for value in data {
+        bitmap[*value as usize >> 3] |= (1 << (*value as u8 & 7));
+    }
+
+    bitmap[0] = bitmap[0] & !1; // zero is not explicitly stored in the bitmap; we assume that the data always contain zeroes
+
+    let mut min = bitmap.len() - 1;
+    let mut max = 0;
+
+    for (bit_index, &bit) in bitmap.iter().enumerate() { // TODO do not go through bitmap unconditionally!
+        if bit != 0 {
+            min = min.min(bit_index);
+            max = max.max(bit_index);
+        }
+    }
+
+    (min, max, bitmap)
+}
+
+pub fn forward_lookup_table_from_bitmap(bitmap: &[u8]) -> (u16, [u16; U16_RANGE]) {
+    debug_assert_eq!(bitmap.len(), BITMAP_SIZE);
+
+    let mut table = [0_u16; U16_RANGE];
+    let mut count = 0;
+
+    for (i, entry) in table.iter_mut().enumerate() {
+        if i == 0 || bitmap[i >> 3] as usize & (1 << (i & 7)) != 0 {
+            *entry = count;
+            count += 1;
+        }
+    }
+
+    (count - 1, table)
+}
 
 #[cfg(test)]
 mod test {
