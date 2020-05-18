@@ -24,15 +24,17 @@ fn read_example() {
 
     // 1 layer, flat_data, largest_level, 1GB filter, no on_progress
     let simple = samples::f16()
-        .named_layer("main")
+        .named_layer("main") // find the layer with this name
         .read_file("simple.exr")?;
 
+    // deep data, no mip maps, one layer or err
     let deep = samples::f32()
         .deep_data()
         .largest_resolution_level()
         .expect_single_layer()
         .read_file("deep.exr")?;
 
+    // flat data, enum samples
     let rgb = samples::any()
         .any_data_depth()
         .all_resolution_levels()
