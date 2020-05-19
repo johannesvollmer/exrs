@@ -9,7 +9,7 @@ mod wavelet;
 
 use super::*;
 use super::Result;
-use crate::meta::attributes::{IntRect, SampleType, Channel};
+use crate::meta::attributes::{IntRect, SampleType};
 use crate::meta::{Header};
 use crate::io::Data;
 use crate::math::Vec2;
@@ -45,60 +45,9 @@ pub fn decompress_bytes(
         return Ok(Vec::new())
     }
 
-    // let Vec2(max_scan_line_size, scan_line_count) = header.default_block_pixel_size();
-
-    let tmp_buffer_byte_size = rectangle.size.area() * header.channels.bytes_per_pixel;// (max_scan_line_size * scan_line_count) / 2; // TODO is this arbitrary??
-    let mut tmp_buffer = vec![0_u16; tmp_buffer_byte_size / 2]; // TODO create inside huffman::decompress?
-    inspect!(tmp_buffer_byte_size, expected_byte_size);
+    let mut tmp_buffer = vec![0_u16; expected_byte_size / 2]; // TODO create inside huffman::decompress?
 
 
-//        AutoArray <unsigned char, BITMAP_SIZE> bitmap;
-//        memset (bitmap, 0, sizeof (unsigned char) * BITMAP_SIZE);
-
-    let mut bitmap = vec![0_u8; BITMAP_SIZE]; // FIXME use bit_vec!
-
-
-    let mut read = compressed.as_slice();
-
-    let min_non_zero = u16::read(&mut read)?;
-    let max_non_zero = u16::read(&mut read)?;
-    inspect!(min_non_zero, max_non_zero);
-
-//
-//        if (maxNonZero >= BITMAP_SIZE)
-//            throw InputExc ("Error in header for PIZ-compressed data "
-//            "(invalid bitmap size).");
-    if max_non_zero as usize >= BITMAP_SIZE {
-        println!("invalid bitmap size");
-        return Err(Error::invalid("compression data"));
-    }
-//
-//        if (minNonZero <= maxNonZero)
-//            Xdr::read <CharPtrIO> (inPtr, (char *) &bitmap[0] + minNonZero,
-//                                   maxNonZero - minNonZero + 1);
-
-    if min_non_zero <= max_non_zero {
-        u8::read_slice(&mut read, &mut bitmap[min_non_zero as usize .. (max_non_zero as usize + 1)])?; // TODO +1/-1?
-        // bitmap[ min_non_zero as usize .. (min_non_zero + length) as usize ]
-        //     .copy_from_slice(&read[.. length as usize]);
-    }
-
-//        AutoArray <unsigned short, USHORT_RANGE> lut;
-//        unsigned short maxValue = reverseLutFromBitmap (bitmap, lut);
-
-    let (lookup_table, max_value) = reverse_lookup_table_from_bitmap(&bitmap);
-    // inspect!(bitmap, lookup_table, max_value);
-
-    let length = i32::read(&mut read)?;
-    // inspect!(length);
-
-
-    if length as usize > read.len() {
-        println!("invalid array length");
-        return Err(Error::invalid("compression data"));
-    }
-
-    huffman::decompress(&read[..length as usize], &mut tmp_buffer)?;
 
     let mut channel_data: Vec<ChannelData> = Vec::with_capacity(header.channels.list.len());
     let mut tmp_read_index = 0;
@@ -112,11 +61,51 @@ pub fn decompress_bytes(
             size: (channel.sample_type.bytes_per_sample() / SampleType::F16.bytes_per_sample())
         };
 
+        inspect!(channel);
+
         tmp_read_index += channel.number_samples.area() * channel.size;
         channel_data.push(channel);
     }
 
     inspect!(channel_data);
+
+//        AutoArray <unsigned char, BITMAP_SIZE> bitmap;
+//        memset (bitmap, 0, sizeof (unsigned char) * BITMAP_SIZE);
+
+    let mut bitmap = vec![0_u8; BITMAP_SIZE]; // FIXME use bit_vec!
+
+
+
+    let mut remaining_input = compressed.as_slice();
+    let min_non_zero = u16::read(&mut remaining_input).unwrap();
+    let max_non_zero = u16::read(&mut remaining_input).unwrap();
+    inspect!(min_non_zero, max_non_zero);
+
+    if max_non_zero as usize >= BITMAP_SIZE {
+        println!("invalid bitmap size");
+        return Err(Error::invalid("compression data"));
+    }
+
+    if min_non_zero <= max_non_zero {
+        u8::read_slice(&mut remaining_input, &mut bitmap[min_non_zero as usize .. (max_non_zero as usize + 1)]).unwrap();
+    }
+
+    let (lookup_table, max_value) = reverse_lookup_table_from_bitmap(&bitmap);
+    inspect!(bitmap, lookup_table, max_value);
+
+    let length = i32::read(&mut remaining_input).unwrap();
+    inspect!(length);
+
+    if length < 0 || length as usize > remaining_input.len() {
+        println!("invalid array length");
+        return Err(Error::invalid("compression data"));
+    }
+
+    // inspect!(&remaining_input[..length as usize]);
+
+    huffman::decompress(&remaining_input[..length as usize], &mut tmp_buffer).unwrap();
+
+
 
 
     for channel in &channel_data {
@@ -248,7 +237,7 @@ fn reverse_lookup_table_from_bitmap(bitmap: Bytes<'_>) -> (Vec<u16>, u16) {
         }
     }
 
-    let max_value = table.len() as u16;
+    let max_value = table.len() as u16 - 1;
 
     // fill remaining up to u16 range
     debug_assert!(table.len() < U16_RANGE);
@@ -346,7 +335,7 @@ pub fn bitmap_from_data(data: &[u16]) -> (usize, usize, [u8; BITMAP_SIZE]) {
     let mut bitmap = [0_u8; BITMAP_SIZE];
 
     for value in data {
-        bitmap[*value as usize >> 3] |= (1 << (*value as u8 & 7));
+        bitmap[*value as usize >> 3] |= 1 << (*value as u8 & 7);
     }
 
     bitmap[0] = bitmap[0] & !1; // zero is not explicitly stored in the bitmap; we assume that the data always contain zeroes
