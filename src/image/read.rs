@@ -14,7 +14,22 @@ use crate::block::lines::LineRef;
 
 fn read_example() {
 
-    let complex = samples::any() // uses enums as sample type
+    let image_reader = image()
+        .only_flat_data()
+        .all_layers()
+        .all_resolution_levels()
+        .any_channels();
+
+    let file_reader = image_reader
+        .filter(|_meta| true)
+        .on_progress(|progress| println!("loaded {}%", progress))
+        .parallel_decompression(true);
+
+    let file = file_reader.read_file("file.exr");
+
+
+
+    let complex = channels::any() // uses enums as sample type
         .flat_data() // alternatives: any_data_depth() and deep_data()
         .all_resolution_levels() // default: max_resolution_level()
         .all_layers() // alternatives: first_layer() and layer_groups(), default: all_layers
@@ -23,62 +38,56 @@ fn read_example() {
         .read_file("file.exr")?;
 
     // 1 layer, flat_data, largest_level, 1GB filter, no on_progress
-    let simple = samples::f16()
+    let simple = channels::any()
         .named_layer("main") // find the layer with this name
         .read_file("simple.exr")?;
 
     // deep data, no mip maps, one layer or err
-    let deep = samples::f32()
+    let deep = channels::any()
         .deep_data()
         .largest_resolution_level()
         .expect_single_layer()
         .read_file("deep.exr")?;
 
     // flat data, enum samples
-    let rgb = samples::any()
+    let rgb = channels::any()
         .any_data_depth()
         .all_resolution_levels()
         .select_layer(|headers| header.enumerate().find(|header| header.name == "main")) // `Fn(&[Header]) -> Option<usize>`
         .read_file("deep.exr")?;
 }
 
-pub mod samples {
-    use super::*;
+fn image() -> Reader { Reader { } }
+struct Reader;
 
-    pub fn any() -> AnySamples { AnySamples {} }
-    pub fn f16() -> F16Samples { F16Samples {} }
-    pub fn f32() -> F32Samples { F32Samples {} }
-    pub fn u32() -> U32Samples { U32Samples {} }
+impl Reader {
+    pub fn any_channels(self) -> AnyChannels { AnyChannels {} }
+    // pub fn rgba_channels(create: impl Fn(ImageInfo), insert: impl Fn(Vec2<usize>, rgba::Pixel)) -> RGBAChannels { RGBAChannels {} }
 }
 
-pub struct AnySamples;
-pub struct F16Samples;
-pub struct F32Samples;
-pub struct U32Samples;
+pub struct AnyChannels;
 
-pub mod pixels {
-    use super::*;
-
-    pub fn flat() -> ReadFlatPixels { ReadFlatPixels {} }
-    pub fn any_depth() -> ReadAnyPixels { ReadAnyPixels {} }
-    pub fn deep() -> ReadDeepPixels { ReadDeepPixels {} }
+impl AnyChannels {
+    fn only_flat_data(self) -> ReadFlatChannels<Self> { ReadFlatChannels { channel_reader: self } }
+    fn only_deep_data(self) -> ReadDeepChannels<Self> { ReadDeepChannels { channel_reader: self } }
+    fn any_data_depth(self) -> ReadAnyChannels<Self> { ReadAnyChannels { channel_reader: self } }
 }
 
-pub struct ReadFlatPixels<Sample>;
-pub struct ReadAnyPixels<Sample>;
-pub struct ReadDeepPixels<Sample>;
+pub struct ReadFlatChannels<Channels> { channel_reader: Channels }
+pub struct ReadAnyChannels<Channels> { channel_reader: Channels }
+pub struct ReadDeepChannels<Channels> { channel_reader: Channels }
 
-impl ReadFlatPixels {
+impl<Channels> ReadFlatChannels<Channels> {
     pub fn all_resolution_levels(self) -> ReadAllLevels<Self> { ReadAllLevels { read_pixels: self } }
     pub fn largest_resolution_level(self) -> ReadLargestLevel<Self> { ReadLargestLevel { read_pixels: self } }
 }
 
-impl ReadAnyPixels {
+impl<Channels> ReadAnyChannels<Channels> {
     pub fn all_resolution_levels(self) -> ReadAllLevels<Self> { ReadAllLevels { read_pixels: self } }
     pub fn largest_resolution_level(self) -> ReadLargestLevel<Self> { ReadLargestLevel { read_pixels: self } }
 }
 
-impl ReadDeepPixels {
+impl<Channels> ReadDeepChannels<Channels> {
     pub fn all_resolution_levels(self) -> ReadAllLevels<Self> { ReadAllLevels { read_pixels: self } }
     pub fn largest_resolution_level(self) -> ReadLargestLevel<Self> { ReadLargestLevel { read_pixels: self } }
 }
