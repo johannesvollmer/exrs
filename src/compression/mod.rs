@@ -180,7 +180,7 @@ impl Compression {
                 ZIP16 => zip::decompress_bytes(&data, expected_byte_size),
                 ZIP1 => zip::decompress_bytes(&data, expected_byte_size),
                 RLE => rle::decompress_bytes(&data, expected_byte_size),
-               PIZ => piz::decompress_bytes(header, data, pixel_section, expected_byte_size),
+                PIZ => piz::decompress_bytes(header, data, pixel_section, expected_byte_size),
                 _ => return Err(Error::unsupported(format!("yet unimplemented decompression method: {}", self)))
             };
 
