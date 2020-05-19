@@ -50,6 +50,7 @@ fn search_previews_of_all_files() {
 #[ignore]
 pub fn test_roundtrip() {
     let path = "tests/images/valid/custom/crowskull/crow_piz_noisy_rgb.exr";
+    // let path = "tests/images/valid/custom/crowskull/crow_zip_half.exr";
 
     print!("starting read 1... ");
     io::stdout().flush().unwrap();
@@ -57,7 +58,7 @@ pub fn test_roundtrip() {
     let meta = MetaData::read_from_file(path, false).unwrap();
     println!("{:#?}", meta);
 
-    let (image, pixels) = rgba::ImageInfo::read_pixels_from_file(
+    let (mut image, pixels) = rgba::ImageInfo::read_pixels_from_file(
         path, read_options::low(),
         rgba::pixels::create_flattened_f16,
         rgba::pixels::flattened_pixel_setter()
@@ -69,6 +70,8 @@ pub fn test_roundtrip() {
 
     print!("starting write... ");
     io::stdout().flush().unwrap();
+
+    // image.encoding.compression = Compression::PIZ;
 
     image.write_pixels_to_buffered(
         &mut Cursor::new(&mut tmp_bytes), write_options,

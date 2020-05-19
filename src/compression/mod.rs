@@ -167,10 +167,10 @@ impl Compression {
         let dimensions = header.default_block_pixel_size();
         assert!(pixel_section.validate(Some(dimensions)).is_ok(), "decompress tile coordinate bug");
 
-        let expected_byte_size = dimensions.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
+        let expected_byte_size = pixel_section.size.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
 
         if data.len() == expected_byte_size {
-            Ok(data) // the raw data was smaller than the compressed data, so the raw data has been written
+            Ok(data) // the compressed data was larger than the raw data, so the raw data has been written
         }
 
         else {
@@ -187,6 +187,8 @@ impl Compression {
             // map all errors to compression errors
             let bytes = bytes
                 .map_err(|_| Error::invalid(format!("compressed data ({:?})", self)))?;
+
+            inspect!(bytes.len());
 
             if bytes.len() != expected_byte_size {
                 Err(Error::invalid("decompressed data"))

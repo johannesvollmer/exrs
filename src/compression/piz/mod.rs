@@ -374,10 +374,10 @@ mod test {
     use crate::compression::ByteVec;
 
     #[test]
-    fn roundtrip(){
+    fn roundtrip_f16(){
 
         let channel = Channel {
-            sample_type: SampleType::F16,
+            sample_type: SampleType::F16, // FIXME f16 works, f32 doesnt
 
             name: Default::default(),
             quantize_linearly: false,
@@ -391,8 +391,8 @@ mod test {
             size: Vec2(549, 242),
         };
 
-        let pixels: Vec<u16> = (0..rectangle.size.area()*channels.list.len())
-            .map(|_| rand::random()).collect();
+        let pixels: Vec<u16> = (0 .. rectangle.size.area() * channels.list.len())
+            .map(|_| rand::random()).collect(); // TODO set seed
 
         let mut pixel_bytes = ByteVec::new();
 
@@ -403,6 +403,38 @@ mod test {
         let decompressed = super::decompress_bytes(&channels, compressed, rectangle, pixel_bytes.len()).unwrap();
 
         assert_eq!(pixel_bytes, decompressed);
+    }
 
+
+    #[test]
+    fn roundtrip_f32(){
+
+        let channel = Channel {
+            sample_type: SampleType::F32, // FIXME f16 works, f32 doesnt
+
+            name: Default::default(),
+            quantize_linearly: false,
+            sampling: Vec2(1,1)
+        };
+
+        let channels = ChannelList::new(smallvec![ channel.clone(), channel ]);
+
+        let rectangle = IntRect {
+            position: Vec2(-3, 1),
+            size: Vec2(549, 242),
+        };
+
+        let pixels: Vec<f32> = (0 .. rectangle.size.area() * channels.list.len())
+            .map(|_| rand::random()).collect(); // TODO set seed
+
+        let mut pixel_bytes = ByteVec::new();
+
+        use lebe::io::WriteEndian;
+        pixel_bytes.write_as_native_endian(pixels.as_slice()).unwrap();
+
+        let compressed = super::compress_bytes(&channels, &pixel_bytes, rectangle).unwrap();
+        let decompressed = super::decompress_bytes(&channels, compressed, rectangle, pixel_bytes.len()).unwrap();
+
+        assert_eq!(pixel_bytes, decompressed);
     }
 }
