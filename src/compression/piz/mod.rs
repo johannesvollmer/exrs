@@ -27,9 +27,10 @@ enum Format {
 struct ChannelData {
     tmp_start_index: usize,
     tmp_end_index: usize,
-    number_samples: Vec2<usize>,
+
+    resolution: Vec2<usize>,
     y_sampling: usize,
-    size: usize,
+    samples_per_pixel: usize,
 }
 
 
@@ -46,8 +47,6 @@ pub fn decompress_bytes(
 
     let mut tmp_buffer = vec![0_u16; expected_byte_size / 2]; // TODO create inside huffman::decompress?
 
-
-
     let mut channel_data: Vec<ChannelData> = Vec::with_capacity(channels.list.len());
     let mut tmp_read_index = 0;
 
@@ -56,36 +55,33 @@ pub fn decompress_bytes(
             tmp_start_index: tmp_read_index,
             tmp_end_index: tmp_read_index,
             y_sampling: channel.sampling.y(),
-            number_samples: channel.subsampled_resolution(rectangle.size),
-            size: (channel.sample_type.bytes_per_sample() / SampleType::F16.bytes_per_sample())
+            resolution: channel.subsampled_resolution(rectangle.size),
+            samples_per_pixel: channel.sample_type.bytes_per_sample() / SampleType::F16.bytes_per_sample()
         };
 
         inspect!(channel);
 
-        tmp_read_index += channel.number_samples.area() * channel.size;
+        tmp_read_index += channel.resolution.area() * channel.samples_per_pixel;
         channel_data.push(channel);
     }
 
+    debug_assert_eq!(tmp_read_index, tmp_buffer.len());
     inspect!(channel_data);
-
-//        AutoArray <unsigned char, BITMAP_SIZE> bitmap;
-//        memset (bitmap, 0, sizeof (unsigned char) * BITMAP_SIZE);
-
 
     let mut bitmap = vec![0_u8; BITMAP_SIZE]; // FIXME use bit_vec!
 
     let mut remaining_input = compressed.as_slice();
-    let min_non_zero = u16::read(&mut remaining_input).unwrap();
-    let max_non_zero = u16::read(&mut remaining_input).unwrap();
+    let min_non_zero = u16::read(&mut remaining_input).unwrap() as usize;
+    let max_non_zero = u16::read(&mut remaining_input).unwrap() as usize;
     inspect!(min_non_zero, max_non_zero);
 
-    if max_non_zero as usize >= BITMAP_SIZE {
+    if max_non_zero >= BITMAP_SIZE {
         println!("invalid bitmap size");
         return Err(Error::invalid("compression data"));
     }
 
     if min_non_zero <= max_non_zero {
-        u8::read_slice(&mut remaining_input, &mut bitmap[min_non_zero as usize .. (max_non_zero as usize + 1)]).unwrap();
+        u8::read_slice(&mut remaining_input, &mut bitmap[min_non_zero ..= max_non_zero]).unwrap();
     }
 
     let (lookup_table, max_value) = reverse_lookup_table_from_bitmap(&bitmap);
@@ -99,21 +95,21 @@ pub fn decompress_bytes(
         return Err(Error::invalid("compression data"));
     }
 
-    inspect!(length, remaining_input.len());
+    inspect!(length, remaining_input.len(), &remaining_input[..20]);
     huffman::decompress(&remaining_input[..length as usize], &mut tmp_buffer).unwrap();
 
 
     for channel in &channel_data {
-        let u16_count = channel.number_samples.area() * channel.size;
+        let u16_count = channel.resolution.area() * channel.samples_per_pixel;
         let u16s = &mut tmp_buffer[channel.tmp_start_index .. channel.tmp_start_index + u16_count];
 
-        for offset in 0..channel.size { // if channel is 32 bit, compress interleaved as two 16 bit values
+        for offset in 0..channel.samples_per_pixel { // if channel is 32 bit, compress interleaved as two 16 bit values
             inspect!(channel);
 
             wavelet::decode(
                 &mut u16s[offset..],
-                channel.number_samples,
-                Vec2(channel.size, channel.number_samples.x() * channel.size),
+                channel.resolution,
+                Vec2(channel.samples_per_pixel, channel.resolution.x() * channel.samples_per_pixel),
                 max_value
             )?;
         }
@@ -143,7 +139,7 @@ pub fn decompress_bytes(
                 continue;
             }
 
-            let u16s_per_line = channel.number_samples.x() * channel.size;
+            let u16s_per_line = channel.resolution.x() * channel.samples_per_pixel;
 
             // if format == Format::Independent {
             let next_tmp_end_index = channel.tmp_end_index + u16s_per_line;
@@ -154,7 +150,7 @@ pub fn decompress_bytes(
             }
             else { // machine-dependent data format is a simple memcpy
                 use lebe::io::WriteEndian;
-                out.write_as_native_endian(&tmp_buffer[channel.tmp_end_index .. next_tmp_end_index])?;
+                out.write_as_native_endian(values).expect("write to in-memory failed");
             }
 
             channel.tmp_end_index = next_tmp_end_index;
@@ -196,8 +192,8 @@ pub fn compress_bytes(
             tmp_end_index,
             tmp_start_index: tmp_end_index,
             y_sampling: channel.sampling.y(),
-            number_samples,
-            size: byte_size,
+            resolution: number_samples,
+            samples_per_pixel: byte_size,
         };
 
         tmp_end_index += byte_count;
@@ -206,19 +202,34 @@ pub fn compress_bytes(
 
     debug_assert_eq!(tmp_end_index, tmp.len());
 
+    let has_only_half_channels = channels.list
+        .iter().all(|channel| channel.sample_type == SampleType::F16);
+
+    // We can support uncompressed data in the machine's native format
+    // if all image channels are of type HALF, and if the Xdr and the
+    // native representations of a half have the same size.
+    let format = {
+        if has_only_half_channels { Format::Native }
+        else { Format::Independent } // half is always 16 bit in Rust
+    };
+
     let mut byte_read = bytes;
     for y in rectangle.position.y() .. rectangle.end().y() {
         for channel in &mut channel_data {
             if mod_p(y, channel.y_sampling as i32) != 0 { continue; }
-            let u16s_per_line = channel.number_samples.x() * channel.size;
-
-            // if format == Format::Independent {
+            let u16s_per_line = channel.resolution.x() * channel.samples_per_pixel;
             let next_tmp_end_index = channel.tmp_end_index + u16s_per_line;
-            u16::read_slice(&mut byte_read, &mut tmp[channel.tmp_end_index ..next_tmp_end_index])
-                .expect("in-memory read failed");
+            let mut target = &mut tmp[channel.tmp_end_index ..next_tmp_end_index];
+
+            if format == Format::Independent {
+                u16::read_slice(&mut byte_read, target).expect("in-memory read failed");
+            }
+            else {
+                use lebe::io::ReadEndian;
+                byte_read.read_from_native_endian_into(target).expect("in-memory read failed");
+            }
 
             channel.tmp_end_index = next_tmp_end_index;
-            // } else { panic!() }
         }
     }
 
@@ -236,11 +247,11 @@ pub fn compress_bytes(
     }
 
     for channel in channel_data {
-        for offset in 0 .. channel.size {
+        for offset in 0 .. channel.samples_per_pixel {
             wavelet::encode(
                 &mut tmp[channel.tmp_start_index + offset .. channel.tmp_end_index],
-                channel.number_samples,
-                Vec2(channel.size, channel.number_samples.x() * channel.size),
+                channel.resolution,
+                Vec2(channel.samples_per_pixel, channel.resolution.x() * channel.samples_per_pixel),
                 max_value
             )?;
         }
