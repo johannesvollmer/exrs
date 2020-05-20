@@ -106,9 +106,14 @@ pub fn decompress_bytes(
 
 
     for channel in &channel_data {
-        for size in 0..channel.size { // if channel is 32 bit, compress interleaved as two 16 bit values
+        let u16_count = channel.number_samples.area() * channel.size;
+        let u16s = &mut tmp_buffer[channel.tmp_start_index .. channel.tmp_start_index + u16_count];
+
+        for offset in 0..channel.size { // if channel is 32 bit, compress interleaved as two 16 bit values
+            inspect!(channel);
+
             wavelet::decode(
-                &mut tmp_buffer[channel.tmp_start_index + size .. channel.tmp_end_index],
+                &mut u16s[offset..],
                 channel.number_samples,
                 Vec2(channel.size, channel.number_samples.x() * channel.size),
                 max_value
