@@ -140,10 +140,9 @@ pub fn decompress_bytes(
             }
 
             let u16s_per_line = channel.resolution.x() * channel.samples_per_pixel;
-
-            // if format == Format::Independent {
             let next_tmp_end_index = channel.tmp_end_index + u16s_per_line;
             let values = &tmp_buffer[channel.tmp_end_index .. next_tmp_end_index];
+            channel.tmp_end_index = next_tmp_end_index;
 
             if format == Format::Independent {
                 u16::write_slice(&mut out, values).expect("write to in-memory failed");
@@ -152,8 +151,6 @@ pub fn decompress_bytes(
                 use lebe::io::WriteEndian;
                 out.write_as_native_endian(values).expect("write to in-memory failed");
             }
-
-            channel.tmp_end_index = next_tmp_end_index;
         }
     }
 
@@ -219,7 +216,8 @@ pub fn compress_bytes(
             if mod_p(y, channel.y_sampling as i32) != 0 { continue; }
             let u16s_per_line = channel.resolution.x() * channel.samples_per_pixel;
             let next_tmp_end_index = channel.tmp_end_index + u16s_per_line;
-            let mut target = &mut tmp[channel.tmp_end_index ..next_tmp_end_index];
+            let mut target = &mut tmp[channel.tmp_end_index .. next_tmp_end_index];
+            channel.tmp_end_index = next_tmp_end_index;
 
             if format == Format::Independent {
                 u16::read_slice(&mut byte_read, target).expect("in-memory read failed");
@@ -228,8 +226,6 @@ pub fn compress_bytes(
                 use lebe::io::ReadEndian;
                 byte_read.read_from_native_endian_into(target).expect("in-memory read failed");
             }
-
-            channel.tmp_end_index = next_tmp_end_index;
         }
     }
 
