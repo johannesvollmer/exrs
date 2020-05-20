@@ -34,7 +34,7 @@ fn main() {
         (2*2048, 2*2048),
 
         // all generated f32 values are converted to an f16 while writing the file
-        SampleType::F16,
+        SampleType::F32,
     );
 
     image_info.layer_attributes.owner = Some("Unknown Owner".try_into().unwrap());

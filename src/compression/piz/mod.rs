@@ -10,7 +10,6 @@ mod wavelet;
 use super::*;
 use super::Result;
 use crate::meta::attributes::{IntRect, SampleType, ChannelList};
-use crate::meta::{Header};
 use crate::io::Data;
 use crate::math::Vec2;
 
