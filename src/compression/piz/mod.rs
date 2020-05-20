@@ -101,8 +101,6 @@ pub fn decompress_bytes(
     }
 
     inspect!(length, remaining_input.len());
-    println!("{:?}", remaining_input);
-
     huffman::decompress(&remaining_input[..length as usize], &mut tmp_buffer).unwrap();
 
 
@@ -324,7 +322,7 @@ fn reverse_lookup_table_from_bitmap(bitmap: Bytes<'_>) -> (Vec<u16>, u16) {
     let max_value = (table.len() - 1) as u16;
 
     // fill remaining up to u16 range
-    assert!(table.len() < U16_RANGE); // FIXME this can be triggered, we need to check the PIZ max tile size
+    assert!(table.len() <= U16_RANGE);
     table.resize(U16_RANGE, 0);
 
     (table, max_value)
@@ -381,13 +379,14 @@ mod test {
     use crate::meta::*;
     use crate::meta::attributes::*;
     use crate::compression::ByteVec;
+    use crate::compression::piz;
 
     fn test_roundtrip_noise_with(channels: ChannelList, rectangle: IntRect){
         let pixel_bytes: ByteVec = (0 .. channels.bytes_per_pixel * rectangle.size.area())
             .map(|_| rand::random()).collect();
 
-        let compressed = super::compress_bytes(&channels, &pixel_bytes, rectangle).unwrap();
-        let decompressed = super::decompress_bytes(&channels, compressed, rectangle, pixel_bytes.len()).unwrap();
+        let compressed = piz::compress_bytes(&channels, &pixel_bytes, rectangle).unwrap();
+        let decompressed = piz::decompress_bytes(&channels, compressed, rectangle, pixel_bytes.len()).unwrap();
 
         assert_eq!(pixel_bytes, decompressed);
     }
@@ -426,8 +425,8 @@ mod test {
         let channels = ChannelList::new(smallvec![ channel.clone(), channel ]);
 
         let rectangle = IntRect {
-            position: Vec2(-3, 1),
-            size: Vec2(32, 31),
+            position: Vec2(-30, 100),
+            size: Vec2(322, 731),
         };
 
         test_roundtrip_noise_with(channels, rectangle);
@@ -455,7 +454,7 @@ mod test {
 
         let rectangle = IntRect {
             position: Vec2(-3, 1),
-            size: Vec2(32, 31),
+            size: Vec2(3223, 31232),
         };
 
         test_roundtrip_noise_with(channels, rectangle);
