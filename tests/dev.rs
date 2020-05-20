@@ -49,8 +49,8 @@ fn search_previews_of_all_files() {
 #[test]
 #[ignore]
 pub fn test_roundtrip() {
-    let path = "tests/images/valid/custom/crowskull/crow_piz_noisy_rgb.exr";
-    // let path = "tests/images/valid/custom/crowskull/crow_zip_half.exr";
+    // let path = "tests/images/valid/custom/crowskull/crow_piz_noisy_rgb.exr";
+    let path = "tests/images/valid/custom/crowskull/crow_rle.exr";
 
     print!("starting read 1... ");
     io::stdout().flush().unwrap();
@@ -71,7 +71,7 @@ pub fn test_roundtrip() {
     print!("starting write... ");
     io::stdout().flush().unwrap();
 
-    // image.encoding.compression = Compression::PIZ;
+    image.encoding.compression = Compression::PIZ;
 
     image.write_pixels_to_buffered(
         &mut Cursor::new(&mut tmp_bytes), write_options,

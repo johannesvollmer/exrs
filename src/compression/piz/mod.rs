@@ -100,7 +100,8 @@ pub fn decompress_bytes(
         return Err(Error::invalid("compression data"));
     }
 
-    // inspect!(&remaining_input[..length as usize]);
+    inspect!(length, remaining_input.len());
+    println!("{:?}", remaining_input);
 
     huffman::decompress(&remaining_input[..length as usize], &mut tmp_buffer).unwrap();
 
