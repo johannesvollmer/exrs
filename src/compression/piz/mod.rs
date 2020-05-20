@@ -42,7 +42,7 @@ pub fn decompress_bytes(
 ) -> Result<ByteVec>
 {
     if compressed.is_empty() {
-        return Ok(Vec::new())
+        return Ok(Vec::new());
     }
 
     let mut tmp_buffer = vec![0_u16; expected_byte_size / 2]; // TODO create inside huffman::decompress?
@@ -75,7 +75,7 @@ pub fn decompress_bytes(
     let max_non_zero = u16::read(&mut remaining_input).unwrap() as usize;
     inspect!(min_non_zero, max_non_zero);
 
-    if max_non_zero >= BITMAP_SIZE {
+    if max_non_zero >= BITMAP_SIZE || min_non_zero >= BITMAP_SIZE {
         println!("invalid bitmap size");
         return Err(Error::invalid("compression data"));
     }
@@ -87,16 +87,18 @@ pub fn decompress_bytes(
     let (lookup_table, max_value) = reverse_lookup_table_from_bitmap(&bitmap);
     inspect!(max_value);
 
-    let length = i32::read(&mut remaining_input).unwrap();
-    inspect!(length);
+    {
+        let length = i32::read(&mut remaining_input).unwrap();
+        inspect!(length);
 
-    if length < 0 || length as usize > remaining_input.len() {
-        println!("invalid array length");
-        return Err(Error::invalid("compression data"));
+        if length as usize != remaining_input.len() {
+            println!("invalid array length");
+            // TODO length might be smaller than remaining??
+            return Err(Error::invalid("compression data"));
+        }
     }
 
-    inspect!(length, remaining_input.len(), &remaining_input[..20]);
-    huffman::decompress(&remaining_input[..length as usize], &mut tmp_buffer).unwrap();
+    huffman::decompress(remaining_input, &mut tmp_buffer).unwrap();
 
 
     for channel in &channel_data {
@@ -115,7 +117,7 @@ pub fn decompress_bytes(
         }
     }
 
-//        // Expand the pixel data to their original range
+    // Expand the pixel data to their original range
     apply_lookup_table(&mut tmp_buffer, &lookup_table);
 
     let has_only_half_channels = channels.list
