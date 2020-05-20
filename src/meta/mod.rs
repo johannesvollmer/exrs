@@ -972,7 +972,7 @@ impl Header {
     pub fn get_scan_line_block_tile_coordinates(&self, block_y_coordinate: i32) -> Result<TileCoordinates> {
         let size = self.compression.scan_lines_per_block() as i32;
         let y = (block_y_coordinate - self.own_attributes.data_position.1) / size;
-        
+
         if y < 0 {
             return Err(Error::invalid("scan block y coordinate"));
         }

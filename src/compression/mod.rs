@@ -2,9 +2,13 @@
 //! Contains the compression attribute definition
 //! and methods to compress and decompress data.
 
+
+// private modules make non-breaking changes easier
 mod zip;
 mod rle;
 mod piz;
+mod pxr24;
+
 
 
 use crate::meta::Header;
@@ -60,7 +64,8 @@ pub enum Compression {
     // tends to offset any size reduction of the input.)
     PIZ,
 
-    /// __This lossy compression is not yet supported by this implementation.__
+    /// Like `ZIP1`, but reduces precision of `f32` images to `f24`.
+    /// This produces really small image files. Only supported for flat images, not for deep data.
     // After reducing 32-bit floating-point data to 24 bits by rounding (while leaving 16-bit
     // floating-point data unchanged), differences between horizontally adjacent pixels
     // are compressed with zlib, similar to ZIP. PXR24 compression preserves image
@@ -137,28 +142,30 @@ impl std::fmt::Display for Compression {
 impl Compression {
 
     /// Compress the image section of bytes.
-    pub fn compress_image_section(self, header: &Header, packed: ByteVec, pixel_section: IntRect) -> Result<ByteVec> {
+    pub fn compress_image_section(self, header: &Header, data: ByteVec, pixel_section: IntRect) -> Result<ByteVec> {
         let max_tile_size = header.default_block_pixel_size();
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
 
         use self::Compression::*;
         let compressed = match self {
-            Uncompressed => return Ok(packed),
-            ZIP16 => zip::compress_bytes(&packed),
-            ZIP1 => zip::compress_bytes(&packed),
-            RLE => rle::compress_bytes(&packed),
-            PIZ => piz::compress_bytes(&header.channels, &packed, pixel_section),
+            Uncompressed => return Ok(data),
+            ZIP16 => zip::compress_bytes(&data),
+            ZIP1 => zip::compress_bytes(&data),
+            RLE => rle::compress_bytes(&data),
+            PIZ if false => piz::compress_bytes(&header.channels, &data, pixel_section), // TODO
+            PXR24 => pxr24::compress(&header.channels, &data, pixel_section),
             _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
         };
 
         let compressed = compressed
             .map_err(|_| Error::invalid(format!("pixels cannot be compressed ({})", self)))?;
 
-        if compressed.len() < packed.len() {
-            Ok(compressed) // only return compressed data if it is smaller than uncompressed
+        if compressed.len() < data.len() {
+            // FIXME handle endianness
+            Ok(compressed)
         }
         else {
-            Ok(packed)
+            Ok(data)
         }
     }
 
@@ -170,6 +177,7 @@ impl Compression {
         let expected_byte_size = pixel_section.size.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
 
         if data.len() == expected_byte_size {
+            // FIXME handle endianness
             Ok(data) // the compressed data was larger than the raw data, so the raw data has been written
         }
 
@@ -180,8 +188,9 @@ impl Compression {
                 ZIP16 => zip::decompress_bytes(&data, expected_byte_size),
                 ZIP1 => zip::decompress_bytes(&data, expected_byte_size),
                 RLE => rle::decompress_bytes(&data, expected_byte_size),
-                PIZ => piz::decompress_bytes(&header.channels, data, pixel_section, expected_byte_size),
-                _ => return Err(Error::unsupported(format!("yet unimplemented decompression method: {}", self)))
+                PIZ if false => piz::decompress_bytes(&header.channels, data, pixel_section, expected_byte_size), // TODO
+                PXR24 => pxr24::decompress(&header.channels, &data, pixel_section, expected_byte_size),
+                _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
             };
 
             // map all errors to compression errors

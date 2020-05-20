@@ -45,11 +45,11 @@ __Currently supported:__
     - [ ] deep data
     - [ ] compression methods (help wanted)
         - [x] uncompressed
-        - [x] zip line
-        - [x] zip block
-        - [x] rle
-        - [ ] piz
-        - [ ] pxr24
+        - [x] zip line (lossless)
+        - [x] zip block (lossless)
+        - [x] rle (lossless)
+        - [ ] piz (lossless)
+        - [x] pxr24 (lossless for f16 and u32)
         - [ ] b44, b44a
         - [ ] dwaa, dwab
 
@@ -121,11 +121,11 @@ please leave an issue on this repository, containing the image file.
     - [x] 100% correct meta data
     - [x] Compression Methods
         - [x] Uncompressed
-        - [x] ZIPS
-        - [x] ZIP
-        - [x] RLE
-        - [ ] PIZ
-        - [ ] RXR24
+        - [x] ZIPS (lossless)
+        - [x] ZIP (lossless)
+        - [x] RLE (lossless)
+        - [ ] PIZ (lossless)
+        - [x] PXR24 (lossless for f16 and u32)
         - [ ] B44, B44A
         - [ ] DWAA, DWAB
     

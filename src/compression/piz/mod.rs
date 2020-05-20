@@ -216,7 +216,7 @@ pub fn compress_bytes(
             if mod_p(y, channel.y_sampling as i32) != 0 { continue; }
             let u16s_per_line = channel.resolution.x() * channel.samples_per_pixel;
             let next_tmp_end_index = channel.tmp_end_index + u16s_per_line;
-            let mut target = &mut tmp[channel.tmp_end_index .. next_tmp_end_index];
+            let target = &mut tmp[channel.tmp_end_index .. next_tmp_end_index];
             channel.tmp_end_index = next_tmp_end_index;
 
             if format == Format::Independent {

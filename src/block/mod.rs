@@ -397,13 +397,16 @@ impl UncompressedBlock {
             panic!("get_line byte size should be {} but was {}", expected_byte_size, data.len());
         }
 
-        let block_indices = TileCoordinates {
-            tile_index: index.pixel_position / header.default_block_pixel_size(), // TODO this calculation should be done elsewhere
+        let tile_coordinates = TileCoordinates {
+            // FIXME this calculation should not be made here but elsewhere instead (in meta::header?)
+            tile_index: index.pixel_position / header.default_block_pixel_size(),
             level_index: index.level,
         };
 
-        let pixel_coordinates = header.get_absolute_block_pixel_coordinates(block_indices)?;
-        let compressed_data = header.compression.compress_image_section(header, data, pixel_coordinates)?;
+        let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_coordinates)?;
+        absolute_indices.validate(Some(header.data_size))?;
+
+        let compressed_data = header.compression.compress_image_section(header, data, absolute_indices)?;
 
         Ok(Chunk {
             layer_index: index.layer,
@@ -415,15 +418,9 @@ impl UncompressedBlock {
                     y_coordinate: usize_to_i32(index.pixel_position.y()) + header.own_attributes.data_position.y(),
                 }),
 
-                Blocks::Tiles(tiles) => Block::Tile(TileBlock {
+                Blocks::Tiles(_) => Block::Tile(TileBlock {
                     compressed_pixels: compressed_data,
-                    coordinates: TileCoordinates {
-                        level_index: index.level,
-
-                        // FIXME this calculation should not be made here but elsewhere instead (in meta::header?)
-                        tile_index: index.pixel_position / tiles.tile_size,
-                    },
-
+                    coordinates: tile_coordinates,
                 }),
             }
         })

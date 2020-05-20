@@ -8,27 +8,6 @@ use super::Result;
 const MIN_RUN_LENGTH : usize = 3;
 const MAX_RUN_LENGTH : usize = 127;
 
-fn take_1(slice: &mut &[u8]) -> Result<u8> {
-    if !slice.is_empty() {
-        let result = slice[0];
-        *slice = &slice[1..];
-        Ok(result)
-
-    } else {
-        Err(Error::invalid("compressed data"))
-    }
-}
-
-fn take_n<'s>(slice: &mut &'s [u8], n: usize) -> Result<&'s [u8]> {
-    if n <= slice.len() {
-        let (front, back) = slice.split_at(n);
-        *slice = back;
-        Ok(front)
-
-    } else {
-        Err(Error::invalid("compressed data"))
-    }
-}
 
 pub fn decompress_bytes(mut remaining: Bytes<'_>, expected_byte_size: usize) -> Result<ByteVec> {
     let mut decompressed = Vec::with_capacity(expected_byte_size);
@@ -100,6 +79,28 @@ pub fn compress_bytes(data: Bytes<'_>) -> Result<ByteVec> {
     }
 
     Ok(compressed)
+}
+
+fn take_1(slice: &mut &[u8]) -> Result<u8> {
+    if !slice.is_empty() {
+        let result = slice[0];
+        *slice = &slice[1..];
+        Ok(result)
+
+    } else {
+        Err(Error::invalid("compressed data"))
+    }
+}
+
+fn take_n<'s>(slice: &mut &'s [u8], n: usize) -> Result<&'s [u8]> {
+    if n <= slice.len() {
+        let (front, back) = slice.split_at(n);
+        *slice = back;
+        Ok(front)
+
+    } else {
+        Err(Error::invalid("compressed data"))
+    }
 }
 
 #[cfg(test)]
