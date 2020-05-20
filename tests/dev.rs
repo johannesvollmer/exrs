@@ -65,16 +65,14 @@ pub fn test_roundtrip() {
     ).unwrap();
     println!("...read 1 successfull");
 
-    let write_options = write_options::low();
+    image.encoding.compression = Compression::PIZ;
     let mut tmp_bytes = Vec::new();
 
     print!("starting write... ");
     io::stdout().flush().unwrap();
 
-    image.encoding.compression = Compression::PIZ;
-
     image.write_pixels_to_buffered(
-        &mut Cursor::new(&mut tmp_bytes), write_options,
+        &mut Cursor::new(&mut tmp_bytes), write_options::low(),
         rgba::pixels::flattened_pixel_getter(&pixels)
     ).unwrap();
 

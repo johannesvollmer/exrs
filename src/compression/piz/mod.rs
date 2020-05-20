@@ -391,51 +391,33 @@ mod test {
         assert_eq!(pixel_bytes, decompressed);
     }
 
+
     #[test]
-    fn roundtrip_f16(){
+    fn roundtrip_any_sample_type(){
+        for &sample_type in &[SampleType::F16, SampleType::F32, SampleType::U32] {
+            let channel = Channel {
+                sample_type,
+
+                name: Default::default(),
+                quantize_linearly: false,
+                sampling: Vec2(1,1)
+            };
+
+            let channels = ChannelList::new(smallvec![ channel.clone(), channel ]);
+
+            let rectangle = IntRect {
+                position: Vec2(-30, 100),
+                size: Vec2(322, 731),
+            };
+
+            test_roundtrip_noise_with(channels, rectangle);
+        }
+    }
+
+    #[test]
+    fn roundtrip_two_channels(){
         let channel = Channel {
             sample_type: SampleType::F16,
-
-            name: Default::default(),
-            quantize_linearly: false,
-            sampling: Vec2(1,1)
-        };
-
-        let channels = ChannelList::new(smallvec![ channel.clone(), channel ]);
-
-        let rectangle = IntRect {
-            position: Vec2(-3, 1),
-            size: Vec2(549, 242),
-        };
-
-        test_roundtrip_noise_with(channels, rectangle);
-    }
-
-
-    #[test]
-    fn roundtrip_f32(){
-        let channel = Channel {
-            sample_type: SampleType::F32,
-
-            name: Default::default(),
-            quantize_linearly: false,
-            sampling: Vec2(1,1)
-        };
-
-        let channels = ChannelList::new(smallvec![ channel.clone(), channel ]);
-
-        let rectangle = IntRect {
-            position: Vec2(-30, 100),
-            size: Vec2(322, 731),
-        };
-
-        test_roundtrip_noise_with(channels, rectangle);
-    }
-
-    #[test]
-    fn roundtrip_f32_and_f16(){
-        let channel = Channel {
-            sample_type: SampleType::F32,
 
             name: Default::default(),
             quantize_linearly: false,
@@ -454,7 +436,77 @@ mod test {
 
         let rectangle = IntRect {
             position: Vec2(-3, 1),
-            size: Vec2(3223, 31232),
+            size: Vec2(2323, 3132),
+        };
+
+        test_roundtrip_noise_with(channels, rectangle);
+    }
+
+
+
+    #[test]
+    fn roundtrip_seven_channels(){
+        let channels = ChannelList::new(smallvec![
+            Channel {
+                sample_type: SampleType::F32,
+
+                name: Default::default(),
+                quantize_linearly: false,
+                sampling: Vec2(1,1)
+            },
+
+            Channel {
+                sample_type: SampleType::F32,
+
+                name: Default::default(),
+                quantize_linearly: false,
+                sampling: Vec2(1,1)
+            },
+
+            Channel {
+                sample_type: SampleType::F32,
+
+                name: Default::default(),
+                quantize_linearly: false,
+                sampling: Vec2(1,1)
+            },
+
+            Channel {
+                sample_type: SampleType::F16,
+
+                name: Default::default(),
+                quantize_linearly: false,
+                sampling: Vec2(1,1)
+            },
+
+            Channel {
+                sample_type: SampleType::F32,
+
+                name: Default::default(),
+                quantize_linearly: false,
+                sampling: Vec2(1,1)
+            },
+
+            Channel {
+                sample_type: SampleType::F32,
+
+                name: Default::default(),
+                quantize_linearly: false,
+                sampling: Vec2(1,1)
+            },
+
+            Channel {
+                sample_type: SampleType::U32,
+
+                name: Default::default(),
+                quantize_linearly: false,
+                sampling: Vec2(1,1)
+            },
+        ]);
+
+        let rectangle = IntRect {
+            position: Vec2(-3, 1),
+            size: Vec2(2323, 3132),
         };
 
         test_roundtrip_noise_with(channels, rectangle);
