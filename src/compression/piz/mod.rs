@@ -72,6 +72,7 @@ pub fn decompress_bytes(
 //        AutoArray <unsigned char, BITMAP_SIZE> bitmap;
 //        memset (bitmap, 0, sizeof (unsigned char) * BITMAP_SIZE);
 
+
     let mut bitmap = vec![0_u8; BITMAP_SIZE]; // FIXME use bit_vec!
 
     let mut remaining_input = compressed.as_slice();
@@ -89,7 +90,7 @@ pub fn decompress_bytes(
     }
 
     let (lookup_table, max_value) = reverse_lookup_table_from_bitmap(&bitmap);
-    inspect!(bitmap, lookup_table, max_value);
+    inspect!(max_value);
 
     let length = i32::read(&mut remaining_input).unwrap();
     inspect!(length);
@@ -107,7 +108,7 @@ pub fn decompress_bytes(
     for channel in &channel_data {
         for size in 0..channel.size { // if channel is 32 bit, compress interleaved as two 16 bit values
             wavelet::decode(
-                &mut tmp_buffer[(channel.tmp_start_index + size) ..],
+                &mut tmp_buffer[channel.tmp_start_index + size .. channel.tmp_end_index],
                 channel.number_samples,
                 Vec2(channel.size, channel.number_samples.x() * channel.size),
                 max_value
@@ -232,12 +233,14 @@ pub fn compress_bytes(
     }
 
     for channel in channel_data {
-        wavelet::encode(
-            &mut tmp[channel.tmp_start_index .. channel.tmp_end_index],
-            channel.number_samples,
-            Vec2(channel.size, channel.number_samples.x() * channel.size),
-            max_value
-        )?;
+        for offset in 0 .. channel.size {
+            wavelet::encode(
+                &mut tmp[channel.tmp_start_index + offset .. channel.tmp_end_index],
+                channel.number_samples,
+                Vec2(channel.size, channel.number_samples.x() * channel.size),
+                max_value
+            )?;
+        }
     }
 
     let compressed: Vec<u8> = huffman::compress(&tmp)?;
@@ -373,11 +376,20 @@ mod test {
     use crate::meta::attributes::*;
     use crate::compression::ByteVec;
 
+    fn test_roundtrip_noise_with(channels: ChannelList, rectangle: IntRect){
+        let pixel_bytes: ByteVec = (0 .. channels.bytes_per_pixel * rectangle.size.area())
+            .map(|_| rand::random()).collect();
+
+        let compressed = super::compress_bytes(&channels, &pixel_bytes, rectangle).unwrap();
+        let decompressed = super::decompress_bytes(&channels, compressed, rectangle, pixel_bytes.len()).unwrap();
+
+        assert_eq!(pixel_bytes, decompressed);
+    }
+
     #[test]
     fn roundtrip_f16(){
-
         let channel = Channel {
-            sample_type: SampleType::F16, // FIXME f16 works, f32 doesnt
+            sample_type: SampleType::F16,
 
             name: Default::default(),
             quantize_linearly: false,
@@ -391,26 +403,14 @@ mod test {
             size: Vec2(549, 242),
         };
 
-        let pixels: Vec<u16> = (0 .. rectangle.size.area() * channels.list.len())
-            .map(|_| rand::random()).collect(); // TODO set seed
-
-        let mut pixel_bytes = ByteVec::new();
-
-        use lebe::io::WriteEndian;
-        pixel_bytes.write_as_native_endian(pixels.as_slice()).unwrap();
-
-        let compressed = super::compress_bytes(&channels, &pixel_bytes, rectangle).unwrap();
-        let decompressed = super::decompress_bytes(&channels, compressed, rectangle, pixel_bytes.len()).unwrap();
-
-        assert_eq!(pixel_bytes, decompressed);
+        test_roundtrip_noise_with(channels, rectangle);
     }
 
 
     #[test]
     fn roundtrip_f32(){
-
         let channel = Channel {
-            sample_type: SampleType::F32, // FIXME f16 works, f32 doesnt
+            sample_type: SampleType::F32,
 
             name: Default::default(),
             quantize_linearly: false,
@@ -421,20 +421,38 @@ mod test {
 
         let rectangle = IntRect {
             position: Vec2(-3, 1),
-            size: Vec2(549, 242),
+            size: Vec2(32, 31),
         };
 
-        let pixels: Vec<f32> = (0 .. rectangle.size.area() * channels.list.len())
-            .map(|_| rand::random()).collect(); // TODO set seed
-
-        let mut pixel_bytes = ByteVec::new();
-
-        use lebe::io::WriteEndian;
-        pixel_bytes.write_as_native_endian(pixels.as_slice()).unwrap();
-
-        let compressed = super::compress_bytes(&channels, &pixel_bytes, rectangle).unwrap();
-        let decompressed = super::decompress_bytes(&channels, compressed, rectangle, pixel_bytes.len()).unwrap();
-
-        assert_eq!(pixel_bytes, decompressed);
+        test_roundtrip_noise_with(channels, rectangle);
     }
+
+    #[test]
+    fn roundtrip_f32_and_f16(){
+        let channel = Channel {
+            sample_type: SampleType::F32,
+
+            name: Default::default(),
+            quantize_linearly: false,
+            sampling: Vec2(1,1)
+        };
+
+        let channel2 = Channel {
+            sample_type: SampleType::F32,
+
+            name: Default::default(),
+            quantize_linearly: false,
+            sampling: Vec2(1,1)
+        };
+
+        let channels = ChannelList::new(smallvec![ channel, channel2 ]);
+
+        let rectangle = IntRect {
+            position: Vec2(-3, 1),
+            size: Vec2(32, 31),
+        };
+
+        test_roundtrip_noise_with(channels, rectangle);
+    }
+
 }
