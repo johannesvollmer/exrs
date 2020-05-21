@@ -1,18 +1,19 @@
 //! Extract lines from a block of pixel bytes.
 
-use crate::meta::attributes::*;
+use crate::meta::attribute::*;
 use crate::compression::{Compression};
 use crate::math::*;
 use std::io::{Read, Seek, Write, Cursor};
 use crate::error::{Result, Error, UnitResult};
-use crate::meta::{MetaData, Header, TileIndices};
+use crate::meta::{MetaData, TileIndices};
 use crate::io::{Tracking};
 use crate::io::Data;
 use smallvec::SmallVec;
 use std::ops::Range;
 use crate::block::{BlockIndex, UncompressedBlock};
 use crate::image::*;
-
+use crate::meta::header::Header;
+use crate::prelude::common::meta::Headers;
 
 
 /// A single line of pixels.
@@ -133,7 +134,7 @@ pub fn read_filtered_lines_from_buffered<T>(
 #[inline]
 #[must_use]
 pub fn write_all_lines_to_buffered(
-    write: impl Write + Seek, meta_data: MetaData,
+    write: impl Write + Seek, headers: Headers,
     get_line: impl Sync + Fn(&[Header], LineRefMut<'_>), // TODO put these three parameters into a trait?  // TODO why is this sync or send????
     options: WriteOptions<impl OnWriteProgress>,
 ) -> UnitResult
@@ -154,7 +155,7 @@ pub fn write_all_lines_to_buffered(
         block_bytes
     };
 
-    write_all_tiles_to_buffered(write, meta_data, get_block, options)
+    write_all_tiles_to_buffered(write, headers, get_block, options)
 }
 
 /// Compresses and writes all lines of an image described by `meta_data` and `get_line` to the writer.
@@ -169,17 +170,17 @@ pub fn write_all_lines_to_buffered(
 #[must_use]
 pub fn write_all_tiles_to_buffered(
     write: impl Write + Seek,
-    mut meta_data: MetaData,
+    mut headers: Headers,
     get_tile: impl Sync + Fn(&[Header], BlockIndex) -> Vec<u8>, // TODO put these three parameters into a trait?  // TODO why is this sync or send????
     mut options: WriteOptions<impl OnWriteProgress>,
 ) -> UnitResult
 {
-    let has_compression = meta_data.headers.iter() // TODO cache this in MetaData.has_compression?
+    let has_compression = headers.iter() // TODO cache this in MetaData.has_compression?
         .any(|header| header.compression != Compression::Uncompressed);
 
     // if non-parallel compression, we always use increasing order anyways
     if !options.parallel_compression || !has_compression {
-        for header in &mut meta_data.headers {
+        for header in &mut headers {
             if header.line_order == LineOrder::Unspecified {
                 header.line_order = LineOrder::Increasing;
             }
@@ -187,26 +188,26 @@ pub fn write_all_tiles_to_buffered(
     }
 
     let mut write = Tracking::new(write);
-    meta_data.write_validating_to_buffered(&mut write, options.pedantic)?; // also validates meta data
+    MetaData::write_validating_to_buffered(&mut write, headers.as_slice(), options.pedantic)?;
 
     let offset_table_start_byte = write.byte_position();
 
     // skip offset tables for now
-    let offset_table_size: usize = meta_data.headers.iter()
+    let offset_table_size: usize = headers.iter()
         .map(|header| header.chunk_count).sum();
 
     write.seek_write_to(write.byte_position() + offset_table_size * std::mem::size_of::<u64>())?;
 
-    let mut offset_tables: Vec<Vec<u64>> = meta_data.headers.iter()
+    let mut offset_tables: Vec<Vec<u64>> = headers.iter()
         .map(|header| vec![0; header.chunk_count]).collect();
 
     let total_chunk_count = offset_table_size as f32;
     let mut processed_chunk_count = 0; // very simple on_progress feedback
 
     // line order is respected in here
-    crate::block::for_compressed_blocks_in_image(&meta_data, get_tile, options.parallel_compression, |chunk_index, chunk|{
+    crate::block::for_compressed_blocks_in_image(headers.as_slice(), get_tile, options.parallel_compression, |chunk_index, chunk|{
         offset_tables[chunk.layer_index][chunk_index] = write.byte_position() as u64; // safe indices from `enumerate()`
-        chunk.write(&mut write, meta_data.headers.as_slice())?;
+        chunk.write(&mut write, headers.as_slice())?;
 
         options.on_progress.on_write_progressed(
             processed_chunk_count as f32 / total_chunk_count, write.byte_position()

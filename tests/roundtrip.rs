@@ -45,7 +45,7 @@ fn check_files<T>(
 
             let result = match result {
                 Ok(Ok(_)) => Result::Ok,
-                Ok(Err(Error::NotSupported(message))) => Result::Unsupported(format!("Not Supported: {:?}", message)),
+                Ok(Err(Error::NotSupported(message))) => Result::Unsupported(message.to_string()),
 
                 Ok(Err(Error::Io(io))) => Result::Error(format!("IoError: {:?}", io)),
                 Ok(Err(Error::Invalid(message))) => Result::Error(format!("Invalid: {:?}", message)),
@@ -120,6 +120,7 @@ fn round_trip_all_files_rgba() {
         PathBuf::from("tests/images/valid/openexr/TestImages/GrayRampsDiagonal.exr"),
         PathBuf::from("tests/images/valid/openexr/TestImages/GrayRampsHorizontal.exr"),
         PathBuf::from("tests/images/valid/openexr/TestImages/WideFloatRange.exr"),
+        PathBuf::from("tests/images/valid/openexr/IlmfmlmflmTest/v1.7.test.tiled.exr")
     ];
 
     check_files(blacklist, |path| {

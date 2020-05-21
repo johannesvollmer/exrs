@@ -5,15 +5,15 @@ extern crate rand;
 extern crate half;
 
 use std::convert::TryInto;
+use std::io::BufWriter;
+use std::fs::File;
 
 // exr imports
 extern crate exr;
-use exr::prelude::*;
-use std::io::{BufWriter};
-use std::fs::File;
-use exr::meta::attributes::{Channel, SampleType, LineOrder, TileDescription, LevelMode};
-use exr::meta::{Blocks, MetaData};
-use exr::math::RoundingMode;
+use exr::prelude::common::*;
+use attribute::*;
+use exr::meta::*;
+use exr::math::*;
 
 /// Generate a striped image on the fly and directly write that to a file without allocating the whole image at once.
 /// On my machine, this program produces a 3GB file while only ever allocating 4MB memory (takes a while though).
@@ -31,14 +31,14 @@ fn main() {
     let file = BufWriter::new(File::create("tests/images/out/3GB.exr").unwrap());
 
     // define meta data header that will be written
-    let header = exr::meta::Header::new(
+    let header = exr::meta::header::Header::new(
         "test-image".try_into().unwrap(),
         size,
         smallvec![
-            Channel::new("B".try_into().unwrap(), SampleType::F32, true),
-            Channel::new("G".try_into().unwrap(), SampleType::F32, true),
-            Channel::new("R".try_into().unwrap(), SampleType::F32, true),
-            Channel::new("Z".try_into().unwrap(), SampleType::F32, true),
+            ChannelInfo::new("B".try_into().unwrap(), SampleType::F32, true),
+            ChannelInfo::new("G".try_into().unwrap(), SampleType::F32, true),
+            ChannelInfo::new("R".try_into().unwrap(), SampleType::F32, true),
+            ChannelInfo::new("Z".try_into().unwrap(), SampleType::F32, true),
         ],
     );
 
@@ -59,7 +59,7 @@ fn main() {
     header.own_attributes.exposure = Some(1.0);
 
 
-    let meta = MetaData::new(smallvec![ header ]);
+    let headers = smallvec![ header ];
 
     // print progress only every 100th time
     let mut count_to_1000_and_then_print = 0;
@@ -68,7 +68,7 @@ fn main() {
     // finally write the image
     exr::block::lines::write_all_lines_to_buffered(
         file,
-        meta,
+        headers,
 
         // fill the image file contents with one of the precomputed random values,
         // picking a different one per channel

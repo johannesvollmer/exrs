@@ -9,19 +9,21 @@
 //! Also, the luxury of automatic conversion comes with a cost.
 //! Using `image::simple` might be faster in special cases.
 
+use crate::prelude::common::*;
 
 use std::path::Path;
 use std::fs::File;
 use std::io::{Read, Seek, BufReader, Write, BufWriter, Cursor};
-use crate::math::{Vec2, RoundingMode};
+use crate::math::{RoundingMode};
 use crate::error::{Result, Error, UnitResult};
-use crate::meta::attributes::{SampleType, Text, LineOrder, TileDescription, LevelMode};
+use crate::meta::attribute::{SampleType, Text, LineOrder, TileDescription, LevelMode};
 use std::convert::TryInto;
-use crate::meta::{Header, ImageAttributes, LayerAttributes, MetaData, Blocks};
+use crate::meta::{Blocks};
 use half::f16;
 use crate::image::{ReadOptions, OnReadProgress, WriteOptions, OnWriteProgress};
 use crate::compression::Compression;
 use crate::block::samples::Sample;
+use crate::meta::header::Header;
 
 
 /// A summary of an image file.
@@ -61,7 +63,7 @@ pub type Channels = (SampleType, SampleType, SampleType, Option<SampleType>);
 /// Specifies how the pixel data is formatted inside the file.
 /// Does not affect any visual aspect, like positioning or orientation.
 // TODO alsop nest encoding like this for meta::Header and simple::Image or even reuse this in image::simple
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Encoding {
 
     /// What type of compression the pixel data in the file is compressed with.
@@ -187,12 +189,6 @@ impl Encoding {
                 line_order: LineOrder::Unspecified
             }
         }
-    }
-
-    /// Uses no compression with scan line blocks.
-    #[inline]
-    pub fn uncompressed() -> Self {
-        Self::for_compression(Compression::Uncompressed)
     }
 
     /// Uses RLE compression with tiled 128x128 blocks.
@@ -522,23 +518,25 @@ impl ImageInfo {
         pixels: GetPixels!(),
     ) -> UnitResult
     {
-        use crate::meta::attributes as meta;
+        use crate::meta::attribute as meta;
 
         let header = Header::new(
             self.layer_attributes.name.clone().unwrap_or(Text::from("RGBA").unwrap()),
             self.resolution,
-    if let Some(alpha) = self.channels.3 { smallvec![
-                meta::Channel::new("A".try_into().unwrap(), alpha, true), // store as linear data
-                meta::Channel::new("B".try_into().unwrap(), self.channels.2, false),
-                meta::Channel::new("G".try_into().unwrap(), self.channels.1, false),
-                meta::Channel::new("R".try_into().unwrap(), self.channels.0, false),
-            ] }
+            {
+                if let Some(alpha) = self.channels.3 { smallvec![
+                    meta::ChannelInfo::new("A".try_into().unwrap(), alpha, true), // store as linear data
+                    meta::ChannelInfo::new("B".try_into().unwrap(), self.channels.2, false),
+                    meta::ChannelInfo::new("G".try_into().unwrap(), self.channels.1, false),
+                    meta::ChannelInfo::new("R".try_into().unwrap(), self.channels.0, false),
+                ] }
 
-            else { smallvec![
-                meta::Channel::new("B".try_into().unwrap(), self.channels.2, false),
-                meta::Channel::new("G".try_into().unwrap(), self.channels.1, false),
-                meta::Channel::new("R".try_into().unwrap(), self.channels.0, false),
-            ] }
+                else { smallvec![
+                    meta::ChannelInfo::new("B".try_into().unwrap(), self.channels.2, false),
+                    meta::ChannelInfo::new("G".try_into().unwrap(), self.channels.1, false),
+                    meta::ChannelInfo::new("R".try_into().unwrap(), self.channels.0, false),
+                ] }
+            }
         );
 
         let header = header
@@ -562,7 +560,7 @@ impl ImageInfo {
 
         crate::block::lines::write_all_tiles_to_buffered(
             write,
-            MetaData::new(smallvec![ header ]),
+            smallvec![ header ],
 
             |meta, block_index| {
                 let header = &meta.get(block_index.layer).expect("invalid block index");
@@ -665,7 +663,7 @@ pub mod pixels {
         pub fn compute_pixel_index(&self, position: Vec2<usize>) -> std::ops::Range<usize> {
             let pixel_index = position.y() * self.width + position.x();
             let red_index = pixel_index * self.channels;
-            (red_index .. red_index + self.channels)
+            red_index .. red_index + self.channels
         }
     }
 
