@@ -153,7 +153,7 @@ impl Compression {
             ZIP16 => zip::compress_bytes(&data),
             ZIP1 => zip::compress_bytes(&data),
             RLE => rle::compress_bytes(&data),
-            PIZ if false => piz::compress_bytes(&header.channels, &data, pixel_section),
+            PIZ => piz::compress_bytes(&header.channels, &data, pixel_section),
             PXR24 => pxr24::compress(&header.channels, &data, pixel_section),
             _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
         };
@@ -189,7 +189,7 @@ impl Compression {
                 ZIP16 => zip::decompress_bytes(&data),
                 ZIP1 => zip::decompress_bytes(&data),
                 RLE => rle::decompress_bytes(&data, expected_byte_size),
-                PIZ if false => piz::decompress_bytes(&header.channels, data, pixel_section, expected_byte_size),
+                PIZ => piz::decompress_bytes(&header.channels, data, pixel_section, expected_byte_size),
                 PXR24 => pxr24::decompress(&header.channels, &data, pixel_section, expected_byte_size),
                 _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
             };
