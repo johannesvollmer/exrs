@@ -29,14 +29,13 @@
 
 use super::*;
 
+use crate::prelude::common::*;
+
 use crate::error::Result;
 use inflate::inflate_bytes_zlib;
-use crate::prelude::attributes::ChannelList;
-use crate::prelude::SampleType;
-use crate::prelude::meta::attributes::Channel;
+use attribute::ChannelList;
 use lebe::io::ReadPrimitive;
 use deflate::write::ZlibEncoder;
-use std::ops::Index;
 
 
 // scanline decompression routine, see https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfScanLineInputFile.cpp

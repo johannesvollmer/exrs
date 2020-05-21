@@ -7,11 +7,10 @@
 mod huffman;
 mod wavelet;
 
-use super::*;
-use super::Result;
-use crate::meta::attributes::{IntRect, SampleType, ChannelList};
+use crate::prelude::common::*;
 use crate::io::Data;
-use crate::math::Vec2;
+use crate::meta::attribute::*;
+use crate::compression::{ByteVec, Bytes};
 
 
 const U16_RANGE: usize = (1_i32 << 16_i32) as usize;
@@ -383,11 +382,10 @@ pub fn forward_lookup_table_from_bitmap(bitmap: &[u8]) -> (u16, [u16; U16_RANGE]
 
 #[cfg(test)]
 mod test {
-    use crate::prelude::*;
-    use crate::meta::*;
-    use crate::meta::attributes::*;
+    use crate::prelude::common::*;
     use crate::compression::ByteVec;
     use crate::compression::piz;
+    use crate::meta::attribute::*;
 
     fn test_roundtrip_noise_with(channels: ChannelList, rectangle: IntRect){
         let pixel_bytes: ByteVec = (0 .. channels.bytes_per_pixel * rectangle.size.area())
@@ -403,7 +401,7 @@ mod test {
     #[test]
     fn roundtrip_any_sample_type(){
         for &sample_type in &[SampleType::F16, SampleType::F32, SampleType::U32] {
-            let channel = Channel {
+            let channel = ChannelInfo {
                 sample_type,
 
                 name: Default::default(),
@@ -424,7 +422,7 @@ mod test {
 
     #[test]
     fn roundtrip_two_channels(){
-        let channel = Channel {
+        let channel = ChannelInfo {
             sample_type: SampleType::F16,
 
             name: Default::default(),
@@ -432,7 +430,7 @@ mod test {
             sampling: Vec2(1,1)
         };
 
-        let channel2 = Channel {
+        let channel2 = ChannelInfo {
             sample_type: SampleType::F32,
 
             name: Default::default(),
@@ -455,7 +453,7 @@ mod test {
     #[test]
     fn roundtrip_seven_channels(){
         let channels = ChannelList::new(smallvec![
-            Channel {
+            ChannelInfo {
                 sample_type: SampleType::F32,
 
                 name: Default::default(),
@@ -463,7 +461,7 @@ mod test {
                 sampling: Vec2(1,1)
             },
 
-            Channel {
+            ChannelInfo {
                 sample_type: SampleType::F32,
 
                 name: Default::default(),
@@ -471,7 +469,7 @@ mod test {
                 sampling: Vec2(1,1)
             },
 
-            Channel {
+            ChannelInfo {
                 sample_type: SampleType::F32,
 
                 name: Default::default(),
@@ -479,7 +477,7 @@ mod test {
                 sampling: Vec2(1,1)
             },
 
-            Channel {
+            ChannelInfo {
                 sample_type: SampleType::F16,
 
                 name: Default::default(),
@@ -487,7 +485,7 @@ mod test {
                 sampling: Vec2(1,1)
             },
 
-            Channel {
+            ChannelInfo {
                 sample_type: SampleType::F32,
 
                 name: Default::default(),
@@ -495,7 +493,7 @@ mod test {
                 sampling: Vec2(1,1)
             },
 
-            Channel {
+            ChannelInfo {
                 sample_type: SampleType::F32,
 
                 name: Default::default(),
@@ -503,7 +501,7 @@ mod test {
                 sampling: Vec2(1,1)
             },
 
-            Channel {
+            ChannelInfo {
                 sample_type: SampleType::U32,
 
                 name: Default::default(),

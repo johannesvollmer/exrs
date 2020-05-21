@@ -10,7 +10,7 @@ const MAX_RUN_LENGTH : usize = 127;
 
 
 pub fn decompress_bytes(mut remaining: Bytes<'_>, expected_byte_size: usize) -> Result<ByteVec> {
-    let mut decompressed = Vec::with_capacity(expected_byte_size);
+    let mut decompressed = Vec::with_capacity(expected_byte_size.min(8*2048));
 
     while !remaining.is_empty() {
         let count = take_1(&mut remaining)? as i8 as i32;

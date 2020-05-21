@@ -1,8 +1,8 @@
 
-//! Handle raw pixel data bytes.
-//! Does not include compression and decompression.
+//! Read and write already compressed pixel data blocks.
+//! Does not include the process of compression and decompression.
 
-use crate::meta::attributes::{IntRect};
+use crate::meta::attribute::{IntRect};
 
 /// A generic block of pixel information.
 /// Contains pixel data and an index to the corresponding header.
@@ -196,7 +196,7 @@ impl TileCoordinates {
 
 
 
-use crate::meta::{Header, MetaData, Blocks, calculate_block_size};
+use crate::meta::{MetaData, Blocks, calculate_block_size};
 
 impl ScanLineBlock {
 
@@ -261,12 +261,12 @@ impl DeepScanLineBlock {
         // doc said i32, try u8
         let compressed_pixel_offset_table = i8::read_vec(
             read, compressed_pixel_offset_table_size,
-            6 * std::u16::MAX as usize, Some(max_block_byte_size)
+            6 * u16::MAX as usize, Some(max_block_byte_size)
         )?;
 
         let compressed_sample_data = u8::read_vec(
             read, compressed_sample_data_size,
-            6 * std::u16::MAX as usize, Some(max_block_byte_size)
+            6 * u16::MAX as usize, Some(max_block_byte_size)
         )?;
 
         Ok(DeepScanLineBlock {
@@ -303,12 +303,12 @@ impl DeepTileBlock {
 
         let compressed_pixel_offset_table = i8::read_vec(
             read, compressed_pixel_offset_table_size,
-            6 * std::u16::MAX as usize, Some(hard_max_block_byte_size)
+            6 * u16::MAX as usize, Some(hard_max_block_byte_size)
         )?;
 
         let compressed_sample_data = u8::read_vec(
             read, compressed_sample_data_size,
-            6 * std::u16::MAX as usize, Some(hard_max_block_byte_size)
+            6 * u16::MAX as usize, Some(hard_max_block_byte_size)
         )?;
 
         Ok(DeepTileBlock {
@@ -322,6 +322,7 @@ impl DeepTileBlock {
 
 use crate::error::{UnitResult, Result, Error, u64_to_usize, usize_to_i32};
 use crate::math::Vec2;
+use crate::meta::header::Header;
 
 /// Validation of chunks is done while reading and writing the actual data. (For example in exr::full_image)
 impl Chunk {

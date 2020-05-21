@@ -11,10 +11,9 @@ mod pxr24;
 
 
 
-use crate::meta::Header;
-use crate::meta::attributes::IntRect;
+use crate::meta::attribute::IntRect;
 use crate::error::{Result, Error};
-
+use crate::meta::header::Header;
 
 
 /// A byte vector.
@@ -27,7 +26,7 @@ pub type Bytes<'s> = &'s [u8];
 /// Use uncompressed data for fastest loading and writing speeds.
 /// Use RLE compression for fast loading and writing with slight memory savings.
 /// Use ZIP compression for slow processing with large memory savings.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Compression {
 
     /// Store uncompressed values.
@@ -43,11 +42,13 @@ pub enum Compression {
 
     /// Uses ZIP compression to compress each line. Slowly produces small images
     /// which can be read with moderate speed. This compression method is lossless.
-    ZIP1,
+    /// Might be slightly faster but larger than `ZIP16´.
+    ZIP1, // TODO specify zip compression level?
 
     /// Uses ZIP compression to compress blocks of 16 lines. Slowly produces small images
     /// which can be read with moderate speed. This compression method is lossless.
-    ZIP16,
+    /// Might be slightly slower but smaller than `ZIP1´.
+    ZIP16, // TODO specify zip compression level?
 
     /// PIZ compression works well for noisy and natural images. Works better with larger tiles.
     /// Only supported for flat images, but not for deep data.
@@ -77,7 +78,7 @@ pub enum Compression {
     // compression significantly by eliminating the pixels' 8 least significant bits, which
     // tend to be very noisy, and therefore difficult to compress.
     // PXR24 compression is only supported for flat images.
-    PXR24,
+    PXR24, // TODO specify zip compression level?
 
     /// __This lossy compression is not yet supported by this implementation.__
     // lossy 4-by-4 pixel block compression,
@@ -110,7 +111,7 @@ pub enum Compression {
     // value, which are packed into 3 instead of 14 bytes. For images with large uniform
     // areas, B44A produces smaller files than B44 compression.
     // B44A compression is only supported for flat images.
-    DWAA,
+    DWAA(Option<f32>), // TODO does this have a default value? make this non optional?
 
     /// __This lossy compression is not yet supported by this implementation.__
     // lossy DCT based compression, in blocks
@@ -129,7 +130,7 @@ impl std::fmt::Display for Compression {
             Compression::ZIP16 => "zip block",
             Compression::B44 => "b44",
             Compression::B44A => "b44a",
-            Compression::DWAA=> "dwaa",
+            Compression::DWAA(_) => "dwaa",
             Compression::DWAB => "dwab",
             Compression::PIZ => "piz",
             Compression::PXR24 => "pxr24",
@@ -143,7 +144,7 @@ impl Compression {
 
     /// Compress the image section of bytes.
     pub fn compress_image_section(self, header: &Header, data: ByteVec, pixel_section: IntRect) -> Result<ByteVec> {
-        let max_tile_size = header.default_block_pixel_size();
+        let max_tile_size = header.max_block_pixel_size();
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
 
         use self::Compression::*;
@@ -152,7 +153,7 @@ impl Compression {
             ZIP16 => zip::compress_bytes(&data),
             ZIP1 => zip::compress_bytes(&data),
             RLE => rle::compress_bytes(&data),
-            PIZ => piz::compress_bytes(&header.channels, &data, pixel_section),
+            PIZ if false => piz::compress_bytes(&header.channels, &data, pixel_section),
             PXR24 => pxr24::compress(&header.channels, &data, pixel_section),
             _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
         };
@@ -171,7 +172,7 @@ impl Compression {
 
     /// Decompress the image section of bytes.
     pub fn decompress_image_section(self, header: &Header, data: ByteVec, pixel_section: IntRect) -> Result<ByteVec> {
-        let max_tile_size = header.default_block_pixel_size();
+        let max_tile_size = header.max_block_pixel_size();
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
 
         let expected_byte_size = pixel_section.size.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
@@ -185,10 +186,10 @@ impl Compression {
             use self::Compression::*;
             let bytes = match self {
                 Uncompressed => Ok(data),
-                ZIP16 => zip::decompress_bytes(&data, expected_byte_size),
-                ZIP1 => zip::decompress_bytes(&data, expected_byte_size),
+                ZIP16 => zip::decompress_bytes(&data),
+                ZIP1 => zip::decompress_bytes(&data),
                 RLE => rle::decompress_bytes(&data, expected_byte_size),
-                PIZ => piz::decompress_bytes(&header.channels, data, pixel_section, expected_byte_size),
+                PIZ if false => piz::decompress_bytes(&header.channels, data, pixel_section, expected_byte_size),
                 PXR24 => pxr24::decompress(&header.channels, &data, pixel_section, expected_byte_size),
                 _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
             };
@@ -234,10 +235,10 @@ impl Compression {
     pub fn scan_lines_per_block(self) -> usize {
         use self::Compression::*;
         match self {
-            Uncompressed | RLE   | ZIP1  => 1,
-            ZIP16 | PXR24                => 16,
-            PIZ   | B44   | B44A | DWAA  => 32,
-            DWAB                         => 256,
+            Uncompressed | RLE   | ZIP1    => 1,
+            ZIP16 | PXR24                  => 16,
+            PIZ   | B44   | B44A | DWAA(_) => 32,
+            DWAB                           => 256,
         }
     }
 

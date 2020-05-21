@@ -2,7 +2,8 @@
 extern crate bencher;
 
 extern crate exr;
-use exr::prelude::*;
+use exr::prelude::common::*;
+use exr::image::{rgba, simple};
 
 use bencher::Bencher;
 

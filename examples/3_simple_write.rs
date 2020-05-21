@@ -4,13 +4,11 @@ extern crate smallvec;
 extern crate rand;
 extern crate half;
 
-use std::convert::TryInto;
 use rand::Rng;
 
 // exr imports
 extern crate exr;
-use exr::prelude::*;
-use exr::image::simple::*;
+use exr::prelude::simple_image::*;
 
 
 /// Generate a noisy image and write it to a file.
@@ -52,7 +50,7 @@ fn main() {
     );
 
     let mut layer = layer.with_compression(Compression::RLE)
-        .with_block_format(None, attributes::LineOrder::Increasing);
+        .with_block_format(None, attribute::LineOrder::Increasing);
 
     layer.attributes.owner = Some("It's you!".try_into().unwrap());
     layer.attributes.comments = Some("This image was procedurally generated".try_into().unwrap());

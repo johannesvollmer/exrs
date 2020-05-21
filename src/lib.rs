@@ -29,7 +29,7 @@
     unused_must_use,
     missing_copy_implementations,
     trivial_numeric_casts,
-    redundant_semicolon
+    redundant_semicolons
 )]
 
 #![forbid(unsafe_code)]
@@ -64,7 +64,6 @@ macro_rules! inspect {
 pub mod io; // public to allow for custom attribute byte parsing
 
 pub mod math;
-pub mod chunk;
 pub mod compression;
 pub mod meta;
 pub mod image;
@@ -75,28 +74,48 @@ pub mod block;
 #[macro_use]
 extern crate smallvec;
 
-#[allow(unused)] // this is a dev dependency
-#[cfg(test)]
-extern crate image as piston_image;
 
-/// Re-exports of all modules types commonly required for simple reading and writing of an exr image.
+/// Use either `exr::prelude::rgba_image::*` or `exr::prelude::simple_image::*` for simply reading an image.
 pub mod prelude {
 
-    pub use crate::meta::{ self, attributes, LayerAttributes, ImageAttributes };
-    pub use self::attributes::{ AttributeValue, Compression, Text, IntRect, LineOrder, SampleType, TileDescription };
-    pub use crate::error::{ Result, Error };
-    pub use crate::math::Vec2;
+    /// Re-exports of all common elements needed for reading or writing an `exrs::image::rgba`.
+    pub mod rgba_image {
+        pub use super::common::*;
+        pub use crate::image::rgba::*;
+    }
 
-    pub use crate::image::{
-        simple, rgba,
-        write_options, read_options,
-        WriteOptions, ReadOptions
-    };
+    /// Re-exports of all common elements needed for reading or writing an `exrs::image::simple`.
+    pub mod simple_image {
+        pub use super::common::*;
+        pub use crate::image::simple::*;
+    }
 
+    // TODO
+    #[doc(hidden)]
+    mod full {
+        pub use super::common::*;
+        pub use crate::image::full::*;
+    }
 
-    // re-export external stuff
-    pub use half::f16;
+    /// Exports of all modules types commonly required for reading and writing of an exr image.
+    /// Use either `exr::prelude::rgba_image::*` or `exr::prelude::simple_image::*` for reading an image.
+    /// _Note: This includes a type called `Result`, possibly overwriting the default `std::Result` type usage._
+    pub mod common {
+        pub use crate::meta::{self, MetaData, attribute, header::{LayerAttributes, ImageAttributes } };
+        pub use crate::meta::attribute::{ AttributeValue, Compression, Text, IntRect, LineOrder, SampleType, TileDescription };
+        pub use crate::error::{ Result, Error };
+        pub use crate::math::Vec2;
 
+        pub use crate::image::{
+            write_options, read_options,
+            WriteOptions, ReadOptions
+        };
+
+        // re-export external stuff
+        pub use half::f16;
+        pub use smallvec::SmallVec;
+        pub use std::convert::TryInto;
+    }
 }
 
 
