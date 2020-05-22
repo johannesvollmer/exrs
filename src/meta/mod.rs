@@ -670,7 +670,7 @@ mod test {
 
         let meta = MetaData {
             requirements: Requirements {
-                file_format_version: 1,
+                file_format_version: 2,
                 is_single_layer_and_tiled: false,
                 has_long_names: false,
                 has_deep_data: false,
@@ -731,7 +731,7 @@ mod test {
         ).unwrap();
 
         assert_eq!(low_requirements.has_long_names, false);
-        assert_eq!(low_requirements.file_format_version, 1);
+        assert_eq!(low_requirements.file_format_version, 2); // always have version 2
         assert_eq!(low_requirements.has_deep_data, false);
         assert_eq!(low_requirements.has_multiple_layers, false);
     }
