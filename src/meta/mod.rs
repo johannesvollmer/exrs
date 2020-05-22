@@ -434,13 +434,15 @@ impl MetaData {
 
         let deep = false; // TODO deep data
         let is_multilayer = headers.len() > 1;
-        let must_be_version_2 = is_multilayer || deep;
         let first_header_has_tiles = headers.iter().next()
             .map_or(false, |header| header.blocks.has_tiles());
 
         let mut minimal_requirements = Requirements {
+            // according to the spec, version 2  should only be necessary if `is_multilayer || deep`.
+            // but the current open exr library does not support images with version 1, so always use version 2.
+            file_format_version: 2,
+
             // start as low as possible, later increasing if required
-            file_format_version: if must_be_version_2 { 2 } else { 1 },
             has_long_names: false,
 
             is_single_layer_and_tiled: !is_multilayer && first_header_has_tiles,
