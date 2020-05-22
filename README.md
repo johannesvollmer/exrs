@@ -169,35 +169,34 @@ The master branch of this repository is always an up-to-date version.
 
 ### Example
 
-Example: Write all image contents to an exr file at once.
+Example: [Write a generated RGB exr file](https://github.com/johannesvollmer/exrs/blob/master/examples/1_minimal_rgb.rs).
 
 ```rust
-use exr::prelude::rgba_image as exrs;
+extern crate exr;
+use exr::prelude::rgba_image::*;
 
 fn main() {
-    let my_image = unimplemented!("this is your own image value");
+    // generate a color for each pixel position
+    let generate_pixels = |position: Vec2<usize>| Pixel::rgb(
+        position.x() as f32 / 2048.0, // red
+        position.y() as f32 / 2048.0, // green
+        1.0 - (position.y() as f32 / 2048.0), // blue
+    );
 
-    let get_pixel = |position: exrs::Vec2<usize>| {
-        let [r, g, b, a] = my_image.pixel_at_xy(position.x(), position.y());
-        exrs::Pixel::rgba(r, g, b, a)
-    };
+    let image_info = ImageInfo::rgb(
+        (2048, 2048), // pixel resolution
+        SampleType::F16, // convert the generated f32 values to f16 while writing
+    );
 
-    // make exr convert all numbers to f16 automatically 
-    let mut image_info = exrs::ImageInfo::rgb((my_image.width, my_image.height), SampleType::F16);
-    image_info.layer_attributes.comments = "Generated with Rust".try_into().unwrap();
-
-    // write the pixels to a file
-    image_info
-        .with_encoding(exrs::Encoding::small()) // compress image contents to keep the file small
-        .write_to_file(
-            "tests/images/out/generated_rgba.exr",
-            exrs::write_options::high(), // using all CPUs
-            &get_pixel // and our custom image pixels
-        ).unwrap();
+    image_info.write_pixels_to_file(
+        "tests/images/out/minimal_rgba.exr",
+        write_options::high(), // higher speed, but higher memory usage
+        &generate_pixels // pass our pixel generator
+    ).unwrap();
 }
 ```
 
-See the examples folder for more examples.
+See the [the examples folder](https://github.com/johannesvollmer/exrs/tree/master/examples) for more examples.
 
 
 ### Motivation
