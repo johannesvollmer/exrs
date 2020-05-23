@@ -993,6 +993,6 @@ mod test {
         let compressed = compress(uncompressed).unwrap();
         let decompressed = decompress(&compressed, uncompressed.len()).unwrap();
 
-        assert_eq!(uncompressed, decompressed);
+        assert_eq!(uncompressed, decompressed.as_slice());
     }
 }
