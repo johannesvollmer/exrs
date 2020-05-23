@@ -349,8 +349,8 @@ impl MetaData {
     /// Use `read_from_unbuffered` instead if you do not have a file.
     /// Does not validate the meta data.
     #[must_use]
-    pub fn read_from_file(path: impl AsRef<::std::path::Path>, skip_invalid_attributes: bool) -> Result<Self> {
-        Self::read_from_unbuffered(File::open(path)?, skip_invalid_attributes)
+    pub fn read_from_file(path: impl AsRef<::std::path::Path>, pedantic: bool) -> Result<Self> {
+        Self::read_from_unbuffered(File::open(path)?, pedantic)
     }
 
     /// Buffer the reader and then read the exr meta data from it.
@@ -358,8 +358,8 @@ impl MetaData {
     /// Use `read_from_file` if you have a file path.
     /// Does not validate the meta data.
     #[must_use]
-    pub fn read_from_unbuffered(unbuffered: impl Read, skip_invalid_attributes: bool) -> Result<Self> {
-        Self::read_from_buffered(BufReader::new(unbuffered), skip_invalid_attributes)
+    pub fn read_from_unbuffered(unbuffered: impl Read, pedantic: bool) -> Result<Self> {
+        Self::read_from_buffered(BufReader::new(unbuffered), pedantic)
     }
 
     /// Read the exr meta data from a reader.
@@ -367,14 +367,14 @@ impl MetaData {
     /// Use `read_from_unbuffered` if this is not an in-memory reader.
     /// Does not validate the meta data.
     #[must_use]
-    pub fn read_from_buffered(buffered: impl Read, skip_invalid_attributes: bool) -> Result<Self> {
+    pub fn read_from_buffered(buffered: impl Read, pedantic: bool) -> Result<Self> {
         let mut read = PeekRead::new(buffered);
-        MetaData::read_unvalidated_from_buffered_peekable(&mut read, skip_invalid_attributes)
+        MetaData::read_unvalidated_from_buffered_peekable(&mut read, pedantic)
     }
 
     /// Does __not validate__ the meta data completely.
     #[must_use]
-    pub(crate) fn read_unvalidated_from_buffered_peekable(read: &mut PeekRead<impl Read>, skip_invalid_attributes: bool) -> Result<Self> {
+    pub(crate) fn read_unvalidated_from_buffered_peekable(read: &mut PeekRead<impl Read>, pedantic: bool) -> Result<Self> {
         magic_number::validate_exr(read)?;
 
         let requirements = Requirements::read(read)?;
@@ -382,7 +382,7 @@ impl MetaData {
         // do this check now in order to fast-fail for newer versions and features than version 2
         requirements.validate()?;
 
-        let headers = Header::read_all(read, &requirements, skip_invalid_attributes)?;
+        let headers = Header::read_all(read, &requirements, !pedantic)?;
 
         // TODO check if supporting requirements 2 always implies supporting requirements 1
         Ok(MetaData { requirements, headers })
@@ -451,6 +451,10 @@ impl MetaData {
         };
 
         for header in headers {
+            if header.deep { // TODO deep data (and then remove this check)
+                return Err(Error::unsupported("deep data not supported yet"));
+            }
+
             header.validate(is_multilayer, &mut minimal_requirements.has_long_names, strict)?;
         }
 
@@ -566,10 +570,6 @@ impl Requirements {
 
     /// Validate this instance.
     pub fn validate(&self) -> UnitResult {
-        if self.has_deep_data { // TODO deep data (and then remove this check)
-            return Err(Error::unsupported("deep data not supported yet"));
-        }
-
         if let 1..=2 = self.file_format_version {
 
             match (

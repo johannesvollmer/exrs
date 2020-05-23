@@ -40,11 +40,16 @@ pub fn decompress_bytes(
     expected_byte_size: usize,
 ) -> Result<ByteVec>
 {
+    let expected_value_count = expected_byte_size / 2;
+
+    debug_assert_eq!(expected_byte_size, rectangle.size.area() * channels.bytes_per_pixel);
+    debug_assert!(compressed.len() < expected_byte_size, "tried to decompress uncompressed data");
+    debug_assert_ne!(expected_value_count, 0);
+
     if compressed.is_empty() {
         return Ok(Vec::new());
     }
 
-    let mut tmp_buffer = vec![0_u16; expected_byte_size / 2]; // TODO create inside huffman::decompress?
 
     let mut channel_data: Vec<ChannelData> = Vec::with_capacity(channels.list.len());
     let mut tmp_read_index = 0;
@@ -64,7 +69,7 @@ pub fn decompress_bytes(
         channel_data.push(channel);
     }
 
-    debug_assert_eq!(tmp_read_index, tmp_buffer.len());
+    debug_assert_eq!(tmp_read_index, expected_value_count);
     inspect!(channel_data);
 
     let mut bitmap = vec![0_u8; BITMAP_SIZE]; // FIXME use bit_vec!
@@ -88,7 +93,7 @@ pub fn decompress_bytes(
 
     {
         let length = i32::read(&mut remaining_input).unwrap();
-        inspect!(length);
+        inspect!(length, remaining_input.len(), compressed.len());
 
         if length as usize != remaining_input.len() {
             println!("invalid array length");
@@ -97,12 +102,14 @@ pub fn decompress_bytes(
         }
     }
 
-    huffman::decompress(remaining_input, &mut tmp_buffer).unwrap();
+    println!("only half: {}", channels.list.iter().all(|channel| channel.sample_type == SampleType::F16));
+    println!("bbp: {}", channels.bytes_per_pixel);
 
+    let mut tmp_u16_buffer = huffman::decompress(remaining_input, expected_value_count)?; // .unwrap();
 
     for channel in &channel_data {
         let u16_count = channel.resolution.area() * channel.samples_per_pixel;
-        let u16s = &mut tmp_buffer[channel.tmp_start_index .. channel.tmp_start_index + u16_count];
+        let u16s = &mut tmp_u16_buffer[channel.tmp_start_index .. channel.tmp_start_index + u16_count];
 
         for offset in 0..channel.samples_per_pixel { // if channel is 32 bit, compress interleaved as two 16 bit values
             inspect!(channel);
@@ -117,7 +124,7 @@ pub fn decompress_bytes(
     }
 
     // Expand the pixel data to their original range
-    apply_lookup_table(&mut tmp_buffer, &lookup_table);
+    apply_lookup_table(&mut tmp_u16_buffer, &lookup_table);
 
     let has_only_half_channels = channels.list
         .iter().all(|channel| channel.sample_type == SampleType::F16);
@@ -130,7 +137,6 @@ pub fn decompress_bytes(
         else { Format::Independent } // half is always 16 bit in Rust
     };
 
-
     // let out_buffer_size = (max_scan_line_size * scan_line_count) + 65536 + 8192; // TODO not use expected byte size?
     let mut out = Vec::with_capacity(expected_byte_size);
 
@@ -142,7 +148,7 @@ pub fn decompress_bytes(
 
             let u16s_per_line = channel.resolution.x() * channel.samples_per_pixel;
             let next_tmp_end_index = channel.tmp_end_index + u16s_per_line;
-            let values = &tmp_buffer[channel.tmp_end_index .. next_tmp_end_index];
+            let values = &tmp_u16_buffer[channel.tmp_end_index .. next_tmp_end_index];
             channel.tmp_end_index = next_tmp_end_index;
 
             if format == Format::Independent {
@@ -159,7 +165,7 @@ pub fn decompress_bytes(
         debug_assert_eq!(channel_data[index - 1].tmp_end_index, channel_data[index].tmp_start_index);
     }
 
-    debug_assert_eq!(channel_data.last().unwrap().tmp_end_index, tmp_buffer.len());
+    debug_assert_eq!(channel_data.last().unwrap().tmp_end_index, tmp_u16_buffer.len());
     debug_assert_eq!(out.len(), expected_byte_size);
 
     Ok(out)
@@ -169,15 +175,15 @@ pub fn decompress_bytes(
 
 pub fn compress_bytes(
     channels: &ChannelList,
-    bytes: Bytes<'_>,
+    uncompressed: Bytes<'_>,
     rectangle: IntRect
 ) -> Result<ByteVec>
 {
-    if bytes.is_empty() {
+    if uncompressed.is_empty() {
         return Ok(Vec::new());
     }
 
-    let mut tmp = vec![ 0_u16; bytes.len() / 2 ];
+    let mut tmp = vec![0_u16; uncompressed.len() / 2 ];
     let mut channel_data = Vec::new();
 
     let mut tmp_end_index = 0;
@@ -211,7 +217,7 @@ pub fn compress_bytes(
         else { Format::Independent } // half is always 16 bit in Rust
     };
 
-    let mut byte_read = bytes;
+    let mut remaining_uncompressed_bytes = uncompressed;
     for y in rectangle.position.y() .. rectangle.end().y() {
         for channel in &mut channel_data {
             if mod_p(y, channel.y_sampling as i32) != 0 { continue; }
@@ -221,11 +227,11 @@ pub fn compress_bytes(
             channel.tmp_end_index = next_tmp_end_index;
 
             if format == Format::Independent {
-                u16::read_slice(&mut byte_read, target).expect("in-memory read failed");
+                u16::read_slice(&mut remaining_uncompressed_bytes, target).expect("in-memory read failed");
             }
             else {
                 use lebe::io::ReadEndian;
-                byte_read.read_from_native_endian_into(target).expect("in-memory read failed");
+                remaining_uncompressed_bytes.read_from_native_endian_into(target).expect("in-memory read failed");
             }
         }
     }
@@ -235,12 +241,12 @@ pub fn compress_bytes(
     let (max_value, table) = forward_lookup_table_from_bitmap(&bitmap);
     apply_lookup_table(&mut tmp, &table);
 
-    let mut output = Vec::with_capacity(bytes.len() / 3);
-    (min_non_zero as u16).write(&mut output)?;
-    (max_non_zero as u16).write(&mut output)?;
+    let mut piz_compressed = Vec::with_capacity(uncompressed.len() / 3);
+    (min_non_zero as u16).write(&mut piz_compressed)?;
+    (max_non_zero as u16).write(&mut piz_compressed)?;
 
     if min_non_zero <= max_non_zero {
-        output.extend_from_slice(&bitmap[min_non_zero ..= max_non_zero]);
+        piz_compressed.extend_from_slice(&bitmap[min_non_zero ..= max_non_zero]);
     }
 
     for channel in channel_data {
@@ -254,11 +260,24 @@ pub fn compress_bytes(
         }
     }
 
-    let compressed: Vec<u8> = huffman::compress(&tmp)?;
-    (compressed.len() as i32).write(&mut output).expect("in-memory write failed");
-    output.extend_from_slice(&compressed);
+    let huffman_compressed: Vec<u8> = huffman::compress(&tmp)?;
 
-    Ok(output)
+    #[cfg(debug_assertions)] {
+        println!("uncompressed data len: {}", tmp.len());
+        println!("let uncompressed_data = {:?}", tmp);
+        let decompressed = huffman::decompress(&huffman_compressed, tmp.len()).unwrap();
+        assert_eq!(decompressed, tmp)
+    }
+
+    (huffman_compressed.len() as i32).write(&mut piz_compressed).expect("in-memory write failed");
+    piz_compressed.extend_from_slice(&huffman_compressed);
+
+    #[cfg(debug_assertions)] {
+        let decompressed = self::decompress_bytes(channels, piz_compressed.clone(), rectangle, uncompressed.len()).unwrap();
+        assert_eq!(decompressed, uncompressed);
+    }
+
+    Ok(piz_compressed)
 }
 
 //

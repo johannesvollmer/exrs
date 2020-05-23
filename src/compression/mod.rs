@@ -185,7 +185,7 @@ impl Compression {
         else {
             use self::Compression::*;
             let bytes = match self {
-                Uncompressed => Ok(data),
+                Uncompressed => Ok(data), // FIXME handle endianness
                 ZIP16 => zip::decompress_bytes(&data),
                 ZIP1 => zip::decompress_bytes(&data),
                 RLE => rle::decompress_bytes(&data, expected_byte_size),

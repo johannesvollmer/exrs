@@ -49,12 +49,50 @@ fn search_previews_of_all_files() {
 }
 
 #[test]
-#[ignore]
+pub fn read_piz_images() {
+    let images: Vec<PathBuf> = exr_files().filter(|file| {
+        let meta = MetaData::read_from_file(file.as_path(), true).unwrap();
+        meta.headers.iter().any(|header: &Header| header.compression == Compression::PIZ)
+    }).collect();
+
+    for image in images {
+        use exr::prelude::simple_image::*;
+        println!();
+
+        let meta = MetaData::read_from_file(&image, true).unwrap();
+        // println!("any non-half channels: {:?}", meta.headers.iter()
+        //     .any(|header: &Header| header.channels.list.iter().any(|channel| channel.sample_type != SampleType::F16)));
+
+        // println!("header count: {}", meta.headers.len());
+
+        let result = Image::read_from_file(&image, read_options::low())
+            .map(|_| "Success!");
+
+        if let Err(Error::NotSupported(_)) = result {
+            continue;
+        }
+
+        debug_assert_eq!(meta.headers.len(), 1);
+        let header: &Header = &meta.headers[0];
+
+        // println!("block mode: {:?}", header.blocks);
+        println!("{:?}", header.max_block_pixel_size());
+        println!("{:?}", header.max_block_byte_size());
+
+
+        println!("{:?}: {:?}", result, image)
+    }
+}
+
+#[test]
 pub fn test_roundtrip() {
-    // let path = "tests/images/valid/openexr/TestImages/GammaChart.exr";
-    // let path = "tests/images/valid/custom/crowskull/crow_pxr24.exr";
-    // let path = "tests/images/valid/custom/crowskull/crow_piz_noisy_rgb.exr";
-    let path = "tests/images/valid/custom/crowskull/crow_rle.exr";
+    // let path = "tests/images/valid/custom/crowskull/crow_piz_noisy_rgb.exr"; //     ERROR: invalid code
+    let path = "tests/images/valid/openexr/TestImages/GammaChart.exr"; //   76.800        First read works, but second read produces ERROR: less data than expected
+    // let path = "tests/images/valid/openexr/Tiles/GoldenGate.exr"; //  works
+    // let path = "tests/images/valid/custom/crowskull/crow_pxr24.exr"; //             ERROR: more data than expected
+    // let path = "tests/images/valid/custom/crowskull/crow_rle.exr"; //               ERROR: more data than expected
+    // let path = "tests/images/valid/custom/crowskull/crow_zip_half.exr"; //   245.760       ERROR: more data than expected
+    // let path = "tests/images/valid/custom/crowskull/crow_piz.exr";
 
     print!("starting read 1... ");
     io::stdout().flush().unwrap();
