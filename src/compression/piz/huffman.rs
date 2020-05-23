@@ -63,8 +63,12 @@ pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
     let min_hcode_index = u32::read(&mut mem_stream)? as usize;
     let max_hcode_index = u32::read(&mut mem_stream)? as usize;
 
+    inspect!(min_hcode_index, max_hcode_index);
+
     let _ = u32::read(&mut mem_stream)? as usize; // Table size
     let bit_count = u32::read(&mut mem_stream)? as usize;
+
+    inspect!(bit_count);
 
     if min_hcode_index >= ENCODING_TABLE_SIZE || max_hcode_index >= ENCODING_TABLE_SIZE {
         return Err(Error::invalid(INVALID_TABLE_SIZE));
@@ -135,6 +139,8 @@ pub fn compress(uncompressed: &[u16]) -> Result<Vec<u8>> {
 
     (min_hcode_index as u32).write(&mut buffer)?;
     (max_hcode_index as u32).write(&mut buffer)?;
+    inspect!(min_hcode_index, max_hcode_index);
+
     (table_length as u32).write(&mut buffer)?;
     n_bits.write(&mut buffer)?;
     0_u32.write(&mut buffer)?;
@@ -155,7 +161,7 @@ enum Code {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ShortCode {
-    value: i32,
+    value: u16,
     len: u8,
 }
 
@@ -188,7 +194,7 @@ fn decode(
                 code_bit_count -= code.len as i64;
 
                 read_code_into_vec(
-                    code.value as u16,
+                    code.value,
                     run_length_code,
                     &mut code_bits,
                     &mut code_bit_count,
@@ -213,6 +219,8 @@ fn decode(
                     if code_bit_count >= length {
                         let required_code =
                             (code_bits >> (code_bit_count - length)) & ((1 << length) - 1);
+
+                        inspect!(required_code, code(encoded_long_code));
 
                         if code(encoded_long_code) == required_code {
                             code_bit_count -= length;
@@ -254,7 +262,7 @@ fn decode(
             code_bit_count -= short_code.len as i64;
 
             read_code_into_vec(
-                short_code.value as u16,
+                short_code.value,
                 run_length_code,
                 &mut code_bits,
                 &mut code_bit_count,
@@ -308,7 +316,7 @@ fn build_decoding_table(
             }
         } else if length != 0 {
             let default_value = Code::Short(ShortCode {
-                value: code_index as i32,
+                value: code_index as u16,
                 len: length as u8,
             });
 
@@ -423,8 +431,13 @@ fn read_code_into_vec(
 
         *code_bit_count -= 8;
 
+        inspect!(*code_bits, *code_bit_count);
         let code_repetitions = *code_bits >> *code_bit_count;
+
+        inspect!(code_repetitions); // this is too large
+
         if out.len() as i64 + code_repetitions > max_len as i64 {
+            panic!("too much data");
             return Err(Error::invalid(TOO_MUCH_DATA));
         } else if out.is_empty() {
             return Err(Error::invalid(NOT_ENOUGH_DATA));
@@ -435,6 +448,7 @@ fn read_code_into_vec(
     } else if out.len() < max_len {
         out.push(code);
     } else {
+        panic!("too much data");
         return Err(Error::invalid(TOO_MUCH_DATA));
     }
 
