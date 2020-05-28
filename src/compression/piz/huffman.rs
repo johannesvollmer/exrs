@@ -432,7 +432,7 @@ fn read_code_into_vec(
         *code_bit_count -= 8;
 
         inspect!(*code_bits, *code_bit_count);
-        let code_repetitions = *code_bits >> *code_bit_count;
+        let code_repetitions = ((*code_bits >> *code_bit_count) as u8) as i64;
 
         inspect!(code_repetitions); // this is too large
 
@@ -908,6 +908,16 @@ mod test {
         3159, 29002, 14535, 50632, 18118, 33583, 18878, 59470, 32835, 9347, 16991, 21303, 26263,
         8312, 14017, 41777, 43240, 3500, 60250, 52437, 45715, 61520,
     ];
+    const UNCOMPRESSED_ARRAY_SPECIAL: [u16; 100] = [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 28182,
+        0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 0, 0, 0, 0, 
+        0, 0, 0, 54124, 13798, 27503, 52154, 61961, 30474, 46880, 39097, 15754, 52897,
+        42371, 54053, 14178, 48276, 34591, 42602, 32126, 42062, 31474, 16274, 55991, 2882, 17039,
+        56389, 20835, 57057, 54081, 3414, 33957, 52584, 10222, 25139, 40002, 44980, 1602, 48021,
+        19703, 6562, 61777, 41582, 201, 31253, 51790, 15888, 40921, 3627, 12184, 16036, 26349,
+        3159, 29002, 14535, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        65534, 65534, 65534, 65534, 65534, 65534, 65534, 65534, 65534,
+    ];
     const COMPRESSED_ARRAY: [u8; 703] = [
         0xc9, 0x0, 0x0, 0x0, 0x2e, 0xfe, 0x0, 0x0, 0x56, 0x2, 0x0, 0x0, 0xa2, 0x2, 0x0, 0x0, 0x0,
         0x0, 0x0, 0x0, 0x1f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xd6, 0x47,
@@ -983,6 +993,22 @@ mod test {
         let uncompressed = decompress(&compressed, raw.len()).unwrap();
 
         assert_eq!(uncompressed, raw);
+    }
+
+    #[test]
+    fn repetitions_special() {
+
+        let raw = UNCOMPRESSED_ARRAY_SPECIAL;
+
+        let compressed = compress(&raw).unwrap();
+
+        let uncompressed = decompress(&compressed, raw.len()).unwrap();
+
+        assert_eq!(uncompressed.len(), raw.len());
+
+        for i in 0..raw.len() {
+            assert_eq!(uncompressed[i], raw[i]);
+        }
     }
 
     #[test]
