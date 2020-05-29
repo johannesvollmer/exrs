@@ -63,21 +63,17 @@ pub fn decompress_bytes(
             samples_per_pixel: channel.sample_type.bytes_per_sample() / SampleType::F16.bytes_per_sample()
         };
 
-        inspect!(channel);
-
         tmp_read_index += channel.resolution.area() * channel.samples_per_pixel;
         channel_data.push(channel);
     }
 
     debug_assert_eq!(tmp_read_index, expected_value_count);
-    inspect!(channel_data);
 
     let mut bitmap = vec![0_u8; BITMAP_SIZE]; // FIXME use bit_vec!
 
     let mut remaining_input = compressed.as_slice();
     let min_non_zero = u16::read(&mut remaining_input).unwrap() as usize;
     let max_non_zero = u16::read(&mut remaining_input).unwrap() as usize;
-    inspect!(min_non_zero, max_non_zero);
 
     if max_non_zero >= BITMAP_SIZE || min_non_zero >= BITMAP_SIZE {
         println!("invalid bitmap size");
@@ -89,21 +85,15 @@ pub fn decompress_bytes(
     }
 
     let (lookup_table, max_value) = reverse_lookup_table_from_bitmap(&bitmap);
-    inspect!(max_value);
 
     {
         let length = i32::read(&mut remaining_input).unwrap();
-        inspect!(length, remaining_input.len(), compressed.len());
-
         if length as usize != remaining_input.len() {
             println!("invalid array length");
             // TODO length might be smaller than remaining??
             return Err(Error::invalid("compression data"));
         }
     }
-
-    println!("only half: {}", channels.list.iter().all(|channel| channel.sample_type == SampleType::F16));
-    println!("bbp: {}", channels.bytes_per_pixel);
 
     let mut tmp_u16_buffer = huffman::decompress(remaining_input, expected_value_count)?; // .unwrap();
 
@@ -112,8 +102,6 @@ pub fn decompress_bytes(
         let u16s = &mut tmp_u16_buffer[channel.tmp_start_index .. channel.tmp_start_index + u16_count];
 
         for offset in 0..channel.samples_per_pixel { // if channel is 32 bit, compress interleaved as two 16 bit values
-            inspect!(channel);
-
             wavelet::decode(
                 &mut u16s[offset..],
                 channel.resolution,

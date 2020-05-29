@@ -175,8 +175,6 @@ impl Compression {
         let max_tile_size = header.max_block_pixel_size();
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
 
-        inspect!(max_tile_size, pixel_section);
-
         let expected_byte_size = pixel_section.size.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
 
         if data.len() == expected_byte_size {

@@ -63,12 +63,8 @@ pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
     let min_hcode_index = u32::read(&mut mem_stream)? as usize;
     let max_hcode_index = u32::read(&mut mem_stream)? as usize;
 
-    inspect!(min_hcode_index, max_hcode_index);
-
-    let _ = u32::read(&mut mem_stream)? as usize; // Table size
+    let _table_size = u32::read(&mut mem_stream)? as usize; // TODO check this and return Err?
     let bit_count = u32::read(&mut mem_stream)? as usize;
-
-    inspect!(bit_count);
 
     if min_hcode_index >= ENCODING_TABLE_SIZE || max_hcode_index >= ENCODING_TABLE_SIZE {
         return Err(Error::invalid(INVALID_TABLE_SIZE));
@@ -139,7 +135,6 @@ pub fn compress(uncompressed: &[u16]) -> Result<Vec<u8>> {
 
     (min_hcode_index as u32).write(&mut buffer)?;
     (max_hcode_index as u32).write(&mut buffer)?;
-    inspect!(min_hcode_index, max_hcode_index);
 
     (table_length as u32).write(&mut buffer)?;
     n_bits.write(&mut buffer)?;
@@ -219,8 +214,6 @@ fn decode(
                     if code_bit_count >= length {
                         let required_code =
                             (code_bits >> (code_bit_count - length)) & ((1 << length) - 1);
-
-                        inspect!(required_code, code(encoded_long_code));
 
                         if code(encoded_long_code) == required_code {
                             code_bit_count -= length;
@@ -431,10 +424,7 @@ fn read_code_into_vec(
 
         *code_bit_count -= 8;
 
-        inspect!(*code_bits, *code_bit_count);
         let code_repetitions = ((*code_bits >> *code_bit_count) as u8) as u64;
-
-        inspect!(code_repetitions); // this is too large
 
         if out.len() as u64 + code_repetitions > max_len as u64 {
             return Err(Error::invalid(TOO_MUCH_DATA));
@@ -995,18 +985,12 @@ mod test {
 
     #[test]
     fn repetitions_special() {
-
         let raw = UNCOMPRESSED_ARRAY_SPECIAL;
 
         let compressed = compress(&raw).unwrap();
-
         let uncompressed = decompress(&compressed, raw.len()).unwrap();
 
-        assert_eq!(uncompressed.len(), raw.len());
-
-        for i in 0..raw.len() {
-            assert_eq!(uncompressed[i], raw[i]);
-        }
+        assert_eq!(uncompressed, raw.to_vec());
     }
 
     #[test]
@@ -1025,17 +1009,9 @@ mod test {
     }
 
     #[test]
-    fn test_actual_image_data(){
+    fn test_zeroes(){
+        let uncompressed: &[u16] = &[ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ];
 
-        // FAILS:
-        // let uncompressed: &[u16] = &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65535, 65534, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        let uncompressed: &[u16] = &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ];
-
-        // WORKS:
-        // let uncompressed: &[u16] = &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ];
-        // let uncompressed: &[u16] = &[ 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 65534, 0];
-
-        inspect!(uncompressed.len());
         let compressed = compress(uncompressed).unwrap();
         let decompressed = decompress(&compressed, uncompressed.len()).unwrap();
 

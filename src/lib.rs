@@ -35,32 +35,6 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-/// Print the name and value of each variable.
-#[macro_export]
-macro_rules! inspect {
-    ( $( $var: expr ),* ) => {
-        {
-            println!("\nInspecting at {}:{}", file!(), line!());
-
-            $(
-                println!("\t{} => {:?}", stringify!($var), $var);
-            )*
-
-            print!("\n");
-        }
-    };
-
-    ($name: expr, $val: expr) => {
-        {
-            print!("\nInspecting at {}:{} expression {}: ", file!(), line!(), $name);
-            println!("{} => {:?}", stringify!($val), $val);
-            print!("\n");
-
-            $val
-        }
-    };
-}
-
 pub mod io; // public to allow for custom attribute byte parsing
 
 pub mod math;
