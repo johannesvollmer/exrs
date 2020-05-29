@@ -351,7 +351,7 @@ fn read_encoding_table(
             let zerun =
                 read_bits(8, &mut code_bits, &mut code_bit_count, packed)? + SHORTEST_LONG_RUN;
 
-            if zerun < 0 || index as u64 + zerun > max_hcode_index as u64 + 1 {
+            if index as u64 + zerun > max_hcode_index as u64 + 1 {
                 return Err(Error::invalid(TABLE_TOO_LONG));
             }
 
@@ -362,7 +362,7 @@ fn read_encoding_table(
             index += zerun as usize;
         } else if code_len >= SHORT_ZEROCODE_RUN {
             let zerun = code_len - SHORT_ZEROCODE_RUN + 2;
-            if zerun < 0 || index as u64 + zerun > max_hcode_index as u64 + 1 {
+            if index as u64 + zerun > max_hcode_index as u64 + 1 {
                 return Err(Error::invalid(TABLE_TOO_LONG));
             }
 
@@ -437,7 +437,6 @@ fn read_code_into_vec(
         inspect!(code_repetitions); // this is too large
 
         if out.len() as u64 + code_repetitions > max_len as u64 {
-            panic!("too much data");
             return Err(Error::invalid(TOO_MUCH_DATA));
         } else if out.is_empty() {
             return Err(Error::invalid(NOT_ENOUGH_DATA));
@@ -448,7 +447,6 @@ fn read_code_into_vec(
     } else if out.len() < max_len {
         out.push(code as u16);
     } else {
-        panic!("too much data");
         return Err(Error::invalid(TOO_MUCH_DATA));
     }
 
