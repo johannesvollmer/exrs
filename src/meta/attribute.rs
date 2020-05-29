@@ -609,14 +609,19 @@ impl ChannelList {
 
     /// Does not validate channel order.
     pub fn new(channels: SmallVec<[ChannelInfo; 5]>) -> Self {
-        let first_type = channels.first().expect("channels must not be empty").sample_type;
-        let has_uniform_types = channels.iter().skip(1)
-            .all(|chan| chan.sample_type == first_type);
+        let uniform_sample_type = {
+            if let Some(first) = channels.first() {
+                let has_uniform_types = channels.iter().skip(1)
+                    .all(|chan| chan.sample_type == first.sample_type);
+
+                if has_uniform_types { Some(first.sample_type) } else { None }
+            }
+            else { None }
+        };
 
         ChannelList {
             bytes_per_pixel: channels.iter().map(|channel| channel.sample_type.bytes_per_sample()).sum(),
-            uniform_sample_type: if has_uniform_types { Some(first_type) } else { None },
-            list: channels,
+            list: channels, uniform_sample_type,
         }
     }
 }
@@ -1746,8 +1751,7 @@ mod test {
             ),
             (
                 Text::from("leg count, again").unwrap(),
-                AttributeValue::ChannelList(ChannelList {
-                    list: smallvec![
+                AttributeValue::ChannelList(ChannelList::new(smallvec![
                         ChannelInfo {
                             name: Text::from("Green").unwrap(),
                             sample_type: SampleType::F16,
@@ -1767,8 +1771,7 @@ mod test {
                             sampling: Vec2(0,0)
                         }
                     ],
-                    bytes_per_pixel: 10
-                }),
+                )),
             ),
         ];
 

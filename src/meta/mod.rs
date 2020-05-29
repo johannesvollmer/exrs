@@ -631,8 +631,7 @@ mod test {
     #[test]
     fn round_trip(){
         let header = Header {
-            channels: ChannelList {
-                list: smallvec![
+            channels: ChannelList::new(smallvec![
                     ChannelInfo {
                         name: Text::from("main").unwrap(),
                         sample_type: SampleType::U32,
@@ -640,8 +639,7 @@ mod test {
                         sampling: Vec2(1, 1)
                     }
                 ],
-                bytes_per_pixel: 4
-            },
+            ),
             compression: Compression::Uncompressed,
             line_order: LineOrder::Increasing,
             deep_data_version: Some(1),
@@ -690,8 +688,7 @@ mod test {
     #[test]
     fn infer_low_requirements() {
         let header_version_1_short_names = Header {
-            channels: ChannelList {
-                list: smallvec![
+            channels: ChannelList::new(smallvec![
                     ChannelInfo {
                         name: Text::from("main").unwrap(),
                         sample_type: SampleType::U32,
@@ -699,8 +696,7 @@ mod test {
                         sampling: Vec2(1, 1)
                     }
                 ],
-                bytes_per_pixel: 4
-            },
+            ),
             compression: Compression::Uncompressed,
             line_order: LineOrder::Increasing,
             deep_data_version: Some(1),
@@ -739,8 +735,8 @@ mod test {
     #[test]
     fn infer_high_requirements() {
         let header_version_2_long_names = Header {
-            channels: ChannelList {
-                list: smallvec![
+            channels: ChannelList::new(
+                smallvec![
                     ChannelInfo {
                         name: Text::from("main").unwrap(),
                         sample_type: SampleType::U32,
@@ -748,8 +744,7 @@ mod test {
                         sampling: Vec2(1, 1)
                     }
                 ],
-                bytes_per_pixel: 4
-            },
+            ),
             compression: Compression::Uncompressed,
             line_order: LineOrder::Increasing,
             deep_data_version: Some(1),
