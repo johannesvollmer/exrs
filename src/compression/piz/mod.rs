@@ -104,9 +104,6 @@ pub fn decompress(
     // Expand the pixel data to their original range
     apply_lookup_table(&mut tmp_u16_buffer, &lookup_table);
 
-    let has_only_half_channels = channels.list
-        .iter().all(|channel| channel.sample_type == SampleType::F16);
-
     // let out_buffer_size = (max_scan_line_size * scan_line_count) + 65536 + 8192; // TODO not use expected byte size?
     let mut out = Vec::with_capacity(expected_byte_size);
 
@@ -124,13 +121,11 @@ pub fn decompress(
             // We can support uncompressed data in the machine's native format
             // if all image channels are of type HALF, and if the Xdr and the
             // native representations of a half have the same size.
-            if has_only_half_channels { // machine-dependent data format is a simple memcpy
-                println!("native read");
+            if channels.uniform_sample_type == Some(SampleType::F16) { // machine-dependent data format is a simple memcpy
                 use lebe::io::WriteEndian;
                 out.write_as_native_endian(values).expect("write to in-memory failed");
             }
             else {
-                println!("independent read");
                 u16::write_slice(&mut out, values).expect("write to in-memory failed");
             }
         }
@@ -181,9 +176,6 @@ pub fn compress(
 
     debug_assert_eq!(tmp_end_index, tmp.len());
 
-    let has_only_half_channels = channels.list
-        .iter().all(|channel| channel.sample_type == SampleType::F16);
-
     let mut remaining_uncompressed_bytes = uncompressed;
     for y in rectangle.position.y() .. rectangle.end().y() {
         for channel in &mut channel_data {
@@ -196,13 +188,11 @@ pub fn compress(
             // We can support uncompressed data in the machine's native format
             // if all image channels are of type HALF, and if the Xdr and the
             // native representations of a half have the same size.
-            if has_only_half_channels {
-                println!("native write");
+            if channels.uniform_sample_type == Some(SampleType::F16) {
                 use lebe::io::ReadEndian;
                 remaining_uncompressed_bytes.read_from_native_endian_into(target).expect("in-memory read failed");
             }
             else {
-                println!("independent write");
                 u16::read_slice(&mut remaining_uncompressed_bytes, target).expect("in-memory read failed");
             }
         }

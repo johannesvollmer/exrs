@@ -192,6 +192,9 @@ pub struct ChannelList {
     /// The number of bytes that one pixel in this image needs.
     // FIXME this needs to account for subsampling anywhere?
     pub bytes_per_pixel: usize, // FIXME only makes sense for flat images!
+
+    /// The sample type of all channels, if all channels have the same type.
+    pub uniform_sample_type: Option<SampleType>,
 }
 
 /// A single channel in an layer.
@@ -606,8 +609,13 @@ impl ChannelList {
 
     /// Does not validate channel order.
     pub fn new(channels: SmallVec<[ChannelInfo; 5]>) -> Self {
+        let first_type = channels.first().expect("channels must not be empty").sample_type;
+        let has_uniform_types = channels.iter().skip(1)
+            .all(|chan| chan.sample_type == first_type);
+
         ChannelList {
             bytes_per_pixel: channels.iter().map(|channel| channel.sample_type.bytes_per_sample()).sum(),
+            uniform_sample_type: if has_uniform_types { Some(first_type) } else { None },
             list: channels,
         }
     }

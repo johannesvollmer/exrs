@@ -11,10 +11,9 @@ mod pxr24;
 
 
 
-use crate::meta::attribute::IntRect;
+use crate::meta::attribute::{IntRect, SampleType, ChannelList};
 use crate::error::{Result, Error};
 use crate::meta::header::Header;
-use lebe::Endian;
 
 
 /// A byte vector.
@@ -143,13 +142,37 @@ impl std::fmt::Display for Compression {
 
 impl Compression {
 
+    // FIXME this conversion should be done inside each compression algorithm! not inside the general compression.
+    fn native_format(self, header: &Header) -> bool {
+        let has_only_f16_channels = header.channels.uniform_sample_type == Some(SampleType::F16);
+
+        match self {
+            Compression::Uncompressed => true,
+            Compression::RLE => true, // false, // FIXME false in original library???
+            Compression::ZIP1 => false,
+            Compression::ZIP16 => false,
+            Compression::PIZ => has_only_f16_channels, // TODO DRY and compute only once??
+            Compression::PXR24 => false, //FIXME true in original library  // true, // what??? i thought this is zip?!?!?!
+            Compression::B44 | Compression::B44A => has_only_f16_channels,
+            Compression::DWAA(_) | Compression::DWAB => {
+                cfg!(target_endian = "little") // native if little endian?!
+                // FIXME so... this should always return true, as files are also always stored in little endian???
+            },
+        }
+    }
+
     /// Compress the image section of bytes.
     pub fn compress_image_section(self, header: &Header, mut uncompressed: ByteVec, pixel_section: IntRect) -> Result<ByteVec> {
         let max_tile_size = header.max_block_pixel_size();
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
 
+        // convert data if compression method expects native format
+        if self.native_format(header) {
+            uncompressed = convert_current_to_little_endian(uncompressed, &header.channels, pixel_section);
+        }
+
         use self::Compression::*;
-        let compressed = match self {
+        let compressed_independent = match self {
             Uncompressed => return Ok(uncompressed),
             ZIP16 => zip::compress_bytes(&uncompressed),
             ZIP1 => zip::compress_bytes(&uncompressed),
@@ -159,35 +182,34 @@ impl Compression {
             _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
         };
 
-        let compressed = compressed
-            .map_err(|_| Error::invalid(format!("pixels cannot be compressed ({})", self)))?;
+        let compressed_independent = compressed_independent.map_err(|_|
+            Error::invalid(format!("pixels cannot be compressed ({})", self))
+        )?;
 
-        if compressed.len() < uncompressed.len() {
+        if compressed_independent.len() < uncompressed.len() {
             // only write compressed if it actually is smaller than raw
-            Ok(compressed)
+            Ok(compressed_independent)
         }
         else {
-            uncompressed.convert_current_to_little_endian();
-            Ok(uncompressed)
+            Ok(convert_current_to_little_endian(uncompressed, &header.channels, pixel_section))
         }
     }
 
     /// Decompress the image section of bytes.
-    pub fn decompress_image_section(self, header: &Header, mut compressed: ByteVec, pixel_section: IntRect) -> Result<ByteVec> {
+    pub fn decompress_image_section(self, header: &Header, compressed: ByteVec, pixel_section: IntRect) -> Result<ByteVec> {
         let max_tile_size = header.max_block_pixel_size();
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
 
         let expected_byte_size = pixel_section.size.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
 
         if compressed.len() == expected_byte_size {
-            compressed.convert_little_endian_to_current();
-            Ok(compressed) // the compressed data was larger than the raw data, so the raw data has been written
+            Ok(convert_little_endian_to_current(compressed, &header.channels, pixel_section)) // the compressed data was larger than the raw data, so the raw data has been written
         }
 
         else {
             use self::Compression::*;
             let bytes = match self {
-                Uncompressed => Ok(compressed), // FIXME handle endianness
+                Uncompressed => Ok(compressed),
                 ZIP16 => zip::decompress_bytes(&compressed),
                 ZIP1 => zip::decompress_bytes(&compressed),
                 RLE => rle::decompress_bytes(&compressed, expected_byte_size),
@@ -205,7 +227,12 @@ impl Compression {
             }
 
             else {
-                Ok(bytes)
+                // convert data if compression method has output native format
+                if self.native_format(header) {
+                    Ok(convert_little_endian_to_current(bytes, &header.channels, pixel_section))
+                }
+
+                else { Ok(bytes) }
             }
         }
     }
@@ -254,6 +281,67 @@ impl Compression {
     }
 }
 
+// FIXME this should really be done inside each compression method
+
+#[allow(unused)]
+fn convert_current_to_little_endian(bytes: ByteVec, channels: &ChannelList, rectangle: IntRect) -> ByteVec { // TODO is this really not already somewhere else?
+    #[cfg(target = "big_endian")] {
+        use lebe::prelude::*;
+
+        // FIXME do this in-place
+        let mut little = Vec::with_capacity(bytes.len());
+        let mut native = bytes;
+
+        for y in rectangle.position.y() .. rectangle.end().y() {
+            for channel in &channels.list {
+                if mod_p(y, channel.sampling.y() as i32) != 0 { continue; }
+
+                // FIXME do not match on every value
+                for _x in 0 .. rectangle.size.width() / channel.sampling.x() {
+                    match channel.sample_type {
+                        SampleType::F16 => little.write_as_little_endian(u16::read_from_native_endian(&mut native)),
+                        SampleType::F32 => little.write_as_little_endian(f32::read_from_native_endian(&mut native)),
+                        SampleType::U32 => little.write_as_little_endian(u32::read_from_native_endian(&mut native)),
+                    }
+                }
+            }
+        }
+
+        return little;
+    }
+
+    bytes
+}
+
+#[allow(unused)]
+fn convert_little_endian_to_current(bytes: ByteVec, channels: &ChannelList, rectangle: IntRect) -> ByteVec { // TODO is this really not already somewhere else?
+    #[cfg(target = "big_endian")] {
+        use lebe::prelude::*;
+
+        // FIXME do this in-place
+        let mut native = Vec::with_capacity(bytes.len());
+        let mut little = bytes;
+
+        for y in rectangle.position.y() .. rectangle.end().y() {
+            for channel in &channels.list {
+                if mod_p(y, channel.sampling.y() as i32) != 0 { continue; }
+
+                // FIXME do not match on every value
+                for _x in 0 .. rectangle.size.width() / channel.sampling.x() {
+                    match channel.sample_type {
+                        SampleType::F16 => native.write_as_native_endian(u16::read_from_little_endian(&mut little)),
+                        SampleType::F32 => native.write_as_native_endian(f32::read_from_little_endian(&mut little)),
+                        SampleType::U32 => native.write_as_native_endian(u32::read_from_little_endian(&mut little)),
+                    }
+                }
+            }
+        }
+
+        return native;
+    }
+
+    bytes
+}
 
 /// A collection of functions used to prepare data for compression.
 mod optimize_bytes {
