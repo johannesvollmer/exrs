@@ -51,7 +51,7 @@ fn search_previews_of_all_files() {
 #[test]
 #[ignore]
 pub fn test_roundtrip() {
-    let path = "tests/images/valid/openexr/TestImages/GammaChart.exr";
+    let path = "tests/images/valid/openexr/IlmfmlmflmTest/test_native1.exr";
 
     print!("starting read 1... ");
     io::stdout().flush().unwrap();
@@ -64,6 +64,7 @@ pub fn test_roundtrip() {
         rgba::pixels::create_flattened_f16,
         rgba::pixels::flattened_pixel_setter()
     ).unwrap();
+
     println!("...read 1 successfull");
 
     let mut tmp_bytes = Vec::new();
@@ -92,6 +93,12 @@ pub fn test_roundtrip() {
 
     if !path.to_lowercase().contains("nan") {
         assert_eq!(image, image2);
+
+        let non_equal_sample_count = pixels.samples.iter().zip(pixels2.samples.iter())
+            .filter(|(a,b)| a != b).count();
+
+        assert_eq!(non_equal_sample_count, 0);
+
         assert_eq!(pixels, pixels2);
     }
 }
