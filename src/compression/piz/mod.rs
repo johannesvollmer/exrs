@@ -41,15 +41,12 @@ pub fn decompress_bytes(
 ) -> Result<ByteVec>
 {
     let expected_value_count = expected_byte_size / 2;
-
     debug_assert_eq!(expected_byte_size, rectangle.size.area() * channels.bytes_per_pixel);
-    debug_assert!(compressed.len() < expected_byte_size, "tried to decompress uncompressed data");
     debug_assert_ne!(expected_value_count, 0);
 
     if compressed.is_empty() {
         return Ok(Vec::new());
     }
-
 
     let mut channel_data: Vec<ChannelData> = Vec::with_capacity(channels.list.len());
     let mut tmp_read_index = 0;
@@ -76,7 +73,6 @@ pub fn decompress_bytes(
     let max_non_zero = u16::read(&mut remaining_input).unwrap() as usize;
 
     if max_non_zero >= BITMAP_SIZE || min_non_zero >= BITMAP_SIZE {
-        println!("invalid bitmap size");
         return Err(Error::invalid("compression data"));
     }
 
@@ -89,7 +85,6 @@ pub fn decompress_bytes(
     {
         let length = i32::read(&mut remaining_input).unwrap();
         if length as usize != remaining_input.len() {
-            println!("invalid array length");
             // TODO length might be smaller than remaining??
             return Err(Error::invalid("compression data"));
         }
@@ -251,8 +246,6 @@ pub fn compress_bytes(
     let huffman_compressed: Vec<u8> = huffman::compress(&tmp)?;
 
     #[cfg(debug_assertions)] {
-        println!("uncompressed data len: {}", tmp.len());
-        println!("let uncompressed_data = {:?}", tmp);
         let decompressed = huffman::decompress(&huffman_compressed, tmp.len()).unwrap();
         assert_eq!(decompressed, tmp)
     }

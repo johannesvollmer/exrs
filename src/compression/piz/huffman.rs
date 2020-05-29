@@ -1003,7 +1003,6 @@ mod test {
             let compressed = compress(&raw).unwrap();
             let uncompressed = decompress(&compressed, raw.len()).unwrap();
 
-            println!("passed size {}", raw.len());
             assert_eq!(uncompressed, raw);
         }
     }
