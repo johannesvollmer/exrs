@@ -172,7 +172,7 @@ impl Compression {
         }
 
         use self::Compression::*;
-        let compressed_independent = match self {
+        let compressed = match self {
             Uncompressed => return Ok(uncompressed),
             ZIP16 => zip::compress_bytes(&uncompressed),
             ZIP1 => zip::compress_bytes(&uncompressed),
@@ -182,15 +182,16 @@ impl Compression {
             _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
         };
 
-        let compressed_independent = compressed_independent.map_err(|_|
+        let compressed = compressed.map_err(|_|
             Error::invalid(format!("pixels cannot be compressed ({})", self))
         )?;
 
-        if compressed_independent.len() < uncompressed.len() {
+        if compressed.len() < uncompressed.len() {
             // only write compressed if it actually is smaller than raw
-            Ok(compressed_independent)
+            Ok(compressed)
         }
         else {
+            // manually convert uncompressed data
             Ok(convert_current_to_little_endian(uncompressed, &header.channels, pixel_section))
         }
     }
@@ -290,7 +291,7 @@ fn convert_current_to_little_endian(bytes: ByteVec, channels: &ChannelList, rect
 
         // FIXME do this in-place
         let mut little = Vec::with_capacity(bytes.len());
-        let mut native = bytes;
+        let mut native = bytes.as_slice();
 
         for y in rectangle.position.y() .. rectangle.end().y() {
             for channel in &channels.list {
@@ -299,10 +300,10 @@ fn convert_current_to_little_endian(bytes: ByteVec, channels: &ChannelList, rect
                 // FIXME do not match on every value
                 for _x in 0 .. rectangle.size.width() / channel.sampling.x() {
                     match channel.sample_type {
-                        SampleType::F16 => little.write_as_little_endian(u16::read_from_native_endian(&mut native)),
-                        SampleType::F32 => little.write_as_little_endian(f32::read_from_native_endian(&mut native)),
-                        SampleType::U32 => little.write_as_little_endian(u32::read_from_native_endian(&mut native)),
-                    }
+                        SampleType::F16 => little.write_as_little_endian(&u16::read_from_native_endian(&mut native).expect("read from in-memory buffer failed")),
+                        SampleType::F32 => little.write_as_little_endian(&f32::read_from_native_endian(&mut native).expect("read from in-memory buffer failed")),
+                        SampleType::U32 => little.write_as_little_endian(&u32::read_from_native_endian(&mut native).expect("read from in-memory buffer failed")),
+                    }.expect("write to in-memory buffer failed");
                 }
             }
         }
@@ -320,7 +321,7 @@ fn convert_little_endian_to_current(bytes: ByteVec, channels: &ChannelList, rect
 
         // FIXME do this in-place
         let mut native = Vec::with_capacity(bytes.len());
-        let mut little = bytes;
+        let mut little = bytes.as_slice();
 
         for y in rectangle.position.y() .. rectangle.end().y() {
             for channel in &channels.list {
@@ -329,10 +330,10 @@ fn convert_little_endian_to_current(bytes: ByteVec, channels: &ChannelList, rect
                 // FIXME do not match on every value
                 for _x in 0 .. rectangle.size.width() / channel.sampling.x() {
                     match channel.sample_type {
-                        SampleType::F16 => native.write_as_native_endian(u16::read_from_little_endian(&mut little)),
-                        SampleType::F32 => native.write_as_native_endian(f32::read_from_little_endian(&mut little)),
-                        SampleType::U32 => native.write_as_native_endian(u32::read_from_little_endian(&mut little)),
-                    }
+                        SampleType::F16 => native.write_as_native_endian(&u16::read_from_little_endian(&mut little).expect("read from in-memory buffer failed")),
+                        SampleType::F32 => native.write_as_native_endian(&f32::read_from_little_endian(&mut little).expect("read from in-memory buffer failed")),
+                        SampleType::U32 => native.write_as_native_endian(&u32::read_from_little_endian(&mut little).expect("read from in-memory buffer failed")),
+                    }.expect("write to in-memory buffer failed");
                 }
             }
         }
@@ -341,6 +342,22 @@ fn convert_little_endian_to_current(bytes: ByteVec, channels: &ChannelList, rect
     }
 
     bytes
+}
+
+
+fn div_p (x: i32, y: i32) -> i32 {
+    if x >= 0 {
+        if y >= 0 { x  / y }
+        else { -(x  / -y) }
+    }
+    else {
+        if y >= 0 { -((y-1-x) / y) }
+        else { (-y-1-x) / -y }
+    }
+}
+
+fn mod_p(x: i32, y: i32) -> i32 {
+    x - y * div_p(x, y)
 }
 
 /// A collection of functions used to prepare data for compression.

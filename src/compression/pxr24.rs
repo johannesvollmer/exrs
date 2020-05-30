@@ -210,24 +210,6 @@ pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expec
 
 
 
-// TODO share code with piz?
-fn mod_p(x: i32, y: i32) -> i32 {
-    x - y * div_p(x, y)
-}
-
-// TODO share code with piz?
-fn div_p (x: i32, y: i32) -> i32 {
-    if x >= 0 {
-        if y >= 0 { x  / y }
-        else { -(x  / -y) }
-    }
-    else {
-        if y >= 0 { -((y-1-x) / y) }
-        else { (-y-1-x) / -y }
-    }
-}
-
-
 /// Conversion from 32-bit to 24-bit floating-point numbers.
 /// Reverse conversion is just a simple 8-bit left shift.
 pub fn f32_to_f24(float: f32) -> u32 {

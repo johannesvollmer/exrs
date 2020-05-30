@@ -10,7 +10,7 @@ mod wavelet;
 use crate::prelude::common::*;
 use crate::io::Data;
 use crate::meta::attribute::*;
-use crate::compression::{ByteVec, Bytes};
+use crate::compression::{ByteVec, Bytes, mod_p};
 
 
 const U16_RANGE: usize = (1_i32 << 16_i32) as usize;
@@ -229,45 +229,6 @@ pub fn compress(
 
     Ok(piz_compressed)
 }
-
-//
-// Integer division and remainder where the
-// remainder of x/y is always positive:
-//
-//	divp(x,y) == floor (double(x) / double (y))
-//	modp(x,y) == x - y * divp(x,y)
-//
-//
-//    inline int
-//    divp (int x, int y)
-//    {
-//       return (x >= 0)? ((y >= 0)?  (     x  / y): -(      x  / -y)):
-//       ((y >= 0)? -((y-1-x) / y):  ((-y-1-x) / -y));
-//    }
-//
-//
-//    inline int
-//    modp (int x, int y)
-//    {
-//       return x - y * divp (x, y);
-//    }
-
-fn div_p (x: i32, y: i32) -> i32 {
-    if x >= 0 {
-        if y >= 0 { x  / y }
-        else { -(x  / -y) }
-    }
-    else {
-        if y >= 0 { -((y-1-x) / y) }
-        else { (-y-1-x) / -y }
-    }
-}
-
-fn mod_p(x: i32, y: i32) -> i32 {
-    x - y * div_p(x, y)
-}
-
-
 
 
 fn reverse_lookup_table_from_bitmap(bitmap: Bytes<'_>) -> (Vec<u16>, u16) {
