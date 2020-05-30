@@ -167,6 +167,7 @@ impl Compression {
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
 
         // convert data if compression method expects native format
+        // see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
         if self.native_format(header) {
             uncompressed = convert_current_to_little_endian(uncompressed, &header.channels, pixel_section);
         }
@@ -282,6 +283,7 @@ impl Compression {
     }
 }
 
+// see https://github.com/AcademySoftwareFoundation/openexr/blob/6a9f8af6e89547bcd370ae3cec2b12849eee0b54/OpenEXR/IlmImf/ImfMisc.cpp#L1456-L1541
 // FIXME this should really be done inside each compression method
 
 #[allow(unused)]
