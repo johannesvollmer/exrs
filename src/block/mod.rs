@@ -145,8 +145,6 @@ fn for_decompressed_blocks_in_chunks(
 
             for_each(meta_data.headers.as_slice(), decompressed)?; // allows returning `Error::Abort`
         }
-
-        Ok(())
     }
     else {
         for chunk in chunks {
@@ -156,9 +154,10 @@ fn for_decompressed_blocks_in_chunks(
             let decompressed = UncompressedBlock::decompress_chunk(chunk?, &meta_data)?;
             for_each(meta_data.headers.as_slice(), decompressed)?; // allows returning `Error::Abort`
         }
-
-        Ok(())
     }
+
+    debug_assert_eq!(processed_chunk_count, total_chunk_count, "some chunks were not read");
+    Ok(())
 }
 
 /// Read all chunks without seeking.
@@ -311,7 +310,6 @@ pub fn for_compressed_blocks_in_image(
 
         // write parallel chunks with sorting
         else {
-
             // the block indices, in the order which must be apparent in the file
             let mut expected_id_order = headers.iter().enumerate()
                 .flat_map(|(layer, header)| header.enumerate_ordered_blocks().map(move |(chunk, _)| (layer, chunk)));

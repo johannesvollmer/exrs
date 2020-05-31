@@ -14,6 +14,7 @@ Yanking shouldn't be the default.
     - careful with `vec![ 0; x ]`
 1. Only unreachable `unwrap()`, `expect("")` and `assert`s
 1. No `println!` outside of tests and examples
+1. `assert_eq` and `debug_assert_eq` should have a message explaining the context
 
 ## Tasks
 1. Bump version in
