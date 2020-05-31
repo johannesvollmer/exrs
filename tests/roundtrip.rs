@@ -85,9 +85,9 @@ fn round_trip_all_files_full() {
         image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low())?;
 
         let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), read_options::low())?;
-        if !path.to_str().unwrap().to_lowercase().contains("nan") {
-            assert_eq!(image, image2);
-        }
+
+        assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
+        if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN
 
         Ok(())
     })
@@ -102,9 +102,9 @@ fn round_trip_all_files_simple() {
         image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low())?;
 
         let image2 = simple::Image::read_from_buffered(Cursor::new(&tmp_bytes), read_options::low())?;
-        if !path.to_str().unwrap().to_lowercase().contains("nan") {
-            assert_eq!(image, image2);
-        }
+
+        assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
+        if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN
 
         Ok(())
     })
@@ -142,10 +142,10 @@ fn round_trip_all_files_rgba() {
             rgba::pixels::flattened_pixel_setter()
         )?;
 
-        if !path.to_str().unwrap().to_lowercase().contains("nan") {
-            assert_eq!(image, image2);
-            assert_eq!(pixels, pixels2);
-        }
+        assert_eq!(image, image2);
+
+        // custom compare function: considers nan equal to nan
+        assert!(pixels.samples.iter().map(|f| f.to_bits()).eq(pixels2.samples.iter().map(|f| f.to_bits())));
 
         Ok(())
     })
@@ -161,9 +161,8 @@ fn round_trip_parallel_files() {
 
         let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), read_options::high())?;
 
-        if !path.to_str().unwrap().to_lowercase().contains("nan") {
-            assert_eq!(image, image2);
-        }
+        assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
+        if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN
 
         Ok(())
     })

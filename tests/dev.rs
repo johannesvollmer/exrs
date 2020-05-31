@@ -51,7 +51,9 @@ fn search_previews_of_all_files() {
 #[test]
 #[ignore]
 pub fn test_roundtrip() {
-    let path = "tests/images/valid/openexr/IlmfmlmflmTest/test_native1.exr";
+    // let path = "tests/images/valid/openexr/IlmfmlmflmTest/test_native1.exr";
+    let path = "tests/images/valid/openexr/TestImages/AllHalfValues.exr";
+    // let path = "tests/images/valid/custom/crowskull/crow_rle.exr";
 
     print!("starting read 1... ");
     io::stdout().flush().unwrap();
@@ -59,7 +61,7 @@ pub fn test_roundtrip() {
     let meta = MetaData::read_from_file(path, false).unwrap();
     println!("{:#?}", meta);
 
-    let (image, pixels) = rgba::ImageInfo::read_pixels_from_file(
+    let (image_info, pixels) = rgba::ImageInfo::read_pixels_from_file(
         path, read_options::low(),
         rgba::pixels::create_flattened_f16,
         rgba::pixels::flattened_pixel_setter()
@@ -72,7 +74,7 @@ pub fn test_roundtrip() {
     print!("starting write... ");
     io::stdout().flush().unwrap();
 
-    image.write_pixels_to_buffered(
+    image_info.write_pixels_to_buffered(
         &mut Cursor::new(&mut tmp_bytes), write_options::low(),
         rgba::pixels::flattened_pixel_getter(&pixels)
     ).unwrap();
@@ -82,7 +84,7 @@ pub fn test_roundtrip() {
     print!("starting read 2... ");
     io::stdout().flush().unwrap();
 
-    let (image2, pixels2) = rgba::ImageInfo::read_pixels_from_buffered(
+    let (image_info_2, pixels2) = rgba::ImageInfo::read_pixels_from_buffered(
         Cursor::new(&tmp_bytes),
         read_options::low(),
         rgba::pixels::create_flattened_f16,
@@ -91,14 +93,9 @@ pub fn test_roundtrip() {
 
     println!("...read 2 successfull");
 
-    if !path.to_lowercase().contains("nan") {
-        assert_eq!(image, image2);
 
-        let non_equal_sample_count = pixels.samples.iter().zip(pixels2.samples.iter())
-            .filter(|(a,b)| a != b).count();
+    assert_eq!(image_info, image_info_2);
 
-        assert_eq!(non_equal_sample_count, 0);
-
-        assert_eq!(pixels, pixels2);
-    }
+    // custom compare function: considers nan equal to nan
+    assert!(pixels.samples.iter().map(|f| f.to_bits()).eq(pixels2.samples.iter().map(|f| f.to_bits())));
 }
