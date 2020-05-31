@@ -460,7 +460,7 @@ impl MetaData {
 
         if let Some(max) = max_pixel_bytes {
             let byte_size: usize = headers.iter()
-                .map(|header| header.data_size.area() * header.channels.bytes_per_pixel)
+                .map(|header| header.total_pixel_bytes())
                 .sum();
 
             if byte_size > max {

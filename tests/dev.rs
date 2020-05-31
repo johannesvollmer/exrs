@@ -3,14 +3,13 @@
 extern crate exr;
 extern crate smallvec;
 
-use exr::prelude::common::*;
+use exr::prelude::simple_image::*;
 
 use std::path::{PathBuf};
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::io;
 use std::io::{Write, Cursor};
-use exr::image::rgba;
 use exr::meta::header::Header;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
@@ -51,7 +50,8 @@ fn search_previews_of_all_files() {
 #[test]
 #[ignore]
 pub fn test_roundtrip() {
-    let path = "tests/images/valid/openexr/IlmfmlmflmTest/comp_dwab_v2.exr";
+    let path = "tests/images/valid/openexr/MultiResolution/Kapaa.exr";
+    // let path = "tests/images/valid/openexr/MultiView/Impact.exr";
 
     print!("starting read 1... ");
     io::stdout().flush().unwrap();
@@ -59,11 +59,7 @@ pub fn test_roundtrip() {
     let meta = MetaData::read_from_file(path, false).unwrap();
     println!("{:#?}", meta);
 
-    let (image_info, pixels) = rgba::ImageInfo::read_pixels_from_file(
-        path, read_options::low(),
-        rgba::pixels::create_flattened_f16,
-        rgba::pixels::flattened_pixel_setter()
-    ).unwrap();
+    let image = Image::read_from_file(path, read_options::low()).unwrap();
 
     println!("...read 1 successfull");
 
@@ -72,28 +68,16 @@ pub fn test_roundtrip() {
     print!("starting write... ");
     io::stdout().flush().unwrap();
 
-    image_info.write_pixels_to_buffered(
-        &mut Cursor::new(&mut tmp_bytes), write_options::low(),
-        rgba::pixels::flattened_pixel_getter(&pixels)
-    ).unwrap();
+    image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low()).unwrap();
 
-    println!("...write successfull: {}mb", tmp_bytes.len() as f32/ 1000000.0);
+    println!("...write successfull: {}mb", tmp_bytes.len() as f32 / 1000000.0);
 
     print!("starting read 2... ");
     io::stdout().flush().unwrap();
 
-    let (image_info_2, pixels2) = rgba::ImageInfo::read_pixels_from_buffered(
-        Cursor::new(&tmp_bytes),
-        ReadOptions { pedantic: true, .. read_options::low() },
-        rgba::pixels::create_flattened_f16,
-        rgba::pixels::flattened_pixel_setter()
-    ).unwrap();
-
+    let image2 = Image::read_from_buffered(Cursor::new(&tmp_bytes),ReadOptions { pedantic: true, .. read_options::low() }).unwrap();
     println!("...read 2 successfull");
 
-
-    assert_eq!(image_info, image_info_2);
-
-    // custom compare function: considers nan equal to nan
-    assert!(pixels.samples.iter().map(|f| f.to_bits()).eq(pixels2.samples.iter().map(|f| f.to_bits())));
+    assert!(!image.contains_nan_pixels() && !image2.contains_nan_pixels());
+    assert_eq!(image, image2);
 }

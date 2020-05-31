@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use crate::meta::attribute::*; // FIXME shouldn't this need some more imports????
 use crate::meta::*;
+use crate::math::Vec2;
 
 
 /// Describes a single layer in a file.
@@ -497,13 +498,41 @@ impl Header {
         }
     }
 
-    /// Returns the maximum number of bytes that the pixels of this header will consume in a file.
-    /// Due to compression, the actual byte size may be smaller.
-    pub fn max_total_pixel_file_bytes(&self) -> usize {
+    /// Returns the number of bytes that the pixels of this header will require
+    /// when stored without compression. Respects multi-resolution levels and subsampling.
+    pub fn total_pixel_bytes(&self) -> usize {
         assert!(!self.deep);
 
-        self.chunk_count * 4 // at most some overhead for each chunk
-            + self.channels.bytes_per_pixel * self.data_size.area() // max pixel data size
+        let pixel_count_of_levels = |size: Vec2<usize>| -> usize {
+            match self.blocks {
+                Blocks::ScanLines => size.area(),
+                Blocks::Tiles(tile_description) => match tile_description.level_mode {
+                    LevelMode::Singular => size.area(),
+
+                    LevelMode::MipMap => mip_map_levels(tile_description.rounding_mode, size)
+                        .map(|(_, size)| size.area()).sum(),
+
+                    LevelMode::RipMap => rip_map_levels(tile_description.rounding_mode, size)
+                        .map(|(_, size)| size.area()).sum(),
+                }
+            }
+        };
+
+        self.channels.list.iter()
+            .map(|channel: &ChannelInfo|
+                pixel_count_of_levels(channel.subsampled_resolution(self.data_size)) * channel.sample_type.bytes_per_sample()
+            )
+            .sum()
+
+    }
+
+    /// Approximates the maximum number of bytes that the pixels of this header will consume in a file.
+    /// Due to compression, the actual byte size may be smaller.
+    pub fn max_pixel_file_bytes(&self) -> usize {
+        assert!(!self.deep);
+
+        self.chunk_count * 80 // at most 80 bytes overhead for each chunk (header index, tile description, chunk size, and more)
+            + self.total_pixel_bytes()
     }
 
     /// Validate this instance.

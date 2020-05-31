@@ -25,7 +25,7 @@ pub fn encode_14_or_16_bit(
     let encode = if is_14_bit { encode_14bit } else { encode_16bit }; // assume inlining and constant propagation
 
     let mut p: usize = 1; // TODO i32?
-    let mut p2: usize = 2;
+    let mut p2: usize = 2; // TODO what is p??
 
     while p2 <= count {
 

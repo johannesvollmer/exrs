@@ -48,9 +48,9 @@ pub struct ReadOptions<P: OnReadProgress> {
     /// The default value of 1GB avoids reading invalid files.
     pub max_pixel_bytes: Option<usize>,
 
-    /// If true, files with slightly suspicious content will be rejected immediately.
+    /// If true, files with funky content will be rejected immediately.
     ///
-    /// Examples of suspicious things that will instead be tolerated only if this is disabled:
+    /// Examples of funky things that will be tolerated only if pedantic is false:
     /// - Two headers with the same name
     /// - Two attributes with the same name
     /// - Invalid attribute contents (the specific attribute will be skipped)

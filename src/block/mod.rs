@@ -89,6 +89,7 @@ pub fn read_all_blocks_from_buffered<T>(
 /// Will skip any parts of the file that do not match the specified filter condition.
 /// Will never seek if the filter condition matches all chunks.
 /// Does not buffer the reader, you should always pass a `BufReader`.
+/// This may leave you with an uninitialized image, when all blocks are filtered out.
 #[inline]
 #[must_use]
 pub fn read_filtered_blocks_from_buffered<T>(
@@ -180,7 +181,7 @@ pub fn read_all_compressed_chunks_from_buffered<'m>(
         if pedantic {
             let offset_tables = MetaData::read_offset_tables(&mut read, &meta_data.headers)?;
             validate_offset_tables(meta_data.headers.as_slice(), &offset_tables, read.byte_position() as u64)?;
-            offset_tables.iter().map(|header| header.len()).sum()
+            offset_tables.iter().map(|table| table.len()).sum()
         }
         else {
             usize::try_from(MetaData::skip_offset_tables(&mut read, &meta_data.headers)?)
@@ -206,6 +207,7 @@ pub fn read_all_compressed_chunks_from_buffered<'m>(
 
 /// Read all desired chunks, possibly seeking. Skips all chunks that do not match the filter.
 /// Returns the compressed chunks. Does not buffer the reader, you should always pass a `BufReader`.
+/// This may leave you with an uninitialized image, if all chunks are filtered out.
 // TODO this must be tested more
 #[inline]
 #[must_use]
@@ -252,16 +254,15 @@ pub fn read_filtered_chunks_from_buffered<'m, T>(
 }
 
 fn validate_offset_tables(headers: &[Header], offset_tables: &OffsetTables, chunks_start_byte: u64) -> UnitResult {
-    if true { return Ok(()) }; // TODO
+    let max_pixel_bytes = headers.iter() // when compressed, chunks are smaller, but never larger than max
+        .map(|header| header.max_pixel_file_bytes() as u64)
+        .sum();
 
-    let max = headers.iter() // when compressed, chunks are smaller, but never larger than max
-        .map(|header| header.max_total_pixel_file_bytes() as u64)
-        .sum(); // TODO check max < file.len() to validate header data
+    // check that each offset is within the bounds
+    let is_invalid = offset_tables.iter().flatten()
+        .any(|&chunk_start| chunk_start < chunks_start_byte || chunk_start > max_pixel_bytes);
 
-    let invalid = offset_tables.iter().flatten()
-        .any(|&offset| offset < chunks_start_byte || offset > max);
-
-    if invalid { Err(Error::invalid("offset table")) }
+    if is_invalid { Err(Error::invalid("offset table")) }
     else { Ok(()) }
 }
 
