@@ -252,7 +252,8 @@ fn decode(
             [((code_bits << (DECODE_BITS as u64 - code_bit_count)) & DECODE_MASK as u64) as usize];
 
         if let Code::Short(short_code) = code {
-            code_bit_count -= short_code.len as u64;
+            if short_code.len as u64 > code_bit_count { return Err(Error::invalid("code")) }; // FIXME why does this happen??
+            code_bit_count -= short_code.len as u64; // FIXME may throw "attempted to subtract with overflow"
 
             read_code_into_vec(
                 short_code.value,

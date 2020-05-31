@@ -23,6 +23,21 @@ fn exr_files(path: &'static str, filter: bool) -> impl Iterator<Item=PathBuf> {
 }
 
 
+/// Just don't panic.
+#[test]
+pub fn fuzzed(){
+    for file in exr_files("tests/images/fuzzed", false) {
+        let _ = exr::image::full::Image::read_from_file(&file, read_options::high());
+        let _ = exr::image::simple::Image::read_from_file(&file, read_options::high()); // FIXME will these be optimized away?
+        let _ = exr::image::rgba::ImageInfo::read_pixels_from_file(
+            // FIXME will these be optimized away?
+            &file, read_options::high(),
+            rgba_image::pixels::create_flattened_f16,
+            rgba_image::pixels::flattened_pixel_setter()
+        );
+    }
+}
+
 #[test]
 pub fn damaged(){
     let mut passed = true;
@@ -98,7 +113,7 @@ pub fn fuzz(){
     for fuzz_index in 0 .. 1024_u64 * 2048 * 4 {
 
         let file_1_name = &files[random.gen_range(0, files.len())];
-        let mutation_point = random.gen::<f32>().powi(12);
+        let mutation_point = random.gen::<f32>().powi(3);
         let mutation = random.gen::<u8>();
 
         if fuzz_index >= start_index {
@@ -106,8 +121,9 @@ pub fn fuzz(){
             let index = ((mutation_point * file.len() as f32) as usize + 4) % file.len();
             file[index] = mutation;
 
+            let file = file.as_slice();
             let result = catch_unwind(move || {
-                match exr::image::full::Image::read_from_buffered(file.as_slice(), read_options::low()) {
+                match exr::image::full::Image::read_from_buffered(file, read_options::low()) {
                     Err(Error::Invalid(error)) => println!("✓ No Panic. [{}]: Invalid: {}.", fuzz_index, error),
                     Err(Error::NotSupported(error)) => println!("- No Panic. [{}]: Unsupported: {}.", fuzz_index, error),
                     _ => {},
@@ -118,9 +134,12 @@ pub fn fuzz(){
                 records.write_all(fuzz_index.to_string().as_bytes()).unwrap();
                 records.flush().unwrap();
 
-                panic!("✗ PANIC! [{}]", fuzz_index);
+                let seed = seed.iter().map(|num| num.to_string()).collect::<Vec<String>>().join("-");
+                let mut saved = File::create(format!("tests/images/fuzzed/fuzz_{}_{}.exr", fuzz_index, seed)).unwrap();
+                saved.write_all(file).unwrap();
+
+                println!("✗ PANIC! [{}]", fuzz_index);
             }
         }
-
     }
 }
