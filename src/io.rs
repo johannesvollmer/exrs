@@ -124,6 +124,14 @@ impl<T: Read + Seek> PeekRead<Tracking<T>> {
     }
 }
 
+impl<T: Read> PeekRead<Tracking<T>> {
+
+    /// Current number of bytes read.
+    pub fn byte_position(&self) -> usize {
+        self.inner.byte_position()
+    }
+}
+
 /// Keep track of what byte we are at.
 /// Used to skip back to a previous place after writing some information.
 #[derive(Debug)]

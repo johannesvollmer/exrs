@@ -8,7 +8,7 @@ pub mod chunk;
 use crate::compression::{ByteVec, Compression};
 use crate::math::*;
 use crate::error::{Result, Error, usize_to_i32, UnitResult};
-use crate::meta::{MetaData, Blocks, TileIndices};
+use crate::meta::{MetaData, Blocks, TileIndices, OffsetTables};
 use crate::block::chunk::{Chunk, Block, TileBlock, ScanLineBlock, TileCoordinates};
 use crate::meta::attribute::LineOrder;
 use rayon::prelude::ParallelBridge;
@@ -173,10 +173,20 @@ pub fn read_all_compressed_chunks_from_buffered<'m>(
     pedantic: bool
 ) -> Result<(MetaData, usize, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
 {
-    let mut read = PeekRead::new(read);
+    let mut read = PeekRead::new(Tracking::new(read));
     let meta_data = MetaData::read_validated_from_buffered_peekable(&mut read, max_pixel_bytes, pedantic)?;
-    let mut remaining_chunk_count = usize::try_from(MetaData::skip_offset_tables(&mut read, &meta_data.headers)?)
-        .expect("too large chunk count for this machine");
+
+    let mut remaining_chunk_count = {
+        if pedantic {
+            let offset_tables = MetaData::read_offset_tables(&mut read, &meta_data.headers)?;
+            validate_offset_tables(meta_data.headers.as_slice(), &offset_tables, read.byte_position() as u64)?;
+            offset_tables.iter().map(|header| header.len()).sum()
+        }
+        else {
+            usize::try_from(MetaData::skip_offset_tables(&mut read, &meta_data.headers)?)
+                .expect("too large chunk count for this machine")
+        }
+    };
 
     Ok((meta_data, remaining_chunk_count, move |meta_data| {
         if remaining_chunk_count > 0 {
@@ -215,8 +225,9 @@ pub fn read_filtered_chunks_from_buffered<'m, T>(
 
     let offset_tables = MetaData::read_offset_tables(&mut read, &meta_data.headers)?;
 
-    if pedantic && offset_tables.iter().flatten().any(|&value| value == 0) { // cannot be 0 as meta data starts there
-        return Err(Error::invalid("offset table"));
+    // TODO regardless of pedantic, if invalid, read all chunks instead, and filter after reading each chunk?
+    if pedantic {
+        validate_offset_tables(meta_data.headers.as_slice(), &offset_tables, read.byte_position() as u64)?;
     }
 
     let mut filtered_offsets = Vec::with_capacity((meta_data.headers.len() * 32).min(2*2048));
@@ -240,6 +251,19 @@ pub fn read_filtered_chunks_from_buffered<'m, T>(
     }))
 }
 
+fn validate_offset_tables(headers: &[Header], offset_tables: &OffsetTables, chunks_start_byte: u64) -> UnitResult {
+    if true { return Ok(()) }; // TODO
+
+    let max = headers.iter() // when compressed, chunks are smaller, but never larger than max
+        .map(|header| header.max_total_pixel_file_bytes() as u64)
+        .sum(); // TODO check max < file.len() to validate header data
+
+    let invalid = offset_tables.iter().flatten()
+        .any(|&offset| offset < chunks_start_byte || offset > max);
+
+    if invalid { Err(Error::invalid("offset table")) }
+    else { Ok(()) }
+}
 
 
 /// Iterate over all uncompressed blocks of an image.

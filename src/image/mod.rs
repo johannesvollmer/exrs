@@ -48,10 +48,6 @@ pub struct ReadOptions<P: OnReadProgress> {
     /// The default value of 1GB avoids reading invalid files.
     pub max_pixel_bytes: Option<usize>,
 
-    /// If true, single invalid attributes do not abort the whole reading process.
-    /// If false, reading the file is stopped when an attribute appears to be invalid.
-    pub skip_invalid_attributes: bool,
-
     /// If true, files with slightly suspicious content will be rejected immediately.
     ///
     /// Examples of suspicious things that will instead be tolerated only if this is disabled:
@@ -105,7 +101,6 @@ pub mod read_options {
         ReadOptions {
             parallel_decompression: true,
             max_pixel_bytes: Some(GIGABYTE),
-            skip_invalid_attributes: true,
             on_progress: (),
             pedantic: false,
         }
@@ -118,7 +113,6 @@ pub mod read_options {
         ReadOptions {
             parallel_decompression: false,
             max_pixel_bytes: Some(GIGABYTE),
-            skip_invalid_attributes: true,
             on_progress: (),
             pedantic: false,
         }

@@ -51,9 +51,7 @@ fn search_previews_of_all_files() {
 #[test]
 #[ignore]
 pub fn test_roundtrip() {
-    // let path = "tests/images/valid/openexr/IlmfmlmflmTest/test_native1.exr";
-    let path = "tests/images/valid/openexr/TestImages/AllHalfValues.exr";
-    // let path = "tests/images/valid/custom/crowskull/crow_rle.exr";
+    let path = "tests/images/valid/openexr/IlmfmlmflmTest/comp_dwab_v2.exr";
 
     print!("starting read 1... ");
     io::stdout().flush().unwrap();
@@ -86,7 +84,7 @@ pub fn test_roundtrip() {
 
     let (image_info_2, pixels2) = rgba::ImageInfo::read_pixels_from_buffered(
         Cursor::new(&tmp_bytes),
-        read_options::low(),
+        ReadOptions { pedantic: true, .. read_options::low() },
         rgba::pixels::create_flattened_f16,
         rgba::pixels::flattened_pixel_setter()
     ).unwrap();

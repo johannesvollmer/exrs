@@ -497,6 +497,15 @@ impl Header {
         }
     }
 
+    /// Returns the maximum number of bytes that the pixels of this header will consume in a file.
+    /// Due to compression, the actual byte size may be smaller.
+    pub fn max_total_pixel_file_bytes(&self) -> usize {
+        assert!(!self.deep);
+
+        self.chunk_count * 4 // at most some overhead for each chunk
+            + self.channels.bytes_per_pixel * self.data_size.area() // max pixel data size
+    }
+
     /// Validate this instance.
     pub fn validate(&self, is_multilayer: bool, long_names: &mut bool, strict: bool) -> UnitResult {
         debug_assert_eq!(
