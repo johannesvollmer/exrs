@@ -593,15 +593,15 @@ impl Header {
     }
 
     /// Read the headers without validating them.
-    pub fn read_all(read: &mut PeekRead<impl Read>, version: &Requirements, skip_invalid_attributes: bool) -> Result<Headers> {
+    pub fn read_all(read: &mut PeekRead<impl Read>, version: &Requirements, pedantic: bool) -> Result<Headers> {
         if !version.is_multilayer() {
-            Ok(smallvec![ Header::read(read, version, skip_invalid_attributes)? ])
+            Ok(smallvec![ Header::read(read, version, pedantic)? ])
         }
         else {
             let mut headers = SmallVec::new();
 
             while !sequence_end::has_come(read)? {
-                headers.push(Header::read(read, version, skip_invalid_attributes)?);
+                headers.push(Header::read(read, version, pedantic)?);
             }
 
             Ok(headers)
@@ -622,7 +622,7 @@ impl Header {
     }
 
     /// Read the value without validating.
-    pub fn read(read: &mut PeekRead<impl Read>, requirements: &Requirements, skip_invalid_attributes: bool) -> Result<Self> {
+    pub fn read(read: &mut PeekRead<impl Read>, requirements: &Requirements, pedantic: bool) -> Result<Self> {
         let max_string_len = if requirements.has_long_names { 256 } else { 32 }; // TODO DRY this information
 
         // these required attributes will be filled when encountered while parsing
@@ -730,7 +730,7 @@ impl Header {
                 // in case the attribute value itself is not ok, but the rest of the image is
                 // only abort reading the image if desired
                 Err(error) => {
-                    if !skip_invalid_attributes { return Err(error); }
+                    if pedantic { return Err(error); }
                 }
             }
         }
@@ -764,7 +764,7 @@ impl Header {
         data_window.validate(None)?;
 
         let computed_chunk_count = compute_chunk_count(compression, data_size, blocks);
-        if chunk_count.is_some() && chunk_count != Some(computed_chunk_count) {
+        if chunk_count.is_some() && pedantic && chunk_count != Some(computed_chunk_count) {
             return Err(Error::invalid("chunk count not matching data size"));
         }
 

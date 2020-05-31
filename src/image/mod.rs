@@ -20,7 +20,7 @@ pub struct WriteOptions<P: OnWriteProgress> {
     /// for files that may look invalid to other exr readers.
     /// Should always be true. Only set this to false
     /// if you can risk never opening the file with another exr reader again,
-    /// __ever__, really.
+    /// __ever__, really. Might have insignificantly better performance in special cases.
     pub pedantic: bool,
 
     /// Called occasionally while writing a file.
@@ -52,10 +52,13 @@ pub struct ReadOptions<P: OnReadProgress> {
     /// If false, reading the file is stopped when an attribute appears to be invalid.
     pub skip_invalid_attributes: bool,
 
-    /// If true, some files will be rejected that are readable but have unconventional properties,
-    /// such as two attributes with the same name, or two headers with the same name,
-    /// invalid attributes will abort the process.
-    /// If false, this will ready any technically valid image file. Invalid attributes will be skipped.
+    /// If true, files with slightly suspicious content will be rejected immediately.
+    ///
+    /// Examples of suspicious things that will instead be tolerated only if this is disabled:
+    /// - Two headers with the same name
+    /// - Two attributes with the same name
+    /// - Invalid attribute contents (the specific attribute will be skipped)
+    /// - Bytes left in the file after the image is read
     pub pedantic: bool,
 }
 

@@ -124,6 +124,8 @@ fn for_decompressed_blocks_in_chunks(
     mut options: ReadOptions<impl OnReadProgress>,
 ) -> UnitResult
 {
+    let pedantic = options.pedantic;
+
     // TODO bit-vec keep check that all pixels have been read?
     let has_compression = meta_data.headers.iter() // do not use parallel stuff for uncompressed images
         .any(|header| header.compression != Compression::Uncompressed);
@@ -134,7 +136,7 @@ fn for_decompressed_blocks_in_chunks(
         let (sender, receiver) = std::sync::mpsc::channel();
 
         chunks.par_bridge()
-            .map(|chunk| UncompressedBlock::decompress_chunk(chunk?, &meta_data))
+            .map(|chunk| UncompressedBlock::decompress_chunk(chunk?, &meta_data, pedantic))
             .try_for_each_with(sender, |sender, result| {
                 result.map(|block: UncompressedBlock| sender.send(block).expect("threading error"))
             })?;
@@ -151,7 +153,7 @@ fn for_decompressed_blocks_in_chunks(
             options.on_progress.on_read_progressed(processed_chunk_count as f32 / total_chunk_count as f32)?;
             processed_chunk_count += 1;
 
-            let decompressed = UncompressedBlock::decompress_chunk(chunk?, &meta_data)?;
+            let decompressed = UncompressedBlock::decompress_chunk(chunk?, &meta_data, options.pedantic)?;
             for_each(meta_data.headers.as_slice(), decompressed)?; // allows returning `Error::Abort`
         }
     }
@@ -182,6 +184,10 @@ pub fn read_all_compressed_chunks_from_buffered<'m>(
             Some(Chunk::read(&mut read, meta_data))
         }
         else {
+            if pedantic && read.peek_u8().is_ok() {
+                return Some(Err(Error::invalid("end of file expected")));
+            }
+
             None
         }
     }))
@@ -203,27 +209,31 @@ pub fn read_filtered_chunks_from_buffered<'m, T>(
 {
     let skip_read = Tracking::new(read);
     let mut read = PeekRead::new(skip_read);
-    let meta_data = MetaData::read_validated_from_buffered_peekable(&mut read, max_pixel_bytes, pedantic)?;
 
+    let meta_data = MetaData::read_validated_from_buffered_peekable(&mut read, max_pixel_bytes, pedantic)?;
     let value = new(meta_data.headers.as_slice())?;
 
     let offset_tables = MetaData::read_offset_tables(&mut read, &meta_data.headers)?;
 
-    let mut offsets = Vec::with_capacity((meta_data.headers.len() * 32).min(2*2048));
+    if pedantic && offset_tables.iter().flatten().any(|&value| value == 0) { // cannot be 0 as meta data starts there
+        return Err(Error::invalid("offset table"));
+    }
+
+    let mut filtered_offsets = Vec::with_capacity((meta_data.headers.len() * 32).min(2*2048));
     for (header_index, header) in meta_data.headers.iter().enumerate() { // offset tables are stored same order as headers
         for (block_index, block) in header.blocks_increasing_y_order().enumerate() { // in increasing_y order
             if filter(&value, (header_index, header), (block_index, &block)) {
-                offsets.push(offset_tables[header_index][block_index]) // safe indexing from `enumerate()`
+                filtered_offsets.push(offset_tables[header_index][block_index]) // safe indexing from `enumerate()`
             }
         };
     }
 
-    offsets.sort(); // enables reading continuously if possible (is probably already sorted)
-    let mut offsets = offsets.into_iter();
-    let block_count = offsets.len();
+    filtered_offsets.sort(); // enables reading continuously if possible (is probably already sorted)
+    let mut filtered_offsets = filtered_offsets.into_iter();
+    let block_count = filtered_offsets.len();
 
     Ok((meta_data, value, block_count, move |meta_data| {
-        offsets.next().map(|offset|{
+        filtered_offsets.next().map(|offset|{
             read.skip_to(usize::try_from(offset).expect("too large chunk position for this machine"))?; // no-op for seek at current position, uses skip_bytes for small amounts
             Chunk::read(&mut read, meta_data)
         })
@@ -355,7 +365,7 @@ impl UncompressedBlock {
     // for uncompressed data, the ByteVec in the chunk is moved all the way
     #[inline]
     #[must_use]
-    pub fn decompress_chunk(chunk: Chunk, meta_data: &MetaData) -> Result<Self> {
+    pub fn decompress_chunk(chunk: Chunk, meta_data: &MetaData, pedantic: bool) -> Result<Self> {
         let header: &Header = meta_data.headers.get(chunk.layer_index)
             .ok_or(Error::invalid("chunk layer index"))?;
 
@@ -367,7 +377,7 @@ impl UncompressedBlock {
         match chunk.block {
             Block::Tile(TileBlock { compressed_pixels, .. }) |
             Block::ScanLine(ScanLineBlock { compressed_pixels, .. }) => Ok(UncompressedBlock {
-                data: header.compression.decompress_image_section(header, compressed_pixels, absolute_indices)?,
+                data: header.compression.decompress_image_section(header, compressed_pixels, absolute_indices, pedantic)?,
                 index: BlockIndex {
                     layer: chunk.layer_index,
                     pixel_position: absolute_indices.position.to_usize("data indices start")?,
@@ -408,7 +418,8 @@ impl UncompressedBlock {
             &header.compression.decompress_image_section(
                 header,
                 header.compression.compress_image_section(header, data.clone(), absolute_indices)?,
-                absolute_indices
+                absolute_indices,
+                true
             ).unwrap(),
             &data, "compression method not round trippin'"
         );

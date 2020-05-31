@@ -382,7 +382,7 @@ impl MetaData {
         // do this check now in order to fast-fail for newer versions and features than version 2
         requirements.validate()?;
 
-        let headers = Header::read_all(read, &requirements, !pedantic)?;
+        let headers = Header::read_all(read, &requirements, pedantic)?;
 
         // TODO check if supporting requirements 2 always implies supporting requirements 1
         Ok(MetaData { requirements, headers })
@@ -427,7 +427,7 @@ impl MetaData {
     }
 
     /// Validates this meta data. Returns the minimal possible requirements.
-    pub fn validate(headers: &[Header], max_pixel_bytes: Option<usize>, strict: bool) -> Result<Requirements> {
+    pub fn validate(headers: &[Header], max_pixel_bytes: Option<usize>, pedantic: bool) -> Result<Requirements> {
         if headers.len() == 0 {
             return Err(Error::invalid("at least one layer is required"));
         }
@@ -455,7 +455,7 @@ impl MetaData {
                 return Err(Error::unsupported("deep data not supported yet"));
             }
 
-            header.validate(is_multilayer, &mut minimal_requirements.has_long_names, strict)?;
+            header.validate(is_multilayer, &mut minimal_requirements.has_long_names, pedantic)?;
         }
 
         if let Some(max) = max_pixel_bytes {
@@ -468,7 +468,7 @@ impl MetaData {
             }
         }
 
-        if strict { // check for duplicate header names
+        if pedantic { // check for duplicate header names
             let mut header_names = HashSet::with_capacity(headers.len());
             for header in headers {
                 if !header_names.insert(&header.own_attributes.name) {
@@ -480,7 +480,7 @@ impl MetaData {
             }
         }
 
-        if strict {
+        if pedantic {
             let must_share = headers.iter().flat_map(|header| header.own_attributes.custom.iter())
                 .any(|(_, value)| value.to_chromaticities().is_ok() || value.to_time_code().is_ok());
 
@@ -489,7 +489,7 @@ impl MetaData {
             }
         }
 
-        if strict && headers.len() > 1 { // check for attributes that should not differ in between headers
+        if pedantic && headers.len() > 1 { // check for attributes that should not differ in between headers
             let first_header = headers.first().expect("header count validation bug");
             let first_header_attributes = &first_header.shared_attributes;
 

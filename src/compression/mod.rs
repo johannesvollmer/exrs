@@ -200,7 +200,7 @@ impl Compression {
     }
 
     /// Decompress the image section of bytes.
-    pub fn decompress_image_section(self, header: &Header, compressed: ByteVec, pixel_section: IntRect) -> Result<ByteVec> {
+    pub fn decompress_image_section(self, header: &Header, compressed: ByteVec, pixel_section: IntRect, pedantic: bool) -> Result<ByteVec> {
         let max_tile_size = header.max_block_pixel_size();
 
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
@@ -217,9 +217,9 @@ impl Compression {
                 Uncompressed => Ok(compressed),
                 ZIP16 => zip::decompress_bytes(&compressed),
                 ZIP1 => zip::decompress_bytes(&compressed),
-                RLE => rle::decompress_bytes(&compressed, expected_byte_size),
-                PIZ => piz::decompress(&header.channels, compressed, pixel_section, expected_byte_size),
-                PXR24 => pxr24::decompress(&header.channels, &compressed, pixel_section, expected_byte_size),
+                RLE => rle::decompress_bytes(&compressed, expected_byte_size, pedantic),
+                PIZ => piz::decompress(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
+                PXR24 => pxr24::decompress(&header.channels, &compressed, pixel_section, expected_byte_size, pedantic),
                 _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
             };
 

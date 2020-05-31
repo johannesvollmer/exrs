@@ -32,6 +32,7 @@ pub fn decompress(
     compressed: ByteVec,
     rectangle: IntRect,
     expected_byte_size: usize,
+    pedantic: bool
 ) -> Result<ByteVec>
 {
     let expected_value_count = expected_byte_size / 2;
@@ -79,7 +80,7 @@ pub fn decompress(
 
     {
         let length = i32::read(&mut remaining_input)?;
-        if length as usize != remaining_input.len() {
+        if pedantic && length as usize != remaining_input.len() {
             // TODO length might be smaller than remaining??
             return Err(Error::invalid("compression data"));
         }
@@ -231,23 +232,40 @@ pub fn compress(
 }
 
 
+pub fn bitmap_from_data(data: &[u16]) -> (usize, usize, Vec<u8>) {
+    let mut bitmap = vec![0_u8; BITMAP_SIZE];
+
+    for value in data {
+        bitmap[*value as usize >> 3] |= 1 << (*value as u8 & 7);
+    }
+
+    bitmap[0] = bitmap[0] & !1; // zero is not explicitly stored in the bitmap; we assume that the data always contain zeroes
+
+    let min_index = bitmap.iter().position(|&value| value != 0);
+    let max_index = min_index.map(|min|  // only if min was found
+        min + bitmap[min..].iter().rposition(|&value| value != 0).expect("[min] not found")
+    );
+
+    (min_index.unwrap_or(0), max_index.unwrap_or(0), bitmap)
+}
+
+pub fn forward_lookup_table_from_bitmap(bitmap: &[u8]) -> (u16, Vec<u16>) {
+    debug_assert_eq!(bitmap.len(), BITMAP_SIZE);
+
+    let mut table = vec![0_u16; U16_RANGE];
+    let mut count = 0_usize;
+
+    for (index, entry) in table.iter_mut().enumerate() {
+        if index == 0 || bitmap[index >> 3] as usize & (1 << (index & 7)) != 0 {
+            *entry = count as u16;
+            count += 1;
+        }
+    }
+
+    ((count - 1) as u16, table)
+}
+
 fn reverse_lookup_table_from_bitmap(bitmap: Bytes<'_>) -> (Vec<u16>, u16) {
-//    int k = 0;
-//
-//    for (int i = 0; i < USHORT_RANGE; ++i)
-//    {
-//        if ((i == 0) || (bitmap[i >> 3] & (1 << (i & 7))))
-//        lut[k++] = i;
-//    }
-//
-//    int n = k - 1;
-//
-//    while (k < USHORT_RANGE)
-//    lut[k++] = 0;
-//
-//    return n;		// maximum k where lut[k] is non-zero,
-
-
     let mut table = Vec::with_capacity(U16_RANGE);
 
     for index in 0 .. U16_RANGE {
@@ -256,6 +274,7 @@ fn reverse_lookup_table_from_bitmap(bitmap: Bytes<'_>) -> (Vec<u16>, u16) {
         }
     }
 
+    debug_assert!(!table.is_empty());
     let max_value = (table.len() - 1) as u16;
 
     // fill remaining up to u16 range
@@ -271,45 +290,6 @@ fn apply_lookup_table(data: &mut [u16], table: &[u16]) {
     }
 }
 
-
-pub fn bitmap_from_data(data: &[u16]) -> (usize, usize, [u8; BITMAP_SIZE]) {
-    let mut bitmap = [0_u8; BITMAP_SIZE];
-
-    for value in data {
-        bitmap[*value as usize >> 3] |= 1 << (*value as u8 & 7);
-    }
-
-    bitmap[0] = bitmap[0] & !1; // zero is not explicitly stored in the bitmap; we assume that the data always contain zeroes
-
-    let mut min = bitmap.len() - 1;
-    let mut max = 0;
-
-    for (bit_index, &bit) in bitmap.iter().enumerate() { // TODO do not go through bitmap unconditionally!
-        if bit != 0 {
-            min = min.min(bit_index);
-            max = max.max(bit_index);
-        }
-    }
-
-    (min, max, bitmap)
-}
-
-pub fn forward_lookup_table_from_bitmap(bitmap: &[u8]) -> (u16, [u16; U16_RANGE]) {
-    debug_assert_eq!(bitmap.len(), BITMAP_SIZE);
-
-    let mut table = [0_u16; U16_RANGE];
-    let mut count = 0_usize;
-
-    for (index, entry) in table.iter_mut().enumerate() {
-        if index == 0 || bitmap[index >> 3] as usize & (1 << (index & 7)) != 0 {
-            *entry = count as u16;
-            count += 1;
-        }
-    }
-
-    ((count - 1) as u16, table)
-}
-
 #[cfg(test)]
 mod test {
     use crate::prelude::common::*;
@@ -322,7 +302,7 @@ mod test {
             .map(|_| rand::random()).collect();
 
         let compressed = piz::compress(&channels, &pixel_bytes, rectangle).unwrap();
-        let decompressed = piz::decompress(&channels, compressed, rectangle, pixel_bytes.len()).unwrap();
+        let decompressed = piz::decompress(&channels, compressed, rectangle, pixel_bytes.len(), true).unwrap();
 
         assert_eq!(pixel_bytes, decompressed);
     }
