@@ -404,6 +404,15 @@ impl UncompressedBlock {
         let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_coordinates)?;
         absolute_indices.validate(Some(header.data_size))?;
 
+        debug_assert_eq!(
+            &header.compression.decompress_image_section(
+                header,
+                header.compression.compress_image_section(header, data.clone(), absolute_indices)?,
+                absolute_indices
+            ).unwrap(),
+            &data, "compression method not round trippin'"
+        );
+
         let compressed_data = header.compression.compress_image_section(header, data, absolute_indices)?;
 
         Ok(Chunk {

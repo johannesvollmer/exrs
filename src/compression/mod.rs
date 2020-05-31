@@ -164,17 +164,19 @@ impl Compression {
     /// Compress the image section of bytes.
     pub fn compress_image_section(self, header: &Header, mut uncompressed: ByteVec, pixel_section: IntRect) -> Result<ByteVec> {
         let max_tile_size = header.max_block_pixel_size();
+
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
+        if header.deep { assert!(self.supports_deep_data()) }
 
         // convert data if compression method expects native format
         // see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
-        if self.native_format(header) {
+        if !self.native_format(header) {
             uncompressed = convert_current_to_little_endian(uncompressed, &header.channels, pixel_section);
         }
 
         use self::Compression::*;
         let compressed = match self {
-            Uncompressed => return Ok(uncompressed),
+            Uncompressed => Ok(uncompressed.clone()), // TODO no clone!
             ZIP16 => zip::compress_bytes(&uncompressed),
             ZIP1 => zip::compress_bytes(&uncompressed),
             RLE => rle::compress_bytes(&uncompressed),
@@ -200,14 +202,15 @@ impl Compression {
     /// Decompress the image section of bytes.
     pub fn decompress_image_section(self, header: &Header, compressed: ByteVec, pixel_section: IntRect) -> Result<ByteVec> {
         let max_tile_size = header.max_block_pixel_size();
+
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
+        if header.deep { assert!(self.supports_deep_data()) }
 
         let expected_byte_size = pixel_section.size.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
 
         if compressed.len() == expected_byte_size {
             Ok(convert_little_endian_to_current(compressed, &header.channels, pixel_section)) // the compressed data was larger than the raw data, so the raw data has been written
         }
-
         else {
             use self::Compression::*;
             let bytes = match self {
@@ -230,7 +233,7 @@ impl Compression {
 
             else {
                 // convert data if compression method has output native format
-                if self.native_format(header) {
+                if !self.native_format(header) {
                     Ok(convert_little_endian_to_current(bytes, &header.channels, pixel_section))
                 }
 
@@ -238,27 +241,6 @@ impl Compression {
             }
         }
     }
-
-    // used for deep data
-    /*pub fn decompress_bytes(self, data: ByteVec, expected_byte_size: usize) -> Result<ByteVec> {
-        if data.len() == expected_byte_size {
-            Ok(data)
-        }
-
-        else {
-            use self::Compression::*;
-            let result = match self {
-                Uncompressed => Ok(data),
-                ZIP16 => zip::decompress_bytes(&data, expected_byte_size),
-                ZIP1 => zip::decompress_bytes(&data, expected_byte_size),
-                RLE => rle::decompress_bytes(&data, expected_byte_size),
-                _ => return Err(Error::unsupported(format!("deep data compression method: {}", self)))
-            };
-
-            // map all errors to compression errors
-            result.map_err(|_| Error::invalid("compressed content"))
-        }
-    }*/
 
     /// For scan line images and deep scan line images, one or more scan lines may be
     /// stored together as a scan line block. The number of scan lines per block
