@@ -106,7 +106,7 @@ pub fn fuzz(){
     let seed = [92,1,0,130,211,8,21,70,74,4,9,5,0,23,0,3,20,25,6,5,229,30,0,34,218,0,40,7,5,2,7,0,];
     let mut random: StdRng = rand::SeedableRng::from_seed(seed);
 
-    let mut records = File::create("tests/images/out/fuzz.txt").unwrap();
+    let mut records = File::create("tests/images/fuzzed/list.txt").unwrap();
     records.write_all(format!("seed = {:?}", seed).as_bytes()).unwrap();
 
     let start_index = 0; // default is 0. increase this integer for debugging a specific fuzz case
