@@ -7,7 +7,7 @@
 
 This library is a 100% Rust and 100% safe code library for
 reading and writing OpenEXR images.
-See [the examples](https://docs.rs/crate/exr/0.7.5/source/examples/) for a first impression.
+See [the examples](https://docs.rs/crate/exr/0.8.0/source/examples/) for a first impression.
 
 [OpenEXR](http://www.openexr.com/)
 is the de-facto standard image format in animation, VFX, and 
@@ -157,7 +157,7 @@ please leave an issue on this repository, containing the image file.
 Add this to your `Cargo.toml`:
 ```toml
 [dependencies]
-exr = "0.7.5"
+exr = "0.8.0"
 
 # also, optionally add this to your crate for smaller binary size 
 # and better runtime performance
