@@ -9,7 +9,7 @@ use std::panic::catch_unwind;
 use std::path::{PathBuf, Path};
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use exr::image::{read_options, write_options, simple, rgba};
+use exr::image::{read_options, write_options, simple, rgba, ReadOptions};
 use exr::error::Error;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
@@ -84,10 +84,13 @@ fn round_trip_all_files_full() {
         let mut tmp_bytes = Vec::new();
         image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low())?;
 
-        let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), read_options::low())?;
-        if !path.to_str().unwrap().to_lowercase().contains("nan") {
-            assert_eq!(image, image2);
-        }
+        let image2 = Image::read_from_buffered(
+            &mut tmp_bytes.as_slice(),
+            ReadOptions { pedantic: true, .. read_options::low() }
+        )?;
+
+        assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
+        if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN
 
         Ok(())
     })
@@ -101,10 +104,10 @@ fn round_trip_all_files_simple() {
         let mut tmp_bytes = Vec::new();
         image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low())?;
 
-        let image2 = simple::Image::read_from_buffered(Cursor::new(&tmp_bytes), read_options::low())?;
-        if !path.to_str().unwrap().to_lowercase().contains("nan") {
-            assert_eq!(image, image2);
-        }
+        let image2 = simple::Image::read_from_buffered(Cursor::new(&tmp_bytes), ReadOptions { pedantic: true, .. read_options::low() })?;
+
+        assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
+        if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN
 
         Ok(())
     })
@@ -137,15 +140,15 @@ fn round_trip_all_files_rgba() {
         )?;
 
         let (image2, pixels2) = rgba::ImageInfo::read_pixels_from_buffered(
-            Cursor::new(&tmp_bytes), read_options::low(),
+            Cursor::new(&tmp_bytes), ReadOptions { pedantic: true, .. read_options::low() },
             rgba::pixels::create_flattened_f16,
             rgba::pixels::flattened_pixel_setter()
         )?;
 
-        if !path.to_str().unwrap().to_lowercase().contains("nan") {
-            assert_eq!(image, image2);
-            assert_eq!(pixels, pixels2);
-        }
+        assert_eq!(image, image2);
+
+        // custom compare function: considers nan equal to nan
+        assert!(pixels.samples.iter().map(|f| f.to_bits()).eq(pixels2.samples.iter().map(|f| f.to_bits())));
 
         Ok(())
     })
@@ -159,11 +162,10 @@ fn round_trip_parallel_files() {
         let mut tmp_bytes = Vec::new();
         image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::high())?;
 
-        let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), read_options::high())?;
+        let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions{ pedantic: true, .. read_options::high() })?;
 
-        if !path.to_str().unwrap().to_lowercase().contains("nan") {
-            assert_eq!(image, image2);
-        }
+        assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
+        if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN
 
         Ok(())
     })

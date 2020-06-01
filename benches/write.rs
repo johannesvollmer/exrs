@@ -74,11 +74,11 @@ fn write_single_image_uncompressed(bench: &mut Bencher) {
 }
 
 benchmark_group!(write,
-    // write_single_image_parallel,
-    // write_single_image_uncompressed,
+    write_single_image_parallel,
+    write_single_image_uncompressed,
     write_zip1,
     write_zip16,
-    // write_single_image
+    write_single_image
 );
 
 benchmark_main!(write);

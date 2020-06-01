@@ -349,8 +349,8 @@ impl MetaData {
     /// Use `read_from_unbuffered` instead if you do not have a file.
     /// Does not validate the meta data.
     #[must_use]
-    pub fn read_from_file(path: impl AsRef<::std::path::Path>, skip_invalid_attributes: bool) -> Result<Self> {
-        Self::read_from_unbuffered(File::open(path)?, skip_invalid_attributes)
+    pub fn read_from_file(path: impl AsRef<::std::path::Path>, pedantic: bool) -> Result<Self> {
+        Self::read_from_unbuffered(File::open(path)?, pedantic)
     }
 
     /// Buffer the reader and then read the exr meta data from it.
@@ -358,8 +358,8 @@ impl MetaData {
     /// Use `read_from_file` if you have a file path.
     /// Does not validate the meta data.
     #[must_use]
-    pub fn read_from_unbuffered(unbuffered: impl Read, skip_invalid_attributes: bool) -> Result<Self> {
-        Self::read_from_buffered(BufReader::new(unbuffered), skip_invalid_attributes)
+    pub fn read_from_unbuffered(unbuffered: impl Read, pedantic: bool) -> Result<Self> {
+        Self::read_from_buffered(BufReader::new(unbuffered), pedantic)
     }
 
     /// Read the exr meta data from a reader.
@@ -367,14 +367,14 @@ impl MetaData {
     /// Use `read_from_unbuffered` if this is not an in-memory reader.
     /// Does not validate the meta data.
     #[must_use]
-    pub fn read_from_buffered(buffered: impl Read, skip_invalid_attributes: bool) -> Result<Self> {
+    pub fn read_from_buffered(buffered: impl Read, pedantic: bool) -> Result<Self> {
         let mut read = PeekRead::new(buffered);
-        MetaData::read_unvalidated_from_buffered_peekable(&mut read, skip_invalid_attributes)
+        MetaData::read_unvalidated_from_buffered_peekable(&mut read, pedantic)
     }
 
     /// Does __not validate__ the meta data completely.
     #[must_use]
-    pub(crate) fn read_unvalidated_from_buffered_peekable(read: &mut PeekRead<impl Read>, skip_invalid_attributes: bool) -> Result<Self> {
+    pub(crate) fn read_unvalidated_from_buffered_peekable(read: &mut PeekRead<impl Read>, pedantic: bool) -> Result<Self> {
         magic_number::validate_exr(read)?;
 
         let requirements = Requirements::read(read)?;
@@ -382,7 +382,7 @@ impl MetaData {
         // do this check now in order to fast-fail for newer versions and features than version 2
         requirements.validate()?;
 
-        let headers = Header::read_all(read, &requirements, skip_invalid_attributes)?;
+        let headers = Header::read_all(read, &requirements, pedantic)?;
 
         // TODO check if supporting requirements 2 always implies supporting requirements 1
         Ok(MetaData { requirements, headers })
@@ -427,7 +427,7 @@ impl MetaData {
     }
 
     /// Validates this meta data. Returns the minimal possible requirements.
-    pub fn validate(headers: &[Header], max_pixel_bytes: Option<usize>, strict: bool) -> Result<Requirements> {
+    pub fn validate(headers: &[Header], max_pixel_bytes: Option<usize>, pedantic: bool) -> Result<Requirements> {
         if headers.len() == 0 {
             return Err(Error::invalid("at least one layer is required"));
         }
@@ -451,12 +451,16 @@ impl MetaData {
         };
 
         for header in headers {
-            header.validate(is_multilayer, &mut minimal_requirements.has_long_names, strict)?;
+            if header.deep { // TODO deep data (and then remove this check)
+                return Err(Error::unsupported("deep data not supported yet"));
+            }
+
+            header.validate(is_multilayer, &mut minimal_requirements.has_long_names, pedantic)?;
         }
 
         if let Some(max) = max_pixel_bytes {
             let byte_size: usize = headers.iter()
-                .map(|header| header.data_size.area() * header.channels.bytes_per_pixel)
+                .map(|header| header.total_pixel_bytes())
                 .sum();
 
             if byte_size > max {
@@ -464,7 +468,7 @@ impl MetaData {
             }
         }
 
-        if strict { // check for duplicate header names
+        if pedantic { // check for duplicate header names
             let mut header_names = HashSet::with_capacity(headers.len());
             for header in headers {
                 if !header_names.insert(&header.own_attributes.name) {
@@ -476,7 +480,7 @@ impl MetaData {
             }
         }
 
-        if strict {
+        if pedantic {
             let must_share = headers.iter().flat_map(|header| header.own_attributes.custom.iter())
                 .any(|(_, value)| value.to_chromaticities().is_ok() || value.to_time_code().is_ok());
 
@@ -485,7 +489,7 @@ impl MetaData {
             }
         }
 
-        if strict && headers.len() > 1 { // check for attributes that should not differ in between headers
+        if pedantic && headers.len() > 1 { // check for attributes that should not differ in between headers
             let first_header = headers.first().expect("header count validation bug");
             let first_header_attributes = &first_header.shared_attributes;
 
@@ -566,10 +570,6 @@ impl Requirements {
 
     /// Validate this instance.
     pub fn validate(&self) -> UnitResult {
-        if self.has_deep_data { // TODO deep data (and then remove this check)
-            return Err(Error::unsupported("deep data not supported yet"));
-        }
-
         if let 1..=2 = self.file_format_version {
 
             match (
@@ -631,8 +631,7 @@ mod test {
     #[test]
     fn round_trip(){
         let header = Header {
-            channels: ChannelList {
-                list: smallvec![
+            channels: ChannelList::new(smallvec![
                     ChannelInfo {
                         name: Text::from("main").unwrap(),
                         sample_type: SampleType::U32,
@@ -640,8 +639,7 @@ mod test {
                         sampling: Vec2(1, 1)
                     }
                 ],
-                bytes_per_pixel: 4
-            },
+            ),
             compression: Compression::Uncompressed,
             line_order: LineOrder::Increasing,
             deep_data_version: Some(1),
@@ -690,8 +688,7 @@ mod test {
     #[test]
     fn infer_low_requirements() {
         let header_version_1_short_names = Header {
-            channels: ChannelList {
-                list: smallvec![
+            channels: ChannelList::new(smallvec![
                     ChannelInfo {
                         name: Text::from("main").unwrap(),
                         sample_type: SampleType::U32,
@@ -699,8 +696,7 @@ mod test {
                         sampling: Vec2(1, 1)
                     }
                 ],
-                bytes_per_pixel: 4
-            },
+            ),
             compression: Compression::Uncompressed,
             line_order: LineOrder::Increasing,
             deep_data_version: Some(1),
@@ -739,8 +735,8 @@ mod test {
     #[test]
     fn infer_high_requirements() {
         let header_version_2_long_names = Header {
-            channels: ChannelList {
-                list: smallvec![
+            channels: ChannelList::new(
+                smallvec![
                     ChannelInfo {
                         name: Text::from("main").unwrap(),
                         sample_type: SampleType::U32,
@@ -748,8 +744,7 @@ mod test {
                         sampling: Vec2(1, 1)
                     }
                 ],
-                bytes_per_pixel: 4
-            },
+            ),
             compression: Compression::Uncompressed,
             line_order: LineOrder::Increasing,
             deep_data_version: Some(1),

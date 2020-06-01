@@ -138,7 +138,7 @@ pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: In
 }
 
 
-pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expected_byte_size: usize) -> Result<ByteVec> {
+pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expected_byte_size: usize, pedantic: bool) -> Result<ByteVec> {
     if bytes.is_empty() { return Ok(Vec::new()) }
 
     let raw = inflate_bytes_zlib(bytes)
@@ -200,7 +200,7 @@ pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expec
         }
     }
 
-    if !read.is_empty() {
+    if pedantic && !read.is_empty() {
         return Err(Error::invalid("too much data"));
     }
 
@@ -208,24 +208,6 @@ pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expec
 }
 
 
-
-
-// TODO share code with piz?
-fn mod_p(x: i32, y: i32) -> i32 {
-    x - y * div_p(x, y)
-}
-
-// TODO share code with piz?
-fn div_p (x: i32, y: i32) -> i32 {
-    if x >= 0 {
-        if y >= 0 { x  / y }
-        else { -(x  / -y) }
-    }
-    else {
-        if y >= 0 { -((y-1-x) / y) }
-        else { (-y-1-x) / -y }
-    }
-}
 
 
 /// Conversion from 32-bit to 24-bit floating-point numbers.

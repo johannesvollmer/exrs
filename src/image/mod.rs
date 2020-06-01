@@ -20,7 +20,7 @@ pub struct WriteOptions<P: OnWriteProgress> {
     /// for files that may look invalid to other exr readers.
     /// Should always be true. Only set this to false
     /// if you can risk never opening the file with another exr reader again,
-    /// __ever__, really.
+    /// __ever__, really. Might have insignificantly better performance in special cases.
     pub pedantic: bool,
 
     /// Called occasionally while writing a file.
@@ -48,14 +48,13 @@ pub struct ReadOptions<P: OnReadProgress> {
     /// The default value of 1GB avoids reading invalid files.
     pub max_pixel_bytes: Option<usize>,
 
-    /// If true, single invalid attributes do not abort the whole reading process.
-    /// If false, reading the file is stopped when an attribute appears to be invalid.
-    pub skip_invalid_attributes: bool,
-
-    /// If true, some files will be rejected that are readable but have unconventional properties,
-    /// such as two attributes with the same name, or two headers with the same name,
-    /// invalid attributes will abort the process.
-    /// If false, this will ready any technically valid image file. Invalid attributes will be skipped.
+    /// If true, files with funky content will be rejected immediately.
+    ///
+    /// Examples of funky things that will be tolerated only if pedantic is false:
+    /// - Two headers with the same name
+    /// - Two attributes with the same name
+    /// - Invalid attribute contents (the specific attribute will be skipped)
+    /// - Bytes left in the file after the image is read
     pub pedantic: bool,
 }
 
@@ -102,7 +101,6 @@ pub mod read_options {
         ReadOptions {
             parallel_decompression: true,
             max_pixel_bytes: Some(GIGABYTE),
-            skip_invalid_attributes: true,
             on_progress: (),
             pedantic: false,
         }
@@ -115,7 +113,6 @@ pub mod read_options {
         ReadOptions {
             parallel_decompression: false,
             max_pixel_bytes: Some(GIGABYTE),
-            skip_invalid_attributes: true,
             on_progress: (),
             pedantic: false,
         }

@@ -217,6 +217,8 @@ pub fn write_all_tiles_to_buffered(
         Ok(())
     })?;
 
+    debug_assert_eq!(processed_chunk_count, offset_table_size, "not all chunks were written");
+
     // write all offset tables
     write.seek_write_to(offset_table_start_byte)?;
 

@@ -99,7 +99,6 @@ fn main() {
 
         // print file processing progress into the console, occasionally (important for large files)
         ReadOptions {
-            skip_invalid_attributes: false,
             parallel_decompression: false,
             max_pixel_bytes: None,
             pedantic: false,
