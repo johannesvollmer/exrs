@@ -254,13 +254,14 @@ pub fn read_filtered_chunks_from_buffered<'m, T>(
 }
 
 fn validate_offset_tables(headers: &[Header], offset_tables: &OffsetTables, chunks_start_byte: u64) -> UnitResult {
-    let max_pixel_bytes = headers.iter() // when compressed, chunks are smaller, but never larger than max
+    let max_pixel_bytes: u64 = headers.iter() // when compressed, chunks are smaller, but never larger than max
         .map(|header| header.max_pixel_file_bytes() as u64)
         .sum();
 
     // check that each offset is within the bounds
+    let end_byte = chunks_start_byte + max_pixel_bytes;
     let is_invalid = offset_tables.iter().flatten()
-        .any(|&chunk_start| chunk_start < chunks_start_byte || chunk_start > max_pixel_bytes);
+        .any(|&chunk_start| chunk_start < chunks_start_byte || chunk_start > end_byte);
 
     if is_invalid { Err(Error::invalid("offset table")) }
     else { Ok(()) }

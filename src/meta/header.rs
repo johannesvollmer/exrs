@@ -531,7 +531,7 @@ impl Header {
     pub fn max_pixel_file_bytes(&self) -> usize {
         assert!(!self.deep);
 
-        self.chunk_count * 80 // at most 80 bytes overhead for each chunk (header index, tile description, chunk size, and more)
+        self.chunk_count * 64 // at most 64 bytes overhead for each chunk (header index, tile description, chunk size, and more)
             + self.total_pixel_bytes()
     }
 
