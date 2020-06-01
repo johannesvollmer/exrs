@@ -48,7 +48,7 @@ __Currently supported:__
         - [x] zip line (lossless)
         - [x] zip block (lossless)
         - [x] rle (lossless)
-        - [ ] piz (lossless)
+        - [x] piz (lossless)
         - [x] pxr24 (lossless for f16 and u32)
         - [ ] b44, b44a
         - [ ] dwaa, dwab
