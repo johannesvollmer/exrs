@@ -13,6 +13,7 @@ use std::io::{Seek, SeekFrom};
 use std::path::Path;
 use std::fs::File;
 
+
 /// Skip reading uninteresting bytes without allocating.
 #[inline]
 pub fn skip_bytes(read: &mut impl Read, count: usize) -> IoResult<()> {
@@ -120,6 +121,14 @@ impl<T: Read + Seek> PeekRead<Tracking<T>> {
         self.inner.seek_read_to(position)?;
         self.peeked = None;
         Ok(())
+    }
+}
+
+impl<T: Read> PeekRead<Tracking<T>> {
+
+    /// Current number of bytes read.
+    pub fn byte_position(&self) -> usize {
+        self.inner.byte_position()
     }
 }
 
@@ -287,6 +296,15 @@ pub trait Data: Sized + Default + Clone {
         let size = i32::read(read)?;
         if size < 0 { Err(Error::invalid("negative array size")) }
         else { Self::read_vec(read, size as usize, soft_max, hard_max) }
+    }
+
+    /// Fill the slice with this value.
+    #[inline]
+    fn fill_slice(self, slice: &mut [Self]) where Self: Copy {
+        // hopefully compiles down to a single memset call
+        for value in slice {
+            *value = self;
+        }
     }
 }
 

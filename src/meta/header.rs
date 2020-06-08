@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use crate::meta::attribute::*; // FIXME shouldn't this need some more imports????
 use crate::meta::*;
+use crate::math::Vec2;
 
 
 /// Describes a single layer in a file.
@@ -398,12 +399,10 @@ impl Header {
         vec.into_iter() // TODO without collect
     }
 
-    /// The dimensions, in pixels, of every block in this image.
-    /// The default block size may be deviated from in the last column or row of an image.
-    /// Those blocks only have the size necessary to include all pixels of the image,
-    /// which may be smaller than the default block size.
     // TODO reuse this function everywhere
-    pub fn default_block_pixel_size(&self) -> Vec2<usize> {
+    /// The default pixel resolution of a single block (tile or scan line block).
+    /// Not all blocks have this size, because they may be cutoff at the end of the image.
+    pub fn max_block_pixel_size(&self) -> Vec2<usize> {
         match self.blocks {
             Blocks::ScanLines => Vec2(self.data_size.0, self.compression.scan_lines_per_block()),
             Blocks::Tiles(tiles) => tiles.tile_size,
@@ -418,7 +417,7 @@ impl Header {
 
     /// Calculate the pixel index rectangle inside this header. Is not negative. Starts at `0`.
     pub fn get_absolute_block_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntRect> {
-        Ok(if let Blocks::Tiles(tiles) = self.blocks {
+        if let Blocks::Tiles(tiles) = self.blocks {
             let Vec2(data_width, data_height) = self.data_size;
 
             let data_width = compute_level_size(tiles.rounding_mode, data_width, tile.level_index.x());
@@ -429,7 +428,7 @@ impl Header {
                 return Err(Error::invalid("data block tile index"))
             }
 
-            absolute_tile_coordinates
+            Ok(absolute_tile_coordinates)
         }
         else { // this is a scanline image
             debug_assert_eq!(tile.tile_index.0, 0, "block index calculation bug");
@@ -440,11 +439,11 @@ impl Header {
                 tile.tile_index.y()
             )?;
 
-            IntRect {
+            Ok(IntRect {
                 position: Vec2(0, usize_to_i32(y)),
                 size: Vec2(self.data_size.width(), height)
-            }
-        })
+            })
+        }
 
         // TODO deep data?
     }
@@ -475,6 +474,21 @@ impl Header {
         })
     }
 
+    /// Computes the absolute tile coordinate data indices, which start at `0`.
+    pub fn get_scan_line_block_tile_coordinates(&self, block_y_coordinate: i32) -> Result<TileCoordinates> {
+        let size = self.compression.scan_lines_per_block() as i32;
+        let y = (block_y_coordinate - self.own_attributes.data_position.1) / size;
+
+        if y < 0 {
+            return Err(Error::invalid("scan block y coordinate"));
+        }
+
+        Ok(TileCoordinates {
+            tile_index: Vec2(0, y as usize),
+            level_index: Vec2(0, 0)
+        })
+    }
+
     /// Maximum byte length of an uncompressed or compressed block, used for validation.
     pub fn max_block_byte_size(&self) -> usize {
         self.channels.bytes_per_pixel * match self.blocks {
@@ -482,6 +496,43 @@ impl Header {
             Blocks::ScanLines => self.compression.scan_lines_per_block() * self.data_size.width()
             // TODO What about deep data???
         }
+    }
+
+    /// Returns the number of bytes that the pixels of this header will require
+    /// when stored without compression. Respects multi-resolution levels and subsampling.
+    pub fn total_pixel_bytes(&self) -> usize {
+        assert!(!self.deep);
+
+        let pixel_count_of_levels = |size: Vec2<usize>| -> usize {
+            match self.blocks {
+                Blocks::ScanLines => size.area(),
+                Blocks::Tiles(tile_description) => match tile_description.level_mode {
+                    LevelMode::Singular => size.area(),
+
+                    LevelMode::MipMap => mip_map_levels(tile_description.rounding_mode, size)
+                        .map(|(_, size)| size.area()).sum(),
+
+                    LevelMode::RipMap => rip_map_levels(tile_description.rounding_mode, size)
+                        .map(|(_, size)| size.area()).sum(),
+                }
+            }
+        };
+
+        self.channels.list.iter()
+            .map(|channel: &ChannelInfo|
+                pixel_count_of_levels(channel.subsampled_resolution(self.data_size)) * channel.sample_type.bytes_per_sample()
+            )
+            .sum()
+
+    }
+
+    /// Approximates the maximum number of bytes that the pixels of this header will consume in a file.
+    /// Due to compression, the actual byte size may be smaller.
+    pub fn max_pixel_file_bytes(&self) -> usize {
+        assert!(!self.deep);
+
+        self.chunk_count * 64 // at most 64 bytes overhead for each chunk (header index, tile description, chunk size, and more)
+            + self.total_pixel_bytes()
     }
 
     /// Validate this instance.
@@ -580,15 +631,15 @@ impl Header {
     }
 
     /// Read the headers without validating them.
-    pub fn read_all(read: &mut PeekRead<impl Read>, version: &Requirements, skip_invalid_attributes: bool) -> Result<Headers> {
+    pub fn read_all(read: &mut PeekRead<impl Read>, version: &Requirements, pedantic: bool) -> Result<Headers> {
         if !version.is_multilayer() {
-            Ok(smallvec![ Header::read(read, version, skip_invalid_attributes)? ])
+            Ok(smallvec![ Header::read(read, version, pedantic)? ])
         }
         else {
             let mut headers = SmallVec::new();
 
             while !sequence_end::has_come(read)? {
-                headers.push(Header::read(read, version, skip_invalid_attributes)?);
+                headers.push(Header::read(read, version, pedantic)?);
             }
 
             Ok(headers)
@@ -609,7 +660,7 @@ impl Header {
     }
 
     /// Read the value without validating.
-    pub fn read(read: &mut PeekRead<impl Read>, requirements: &Requirements, skip_invalid_attributes: bool) -> Result<Self> {
+    pub fn read(read: &mut PeekRead<impl Read>, requirements: &Requirements, pedantic: bool) -> Result<Self> {
         let max_string_len = if requirements.has_long_names { 256 } else { 32 }; // TODO DRY this information
 
         // these required attributes will be filled when encountered while parsing
@@ -717,7 +768,7 @@ impl Header {
                 // in case the attribute value itself is not ok, but the rest of the image is
                 // only abort reading the image if desired
                 Err(error) => {
-                    if !skip_invalid_attributes { return Err(error); }
+                    if pedantic { return Err(error); }
                 }
             }
         }
@@ -751,7 +802,7 @@ impl Header {
         data_window.validate(None)?;
 
         let computed_chunk_count = compute_chunk_count(compression, data_size, blocks);
-        if chunk_count.is_some() && chunk_count != Some(computed_chunk_count) {
+        if chunk_count.is_some() && pedantic && chunk_count != Some(computed_chunk_count) {
             return Err(Error::invalid("chunk count not matching data size"));
         }
 

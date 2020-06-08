@@ -42,7 +42,7 @@ fn main() {
 
     // write it to a file with all cores in parallel
     image_info
-        .with_encoding(Encoding::for_compression(Compression::RLE))
+        .with_encoding(Encoding::for_compression(Compression::PIZ))
         .write_pixels_to_file(
             "tests/images/out/generated_rgba.exr",
             write_options::high(), // this will actually generate the pixels in parallel on all cores
