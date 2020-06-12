@@ -64,46 +64,39 @@ pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
 
 pub fn compress(uncompressed: &[u16]) -> Result<Vec<u8>> {
     if uncompressed.is_empty() { return Ok(vec![]); }
-
-    let max_len = 3 * uncompressed.len() + 4 * 65536;
-    let mut result = vec![0_u8; max_len];
-
     let mut frequencies = count_frequencies(uncompressed);
     let (min_hcode_index, max_hcode_index) = build_encoding_table(&mut frequencies);
 
-    let final_size = {
-        let header_bytes = 20;
-        let (mut header_write, mut data_write) = result.split_at_mut(header_bytes);
+    let mut result = Cursor::new(Vec::with_capacity(uncompressed.len()));
+    u32::write_slice(&mut result, &[0; 5])?; // we come back to these later after we know more about the compressed data
 
-        let table_length = pack_encoding_table(
-            &frequencies,
-            min_hcode_index,
-            max_hcode_index,
-            &mut data_write,
-        )?;
+    let table_start = result.position();
+    pack_encoding_table(
+        &frequencies,
+        min_hcode_index,
+        max_hcode_index,
+        &mut result,
+    )?;
 
-        data_write = &mut data_write[table_length..];
+    let data_start = result.position();
+    let bit_count = encode(
+        &frequencies,
+        uncompressed,
+        max_hcode_index,
+        &mut result
+    )?;
 
-        let bit_count = encode(
-            &frequencies,
-            uncompressed,
-            max_hcode_index,
-            &mut data_write
-        )?;
+    // write meta data after this
+    result.set_position(0);
+    let table_length = (data_start - table_start) as u32;
 
-        (min_hcode_index as u32).write(&mut header_write)?;
-        (max_hcode_index as u32).write(&mut header_write)?;
+    (min_hcode_index as u32).write(&mut result)?;
+    (max_hcode_index as u32).write(&mut result)?;
+    table_length.write(&mut result)?;
+    bit_count.write(&mut result)?;
+    0_u32.write(&mut result)?;
 
-        (table_length as u32).write(&mut header_write)?;
-        bit_count.write(&mut header_write)?;
-        0_u32.write(&mut header_write)?;
-
-        let data_bytes = RoundingMode::Up.divide(bit_count as usize, 8);
-        header_bytes + table_length + data_bytes
-    };
-
-    result.truncate(final_size);
-    Ok(result)
+    Ok(result.into_inner())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -473,13 +466,13 @@ fn encode(
     frequencies: &[u64],
     uncompressed: &[u16],
     run_length_code: usize,
-    compressed: &mut [u8],
+    mut out: &mut Cursor<Vec<u8>>,
 ) -> Result<u32> {
     let mut code_bits = 0;
     let mut code_bit_count = 0;
     let mut s = uncompressed[0];
     let mut cs = 0;
-    let mut out = std::io::Cursor::new(compressed);
+    let start_position = out.position();
 
     //
     // Loop on input values
@@ -517,7 +510,7 @@ fn encode(
         &mut out,
     )?;
 
-    let data_length = out.position(); // we shouldn't count the last byte write
+    let data_length = out.position() - start_position; // we shouldn't count the last byte write
 
     if code_bit_count != 0 {
         out.write(&[(code_bits << (8 - code_bit_count) & 0xff) as u8])?;
@@ -544,11 +537,10 @@ fn pack_encoding_table(
     frequencies: &[u64],
     min_index: usize,
     max_index: usize,
-    out: &mut [u8],
-) -> Result<usize> {
+    mut out: &mut Cursor<Vec<u8>>,
+) -> UnitResult {
     let mut code_bits = 0_u64;
     let mut code_bit_count = 0_u64;
-    let mut out = Cursor::new(out);
 
     let mut index = min_index;
     while index <= max_index {
@@ -608,7 +600,7 @@ fn pack_encoding_table(
         out.write(&[(code_bits << (8 - code_bit_count)) as u8])?;
     }
 
-    Ok(out.position() as usize)
+    Ok(())
 }
 
 /// Build a "canonical" Huffman code table:
