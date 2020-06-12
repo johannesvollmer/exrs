@@ -3,6 +3,7 @@
 //!	by Christian Rouet for his PIZ image file format.
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/88246d991e0318c043e6f584f7493da08a31f9f8/OpenEXR/IlmImf/ImfHuf.cpp
 
+use crate::math::RoundingMode;
 use crate::error::{Error, Result, UnitResult};
 use crate::io::Data;
 use std::{
@@ -11,19 +12,6 @@ use std::{
     io::{Cursor, Read, Write},
 };
 
-const INVALID_BIT_COUNT: &'static str =
-    "Error in header for Huffman-encoded data (invalid number of bits).";
-const INVALID_TABLE_ENTRY: &'static str =
-    "Error in header for Huffman-encoded data (invalid code table entry).";
-const NOT_ENOUGH_DATA: &'static str =
-    "Error in Huffman-encoded data (decoded data are shorter than expected).";
-const INVALID_TABLE_SIZE: &'static str =
-    "Error in Huffman-encoded data (unexpected end of code table data).";
-const TABLE_TOO_LONG: &'static str =
-    "Error in Huffman-encoded data (code table is longer than expected).";
-const INVALID_CODE: &'static str = "Error in Huffman-encoded data (invalid code).";
-const TOO_MUCH_DATA: &'static str =
-    "Error in Huffman-encoded data (decoded data are longer than expected).";
 
 const ENCODE_BITS: usize = 16; // literal (value) bit length
 const DECODE_BITS: usize = 14; // decoding bit size (>= 8)
@@ -37,58 +25,31 @@ const LONG_ZEROCODE_RUN: u64 = 63;
 const SHORTEST_LONG_RUN: u64 = 2 + LONG_ZEROCODE_RUN - SHORT_ZEROCODE_RUN;
 const LONGEST_LONG_RUN: u64 = 255 + SHORTEST_LONG_RUN;
 
-trait MemoryStreamLength {
-    fn len(&self) -> usize;
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
-impl MemoryStreamLength for Cursor<&[u8]> {
-    /// Special length, which returns the number of bytes left in the stream.
-    #[inline]
-    fn len(&self) -> usize {
-        let size = self.get_ref().len();
-        size - self.position() as usize
-    }
-}
 
 pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
-    if compressed.len() < 20 && expected_size > 0 {
-        return Err(Error::invalid(NOT_ENOUGH_DATA));
-    }
+    let mut remaining_compressed = compressed;
 
-    let mut mem_stream = Cursor::new(compressed);
-
-    let min_hcode_index = u32::read(&mut mem_stream)? as usize;
-    let max_hcode_index = u32::read(&mut mem_stream)? as usize;
-
-    let _table_size = u32::read(&mut mem_stream)? as usize; // TODO check this and return Err?
-    let bit_count = u32::read(&mut mem_stream)? as usize;
+    let min_hcode_index = u32::read(&mut remaining_compressed)? as usize;
+    let max_hcode_index = u32::read(&mut remaining_compressed)? as usize;
+    let _table_size = u32::read(&mut remaining_compressed)? as usize; // TODO check this and return Err?
+    let bit_count = u32::read(&mut remaining_compressed)? as usize;
+    let _skipped = u32::read(&mut remaining_compressed)?; // what is this
 
     if min_hcode_index >= ENCODING_TABLE_SIZE || max_hcode_index >= ENCODING_TABLE_SIZE {
         return Err(Error::invalid(INVALID_TABLE_SIZE));
     }
 
-    let packed_data = mem_stream.get_ref(); // Get reference to underlying data
-
-    if packed_data[20] as usize + ((bit_count + 7) / 8)
-        > packed_data[0] as usize + packed_data.len()
-    {
+    if RoundingMode::Up.divide(bit_count, 8) > remaining_compressed.len() {
         return Err(Error::invalid(NOT_ENOUGH_DATA));
     }
 
-    mem_stream.set_position(20);
+    let encoding_table = read_encoding_table(&mut remaining_compressed, min_hcode_index, max_hcode_index)?;
+    if bit_count > 8 * remaining_compressed.len() { return Err(Error::invalid(INVALID_BIT_COUNT)); }
 
-    //let packed_data = &mem_stream.get_ref()[20..]; // After the header
-    let encoding_table = read_encoding_table(&mut mem_stream, min_hcode_index, max_hcode_index)?;
-    if bit_count > 8 * mem_stream.len() {
-        return Err(Error::invalid(INVALID_BIT_COUNT));
-    }
     let decoding_table = build_decoding_table(&encoding_table, min_hcode_index, max_hcode_index)?;
 
-    let packed_data = &mem_stream.get_ref();
-    let remaining_bytes = &packed_data[packed_data.len() - mem_stream.len()..];
+    let packed_data = compressed;
+    let remaining_bytes = &packed_data[packed_data.len() - remaining_compressed.len()..];
     let result = decode(
         &encoding_table,
         &decoding_table,
@@ -102,48 +63,46 @@ pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
 }
 
 pub fn compress(uncompressed: &[u16]) -> Result<Vec<u8>> {
-    if uncompressed.is_empty() {
-        return Ok(vec![]);
-    }
-    let calculated_length = 3 * uncompressed.len() + 4 * 65536;
-    let mut result = vec![0_u8; calculated_length];
+    if uncompressed.is_empty() { return Ok(vec![]); }
 
-    let mut frequencies = vec![0_u64; ENCODING_TABLE_SIZE];
+    let max_len = 3 * uncompressed.len() + 4 * 65536;
+    let mut result = vec![0_u8; max_len];
 
-    count_frequencies(&mut frequencies, uncompressed);
-
+    let mut frequencies = count_frequencies(uncompressed);
     let (min_hcode_index, max_hcode_index) = build_encoding_table(&mut frequencies);
 
-    let table_length = pack_encoding_table(
-        &frequencies,
-        min_hcode_index,
-        max_hcode_index,
-        &mut result[20..],
-    )?;
-    let encode_start = table_length + 20; // We need to add the initial offset
+    let final_size = {
+        let header_bytes = 20;
+        let (mut header_write, mut data_write) = result.split_at_mut(header_bytes);
 
-    let n_bits = encode(
-        &frequencies,
-        uncompressed,
-        max_hcode_index,
-        &mut result[encode_start..],
-    )?;
-    let data_length = (n_bits + 7) / 8;
+        let table_length = pack_encoding_table(
+            &frequencies,
+            min_hcode_index,
+            max_hcode_index,
+            &mut data_write,
+        )?;
 
-    let mut buffer = std::io::Cursor::new(result);
-    buffer.set_position(0);
+        data_write = &mut data_write[table_length..];
 
-    (min_hcode_index as u32).write(&mut buffer)?;
-    (max_hcode_index as u32).write(&mut buffer)?;
+        let bit_count = encode(
+            &frequencies,
+            uncompressed,
+            max_hcode_index,
+            &mut data_write
+        )?;
 
-    (table_length as u32).write(&mut buffer)?;
-    n_bits.write(&mut buffer)?;
-    0_u32.write(&mut buffer)?;
+        (min_hcode_index as u32).write(&mut header_write)?;
+        (max_hcode_index as u32).write(&mut header_write)?;
 
-    let mut result = buffer.into_inner();
-    let final_size = table_length + data_length as usize + 20;
+        (table_length as u32).write(&mut header_write)?;
+        bit_count.write(&mut header_write)?;
+        0_u32.write(&mut header_write)?;
 
-    result.resize(final_size, 0);
+        let data_bytes = RoundingMode::Up.divide(bit_count as usize, 8);
+        header_bytes + table_length + data_bytes
+    };
+
+    result.truncate(final_size);
     Ok(result)
 }
 
@@ -444,10 +403,14 @@ fn read_code_into_vec(
     Ok(())
 }
 
-fn count_frequencies(frequencies: &mut [u64], data: &[u16]) {
+fn count_frequencies(data: &[u16]) -> Vec<u64> {
+    let mut frequencies = vec![0_u64; ENCODING_TABLE_SIZE];
+
     for value in data {
         frequencies[*value as usize] += 1;
     }
+
+    frequencies
 }
 
 fn write_bits(
@@ -581,11 +544,11 @@ fn pack_encoding_table(
     frequencies: &[u64],
     min_index: usize,
     max_index: usize,
-    table: &mut [u8],
+    out: &mut [u8],
 ) -> Result<usize> {
-    let mut out = std::io::Cursor::new(table);
     let mut code_bits = 0_u64;
     let mut code_bit_count = 0_u64;
+    let mut out = Cursor::new(out);
 
     let mut index = min_index;
     while index <= max_index {
@@ -644,6 +607,7 @@ fn pack_encoding_table(
     if code_bit_count > 0 {
         out.write(&[(code_bits << (8 - code_bit_count)) as u8])?;
     }
+
     Ok(out.position() as usize)
 }
 
@@ -881,6 +845,16 @@ fn build_encoding_table(
 
     (min_frequency_index, max_frequency_index)
 }
+
+
+const INVALID_BIT_COUNT: &'static str = "invalid number of bits";
+const INVALID_TABLE_ENTRY: &'static str = "invalid code table entry";
+const NOT_ENOUGH_DATA: &'static str = "decoded data are shorter than expected";
+const INVALID_TABLE_SIZE: &'static str = "unexpected end of code table data";
+const TABLE_TOO_LONG: &'static str = "code table is longer than expected";
+const INVALID_CODE: &'static str = "invalid code";
+const TOO_MUCH_DATA: &'static str = "decoded data are longer than expected";
+
 
 #[cfg(test)]
 mod test {
