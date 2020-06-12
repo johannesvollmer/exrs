@@ -13,18 +13,6 @@ use std::{
 };
 
 
-const ENCODE_BITS: usize = 16; // literal (value) bit length
-const DECODE_BITS: usize = 14; // decoding bit size (>= 8)
-
-const ENCODING_TABLE_SIZE: usize = (1 << ENCODE_BITS) + 1;
-const DECODING_TABLE_SIZE: usize = 1 << DECODE_BITS;
-const DECODE_MASK: usize = DECODING_TABLE_SIZE - 1;
-
-const SHORT_ZEROCODE_RUN: u64 = 59;
-const LONG_ZEROCODE_RUN: u64 = 63;
-const SHORTEST_LONG_RUN: u64 = 2 + LONG_ZEROCODE_RUN - SHORT_ZEROCODE_RUN;
-const LONGEST_LONG_RUN: u64 = 255 + SHORTEST_LONG_RUN;
-
 
 pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
     let mut remaining_compressed = compressed;
@@ -99,11 +87,25 @@ pub fn compress(uncompressed: &[u16]) -> Result<Vec<u8>> {
     Ok(result.into_inner())
 }
 
+
+const ENCODE_BITS: usize = 16; // literal (value) bit length
+const DECODE_BITS: usize = 14; // decoding bit size (>= 8)
+
+const ENCODING_TABLE_SIZE: usize = (1 << ENCODE_BITS) + 1;
+const DECODING_TABLE_SIZE: usize = 1 << DECODE_BITS;
+const DECODE_MASK: usize = DECODING_TABLE_SIZE - 1;
+
+const SHORT_ZEROCODE_RUN: u64 = 59;
+const LONG_ZEROCODE_RUN: u64 = 63;
+const SHORTEST_LONG_RUN: u64 = 2 + LONG_ZEROCODE_RUN - SHORT_ZEROCODE_RUN;
+const LONGEST_LONG_RUN: u64 = 255 + SHORTEST_LONG_RUN;
+
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Code {
+    Empty,
     Short(ShortCode),
     Long(Vec<u32>),
-    Empty,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -120,7 +122,8 @@ fn decode(
     input_bit_count: usize,
     run_length_code: usize,
     expected_ouput_size: usize,
-) -> Result<Vec<u16>> {
+) -> Result<Vec<u16>>
+{
     let mut output = Vec::with_capacity(expected_ouput_size);
     let mut code_bits = 0_u64;
     let mut code_bit_count = 0_u64;
@@ -130,13 +133,10 @@ fn decode(
 
         // Access decoding table
         while code_bit_count >= DECODE_BITS as u64 {
-            let pl_index = ((code_bits >> (code_bit_count - DECODE_BITS as u64))
-                & DECODE_MASK as u64) as usize;
+            let pl_index = ((code_bits >> (code_bit_count - DECODE_BITS as u64)) & DECODE_MASK as u64) as usize;
             let pl = &decoding_table[pl_index];
 
-            //
             // Get short code
-            //
             if let Code::Short(code) = pl {
                 code_bit_count -= code.len as u64;
 
@@ -164,8 +164,7 @@ fn decode(
                     }
 
                     if code_bit_count >= length {
-                        let required_code =
-                            (code_bits >> (code_bit_count - length)) & ((1 << length) - 1);
+                        let required_code = (code_bits >> (code_bit_count - length)) & ((1 << length) - 1);
 
                         if code(encoded_long_code) == required_code {
                             code_bit_count -= length;
@@ -178,6 +177,7 @@ fn decode(
                                 &mut output,
                                 expected_ouput_size,
                             )?;
+
                             break;
                         }
                     }
@@ -200,8 +200,8 @@ fn decode(
     code_bit_count -= count as u64;
 
     while code_bit_count > 0 {
-        let code = &decoding_table
-            [((code_bits << (DECODE_BITS as u64 - code_bit_count)) & DECODE_MASK as u64) as usize];
+        let index = (code_bits << (DECODE_BITS as u64 - code_bit_count)) & DECODE_MASK as u64;
+        let code = &decoding_table[index as usize];
 
         if let Code::Short(short_code) = code {
             if short_code.len as u64 > code_bit_count { return Err(Error::invalid("code")) }; // FIXME why does this happen??
@@ -216,7 +216,8 @@ fn decode(
                 &mut output,
                 expected_ouput_size,
             )?;
-        } else {
+        }
+        else {
             return Err(Error::invalid(INVALID_CODE));
         }
     }
@@ -237,7 +238,8 @@ fn build_decoding_table(
     encoding_table: &[u64],
     min_hcode_index: usize,
     max_hcode_index: usize,
-) -> Result<Vec<Code>> {
+) -> Result<Vec<Code>>
+{
     let mut decoding_table = vec![Code::Empty; DECODING_TABLE_SIZE]; // not an array because of code not being copy
 
     for code_index in min_hcode_index..=max_hcode_index {
@@ -246,7 +248,7 @@ fn build_decoding_table(
         let code = code(hcode);
         let length = length(hcode);
 
-        if (code >> length) != 0 {
+        if code >> length != 0 {
             return Err(Error::invalid(INVALID_TABLE_ENTRY));
         }
 
@@ -256,11 +258,10 @@ fn build_decoding_table(
             match long_code {
                 Code::Empty => *long_code = Code::Long(vec![code_index as u32]),
                 Code::Long(lits) => lits.push(code_index as u32),
-                _ => {
-                    return Err(Error::invalid(INVALID_TABLE_ENTRY));
-                }
+                _ => { return Err(Error::invalid(INVALID_TABLE_ENTRY)); }
             }
-        } else if length != 0 {
+        }
+        else if length != 0 {
             let default_value = Code::Short(ShortCode {
                 value: code_index as u32,
                 len: length as u8,
@@ -283,7 +284,8 @@ fn read_encoding_table(
     packed: &mut impl Read,
     min_hcode_index: usize,
     max_hcode_index: usize,
-) -> Result<Vec<u64>> {
+) -> Result<Vec<u64>>
+{
     let mut encoding_table = vec![0_u64; ENCODING_TABLE_SIZE];
     let mut code_bits = 0_u64;
     let mut code_bit_count = 0_u64;
@@ -294,8 +296,8 @@ fn read_encoding_table(
         encoding_table[index] = code_len;
 
         if code_len == LONG_ZEROCODE_RUN {
-            let zerun =
-                read_bits(8, &mut code_bits, &mut code_bit_count, packed)? + SHORTEST_LONG_RUN;
+            let zerun_bits = read_bits(8, &mut code_bits, &mut code_bit_count, packed)?;
+            let zerun = zerun_bits + SHORTEST_LONG_RUN;
 
             if index as u64 + zerun > max_hcode_index as u64 + 1 {
                 return Err(Error::invalid(TABLE_TOO_LONG));
@@ -306,7 +308,8 @@ fn read_encoding_table(
             }
 
             index += zerun as usize;
-        } else if code_len >= SHORT_ZEROCODE_RUN {
+        }
+        else if code_len >= SHORT_ZEROCODE_RUN {
             let zerun = code_len - SHORT_ZEROCODE_RUN + 2;
             if index as u64 + zerun > max_hcode_index as u64 + 1 {
                 return Err(Error::invalid(TABLE_TOO_LONG));
@@ -317,13 +320,13 @@ fn read_encoding_table(
             }
 
             index += zerun as usize;
-        } else {
+        }
+        else {
             index += 1;
         }
     }
 
     build_canonical_table(&mut encoding_table);
-
     Ok(encoding_table)
 }
 
@@ -381,15 +384,18 @@ fn read_code_into_vec(
 
         if out.len() as u64 + code_repetitions > max_len as u64 {
             return Err(Error::invalid(TOO_MUCH_DATA));
-        } else if out.is_empty() {
+        }
+        else if out.is_empty() {
             return Err(Error::invalid(NOT_ENOUGH_DATA));
         }
 
         let repeated_code = *out.last().unwrap();
         out.extend(std::iter::repeat(repeated_code).take(code_repetitions as usize));
-    } else if out.len() < max_len {
+    }
+    else if out.len() < max_len {
         out.push(code as u16);
-    } else {
+    }
+    else {
         return Err(Error::invalid(TOO_MUCH_DATA));
     }
 
@@ -444,21 +450,22 @@ fn send_code(
     code_bit_count: &mut u64,
     mut out: impl Write,
 ) -> UnitResult {
-    //
+
     // Output a run of runCount instances of the symbol sCount.
     // Output the symbols explicitly, or if that is shorter, output
     // the sCode symbol once followed by a runCode symbol and runCount
     // expressed as an 8-bit number.
-    //
     if length(scode) + length(run_code) + 8 < length(scode) * u64::from(run_count) {
         write_code(scode, code_bits, code_bit_count, &mut out)?;
         write_code(run_code, code_bits, code_bit_count, &mut out)?;
         write_bits(8, run_count as u64, code_bits, code_bit_count, &mut out)?;
-    } else {
-        for _ in 0..=(run_count as u64) {
+    }
+    else {
+        for _ in 0 ..= (run_count as u64) {
             write_code(scode, code_bits, code_bit_count, &mut out)?;
         }
     }
+
     Ok(())
 }
 
@@ -467,23 +474,21 @@ fn encode(
     uncompressed: &[u16],
     run_length_code: usize,
     mut out: &mut Cursor<Vec<u8>>,
-) -> Result<u32> {
+) -> Result<u32>
+{
     let mut code_bits = 0;
     let mut code_bit_count = 0;
     let mut s = uncompressed[0];
     let mut cs = 0;
     let start_position = out.position();
 
-    //
     // Loop on input values
-    //
     for index in 1..uncompressed.len() {
-        //
         // Count same values or send code
-        //
         if s == uncompressed[index] && cs < 255 {
             cs += 1;
-        } else {
+        }
+        else {
             send_code(
                 frequencies[s as usize],
                 cs,
@@ -492,15 +497,14 @@ fn encode(
                 &mut code_bit_count,
                 &mut out,
             )?;
+
             cs = 0;
         }
 
         s = uncompressed[index];
     }
 
-    //
     // Send remaining code
-    //
     send_code(
         frequencies[s as usize],
         cs,
@@ -553,6 +557,7 @@ fn pack_encoding_table(
                 if length(frequencies[index + 1]) > 0 {
                     break;
                 }
+
                 index += 1;
                 zero_run += 1;
             }
@@ -566,6 +571,7 @@ fn pack_encoding_table(
                         &mut code_bit_count,
                         &mut out,
                     )?;
+
                     write_bits(
                         8,
                         zero_run - SHORTEST_LONG_RUN,
@@ -573,7 +579,8 @@ fn pack_encoding_table(
                         &mut code_bit_count,
                         &mut out,
                     )?;
-                } else {
+                }
+                else {
                     write_bits(
                         6,
                         SHORT_ZEROCODE_RUN + zero_run - 2,
@@ -582,10 +589,12 @@ fn pack_encoding_table(
                         &mut out,
                     )?;
                 }
+
                 index += 1; // we must increment or else this may go very wrong
                 continue;
             }
         }
+
         write_bits(
             6,
             code_length,
@@ -593,6 +602,7 @@ fn pack_encoding_table(
             &mut code_bit_count,
             &mut out,
         )?;
+
         index += 1;
     }
 
@@ -721,7 +731,7 @@ fn build_encoding_table(
         h_link[index] = index;
 
         if frequencies[index] != 0 {
-            frequency_heap[frequency_count] = index; // &frequencies[index];
+            frequency_heap[frequency_count] = index;
             frequency_count += 1;
             max_frequency_index = index;
         }
@@ -733,7 +743,7 @@ fn build_encoding_table(
 
     max_frequency_index += 1;
     frequencies[max_frequency_index] = 1;
-    frequency_heap[frequency_count] = max_frequency_index; // &frequencies[max_frequency_index];
+    frequency_heap[frequency_count] = max_frequency_index;
     frequency_count += 1;
 
     // Build an array, scode, such that scode[i] contains the number
