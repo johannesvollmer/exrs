@@ -9,10 +9,10 @@ const MIN_RUN_LENGTH : usize = 3;
 const MAX_RUN_LENGTH : usize = 127;
 
 
-pub fn decompress_bytes(mut remaining: Bytes<'_>, expected_byte_size: usize) -> Result<ByteVec> {
+pub fn decompress_bytes(mut remaining: Bytes<'_>, expected_byte_size: usize, pedantic: bool) -> Result<ByteVec> {
     let mut decompressed = Vec::with_capacity(expected_byte_size.min(8*2048));
 
-    while !remaining.is_empty() {
+    while !remaining.is_empty() && decompressed.len() != expected_byte_size {
         let count = take_1(&mut remaining)? as i8 as i32;
 
         if count < 0 {
@@ -27,8 +27,17 @@ pub fn decompress_bytes(mut remaining: Bytes<'_>, expected_byte_size: usize) -> 
         }
     }
 
+    if pedantic && !remaining.is_empty() {
+        return Err(Error::invalid("data amount"));
+    }
+
     differences_to_samples(&mut decompressed);
     interleave_byte_blocks(&mut decompressed);
+
+    // FIXME this function returns little-endian data, but possibly must run on big-endian architecture????
+    #[cfg(target_endian = "big")]
+        unimplemented!(this probably function returns little-endian data);
+
     Ok(decompressed)
 }
 
@@ -105,7 +114,7 @@ mod test {
     fn test(){
         let data = vec![ 0, 23, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 0, 0, 0, 1, 23, 43, 4];
         let compressed = super::compress_bytes(&data).unwrap();
-        let decompressed = super::decompress_bytes(&compressed, data.len()).unwrap();
+        let decompressed = super::decompress_bytes(&compressed, data.len(), true).unwrap();
 
         assert_eq!(decompressed, data);
     }

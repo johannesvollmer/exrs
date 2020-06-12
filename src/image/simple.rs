@@ -280,6 +280,12 @@ impl Image {
             options
         )
     }
+
+    /// This returns whether the image contains at least one sample that has is not a number.
+    pub fn contains_nan_pixels(&self) -> bool {
+        self.layers.iter().flat_map(|layer: &Layer| &layer.channels)
+            .any(|channel: &Channel| channel.samples.contains_nan())
+    }
 }
 
 
@@ -363,6 +369,15 @@ impl Samples {
             Samples::F16(vec) => vec.len(),
             Samples::F32(vec) => vec.len(),
             Samples::U32(vec) => vec.len(),
+        }
+    }
+
+    /// Returns whether these samples contain at least one that is not a number.
+    pub fn contains_nan(&self) -> bool {
+        match self {
+            Samples::F16(ref values) => values.iter().any(|sample| sample.is_nan()),
+            Samples::F32(ref values) => values.iter().any(|sample| sample.is_nan()),
+            Samples::U32(_) => false,
         }
     }
 }

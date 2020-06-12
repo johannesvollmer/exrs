@@ -298,6 +298,16 @@ impl Image {
             options
         )
     }
+
+    pub fn contains_nan_pixels(&self) -> bool {
+        self.layers.iter()
+            .flat_map(|layer: &Layer| &layer.channels)
+            .any(|channel: &Channel| match channel.content {
+                ChannelData::F16(ref values) => values.contains_nan_pixels(),
+                ChannelData::F32(ref values) => values.contains_nan_pixels(),
+                ChannelData::U32(ref values) => values.contains_nan_pixels(),
+            })
+    }
 }
 
 impl Image {
@@ -469,7 +479,7 @@ impl Channel {
 }
 
 
-impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
+impl<Sample: Data + IsNan + std::fmt::Debug> SampleMaps<Sample> {
 
     /// Allocate a collection of resolution maps ready to be filled with pixel data.
     pub fn allocate(header: &Header, channel: &attribute::ChannelInfo) -> Self {
@@ -516,6 +526,13 @@ impl<Sample: Data + std::fmt::Debug> SampleMaps<Sample> {
         match self {
             SampleMaps::Flat(levels) => levels.level_mode(),
             SampleMaps::Deep(levels) => levels.level_mode(),
+        }
+    }
+
+    pub fn contains_nan_pixels(&self) -> bool {
+        match self {
+            SampleMaps::Flat(levels) => levels.contains_nan_pixels(),
+            SampleMaps::Deep(levels) => levels.contains_nan_pixels(),
         }
     }
 }
@@ -627,6 +644,10 @@ impl<S: Samples> Levels<S> {
             Levels::Rip(_) => LevelMode::RipMap,
         }
     }
+
+    pub fn contains_nan_pixels(&self) -> bool {
+        self.as_slice().iter().any(|level| level.samples.contains_nan())
+    }
 }
 
 
@@ -674,9 +695,11 @@ pub trait Samples {
     /// Read one line of pixel data from this sample collection.
     /// Panics for an invalid index or write error.
     fn extract_line(&self, line: LineRefMut<'_>, image_width: usize);
+
+    fn contains_nan(&self) -> bool;
 }
 
-impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
+impl<Sample: crate::io::Data + IsNan> Samples for DeepSamples<Sample> {
     fn allocate(resolution: Vec2<usize>) -> Self {
         debug_assert!(resolution.area() < 1920*10 * 1920*10, "suspiciously large image");
 
@@ -705,9 +728,13 @@ impl<Sample: crate::io::Data> Samples for DeepSamples<Sample> {
         debug_assert_ne!(_image_width, 0, "deep image width bug");
         unimplemented!("deep data not supported yet");
     }
+
+    fn contains_nan(&self) -> bool {
+        unimplemented!()
+    }
 }
 
-impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for FlatSamples<Sample> {
+impl<Sample: crate::io::Data + IsNan + Default + Clone + std::fmt::Debug> Samples for FlatSamples<Sample> {
     fn allocate(resolution: Vec2<usize>) -> Self {
         let count = resolution.area();
         debug_assert!(count < 1920*20 * 1920*20, "suspiciously large image: {} mega pixels", count / 1_000_000);
@@ -734,7 +761,17 @@ impl<Sample: crate::io::Data + Default + Clone + std::fmt::Debug> Samples for Fl
         line.write_samples_from_slice(&self[start_index .. end_index])
             .expect("writing line bytes failed");
     }
+
+    fn contains_nan(&self) -> bool {
+        self.iter().any(|value| value.is_nan())
+    }
 }
+
+// FIXME this is so unnecessary...
+pub trait IsNan { fn is_nan(&self) -> bool; }
+impl IsNan for f16 { fn is_nan(&self) -> bool { (*self).is_nan() } }
+impl IsNan for f32 { fn is_nan(&self) -> bool { (*self).is_nan() } }
+impl IsNan for u32 { fn is_nan(&self) -> bool { false } } // of course not, why should any numer not be a number anyways
 
 impl<Samples> RipMaps<Samples> {
 
