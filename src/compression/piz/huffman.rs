@@ -337,7 +337,8 @@ fn read_bits(
     code_bits: &mut u64,
     code_bit_count: &mut u64,
     input: &mut impl Read,
-) -> Result<u64> {
+) -> Result<u64>
+{
     while *code_bit_count < count {
         read_byte(code_bits, code_bit_count, input)?;
     }
@@ -362,7 +363,8 @@ fn read_code_into_vec(
     read: &mut impl Read,
     out: &mut Vec<u16>,
     max_len: usize,
-) -> UnitResult {
+) -> UnitResult
+{
     if code as usize == run_length_code {
         if *code_bit_count < 8 {
             read_byte(code_bits, code_bit_count, read)?;
@@ -408,16 +410,16 @@ fn write_bits(
     code_bits: &mut u64,
     code_bit_count: &mut u64,
     mut out: impl Write,
-) -> UnitResult {
-    *code_bits = *code_bits << count;
+) -> UnitResult
+{
+    *code_bits = (*code_bits << count) | bits;
     *code_bit_count += count;
-
-    *code_bits = *code_bits | bits;
 
     while *code_bit_count >= 8 {
         *code_bit_count -= 8;
         out.write(&[(*code_bits >> *code_bit_count) as u8])?; // TODO make sure never or always wraps?
     }
+
     Ok(())
 }
 
@@ -433,8 +435,8 @@ fn send_code(
     code_bits: &mut u64,
     code_bit_count: &mut u64,
     mut out: impl Write,
-) -> UnitResult {
-
+) -> UnitResult
+{
     // Output a run of runCount instances of the symbol sCount.
     // Output the symbols explicitly, or if that is shorter, output
     // the sCode symbol once followed by a runCode symbol and runCount
@@ -831,6 +833,7 @@ mod test {
         3159, 29002, 14535, 50632, 18118, 33583, 18878, 59470, 32835, 9347, 16991, 21303, 26263,
         8312, 14017, 41777, 43240, 3500, 60250, 52437, 45715, 61520,
     ];
+
     const UNCOMPRESSED_ARRAY_SPECIAL: [u16; 100] = [
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 28182,
         0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 0, 0, 0, 0,
@@ -841,6 +844,7 @@ mod test {
         3159, 29002, 14535, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         65534, 65534, 65534, 65534, 65534, 65534, 65534, 65534, 65534,
     ];
+
     const COMPRESSED_ARRAY: [u8; 703] = [
         0xc9, 0x0, 0x0, 0x0, 0x2e, 0xfe, 0x0, 0x0, 0x56, 0x2, 0x0, 0x0, 0xa2, 0x2, 0x0, 0x0, 0x0,
         0x0, 0x0, 0x0, 0x1f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xd6, 0x47,
