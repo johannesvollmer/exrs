@@ -242,11 +242,9 @@ fn build_decoding_table(
 {
     let mut decoding_table = vec![Code::Empty; DECODING_TABLE_SIZE]; // not an array because of code not being copy
 
-    for code_index in min_hcode_index..=max_hcode_index {
-        let hcode = encoding_table[code_index];
-
-        let code = code(hcode);
-        let length = length(hcode);
+    for (code_index, &encoded_code) in encoding_table[..= max_hcode_index].iter().enumerate().skip(min_hcode_index) {
+        let code = code(encoded_code);
+        let length = length(encoded_code);
 
         if code >> length != 0 {
             return Err(Error::invalid(INVALID_TABLE_ENTRY));
@@ -292,39 +290,39 @@ fn read_encoding_table(
 
     // TODO push() into encoding table instead of index stuff?
 
-    let mut index = min_hcode_index;
-    while index <= max_hcode_index {
+    let mut code_index = min_hcode_index;
+    while code_index <= max_hcode_index {
         let code_len = read_bits(6, &mut code_bits, &mut code_bit_count, packed)?;
-        encoding_table[index] = code_len;
+        encoding_table[code_index] = code_len;
 
         if code_len == LONG_ZEROCODE_RUN {
             let zerun_bits = read_bits(8, &mut code_bits, &mut code_bit_count, packed)?;
             let zerun = zerun_bits + SHORTEST_LONG_RUN;
 
-            if index as u64 + zerun > max_hcode_index as u64 + 1 {
+            if code_index as u64 + zerun > max_hcode_index as u64 + 1 {
                 return Err(Error::invalid(TABLE_TOO_LONG));
             }
 
-            for value in &mut encoding_table[index..index + zerun as usize] {
+            for value in &mut encoding_table[code_index..code_index + zerun as usize] {
                 *value = 0;
             }
 
-            index += zerun as usize;
+            code_index += zerun as usize;
         }
         else if code_len >= SHORT_ZEROCODE_RUN {
             let duplication_count = code_len - SHORT_ZEROCODE_RUN + 2;
-            if index as u64 + duplication_count > max_hcode_index as u64 + 1 {
+            if code_index as u64 + duplication_count > max_hcode_index as u64 + 1 {
                 return Err(Error::invalid(TABLE_TOO_LONG));
             }
 
-            for value in &mut encoding_table[index..index + duplication_count as usize] {
+            for value in &mut encoding_table[code_index..code_index + duplication_count as usize] {
                 *value = 0;
             }
 
-            index += duplication_count as usize;
+            code_index += duplication_count as usize;
         }
         else {
-            index += 1;
+            code_index += 1;
         }
     }
 
@@ -464,37 +462,38 @@ fn encode_with_frequencies(
 {
     let mut code_bits = 0;
     let mut code_bit_count = 0;
-    let mut current = uncompressed[0];
-    let mut count = 0;
+
+    let mut run_start_value = uncompressed[0];
+    let mut run_length = 0;
 
     let start_position = out.position();
 
     // Loop on input values
-    for index in 1..uncompressed.len() {
+    for &current_value in &uncompressed[1..] {
         // Count same values or send code
-        if current == uncompressed[index] && count < 255 {
-            count += 1;
+        if run_start_value == current_value && run_length < 255 {
+            run_length += 1;
         }
         else {
             send_code(
-                frequencies[current as usize],
-                count,
+                frequencies[run_start_value as usize],
+                run_length,
                 frequencies[run_length_code],
                 &mut code_bits,
                 &mut code_bit_count,
                 &mut out,
             )?;
 
-            count = 0;
+            run_length = 0;
         }
 
-        current = uncompressed[index];
+        run_start_value = current_value;
     }
 
     // Send remaining code
     send_code(
-        frequencies[current as usize],
-        count,
+        frequencies[run_start_value as usize],
+        run_length,
         frequencies[run_length_code],
         &mut code_bits,
         &mut code_bit_count,
@@ -534,19 +533,19 @@ fn pack_encoding_table(
     let mut code_bits = 0_u64;
     let mut code_bit_count = 0_u64;
 
-    let mut index = min_index;
-    while index <= max_index {
-        let code_length = length(frequencies[index]);
+    let mut frequency_index = min_index;
+    while frequency_index <= max_index { // TODO slice iteration?
+        let code_length = length(frequencies[frequency_index]);
 
         if code_length == 0 {
             let mut zero_run = 1;
 
-            while index < max_index && zero_run < LONGEST_LONG_RUN {
-                if length(frequencies[index + 1]) > 0 {
+            while frequency_index < max_index && zero_run < LONGEST_LONG_RUN {
+                if length(frequencies[frequency_index + 1]) > 0 {
                     break;
                 }
 
-                index += 1;
+                frequency_index += 1;
                 zero_run += 1;
             }
 
@@ -559,13 +558,13 @@ fn pack_encoding_table(
                     write_bits(6, SHORT_ZEROCODE_RUN + zero_run - 2, &mut code_bits, &mut code_bit_count, &mut out)?;
                 }
 
-                index += 1; // we must increment or else this may go very wrong
+                frequency_index += 1; // we must increment or else this may go very wrong
                 continue;
             }
         }
 
         write_bits(6, code_length, &mut code_bits, &mut code_bit_count, &mut out)?;
-        index += 1;
+        frequency_index += 1;
     }
 
     if code_bit_count > 0 {
@@ -600,22 +599,24 @@ fn build_canonical_table(code_table: &mut [u64]) {
     // For each i from 58 through 1, compute the
     // numerically lowest code with length i, and
     // store that code in n[i].
-    let mut code = 0_u64;
-    for count in &mut count_per_code.iter_mut().rev() {
-        let next_code = (code + *count) >> 1;
-        *count = code;
-        code = next_code;
+    {
+        let mut code = 0_u64;
+        for count in &mut count_per_code.iter_mut().rev() {
+            let next_code = (code + *count) >> 1;
+            *count = code;
+            code = next_code;
+        }
     }
 
     // hcode[i] contains the length, l, of the
     // code for symbol i.  Assign the next available
     // code of length l to the symbol and store both
     // l and the code in hcode[i].
-    for code_i in code_table.iter_mut() {
-        let l = *code_i;
-        if l > 0 {
-            *code_i = l | (count_per_code[l as usize] << 6);
-            count_per_code[l as usize] += 1;
+    for symbol_length in code_table.iter_mut() {
+        let current_length = *symbol_length;
+        if current_length > 0 {
+            *symbol_length = current_length | (count_per_code[current_length as usize] << 6);
+            count_per_code[current_length as usize] += 1;
         }
     }
 }
@@ -639,7 +640,7 @@ fn build_encoding_table(
     debug_assert_eq!(frequencies.len(), ENCODING_TABLE_SIZE);
 
     /// Frequency with position, used for MinHeap.
-    #[derive(Eq, PartialEq)]
+    #[derive(Eq, PartialEq, Copy, Clone)]
     struct HeapFrequency {
         position: usize,
         frequency: u64,
@@ -676,25 +677,25 @@ fn build_encoding_table(
     //    for all array entries.
 
     // We need to use vec here or we overflow the stack.
-    let mut h_link = vec![0_usize; ENCODING_TABLE_SIZE];
+    let mut links = vec![0_usize; ENCODING_TABLE_SIZE];
     let mut frequency_heap = vec![0_usize; ENCODING_TABLE_SIZE];
 
     // This is a good solution since we don't have usize::MAX items (no panics or UB),
     // and since this is short-circuit, it stops at the first in order non zero element.
     let min_frequency_index = frequencies.iter().position(|f| *f != 0).unwrap_or(0);
 
-    let mut frequency_count = 0;
     let mut max_frequency_index = 0;
-
+    let mut frequency_count = 0;
     for index in min_frequency_index..ENCODING_TABLE_SIZE {
-        h_link[index] = index;
+        links[index] = index;
 
         if frequencies[index] != 0 {
             frequency_heap[frequency_count] = index;
-            frequency_count += 1;
             max_frequency_index = index;
+            frequency_count += 1;
         }
     }
+
 
     // Add a pseudo-symbol, with a frequency count of 1, to frq;
     // adjust the fHeap and hlink array accordingly.  Function
@@ -732,10 +733,7 @@ fn build_encoding_table(
     // of the tree) are incremented by one.
     let mut heap = BinaryHeap::with_capacity(frequency_count);
     for index in frequency_heap.drain(..frequency_count) {
-        heap.push(HeapFrequency {
-            position: index,
-            frequency: frequencies[index],
-        });
+        heap.push(HeapFrequency { position: index, frequency: frequencies[index] });
     }
 
     let mut s_code = vec![0_u64; ENCODING_TABLE_SIZE];
@@ -744,14 +742,15 @@ fn build_encoding_table(
         // Find the indices, mm and m, of the two smallest non-zero frq
         // values in fHeap, add the smallest frq to the second-smallest
         // frq, and remove the smallest frq value from fHeap.
-        let smallest_frequency = heap.pop().expect("Cannot pop heap bug");
-        frequency_count -= 1;
+        let (high_position, low_position) = {
+            let smallest_frequency = heap.pop().expect("heap empty bug");
+            frequency_count -= 1;
 
-        // TODO heap.last()?;
-        let mut second_smallest_frequency = heap.pop().expect("Cannot pop heap bug");
-        second_smallest_frequency.frequency += smallest_frequency.frequency;
-        let high_position = second_smallest_frequency.position;
-        heap.push(second_smallest_frequency);
+            let mut second_smallest_frequency = heap.peek_mut().expect("heap empty bug");
+            second_smallest_frequency.frequency += smallest_frequency.frequency;
+
+            (second_smallest_frequency.position, smallest_frequency.position)
+        };
 
         // The entries in scode are linked into lists with the
         // entries in hlink serving as "next" pointers and with
@@ -770,29 +769,28 @@ fn build_encoding_table(
         let mut index = high_position;
         loop {
             s_code[index] += 1;
+            debug_assert!(s_code[index] <= 58);
 
-            assert!(s_code[index] <= 58);
-
-            if h_link[index] == index {
-                // merge the two lists
-                h_link[index] = smallest_frequency.position;
+            // merge the two lists
+            if links[index] == index {
+                links[index] = low_position;
                 break;
             }
-            index = h_link[index];
+
+            index = links[index];
         }
 
         // Add a bit to all codes in the second list
-        let mut index = smallest_frequency.position;
+        let mut index = low_position;
         loop {
             s_code[index] += 1;
+            debug_assert!(s_code[index] <= 58);
 
-            assert!(s_code[index] <= 58);
-
-            if h_link[index] == index {
+            if links[index] == index {
                 break;
             }
 
-            index = h_link[index];
+            index = links[index];
         }
     }
 
@@ -806,15 +804,8 @@ fn build_encoding_table(
 }
 
 
-#[inline]
-fn length(code: u64) -> u64 {
-    code & 63
-}
-
-#[inline]
-fn code(code: u64) -> u64 {
-    code >> 6
-}
+#[inline] fn length(code: u64) -> u64 { code & 63 }
+#[inline] fn code(code: u64) -> u64 { code >> 6 }
 
 const INVALID_BIT_COUNT: &'static str = "invalid number of bits";
 const INVALID_TABLE_ENTRY: &'static str = "invalid code table entry";
@@ -828,7 +819,7 @@ const TOO_MUCH_DATA: &'static str = "decoded data are longer than expected";
 #[cfg(test)]
 mod test {
     use super::*;
-    use rand::Rng;
+    use rand::{Rng, SeedableRng};
 
     const UNCOMPRESSED_ARRAY: [u16; 100] = [
         3852, 2432, 33635, 49381, 10100, 15095, 62693, 63738, 62359, 5013, 7715, 59875, 28182,
@@ -842,7 +833,7 @@ mod test {
     ];
     const UNCOMPRESSED_ARRAY_SPECIAL: [u16; 100] = [
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 28182,
-        0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 0, 0, 0, 0, 
+        0, 65534, 0, 65534, 0, 65534, 0, 65534, 0, 0, 0, 0, 0,
         0, 0, 0, 54124, 13798, 27503, 52154, 61961, 30474, 46880, 39097, 15754, 52897,
         42371, 54053, 14178, 48276, 34591, 42602, 32126, 42062, 31474, 16274, 55991, 2882, 17039,
         56389, 20835, 57057, 54081, 3414, 33957, 52584, 10222, 25139, 40002, 44980, 1602, 48021,
@@ -917,9 +908,8 @@ mod test {
 
     #[test]
     fn round_trip() {
-        let mut rng = rand::thread_rng();
-
-        let raw = fill(&mut rng, u16::MAX as usize);
+        let mut random = rand::rngs::StdRng::from_seed(SEED);
+        let raw = fill(&mut random, u16::MAX as usize);
 
         let compressed = compress(&raw).unwrap();
         let uncompressed = decompress(&compressed, raw.len()).unwrap();
@@ -939,10 +929,10 @@ mod test {
 
     #[test]
     fn round_trip100() {
-        let mut rng = rand::thread_rng();
+        let mut random = rand::rngs::StdRng::from_seed(SEED);
 
         for size_multiplier in 1..100 {
-            let raw = fill(&mut rng, size_multiplier * 50_000);
+            let raw = fill(&mut random, size_multiplier * 50_000);
 
             let compressed = compress(&raw).unwrap();
             let uncompressed = decompress(&compressed, raw.len()).unwrap();
@@ -960,4 +950,11 @@ mod test {
 
         assert_eq!(uncompressed, decompressed.as_slice());
     }
+
+    const SEED: [u8; 32] = [
+        12,155,32,34,112,109,98,54,
+        12,255,32,34,112,109,98,55,
+        12,155,32,34,12,109,98,54,
+        12,35,32,34,112,109,48,54,
+    ];
 }
