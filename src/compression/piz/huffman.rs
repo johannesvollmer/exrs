@@ -35,12 +35,10 @@ pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
 
     let decoding_table = build_decoding_table(&encoding_table, min_hcode_index, max_hcode_index)?;
 
-    let packed_data = compressed;
-    let remaining_bytes = &packed_data[packed_data.len() - remaining_compressed.len()..];
     let result = decode_with_tables(
         &encoding_table,
         &decoding_table,
-        &remaining_bytes,
+        &remaining_compressed,
         bit_count,
         max_hcode_index,
         expected_size,
@@ -53,7 +51,7 @@ pub fn compress(uncompressed: &[u16]) -> Result<Vec<u8>> {
     if uncompressed.is_empty() { return Ok(vec![]); }
 
     let mut frequencies = count_frequencies(uncompressed);
-    let (min_hcode_index, max_hcode_index) = build_encoding_table(&mut frequencies);
+    let (min_code_index, max_code_index) = build_encoding_table(&mut frequencies);
 
     let mut result = Cursor::new(Vec::with_capacity(uncompressed.len()));
     u32::write_slice(&mut result, &[0; 5])?; // we come back to these later after we know more about the compressed data
@@ -61,8 +59,8 @@ pub fn compress(uncompressed: &[u16]) -> Result<Vec<u8>> {
     let table_start = result.position();
     pack_encoding_table(
         &frequencies,
-        min_hcode_index,
-        max_hcode_index,
+        min_code_index,
+        max_code_index,
         &mut result,
     )?;
 
@@ -70,7 +68,7 @@ pub fn compress(uncompressed: &[u16]) -> Result<Vec<u8>> {
     let bit_count = encode_with_frequencies(
         &frequencies,
         uncompressed,
-        max_hcode_index,
+        max_code_index,
         &mut result
     )?;
 
@@ -78,8 +76,8 @@ pub fn compress(uncompressed: &[u16]) -> Result<Vec<u8>> {
     result.set_position(0);
     let table_length = (data_start - table_start) as u32;
 
-    (min_hcode_index as u32).write(&mut result)?;
-    (max_hcode_index as u32).write(&mut result)?;
+    (min_code_index as u32).write(&mut result)?;
+    (max_code_index as u32).write(&mut result)?;
     table_length.write(&mut result)?;
     bit_count.write(&mut result)?;
     0_u32.write(&mut result)?;
