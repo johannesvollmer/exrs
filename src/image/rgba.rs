@@ -476,7 +476,7 @@ impl ImageInfo {
     /// Use `write_pixels_to_unbuffered` instead if you do not have a file.
     /// If an error occurs, attempts to delete the partially written file.
     ///
-    /// The `pixels` parameter is a closure of type `Fn(&Image, Vec2<usize>) -> Pixel`.
+    /// The `pixels` parameter is a closure of type `Fn(Vec2<usize>) -> Pixel`.
     #[must_use]
     pub fn write_pixels_to_file(
         &self, path: impl AsRef<Path>,
@@ -494,7 +494,7 @@ impl ImageInfo {
     /// Use `write_pixels_to_file` instead, if you have a file path.
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first, using `write_to_buffered`.
     ///
-    /// The `pixels` parameter is a closure of type `Fn(&Image, Vec2<usize>) -> Pixel`.
+    /// The `pixels` parameter is a closure of type `Fn(Vec2<usize>) -> Pixel`.
     #[must_use]
     pub fn write_pixels_to_unbuffered(
         &self, write: impl Write + Seek,
@@ -510,7 +510,7 @@ impl ImageInfo {
     /// Use `write_pixels_to_unbuffered` instead, if this is not an in-memory writer.
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first.
     ///
-    /// The `pixels` parameter is a closure of type `Fn(&Image, Vec2<usize>) -> Pixel`.
+    /// The `pixels` parameter is a closure of type `Fn(Vec2<usize>) -> Pixel`.
     #[must_use]
     pub fn write_pixels_to_buffered(
         &self, write: impl Write + Seek,
