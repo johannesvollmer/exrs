@@ -16,13 +16,13 @@ use std::{
 pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
     let mut remaining_compressed = compressed;
 
-    let min_hcode_index = u32::read(&mut remaining_compressed)? as usize;
-    let max_hcode_index = u32::read(&mut remaining_compressed)? as usize;
+    let min_code_index = u32::read(&mut remaining_compressed)? as usize;
+    let max_code_index = u32::read(&mut remaining_compressed)? as usize;
     let _table_size = u32::read(&mut remaining_compressed)? as usize; // TODO check this and return Err?
     let bit_count = u32::read(&mut remaining_compressed)? as usize;
     let _skipped = u32::read(&mut remaining_compressed)?; // what is this
 
-    if min_hcode_index >= ENCODING_TABLE_SIZE || max_hcode_index >= ENCODING_TABLE_SIZE {
+    if min_code_index >= ENCODING_TABLE_SIZE || max_code_index >= ENCODING_TABLE_SIZE {
         return Err(Error::invalid(INVALID_TABLE_SIZE));
     }
 
@@ -30,17 +30,17 @@ pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
         return Err(Error::invalid(NOT_ENOUGH_DATA));
     }
 
-    let encoding_table = read_encoding_table(&mut remaining_compressed, min_hcode_index, max_hcode_index)?;
+    let encoding_table = read_encoding_table(&mut remaining_compressed, min_code_index, max_code_index)?;
     if bit_count > 8 * remaining_compressed.len() { return Err(Error::invalid(INVALID_BIT_COUNT)); }
 
-    let decoding_table = build_decoding_table(&encoding_table, min_hcode_index, max_hcode_index)?;
+    let decoding_table = build_decoding_table(&encoding_table, min_code_index, max_code_index)?;
 
     let result = decode_with_tables(
         &encoding_table,
         &decoding_table,
         &remaining_compressed,
         bit_count,
-        max_hcode_index,
+        max_code_index,
         expected_size,
     )?;
 
@@ -226,20 +226,20 @@ fn decode_with_tables(
     Ok(output)
 }
 
-/// Build a decoding hash table based on the encoding table hcode:
+/// Build a decoding hash table based on the encoding table code:
 ///	- short codes (<= HUF_DECBITS) are resolved with a single table access;
 ///	- long code entry allocations are not optimized, because long codes are
 ///	  unfrequent;
 ///	- decoding tables are used by hufDecode();
 fn build_decoding_table(
     encoding_table: &[u64],
-    min_hcode_index: usize,
-    max_hcode_index: usize,
+    min_code_index: usize,
+    max_code_index: usize,
 ) -> Result<Vec<Code>>
 {
     let mut decoding_table = vec![Code::Empty; DECODING_TABLE_SIZE]; // not an array because of code not being copy
 
-    for (code_index, &encoded_code) in encoding_table[..= max_hcode_index].iter().enumerate().skip(min_hcode_index) {
+    for (code_index, &encoded_code) in encoding_table[..= max_code_index].iter().enumerate().skip(min_code_index) {
         let code = code(encoded_code);
         let length = length(encoded_code);
 
@@ -277,8 +277,8 @@ fn build_decoding_table(
 /// Run-length-decompresses all zero runs from the packed table to the encoding table
 fn read_encoding_table(
     packed: &mut impl Read,
-    min_hcode_index: usize,
-    max_hcode_index: usize,
+    min_code_index: usize,
+    max_code_index: usize,
 ) -> Result<Vec<u64>>
 {
     let mut encoding_table = vec![0_u64; ENCODING_TABLE_SIZE];
@@ -287,8 +287,8 @@ fn read_encoding_table(
 
     // TODO push() into encoding table instead of index stuff?
 
-    let mut code_index = min_hcode_index;
-    while code_index <= max_hcode_index {
+    let mut code_index = min_code_index;
+    while code_index <= max_code_index {
         let code_len = read_bits(6, &mut code_bits, &mut code_bit_count, packed)?;
         encoding_table[code_index] = code_len;
 
@@ -296,7 +296,7 @@ fn read_encoding_table(
             let zerun_bits = read_bits(8, &mut code_bits, &mut code_bit_count, packed)?;
             let zerun = zerun_bits + SHORTEST_LONG_RUN;
 
-            if code_index as u64 + zerun > max_hcode_index as u64 + 1 {
+            if code_index as u64 + zerun > max_code_index as u64 + 1 {
                 return Err(Error::invalid(TABLE_TOO_LONG));
             }
 
@@ -308,7 +308,7 @@ fn read_encoding_table(
         }
         else if code_len >= SHORT_ZEROCODE_RUN {
             let duplication_count = code_len - SHORT_ZEROCODE_RUN + 2;
-            if code_index as u64 + duplication_count > max_hcode_index as u64 + 1 {
+            if code_index as u64 + duplication_count > max_code_index as u64 + 1 {
                 return Err(Error::invalid(TABLE_TOO_LONG));
             }
 
@@ -574,9 +574,9 @@ fn pack_encoding_table(
 }
 
 /// Build a "canonical" Huffman code table:
-///	- for each (uncompressed) symbol, hcode contains the length
+///	- for each (uncompressed) symbol, code contains the length
 ///	  of the corresponding code (in the compressed data)
-///	- canonical codes are computed and stored in hcode
+///	- canonical codes are computed and stored in code
 ///	- the rules for constructing canonical codes are as follows:
 ///	  * shorter codes (if filled with zeroes to the right)
 ///	    have a numerically higher value than longer codes
@@ -607,10 +607,10 @@ fn build_canonical_table(code_table: &mut [u64]) {
         }
     }
 
-    // hcode[i] contains the length, l, of the
+    // code[i] contains the length, l, of the
     // code for symbol i.  Assign the next available
     // code of length l to the symbol and store both
-    // l and the code in hcode[i].
+    // l and the code in code[i].
     for symbol_length in code_table.iter_mut() {
         let current_length = *symbol_length;
         if current_length > 0 {
