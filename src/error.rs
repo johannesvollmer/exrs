@@ -8,6 +8,7 @@ pub use std::io::Result as IoResult;
 use std::convert::TryFrom;
 use std::error;
 use std::fmt;
+use std::num::TryFromIntError;
 
 
 // Export types
@@ -68,6 +69,13 @@ impl From<IoError> for Error {
         else {
             Error::Io(error)
         }
+    }
+}
+
+// TODO use `usize::try_from(x)?` everywhere
+impl From<TryFromIntError> for Error {
+    fn from(_: TryFromIntError) -> Self {
+        Error::invalid("maximum size exceeded")
     }
 }
 

@@ -11,17 +11,19 @@ use std::{
     collections::BinaryHeap,
     io::{Cursor, Read, Write},
 };
+use std::convert::TryFrom;
 
 
 pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
     let mut remaining_compressed = compressed;
 
-    let min_code_index = u32::read(&mut remaining_compressed)? as usize;
-    let max_code_index = u32::read(&mut remaining_compressed)? as usize;
-    let _table_size = u32::read(&mut remaining_compressed)? as usize; // TODO check this and return Err?
-    let bit_count = u32::read(&mut remaining_compressed)? as usize;
+    let min_code_index = usize::try_from(u32::read(&mut remaining_compressed)?).unwrap();
+    let max_code_index_32 = u32::read(&mut remaining_compressed)?;
+    let _table_size = usize::try_from(u32::read(&mut remaining_compressed)?).unwrap(); // TODO check this and return Err?
+    let bit_count = usize::try_from(u32::read(&mut remaining_compressed)?).unwrap();
     let _skipped = u32::read(&mut remaining_compressed)?; // what is this
 
+    let max_code_index = usize::try_from(max_code_index_32).unwrap();
     if min_code_index >= ENCODING_TABLE_SIZE || max_code_index >= ENCODING_TABLE_SIZE {
         return Err(Error::invalid(INVALID_TABLE_SIZE));
     }
@@ -40,7 +42,7 @@ pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
         &decoding_table,
         &remaining_compressed,
         bit_count,
-        max_code_index,
+        max_code_index_32,
         expected_size,
     )?;
 
@@ -76,10 +78,10 @@ pub fn compress(uncompressed: &[u16]) -> Result<Vec<u8>> {
     result.set_position(0);
     let table_length = data_start - table_start;
 
-    (min_code_index as u32).write(&mut result)?;
-    (max_code_index as u32).write(&mut result)?;
-    (table_length as u32).write(&mut result)?;
-    (bit_count as u32).write(&mut result)?;
+    u32::try_from(min_code_index)?.write(&mut result)?;
+    u32::try_from(max_code_index)?.write(&mut result)?;
+    u32::try_from(table_length)?.write(&mut result)?;
+    u32::try_from(bit_count)?.write(&mut result)?;
     0_u32.write(&mut result)?;
 
     Ok(result.into_inner())
@@ -113,7 +115,7 @@ struct ShortCode {
 }
 
 impl ShortCode {
-    #[inline] fn len(&self) -> u64 { self.len as u64 }
+    #[inline] fn len(&self) -> u64 { u64::from(self.len) }
 }
 
 /// Decode (uncompress) n bits based on encoding & decoding tables:
@@ -122,11 +124,11 @@ fn decode_with_tables(
     decoding_table: &[Code],
     mut input: &[u8],
     input_bit_count: usize,
-    run_length_code: usize,
-    expected_ouput_size: usize,
+    run_length_code: u32,
+    expected_output_size: usize,
 ) -> Result<Vec<u16>>
 {
-    let mut output = Vec::with_capacity(expected_ouput_size);
+    let mut output = Vec::with_capacity(expected_output_size);
     let mut code_bits = 0_u64;
     let mut code_bit_count = 0_u64;
 
@@ -149,7 +151,7 @@ fn decode_with_tables(
                     &mut code_bit_count,
                     &mut input,
                     &mut output,
-                    expected_ouput_size,
+                    expected_output_size,
                 )?;
             }
             else if let Code::Long(ref long_codes) = code {
@@ -187,7 +189,7 @@ fn decode_with_tables(
                     &mut code_bit_count,
                     &mut input,
                     &mut output,
-                    expected_ouput_size,
+                    expected_output_size,
                 )?;
             }
             else {
@@ -215,7 +217,7 @@ fn decode_with_tables(
                 &mut code_bit_count,
                 &mut input,
                 &mut output,
-                expected_ouput_size,
+                expected_output_size,
             )?;
         }
         else {
@@ -223,7 +225,7 @@ fn decode_with_tables(
         }
     }
 
-    if output.len() != expected_ouput_size {
+    if output.len() != expected_output_size {
         return Err(Error::invalid(NOT_ENOUGH_DATA));
     }
 
@@ -358,7 +360,7 @@ fn read_byte(code_bits: &mut u64, bit_count: &mut u64, input: &mut impl Read) ->
 #[inline]
 fn read_code_into_vec(
     code: u32,
-    run_length_code: usize,
+    run_length_code: u32,
     code_bits: &mut u64,
     code_bit_count: &mut u64,
     read: &mut impl Read,
@@ -366,16 +368,16 @@ fn read_code_into_vec(
     max_len: usize,
 ) -> UnitResult
 {
-    if code as usize == run_length_code {
+    if code == run_length_code { // code may be too large for u16
         if *code_bit_count < 8 {
             read_byte(code_bits, code_bit_count, read)?;
         }
 
         *code_bit_count -= 8;
 
-        let code_repetitions = ((*code_bits >> *code_bit_count) as u8) as u64;
+        let code_repetitions = ((*code_bits >> *code_bit_count) as u8) as usize;
 
-        if out.len() as u64 + code_repetitions > max_len as u64 {
+        if out.len() + code_repetitions > max_len {
             return Err(Error::invalid(TOO_MUCH_DATA));
         }
         else if out.is_empty() {
@@ -383,10 +385,10 @@ fn read_code_into_vec(
         }
 
         let repeated_code = *out.last().unwrap();
-        out.extend(std::iter::repeat(repeated_code).take(code_repetitions as usize));
+        out.extend(std::iter::repeat(repeated_code).take(code_repetitions));
     }
-    else if out.len() < max_len {
-        out.push(code as u16);
+    else if out.len() < max_len { // implies that code is not larger than u16???
+        out.push(u16::try_from(code).unwrap());
     }
     else {
         return Err(Error::invalid(TOO_MUCH_DATA));
@@ -897,10 +899,17 @@ mod test {
     ];
 
     fn fill(rng: &mut impl Rng, size: usize) -> Vec<u16> {
+        if rng.gen_bool(0.2) {
+            let value = if rng.gen_bool(0.5) { 0 } else { u16::MAX };
+            return vec![ value; size ];
+        }
+
         let mut data = vec![0_u16; size];
+
         data.iter_mut().for_each(|v| {
             *v = rng.gen_range(0_u16, u16::MAX);
         });
+
         data
     }
 
