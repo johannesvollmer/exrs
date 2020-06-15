@@ -112,6 +112,10 @@ struct ShortCode {
     len: u8,
 }
 
+impl ShortCode {
+    #[inline] fn len(&self) -> u64 { self.len as u64 }
+}
+
 /// Decode (uncompress) n bits based on encoding & decoding tables:
 fn decode_with_tables(
     encoding_table: &[u64],
@@ -136,7 +140,7 @@ fn decode_with_tables(
 
             // Get short code
             if let Code::Short(code) = code {
-                code_bit_count -= code.len as u64;
+                code_bit_count -= code.len();
 
                 read_code_into_vec(
                     code.value,
@@ -201,8 +205,8 @@ fn decode_with_tables(
         let code = &decoding_table[index as usize];
 
         if let Code::Short(short_code) = code {
-            if short_code.len as u64 > code_bit_count { return Err(Error::invalid("code")) }; // FIXME why does this happen??
-            code_bit_count -= short_code.len as u64; // FIXME may throw "attempted to subtract with overflow"
+            if short_code.len() > code_bit_count { return Err(Error::invalid("code")) }; // FIXME why does this happen??
+            code_bit_count -= short_code.len(); // FIXME may throw "attempted to subtract with overflow"
 
             read_code_into_vec(
                 short_code.value,
