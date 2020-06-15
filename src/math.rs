@@ -7,6 +7,7 @@
 use std::convert::TryFrom;
 use crate::error::{i32_to_usize};
 use crate::error::Result;
+use std::ops::{Add, Sub, Div};
 
 /// Simple two-dimensional vector of any numerical type.
 /// Supports only few mathematical operations
@@ -157,16 +158,18 @@ pub enum RoundingMode {
 }
 
 impl RoundingMode {
-    pub(crate) fn log2(self, number: usize) -> usize {
+    pub(crate) fn log2(self, number: u32) -> u32 {
         match self {
-            RoundingMode::Down => self::floor_log_2(number as u32) as usize,
-            RoundingMode::Up => self::ceil_log_2(number as u32) as usize,
+            RoundingMode::Down => self::floor_log_2(number),
+            RoundingMode::Up => self::ceil_log_2(number),
         }
     }
 
-    pub(crate) fn divide(self, dividend: usize, divisor: usize) -> usize {
+    pub(crate) fn divide<T>(self, dividend: T, divisor: T) -> T
+        where T: Copy + Add<Output = T> + Sub<Output = T> + Div<Output = T> + From<u8>
+    {
         match self {
-            RoundingMode::Up => (dividend + divisor - 1) / divisor, // only works for positive numbers
+            RoundingMode::Up => (dividend + divisor - T::from(1_u8)) / divisor, // only works for positive numbers
             RoundingMode::Down => dividend / divisor,
         }
     }

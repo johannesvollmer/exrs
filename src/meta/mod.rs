@@ -244,7 +244,7 @@ pub fn calculate_block_size(total_size: usize, block_size: usize, block_position
 /// Calculate number of mip levels in a given resolution.
 // TODO this should be cached? log2 may be very expensive
 pub fn compute_level_count(round: RoundingMode, full_res: usize) -> usize {
-    round.log2(full_res) + 1
+    usize::try_from(round.log2(u32::try_from(full_res).unwrap())).unwrap() + 1
 }
 
 /// Calculate the size of a single mip level by index.

@@ -75,7 +75,7 @@ impl From<IoError> for Error {
 // TODO use `usize::try_from(x)?` everywhere
 impl From<TryFromIntError> for Error {
     fn from(_: TryFromIntError) -> Self {
-        Error::invalid("maximum size exceeded")
+        Error::invalid("invalid size")
     }
 }
 
