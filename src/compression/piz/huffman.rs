@@ -17,10 +17,10 @@ use std::convert::TryFrom;
 pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
     let mut remaining_compressed = compressed;
 
-    let min_code_index = usize::try_from(u32::read(&mut remaining_compressed)?).unwrap();
+    let min_code_index = usize::try_from(u32::read(&mut remaining_compressed)?)?;
     let max_code_index_32 = u32::read(&mut remaining_compressed)?;
-    let _table_size = usize::try_from(u32::read(&mut remaining_compressed)?).unwrap(); // TODO check this and return Err?
-    let bit_count = usize::try_from(u32::read(&mut remaining_compressed)?).unwrap();
+    let _table_size = usize::try_from(u32::read(&mut remaining_compressed)?)?; // TODO check this and return Err?
+    let bit_count = usize::try_from(u32::read(&mut remaining_compressed)?)?;
     let _skipped = u32::read(&mut remaining_compressed)?; // what is this
 
     let max_code_index = usize::try_from(max_code_index_32).unwrap();
@@ -41,7 +41,7 @@ pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
         &encoding_table,
         &decoding_table,
         &remaining_compressed,
-        bit_count,
+        i32::try_from(bit_count)?,
         max_code_index_32,
         expected_size,
     )?;
@@ -123,7 +123,7 @@ fn decode_with_tables(
     encoding_table: &[u64],
     decoding_table: &[Code],
     mut input: &[u8],
-    input_bit_count: usize,
+    input_bit_count: i32,
     run_length_code: u32,
     expected_output_size: usize,
 ) -> Result<Vec<u16>>
@@ -137,8 +137,8 @@ fn decode_with_tables(
 
         // Access decoding table
         while code_bit_count >= DECODE_BITS {
-            let code_index = ((code_bits >> (code_bit_count - DECODE_BITS)) & DECODE_MASK) as usize;
-            let code = &decoding_table[code_index];
+            let code_index = (code_bits >> (code_bit_count - DECODE_BITS)) & DECODE_MASK;
+            let code = &decoding_table[code_index as usize];
 
             // Get short code
             if let Code::Short(code) = code {
@@ -198,9 +198,9 @@ fn decode_with_tables(
         }
     }
 
-    let count = (8 - input_bit_count as i32) & 7;
-    code_bits >>= count as u64;
-    code_bit_count -= count as u64;
+    let count = u64::try_from((8 - input_bit_count) & 7)?;
+    code_bits >>= count;
+    code_bit_count -= count;
 
     while code_bit_count > 0 {
         let index = (code_bits << (DECODE_BITS - code_bit_count)) & DECODE_MASK;
@@ -246,6 +246,8 @@ fn build_decoding_table(
     let mut decoding_table = vec![Code::Empty; DECODING_TABLE_SIZE]; // not an array because of code not being copy
 
     for (code_index, &encoded_code) in encoding_table[..= max_code_index].iter().enumerate().skip(min_code_index) {
+        let code_index = u32::try_from(code_index).unwrap();
+
         let code = code(encoded_code);
         let length = length(encoded_code);
 
@@ -257,21 +259,21 @@ fn build_decoding_table(
             let long_code = &mut decoding_table[(code >> (length - DECODE_BITS)) as usize];
 
             match long_code {
-                Code::Empty => *long_code = Code::Long(vec![code_index as u32]),
-                Code::Long(lits) => lits.push(code_index as u32),
+                Code::Empty => *long_code = Code::Long(vec![code_index]),
+                Code::Long(lits) => lits.push(code_index),
                 _ => { return Err(Error::invalid(INVALID_TABLE_ENTRY)); }
             }
         }
         else if length != 0 {
             let default_value = Code::Short(ShortCode {
-                value: code_index as u32,
+                value: code_index,
                 len: length as u8,
             });
 
             let start_index = (code << (DECODE_BITS - length)) as usize;
             let count = 1 << (DECODE_BITS - length) as usize;
 
-            for value in &mut decoding_table[start_index..start_index + count] {
+            for value in &mut decoding_table[start_index .. start_index + count] {
                 *value = default_value.clone();
             }
         }
@@ -300,29 +302,29 @@ fn read_encoding_table(
 
         if code_len == LONG_ZEROCODE_RUN {
             let zerun_bits = read_bits(8, &mut code_bits, &mut code_bit_count, packed)?;
-            let zerun = zerun_bits + SHORTEST_LONG_RUN;
+            let zerun = usize::try_from(zerun_bits + SHORTEST_LONG_RUN).unwrap();
 
-            if code_index as u64 + zerun > max_code_index as u64 + 1 {
+            if code_index + zerun > max_code_index + 1 {
                 return Err(Error::invalid(TABLE_TOO_LONG));
             }
 
-            for value in &mut encoding_table[code_index..code_index + zerun as usize] {
+            for value in &mut encoding_table[code_index..code_index + zerun] {
                 *value = 0;
             }
 
-            code_index += zerun as usize;
+            code_index += zerun;
         }
         else if code_len >= SHORT_ZEROCODE_RUN {
-            let duplication_count = code_len - SHORT_ZEROCODE_RUN + 2;
-            if code_index as u64 + duplication_count > max_code_index as u64 + 1 {
+            let duplication_count = usize::try_from(code_len - SHORT_ZEROCODE_RUN + 2).unwrap();
+            if code_index + duplication_count > max_code_index + 1 {
                 return Err(Error::invalid(TABLE_TOO_LONG));
             }
 
-            for value in &mut encoding_table[code_index..code_index + duplication_count as usize] {
+            for value in &mut encoding_table[code_index .. code_index + duplication_count] {
                 *value = 0;
             }
 
-            code_index += duplication_count as usize;
+            code_index += duplication_count;
         }
         else {
             code_index += 1;
@@ -375,7 +377,7 @@ fn read_code_into_vec(
 
         *code_bit_count -= 8;
 
-        let code_repetitions = ((*code_bits >> *code_bit_count) as u8) as usize;
+        let code_repetitions = usize::from((*code_bits >> *code_bit_count) as u8);
 
         if out.len() + code_repetitions > max_len {
             return Err(Error::invalid(TOO_MUCH_DATA));
@@ -388,7 +390,7 @@ fn read_code_into_vec(
         out.extend(std::iter::repeat(repeated_code).take(code_repetitions));
     }
     else if out.len() < max_len { // implies that code is not larger than u16???
-        out.push(u16::try_from(code).unwrap());
+        out.push(u16::try_from(code)?);
     }
     else {
         return Err(Error::invalid(TOO_MUCH_DATA));
@@ -420,7 +422,9 @@ fn write_bits(
 
     while *code_bit_count >= 8 {
         *code_bit_count -= 8;
-        out.write(&[(*code_bits >> *code_bit_count) as u8])?; // TODO make sure never or always wraps?
+        out.write(&[
+            (*code_bits >> *code_bit_count) as u8 // TODO make sure never or always wraps?
+        ])?;
     }
 
     Ok(())
@@ -508,7 +512,9 @@ fn encode_with_frequencies(
     let data_length = out.position() - start_position; // we shouldn't count the last byte write
 
     if code_bit_count != 0 {
-        out.write(&[(code_bits << (8 - code_bit_count) & 0xff) as u8])?;
+        out.write(&[
+            (code_bits << (8 - code_bit_count) & 0xff) as u8
+        ])?;
     }
 
     Ok(data_length * 8 + code_bit_count)
@@ -573,7 +579,9 @@ fn pack_encoding_table(
     }
 
     if code_bit_count > 0 {
-        out.write(&[(code_bits << (8 - code_bit_count)) as u8])?;
+        out.write(&[
+            (code_bits << (8 - code_bit_count)) as u8
+        ])?;
     }
 
     Ok(())
