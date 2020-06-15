@@ -74,12 +74,12 @@ pub fn compress(uncompressed: &[u16]) -> Result<Vec<u8>> {
 
     // write meta data after this
     result.set_position(0);
-    let table_length = (data_start - table_start) as u32;
+    let table_length = data_start - table_start;
 
     (min_code_index as u32).write(&mut result)?;
     (max_code_index as u32).write(&mut result)?;
-    table_length.write(&mut result)?;
-    bit_count.write(&mut result)?;
+    (table_length as u32).write(&mut result)?;
+    (bit_count as u32).write(&mut result)?;
     0_u32.write(&mut result)?;
 
     Ok(result.into_inner())
@@ -431,7 +431,7 @@ fn write_code(scode: u64, code_bits: &mut u64, code_bit_count: &mut u64, mut out
 #[inline(always)]
 fn send_code(
     scode: u64,
-    run_count: u32,
+    run_count: u64,
     run_code: u64,
     code_bits: &mut u64,
     code_bit_count: &mut u64,
@@ -442,13 +442,13 @@ fn send_code(
     // Output the symbols explicitly, or if that is shorter, output
     // the sCode symbol once followed by a runCode symbol and runCount
     // expressed as an 8-bit number.
-    if length(scode) + length(run_code) + 8 < length(scode) * u64::from(run_count) {
+    if length(scode) + length(run_code) + 8 < length(scode) * run_count {
         write_code(scode, code_bits, code_bit_count, &mut out)?;
         write_code(run_code, code_bits, code_bit_count, &mut out)?;
-        write_bits(8, run_count as u64, code_bits, code_bit_count, &mut out)?;
+        write_bits(8, run_count, code_bits, code_bit_count, &mut out)?;
     }
     else {
-        for _ in 0 ..= (run_count as u64) {
+        for _ in 0 ..= run_count {
             write_code(scode, code_bits, code_bit_count, &mut out)?;
         }
     }
@@ -461,7 +461,7 @@ fn encode_with_frequencies(
     uncompressed: &[u16],
     run_length_code: usize,
     mut out: &mut Cursor<Vec<u8>>,
-) -> Result<u32>
+) -> Result<u64>
 {
     let mut code_bits = 0;
     let mut code_bit_count = 0;
@@ -509,7 +509,7 @@ fn encode_with_frequencies(
         out.write(&[(code_bits << (8 - code_bit_count) & 0xff) as u8])?;
     }
 
-    Ok((data_length * 8 + code_bit_count) as u32)
+    Ok(data_length * 8 + code_bit_count)
 }
 
 ///
