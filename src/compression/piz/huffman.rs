@@ -147,47 +147,46 @@ fn decode_with_tables(
                     &mut output,
                     expected_ouput_size,
                 )?;
-            } else if let Code::Long(ref long_codes) = code {
-                let mut code_search_index = 0;
-
+            }
+            else if let Code::Long(ref long_codes) = code {
                 debug_assert_ne!(long_codes.len(), 0);
 
-                while code_search_index < long_codes.len() {
-                    let long_code = long_codes[code_search_index];
-                    let encoded_long_code = encoding_table[long_code as usize];
-                    let length = length(encoded_long_code);
+                let long_code = long_codes.iter()
+                    .filter_map(|&long_code|{
+                        let encoded_long_code = encoding_table[long_code as usize];
+                        let length = length(encoded_long_code);
 
-                    while code_bit_count < length && input.len() > 0 {
-                        read_byte(&mut code_bits, &mut code_bit_count, &mut input)?;
-                    }
-
-                    if code_bit_count >= length {
-                        let required_code = (code_bits >> (code_bit_count - length)) & ((1 << length) - 1);
-
-                        if self::code(encoded_long_code) == required_code {
-                            code_bit_count -= length;
-                            read_code_into_vec(
-                                long_code,
-                                run_length_code,
-                                &mut code_bits,
-                                &mut code_bit_count,
-                                &mut input,
-                                &mut output,
-                                expected_ouput_size,
-                            )?;
-
-                            break;
+                        while code_bit_count < length && input.len() > 0 {
+                            let err = read_byte(&mut code_bits, &mut code_bit_count, &mut input);
+                            if let Err(err) = err { return Some(Err(err)); }
                         }
-                    }
 
-                    code_search_index += 1;
-                }
+                        if code_bit_count >= length {
+                            let required_code = (code_bits >> (code_bit_count - length)) & ((1 << length) - 1);
 
-                if code_search_index == long_codes.len() {
-                    // loop ran through without finding the code
-                    return Err(Error::invalid(INVALID_CODE));
-                }
-            } else {
+                            if self::code(encoded_long_code) == required_code {
+                                code_bit_count -= length;
+                                return Some(Ok(long_code));
+                            }
+                        }
+
+                        None
+
+                    })
+                    .next()
+                    .ok_or(Error::invalid(INVALID_CODE))?;
+
+                read_code_into_vec(
+                    long_code?,
+                    run_length_code,
+                    &mut code_bits,
+                    &mut code_bit_count,
+                    &mut input,
+                    &mut output,
+                    expected_ouput_size,
+                )?;
+            }
+            else {
                 return Err(Error::invalid(INVALID_CODE));
             }
         }
