@@ -60,7 +60,7 @@ pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: In
 
         for y in area.position.1..area.end().1 {
             for channel in &channels.list {
-                if mod_p(y, channel.sampling.1 as i32) != 0 { continue; }
+                if mod_p(y, usize_to_i32(channel.sampling.1)) != 0 { continue; }
 
                 // this apparently can't be a closure in Rust 1.43 due to borrowing ambiguity
                 let sample_count_x = channel.subsampled_resolution(area.size).0;
@@ -149,7 +149,7 @@ pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expec
 
     for y in area.position.1 .. area.end().1 {
         for channel in &channels.list {
-            if mod_p(y, channel.sampling.1 as i32) != 0 { continue; }
+            if mod_p(y, usize_to_i32(channel.sampling.1)) != 0 { continue; }
 
             let sample_count_x = channel.subsampled_resolution(area.size).0;
             let mut read_samples = ||{

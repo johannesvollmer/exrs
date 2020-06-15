@@ -4,7 +4,7 @@ use crate::meta::attribute::*;
 use crate::compression::{Compression};
 use crate::math::*;
 use std::io::{Read, Seek, Write, Cursor};
-use crate::error::{Result, Error, UnitResult};
+use crate::error::{Result, Error, UnitResult, usize_to_u64};
 use crate::meta::{MetaData, TileIndices};
 use crate::io::{Tracking};
 use crate::io::Data;
@@ -206,7 +206,7 @@ pub fn write_all_tiles_to_buffered(
 
     // line order is respected in here
     crate::block::for_compressed_blocks_in_image(headers.as_slice(), get_tile, options.parallel_compression, |chunk_index, chunk|{
-        offset_tables[chunk.layer_index][chunk_index] = write.byte_position() as u64; // safe indices from `enumerate()`
+        offset_tables[chunk.layer_index][chunk_index] = usize_to_u64(write.byte_position()); // safe indices from `enumerate()`
         chunk.write(&mut write, headers.as_slice())?;
 
         options.on_progress.on_write_progressed(

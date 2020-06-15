@@ -165,18 +165,18 @@ impl TileCoordinates {
     /// These coordinates are only valid inside the corresponding one header.
     /// Will start at 0 and always be positive.
     pub fn to_data_indices(&self, tile_size: Vec2<usize>, max: Vec2<usize>) -> Result<IntRect> {
-        let x = self.tile_index.x() as u64 * tile_size.width() as u64;
-        let y = self.tile_index.y() as u64 * tile_size.height() as u64;
+        let x = self.tile_index.x() * tile_size.width();
+        let y = self.tile_index.y() * tile_size.height();
 
-        if x >= max.x() as u64 || y >= max.y() as u64 {
+        if x >= max.x() || y >= max.y() {
             Err(Error::invalid("tile index"))
         }
         else {
             Ok(IntRect {
-                position: Vec2(x as i32, y as i32),
+                position: Vec2(usize_to_i32(x), usize_to_i32(y)),
                 size: Vec2(
-                    calculate_block_size(max.x(), tile_size.width(), x as usize)?,
-                    calculate_block_size(max.y(), tile_size.height(), y as usize)?,
+                    calculate_block_size(max.x(), tile_size.width(), x)?,
+                    calculate_block_size(max.y(), tile_size.height(), y)?,
                 ),
             })
         }
@@ -320,7 +320,7 @@ impl DeepTileBlock {
     }
 }
 
-use crate::error::{UnitResult, Result, Error, u64_to_usize, usize_to_i32};
+use crate::error::{UnitResult, Result, Error, u64_to_usize, usize_to_i32, i32_to_usize};
 use crate::math::Vec2;
 use crate::meta::header::Header;
 
@@ -331,7 +331,7 @@ impl Chunk {
     pub fn write(&self, write: &mut impl Write, headers: &[Header]) -> UnitResult {
         debug_assert!(self.layer_index < headers.len(), "layer index bug"); // validation is done in full_image or simple_image
 
-        if headers.len() != 1 { i32::write(self.layer_index as i32, write)?; }
+        if headers.len() != 1 {  usize_to_i32(self.layer_index).write(write)?; }
         else { assert_eq!(self.layer_index, 0); }
 
         match self.block {
@@ -344,16 +344,16 @@ impl Chunk {
 
     /// Read the value without validating.
     pub fn read(read: &mut impl Read, meta_data: &MetaData) -> Result<Self> {
-        let layer_number = {
+        let layer_number = i32_to_usize(
             if meta_data.requirements.is_multilayer() { i32::read(read)? } // documentation says u64, but is i32
-            else { 0_i32 } // reference the first header for single-layer images
-        };
+            else { 0_i32 }, // reference the first header for single-layer images
+            "chunk data part number"
+        )?;
 
-        if layer_number < 0 || layer_number >= meta_data.headers.len() as i32 {
+        if layer_number >= meta_data.headers.len() {
             return Err(Error::invalid("chunk data part number"));
         }
 
-        let layer_number = layer_number as usize;
         let header = &meta_data.headers[layer_number];
         let max_block_byte_size = header.max_block_byte_size();
 
