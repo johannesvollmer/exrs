@@ -86,12 +86,12 @@ pub fn compress(uncompressed: &[u16]) -> Result<Vec<u8>> {
 }
 
 
-const ENCODE_BITS: usize = 16; // literal (value) bit length
-const DECODE_BITS: usize = 14; // decoding bit size (>= 8)
+const ENCODE_BITS: u64 = 16; // literal (value) bit length
+const DECODE_BITS: u64 = 14; // decoding bit size (>= 8)
 
-const ENCODING_TABLE_SIZE: usize = (1 << ENCODE_BITS) + 1;
-const DECODING_TABLE_SIZE: usize = 1 << DECODE_BITS;
-const DECODE_MASK: usize = DECODING_TABLE_SIZE - 1;
+const ENCODING_TABLE_SIZE: usize = ((1 << ENCODE_BITS) + 1) as usize;
+const DECODING_TABLE_SIZE: usize = (1 << DECODE_BITS) as usize;
+const DECODE_MASK: u64 = DECODING_TABLE_SIZE as u64 - 1;
 
 const SHORT_ZEROCODE_RUN: u64 = 59;
 const LONG_ZEROCODE_RUN: u64 = 63;
@@ -130,8 +130,8 @@ fn decode_with_tables(
         read_byte(&mut code_bits, &mut code_bit_count, &mut input)?;
 
         // Access decoding table
-        while code_bit_count >= DECODE_BITS as u64 {
-            let code_index = ((code_bits >> (code_bit_count - DECODE_BITS as u64)) & DECODE_MASK as u64) as usize;
+        while code_bit_count >= DECODE_BITS {
+            let code_index = ((code_bits >> (code_bit_count - DECODE_BITS)) & DECODE_MASK) as usize;
             let code = &decoding_table[code_index];
 
             // Get short code
@@ -197,7 +197,7 @@ fn decode_with_tables(
     code_bit_count -= count as u64;
 
     while code_bit_count > 0 {
-        let index = (code_bits << (DECODE_BITS as u64 - code_bit_count)) & DECODE_MASK as u64;
+        let index = (code_bits << (DECODE_BITS - code_bit_count)) & DECODE_MASK;
         let code = &decoding_table[index as usize];
 
         if let Code::Short(short_code) = code {
@@ -247,8 +247,8 @@ fn build_decoding_table(
             return Err(Error::invalid(INVALID_TABLE_ENTRY));
         }
 
-        if length > DECODE_BITS as u64 {
-            let long_code = &mut decoding_table[(code >> (length - DECODE_BITS as u64)) as usize];
+        if length > DECODE_BITS {
+            let long_code = &mut decoding_table[(code >> (length - DECODE_BITS)) as usize];
 
             match long_code {
                 Code::Empty => *long_code = Code::Long(vec![code_index as u32]),
@@ -262,8 +262,8 @@ fn build_decoding_table(
                 len: length as u8,
             });
 
-            let start_index = (code << (DECODE_BITS as u64 - length)) as usize;
-            let count = 1 << (DECODE_BITS as u64 - length);
+            let start_index = (code << (DECODE_BITS - length)) as usize;
+            let count = 1 << (DECODE_BITS - length) as usize;
 
             for value in &mut decoding_table[start_index..start_index + count] {
                 *value = default_value.clone();
