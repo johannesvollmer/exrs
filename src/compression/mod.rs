@@ -12,7 +12,7 @@ mod pxr24;
 
 
 use crate::meta::attribute::{IntRect, SampleType, ChannelList};
-use crate::error::{Result, Error};
+use crate::error::{Result, Error, usize_to_i32};
 use crate::meta::header::Header;
 
 
@@ -279,7 +279,7 @@ fn convert_current_to_little_endian(bytes: ByteVec, channels: &ChannelList, rect
 
         for y in rectangle.position.y() .. rectangle.end().y() {
             for channel in &channels.list {
-                if mod_p(y, channel.sampling.y() as i32) != 0 { continue; }
+                if mod_p(y, usize_to_i32(channel.sampling.y())) != 0 { continue; }
 
                 // FIXME do not match on every value
                 for _x in 0 .. rectangle.size.width() / channel.sampling.x() {
@@ -309,7 +309,7 @@ fn convert_little_endian_to_current(bytes: ByteVec, channels: &ChannelList, rect
 
         for y in rectangle.position.y() .. rectangle.end().y() {
             for channel in &channels.list {
-                if mod_p(y, channel.sampling.y() as i32) != 0 { continue; }
+                if mod_p(y, usize_to_i32(channel.sampling.y())) != 0 { continue; }
 
                 // FIXME do not match on every value
                 for _x in 0 .. rectangle.size.width() / channel.sampling.x() {

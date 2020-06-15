@@ -4,7 +4,7 @@
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/88246d991e0318c043e6f584f7493da08a31f9f8/OpenEXR/IlmImf/ImfHuf.cpp
 
 use crate::math::RoundingMode;
-use crate::error::{Error, Result, UnitResult};
+use crate::error::{Error, Result, UnitResult, u64_to_usize, u32_to_usize};
 use crate::io::Data;
 use std::{
     cmp::Ordering,
@@ -138,7 +138,7 @@ fn decode_with_tables(
         // Access decoding table
         while code_bit_count >= DECODE_BITS {
             let code_index = (code_bits >> (code_bit_count - DECODE_BITS)) & DECODE_MASK;
-            let code = &decoding_table[code_index as usize];
+            let code = &decoding_table[u64_to_usize(code_index)];
 
             // Get short code
             if let Code::Short(code) = code {
@@ -159,7 +159,7 @@ fn decode_with_tables(
 
                 let long_code = long_codes.iter()
                     .filter_map(|&long_code|{
-                        let encoded_long_code = encoding_table[long_code as usize];
+                        let encoded_long_code = encoding_table[u32_to_usize(long_code)];
                         let length = length(encoded_long_code);
 
                         while code_bit_count < length && input.len() > 0 {
@@ -204,7 +204,7 @@ fn decode_with_tables(
 
     while code_bit_count > 0 {
         let index = (code_bits << (DECODE_BITS - code_bit_count)) & DECODE_MASK;
-        let code = &decoding_table[index as usize];
+        let code = &decoding_table[u64_to_usize(index)];
 
         if let Code::Short(short_code) = code {
             if short_code.len() > code_bit_count { return Err(Error::invalid("code")) }; // FIXME why does this happen??
@@ -256,7 +256,7 @@ fn build_decoding_table(
         }
 
         if length > DECODE_BITS {
-            let long_code = &mut decoding_table[(code >> (length - DECODE_BITS)) as usize];
+            let long_code = &mut decoding_table[u64_to_usize(code >> (length - DECODE_BITS))];
 
             match long_code {
                 Code::Empty => *long_code = Code::Long(vec![code_index]),
@@ -270,8 +270,8 @@ fn build_decoding_table(
                 len: length as u8,
             });
 
-            let start_index = (code << (DECODE_BITS - length)) as usize;
-            let count = 1 << (DECODE_BITS - length) as usize;
+            let start_index = u64_to_usize(code << (DECODE_BITS - length));
+            let count = u64_to_usize(1 << (DECODE_BITS - length));
 
             for value in &mut decoding_table[start_index .. start_index + count] {
                 *value = default_value.clone();
@@ -606,7 +606,7 @@ fn build_canonical_table(code_table: &mut [u64]) {
     let mut count_per_code = [0_u64; 59];
 
     for &code in code_table.iter() {
-        count_per_code[code as usize] += 1;
+        count_per_code[u64_to_usize(code)] += 1;
     }
 
     // For each i from 58 through 1, compute the
@@ -627,9 +627,10 @@ fn build_canonical_table(code_table: &mut [u64]) {
     // l and the code in code[i].
     for symbol_length in code_table.iter_mut() {
         let current_length = *symbol_length;
+        let code_index = u64_to_usize(current_length);
         if current_length > 0 {
-            *symbol_length = current_length | (count_per_code[current_length as usize] << 6);
-            count_per_code[current_length as usize] += 1;
+            *symbol_length = current_length | (count_per_code[code_index] << 6);
+            count_per_code[code_index] += 1;
         }
     }
 }
