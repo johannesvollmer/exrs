@@ -56,10 +56,9 @@ pub struct Layer {
     /// The image also has attributes that do not differ per layer.
     pub attributes: LayerAttributes,
 
-    /// The rectangle that positions this layer
-    /// within the global infinite 2D space of the file.
-    /// See `layer.attributes` for more attributes.
-    pub data_size: Vec2<usize>,
+    /// The pixel resolution of this layer.
+    /// See `layer.attributes` for more attributes, like for example layer position.
+    pub size: Vec2<usize>,
 
     /// In what order the tiles of this header occur in the file.
     /// Does not change any actual image orientation.
@@ -179,7 +178,7 @@ impl Image {
     /// Use the raw `Image { .. }` constructor for even more complex cases.
     pub fn new_from_single_layer(layer: Layer) -> Self {
         Self {
-            attributes: ImageAttributes::new(layer.data_size),
+            attributes: ImageAttributes::new(layer.size),
             layers: smallvec![ layer ],
         }
     }
@@ -317,7 +316,7 @@ impl Layer {
 
         Layer {
             channels,
-            data_size,
+            size: data_size,
             compression: Compression::Uncompressed,
 
             tile_size: None,
@@ -341,7 +340,7 @@ impl Layer {
     /// The rectangle describing the bounding box of this layer
     /// within the infinite global 2D space of the file.
     pub fn data_window(&self) -> IntRect {
-        IntRect::new(self.attributes.data_position, self.data_size)
+        IntRect::new(self.attributes.layer_position, self.size)
     }
 }
 
@@ -391,7 +390,7 @@ impl Image {
         let shared_attributes = &headers.iter()
             // pick the header with the most attributes (ignoring optional default attributes)
             // (all headers should have the same shared attributes anyways)
-            .max_by_key(|header| header.shared_attributes.custom.len())
+            .max_by_key(|header| header.shared_attributes.other.len())
             .expect("no headers found").shared_attributes;
 
         let headers : Result<_> = headers.iter()
@@ -439,7 +438,7 @@ impl Layer {
     /// Allocate an layer ready to be filled with pixel data.
     pub fn allocate(header: &Header) -> Result<Self> {
         Ok(Layer {
-            data_size: header.data_size,
+            size: header.layer_size,
             attributes: header.own_attributes.clone(),
             channels: header.channels.list.iter().map(|channel| Channel::allocate(header, channel)).collect(),
             compression: header.compression,
@@ -458,23 +457,23 @@ impl Layer {
     /// Insert one line of pixel data into this layer.
     /// Returns an error for invalid index or line contents.
     pub fn insert_line(&mut self, line: LineRef<'_>) -> UnitResult {
-        debug_assert!(line.location.position.x() + line.location.sample_count <= self.data_size.width(), "line index calculation bug");
-        debug_assert!(line.location.position.y() < self.data_size.height(), "line index calculation bug");
+        debug_assert!(line.location.position.x() + line.location.sample_count <= self.size.width(), "line index calculation bug");
+        debug_assert!(line.location.position.y() < self.size.height(), "line index calculation bug");
 
         self.channels.get_mut(line.location.channel)
             .expect("invalid channel index")
-            .insert_line(line, self.data_size)
+            .insert_line(line, self.size)
     }
 
     /// Read one line of pixel data from this layer.
     /// Panics for an invalid index or write error.
     pub fn extract_line(&self, line: LineRefMut<'_>) {
-        debug_assert!(line.location.position.x() + line.location.sample_count <= self.data_size.width(), "line index calculation bug");
-        debug_assert!(line.location.position.y() < self.data_size.height(), "line index calculation bug");
+        debug_assert!(line.location.position.x() + line.location.sample_count <= self.size.width(), "line index calculation bug");
+        debug_assert!(line.location.position.y() < self.size.height(), "line index calculation bug");
 
         self.channels.get(line.location.channel)
             .expect("invalid channel index")
-            .extract_line(line, self.data_size)
+            .extract_line(line, self.size)
     }
 
     /// Create the meta data that describes this layer.
@@ -493,13 +492,13 @@ impl Layer {
             .map(Channel::infer_channel_attribute).collect();
 
         let chunk_count = compute_chunk_count(
-            self.compression, self.data_size, blocks
+            self.compression, self.size, blocks
         );
 
         Header {
             chunk_count,
 
-            data_size: self.data_size,
+            layer_size: self.size,
             compression: self.compression,
             channels: ChannelList::new(channels),
             line_order: self.line_order,
@@ -522,7 +521,7 @@ impl Channel {
     pub fn allocate(header: &Header, channel: &crate::meta::attribute::ChannelInfo) -> Self {
         // do not allocate for deep data
         let size = if header.deep { Vec2(0, 0) } else {
-            header.data_size / channel.sampling
+            header.layer_size / channel.sampling
         };
 
         Channel {

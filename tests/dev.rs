@@ -37,7 +37,7 @@ fn search_previews_of_all_files() {
     files.into_par_iter().for_each(|path| {
         let meta = MetaData::read_from_file(&path, false).unwrap();
         let has_preview = meta.headers.iter().any(|header: &Header|
-            header.own_attributes.preview.is_some() || header.own_attributes.custom.values()
+            header.own_attributes.preview.is_some() || header.own_attributes.other.values()
                 .any(|value| match value { AttributeValue::Preview(_) => true, _ => false })
         );
 

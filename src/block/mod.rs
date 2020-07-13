@@ -398,7 +398,7 @@ impl UncompressedBlock {
         let tile_data_indices = header.get_block_data_indices(&chunk.block)?;
         let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_data_indices)?;
 
-        absolute_indices.validate(Some(header.data_size))?;
+        absolute_indices.validate(Some(header.layer_size))?;
 
         match chunk.block {
             Block::Tile(TileBlock { compressed_pixels, .. }) |
@@ -438,7 +438,7 @@ impl UncompressedBlock {
         };
 
         let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_coordinates)?;
-        absolute_indices.validate(Some(header.data_size))?;
+        absolute_indices.validate(Some(header.layer_size))?;
 
         debug_assert_eq!(
             &header.compression.decompress_image_section(
@@ -459,7 +459,7 @@ impl UncompressedBlock {
                     compressed_pixels: compressed_data,
 
                     // FIXME this calculation should not be made here but elsewhere instead (in meta::header?)
-                    y_coordinate: usize_to_i32(index.pixel_position.y()) + header.own_attributes.data_position.y(),
+                    y_coordinate: usize_to_i32(index.pixel_position.y()) + header.own_attributes.layer_position.y(),
                 }),
 
                 Blocks::Tiles(_) => Block::Tile(TileBlock {
