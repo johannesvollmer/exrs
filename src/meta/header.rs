@@ -257,6 +257,28 @@ impl LayerAttributes {
     pub fn with_position(self, data_position: Vec2<i32>) -> Self {
         Self { layer_position: data_position, ..self }
     }
+
+    /// Set all common camera projection attributes at once.
+    pub fn with_camera_frustum(
+        self,
+        world_to_camera: Matrix4x4,
+        world_to_normalized_device: Matrix4x4,
+        field_of_view: impl Into<Vec2<f32>>,
+        depth_clip_range: std::ops::Range<f32>,
+    ) -> Self
+    {
+        let fov = field_of_view.into();
+
+        Self {
+            world_to_normalized_device: Some(world_to_normalized_device),
+            world_to_camera: Some(world_to_camera),
+            horizontal_field_of_view: Some(fov.x()),
+            vertical_field_of_view: Some(fov.y()),
+            near_clip_plane: Some(depth_clip_range.start),
+            far_clip_plane: Some(depth_clip_range.end),
+            ..self
+        }
+    }
 }
 
 impl ImageAttributes {
@@ -588,7 +610,6 @@ impl Header {
             }
         }
 
-
         let allow_subsampling = !self.deep && self.blocks == Blocks::ScanLines;
         self.channels.validate(allow_subsampling, self.data_window(), strict)?;
 
@@ -600,6 +621,10 @@ impl Header {
             attribute::validate(name, value, long_names, allow_subsampling, self.data_window(), strict)?;
         }
 
+        // this is only to check whether someone tampered with our precious values, to avoid writing an invalid file
+        if self.chunk_count != compute_chunk_count(self.compression, self.layer_size, self.blocks) {
+            return Err(Error::invalid("chunk count attribute")); // TODO this may be an expensive check?
+        }
 
         // check if attribute names appear twice
         if strict {
