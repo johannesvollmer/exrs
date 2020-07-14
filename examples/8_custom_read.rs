@@ -22,7 +22,7 @@ fn main() {
     #[derive(Debug)]
     struct Layer {
         name: Option<Text>,
-        data_window: IntRect,
+        data_window: IntegerBounds,
 
         /// Collect one average float per channel
         channels: Vec<Channel>,

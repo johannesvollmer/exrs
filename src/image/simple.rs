@@ -190,7 +190,7 @@ impl Image {
     ///
     /// Consider using `Image::new_from_single_layer` for simpler cases.
     /// Use the raw `Image { .. }` constructor for more complex cases.
-    pub fn new_from_layers(layers: Layers, display_window: IntRect) -> Self {
+    pub fn new_from_layers(layers: Layers, display_window: IntegerBounds) -> Self {
         Self { layers, attributes: ImageAttributes::default().with_display_window(display_window) }
     }
 
@@ -350,8 +350,8 @@ impl Layer {
 
     /// The rectangle describing the bounding box of this layer
     /// within the infinite global 2D space of the file.
-    pub fn data_window(&self) -> IntRect {
-        IntRect::new(self.attributes.layer_position, self.size)
+    pub fn data_window(&self) -> IntegerBounds {
+        IntegerBounds::new(self.attributes.layer_position, self.size)
     }
 
     /// Find the smallest possible bounds of this image, keeping only pixels that have at least one non-zero sample.
@@ -374,7 +374,7 @@ impl Layer {
     /// Moves the data window such that the image appears in the same place as before.
     /// Can be used with the bounds returned from `find_content_bounds()`.
     /// The specified bounds must be in absolute coordinates, which is the infinite 2D space of the whole file.
-    pub fn crop(&mut self, absolute_bounds: IntRect) {
+    pub fn crop(&mut self, absolute_bounds: IntegerBounds) {
         let bounds = absolute_bounds.with_origin(-self.attributes.layer_position);
 
         assert!(
@@ -421,7 +421,7 @@ impl Layer {
     /// _Note: This method has O(n) complexity, scaling with the number of pixels,
     /// which is a rather brute force approach. It utilizes multithreading but does not use the graphics card.
     /// Consider implementing your own algorithm, if a faster cropping method is required._
-    pub fn find_content_bounds(&mut self) -> Option<IntRect> {
+    pub fn find_content_bounds(&mut self) -> Option<IntegerBounds> {
         type Bounds = (Vec2<usize>, Vec2<usize>); // min + max
 
         fn union_bounds(bounds: Option<Bounds>, element: Option<Bounds>) -> Option<Bounds> {
@@ -477,7 +477,7 @@ impl Layer {
             }
         };
 
-        new_layer_bounds.map(|(min, max)| IntRect::new(
+        new_layer_bounds.map(|(min, max)| IntegerBounds::new(
             self.attributes.layer_position + min.to_i32(),
             max - min
         ))

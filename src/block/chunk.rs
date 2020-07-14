@@ -2,7 +2,7 @@
 //! Read and write already compressed pixel data blocks.
 //! Does not include the process of compression and decompression.
 
-use crate::meta::attribute::{IntRect};
+use crate::meta::attribute::{IntegerBounds};
 
 /// A generic block of pixel information.
 /// Contains pixel data and an index to the corresponding header.
@@ -164,7 +164,7 @@ impl TileCoordinates {
     /// The indices which can be used to index into the arrays of a data window.
     /// These coordinates are only valid inside the corresponding one header.
     /// Will start at 0 and always be positive.
-    pub fn to_data_indices(&self, tile_size: Vec2<usize>, max: Vec2<usize>) -> Result<IntRect> {
+    pub fn to_data_indices(&self, tile_size: Vec2<usize>, max: Vec2<usize>) -> Result<IntegerBounds> {
         let x = self.tile_index.x() * tile_size.width();
         let y = self.tile_index.y() * tile_size.height();
 
@@ -172,7 +172,7 @@ impl TileCoordinates {
             Err(Error::invalid("tile index"))
         }
         else {
-            Ok(IntRect {
+            Ok(IntegerBounds {
                 position: Vec2(usize_to_i32(x), usize_to_i32(y)),
                 size: Vec2(
                     calculate_block_size(max.x(), tile_size.width(), x)?,
@@ -183,7 +183,7 @@ impl TileCoordinates {
     }
 
     /// Absolute coordinates inside the global 2D space of a file, may be negative.
-    pub fn to_absolute_indices(&self, tile_size: Vec2<usize>, data_window: IntRect) -> Result<IntRect> {
+    pub fn to_absolute_indices(&self, tile_size: Vec2<usize>, data_window: IntegerBounds) -> Result<IntegerBounds> {
         let data = self.to_data_indices(tile_size, data_window.size)?;
         Ok(data.with_origin(data_window.position))
     }

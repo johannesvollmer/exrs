@@ -85,7 +85,7 @@ pub struct ImageAttributes {
 
     /// The rectangle anywhere in the global infinite 2D space
     /// that clips all contents of the file.
-    pub display_window: IntRect,
+    pub display_window: IntegerBounds,
 
     /// Aspect ratio of each pixel in this header.
     pub pixel_aspect: f32,
@@ -213,7 +213,7 @@ pub struct LayerAttributes {
     pub deep_image_state: Option<Rational>,
 
     /// If the image was cropped, contains the original data window.
-    pub original_data_window: Option<IntRect>,
+    pub original_data_window: Option<IntegerBounds>,
 
     /// An 8-bit RGBA image representing the rendered image.
     pub preview: Option<Preview>,
@@ -287,13 +287,13 @@ impl ImageAttributes {
     /// The display window position is set to zero.
     pub fn new(display_size: impl Into<Vec2<usize>>) -> Self {
         Self {
-            display_window: IntRect::from_dimensions(display_size),
+            display_window: IntegerBounds::from_dimensions(display_size),
             .. Self::default()
         }
     }
 
     /// Set the data position of this layer.
-    pub fn with_display_window(self, display_window: IntRect) -> Self {
+    pub fn with_display_window(self, display_window: IntegerBounds) -> Self {
         Self { display_window, ..self }
     }
 }
@@ -338,7 +338,7 @@ impl Header {
 
     /// Set the display window, that is, the global clipping rectangle.
     /// __Must be the same for all headers of a file.__
-    pub fn with_display_window(mut self, display_window: IntRect) -> Self {
+    pub fn with_display_window(mut self, display_window: IntegerBounds) -> Self {
         self.shared_attributes.display_window = display_window;
         self
     }
@@ -447,13 +447,13 @@ impl Header {
     }
 
     /// Calculate the position of a block in the global infinite 2D space of a file. May be negative.
-    pub fn get_block_data_window_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntRect> {
+    pub fn get_block_data_window_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntegerBounds> {
         let data = self.get_absolute_block_pixel_coordinates(tile)?;
         Ok(data.with_origin(self.own_attributes.layer_position))
     }
 
     /// Calculate the pixel index rectangle inside this header. Is not negative. Starts at `0`.
-    pub fn get_absolute_block_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntRect> {
+    pub fn get_absolute_block_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntegerBounds> {
         if let Blocks::Tiles(tiles) = self.blocks {
             let Vec2(data_width, data_height) = self.layer_size;
 
@@ -476,7 +476,7 @@ impl Header {
                 tile.tile_index.y()
             )?;
 
-            Ok(IntRect {
+            Ok(IntegerBounds {
                 position: Vec2(0, usize_to_i32(y)),
                 size: Vec2(self.layer_size.width(), height)
             })
@@ -739,8 +739,8 @@ impl Header {
                         (name::TILES, TileDescription(value)) => tiles = Some(value),
                         (name::CHANNELS, ChannelList(value)) => channels = Some(value),
                         (name::COMPRESSION, Compression(value)) => compression = Some(value),
-                        (name::DATA_WINDOW, IntRect(value)) => data_window = Some(value),
-                        (name::DISPLAY_WINDOW, IntRect(value)) => display_window = Some(value),
+                        (name::DATA_WINDOW, IntegerBounds(value)) => data_window = Some(value),
+                        (name::DISPLAY_WINDOW, IntegerBounds(value)) => display_window = Some(value),
                         (name::LINE_ORDER, LineOrder(value)) => line_order = Some(value),
                         (name::DEEP_DATA_VERSION, I32(value)) => version = Some(value),
 
@@ -781,7 +781,7 @@ impl Header {
                         (name::WORLD_TO_CAMERA, Matrix4x4(value)) => layer_attributes.world_to_camera = Some(value),
                         (name::WORLD_TO_NDC, Matrix4x4(value)) => layer_attributes.world_to_normalized_device = Some(value),
                         (name::DEEP_IMAGE_STATE, Rational(value)) => layer_attributes.deep_image_state = Some(value),
-                        (name::ORIGINAL_DATA_WINDOW, IntRect(value)) => layer_attributes.original_data_window = Some(value),
+                        (name::ORIGINAL_DATA_WINDOW, IntegerBounds(value)) => layer_attributes.original_data_window = Some(value),
                         (name::DWA_COMPRESSION_LEVEL, F32(value)) => dwa_compression_level = Some(value),
                         (name::PREVIEW, Preview(value)) => layer_attributes.preview = Some(value),
                         (name::VIEW, Text(value)) => layer_attributes.view_name = Some(value),
@@ -918,9 +918,9 @@ impl Header {
             CHANNELS: ChannelList = &self.channels,
             COMPRESSION: Compression = &self.compression,
             LINE_ORDER: LineOrder = &self.line_order,
-            DATA_WINDOW: IntRect = &self.data_window(),
+            DATA_WINDOW: IntegerBounds = &self.data_window(),
 
-            DISPLAY_WINDOW: IntRect = &self.shared_attributes.display_window,
+            DISPLAY_WINDOW: IntegerBounds = &self.shared_attributes.display_window,
             PIXEL_ASPECT: F32 = &self.shared_attributes.pixel_aspect,
 
             WINDOW_CENTER: FloatVec2 = &self.own_attributes.screen_window_center,
@@ -954,7 +954,7 @@ impl Header {
             WORLD_TO_CAMERA: Matrix4x4 = &self.own_attributes.world_to_camera,
             WORLD_TO_NDC: Matrix4x4 = &self.own_attributes.world_to_normalized_device,
             DEEP_IMAGE_STATE: Rational = &self.own_attributes.deep_image_state,
-            ORIGINAL_DATA_WINDOW: IntRect = &self.own_attributes.original_data_window,
+            ORIGINAL_DATA_WINDOW: IntegerBounds = &self.own_attributes.original_data_window,
             CHROMATICITIES: Chromaticities = &self.shared_attributes.chromaticities,
             PREVIEW: Preview = &self.own_attributes.preview,
             VIEW: Text = &self.own_attributes.view_name,
@@ -984,8 +984,8 @@ impl Header {
 
     /// The rectangle describing the bounding box of this layer
     /// within the infinite global 2D space of the file.
-    pub fn data_window(&self) -> IntRect {
-        IntRect::new(self.own_attributes.layer_position, self.layer_size)
+    pub fn data_window(&self) -> IntegerBounds {
+        IntegerBounds::new(self.own_attributes.layer_position, self.layer_size)
     }
 }
 

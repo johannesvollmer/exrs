@@ -646,7 +646,7 @@ mod test {
             chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), Blocks::ScanLines),
             max_samples_per_pixel: Some(4),
             shared_attributes: ImageAttributes {
-                display_window: IntRect {
+                display_window: IntegerBounds {
                     position: Vec2(2,1),
                     size: Vec2(11, 9)
                 },
@@ -703,7 +703,7 @@ mod test {
             chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), Blocks::ScanLines),
             max_samples_per_pixel: Some(4),
             shared_attributes: ImageAttributes {
-                display_window: IntRect {
+                display_window: IntegerBounds {
                     position: Vec2(2,1),
                     size: Vec2(11, 9)
                 },
@@ -751,7 +751,7 @@ mod test {
             chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), Blocks::ScanLines),
             max_samples_per_pixel: Some(4),
             shared_attributes: ImageAttributes {
-                display_window: IntRect {
+                display_window: IntegerBounds {
                     position: Vec2(2,1),
                     size: Vec2(11, 9)
                 },
