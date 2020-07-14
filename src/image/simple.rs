@@ -13,6 +13,7 @@ use std::io::{Seek, BufReader, BufWriter};
 use crate::image::{OnWriteProgress, OnReadProgress, WriteOptions, ReadOptions};
 use crate::block::lines::{LineRef, LineRefMut};
 use crate::meta::header::Header;
+use std::convert::TryFrom;
 
 // TODO dry this module with image::full?
 
@@ -285,6 +286,16 @@ impl Image {
         self.layers.iter().flat_map(|layer: &Layer| &layer.channels)
             .any(|channel: &Channel| channel.samples.contains_nan())
     }
+
+    /// Crops each layer by removing excess pixels with a value of zero.
+    /// Layer that have only pixels with a value of zero are removed from the image.
+    ///
+    /// The layers will visually appear at the same position as before.
+    pub fn remove_excess(&mut self) {
+        let layers = std::mem::take(&mut self.layers);
+        let layers = layers.into_iter().flat_map(|layer| layer.without_excess()).collect();
+        self.layers = layers;
+    }
 }
 
 
@@ -341,6 +352,135 @@ impl Layer {
     /// within the infinite global 2D space of the file.
     pub fn data_window(&self) -> IntRect {
         IntRect::new(self.attributes.layer_position, self.size)
+    }
+
+    /// Find the smallest possible bounds of this image, keeping only pixels that have at least one non-zero sample.
+    /// Moves the data window such that the image appears in the same place as before.
+    ///
+    /// This does not discard pixels that have an `u32` of zero, as these are commonly used for `id`s.
+    /// If this layer has no pixels left after cropping, `None` is returned.
+    /// Use `find_content_bounds()` and `crop` directly to customize this behaviour.
+    ///
+    /// _Note: This method has O(n) complexity, scaling with the number of pixels,
+    /// which is a rather brute force approach. It utilizes multithreading but does not use the graphics card.
+    /// Consider implementing your own algorithm, if a faster cropping method is required._
+    pub fn without_excess(mut self) -> Option<Self> {
+        let content = self.find_content_bounds()?;
+        self.crop(content);
+        Some(self)
+    }
+
+    /// Keep only pixels that are inside the specified bounds. Remove all the other pixels.
+    /// Moves the data window such that the image appears in the same place as before.
+    /// Can be used with the bounds returned from `find_content_bounds()`.
+    /// The specified bounds must be in absolute coordinates, which is the infinite 2D space of the whole file.
+    pub fn crop(&mut self, absolute_bounds: IntRect) {
+        let bounds = absolute_bounds.with_origin(-self.attributes.layer_position);
+
+        assert!(
+            bounds.position.x() >= 0 && bounds.position.y() >= 0
+                && bounds.end().x() < self.size.width() as i32
+                && bounds.end().y() < self.size.height() as i32
+                && bounds.size.area() > 0,
+
+            "bounds not valid for layer dimensions"
+        );
+
+        let start_x = usize::try_from(bounds.position.x()).unwrap();
+        let start_y = usize::try_from(bounds.position.y()).unwrap();
+
+        if bounds.size != self.size {
+            fn crop_samples<T: Copy>(samples: &[T], old_width: usize, new_height: usize, x_range: std::ops::Range<usize>, y_start: usize) -> Vec<T> {
+                let kept_old_lines = samples.chunks_exact(old_width).skip(y_start).take(new_height);
+                let trimmed_lines = kept_old_lines.map(|line| &line[x_range.clone()]);
+                trimmed_lines.flatten().map(|x| *x).collect() // TODO does this use memcpy?
+            }
+
+            for channel in &mut self.channels {
+                let samples: &mut Samples = &mut channel.samples;
+                let x_range = start_x .. start_x + bounds.size.width();
+
+                match samples {
+                    Samples::F16(samples) => *samples = crop_samples(samples, self.size.width(), bounds.size.height(), x_range.clone(), start_y),
+                    Samples::F32(samples) => *samples = crop_samples(samples, self.size.width(), bounds.size.height(), x_range.clone(), start_y),
+                    Samples::U32(samples) => *samples = crop_samples(samples, self.size.width(), bounds.size.height(), x_range.clone(), start_y),
+                }
+            }
+
+            self.size = bounds.size;
+            self.attributes.layer_position = absolute_bounds.position;
+        }
+    }
+
+    /// Find the smallest possible bounds of this image, keeping only pixels that have at least one non-zero sample.
+    /// This does not discard pixels that have an `u32` of zero, as these are commonly used for `id`s.
+    /// The specified bounds are in absolute coordinates, which is the infinite 2D space of the whole file.
+    ///
+    /// If this layer has no pixels left after cropping, `None` is returned.
+    ///
+    /// _Note: This method has O(n) complexity, scaling with the number of pixels,
+    /// which is a rather brute force approach. It utilizes multithreading but does not use the graphics card.
+    /// Consider implementing your own algorithm, if a faster cropping method is required._
+    pub fn find_content_bounds(&mut self) -> Option<IntRect> {
+        type Bounds = (Vec2<usize>, Vec2<usize>); // min + max
+
+        fn union_bounds(bounds: Option<Bounds>, element: Option<Bounds>) -> Option<Bounds> {
+            if let Some((min, max)) = element {
+                // this is not the first line with content
+                if let Some((min0, max0)) = bounds { Some((min0.min(min), max0.max(max))) }
+                else { Some((min, max)) } // this is the first line with content
+            }
+            // this is an empty line
+            else { bounds }
+        }
+
+        // shrink a single line. returns none, if all pixels should be discarded
+        fn crop_line<T>(samples: &[T]) -> Option<(usize, usize)> where T: PartialEq + Default {
+            let discard = |value: &T| *value != T::default();
+            let end = samples.iter().rposition(discard)?; // return none if every pixel should be discarded
+            let start = samples[..end].iter().position(discard).unwrap(); // we know there must be some non-zero pixel
+            Some((start, end))
+        }
+
+        // shrink a whole channel. returns (min, max)
+        fn crop_lines<T: Sync + PartialEq + Default>(samples: &[T], resolution: Vec2<usize>) -> Option<Bounds> {
+            use rayon::prelude::*;
+
+             samples
+                 .par_chunks(resolution.width())
+                 .enumerate()
+                 .map(|(y, line)|
+                     crop_line(line).map(|(min_x, max_x)| (Vec2(min_x, y), Vec2(max_x, y)))
+                 )
+                 .fold(|| None, union_bounds)
+                 .reduce(|| None, union_bounds)
+        }
+
+        let original_bounds = (Vec2(0,0), self.size);
+
+        let new_layer_bounds = {
+            if self.channels.iter().any(|channel| matches!(channel.samples, Samples::U32(_))) {
+                Some(original_bounds)
+            }
+            else {
+                self.channels.iter()
+                    .map(|channel| {
+                        match &channel.samples { // FIXME iterates ALL channels even if first one is 100% opaque
+                            Samples::F16(samples) => crop_lines(samples, self.size),
+                            Samples::F32(samples) => crop_lines(samples, self.size),
+                            Samples::U32(_) => unreachable!("do not crop id pixels"),
+                        }
+                    })
+
+                    // pick the largest rectangle, as ALL channel values must be zero
+                    .fold(None, union_bounds)
+            }
+        };
+
+        new_layer_bounds.map(|(min, max)| IntRect::new(
+            self.attributes.layer_position + min.to_i32(),
+            max - min
+        ))
     }
 }
 
@@ -630,5 +770,37 @@ impl std::fmt::Debug for Samples {
             Samples::F32(vec) => write!(formatter, "[f32; {}]", vec.len()),
             Samples::U32(vec) => write!(formatter, "[u32; {}]", vec.len()),
         }
+    }
+}
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    pub fn test_crop(){
+        let channel = Channel::color_data("".try_into().unwrap(), Samples::F32(vec![
+            0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 3.0, 0.0,
+            0.0, 0.4, 0.3, 0.0,
+            0.0, 0.0, 0.0, 0.0,
+        ]));
+
+        let expected_channel = Channel::color_data("".try_into().unwrap(), Samples::F32(vec![
+            0.0, 3.0,
+            0.4, 0.3,
+        ]));
+
+        let image = Image::new_from_single_layer(Layer::new(
+            "".try_into().unwrap(), Vec2(4, 4), smallvec![ channel ]
+        ));
+
+        let mut cropped = image.clone();
+        cropped.remove_excess();
+
+        assert_ne!(image, cropped);
+        assert_eq!(cropped.layers[0].channels.as_slice(), &[ expected_channel ]);
+        assert_eq!(cropped.layers[0].attributes.layer_position, Vec2(1,1));
     }
 }

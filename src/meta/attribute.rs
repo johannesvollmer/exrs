@@ -754,7 +754,7 @@ impl IntRect {
     }
 
     /// Create a new rectangle which is offset by the specified origin.
-    pub fn with_origin(self, origin: Vec2<i32>) -> Self {
+    pub fn with_origin(self, origin: Vec2<i32>) -> Self { // TODO rename to "move" or "translate"?
         IntRect { position: self.position + origin, .. self }
     }
 }
