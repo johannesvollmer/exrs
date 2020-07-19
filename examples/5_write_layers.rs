@@ -11,6 +11,9 @@ use exr::prelude::simple_image::*;
 
 
 /// Generate an image with channel groups and write it to a file.
+/// Note: This is an OpenEXR legacy strategy. OpenEXR supports layers natively since 2013.
+/// Use the natively supported exrs `Layer` types instead, if possible.
+///
 /// The channels have the following structure:
 ///
 /// - Object
@@ -22,8 +25,6 @@ use exr::prelude::simple_image::*;
 ///     - Red
 ///     - Green
 ///     - Blue
-
-///
 fn main() {
     let size = Vec2(512, 512);
 
@@ -36,7 +37,7 @@ fn main() {
         )
     };
 
-
+    // layers that contain a `.` will be grouped, as seen in the following example:
     let foreground_r = create_channel("Object.R");
     let foreground_g = create_channel("Object.G");
     let foreground_b = create_channel("Object.B");

@@ -31,6 +31,7 @@ pub enum Compression {
 
     /// Store uncompressed values.
     /// Produces large files that can be read and written very quickly.
+    /// Consider using RLE instead, as it provides some compression with almost equivalent speed.
     Uncompressed,
 
     /// Produces slightly smaller files
