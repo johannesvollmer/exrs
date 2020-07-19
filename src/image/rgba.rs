@@ -484,7 +484,7 @@ impl ImageInfo {
         pixels: GetPixels!(),
     ) -> UnitResult
     {
-        crate::io::attempt_delete_file_on_write_error(path, |write|
+        crate::io::attempt_delete_file_on_write_error(path.as_ref(), |write|
             self.write_pixels_to_unbuffered(write, options, pixels)
         )
     }

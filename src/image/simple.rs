@@ -254,7 +254,7 @@ impl Image {
     /// If an error occurs, attempts to delete the partially written file.
     #[must_use]
     pub fn write_to_file(&self, path: impl AsRef<std::path::Path>, options: WriteOptions<impl OnWriteProgress>) -> UnitResult {
-        crate::io::attempt_delete_file_on_write_error(path, |write|
+        crate::io::attempt_delete_file_on_write_error(path.as_ref(), |write|
             self.write_to_unbuffered(write, options)
         )
     }
