@@ -471,17 +471,17 @@ impl MetaData {
         if pedantic { // check for duplicate header names
             let mut header_names = HashSet::with_capacity(headers.len());
             for header in headers {
-                if !header_names.insert(&header.own_attributes.name) {
+                if !header_names.insert(&header.own_attributes.layer_name) {
                     return Err(Error::invalid(format!(
                         "duplicate layer name: `{}`",
-                        header.own_attributes.name.as_ref().expect("header validation bug")
+                        header.own_attributes.layer_name.as_ref().expect("header validation bug")
                     )));
                 }
             }
         }
 
         if pedantic {
-            let must_share = headers.iter().flat_map(|header| header.own_attributes.custom.iter())
+            let must_share = headers.iter().flat_map(|header| header.own_attributes.other.iter())
                 .any(|(_, value)| value.to_chromaticities().is_ok() || value.to_time_code().is_ok());
 
             if must_share {
@@ -646,7 +646,7 @@ mod test {
             chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), Blocks::ScanLines),
             max_samples_per_pixel: Some(4),
             shared_attributes: ImageAttributes {
-                display_window: IntRect {
+                display_window: IntegerBounds {
                     position: Vec2(2,1),
                     size: Vec2(11, 9)
                 },
@@ -656,10 +656,10 @@ mod test {
 
             blocks: Blocks::ScanLines,
             deep: false,
-            data_size: Vec2(2000, 333),
+            layer_size: Vec2(2000, 333),
             own_attributes: LayerAttributes {
-                name: Some(Text::from("test name lol").unwrap()),
-                data_position: Vec2(3, -5),
+                layer_name: Some(Text::from("test name lol").unwrap()),
+                layer_position: Vec2(3, -5),
                 screen_window_center: Vec2(0.3, 99.0),
                 screen_window_width: 0.19,
                 .. Default::default()
@@ -703,7 +703,7 @@ mod test {
             chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), Blocks::ScanLines),
             max_samples_per_pixel: Some(4),
             shared_attributes: ImageAttributes {
-                display_window: IntRect {
+                display_window: IntegerBounds {
                     position: Vec2(2,1),
                     size: Vec2(11, 9)
                 },
@@ -712,9 +712,9 @@ mod test {
             },
             blocks: Blocks::ScanLines,
             deep: false,
-            data_size: Vec2(2000, 333),
+            layer_size: Vec2(2000, 333),
             own_attributes: LayerAttributes {
-                custom: vec![
+                other: vec![
                     (Text::try_from("x").unwrap(), AttributeValue::F32(3.0)),
                     (Text::try_from("y").unwrap(), AttributeValue::F32(-1.0)),
                 ].into_iter().collect(),
@@ -751,7 +751,7 @@ mod test {
             chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), Blocks::ScanLines),
             max_samples_per_pixel: Some(4),
             shared_attributes: ImageAttributes {
-                display_window: IntRect {
+                display_window: IntegerBounds {
                     position: Vec2(2,1),
                     size: Vec2(11, 9)
                 },
@@ -760,10 +760,10 @@ mod test {
             },
             blocks: Blocks::ScanLines,
             deep: false,
-            data_size: Vec2(2000, 333),
+            layer_size: Vec2(2000, 333),
             own_attributes: LayerAttributes {
-                name: Some("oasdasoidfj".try_into().unwrap()),
-                custom: vec![
+                layer_name: Some("oasdasoidfj".try_into().unwrap()),
+                other: vec![
                     (Text::try_from("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx").unwrap(), AttributeValue::F32(3.0)),
                     (Text::try_from("y").unwrap(), AttributeValue::F32(-1.0)),
                 ].into_iter().collect(),
@@ -772,7 +772,7 @@ mod test {
         };
 
         let mut layer_2 = header_version_2_long_names.clone();
-        layer_2.own_attributes.name = Some("anythingelse".try_into().unwrap());
+        layer_2.own_attributes.layer_name = Some("anythingelse".try_into().unwrap());
 
         let low_requirements = MetaData::validate(
             &[header_version_2_long_names, layer_2], None, true

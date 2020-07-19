@@ -23,7 +23,7 @@ fn main() {
                 Samples::U32(u32_vec) => u32_vec.iter().sum::<u32>() as f32 / u32_vec.len() as f32,
             };
 
-            if let Some(layer_name) = &layer.attributes.name {
+            if let Some(layer_name) = &layer.attributes.layer_name {
                 println!("Channel `{}` of Layer `{}` has an average value of {}", channel.name, layer_name, average);
             }
             else {

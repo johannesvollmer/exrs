@@ -44,7 +44,7 @@ use deflate::write::ZlibEncoder;
 // 4. Fill the frame buffer with pixel data, respective to sampling and whatnot
 
 
-pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: IntRect) -> Result<ByteVec> {
+pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: IntegerBounds) -> Result<ByteVec> {
     if remaining_bytes.is_empty() { return Ok(Vec::new()); }
 
     let bytes_per_pixel: usize = channels.list.iter()
@@ -138,7 +138,7 @@ pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: In
 }
 
 
-pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntRect, expected_byte_size: usize, pedantic: bool) -> Result<ByteVec> {
+pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntegerBounds, expected_byte_size: usize, pedantic: bool) -> Result<ByteVec> {
     if bytes.is_empty() { return Ok(Vec::new()) }
 
     let raw = inflate_bytes_zlib(bytes)

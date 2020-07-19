@@ -32,7 +32,7 @@ struct ChannelData {
 pub fn decompress(
     channels: &ChannelList,
     compressed: ByteVec,
-    rectangle: IntRect,
+    rectangle: IntegerBounds,
     expected_byte_size: usize,
     pedantic: bool
 ) -> Result<ByteVec>
@@ -149,7 +149,7 @@ pub fn decompress(
 pub fn compress(
     channels: &ChannelList,
     uncompressed: Bytes<'_>,
-    rectangle: IntRect
+    rectangle: IntegerBounds
 ) -> Result<ByteVec>
 {
     if uncompressed.is_empty() {
@@ -297,7 +297,7 @@ mod test {
     use crate::compression::piz;
     use crate::meta::attribute::*;
 
-    fn test_roundtrip_noise_with(channels: ChannelList, rectangle: IntRect){
+    fn test_roundtrip_noise_with(channels: ChannelList, rectangle: IntegerBounds){
         let pixel_bytes: ByteVec = (0 .. channels.bytes_per_pixel * rectangle.size.area())
             .map(|_| rand::random()).collect();
 
@@ -321,7 +321,7 @@ mod test {
 
             let channels = ChannelList::new(smallvec![ channel.clone(), channel ]);
 
-            let rectangle = IntRect {
+            let rectangle = IntegerBounds {
                 position: Vec2(-30, 100),
                 size: Vec2(322, 731),
             };
@@ -350,7 +350,7 @@ mod test {
 
         let channels = ChannelList::new(smallvec![ channel, channel2 ]);
 
-        let rectangle = IntRect {
+        let rectangle = IntegerBounds {
             position: Vec2(-3, 1),
             size: Vec2(2323, 3132),
         };
@@ -420,7 +420,7 @@ mod test {
             },
         ]);
 
-        let rectangle = IntRect {
+        let rectangle = IntegerBounds {
             position: Vec2(-3, 1),
             size: Vec2(2323, 3132),
         };

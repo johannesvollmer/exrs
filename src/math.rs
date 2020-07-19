@@ -17,9 +17,14 @@ pub struct Vec2<T> (pub T, pub T);
 
 impl<T> Vec2<T> {
 
-    /// Maps all components of this vector to a new type, yielding a vector of that new type.
-    pub fn map<B>(self, map: impl Fn(T) -> B) -> Vec2<B> {
-        Vec2(map(self.0), map(self.1))
+    /// Returns the vector with the maximum of either coordinates.
+    pub fn max(self, other: Self) -> Self where T: Ord {
+        Vec2(self.0.max(other.0), self.1.max(other.1))
+    }
+
+    /// Returns the vector with the minimum of either coordinates.
+    pub fn min(self, other: Self) -> Self where T: Ord {
+        Vec2(self.0.min(other.0), self.1.min(other.1))
     }
 
     /// Try to convert all components of this vector to a new type,
@@ -29,6 +34,8 @@ impl<T> Vec2<T> {
         let y = T::try_from(value.1)?;
         Ok(Vec2(x, y))
     }
+
+
 
     /// Seeing this vector as a dimension or size (width and height),
     /// this returns the area that this dimensions contains (`width * height`).
@@ -100,6 +107,11 @@ impl<T: std::ops::Mul<T>> std::ops::Mul<Vec2<T>> for Vec2<T> {
     fn mul(self, other: Vec2<T>) -> Self::Output {
         Vec2(self.0 * other.0, self.1 * other.1)
     }
+}
+
+impl<T> std::ops::Neg for Vec2<T> where T: std::ops::Neg<Output=T> {
+    type Output = Vec2<T>;
+    fn neg(self) -> Self::Output { Vec2(-self.0, -self.1) }
 }
 
 impl<T> From<(T, T)> for Vec2<T> {

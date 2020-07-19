@@ -55,7 +55,8 @@ fn main() {
     layer.attributes.owner = Some("It's you!".try_into().unwrap());
     layer.attributes.comments = Some("This image was procedurally generated".try_into().unwrap());
 
-    let image = Image::new_from_single_layer(layer);
+    let mut image = Image::new_from_single_layer(layer);
+    image.remove_excess(); // crop the image by removing the transparent pixels from the border
 
     println!("writing image {:#?}", image);
     image.write_to_file("tests/images/out/noisy.exr", write_options::high()).unwrap();

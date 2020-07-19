@@ -34,8 +34,8 @@ pub struct Header {
     /// In what order the tiles of this header occur in the file.
     pub line_order: LineOrder,
 
-    /// The resolution of this layer. Equals the size of the data window.
-    pub data_size: Vec2<usize>,
+    /// The resolution of this layer. Equivalent to the size of the `DataWindow`.
+    pub layer_size: Vec2<usize>,
 
     /// Whether this layer contains deep data.
     pub deep: bool,
@@ -85,7 +85,7 @@ pub struct ImageAttributes {
 
     /// The rectangle anywhere in the global infinite 2D space
     /// that clips all contents of the file.
-    pub display_window: IntRect,
+    pub display_window: IntegerBounds,
 
     /// Aspect ratio of each pixel in this header.
     pub pixel_aspect: f32,
@@ -96,10 +96,10 @@ pub struct ImageAttributes {
     /// The time code of the image.
     pub time_code: Option<TimeCode>,
 
-    /// Optional attributes. Contains custom attributes.
+    /// Contains custom attributes.
     /// Does not contain the attributes already present in the `ImageAttributes`.
     /// Contains only attributes that are standardized to be the same for all headers: chromaticities and time codes.
-    pub custom: HashMap<Text, AttributeValue>,
+    pub other: HashMap<Text, AttributeValue>,
 }
 
 /// Does not include the attributes required for reading the file contents.
@@ -111,12 +111,12 @@ pub struct LayerAttributes {
     /// The name of this layer.
     /// Required if this file contains deep data or multiple layers.
     // As this is an attribute value, it is not restricted in length, may even be empty
-    pub name: Option<Text>,
+    pub layer_name: Option<Text>,
 
     /// The bottom left corner of the rectangle that positions this layer
     /// within the global infinite 2D space of the whole file.
-    /// Equals the position of the data window.
-    pub data_position: Vec2<i32>,
+    /// Equivalent to the position of the `DataWindow`.
+    pub layer_position: Vec2<i32>,
 
     /// Part of the perspective projection. Default should be `(0, 0)`.
     // TODO same for all layers?
@@ -141,14 +141,14 @@ pub struct LayerAttributes {
     pub adopted_neutral: Option<Vec2<f32>>,
 
     /// Name of the color transform function that is applied for rendering the image.
-    pub rendering_transform: Option<Text>,
+    pub rendering_transform_name: Option<Text>,
 
     /// Name of the color transform function that computes the look modification of the image.
-    pub look_modification_transform: Option<Text>,
+    pub look_modification_transform_name: Option<Text>,
 
     /// The horizontal density, in pixels per inch.
-    /// The image's vertical output density can be computed using `x_density * pixel_aspect_ratio`.
-    pub x_density: Option<f32>,
+    /// The image's vertical output density can be computed using `horizontal_density * pixel_aspect_ratio`.
+    pub horizontal_density: Option<f32>,
 
     /// Name of the owner.
     pub owner: Option<Text>,
@@ -189,17 +189,17 @@ pub struct LayerAttributes {
     pub environment_map: Option<EnvironmentMap>,
 
     /// Identifies film manufacturer, film type, film roll and frame position within the roll.
-    pub key_code: Option<KeyCode>,
+    pub film_key_code: Option<KeyCode>,
 
     /// Specifies how texture map images are extrapolated.
     /// Values can be `black`, `clamp`, `periodic`, or `mirror`.
-    pub wrap_modes: Option<Text>,
+    pub wrap_mode_name: Option<Text>,
 
     /// Frames per second if this is a frame in a sequence.
     pub frames_per_second: Option<Rational>,
 
     /// Specifies the view names for multi-view, for example stereo, image files.
-    pub multi_view: Option<Vec<Text>>,
+    pub multi_view_names: Option<Vec<Text>>,
 
     /// The matrix that transforms 3D points from the world to the camera coordinate space.
     /// Left-handed coordinate system, y up, z forward.
@@ -213,18 +213,33 @@ pub struct LayerAttributes {
     pub deep_image_state: Option<Rational>,
 
     /// If the image was cropped, contains the original data window.
-    pub original_data_window: Option<IntRect>,
+    pub original_data_window: Option<IntegerBounds>,
 
     /// An 8-bit RGBA image representing the rendered image.
     pub preview: Option<Preview>,
 
-    /// Name of the view, which is probably either `"right"` or `"left"` for a stereoscopic image.
-    pub view: Option<Text>,
+    /// Name of the view, which is typically either `"right"` or `"left"` for a stereoscopic image.
+    pub view_name: Option<Text>,
 
-    /// Optional attributes. Contains custom attributes.
+    /// The name of the software that produced this image.
+    pub software_name: Option<Text>,
+
+    /// The near clip plane of the virtual camera projection.
+    pub near_clip_plane: Option<f32>,
+
+    /// The far clip plane of the virtual camera projection.
+    pub far_clip_plane: Option<f32>,
+
+    /// The field of view angle, along the horizontal axis, in degrees.
+    pub horizontal_field_of_view: Option<f32>,
+
+    /// The field of view angle, along the horizontal axis, in degrees.
+    pub vertical_field_of_view: Option<f32>,
+
+    /// Contains custom attributes.
     /// Does not contain the attributes already present in the `Header` or `LayerAttributes` struct.
     /// Does not contain attributes that are standardized to be the same for all layers: no chromaticities and no time codes.
-    pub custom: HashMap<Text, AttributeValue>,
+    pub other: HashMap<Text, AttributeValue>,
 }
 
 
@@ -233,14 +248,36 @@ impl LayerAttributes {
     /// Create default layer attributes with a data position of zero.
     pub fn new(layer_name: Text) -> Self {
         Self {
-            name: Some(layer_name),
+            layer_name: Some(layer_name),
             .. Self::default()
         }
     }
 
     /// Set the data position of this layer.
     pub fn with_position(self, data_position: Vec2<i32>) -> Self {
-        Self { data_position, ..self }
+        Self { layer_position: data_position, ..self }
+    }
+
+    /// Set all common camera projection attributes at once.
+    pub fn with_camera_frustum(
+        self,
+        world_to_camera: Matrix4x4,
+        world_to_normalized_device: Matrix4x4,
+        field_of_view: impl Into<Vec2<f32>>,
+        depth_clip_range: std::ops::Range<f32>,
+    ) -> Self
+    {
+        let fov = field_of_view.into();
+
+        Self {
+            world_to_normalized_device: Some(world_to_normalized_device),
+            world_to_camera: Some(world_to_camera),
+            horizontal_field_of_view: Some(fov.x()),
+            vertical_field_of_view: Some(fov.y()),
+            near_clip_plane: Some(depth_clip_range.start),
+            far_clip_plane: Some(depth_clip_range.end),
+            ..self
+        }
     }
 }
 
@@ -250,13 +287,13 @@ impl ImageAttributes {
     /// The display window position is set to zero.
     pub fn new(display_size: impl Into<Vec2<usize>>) -> Self {
         Self {
-            display_window: IntRect::from_dimensions(display_size),
+            display_window: IntegerBounds::from_dimensions(display_size),
             .. Self::default()
         }
     }
 
     /// Set the data position of this layer.
-    pub fn with_display_window(self, display_window: IntRect) -> Self {
+    pub fn with_display_window(self, display_window: IntegerBounds) -> Self {
         Self { display_window, ..self }
     }
 }
@@ -281,7 +318,7 @@ impl Header {
         let blocks = Blocks::ScanLines;
 
         Self {
-            data_size,
+            layer_size: data_size,
             compression,
             blocks,
 
@@ -301,32 +338,32 @@ impl Header {
 
     /// Set the display window, that is, the global clipping rectangle.
     /// __Must be the same for all headers of a file.__
-    pub fn with_display_window(mut self, display_window: IntRect) -> Self {
+    pub fn with_display_window(mut self, display_window: IntegerBounds) -> Self {
         self.shared_attributes.display_window = display_window;
         self
     }
 
     /// Set the offset of this layer.
     pub fn with_position(mut self, position: Vec2<i32>) -> Self {
-        self.own_attributes.data_position = position;
+        self.own_attributes.layer_position = position;
         self
     }
 
     /// Set compression, tiling, and line order. Automatically computes chunk count.
     pub fn with_encoding(self, compression: Compression, blocks: Blocks, line_order: LineOrder) -> Self {
         Self {
-            chunk_count: compute_chunk_count(compression, self.data_size, blocks),
+            chunk_count: compute_chunk_count(compression, self.layer_size, blocks),
             compression, blocks, line_order,
             .. self
         }
     }
 
-    /// Add some custom attributes to the header that are not shared with all other headers in the image.
+    /// Set **all** attributes of the header that are not shared with all other headers in the image.
     pub fn with_attributes(self, own_attributes: LayerAttributes) -> Self {
         Self { own_attributes, .. self }
     }
 
-    /// Add some custom attributes to the header that are shared with all other headers in the image.
+    /// Set **all** attributes of the header that are shared with all other headers in the image.
     pub fn with_shared_attributes(self, shared_attributes: ImageAttributes) -> Self {
         Self { shared_attributes, .. self }
     }
@@ -372,17 +409,17 @@ impl Header {
             if let Blocks::Tiles(tiles) = self.blocks {
                 match tiles.level_mode {
                     LevelMode::Singular => {
-                        tiles_of(self.data_size, tiles.tile_size, Vec2(0, 0)).collect()
+                        tiles_of(self.layer_size, tiles.tile_size, Vec2(0, 0)).collect()
                     },
                     LevelMode::MipMap => {
-                        mip_map_levels(tiles.rounding_mode, self.data_size)
+                        mip_map_levels(tiles.rounding_mode, self.layer_size)
                             .flat_map(move |(level_index, level_size)|{
                                 tiles_of(level_size, tiles.tile_size, Vec2(level_index, level_index))
                             })
                             .collect()
                     },
                     LevelMode::RipMap => {
-                        rip_map_levels(tiles.rounding_mode, self.data_size)
+                        rip_map_levels(tiles.rounding_mode, self.layer_size)
                             .flat_map(move |(level_index, level_size)| {
                                 tiles_of(level_size, tiles.tile_size, level_index)
                             })
@@ -391,8 +428,8 @@ impl Header {
                 }
             }
             else {
-                let tiles = Vec2(self.data_size.0, self.compression.scan_lines_per_block());
-                tiles_of(self.data_size, tiles, Vec2(0,0)).collect()
+                let tiles = Vec2(self.layer_size.0, self.compression.scan_lines_per_block());
+                tiles_of(self.layer_size, tiles, Vec2(0, 0)).collect()
             }
         };
 
@@ -404,21 +441,21 @@ impl Header {
     /// Not all blocks have this size, because they may be cutoff at the end of the image.
     pub fn max_block_pixel_size(&self) -> Vec2<usize> {
         match self.blocks {
-            Blocks::ScanLines => Vec2(self.data_size.0, self.compression.scan_lines_per_block()),
+            Blocks::ScanLines => Vec2(self.layer_size.0, self.compression.scan_lines_per_block()),
             Blocks::Tiles(tiles) => tiles.tile_size,
         }
     }
 
     /// Calculate the position of a block in the global infinite 2D space of a file. May be negative.
-    pub fn get_block_data_window_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntRect> {
+    pub fn get_block_data_window_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntegerBounds> {
         let data = self.get_absolute_block_pixel_coordinates(tile)?;
-        Ok(data.with_origin(self.own_attributes.data_position))
+        Ok(data.with_origin(self.own_attributes.layer_position))
     }
 
     /// Calculate the pixel index rectangle inside this header. Is not negative. Starts at `0`.
-    pub fn get_absolute_block_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntRect> {
+    pub fn get_absolute_block_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntegerBounds> {
         if let Blocks::Tiles(tiles) = self.blocks {
-            let Vec2(data_width, data_height) = self.data_size;
+            let Vec2(data_width, data_height) = self.layer_size;
 
             let data_width = compute_level_size(tiles.rounding_mode, data_width, tile.level_index.x());
             let data_height = compute_level_size(tiles.rounding_mode, data_height, tile.level_index.y());
@@ -434,14 +471,14 @@ impl Header {
             debug_assert_eq!(tile.tile_index.0, 0, "block index calculation bug");
 
             let (y, height) = calculate_block_position_and_size(
-                self.data_size.height(),
+                self.layer_size.height(),
                 self.compression.scan_lines_per_block(),
                 tile.tile_index.y()
             )?;
 
-            Ok(IntRect {
+            Ok(IntegerBounds {
                 position: Vec2(0, usize_to_i32(y)),
-                size: Vec2(self.data_size.width(), height)
+                size: Vec2(self.layer_size.width(), height)
             })
         }
 
@@ -458,7 +495,7 @@ impl Header {
 
             Block::ScanLine(ref block) => {
                 let size = self.compression.scan_lines_per_block() as i32;
-                let y = (block.y_coordinate - self.own_attributes.data_position.y()) / size;
+                let y = (block.y_coordinate - self.own_attributes.layer_position.y()) / size;
 
                 if y < 0 {
                     return Err(Error::invalid("scan block y coordinate"));
@@ -477,7 +514,7 @@ impl Header {
     /// Computes the absolute tile coordinate data indices, which start at `0`.
     pub fn get_scan_line_block_tile_coordinates(&self, block_y_coordinate: i32) -> Result<TileCoordinates> {
         let size = self.compression.scan_lines_per_block() as i32;
-        let y = (block_y_coordinate - self.own_attributes.data_position.1) / size;
+        let y = (block_y_coordinate - self.own_attributes.layer_position.1) / size;
 
         if y < 0 {
             return Err(Error::invalid("scan block y coordinate"));
@@ -493,7 +530,7 @@ impl Header {
     pub fn max_block_byte_size(&self) -> usize {
         self.channels.bytes_per_pixel * match self.blocks {
             Blocks::Tiles(tiles) => tiles.tile_size.area(),
-            Blocks::ScanLines => self.compression.scan_lines_per_block() * self.data_size.width()
+            Blocks::ScanLines => self.compression.scan_lines_per_block() * self.layer_size.width()
             // TODO What about deep data???
         }
     }
@@ -520,7 +557,7 @@ impl Header {
 
         self.channels.list.iter()
             .map(|channel: &ChannelInfo|
-                pixel_count_of_levels(channel.subsampled_resolution(self.data_size)) * channel.sample_type.bytes_per_sample()
+                pixel_count_of_levels(channel.subsampled_resolution(self.layer_size)) * channel.sample_type.bytes_per_sample()
             )
             .sum()
 
@@ -538,7 +575,7 @@ impl Header {
     /// Validate this instance.
     pub fn validate(&self, is_multilayer: bool, long_names: &mut bool, strict: bool) -> UnitResult {
         debug_assert_eq!(
-            self.chunk_count, compute_chunk_count(self.compression, self.data_size, self.blocks),
+            self.chunk_count, compute_chunk_count(self.compression, self.layer_size, self.blocks),
             "incorrect chunk count value"
         );
 
@@ -547,7 +584,7 @@ impl Header {
 
         if strict {
             if is_multilayer {
-                if self.own_attributes.name.is_none() {
+                if self.own_attributes.layer_name.is_none() {
                     return Err(missing_attribute("layer name for multi layer file"));
                 }
             }
@@ -556,7 +593,7 @@ impl Header {
                 return Err(Error::invalid("unspecified line order in scan line images"));
             }
 
-            if self.data_size == Vec2(0,0) {
+            if self.layer_size == Vec2(0, 0) {
                 return Err(Error::invalid("empty data window"));
             }
 
@@ -573,30 +610,33 @@ impl Header {
             }
         }
 
-
         let allow_subsampling = !self.deep && self.blocks == Blocks::ScanLines;
         self.channels.validate(allow_subsampling, self.data_window(), strict)?;
 
-        for (name, value) in &self.shared_attributes.custom {
+        for (name, value) in &self.shared_attributes.other {
             attribute::validate(name, value, long_names, allow_subsampling, self.data_window(), strict)?;
         }
 
-        for (name, value) in &self.own_attributes.custom {
+        for (name, value) in &self.own_attributes.other {
             attribute::validate(name, value, long_names, allow_subsampling, self.data_window(), strict)?;
         }
 
+        // this is only to check whether someone tampered with our precious values, to avoid writing an invalid file
+        if self.chunk_count != compute_chunk_count(self.compression, self.layer_size, self.blocks) {
+            return Err(Error::invalid("chunk count attribute")); // TODO this may be an expensive check?
+        }
 
         // check if attribute names appear twice
         if strict {
-            for (name, _) in &self.shared_attributes.custom {
-                if !self.own_attributes.custom.contains_key(&name) {
+            for (name, _) in &self.shared_attributes.other {
+                if !self.own_attributes.other.contains_key(&name) {
                     return Err(Error::invalid(format!("duplicate attribute name: `{}`", name)));
                 }
             }
 
             for &reserved in header::standard_names::ALL.iter() {
                 let name  = Text::from_bytes_unchecked(SmallVec::from_slice(reserved));
-                if self.own_attributes.custom.contains_key(&name) || self.shared_attributes.custom.contains_key(&name) {
+                if self.own_attributes.other.contains_key(&name) || self.shared_attributes.other.contains_key(&name) {
                     return Err(Error::invalid(format!(
                         "attribute name `{}` is reserved and cannot be custom",
                         Text::from_bytes_unchecked(reserved.into())
@@ -607,7 +647,7 @@ impl Header {
 
         if self.deep {
             if strict {
-                if self.own_attributes.name.is_none() {
+                if self.own_attributes.layer_name.is_none() {
                     return Err(missing_attribute("layer name for deep file"));
                 }
 
@@ -699,8 +739,8 @@ impl Header {
                         (name::TILES, TileDescription(value)) => tiles = Some(value),
                         (name::CHANNELS, ChannelList(value)) => channels = Some(value),
                         (name::COMPRESSION, Compression(value)) => compression = Some(value),
-                        (name::DATA_WINDOW, IntRect(value)) => data_window = Some(value),
-                        (name::DISPLAY_WINDOW, IntRect(value)) => display_window = Some(value),
+                        (name::DATA_WINDOW, IntegerBounds(value)) => data_window = Some(value),
+                        (name::DISPLAY_WINDOW, IntegerBounds(value)) => display_window = Some(value),
                         (name::LINE_ORDER, LineOrder(value)) => line_order = Some(value),
                         (name::DEEP_DATA_VERSION, I32(value)) => version = Some(value),
 
@@ -712,15 +752,15 @@ impl Header {
                             i32_to_usize(value, "chunk count")?
                         ),
 
-                        (name::NAME, Text(value)) => layer_attributes.name = Some(value),
+                        (name::NAME, Text(value)) => layer_attributes.layer_name = Some(value),
                         (name::WINDOW_CENTER, FloatVec2(value)) => layer_attributes.screen_window_center = value,
                         (name::WINDOW_WIDTH, F32(value)) => layer_attributes.screen_window_width = value,
 
                         (name::WHITE_LUMINANCE, F32(value)) => layer_attributes.white_luminance = Some(value),
                         (name::ADOPTED_NEUTRAL, FloatVec2(value)) => layer_attributes.adopted_neutral = Some(value),
-                        (name::RENDERING_TRANSFORM, Text(value)) => layer_attributes.rendering_transform = Some(value),
-                        (name::LOOK_MOD_TRANSFORM, Text(value)) => layer_attributes.look_modification_transform = Some(value),
-                        (name::X_DENSITY, F32(value)) => layer_attributes.x_density = Some(value),
+                        (name::RENDERING_TRANSFORM, Text(value)) => layer_attributes.rendering_transform_name = Some(value),
+                        (name::LOOK_MOD_TRANSFORM, Text(value)) => layer_attributes.look_modification_transform_name = Some(value),
+                        (name::X_DENSITY, F32(value)) => layer_attributes.horizontal_density = Some(value),
 
                         (name::OWNER, Text(value)) => layer_attributes.owner = Some(value),
                         (name::COMMENTS, Text(value)) => layer_attributes.comments = Some(value),
@@ -734,17 +774,23 @@ impl Header {
                         (name::APERTURE, F32(value)) => layer_attributes.aperture = Some(value),
                         (name::ISO_SPEED, F32(value)) => layer_attributes.iso_speed = Some(value),
                         (name::ENVIRONMENT_MAP, EnvironmentMap(value)) => layer_attributes.environment_map = Some(value),
-                        (name::KEY_CODE, KeyCode(value)) => layer_attributes.key_code = Some(value),
-                        (name::WRAP_MODES, Text(value)) => layer_attributes.wrap_modes = Some(value),
+                        (name::KEY_CODE, KeyCode(value)) => layer_attributes.film_key_code = Some(value),
+                        (name::WRAP_MODES, Text(value)) => layer_attributes.wrap_mode_name = Some(value),
                         (name::FRAMES_PER_SECOND, Rational(value)) => layer_attributes.frames_per_second = Some(value),
-                        (name::MULTI_VIEW, TextVector(value)) => layer_attributes.multi_view = Some(value),
+                        (name::MULTI_VIEW, TextVector(value)) => layer_attributes.multi_view_names = Some(value),
                         (name::WORLD_TO_CAMERA, Matrix4x4(value)) => layer_attributes.world_to_camera = Some(value),
                         (name::WORLD_TO_NDC, Matrix4x4(value)) => layer_attributes.world_to_normalized_device = Some(value),
                         (name::DEEP_IMAGE_STATE, Rational(value)) => layer_attributes.deep_image_state = Some(value),
-                        (name::ORIGINAL_DATA_WINDOW, IntRect(value)) => layer_attributes.original_data_window = Some(value),
+                        (name::ORIGINAL_DATA_WINDOW, IntegerBounds(value)) => layer_attributes.original_data_window = Some(value),
                         (name::DWA_COMPRESSION_LEVEL, F32(value)) => dwa_compression_level = Some(value),
                         (name::PREVIEW, Preview(value)) => layer_attributes.preview = Some(value),
-                        (name::VIEW, Text(value)) => layer_attributes.view = Some(value),
+                        (name::VIEW, Text(value)) => layer_attributes.view_name = Some(value),
+
+                        (name::NEAR, F32(value)) => layer_attributes.near_clip_plane = Some(value),
+                        (name::FAR, F32(value)) => layer_attributes.far_clip_plane = Some(value),
+                        (name::FOV_X, F32(value)) => layer_attributes.horizontal_field_of_view = Some(value),
+                        (name::FOV_Y, F32(value)) => layer_attributes.vertical_field_of_view = Some(value),
+                        (name::SOFTWARE, Text(value)) => layer_attributes.software_name = Some(value),
 
                         (name::PIXEL_ASPECT, F32(value)) => image_attributes.pixel_aspect = value,
                         (name::TIME_CODE, TimeCode(value)) => image_attributes.time_code = Some(value),
@@ -754,12 +800,12 @@ impl Header {
                         // as these must be the same for all headers
                         (_, value @ Chromaticities(_)) |
                         (_, value @ TimeCode(_)) => {
-                            image_attributes.custom.insert(attribute_name, value);
+                            image_attributes.other.insert(attribute_name, value);
                         },
 
                         // insert unknown attributes into layer attributes
                         (_, value) => {
-                            layer_attributes.custom.insert(attribute_name, value);
+                            layer_attributes.other.insert(attribute_name, value);
                         },
 
                     }
@@ -783,7 +829,7 @@ impl Header {
         let data_window = data_window.ok_or(missing_attribute("data window"))?;
 
         image_attributes.display_window = display_window.ok_or(missing_attribute("display window"))?;
-        layer_attributes.data_position = data_window.position;
+        layer_attributes.layer_position = data_window.position;
 
         let data_size = data_window.size;
 
@@ -812,7 +858,7 @@ impl Header {
             // always compute ourselves, because we cannot trust anyone out there 😱
             chunk_count: computed_chunk_count,
 
-            data_size,
+            layer_size: data_size,
 
             shared_attributes: image_attributes,
             own_attributes: layer_attributes,
@@ -872,9 +918,9 @@ impl Header {
             CHANNELS: ChannelList = &self.channels,
             COMPRESSION: Compression = &self.compression,
             LINE_ORDER: LineOrder = &self.line_order,
-            DATA_WINDOW: IntRect = &self.data_window(),
+            DATA_WINDOW: IntegerBounds = &self.data_window(),
 
-            DISPLAY_WINDOW: IntRect = &self.shared_attributes.display_window,
+            DISPLAY_WINDOW: IntegerBounds = &self.shared_attributes.display_window,
             PIXEL_ASPECT: F32 = &self.shared_attributes.pixel_aspect,
 
             WINDOW_CENTER: FloatVec2 = &self.own_attributes.screen_window_center,
@@ -882,12 +928,12 @@ impl Header {
         );
 
         write_optional_attributes!(
-            NAME: Text = &self.own_attributes.name,
+            NAME: Text = &self.own_attributes.layer_name,
             WHITE_LUMINANCE: F32 = &self.own_attributes.white_luminance,
             ADOPTED_NEUTRAL: FloatVec2 = &self.own_attributes.adopted_neutral,
-            RENDERING_TRANSFORM: Text = &self.own_attributes.rendering_transform,
-            LOOK_MOD_TRANSFORM: Text = &self.own_attributes.look_modification_transform,
-            X_DENSITY: F32 = &self.own_attributes.x_density,
+            RENDERING_TRANSFORM: Text = &self.own_attributes.rendering_transform_name,
+            LOOK_MOD_TRANSFORM: Text = &self.own_attributes.look_modification_transform_name,
+            X_DENSITY: F32 = &self.own_attributes.horizontal_density,
             OWNER: Text = &self.own_attributes.owner,
             COMMENTS: Text = &self.own_attributes.comments,
             CAPTURE_DATE: Text = &self.own_attributes.capture_date,
@@ -900,18 +946,23 @@ impl Header {
             APERTURE: F32 = &self.own_attributes.aperture,
             ISO_SPEED: F32 = &self.own_attributes.iso_speed,
             ENVIRONMENT_MAP: EnvironmentMap = &self.own_attributes.environment_map,
-            KEY_CODE: KeyCode = &self.own_attributes.key_code,
+            KEY_CODE: KeyCode = &self.own_attributes.film_key_code,
             TIME_CODE: TimeCode = &self.shared_attributes.time_code,
-            WRAP_MODES: Text = &self.own_attributes.wrap_modes,
+            WRAP_MODES: Text = &self.own_attributes.wrap_mode_name,
             FRAMES_PER_SECOND: Rational = &self.own_attributes.frames_per_second,
-            MULTI_VIEW: TextVector = &self.own_attributes.multi_view,
+            MULTI_VIEW: TextVector = &self.own_attributes.multi_view_names,
             WORLD_TO_CAMERA: Matrix4x4 = &self.own_attributes.world_to_camera,
             WORLD_TO_NDC: Matrix4x4 = &self.own_attributes.world_to_normalized_device,
             DEEP_IMAGE_STATE: Rational = &self.own_attributes.deep_image_state,
-            ORIGINAL_DATA_WINDOW: IntRect = &self.own_attributes.original_data_window,
+            ORIGINAL_DATA_WINDOW: IntegerBounds = &self.own_attributes.original_data_window,
             CHROMATICITIES: Chromaticities = &self.shared_attributes.chromaticities,
             PREVIEW: Preview = &self.own_attributes.preview,
-            VIEW: Text = &self.own_attributes.view
+            VIEW: Text = &self.own_attributes.view_name,
+            NEAR: F32 = &self.own_attributes.near_clip_plane,
+            FAR: F32 = &self.own_attributes.far_clip_plane,
+            FOV_X: F32 = &self.own_attributes.horizontal_field_of_view,
+            FOV_Y: F32 = &self.own_attributes.vertical_field_of_view,
+            SOFTWARE: Text = &self.own_attributes.software_name
         );
 
         // write compression parameters as attribute
@@ -919,11 +970,11 @@ impl Header {
             attribute::write(DWA_COMPRESSION_LEVEL, &F32(level), write)?;
         }
 
-        for (name, value) in &self.shared_attributes.custom {
+        for (name, value) in &self.shared_attributes.other {
             attribute::write(name.bytes(), value, write)?;
         }
 
-        for (name, value) in &self.own_attributes.custom {
+        for (name, value) in &self.own_attributes.other {
             attribute::write(name.bytes(), value, write)?;
         }
 
@@ -933,8 +984,8 @@ impl Header {
 
     /// The rectangle describing the bounding box of this layer
     /// within the infinite global 2D space of the file.
-    pub fn data_window(&self) -> IntRect {
-        IntRect::new(self.own_attributes.data_position, self.data_size)
+    pub fn data_window(&self) -> IntegerBounds {
+        IntegerBounds::new(self.own_attributes.layer_position, self.layer_size)
     }
 }
 
@@ -1001,7 +1052,12 @@ pub mod standard_names {
         DWA_COMPRESSION_LEVEL: b"dwaCompressionLevel",
         PREVIEW: b"preview",
         VIEW: b"view",
-        CHROMATICITIES: b"chromaticities"
+        CHROMATICITIES: b"chromaticities",
+        NEAR: b"near",
+        FAR: b"far",
+        FOV_X: b"fieldOfViewHorizontal",
+        FOV_Y: b"fieldOfViewVertical",
+        SOFTWARE: b"software"
     }
 }
 
@@ -1009,15 +1065,15 @@ pub mod standard_names {
 impl Default for LayerAttributes {
     fn default() -> Self {
         Self {
-            data_position: Vec2(0, 0),
+            layer_position: Vec2(0, 0),
             screen_window_center: Vec2(0.0, 0.0),
             screen_window_width: 1.0,
-            name: None,
+            layer_name: None,
             white_luminance: None,
             adopted_neutral: None,
-            rendering_transform: None,
-            look_modification_transform: None,
-            x_density: None,
+            rendering_transform_name: None,
+            look_modification_transform_name: None,
+            horizontal_density: None,
             owner: None,
             comments: None,
             capture_date: None,
@@ -1030,17 +1086,22 @@ impl Default for LayerAttributes {
             aperture: None,
             iso_speed: None,
             environment_map: None,
-            key_code: None,
-            wrap_modes: None,
+            film_key_code: None,
+            wrap_mode_name: None,
             frames_per_second: None,
-            multi_view: None,
+            multi_view_names: None,
             world_to_camera: None,
             world_to_normalized_device: None,
             deep_image_state: None,
             original_data_window: None,
             preview: None,
-            view: None,
-            custom: Default::default()
+            view_name: None,
+            software_name: None,
+            near_clip_plane: None,
+            far_clip_plane: None,
+            horizontal_field_of_view: None,
+            vertical_field_of_view: None,
+            other: Default::default()
         }
     }
 }
@@ -1052,8 +1113,8 @@ impl std::fmt::Debug for LayerAttributes {
         let mut debug = formatter.debug_struct("LayerAttributes (only relevant attributes)");
 
         // always debug the following fields
-        debug.field("data_position", &self.data_position);
-        debug.field("name", &self.name);
+        debug.field("data_position", &self.layer_position);
+        debug.field("name", &self.layer_name);
 
         macro_rules! debug_non_default_fields {
             ( $( $name: ident ),* ) => { $(
@@ -1068,20 +1129,26 @@ impl std::fmt::Debug for LayerAttributes {
         // only debug these fields if they are not the default value
         debug_non_default_fields! {
             screen_window_center, screen_window_width,
-            white_luminance, adopted_neutral, x_density,
-            rendering_transform, look_modification_transform,
+            white_luminance, adopted_neutral, horizontal_density,
+            rendering_transform_name, look_modification_transform_name,
             owner, comments,
             capture_date, utc_offset,
             longitude, latitude, altitude,
             focus, exposure, aperture, iso_speed,
-            environment_map, key_code, wrap_modes,
-            frames_per_second, multi_view,
+            environment_map, film_key_code, wrap_mode_name,
+            frames_per_second, multi_view_names,
             world_to_camera, world_to_normalized_device,
             deep_image_state, original_data_window,
-            preview, view,
-            custom
+            preview, view_name,
+            vertical_field_of_view, horizontal_field_of_view,
+            near_clip_plane, far_clip_plane, software_name
         }
 
+        for (name, value) in &self.other {
+            debug.field(&format!("\"{}\"", name), value);
+        }
+
+        // debug.finish_non_exhaustive() TODO
         debug.finish()
     }
 }
@@ -1092,7 +1159,7 @@ impl Default for ImageAttributes {
             pixel_aspect: 1.0,
             chromaticities: None,
             time_code: None,
-            custom: Default::default(),
+            other: Default::default(),
             display_window: Default::default(),
         }
     }

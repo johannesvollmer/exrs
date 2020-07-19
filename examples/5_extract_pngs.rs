@@ -23,7 +23,7 @@ pub fn main() {
     println!("writing images...");
 
     for (layer_index, layer) in image.layers.iter().enumerate() {
-        let layer_name = layer.attributes.name.as_ref()
+        let layer_name = layer.attributes.layer_name.as_ref()
             .map_or(String::from("main_layer"), simple_exr::Text::to_string);
 
         for channel in &layer.channels {
@@ -31,28 +31,28 @@ pub fn main() {
                 simple_exr::Samples::F16(samples) => {
                     let data : Vec<f32> = samples.iter().map(|f16| f16.to_f32()).collect();
 
-                    save_f32_image_as_png(&data, layer.data_size, format!(
+                    save_f32_image_as_png(&data, layer.size, format!(
                         "tests/images/out/{} ({}) {}_f16_{}x{}.png",
                         layer_index, layer_name, channel.name,
-                        layer.data_size.width(), layer.data_size.height(),
+                        layer.size.width(), layer.size.height(),
                     ))
                 },
 
                 simple_exr::Samples::F32(samples) => {
-                    save_f32_image_as_png(samples, layer.data_size, format!(
+                    save_f32_image_as_png(samples, layer.size, format!(
                         "tests/images/out/{} ({}) {}_f32_{}x{}.png",
                         layer_index, layer_name, channel.name,
-                        layer.data_size.width(), layer.data_size.height(),
+                        layer.size.width(), layer.size.height(),
                     ))
                 },
 
                 simple_exr::Samples::U32(samples) => {
                     let data : Vec<f32> = samples.iter().map(|value| *value as f32).collect();
 
-                    save_f32_image_as_png(&data, layer.data_size, format!(
+                    save_f32_image_as_png(&data, layer.size, format!(
                         "tests/images/out/{} ({}) {}_u32_{}x{}.png",
                         layer_index, layer_name, channel.name,
-                        layer.data_size.width(), layer.data_size.height(),
+                        layer.size.width(), layer.size.height(),
                     ))
                 },
             }
