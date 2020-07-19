@@ -377,14 +377,8 @@ impl Layer {
     pub fn crop(&mut self, absolute_bounds: IntegerBounds) {
         let bounds = absolute_bounds.with_origin(-self.attributes.layer_position);
 
-        assert!(
-            bounds.position.x() >= 0 && bounds.position.y() >= 0
-                && bounds.end().x() < self.size.width() as i32
-                && bounds.end().y() < self.size.height() as i32
-                && bounds.size.area() > 0,
-
-            "bounds not valid for layer dimensions"
-        );
+        assert!(self.data_window().contains(absolute_bounds), "bounds not valid for layer dimensions");
+        assert!(bounds.size.area() > 0, "the cropped image would be empty");
 
         let start_x = usize::try_from(bounds.position.x()).unwrap();
         let start_y = usize::try_from(bounds.position.y()).unwrap();
@@ -424,11 +418,13 @@ impl Layer {
     pub fn find_content_bounds(&mut self) -> Option<IntegerBounds> {
         type Bounds = (Vec2<usize>, Vec2<usize>); // min + max
 
-        fn union_bounds(bounds: Option<Bounds>, element: Option<Bounds>) -> Option<Bounds> {
+        fn extend_bounds(bounds: Option<Bounds>, element: Option<Bounds>) -> Option<Bounds> {
             if let Some((min, max)) = element {
-                // this is not the first line with content
+                // this is not the first line with content => append
                 if let Some((min0, max0)) = bounds { Some((min0.min(min), max0.max(max))) }
-                else { Some((min, max)) } // this is the first line with content
+
+                // this is the first line with content => create
+                else { Some((min, max)) }
             }
             // this is an empty line
             else { bounds }
@@ -437,9 +433,9 @@ impl Layer {
         // shrink a single line. returns none, if all pixels should be discarded
         fn crop_line<T>(samples: &[T]) -> Option<(usize, usize)> where T: PartialEq + Default {
             let discard = |value: &T| *value != T::default();
-            let end = samples.iter().rposition(discard)?; // return none if every pixel should be discarded
-            let start = samples[..end].iter().position(discard).unwrap(); // we know there must be some non-zero pixel
-            Some((start, end))
+            let end = samples.iter().rposition(discard)? + 1; // return none if every pixel should be discarded
+            let start = samples[..end].iter().position(discard);
+            Some((start.unwrap_or(end), end))
         }
 
         // shrink a whole channel. returns (min, max)
@@ -450,10 +446,9 @@ impl Layer {
                  .par_chunks(resolution.width())
                  .enumerate()
                  .map(|(y, line)|
-                     crop_line(line).map(|(min_x, max_x)| (Vec2(min_x, y), Vec2(max_x, y)))
+                     crop_line(line).map(|(start_x, end_x)| (Vec2(start_x, y), Vec2(end_x, y + 1)))
                  )
-                 .fold(|| None, union_bounds)
-                 .reduce(|| None, union_bounds)
+                 .reduce(|| None, extend_bounds)
         }
 
         let original_bounds = (Vec2(0,0), self.size);
@@ -473,7 +468,7 @@ impl Layer {
                     })
 
                     // pick the largest rectangle, as ALL channel values must be zero
-                    .fold(None, union_bounds)
+                    .fold(None, extend_bounds)
             }
         };
 
@@ -765,10 +760,19 @@ impl Samples {
 
 impl std::fmt::Debug for Samples {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Samples::F16(vec) => write!(formatter, "[f16; {}]", vec.len()),
-            Samples::F32(vec) => write!(formatter, "[f32; {}]", vec.len()),
-            Samples::U32(vec) => write!(formatter, "[u32; {}]", vec.len()),
+        if self.len() < 32 {
+            match self {
+                Samples::F16(vec) => vec.fmt(formatter),
+                Samples::F32(vec) => vec.fmt(formatter),
+                Samples::U32(vec) => vec.fmt(formatter),
+            }
+        }
+        else {
+            match self {
+                Samples::F16(vec) => write!(formatter, "[f16; {}]", vec.len()),
+                Samples::F32(vec) => write!(formatter, "[f32; {}]", vec.len()),
+                Samples::U32(vec) => write!(formatter, "[u32; {}]", vec.len()),
+            }
         }
     }
 }
@@ -800,7 +804,35 @@ mod test {
         cropped.remove_excess();
 
         assert_ne!(image, cropped);
-        assert_eq!(cropped.layers[0].channels.as_slice(), &[ expected_channel ]);
+        assert_eq!(cropped.layers[0].channels[0], expected_channel);
         assert_eq!(cropped.layers[0].attributes.layer_position, Vec2(1,1));
+    }
+
+    #[test]
+    pub fn test_crop_size(){
+        let channel_a = Channel::color_data("".try_into().unwrap(), Samples::F32(vec![
+            0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 3.3, 0.0,
+            0.0, 0.0, 0.0, 0.0,
+        ]));
+
+        let channel_b = Channel::color_data("".try_into().unwrap(), Samples::F32(vec![
+            0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0,
+            3.3, 0.0, 0.0, 0.0,
+        ]));
+
+        let image = Image::new_from_single_layer(Layer::new(
+            "".try_into().unwrap(), Vec2(4, 4), smallvec![ channel_a, channel_b ]
+        ));
+
+        let mut cropped = image.clone();
+        cropped.remove_excess();
+
+        assert_ne!(image, cropped);
+        assert_eq!(cropped.layers[0].attributes.layer_position, Vec2(0,2));
+        assert_eq!(cropped.layers[0].size, Vec2(3,2));
     }
 }

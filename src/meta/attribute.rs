@@ -757,6 +757,14 @@ impl IntegerBounds {
     pub fn with_origin(self, origin: Vec2<i32>) -> Self { // TODO rename to "move" or "translate"?
         IntegerBounds { position: self.position + origin, .. self }
     }
+
+    /// Returns whether the specified rectangle is equal to or inside this rectangle.
+    pub fn contains(self, subset: Self) -> bool {
+           subset.position.x() >= self.position.x()
+        && subset.position.y() >= self.position.y()
+        && subset.end().x() <= self.end().x()
+        && subset.end().y() <= self.end().y()
+    }
 }
 
 
