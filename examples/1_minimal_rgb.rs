@@ -16,4 +16,6 @@ fn main() {
             )
         }
     ).unwrap();
+
+    println!("created file minimal_rgba.exr");
 }

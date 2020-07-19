@@ -38,10 +38,11 @@ pub fn skip_bytes(read: &mut impl Read, count: usize) -> IoResult<()> {
 }
 
 /// If an error occurs while writing, attempts to delete the partially written file.
+/// Creates a file just before the first write operation, not when this function is called.
 #[inline]
-pub fn attempt_delete_file_on_write_error(path: impl AsRef<Path>, write: impl FnOnce(File) -> UnitResult) -> UnitResult {
-    match write(std::fs::File::create(path.as_ref())?) {
-        Err(error) => {
+pub fn attempt_delete_file_on_write_error<'p>(path: &'p Path, write: impl FnOnce(LateFile<'p>) -> UnitResult) -> UnitResult {
+    match write(LateFile::from(path)) {
+        Err(error) => { // FIXME deletes existing file if creation of new file fails?
             let _deleted = std::fs::remove_file(path); // ignore deletion errors
             Err(error)
         },
@@ -49,6 +50,41 @@ pub fn attempt_delete_file_on_write_error(path: impl AsRef<Path>, write: impl Fn
         ok => ok,
     }
 }
+
+#[derive(Debug)]
+pub struct LateFile<'p> {
+    path: &'p Path,
+    file: Option<File>
+}
+
+impl<'p> From<&'p Path> for LateFile<'p> {
+    fn from(path: &'p Path) -> Self { Self { path, file: None } }
+}
+
+impl<'p> LateFile<'p> {
+    fn file(&mut self) -> std::io::Result<&mut File> {
+        if self.file.is_none() { self.file = Some(File::create(self.path)?); }
+        Ok(self.file.as_mut().unwrap()) // will not be reached if creation fails
+    }
+}
+
+impl<'p> std::io::Write for LateFile<'p> {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.file()?.write(buffer)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if let Some(file) = &mut self.file { file.flush() }
+        else { Ok(()) }
+    }
+}
+
+impl<'p> Seek for LateFile<'p> {
+    fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+        self.file()?.seek(position)
+    }
+}
+
 
 /// Peek a single byte without consuming it.
 #[derive(Debug)]
