@@ -307,15 +307,20 @@ impl Header {
     /// Use `Header::with_encoding` and the similar methods to add further properties to the header.
     ///
     /// The other settings are left to their default values:
-    /// - no compression
+    /// - RLE compression
     /// - display window equal to data window
-    /// - scan line blocks
+    /// - tiles (64 x 64 px)
     /// - unspecified line order
     /// - no custom attributes
     pub fn new(name: Text, data_size: impl Into<Vec2<usize>>, channels: SmallVec<[ChannelInfo; 5]>) -> Self {
         let data_size: Vec2<usize> = data_size.into();
-        let compression = Compression::Uncompressed;
-        let blocks = Blocks::ScanLines;
+
+        let compression = Compression::RLE;
+        let blocks = Blocks::Tiles(TileDescription {
+            tile_size: Vec2(64, 64),
+            level_mode: LevelMode::Singular,
+            rounding_mode: RoundingMode::Down
+        });
 
         Self {
             layer_size: data_size,
