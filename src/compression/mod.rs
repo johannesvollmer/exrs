@@ -11,8 +11,8 @@ mod pxr24;
 
 
 
-use crate::meta::attribute::{IntRect, SampleType, ChannelList};
-use crate::error::{Result, Error};
+use crate::meta::attribute::{IntegerBounds, SampleType, ChannelList};
+use crate::error::{Result, Error, usize_to_i32};
 use crate::meta::header::Header;
 
 
@@ -31,6 +31,7 @@ pub enum Compression {
 
     /// Store uncompressed values.
     /// Produces large files that can be read and written very quickly.
+    /// Consider using RLE instead, as it provides some compression with almost equivalent speed.
     Uncompressed,
 
     /// Produces slightly smaller files
@@ -162,7 +163,7 @@ impl Compression {
     }
 
     /// Compress the image section of bytes.
-    pub fn compress_image_section(self, header: &Header, mut uncompressed: ByteVec, pixel_section: IntRect) -> Result<ByteVec> {
+    pub fn compress_image_section(self, header: &Header, mut uncompressed: ByteVec, pixel_section: IntegerBounds) -> Result<ByteVec> {
         let max_tile_size = header.max_block_pixel_size();
 
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
@@ -200,7 +201,7 @@ impl Compression {
     }
 
     /// Decompress the image section of bytes.
-    pub fn decompress_image_section(self, header: &Header, compressed: ByteVec, pixel_section: IntRect, pedantic: bool) -> Result<ByteVec> {
+    pub fn decompress_image_section(self, header: &Header, compressed: ByteVec, pixel_section: IntegerBounds, pedantic: bool) -> Result<ByteVec> {
         let max_tile_size = header.max_block_pixel_size();
 
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
@@ -269,7 +270,7 @@ impl Compression {
 // FIXME this should really be done inside each compression method
 
 #[allow(unused)]
-fn convert_current_to_little_endian(bytes: ByteVec, channels: &ChannelList, rectangle: IntRect) -> ByteVec { // TODO is this really not already somewhere else?
+fn convert_current_to_little_endian(bytes: ByteVec, channels: &ChannelList, rectangle: IntegerBounds) -> ByteVec { // TODO is this really not already somewhere else?
     #[cfg(target = "big_endian")] {
         use lebe::prelude::*;
 
@@ -279,7 +280,7 @@ fn convert_current_to_little_endian(bytes: ByteVec, channels: &ChannelList, rect
 
         for y in rectangle.position.y() .. rectangle.end().y() {
             for channel in &channels.list {
-                if mod_p(y, channel.sampling.y() as i32) != 0 { continue; }
+                if mod_p(y, usize_to_i32(channel.sampling.y())) != 0 { continue; }
 
                 // FIXME do not match on every value
                 for _x in 0 .. rectangle.size.width() / channel.sampling.x() {
@@ -299,7 +300,7 @@ fn convert_current_to_little_endian(bytes: ByteVec, channels: &ChannelList, rect
 }
 
 #[allow(unused)]
-fn convert_little_endian_to_current(bytes: ByteVec, channels: &ChannelList, rectangle: IntRect) -> ByteVec { // TODO is this really not already somewhere else?
+fn convert_little_endian_to_current(bytes: ByteVec, channels: &ChannelList, rectangle: IntegerBounds) -> ByteVec { // TODO is this really not already somewhere else?
     #[cfg(target = "big_endian")] {
         use lebe::prelude::*;
 
@@ -309,7 +310,7 @@ fn convert_little_endian_to_current(bytes: ByteVec, channels: &ChannelList, rect
 
         for y in rectangle.position.y() .. rectangle.end().y() {
             for channel in &channels.list {
-                if mod_p(y, channel.sampling.y() as i32) != 0 { continue; }
+                if mod_p(y, usize_to_i32(channel.sampling.y())) != 0 { continue; }
 
                 // FIXME do not match on every value
                 for _x in 0 .. rectangle.size.width() / channel.sampling.x() {

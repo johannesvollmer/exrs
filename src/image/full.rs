@@ -63,9 +63,8 @@ pub struct Layer {
     /// May still contain attributes that should be considered global for an image file.
     pub attributes: LayerAttributes,
 
-    /// The rectangle that positions this layer
-    /// within the global infinite 2D space of the file.
-    pub data_size: Vec2<usize>,
+    /// The pixel resolution of this layer.
+    pub size: Vec2<usize>,
 
     /// In what order the tiles of this header occur in the file.
     pub line_order: LineOrder,
@@ -270,7 +269,7 @@ impl Image {
     #[inline]
     #[must_use]
     pub fn write_to_file(&self, path: impl AsRef<std::path::Path>, options: WriteOptions<impl OnWriteProgress>) -> UnitResult {
-        crate::io::attempt_delete_file_on_write_error(path, move |write|
+        crate::io::attempt_delete_file_on_write_error(path.as_ref(), move |write|
             self.write_to_unbuffered(write, options)
         )
     }
@@ -317,7 +316,7 @@ impl Image {
         let shared_attributes = &headers.iter()
             // pick the header with the most attributes
             // (all headers should have the same shared attributes anyways)
-            .max_by_key(|header| header.shared_attributes.custom.len())
+            .max_by_key(|header| header.shared_attributes.other.len())
             .expect("at least one header is required").shared_attributes;
 
         let headers : Result<_> = headers.iter().map(Layer::allocate).collect();
@@ -366,7 +365,7 @@ impl Layer {
     /// Allocate an layer ready to be filled with pixel data.
     pub fn allocate(header: &Header) -> Result<Self> {
         Ok(Layer {
-            data_size: header.data_size,
+            size: header.layer_size,
             attributes: header.own_attributes.clone(),
             channels: header.channels.list.iter().map(|channel| Channel::allocate(header, channel)).collect(),
             compression: header.compression,
@@ -378,8 +377,8 @@ impl Layer {
     /// Insert one line of pixel data into this layer.
     /// Returns an error for invalid index or line contents.
     pub fn insert_line(&mut self, line: LineRef<'_>) -> UnitResult {
-        debug_assert!(line.location.position.x() + line.location.sample_count <= self.data_size.width(), "line index bug");
-        debug_assert!(line.location.position.y() < self.data_size.height(), "line index bug");
+        debug_assert!(line.location.position.x() + line.location.sample_count <= self.size.width(), "line index bug");
+        debug_assert!(line.location.position.y() < self.size.height(), "line index bug");
 
         self.channels.get_mut(line.location.channel)
             .expect("invalid channel index")
@@ -389,8 +388,8 @@ impl Layer {
     /// Read one line of pixel data from this layer.
     /// Panics for an invalid index or write error.
     pub fn extract_line(&self, line: LineRefMut<'_>) {
-        debug_assert!(line.location.position.x() + line.location.sample_count <= self.data_size.width(), "line index bug");
-        debug_assert!(line.location.position.y() < self.data_size.height(), "line index bug");
+        debug_assert!(line.location.position.x() + line.location.sample_count <= self.size.width(), "line index bug");
+        debug_assert!(line.location.position.y() < self.size.height(), "line index bug");
 
         self.channels.get(line.location.channel)
             .expect("invalid channel index")
@@ -401,7 +400,7 @@ impl Layer {
     /// May produce invalid meta data. The meta data will be validated just before writing.
     pub fn infer_header(&self, shared_attributes: &ImageAttributes) -> Header {
         let chunk_count = compute_chunk_count(
-            self.compression, self.data_size, self.blocks
+            self.compression, self.size, self.blocks
         );
 
         Header {
@@ -412,7 +411,7 @@ impl Layer {
             channels: ChannelList::new(self.channels.iter().map(Channel::infer_channel_attribute).collect()),
             line_order: self.line_order,
 
-            data_size: self.data_size,
+            layer_size: self.size,
             own_attributes: self.attributes.clone(),
             shared_attributes: shared_attributes.clone(),
 
@@ -541,7 +540,7 @@ impl<S: Samples> Levels<S> {
 
     /// Allocate a collection of resolution maps ready to be filled with pixel data.
     pub fn allocate(header: &Header, channel: &attribute::ChannelInfo) -> Self {
-        let data_size = header.data_size / channel.sampling;
+        let data_size = header.layer_size / channel.sampling;
 
         if let Blocks::Tiles(tiles) = &header.blocks {
             let round = tiles.rounding_mode;

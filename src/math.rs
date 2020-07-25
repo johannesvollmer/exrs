@@ -7,6 +7,7 @@
 use std::convert::TryFrom;
 use crate::error::{i32_to_usize};
 use crate::error::Result;
+use std::ops::{Add, Sub, Div};
 
 /// Simple two-dimensional vector of any numerical type.
 /// Supports only few mathematical operations
@@ -16,9 +17,14 @@ pub struct Vec2<T> (pub T, pub T);
 
 impl<T> Vec2<T> {
 
-    /// Maps all components of this vector to a new type, yielding a vector of that new type.
-    pub fn map<B>(self, map: impl Fn(T) -> B) -> Vec2<B> {
-        Vec2(map(self.0), map(self.1))
+    /// Returns the vector with the maximum of either coordinates.
+    pub fn max(self, other: Self) -> Self where T: Ord {
+        Vec2(self.0.max(other.0), self.1.max(other.1))
+    }
+
+    /// Returns the vector with the minimum of either coordinates.
+    pub fn min(self, other: Self) -> Self where T: Ord {
+        Vec2(self.0.min(other.0), self.1.min(other.1))
     }
 
     /// Try to convert all components of this vector to a new type,
@@ -28,6 +34,8 @@ impl<T> Vec2<T> {
         let y = T::try_from(value.1)?;
         Ok(Vec2(x, y))
     }
+
+
 
     /// Seeing this vector as a dimension or size (width and height),
     /// this returns the area that this dimensions contains (`width * height`).
@@ -101,6 +109,11 @@ impl<T: std::ops::Mul<T>> std::ops::Mul<Vec2<T>> for Vec2<T> {
     }
 }
 
+impl<T> std::ops::Neg for Vec2<T> where T: std::ops::Neg<Output=T> {
+    type Output = Vec2<T>;
+    fn neg(self) -> Self::Output { Vec2(-self.0, -self.1) }
+}
+
 impl<T> From<(T, T)> for Vec2<T> {
     fn from((x, y): (T, T)) -> Self { Vec2(x, y) }
 }
@@ -157,16 +170,18 @@ pub enum RoundingMode {
 }
 
 impl RoundingMode {
-    pub(crate) fn log2(self, number: usize) -> usize {
+    pub(crate) fn log2(self, number: u32) -> u32 {
         match self {
-            RoundingMode::Down => self::floor_log_2(number as u32) as usize,
-            RoundingMode::Up => self::ceil_log_2(number as u32) as usize,
+            RoundingMode::Down => self::floor_log_2(number),
+            RoundingMode::Up => self::ceil_log_2(number),
         }
     }
 
-    pub(crate) fn divide(self, dividend: usize, divisor: usize) -> usize {
+    pub(crate) fn divide<T>(self, dividend: T, divisor: T) -> T
+        where T: Copy + Add<Output = T> + Sub<Output = T> + Div<Output = T> + From<u8>
+    {
         match self {
-            RoundingMode::Up => (dividend + divisor - 1) / divisor, // only works for positive numbers
+            RoundingMode::Up => (dividend + divisor - T::from(1_u8)) / divisor, // only works for positive numbers
             RoundingMode::Down => dividend / divisor,
         }
     }

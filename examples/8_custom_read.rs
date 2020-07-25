@@ -22,7 +22,7 @@ fn main() {
     #[derive(Debug)]
     struct Layer {
         name: Option<Text>,
-        data_window: IntRect,
+        data_window: IntegerBounds,
 
         /// Collect one average float per channel
         channels: Vec<Channel>,
@@ -50,7 +50,7 @@ fn main() {
             headers.iter()
                 // create a layer for each header in the file
                 .map(|header| Layer {
-                    name: header.own_attributes.name.clone(),
+                    name: header.own_attributes.layer_name.clone(),
                     data_window: header.data_window(),
 
                     // create a averaging channel for each channel in the file

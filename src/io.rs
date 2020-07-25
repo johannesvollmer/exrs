@@ -12,33 +12,37 @@ use crate::error::{Error, Result, UnitResult, IoResult};
 use std::io::{Seek, SeekFrom};
 use std::path::Path;
 use std::fs::File;
+use std::convert::TryFrom;
 
 
 /// Skip reading uninteresting bytes without allocating.
 #[inline]
 pub fn skip_bytes(read: &mut impl Read, count: usize) -> IoResult<()> {
+    let count = u64::try_from(count).unwrap();
+
     let skipped = std::io::copy(
-        &mut read.by_ref().take(count as u64),
+        &mut read.by_ref().take(count),
         &mut std::io::sink()
     )?;
 
     // the reader may have ended before we skipped the desired number of bytes
-    if skipped < count as u64 {
+    if skipped < count {
         return Err(std::io::Error::new(
             std::io::ErrorKind::UnexpectedEof,
             "cannot skip more bytes than exist"
         ));
     }
 
-    debug_assert_eq!(skipped, count as u64, "skip bytes bug");
+    debug_assert_eq!(skipped, count, "skip bytes bug");
     Ok(())
 }
 
 /// If an error occurs while writing, attempts to delete the partially written file.
+/// Creates a file just before the first write operation, not when this function is called.
 #[inline]
-pub fn attempt_delete_file_on_write_error(path: impl AsRef<Path>, write: impl FnOnce(File) -> UnitResult) -> UnitResult {
-    match write(std::fs::File::create(path.as_ref())?) {
-        Err(error) => {
+pub fn attempt_delete_file_on_write_error<'p>(path: &'p Path, write: impl FnOnce(LateFile<'p>) -> UnitResult) -> UnitResult {
+    match write(LateFile::from(path)) {
+        Err(error) => { // FIXME deletes existing file if creation of new file fails?
             let _deleted = std::fs::remove_file(path); // ignore deletion errors
             Err(error)
         },
@@ -46,6 +50,41 @@ pub fn attempt_delete_file_on_write_error(path: impl AsRef<Path>, write: impl Fn
         ok => ok,
     }
 }
+
+#[derive(Debug)]
+pub struct LateFile<'p> {
+    path: &'p Path,
+    file: Option<File>
+}
+
+impl<'p> From<&'p Path> for LateFile<'p> {
+    fn from(path: &'p Path) -> Self { Self { path, file: None } }
+}
+
+impl<'p> LateFile<'p> {
+    fn file(&mut self) -> std::io::Result<&mut File> {
+        if self.file.is_none() { self.file = Some(File::create(self.path)?); }
+        Ok(self.file.as_mut().unwrap()) // will not be reached if creation fails
+    }
+}
+
+impl<'p> std::io::Write for LateFile<'p> {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.file()?.write(buffer)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if let Some(file) = &mut self.file { file.flush() }
+        else { Ok(()) }
+    }
+}
+
+impl<'p> Seek for LateFile<'p> {
+    fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+        self.file()?.seek(position)
+    }
+}
+
 
 /// Peek a single byte without consuming it.
 #[derive(Debug)]
@@ -189,7 +228,7 @@ impl<T: Read + Seek> Tracking<T> {
             self.position += delta as usize;
         }
         else if delta != 0 {
-            self.inner.seek(SeekFrom::Start(target_position as u64))?;
+            self.inner.seek(SeekFrom::Start(u64::try_from(target_position).unwrap()))?;
             self.position = target_position;
         }
 
@@ -203,11 +242,11 @@ impl<T: Write + Seek> Tracking<T> {
     /// If seeking forward, this will write zeroes.
     pub fn seek_write_to(&mut self, target_position: usize) -> std::io::Result<()> {
         if target_position < self.position {
-            self.inner.seek(SeekFrom::Start(target_position as u64))?;
+            self.inner.seek(SeekFrom::Start(u64::try_from(target_position).unwrap()))?;
         }
         else if target_position > self.position {
             std::io::copy(
-                &mut std::io::repeat(0).take((target_position - self.position) as u64),
+                &mut std::io::repeat(0).take(u64::try_from(target_position - self.position).unwrap()),
                 self
             )?;
         }
@@ -282,7 +321,7 @@ pub trait Data: Sized + Default + Clone {
     /// Write the length of the slice and then its contents.
     #[inline]
     fn write_i32_sized_slice<W: Write>(write: &mut W, slice: &[Self]) -> UnitResult {
-        i32::write(slice.len() as i32, write)?;
+        i32::try_from(slice.len())?.write(write)?;
         Self::write_slice(write, slice)
     }
 
@@ -293,9 +332,8 @@ pub trait Data: Sized + Default + Clone {
     /// Returns `Error::Invalid` if reader does not contain the desired number of elements.
     #[inline]
     fn read_i32_sized_vec(read: &mut impl Read, soft_max: usize, hard_max: Option<usize>) -> Result<Vec<Self>> {
-        let size = i32::read(read)?;
-        if size < 0 { Err(Error::invalid("negative array size")) }
-        else { Self::read_vec(read, size as usize, soft_max, hard_max) }
+        let size = usize::try_from(i32::read(read)?)?;
+        Self::read_vec(read, size, soft_max, hard_max)
     }
 
     /// Fill the slice with this value.

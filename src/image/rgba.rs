@@ -246,7 +246,7 @@ impl ImageInfo {
     pub fn with_position(mut self, position: impl Into<Vec2<i32>>) -> Self {
         let position: Vec2<i32> = position.into();
         self.image_attributes.display_window.position = position;
-        self.layer_attributes.data_position = position;
+        self.layer_attributes.layer_position = position;
         self
     }
 
@@ -360,7 +360,7 @@ impl ImageInfo {
                 let (r_type, g_type, b_type, a_type) = image.channels;
 
                 let header: &Header = &meta[block.index.layer];
-                debug_assert_eq!(header.own_attributes.name, image.layer_attributes.name, "irrelevant header should be filtered out"); // TODO this should be an error right?
+                debug_assert_eq!(header.own_attributes.layer_name, image.layer_attributes.layer_name, "irrelevant header should be filtered out"); // TODO this should be an error right?
                 let line_bytes = block.index.pixel_size.0 * header.channels.bytes_per_pixel;
 
                 // TODO compute this once per image, not per block
@@ -431,7 +431,7 @@ impl ImageInfo {
     fn allocate(header: &Header, channels: Channels) -> Self {
         ImageInfo {
             channels,
-            resolution: header.data_size,
+            resolution: header.layer_size,
 
             layer_attributes: header.own_attributes.clone(),
             image_attributes: header.shared_attributes.clone(),
@@ -476,7 +476,7 @@ impl ImageInfo {
     /// Use `write_pixels_to_unbuffered` instead if you do not have a file.
     /// If an error occurs, attempts to delete the partially written file.
     ///
-    /// The `pixels` parameter is a closure of type `Fn(&Image, Vec2<usize>) -> Pixel`.
+    /// The `pixels` parameter is a closure of type `Fn(Vec2<usize>) -> Pixel`.
     #[must_use]
     pub fn write_pixels_to_file(
         &self, path: impl AsRef<Path>,
@@ -484,7 +484,7 @@ impl ImageInfo {
         pixels: GetPixels!(),
     ) -> UnitResult
     {
-        crate::io::attempt_delete_file_on_write_error(path, |write|
+        crate::io::attempt_delete_file_on_write_error(path.as_ref(), |write|
             self.write_pixels_to_unbuffered(write, options, pixels)
         )
     }
@@ -494,7 +494,7 @@ impl ImageInfo {
     /// Use `write_pixels_to_file` instead, if you have a file path.
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first, using `write_to_buffered`.
     ///
-    /// The `pixels` parameter is a closure of type `Fn(&Image, Vec2<usize>) -> Pixel`.
+    /// The `pixels` parameter is a closure of type `Fn(Vec2<usize>) -> Pixel`.
     #[must_use]
     pub fn write_pixels_to_unbuffered(
         &self, write: impl Write + Seek,
@@ -510,7 +510,7 @@ impl ImageInfo {
     /// Use `write_pixels_to_unbuffered` instead, if this is not an in-memory writer.
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first.
     ///
-    /// The `pixels` parameter is a closure of type `Fn(&Image, Vec2<usize>) -> Pixel`.
+    /// The `pixels` parameter is a closure of type `Fn(Vec2<usize>) -> Pixel`.
     #[must_use]
     pub fn write_pixels_to_buffered(
         &self, write: impl Write + Seek,
@@ -521,7 +521,7 @@ impl ImageInfo {
         use crate::meta::attribute as meta;
 
         let header = Header::new(
-            self.layer_attributes.name.clone().unwrap_or(Text::from("RGBA").unwrap()),
+            self.layer_attributes.layer_name.clone().unwrap_or(Text::from("RGBA").unwrap()),
             self.resolution,
             {
                 if let Some(alpha) = self.channels.3 { smallvec![

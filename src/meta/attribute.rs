@@ -65,7 +65,7 @@ pub enum AttributeValue {
     I32(i32),
 
     /// 2D integer rectangle.
-    IntRect(IntRect),
+    IntegerBounds(IntegerBounds),
 
     /// 2D float rectangle.
     FloatRect(FloatRect),
@@ -148,10 +148,10 @@ pub mod block_type_strings {
 pub use crate::compression::Compression;
 
 /// The integer rectangle describing where an layer is placed on the infinite 2D global space.
-pub type DataWindow = IntRect;
+pub type DataWindow = IntegerBounds;
 
 /// The integer rectangle limiting which part of the infinite 2D global space should be displayed.
-pub type DisplayWindow = IntRect;
+pub type DisplayWindow = IntegerBounds;
 
 /// An integer dividend and divisor, together forming a ratio.
 pub type Rational = (i32, u32);
@@ -164,7 +164,7 @@ pub type Matrix3x3 = [f32; 3*3];
 
 /// A rectangular section anywhere in 2D integer space.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
-pub struct IntRect {
+pub struct IntegerBounds {
 
     /// The bottom left corner of this rectangle.
     /// The `Box2I32` includes this pixel if the size is not zero.
@@ -667,7 +667,7 @@ impl BlockType {
 }
 
 
-impl IntRect {
+impl IntegerBounds {
 
     /// Create a box with no size located at (0,0).
     pub fn zero() -> Self {
@@ -750,12 +750,20 @@ impl IntRect {
         let size = Vec2(max.x() + 1 - min.x(), max.y() + 1 - min.y()); // which is why we add 1
         let size = size.to_usize("box coordinates")?;
 
-        Ok(IntRect { position: min, size })
+        Ok(IntegerBounds { position: min, size })
     }
 
     /// Create a new rectangle which is offset by the specified origin.
-    pub fn with_origin(self, origin: Vec2<i32>) -> Self {
-        IntRect { position: self.position + origin, .. self }
+    pub fn with_origin(self, origin: Vec2<i32>) -> Self { // TODO rename to "move" or "translate"?
+        IntegerBounds { position: self.position + origin, .. self }
+    }
+
+    /// Returns whether the specified rectangle is equal to or inside this rectangle.
+    pub fn contains(self, subset: Self) -> bool {
+           subset.position.x() >= self.position.x()
+        && subset.position.y() >= self.position.y()
+        && subset.end().x() <= self.end().x()
+        && subset.end().y() <= self.end().y()
     }
 }
 
@@ -897,7 +905,7 @@ impl ChannelInfo {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, allow_sampling: bool, data_window: IntRect, strict: bool) -> UnitResult {
+    pub fn validate(&self, allow_sampling: bool, data_window: IntegerBounds, strict: bool) -> UnitResult {
         self.name.validate(true, None)?; // TODO spec says this does not affect `requirements.long_names` but is that true?
 
         if self.sampling.x() == 0 || self.sampling.y() == 0 {
@@ -956,7 +964,7 @@ impl ChannelList {
     }
 
     /// Check if channels are valid and sorted.
-    pub fn validate(&self, allow_sampling: bool, data_window: IntRect, strict: bool) -> UnitResult {
+    pub fn validate(&self, allow_sampling: bool, data_window: IntegerBounds, strict: bool) -> UnitResult {
         let mut iter = self.list.iter().map(|chan| chan.validate(allow_sampling, data_window, strict).map(|_| &chan.name));
         let mut previous = iter.next().ok_or(Error::invalid("at least one channel is required"))??;
 
@@ -1305,7 +1313,7 @@ pub fn read(read: &mut PeekRead<impl Read>, max_size: usize) -> Result<(Text, Re
 }
 
 /// Validate this attribute.
-pub fn validate(name: &Text, value: &AttributeValue, long_names: &mut bool, allow_sampling: bool, data_window: IntRect, strict: bool) -> UnitResult {
+pub fn validate(name: &Text, value: &AttributeValue, long_names: &mut bool, allow_sampling: bool, data_window: IntegerBounds, strict: bool) -> UnitResult {
     name.validate(true, Some(long_names))?; // only name text has length restriction
     value.validate(allow_sampling, data_window, strict) // attribute value text length is never restricted
 }
@@ -1318,7 +1326,7 @@ impl AttributeValue {
         use self::AttributeValue::*;
 
         match *self {
-            IntRect(_) => self::IntRect::byte_size(),
+            IntegerBounds(_) => self::IntegerBounds::byte_size(),
             FloatRect(_) => self::FloatRect::byte_size(),
 
             I32(_) => i32::BYTE_SIZE,
@@ -1363,7 +1371,7 @@ impl AttributeValue {
         use self::type_names as ty;
 
         match *self {
-            IntRect(_) =>  ty::I32BOX2,
+            IntegerBounds(_) =>  ty::I32BOX2,
             FloatRect(_) =>  ty::F32BOX2,
             I32(_) =>  ty::I32,
             F32(_) =>  ty::F32,
@@ -1395,7 +1403,7 @@ impl AttributeValue {
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         use self::AttributeValue::*;
         match *self {
-            IntRect(value) => value.write(write)?,
+            IntegerBounds(value) => value.write(write)?,
             FloatRect(value) => value.write(write)?,
 
             I32(value) => value.write(write)?,
@@ -1452,7 +1460,7 @@ impl AttributeValue {
             let reader = &mut attribute_bytes.as_slice();
 
             Ok(match kind.bytes.as_slice() {
-                ty::I32BOX2 => IntRect(self::IntRect::read(reader)?),
+                ty::I32BOX2 => IntegerBounds(self::IntegerBounds::read(reader)?),
                 ty::F32BOX2 => FloatRect(self::FloatRect::read(reader)?),
 
                 ty::I32 => I32(i32::read(reader)?),
@@ -1532,7 +1540,7 @@ impl AttributeValue {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, allow_sampling: bool, data_window: IntRect, strict: bool) -> UnitResult {
+    pub fn validate(&self, allow_sampling: bool, data_window: IntegerBounds, strict: bool) -> UnitResult {
         use self::AttributeValue::*;
 
         match *self {
@@ -1792,7 +1800,7 @@ mod test {
             );
 
             let mut long_names = false;
-            super::validate(&name, &value, &mut long_names, false, IntRect::zero(), false).unwrap();
+            super::validate(&name, &value, &mut long_names, false, IntegerBounds::zero(), false).unwrap();
             assert!(long_names);
         }
 
@@ -1802,7 +1810,7 @@ mod test {
                 AttributeValue::I32(0),
             );
 
-            super::validate(&name, &value, &mut false, false, IntRect::zero(), false).expect_err("name length check failed");
+            super::validate(&name, &value, &mut false, false, IntegerBounds::zero(), false).expect_err("name length check failed");
         }
     }
 }

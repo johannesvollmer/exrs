@@ -11,6 +11,8 @@ use crate::prelude::common::*;
 use crate::io::Data;
 use crate::meta::attribute::*;
 use crate::compression::{ByteVec, Bytes, mod_p};
+use crate::error::{usize_to_i32, usize_to_u16};
+use std::convert::TryFrom;
 
 
 const U16_RANGE: usize = (1_i32 << 16_i32) as usize;
@@ -30,7 +32,7 @@ struct ChannelData {
 pub fn decompress(
     channels: &ChannelList,
     compressed: ByteVec,
-    rectangle: IntRect,
+    rectangle: IntegerBounds,
     expected_byte_size: usize,
     pedantic: bool
 ) -> Result<ByteVec>
@@ -80,7 +82,7 @@ pub fn decompress(
 
     {
         let length = i32::read(&mut remaining_input)?;
-        if pedantic && length as usize != remaining_input.len() {
+        if pedantic && length as i64 != remaining_input.len() as i64 {
             // TODO length might be smaller than remaining??
             return Err(Error::invalid("compression data"));
         }
@@ -110,7 +112,7 @@ pub fn decompress(
 
     for y in rectangle.position.y() .. rectangle.end().y() {
         for channel in &mut channel_data {
-            if mod_p(y, channel.y_sampling as i32) != 0 {
+            if mod_p(y, usize_to_i32(channel.y_sampling)) != 0 {
                 continue;
             }
 
@@ -147,7 +149,7 @@ pub fn decompress(
 pub fn compress(
     channels: &ChannelList,
     uncompressed: Bytes<'_>,
-    rectangle: IntRect
+    rectangle: IntegerBounds
 ) -> Result<ByteVec>
 {
     if uncompressed.is_empty() {
@@ -180,7 +182,7 @@ pub fn compress(
     let mut remaining_uncompressed_bytes = uncompressed;
     for y in rectangle.position.y() .. rectangle.end().y() {
         for channel in &mut channel_data {
-            if mod_p(y, channel.y_sampling as i32) != 0 { continue; }
+            if mod_p(y, usize_to_i32(channel.y_sampling)) != 0 { continue; }
             let u16s_per_line = channel.resolution.x() * channel.samples_per_pixel;
             let next_tmp_end_index = channel.tmp_end_index + u16s_per_line;
             let target = &mut tmp[channel.tmp_end_index .. next_tmp_end_index];
@@ -205,8 +207,8 @@ pub fn compress(
     apply_lookup_table(&mut tmp, &table);
 
     let mut piz_compressed = Vec::with_capacity(uncompressed.len() / 3);
-    (min_non_zero as u16).write(&mut piz_compressed)?;
-    (max_non_zero as u16).write(&mut piz_compressed)?;
+    u16::try_from(min_non_zero)?.write(&mut piz_compressed)?;
+    u16::try_from(max_non_zero)?.write(&mut piz_compressed)?;
 
     if min_non_zero <= max_non_zero {
         piz_compressed.extend_from_slice(&bitmap[min_non_zero ..= max_non_zero]);
@@ -224,9 +226,7 @@ pub fn compress(
     }
 
     let huffman_compressed: Vec<u8> = huffman::compress(&tmp)?;
-
-    (huffman_compressed.len() as i32).write(&mut piz_compressed).expect("in-memory write failed");
-    piz_compressed.extend_from_slice(&huffman_compressed);
+    u8::write_i32_sized_slice(&mut piz_compressed, &huffman_compressed).expect("in-memory write failed");
 
     Ok(piz_compressed)
 }
@@ -257,12 +257,12 @@ pub fn forward_lookup_table_from_bitmap(bitmap: &[u8]) -> (u16, Vec<u16>) {
 
     for (index, entry) in table.iter_mut().enumerate() {
         if index == 0 || bitmap[index >> 3] as usize & (1 << (index & 7)) != 0 {
-            *entry = count as u16;
+            *entry = usize_to_u16(count).unwrap();
             count += 1;
         }
     }
 
-    ((count - 1) as u16, table)
+    (usize_to_u16(count - 1).unwrap(), table)
 }
 
 fn reverse_lookup_table_from_bitmap(bitmap: Bytes<'_>) -> (Vec<u16>, u16) {
@@ -270,12 +270,12 @@ fn reverse_lookup_table_from_bitmap(bitmap: Bytes<'_>) -> (Vec<u16>, u16) {
 
     for index in 0 .. U16_RANGE {
         if index == 0 || ((bitmap[index >> 3] as usize & (1 << (index & 7))) != 0) {
-            table.push(index as u16);
+            table.push(usize_to_u16(index).unwrap());
         }
     }
 
     debug_assert!(!table.is_empty());
-    let max_value = (table.len() - 1) as u16;
+    let max_value = usize_to_u16(table.len() - 1).unwrap();
 
     // fill remaining up to u16 range
     assert!(table.len() <= U16_RANGE);
@@ -297,7 +297,7 @@ mod test {
     use crate::compression::piz;
     use crate::meta::attribute::*;
 
-    fn test_roundtrip_noise_with(channels: ChannelList, rectangle: IntRect){
+    fn test_roundtrip_noise_with(channels: ChannelList, rectangle: IntegerBounds){
         let pixel_bytes: ByteVec = (0 .. channels.bytes_per_pixel * rectangle.size.area())
             .map(|_| rand::random()).collect();
 
@@ -321,7 +321,7 @@ mod test {
 
             let channels = ChannelList::new(smallvec![ channel.clone(), channel ]);
 
-            let rectangle = IntRect {
+            let rectangle = IntegerBounds {
                 position: Vec2(-30, 100),
                 size: Vec2(322, 731),
             };
@@ -350,7 +350,7 @@ mod test {
 
         let channels = ChannelList::new(smallvec![ channel, channel2 ]);
 
-        let rectangle = IntRect {
+        let rectangle = IntegerBounds {
             position: Vec2(-3, 1),
             size: Vec2(2323, 3132),
         };
@@ -420,7 +420,7 @@ mod test {
             },
         ]);
 
-        let rectangle = IntRect {
+        let rectangle = IntegerBounds {
             position: Vec2(-3, 1),
             size: Vec2(2323, 3132),
         };

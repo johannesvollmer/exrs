@@ -36,7 +36,7 @@ pub fn decompress_bytes(mut remaining: Bytes<'_>, expected_byte_size: usize, ped
 
     // FIXME this function returns little-endian data, but possibly must run on big-endian architecture????
     #[cfg(target_endian = "big")]
-        unimplemented!(this probably function returns little-endian data);
+        unimplemented!(this function probably returns little-endian data);
 
     Ok(decompressed)
 }
