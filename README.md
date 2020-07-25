@@ -235,8 +235,9 @@ Allocations have a safe maximum size that will not be exceeded at once.
 
 ### Running Tests
 
-To run all fast tests, use `cargo test`.
-To start fuzzing indefinitely, use `cargo test --package exr --test fuzz fuzz -- --exact --ignored`.
+1. To run any tests, you have to pull this repository with `git-lfs` on your system installed.
+1. To run plain tests, use `cargo test`.
+1. To start fuzzing indefinitely, use `cargo test --package exr --test fuzz fuzz -- --exact --ignored`.
 
 ### Specification
 
