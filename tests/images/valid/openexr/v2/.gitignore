@@ -1,13 +1,3 @@
-# http://www.gnu.org/software/automake
-
-Makefile.in
-
-# http://www.gnu.org/software/autoconf
-
-/autom4te.cache
-/aclocal.m4
-/compile
-/configure
-/depcomp
-/install-sh
-/missing
+version https://git-lfs.github.com/spec/v1
+oid sha256:4f120ee85610687adbcb8c47d05dc74afd24c0de0272254c0d13c085270cd977
+size 184
