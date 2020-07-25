@@ -12,13 +12,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: checkout repository
         uses: actions/checkout@v2
         with:
           lfs: true
-      - name: Checkout LFS objects
+      - name: checkout large files
         run: git lfs checkout
-      - name: Build
+      - name: build source
         run: cargo build --verbose
-      - name: Run tests
+      - name: run tests
         run: cargo test --verbose
