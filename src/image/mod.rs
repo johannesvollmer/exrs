@@ -1,4 +1,4 @@
-use crate::meta::header::ImageAttributes;
+use crate::meta::header::{ImageAttributes, LayerAttributes};
 use crate::meta::attribute::Text;
 use half::f16;
 
@@ -7,19 +7,19 @@ use half::f16;
 pub mod read;
 // pub mod write;
 
-/// `C`: either `RgbaChannels` or `AnyChannels<AnySamples>` or `AnyChannels<FlatSamples>`
+/// `L`: either `RgbaChannels` or `AnyChannels<AnySamples>` or `AnyChannels<FlatSamples>` or a `Vec` of any of those
 #[derive(Debug, Clone, PartialEq)]
-pub struct Image<C> {
+pub struct Image<L> {
     image_attributes: ImageAttributes,
 
-    /// `C`: either `RgbaChannels` or `AnyChannels`
-    layers: Vec<Layer<C>>, // TODO SmallVec?
+    /// `L`: either `RgbaChannels` or `AnyChannels<AnySamples>` or `AnyChannels<FlatSamples>` or a `Vec` of any of those
+    layers: L, // TODO SmallVec?
 }
 
 /// `C`: either `RgbaChannels` or `AnyChannels<AnySamples>` or `AnyChannels<FlatSamples>`
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layer<C> {
-    name: Text,
+    layer_attributes: LayerAttributes,
     channels: C,
 }
 
