@@ -33,7 +33,8 @@
 )]
 
 #![forbid(unsafe_code)]
-#![warn(missing_docs)]
+
+// FIXME release #![warn(missing_docs)]
 
 pub mod io; // public to allow for custom attribute byte parsing
 
@@ -52,44 +53,23 @@ extern crate smallvec;
 /// Use either `exr::prelude::rgba_image::*` or `exr::prelude::simple_image::*` for simply reading an image.
 pub mod prelude {
 
-    /// Re-exports of all common elements needed for reading or writing an `exrs::image::rgba`.
-    pub mod rgba_image {
-        pub use super::common::*;
-        pub use crate::image::rgba::*;
-    }
-
-    /// Re-exports of all common elements needed for reading or writing an `exrs::image::simple`.
-    pub mod simple_image {
-        pub use super::common::*;
-        pub use crate::image::simple::*;
-    }
-
-    // TODO
-    #[doc(hidden)]
-    mod full {
-        pub use super::common::*;
-        pub use crate::image::full::*;
-    }
-
     /// Exports of all modules types commonly required for reading and writing of an exr image.
     /// Use either `exr::prelude::rgba_image::*` or `exr::prelude::simple_image::*` for reading an image.
     /// _Note: This includes a type called `Result`, possibly overwriting the default `std::Result` type usage._
-    pub mod common {
-        pub use crate::meta::{self, MetaData, attribute, header::{LayerAttributes, ImageAttributes } };
-        pub use crate::meta::attribute::{ AttributeValue, Compression, Text, IntegerBounds, LineOrder, SampleType, TileDescription };
-        pub use crate::error::{ Result, Error };
-        pub use crate::math::Vec2;
+    pub use crate::meta::{ self, MetaData, attribute, header::{ LayerAttributes, ImageAttributes } };
+    pub use crate::meta::attribute::{ AttributeValue, Compression, Text, IntegerBounds, LineOrder, SampleType, TileDescription };
+    pub use crate::error::{ Result, Error };
+    pub use crate::math::Vec2;
 
-        pub use crate::image::{
-            write_options, read_options,
-            WriteOptions, ReadOptions
-        };
+    pub use crate::image::*;
+    pub use crate::image::read::{read, ReadImageFromSource, ReadImageWithOptions, layers::ReadChannels};
+    pub use crate::image::write::{WritableImage, WriteImageToDestination, WriteImageWithOptions};
 
-        // re-export external stuff
-        pub use half::f16;
-        pub use smallvec::SmallVec;
-        pub use std::convert::TryInto;
-    }
+
+    // re-export external stuff
+    pub use half::f16;
+    pub use smallvec::SmallVec;
+    pub use std::convert::TryInto;
 }
 
 

@@ -8,7 +8,7 @@ use rand::Rng;
 
 // exr imports
 extern crate exr;
-use exr::prelude::simple_image::*;
+use exr::prelude::*;
 
 
 /// Generate a noisy image and write it to a file.
@@ -28,38 +28,38 @@ fn main() {
 
     let size = (1024, 512);
 
-    let r = Channel::color_data(
+    let r = AnyChannel::luminance_based(
         "R".try_into().unwrap(),
-        Samples::F16(generate_f16_vector(size.into()))
+        FlatSamples::F16(generate_f16_vector(size.into()))
     );
 
-    let g = Channel::color_data(
+    let g = AnyChannel::luminance_based(
         "G".try_into().unwrap(),
-        Samples::F16(generate_f16_vector(size.into()))
+        FlatSamples::F16(generate_f16_vector(size.into()))
     );
 
-    let b = Channel::color_data(
+    let b = AnyChannel::luminance_based(
         "B".try_into().unwrap(),
-        Samples::F32(generate_f16_vector(size.into()).into_iter().map(f16::to_f32).collect())
+        FlatSamples::F32(generate_f16_vector(size.into()).into_iter().map(f16::to_f32).collect())
     );
+
+    let mut layer_attributes = LayerAttributes::named("test-image".try_into().unwrap());
+    layer_attributes.owner = Some("It's you!".try_into().unwrap());
+    layer_attributes.comments = Some("This image was procedurally generated".try_into().unwrap());
 
     let layer = Layer::new(
-        "test-image".try_into().unwrap(),
         size,
+        layer_attributes,
+        Encoding::default(),
         smallvec![ r, g, b ],
     );
 
-    let mut layer = layer.with_compression(Compression::RLE)
-        .with_block_format(None, attribute::LineOrder::Increasing);
-
-    layer.attributes.owner = Some("It's you!".try_into().unwrap());
-    layer.attributes.comments = Some("This image was procedurally generated".try_into().unwrap());
-
-    let mut image = Image::new_from_single_layer(layer);
-    image.remove_excess(); // crop the image by removing the transparent pixels from the border
+    let image = Image::from_single_layer(layer);
+    // FIXME image.remove_excess(); // crop the image by removing the transparent pixels from the border
 
     println!("writing image {:#?}", image);
-    image.write_to_file("tests/images/out/noisy.exr", write_options::high()).unwrap();
+
+    image.write().to_file("tests/images/out/noisy.exr").unwrap();
 
     println!("created file noisy.exr");
 }

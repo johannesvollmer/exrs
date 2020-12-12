@@ -7,7 +7,7 @@ use std::fs::File;
 
 // exr imports
 extern crate exr;
-use exr::prelude::common::*;
+use exr::prelude::*;
 
 
 /// Collects the average pixel value for each channel.
@@ -37,7 +37,7 @@ fn main() {
     }
 
     // used later for printing the progress occasionally
-    let mut count_to_1000_and_then_print = 0;
+    // let mut count_to_1000_and_then_print = 0;
     let start_time = ::std::time::Instant::now();
 
 
@@ -98,7 +98,10 @@ fn main() {
         },
 
         // print file processing progress into the console, occasionally (important for large files)
-        ReadOptions {
+        false,
+        false
+
+        /*ReadOptions { TODO FIXME progress callback
             parallel_decompression: false,
             max_pixel_bytes: None,
             pedantic: false,
@@ -112,7 +115,7 @@ fn main() {
 
                 Ok(())
             },
-        },
+        },*/
 
     ).unwrap();
 

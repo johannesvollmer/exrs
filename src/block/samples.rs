@@ -1,6 +1,6 @@
 //! Extract pixel samples from a block of pixel bytes.
 
-use crate::prelude::common::*;
+use crate::prelude::*;
 
 
 /// A single red, green, blue, or alpha value.

@@ -29,7 +29,7 @@
 
 use super::*;
 
-use crate::prelude::common::*;
+use crate::prelude::*;
 
 use crate::error::Result;
 use inflate::inflate_bytes_zlib;

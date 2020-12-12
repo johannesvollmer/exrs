@@ -2,7 +2,7 @@ extern crate image as png;
 use std::cmp::Ordering;
 
 extern crate exr;
-use exr::prelude::simple_image as simple_exr;
+use exr::prelude::*;
 
 /// For each layer in the exr file,
 /// extract each channel as grayscale png,
@@ -16,19 +16,29 @@ pub fn main() {
     let now = ::std::time::Instant::now();
 
     // load the exr file from disk with multi-core decompression
-    let image = simple_exr::Image::read_from_file(path, simple_exr::read_options::high()).unwrap();
+    let image = read()
+        .no_deep_data().largest_resolution_level().all_channels().all_layers()
+        .read_from_file(path).unwrap();
 
     // warning: highly unscientific benchmarks ahead!
     println!("\nloaded file in {:?}s", now.elapsed().as_secs_f32());
     println!("writing images...");
 
-    for (layer_index, layer) in image.layers.iter().enumerate() {
+    for (layer_index, layer) in image.layer_data.iter().enumerate() {
         let layer_name = layer.attributes.layer_name.as_ref()
-            .map_or(String::from("main_layer"), simple_exr::Text::to_string);
+            .map_or(String::from("main_layer"), Text::to_string);
 
-        for channel in &layer.channels {
-            match &channel.samples {
-                simple_exr::Samples::F16(samples) => {
+        for channel in &layer.channel_data {
+            let data : Vec<f32> = channel.sample_data.values_as_f32().collect();
+
+            save_f32_image_as_png(&data, layer.size, format!(
+                "tests/images/out/{} ({}) {}_f16_{}x{}.png",
+                layer_index, layer_name, channel.name,
+                layer.size.width(), layer.size.height(),
+            ))
+
+            /*match &channel.sample_data {
+                FlatSamples::F16(samples) => {
                     let data : Vec<f32> = samples.iter().map(|f16| f16.to_f32()).collect();
 
                     save_f32_image_as_png(&data, layer.size, format!(
@@ -38,7 +48,7 @@ pub fn main() {
                     ))
                 },
 
-                simple_exr::Samples::F32(samples) => {
+                FlatSamples::F32(samples) => {
                     save_f32_image_as_png(samples, layer.size, format!(
                         "tests/images/out/{} ({}) {}_f32_{}x{}.png",
                         layer_index, layer_name, channel.name,
@@ -46,7 +56,7 @@ pub fn main() {
                     ))
                 },
 
-                simple_exr::Samples::U32(samples) => {
+                FlatSamples::U32(samples) => {
                     let data : Vec<f32> = samples.iter().map(|value| *value as f32).collect();
 
                     save_f32_image_as_png(&data, layer.size, format!(
@@ -55,12 +65,12 @@ pub fn main() {
                         layer.size.width(), layer.size.height(),
                     ))
                 },
-            }
+            }*/
         }
     }
 
     /// Save raw float data to a PNG file, doing automatic brightness adjustments per channel
-    fn save_f32_image_as_png(data: &[f32], size: simple_exr::Vec2<usize>, name: String) {
+    fn save_f32_image_as_png(data: &[f32], size: Vec2<usize>, name: String) {
         let mut png_buffer = png::GrayImage::new(size.width() as u32, size.height() as u32);
         let mut sorted = Vec::from(data);
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Less));

@@ -2,14 +2,14 @@ extern crate exr;
 
 extern crate smallvec;
 
-use exr::image::full::*;
 use std::{panic};
 use std::io::{Cursor};
 use std::panic::catch_unwind;
 use std::path::{PathBuf, Path};
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use exr::image::{read_options, write_options, simple, rgba, ReadOptions};
+
+use exr::prelude::*;
 use exr::error::Error;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
@@ -79,15 +79,16 @@ fn check_files<T>(
 #[test]
 fn round_trip_all_files_full() {
     check_files(vec![], |path| {
-        let image = Image::read_from_file(path, read_options::low())?;
+        let read_image = read()
+            .no_deep_data().all_resolution_levels().all_channels().all_layers()
+            .non_parallel();
+
+        let image = read_image.read_from_file(path)?;
 
         let mut tmp_bytes = Vec::new();
-        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low())?;
+        image.write().non_parallel().to_buffered(Cursor::new(&mut tmp_bytes))?;
 
-        let image2 = Image::read_from_buffered(
-            &mut tmp_bytes.as_slice(),
-            ReadOptions { pedantic: true, .. read_options::low() }
-        )?;
+        let image2 = read_image.read_from_buffered(Cursor::new(tmp_bytes))?;
 
         assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
         if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN
@@ -99,12 +100,16 @@ fn round_trip_all_files_full() {
 #[test]
 fn round_trip_all_files_simple() {
     check_files(vec![], |path| {
-        let image = simple::Image::read_from_file(path, read_options::low())?;
+        let read_image = read()
+            .no_deep_data().all_resolution_levels().all_channels().all_layers()
+            .non_parallel();
+
+        let image = read_image.read_from_file(path)?;
 
         let mut tmp_bytes = Vec::new();
-        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low())?;
+        image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
 
-        let image2 = simple::Image::read_from_buffered(Cursor::new(&tmp_bytes), ReadOptions { pedantic: true, .. read_options::low() })?;
+        let image2 = read_image.read_from_buffered(Cursor::new(&tmp_bytes))?;
 
         assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
         if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN
@@ -127,28 +132,42 @@ fn round_trip_all_files_rgba() {
     ];
 
     check_files(blacklist, |path| {
-        let (image, pixels) = rgba::ImageInfo::read_pixels_from_file(
-            path, read_options::low(),
-            rgba::pixels::create_flattened_f16,
-            rgba::pixels::flattened_pixel_setter()
-        )?;
+        let image_reader = read()
+            .no_deep_data()
+            .all_resolution_levels()
+            .rgba_channels(
+                read::rgba_channels::pixels::create_flattened_f32,
+                read::rgba_channels::pixels::set_flattened_pixel
+            )
+            .first_valid_layer()
+            .non_parallel();
+
+        let image = image_reader.read_from_file(path).unwrap();
 
         let mut tmp_bytes = Vec::new();
-        image.write_pixels_to_buffered(
+        /*image.write_pixels_to_buffered(
             &mut Cursor::new(&mut tmp_bytes), write_options::low(),
             rgba::pixels::flattened_pixel_getter(&pixels)
-        )?;
+        )?;*/
 
-        let (image2, pixels2) = rgba::ImageInfo::read_pixels_from_buffered(
+        image.write().non_parallel()
+            .to_buffered(&mut Cursor::new(&mut tmp_bytes))
+            .unwrap();
+
+        let image2 = image_reader.read_from_buffered(Cursor::new(&tmp_bytes)).unwrap();
+
+        /*let (image2, pixels2) = rgba::ImageInfo::read_pixels_from_buffered(
             Cursor::new(&tmp_bytes), ReadOptions { pedantic: true, .. read_options::low() },
             rgba::pixels::create_flattened_f16,
             rgba::pixels::flattened_pixel_setter()
-        )?;
+        )?;*/
 
-        assert_eq!(image, image2);
+        // assert_eq!(image, image2); TODO compare meta data
 
         // custom compare function: considers nan equal to nan
-        assert!(pixels.samples.iter().map(|f| f.to_bits()).eq(pixels2.samples.iter().map(|f| f.to_bits())));
+        let pixels1 = &image.layer_data.channel_data.storage.samples;
+        let pixels2 = &image2.layer_data.channel_data.storage.samples;
+        assert!(pixels1.iter().map(|f| f.to_bits()).eq(pixels2.iter().map(|f| f.to_bits())));
 
         Ok(())
     })
@@ -157,12 +176,22 @@ fn round_trip_all_files_rgba() {
 #[test]
 fn round_trip_parallel_files() {
     check_files(vec![], |path| {
-        let image = Image::read_from_file(path, read_options::high())?;
+
+        // let image = Image::read_from_file(path, read_options::high())?;
+        let image = read()
+            .no_deep_data().all_resolution_levels().all_channels().all_layers()
+            .read_from_file(path)?;
+
 
         let mut tmp_bytes = Vec::new();
-        image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::high())?;
+        // image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::high())?;
+        image.write().to_buffered(Cursor::new(&mut tmp_bytes))?;
 
-        let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions{ pedantic: true, .. read_options::high() })?;
+        // let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions{ pedantic: true, .. read_options::high() })?;
+        let image2 = read()
+            .no_deep_data().all_resolution_levels().all_channels().all_layers()
+            .pedantic()
+            .read_from_buffered(Cursor::new(tmp_bytes.as_slice()))?;
 
         assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
         if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN

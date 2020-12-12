@@ -10,9 +10,8 @@ use std::fs::File;
 
 // exr imports
 extern crate exr;
-use exr::prelude::common::*;
+use exr::prelude::*;
 use attribute::*;
-use exr::meta::*;
 use exr::math::*;
 
 /// Generate a striped image on the fly and directly write that to a file without allocating the whole image at once.
@@ -46,7 +45,7 @@ fn main() {
     let mut header = header.with_encoding(
         Compression::Uncompressed,
 
-        Blocks::Tiles(TileDescription {
+        crate::meta::Blocks::Tiles(TileDescription {
             tile_size: Vec2(64, 64),
             level_mode: LevelMode::Singular,
             rounding_mode: RoundingMode::Down
@@ -62,7 +61,7 @@ fn main() {
     let headers = smallvec![ header ];
 
     // print progress only every 100th time
-    let mut count_to_1000_and_then_print = 0;
+    // let mut count_to_1000_and_then_print = 0;
     let start_time = ::std::time::Instant::now();
 
     // finally write the image
@@ -87,8 +86,11 @@ fn main() {
             }
         },
 
-        // print progress occasionally
-        WriteOptions {
+        false,
+        true
+
+        // print progress occasionally TODO FIXME progress callback
+        /*WriteOptions {
             parallel_compression: false,
             pedantic: true,
 
@@ -104,7 +106,7 @@ fn main() {
 
                 Ok(())
             },
-        }
+        }*/
     ).unwrap();
 
     // warning: highly unscientific benchmarks ahead!

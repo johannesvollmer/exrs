@@ -4,30 +4,41 @@ extern crate image as png;
 use std::cmp::Ordering;
 
 extern crate exr;
-use exr::prelude::common::*;
-use exr::image::full as full_exr;
+use exr::prelude::*;
 
 
-/// Attention: The API in this example is not ready for usage as it is still being worked on.
 pub fn main() {
     let path = "tests/images/valid/openexr/BeachBall/multipart.0001.exr";
 
     let now = ::std::time::Instant::now();
 
     // load the exr file from disk with multi-core decompression
-    let image = full_exr::Image::read_from_file(path, read_options::high()).unwrap();
+    let image = read()
+        .no_deep_data().all_resolution_levels()
+        .all_channels().all_layers()
+        .read_from_file(path).unwrap();
 
     // warning: highly unscientific benchmarks ahead!
     println!("\nloaded file in {:?}s", now.elapsed().as_secs_f32());
     println!("writing images...");
 
-    for (layer_index, layer) in image.layers.iter().enumerate() {
+    for (layer_index, layer) in image.layer_data.iter().enumerate() {
         let layer_name = layer.attributes.layer_name.as_ref()
             .map_or(String::from("1"), attribute::Text::to_string);
 
-        for channel in &layer.channels {
-            match &channel.content {
-                full_exr::ChannelData::F16(levels) => {
+        for channel in &layer.channel_data {
+            for (level, level_size) in layer.levels_with_resolution(&channel.sample_data) {
+                let data : Vec<f32> = level.values_as_f32().collect();
+
+                save_f32_image_as_png(&data, level_size, format!(
+                    "tests/images/out/{} ({}) {}.{}x{}.png",
+                    layer_index, layer_name, channel.name,
+                    level_size.width(), level_size.height(),
+                ))
+            }
+/*
+            match &channel.sample_data {
+                FlatSamples::F16(levels) => {
                     let levels = levels.as_flat_samples()
                         .expect("deep data to png not supported");
 
@@ -42,7 +53,7 @@ pub fn main() {
                     }
                 },
 
-                full_exr::ChannelData::F32(levels) => {
+                FlatSamples::F32(levels) => {
                     let levels = levels.as_flat_samples()
                         .expect("deep data to png not supported");
 
@@ -55,7 +66,7 @@ pub fn main() {
                     }
                 },
 
-                full_exr::ChannelData::U32(levels) => {
+                FlatSamples::U32(levels) => {
                     let levels = levels.as_flat_samples()
                         .expect("deep data to png not supported");
 
@@ -69,7 +80,7 @@ pub fn main() {
                         ))
                     }
                 },
-            }
+            }*/
         }
     }
 

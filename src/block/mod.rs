@@ -17,7 +17,6 @@ use smallvec::alloc::collections::BTreeMap;
 use std::convert::TryFrom;
 use crate::io::{Tracking, PeekRead};
 use std::io::{Seek, Read};
-use crate::image::{ReadOptions, OnReadProgress};
 use crate::meta::header::Header;
 
 
@@ -65,11 +64,13 @@ pub fn read_all_blocks_from_buffered<T>(
     read: impl Read + Send, // FIXME does not actually need to be send, only for parallel writing
     new: impl Fn(&[Header]) -> Result<T>,
     mut insert: impl FnMut(&mut T, &[Header], UncompressedBlock) -> UnitResult,
-    options: ReadOptions<impl OnReadProgress>,
+    pedantic: bool, parallel: bool,
 ) -> Result<T>
 {
-    let (meta_data, chunk_count, mut read_chunk) = self::read_all_compressed_chunks_from_buffered(read, options.max_pixel_bytes, options.pedantic)?;
+    let (meta_data, _chunk_count, mut read_chunk) = self::read_all_compressed_chunks_from_buffered(read, pedantic)?;
     let meta_data_ref = &meta_data;
+
+    // TODO chunk count for ReadOnProgress!
 
     let read_chunks = std::iter::from_fn(move || read_chunk(meta_data_ref));
     let mut result = new(meta_data.headers.as_slice())?;
@@ -77,7 +78,7 @@ pub fn read_all_blocks_from_buffered<T>(
     for_decompressed_blocks_in_chunks(
         read_chunks, &meta_data,
         |meta, block| insert(&mut result, meta, block),
-        chunk_count, options
+        pedantic, parallel
     )?;
 
     Ok(result)
@@ -97,17 +98,19 @@ pub fn read_filtered_blocks_from_buffered<T>(
     new: impl FnOnce(&[Header]) -> Result<T>, // TODO put these into a trait?
     filter: impl Fn(&T, (usize, &Header), (usize, &TileIndices)) -> bool,
     mut insert: impl FnMut(&mut T, &[Header], UncompressedBlock) -> UnitResult,
-    options: ReadOptions<impl OnReadProgress>,
+    pedantic: bool, parallel: bool,
 ) -> Result<T>
 {
-    let (meta_data, mut value, chunk_count, mut read_chunk) = {
-        self::read_filtered_chunks_from_buffered(read, new, filter, options.max_pixel_bytes, options.pedantic)?
+    let (meta_data, mut value, _chunk_count, mut read_chunk) = {
+        self::read_filtered_chunks_from_buffered(read, new, filter, pedantic)?
     };
+
+    // TODO use chunk_count for reader creation (ReadOnProgresss needs this)
 
     for_decompressed_blocks_in_chunks(
         std::iter::from_fn(|| read_chunk(&meta_data)), &meta_data,
         |meta, line| insert(&mut value, meta, line),
-        chunk_count, options
+        pedantic, parallel,
     )?;
 
     Ok(value)
@@ -121,19 +124,16 @@ fn for_decompressed_blocks_in_chunks(
     chunks: impl Send + Iterator<Item = Result<Chunk>>,
     meta_data: &MetaData,
     mut for_each: impl FnMut(&[Header], UncompressedBlock) -> UnitResult,
-    total_chunk_count: usize,
-    mut options: ReadOptions<impl OnReadProgress>,
+    pedantic: bool, parallel: bool,
 ) -> UnitResult
 {
-    let pedantic = options.pedantic;
-
     // TODO bit-vec keep check that all pixels have been read?
     let has_compression = meta_data.headers.iter() // do not use parallel stuff for uncompressed images
         .any(|header| header.compression != Compression::Uncompressed);
 
-    let mut processed_chunk_count = 0;
+    // let mut processed_chunk_count = 0;
 
-    if options.parallel_decompression && has_compression {
+    if parallel && has_compression {
         let (sender, receiver) = std::sync::mpsc::channel();
 
         chunks.par_bridge()
@@ -143,23 +143,23 @@ fn for_decompressed_blocks_in_chunks(
             })?;
 
         for decompressed in receiver {
-            options.on_progress.on_read_progressed(processed_chunk_count as f32 / total_chunk_count as f32)?;
-            processed_chunk_count += 1;
+            // options.on_progress.on_read_progressed(processed_chunk_count as f32 / total_chunk_count as f32)?;
+            // processed_chunk_count += 1;
 
             for_each(meta_data.headers.as_slice(), decompressed)?; // allows returning `Error::Abort`
         }
     }
     else {
         for chunk in chunks {
-            options.on_progress.on_read_progressed(processed_chunk_count as f32 / total_chunk_count as f32)?;
-            processed_chunk_count += 1;
+            // options.on_progress.on_read_progressed(processed_chunk_count as f32 / total_chunk_count as f32)?;
+            // processed_chunk_count += 1;
 
-            let decompressed = UncompressedBlock::decompress_chunk(chunk?, &meta_data, options.pedantic)?;
+            let decompressed = UncompressedBlock::decompress_chunk(chunk?, &meta_data, pedantic)?;
             for_each(meta_data.headers.as_slice(), decompressed)?; // allows returning `Error::Abort`
         }
     }
 
-    debug_assert_eq!(processed_chunk_count, total_chunk_count, "some chunks were not read");
+    // debug_assert_eq!(processed_chunk_count, total_chunk_count, "some chunks were not read");
     Ok(())
 }
 
@@ -170,12 +170,11 @@ fn for_decompressed_blocks_in_chunks(
 #[must_use]
 pub fn read_all_compressed_chunks_from_buffered<'m>(
     read: impl Read + Send, // FIXME does not actually need to be send, only for parallel writing
-    max_pixel_bytes: Option<usize>,
     pedantic: bool
 ) -> Result<(MetaData, usize, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
 {
     let mut read = PeekRead::new(Tracking::new(read));
-    let meta_data = MetaData::read_validated_from_buffered_peekable(&mut read, max_pixel_bytes, pedantic)?;
+    let meta_data = MetaData::read_validated_from_buffered_peekable(&mut read, pedantic)?;
 
     let mut remaining_chunk_count = {
         if pedantic {
@@ -215,14 +214,13 @@ pub fn read_filtered_chunks_from_buffered<'m, T>(
     read: impl Read + Seek + Send, // FIXME does not always need be Send
     new: impl FnOnce(&[Header]) -> Result<T>,
     filter: impl Fn(&T, (usize, &Header), (usize, &TileIndices)) -> bool,
-    max_pixel_bytes: Option<usize>,
     pedantic: bool
 ) -> Result<(MetaData, T, usize, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
 {
     let skip_read = Tracking::new(read);
     let mut read = PeekRead::new(skip_read);
 
-    let meta_data = MetaData::read_validated_from_buffered_peekable(&mut read, max_pixel_bytes, pedantic)?;
+    let meta_data = MetaData::read_validated_from_buffered_peekable(&mut read, pedantic)?;
     let value = new(meta_data.headers.as_slice())?;
 
     let offset_tables = MetaData::read_offset_tables(&mut read, &meta_data.headers)?;

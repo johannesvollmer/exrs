@@ -7,6 +7,7 @@ use crate::meta::attribute::*; // FIXME shouldn't this need some more imports???
 use crate::meta::*;
 use crate::math::Vec2;
 
+// TODO rename header to LayerInfo!
 
 /// Describes a single layer in a file.
 /// A file can have any number of layers.
@@ -246,7 +247,7 @@ pub struct LayerAttributes {
 impl LayerAttributes {
 
     /// Create default layer attributes with a data position of zero.
-    pub fn new(layer_name: Text) -> Self {
+    pub fn named(layer_name: Text) -> Self {
         Self {
             layer_name: Some(layer_name),
             .. Self::default()
@@ -283,18 +284,20 @@ impl LayerAttributes {
 
 impl ImageAttributes {
 
-    /// Create default image attributes with the specified display window size.
-    /// The display window position is set to zero.
-    pub fn new(display_size: impl Into<Vec2<usize>>) -> Self {
+    /// Set the display position and size of this image.
+    pub fn new(display_window: IntegerBounds) -> Self {
         Self {
-            display_window: IntegerBounds::from_dimensions(display_size),
-            .. Self::default()
+            pixel_aspect: 1.0,
+            chromaticities: None,
+            time_code: None,
+            other: Default::default(),
+            display_window,
         }
     }
 
-    /// Set the data position of this layer.
-    pub fn with_display_window(self, display_window: IntegerBounds) -> Self {
-        Self { display_window, ..self }
+    /// Set the display position to zero and use the specified size for this image.
+    pub fn with_size(size: impl Into<Vec2<usize>>) -> Self {
+        Self::new(IntegerBounds::from_dimensions(size))
     }
 }
 
@@ -330,8 +333,8 @@ impl Header {
             channels: ChannelList::new(channels),
             line_order: LineOrder::Unspecified,
 
-            shared_attributes: ImageAttributes::new(data_size),
-            own_attributes: LayerAttributes::new(name),
+            shared_attributes: ImageAttributes::with_size(data_size),
+            own_attributes: LayerAttributes::named(name),
 
             chunk_count: compute_chunk_count(compression, data_size, blocks),
 
@@ -723,7 +726,7 @@ impl Header {
         let mut dwa_compression_level = None;
 
         let mut layer_attributes = LayerAttributes::default();
-        let mut image_attributes = ImageAttributes::default();
+        let mut image_attributes = ImageAttributes::new(IntegerBounds::zero());
 
         // read each attribute in this header
         while !sequence_end::has_come(read)? {
@@ -1155,17 +1158,5 @@ impl std::fmt::Debug for LayerAttributes {
 
         // debug.finish_non_exhaustive() TODO
         debug.finish()
-    }
-}
-
-impl Default for ImageAttributes {
-    fn default() -> Self {
-        Self {
-            pixel_aspect: 1.0,
-            chromaticities: None,
-            time_code: None,
-            other: Default::default(),
-            display_window: Default::default(),
-        }
     }
 }

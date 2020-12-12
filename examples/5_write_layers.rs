@@ -7,8 +7,9 @@ extern crate half;
 
 // exr imports
 extern crate exr;
-use exr::prelude::simple_image::*;
+use exr::prelude::*;
 
+// TODO create a dedicated reader and writer for this scenario
 
 /// Generate an image with channel groups and write it to a file.
 /// Some legacy software may group layers that contain a `.` in the layer name.
@@ -19,12 +20,12 @@ use exr::prelude::simple_image::*;
 fn main() {
     let size = Vec2(512, 512);
 
-    let create_channel = |name: &str| -> Channel {
+    let create_channel = |name: &str| -> AnyChannel<FlatSamples> {
         let color: f16 = f16::from_bits(rand::random::<u16>());
 
-        Channel::color_data(
+        AnyChannel::luminance_based(
             name.try_into().unwrap(),
-            Samples::F16(vec![color; size.area() ])
+            FlatSamples::F16(vec![color; size.area() ]) // TODO no borrowing
         )
     };
 
@@ -52,18 +53,19 @@ fn main() {
     let background_b = create_channel("Background.B");
 
     let layer = Layer::new(
-        "test-image".try_into().unwrap(),
         size,
-        smallvec![ // the order does not actually matter
+        LayerAttributes::named("test-image".try_into().unwrap()),
+        Encoding::FAST_LOSSLESS,
+        smallvec![ // the order does not actually matter // FIXME currently not true
             foreground_r, foreground_g, foreground_b, foreground_a,
             background_r, background_g, background_b
         ],
     );
 
-    let image = Image::new_from_single_layer(layer);
+    let image = Image::from_single_layer(layer);
 
     println!("writing image {:#?}", image);
-    image.write_to_file("tests/images/out/groups.exr", write_options::high()).unwrap();
+    image.write().to_file("tests/images/out/groups.exr").unwrap();
 
     println!("created file groups.exr");
 }

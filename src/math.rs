@@ -7,7 +7,7 @@
 use std::convert::TryFrom;
 use crate::error::{i32_to_usize};
 use crate::error::Result;
-use std::ops::{Add, Sub, Div};
+use std::ops::{Add, Sub, Div, Mul};
 
 /// Simple two-dimensional vector of any numerical type.
 /// Supports only few mathematical operations
@@ -54,6 +54,14 @@ impl<T> Vec2<T> {
 
     /// The second component of this 2D vector.
     #[inline] pub fn height(self) -> T { self.1 }
+
+    // TODO use this!
+    /// Convert this two-dimensional coordinate to an index suited for one-dimensional flattened image arrays.
+    /// Works for images that store the pixels row by row, one after another, in a single array.
+    #[inline] pub fn flatten_for_width(self, width: T) -> T where T: Mul<Output=T> + Add<Output=T> {
+        let Vec2(x, y) = self;
+        y * width + x
+    }
 }
 
 

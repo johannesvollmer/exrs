@@ -11,9 +11,8 @@ use crate::io::Data;
 use smallvec::SmallVec;
 use std::ops::Range;
 use crate::block::{BlockIndex, UncompressedBlock};
-use crate::image::*;
 use crate::meta::header::Header;
-use crate::prelude::common::meta::Headers;
+use crate::prelude::meta::Headers;
 
 
 /// A single line of pixels.
@@ -76,7 +75,7 @@ pub fn read_all_lines_from_buffered<T>(
     read: impl Read + Send, // FIXME does not actually need to be send, only for parallel writing
     new: impl Fn(&[Header]) -> Result<T>,
     mut insert: impl FnMut(&mut T, &[Header], LineRef<'_>) -> UnitResult,
-    options: ReadOptions<impl OnReadProgress>,
+    pedantic: bool, parallel: bool,
 ) -> Result<T>
 {
     let insert = |value: &mut T, headers: &[Header], decompressed: UncompressedBlock| {
@@ -90,7 +89,7 @@ pub fn read_all_lines_from_buffered<T>(
         Ok(())
     };
 
-    crate::block::read_all_blocks_from_buffered(read, new, insert, options)
+    crate::block::read_all_blocks_from_buffered(read, new, insert, pedantic, parallel)
 }
 
 /// Reads and decompresses all desired chunks of a file sequentially, possibly seeking.
@@ -104,7 +103,7 @@ pub fn read_filtered_lines_from_buffered<T>(
     new: impl Fn(&[Header]) -> Result<T>, // TODO put these into a trait?
     filter: impl Fn(&T, (usize, &Header), (usize, &TileIndices)) -> bool,
     mut insert: impl FnMut(&mut T, &[Header], LineRef<'_>) -> UnitResult,
-    options: ReadOptions<impl OnReadProgress>,
+    pedantic: bool, parallel: bool,
 ) -> Result<T>
 {
     let insert = |value: &mut T, headers: &[Header], decompressed: UncompressedBlock| {
@@ -118,7 +117,7 @@ pub fn read_filtered_lines_from_buffered<T>(
         Ok(())
     };
 
-    crate::block::read_filtered_blocks_from_buffered(read, new, filter, insert, options)
+    crate::block::read_filtered_blocks_from_buffered(read, new, filter, insert, pedantic, parallel)
 }
 
 
@@ -136,7 +135,7 @@ pub fn read_filtered_lines_from_buffered<T>(
 pub fn write_all_lines_to_buffered(
     write: impl Write + Seek, headers: Headers,
     get_line: impl Sync + Fn(&[Header], LineRefMut<'_>), // TODO put these three parameters into a trait?  // TODO why is this sync or send????
-    options: WriteOptions<impl OnWriteProgress>,
+    pedantic: bool, parallel: bool
 ) -> UnitResult
 {
     let get_block = |headers: &[Header], block_index: BlockIndex| {
@@ -155,7 +154,7 @@ pub fn write_all_lines_to_buffered(
         block_bytes
     };
 
-    write_all_tiles_to_buffered(write, headers, get_block, options)
+    write_all_tiles_to_buffered(write, headers, get_block, pedantic, parallel)
 }
 
 /// Compresses and writes all lines of an image described by `meta_data` and `get_line` to the writer.
@@ -172,14 +171,14 @@ pub fn write_all_tiles_to_buffered(
     write: impl Write + Seek,
     mut headers: Headers,
     get_tile: impl Sync + Fn(&[Header], BlockIndex) -> Vec<u8>, // TODO put these three parameters into a trait?  // TODO why is this sync or send????
-    mut options: WriteOptions<impl OnWriteProgress>,
+    pedantic: bool, parallel: bool,
 ) -> UnitResult
 {
     let has_compression = headers.iter() // TODO cache this in MetaData.has_compression?
         .any(|header| header.compression != Compression::Uncompressed);
 
     // if non-parallel compression, we always use increasing order anyways
-    if !options.parallel_compression || !has_compression {
+    if !parallel || !has_compression {
         for header in &mut headers {
             if header.line_order == LineOrder::Unspecified {
                 header.line_order = LineOrder::Increasing;
@@ -188,7 +187,7 @@ pub fn write_all_tiles_to_buffered(
     }
 
     let mut write = Tracking::new(write);
-    MetaData::write_validating_to_buffered(&mut write, headers.as_slice(), options.pedantic)?;
+    MetaData::write_validating_to_buffered(&mut write, headers.as_slice(), pedantic)?;
 
     let offset_table_start_byte = write.byte_position();
 
@@ -201,23 +200,23 @@ pub fn write_all_tiles_to_buffered(
     let mut offset_tables: Vec<Vec<u64>> = headers.iter()
         .map(|header| vec![0; header.chunk_count]).collect();
 
-    let total_chunk_count = offset_table_size as f32;
-    let mut processed_chunk_count = 0; // very simple on_progress feedback
+    // let total_chunk_count = offset_table_size as f32;
+    // let mut processed_chunk_count = 0; // very simple on_progress feedback
 
     // line order is respected in here
-    crate::block::for_compressed_blocks_in_image(headers.as_slice(), get_tile, options.parallel_compression, |chunk_index, chunk|{
+    crate::block::for_compressed_blocks_in_image(headers.as_slice(), get_tile, parallel, |chunk_index, chunk|{
         offset_tables[chunk.layer_index][chunk_index] = usize_to_u64(write.byte_position()); // safe indices from `enumerate()`
         chunk.write(&mut write, headers.as_slice())?;
 
-        options.on_progress.on_write_progressed(
-            processed_chunk_count as f32 / total_chunk_count, write.byte_position()
-        )?;
+        // options.on_progress.on_write_progressed(
+        //     processed_chunk_count as f32 / total_chunk_count, write.byte_position()
+        // )?;
 
-        processed_chunk_count += 1;
+        // processed_chunk_count += 1;
         Ok(())
     })?;
 
-    debug_assert_eq!(processed_chunk_count, offset_table_size, "not all chunks were written");
+    // debug_assert_eq!(processed_chunk_count, offset_table_size, "not all chunks were written");
 
     // write all offset tables
     write.seek_write_to(offset_table_start_byte)?;

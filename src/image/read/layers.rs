@@ -1,0 +1,168 @@
+use crate::image::*;
+use crate::meta::header::{Header, LayerAttributes};
+use crate::error::{Result, UnitResult, Error};
+use crate::block::UncompressedBlock;
+use crate::math::Vec2;
+use crate::image::read::image::{ReadLayers, LayersReader};
+use crate::block::chunk::TileCoordinates;
+
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ReadAllLayers<C> {
+    pub read_channels: C,
+}
+
+/*impl<C> ReadAllLayers<C> where Self: ReadLayers {
+    pub fn
+}*/
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ReadFirstValidLayer<C> {
+    pub read_channels: C,
+}
+
+
+// Reminder: the channel reader created from this `ReadChannels` must borrow or clone from it,
+// because this (`RgbaChannels`) is a blueprint which is instantiated (by borrowing)
+// once for each layer in the file
+pub trait ReadChannels<'s> {
+    type Reader: ChannelsReader;
+
+    /// Create a reader for the specified layer, based on `self` as a blueprint. May borrow.
+    fn create_channels_reader(&'s self, header: &Header) -> Result<Self::Reader>;
+}
+
+
+
+
+/// `C`: either `RgbaChannelsReader` or `AnyChannelsReader<AnySamplesReader>` or `AnyChannelsReader<FlatSamplesReader>`
+#[derive(Debug, Clone, PartialEq)]
+pub struct AllLayersReader<C> {
+    layer_readers: SmallVec<[LayerReader<C>; 2]>, // TODO unpack struct?
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FirstValidLayerReader<C> {
+    layer_reader: LayerReader<C>,
+    layer_index: usize,
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LayerReader<C> {
+    channels_reader: C,
+    attributes: LayerAttributes,
+    size: Vec2<usize>,
+    encoding: Encoding
+}
+
+pub trait ChannelsReader {
+    type Channels;
+    fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult;
+    fn filter_block(&self, tile: (usize, &TileCoordinates)) -> bool;
+    fn into_channels(self) -> Self::Channels;
+}
+
+
+
+impl<C> LayerReader<C> {
+    fn new(header: &Header, channels_reader: C) -> Result<Self> {
+        Ok(LayerReader {
+            channels_reader,
+            attributes: header.own_attributes.clone(),
+            size: header.layer_size,
+            encoding: Encoding {
+                compression: header.compression,
+                line_order: header.line_order,
+                blocks: match header.blocks {
+                    crate::meta::Blocks::ScanLines => Blocks::ScanLines,
+                    crate::meta::Blocks::Tiles(TileDescription { tile_size, rounding_mode, .. }) =>
+                        Blocks::Tiles { tile_size, rounding_mode } // TODO FIXME what happens with the level_mode?
+                },
+            },
+        })
+    }
+}
+
+impl<'s, C> ReadLayers<'s> for ReadAllLayers<C> where C: ReadChannels<'s> {
+    type Reader = AllLayersReader<C::Reader>;
+
+    fn create_layers_reader(&'s self, headers: &[Header]) -> Result<Self::Reader> {
+        let readers: Result<_> = headers.iter()
+            .map(|header| LayerReader::new(header, self.read_channels.create_channels_reader(header)?))
+            .collect();
+
+        Ok(AllLayersReader {
+            layer_readers: readers?
+        })
+    }
+}
+
+impl<C> LayersReader for AllLayersReader<C> where C: ChannelsReader {
+    type Layers = Layers<C::Channels>;
+
+    fn filter_block(&self, header: (usize, &Header), tile: (usize, &TileCoordinates)) -> bool {
+        let layer = self.layer_readers.get(header.0).unwrap();
+        layer.channels_reader.filter_block(tile)
+    }
+
+    fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult {
+        self.layer_readers
+            .get_mut(block.index.layer).unwrap()
+            .channels_reader.read_block(headers.get(block.index.layer).unwrap(), block)
+    }
+
+    fn into_layers(self) -> Self::Layers {
+        self.layer_readers
+            .into_iter()
+            .map(|layer| Layer {
+                channel_data: layer.channels_reader.into_channels(),
+                attributes: layer.attributes,
+                size: layer.size,
+                encoding: layer.encoding
+            })
+            .collect()
+    }
+}
+
+
+impl<'s, C> ReadLayers<'s> for ReadFirstValidLayer<C> where C: ReadChannels<'s> {
+    type Reader = FirstValidLayerReader<C::Reader>;
+
+    fn create_layers_reader(&'s self, headers: &[Header]) -> Result<Self::Reader> {
+        headers.iter().enumerate()
+            .flat_map(|(index, header)|
+                self.read_channels.create_channels_reader(header)
+                    .and_then(|reader| Ok(
+                        FirstValidLayerReader { layer_reader: LayerReader::new(header, reader)?, layer_index: index }
+                    ))
+                    .ok()
+            )
+            .next().ok_or(Error::invalid("no suitable header found"))
+    }
+}
+
+
+
+impl<C> LayersReader for FirstValidLayerReader<C> where C: ChannelsReader {
+    type Layers = Layer<C::Channels>;
+
+    fn filter_block(&self, (header_index, _): (usize, &Header), tile: (usize, &TileCoordinates)) -> bool {
+        header_index == self.layer_index && self.layer_reader.channels_reader.filter_block(tile)
+    }
+
+    fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult {
+        debug_assert_eq!(block.index.layer, self.layer_index);
+        self.layer_reader.channels_reader.read_block(&headers[self.layer_index], block)
+    }
+
+    fn into_layers(self) -> Self::Layers {
+        Layer {
+            channel_data: self.layer_reader.channels_reader.into_channels(),
+            attributes: self.layer_reader.attributes,
+            size: self.layer_reader.size,
+            encoding: self.layer_reader.encoding
+        }
+    }
+}
+

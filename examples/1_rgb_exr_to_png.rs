@@ -3,37 +3,44 @@ extern crate image as png;
 
 // exr imports
 extern crate exr;
-use exr::prelude::rgba_image as rgb_exr;
+use exr::prelude::*;
+use exr::prelude::RgbaPixel as ExrPixel;
+use exr::image::read::RgbaChannelsInfo;
 
 fn main() {
 
-    // read the image from a file and keep only the png buffer
-    let (_info, png_buffer) = rgb_exr::ImageInfo::read_pixels_from_file(
-        "tests/images/valid/openexr/MultiResolution/Kapaa.exr",
-        rgb_exr::read_options::high(),
+    // read from the exr file directly into a new `png::RgbaImage` image without intermediate buffers
+    let reader = read()
+        .no_deep_data()
+        .largest_resolution_level()
+        .rgba_channels(
+        |layer_info: &RgbaChannelsInfo| -> png::RgbaImage {
+                png::ImageBuffer::new(
+                    layer_info.resolution.width() as u32,
+                    layer_info.resolution.height() as u32
+                )
+            },
 
-        // how to create an empty png buffer from exr image meta data (used for loading the exr image)
-        |info: &rgb_exr::ImageInfo| -> png::RgbaImage {
-            png::ImageBuffer::new(
-                info.resolution.width() as u32,
-                info.resolution.height() as u32
-            )
-        },
+            // set each pixel in the png buffer from the exr file
+            |png_pixels: &mut png::RgbaImage, position: Vec2<usize>, pixel: ExrPixel| {
+                png_pixels.put_pixel(
+                    position.x() as u32, position.y() as u32,
 
-        // set each pixel in the png buffer from the exr file
-        |png_pixels: &mut png::RgbaImage, position: rgb_exr::Vec2<usize>, pixel: rgb_exr::Pixel| {
-            png_pixels.put_pixel(
-                position.x() as u32, position.y() as u32,
+                    png::Rgba([
+                        tone_map(pixel.red.to_f32()),
+                        tone_map(pixel.green.to_f32()),
+                        tone_map(pixel.blue.to_f32()),
+                        (pixel.alpha_or_default().to_f32() * 255.0) as u8,
+                    ])
+                );
+            }
+        )
+        .first_valid_layer();
 
-                png::Rgba([
-                    tone_map(pixel.red.to_f32()),
-                    tone_map(pixel.green.to_f32()),
-                    tone_map(pixel.blue.to_f32()),
-                    (pixel.alpha_or_default().to_f32() * 255.0) as u8,
-                ])
-            );
-        },
-    ).unwrap();
+    // an image that contains a single layer containing an png rgba buffer
+    let image: Image<Layer<RgbaChannels<png::RgbaImage>>> = reader
+        .read_from_file("tests/images/valid/openexr/MultiResolution/Kapaa.exr")
+        .unwrap();
 
 
     /// compress any possible f32 into the range of [0,1].
@@ -45,6 +52,7 @@ fn main() {
     };
 
     // save the png buffer to a png file
+    let png_buffer = &image.layer_data.channel_data.storage;
     png_buffer.save("tests/images/out/rgb.png").unwrap();
     println!("created image rgb.png")
 }

@@ -2,7 +2,7 @@
 
 // exr imports
 extern crate exr;
-use exr::prelude::common::*;
+use exr::prelude::*;
 
 /// Print the custom meta data of a file, excluding technical encoding meta data.
 /// Prints compression method and tile size, but not chunk count.

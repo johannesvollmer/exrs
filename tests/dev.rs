@@ -3,7 +3,7 @@
 extern crate exr;
 extern crate smallvec;
 
-use exr::prelude::simple_image::*;
+use exr::prelude::*;
 
 use std::path::{PathBuf};
 use std::ffi::OsStr;
@@ -59,7 +59,9 @@ pub fn test_roundtrip() {
     let meta = MetaData::read_from_file(path, false).unwrap();
     println!("{:#?}", meta);
 
-    let image = Image::read_from_file(path, read_options::low()).unwrap();
+    let image = read() // Image::read_from_file(path, read_options::low()).unwrap();
+        .no_deep_data().all_resolution_levels().all_channels().all_layers().pedantic().non_parallel()
+        .read_from_file(path).unwrap();
 
     println!("...read 1 successfull");
 
@@ -68,14 +70,19 @@ pub fn test_roundtrip() {
     print!("starting write... ");
     io::stdout().flush().unwrap();
 
-    image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low()).unwrap();
+    // image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low()).unwrap();
+    image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes)).unwrap();
 
     println!("...write successfull: {}mb", tmp_bytes.len() as f32 / 1000000.0);
 
     print!("starting read 2... ");
     io::stdout().flush().unwrap();
 
-    let image2 = Image::read_from_buffered(Cursor::new(&tmp_bytes),ReadOptions { pedantic: true, .. read_options::low() }).unwrap();
+    let image2 = read() // Image::read_from_buffered(Cursor::new(&tmp_bytes),ReadOptions { pedantic: true, .. read_options::low() }).unwrap();
+        .no_deep_data().all_resolution_levels().all_channels().all_layers().pedantic()
+        .read_from_buffered(Cursor::new(&tmp_bytes))
+        .unwrap();
+
     println!("...read 2 successfull");
 
     assert!(!image.contains_nan_pixels() && !image2.contains_nan_pixels());

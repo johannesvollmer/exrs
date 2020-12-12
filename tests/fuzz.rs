@@ -7,12 +7,12 @@ use rand::rngs::{StdRng};
 use rand::{Rng};
 
 extern crate exr;
-use exr::prelude::common::*;
-use exr::prelude::rgba_image;
+use exr::prelude::*;
 use std::path::PathBuf;
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::Write;
+use std::io::{Write, Cursor};
+use exr::image::read::read_all_flat_data;
 
 fn exr_files(path: &'static str, filter: bool) -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new(path).into_iter().map(std::result::Result::unwrap)
@@ -27,14 +27,21 @@ fn exr_files(path: &'static str, filter: bool) -> impl Iterator<Item=PathBuf> {
 #[test]
 pub fn fuzzed(){
     for file in exr_files("tests/images/fuzzed", false) {
-        let _ = exr::image::full::Image::read_from_file(&file, read_options::high());
-        let _ = exr::image::simple::Image::read_from_file(&file, read_options::high()); // FIXME will these be optimized away?
-        let _ = exr::image::rgba::ImageInfo::read_pixels_from_file(
-            // FIXME will these be optimized away?
-            &file, read_options::high(),
-            rgba_image::pixels::create_flattened_f16,
-            rgba_image::pixels::flattened_pixel_setter()
-        );
+        let _ = read().no_deep_data().largest_resolution_level().all_channels().first_valid_layer().read_from_file(&file);
+        let _ = read().no_deep_data().all_resolution_levels().all_channels().all_layers().read_from_file(&file);
+
+        // let _ = exr::image::full::Image::read_from_file(&file, read_options::high());
+        // let _ = exr::image::simple::Image::read_from_file(&file, read_options::high()); // FIXME will these be optimized away?
+
+        // let _ = exr::image::rgba::ImageInfo::read_pixels_from_file(
+        //     FIXME will these be optimized away?
+            // &file, read_options::high(),
+            // rgba_image::pixels::create_flattened_f16,
+            // rgba_image::pixels::flattened_pixel_setter()
+        // );
+
+        // TODO let _ = read().no_deep_data().all_resolution_levels().rgba_channels().all_layers().read_from_file(&file);
+
     }
 }
 
@@ -46,13 +53,21 @@ pub fn damaged(){
         let file = &file;
 
         let result = catch_unwind(move || {
-            let full = exr::image::full::Image::read_from_file(file, read_options::high())?;
+            let _ = read().no_deep_data().largest_resolution_level().all_channels().first_valid_layer().read_from_file(&file)?;
+
+            let full = read()
+                .no_deep_data().all_resolution_levels().all_channels().all_layers()
+                .read_from_file(&file)?;
+        // TODO let _ = read().no_deep_data().all_resolution_levels().rgba_channels().all_layers().read_from_file(&file)?;
+
+
+            /*let full = exr::image::full::Image::read_from_file(file, read_options::high())?;
             let _ = exr::image::simple::Image::read_from_file(file, read_options::high())?; // FIXME will these be optimized away?
             let _ = exr::image::rgba::ImageInfo::read_pixels_from_file( // FIXME will these be optimized away?
                 file, read_options::high(),
                 rgba_image::pixels::create_flattened_f16,
                 rgba_image::pixels::flattened_pixel_setter()
-            )?;
+            )?;*/
 
             Ok(full)
         });
@@ -80,7 +95,10 @@ pub fn damaged(){
             },
 
             Ok(Ok(image)) => {
-                if let Err(error) = MetaData::validate(image.infer_meta_data().as_slice(), None, true) {
+                use crate::exr::image::write::WriteImage;
+                let inferred_meta_data = image.write().infer_meta_data();
+
+                if let Err(error) = MetaData::validate(inferred_meta_data.as_slice(), true) {
                     println!("✓ Recognized as invalid when pedantic ({}): {:?}", error, file);
                     true
                 }
@@ -123,7 +141,7 @@ pub fn fuzz(){
 
             let file = file.as_slice();
             let result = catch_unwind(move || {
-                match exr::image::full::Image::read_from_buffered(file, read_options::low()) {
+                match read_all_flat_data().read_from_buffered(Cursor::new(file)) {
                     Err(Error::Invalid(error)) => println!("✓ No Panic. [{}]: Invalid: {}.", fuzz_index, error),
                     Err(Error::NotSupported(error)) => println!("- No Panic. [{}]: Unsupported: {}.", fuzz_index, error),
                     _ => {},

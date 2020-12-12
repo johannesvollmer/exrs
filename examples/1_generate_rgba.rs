@@ -1,7 +1,7 @@
 
 // exr imports
 extern crate exr;
-use exr::prelude::rgba_image::*;
+use exr::prelude::*;
 
 /// Write an RGBA exr file, generating the pixel values on the fly.
 /// This streams the generated pixel directly to the file,
@@ -20,7 +20,7 @@ fn main() {
             value.powf((position.y() as f32 / scale.y()).sin() * 0.5 + 0.5)
         }
 
-        Pixel::rgb(
+        RgbaPixel::rgb(
             get_sample_f32(position, 0),
             get_sample_f32(position, 1),
             get_sample_f32(position, 2),
@@ -28,26 +28,25 @@ fn main() {
     };
 
 
-    let mut image_info = ImageInfo::rgb(
-        (2*2048, 2*2048),
-
-        // all generated f32 values are converted to an f16 while writing the file
-        SampleType::F16,
-    );
-
-    image_info.layer_attributes.owner = Some("Unknown Owner".try_into().unwrap());
-    image_info.layer_attributes.comments = Some(
+    let mut attributes = LayerAttributes::named("layer1".try_into().unwrap());
+    attributes.owner = Some("Unknown Owner".try_into().unwrap());
+    attributes.comments = Some(
         "This image was generated as part of an example".try_into().unwrap()
     );
 
-    // write it to a file with all cores in parallel
-    image_info
-        .with_encoding(Encoding::for_compression(Compression::PIZ))
-        .write_pixels_to_file(
-            "tests/images/out/generated_rgba.exr",
-            write_options::high(), // this will actually generate the pixels in parallel on all cores
-            &generate_pixels
-        ).unwrap();
+    let image = Image::from_single_layer(Layer::new(
+        (2*2048, 2*2048),
+        attributes,
+        Encoding::SMALL_FAST_LOSSY,
+        // all generated f32 values are converted to an f16 while writing the file
+        RgbaChannels::new(
+            RgbaSampleTypes::RGBA_F16,
+            generate_pixels
+        )
+    ));
 
+
+    // write it to a file with all cores in parallel
+    image.write().to_file("tests/images/out/generated_rgba.exr").unwrap();
     println!("created file generated_rgba.exr");
 }

@@ -369,7 +369,7 @@ type TextBytes = SmallVec<[u8; 24]>;
 
 
 use crate::io::*;
-use crate::meta::sequence_end;
+use crate::meta::{sequence_end};
 use crate::error::*;
 use crate::math::{RoundingMode, Vec2};
 use half::f16;
@@ -1166,6 +1166,9 @@ impl LineOrder {
         })
     }
 }
+
+
+
 
 impl Preview {
 
