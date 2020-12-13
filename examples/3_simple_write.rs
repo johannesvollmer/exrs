@@ -28,17 +28,17 @@ fn main() {
 
     let size = (1024, 512);
 
-    let r = AnyChannel::luminance_based(
+    let r = AnyChannel::new(
         "R".try_into().unwrap(),
         FlatSamples::F16(generate_f16_vector(size.into()))
     );
 
-    let g = AnyChannel::luminance_based(
+    let g = AnyChannel::new(
         "G".try_into().unwrap(),
         FlatSamples::F16(generate_f16_vector(size.into()))
     );
 
-    let b = AnyChannel::luminance_based(
+    let b = AnyChannel::new(
         "B".try_into().unwrap(),
         FlatSamples::F32(generate_f16_vector(size.into()).into_iter().map(f16::to_f32).collect())
     );

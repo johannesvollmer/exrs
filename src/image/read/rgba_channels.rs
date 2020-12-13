@@ -311,7 +311,6 @@ impl<'s, Setter, Storage>
                 .map(|a_type| sample_reader(a_type, &block.data[a_range.clone()]));
 
             fn sample_reader<'a, R: Read + 'a>(sample_type: SampleType, mut read: R) -> Box<dyn 'a + FnMut() -> Result<Sample>> {
-                use crate::io::Data;
 
                 // WITH ENUM MATCHING EACH SAMPLE:
                 // test read_full   ... bench:  31,670,900 ns/iter (+/- 2,653,097)

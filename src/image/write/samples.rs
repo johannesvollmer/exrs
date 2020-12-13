@@ -27,11 +27,44 @@ pub trait SamplesWriter: Sync {
     fn extract_line(&self, line: LineRefMut<'_>);
 }
 
+/*pub trait InferSampleType { const SAMPLE_TYPE: SampleType; }
+impl InferSampleType for f16 { const SAMPLE_TYPE: SampleType = SampleType::F16; }
+impl InferSampleType for f32 { const SAMPLE_TYPE: SampleType = SampleType::F32; }
+impl InferSampleType for u32 { const SAMPLE_TYPE: SampleType = SampleType::U32; }*/
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct FlatSamplesWriter<'s> {
     resolution: Vec2<usize>, // respects resolution level
     samples: &'s FlatSamples
 }
+
+/*impl<'s, F:'s, S:'s> WritableSamples<'s> for F where F: Sync + Fn(Vec2<usize>) -> S, S: InferSampleType + Data {
+    fn sample_type(&self) -> SampleType { S::SAMPLE_TYPE }
+    fn level_mode(&self) -> LevelMode { LevelMode::Singular } // TODO impl WritableLevels!
+
+    type Writer = FnSampleWriter<'s, F>;
+
+    fn create_samples_writer(&'s self, _: &Header) -> Self::Writer {
+        FnSampleWriter { closure: self }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FnSampleWriter<'f, F> {
+    closure: &'f F,
+}
+
+impl<'f, S, F> SamplesWriter for FnSampleWriter<'f, F> where F: Sync + Fn(Vec2<usize>) -> S, S: Data {
+    fn extract_line(&self, line: LineRefMut<'_>) {
+        let start_position = line.location.position;
+        let closure = &self.closure;
+
+        line.write_samples(|x| closure(start_position + Vec2(x, 0)))
+            .expect("writing to in-memory buffer failed");
+    }
+}*/
+
+
 
 /// used, if no layers are used and the flat samples are directly inside the channels
 impl<'s> WritableSamples<'s> for FlatSamples {

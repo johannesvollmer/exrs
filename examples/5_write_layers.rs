@@ -23,7 +23,7 @@ fn main() {
     let create_channel = |name: &str| -> AnyChannel<FlatSamples> {
         let color: f16 = f16::from_bits(rand::random::<u16>());
 
-        AnyChannel::luminance_based(
+        AnyChannel::new(
             name.try_into().unwrap(),
             FlatSamples::F16(vec![color; size.area() ]) // TODO no borrowing
         )

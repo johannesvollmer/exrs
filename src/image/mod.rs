@@ -157,7 +157,8 @@ pub struct AnyChannels<Samples> {
     pub list: SmallVec<[AnyChannel<Samples>; 4]>
 }
 
-/// `Samples` can currently only be `FlatSamples` or `Levels<FlatSamples>`.
+/// `Samples` can currently only be `FlatSamples` or `Levels<FlatSamples>`
+// or a closure of type `Fn(Vec2<usize>) -> S` where `S` is f16, f32, or u32. TODO (arbitrary tuple channels instead of only rgba)
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnyChannel<Samples> {
 
@@ -288,8 +289,9 @@ use crate::error::Result;
 use crate::block::samples::Sample;
 use crate::image::write::channels::{GetRgbaPixel, WritableChannels};
 use crate::image::write::layers::WritableLayers;
-use crate::image::write::samples::WritableSamples;
+use crate::image::write::samples::{WritableSamples};
 use crate::meta::{mip_map_levels, rip_map_levels};
+use crate::io::Data;
 
 
 impl<S> Image<AnyChannels<S>> {
@@ -727,8 +729,20 @@ impl<'s, C:'s> Image<Layer<C>> where C: WritableChannels<'s> {
 }
 
 impl<'s, S: 's> AnyChannel<S> {
-    /// Uses no subsampling.
-    pub fn new(name: Text, luminance_based: bool, sample_data: S) -> Self where S: WritableSamples<'s> {
+
+    /// Create a new channel without subsampling.
+    ///
+    /// Automatically flags this channel for specialized compression
+    /// if the name is "R", "G", "B", "Y", or "L",
+    /// as they typically encode values that are perceived non-linearly.
+    /// Construct the value yourself using `AnyChannel { .. }`, if you want to control this flag.
+    pub fn new(name: Text, sample_data: S) -> Self where S: WritableSamples<'s> {
+        let luminance_based = {
+            name.eq_case_insensitive("R") || name.eq_case_insensitive("G") ||
+                name.eq_case_insensitive("B") || name.eq_case_insensitive("L") ||
+                name.eq_case_insensitive("Y")
+        };
+
         AnyChannel {
             name, sample_data,
             quantize_linearly: !luminance_based,
@@ -736,17 +750,12 @@ impl<'s, S: 's> AnyChannel<S> {
         }
     }
 
-    /// Create a channel optimized for data that contains non-linearly perceived values such as red, green, blue, or luminance.
-    /// Uses no subsampling.
-    pub fn luminance_based(name: Text, sample_data: S) -> Self where S: WritableSamples<'s> {
-        AnyChannel::new(name, true, sample_data)
-    }
-
-    /// Create a channel optimized for data that contains linearly perceived values such as alpha, saturation, or hue.
-    /// Uses no subsampling.
-    pub fn non_luminance_based(name: Text, sample_data: S) -> Self where S: WritableSamples<'s> {
-        AnyChannel::new(name, false, sample_data)
-    }
+    /*/// This is the same as `AnyChannel::new()`, but additionally ensures that the closure type is correct.
+    pub fn from_closure<V>(name: Text, sample_data: S) -> Self
+        where S: Sync + Fn(Vec2<usize>) -> V, V: InferSampleType + Data
+    {
+        Self::new(name, sample_data)
+    }*/
 }
 
 impl RgbaPixel {

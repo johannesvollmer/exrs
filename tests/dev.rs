@@ -59,40 +59,12 @@ pub fn test_roundtrip() {
     // let path = "tests/images/valid/openexr/Tiles/GoldenGate.exr";
     // let path = "tests/images/valid/openexr/v2/Stereo/composited.exr";
     // let path = "tests/images/valid/openexr/MultiView/Balls.exr";
-
-    // worksn't (probably because of Mipmaps and Ripmaps?)
     // let path = "tests/images/valid/openexr/MultiResolution/Kapaa.exr"; // rip maps
     // let path = "tests/images/valid/openexr/MultiView/Impact.exr"; // mip maps
-    let path = "tests/images/valid\\openexr\\Chromaticities\\Rec709_YC.exr"; // mip maps
 
-    /*
-    "Error(\"Panic\"): tests/images/valid\\custom\\crowskull\\crow_dwa.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\Chromaticities\\Rec709_YC.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\Chromaticities\\XYZ_YC.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_b44.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwaa_v1.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwaa_v2.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwab_v1.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwab_v2.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\LuminanceChroma\\CrissyField.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\LuminanceChroma\\Flowers.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\LuminanceChroma\\MtTamNorth.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\LuminanceChroma\\StarField.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\MultiView\\Adjuster.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\ScanLines\\Cannon.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\v2\\LeftView\\Balls.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\v2\\LeftView\\Ground.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\v2\\LeftView\\Leaves.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\v2\\LeftView\\Trunks.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\v2\\LowResLeftView\\Balls.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\v2\\LowResLeftView\\Ground.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\v2\\LowResLeftView\\Leaves.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\v2\\LowResLeftView\\Trunks.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\v2\\Stereo\\Balls.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\v2\\Stereo\\Ground.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\v2\\Stereo\\Leaves.exr",
-    "Error(\"Panic\"): tests/images/valid\\openexr\\v2\\Stereo\\Trunks.exr",
-    */
+    // worksn't
+    // let path = "tests/images/valid/openexr/Chromaticities/Rec709_YC.exr"; // subsampling
+    let path = "tests/images/valid/openexr/LuminanceChroma/Flowers.exr"; // subsampling
 
     // deep data?
     // let path = "tests/images/valid/openexr/v2/Stereo/Balls.exr";
