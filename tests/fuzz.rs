@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{Write, Cursor};
-use exr::image::read::read_all_flat_data;
+use exr::image::read::read_all_data;
 
 fn exr_files(path: &'static str, filter: bool) -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new(path).into_iter().map(std::result::Result::unwrap)
@@ -141,7 +141,7 @@ pub fn fuzz(){
 
             let file = file.as_slice();
             let result = catch_unwind(move || {
-                match read_all_flat_data().read_from_buffered(Cursor::new(file)) {
+                match read_all_data().read_from_buffered(Cursor::new(file)) {
                     Err(Error::Invalid(error)) => println!("✓ No Panic. [{}]: Invalid: {}.", fuzz_index, error),
                     Err(Error::NotSupported(error)) => println!("- No Panic. [{}]: Unsupported: {}.", fuzz_index, error),
                     _ => {},

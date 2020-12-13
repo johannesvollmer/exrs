@@ -1,5 +1,5 @@
 use crate::meta::header::{ImageAttributes, Header};
-use crate::meta::Headers;
+use crate::meta::{Headers, compute_chunk_count};
 use crate::block::BlockIndex;
 use crate::image::{Layers, Layer};
 use crate::meta::attribute::{TileDescription};
@@ -48,28 +48,35 @@ impl<'s, C:'s> WritableLayers<'s> for Layers<C> where C: WritableChannels<'s> {
 
 impl<'s, C: WritableChannels<'s>> WritableLayers<'s> for Layer<C> {
     fn infer_headers(&self, image_attributes: &ImageAttributes) -> Headers {
+        let blocks = match self.encoding.blocks {
+            crate::image::Blocks::ScanLines => crate::meta::Blocks::ScanLines,
+            crate::image::Blocks::Tiles { tile_size, rounding_mode } => {
+                crate::meta::Blocks::Tiles(TileDescription {
+                    level_mode: self.channel_data.level_mode(),
+                    tile_size, rounding_mode,
+                })
+            },
+        };
+
+        let chunk_count = compute_chunk_count(
+            self.encoding.compression, self.size, blocks
+        );
+
         let header = Header {
             channels: self.channel_data.infer_channel_list(),
             compression: self.encoding.compression,
 
-            blocks: match self.encoding.blocks {
-                crate::image::Blocks::ScanLines => crate::meta::Blocks::ScanLines,
-                crate::image::Blocks::Tiles { tile_size, rounding_mode } => {
-                    crate::meta::Blocks::Tiles(TileDescription {
-                        level_mode: self.channel_data.level_mode(),
-                        tile_size, rounding_mode,
-                    })
-                },
-            },
+            blocks,
+            chunk_count,
 
             line_order: self.encoding.line_order,
             layer_size: self.size,
             shared_attributes: image_attributes.clone(),
             own_attributes: self.attributes.clone(),
 
+
             deep: false, // TODO deep data
             deep_data_version: None,
-            chunk_count: 0,
             max_samples_per_pixel: None,
         };
 
@@ -89,7 +96,7 @@ impl<'s, C: WritableChannels<'s>> WritableLayers<'s> for Layer<C> {
 
 impl</*'a,*/ C> LayersWriter for AllLayersWriter</*'a,*/ C> where C: ChannelsWriter {
     fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex) -> Vec<u8> {
-        self.layers[block.layer].extract_uncompressed_block(&headers[block.layer..block.layer], block) // TODO no array-vs-first
+        self.layers[block.layer].extract_uncompressed_block(std::slice::from_ref(&headers[block.layer]), block) // TODO no array-vs-first
     }
 }
 

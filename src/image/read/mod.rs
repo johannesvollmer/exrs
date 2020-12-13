@@ -34,8 +34,9 @@ use crate::image::read::levels::ReadAllLevels;
 
 
 
-/// No deep data, all resolution levels, all channels, all layers.
-pub fn read_all_flat_data() -> ReadAllLayers<ReadAnyChannels<ReadAllLevels<ReadFlatSamples>>> {
+/// All resolution levels, all channels, all layers. Results in an `image::AnyImage`.
+/// Does not support deep data yet.
+pub fn read_all_data() -> ReadAllLayers<ReadAnyChannels<ReadAllLevels<ReadFlatSamples>>> {
     read()
         .no_deep_data() // TODO deep data
         .all_resolution_levels()
@@ -53,7 +54,7 @@ pub fn read_first_flat_layer() -> ReadFirstValidLayer<ReadAnyChannels<ReadFlatSa
 }
 
 // FIXME rgba with resolution levels!!! should at least not throw an error
-/// No deep data, no resolution levels, rgba channels, all layers.
+/// No deep data, no resolution levels, rgba channels, all layers. Results in an `image::RgbaLayersImage`.
 pub fn read_all_rgba_layers<Set, Create>(create: Create, set_pixel: Set)
     -> ReadAllLayers<ReadRgbaChannels<Create, Set>>
     where Create: CreateRgbaPixels, Set: SetRgbaPixel<Create::Pixels>
@@ -65,7 +66,7 @@ pub fn read_all_rgba_layers<Set, Create>(create: Create, set_pixel: Set)
         .all_layers()
 }
 
-/// No deep data, no resolution levels, rgba channels, first layer.
+/// No deep data, no resolution levels, rgba channels, first layer. Results in an `image::RgbaImage`.
 pub fn read_first_rgb_layer<Set, Create>(create: Create, set_pixel: Set)
     -> ReadFirstValidLayer<ReadRgbaChannels<Create, Set>>
     where Create: CreateRgbaPixels, Set: SetRgbaPixel<Create::Pixels>

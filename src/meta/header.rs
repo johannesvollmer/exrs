@@ -1118,7 +1118,7 @@ impl std::fmt::Debug for LayerAttributes {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let default_self = Self::default();
 
-        let mut debug = formatter.debug_struct("LayerAttributes (only relevant attributes)");
+        let mut debug = formatter.debug_struct("LayerAttributes (default values omitted)");
 
         // always debug the following fields
         debug.field("data_position", &self.layer_position);

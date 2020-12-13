@@ -83,14 +83,16 @@ impl<S: SamplesReader> ChannelsReader for AnyChannelsReader<S> {
     }
 
     fn into_channels(self) -> Self::Channels {
-        self.sample_channels_reader.into_iter()
-            .map(|channel| AnyChannel {
-                sample_data: channel.samples.into_samples(),
+        AnyChannels { // not using `new()` as the channels are already sorted
+            list: self.sample_channels_reader.into_iter()
+                .map(|channel| AnyChannel {
+                    sample_data: channel.samples.into_samples(),
 
-                name: channel.name,
-                quantize_linearly: channel.quantize_linearly,
-                sampling: channel.sampling_rate
-            })
-            .collect()
+                    name: channel.name,
+                    quantize_linearly: channel.quantize_linearly,
+                    sampling: channel.sampling_rate
+                })
+                .collect()
+        }
     }
 }

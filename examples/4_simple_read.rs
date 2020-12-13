@@ -21,7 +21,7 @@ fn main() {
 
     // output the average value for each channel of each layer
     for layer in &image.layer_data {
-        for channel in &layer.channel_data {
+        for channel in &layer.channel_data.list {
 
             let sample_vec = &channel.sample_data;
             let average = sample_vec.values_as_f32().sum::<f32>() / sample_vec.len() as f32;

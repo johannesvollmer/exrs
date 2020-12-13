@@ -50,7 +50,13 @@ fn search_previews_of_all_files() {
 #[test]
 #[ignore]
 pub fn test_roundtrip() {
-    let path = "tests/images/valid/openexr/MultiResolution/Kapaa.exr";
+    // works
+    // let path = "tests/images/valid/custom/crowskull/crow_piz.exr";
+    // let path = "tests/images/valid/custom/crowskull/crow_zip_half.exr";
+    let path = "tests/images/valid/openexr/Beachball/multipart.0001.exr";
+
+    // worksn't
+    // let path = "tests/images/valid/openexr/MultiResolution/Kapaa.exr";
     // let path = "tests/images/valid/openexr/MultiView/Impact.exr";
 
     print!("starting read 1... ");

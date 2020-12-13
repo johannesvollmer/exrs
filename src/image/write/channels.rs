@@ -36,10 +36,10 @@ impl<F> GetRgbaPixel for F where F: Sync + Fn(Vec2<usize>) -> RgbaPixel {
 
 impl<'s, S: 's + WritableSamples<'s>> WritableChannels<'s> for AnyChannels<S> {
     fn level_mode(&self) -> LevelMode {
-        let mode = self.iter().next().unwrap().sample_data.level_mode();
+        let mode = self.list.iter().next().unwrap().sample_data.level_mode();
 
         debug_assert!(
-            std::iter::repeat(mode).zip(self.iter().skip(1))
+            std::iter::repeat(mode).zip(self.list.iter().skip(1))
                 .all(|(first, other)| other.sample_data.level_mode() == first)
         );
 
@@ -47,7 +47,7 @@ impl<'s, S: 's + WritableSamples<'s>> WritableChannels<'s> for AnyChannels<S> {
     }
 
     fn infer_channel_list(&self) -> ChannelList {
-        ChannelList::new(self.iter().map(|channel| ChannelInfo {
+        ChannelList::new(self.list.iter().map(|channel| ChannelInfo {
             name: channel.name.clone(),
             sample_type: channel.sample_data.sample_type(),
             quantize_linearly: channel.quantize_linearly,
@@ -57,7 +57,7 @@ impl<'s, S: 's + WritableSamples<'s>> WritableChannels<'s> for AnyChannels<S> {
 
     type Writer = AnyChannelsWriter<S::Writer>;
     fn create_writer(&'s self, header: &Header) -> Self::Writer {
-        let channels = self.iter().map(|chan| chan.sample_data.create_writer(header)).collect();
+        let channels = self.list.iter().map(|chan| chan.sample_data.create_writer(header)).collect();
         AnyChannelsWriter { channels }
     }
 }

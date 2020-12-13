@@ -26,7 +26,7 @@ pub fn main() {
         let layer_name = layer.attributes.layer_name.as_ref()
             .map_or(String::from("1"), attribute::Text::to_string);
 
-        for channel in &layer.channel_data {
+        for channel in &layer.channel_data.list {
             for (level, level_size) in layer.levels_with_resolution(&channel.sample_data) {
                 let data : Vec<f32> = level.values_as_f32().collect();
 

@@ -14,6 +14,31 @@ use crate::compression::Compression;
 use smallvec::{SmallVec, Array};
 use crate::error::Error;
 
+/// This image type contains all supported exr features and can represent almost any image.
+/// It currently does not support deep data yet.
+pub type AnyImage = Image<Layers<AnyChannels<Levels<FlatSamples>>>>;
+
+/// This image type contains the most common exr features and can represent almost any plain image.
+/// Does not contain resolution levels. Does not support deep data.
+pub type FlatImage = Image<Layers<AnyChannels<FlatSamples>>>;
+
+/// This image type contains only the most essential features
+/// and supports any exr image that could also be represented by a list of png or jpg layers.
+///
+/// `Samples` is your custom pixel storage.
+/// If you want to write it to a file, it needs to implement `GetRgbaPixel`
+/// (this is already implemented for all closures of type `Fn(Vec2<usize>) -> RgbaPixel`.
+pub type RgbaLayersImage<Samples> = Image<Layers<RgbaChannels<Samples>>>;
+
+/// This image type contains only the most essential features
+/// and supports all exr images that could also be represented by a png or jpg file.
+///
+/// `Samples` is your custom pixel storage.
+/// If you want to write it to a file, it needs to implement `GetRgbaPixel`
+/// (this is already implemented for all closures of type `Fn(Vec2<usize>) -> RgbaPixel`.
+pub type RgbaImage<Samples> = Image<Layer<RgbaChannels<Samples>>>;
+
+
 
 /// `Layers` can be either `Layer` or `Layers`.
 #[derive(Debug, Clone, PartialEq)]
@@ -125,7 +150,10 @@ pub struct RgbaSampleTypes (pub SampleType, pub SampleType, pub SampleType, pub 
 
 ///`Samples` can currently only be `FlatSamples` or `Levels<FlatSamples>`.
 // FIXME sort channels on create!
-pub type AnyChannels<Samples> = SmallVec<[AnyChannel<Samples>; 4]>;
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnyChannels<Samples> {
+    pub list: SmallVec<[AnyChannel<Samples>; 4]>
+}
 
 /// `Samples` can currently only be `FlatSamples` or `Levels<FlatSamples>`.
 #[derive(Debug, Clone, PartialEq)]
@@ -429,7 +457,16 @@ impl ContainsNaN for f16 {
 }
 
 
+impl<S> AnyChannels<S>{
 
+    /// A new list of arbitrary channels. Sorts the list to make it alphabetically stable.
+    pub fn new(mut list: SmallVec<[AnyChannel<S>; 4]>) -> Self {
+        list.sort_unstable_by_key(|channel| channel.name.clone()); // TODO no clone?
+        Self { list: list }
+    }
+
+    // pub fn iter()
+}
 
 impl<S> Levels<S> {
 
@@ -591,7 +628,6 @@ impl<'s, C:'s> Layer<C> {
     ) -> Self
         where C: WritableChannels<'s>
     {
-        // FIXME if channel is a vector, sort it!
         Layer { channel_data: channels, attributes, size: dimensions.into(), encoding }
     }
 

@@ -79,6 +79,8 @@ impl SamplesReader for FlatSamplesReader {
 
         let start_index = index.position.y() * resolution.width() + index.position.x();
         let end_index = start_index + index.sample_count;
+        debug_assert!(start_index < end_index && end_index <= self.samples.len(), "line {:?} is invalid", line);
+
 
         match &mut self.samples {
             FlatSamples::F16(samples) =>

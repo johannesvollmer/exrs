@@ -51,7 +51,7 @@ fn main() {
         size,
         layer_attributes,
         Encoding::default(),
-        smallvec![ r, g, b ],
+        AnyChannels::new(smallvec![ r, g, b ]),
     );
 
     let image = Image::from_single_layer(layer);

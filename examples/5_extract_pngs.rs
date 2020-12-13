@@ -28,7 +28,7 @@ pub fn main() {
         let layer_name = layer.attributes.layer_name.as_ref()
             .map_or(String::from("main_layer"), Text::to_string);
 
-        for channel in &layer.channel_data {
+        for channel in &layer.channel_data.list {
             let data : Vec<f32> = channel.sample_data.values_as_f32().collect();
 
             save_f32_image_as_png(&data, layer.size, format!(

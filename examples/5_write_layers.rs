@@ -56,10 +56,10 @@ fn main() {
         size,
         LayerAttributes::named("test-image".try_into().unwrap()),
         Encoding::FAST_LOSSLESS,
-        smallvec![ // the order does not actually matter // FIXME currently not true
+        AnyChannels::new(smallvec![ // the order does not actually matter
             foreground_r, foreground_g, foreground_b, foreground_a,
             background_r, background_g, background_b
-        ],
+        ]),
     );
 
     let image = Image::from_single_layer(layer);
