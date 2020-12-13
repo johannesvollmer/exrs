@@ -11,6 +11,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::io;
 use std::io::{Write, Cursor};
 use exr::meta::header::Header;
+use exr::image::read::{read_all_rgba_layers_from_file};
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
@@ -52,6 +53,7 @@ fn search_previews_of_all_files() {
 pub fn test_roundtrip() {
     // works
     // let path = "tests/images/valid/custom/crowskull/crow_piz.exr";
+    let path = "tests/images/valid/custom/crowskull/crow_dwa.exr";
     // let path = "tests/images/valid/custom/crowskull/crow_zip_half.exr";
     // let path = "tests/images/valid/openexr/Beachball/multipart.0001.exr";
     // let path = "tests/images/valid/openexr/Tiles/GoldenGate.exr";
@@ -59,7 +61,7 @@ pub fn test_roundtrip() {
     // let path = "tests/images/valid/openexr/MultiView/Balls.exr";
 
     // worksn't (probably because of Mipmaps and Ripmaps?)
-    let path = "tests/images/valid/openexr/MultiResolution/Kapaa.exr"; // rip maps
+    // let path = "tests/images/valid/openexr/MultiResolution/Kapaa.exr"; // rip maps
     // let path = "tests/images/valid/openexr/MultiView/Impact.exr"; // mip maps
 
     /*
@@ -101,9 +103,17 @@ pub fn test_roundtrip() {
     let meta = MetaData::read_from_file(path, false).unwrap();
     println!("{:#?}", meta);
 
-    let image = read() // Image::read_from_file(path, read_options::low()).unwrap();
-        .no_deep_data().all_resolution_levels().all_channels().all_layers().pedantic().non_parallel()
-        .read_from_file(path).unwrap();
+    let image =
+        read_all_rgba_layers_from_file(
+            path,
+            read::rgba_channels::pixels::create_flattened_f32,
+            read::rgba_channels::pixels::set_flattened_pixel
+        ).unwrap();
+
+        // read_all_data_from_file(path).unwrap();
+        // read() // Image::read_from_file(path, read_options::low()).unwrap();
+        // .no_deep_data().all_resolution_levels().all_channels().all_layers().pedantic().non_parallel()
+        // .read_from_file(path).unwrap();
 
     println!("...read 1 successfull");
 
@@ -120,10 +130,17 @@ pub fn test_roundtrip() {
     print!("starting read 2... ");
     io::stdout().flush().unwrap();
 
-    let image2 = read() // Image::read_from_buffered(Cursor::new(&tmp_bytes),ReadOptions { pedantic: true, .. read_options::low() }).unwrap();
-        .no_deep_data().all_resolution_levels().all_channels().all_layers().pedantic()
-        .read_from_buffered(Cursor::new(&tmp_bytes))
-        .unwrap();
+    let image2 =
+        read_all_rgba_layers_from_file(
+            path,
+            read::rgba_channels::pixels::create_flattened_f32,
+            read::rgba_channels::pixels::set_flattened_pixel
+        ).unwrap();
+
+        // read() // Image::read_from_buffered(Cursor::new(&tmp_bytes),ReadOptions { pedantic: true, .. read_options::low() }).unwrap();
+        // .no_deep_data().all_resolution_levels().all_channels().all_layers().pedantic()
+        // .read_from_buffered(Cursor::new(&tmp_bytes))
+        // .unwrap();
 
     println!("...read 2 successfull");
 

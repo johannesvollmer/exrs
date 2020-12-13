@@ -107,8 +107,11 @@ pub struct Encoding {
 }
 
 
-
-
+impl<S> ContainsNaN for RgbaChannels<S> where S: ContainsNaN {
+    fn contains_nan_pixels(&self) -> bool {
+        self.storage.contains_nan_pixels()
+    }
+}
 
 impl Encoding {
 
