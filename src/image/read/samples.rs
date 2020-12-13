@@ -9,6 +9,7 @@ use crate::image::read::levels::{ReadSamplesLevel, ReadAllLevels, ReadLargestLev
 use crate::block::chunk::TileCoordinates;
 // use crate::image::read::layers::ReadChannels;
 
+// FIXME do not throw error on deep data but just skip it!
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct ReadFlatSamples;
 // pub struct ReadAnySamples;

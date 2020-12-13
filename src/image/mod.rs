@@ -413,6 +413,12 @@ impl<C> ContainsNaN for Layer<C> where C: ContainsNaN {
     }
 }*/
 
+impl<C> ContainsNaN for AnyChannels<C> where C: ContainsNaN {
+    fn contains_nan_pixels(&self) -> bool {
+        self.list.contains_nan_pixels()
+    }
+}
+
 impl<C> ContainsNaN for AnyChannel<C> where C: ContainsNaN {
     fn contains_nan_pixels(&self) -> bool {
         self.sample_data.contains_nan_pixels()

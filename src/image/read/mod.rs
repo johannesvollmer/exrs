@@ -28,35 +28,54 @@ use crate::image::read::samples::{ReadFlatSamples};
 use crate::io::Read;
 use std::path::Path;
 use crate::block::chunk::TileCoordinates;
-use crate::image::read::layers::{ReadAllLayers, ReadFirstValidLayer};
-use crate::image::read::any_channels::ReadAnyChannels;
-use crate::image::read::levels::ReadAllLevels;
+use crate::image::{AnyImage, RgbaLayersImage, RgbaImage, AnyChannels, FlatSamples, Image, Layer, FlatImage};
 
+// TODO explain or use these simple functions somewhere
 
-
-/// All resolution levels, all channels, all layers. Results in an `image::AnyImage`.
-/// Does not support deep data yet.
-pub fn read_all_data() -> ReadAllLayers<ReadAnyChannels<ReadAllLevels<ReadFlatSamples>>> {
+/// All resolution levels, all channels, all layers.
+/// Does not support deep data yet. Uses parallel decompression and relaxed error handling.
+/// Inspect the source code of this function if you need customization.
+pub fn read_all_data_from_file(path: impl AsRef<Path>) -> Result<AnyImage> {
     read()
         .no_deep_data() // TODO deep data
         .all_resolution_levels()
         .all_channels()
         .all_layers()
+        .read_from_file(path)
+}
+
+// FIXME do not throw error on deep data but just skip it!
+/// No deep data, no resolution levels, all channels, all layers.
+/// Uses parallel decompression and relaxed error handling.
+/// Inspect the source code of this function if you need customization.
+pub fn read_all_flat_layers_from_file(path: impl AsRef<Path>) -> Result<FlatImage> {
+    read()
+        .no_deep_data()
+        .largest_resolution_level()
+        .all_channels()
+        .all_layers()
+        .read_from_file(path)
 }
 
 /// No deep data, no resolution levels, all channels, first layer.
-pub fn read_first_flat_layer() -> ReadFirstValidLayer<ReadAnyChannels<ReadFlatSamples>> {
+/// Uses parallel decompression and relaxed error handling.
+/// Inspect the source code of this function if you need customization.
+pub fn read_first_flat_layer_from_file(path: impl AsRef<Path>) -> Result<Image<Layer<AnyChannels<FlatSamples>>>> {
     read()
         .no_deep_data()
         .largest_resolution_level()
         .all_channels()
         .first_valid_layer()
+        .read_from_file(path)
 }
 
 // FIXME rgba with resolution levels!!! should at least not throw an error
-/// No deep data, no resolution levels, rgba channels, all layers. Results in an `image::RgbaLayersImage`.
-pub fn read_all_rgba_layers<Set, Create>(create: Create, set_pixel: Set)
-    -> ReadAllLayers<ReadRgbaChannels<Create, Set>>
+/// No deep data, no resolution levels, rgba channels, all layers.
+/// Uses parallel decompression and relaxed error handling.
+/// `Create` and `Set` can be closures, see the examples for more information.
+/// Inspect the source code of this function if you need customization.
+pub fn read_all_rgba_layers_from_file<Set, Create>(path: impl AsRef<Path>, create: Create, set_pixel: Set)
+    -> Result<RgbaLayersImage<Create::Pixels>>
     where Create: CreateRgbaPixels, Set: SetRgbaPixel<Create::Pixels>
 {
     read()
@@ -64,11 +83,15 @@ pub fn read_all_rgba_layers<Set, Create>(create: Create, set_pixel: Set)
         .largest_resolution_level()
         .rgba_channels(create, set_pixel)
         .all_layers()
+        .read_from_file(path)
 }
 
-/// No deep data, no resolution levels, rgba channels, first layer. Results in an `image::RgbaImage`.
-pub fn read_first_rgb_layer<Set, Create>(create: Create, set_pixel: Set)
-    -> ReadFirstValidLayer<ReadRgbaChannels<Create, Set>>
+/// No deep data, no resolution levels, rgba channels, first layer.
+/// Uses parallel decompression and relaxed error handling.
+/// `Create` and `Set` can be closures, see the examples for more information.
+/// Inspect the source code of this function if you need customization.
+pub fn read_first_rgb_layer_from_file<Set, Create>(path: impl AsRef<Path>, create: Create, set_pixel: Set)
+    -> Result<RgbaImage<Create::Pixels>>
     where Create: CreateRgbaPixels, Set: SetRgbaPixel<Create::Pixels>
 {
     read()
@@ -76,6 +99,7 @@ pub fn read_first_rgb_layer<Set, Create>(create: Create, set_pixel: Set)
         .largest_resolution_level()
         .rgba_channels(create, set_pixel)
         .first_valid_layer()
+        .read_from_file(path)
 }
 
 

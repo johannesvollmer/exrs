@@ -16,6 +16,7 @@ pub struct ReadAllLayers<C> {
     pub fn
 }*/
 
+// FIXME do not throw error on deep data but just skip it!
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReadFirstValidLayer<C> {
     pub read_channels: C,

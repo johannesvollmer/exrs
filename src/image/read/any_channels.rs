@@ -14,6 +14,7 @@ pub struct ReadAnyChannels<S> {
     pub read_samples: S
 }
 
+// FIXME do not throw error on deep data but just skip it!
 impl<'s, S:'s> ReadAnyChannels<S> where Self: ReadChannels<'s> {
     pub fn first_valid_layer(self) -> ReadFirstValidLayer<Self> { ReadFirstValidLayer { read_channels: self } }
     pub fn all_layers(self) -> ReadAllLayers<Self> { ReadAllLayers { read_channels: self } }
