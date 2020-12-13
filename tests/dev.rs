@@ -53,7 +53,7 @@ fn search_previews_of_all_files() {
 pub fn test_roundtrip() {
     // works
     // let path = "tests/images/valid/custom/crowskull/crow_piz.exr";
-    let path = "tests/images/valid/custom/crowskull/crow_dwa.exr";
+    // let path = "tests/images/valid/custom/crowskull/crow_dwa.exr";
     // let path = "tests/images/valid/custom/crowskull/crow_zip_half.exr";
     // let path = "tests/images/valid/openexr/Beachball/multipart.0001.exr";
     // let path = "tests/images/valid/openexr/Tiles/GoldenGate.exr";
@@ -63,6 +63,7 @@ pub fn test_roundtrip() {
     // worksn't (probably because of Mipmaps and Ripmaps?)
     // let path = "tests/images/valid/openexr/MultiResolution/Kapaa.exr"; // rip maps
     // let path = "tests/images/valid/openexr/MultiView/Impact.exr"; // mip maps
+    let path = "tests/images/valid\\openexr\\Chromaticities\\Rec709_YC.exr"; // mip maps
 
     /*
     "Error(\"Panic\"): tests/images/valid\\custom\\crowskull\\crow_dwa.exr",

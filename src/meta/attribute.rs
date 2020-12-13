@@ -912,7 +912,7 @@ impl ChannelInfo {
             return Err(Error::invalid("zero sampling factor"));
         }
 
-        if strict && allow_sampling && self.sampling != Vec2(1,1) {
+        if strict && !allow_sampling && self.sampling != Vec2(1,1) {
             return Err(Error::invalid("subsampling is only allowed in flat scan line images"));
         }
 
