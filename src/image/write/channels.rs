@@ -57,7 +57,7 @@ impl<'s, S: 's + WritableSamples<'s>> WritableChannels<'s> for AnyChannels<S> {
 
     type Writer = AnyChannelsWriter<S::Writer>;
     fn create_writer(&'s self, header: &Header) -> Self::Writer {
-        let channels = self.list.iter().map(|chan| chan.sample_data.create_writer(header)).collect();
+        let channels = self.list.iter().map(|chan| chan.sample_data.create_samples_writer(header)).collect();
         AnyChannelsWriter { channels }
     }
 }
@@ -73,7 +73,7 @@ impl<S> ChannelsWriter for AnyChannelsWriter<S> where S: SamplesWriter {
         let mut block_bytes = vec![0_u8; byte_count];
 
         for (byte_range, line_index) in LineIndex::lines_in_block(block_index, header) {
-            self.channels.get(line_index.channel).unwrap().extract_line(header, LineRefMut { // TODO subsampling
+            self.channels.get(line_index.channel).unwrap().extract_line(LineRefMut { // TODO subsampling
                 value: &mut block_bytes[byte_range],
                 location: line_index,
             });

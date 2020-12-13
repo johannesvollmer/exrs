@@ -152,6 +152,8 @@ pub struct RgbaSampleTypes (pub SampleType, pub SampleType, pub SampleType, pub 
 // FIXME sort channels on create!
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnyChannels<Samples> {
+
+    /// This list must be sorted. Use `AnyChannels::new` for automatic sorting.
     pub list: SmallVec<[AnyChannel<Samples>; 4]>
 }
 
@@ -378,6 +380,7 @@ impl<S> RgbaChannels<S> {
     }
 }
 
+
 /// Check whether this contains any `NaN` value.
 /// This is required for comparing the equality of two images, as `NaN` never equals itself (nice!).
 pub trait ContainsNaN {
@@ -468,10 +471,8 @@ impl<S> AnyChannels<S>{
     /// A new list of arbitrary channels. Sorts the list to make it alphabetically stable.
     pub fn new(mut list: SmallVec<[AnyChannel<S>; 4]>) -> Self {
         list.sort_unstable_by_key(|channel| channel.name.clone()); // TODO no clone?
-        Self { list: list }
+        Self { list }
     }
-
-    // pub fn iter()
 }
 
 impl<S> Levels<S> {
@@ -812,7 +813,7 @@ impl<S> From<RgbaPixel> for [S; 4] where S: From<Sample> {
 
 impl std::fmt::Debug for FlatSamples {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.len() < 32 {
+        if self.len() <= 6 {
             match self {
                 FlatSamples::F16(vec) => vec.fmt(formatter),
                 FlatSamples::F32(vec) => vec.fmt(formatter),

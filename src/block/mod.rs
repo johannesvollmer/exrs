@@ -32,7 +32,7 @@ pub struct BlockIndex {
     /// Index of the bottom left pixel from the block.
     pub pixel_position: Vec2<usize>,
 
-    /// Number of pixels in this block.
+    /// Number of pixels in this block. Stays the same across all resolution levels.
     pub pixel_size: Vec2<usize>,
 
     /// Index of the mip or rip level in the image.

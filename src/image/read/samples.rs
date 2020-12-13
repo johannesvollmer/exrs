@@ -51,9 +51,9 @@ impl ReadSamples for ReadFlatSamples {
 impl ReadSamplesLevel for ReadFlatSamples {
     type Reader = FlatSamplesReader;
 
-    fn create_samples_level_reader(&self, header: &Header, channel: &ChannelInfo, size: Vec2<usize>) -> Result<Self::Reader> {
+    fn create_samples_level_reader(&self, _header: &Header, channel: &ChannelInfo, size: Vec2<usize>) -> Result<Self::Reader> {
         Ok(FlatSamplesReader {
-            resolution: header.layer_size, // TODO sub sampling
+            resolution: size, // header.layer_size, // TODO sub sampling
             samples: match channel.sample_type {
                 SampleType::F16 => FlatSamples::F16(vec![f16::ZERO; size.area()]),
                 SampleType::F32 => FlatSamples::F32(vec![0.0; size.area()]),
@@ -80,8 +80,12 @@ impl SamplesReader for FlatSamplesReader {
 
         let start_index = index.position.y() * resolution.width() + index.position.x();
         let end_index = start_index + index.sample_count;
-        debug_assert!(start_index < end_index && end_index <= self.samples.len(), "line {:?} is invalid", line);
 
+        debug_assert!(
+            start_index < end_index && end_index <= self.samples.len(),
+            "for resolution {:?}, this is an invalid line: {:?}",
+            self.resolution, line.location
+        );
 
         match &mut self.samples {
             FlatSamples::F16(samples) =>

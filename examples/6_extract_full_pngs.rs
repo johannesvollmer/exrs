@@ -8,7 +8,8 @@ use exr::prelude::*;
 
 
 pub fn main() {
-    let path = "tests/images/valid/openexr/BeachBall/multipart.0001.exr";
+    // let path = "tests/images/valid/openexr/BeachBall/multipart.0001.exr";
+    let path = "tests/images/valid/openexr/MultiResolution/Kapaa.exr";
 
     let now = ::std::time::Instant::now();
 
