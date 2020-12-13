@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{Write, Cursor};
+use exr::image::read::read_first_rgb_layer_from_file;
 
 fn exr_files(path: &'static str, filter: bool) -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new(path).into_iter().map(std::result::Result::unwrap)
@@ -50,14 +51,22 @@ pub fn damaged(){
 
     for file in exr_files("tests/images/invalid", false) {
         let file = &file;
+        println!("inspecting file {:?}", file);
 
         let result = catch_unwind(move || {
-            let _ = read().no_deep_data().largest_resolution_level().all_channels().first_valid_layer().read_from_file(&file)?;
+            let _simple = read().no_deep_data()
+                .largest_resolution_level().all_channels().first_valid_layer()
+                .read_from_file(&file)?;
+
+            let _rgba = read_first_rgb_layer_from_file(
+                file,
+                read::rgba_channels::pixels::create_flattened_f16,
+                read::rgba_channels::pixels::set_flattened_pixel
+            )?;
 
             let full = read()
                 .no_deep_data().all_resolution_levels().all_channels().all_layers()
                 .read_from_file(&file)?;
-        // TODO let _ = read().no_deep_data().all_resolution_levels().rgba_channels().all_layers().read_from_file(&file)?;
 
 
             /*let full = exr::image::full::Image::read_from_file(file, read_options::high())?;

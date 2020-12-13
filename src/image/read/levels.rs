@@ -58,7 +58,7 @@ pub struct AllLevelsReader<SamplesReader> {
 
 pub trait ReadSamplesLevel {
     type Reader: SamplesReader;
-    fn create_samples_level_reader(&self, header: &Header, channel: &ChannelInfo, size: Vec2<usize>) -> Result<Self::Reader>;
+    fn create_samples_level_reader(&self, header: &Header, channel: &ChannelInfo, level: Vec2<usize>, resolution: Vec2<usize>) -> Result<Self::Reader>;
 }
 
 
@@ -73,11 +73,11 @@ impl<S: ReadSamplesLevel> ReadSamples for ReadAllLevels<S> {
                 let round = tiles.rounding_mode;
 
                 match tiles.level_mode {
-                    LevelMode::Singular => Levels::Singular(self.read_samples.create_samples_level_reader(header, channel, header.layer_size)?),
+                    LevelMode::Singular => Levels::Singular(self.read_samples.create_samples_level_reader(header, channel, Vec2(0,0), header.layer_size)?),
 
                     LevelMode::MipMap => Levels::Mip({
                         let maps: Result<LevelMaps<S::Reader>> = mip_map_levels(round, data_size)
-                            .map(|(_, level_size)| self.read_samples.create_samples_level_reader(header, channel, level_size))
+                            .map(|(index, level_size)| self.read_samples.create_samples_level_reader(header, channel, Vec2(index, index), level_size))
                             .collect();
 
                         maps?
@@ -88,7 +88,7 @@ impl<S: ReadSamplesLevel> ReadSamples for ReadAllLevels<S> {
                         let level_count_x = compute_level_count(round, data_size.width());
                         let level_count_y = compute_level_count(round, data_size.height());
                         let maps: Result<LevelMaps<S::Reader>> = rip_map_levels(round, data_size)
-                            .map(|(_, level_size)| self.read_samples.create_samples_level_reader(header, channel, level_size))
+                            .map(|(index, level_size)| self.read_samples.create_samples_level_reader(header, channel, index, level_size))
                             .collect();
 
                         RipMaps {
@@ -101,7 +101,7 @@ impl<S: ReadSamplesLevel> ReadSamples for ReadAllLevels<S> {
 
             // scan line blocks never have mip maps
             else {
-                Levels::Singular(self.read_samples.create_samples_level_reader(header, channel, data_size)?)
+                Levels::Singular(self.read_samples.create_samples_level_reader(header, channel, Vec2(0, 0), data_size)?)
             }
         };
 
