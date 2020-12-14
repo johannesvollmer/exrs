@@ -187,28 +187,36 @@ impl<'s, T: 's> ReadImageFromSource<'s> for T where T: ReadImage<'s> {
     type Image = <<T as ReadImage<'s>>::Reader as ImageReader>::Image;
 
     fn read_from_buffered(&'s self, read: impl Read + Seek + Send) -> Result<Self::Image> {
-        let pedantic = self.is_pedantic();
-        let parallel = !self.is_sequential();
-
-        let reader = crate::block::read_filtered_blocks_from_buffered(
-            read,
-
-            move |headers| self.create_image_reader(headers),
-
-            |reader, header, tile| {
-                reader.filter_block(header, (tile.0, &tile.1.location)) // TODO pass TileIndices directly!
-            },
-
-            |reader, headers, block| {
-                reader.read_block(headers, block)
-            },
-
-            pedantic, parallel
-        )?;
-
-        Ok(reader.into_image())
+        read_buffered(self, read)
     }
 }
+
+pub fn read_buffered<'r, R>(reader: &'r R, buffered: impl Read + Seek + Send)
+    -> Result<<<R as ReadImage<'r>>::Reader as ImageReader>::Image>
+    where R: ReadImage<'r>
+{
+    let pedantic = reader.is_pedantic();
+    let parallel = !reader.is_sequential();
+
+    let reader = crate::block::read_filtered_blocks_from_buffered(
+        buffered,
+
+        move |headers| reader.create_image_reader(headers),
+
+        |reader, header, tile| {
+            reader.filter_block(header, (tile.0, &tile.1.location)) // TODO pass TileIndices directly!
+        },
+
+        |reader, headers, block| {
+            reader.read_block(headers, block)
+        },
+
+        pedantic, parallel
+    )?;
+
+    Ok(reader.into_image())
+}
+
 
 
 #[cfg(test)]
