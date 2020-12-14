@@ -43,7 +43,7 @@ pub struct AnyChannelReader<S> {
 }
 
 pub trait SamplesReader {
-    type Samples;
+    type Samples: 'static;
     fn read_line(&mut self, line: LineRef<'_>) -> UnitResult;
     fn filter_block(&self, tile: (usize, &TileCoordinates)) -> bool;
     fn into_samples(self) -> Self::Samples;

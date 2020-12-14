@@ -36,7 +36,7 @@ pub trait SetRgbaPixel<P> {
 }
 
 pub trait CreateRgbaPixels {
-    type Pixels;
+    type Pixels: 'static;
     fn create(&self, info: &RgbaChannelsInfo) -> Self::Pixels;
 }
 
@@ -44,7 +44,7 @@ impl<P, F> SetRgbaPixel<P> for F where F: Fn(&mut P, Vec2<usize>, RgbaPixel) {
     fn set_pixel(&self, pixels: &mut P, position: Vec2<usize>, pixel: RgbaPixel) { self(pixels, position, pixel) }
 }
 
-impl<F, P> CreateRgbaPixels for F where F: Fn(&RgbaChannelsInfo) -> P {
+impl<F, P: 'static> CreateRgbaPixels for F where F: Fn(&RgbaChannelsInfo) -> P {
     type Pixels = P;
     fn create(&self, info: &RgbaChannelsInfo) -> Self::Pixels { self(info) }
 }
@@ -273,7 +273,7 @@ where
     }
 }
 
-impl<'s, Setter, Storage>
+impl<'s, Setter, Storage: 'static> // TODO 'static ok?
     ChannelsReader for RgbaChannelsReader<'s, Setter, Storage>
     where Setter: SetRgbaPixel<Storage>
 {

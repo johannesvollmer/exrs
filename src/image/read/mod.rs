@@ -160,7 +160,7 @@ pub trait ReadImage<'s> {
 }
 
 pub trait ImageReader {
-    type Image;
+    type Image: 'static;
     fn filter_block(&self, header: (usize, &Header), tile: (usize, &TileCoordinates)) -> bool;
     fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult;
     fn into_image(self) -> Self::Image;

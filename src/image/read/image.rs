@@ -32,7 +32,7 @@ pub struct ImageWithAttributesReader<L> {
 }
 
 pub trait LayersReader {
-    type Layers;
+    type Layers: 'static;
     fn filter_block(&self, header: (usize, &Header), tile: (usize, &TileCoordinates)) -> bool;
     fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult;
     fn into_layers(self) -> Self::Layers;
