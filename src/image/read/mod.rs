@@ -123,7 +123,7 @@ impl ReadBuilder {
 
 
 pub trait ReadImage<'s> {
-    type Reader: 's + ImageReader;
+    type Reader: ImageReader;
     fn create_image_reader(&'s self, headers: &[Header]) -> Result<Self::Reader>;
 
     // define default settings here, as this is the mandatory base image reader

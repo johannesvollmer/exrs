@@ -159,7 +159,7 @@ fn for_decompressed_blocks_in_chunks(
         }
     }
 
-    // debug_assert_eq!(processed_chunk_count, total_chunk_count, "some chunks were not read");
+    // TODO if pedantic { debug_assert_eq!(processed_chunk_count, total_chunk_count, "some chunks were not read"); }
     Ok(())
 }
 
