@@ -8,8 +8,9 @@ use exr::prelude::*;
 /// This example does not include resolution levels (mipmaps or ripmaps).
 fn main() {
 
-    let image = read().no_deep_data().largest_resolution_level().all_channels().all_layers()
-        .read_from_file("tests/images/valid/openexr/Beachball/multipart.0004.exr")
+    let image = read().no_deep_data()
+        .largest_resolution_level().all_channels().all_layers()
+        .from_file("tests/images/valid/openexr/Beachball/multipart.0004.exr")
         .unwrap();
 
     // let image = Image::read_from_file(

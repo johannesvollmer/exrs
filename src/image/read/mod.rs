@@ -41,7 +41,7 @@ pub fn read_all_data_from_file(path: impl AsRef<Path>) -> Result<AnyImage> {
         .all_resolution_levels()
         .all_channels()
         .all_layers()
-        .read_from_file(path)
+        .from_file(path)
 }
 
 // FIXME do not throw error on deep data but just skip it!
@@ -54,7 +54,7 @@ pub fn read_all_flat_layers_from_file(path: impl AsRef<Path>) -> Result<FlatImag
         .largest_resolution_level()
         .all_channels()
         .all_layers()
-        .read_from_file(path)
+        .from_file(path)
 }
 
 /// No deep data, no resolution levels, all channels, first layer.
@@ -66,7 +66,7 @@ pub fn read_first_flat_layer_from_file(path: impl AsRef<Path>) -> Result<Image<L
         .largest_resolution_level()
         .all_channels()
         .first_valid_layer()
-        .read_from_file(path)
+        .from_file(path)
 }
 
 // FIXME rgba with resolution levels!!! should at least not throw an error
@@ -83,7 +83,7 @@ pub fn read_all_rgba_layers_from_file<Set, Create>(path: impl AsRef<Path>, creat
         .largest_resolution_level()
         .rgba_channels(create, set_pixel)
         .all_layers()
-        .read_from_file(path)
+        .from_file(path)
 }
 
 /// No deep data, no resolution levels, rgba channels, first layer.
@@ -99,7 +99,7 @@ pub fn read_first_rgb_layer_from_file<Set, Create>(path: impl AsRef<Path>, creat
         .largest_resolution_level()
         .rgba_channels(create, set_pixel)
         .first_valid_layer()
-        .read_from_file(path)
+        .from_file(path)
 }
 
 
@@ -131,6 +131,32 @@ pub trait ReadImage<'s> {
     fn is_pedantic(&self) -> bool { true }
 
     // fn validate_image(&[Header])
+
+
+    /// Read the exr image from a file.
+    /// Use `read_from_unbuffered` instead, if you do not have a file.
+    #[inline]
+    #[must_use]
+    fn from_file(&'s self, path: impl AsRef<Path>) -> Result<<<Self as ReadImage<'s>>::Reader as ImageReader>::Image> {
+        self.from_unbuffered(std::fs::File::open(path)?)
+    }
+
+    /// Buffer the reader and then read the exr image from it.
+    /// Use `read_from_buffered` instead, if your reader is an in-memory reader.
+    /// Use `read_from_file` instead, if you have a file path.
+    #[inline]
+    #[must_use]
+    fn from_unbuffered(&'s self, unbuffered: impl Read + Seek + Send) -> Result<<<Self as ReadImage<'s>>::Reader as ImageReader>::Image> {
+        self.from_buffered(BufReader::new(unbuffered))
+    }
+
+    /// Read the exr image from a buffered reader.
+    /// Use `read_from_file` instead, if you have a file path.
+    /// Use `read_from_unbuffered` instead, if this is not an in-memory reader.
+    #[must_use]
+    fn from_buffered(&'s self, read: impl Read + Seek + Send) -> Result<<<Self as ReadImage<'s>>::Reader as ImageReader>::Image> {
+        run_reader_from_buffered_source(self, read)
+    }
 }
 
 pub trait ImageReader {
@@ -156,42 +182,16 @@ impl<'s, T> ReadImageWithOptions for T where T: ReadImage<'s> {
 }
 
 
-pub trait ReadImageFromSource<'s>: Sized {
-    type Image;
 
-    /// Read the exr image from a file.
-    /// Use `read_from_unbuffered` instead, if you do not have a file.
-    #[inline]
-    #[must_use]
-    fn read_from_file(&'s self, path: impl AsRef<Path>) -> Result<Self::Image> {
-        self.read_from_unbuffered(std::fs::File::open(path)?)
-    }
-
-    /// Buffer the reader and then read the exr image from it.
-    /// Use `read_from_buffered` instead, if your reader is an in-memory reader.
-    /// Use `read_from_file` instead, if you have a file path.
-    #[inline]
-    #[must_use]
-    fn read_from_unbuffered(&'s self, unbuffered: impl Read + Seek + Send) -> Result<Self::Image> {
-        self.read_from_buffered(BufReader::new(unbuffered))
-    }
-
-    /// Read the exr image from a buffered reader.
-    /// Use `read_from_file` instead, if you have a file path.
-    /// Use `read_from_unbuffered` instead, if this is not an in-memory reader.
-    #[must_use]
-    fn read_from_buffered(&'s self, read: impl Read + Seek + Send) -> Result<Self::Image>;
-}
-
-impl<'s, T: 's> ReadImageFromSource<'s> for T where T: ReadImage<'s> {
+/*impl<'s, T: 's> ReadImageFromSource<'s> for T where T: ReadImage<'s> {
     type Image = <<T as ReadImage<'s>>::Reader as ImageReader>::Image;
 
     fn read_from_buffered(&'s self, read: impl Read + Seek + Send) -> Result<Self::Image> {
-        read_buffered(self, read)
+        run_reader_from_buffered_source(self, read)
     }
-}
+}*/
 
-pub fn read_buffered<'r, R>(reader: &'r R, buffered: impl Read + Seek + Send)
+pub fn run_reader_from_buffered_source<'r, R:?Sized>(reader: &'r R, buffered: impl Read + Seek + Send)
     -> Result<<<R as ReadImage<'r>>::Reader as ImageReader>::Image>
     where R: ReadImage<'r>
 {

@@ -84,12 +84,12 @@ fn round_trip_all_files_full() {
             .no_deep_data().all_resolution_levels().all_channels().all_layers()
             .non_parallel();
 
-        let image = read_image.read_from_file(path)?;
+        let image = read_image.from_file(path)?;
 
         let mut tmp_bytes = Vec::new();
         image.write().non_parallel().to_buffered(Cursor::new(&mut tmp_bytes))?;
 
-        let image2 = read_image.read_from_buffered(Cursor::new(tmp_bytes))?;
+        let image2 = read_image.from_buffered(Cursor::new(tmp_bytes))?;
 
         assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
         if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN
@@ -106,12 +106,12 @@ fn round_trip_all_files_simple() {
             .no_deep_data().largest_resolution_level().all_channels().all_layers()
             .non_parallel();
 
-        let image = read_image.read_from_file(path)?;
+        let image = read_image.from_file(path)?;
 
         let mut tmp_bytes = Vec::new();
         image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
 
-        let image2 = read_image.read_from_buffered(Cursor::new(&tmp_bytes))?;
+        let image2 = read_image.from_buffered(Cursor::new(&tmp_bytes))?;
 
         assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
         if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN
@@ -145,7 +145,7 @@ fn round_trip_all_files_rgba() {
             .first_valid_layer()
             .non_parallel();
 
-        let image = image_reader.read_from_file(path)?;
+        let image = image_reader.from_file(path)?;
 
         let mut tmp_bytes = Vec::new();
         /*image.write_pixels_to_buffered(
@@ -156,7 +156,7 @@ fn round_trip_all_files_rgba() {
         image.write().non_parallel()
             .to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
 
-        let image2 = image_reader.read_from_buffered(Cursor::new(&tmp_bytes))?;
+        let image2 = image_reader.from_buffered(Cursor::new(&tmp_bytes))?;
 
         /*let (image2, pixels2) = rgba::ImageInfo::read_pixels_from_buffered(
             Cursor::new(&tmp_bytes), ReadOptions { pedantic: true, .. read_options::low() },
@@ -182,7 +182,7 @@ fn round_trip_parallel_files() {
         // let image = Image::read_from_file(path, read_options::high())?;
         let image = read()
             .no_deep_data().all_resolution_levels().all_channels().all_layers()
-            .read_from_file(path)?;
+            .from_file(path)?;
 
 
         let mut tmp_bytes = Vec::new();
@@ -193,7 +193,7 @@ fn round_trip_parallel_files() {
         let image2 = read()
             .no_deep_data().all_resolution_levels().all_channels().all_layers()
             .pedantic()
-            .read_from_buffered(Cursor::new(tmp_bytes.as_slice()))?;
+            .from_buffered(Cursor::new(tmp_bytes.as_slice()))?;
 
         assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
         if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN

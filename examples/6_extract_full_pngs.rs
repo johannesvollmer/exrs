@@ -17,7 +17,7 @@ pub fn main() {
     let image = read()
         .no_deep_data().all_resolution_levels()
         .all_channels().all_layers()
-        .read_from_file(path).unwrap();
+        .from_file(path).unwrap();
 
     // warning: highly unscientific benchmarks ahead!
     println!("\nloaded file in {:?}s", now.elapsed().as_secs_f32());

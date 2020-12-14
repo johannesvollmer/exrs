@@ -27,8 +27,8 @@ fn exr_files(path: &'static str, filter: bool) -> impl Iterator<Item=PathBuf> {
 #[test]
 pub fn fuzzed(){
     for file in exr_files("tests/images/fuzzed", false) {
-        let _ = read().no_deep_data().largest_resolution_level().all_channels().first_valid_layer().read_from_file(&file);
-        let _ = read().no_deep_data().all_resolution_levels().all_channels().all_layers().read_from_file(&file);
+        let _ = read().no_deep_data().largest_resolution_level().all_channels().first_valid_layer().from_file(&file);
+        let _ = read().no_deep_data().all_resolution_levels().all_channels().all_layers().from_file(&file);
 
         // let _ = exr::image::full::Image::read_from_file(&file, read_options::high());
         // let _ = exr::image::simple::Image::read_from_file(&file, read_options::high()); // FIXME will these be optimized away?
@@ -56,7 +56,7 @@ pub fn damaged(){
         let result = catch_unwind(move || {
             let _simple = read().no_deep_data()
                 .largest_resolution_level().all_channels().first_valid_layer()
-                .read_from_file(&file)?;
+                .from_file(&file)?;
 
             let _rgba = read_first_rgb_layer_from_file(
                 file,
@@ -66,7 +66,7 @@ pub fn damaged(){
 
             let full = read()
                 .no_deep_data().all_resolution_levels().all_channels().all_layers()
-                .read_from_file(&file)?;
+                .from_file(&file)?;
 
 
             /*let full = exr::image::full::Image::read_from_file(file, read_options::high())?;
@@ -152,7 +152,7 @@ pub fn fuzz(){
 
             let file = file.as_slice();
             let result = catch_unwind(move || {
-                match read_all_data.read_from_buffered(Cursor::new(file)) {
+                match read_all_data.from_buffered(Cursor::new(file)) {
                     Err(Error::Invalid(error)) => println!("✓ No Panic. [{}]: Invalid: {}.", fuzz_index, error),
                     Err(Error::NotSupported(error)) => println!("- No Panic. [{}]: Unsupported: {}.", fuzz_index, error),
                     _ => {},

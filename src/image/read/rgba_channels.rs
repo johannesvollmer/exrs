@@ -88,11 +88,11 @@ pub struct RgbaChannelsInfo { // TODO remove this struct?
 }
 
 
-/// Specifies how the pixel data is formatted inside the file.
+/*/// Specifies how the pixel data is formatted inside the file.
 /// Does not affect any visual aspect, like positioning or orientation.
 // TODO alsop nest encoding like this for meta::Header and simple::Image or even reuse this in image::simple
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct Encoding {
+pub struct RgbaEncoding {
 
     /// What type of compression the pixel data in the file is compressed with.
     pub compression: Compression,
@@ -104,7 +104,7 @@ pub struct Encoding {
     /// In what order the tiles of this header occur in the file.
     /// Does not change any actual image orientation.
     pub line_order: LineOrder,
-}
+}*/
 
 
 impl<S> ContainsNaN for RgbaChannels<S> where S: ContainsNaN {
@@ -113,7 +113,7 @@ impl<S> ContainsNaN for RgbaChannels<S> where S: ContainsNaN {
     }
 }
 
-impl Encoding {
+/*impl RgbaEncoding {
 
     /// Chooses an adequate block size and line order for the specified compression.
     #[inline]
@@ -156,7 +156,7 @@ impl Encoding {
     pub fn small() -> Self {
         Self::for_compression(Compression::ZIP16)
     }
-}
+}*/
 
 
 impl RgbaChannelsInfo {

@@ -3,18 +3,16 @@ extern crate image as png;
 
 // exr imports
 extern crate exr;
-use exr::prelude::*;
-use exr::prelude::RgbaPixel as ExrPixel;
-use exr::image::read::RgbaChannelsInfo;
+use exr::prelude as exrs;
 
 fn main() {
 
     // read from the exr file directly into a new `png::RgbaImage` image without intermediate buffers
-    let reader = read()
+    let reader = exrs::read()
         .no_deep_data()
         .largest_resolution_level()
         .rgba_channels(
-        |layer_info: &RgbaChannelsInfo| -> png::RgbaImage {
+        |layer_info: &exrs::RgbaChannelsInfo| -> png::RgbaImage {
                 png::ImageBuffer::new(
                     layer_info.resolution.width() as u32,
                     layer_info.resolution.height() as u32
@@ -22,7 +20,7 @@ fn main() {
             },
 
             // set each pixel in the png buffer from the exr file
-            |png_pixels: &mut png::RgbaImage, position: Vec2<usize>, pixel: ExrPixel| {
+            |png_pixels: &mut png::RgbaImage, position: exrs::Vec2<usize>, pixel: exrs::RgbaPixel| {
                 png_pixels.put_pixel(
                     position.x() as u32, position.y() as u32,
 
@@ -37,9 +35,11 @@ fn main() {
         )
         .first_valid_layer();
 
+    use exrs::{ReadImage, Image, Layer, RgbaChannels};
+
     // an image that contains a single layer containing an png rgba buffer
     let image: Image<Layer<RgbaChannels<png::RgbaImage>>> = reader
-        .read_from_file("tests/images/valid/openexr/MultiResolution/Kapaa.exr")
+        .from_file("tests/images/valid/openexr/MultiResolution/Kapaa.exr")
         .unwrap();
 
 

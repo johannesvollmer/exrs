@@ -20,16 +20,21 @@ fn main() {
             value.powf((position.y() as f32 / scale.y()).sin() * 0.5 + 0.5)
         }
 
-        RgbaPixel::rgb(
+        RgbaPixel::rgba(
             get_sample_f32(position, 0),
             get_sample_f32(position, 1),
             get_sample_f32(position, 2),
+            0.8
         )
     };
 
 
     let mut attributes = LayerAttributes::named("layer1".try_into().unwrap());
-    attributes.owner = Some("Unknown Owner".try_into().unwrap());
+
+    attributes.owner = Some(
+        "Unknown Owner".try_into().unwrap()
+    );
+
     attributes.comments = Some(
         "This image was generated as part of an example".try_into().unwrap()
     );
@@ -38,8 +43,9 @@ fn main() {
         (2*2048, 2*2048),
         attributes,
         Encoding::SMALL_FAST_LOSSY,
-        // all generated f32 values are converted to an f16 while writing the file
+
         RgbaChannels::new(
+            // all generated f32 values are converted to an f16 while writing the file
             RgbaSampleTypes::RGBA_F16,
             generate_pixels
         )
