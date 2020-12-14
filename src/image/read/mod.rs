@@ -137,7 +137,7 @@ pub trait ReadImage<'s> {
     /// Use `read_from_unbuffered` instead, if you do not have a file.
     #[inline]
     #[must_use]
-    fn from_file(&'s self, path: impl AsRef<Path>) -> Result<<<Self as ReadImage<'s>>::Reader as ImageReader>::Image> {
+    fn from_file(&'s self, path: impl AsRef<Path>) -> Result<<Self::Reader as ImageReader>::Image> {
         self.from_unbuffered(std::fs::File::open(path)?)
     }
 
@@ -146,7 +146,7 @@ pub trait ReadImage<'s> {
     /// Use `read_from_file` instead, if you have a file path.
     #[inline]
     #[must_use]
-    fn from_unbuffered(&'s self, unbuffered: impl Read + Seek + Send) -> Result<<<Self as ReadImage<'s>>::Reader as ImageReader>::Image> {
+    fn from_unbuffered(&'s self, unbuffered: impl Read + Seek + Send) -> Result<<Self::Reader as ImageReader>::Image> {
         self.from_buffered(BufReader::new(unbuffered))
     }
 
@@ -154,7 +154,7 @@ pub trait ReadImage<'s> {
     /// Use `read_from_file` instead, if you have a file path.
     /// Use `read_from_unbuffered` instead, if this is not an in-memory reader.
     #[must_use]
-    fn from_buffered(&'s self, read: impl Read + Seek + Send) -> Result<<<Self as ReadImage<'s>>::Reader as ImageReader>::Image> {
+    fn from_buffered(&'s self, read: impl Read + Seek + Send) -> Result<<Self::Reader as ImageReader>::Image> {
         run_reader_from_buffered_source(self, read)
     }
 }
