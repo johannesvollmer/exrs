@@ -203,8 +203,8 @@ pub fn run_reader_from_buffered_source<'r, R:?Sized>(reader: &'r R, buffered: im
 
         move |headers| reader.create_image_reader(headers),
 
-        |reader, header, tile| {
-            reader.filter_block(header, (tile.0, &tile.1.location)) // TODO pass TileIndices directly!
+        |reader, header, (tile_index, tile)| {
+            reader.filter_block(header, (tile_index, &tile.location)) // TODO pass TileIndices directly!
         },
 
         |reader, headers, block| {
