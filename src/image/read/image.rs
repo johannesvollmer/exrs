@@ -14,6 +14,7 @@ pub trait ReadLayers<'s> {
 
 /// enable calling `from_file` directly on any layer reader
 impl<'s, R:'s> ReadImage<'s> for R where R: ReadLayers<'s> {
+    type Image = Image<<R::Reader as LayersReader>::Layers>;
     type Reader = ImageWithAttributesReader<R::Reader>;
 
     fn create_image_reader(&'s self, headers: &[Header]) -> Result<Self::Reader> {
@@ -32,7 +33,7 @@ pub struct ImageWithAttributesReader<L> {
 }
 
 pub trait LayersReader {
-    type Layers: 'static;
+    type Layers;
     fn filter_block(&self, header: (usize, &Header), tile: (usize, &TileCoordinates)) -> bool;
     fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult;
     fn into_layers(self) -> Self::Layers;

@@ -1,6 +1,6 @@
 use crate::meta::header::Header;
 use crate::error::Result;
-use crate::image::read::{ReadImage};
+use crate::image::read::{ReadImage, ImageReader};
 
 // TODO filter headers, validate meta_data,
 
@@ -11,6 +11,7 @@ use crate::image::read::{ReadImage};
 pub struct ReadPedantic<I> { pub reader: I }
 
 impl<'s, I: ReadImage<'s>> ReadImage<'s> for ReadPedantic<I> {
+    type Image = <I::Reader as ImageReader>::Image;
     type Reader = I::Reader;
     fn create_image_reader(&'s self, headers: &[Header]) -> Result<Self::Reader> { self.reader.create_image_reader(headers) }
     fn is_sequential(&self) -> bool { self.reader.is_sequential() }
@@ -20,6 +21,7 @@ impl<'s, I: ReadImage<'s>> ReadImage<'s> for ReadPedantic<I> {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReadNonParallel<I> { pub reader: I }
 impl<'s, I: ReadImage<'s>> ReadImage<'s> for ReadNonParallel<I> {
+    type Image = <I::Reader as ImageReader>::Image;
     type Reader = I::Reader;
     fn create_image_reader(&'s self, headers: &[Header]) -> Result<Self::Reader> { self.reader.create_image_reader(headers) }
 

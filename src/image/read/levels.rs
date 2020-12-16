@@ -24,7 +24,7 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     pub fn all_channels(self) -> ReadAnyChannels<DeepOrFlatSamples> { ReadAnyChannels { read_samples: self.read_samples } } // Instead of Self, the `FlatSamples` are used directly
 
     // TODO only for flat samples
-    pub fn rgba_channels<Set, Create>(self, create: Create, set_pixel: Set) -> ReadRgbaChannels<Create, Set>
+    pub fn rgba_channels<Create, Set>(self, create: Create, set_pixel: Set) -> ReadRgbaChannels<Create, Set>
         where Create: CreateRgbaPixels, Set: SetRgbaPixel<Create::Pixels>
     {
         ReadRgbaChannels { create, set_pixel }
@@ -40,7 +40,7 @@ impl<ReadDeepOrFlatSamples> ReadAllLevels<ReadDeepOrFlatSamples> {
     pub fn all_channels(self) -> ReadAnyChannels<Self> { ReadAnyChannels { read_samples: self } }
 
     // TODO only for flat samples
-    pub fn rgba_channels<Set, Create>(self, create: Create, set_pixel: Set) -> ReadRgbaChannels<Create, Set>
+    pub fn rgba_channels<Create, Set>(self, create: Create, set_pixel: Set) -> ReadRgbaChannels<Create, Set>
         where Create: CreateRgbaPixels, Set: SetRgbaPixel<Create::Pixels>
     {
         ReadRgbaChannels { create, set_pixel }

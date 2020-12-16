@@ -58,7 +58,7 @@ pub struct LayerReader<C> {
 }
 
 pub trait ChannelsReader {
-    type Channels: 'static;
+    type Channels;
     fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult;
     fn filter_block(&self, tile: (usize, &TileCoordinates)) -> bool;
     fn into_channels(self) -> Self::Channels;

@@ -129,8 +129,6 @@ pub fn fuzz(){
     println!("started fuzzing");
     let files: Vec<PathBuf> = exr_files("tests/images", true).collect();
 
-    let ref read_all_data = read().no_deep_data()
-        .all_resolution_levels().all_channels().all_layers();
 
     let seed = [92,1,0,130,211,8,21,70,74,4,9,5,0,23,0,3,20,25,6,5,229,30,0,34,218,0,40,7,5,2,7,0,];
     let mut random: StdRng = rand::SeedableRng::from_seed(seed);
@@ -152,6 +150,9 @@ pub fn fuzz(){
 
             let file = file.as_slice();
             let result = catch_unwind(move || {
+                let read_all_data = read().no_deep_data()
+                    .all_resolution_levels().all_channels().all_layers();
+
                 match read_all_data.from_buffered(Cursor::new(file)) {
                     Err(Error::Invalid(error)) => println!("✓ No Panic. [{}]: Invalid: {}.", fuzz_index, error),
                     Err(Error::NotSupported(error)) => println!("- No Panic. [{}]: Unsupported: {}.", fuzz_index, error),

@@ -74,7 +74,8 @@ pub fn read_first_flat_layer_from_file(path: impl AsRef<Path>) -> Result<Image<L
 /// Uses parallel decompression and relaxed error handling.
 /// `Create` and `Set` can be closures, see the examples for more information.
 /// Inspect the source code of this function if you need customization.
-pub fn read_all_rgba_layers_from_file<Set, Create>(path: impl AsRef<Path>, create: Create, set_pixel: Set)
+// FIXME Set and Create should not need to be static
+pub fn read_all_rgba_layers_from_file<Set:'static, Create:'static>(path: impl AsRef<Path>, create: Create, set_pixel: Set)
     -> Result<RgbaLayersImage<Create::Pixels>>
     where Create: CreateRgbaPixels, Set: SetRgbaPixel<Create::Pixels>
 {
@@ -90,9 +91,12 @@ pub fn read_all_rgba_layers_from_file<Set, Create>(path: impl AsRef<Path>, creat
 /// Uses parallel decompression and relaxed error handling.
 /// `Create` and `Set` can be closures, see the examples for more information.
 /// Inspect the source code of this function if you need customization.
-pub fn read_first_rgb_layer_from_file<Set, Create>(path: impl AsRef<Path>, create: Create, set_pixel: Set)
-    -> Result<RgbaImage<Create::Pixels>>
-    where Create: CreateRgbaPixels, Set: SetRgbaPixel<Create::Pixels>
+// FIXME Set and Create should not need to be static
+pub fn read_first_rgb_layer_from_file<Set:'static, Create:'static, Pixels:'static>(path: impl AsRef<Path>, create: Create, set_pixel: Set)
+    // -> Result<RgbaImage<Create::Pixels>>
+    -> Result<RgbaImage<Pixels>>
+    where Create: CreateRgbaPixels<Pixels=Pixels>,
+          Set: SetRgbaPixel<Pixels>
 {
     read()
         .no_deep_data()
@@ -123,7 +127,8 @@ impl ReadBuilder {
 
 
 pub trait ReadImage<'s> {
-    type Reader: ImageReader;
+    type Image;
+    type Reader: ImageReader<Image = Self::Image>;
     fn create_image_reader(&'s self, headers: &[Header]) -> Result<Self::Reader>;
 
     // define default settings here, as this is the mandatory base image reader
@@ -131,36 +136,10 @@ pub trait ReadImage<'s> {
     fn is_pedantic(&self) -> bool { true }
 
     // fn validate_image(&[Header])
-
-
-    /// Read the exr image from a file.
-    /// Use `read_from_unbuffered` instead, if you do not have a file.
-    #[inline]
-    #[must_use]
-    fn from_file(&'s self, path: impl AsRef<Path>) -> Result<<Self::Reader as ImageReader>::Image> {
-        self.from_unbuffered(std::fs::File::open(path)?)
-    }
-
-    /// Buffer the reader and then read the exr image from it.
-    /// Use `read_from_buffered` instead, if your reader is an in-memory reader.
-    /// Use `read_from_file` instead, if you have a file path.
-    #[inline]
-    #[must_use]
-    fn from_unbuffered(&'s self, unbuffered: impl Read + Seek + Send) -> Result<<Self::Reader as ImageReader>::Image> {
-        self.from_buffered(BufReader::new(unbuffered))
-    }
-
-    /// Read the exr image from a buffered reader.
-    /// Use `read_from_file` instead, if you have a file path.
-    /// Use `read_from_unbuffered` instead, if this is not an in-memory reader.
-    #[must_use]
-    fn from_buffered(&'s self, read: impl Read + Seek + Send) -> Result<<Self::Reader as ImageReader>::Image> {
-        run_reader_from_buffered_source(self, read)
-    }
 }
 
 pub trait ImageReader {
-    type Image: 'static;
+    type Image;
     fn filter_block(&self, header: (usize, &Header), tile: (usize, &TileCoordinates)) -> bool;
     fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult;
     fn into_image(self) -> Self::Image;
@@ -181,7 +160,32 @@ impl<'s, T> ReadImageWithOptions for T where T: ReadImage<'s> {
     }*/
 }
 
+pub trait ReadImageFromSource: Sized {
+    type Image;
 
+    /// Read the exr image from a file.
+    /// Use `read_from_unbuffered` instead, if you do not have a file.
+    #[inline]
+    #[must_use]
+    fn from_file(self, path: impl AsRef<Path>) -> Result<Self::Image> {
+        self.from_unbuffered(std::fs::File::open(path)?)
+    }
+
+    /// Buffer the reader and then read the exr image from it.
+    /// Use `read_from_buffered` instead, if your reader is an in-memory reader.
+    /// Use `read_from_file` instead, if you have a file path.
+    #[inline]
+    #[must_use]
+    fn from_unbuffered(self, unbuffered: impl Read + Seek + Send) -> Result<Self::Image> {
+        self.from_buffered(BufReader::new(unbuffered))
+    }
+
+    /// Read the exr image from a buffered reader.
+    /// Use `read_from_file` instead, if you have a file path.
+    /// Use `read_from_unbuffered` instead, if this is not an in-memory reader.
+    #[must_use]
+    fn from_buffered(self, read: impl Read + Seek + Send) -> Result<Self::Image>;
+}
 
 /*impl<'s, T: 's> ReadImageFromSource<'s> for T where T: ReadImage<'s> {
     type Image = <<T as ReadImage<'s>>::Reader as ImageReader>::Image;
@@ -191,10 +195,23 @@ impl<'s, T> ReadImageWithOptions for T where T: ReadImage<'s> {
     }
 }*/
 
-pub fn run_reader_from_buffered_source<'r, R:?Sized>(reader: &'r R, buffered: impl Read + Seek + Send)
-    -> Result<<<R as ReadImage<'r>>::Reader as ImageReader>::Image>
-    where R: ReadImage<'r>
+impl<R: Sized, I> ReadImageFromSource for R
+    where R: for<'r> ReadImage<'r, Image = I>
 {
+    type Image = I;
+
+    fn from_buffered(self, read: impl Read + Seek + Send) -> Result<Self::Image> {
+        run_reader_from_buffered_source(self, read)
+    }
+}
+
+pub fn run_reader_from_buffered_source<R, I>
+    (reader: R, buffered: impl Read + Seek + Send)
+    // -> Result<<<R as ReadImage<'r>>::Reader as ImageReader>::Image>
+    -> Result<I>
+    where R: for<'r> ReadImage<'r, Image = I>
+{
+    let reader = &reader;
     let pedantic = reader.is_pedantic();
     let parallel = !reader.is_sequential();
 

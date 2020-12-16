@@ -35,7 +35,7 @@ fn main() {
         )
         .first_valid_layer();
 
-    use exrs::{ReadImage, Image, Layer, RgbaChannels};
+    use exrs::{ReadImageFromSource, Image, Layer, RgbaChannels};
 
     // an image that contains a single layer containing an png rgba buffer
     let image: Image<Layer<RgbaChannels<png::RgbaImage>>> = reader

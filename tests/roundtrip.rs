@@ -84,7 +84,7 @@ fn round_trip_all_files_full() {
             .no_deep_data().all_resolution_levels().all_channels().all_layers()
             .non_parallel();
 
-        let image = read_image.from_file(path)?;
+        let image = read_image.clone().from_file(path)?;
 
         let mut tmp_bytes = Vec::new();
         image.write().non_parallel().to_buffered(Cursor::new(&mut tmp_bytes))?;
@@ -106,7 +106,7 @@ fn round_trip_all_files_simple() {
             .no_deep_data().largest_resolution_level().all_channels().all_layers()
             .non_parallel();
 
-        let image = read_image.from_file(path)?;
+        let image = read_image.clone().from_file(path)?;
 
         let mut tmp_bytes = Vec::new();
         image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
@@ -145,7 +145,7 @@ fn round_trip_all_files_rgba() {
             .first_valid_layer()
             .non_parallel();
 
-        let image = image_reader.from_file(path)?;
+        let image = image_reader.clone().from_file(path)?;
 
         let mut tmp_bytes = Vec::new();
         /*image.write_pixels_to_buffered(
