@@ -19,16 +19,11 @@ pub mod samples;
 pub use rgba_channels::*; // TODO put somwehere else??
 
 
-use std::io::{Seek, BufReader};
-use crate::meta::header::{Header};
-use crate::error::{Result, UnitResult};
-use crate::block::UncompressedBlock;
-use crate::image::read::options::{ReadPedantic, ReadNonParallel};
+use crate::error::{Result};
 use crate::image::read::samples::{ReadFlatSamples};
-use crate::io::Read;
 use std::path::Path;
-use crate::block::chunk::TileCoordinates;
 use crate::image::{AnyImage, RgbaLayersImage, RgbaImage, AnyChannels, FlatSamples, Image, Layer, FlatImage};
+use crate::image::read::image::ReadLayers;
 
 // TODO explain or use these simple functions somewhere
 
@@ -41,6 +36,7 @@ pub fn read_all_data_from_file(path: impl AsRef<Path>) -> Result<AnyImage> {
         .all_resolution_levels()
         .all_channels()
         .all_layers()
+        .all_attributes()
         .from_file(path)
 }
 
@@ -54,6 +50,7 @@ pub fn read_all_flat_layers_from_file(path: impl AsRef<Path>) -> Result<FlatImag
         .largest_resolution_level()
         .all_channels()
         .all_layers()
+        .all_attributes()
         .from_file(path)
 }
 
@@ -66,6 +63,7 @@ pub fn read_first_flat_layer_from_file(path: impl AsRef<Path>) -> Result<Image<L
         .largest_resolution_level()
         .all_channels()
         .first_valid_layer()
+        .all_attributes()
         .from_file(path)
 }
 
@@ -84,6 +82,7 @@ pub fn read_all_rgba_layers_from_file<Set:'static, Create:'static>(path: impl As
         .largest_resolution_level()
         .rgba_channels(create, set_pixel)
         .all_layers()
+        .all_attributes()
         .from_file(path)
 }
 
@@ -103,6 +102,7 @@ pub fn read_first_rgb_layer_from_file<Set:'static, Create:'static, Pixels:'stati
         .largest_resolution_level()
         .rgba_channels(create, set_pixel)
         .first_valid_layer()
+        .all_attributes()
         .from_file(path)
 }
 
@@ -125,42 +125,32 @@ impl ReadBuilder {
     // pub fn flat_and_deep_data(self) -> ReadAnySamples { ReadAnySamples }
 }
 
-
+/*
 pub trait ReadImage<'s> {
     type Image;
     type Reader: ImageReader<Image = Self::Image>;
-    fn create_image_reader(&'s self, headers: &[Header]) -> Result<Self::Reader>;
-
-    // define default settings here, as this is the mandatory base image reader
-    fn is_sequential(&self) -> bool { false }
-    fn is_pedantic(&self) -> bool { true }
+    fn create_image_reader(&'s mut self, headers: &[Header]) -> Result<Self::Reader>;
 
     // fn validate_image(&[Header])
-}
+}*/
 
-pub trait ImageReader {
+/*pub trait ImageReader {
     type Image;
     fn filter_block(&self, header: (usize, &Header), tile: (usize, &TileCoordinates)) -> bool;
     fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult;
     fn into_image(self) -> Self::Image;
-}
+}*/
 
 
-pub trait ReadImageWithOptions: Sized {
+/*pub trait ReadImageWithOptions: Sized {
     fn pedantic(self) -> ReadPedantic<Self>;
     fn non_parallel(self) -> ReadNonParallel<Self>;
-    // fn on_progress<F>(self, on_progress: F) -> ReadOnProgress<F, Self> where F: FnMut(f64);
-}
+    fn on_progress<F>(self, on_progress: F) -> ReadOnProgress<F, Self> where F: FnMut(f64);
+}*/
 
-impl<'s, T> ReadImageWithOptions for T where T: ReadImage<'s> {
-    fn pedantic(self) -> ReadPedantic<Self> { ReadPedantic { reader: self } }
-    fn non_parallel(self) -> ReadNonParallel<Self> { ReadNonParallel { reader: self } }
-    /*fn on_progress<F>(self, on_progress: F) -> ReadOnProgress<F, Self> where F: FnMut(f64) {
-        ReadOnProgress { on_progress, read_image: self }
-    }*/
-}
 
-pub trait ReadImageFromSource: Sized {
+
+/*pub trait ReadImageFromSource: Sized {
     type Image;
 
     /// Read the exr image from a file.
@@ -185,7 +175,7 @@ pub trait ReadImageFromSource: Sized {
     /// Use `read_from_unbuffered` instead, if this is not an in-memory reader.
     #[must_use]
     fn from_buffered(self, read: impl Read + Seek + Send) -> Result<Self::Image>;
-}
+}*/
 
 /*impl<'s, T: 's> ReadImageFromSource<'s> for T where T: ReadImage<'s> {
     type Image = <<T as ReadImage<'s>>::Reader as ImageReader>::Image;
@@ -195,7 +185,7 @@ pub trait ReadImageFromSource: Sized {
     }
 }*/
 
-impl<R: Sized, I> ReadImageFromSource for R
+/*impl<R: Sized, I> ReadImageFromSource for R
     where R: for<'r> ReadImage<'r, Image = I>
 {
     type Image = I;
@@ -203,17 +193,17 @@ impl<R: Sized, I> ReadImageFromSource for R
     fn from_buffered(self, read: impl Read + Seek + Send) -> Result<Self::Image> {
         run_reader_from_buffered_source(self, read)
     }
-}
-
+}*/
+/*
 pub fn run_reader_from_buffered_source<R, I>
-    (reader: R, buffered: impl Read + Seek + Send)
+    (mut reader: R, buffered: impl Read + Seek + Send)
     // -> Result<<<R as ReadImage<'r>>::Reader as ImageReader>::Image>
     -> Result<I>
     where R: for<'r> ReadImage<'r, Image = I>
 {
-    let reader = &reader;
     let pedantic = reader.is_pedantic();
     let parallel = !reader.is_sequential();
+    let reader = &mut reader;
 
     let reader = crate::block::read_filtered_blocks_from_buffered(
         buffered,
@@ -228,12 +218,13 @@ pub fn run_reader_from_buffered_source<R, I>
             reader.read_block(headers, block)
         },
 
+        |_progress| {}, //FIXME reader.on_progress(),
         pedantic, parallel
     )?;
 
     Ok(reader.into_image())
 }
-
+*/
 
 
 #[cfg(test)]

@@ -14,6 +14,8 @@ use crate::compression::Compression;
 use smallvec::{SmallVec, Array};
 use crate::error::Error;
 
+pub(crate) fn ignore_progress(_progress: f64){}
+
 /// This image type contains all supported exr features and can represent almost any image.
 /// It currently does not support deep data yet.
 pub type AnyImage = Image<Layers<AnyChannels<Levels<FlatSamples>>>>;

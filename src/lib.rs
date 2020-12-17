@@ -62,8 +62,8 @@ pub mod prelude {
     pub use crate::math::Vec2;
 
     pub use crate::image::*;
-    pub use crate::image::read::{read, ReadImageFromSource, ReadImage, ReadImageWithOptions, layers::ReadChannels, rgba_channels::*};
-    pub use crate::image::write::{WritableImage, WriteImageToDestination, WriteImageWithOptions};
+    pub use crate::image::read::{read, image::ReadLayers, image::ReadImage, layers::ReadChannels, rgba_channels::*};
+    pub use crate::image::write::{WritableImage};
 
 
     // re-export external stuff

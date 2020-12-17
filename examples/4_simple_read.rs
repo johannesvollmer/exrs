@@ -9,7 +9,8 @@ use exr::prelude::*;
 fn main() {
 
     let image = read().no_deep_data()
-        .largest_resolution_level().all_channels().all_layers()
+        .largest_resolution_level().all_channels().all_layers().all_attributes()
+        .on_progress(|progress| println!("progress: {}", progress))
         .from_file("tests/images/valid/openexr/Beachball/multipart.0004.exr")
         .unwrap();
 

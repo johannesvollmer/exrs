@@ -7,15 +7,15 @@ pub mod chunk;
 
 use crate::compression::{ByteVec, Compression};
 use crate::math::*;
-use crate::error::{Result, Error, usize_to_i32, UnitResult, u64_to_usize};
-use crate::meta::{MetaData, Blocks, TileIndices, OffsetTables};
+use crate::error::{Result, Error, usize_to_i32, UnitResult, u64_to_usize, usize_to_u64};
+use crate::meta::{MetaData, Blocks, TileIndices, OffsetTables, Headers};
 use crate::block::chunk::{Chunk, Block, TileBlock, ScanLineBlock, TileCoordinates};
 use crate::meta::attribute::LineOrder;
 use rayon::prelude::ParallelBridge;
 use rayon::iter::ParallelIterator;
 use smallvec::alloc::collections::BTreeMap;
 use std::convert::TryFrom;
-use crate::io::{Tracking, PeekRead};
+use crate::io::{Tracking, PeekRead, Write, Data};
 use std::io::{Seek, Read};
 use crate::meta::header::Header;
 
@@ -55,6 +55,81 @@ pub struct UncompressedBlock {
 
 
 
+/// Compresses and writes all lines of an image described by `meta_data` and `get_line` to the writer.
+/// Flushes the writer to explicitly handle all errors.
+///
+/// Attention: Currently, using multi-core compression with `LineOrder::Increasing` or `LineOrder::Decreasing` in any header
+/// can potentially allocate large amounts of memory while writing the file. Use unspecified line order for lower memory usage.
+///
+/// Does not buffer the writer, you should always pass a `BufWriter`.
+/// If pedantic, throws errors for files that may produce errors in other exr readers.
+#[inline]
+#[must_use]
+pub fn write_all_blocks_to_buffered(
+    write: impl Write + Seek,
+    mut headers: Headers,
+    get_tile: impl Sync + Fn(&[Header], BlockIndex) -> Vec<u8>, // TODO put these three parameters into a trait?  // TODO why is this sync or send????
+    mut on_progress: impl FnMut(f64),
+    pedantic: bool, parallel: bool,
+) -> UnitResult
+{
+    on_progress(0.0);
+
+    let has_compression = headers.iter() // TODO cache this in MetaData.has_compression?
+        .any(|header| header.compression != Compression::Uncompressed);
+
+    // if non-parallel compression, we always use increasing order anyways
+    if !parallel || !has_compression {
+        for header in &mut headers {
+            if header.line_order == LineOrder::Unspecified {
+                header.line_order = LineOrder::Increasing;
+            }
+        }
+    }
+
+    let mut write = Tracking::new(write);
+    MetaData::write_validating_to_buffered(&mut write, headers.as_slice(), pedantic)?;
+
+    let offset_table_start_byte = write.byte_position();
+
+    // skip offset tables for now
+    let offset_table_size: usize = headers.iter()
+        .map(|header| header.chunk_count).sum();
+
+    write.seek_write_to(write.byte_position() + offset_table_size * std::mem::size_of::<u64>())?;
+
+    let mut offset_tables: Vec<Vec<u64>> = headers.iter()
+        .map(|header| vec![0; header.chunk_count]).collect();
+
+    let total_chunk_count = offset_table_size as f64;
+    let mut processed_chunk_count = 0; // used for very simple on_progress feedback
+
+    // line order is respected in here
+    crate::block::for_compressed_blocks_in_image(headers.as_slice(), get_tile, parallel, |chunk_index, chunk|{
+        offset_tables[chunk.layer_index][chunk_index] = usize_to_u64(write.byte_position()); // safe indices from `enumerate()`
+        chunk.write(&mut write, headers.as_slice())?;
+
+        on_progress(0.95 * processed_chunk_count as f64 / total_chunk_count /*write.byte_position()*/);
+        processed_chunk_count += 1;
+
+        Ok(())
+    })?;
+
+    debug_assert_eq!(processed_chunk_count, offset_table_size, "not all chunks were written");
+
+    // write all offset tables
+    write.seek_write_to(offset_table_start_byte)?;
+
+    for offset_table in offset_tables {
+        u64::write_slice(&mut write, offset_table.as_slice())?;
+    }
+
+    write.flush()?; // make sure we catch all (possibly delayed) io errors before returning
+    on_progress(1.0);
+
+    Ok(())
+}
+
 
 /// Reads and decompresses all chunks of a file sequentially without seeking.
 /// Will not skip any parts of the file. Does not buffer the reader, you should always pass a `BufReader`.
@@ -64,10 +139,11 @@ pub fn read_all_blocks_from_buffered<T>(
     read: impl Read + Send, // FIXME does not actually need to be send, only for parallel writing
     new: impl Fn(&[Header]) -> Result<T>,
     mut insert: impl FnMut(&mut T, &[Header], UncompressedBlock) -> UnitResult,
+    on_progress: impl FnMut(f64),
     pedantic: bool, parallel: bool,
 ) -> Result<T>
 {
-    let (meta_data, _chunk_count, mut read_chunk) = self::read_all_compressed_chunks_from_buffered(read, pedantic)?;
+    let (meta_data, chunk_count, mut read_chunk) = self::read_all_compressed_chunks_from_buffered(read, pedantic)?;
     let meta_data_ref = &meta_data;
 
     // TODO chunk count for ReadOnProgress!
@@ -76,9 +152,9 @@ pub fn read_all_blocks_from_buffered<T>(
     let mut result = new(meta_data.headers.as_slice())?;
 
     for_decompressed_blocks_in_chunks(
-        read_chunks, &meta_data,
+        read_chunks, &meta_data, chunk_count,
         |meta, block| insert(&mut result, meta, block),
-        pedantic, parallel
+        on_progress, pedantic, parallel
     )?;
 
     Ok(result)
@@ -98,19 +174,20 @@ pub fn read_filtered_blocks_from_buffered<T>(
     new: impl FnOnce(&[Header]) -> Result<T>, // TODO put these into a trait?
     filter: impl Fn(&T, (usize, &Header), (usize, &TileIndices)) -> bool,
     mut insert: impl FnMut(&mut T, &[Header], UncompressedBlock) -> UnitResult,
+    on_progress: impl FnMut(f64),
     pedantic: bool, parallel: bool,
 ) -> Result<T>
 {
-    let (meta_data, mut value, _chunk_count, mut read_chunk) = {
+    let (meta_data, mut value, chunk_count, mut read_chunk) = {
         self::read_filtered_chunks_from_buffered(read, new, filter, pedantic)?
     };
 
     // TODO use chunk_count for reader creation (ReadOnProgresss needs this)
 
     for_decompressed_blocks_in_chunks(
-        std::iter::from_fn(|| read_chunk(&meta_data)), &meta_data,
+        std::iter::from_fn(|| read_chunk(&meta_data)), &meta_data, chunk_count,
         |meta, line| insert(&mut value, meta, line),
-        pedantic, parallel,
+        on_progress, pedantic, parallel,
     )?;
 
     Ok(value)
@@ -123,15 +200,19 @@ pub fn read_filtered_blocks_from_buffered<T>(
 fn for_decompressed_blocks_in_chunks(
     chunks: impl Send + Iterator<Item = Result<Chunk>>,
     meta_data: &MetaData,
+    total_chunk_count: usize,
     mut for_each: impl FnMut(&[Header], UncompressedBlock) -> UnitResult,
+    mut on_progress: impl FnMut(f64),
     pedantic: bool, parallel: bool,
 ) -> UnitResult
 {
+    on_progress(0.0);
+
     // TODO bit-vec keep check that all pixels have been read?
     let has_compression = meta_data.headers.iter() // do not use parallel stuff for uncompressed images
         .any(|header| header.compression != Compression::Uncompressed);
 
-    // let mut processed_chunk_count = 0;
+    let mut processed_chunk_count = 0;
 
     if parallel && has_compression {
         let (sender, receiver) = std::sync::mpsc::channel();
@@ -143,23 +224,24 @@ fn for_decompressed_blocks_in_chunks(
             })?;
 
         for decompressed in receiver {
-            // options.on_progress.on_read_progressed(processed_chunk_count as f32 / total_chunk_count as f32)?;
-            // processed_chunk_count += 1;
+            on_progress(processed_chunk_count as f64 / total_chunk_count as f64);
+            processed_chunk_count += 1;
 
             for_each(meta_data.headers.as_slice(), decompressed)?; // allows returning `Error::Abort`
         }
     }
     else {
         for chunk in chunks {
-            // options.on_progress.on_read_progressed(processed_chunk_count as f32 / total_chunk_count as f32)?;
-            // processed_chunk_count += 1;
+            on_progress(processed_chunk_count as f64 / total_chunk_count as f64);
+            processed_chunk_count += 1;
 
             let decompressed = UncompressedBlock::decompress_chunk(chunk?, &meta_data, pedantic)?;
             for_each(meta_data.headers.as_slice(), decompressed)?; // allows returning `Error::Abort`
         }
     }
 
-    // TODO if pedantic { debug_assert_eq!(processed_chunk_count, total_chunk_count, "some chunks were not read"); }
+    debug_assert_eq!(processed_chunk_count, total_chunk_count, "some chunks were not read");
+    on_progress(1.0);
     Ok(())
 }
 

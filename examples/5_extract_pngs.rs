@@ -17,7 +17,7 @@ pub fn main() {
 
     // load the exr file from disk with multi-core decompression
     let image = read()
-        .no_deep_data().largest_resolution_level().all_channels().all_layers()
+        .no_deep_data().largest_resolution_level().all_channels().all_layers().all_attributes()
         .from_file(path).unwrap();
 
     // warning: highly unscientific benchmarks ahead!

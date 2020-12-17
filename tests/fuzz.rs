@@ -27,8 +27,8 @@ fn exr_files(path: &'static str, filter: bool) -> impl Iterator<Item=PathBuf> {
 #[test]
 pub fn fuzzed(){
     for file in exr_files("tests/images/fuzzed", false) {
-        let _ = read().no_deep_data().largest_resolution_level().all_channels().first_valid_layer().from_file(&file);
-        let _ = read().no_deep_data().all_resolution_levels().all_channels().all_layers().from_file(&file);
+        let _ = read().no_deep_data().largest_resolution_level().all_channels().first_valid_layer().all_attributes().from_file(&file);
+        let _ = read().no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes().from_file(&file);
 
         // let _ = exr::image::full::Image::read_from_file(&file, read_options::high());
         // let _ = exr::image::simple::Image::read_from_file(&file, read_options::high()); // FIXME will these be optimized away?
@@ -55,7 +55,7 @@ pub fn damaged(){
 
         let result = catch_unwind(move || {
             let _simple = read().no_deep_data()
-                .largest_resolution_level().all_channels().first_valid_layer()
+                .largest_resolution_level().all_channels().first_valid_layer().all_attributes()
                 .from_file(&file)?;
 
             let _rgba = read_first_rgb_layer_from_file(
@@ -65,7 +65,7 @@ pub fn damaged(){
             )?;
 
             let full = read()
-                .no_deep_data().all_resolution_levels().all_channels().all_layers()
+                .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
                 .from_file(&file)?;
 
 
@@ -103,7 +103,7 @@ pub fn damaged(){
             },
 
             Ok(Ok(image)) => {
-                use crate::exr::image::write::WriteImage;
+                // use crate::exr::image::write::WritableImage;
                 let inferred_meta_data = image.write().infer_meta_data();
 
                 if let Err(error) = MetaData::validate(inferred_meta_data.as_slice(), true) {
@@ -151,7 +151,7 @@ pub fn fuzz(){
             let file = file.as_slice();
             let result = catch_unwind(move || {
                 let read_all_data = read().no_deep_data()
-                    .all_resolution_levels().all_channels().all_layers();
+                    .all_resolution_levels().all_channels().all_layers().all_attributes();
 
                 match read_all_data.from_buffered(Cursor::new(file)) {
                     Err(Error::Invalid(error)) => println!("✓ No Panic. [{}]: Invalid: {}.", fuzz_index, error),

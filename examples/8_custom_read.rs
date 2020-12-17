@@ -17,7 +17,7 @@ fn main() {
 
     // TODO implement this example using the new API and not the raw function interface.
 
-    // If this file does not exist yet, you can generate it by running the `5_custom_write` example once.
+    // If this file does not exist yet, you can generate it by running the `7_custom_write` example once.
     let file = BufReader::new(File::open("tests/images/out/3GB.exr").unwrap());
 
     /// Collect averages for each layer
@@ -99,6 +99,7 @@ fn main() {
             Ok(())
         },
 
+        |_progress|{},
         // print file processing progress into the console, occasionally (important for large files)
         false,
         false

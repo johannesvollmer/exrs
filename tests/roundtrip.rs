@@ -81,7 +81,7 @@ fn round_trip_all_files_full() {
     println!("checking full feature set");
     check_files(vec![], |path| {
         let read_image = read()
-            .no_deep_data().all_resolution_levels().all_channels().all_layers()
+            .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
             .non_parallel();
 
         let image = read_image.clone().from_file(path)?;
@@ -103,7 +103,7 @@ fn round_trip_all_files_simple() {
     println!("checking full feature set but not resolution levels");
     check_files(vec![], |path| {
         let read_image = read()
-            .no_deep_data().largest_resolution_level().all_channels().all_layers()
+            .no_deep_data().largest_resolution_level().all_channels().all_layers().all_attributes()
             .non_parallel();
 
         let image = read_image.clone().from_file(path)?;
@@ -143,6 +143,7 @@ fn round_trip_all_files_rgba() {
                 read::rgba_channels::pixels::set_flattened_pixel
             )
             .first_valid_layer()
+            .all_attributes()
             .non_parallel();
 
         let image = image_reader.clone().from_file(path)?;
@@ -181,7 +182,7 @@ fn round_trip_parallel_files() {
 
         // let image = Image::read_from_file(path, read_options::high())?;
         let image = read()
-            .no_deep_data().all_resolution_levels().all_channels().all_layers()
+            .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
             .from_file(path)?;
 
 
@@ -191,7 +192,7 @@ fn round_trip_parallel_files() {
 
         // let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions{ pedantic: true, .. read_options::high() })?;
         let image2 = read()
-            .no_deep_data().all_resolution_levels().all_channels().all_layers()
+            .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
             .pedantic()
             .from_buffered(Cursor::new(tmp_bytes.as_slice()))?;
 

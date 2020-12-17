@@ -88,10 +88,11 @@ fn main() {
             }
         },
 
+        |_progress|{},
         false,
         true
 
-        // print progress occasionally TODO FIXME progress callback
+        // print progress occasionally
         /*WriteOptions {
             parallel_compression: false,
             pedantic: true,

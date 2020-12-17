@@ -13,49 +13,77 @@ use crate::error::UnitResult;
 use std::io::{Seek, BufWriter};
 use crate::io::Write;
 use crate::meta::header::{Header};
-use crate::image::{Image};
+use crate::image::{Image, ignore_progress};
 use crate::image::write::layers::{WritableLayers, LayersWriter};
 // use crate::image::write::options::WriteImageWithProgress;
 
 
 // extension for "Image" which allows calling ".write()...." on an image
 pub trait WritableImage<'i, L>: Sized {
-    fn write(self) -> WriteImageWithOptions<'i, L>;
+    fn write(self) -> WriteImageWithOptions<'i, L, fn(f64)>;
 }
 
 impl<'i, L: WritableLayers<'i>> WritableImage<'i, L> for &'i Image<L> {
-    fn write(self) -> WriteImageWithOptions<'i, L> {
-        WriteImageWithOptions { image: self, pedantic: true, parallel: true }
+    fn write(self) -> WriteImageWithOptions<'i, L, fn(f64)> {
+        WriteImageWithOptions { image: self, pedantic: true, parallel: true, on_progress: ignore_progress }
     }
 }
 
 
 // temporary writer with options
 #[derive(Debug, Clone, PartialEq)]
-pub struct WriteImageWithOptions<'i, L> {
+pub struct WriteImageWithOptions<'i, L, F> {
     image: &'i Image<L>,
     pedantic: bool,
     parallel: bool,
+    on_progress: F,
 }
 
-pub trait WriteImage {
+/*pub trait WriteImage {
     fn is_pedantic(&self) -> bool;
     fn is_parallel(&self) -> bool;
 
     type Writer: ImageWriter;
     fn infer_meta_data(&self) -> Headers;
     fn create_image_writer(&self, headers: &[Header]) -> Self::Writer;
+}*/
+
+/*
+impl<I> WriteImageToDestination for I where I: WriteImage {
+    fn to_buffered(&self, write: impl Write + Seek) -> UnitResult {
+
+    }
 }
+*/
 
+impl<'i, L, F> WriteImageWithOptions<'i, L, F> where L: WritableLayers<'i>, F: FnMut(f64) {
+    // type Writer = ImageWithOptionsWriter<L::Writer>;
 
-pub trait WriteImageToDestination {
+    pub fn infer_meta_data(&self) -> Headers {
+        self.image.layer_data.infer_headers(&self.image.attributes)
+    }
+
+    fn create_image_writer(&self, headers: &[Header]) -> ImageWithOptionsWriter<L::Writer> {
+        ImageWithOptionsWriter { layers: self.image.layer_data.create_writer(headers) }
+    }
+
+    pub fn pedantic(self) -> Self { Self { pedantic: true, ..self } }
+    pub fn non_parallel(self) -> Self { Self { parallel: false, ..self } }
+    pub fn on_progress(self, on_progress: F) -> Self where F: FnMut(f64) { Self { on_progress, ..self } }
+
+    // pub fn without_image_validation(self) -> Self { Self { pedantic: false, ..self  } }
+    // pub fn non_parallel(self) -> Self { Self { parallel: false, ..self  } }
+    /* TODO would need mutable `extract_block` signature
+         pub fn on_progress<F>(self, on_progress: F) -> WriteImageWithProgress<Self, F> where F: FnMut(f64) {
+        WriteImageWithProgress { inner: self, on_progress }
+    }*/
 
     /// Write the exr image to a file.
     /// Use `write_to_unbuffered` instead if you do not have a file.
     /// If an error occurs, attempts to delete the partially written file.
     #[inline]
     #[must_use]
-    fn to_file(&self, path: impl AsRef<std::path::Path>) -> UnitResult {
+    pub fn to_file(self, path: impl AsRef<std::path::Path>) -> UnitResult {
         crate::io::attempt_delete_file_on_write_error(path.as_ref(), move |write|
             self.to_unbuffered(write)
         )
@@ -67,7 +95,7 @@ pub trait WriteImageToDestination {
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first, using `write_to_buffered`.
     #[inline]
     #[must_use]
-    fn to_unbuffered(&self, unbuffered: impl Write + Seek) -> UnitResult {
+    pub fn to_unbuffered(self, unbuffered: impl Write + Seek) -> UnitResult {
         self.to_buffered(BufWriter::new(unbuffered))
     }
 
@@ -76,49 +104,28 @@ pub trait WriteImageToDestination {
     /// Use `read_from_unbuffered` instead, if this is not an in-memory writer.
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first.
     #[must_use]
-    fn to_buffered(&self, write: impl Write + Seek) -> UnitResult;
-}
-
-impl<I> WriteImageToDestination for I where I: WriteImage {
-    fn to_buffered(&self, write: impl Write + Seek) -> UnitResult {
+    pub fn to_buffered(self, write: impl Write + Seek) -> UnitResult {
         let meta_data = self.infer_meta_data(); // TODO non-failing gen_meta?
         let writer = self.create_image_writer(&meta_data);
 
-        crate::block::lines::write_all_tiles_to_buffered(
+        crate::block::write_all_blocks_to_buffered(
             write, meta_data,
             move |meta, block| { writer.extract_uncompressed_block(meta, block) },
-            // |progress| { writer.on_progress() }, TODO??? why not
-            self.is_pedantic(), self.is_parallel(),
+            self.on_progress, self.pedantic, self.parallel,
         )
     }
 }
-
-
-impl<'i, L> WriteImage for WriteImageWithOptions<'i, L> where L: WritableLayers<'i> {
-    fn is_pedantic(&self) -> bool { self.pedantic }
-    fn is_parallel(&self) -> bool { self.parallel }
-
-    type Writer = ImageWithOptionsWriter<L::Writer>;
-
-    fn infer_meta_data(&self) -> Headers {
-        self.image.layer_data.infer_headers(&self.image.attributes)
-    }
-
-    fn create_image_writer(&self, headers: &[Header]) -> Self::Writer {
-        ImageWithOptionsWriter { layers: self.image.layer_data.create_writer(headers) }
-    }
-}
-
-impl<'i, L> WriteImageWithOptions<'i, L> where L: WritableLayers<'i> {
+/*
+impl<'i, L> WriteImageWithOptions<'i, L, F> where L: WritableLayers<'i> {
     pub fn without_image_validation(self) -> Self { Self { pedantic: false, ..self  } }
     pub fn non_parallel(self) -> Self { Self { parallel: false, ..self  } }
     /* TODO would need mutable `extract_block` signature
          pub fn on_progress<F>(self, on_progress: F) -> WriteImageWithProgress<Self, F> where F: FnMut(f64) {
         WriteImageWithProgress { inner: self, on_progress }
     }*/
-}
+}*/
 
-
+// TODO remove intermediate struct!
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ImageWithOptionsWriter<L> {
     layers: L, // impl LayersWriter

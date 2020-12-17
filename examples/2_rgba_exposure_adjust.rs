@@ -41,6 +41,7 @@ fn main() {
             }
         )
         .first_valid_layer()
+        .all_attributes()
         .from_file("tests/images/valid/openexr/MultiResolution/Kapaa.exr")
         .unwrap();
 

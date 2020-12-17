@@ -3,6 +3,7 @@ extern crate image as png;
 
 // exr imports
 extern crate exr;
+use exr::prelude::*;
 use exr::prelude as exrs;
 
 fn main() {
@@ -33,9 +34,8 @@ fn main() {
                 );
             }
         )
-        .first_valid_layer();
-
-    use exrs::{ReadImageFromSource, Image, Layer, RgbaChannels};
+        .first_valid_layer()
+        .all_attributes();
 
     // an image that contains a single layer containing an png rgba buffer
     let image: Image<Layer<RgbaChannels<png::RgbaImage>>> = reader

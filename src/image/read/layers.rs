@@ -86,6 +86,7 @@ impl<C> LayerReader<C> {
 }
 
 impl<'s, C> ReadLayers<'s> for ReadAllLayers<C> where C: ReadChannels<'s> {
+    type Layers = Layers<<C::Reader as ChannelsReader>::Channels>;
     type Reader = AllLayersReader<C::Reader>;
 
     fn create_layers_reader(&'s self, headers: &[Header]) -> Result<Self::Reader> {
@@ -128,6 +129,7 @@ impl<C> LayersReader for AllLayersReader<C> where C: ChannelsReader {
 
 
 impl<'s, C> ReadLayers<'s> for ReadFirstValidLayer<C> where C: ReadChannels<'s> {
+    type Layers = Layer<<C::Reader as ChannelsReader>::Channels>;
     type Reader = FirstValidLayerReader<C::Reader>;
 
     fn create_layers_reader(&'s self, headers: &[Header]) -> Result<Self::Reader> {
