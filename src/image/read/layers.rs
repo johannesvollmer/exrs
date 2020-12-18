@@ -6,64 +6,70 @@ use crate::math::Vec2;
 use crate::image::read::image::{ReadLayers, LayersReader};
 use crate::block::chunk::TileCoordinates;
 
-
+/// Specify to read all channels, aborting if any one is invalid.
+/// `ReadRgbaChannels` or `ReadAnyChannels<ReadFlatSamples>`.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ReadAllLayers<C> {
-    pub read_channels: C,
+pub struct ReadAllLayers<ReadChannels> {
+
+    /// The channel reading specification
+    pub read_channels: ReadChannels,
 }
 
-/*impl<C> ReadAllLayers<C> where Self: ReadLayers {
-    pub fn
-}*/
-
+/// Specify to read only the first layer which meets the previously specified requirements
 // FIXME do not throw error on deep data but just skip it!
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ReadFirstValidLayer<C> {
-    pub read_channels: C,
+pub struct ReadFirstValidLayer<ReadChannels> {
+
+    /// The channel reading specification
+    pub read_channels: ReadChannels,
 }
 
-
-// Reminder: the channel reader created from this `ReadChannels` must borrow or clone from it,
-// because this (`RgbaChannels`) is a blueprint which is instantiated (by borrowing)
-// once for each layer in the file
+/// A template that creates a `ChannelsReader` once for all channels per layer.
 pub trait ReadChannels<'s> {
+
+    /// The type of the temporary channels reader
     type Reader: ChannelsReader;
 
-    /// Create a reader for the specified layer, based on `self` as a blueprint. May borrow.
+    /// Create a single reader for all channels of a specific layer
     fn create_channels_reader(&'s self, header: &Header) -> Result<Self::Reader>;
 }
 
 
-
-
-/// `C`: either `RgbaChannelsReader` or `AnyChannelsReader<AnySamplesReader>` or `AnyChannelsReader<FlatSamplesReader>`
+/// Processes pixel blocks from a file and accumulates them into a list of layers.
+/// For example, `ChannelsReader` can be
+/// `RgbaChannelsReader` or `AnyChannelsReader<FlatSamplesReader>`.
 #[derive(Debug, Clone, PartialEq)]
-pub struct AllLayersReader<C> {
-    layer_readers: SmallVec<[LayerReader<C>; 2]>, // TODO unpack struct?
+pub struct AllLayersReader<ChannelsReader> {
+    layer_readers: SmallVec<[LayerReader<ChannelsReader>; 2]>, // TODO unpack struct?
 }
 
+/// Processes pixel blocks from a file and accumulates them into a single layers, using only the first.
+/// For example, `ChannelsReader` can be
+/// `RgbaChannelsReader` or `AnyChannelsReader<FlatSamplesReader>`.
 #[derive(Debug, Clone, PartialEq)]
-pub struct FirstValidLayerReader<C> {
-    layer_reader: LayerReader<C>,
+pub struct FirstValidLayerReader<ChannelsReader> {
+    layer_reader: LayerReader<ChannelsReader>,
     layer_index: usize,
 }
 
-
+/// Processes pixel blocks from a file and accumulates them into a single layers.
+/// For example, `ChannelsReader` can be
+/// `RgbaChannelsReader` or `AnyChannelsReader<FlatSamplesReader>`.
 #[derive(Debug, Clone, PartialEq)]
-pub struct LayerReader<C> {
-    channels_reader: C,
+pub struct LayerReader<ChannelsReader> {
+    channels_reader: ChannelsReader,
     attributes: LayerAttributes,
     size: Vec2<usize>,
     encoding: Encoding
 }
 
+/// Processes pixel blocks from a file and accumulates them into multiple channels per layer.
 pub trait ChannelsReader {
     type Channels;
     fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult;
     fn filter_block(&self, tile: (usize, &TileCoordinates)) -> bool;
     fn into_channels(self) -> Self::Channels;
 }
-
 
 
 impl<C> LayerReader<C> {
@@ -136,15 +142,16 @@ impl<'s, C> ReadLayers<'s> for ReadFirstValidLayer<C> where C: ReadChannels<'s> 
         headers.iter().enumerate()
             .flat_map(|(index, header)|
                 self.read_channels.create_channels_reader(header)
-                    .and_then(|reader| Ok(
-                        FirstValidLayerReader { layer_reader: LayerReader::new(header, reader)?, layer_index: index }
-                    ))
+                    .and_then(|reader| Ok(FirstValidLayerReader {
+                        layer_reader: LayerReader::new(header, reader)?,
+                        layer_index: index
+                    }))
                     .ok()
             )
-            .next().ok_or(Error::invalid("no suitable header found"))
+            .next()
+            .ok_or(Error::invalid("no suitable header found"))
     }
 }
-
 
 
 impl<C> LayersReader for FirstValidLayerReader<C> where C: ChannelsReader {

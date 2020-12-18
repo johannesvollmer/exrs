@@ -7,45 +7,85 @@ use crate::math::Vec2;
 use crate::meta::attribute::{Text, ChannelInfo};
 use crate::image::read::layers::{ReadChannels, ChannelsReader, ReadAllLayers, ReadFirstValidLayer};
 use crate::block::chunk::TileCoordinates;
+use crate::prelude::{ReadRgbaChannels, CreateRgbaPixels, SetRgbaPixel};
 
-
+/// A template that creates a `AnyChannelsReader` for each layer in the image.
+/// This loads all channels for each layer.
+/// The `ReadSamples` can, for example, be `ReadFlatSamples` or `ReadAllLevels<ReadFlatSamples>`.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ReadAnyChannels<S> {
-    pub read_samples: S
+pub struct ReadAnyChannels<ReadSamples> {
+
+    /// The sample reading specification
+    pub read_samples: ReadSamples
 }
 
 // FIXME do not throw error on deep data but just skip it!
 impl<'s, S:'s> ReadAnyChannels<S> where Self: ReadChannels<'s> {
+
+
+    /// Read only the first layer which meets the previously specified requirements
+    /// For example, skips layers with deep data, if specified earlier.
+    /// Aborts if the image contains no layers.
+    // TODO test if this filters non-deep layers while ignoring deep data layers!
     pub fn first_valid_layer(self) -> ReadFirstValidLayer<Self> { ReadFirstValidLayer { read_channels: self } }
+
+    /// Reads all layers, including an empty list. Aborts if any of the layers are invalid,
+    /// even if only one of the layers contains unexpected data.
     pub fn all_layers(self) -> ReadAllLayers<Self> { ReadAllLayers { read_channels: self } }
+
+    // TODO pub fn all_valid_layers(self) -> ReadAllValidLayers<Self> { ReadAllValidLayers { read_channels: self } }
 }
 
+/// A template that creates a new `SampleReader` for each channel in each layer.
 pub trait ReadSamples {
+
+    /// The type of the temporary samples reader
     type Reader: SamplesReader;
+
+    /// Create a single reader for a single channel of a layer
     fn create_sample_reader(&self, header: &Header, channel: &ChannelInfo) -> Result<Self::Reader>;
 }
 
-
-/// `S`: Either `AnySamplesReader` or `FlatSamplesReader`
+/// Processes pixel blocks from a file and accumulates them into a collection of arbitrary channels.
+/// Loads all channels for each layer.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct AnyChannelsReader<S> {
+pub struct AnyChannelsReader<SamplesReader> {
 
-    /// one per channel
-    sample_channels_reader: SmallVec<[AnyChannelReader<S>; 4]>,
+    /// Stores a separate sample reader per channel in the layer
+    sample_channels_reader: SmallVec<[AnyChannelReader<SamplesReader>; 4]>,
 }
 
+/// Processes pixel blocks from a file and accumulates them into a single arbitrary channel.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct AnyChannelReader<S> {
-    samples: S,
+pub struct AnyChannelReader<SamplesReader> {
+
+    /// The custom reader that accumulates the pixel data for a single channel
+    samples: SamplesReader,
+
+    /// Temporarily accumulated meta data.
     name: Text,
+
+    /// Temporarily accumulated meta data.
     sampling_rate: Vec2<usize>,
+
+    /// Temporarily accumulated meta data.
     quantize_linearly: bool,
 }
 
+/// Processes pixel blocks from a file and accumulates them into a single pixel channel.
+/// For example, stores thousands of `Red` pixel values for a single layer.
 pub trait SamplesReader {
+
+    /// The type of resulting sample storage
     type Samples;
-    fn read_line(&mut self, line: LineRef<'_>) -> UnitResult;
+
+    /// Specify whether a single block of pixels should be loaded from the file
     fn filter_block(&self, tile: (usize, &TileCoordinates)) -> bool;
+
+    /// Load a single pixel line, which has not been filtered, into the reader, accumulating the sample data
+    fn read_line(&mut self, line: LineRef<'_>) -> UnitResult;
+
+    /// Deliver the final accumulated sample storage for the image
     fn into_samples(self) -> Self::Samples;
 }
 

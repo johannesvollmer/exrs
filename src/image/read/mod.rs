@@ -8,7 +8,6 @@
 //! 3. `Image` - The clean image. The accumulated data from the Reader
 //!    is converted to the clean image structure, losing all temporary data.
 
-pub mod options;
 pub mod image;
 pub mod layers;
 pub mod rgba_channels;
@@ -23,6 +22,7 @@ use crate::image::read::samples::{ReadFlatSamples};
 use std::path::Path;
 use crate::image::{AnyImage, RgbaLayersImage, RgbaImage, AnyChannels, FlatSamples, Image, Layer, FlatImage};
 use crate::image::read::image::ReadLayers;
+use crate::image::read::any_channels::ReadSamples;
 
 // TODO explain or use these simple functions somewhere
 
@@ -105,12 +105,20 @@ pub fn read_first_rgb_layer_from_file<Set:'static, Create:'static, Pixels:'stati
 }
 
 
-
+/// Utilizes the builder pattern to configure an image reader. This is the initial struct.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct ReadBuilder;
 
+/// Create a reader which can be used to load an exr image.
+/// Allows you to exactly specify how to load the image.
+/// Call `no_deep_data` on the resulting `ReadBuilder` to load an image that contains no deep data.
+// TODO not panic but skip deep layers!
 pub fn read() -> ReadBuilder { ReadBuilder }
+
 impl ReadBuilder {
+
+    /// Specify to handle only one sample per channel, disabling "deep data".
+    // TODO not panic but skip deep layers!
     pub fn no_deep_data(self) -> ReadFlatSamples { ReadFlatSamples }
 
     // pub fn any_resolution_levels() -> ReadBuilder<> {}

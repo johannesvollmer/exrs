@@ -75,36 +75,8 @@ pub struct RgbaChannelsInfo { // TODO remove this struct?
 
     /// The dimensions of this image, width and height.
     pub resolution: Vec2<usize>,
-
-    /*/// The attributes of the exr image.
-    pub image_attributes: ImageAttributes,
-
-    /// The attributes of the exr layer.
-    pub layer_attributes: LayerAttributes,
-
-    /// Specifies how the pixel data is formatted inside the file,
-    /// for example, compression and tiling.
-    pub encoding: Encoding,*/
 }
 
-
-/*/// Specifies how the pixel data is formatted inside the file.
-/// Does not affect any visual aspect, like positioning or orientation.
-// TODO alsop nest encoding like this for meta::Header and simple::Image or even reuse this in image::simple
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub struct RgbaEncoding {
-
-    /// What type of compression the pixel data in the file is compressed with.
-    pub compression: Compression,
-
-    /// If this is some pair of numbers, the image is divided into tiles of that size.
-    /// If this is none, the image is divided into scan line blocks, depending on the compression method.
-    pub tile_size: Option<Vec2<usize>>,
-
-    /// In what order the tiles of this header occur in the file.
-    /// Does not change any actual image orientation.
-    pub line_order: LineOrder,
-}*/
 
 
 impl<S> ContainsNaN for RgbaChannels<S> where S: ContainsNaN {
@@ -112,51 +84,6 @@ impl<S> ContainsNaN for RgbaChannels<S> where S: ContainsNaN {
         self.storage.contains_nan_pixels()
     }
 }
-
-/*impl RgbaEncoding {
-
-    /// Chooses an adequate block size and line order for the specified compression.
-    #[inline]
-    pub fn for_compression(compression: Compression) -> Self {
-        match compression {
-            Compression::Uncompressed => Self {
-                tile_size: None, // scan lines have maximum width, which is best for efficient line memcpy
-                line_order: LineOrder::Increasing, // order does not really matter, no compression to be parallelized
-                compression,
-            },
-
-            Compression::RLE => Self {
-                tile_size: Some(Vec2(128, 128)), // favor tiles with one solid color
-                line_order: LineOrder::Unspecified, // tiles can be compressed in parallel without sorting
-                compression,
-            },
-
-            Compression::ZIP16 | Compression::ZIP1 => Self {
-                tile_size: None, // maximum data size for zip compression
-                line_order: LineOrder::Increasing, // cannot be unspecified with scan line blocks!
-                compression,
-            },
-
-            _ => Self {
-                compression,
-                tile_size: Some(Vec2(256, 256)), // use tiles to enable unspecified line order
-                line_order: LineOrder::Unspecified
-            }
-        }
-    }
-
-    /// Uses RLE compression with tiled 128x128 blocks.
-    #[inline]
-    pub fn fast() -> Self {
-        Self::for_compression(Compression::RLE)
-    }
-
-    /// Uses ZIP16 compression with scan line blocks.
-    #[inline]
-    pub fn small() -> Self {
-        Self::for_compression(Compression::ZIP16)
-    }
-}*/
 
 
 impl RgbaChannelsInfo {

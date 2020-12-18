@@ -61,7 +61,7 @@ pub mod prelude {
     pub use crate::math::Vec2;
 
     pub use crate::image::*;
-    pub use crate::image::read::{read, image::ReadLayers, image::ReadImage, layers::ReadChannels, rgba_channels::*};
+    pub use crate::image::read::{read, any_channels::ReadSamples, image::ReadLayers, image::ReadImage, layers::ReadChannels, rgba_channels::*};
     pub use crate::image::write::{WritableImage};
 
 

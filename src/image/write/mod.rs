@@ -1,6 +1,5 @@
 
 pub mod layers;
-pub mod options;
 pub mod samples;
 pub mod channels;
 

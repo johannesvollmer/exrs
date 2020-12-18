@@ -11,19 +11,29 @@ use crate::block::chunk::TileCoordinates;
 use crate::image::read::rgba_channels::*;
 
 
-// Note: Instead of this, the `FlatSamples` are used directly
+// Note: In the resulting image, the `FlatSamples` are placed
+// directly inside the channels, without `LargestLevel<>` indirection
+/// Specify to read only the highest resolution level, skipping all smaller variations.
+/// The sample storage can be `ReadFlatSamples`.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReadLargestLevel<DeepOrFlatSamples> {
+
+    /// The sample reading specification
     pub read_samples: DeepOrFlatSamples
 }
 
 
 // FIXME rgba levels???
 
+// Read the largest level, directly, without intermediate structs
 impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
+
+    /// Read all arbitrary channels in each layer.
     pub fn all_channels(self) -> ReadAnyChannels<DeepOrFlatSamples> { ReadAnyChannels { read_samples: self.read_samples } } // Instead of Self, the `FlatSamples` are used directly
 
     // TODO only for flat samples
+    /// Read only layers that contain red, green and blue color. If present, also loads alpha channels.
+    /// Rejects all layers that don't have rgb channels. Skips any other channels in an rgb layer.
     pub fn rgba_channels<Create, Set>(self, create: Create, set_pixel: Set) -> ReadRgbaChannels<Create, Set>
         where Create: CreateRgbaPixels, Set: SetRgbaPixel<Create::Pixels>
     {
@@ -31,15 +41,20 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     }
 }
 
+/// Specify to read all contained resolution levels from the image, if any.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReadAllLevels<DeepOrFlatSamples> {
     pub read_samples: DeepOrFlatSamples
 }
 
 impl<ReadDeepOrFlatSamples> ReadAllLevels<ReadDeepOrFlatSamples> {
+
+    /// Read all arbitrary channels in each layer.
     pub fn all_channels(self) -> ReadAnyChannels<Self> { ReadAnyChannels { read_samples: self } }
 
     // TODO only for flat samples
+    /// Read only layers that contain red, green and blue color. If present, also loads alpha channels.
+    /// Rejects all layers that don't have rgb channels. Skips any other channels in the layer.
     pub fn rgba_channels<Create, Set>(self, create: Create, set_pixel: Set) -> ReadRgbaChannels<Create, Set>
         where Create: CreateRgbaPixels, Set: SetRgbaPixel<Create::Pixels>
     {
@@ -51,13 +66,19 @@ impl<ReadDeepOrFlatSamples> ReadAllLevels<ReadDeepOrFlatSamples> {
     read_samples: S,
 }*/
 
+/// Processes pixel blocks from a file and accumulates them into multiple levels per channel.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AllLevelsReader<SamplesReader> {
     levels: Levels<SamplesReader>,
 }
 
+/// A template that creates a `SamplesReader` once for each resolution level.
 pub trait ReadSamplesLevel {
+
+    /// The type of the temporary level reader
     type Reader: SamplesReader;
+
+    /// Create a single reader for a single resolution level
     fn create_samples_level_reader(&self, header: &Header, channel: &ChannelInfo, level: Vec2<usize>, resolution: Vec2<usize>) -> Result<Self::Reader>;
 }
 
@@ -110,16 +131,15 @@ impl<S: ReadSamplesLevel> ReadSamples for ReadAllLevels<S> {
 }
 
 
-
 impl<S: SamplesReader> SamplesReader for AllLevelsReader<S> {
     type Samples = Levels<S::Samples>;
 
-    fn read_line(&mut self, line: LineRef<'_>) -> UnitResult {
-        self.levels.get_level_mut(line.location.level)?.read_line(line)
+    fn filter_block(&self, _: (usize, &TileCoordinates)) -> bool {
+        true // TODO this is not beautiful?
     }
 
-    fn filter_block(&self, _: (usize, &TileCoordinates)) -> bool {
-        true // TODO this is not beautiful
+    fn read_line(&mut self, line: LineRef<'_>) -> UnitResult {
+        self.levels.get_level_mut(line.location.level)?.read_line(line)
     }
 
     fn into_samples(self) -> Self::Samples {

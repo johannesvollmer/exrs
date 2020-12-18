@@ -7,28 +7,45 @@ use std::path::Path;
 use std::io::{Read, BufReader};
 use std::io::Seek;
 
-
+/// Specify whether to read the image in parallel,
+/// whether to use pedantic error handling,
+/// and a callback for the reading progress.
 #[derive(Debug, Clone)]
-pub struct ReadImage<F, L> {
-    on_progress: F,
-    read_layers: L,
-    pedantic: bool,
-    parallel: bool,
+pub struct ReadImage<OnProgress, ReadLayers> {
+
+    /// Do something after processing a piece of the file
+    pub on_progress: OnProgress,
+
+    /// The layer reading specification
+    pub read_layers: ReadLayers,
+
+    /// Immediately abort if some data is missing in the file
+    pub pedantic: bool,
+
+    /// Decompress pixels with multiple threads
+    pub parallel: bool,
 }
 
 impl<F, L> ReadImage<F, L> where F: FnMut(f64)
 {
+    /// Uses relaxed error handling and parallel decompression.
     pub fn new(read_layers: L, on_progress: F) -> Self {
         Self {
-            on_progress,
-            pedantic: false,
-            parallel: true,
-            read_layers,
+            on_progress, read_layers,
+            pedantic: false, parallel: true,
         }
     }
 
+    /// Specify that any missing or unusual information should result in an error.
+    /// Otherwise, `exrs` will try to compute or ignore missing information.
     pub fn pedantic(self) -> Self { Self { pedantic: true, ..self } }
+
+    /// Specify that multiple pixel blocks should never be decompressed using multiple threads at once.
+    /// This might be slower but uses less memory and less synchronization.
     pub fn non_parallel(self) -> Self { Self { parallel: false, ..self } }
+
+    /// Specify a function to be called regularly throughout the loading process.
+    /// Replaces all previously specified progress functions in this reader.
     pub fn on_progress(self, on_progress: F) -> Self where F: FnMut(f64) { Self { on_progress, ..self } }
 
 
@@ -99,20 +116,36 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
 
 /// A template that creates a `LayerReader` for each layer in the file.
 pub trait ReadLayers<'s> {
+
+    /// The type of the resulting Layers
     type Layers;
+
+    /// The type of the temporary layer reader
     type Reader: LayersReader<Layers = Self::Layers>;
+
+    /// Create a single reader for a single layer
     fn create_layers_reader(&'s self, headers: &[Header]) -> Result<Self::Reader>;
 
+    /// Specify that all attributes should be read from an image.
+    /// Use `from_file(path)` on the return value of this method to actually decode an image.
     fn all_attributes(self) -> ReadImage<fn(f64), Self> where Self: Sized {
         ReadImage::new(self, ignore_progress)
     }
 }
 
-/// Selects pixel blocks from a file and gradually accumulates a single image layer.
+/// Processes pixel blocks from a file and accumulates them into a single image layer.
 pub trait LayersReader {
+
+    /// The type of resulting layers
     type Layers;
+
+    /// Specify whether a single block of pixels should be loaded from the file
     fn filter_block(&self, header: (usize, &Header), tile: (usize, &TileCoordinates)) -> bool;
+
+    /// Load a single pixel block, which has not been filtered, into the reader, accumulating the layer
     fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult;
+
+    /// Deliver the final accumulated layers for the image
     fn into_layers(self) -> Self::Layers;
 }
 
