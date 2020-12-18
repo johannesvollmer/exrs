@@ -6,7 +6,7 @@
 //!     use exr::prelude::*;
 //! #   let my_image: FlatImage = unimplemented!();
 //!
-//!     image.write()
+//!     my_image.write()
 //!            .on_progress(|progress| println!("progress: {:.1}", progress*100.0))
 //!            .to_file("image.exr").unwrap();
 //! ```
