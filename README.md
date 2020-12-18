@@ -1,13 +1,13 @@
 [![Rust Docs](https://docs.rs/exr/badge.svg)](https://docs.rs/exr) 
 [![Crate Crate](https://img.shields.io/crates/v/exr.svg)](https://crates.io/crates/exr) 
-[![Rust Lang Version](https://img.shields.io/badge/rustc-1.43+-lightgray.svg)](https://blog.rust-lang.org/2020/04/23/Rust-1.43.0.html) 
+[![Rust Lang Version](https://img.shields.io/badge/rustc-1.48+-lightgray.svg)](https://blog.rust-lang.org/2020/11/19/Rust-1.48.html) 
 [![Lines of Code](https://tokei.rs/b1/github/johannesvollmer/exrs?category=code)](https://tokei.rs)
 
 # EXRS
 
 This library is a 100% Rust and 100% safe code library for
 reading and writing OpenEXR images.
-See [the examples](https://docs.rs/crate/exr/0.9.0/source/examples/) for a first impression.
+See [the examples](https://docs.rs/crate/exr/1.0.0/source/examples/) for a first impression.
 
 [OpenEXR](http://www.openexr.com/)
 is the de-facto standard image format in animation, VFX, and 
@@ -157,7 +157,7 @@ please leave an issue on this repository, containing the image file.
 Add this to your `Cargo.toml`:
 ```toml
 [dependencies]
-exr = "0.9.0"
+exr = "1.0.0"
 
 # also, optionally add this to your crate for smaller binary size 
 # and better runtime performance
