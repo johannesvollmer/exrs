@@ -32,6 +32,22 @@ pub trait ReadChannels<'s> {
 
     /// Create a single reader for all channels of a specific layer
     fn create_channels_reader(&'s self, header: &Header) -> Result<Self::Reader>;
+
+
+    /// Read only the first layer which meets the previously specified requirements
+    /// For example, skips layers with deep data, if specified earlier.
+    /// Aborts if the image contains no layers.
+    // TODO test if this filters non-deep layers while ignoring deep data layers!
+    fn first_valid_layer(self) -> ReadFirstValidLayer<Self> where Self:Sized { ReadFirstValidLayer { read_channels: self } }
+
+// FIXME do not throw error on deep data but just skip it!
+
+
+    /// Reads all layers, including an empty list. Aborts if any of the layers are invalid,
+    /// even if only one of the layers contains unexpected data.
+    fn all_layers(self) -> ReadAllLayers<Self> where Self:Sized { ReadAllLayers { read_channels: self } }
+
+    // TODO pub fn all_valid_layers(self) -> ReadAllValidLayers<Self> { ReadAllValidLayers { read_channels: self } }
 }
 
 

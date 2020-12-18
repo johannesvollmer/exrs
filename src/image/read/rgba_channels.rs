@@ -14,29 +14,37 @@ use crate::meta::header::{Header};
 use crate::error::{Result, UnitResult, Error};
 use crate::block::UncompressedBlock;
 use crate::math::Vec2;
-use crate::image::read::layers::{ChannelsReader, ReadChannels, ReadFirstValidLayer, ReadAllLayers};
+use crate::image::read::layers::{ChannelsReader, ReadChannels};
 use crate::block::samples::Sample;
 use crate::block::chunk::TileCoordinates;
 
-
+/// Specify to load only rgb channels and how to store the result.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ReadRgbaChannels<Create, Set> {
-    pub create: Create,
-    pub set_pixel: Set
+pub struct ReadRgbaChannels<CreatePixelStorage, SetPixel> {
+
+    /// A function used to create one rgba pixel storage per layer
+    pub create: CreatePixelStorage,
+
+    /// A function used to write the rgba pixels from the file to your image storage
+    pub set_pixel: SetPixel
 }
 
-impl<'s, C, S> ReadRgbaChannels<C, S> where Self: ReadChannels<'s> {
-    pub fn first_valid_layer(self) -> ReadFirstValidLayer<Self> { ReadFirstValidLayer { read_channels: self } }
-    pub fn all_layers(self) -> ReadAllLayers<Self> { ReadAllLayers { read_channels: self } }
+/// Define how to store an rgba pixel in your custom pixel storage.
+/// Can be a closure of type `Fn(&RgbaChannelsInfo) -> YourPixelStorage`.
+pub trait SetRgbaPixel<PixelStorage> {
+
+    /// Will be called for all pixels in the file, resulting in a complete image.
+    fn set_pixel(&self, pixels: &mut PixelStorage, position: Vec2<usize>, pixel: RgbaPixel);
 }
 
-
-pub trait SetRgbaPixel<P> {
-    fn set_pixel(&self, pixels: &mut P, position: Vec2<usize>, pixel: RgbaPixel);
-}
-
+/// Define how to create your custom pixel storage for a given layer.
+/// Can be a closure of type `Fn(&mut YourPixelStorage, Vec2<usize>, RgbaPixel)`.
 pub trait CreateRgbaPixels {
+
+    /// Your custom pixel storage.
     type Pixels;
+
+    /// Called once per rgba layer.
     fn create(&self, info: &RgbaChannelsInfo) -> Self::Pixels;
 }
 
@@ -50,7 +58,7 @@ impl<F, P> CreateRgbaPixels for F where F: Fn(&RgbaChannelsInfo) -> P {
 }
 
 
-
+/// Processes pixel blocks from a file and accumulates them into the rgba channels.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RgbaChannelsReader<'s, Set, Image> {
     storage: Image,
@@ -62,15 +70,10 @@ pub struct RgbaChannelsReader<'s, Set, Image> {
 
 /// A summary of the channels of a given layer.
 /// Does not contain any actual pixel data.
-///
-/// Any given pixel values will be automatically converted to the type found in `Image.channels`.
 #[derive(Copy, Debug, Clone, Eq, PartialEq)]
 pub struct RgbaChannelsInfo { // TODO remove this struct?
 
-    /// The channel types of the written file.
-    ///
-    /// Careful: Not all applications may support
-    /// RGBA images with arbitrary sample types.
+    /// The type of each channel in the rgba or rgb image.
     pub channels: RgbaSampleTypes,
 
     /// The dimensions of this image, width and height.
@@ -86,72 +89,18 @@ impl<S> ContainsNaN for RgbaChannels<S> where S: ContainsNaN {
 }
 
 
-impl RgbaChannelsInfo {
+impl RgbaSampleTypes {
 
-    /*/// Create an Image with an alpha channel.
-    /// All channels will have the specified sample type.
-    /// Data is automatically converted to that type.
-    /// Use `RgbaInfo::new` where each channel should have a different sample type.
-    pub fn rgba(resolution: impl Into<Vec2<usize>>, sample_type: SampleType) -> Self {
-        Self::new(resolution, (sample_type, sample_type, sample_type, Some(sample_type)))
-    }
-
-    /// Create an Image without an alpha channel.
-    /// All channels will have the specified sample type.
-    /// Data is automatically converted to that type.
-    /// Use `RgbaInfo::new` where each channel should have a different sample type.
-    pub fn rgb(resolution: impl Into<Vec2<usize>>, sample_type: SampleType) -> Self {
-        Self::new(resolution, (sample_type, sample_type, sample_type, None))
-    }
-
-    /// Create an image with the resolution and channels.
-    pub fn new(resolution: impl Into<Vec2<usize>>, channels: Channels) -> Self {
-        let resolution = resolution.into();
-
-        Self {
-            resolution, channels,
-            image_attributes: ImageAttributes::new(resolution),
-            layer_attributes: LayerAttributes::new(Text::from("RGBA").expect("ascii bug")),
-            encoding: Encoding::fast()
-        }
-    }
-
-    /// Set the display window and data window position of this image.
-    pub fn with_position(mut self, position: impl Into<Vec2<i32>>) -> Self {
-        let position: Vec2<i32> = position.into();
-        self.image_attributes.display_window.position = position;
-        self.layer_attributes.layer_position = position;
-        self
-    }
-
-    /// Set custom attributes for the exr image.
+    /// Is 4 if this is an rgba image, 3 for an RGB image.
     #[inline]
-    pub fn with_image_attributes(self, image_attributes: ImageAttributes) -> Self {
-        Self { image_attributes, ..self }
+    pub fn count(&self) -> usize {
+        if self.3.is_some() { 4 } else { 3 }
     }
 
-    /// Set custom attributes for the layer in the exr image.
+    /// Return the red green and blue channels as an indexable array. Does not include the alpha channel.
     #[inline]
-    pub fn with_layer_attributes(self, layer_attributes: LayerAttributes) -> Self {
-        Self { layer_attributes, ..self }
-    }
-
-    /// Specify how this image should be formatted in the file. Does not affect visual content.
-    #[inline]
-    pub fn with_encoding(self, encoding: Encoding) -> Self {
-        Self { encoding, ..self }
-    }*/
-
-    /// Is 4 if this is an RGBA image, 3 for an RGB image.
-    #[inline]
-    pub fn channel_count(&self) -> usize {
-        if self.channels.3.is_some() { 4 } else { 3 }
-    }
-
-    /// Return the red green and blue channels as an indexable array.
-    #[inline]
-    pub fn rgb_channels(&self) -> [SampleType; 3] {
-        [self.channels.0, self.channels.1, self.channels.2]
+    pub fn color_types_as_array(&self) -> [SampleType; 3] {
+        [self.0, self.1, self.2]
     }
 }
 
@@ -282,15 +231,21 @@ impl<Setter, Storage>
 
 
 
-/// Provides some predefined pixel containers for RGBA images.
+/// Provides a predefined pixel storage for rgba images.
 /// Currently contains a homogeneous flattened vector storage.
 pub mod pixels {
     use super::*;
 
-
     /// Store all samples in a single array.
     /// All samples will be converted to the type `T`.
-    /// This currently supports the sample types `f16`, `f32`, and `u32`.
+    /// This supports all the sample types, `f16`, `f32`, and `u32`.
+    ///
+    /// The flattened vector contains all rows one after another.
+    /// In each row, for each pixel, its red, green, blue, and then alpha
+    /// samples are stored one after another.
+    ///
+    /// Use `Flattened::compute_pixel_index(image, position)`
+    /// to compute the flat index of a specific pixel.
     #[derive(PartialEq, Clone)]
     pub struct Flattened<T> {
 
@@ -303,6 +258,7 @@ pub mod pixels {
         ///
         /// Use `Flattened::compute_pixel_index(image, position)`
         /// to compute the flat index of a specific pixel.
+
         pub samples: Vec<T>,
     }
 
@@ -313,7 +269,7 @@ pub mod pixels {
         /// Panics for invalid sample coordinates.
         #[inline]
         pub fn compute_pixel_index(&self, position: Vec2<usize>) -> std::ops::Range<usize> {
-            let pixel_index = position.y() * self.width + position.x();
+            let pixel_index = position.y() * self.width + position.x(); // TODO use vec2.flatten
             let red_index = pixel_index * self.channels;
             red_index .. red_index + self.channels
         }
@@ -332,39 +288,37 @@ pub mod pixels {
     }
 
     /// Constructor for a flattened f16 pixel storage.
-    /// This function an directly be passed to `rgba::RgbaInfo::load_from_file` and friends.
-    /// It will construct a `rgba::pixels::Flattened<f16>` image.
+    /// Can usually be used as a reference instead of calling it manually.
     #[inline] pub fn create_flattened_f16(image: &RgbaChannelsInfo) -> Flattened<f16> {
         Flattened {
             width: image.resolution.0,
-            channels: image.channel_count(),
-            samples: vec![f16::ZERO; image.resolution.area() * image.channel_count()]
+            channels: image.channels.count(),
+            samples: vec![f16::ZERO; image.resolution.area() * image.channels.count()]
         }
     }
 
     /// Constructor for a flattened f32 pixel storage.
-    /// This function an directly be passed to `rgba::RgbaInfo::load_from_file` and friends.
-    /// It will construct a `rgba::pixels::Flattened<f32>` image.
+    /// Can usually be used as a reference instead of calling it manually.
     #[inline] pub fn create_flattened_f32(image: &RgbaChannelsInfo) -> Flattened<f32> {
         Flattened {
             width: image.resolution.0,
-            channels: image.channel_count(),
-            samples: vec![0.0; image.resolution.area() * image.channel_count()]
+            channels: image.channels.count(),
+            samples: vec![0.0; image.resolution.area() * image.channels.count()]
         }
     }
 
     /// Constructor for a flattened u32 pixel storage.
-    /// This function an directly be passed to `rgba::RgbaInfo::load_from_file` and friends.
-    /// It will construct a `rgba::pixels::Flattened<u32>` image.
+    /// Can usually be used as a reference instead of calling it manually.
     #[inline] pub fn create_flattened_u32(image: &RgbaChannelsInfo) -> Flattened<u32> {
         Flattened {
             width: image.resolution.0,
-            channels: image.channel_count(),
-            samples: vec![0; image.resolution.area() * image.channel_count()]
+            channels: image.channels.count(),
+            samples: vec![0; image.resolution.area() * image.channels.count()]
         }
     }
 
-    /// Create an object that can examine the pixels of a `Flattened<T>` image.
+    /// Examine a pixel of a `Flattened<T>` image.
+    /// Can usually be used as a reference instead of calling it manually.
     #[inline]
     pub fn get_flattened_pixel<T>(image: &Flattened<T>, position: Vec2<usize>) -> RgbaPixel
         where T: Sync + Copy + Into<Sample>
@@ -373,7 +327,8 @@ pub mod pixels {
         RgbaPixel::new(pixel[0], pixel[1], pixel[2], pixel.get(3).cloned())
     }
 
-    /// Create an object that can update the pixels of a `Flattened<T>` image.
+    /// Update a pixel of a `Flattened<T>` image.
+    /// Can usually be used as a reference instead of calling it manually.
     #[inline]
     pub fn set_flattened_pixel<T> (image: &mut Flattened<T>, position: Vec2<usize>, pixel: RgbaPixel) where T: Copy + From<Sample> {
         let index = image.compute_pixel_index(position);
@@ -387,7 +342,6 @@ pub mod pixels {
             samples[3] = pixel.alpha_or_default().into();
         }
     }
-
 
     use std::fmt::*;
     impl<T> Debug for Flattened<T> {

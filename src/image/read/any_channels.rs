@@ -5,9 +5,8 @@ use crate::block::UncompressedBlock;
 use crate::block::lines::{LineRef, LineIndex, LineSlice};
 use crate::math::Vec2;
 use crate::meta::attribute::{Text, ChannelInfo};
-use crate::image::read::layers::{ReadChannels, ChannelsReader, ReadAllLayers, ReadFirstValidLayer};
+use crate::image::read::layers::{ReadChannels, ChannelsReader};
 use crate::block::chunk::TileCoordinates;
-use crate::prelude::{ReadRgbaChannels, CreateRgbaPixels, SetRgbaPixel};
 
 /// A template that creates a `AnyChannelsReader` for each layer in the image.
 /// This loads all channels for each layer.
@@ -17,23 +16,6 @@ pub struct ReadAnyChannels<ReadSamples> {
 
     /// The sample reading specification
     pub read_samples: ReadSamples
-}
-
-// FIXME do not throw error on deep data but just skip it!
-impl<'s, S:'s> ReadAnyChannels<S> where Self: ReadChannels<'s> {
-
-
-    /// Read only the first layer which meets the previously specified requirements
-    /// For example, skips layers with deep data, if specified earlier.
-    /// Aborts if the image contains no layers.
-    // TODO test if this filters non-deep layers while ignoring deep data layers!
-    pub fn first_valid_layer(self) -> ReadFirstValidLayer<Self> { ReadFirstValidLayer { read_channels: self } }
-
-    /// Reads all layers, including an empty list. Aborts if any of the layers are invalid,
-    /// even if only one of the layers contains unexpected data.
-    pub fn all_layers(self) -> ReadAllLayers<Self> { ReadAllLayers { read_channels: self } }
-
-    // TODO pub fn all_valid_layers(self) -> ReadAllValidLayers<Self> { ReadAllValidLayers { read_channels: self } }
 }
 
 /// A template that creates a new `SampleReader` for each channel in each layer.

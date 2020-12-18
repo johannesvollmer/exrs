@@ -1,5 +1,6 @@
 
 //! Data structures that contain the image.
+//! Contains a bunch of generic structs that must be nested to obtain a complete image type.
 
 pub mod read;
 pub mod write;
@@ -14,6 +15,7 @@ use crate::compression::Compression;
 use smallvec::{SmallVec, Array};
 use crate::error::Error;
 
+/// Don't do anything
 pub(crate) fn ignore_progress(_progress: f64){}
 
 /// This image type contains all supported exr features and can represent almost any image.
@@ -42,7 +44,8 @@ pub type RgbaImage<Samples> = Image<Layer<RgbaChannels<Samples>>>;
 
 
 
-/// `Layers` can be either `Layer` or `Layers`.
+/// The complete exr image.
+/// `Layers` can be either a single `Layer` or `Layers`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Image<Layers> {
 
@@ -57,22 +60,23 @@ pub struct Image<Layers> {
     pub layer_data: Layers,
 }
 
-/// `Channels` can be `RgbaChannels` or `AnyChannels`.
+/// A list of layers. `Channels` can be `RgbaChannels` or `AnyChannels`.
 pub type Layers<Channels> = SmallVec<[Layer<Channels>; 2]>;
 
 // TODO pub struct ChannelGroups {}
 
+/// A single Layer, including fancy attributes and compression settings.
 /// `Channels` can be either `RgbaChannels` or `AnyChannels`
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layer<Channels> {
 
-    /// Either `RgbaChannels` or `AnyChannels`
+    /// The actual pixel data. Either `RgbaChannels` or `AnyChannels`
     pub channel_data: Channels,
 
-    /// Attributes that apply to this layer. Excludes technical meta data.
+    /// Attributes that apply to this layer.
     /// May still contain attributes that should be considered global for an image file.
-    /// Does not contain data window size, line order, tiling, or compression attributes.
-    /// The image also has attributes that do not differ per layer.
+    /// Excludes technical meta data: Does not contain data window size, line order, tiling, or compression attributes.
+    /// The image also has attributes, which do not differ per layer.
     pub attributes: LayerAttributes,
 
     /// The pixel resolution of this layer.
@@ -96,6 +100,10 @@ pub struct Encoding {
     ///
     /// Also describes whether a file contains multiple resolution levels: mip maps or rip maps.
     /// This allows loading not the full resolution, but the smallest sensible resolution.
+    ///
+    /// The resolution level setting must match the contents of the channel.
+    // FIXME throw error for mismatch
+    // TODO automatically generate or discard when mismatch
     pub blocks: Blocks,
 
     /// In what order the tiles of this header occur in the file.
@@ -126,31 +134,31 @@ pub enum Blocks {
     }
 }
 
-/*#[derive(Debug, Clone, PartialEq)]
-pub struct RgbaChannels<S> {
-
-    /// Anything, from `Vec<f16>` to `Vec<Vec<AnySample>>`, as desired by the user
-    sample_data: S
-
-
-}*/
 
 // TODO remove indirection
-/// `Samples` can be anything, from a flat `Vec<f16>` to `Vec<Vec<AnySample>>`, as desired by the user.
+/// A grid of rgba pixels. The pixels are written to your custom pixel storage.
+/// `Samples` can be anything, from a flat `Vec<f16>` to `Vec<Vec<AnySample>>`, as desired.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RgbaChannels<Samples> {
-    /// When writing, all samples are converted to these types. When reading, this remembers the original sample type that was found in the file.
+
+    /// When writing, all samples are converted to these types.
+    /// When reading, this remembers the original sample type that was found in the file.
     pub sample_types: RgbaSampleTypes,
+
+    /// Your custom rgba pixel storage
     pub storage: Samples,
 }
 
-/// The sample type of the image's RGBA channels. The alpha channel is optional.
+/// The sample type (`f16`, `f32` or `u32`) of the rgba channels. The alpha channel is optional.
 /// The first channel is red, the second blue, the third green, and the fourth alpha.
+///
+/// Careful, not all applications may be able to decode rgba images with arbitrary sample types.
 #[derive(Copy, Debug, Clone, PartialEq, Eq)]
 pub struct RgbaSampleTypes (pub SampleType, pub SampleType, pub SampleType, pub Option<SampleType>);
 
 
-///`Samples` can currently only be `FlatSamples` or `Levels<FlatSamples>`.
+/// A full list of arbitrary channels, not just rgba.
+/// `Samples` can currently only be `FlatSamples` or `Levels<FlatSamples>`.
 // FIXME sort channels on create!
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnyChannels<Samples> {
@@ -159,6 +167,7 @@ pub struct AnyChannels<Samples> {
     pub list: SmallVec<[AnyChannel<Samples>; 4]>
 }
 
+/// A single arbitrary channel.
 /// `Samples` can currently only be `FlatSamples` or `Levels<FlatSamples>`
 // or a closure of type `Fn(Vec2<usize>) -> S` where `S` is f16, f32, or u32. TODO (arbitrary tuple channels instead of only rgba)
 #[derive(Debug, Clone, PartialEq)]
@@ -168,48 +177,41 @@ pub struct AnyChannel<Samples> {
     pub name: Text,
 
     /// The actual pixel data.
-    /// Either `FlatSamples` or `Levels<FlatSamples>`.
-    ///
-    /// Contains a flattened vector of samples.
-    /// The vector contains each row, one after another.
-    /// The number of pixels depends on the resolution of the layer
-    /// and the sampling rate of this channel.
-    ///
-    /// Thus, a specific pixel value can be found at the index
-    /// `samples[(y_index / sampling_y) * width + (x_index / sampling_x)]`.
+    /// Can be `FlatSamples` or `Levels<FlatSamples>`.
     pub sample_data: Samples,
 
     /// This attribute only tells lossy compression methods
     /// whether this value should be quantized exponentially or linearly.
     ///
-    /// Should be `false` for red, green, or blue channels.
-    /// Should be `true` for hue, chroma, saturation, or alpha channels.
+    /// Should be `false` for red, green, blue and luma channels, as they are not perceived linearly.
+    /// Should be `true` for hue, chroma, saturation, and alpha channels.
     pub quantize_linearly: bool,
 
     /// How many of the samples are skipped compared to the other channels in this layer.
     ///
     /// Can be used for chroma subsampling for manual lossy data compression.
     /// Values other than 1 are allowed only in flat, scan-line based images.
-    /// If an image is deep or tiled, x and y sampling rates for all of its channels must be 1.
+    /// If an image is deep or tiled, the sampling rates for all of its channels must be 1.
     pub sampling: Vec2<usize>,
 }
 
-/// One or multiple resolution levels of the same image. `Samples` can currently only be `FlatSamples`.
+/// One or multiple resolution levels of the same image.
+/// `Samples` can be `FlatSamples`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Levels<Samples> {
 
     /// A single image without smaller versions of itself.
-    /// If you only want to handle this case, use `Samples` directly, and not `Levels<Samples>`.
+    /// If you only want to handle exclusively this case, use `Samples` directly, and not `Levels<Samples>`.
     Singular(Samples),
 
     /// Contains uniformly scaled smaller versions of the original.
     Mip(LevelMaps<Samples>),
 
-    /// Contains any combination of smaller versions of the original.
+    /// Contains any possible combination of smaller versions of the original.
     Rip(RipMaps<Samples>),
 }
 
-/// A vector of resolution levels. `Samples` can currently only be `FlatSamples`.
+/// A list of resolution levels. `Samples` can currently only be `FlatSamples`.
 // or `DeepAndFlatSamples` (not yet implemented).
 pub type LevelMaps<Samples> = Vec<Samples>;
 
@@ -220,7 +222,7 @@ pub type LevelMaps<Samples> = Vec<Samples>;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RipMaps<Samples> {
 
-    /// The actual pixel data
+    /// A flattened list containing the individual levels
     pub map_data: LevelMaps<Samples>,
 
     /// The number of levels that were generated along the x-axis and y-axis.
@@ -235,8 +237,9 @@ pub enum DeepAndFlatSamples {
     Flat(FlatSamples)
 }*/
 
-/// A vector of non-deep values (one value per pixel). Stores row after row in a single vector.
-/// The precision of the values is either `f16`, `f32` or `u32`.
+/// A vector of non-deep values (one value per pixel per channel).
+/// Stores row after row in a single vector.
+/// The precision of all values is either `f16`, `f32` or `u32`.
 #[derive(Clone, PartialEq)] // debug is implemented manually
 pub enum FlatSamples {
 
@@ -262,11 +265,12 @@ pub enum DeepSamples {
 */
 
 
-/// A single pixel with red, green, blue, and alpha values.
+/// A single pixel with a red, green, blue, and alpha value.
 /// Each channel may have a different sample type.
 ///
 /// A Pixel can be created using `Pixel::rgb(0_f32, 0_u32, f16::ONE)` or `Pixel::rgba(0_f32, 0_u32, 0_f32, f16::ONE)`.
-/// Additionally, a pixel can be converted from a tuple or array with either three or four components using `Pixel::from((0_u32, 0_f32, f16::ONE))`.
+/// Additionally, a pixel can be converted from a tuple or array with
+/// either three or four components using `Pixel::from((0_u32, 0_f32, f16::ONE))` or from an array.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct RgbaPixel {
 
@@ -296,90 +300,10 @@ use crate::meta::{mip_map_levels, rip_map_levels};
 use crate::io::Data;
 
 
-impl<S> Image<AnyChannels<S>> {
-
-    /*/// Read the exr image from a file.
-    /// Use `read_from_unbuffered` instead, if you do not have a file.
-    #[must_use]
-    pub fn read_from_file(path: impl AsRef<std::path::Path>, options: ReadOptions<impl OnReadProgress>) -> Result<Self> {
-        Self::read_from_unbuffered(std::fs::File::open(path)?, options)
-    }
-
-    /// Buffer the reader and then read the exr image from it.
-    /// Use `read_from_buffered` instead, if your reader is an in-memory reader.
-    /// Use `read_from_file` instead, if you have a file path.
-    #[inline]
-    #[must_use]
-    pub fn read_from_unbuffered(unbuffered: impl Read + Send, options: ReadOptions<impl OnReadProgress>) -> Result<Self> {
-        Self::read_from_buffered(BufReader::new(unbuffered), options)
-    }
-
-    /// Read the exr image from a reader.
-    /// Use `read_from_file` instead, if you have a file path.
-    /// Use `read_from_unbuffered` instead, if this is not an in-memory reader.
-    #[inline]
-    #[must_use]
-    pub fn read_from_buffered(read: impl Read + Send, options: ReadOptions<impl OnReadProgress>) -> Result<Self> {
-        crate::block::lines::read_all_lines_from_buffered(
-            read,
-            Image::allocate,
-            |image, _meta, line| Image::insert_line(image, line),
-            options
-        )
-    }
-
-    /// Write the exr image to a file.
-    /// Use `write_to_unbuffered` instead if you do not have a file.
-    /// If an error occurs, attempts to delete the partially written file.
-    #[inline]
-    #[must_use]
-    pub fn write_to_file(&self, path: impl AsRef<std::path::Path>, options: WriteOptions<impl OnWriteProgress>) -> UnitResult {
-        crate::io::attempt_delete_file_on_write_error(path.as_ref(), move |write|
-            self.write_to_unbuffered(write, options)
-        )
-    }
-
-    /// Buffer the writer and then write the exr image to it.
-    /// Use `read_from_buffered` instead, if your reader is an in-memory writer.
-    /// Use `read_from_file` instead, if you have a file path.
-    /// If your writer cannot seek, you can write to an in-memory vector of bytes first, using `write_to_buffered`.
-    #[inline]
-    #[must_use]
-    pub fn write_to_unbuffered(&self, unbuffered: impl Write + Seek, options: WriteOptions<impl OnWriteProgress>) -> UnitResult {
-        self.write_to_buffered(BufWriter::new(unbuffered), options)
-    }
-
-    /// Write the exr image to a writer.
-    /// Use `read_from_file` instead, if you have a file path.
-    /// Use `read_from_unbuffered` instead, if this is not an in-memory writer.
-    /// If your writer cannot seek, you can write to an in-memory vector of bytes first.
-    #[inline]
-    #[must_use]
-    pub fn write_to_buffered(&self, write: impl Write + Seek, options: WriteOptions<impl OnWriteProgress>) -> UnitResult {
-        crate::block::lines::write_all_lines_to_buffered(
-            write,  self.infer_meta_data(),
-            |_meta, line_mut| self.extract_line(line_mut),
-            options
-        )
-    }*/
-
-    /*pub fn contains_nan_pixels(&self) -> bool {
-        self.layers.iter()
-            .flat_map(|layer: &Layer<C>| &layer.channels)
-            .any(|channel: &Channel| match channel.content {
-                ChannelData::F16(ref values) => values.contains_nan_pixels(),
-                ChannelData::F32(ref values) => values.contains_nan_pixels(),
-                ChannelData::U32(ref values) => values.contains_nan_pixels(),
-            })
-    }*/
-}
-
-
-
-impl<S> RgbaChannels<S> {
+impl<SampleStorage> RgbaChannels<SampleStorage> {
     /// Create a new group of rgba channels. The samples can be a closure of type `Sync + Fn(Vec2<usize>) -> RgbaPixel`,
     /// meaning a closure that returns an rgb color for each point in the image.
-    pub fn new(convert_to: RgbaSampleTypes, source_samples: S) -> Self  where S: GetRgbaPixel {
+    pub fn new(convert_to: RgbaSampleTypes, source_samples: SampleStorage) -> Self  where SampleStorage: GetRgbaPixel {
         RgbaChannels { sample_types: convert_to, storage: source_samples }
     }
 }
@@ -396,29 +320,11 @@ impl<L> ContainsNaN for Image<L> where L: ContainsNaN {
     fn contains_nan_pixels(&self) -> bool { self.layer_data.contains_nan_pixels() }
 }
 
-/*impl<C> ContainsNaN for Layers<C> where C: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        self.iter().any(|layer| layer.contains_nan_pixels())
-    }
-}*/
-
 impl<C> ContainsNaN for Layer<C> where C: ContainsNaN {
     fn contains_nan_pixels(&self) -> bool {
         self.channel_data.contains_nan_pixels()
     }
 }
-
-/*impl<C> ContainsNaN for RgbaChannels<C> where C: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        self.channel_data.contains_nan_pixels()
-    }
-}*/
-
-/*impl<C> ContainsNaN for AnyChannels<C> where C: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        self.iter().any(|channel| channel.contains_nan_pixels())
-    }
-}*/
 
 impl<C> ContainsNaN for AnyChannels<C> where C: ContainsNaN {
     fn contains_nan_pixels(&self) -> bool {
@@ -460,7 +366,6 @@ impl<A: Array> ContainsNaN for SmallVec<A> where A::Item: ContainsNaN {
     }
 }
 
-
 impl ContainsNaN for f32 {
     fn contains_nan_pixels(&self) -> bool { self.is_nan() }
 }
@@ -470,19 +375,19 @@ impl ContainsNaN for f16 {
 }
 
 
-impl<S> AnyChannels<S>{
+impl<SampleData> AnyChannels<SampleData>{
 
     /// A new list of arbitrary channels. Sorts the list to make it alphabetically stable.
-    pub fn new(mut list: SmallVec<[AnyChannel<S>; 4]>) -> Self {
+    pub fn new(mut list: SmallVec<[AnyChannel<SampleData>; 4]>) -> Self {
         list.sort_unstable_by_key(|channel| channel.name.clone()); // TODO no clone?
         Self { list }
     }
 }
 
-impl<S> Levels<S> {
+impl<LevelSamples> Levels<LevelSamples> {
 
     /// Get a resolution level by index, sorted by size, decreasing.
-    pub fn get_level(&self, level: Vec2<usize>) -> Result<&S> {
+    pub fn get_level(&self, level: Vec2<usize>) -> Result<&LevelSamples> {
         match self {
             Levels::Singular(ref block) => {
                 debug_assert_eq!(level, Vec2(0,0), "singular image cannot write leveled blocks bug");
@@ -502,7 +407,7 @@ impl<S> Levels<S> {
 
     /// Get a resolution level by index, sorted by size, decreasing.
     // TODO storage order for RIP maps?
-    pub fn get_level_mut(&mut self, level: Vec2<usize>) -> Result<&mut S> {
+    pub fn get_level_mut(&mut self, level: Vec2<usize>) -> Result<&mut LevelSamples> {
         match self {
             Levels::Singular(ref mut block) => {
                 debug_assert_eq!(level, Vec2(0,0), "singular image cannot write leveled blocks bug");
@@ -526,7 +431,7 @@ impl<S> Levels<S> {
     }*/
 
     /// Get a slice of all resolution levels, sorted by size, decreasing.
-    pub fn levels_as_slice(&self) -> &[S] {
+    pub fn levels_as_slice(&self) -> &[LevelSamples] {
         match self {
             Levels::Singular(ref data) => std::slice::from_ref(data),
             Levels::Mip(ref maps) => maps,
@@ -629,15 +534,15 @@ impl RgbaSampleTypes {
     );
 }
 
-impl<'s, C:'s> Layer<C> {
-    /// Create a layer with the specified size and channels.
+impl<'s, ChannelData:'s> Layer<ChannelData> {
+    /// Create a layer with the specified size, attributes, encoding and channels.
     /// The channels can be either `RgbaChannels` or `AnyChannels`.
     pub fn new(
         dimensions: impl Into<Vec2<usize>>,
         attributes: LayerAttributes,
-        encoding: Encoding, channels: C
+        encoding: Encoding, channels: ChannelData
     ) -> Self
-        where C: WritableChannels<'s>
+        where ChannelData: WritableChannels<'s>
     {
         Layer { channel_data: channels, attributes, size: dimensions.into(), encoding }
     }
@@ -703,34 +608,34 @@ impl Default for Encoding {
     fn default() -> Self { Encoding::FAST_LOSSLESS }
 }
 
-impl<'s, L: 's> Image<L> {
+impl<'s, LayerData: 's> Image<LayerData> {
     /// Create an image with one or multiple layers. The layer can be a `Layer`, or `Layers` small vector.
-    pub fn new(image_attributes: ImageAttributes, layer_data: L) -> Self where L: WritableLayers<'s> {
+    pub fn new(image_attributes: ImageAttributes, layer_data: LayerData) -> Self where LayerData: WritableLayers<'s> {
         Image { attributes: image_attributes, layer_data }
     }
 }
 
-impl<'s, C:'s> Image<Layer<C>> where C: WritableChannels<'s> {
+impl<'s, ChannelData:'s> Image<Layer<ChannelData>> where ChannelData: WritableChannels<'s> {
 
     /// Uses the display position and size to the channel position and size of the layer.
-    pub fn from_single_layer(layer: Layer<C>) -> Self {
+    pub fn from_single_layer(layer: Layer<ChannelData>) -> Self {
         let bounds = IntegerBounds::new(layer.attributes.layer_position, layer.size);
         Self::new(ImageAttributes::new(bounds), layer)
     }
 
     /// Uses empty attributes.
-    pub fn with_encoded_single_layer(size: impl Into<Vec2<usize>>, encoding: Encoding, channels: C) -> Self {
+    pub fn with_encoded_single_layer(size: impl Into<Vec2<usize>>, encoding: Encoding, channels: ChannelData) -> Self {
         // layer name is not required for single-layer images
         Self::from_single_layer(Layer::new(size, LayerAttributes::default(), encoding, channels))
     }
 
     /// Uses empty attributes and fast compression.
-    pub fn with_single_layer(size: impl Into<Vec2<usize>>, channels: C) -> Self {
+    pub fn with_single_layer(size: impl Into<Vec2<usize>>, channels: ChannelData) -> Self {
         Self::with_encoded_single_layer(size, Encoding::default(), channels)
     }
 }
 
-impl<'s, S: 's> AnyChannel<S> {
+impl<'s, SampleData: 's> AnyChannel<SampleData> {
 
     /// Create a new channel without subsampling.
     ///
@@ -738,7 +643,7 @@ impl<'s, S: 's> AnyChannel<S> {
     /// if the name is "R", "G", "B", "Y", or "L",
     /// as they typically encode values that are perceived non-linearly.
     /// Construct the value yourself using `AnyChannel { .. }`, if you want to control this flag.
-    pub fn new(name: Text, sample_data: S) -> Self where S: WritableSamples<'s> {
+    pub fn new(name: Text, sample_data: SampleData) -> Self where SampleData: WritableSamples<'s> {
         let luminance_based = {
             name.eq_case_insensitive("R") || name.eq_case_insensitive("G") ||
                 name.eq_case_insensitive("B") || name.eq_case_insensitive("L") ||

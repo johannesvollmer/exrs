@@ -9,6 +9,7 @@ use crate::image::read::levels::{ReadSamplesLevel, ReadAllLevels, ReadLargestLev
 use crate::block::chunk::TileCoordinates;
 // use crate::image::read::layers::ReadChannels;
 
+/// Specify to read only flat samples and no "deep data"
 // FIXME do not throw error on deep data but just skip it!
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct ReadFlatSamples;
@@ -20,9 +21,12 @@ impl ReadFlatSamples {
     // e. g. `let sum = reader.any_channels_with(|sample, sum| sum += sample)`
     // pub fn any_channels_with <S> (self, storage: S) -> {  }
 
-
+    /// Specify to read only the highest resolution level, skipping all smaller variations.
     pub fn largest_resolution_level(self) -> ReadLargestLevel<Self> { ReadLargestLevel { read_samples: self } }
+
+    /// Specify to read all contained resolution levels from the image, if any.
     pub fn all_resolution_levels(self) -> ReadAllLevels<Self> { ReadAllLevels { read_samples: self } }
+
     // TODO pub fn specific_resolution_level<F: Fn(&[Vec2<usize>])->usize >(self, select_level: F) -> ReadLevelBy<Self> { ReadAllLevels { read_samples: self } }
 }
 
@@ -32,7 +36,7 @@ impl ReadFlatSamples {
     samples: DeepAndFlatSamples
 }*/
 
-/// No deep data.
+/// Processes pixel blocks from a file and accumulates them into a grid of samples, for example "Red" or "Alpha".
 #[derive(Debug, Clone, PartialEq)]
 pub struct FlatSamplesReader {
     level: Vec2<usize>,
@@ -41,7 +45,7 @@ pub struct FlatSamplesReader {
 }
 
 
-/// only used when samples is directly inside a channel, without levels
+// only used when samples is directly inside a channel, without levels
 impl ReadSamples for ReadFlatSamples {
     type Reader = FlatSamplesReader;
 
@@ -66,10 +70,12 @@ impl ReadSamplesLevel for ReadFlatSamples {
 }
 
 
-// TODO impl SamplesReader for AnySamples { }
-
 impl SamplesReader for FlatSamplesReader {
     type Samples = FlatSamples;
+
+    fn filter_block(&self, (_, tile): (usize, &TileCoordinates)) -> bool {
+        tile.level_index == self.level
+    }
 
     fn read_line(&mut self, line: LineRef<'_>) -> UnitResult {
         let index = line.location;
@@ -105,10 +111,6 @@ impl SamplesReader for FlatSamplesReader {
         }
 
         Ok(())
-    }
-
-    fn filter_block(&self, (_, tile): (usize, &TileCoordinates)) -> bool {
-        tile.level_index == self.level
     }
 
     fn into_samples(self) -> FlatSamples {

@@ -22,7 +22,7 @@ use crate::image::read::samples::{ReadFlatSamples};
 use std::path::Path;
 use crate::image::{AnyImage, RgbaLayersImage, RgbaImage, AnyChannels, FlatSamples, Image, Layer, FlatImage};
 use crate::image::read::image::ReadLayers;
-use crate::image::read::any_channels::ReadSamples;
+use crate::image::read::layers::ReadChannels;
 
 // TODO explain or use these simple functions somewhere
 
