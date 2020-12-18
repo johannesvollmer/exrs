@@ -1,3 +1,5 @@
+//! How to read either a single or a list of layers.
+
 use crate::image::*;
 use crate::meta::header::{Header, LayerAttributes};
 use crate::error::{Result, UnitResult, Error};
@@ -81,9 +83,17 @@ pub struct LayerReader<ChannelsReader> {
 
 /// Processes pixel blocks from a file and accumulates them into multiple channels per layer.
 pub trait ChannelsReader {
+
+    /// The type of the resulting channel collection
     type Channels;
-    fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult;
+
+    /// Specify whether a single block of pixels should be loaded from the file
     fn filter_block(&self, tile: (usize, &TileCoordinates)) -> bool;
+
+    /// Load a single pixel block, which has not been filtered, into the reader, accumulating the channel data
+    fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult;
+
+    /// Deliver the final accumulated channel collection for the image
     fn into_channels(self) -> Self::Channels;
 }
 

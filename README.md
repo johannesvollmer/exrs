@@ -169,27 +169,31 @@ The master branch of this repository is always an up-to-date version.
 
 ### Example
 
-Example: [Write a generated RGB exr file](https://github.com/johannesvollmer/exrs/blob/master/examples/1_minimal_rgb.rs).
+Example: [generate an rgb exr file](https://github.com/johannesvollmer/exrs/blob/master/examples/1_minimal_rgb.rs).
 
 ```rust
 extern crate exr;
-use exr::prelude::rgba_image::*;
+use exr::prelude::*;
 
 fn main() {
-    // generate an image with 2048*2048 pixels, converting all numbers to f16
-    ImageInfo::rgb((2048, 2048), SampleType::F16).write_pixels_to_file(
-        "tests/images/out/minimal_rgba.exr",
-        write_options::high(), // higher speed, but higher memory usage
+    // generate an image with 2048*2048 pixels
+    let generator_image = Image::with_single_layer(
+        (2048, 2048),
+        RgbaChannels::new(
+            RgbaSampleTypes::RGB_F16, // convert values to f16, no alpha
 
-        // generate a color for each pixel position
-        &|position: Vec2<usize>| {
-            Pixel::rgb(
-                position.x() as f32 / 2048.0, // red
-                position.y() as f32 / 2048.0, // green
-                1.0 - (position.y() as f32 / 2048.0), // blue
-            )
-        }
-    ).unwrap();
+            // generate some color for each pixel position
+            &|position: Vec2<usize>| {
+                RgbaPixel::rgb(
+                    position.x() as f32 / 2048.0, // red
+                    position.y() as f32 / 2048.0, // green
+                    1.0 - (position.y() as f32 / 2048.0), // blue
+                )
+            }
+        )
+    );
+
+    generator_image.write().to_file("my_image.exr").unwrap();
 }
 ```
 

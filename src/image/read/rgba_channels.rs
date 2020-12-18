@@ -1,12 +1,5 @@
-
-//! Read and write a simple RGBA image.
-//! This module loads the RGBA channels of any layer that contains RGB or RGBA channels.
-//! Returns `Error::Invalid` if none can be found in the file.
-//!
-//! This module should only be used if you are confident that your images are really RGBA.
-//!
-//! Furthermore, this is not a zero-cost abstraction.
-//! Use `read().all_channels()` with a filter instead, if performance is critical.
+//! How to read rgba channels.
+//! This is not a zero-cost abstraction.
 
 use crate::image::*;
 use crate::io::Read;

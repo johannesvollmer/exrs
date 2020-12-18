@@ -1,3 +1,5 @@
+//! How to write samples (a grid of `f32`, `f16` or `u32` values).
+
 use crate::meta::attribute::{LevelMode, SampleType, TileDescription};
 use crate::meta::header::Header;
 use crate::block::lines::LineRefMut;
@@ -5,68 +7,56 @@ use crate::image::{FlatSamples, Levels, RipMaps};
 use crate::math::Vec2;
 use crate::meta::{rip_map_levels, mip_map_levels, rip_map_indices, mip_map_indices, Blocks};
 
-/// inside `Channels`
+/// Enable an image with this sample grid to be written to a file.
+/// Also can contain multiple resolution levels.
+/// Usually contained within `Channels`.
 pub trait WritableSamples<'slf> {
     // fn is_deep(&self) -> bool;
+
+    /// Generate the file meta data regarding the number type of this storage
     fn sample_type(&self) -> SampleType;
+
+    /// Generate the file meta data regarding resolution levels
     fn level_mode(&self) -> LevelMode;
 
-    type Writer: /*'slf + */SamplesWriter;
+    /// The type of the temporary writer for this sample storage
+    type Writer: SamplesWriter;
+
+    /// Create a temporary writer for this sample storage
     fn create_samples_writer(&'slf self, header: &Header) -> Self::Writer;
 }
 
-/// inside `Levels`
+/// Enable an image with this single level sample grid to be written to a file.
+/// Only contained within `Levels`.
 pub trait WritableLevel<'slf> {
+
+    /// Generate the file meta data regarding the number type of these samples
     fn sample_type(&self) -> SampleType;
 
-    type Writer: /*'slf + */SamplesWriter;
+    /// The type of the temporary writer for this single level of samples
+    type Writer: SamplesWriter;
+
+    /// Create a temporary writer for this single level of samples
     fn create_level_writer(&'slf self, size: Vec2<usize>) -> Self::Writer;
 }
 
+/// A temporary writer for one or more resolution levels containing samples
 pub trait SamplesWriter: Sync {
+
+    /// Deliver a single short horizontal list of samples for a specific channel.
     fn extract_line(&self, line: LineRefMut<'_>);
 }
 
-/*pub trait InferSampleType { const SAMPLE_TYPE: SampleType; }
-impl InferSampleType for f16 { const SAMPLE_TYPE: SampleType = SampleType::F16; }
-impl InferSampleType for f32 { const SAMPLE_TYPE: SampleType = SampleType::F32; }
-impl InferSampleType for u32 { const SAMPLE_TYPE: SampleType = SampleType::U32; }*/
-
+/// A temporary writer for a predefined non-deep sample storage
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct FlatSamplesWriter<'samples> {
     resolution: Vec2<usize>, // respects resolution level
     samples: &'samples FlatSamples
 }
 
-/*impl<'s, F:'s, S:'s> WritableSamples<'s> for F where F: Sync + Fn(Vec2<usize>) -> S, S: InferSampleType + Data {
-    fn sample_type(&self) -> SampleType { S::SAMPLE_TYPE }
-    fn level_mode(&self) -> LevelMode { LevelMode::Singular } // TODO impl WritableLevels!
-
-    type Writer = FnSampleWriter<'s, F>;
-
-    fn create_samples_writer(&'s self, _: &Header) -> Self::Writer {
-        FnSampleWriter { closure: self }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct FnSampleWriter<'f, F> {
-    closure: &'f F,
-}
-
-impl<'f, S, F> SamplesWriter for FnSampleWriter<'f, F> where F: Sync + Fn(Vec2<usize>) -> S, S: Data {
-    fn extract_line(&self, line: LineRefMut<'_>) {
-        let start_position = line.location.position;
-        let closure = &self.closure;
-
-        line.write_samples(|x| closure(start_position + Vec2(x, 0)))
-            .expect("writing to in-memory buffer failed");
-    }
-}*/
 
 
-
-/// used, if no layers are used and the flat samples are directly inside the channels
+// used if no layers are used and the flat samples are directly inside the channels
 impl<'samples> WritableSamples<'samples> for FlatSamples {
     fn sample_type(&self) -> SampleType {
         match self {
@@ -87,7 +77,7 @@ impl<'samples> WritableSamples<'samples> for FlatSamples {
     }
 }
 
-/// used, if layers are used and the flat samples are inside the levels
+// used if layers are used and the flat samples are inside the levels
 impl<'samples> WritableLevel<'samples> for FlatSamples {
     fn sample_type(&self) -> SampleType {
         match self {
@@ -192,6 +182,7 @@ impl<'samples, LevelSamples> WritableSamples<'samples> for Levels<LevelSamples>
     }
 }
 
+/// A temporary writer for multiple resolution levels
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LevelsWriter<SamplesWriter> {
     levels: Levels<SamplesWriter>,

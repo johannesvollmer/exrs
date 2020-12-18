@@ -1,3 +1,5 @@
+//! How to read arbitrary channels.
+
 use crate::image::*;
 use crate::meta::header::{Header};
 use crate::error::{Result, UnitResult};

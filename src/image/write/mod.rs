@@ -1,4 +1,17 @@
 
+//! Write an exr image to a file.
+//!
+//! First, call `my_image.write()`. The resulting value can be customized, like this:
+//! ```no_run
+//!     use exr::prelude::*;
+//! #   let my_image: FlatImage = unimplemented!();
+//!
+//!     image.write()
+//!            .on_progress(|progress| println!("progress: {:.1}", progress*100.0))
+//!            .to_file("image.exr").unwrap();
+//! ```
+//!
+
 pub mod layers;
 pub mod samples;
 pub mod channels;
@@ -12,9 +25,10 @@ use crate::io::Write;
 use crate::image::{Image, ignore_progress};
 use crate::image::write::layers::{WritableLayers, LayersWriter};
 
-
-// extension for "Image" which allows calling ".write()...." on an image
+/// Enables an image to be written to a file. Call `image.write()` where this trait is implemented.
 pub trait WritableImage<'img, WritableLayers>: Sized {
+
+    /// Create a temporary writer which can be configured and used to write the image to a file.
     fn write(self) -> WriteImageWithOptions<'img, WritableLayers, fn(f64)>;
 }
 
@@ -27,7 +41,7 @@ impl<'img, WritableLayers> WritableImage<'img, WritableLayers> for &'img Image<W
     }
 }
 
-
+/// A temporary writer which can be configured and used to write an image to a file.
 // temporary writer with options
 #[derive(Debug, Clone, PartialEq)]
 pub struct WriteImageWithOptions<'img, Layers, OnProgress> {
@@ -41,16 +55,25 @@ pub struct WriteImageWithOptions<'img, Layers, OnProgress> {
 impl<'img, Layers, OnProgress> WriteImageWithOptions<'img, Layers, OnProgress>
     where Layers: WritableLayers<'img>, OnProgress: FnMut(f64)
 {
+    /// Generate file meta data for this image. The meta data structure is close to the data in the file.
     pub fn infer_meta_data(&self) -> Headers { // TODO this should perform all validity checks? and none after that?
         self.image.layer_data.infer_headers(&self.image.attributes)
     }
 
+    /// Do not compress multiple pixel blocks on multiple threads at once.
+    /// Might use less memory and synchronization, but will be slower in most situations.
     pub fn non_parallel(self) -> Self { Self { parallel: false, ..self } }
+
+    /// Skip some checks that ensure a file can be opened by other exr software.
+    /// Might save a few nano seconds, but you must care for not producing an invalid file yourself.
     pub fn skip_compatibility_checks(self) -> Self { Self { check_compatibility: false, ..self } }
+
+    /// Specify a function to be called regularly throughout the writing process.
+    /// Replaces all previously specified progress functions in this reader.
     pub fn on_progress(self, on_progress: OnProgress) -> Self where OnProgress: FnMut(f64) { Self { on_progress, ..self } }
 
     /// Write the exr image to a file.
-    /// Use `write_to_unbuffered` instead if you do not have a file.
+    /// Use `to_unbuffered` instead, if you do not have a file.
     /// If an error occurs, attempts to delete the partially written file.
     #[inline]
     #[must_use]
@@ -61,9 +84,9 @@ impl<'img, Layers, OnProgress> WriteImageWithOptions<'img, Layers, OnProgress>
     }
 
     /// Buffer the writer and then write the exr image to it.
-    /// Use `read_from_buffered` instead, if your reader is an in-memory writer.
-    /// Use `read_from_file` instead, if you have a file path.
-    /// If your writer cannot seek, you can write to an in-memory vector of bytes first, using `write_to_buffered`.
+    /// Use `to_buffered` instead, if your writer is an in-memory buffer.
+    /// Use `to_file` instead, if you have a file path.
+    /// If your writer cannot seek, you can write to an in-memory vector of bytes first, using `to_buffered`.
     #[inline]
     #[must_use]
     pub fn to_unbuffered(self, unbuffered: impl Write + Seek) -> UnitResult {
@@ -71,8 +94,8 @@ impl<'img, Layers, OnProgress> WriteImageWithOptions<'img, Layers, OnProgress>
     }
 
     /// Write the exr image to a writer.
-    /// Use `read_from_file` instead, if you have a file path.
-    /// Use `read_from_unbuffered` instead, if this is not an in-memory writer.
+    /// Use `to_file` instead, if you have a file path.
+    /// Use `to_unbuffered` instead, if this is not an in-memory writer.
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first.
     #[must_use]
     pub fn to_buffered(self, write: impl Write + Seek) -> UnitResult {

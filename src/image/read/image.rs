@@ -1,3 +1,6 @@
+//! The last wrapper of image readers, finally containing the `from_file(path)` method.
+//! This completes the builder and reads a complete image.
+
 use crate::image::*;
 use crate::meta::header::{Header, ImageAttributes};
 use crate::error::{Result, UnitResult};

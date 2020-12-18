@@ -1,3 +1,4 @@
+//! How to read a set of resolution levels.
 
 use crate::meta::*;
 use crate::image::*;
@@ -44,6 +45,8 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
 /// Specify to read all contained resolution levels from the image, if any.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReadAllLevels<DeepOrFlatSamples> {
+
+    /// The sample reading specification
     pub read_samples: DeepOrFlatSamples
 }
 

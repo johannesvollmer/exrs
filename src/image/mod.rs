@@ -1,6 +1,23 @@
 
-//! Data structures that contain the image.
-//! Contains a bunch of generic structs that must be nested to obtain a complete image type.
+//! Data structures that represent a complete exr image.
+//! Contains generic structs that must be nested to obtain a complete image type.
+//!
+//!
+//! For example, an rgba image containing multiple layers
+//! can be represented using `Image<Layers<RgbaChannels<MyPixelStorage>>>`.
+//! An image containing a single layer with arbitrary channels and no deep data
+//! can be represented using `Image<Layer<AnyChannels<FlatSamples>>>`.
+//!
+//!
+//! These and other predefined types are included in this module as
+//! 1. `RgbaImage`: A single layer, rgb or rgba channels
+//! 1. `RgbaLayersImage`: Multiple layers, rgb or rgba channels
+//! 1. `FlatImage`: Multiple layers, any channels, no deep data.
+//! 1. `AnyImage`: All supported data (multiple layers, arbitrary channels, no deep data yet)
+//!
+//! You can also use your own types inside an image,
+//! for example if you want to use a custom sample storage.
+//!
 
 pub mod read;
 pub mod write;
@@ -240,6 +257,11 @@ pub enum DeepAndFlatSamples {
 /// A vector of non-deep values (one value per pixel per channel).
 /// Stores row after row in a single vector.
 /// The precision of all values is either `f16`, `f32` or `u32`.
+///
+/// Since this is close to the pixel layout in the byte file,
+/// this will most likely be the fastest storage.
+/// Using a different storage, for example `RgbaChannels`,
+/// will probably be slower.
 #[derive(Clone, PartialEq)] // debug is implemented manually
 pub enum FlatSamples {
 

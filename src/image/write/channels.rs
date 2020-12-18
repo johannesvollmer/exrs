@@ -1,3 +1,5 @@
+//! How to read arbitrary channels and rgb channels.
+
 use crate::meta::attribute::{LevelMode, ChannelInfo, SampleType, ChannelList};
 use smallvec::SmallVec;
 use crate::meta::header::Header;
@@ -11,22 +13,40 @@ use crate::block::samples::Sample;
 use std::io::Cursor;
 use crate::image::write::samples::{WritableSamples, SamplesWriter};
 
+// TODO TupleChannelsWriter: Fn(Vec2<usize>) -> impl IntoSamples, where IntoSamples is implemented for tuples, inferring the channel type
 
+/// Enables an image containing this list of channels to be written to a file.
 pub trait WritableChannels<'slf> {
+
+    /// Generate the file meta data for this list of channel
     fn infer_channel_list(&self) -> ChannelList;
+
+    ///  Generate the file meta data of whether and how resolution levels should be stored in the file
     fn level_mode(&self) -> LevelMode;
 
+    /// The type of temporary writer
     type Writer: ChannelsWriter;
+
+    /// Create a temporary writer for this list of channels
     fn create_writer(&'slf self, header: &Header) -> Self::Writer;
 }
 
+/// A temporary writer for a list of channels
 pub trait ChannelsWriter: Sync {
+
+    /// Deliver a block of pixels, containing all channel data, to be stored in the file
     fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex) -> Vec<u8>;
 }
 
 
+/// Define how to get an rgba pixel from your custom pixel storage.
+/// Can be a closure of type `Sync + Fn(Vec2<usize>) -> RgbaPixel`.
+pub trait GetRgbaPixel: Sync {
 
-pub trait GetRgbaPixel: Sync { // TODO allow fnmut?
+    /// Inspect a single rgba pixel at the requested position.
+    /// Will be called exactly once for each pixel in the image.
+    /// The position will not exceed the image dimensions.
+    /// Might be called from multiple threads at the same time.
     fn get_pixel(&self, position: Vec2<usize>) -> RgbaPixel;
 }
 
@@ -64,6 +84,7 @@ impl<'samples, Samples> WritableChannels<'samples> for AnyChannels<Samples>
     }
 }
 
+/// A temporary writer for an arbitrary list of channels
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AnyChannelsWriter<SamplesWriter> {
     channels: SmallVec<[SamplesWriter; 4]>
@@ -115,6 +136,7 @@ impl<'channels, Pixels: 'channels> WritableChannels<'channels> for RgbaChannels<
     }
 }
 
+/// A temporary writer for a layer of rgba channels, alpha being optional
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RgbaChannelsWriter<'channels, Pixels> where Pixels: GetRgbaPixel {
     rgba: &'channels RgbaChannels<Pixels>, // TODO this need not be a reference??

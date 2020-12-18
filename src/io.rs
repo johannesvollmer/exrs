@@ -221,7 +221,7 @@ impl<T: Read + Seek> Tracking<T> {
     /// Set the reader to the specified byte position.
     /// If it is only a couple of bytes, no seek system call is performed.
     pub fn seek_read_to(&mut self, target_position: usize) -> std::io::Result<()> {
-        let delta = target_position as i64 - self.position as i64;
+        let delta = target_position as i64 - self.position as i64; // FIXME  panicked at 'attempt to subtract with overflow'
 
         if delta > 0 && delta < 16 { // TODO profile that this is indeed faster than a syscall! (should be because of bufread buffer discard)
             skip_bytes(self, delta as usize)?;

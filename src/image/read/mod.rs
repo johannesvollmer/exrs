@@ -1,12 +1,46 @@
 
-//! The following three stages are used to read an image.
-//! 1. `ReadImage` - The specification. Contains everything the user wants to tell us about loading an image.
-//!    The data in this structure will be instantiated and might be borrowed.
-//! 2. `ImageReader` - The temporary reader. Based on the specification of the blueprint, a reader is instantiated, once for each layer.
-//!    This data structure accumulates the image data from the file.
-//!    It also owns temporary data and references the blueprint.
-//! 3. `Image` - The clean image. The accumulated data from the Reader
-//!    is converted to the clean image structure, losing all temporary data.
+//! Read an exr image.
+//!
+//! For great flexibility and customization, use the `read()` function.
+//! The return value of the `read()` function must be further customized before reading a file.
+
+//!
+//! For very simple applications, you can alternatively use one of these functions:
+//!
+//! 1. `read_first_rgb_layer_from_file(path, your_constructor, your_pixel_setter)`:
+//!     You specify how to store an `RgbaPixel`.
+//!     The first layer containing rgba channels is then loaded from the file.
+//!     Fails if no rgba layer can be found.
+//!
+//! 1. `read_all_rgba_layers_from_file(path, your_constructor, your_pixel_setter)`:
+//!     You specify how to store an `RgbaPixel`.
+//!     All layers containing rgba channels are then loaded from the file.
+//!     Fails if any layer in the image does not contain rgba channels.
+//!
+//! 1. `read_first_flat_layer_from_file(path)`:
+//!     The first layer containing non-deep data with arbitrary channels is loaded from the file.
+//!     Fails if no non-deep layer can be found.
+//!
+//! 1. `read_all_flat_layers_from_file(path)`:
+//!     All layers containing non-deep data with arbitrary channels are loaded from the file.
+//!     Fails if any layer in the image contains deep data.
+//!
+//! 1. `read_all_data_from_file(path)`:
+//!     All layers with arbitrary channels and all resolution levels are extracted from the file.
+//!
+//!     Note: Currently does not support deep data, and currently fails
+//!     if any layer in the image contains deep data.
+//!
+
+// The following three stages are internally used to read an image.
+// 1. `ReadImage` - The specification. Contains everything the user wants to tell us about loading an image.
+//    The data in this structure will be instantiated and might be borrowed.
+// 2. `ImageReader` - The temporary reader. Based on the specification of the blueprint,
+//    a reader is instantiated, once for each layer.
+//    This data structure accumulates the image data from the file.
+//    It also owns temporary data and references the blueprint.
+// 3. `Image` - The clean image. The accumulated data from the Reader
+//    is converted to the clean image structure, without temporary data.
 
 pub mod image;
 pub mod layers;
@@ -110,8 +144,28 @@ pub fn read_first_rgb_layer_from_file<Set:'static, Create:'static, Pixels:'stati
 pub struct ReadBuilder;
 
 /// Create a reader which can be used to load an exr image.
-/// Allows you to exactly specify how to load the image.
-/// Call `no_deep_data` on the resulting `ReadBuilder` to load an image that contains no deep data.
+/// Allows you to exactly specify how to load the image, for example:
+///
+/// ```no_run
+///     use exr::prelude::*;
+///
+///     // the type of the this image depends on the chosen options
+///     let image = read()
+///         .no_deep_data() // (currently required)
+///         .largest_resolution_level() // or `all_resolution_levels()`
+///         .all_channels() // or `rgba_channels(constructor, setter)`
+///         .all_layers() // or `first_valid_layer()`
+///         .all_attributes() // (currently required)
+///         .on_progress(|progress| println!("progress: {:.1}", progress*100.0)) // optional
+///         .from_file("file.exr").unwrap(); // or `from_buffered(my_byte_slice)`
+/// ```
+///
+/// You can alternatively use one of the following simpler functions:
+/// 1. `read_first_flat_layer_from_file`
+/// 1. `read_all_rgba_layers_from_file`
+/// 1. `read_all_flat_layers_from_file`
+/// 1. `read_all_data_from_file`
+///
 // TODO not panic but skip deep layers!
 pub fn read() -> ReadBuilder { ReadBuilder }
 

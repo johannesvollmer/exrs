@@ -1,3 +1,5 @@
+//! How to read samples (a grid of `f32`, `f16` or `u32` values).
+
 use crate::image::*;
 use crate::meta::header::{Header};
 use crate::error::{Result, UnitResult};
