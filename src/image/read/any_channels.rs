@@ -10,9 +10,9 @@ use crate::meta::attribute::{Text, ChannelInfo};
 use crate::image::read::layers::{ReadChannels, ChannelsReader};
 use crate::block::chunk::TileCoordinates;
 
-/// A template that creates a `AnyChannelsReader` for each layer in the image.
+/// A template that creates an [AnyChannelsReader] for each layer in the image.
 /// This loads all channels for each layer.
-/// The `ReadSamples` can, for example, be `ReadFlatSamples` or `ReadAllLevels<ReadFlatSamples>`.
+/// The `ReadSamples` can, for example, be [ReadFlatSamples] or [ReadAllLevels<ReadFlatSamples>].
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReadAnyChannels<ReadSamples> {
 
@@ -20,7 +20,7 @@ pub struct ReadAnyChannels<ReadSamples> {
     pub read_samples: ReadSamples
 }
 
-/// A template that creates a new `SampleReader` for each channel in each layer.
+/// A template that creates a new [`SampleReader`] for each channel in each layer.
 pub trait ReadSamples {
 
     /// The type of the temporary samples reader
@@ -57,7 +57,7 @@ pub struct AnyChannelReader<SamplesReader> {
 }
 
 /// Processes pixel blocks from a file and accumulates them into a single pixel channel.
-/// For example, stores thousands of `Red` pixel values for a single layer.
+/// For example, stores thousands of "Red" pixel values for a single layer.
 pub trait SamplesReader {
 
     /// The type of resulting sample storage

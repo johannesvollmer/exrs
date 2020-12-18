@@ -68,7 +68,7 @@ impl<T> Vec2<T> {
 
 impl Vec2<i32> {
 
-    /// Try to convert to `Vec2<usize>`, returning an error on negative numbers.
+    /// Try to convert to [`Vec2<usize>`], returning an error on negative numbers.
     pub fn to_usize(self, error_message: &'static str) -> Result<Vec2<usize>> {
         let x = i32_to_usize(self.0, error_message)?;
         let y = i32_to_usize(self.1, error_message)?;

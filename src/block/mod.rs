@@ -58,7 +58,7 @@ pub struct UncompressedBlock {
 /// Compresses and writes all lines of an image described by `meta_data` and `get_line` to the writer.
 /// Flushes the writer to explicitly handle all errors.
 ///
-/// Attention: Currently, using multi-core compression with `LineOrder::Increasing` or `LineOrder::Decreasing` in any header
+/// Attention: Currently, using multi-core compression with [LineOrder::Increasing] or [LineOrder::Decreasing] in any header
 /// can potentially allocate large amounts of memory while writing the file. Use unspecified line order for lower memory usage.
 ///
 /// Does not buffer the writer, you should always pass a `BufWriter`.

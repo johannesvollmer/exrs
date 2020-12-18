@@ -613,7 +613,6 @@ impl Requirements {
 mod test {
     use super::*;
     use crate::meta::header::{ImageAttributes, LayerAttributes};
-    use std::convert::TryInto;
 
     #[test]
     fn round_trip_requirements() {
@@ -636,7 +635,7 @@ mod test {
         let header = Header {
             channels: ChannelList::new(smallvec![
                     ChannelInfo {
-                        name: Text::from("main").unwrap(),
+                        name: Text::from("main"),
                         sample_type: SampleType::U32,
                         quantize_linearly: false,
                         sampling: Vec2(1, 1)
@@ -660,7 +659,7 @@ mod test {
             deep: false,
             layer_size: Vec2(2000, 333),
             own_attributes: LayerAttributes {
-                layer_name: Some(Text::from("test name lol").unwrap()),
+                layer_name: Some(Text::from("test name lol")),
                 layer_position: Vec2(3, -5),
                 screen_window_center: Vec2(0.3, 99.0),
                 screen_window_width: 0.19,
@@ -692,7 +691,7 @@ mod test {
         let header_version_1_short_names = Header {
             channels: ChannelList::new(smallvec![
                     ChannelInfo {
-                        name: Text::from("main").unwrap(),
+                        name: Text::from("main"),
                         sample_type: SampleType::U32,
                         quantize_linearly: false,
                         sampling: Vec2(1, 1)
@@ -739,7 +738,7 @@ mod test {
             channels: ChannelList::new(
                 smallvec![
                     ChannelInfo {
-                        name: Text::from("main").unwrap(),
+                        name: Text::new_or_panic("main"),
                         sample_type: SampleType::U32,
                         quantize_linearly: false,
                         sampling: Vec2(1, 1)
@@ -762,17 +761,17 @@ mod test {
             deep: false,
             layer_size: Vec2(2000, 333),
             own_attributes: LayerAttributes {
-                layer_name: Some("oasdasoidfj".try_into().unwrap()),
+                layer_name: Some(Text::new_or_panic("oasdasoidfj")),
                 other: vec![
-                    (Text::try_from("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx").unwrap(), AttributeValue::F32(3.0)),
-                    (Text::try_from("y").unwrap(), AttributeValue::F32(-1.0)),
+                    (Text::new_or_panic("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"), AttributeValue::F32(3.0)),
+                    (Text::new_or_panic("y"), AttributeValue::F32(-1.0)),
                 ].into_iter().collect(),
                 .. Default::default()
             }
         };
 
         let mut layer_2 = header_version_2_long_names.clone();
-        layer_2.own_attributes.layer_name = Some("anythingelse".try_into().unwrap());
+        layer_2.own_attributes.layer_name = Some(Text::new_or_panic("anythingelse"));
 
         let low_requirements = MetaData::validate(
             &[header_version_2_long_names, layer_2], true

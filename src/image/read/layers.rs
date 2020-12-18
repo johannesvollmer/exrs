@@ -9,7 +9,7 @@ use crate::image::read::image::{ReadLayers, LayersReader};
 use crate::block::chunk::TileCoordinates;
 
 /// Specify to read all channels, aborting if any one is invalid.
-/// `ReadRgbaChannels` or `ReadAnyChannels<ReadFlatSamples>`.
+/// [`ReadRgbaChannels`] or [`ReadAnyChannels<ReadFlatSamples>`].
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReadAllLayers<ReadChannels> {
 
@@ -26,7 +26,7 @@ pub struct ReadFirstValidLayer<ReadChannels> {
     pub read_channels: ReadChannels,
 }
 
-/// A template that creates a `ChannelsReader` once for all channels per layer.
+/// A template that creates a [`ChannelsReader`] once for all channels per layer.
 pub trait ReadChannels<'s> {
 
     /// The type of the temporary channels reader
@@ -55,7 +55,7 @@ pub trait ReadChannels<'s> {
 
 /// Processes pixel blocks from a file and accumulates them into a list of layers.
 /// For example, `ChannelsReader` can be
-/// `RgbaChannelsReader` or `AnyChannelsReader<FlatSamplesReader>`.
+/// [`RgbaChannelsReader`] or [`AnyChannelsReader<FlatSamplesReader>`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct AllLayersReader<ChannelsReader> {
     layer_readers: SmallVec<[LayerReader<ChannelsReader>; 2]>, // TODO unpack struct?

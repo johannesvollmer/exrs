@@ -24,7 +24,7 @@ fn main() {
         let color: f16 = f16::from_bits(rand::random::<u16>());
 
         AnyChannel::new(
-            name.try_into().unwrap(),
+            name,
             FlatSamples::F16(vec![color; size.area() ]) // TODO no borrowing
         )
     };
@@ -54,7 +54,7 @@ fn main() {
 
     let layer = Layer::new(
         size,
-        LayerAttributes::named("test-image".try_into().unwrap()),
+        LayerAttributes::named("test-image"),
         Encoding::FAST_LOSSLESS,
         AnyChannels::new(smallvec![ // the order does not actually matter
             foreground_r, foreground_g, foreground_b, foreground_a,

@@ -15,7 +15,7 @@ use crate::image::read::rgba_channels::*;
 // Note: In the resulting image, the `FlatSamples` are placed
 // directly inside the channels, without `LargestLevel<>` indirection
 /// Specify to read only the highest resolution level, skipping all smaller variations.
-/// The sample storage can be `ReadFlatSamples`.
+/// The sample storage can be [`ReadFlatSamples`].
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReadLargestLevel<DeepOrFlatSamples> {
 
@@ -75,7 +75,7 @@ pub struct AllLevelsReader<SamplesReader> {
     levels: Levels<SamplesReader>,
 }
 
-/// A template that creates a `SamplesReader` once for each resolution level.
+/// A template that creates a [`SamplesReader`] once for each resolution level.
 pub trait ReadSamplesLevel {
 
     /// The type of the temporary level reader

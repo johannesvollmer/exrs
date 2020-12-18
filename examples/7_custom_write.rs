@@ -36,10 +36,10 @@ fn main() {
         "test-image".try_into().unwrap(),
         size,
         smallvec![
-            ChannelInfo::new("B".try_into().unwrap(), SampleType::F32, true),
-            ChannelInfo::new("G".try_into().unwrap(), SampleType::F32, true),
-            ChannelInfo::new("R".try_into().unwrap(), SampleType::F32, true),
-            ChannelInfo::new("Z".try_into().unwrap(), SampleType::F32, true),
+            attribute::ChannelInfo::new("B", SampleType::F32, true),
+            attribute::ChannelInfo::new("G", SampleType::F32, true),
+            attribute::ChannelInfo::new("R", SampleType::F32, true),
+            attribute::ChannelInfo::new("Z", SampleType::F32, true),
         ],
     );
 
@@ -47,7 +47,7 @@ fn main() {
     let mut header = header.with_encoding(
         Compression::Uncompressed,
 
-        crate::meta::Blocks::Tiles(TileDescription {
+        exr::meta::Blocks::Tiles(TileDescription {
             tile_size: Vec2(64, 64),
             level_mode: LevelMode::Singular,
             rounding_mode: RoundingMode::Down

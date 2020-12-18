@@ -29,11 +29,8 @@
 
 use super::*;
 
-use crate::prelude::*;
-
 use crate::error::Result;
 use inflate::inflate_bytes_zlib;
-use attribute::ChannelList;
 use lebe::io::ReadPrimitive;
 use deflate::write::ZlibEncoder;
 

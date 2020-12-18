@@ -8,9 +8,7 @@ use exr::prelude::*;
 
 
 pub fn main() {
-    // let path = "tests/images/valid/openexr/BeachBall/multipart.0001.exr";
     let path = "tests/images/valid/openexr/MultiResolution/Kapaa.exr";
-
     let now = ::std::time::Instant::now();
 
     // load the exr file from disk with multi-core decompression
@@ -25,7 +23,7 @@ pub fn main() {
 
     for (layer_index, layer) in image.layer_data.iter().enumerate() {
         let layer_name = layer.attributes.layer_name.as_ref()
-            .map_or(String::from("1"), attribute::Text::to_string);
+            .map_or(String::from("1"), Text::to_string);
 
         for channel in &layer.channel_data.list {
             for (level, level_size) in layer.levels_with_resolution(&channel.sample_data) {
@@ -37,51 +35,6 @@ pub fn main() {
                     level_size.width(), level_size.height(),
                 ))
             }
-/*
-            match &channel.sample_data {
-                FlatSamples::F16(levels) => {
-                    let levels = levels.as_flat_samples()
-                        .expect("deep data to png not supported");
-
-                    for sample_block in levels.as_slice() {
-                        let data : Vec<f32> = sample_block.samples.iter().map(|f16| f16.to_f32()).collect();
-
-                        save_f32_image_as_png(&data, sample_block.resolution, format!(
-                            "tests/images/out/{} ({}) {}_f16_{}x{}.png",
-                            layer_index, layer_name, channel.name,
-                            sample_block.resolution.width(), sample_block.resolution.height(),
-                        ))
-                    }
-                },
-
-                FlatSamples::F32(levels) => {
-                    let levels = levels.as_flat_samples()
-                        .expect("deep data to png not supported");
-
-                    for sample_block in levels.as_slice() {
-                        save_f32_image_as_png(&sample_block.samples, sample_block.resolution, format!(
-                            "tests/images/out/{} ({}) {}_f32_{}x{}.png",
-                            layer_index, layer_name, channel.name,
-                            sample_block.resolution.width(), sample_block.resolution.height(),
-                        ))
-                    }
-                },
-
-                FlatSamples::U32(levels) => {
-                    let levels = levels.as_flat_samples()
-                        .expect("deep data to png not supported");
-
-                    for sample_block in levels.as_slice() {
-                        let data : Vec<f32> = sample_block.samples.iter().map(|value| *value as f32).collect();
-
-                        save_f32_image_as_png(&data, sample_block.resolution, format!(
-                            "tests/images/out/{} ({}) {}_u32_{}x{}.png",
-                            layer_index, layer_name, channel.name,
-                            sample_block.resolution.width(), sample_block.resolution.height(),
-                        ))
-                    }
-                },
-            }*/
         }
     }
 

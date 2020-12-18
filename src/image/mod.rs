@@ -665,7 +665,9 @@ impl<'s, SampleData: 's> AnyChannel<SampleData> {
     /// if the name is "R", "G", "B", "Y", or "L",
     /// as they typically encode values that are perceived non-linearly.
     /// Construct the value yourself using `AnyChannel { .. }`, if you want to control this flag.
-    pub fn new(name: Text, sample_data: SampleData) -> Self where SampleData: WritableSamples<'s> {
+    pub fn new(name: impl Into<Text>, sample_data: SampleData) -> Self where SampleData: WritableSamples<'s> {
+        let name: Text = name.into();
+
         let luminance_based = {
             name.eq_case_insensitive("R") || name.eq_case_insensitive("G") ||
                 name.eq_case_insensitive("B") || name.eq_case_insensitive("L") ||

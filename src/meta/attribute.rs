@@ -383,19 +383,20 @@ fn invalid_type() -> Error {
 
 impl Text {
 
-    /// The internal ASCII bytes this text is made of.
-    pub fn bytes(&self) -> &[u8] {
-        self.bytes.as_slice()
-    }
-
     /// Create a `Text` from an `str` reference.
     /// Returns `None` if this string contains unsupported chars.
-    pub fn from(str: impl AsRef<str>) -> Option<Self> {
-        let vec : Option<TextBytes> = str.as_ref().chars()
+    pub fn new_or_none(string: impl AsRef<str>) -> Option<Self> {
+        let vec : Option<TextBytes> = string.as_ref().chars()
             .map(|character| u8::try_from(character as u64).ok())
             .collect();
 
         vec.map(Self::from_bytes_unchecked)
+    }
+
+    /// Create a `Text` from an `str` reference.
+    /// Panics if this string contains unsupported chars.
+    pub fn new_or_panic(string: impl AsRef<str>) -> Self {
+        Self::new_or_none(string).expect("exr::Text contains unsupported characters")
     }
 
     /// Create a `Text` from a slice of bytes,
@@ -408,6 +409,11 @@ impl Text {
     /// without checking any of the bytes.
     pub fn from_bytes_unchecked(bytes: TextBytes) -> Self {
         Text { bytes }
+    }
+
+    /// The internal ASCII bytes this text is made of.
+    pub fn bytes(&self) -> &[u8] {
+        self.bytes.as_slice()
     }
 
     /// Check whether this string is valid, adjusting `long_names` if required.
@@ -576,13 +582,26 @@ impl Into<String> for Text {
     }
 }
 
-impl<'s> TryFrom<&'s str> for Text {
-    type Error = &'static str;
+impl<'s> From<&'s str> for Text {
 
-    fn try_from(value: &'s str) -> std::result::Result<Self, Self::Error> {
-        Text::from(value).ok_or("exr text does not support unicode characters")
+    /// Panics if the string contains an unsupported character
+    fn from(str: &'s str) -> Self {
+        Self::new_or_panic(str)
     }
 }
+
+/* TODO (currently conflicts with From<&str>)
+impl<'s> TryFrom<&'s str> for Text {
+    type Error = String;
+
+    fn try_from(value: &'s str) -> std::result::Result<Self, Self::Error> {
+        Text::new_or_none(value)
+            .ok_or_else(|| format!(
+                "exr::Text does not support all characters in the string `{}`",
+                value
+            ))
+    }
+}*/
 
 
 impl ::std::fmt::Debug for Text {
@@ -840,8 +859,8 @@ impl SampleType {
 impl ChannelInfo {
 
     /// Create a new channel with the specified properties and a sampling rate of (1,1).
-    pub fn new(name: Text, sample_type: SampleType, quantize_linearly: bool) -> Self {
-        Self { name, sample_type, quantize_linearly, sampling: Vec2(1, 1) }
+    pub fn new(name: impl Into<Text>, sample_type: SampleType, quantize_linearly: bool) -> Self {
+        Self { name: name.into(), sample_type, quantize_linearly, sampling: Vec2(1, 1) }
     }
 
     /// The count of pixels this channel contains, respecting subsampling.
@@ -1725,58 +1744,58 @@ mod test {
     fn attribute_write_read_roundtrip_and_byte_size(){
         let attributes = [
             (
-                Text::from("greeting").unwrap(),
-                AttributeValue::Text(Text::from("hello").unwrap()),
+                Text::from("greeting"),
+                AttributeValue::Text(Text::from("hello")),
             ),
             (
-                Text::from("age").unwrap(),
+                Text::from("age"),
                 AttributeValue::I32(923),
             ),
             (
-                Text::from("leg count").unwrap(),
+                Text::from("leg count"),
                 AttributeValue::F64(9.114939599234),
             ),
             (
-                Text::from("rabbit area").unwrap(),
+                Text::from("rabbit area"),
                 AttributeValue::FloatRect(FloatRect {
                     min: Vec2(23.4234, 345.23),
                     max: Vec2(68623.0, 3.12425926538),
                 }),
             ),
             (
-                Text::from("tests are difficult").unwrap(),
+                Text::from("tests are difficult"),
                 AttributeValue::TextVector(vec![
-                    Text::from("sdoifjpsdv").unwrap(),
-                    Text::from("sdoifjpsdvxxxx").unwrap(),
-                    Text::from("sdoifjasd").unwrap(),
-                    Text::from("sdoifj").unwrap(),
-                    Text::from("sdoifjddddddddasdasd").unwrap(),
+                    Text::from("sdoifjpsdv"),
+                    Text::from("sdoifjpsdvxxxx"),
+                    Text::from("sdoifjasd"),
+                    Text::from("sdoifj"),
+                    Text::from("sdoifjddddddddasdasd"),
                 ]),
             ),
             (
-                Text::from("what should we eat tonight").unwrap(),
+                Text::from("what should we eat tonight"),
                 AttributeValue::Preview(Preview {
                     size: Vec2(10, 30),
                     pixel_data: vec![31; 10 * 30 * 4],
                 }),
             ),
             (
-                Text::from("leg count, again").unwrap(),
+                Text::from("leg count, again"),
                 AttributeValue::ChannelList(ChannelList::new(smallvec![
                         ChannelInfo {
-                            name: Text::from("Green").unwrap(),
+                            name: Text::from("Green"),
                             sample_type: SampleType::F16,
                             quantize_linearly: false,
                             sampling: Vec2(1,2)
                         },
                         ChannelInfo {
-                            name: Text::from("Red").unwrap(),
+                            name: Text::from("Red"),
                             sample_type: SampleType::F32,
                             quantize_linearly: true,
                             sampling: Vec2(1,2)
                         },
                         ChannelInfo {
-                            name: Text::from("Purple").unwrap(),
+                            name: Text::from("Purple"),
                             sample_type: SampleType::U32,
                             quantize_linearly: false,
                             sampling: Vec2(0,0)
@@ -1798,7 +1817,7 @@ mod test {
 
         {
             let (name, value) = (
-                Text::from("asdkaspfokpaosdkfpaokswdpoakpsfokaposdkf").unwrap(),
+                Text::from("asdkaspfokpaosdkfpaokswdpoakpsfokaposdkf"),
                 AttributeValue::I32(0),
             );
 
@@ -1809,7 +1828,7 @@ mod test {
 
         {
             let (name, value) = (
-                Text::from("sdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfpo").unwrap(),
+                Text::from("sdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfposdöksadöofkaspdolkpöasolfkcöalsod,kfcöaslodkcpöasolkfpo"),
                 AttributeValue::I32(0),
             );
 

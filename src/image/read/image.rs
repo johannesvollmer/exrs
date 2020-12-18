@@ -1,4 +1,4 @@
-//! The last wrapper of image readers, finally containing the `from_file(path)` method.
+//! The last wrapper of image readers, finally containing the [`from_file(path)`] method.
 //! This completes the builder and reads a complete image.
 
 use crate::image::*;
@@ -53,7 +53,7 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
 
 
     /// Read the exr image from a file.
-    /// Use `read_from_unbuffered` instead, if you do not have a file.
+    /// Use [`read_from_unbuffered`] instead, if you do not have a file.
     #[inline]
     #[must_use]
     pub fn from_file<Layers>(self, path: impl AsRef<Path>) -> Result<Image<Layers>>
@@ -63,8 +63,8 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
     }
 
     /// Buffer the reader and then read the exr image from it.
-    /// Use `read_from_buffered` instead, if your reader is an in-memory reader.
-    /// Use `read_from_file` instead, if you have a file path.
+    /// Use [`read_from_buffered`] instead, if your reader is an in-memory reader.
+    /// Use [`read_from_file`] instead, if you have a file path.
     #[inline]
     #[must_use]
     pub fn from_unbuffered<Layers>(self, unbuffered: impl Read + Seek + Send) -> Result<Image<Layers>>
@@ -74,8 +74,8 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
     }
 
     /// Read the exr image from a buffered reader.
-    /// Use `read_from_file` instead, if you have a file path.
-    /// Use `read_from_unbuffered` instead, if this is not an in-memory reader.
+    /// Use [`read_from_file`] instead, if you have a file path.
+    /// Use [`read_from_unbuffered`] instead, if this is not an in-memory reader.
     #[must_use]
     pub fn from_buffered<Layers>(mut self, buffered: impl Read + Seek + Send) -> Result<Image<Layers>>
         where for<'s> L: ReadLayers<'s, Layers = Layers>

@@ -29,15 +29,9 @@ fn main() {
     };
 
 
-    let mut attributes = LayerAttributes::named("layer1".try_into().unwrap());
-
-    attributes.owner = Some(
-        "Unknown Owner".try_into().unwrap()
-    );
-
-    attributes.comments = Some(
-        "This image was generated as part of an example".try_into().unwrap()
-    );
+    let mut attributes = LayerAttributes::named("layer1");
+    attributes.comments = Some(Text::from("This image was generated as part of an example"));
+    attributes.owner = Some(Text::from("Unknown Owner"));
 
     let image = Image::from_single_layer(Layer::new(
         (2*2048, 2*2048),

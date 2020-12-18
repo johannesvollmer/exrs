@@ -23,7 +23,7 @@ pub struct ReadRgbaChannels<CreatePixelStorage, SetPixel> {
 }
 
 /// Define how to store an rgba pixel in your custom pixel storage.
-/// Can be a closure of type `Fn(&RgbaChannelsInfo) -> YourPixelStorage`.
+/// Can be a closure of type [`Fn(&RgbaChannelsInfo) -> YourPixelStorage`].
 pub trait SetRgbaPixel<PixelStorage> {
 
     /// Will be called for all pixels in the file, resulting in a complete image.
@@ -31,7 +31,7 @@ pub trait SetRgbaPixel<PixelStorage> {
 }
 
 /// Define how to create your custom pixel storage for a given layer.
-/// Can be a closure of type `Fn(&mut YourPixelStorage, Vec2<usize>, RgbaPixel)`.
+/// Can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, RgbaPixel)`].
 pub trait CreateRgbaPixels {
 
     /// Your custom pixel storage.

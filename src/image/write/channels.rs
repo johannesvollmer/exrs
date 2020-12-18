@@ -7,7 +7,6 @@ use crate::block::BlockIndex;
 use crate::image::{AnyChannels, RgbaChannels, RgbaPixel, RgbaSampleTypes};
 use crate::block::lines::{LineIndex, LineRefMut};
 use crate::math::Vec2;
-use crate::prelude::TryInto;
 use crate::io::Write;
 use crate::block::samples::Sample;
 use std::io::Cursor;
@@ -40,7 +39,7 @@ pub trait ChannelsWriter: Sync {
 
 
 /// Define how to get an rgba pixel from your custom pixel storage.
-/// Can be a closure of type `Sync + Fn(Vec2<usize>) -> RgbaPixel`.
+/// Can be a closure of type [`Sync + Fn(Vec2<usize>) -> RgbaPixel`].
 pub trait GetRgbaPixel: Sync {
 
     /// Inspect a single rgba pixel at the requested position.
@@ -113,10 +112,10 @@ impl<'channels, Pixels: 'channels> WritableChannels<'channels> for RgbaChannels<
     where Pixels: GetRgbaPixel
 {
     fn infer_channel_list(&self) -> ChannelList {
-        let r = ChannelInfo::new("R".try_into().unwrap(), self.sample_types.0, false); // FIXME TODO sampling!
-        let g = ChannelInfo::new("G".try_into().unwrap(), self.sample_types.1, false);
-        let b = ChannelInfo::new("B".try_into().unwrap(), self.sample_types.2, false);
-        let a = self.sample_types.3.map(|ty| ChannelInfo::new("A".try_into().unwrap(), ty, true));
+        let r = ChannelInfo::new("R", self.sample_types.0, false); // FIXME TODO sampling!
+        let g = ChannelInfo::new("G", self.sample_types.1, false);
+        let b = ChannelInfo::new("B", self.sample_types.2, false);
+        let a = self.sample_types.3.map(|ty| ChannelInfo::new("A", ty, true));
 
         // TODO Rgb__Channels and Rgb_A_Channels as separate writers?
         ChannelList::new(if let Some(a) = a {

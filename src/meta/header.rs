@@ -247,9 +247,9 @@ pub struct LayerAttributes {
 impl LayerAttributes {
 
     /// Create default layer attributes with a data position of zero.
-    pub fn named(layer_name: Text) -> Self {
+    pub fn named(layer_name: impl Into<Text>) -> Self {
         Self {
-            layer_name: Some(layer_name),
+            layer_name: Some(layer_name.into()),
             .. Self::default()
         }
     }

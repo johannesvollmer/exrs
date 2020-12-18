@@ -8,11 +8,11 @@ use smallvec::SmallVec;
 use std::ops::Range;
 use crate::block::{BlockIndex, UncompressedBlock};
 use crate::meta::header::Header;
-use crate::prelude::meta::Headers;
+use crate::meta::Headers;
 
 
 /// A single line of pixels.
-/// Use `LineRef` or `LineRefMut` for easier type names.
+/// Use [LineRef] or [LineRefMut] for easier type names.
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub struct LineSlice<T> {
 
