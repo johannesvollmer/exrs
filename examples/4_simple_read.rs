@@ -10,7 +10,7 @@ fn main() {
 
     let image = read().no_deep_data()
         .largest_resolution_level().all_channels().all_layers().all_attributes()
-        .on_progress(|progress| println!("progress: {}", progress))
+        .on_progress(|progress| println!("progress: {:.1}", progress*100.0))
         .from_file("tests/images/valid/openexr/Beachball/multipart.0004.exr")
         .unwrap();
 

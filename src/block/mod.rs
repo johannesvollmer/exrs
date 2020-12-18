@@ -73,8 +73,6 @@ pub fn write_all_blocks_to_buffered(
     pedantic: bool, parallel: bool,
 ) -> UnitResult
 {
-    on_progress(0.0);
-
     let has_compression = headers.iter() // TODO cache this in MetaData.has_compression?
         .any(|header| header.compression != Compression::Uncompressed);
 
@@ -206,8 +204,6 @@ fn for_decompressed_blocks_in_chunks(
     pedantic: bool, parallel: bool,
 ) -> UnitResult
 {
-    on_progress(0.0);
-
     // TODO bit-vec keep check that all pixels have been read?
     let has_compression = meta_data.headers.iter() // do not use parallel stuff for uncompressed images
         .any(|header| header.compression != Compression::Uncompressed);

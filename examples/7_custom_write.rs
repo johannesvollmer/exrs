@@ -63,7 +63,6 @@ fn main() {
     let headers = smallvec![ header ];
 
     // print progress only every 100th time
-    // let mut count_to_1000_and_then_print = 0;
     let start_time = ::std::time::Instant::now();
 
     // finally write the image
@@ -88,28 +87,12 @@ fn main() {
             }
         },
 
-        |_progress|{},
-        false,
-        true
+        |progress|{
+            println!("progress: {:.2}%", progress*100.0);
+        },
 
-        // print progress occasionally
-        /*WriteOptions {
-            parallel_compression: false,
-            pedantic: true,
-
-            on_progress: |progress, bytes| {
-                count_to_1000_and_then_print += 1;
-                if count_to_1000_and_then_print == 1000 {
-                    count_to_1000_and_then_print = 0;
-
-                    let mega_bytes = bytes / 1000000;
-                    let percent = (progress * 100.0) as usize;
-                    println!("progress: {}%, wrote {} megabytes", percent, mega_bytes);
-                }
-
-                Ok(())
-            },
-        }*/
+        true,
+        false
     ).unwrap();
 
     // warning: highly unscientific benchmarks ahead!

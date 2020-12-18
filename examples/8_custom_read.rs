@@ -99,27 +99,13 @@ fn main() {
             Ok(())
         },
 
-        |_progress|{},
-        // print file processing progress into the console, occasionally (important for large files)
+        // print file processing progress into the console
+        |progress|{
+            println!("progress: {:.2}%", progress*100.0);
+        },
+
         false,
         false
-
-        /*ReadOptions { TODO FIXME progress callback
-            parallel_decompression: false,
-            max_pixel_bytes: None,
-            pedantic: false,
-            on_progress: |progress| {
-                count_to_1000_and_then_print += 1;
-                if count_to_1000_and_then_print == 1000 {
-                    count_to_1000_and_then_print = 0;
-
-                    println!("progress: {}%", (progress * 100.0) as usize);
-                }
-
-                Ok(())
-            },
-        },*/
-
     ).unwrap();
 
     println!("average values: {:#?}", averages);

@@ -59,7 +59,9 @@ fn main() {
 
     println!("writing image {:#?}", image);
 
-    image.write().to_file("tests/images/out/noisy.exr").unwrap();
+    image.write()
+        .on_progress(|progress| println!("progress: {:.1}", progress*100.0))
+        .to_file("tests/images/out/noisy.exr").unwrap();
 
     println!("created file noisy.exr");
 }
