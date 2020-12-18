@@ -33,8 +33,7 @@
 )]
 
 #![forbid(unsafe_code)]
-
-// FIXME release #![warn(missing_docs)]
+#![warn(missing_docs)]
 
 pub mod io; // public to allow for custom attribute byte parsing
 

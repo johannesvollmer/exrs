@@ -6,16 +6,12 @@ pub mod channels;
 
 
 
-
 use crate::meta::Headers;
-use crate::block::BlockIndex;
 use crate::error::UnitResult;
 use std::io::{Seek, BufWriter};
 use crate::io::Write;
-use crate::meta::header::{Header};
 use crate::image::{Image, ignore_progress};
 use crate::image::write::layers::{WritableLayers, LayersWriter};
-// use crate::image::write::options::WriteImageWithProgress;
 
 
 // extension for "Image" which allows calling ".write()...." on an image
@@ -23,9 +19,12 @@ pub trait WritableImage<'i, L>: Sized {
     fn write(self) -> WriteImageWithOptions<'i, L, fn(f64)>;
 }
 
-impl<'i, L: WritableLayers<'i>> WritableImage<'i, L> for &'i Image<L> {
+impl<'i, L> WritableImage<'i, L> for &'i Image<L> {
     fn write(self) -> WriteImageWithOptions<'i, L, fn(f64)> {
-        WriteImageWithOptions { image: self, check_compatibility: true, parallel: true, on_progress: ignore_progress }
+        WriteImageWithOptions {
+            image: self,
+            check_compatibility: true, parallel: true, on_progress: ignore_progress
+        }
     }
 }
 
@@ -41,26 +40,13 @@ pub struct WriteImageWithOptions<'i, L, F> {
 
 
 impl<'i, L, F> WriteImageWithOptions<'i, L, F> where L: WritableLayers<'i>, F: FnMut(f64) {
-    // type Writer = ImageWithOptionsWriter<L::Writer>;
-
-    pub fn infer_meta_data(&self) -> Headers {
+    pub fn infer_meta_data(&self) -> Headers { // TODO this should perform all validity checks? and none after that?
         self.image.layer_data.infer_headers(&self.image.attributes)
-    }
-
-    fn create_image_writer(&self, headers: &[Header]) -> ImageWithOptionsWriter<L::Writer> {
-        ImageWithOptionsWriter { layers: self.image.layer_data.create_writer(headers) }
     }
 
     pub fn non_parallel(self) -> Self { Self { parallel: false, ..self } }
     pub fn skip_compatibility_checks(self) -> Self { Self { check_compatibility: false, ..self } }
     pub fn on_progress(self, on_progress: F) -> Self where F: FnMut(f64) { Self { on_progress, ..self } }
-
-    // pub fn without_image_validation(self) -> Self { Self { pedantic: false, ..self  } }
-    // pub fn non_parallel(self) -> Self { Self { parallel: false, ..self  } }
-    /* TODO would need mutable `extract_block` signature
-         pub fn on_progress<F>(self, on_progress: F) -> WriteImageWithProgress<Self, F> where F: FnMut(f64) {
-        WriteImageWithProgress { inner: self, on_progress }
-    }*/
 
     /// Write the exr image to a file.
     /// Use `write_to_unbuffered` instead if you do not have a file.
@@ -90,29 +76,13 @@ impl<'i, L, F> WriteImageWithOptions<'i, L, F> where L: WritableLayers<'i>, F: F
     #[must_use]
     pub fn to_buffered(self, write: impl Write + Seek) -> UnitResult {
         let meta_data = self.infer_meta_data(); // TODO non-failing gen_meta?
-        let writer = self.create_image_writer(&meta_data);
+        let layers = self.image.layer_data.create_writer(&meta_data);
 
         crate::block::write_all_blocks_to_buffered(
             write, meta_data,
-            move |meta, block| { writer.extract_uncompressed_block(meta, block) },
+            move |meta, block| layers.extract_uncompressed_block(meta, block),
             self.on_progress, self.check_compatibility, self.parallel,
         )
-    }
-}
-
-// TODO remove intermediate struct!
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ImageWithOptionsWriter<L> {
-    layers: L, // impl LayersWriter
-}
-
-pub trait ImageWriter: Sync {
-    fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex) -> Vec<u8>;
-}
-
-impl<L> ImageWriter for ImageWithOptionsWriter<L> where L: LayersWriter {
-    fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex) -> Vec<u8> {
-        self.layers.extract_uncompressed_block(headers, block)
     }
 }
 

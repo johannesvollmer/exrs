@@ -15,7 +15,6 @@ pub mod rgba_channels;
 pub mod any_channels;
 pub mod levels;
 pub mod samples;
-
 pub use rgba_channels::*; // TODO put somwehere else??
 
 
@@ -92,7 +91,6 @@ pub fn read_all_rgba_layers_from_file<Set:'static, Create:'static>(path: impl As
 /// Inspect the source code of this function if you need customization.
 // FIXME Set and Create should not need to be static
 pub fn read_first_rgb_layer_from_file<Set:'static, Create:'static, Pixels:'static>(path: impl AsRef<Path>, create: Create, set_pixel: Set)
-    // -> Result<RgbaImage<Create::Pixels>>
     -> Result<RgbaImage<Pixels>>
     where Create: CreateRgbaPixels<Pixels=Pixels>,
           Set: SetRgbaPixel<Pixels>

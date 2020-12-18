@@ -62,6 +62,12 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
     {
         let Self { pedantic, parallel, ref mut on_progress, ref mut read_layers } = self;
 
+        #[derive(Debug, Clone, PartialEq)]
+        pub struct ImageWithAttributesReader<L> {
+            image_attributes: ImageAttributes,
+            layers_reader: L,
+        }
+
         let reader: ImageWithAttributesReader<L::Reader> = crate::block::read_filtered_blocks_from_buffered(
             buffered,
 
@@ -73,29 +79,25 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
             },
 
             |reader, header, (tile_index, tile)| {
-                reader.filter_block(header, (tile_index, &tile.location)) // TODO pass TileIndices directly!
+                reader.layers_reader.filter_block(header, (tile_index, &tile.location)) // TODO pass TileIndices directly!
             },
 
             |reader, headers, block| {
-                reader.read_block(headers, block)
+                reader.layers_reader.read_block(headers, block)
             },
 
             |progress| on_progress(progress),
             pedantic, parallel
         )?;
 
-        Ok(reader.into_image())
+        Ok(Image {
+            attributes: reader.image_attributes,
+            layer_data: reader.layers_reader.into_layers()
+        })
     }
 }
 
-// TODO eliminate this intermediate private data?
-#[derive(Debug, Clone, PartialEq)]
-pub struct ImageWithAttributesReader<L> {
-    image_attributes: ImageAttributes,
-    layers_reader: L,
-}
-
-
+/// A template that creates a `LayerReader` for each layer in the file.
 pub trait ReadLayers<'s> {
     type Layers;
     type Reader: LayersReader<Layers = Self::Layers>;
@@ -106,54 +108,11 @@ pub trait ReadLayers<'s> {
     }
 }
 
+/// Selects pixel blocks from a file and gradually accumulates a single image layer.
 pub trait LayersReader {
     type Layers;
     fn filter_block(&self, header: (usize, &Header), tile: (usize, &TileCoordinates)) -> bool;
     fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult;
     fn into_layers(self) -> Self::Layers;
-}
-
-
-/*
-/// enable calling `from_file` directly on any layer reader
-impl<'s, R:'s> ReadImage<'s> for R where R: ReadLayers<'s> {
-    type Reader = ImageWithAttributesReader<R::Reader>;
-
-    fn create_image_reader(&'s mut self, headers: &[Header]) -> Result<Self::Reader> {
-        Ok(ImageWithAttributesReader {
-            image_attributes: headers.first().expect("invalid headers").shared_attributes.clone(),
-            layers_reader: self.create_layers_reader(headers)?,
-        })
-    }
-}*/
-
-/*impl<'s, L: 's> ReadImage<'s> for ReadImageWithAttributes<L> where L: ReadLayers<'s> {
-    type Reader = ImageWithAttributesReader<L::Reader>;
-
-    fn create_image_reader(&'s self, headers: &[Header]) -> Result<ImageWithAttributesReader<L::Reader>> {
-        Ok(ImageWithAttributesReader {
-            image_attributes: headers.first().expect("invalid headers").shared_attributes.clone(),
-            layers_reader: self.read_layers.create_layers_reader(headers)?,
-        })
-    }
-}*/
-
-// TODO eliminate this intermediate private data?
-impl<L> ImageWithAttributesReader<L> where L: LayersReader {
-
-    fn filter_block(&self, header: (usize, &Header), tile: (usize, &TileCoordinates)) -> bool {
-        self.layers_reader.filter_block(header, tile)
-    }
-
-    fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult {
-        self.layers_reader.read_block(headers, block)
-    }
-
-    fn into_image(self) -> Image<L::Layers> {
-        Image {
-            attributes: self.image_attributes,
-            layer_data: self.layers_reader.into_layers()
-        }
-    }
 }
 
