@@ -463,7 +463,7 @@ impl Text {
     /// Read the length of a string and then the contents with that length.
     pub fn read_i32_sized<R: Read>(read: &mut R, max_size: usize) -> Result<Self> {
         let size = i32_to_usize(i32::read(read)?, "vector size")?;
-        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 1024, Some(max_size))?)))
+        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 1024, Some(max_size), "text attribute length")?)))
     }
 
     /// Read the contents with that length.
@@ -481,7 +481,7 @@ impl Text {
 
         // for large strings, read a dynamic vec of arbitrary size
         else {
-            Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 1024, None)?)))
+            Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 1024, None, "text attribute length")?)))
         }
     }
 
@@ -1211,7 +1211,7 @@ impl Preview {
         let width = u32::read(read)? as usize;
         let height = u32::read(read)? as usize;
 
-        let pixel_data = i8::read_vec(read, width * height * components_per_pixel, 1024*1024*4, None)?;
+        let pixel_data = i8::read_vec(read, width * height * components_per_pixel, 1024*1024*4, None, "preview attribute pixel count")?;
 
         let preview = Preview {
             size: Vec2(width, height),
@@ -1475,7 +1475,7 @@ impl AttributeValue {
         use self::type_names as ty;
 
         // always read bytes
-        let attribute_bytes = u8::read_vec(read, byte_size, 128, None)?;
+        let attribute_bytes = u8::read_vec(read, byte_size, 128, None, "attribute value size")?;
         // TODO no allocation for small attributes // : SmallVec<[u8; 64]> = smallvec![0; byte_size];
 
         let parse_attribute = move || {

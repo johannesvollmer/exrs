@@ -416,7 +416,7 @@ impl MetaData {
     /// Read one offset table from the reader for each header.
     pub fn read_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<OffsetTables> {
         headers.iter()
-            .map(|header| u64::read_vec(read, header.chunk_count, u16::MAX as usize, None))
+            .map(|header| u64::read_vec(read, header.chunk_count, u16::MAX as usize, None, "offset table size"))
             .collect()
     }
 

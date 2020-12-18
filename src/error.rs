@@ -64,7 +64,7 @@ impl Error {
 impl From<IoError> for Error {
     fn from(error: IoError) -> Self {
         if error.kind() == ErrorKind::UnexpectedEof {
-            Error::invalid("content size")
+            Error::invalid("reference to missing bytes")
         }
         else {
             Error::Io(error)

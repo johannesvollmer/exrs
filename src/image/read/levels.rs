@@ -35,6 +35,8 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     // TODO only for flat samples
     /// Read only layers that contain red, green and blue color. If present, also loads alpha channels.
     /// Rejects all layers that don't have rgb channels. Skips any other channels in an rgb layer.
+    /// `Create` can be a closure of type [`Fn(&RgbaChannelsInfo) -> YourPixelStorage`].
+    /// `Set` can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, RgbaPixel)`].
     pub fn rgba_channels<Create, Set>(self, create: Create, set_pixel: Set) -> ReadRgbaChannels<Create, Set>
         where Create: CreateRgbaPixels, Set: SetRgbaPixel<Create::Pixels>
     {
@@ -58,6 +60,8 @@ impl<ReadDeepOrFlatSamples> ReadAllLevels<ReadDeepOrFlatSamples> {
     // TODO only for flat samples
     /// Read only layers that contain red, green and blue color. If present, also loads alpha channels.
     /// Rejects all layers that don't have rgb channels. Skips any other channels in the layer.
+    /// `Create` can be a closure of type [`Fn(&RgbaChannelsInfo) -> YourPixelStorage`].
+    /// `Set` can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, RgbaPixel)`].
     pub fn rgba_channels<Create, Set>(self, create: Create, set_pixel: Set) -> ReadRgbaChannels<Create, Set>
         where Create: CreateRgbaPixels, Set: SetRgbaPixel<Create::Pixels>
     {

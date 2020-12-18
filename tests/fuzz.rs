@@ -26,69 +26,71 @@ fn exr_files(path: &'static str, filter: bool) -> impl Iterator<Item=PathBuf> {
 /// Just don't panic.
 #[test]
 pub fn fuzzed(){
-    for file in exr_files("tests/images/fuzzed", false) {
-        let _ = read().no_deep_data().largest_resolution_level().all_channels().first_valid_layer().all_attributes().from_file(&file);
-        let _ = read().no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes().from_file(&file);
+    for ref file in exr_files("tests/images/fuzzed", false) {
+        let _ = read().no_deep_data().largest_resolution_level().all_channels()
+            .first_valid_layer().all_attributes().pedantic().from_file(file);
 
-        // let _ = exr::image::full::Image::read_from_file(&file, read_options::high());
-        // let _ = exr::image::simple::Image::read_from_file(&file, read_options::high()); // FIXME will these be optimized away?
-
-        // let _ = exr::image::rgba::ImageInfo::read_pixels_from_file(
-        //     FIXME will these be optimized away?
-            // &file, read_options::high(),
-            // rgba_image::pixels::create_flattened_f16,
-            // rgba_image::pixels::flattened_pixel_setter()
-        // );
-
-        // TODO let _ = read().no_deep_data().all_resolution_levels().rgba_channels().all_layers().read_from_file(&file);
-
+        let _ = read().no_deep_data().all_resolution_levels().all_channels()
+            .all_layers().all_attributes().pedantic().from_file(file);
     }
 }
 
+/// Require an error but no panic.
 #[test]
 pub fn damaged(){
     let mut passed = true;
 
-    for file in exr_files("tests/images/invalid", false) {
-        let file = &file;
-        println!("inspecting file {:?}", file);
-
+    for ref file in exr_files("tests/images/invalid", false) {
         let result = catch_unwind(move || {
-            let _simple = read().no_deep_data()
-                .largest_resolution_level().all_channels().first_valid_layer().all_attributes()
-                .from_file(&file)?;
+            let _meta_data = MetaData::read_from_file(file, false)?;
 
-            let _rgba = read_first_rgb_layer_from_file(
-                file,
-                read::rgba_channels::pixels::create_flattened_f16,
-                read::rgba_channels::pixels::set_flattened_pixel
-            )?;
+            {
+                let _minimal = read().no_deep_data()
+                    .largest_resolution_level()
+                    .rgba_channels(
+                        |_info: &RgbaChannelsInfo| (),
+                        |_: &mut (), _position: Vec2<usize>, _pixel: RgbaPixel| {}
+                    )
+                    .first_valid_layer().all_attributes()
+                    .from_file(&file)?;
+            }
 
-            let full = read()
-                .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
-                .from_file(&file)?;
+            {
+                let _minimal = read().no_deep_data()
+                    .all_resolution_levels()
+                    .rgba_channels(
+                        |_info: &RgbaChannelsInfo| (),
+                        |_: &mut (), _position: Vec2<usize>, _pixel: RgbaPixel| {}
+                    )
+                    .all_layers().all_attributes()
+                    .pedantic()
+                    .from_file(&file)?;
+            }
 
+            {
+                let _rgba = read_first_rgb_layer_from_file(
+                    file,
+                    read::rgba_channels::pixels::create_flattened_f16,
+                    read::rgba_channels::pixels::set_flattened_pixel
+                )?;
+            }
 
-            /*let full = exr::image::full::Image::read_from_file(file, read_options::high())?;
-            let _ = exr::image::simple::Image::read_from_file(file, read_options::high())?; // FIXME will these be optimized away?
-            let _ = exr::image::rgba::ImageInfo::read_pixels_from_file( // FIXME will these be optimized away?
-                file, read_options::high(),
-                rgba_image::pixels::create_flattened_f16,
-                rgba_image::pixels::flattened_pixel_setter()
-            )?;*/
+            {
+                let _full = read_all_data_from_file(file)?;
+            }
 
-            Ok(full)
+            Ok(())
         });
 
         // this should not panic, only err:
         passed = passed && match result {
-            Ok(Err(Error::Invalid(_))) => {
-                println!("✓ Recognized as invalid: {:?}", file);
+            Ok(Err(Error::Invalid(message))) => {
+                println!("✓ Recognized as invalid ({}): {:?}", message, file);
                 true
             },
 
-            Ok(Err(Error::NotSupported(_))) => {
-                println!("- Unsupported: {:?}", file);
+            Ok(Err(Error::NotSupported(message))) => {
+                println!("- Unsupported ({}): {:?}", message, file);
                 true
             },
 
@@ -102,11 +104,10 @@ pub fn damaged(){
                 false
             },
 
-            Ok(Ok(image)) => {
-                // use crate::exr::image::write::WritableImage;
-                let inferred_meta_data = image.write().infer_meta_data();
+            Ok(Ok(_)) => {
+                let meta_data = MetaData::read_from_file(file, true);
 
-                if let Err(error) = MetaData::validate(inferred_meta_data.as_slice(), true) {
+                if let Err(error) = meta_data {
                     println!("✓ Recognized as invalid when pedantic ({}): {:?}", error, file);
                     true
                 }
@@ -128,7 +129,6 @@ pub fn damaged(){
 pub fn fuzz(){
     println!("started fuzzing");
     let files: Vec<PathBuf> = exr_files("tests/images", true).collect();
-
 
     let seed = [92,1,0,130,211,8,21,70,74,4,9,5,0,23,0,3,20,25,6,5,229,30,0,34,218,0,40,7,5,2,7,0,];
     let mut random: StdRng = rand::SeedableRng::from_seed(seed);

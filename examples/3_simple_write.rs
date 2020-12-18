@@ -29,18 +29,15 @@ fn main() {
     let size = (1024, 512);
 
     let r = AnyChannel::new(
-        "R",
-        FlatSamples::F16(generate_f16_vector(size.into()))
+        "R", FlatSamples::F16(generate_f16_vector(size.into()))
     );
 
     let g = AnyChannel::new(
-        "G",
-        FlatSamples::F16(generate_f16_vector(size.into()))
+        "G", FlatSamples::F16(generate_f16_vector(size.into()))
     );
 
     let b = AnyChannel::new(
-        "B",
-        FlatSamples::F32(generate_f16_vector(size.into()).into_iter().map(f16::to_f32).collect())
+        "B", FlatSamples::F32(generate_f16_vector(size.into()).into_iter().map(f16::to_f32).collect())
     );
 
     let mut layer_attributes = LayerAttributes::named("test-image");

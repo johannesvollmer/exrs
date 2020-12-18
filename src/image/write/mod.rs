@@ -46,9 +46,9 @@ impl<'img, WritableLayers> WritableImage<'img, WritableLayers> for &'img Image<W
 #[derive(Debug, Clone, PartialEq)]
 pub struct WriteImageWithOptions<'img, Layers, OnProgress> {
     image: &'img Image<Layers>,
+    on_progress: OnProgress,
     check_compatibility: bool,
     parallel: bool,
-    on_progress: OnProgress,
 }
 
 

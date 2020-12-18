@@ -221,8 +221,8 @@ impl<T: Read + Seek> Tracking<T> {
     /// Set the reader to the specified byte position.
     /// If it is only a couple of bytes, no seek system call is performed.
     pub fn seek_read_to(&mut self, target_position: usize) -> std::io::Result<()> {
-        println!("position: {}, target_position: {}", self.position, target_position);
-        let delta = target_position as i64 - self.position as i64; // FIXME  panicked at 'attempt to subtract with overflow'
+        let delta = target_position as i128 - self.position as i128; // FIXME  panicked at 'attempt to subtract with overflow'
+        debug_assert!(delta.abs() < usize::MAX as i128);
 
         if delta > 0 && delta < 16 { // TODO profile that this is indeed faster than a syscall! (should be because of bufread buffer discard)
             skip_bytes(self, delta as usize)?;
@@ -277,9 +277,9 @@ pub trait Data: Sized + Default + Clone {
     /// If `hard_max` is specified, it will never read any more than that.
     /// Returns `Error::Invalid` if reader does not contain the desired number of elements.
     #[inline]
-    fn read_vec(read: &mut impl Read, data_size: usize, soft_max: usize, hard_max: Option<usize>) -> Result<Vec<Self>> {
+    fn read_vec(read: &mut impl Read, data_size: usize, soft_max: usize, hard_max: Option<usize>, purpose: &'static str) -> Result<Vec<Self>> {
         let mut vec = Vec::new();
-        Self::read_into_vec(read, &mut vec, data_size, soft_max, hard_max)?;
+        Self::read_into_vec(read, &mut vec, data_size, soft_max, hard_max, purpose)?;
         Ok(vec)
     }
 
@@ -296,10 +296,10 @@ pub trait Data: Sized + Default + Clone {
     /// If `hard_max` is specified, it will never read any more than that.
     /// Returns `Error::Invalid` if reader does not contain the desired number of elements.
     #[inline]
-    fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, soft_max: usize, hard_max: Option<usize>) -> UnitResult {
+    fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, soft_max: usize, hard_max: Option<usize>, purpose: &'static str) -> UnitResult {
         if let Some(max) = hard_max {
             if data_size > max {
-                return Err(Error::invalid("content size"))
+                return Err(Error::invalid(purpose))
             }
         }
 
@@ -332,9 +332,9 @@ pub trait Data: Sized + Default + Clone {
     /// If `hard_max` is specified, it will never read any more than that.
     /// Returns `Error::Invalid` if reader does not contain the desired number of elements.
     #[inline]
-    fn read_i32_sized_vec(read: &mut impl Read, soft_max: usize, hard_max: Option<usize>) -> Result<Vec<Self>> {
+    fn read_i32_sized_vec(read: &mut impl Read, soft_max: usize, hard_max: Option<usize>, purpose: &'static str) -> Result<Vec<Self>> {
         let size = usize::try_from(i32::read(read)?)?;
-        Self::read_vec(read, size, soft_max, hard_max)
+        Self::read_vec(read, size, soft_max, hard_max, purpose)
     }
 
     /// Fill the slice with this value.
