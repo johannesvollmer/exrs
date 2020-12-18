@@ -14,12 +14,12 @@ use crate::image::write::layers::{WritableLayers, LayersWriter};
 
 
 // extension for "Image" which allows calling ".write()...." on an image
-pub trait WritableImage<'i, L>: Sized {
-    fn write(self) -> WriteImageWithOptions<'i, L, fn(f64)>;
+pub trait WritableImage<'img, WritableLayers>: Sized {
+    fn write(self) -> WriteImageWithOptions<'img, WritableLayers, fn(f64)>;
 }
 
-impl<'i, L> WritableImage<'i, L> for &'i Image<L> {
-    fn write(self) -> WriteImageWithOptions<'i, L, fn(f64)> {
+impl<'img, WritableLayers> WritableImage<'img, WritableLayers> for &'img Image<WritableLayers> {
+    fn write(self) -> WriteImageWithOptions<'img, WritableLayers, fn(f64)> {
         WriteImageWithOptions {
             image: self,
             check_compatibility: true, parallel: true, on_progress: ignore_progress
@@ -30,22 +30,24 @@ impl<'i, L> WritableImage<'i, L> for &'i Image<L> {
 
 // temporary writer with options
 #[derive(Debug, Clone, PartialEq)]
-pub struct WriteImageWithOptions<'i, L, F> {
-    image: &'i Image<L>,
+pub struct WriteImageWithOptions<'img, Layers, OnProgress> {
+    image: &'img Image<Layers>,
     check_compatibility: bool,
     parallel: bool,
-    on_progress: F,
+    on_progress: OnProgress,
 }
 
 
-impl<'i, L, F> WriteImageWithOptions<'i, L, F> where L: WritableLayers<'i>, F: FnMut(f64) {
+impl<'img, Layers, OnProgress> WriteImageWithOptions<'img, Layers, OnProgress>
+    where Layers: WritableLayers<'img>, OnProgress: FnMut(f64)
+{
     pub fn infer_meta_data(&self) -> Headers { // TODO this should perform all validity checks? and none after that?
         self.image.layer_data.infer_headers(&self.image.attributes)
     }
 
     pub fn non_parallel(self) -> Self { Self { parallel: false, ..self } }
     pub fn skip_compatibility_checks(self) -> Self { Self { check_compatibility: false, ..self } }
-    pub fn on_progress(self, on_progress: F) -> Self where F: FnMut(f64) { Self { on_progress, ..self } }
+    pub fn on_progress(self, on_progress: OnProgress) -> Self where OnProgress: FnMut(f64) { Self { on_progress, ..self } }
 
     /// Write the exr image to a file.
     /// Use `write_to_unbuffered` instead if you do not have a file.

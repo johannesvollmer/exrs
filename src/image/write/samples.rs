@@ -6,21 +6,21 @@ use crate::math::Vec2;
 use crate::meta::{rip_map_levels, mip_map_levels, rip_map_indices, mip_map_indices, Blocks};
 
 /// inside `Channels`
-pub trait WritableSamples<'s> {
+pub trait WritableSamples<'slf> {
     // fn is_deep(&self) -> bool;
     fn sample_type(&self) -> SampleType;
     fn level_mode(&self) -> LevelMode;
 
-    type Writer: 's + SamplesWriter;
-    fn create_samples_writer(&'s self, header: &Header) -> Self::Writer;
+    type Writer: /*'slf + */SamplesWriter;
+    fn create_samples_writer(&'slf self, header: &Header) -> Self::Writer;
 }
 
 /// inside `Levels`
-pub trait WritableLevel<'s> {
+pub trait WritableLevel<'slf> {
     fn sample_type(&self) -> SampleType;
 
-    type Writer: 's + SamplesWriter;
-    fn create_level_writer(&'s self, size: Vec2<usize>) -> Self::Writer;
+    type Writer: /*'slf + */SamplesWriter;
+    fn create_level_writer(&'slf self, size: Vec2<usize>) -> Self::Writer;
 }
 
 pub trait SamplesWriter: Sync {
@@ -33,9 +33,9 @@ impl InferSampleType for f32 { const SAMPLE_TYPE: SampleType = SampleType::F32; 
 impl InferSampleType for u32 { const SAMPLE_TYPE: SampleType = SampleType::U32; }*/
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub struct FlatSamplesWriter<'s> {
+pub struct FlatSamplesWriter<'samples> {
     resolution: Vec2<usize>, // respects resolution level
-    samples: &'s FlatSamples
+    samples: &'samples FlatSamples
 }
 
 /*impl<'s, F:'s, S:'s> WritableSamples<'s> for F where F: Sync + Fn(Vec2<usize>) -> S, S: InferSampleType + Data {
@@ -67,7 +67,7 @@ impl<'f, S, F> SamplesWriter for FnSampleWriter<'f, F> where F: Sync + Fn(Vec2<u
 
 
 /// used, if no layers are used and the flat samples are directly inside the channels
-impl<'s> WritableSamples<'s> for FlatSamples {
+impl<'samples> WritableSamples<'samples> for FlatSamples {
     fn sample_type(&self) -> SampleType {
         match self {
             FlatSamples::F16(_) => SampleType::F16,
@@ -78,8 +78,8 @@ impl<'s> WritableSamples<'s> for FlatSamples {
 
     fn level_mode(&self) -> LevelMode { LevelMode::Singular }
 
-    type Writer = FlatSamplesWriter<'s>; //&'s FlatSamples;
-    fn create_samples_writer(&'s self, header: &Header) -> Self::Writer {
+    type Writer = FlatSamplesWriter<'samples>; //&'s FlatSamples;
+    fn create_samples_writer(&'samples self, header: &Header) -> Self::Writer {
         FlatSamplesWriter {
             resolution: header.layer_size,
             samples: self
@@ -88,7 +88,7 @@ impl<'s> WritableSamples<'s> for FlatSamples {
 }
 
 /// used, if layers are used and the flat samples are inside the levels
-impl<'s> WritableLevel<'s> for FlatSamples {
+impl<'samples> WritableLevel<'samples> for FlatSamples {
     fn sample_type(&self) -> SampleType {
         match self {
             FlatSamples::F16(_) => SampleType::F16,
@@ -97,8 +97,8 @@ impl<'s> WritableLevel<'s> for FlatSamples {
         }
     }
 
-    type Writer = FlatSamplesWriter<'s>;
-    fn create_level_writer(&'s self, size: Vec2<usize>) -> Self::Writer {
+    type Writer = FlatSamplesWriter<'samples>;
+    fn create_level_writer(&'samples self, size: Vec2<usize>) -> Self::Writer {
         FlatSamplesWriter {
             resolution: size,
             samples: self
@@ -106,7 +106,7 @@ impl<'s> WritableLevel<'s> for FlatSamples {
     }
 }
 
-impl<'s> SamplesWriter for FlatSamplesWriter<'s> {
+impl<'samples> SamplesWriter for FlatSamplesWriter<'samples> {
     fn extract_line(&self, line: LineRefMut<'_>) {
         let image_width = self.resolution.width(); // header.layer_size.width();
         debug_assert_ne!(image_width, 0, "image width calculation bug");
@@ -129,7 +129,9 @@ impl<'s> SamplesWriter for FlatSamplesWriter<'s> {
 }
 
 
-impl<'s, S> WritableSamples<'s> for Levels<S> where S: WritableLevel<'s> {
+impl<'samples, LevelSamples> WritableSamples<'samples> for Levels<LevelSamples>
+    where LevelSamples: WritableLevel<'samples>
+{
     fn sample_type(&self) -> SampleType {
         let sample_type = self.levels_as_slice().first().unwrap().sample_type();
         debug_assert!(self.levels_as_slice().iter().skip(1).all(|ty| ty.sample_type() == sample_type));
@@ -144,8 +146,8 @@ impl<'s, S> WritableSamples<'s> for Levels<S> where S: WritableLevel<'s> {
         }
     }
 
-    type Writer = LevelsWriter<S::Writer>;
-    fn create_samples_writer(&'s self, header: &Header) -> Self::Writer {
+    type Writer = LevelsWriter<LevelSamples::Writer>;
+    fn create_samples_writer(&'samples self, header: &Header) -> Self::Writer {
         let rounding = match header.blocks {
             Blocks::Tiles(TileDescription { rounding_mode, .. }) => Some(rounding_mode),
             Blocks::ScanLines => None,
@@ -191,11 +193,11 @@ impl<'s, S> WritableSamples<'s> for Levels<S> where S: WritableLevel<'s> {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct LevelsWriter<S> {
-    levels: Levels<S>,
+pub struct LevelsWriter<SamplesWriter> {
+    levels: Levels<SamplesWriter>,
 }
 
-impl<S> SamplesWriter for LevelsWriter<S> where S: SamplesWriter {
+impl<Samples> SamplesWriter for LevelsWriter<Samples> where Samples: SamplesWriter {
     fn extract_line(&self, line: LineRefMut<'_>) {
         self.levels.get_level(line.location.level).expect("invalid level index") // TODO compute level size from line index??
             .extract_line(line)

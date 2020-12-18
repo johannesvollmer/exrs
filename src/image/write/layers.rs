@@ -7,11 +7,11 @@ use crate::prelude::{SmallVec};
 use crate::image::write::channels::{WritableChannels, ChannelsWriter};
 
 
-pub trait WritableLayers<'s> {
+pub trait WritableLayers<'slf> {
     fn infer_headers(&self, image_attributes: &ImageAttributes) -> Headers;
 
     type Writer: LayersWriter;
-    fn create_writer(&'s self, headers: &[Header]) -> Self::Writer;
+    fn create_writer(&'slf self, headers: &[Header]) -> Self::Writer;
 }
 
 pub trait LayersWriter: Sync {
@@ -19,25 +19,25 @@ pub trait LayersWriter: Sync {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct AllLayersWriter</*'a,*/ C> {
-    layers: SmallVec<[LayerWriter</*'a,*/ C>; 2]>
+pub struct AllLayersWriter</*'a,*/ ChannelsWriter> {
+    layers: SmallVec<[LayerWriter</*'a,*/ ChannelsWriter>; 2]>
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct LayerWriter</*'a,*/ C> {
-    channels: C, // impl ChannelsWriter
+pub struct LayerWriter</*'a,*/ ChannelsWriter> {
+    channels: ChannelsWriter, // impl ChannelsWriter
     // attributes: &'a LayerAttributes,
 }
 
 
 
-impl<'s, C:'s> WritableLayers<'s> for Layers<C> where C: WritableChannels<'s> {
+impl<'slf, Channels: 'slf> WritableLayers<'slf> for Layers<Channels> where Channels: WritableChannels<'slf> {
     fn infer_headers(&self, image_attributes: &ImageAttributes) -> Headers {
         self.iter().map(|layer| layer.infer_headers(image_attributes).remove(0)).collect() // TODO no array-vs-first
     }
 
-    type Writer = AllLayersWriter</*'l,*/ C::Writer>;
-    fn create_writer(&'s self, headers: &[Header]) -> Self::Writer {
+    type Writer = AllLayersWriter</*'l,*/ Channels::Writer>;
+    fn create_writer(&'slf self, headers: &[Header]) -> Self::Writer {
         AllLayersWriter {
             layers: self.iter().zip(headers.chunks_exact(1)) // TODO no array-vs-first
                 .map(|(layer, header)| layer.create_writer(header))
@@ -46,7 +46,7 @@ impl<'s, C:'s> WritableLayers<'s> for Layers<C> where C: WritableChannels<'s> {
     }
 }
 
-impl<'s, C: WritableChannels<'s>> WritableLayers<'s> for Layer<C> {
+impl<'slf, Channels: WritableChannels<'slf>> WritableLayers<'slf> for Layer<Channels> {
     fn infer_headers(&self, image_attributes: &ImageAttributes) -> Headers {
         let blocks = match self.encoding.blocks {
             crate::image::Blocks::ScanLines => crate::meta::Blocks::ScanLines,
@@ -83,8 +83,8 @@ impl<'s, C: WritableChannels<'s>> WritableLayers<'s> for Layer<C> {
         smallvec![ header ]// TODO no array-vs-first
     }
 
-    type Writer = LayerWriter</*'l,*/ C::Writer>;
-    fn create_writer(&'s self, headers: &[Header]) -> Self::Writer {
+    type Writer = LayerWriter</*'l,*/ Channels::Writer>;
+    fn create_writer(&'slf self, headers: &[Header]) -> Self::Writer {
         let channels = self.channel_data.create_writer(headers.first().unwrap()); // TODO no array-vs-first
 
         LayerWriter {

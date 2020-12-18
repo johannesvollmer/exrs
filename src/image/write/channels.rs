@@ -12,12 +12,12 @@ use std::io::Cursor;
 use crate::image::write::samples::{WritableSamples, SamplesWriter};
 
 
-pub trait WritableChannels<'s> {
+pub trait WritableChannels<'slf> {
     fn infer_channel_list(&self) -> ChannelList;
     fn level_mode(&self) -> LevelMode;
 
     type Writer: ChannelsWriter;
-    fn create_writer(&'s self, header: &Header) -> Self::Writer;
+    fn create_writer(&'slf self, header: &Header) -> Self::Writer;
 }
 
 pub trait ChannelsWriter: Sync {
@@ -34,7 +34,18 @@ impl<F> GetRgbaPixel for F where F: Sync + Fn(Vec2<usize>) -> RgbaPixel {
     fn get_pixel(&self, position: Vec2<usize>) -> RgbaPixel { self(position) }
 }
 
-impl<'s, S: 's + WritableSamples<'s>> WritableChannels<'s> for AnyChannels<S> {
+impl<'samples, Samples> WritableChannels<'samples> for AnyChannels<Samples>
+    where Samples: 'samples + WritableSamples<'samples>
+{
+    fn infer_channel_list(&self) -> ChannelList {
+        ChannelList::new(self.list.iter().map(|channel| ChannelInfo {
+            name: channel.name.clone(),
+            sample_type: channel.sample_data.sample_type(),
+            quantize_linearly: channel.quantize_linearly,
+            sampling: channel.sampling
+        }).collect())
+    }
+
     fn level_mode(&self) -> LevelMode {
         let mode = self.list.iter().next().unwrap().sample_data.level_mode();
 
@@ -46,28 +57,19 @@ impl<'s, S: 's + WritableSamples<'s>> WritableChannels<'s> for AnyChannels<S> {
         mode
     }
 
-    fn infer_channel_list(&self) -> ChannelList {
-        ChannelList::new(self.list.iter().map(|channel| ChannelInfo {
-            name: channel.name.clone(),
-            sample_type: channel.sample_data.sample_type(),
-            quantize_linearly: channel.quantize_linearly,
-            sampling: channel.sampling
-        }).collect())
-    }
-
-    type Writer = AnyChannelsWriter<S::Writer>;
-    fn create_writer(&'s self, header: &Header) -> Self::Writer {
+    type Writer = AnyChannelsWriter<Samples::Writer>;
+    fn create_writer(&'samples self, header: &Header) -> Self::Writer {
         let channels = self.list.iter().map(|chan| chan.sample_data.create_samples_writer(header)).collect();
         AnyChannelsWriter { channels }
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct AnyChannelsWriter<S> {
-    channels: SmallVec<[S; 4]>
+pub struct AnyChannelsWriter<SamplesWriter> {
+    channels: SmallVec<[SamplesWriter; 4]>
 }
 
-impl<S> ChannelsWriter for AnyChannelsWriter<S> where S: SamplesWriter {
+impl<Samples> ChannelsWriter for AnyChannelsWriter<Samples> where Samples: SamplesWriter {
     fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Vec<u8> {
         let byte_count = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
         let mut block_bytes = vec![0_u8; byte_count];
@@ -86,7 +88,9 @@ impl<S> ChannelsWriter for AnyChannelsWriter<S> where S: SamplesWriter {
 
 
 
-impl<'f, F: 'f> WritableChannels<'f> for RgbaChannels<F> where F: GetRgbaPixel {
+impl<'channels, Pixels: 'channels> WritableChannels<'channels> for RgbaChannels<Pixels>
+    where Pixels: GetRgbaPixel
+{
     fn infer_channel_list(&self) -> ChannelList {
         let r = ChannelInfo::new("R".try_into().unwrap(), self.sample_types.0, false); // FIXME TODO sampling!
         let g = ChannelInfo::new("G".try_into().unwrap(), self.sample_types.1, false);
@@ -105,18 +109,18 @@ impl<'f, F: 'f> WritableChannels<'f> for RgbaChannels<F> where F: GetRgbaPixel {
 
     fn level_mode(&self) -> LevelMode { LevelMode::Singular }
 
-    type Writer = RgbaChannelsWriter<'f, F>;
-    fn create_writer(&'f self, _: &Header) -> Self::Writer {
+    type Writer = RgbaChannelsWriter<'channels, Pixels>;
+    fn create_writer(&'channels self, _: &Header) -> Self::Writer {
         RgbaChannelsWriter { rgba: self }
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct RgbaChannelsWriter<'f, F> where F: GetRgbaPixel {
-    rgba: &'f RgbaChannels<F>, // TODO this need not be a reference??
+pub struct RgbaChannelsWriter<'channels, Pixels> where Pixels: GetRgbaPixel {
+    rgba: &'channels RgbaChannels<Pixels>, // TODO this need not be a reference??
 }
 
-impl<'f, F> ChannelsWriter for RgbaChannelsWriter<'f, F> where F: GetRgbaPixel {
+impl<'channels, Pixels> ChannelsWriter for RgbaChannelsWriter<'channels, Pixels> where Pixels: GetRgbaPixel {
     fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Vec<u8> {
         let block_bytes = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
 

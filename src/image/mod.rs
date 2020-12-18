@@ -139,14 +139,14 @@ pub enum Blocks {
 /// A grid of rgba pixels. The pixels are written to your custom pixel storage.
 /// `Samples` can be anything, from a flat `Vec<f16>` to `Vec<Vec<AnySample>>`, as desired.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RgbaChannels<Samples> {
+pub struct RgbaChannels<PixelStorage> {
 
     /// When writing, all samples are converted to these types.
     /// When reading, this remembers the original sample type that was found in the file.
     pub sample_types: RgbaSampleTypes,
 
     /// Your custom rgba pixel storage
-    pub storage: Samples,
+    pub storage: PixelStorage,
 }
 
 /// The sample type (`f16`, `f32` or `u32`) of the rgba channels. The alpha channel is optional.
