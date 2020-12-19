@@ -165,7 +165,8 @@ exr = "1.0.0"
 lto = true
 ```
 
-The master branch of this repository is always an up-to-date version.
+The master branch of this repository is always an up-to-date version, 
+so you could also link the github repository master branch.
 
 ### Example
 
