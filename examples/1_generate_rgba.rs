@@ -28,12 +28,11 @@ fn main() {
         )
     };
 
-
     let mut attributes = LayerAttributes::named("layer1");
     attributes.comments = Some(Text::from("This image was generated as part of an example"));
     attributes.owner = Some(Text::from("Unknown Owner"));
 
-    let image = Image::from_single_layer(Layer::new(
+    let layer = Layer::new(
         (2*2048, 2*2048),
         attributes,
         Encoding::SMALL_FAST_LOSSY,
@@ -43,8 +42,14 @@ fn main() {
             RgbaSampleTypes::RGBA_F16,
             generate_pixels
         )
-    ));
+    );
 
+    // crop away invisible pixels
+    let layer = layer
+        .crop_where(|pixel: RgbaPixel| pixel.alpha_or_default().to_f32() == 0.0)
+        .or_crop_to_1x1_if_empty();
+
+    let image = Image::from_single_layer(layer);
 
     // write it to a file with all cores in parallel
     image.write().to_file("tests/images/out/generated_rgba.exr").unwrap();

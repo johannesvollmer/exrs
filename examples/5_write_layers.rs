@@ -18,6 +18,8 @@ use exr::prelude::*;
 /// Use the natively supported exrs `Layer` types instead, if possible.
 ///
 fn main() {
+    // TODO simplify handling these types of layers using read() and write()
+
     let size = Vec2(512, 512);
 
     let create_channel = |name: &str| -> AnyChannel<FlatSamples> {
@@ -25,7 +27,7 @@ fn main() {
 
         AnyChannel::new(
             name,
-            FlatSamples::F16(vec![color; size.area() ]) // TODO no borrowing
+            FlatSamples::F16(vec![color; size.area() ])
         )
     };
 
@@ -56,7 +58,7 @@ fn main() {
         size,
         LayerAttributes::named("test-image"),
         Encoding::FAST_LOSSLESS,
-        AnyChannels::new(smallvec![ // the order does not actually matter
+        AnyChannels::sorted(smallvec![ // the order does not actually matter
             foreground_r, foreground_g, foreground_b, foreground_a,
             background_r, background_g, background_b
         ]),

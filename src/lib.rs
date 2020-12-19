@@ -64,6 +64,8 @@ pub mod prelude {
             read_all_flat_layers_from_file,
             read_first_flat_layer_from_file
         };
+
+        pub use crate::image::crop::{Crop, CropWhere, CropWhereEq, CropResult, InspectSample};
     }
 
     pub use traits::*;
@@ -72,6 +74,7 @@ pub mod prelude {
     pub use crate::image::*;
     pub use crate::meta::{ attribute, MetaData, header::{ LayerAttributes, ImageAttributes } };
     pub use crate::image::read::{rgba_channels::*};
+    pub use crate::block::samples::Sample;
     pub use crate::meta::attribute::{
         AttributeValue, Compression, Text, IntegerBounds,
         LineOrder, SampleType, TileDescription

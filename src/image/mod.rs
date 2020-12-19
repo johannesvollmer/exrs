@@ -21,7 +21,7 @@
 
 pub mod read;
 pub mod write;
-
+pub mod crop;
 
 
 use crate::meta::header::{ImageAttributes, LayerAttributes};
@@ -154,7 +154,8 @@ pub enum Blocks {
 
 // TODO remove indirection
 /// A grid of rgba pixels. The pixels are written to your custom pixel storage.
-/// `Samples` can be anything, from a flat `Vec<f16>` to `Vec<Vec<AnySample>>`, as desired.
+/// `PixelStorage` can be anything, from a flat `Vec<f16>` to `Vec<Vec<AnySample>>`, as desired.
+/// In order to write this image to a file, your `PixelStorage` must implement [`GetRgbaPixel`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RgbaChannels<PixelStorage> {
 
@@ -180,7 +181,7 @@ pub struct RgbaSampleTypes (pub SampleType, pub SampleType, pub SampleType, pub 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnyChannels<Samples> {
 
-    /// This list must be sorted. Use `AnyChannels::new` for automatic sorting.
+    /// This list must be sorted. Use `AnyChannels::sorted` for automatic sorting.
     pub list: SmallVec<[AnyChannel<Samples>; 4]>
 }
 
@@ -281,10 +282,7 @@ pub enum DeepSamples {
     F16(Vec<Vec<f16>>),
     F32(Vec<Vec<f32>>),
     U32(Vec<Vec<u32>>),
-}
-
-
-*/
+}*/
 
 
 /// A single pixel with a red, green, blue, and alpha value.
@@ -322,6 +320,13 @@ use crate::meta::{mip_map_levels, rip_map_levels};
 use crate::io::Data;
 
 
+impl<Channels> Layer<Channels> {
+    /// Sometimes called "data window"
+    pub fn absolute_bounds(&self) -> IntegerBounds {
+        IntegerBounds::new(self.attributes.layer_position, self.size)
+    }
+}
+
 impl<SampleStorage> RgbaChannels<SampleStorage> {
     /// Create a new group of rgba channels. The samples can be a closure of type `Sync + Fn(Vec2<usize>) -> RgbaPixel`,
     /// meaning a closure that returns an rgb color for each point in the image.
@@ -331,76 +336,43 @@ impl<SampleStorage> RgbaChannels<SampleStorage> {
 }
 
 
-/// Check whether this contains any `NaN` value.
-/// This is required for comparing the equality of two images, as `NaN` never equals itself (nice!).
-pub trait ContainsNaN {
-    /// Returns true if this contains any `NaN` value.
-    fn contains_nan_pixels(&self) -> bool;
-}
-
-impl<L> ContainsNaN for Image<L> where L: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool { self.layer_data.contains_nan_pixels() }
-}
-
-impl<C> ContainsNaN for Layer<C> where C: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        self.channel_data.contains_nan_pixels()
-    }
-}
-
-impl<C> ContainsNaN for AnyChannels<C> where C: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        self.list.contains_nan_pixels()
-    }
-}
-
-impl<C> ContainsNaN for AnyChannel<C> where C: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        self.sample_data.contains_nan_pixels()
-    }
-}
-
-impl<C> ContainsNaN for Levels<C> where C: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        self.levels_as_slice().contains_nan_pixels()
-    }
-}
-
-impl ContainsNaN for FlatSamples {
-    fn contains_nan_pixels(&self) -> bool {
-        match self {
-            FlatSamples::F16(ref values) => values.as_slice().contains_nan_pixels(),
-            FlatSamples::F32(ref values) => values.as_slice().contains_nan_pixels(),
-            FlatSamples::U32(ref _values) => false,
+// TODO also deep samples?
+impl Layer<AnyChannels<FlatSamples>> {
+    pub fn samples_at(&self, position: Vec2<usize>) -> FlatSampleIterator<'_> {
+        FlatSampleIterator {
+            layer: self,
+            channel_index: 0,
+            position
         }
     }
 }
 
-impl<T> ContainsNaN for &[T] where T: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        self.iter().any(|value| value.contains_nan_pixels())
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct FlatSampleIterator<'s> {
+    layer: &'s Layer<AnyChannels<FlatSamples>>,
+    channel_index: usize,
+    position: Vec2<usize>,
+}
+
+impl Iterator for FlatSampleIterator<'_> {
+    type Item = Sample;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.channel_index == self.layer.channel_data.list.len() {
+            let channel = &self.layer.channel_data.list[self.channel_index];
+            let sample = channel.sample_data.value_by_flat_index(self.position.flatten_for_width(self.layer.size.width()));
+            self.channel_index += 1;
+            Some(sample)
+        }
+        else { None }
     }
-}
-
-impl<A: Array> ContainsNaN for SmallVec<A> where A::Item: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        self.as_ref().contains_nan_pixels()
-    }
-}
-
-impl ContainsNaN for f32 {
-    fn contains_nan_pixels(&self) -> bool { self.is_nan() }
-}
-
-impl ContainsNaN for f16 {
-    fn contains_nan_pixels(&self) -> bool { self.is_nan() }
 }
 
 
 impl<SampleData> AnyChannels<SampleData>{
 
     /// A new list of arbitrary channels. Sorts the list to make it alphabetically stable.
-    pub fn new(mut list: SmallVec<[AnyChannel<SampleData>; 4]>) -> Self {
+    pub fn sorted(mut list: SmallVec<[AnyChannel<SampleData>; 4]>) -> Self {
         list.sort_unstable_by_key(|channel| channel.name.clone()); // TODO no clone?
         Self { list }
     }
@@ -446,11 +418,6 @@ impl<LevelSamples> Levels<LevelSamples> {
             }
         }
     }
-/*
-    /// Get the level with the highest resolution.
-    pub fn largest_level(&self) -> Result<&S> {
-        self.get_level(Vec2(0,0))
-    }*/
 
     /// Get a slice of all resolution levels, sorted by size, decreasing.
     pub fn levels_as_slice(&self) -> &[LevelSamples] {
@@ -515,21 +482,20 @@ impl FlatSamples {
     /// Views all samples as f32. Matches the underlying sample type again for every sample,
     /// match yourself if performance is critical! Does not allocate.
     pub fn values_as_f32<'s>(&'s self) -> impl 's + Iterator<Item = f32> {
-        let len = self.len();
-        (0..len).map(move |index| match self {
-            FlatSamples::F16(vec) => vec[index].to_f32(),
-            FlatSamples::F32(vec) => vec[index],
-            FlatSamples::U32(vec) => vec[index] as f32,
-        })
+        self.values().map(|sample| sample.to_f32())
     }
 
-    /*pub fn for_each_sample_as_f32(&self, for_each: impl FnMut(f32)) {
+    pub fn values<'s>(&'s self) -> impl 's + Iterator<Item = Sample> {
+        (0..self.len()).map(move |index| self.value_by_flat_index(index))
+    }
+
+    pub fn value_by_flat_index(&self, index: usize) -> Sample {
         match self {
-            FlatSamples::F16(vec) => for elem in vec { for_each(elem.to_f32()) },
-            FlatSamples::F32(vec) => for elem in vec { for_each(elem) },
-            FlatSamples::U32(vec) => for elem in vec { for_each(elem as f32) },
+            FlatSamples::F16(vec) => Sample::F16(vec[index]),
+            FlatSamples::F32(vec) => Sample::F32(vec[index]),
+            FlatSamples::U32(vec) => Sample::U32(vec[index]),
         }
-    }*/
+    }
 }
 
 
@@ -657,6 +623,8 @@ impl<'s, ChannelData:'s> Image<Layer<ChannelData>> where ChannelData: WritableCh
     }
 }
 
+
+
 impl<'s, SampleData: 's> AnyChannel<SampleData> {
 
     /// Create a new channel without subsampling.
@@ -711,6 +679,75 @@ impl RgbaPixel {
         self.alpha.unwrap_or(Sample::default_alpha())
     }
 }
+
+
+
+/// Check whether this contains any `NaN` value.
+/// This is required for comparing the equality of two images, as `NaN` never equals itself (nice!).
+pub trait ContainsNaN {
+    /// Returns true if this contains any `NaN` value.
+    fn contains_nan_pixels(&self) -> bool;
+}
+
+impl<L> ContainsNaN for Image<L> where L: ContainsNaN {
+    fn contains_nan_pixels(&self) -> bool { self.layer_data.contains_nan_pixels() }
+}
+
+impl<C> ContainsNaN for Layer<C> where C: ContainsNaN {
+    fn contains_nan_pixels(&self) -> bool {
+        self.channel_data.contains_nan_pixels()
+    }
+}
+
+impl<C> ContainsNaN for AnyChannels<C> where C: ContainsNaN {
+    fn contains_nan_pixels(&self) -> bool {
+        self.list.contains_nan_pixels()
+    }
+}
+
+impl<C> ContainsNaN for AnyChannel<C> where C: ContainsNaN {
+    fn contains_nan_pixels(&self) -> bool {
+        self.sample_data.contains_nan_pixels()
+    }
+}
+
+impl<C> ContainsNaN for Levels<C> where C: ContainsNaN {
+    fn contains_nan_pixels(&self) -> bool {
+        self.levels_as_slice().contains_nan_pixels()
+    }
+}
+
+impl ContainsNaN for FlatSamples {
+    fn contains_nan_pixels(&self) -> bool {
+        match self {
+            FlatSamples::F16(ref values) => values.as_slice().contains_nan_pixels(),
+            FlatSamples::F32(ref values) => values.as_slice().contains_nan_pixels(),
+            FlatSamples::U32(ref _values) => false,
+        }
+    }
+}
+
+impl<T> ContainsNaN for &[T] where T: ContainsNaN {
+    fn contains_nan_pixels(&self) -> bool {
+        self.iter().any(|value| value.contains_nan_pixels())
+    }
+}
+
+impl<A: Array> ContainsNaN for SmallVec<A> where A::Item: ContainsNaN {
+    fn contains_nan_pixels(&self) -> bool {
+        self.as_ref().contains_nan_pixels()
+    }
+}
+
+impl ContainsNaN for f32 {
+    fn contains_nan_pixels(&self) -> bool { self.is_nan() }
+}
+
+impl ContainsNaN for f16 {
+    fn contains_nan_pixels(&self) -> bool { self.is_nan() }
+}
+
+
 
 impl<R, G, B> From<(R, G, B)> for RgbaPixel where R: Into<Sample>, G: Into<Sample>, B: Into<Sample> {
     #[inline] fn from((r,g,b): (R, G, B)) -> Self { Self::rgb(r,g,b) }

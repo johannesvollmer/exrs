@@ -40,6 +40,10 @@ fn main() {
         "B", FlatSamples::F32(generate_f16_vector(size.into()).into_iter().map(f16::to_f32).collect())
     );
 
+    let a = AnyChannel::new(
+        "A", FlatSamples::F32(generate_f16_vector(size.into()).into_iter().map(f16::to_f32).collect())
+    );
+
     let mut layer_attributes = LayerAttributes::named("test-image");
     layer_attributes.owner = Some(Text::from("It's you!"));
     layer_attributes.comments = Some(Text::from("This image was procedurally generated"));
@@ -48,10 +52,16 @@ fn main() {
         size,
         layer_attributes,
         Encoding::default(),
-        AnyChannels::new(smallvec![ r, g, b ]),
+        AnyChannels::sorted(smallvec![ r, g, b, a ]),
     );
 
+    // channel order is (a,b,g,r), as channels are already sorted
+    let layer = layer
+        .crop_where_eq(&[Some(Sample::F32(0.0)), None, None, None])
+        .or_none_if_empty().expect("image is empty and cannot be cropped");
+
     let image = Image::from_single_layer(layer);
+
     // FIXME image.remove_excess(); // crop the image by removing the transparent pixels from the border
 
     println!("writing image {:#?}", image);
