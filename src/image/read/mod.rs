@@ -54,9 +54,10 @@ pub use rgba_channels::*; // TODO put somwehere else??
 use crate::error::{Result};
 use crate::image::read::samples::{ReadFlatSamples};
 use std::path::Path;
-use crate::image::{AnyImage, RgbaLayersImage, RgbaImage, AnyChannels, FlatSamples, Image, Layer, FlatImage};
+use crate::image::{AnyImage, RgbaLayersImage, RgbaImage, AnyChannels, FlatSamples, Image, Layer, FlatImage, RgbaPixel};
 use crate::image::read::image::ReadLayers;
 use crate::image::read::layers::ReadChannels;
+use crate::math::Vec2;
 
 // TODO explain or use these simple functions somewhere
 
@@ -106,9 +107,10 @@ pub fn read_first_flat_layer_from_file(path: impl AsRef<Path>) -> Result<Image<L
 /// `Create` and `Set` can be closures, see the examples for more information.
 /// Inspect the source code of this function if you need customization.
 // FIXME Set and Create should not need to be static
-pub fn read_all_rgba_layers_from_file<Set:'static, Create:'static>(path: impl AsRef<Path>, create: Create, set_pixel: Set)
-    -> Result<RgbaLayersImage<Create::Pixels>>
-    where Create: CreateRgbaPixels, Set: SetRgbaPixel<Create::Pixels>
+pub fn read_all_rgba_layers_from_file<Set:'static, Create:'static, Pixels: 'static>(path: impl AsRef<Path>, create: Create, set_pixel: Set)
+    -> Result<RgbaLayersImage<Pixels>>
+    where Create: Fn(&RgbaChannelsInfo) -> Pixels, // CreateRgbaPixels<Pixels=Pixels>,
+          Set: Fn(&mut Pixels, Vec2<usize>, RgbaPixel), // SetRgbaPixel<Pixels>
 {
     read()
         .no_deep_data()
@@ -126,8 +128,8 @@ pub fn read_all_rgba_layers_from_file<Set:'static, Create:'static>(path: impl As
 // FIXME Set and Create should not need to be static
 pub fn read_first_rgb_layer_from_file<Set:'static, Create:'static, Pixels:'static>(path: impl AsRef<Path>, create: Create, set_pixel: Set)
     -> Result<RgbaImage<Pixels>>
-    where Create: CreateRgbaPixels<Pixels=Pixels>,
-          Set: SetRgbaPixel<Pixels>
+    where Create: Fn(&RgbaChannelsInfo) -> Pixels, // CreateRgbaPixels<Pixels=Pixels>,
+          Set: Fn(&mut Pixels, Vec2<usize>, RgbaPixel), // SetRgbaPixel<Pixels>
 {
     read()
         .no_deep_data()

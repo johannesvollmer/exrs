@@ -1120,8 +1120,7 @@ impl std::fmt::Debug for LayerAttributes {
 
         let mut debug = formatter.debug_struct("LayerAttributes (default values omitted)");
 
-        // always debug the following fields
-        debug.field("data_position", &self.layer_position);
+        // always debug the following field
         debug.field("name", &self.layer_name);
 
         macro_rules! debug_non_default_fields {

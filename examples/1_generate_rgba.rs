@@ -29,9 +29,9 @@ fn main() {
         )
     };
 
-    let mut attributes = LayerAttributes::named("layer1");
+    let mut attributes = LayerAttributes::named("generated rgba");
     attributes.comments = Some(Text::from("This image was generated as part of an example"));
-    attributes.owner = Some(Text::from("Unknown Owner"));
+    attributes.owner = Some(Text::from("The holy lambda function"));
 
     let layer = Layer::new(
         (2*2048, 2*2048),
