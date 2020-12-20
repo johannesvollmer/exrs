@@ -30,42 +30,11 @@ pub fn main() {
 
         for channel in &layer.channel_data.list {
             let data : Vec<f32> = channel.sample_data.values_as_f32().collect();
-
             save_f32_image_as_png(&data, layer.size, format!(
-                "tests/images/out/{} ({}) {}_f16_{}x{}.png",
+                "tests/images/out/{} ({}) {}_{}x{}.png",
                 layer_index, layer_name, channel.name,
                 layer.size.width(), layer.size.height(),
             ))
-
-            /*match &channel.sample_data {
-                FlatSamples::F16(samples) => {
-                    let data : Vec<f32> = samples.iter().map(|f16| f16.to_f32()).collect();
-
-                    save_f32_image_as_png(&data, layer.size, format!(
-                        "tests/images/out/{} ({}) {}_f16_{}x{}.png",
-                        layer_index, layer_name, channel.name,
-                        layer.size.width(), layer.size.height(),
-                    ))
-                },
-
-                FlatSamples::F32(samples) => {
-                    save_f32_image_as_png(samples, layer.size, format!(
-                        "tests/images/out/{} ({}) {}_f32_{}x{}.png",
-                        layer_index, layer_name, channel.name,
-                        layer.size.width(), layer.size.height(),
-                    ))
-                },
-
-                FlatSamples::U32(samples) => {
-                    let data : Vec<f32> = samples.iter().map(|value| *value as f32).collect();
-
-                    save_f32_image_as_png(&data, layer.size, format!(
-                        "tests/images/out/{} ({}) {}_u32_{}x{}.png",
-                        layer_index, layer_name, channel.name,
-                        layer.size.width(), layer.size.height(),
-                    ))
-                },
-            }*/
         }
     }
 
