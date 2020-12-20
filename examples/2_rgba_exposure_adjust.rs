@@ -5,7 +5,7 @@ use exr::prelude::*;
 use exr::image::read::RgbaChannelsInfo;
 use exr::image::write::channels::GetRgbaPixel;
 
-/// Read an RGBA image, increase the exposure, and then write it back.
+/// Read an rgba image, increase the exposure, and then write it back.
 /// Uses multi-core compression where appropriate.
 fn main() {
 

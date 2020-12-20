@@ -34,7 +34,7 @@ pub enum AttributeValue {
     /// A 4x4 matrix of floats.
     Matrix4x4(Matrix4x4),
 
-    /// 8-bit RGBA Preview of the image.
+    /// 8-bit rgba Preview of the image.
     Preview(Preview),
 
     /// An integer dividend and divisor.

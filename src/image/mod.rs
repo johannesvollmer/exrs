@@ -294,13 +294,13 @@ pub enum DeepSamples {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct RgbaPixel {
 
-    /// The red component of this RGB pixel.
+    /// The red component of this rgba pixel.
     pub red: Sample,
 
-    /// The green component of this RGB pixel.
+    /// The green component of this rgba pixel.
     pub green: Sample,
 
-    /// The blue component of this RGB pixel.
+    /// The blue component of this rgba pixel.
     pub blue: Sample,
 
     /// The alpha component of this pixel.
@@ -335,9 +335,17 @@ impl<SampleStorage> RgbaChannels<SampleStorage> {
     }
 }
 
+/// A list of samples representing a single pixel.
+/// Does not heap allocate for images with 6 or fewer channels.
+pub type FlatSamplesPixel = SmallVec<[Sample; 6]>; // TODO no allocation? should be borrowable
 
 // TODO also deep samples?
 impl Layer<AnyChannels<FlatSamples>> {
+
+    /// Use `samples_at` if you can borrow from this layer
+    pub fn sample_vec_at(&self, position: Vec2<usize>) -> FlatSamplesPixel {
+        self.samples_at(position).collect()
+    }
 
     /// Lookup all channels of a single pixel in the image
     pub fn samples_at(&self, position: Vec2<usize>) -> FlatSampleIterator<'_> {
@@ -361,7 +369,7 @@ impl Iterator for FlatSampleIterator<'_> {
     type Item = Sample;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.channel_index == self.layer.channel_data.list.len() {
+        if self.channel_index < self.layer.channel_data.list.len() {
             let channel = &self.layer.channel_data.list[self.channel_index];
             let sample = channel.sample_data.value_by_flat_index(self.position.flat_index_for_size(self.layer.size));
             self.channel_index += 1;

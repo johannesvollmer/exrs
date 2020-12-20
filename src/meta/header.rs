@@ -128,7 +128,7 @@ pub struct LayerAttributes {
     pub screen_window_width: f32,
 
     /// The white luminance of the colors.
-    /// Defines the luminance in candelas per square meter, Nits, of the RGB value `(1, 1, 1)`.
+    /// Defines the luminance in candelas per square meter, Nits, of the rgb value `(1, 1, 1)`.
     // If the chromaticities and the whiteLuminance of an RGB image are
     // known, then it is possible to convert the image's pixels from RGB
     // to CIE XYZ tristimulus values (see function RGBtoXYZ() in header
@@ -216,7 +216,7 @@ pub struct LayerAttributes {
     /// If the image was cropped, contains the original data window.
     pub original_data_window: Option<IntegerBounds>,
 
-    /// An 8-bit RGBA image representing the rendered image.
+    /// An 8-bit rgba image representing the rendered image.
     pub preview: Option<Preview>,
 
     /// Name of the view, which is typically either `"right"` or `"left"` for a stereoscopic image.

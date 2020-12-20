@@ -65,6 +65,16 @@ impl Sample {
             Sample::U32(_) => false,
         }
     }
+
+    /// Is this value zero or negative zero?
+    #[inline]
+    pub fn is_zero(&self) -> bool {
+        match *self {
+            Sample::F16(value) => value == f16::ZERO || value == f16::NEG_ZERO,
+            Sample::F32(value) => value == 0.0,
+            Sample::U32(value) => value == 0,
+        }
+    }
 }
 
 impl PartialEq for Sample {

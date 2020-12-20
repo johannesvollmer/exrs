@@ -126,8 +126,8 @@ pub fn read_all_rgba_layers_from_file<Set:'static, Create:'static, Pixels: 'stat
 /// `Create` and `Set` can be closures, see the examples for more information.
 /// Inspect the source code of this function if you need customization.
 // FIXME Set and Create should not need to be static
-pub fn read_first_rgb_layer_from_file<Set:'static, Create:'static, Pixels:'static>(path: impl AsRef<Path>, create: Create, set_pixel: Set)
-    -> Result<RgbaImage<Pixels>>
+pub fn read_first_rgba_layer_from_file<Set:'static, Create:'static, Pixels:'static>(path: impl AsRef<Path>, create: Create, set_pixel: Set)
+                                                                                    -> Result<RgbaImage<Pixels>>
     where Create: Fn(&RgbaChannelsInfo) -> Pixels, // CreateRgbaPixels<Pixels=Pixels>,
           Set: Fn(&mut Pixels, Vec2<usize>, RgbaPixel), // SetRgbaPixel<Pixels>
 {

@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{Write, Cursor};
-use exr::image::read::read_first_rgb_layer_from_file;
+use exr::image::read::read_first_rgba_layer_from_file;
 
 fn exr_files(path: &'static str, filter: bool) -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new(path).into_iter().map(std::result::Result::unwrap)
@@ -68,7 +68,7 @@ pub fn damaged(){
             }
 
             {
-                let _rgba = read_first_rgb_layer_from_file(
+                let _rgba = read_first_rgba_layer_from_file(
                     file,
                     read::rgba_channels::pixels::create_flattened_f16,
                     read::rgba_channels::pixels::set_flattened_pixel

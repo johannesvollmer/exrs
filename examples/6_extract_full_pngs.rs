@@ -1,4 +1,3 @@
-// FIXME Attention: The API in this example is not ready for usage as it is still being worked on.
 
 extern crate image as png;
 use std::cmp::Ordering;

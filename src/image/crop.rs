@@ -1,8 +1,9 @@
 //! Crop away unwanted pixels. Includes automatic detection of bounding rectangle.
+//! Currently does not support deep data and resolution levels.
 
 use crate::meta::attribute::IntegerBounds;
 use crate::math::Vec2;
-use crate::image::{Layer, FlatSamples, RgbaChannels, AnyChannels, RgbaPixel};
+use crate::image::{Layer, FlatSamples, RgbaChannels, AnyChannels, RgbaPixel, FlatSamplesPixel};
 use crate::image::write::channels::GetRgbaPixel;
 use crate::meta::header::LayerAttributes;
 use crate::block::samples::Sample;
@@ -58,6 +59,7 @@ pub enum CropResult<Cropped, Old> {
 
     /// All pixels in the image would be discarded, removing the whole image
     Empty {
+
         /// The uncropped image after a failed crop operation
         original: Old
     }
@@ -65,6 +67,7 @@ pub enum CropResult<Cropped, Old> {
 
 /// Crop away unwanted pixels from the border if they match the specified rule.
 pub trait CropWhere<Sample>: Sized {
+
     /// The type of the cropped image (probably the same as the original image)
     type Cropped;
 
@@ -74,6 +77,7 @@ pub trait CropWhere<Sample>: Sized {
 
 /// Crop away unwanted pixels from the border if they match the specified color.
 pub trait CropWhereEq<SampleEq>: Sized {
+
     /// The type of the cropped image (probably the same as the original image)
     type Cropped;
 
@@ -166,8 +170,21 @@ impl<Samples> InspectSample for Layer<RgbaChannels<Samples>> where Samples: GetR
 }
 
 
-// ALGORITHM IDEA: for arbitrary channels, find the least transparent layer,
+// ALGORITHM IDEA: for arbitrary channels, find the most desired channel,
 // and process that first, keeping the processed bounds as starting point for the other layers
+
+impl CropWhere<FlatSamplesPixel> for Layer<AnyChannels<FlatSamples>> {
+    type Cropped = Self;
+
+    fn crop_where(self, discard_if: impl Fn(FlatSamplesPixel) -> bool) -> CropResult<Self::Cropped, Self> {
+        let bounds = try_find_smaller_bounds(
+            self.bounds(),
+            |position| !discard_if(self.sample_vec_at(position))
+        );
+
+        self.try_crop(bounds)
+    }
+}
 
 impl<Slice> CropWhereEq<Slice> for Layer<AnyChannels<FlatSamples>>
     where Slice: AsRef<[Option<Sample>]>

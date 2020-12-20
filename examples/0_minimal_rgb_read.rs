@@ -1,7 +1,7 @@
 extern crate exr;
 
 fn main() {
-    let image = exr::prelude::read_first_rgb_layer_from_file(
+    let image = exr::prelude::read_first_rgba_layer_from_file(
         "tests/images/out/generated_rgba.exr", // run the `1_generate_rgba` example to generate this file
 
         // instantiate the two-dimensional pixel vector with the size of the image file

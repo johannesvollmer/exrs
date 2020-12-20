@@ -84,7 +84,7 @@ impl<S> ContainsNaN for RgbaChannels<S> where S: ContainsNaN {
 
 impl RgbaSampleTypes {
 
-    /// Is 4 if this is an rgba image, 3 for an RGB image.
+    /// Is 4 if this is an rgba image, 3 for an rgb image.
     #[inline]
     pub fn count(&self) -> usize {
         if self.3.is_some() { 4 } else { 3 }
@@ -111,7 +111,7 @@ where
     type Reader = RgbaChannelsReader<'s, Setter, Constructor::Pixels>;
 
     fn create_channels_reader(&'s self, header: &Header) -> Result<Self::Reader> {
-        if header.deep { return Err(Error::invalid("layer has deep data, no flat RGB data")) }
+        if header.deep { return Err(Error::invalid("layer has deep data, no flat rgba data")) }
 
         let mut rgba_types  = [None; 4];
         for (channel_index, channel) in header.channels.list.iter().enumerate() {
@@ -137,7 +137,8 @@ where
         }
 
         else {
-            Err(Error::invalid("layer has no RGB channels"))
+            println!("found channels {:#?}", header.channels);
+            Err(Error::invalid("layer has no rgba channels"))
         }
     }
 }
@@ -147,6 +148,11 @@ impl<Setter, Storage>
     where Setter: SetRgbaPixel<Storage>
 {
     type Channels = RgbaChannels<Storage>;
+
+    // TODO levels?
+    fn filter_block(&self, (_, tile): (usize, &TileCoordinates)) -> bool {
+        tile.is_largest_resolution_level()
+    }
 
     fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult {
         let RgbaSampleTypes(r_type, g_type, b_type, a_type) = self.info.channels;
@@ -209,11 +215,6 @@ impl<Setter, Storage>
         Ok(())
     }
 
-    // TODO levels?
-    fn filter_block(&self, (_, tile): (usize, &TileCoordinates)) -> bool {
-        tile.is_largest_resolution_level()
-    }
-
     fn into_channels(self) -> Self::Channels {
         RgbaChannels {
             sample_types: self.info.channels,
@@ -242,8 +243,12 @@ pub mod pixels {
     #[derive(PartialEq, Clone)]
     pub struct Flattened<T> {
 
-        channels: usize,
-        size: Vec2<usize>,
+
+        /// The number of channels in this layer, either 3 or 4.
+        pub channels: usize,
+
+        /// The resolution of this layer.
+        pub size: Vec2<usize>,
 
         /// The flattened vector contains all rows one after another.
         /// In each row, for each pixel, its red, green, blue, and then alpha
