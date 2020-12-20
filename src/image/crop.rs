@@ -169,10 +169,10 @@ impl<Samples> InspectSample for Layer<RgbaChannels<Samples>> where Samples: GetR
     }
 }
 
-
 // ALGORITHM IDEA: for arbitrary channels, find the most desired channel,
 // and process that first, keeping the processed bounds as starting point for the other layers
 
+// TODO no allocation? should be borrowable
 impl CropWhere<FlatSamplesPixel> for Layer<AnyChannels<FlatSamples>> {
     type Cropped = Self;
 

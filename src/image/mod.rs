@@ -336,8 +336,8 @@ impl<SampleStorage> RgbaChannels<SampleStorage> {
 }
 
 /// A list of samples representing a single pixel.
-/// Does not heap allocate for images with 6 or fewer channels.
-pub type FlatSamplesPixel = SmallVec<[Sample; 6]>; // TODO no allocation? should be borrowable
+/// Does not heap allocate for images with 8 or fewer channels.
+pub type FlatSamplesPixel = SmallVec<[Sample; 8]>;
 
 // TODO also deep samples?
 impl Layer<AnyChannels<FlatSamples>> {
