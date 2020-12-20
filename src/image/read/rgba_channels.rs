@@ -243,7 +243,7 @@ pub mod pixels {
     pub struct Flattened<T> {
 
         channels: usize,
-        width: usize,
+        size: Vec2<usize>,
 
         /// The flattened vector contains all rows one after another.
         /// In each row, for each pixel, its red, green, blue, and then alpha
@@ -262,7 +262,7 @@ pub mod pixels {
         /// Panics for invalid sample coordinates.
         #[inline]
         pub fn compute_pixel_index(&self, position: Vec2<usize>) -> std::ops::Range<usize> {
-            let pixel_index = position.y() * self.width + position.x(); // TODO use vec2.flatten
+            let pixel_index = position.flat_index_for_size(self.size);
             let red_index = pixel_index * self.channels;
             red_index .. red_index + self.channels
         }
@@ -275,6 +275,7 @@ pub mod pixels {
     }
 
     impl<T> GetRgbaPixel for Flattened<T> where T: Sync + Copy + Into<Sample> {
+        type Pixel = RgbaPixel;
         fn get_pixel(&self, position: Vec2<usize>) -> RgbaPixel {
             get_flattened_pixel(self, position)
         }
@@ -284,7 +285,7 @@ pub mod pixels {
     /// Can usually be used as a reference instead of calling it manually.
     #[inline] pub fn create_flattened_f16(image: &RgbaChannelsInfo) -> Flattened<f16> {
         Flattened {
-            width: image.resolution.0,
+            size: image.resolution,
             channels: image.channels.count(),
             samples: vec![f16::ZERO; image.resolution.area() * image.channels.count()]
         }
@@ -294,7 +295,7 @@ pub mod pixels {
     /// Can usually be used as a reference instead of calling it manually.
     #[inline] pub fn create_flattened_f32(image: &RgbaChannelsInfo) -> Flattened<f32> {
         Flattened {
-            width: image.resolution.0,
+            size: image.resolution,
             channels: image.channels.count(),
             samples: vec![0.0; image.resolution.area() * image.channels.count()]
         }
@@ -304,7 +305,7 @@ pub mod pixels {
     /// Can usually be used as a reference instead of calling it manually.
     #[inline] pub fn create_flattened_u32(image: &RgbaChannelsInfo) -> Flattened<u32> {
         Flattened {
-            width: image.resolution.0,
+            size: image.resolution,
             channels: image.channels.count(),
             samples: vec![0; image.resolution.area() * image.channels.count()]
         }

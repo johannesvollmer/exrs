@@ -70,6 +70,8 @@ pub mod prelude {
 
     pub use traits::*;
 
+    pub use crate::image::write::{write_rgb_f32_file, write_rgba_f32_file};
+
     // image data structures
     pub use crate::image::*;
     pub use crate::meta::{ attribute, MetaData, header::{ LayerAttributes, ImageAttributes } };

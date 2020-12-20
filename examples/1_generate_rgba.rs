@@ -20,7 +20,8 @@ fn main() {
             value.powf((position.y() as f32 / scale.y()).sin() * 0.5 + 0.5)
         }
 
-        RgbaPixel::rgba(
+        // return an rgba quadruple
+        (
             get_sample_f32(position, 0),
             get_sample_f32(position, 1),
             get_sample_f32(position, 2),
@@ -46,7 +47,7 @@ fn main() {
 
     // crop away invisible pixels
     let layer = layer
-        .crop_where(|pixel: RgbaPixel| pixel.alpha_or_default().to_f32() == 0.0)
+        .crop_where(|(_r, _g, _b, alpha)| alpha == 0.0)
         .or_crop_to_1x1_if_empty();
 
     let image = Image::from_single_layer(layer);

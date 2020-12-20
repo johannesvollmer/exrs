@@ -68,9 +68,9 @@ fn main() {
     // enable writing our custom pixel storage to a file
     // TODO this should be passed as a closure to the `write().rgba_with(|x| y)` call
     impl GetRgbaPixel for CustomPixels {
-        fn get_pixel(&self, position: Vec2<usize>) -> RgbaPixel {
-            let rgba_f16_array: [f16; 4] = self.lines[position.y()][position.x()];
-            RgbaPixel::from(rgba_f16_array)
+        type Pixel = [f16; 4];
+        fn get_pixel(&self, position: Vec2<usize>) -> Self::Pixel {
+            self.lines[position.y()][position.x()]
         }
     }
 

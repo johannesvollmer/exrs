@@ -42,15 +42,20 @@ pub trait ChannelsWriter: Sync {
 /// Can be a closure of type [`Sync + Fn(Vec2<usize>) -> RgbaPixel`].
 pub trait GetRgbaPixel: Sync {
 
+    /// The type of pixel you can return. Must be converted to `RgbaPixel`.
+    /// Can be a tuple or array of either three or four `f32`, `f16` or `u32` values, or simply an `RgbaPixel`.
+    type Pixel: Into<RgbaPixel>;
+
     /// Inspect a single rgba pixel at the requested position.
     /// Will be called exactly once for each pixel in the image.
     /// The position will not exceed the image dimensions.
     /// Might be called from multiple threads at the same time.
-    fn get_pixel(&self, position: Vec2<usize>) -> RgbaPixel;
+    fn get_pixel(&self, position: Vec2<usize>) -> Self::Pixel;
 }
 
-impl<F> GetRgbaPixel for F where F: Sync + Fn(Vec2<usize>) -> RgbaPixel {
-    fn get_pixel(&self, position: Vec2<usize>) -> RgbaPixel { self(position) }
+impl<F, P> GetRgbaPixel for F where P: Into<RgbaPixel>, F: Sync + Fn(Vec2<usize>) -> P {
+    type Pixel = P;
+    fn get_pixel(&self, position: Vec2<usize>) -> P { self(position) }
 }
 
 impl<'samples, Samples> WritableChannels<'samples> for AnyChannels<Samples>
@@ -188,7 +193,7 @@ impl<'channels, Pixels> ChannelsWriter for RgbaChannelsWriter<'channels, Pixels>
 
             for x in 0..width {
                 let position = block_index.pixel_position + Vec2(x,y);
-                let pixel: RgbaPixel = self.rgba.storage.get_pixel(position);
+                let pixel: RgbaPixel = self.rgba.storage.get_pixel(position).into();
 
                 write_r(pixel.red);
                 write_g(pixel.green);

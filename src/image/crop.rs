@@ -26,12 +26,19 @@ pub trait InspectSample: GetBounds {
 
 /// Crop some pixels ways when specifying a smaller rectangle
 pub trait Crop: Sized {
+
+    /// The type of  this image after cropping (probably the same as before)
     type Cropped;
 
-    /// Panics for invalid (larger than previously) bounds
-    /// Does not necessarily reduce allocation size of the current image
+    /// Reduce your image to a smaller part, usually to save memory.
+    /// Panics for invalid (larger than previously) bounds.
+    /// The bounds are specified in absolute coordinates.
+    /// Does not necessarily reduce allocation size of the current image:
+    /// An rgba image will only be viewed in a smaller window instead of reallocating.
     fn crop(self, bounds: IntegerBounds) -> Self::Cropped;
 
+    /// Reduce your image to a smaller part, usually to save memory.
+    /// Crop if bounds are specified, return the original if no bounds are specified.
     fn try_crop(self, bounds: Option<IntegerBounds>) -> CropResult<Self::Cropped, Self> {
         match bounds {
             Some(bounds) => CropResult::Cropped(self.crop(bounds)),
@@ -45,18 +52,32 @@ pub trait Crop: Sized {
 #[must_use]
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum CropResult<Cropped, Old> {
+
+    /// The image contained some pixels and has been cropped or left untouched
     Cropped (Cropped),
-    Empty { original: Old }
+
+    /// All pixels in the image would be discarded, removing the whole image
+    Empty {
+        /// The uncropped image after a failed crop operation
+        original: Old
+    }
 }
 
+/// Crop away unwanted pixels from the border if they match the specified rule.
 pub trait CropWhere<Sample>: Sized {
+    /// The type of the cropped image (probably the same as the original image)
     type Cropped;
+
+    /// Crop away unwanted pixels from the border if they match the specified rule , usually to save memory.
     fn crop_where(self, discard_if: impl Fn(Sample) -> bool) -> CropResult<Self::Cropped, Self>;
 }
 
+/// Crop away unwanted pixels from the border if they match the specified color.
 pub trait CropWhereEq<SampleEq>: Sized {
+    /// The type of the cropped image (probably the same as the original image)
     type Cropped;
 
+    /// Crop away unwanted pixels from the border if they match the specified color , usually to save memory.
     /// If you want discard based on a rule, use `crop_where` with a closure instead.
     fn crop_where_eq(self, discard_color: SampleEq) -> CropResult<Self::Cropped, Self>;
 }
@@ -74,23 +95,20 @@ impl<T> CropWhere<T::Sample> for T where T: Crop + InspectSample {
     }
 }
 
-/*impl<C, S> CropWhereEq<S> for C where C: CropWhere<S>, S: PartialEq {
-    type Cropped = <Self as CropWhere<S>>::Cropped;
-
-    fn crop_where_eq(self, discard_color: S) -> CropResult<Self::Cropped, Self> {
-        self.crop_where(|sample| sample == discard_color)
-    }
-}*/
-
-
 /// A smaller window into an existing rgba storage
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct CroppedRgba<Samples> {
+
+    /// When cropped, the image pixels are offset by this value
     pub offset: Vec2<usize>,
+
+    /// Your uncropped pixelgrid
     pub original_storage: Samples
 }
 
 impl<Samples> CroppedRgba<Samples> {
+
+    /// Wrap a layer in a cropped view with adjusted bounds, but without reallocating your pixels
     pub fn crop_layer(bounds: IntegerBounds, layer: Layer<RgbaChannels<Samples>>) -> Layer<RgbaChannels<CroppedRgba<Samples>>> {
         Layer {
             channel_data: RgbaChannels {
@@ -116,7 +134,8 @@ impl<Samples> CroppedRgba<Samples> {
 
 // enable writing the cropped rgba channel contents to a file
 impl<Samples> GetRgbaPixel for CroppedRgba<Samples> where Samples: GetRgbaPixel {
-    fn get_pixel(&self, position: Vec2<usize>) -> RgbaPixel {
+    type Pixel = Samples::Pixel;
+    fn get_pixel(&self, position: Vec2<usize>) -> Samples::Pixel {
         self.original_storage.get_pixel(position + self.offset)
     }
 }
@@ -130,33 +149,18 @@ impl<Samples> Crop for Layer<RgbaChannels<Samples>> {
     }
 }
 
-/*impl<Samples, R,G,B,A> CropWhereEq<(Option<R>, Option<G>, Option<B>, Option<A>)> for Layer<RgbaChannels<Samples>>
-    where Samples: GetRgbaPixel, R: Into<Sample>, G: Into<Sample>, B: Into<Sample>, A: Into<Sample>
-{
+impl<Samples, Pixel> CropWhereEq<Pixel> for Layer<RgbaChannels<Samples>> where Pixel: Into<RgbaPixel>, Samples: GetRgbaPixel {
     type Cropped = <Self as Crop>::Cropped;
 
-    fn crop_where_eq(self, (r,g,b,a): (Option<R>, Option<G>, Option<B>, Option<A>)) -> CropResult<Self::Cropped, Self> {
-        self.crop_where(|rgba: RgbaPixel| {
-            let discard_red = if let Some(r) = r { rgba.red == r.into() } else { false };
-            let discard_green = if let Some(g) = g { rgba.green == g.into() } else { false };
-            let discard_blue = if let Some(b) = b { rgba.blue == b.into() } else { false };
-            let discard_alpha = if let Some(a) = a { rgba.alpha_or_default() == a.into() } else { false };
-            discard_red && discard_green && discard_blue && discard_alpha
-        })
-    }
-}*/
-impl<Samples> CropWhereEq<RgbaPixel> for Layer<RgbaChannels<Samples>> where Samples: GetRgbaPixel {
-    type Cropped = <Self as Crop>::Cropped;
-
-    fn crop_where_eq(self, rgba: RgbaPixel) -> CropResult<Self::Cropped, Self> {
-        self.crop_where(|sample| sample == rgba)
+    fn crop_where_eq(self, rgba: Pixel) -> CropResult<Self::Cropped, Self> {
+        let rgba_pixel: RgbaPixel = rgba.into();
+        self.crop_where(|sample| sample.into() == rgba_pixel)
     }
 }
 
-
 impl<Samples> InspectSample for Layer<RgbaChannels<Samples>> where Samples: GetRgbaPixel {
-    type Sample = RgbaPixel;
-    fn inspect_sample(&self, local_index: Vec2<usize>) -> Self::Sample {
+    type Sample = Samples::Pixel;
+    fn inspect_sample(&self, local_index: Vec2<usize>) -> Samples::Pixel {
         self.channel_data.storage.get_pixel(local_index)
     }
 }
@@ -164,25 +168,6 @@ impl<Samples> InspectSample for Layer<RgbaChannels<Samples>> where Samples: GetR
 
 // ALGORITHM IDEA: for arbitrary channels, find the least transparent layer,
 // and process that first, keeping the processed bounds as starting point for the other layers
-
-/*impl<'s> InspectSample for &'s Layer<AnyChannels<FlatSamples>> {
-    type Sample = FlatSampleIterator<'s>;
-    fn inspect_sample(&self, local_index: Vec2<usize>) -> Self::Sample {}
-}*/
-
-/*impl<I: Iterator<Item=Sample>> CropWhere<I> for Layer<AnyChannels<FlatSamples>>
-{
-    type Cropped = Self;
-
-    fn crop_where(self, discard_if: impl Fn(I) -> bool) -> CropResult<Self::Cropped, Self> {
-        let bounds = try_find_smaller_bounds(
-            self.absolute_bounds(),
-            |position| !discard_if(self.samples_at(position))
-        );
-
-        self.try_crop(bounds)
-    }
-}*/
 
 impl<Slice> CropWhereEq<Slice> for Layer<AnyChannels<FlatSamples>>
     where Slice: AsRef<[Option<Sample>]>
@@ -219,8 +204,8 @@ impl Crop for Layer<AnyChannels<FlatSamples>> {
 
         if bounds.size != self.size {
             fn crop_samples<T: Copy>(samples: &[T], old_width: usize, new_height: usize, x_range: std::ops::Range<usize>, y_start: usize) -> Vec<T> {
-                let kept_old_lines = samples.chunks_exact(old_width).skip(y_start).take(new_height);
-                let trimmed_lines = kept_old_lines.map(|line| &line[x_range.clone()]);
+                let filtered_lines = samples.chunks_exact(old_width).skip(y_start).take(new_height);
+                let trimmed_lines = filtered_lines.map(|line| &line[x_range.clone()]);
                 trimmed_lines.flatten().map(|x| *x).collect() // TODO does this use memcpy?
             }
 
@@ -313,6 +298,8 @@ impl<S> GetBounds for Layer<S> {
 }
 
 impl<Cropped, Original> CropResult<Cropped, Original> {
+
+    /// If the image was fully empty, return `None`, otherwise return `Some(cropped_image)`.
     pub fn or_none_if_empty(self) -> Option<Cropped> {
         match self {
             CropResult::Cropped (cropped) => Some(cropped),
@@ -320,6 +307,8 @@ impl<Cropped, Original> CropResult<Cropped, Original> {
         }
     }
 
+    /// If the image was fully empty, crop to one single pixel of all the transparent pixels instead,
+    /// leaving the layer intact while reducing memory usage.
     pub fn or_crop_to_1x1_if_empty(self) -> Cropped where Original: Crop<Cropped=Cropped> + GetBounds {
         match self {
             CropResult::Cropped (cropped) => cropped,

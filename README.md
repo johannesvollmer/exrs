@@ -174,27 +174,18 @@ Example: [generate an rgb exr file](https://github.com/johannesvollmer/exrs/blob
 
 ```rust
 extern crate exr;
-use exr::prelude::*;
 
 fn main() {
-    // generate an image with 2048*2048 pixels
-    let generator_image = Image::with_single_layer(
-        (2048, 2048),
-        RgbaChannels::new(
-            RgbaSampleTypes::RGB_F16, // convert values to f16, no alpha
-
-            // generate some color for each pixel position
-            &|position: Vec2<usize>| {
-                RgbaPixel::rgb(
-                    position.x() as f32 / 2048.0, // red
-                    position.y() as f32 / 2048.0, // green
-                    1.0 - (position.y() as f32 / 2048.0), // blue
-                )
-            }
+    // write a file without alpha and 32-bit float precision per channel
+    exr::prelude::write_rgb_f32_file(
+        "tests/images/out/minimal_rgb.exr",
+        (2048, 2048), // write an image with 2048x2048 pixels
+        |x,y| ( // generate an f32 rgb color for each of the 2048x2048 pixels
+            x as f32 / 2048.0, // red
+            y as f32 / 2048.0, // green
+            1.0 - (y as f32 / 2048.0), // blue
         )
-    );
-
-    generator_image.write().to_file("my_image.exr").unwrap();
+    ).unwrap();
 }
 ```
 

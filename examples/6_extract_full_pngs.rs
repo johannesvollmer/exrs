@@ -12,10 +12,7 @@ pub fn main() {
     let now = ::std::time::Instant::now();
 
     // load the exr file from disk with multi-core decompression
-    let image = read()
-        .no_deep_data().all_resolution_levels()
-        .all_channels().all_layers().all_attributes()
-        .from_file(path).unwrap();
+    let image = read_all_data_from_file(path).unwrap();
 
     // warning: highly unscientific benchmarks ahead!
     println!("\nloaded file in {:?}s", now.elapsed().as_secs_f32());

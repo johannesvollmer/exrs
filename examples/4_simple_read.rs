@@ -14,11 +14,6 @@ fn main() {
         .from_file("tests/images/valid/openexr/Beachball/multipart.0004.exr")
         .unwrap();
 
-    // let image = Image::read_from_file(
-    //     "tests/images/valid/openexr/Beachball/multipart.0004.exr",
-    //     read_options::high() // use multi-core decompression
-    // ).unwrap();
-
     println!("image was read: {:#?}", image);
 
     // output the average value for each channel of each layer

@@ -338,6 +338,8 @@ impl<SampleStorage> RgbaChannels<SampleStorage> {
 
 // TODO also deep samples?
 impl Layer<AnyChannels<FlatSamples>> {
+
+    /// Lookup all channels of a single pixel in the image
     pub fn samples_at(&self, position: Vec2<usize>) -> FlatSampleIterator<'_> {
         FlatSampleIterator {
             layer: self,
@@ -347,6 +349,7 @@ impl Layer<AnyChannels<FlatSamples>> {
     }
 }
 
+/// Iterate over all channels of a single pixel in the image
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct FlatSampleIterator<'s> {
     layer: &'s Layer<AnyChannels<FlatSamples>>,
@@ -360,7 +363,7 @@ impl Iterator for FlatSampleIterator<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.channel_index == self.layer.channel_data.list.len() {
             let channel = &self.layer.channel_data.list[self.channel_index];
-            let sample = channel.sample_data.value_by_flat_index(self.position.flatten_for_width(self.layer.size.width()));
+            let sample = channel.sample_data.value_by_flat_index(self.position.flat_index_for_size(self.layer.size));
             self.channel_index += 1;
             Some(sample)
         }
@@ -479,16 +482,23 @@ impl FlatSamples {
         }
     }
 
-    /// Views all samples as f32. Matches the underlying sample type again for every sample,
+    /// Views all samples in this storage as f32.
+    /// Matches the underlying sample type again for every sample,
     /// match yourself if performance is critical! Does not allocate.
     pub fn values_as_f32<'s>(&'s self) -> impl 's + Iterator<Item = f32> {
         self.values().map(|sample| sample.to_f32())
     }
 
+    /// All samples in this storage as iterator.
+    /// Matches the underlying sample type again for every sample,
+    /// match yourself if performance is critical! Does not allocate.
     pub fn values<'s>(&'s self) -> impl 's + Iterator<Item = Sample> {
         (0..self.len()).map(move |index| self.value_by_flat_index(index))
     }
 
+    /// Lookup a single value, by flat index.
+    /// The flat index can be obtained using `Vec2::flatten_for_width`
+    /// which computes the index in a flattened array of pixel rows.
     pub fn value_by_flat_index(&self, index: usize) -> Sample {
         match self {
             FlatSamples::F16(vec) => Sample::F16(vec[index]),

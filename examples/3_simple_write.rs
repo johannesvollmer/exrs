@@ -55,14 +55,13 @@ fn main() {
         AnyChannels::sorted(smallvec![ r, g, b, a ]),
     );
 
+    // crop away transparent pixels from the border
     // channel order is (a,b,g,r), as channels are already sorted
     let layer = layer
         .crop_where_eq(&[Some(Sample::F32(0.0)), None, None, None])
         .or_none_if_empty().expect("image is empty and cannot be cropped");
 
     let image = Image::from_single_layer(layer);
-
-    // FIXME image.remove_excess(); // crop the image by removing the transparent pixels from the border
 
     println!("writing image {:#?}", image);
 

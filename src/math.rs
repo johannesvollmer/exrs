@@ -8,6 +8,7 @@ use std::convert::TryFrom;
 use crate::error::{i32_to_usize};
 use crate::error::Result;
 use std::ops::{Add, Sub, Div, Mul};
+use std::fmt::Debug;
 
 /// Simple two-dimensional vector of any numerical type.
 /// Supports only few mathematical operations
@@ -58,9 +59,17 @@ impl<T> Vec2<T> {
     // TODO use this!
     /// Convert this two-dimensional coordinate to an index suited for one-dimensional flattened image arrays.
     /// Works for images that store the pixels row by row, one after another, in a single array.
-    #[inline] pub fn flatten_for_width(self, width: T) -> T where T: Mul<Output=T> + Add<Output=T> {
+    /// In debug mode, panics for an index out of bounds.
+    #[inline] pub fn flat_index_for_size(self, resolution: Vec2<T>) -> T
+        where T: Copy + Debug + Ord + Mul<Output=T> + Add<Output=T>
+    {
+        debug_assert!(
+            self.x() < resolution.width() && self.y() < resolution.height(),
+            "Vec2 index {:?} is invalid for resolution {:?}", self, resolution
+        );
+
         let Vec2(x, y) = self;
-        y * width + x
+        y * resolution.width() + x
     }
 }
 

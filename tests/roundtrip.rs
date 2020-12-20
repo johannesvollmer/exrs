@@ -149,21 +149,11 @@ fn round_trip_all_files_rgba() {
         let image = image_reader.clone().from_file(path)?;
 
         let mut tmp_bytes = Vec::new();
-        /*image.write_pixels_to_buffered(
-            &mut Cursor::new(&mut tmp_bytes), write_options::low(),
-            rgba::pixels::flattened_pixel_getter(&pixels)
-        )?;*/
 
         image.write().non_parallel()
             .to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
 
         let image2 = image_reader.from_buffered(Cursor::new(&tmp_bytes))?;
-
-        /*let (image2, pixels2) = rgba::ImageInfo::read_pixels_from_buffered(
-            Cursor::new(&tmp_bytes), ReadOptions { pedantic: true, .. read_options::low() },
-            rgba::pixels::create_flattened_f16,
-            rgba::pixels::flattened_pixel_setter()
-        )?;*/
 
         // assert_eq!(image, image2); TODO compare meta data
 
