@@ -251,6 +251,7 @@ impl Crop for Layer<AnyChannels<FlatSamples>> {
 /// Returns `None` if the image is fully transparent.
 /// Returns `[(0,0), size]` if the image is fully opaque.
 fn try_find_smaller_bounds(current_bounds: IntegerBounds, pixel_at: impl Fn(Vec2<usize>) -> bool) -> Option<IntegerBounds> {
+    assert_ne!(current_bounds.size.area(), 0, "cannot find smaller bounds of an image with zero width or height");
     let Vec2(width, height) = current_bounds.size;
 
     // scans top to bottom (left to right)
@@ -338,97 +339,200 @@ mod test {
     use super::*;
 
     #[test]
-    fn find_bounds1() {
-        let pixels = vec![
-            vec![ 0, 1, 1, 1, 1, 0 ],
-            vec![ 0, 1, 1, 1, 1, 0 ],
-            vec![ 0, 1, 1, 1, 1, 0 ],
-        ];
+    fn find_bounds() {
+        fn find_bounds(offset: Vec2<i32>, lines: &Vec<Vec<i32>>) -> IntegerBounds {
+            if let Some(first_line) = lines.first() {
+                assert!(lines.iter().all(|line| line.len() == first_line.len()), "invalid test input");
+                IntegerBounds::new(offset, (first_line.len(), lines.len()))
+            }
+            else {
+                IntegerBounds::new(offset, (0,0))
+            }
+        }
 
-        let bounds = try_find_smaller_bounds(
-            IntegerBounds::new((0,0), (6,3)),
-            |position| pixels[position.y()][position.x()] != 0
+        fn assert_found_smaller_bounds(offset: Vec2<i32>, uncropped_lines: Vec<Vec<i32>>, cropped_lines: Vec<Vec<i32>>) {
+            let old_bounds = find_bounds(offset, &uncropped_lines); // TODO offset
+
+            let found_bounds = try_find_smaller_bounds(
+                old_bounds, |position| uncropped_lines[position.y()][position.x()] != 0
+            ).unwrap();
+
+            // convert bounds to relative index
+            let found_bounds = found_bounds.with_origin(-offset);
+            for (y, uncropped_line) in uncropped_lines[found_bounds.position.y() as usize .. found_bounds.end().y() as usize].iter().enumerate() {
+                for (x, &value) in uncropped_line[found_bounds.position.x() as usize .. found_bounds.end().x() as usize].iter().enumerate() {
+                    assert_eq!(value, cropped_lines[y][x])
+                }
+            }
+        }
+
+        assert_found_smaller_bounds(
+            Vec2(-3,-3),
+
+            vec![
+                vec![ 2, 3, 4 ],
+                vec![ 2, 3, 4 ],
+            ],
+
+            vec![
+                vec![ 2, 3, 4 ],
+                vec![ 2, 3, 4 ],
+            ]
         );
 
-        assert_eq!(bounds, Some(IntegerBounds::new((1,0), (4,3))))
-    }
+        assert_found_smaller_bounds(
+            Vec2(-3,-3),
 
-    #[test]
-    fn find_bounds2() {
-        let pixels = vec![
-            vec![ 0, 0, 0, 0, 0, 0, 0 ],
-            vec![ 0, 0, 0, 0, 0, 0, 0 ],
-            vec![ 0, 0, 1, 1, 1, 0, 0 ],
-            vec![ 0, 0, 1, 1, 1, 0, 0 ],
-            vec![ 0, 0, 1, 1, 1, 0, 0 ],
-            vec![ 0, 0, 0, 0, 0, 0, 0 ],
-            vec![ 0, 0, 0, 0, 0, 0, 0 ],
-        ];
+            vec![
+                vec![ 2 ],
+            ],
 
-        let bounds = try_find_smaller_bounds(
-            IntegerBounds::new((0,0), (7,7)),
-            |position| pixels[position.y()][position.x()] != 0
+            vec![
+                vec![ 2 ],
+            ]
         );
 
-        assert_eq!(bounds, Some(IntegerBounds::new((2,2), (3,3))))
-    }
+        assert_found_smaller_bounds(
+            Vec2(-3,-3),
 
-    #[test]
-    fn find_bounds3() {
-        let pixels = vec![
-            vec![ 0, 0, 0, 0, 0, 0, 0 ],
-            vec![ 0, 0, 0, 0, 0, 0, 0 ],
-            vec![ 0, 0, 0, 0, 1, 0, 0 ], // TODO is this upside down??
-            vec![ 0, 0, 0, 0, 0, 0, 0 ],
-            vec![ 0, 0, 0, 0, 0, 0, 0 ],
-            vec![ 0, 0, 0, 0, 0, 0, 0 ],
-            vec![ 0, 0, 0, 0, 0, 0, 0 ],
-        ];
+            vec![
+                vec![ 0 ],
+                vec![ 2 ],
+                vec![ 0 ],
+                vec![ 0 ],
+            ],
 
-        let bounds = try_find_smaller_bounds(
-            IntegerBounds::new((0,0), (7,7)),
-            |position| pixels[position.y()][position.x()] != 0
+            vec![
+                vec![ 2 ],
+            ]
         );
 
-        assert_eq!(bounds, Some(IntegerBounds::new((4,2), (1,1))))
-    }
+        assert_found_smaller_bounds(
+            Vec2(-3,-3),
 
-    #[test]
-    fn find_bounds6() {
-        let pixels = vec![
-            vec![ 1, 0, 0, 0 ],
-            vec![ 0, 0, 0, 0 ],
-            vec![ 0, 0, 0, 0 ],
-            vec![ 0, 0, 0, 0 ],
-        ];
+            vec![
+                vec![ 0, 0, 0, 3, 0 ],
+            ],
 
-        let bounds = try_find_smaller_bounds(
-            IntegerBounds::new((0,0), (4,4)),
-            |position| pixels[position.y()][position.x()] != 0
+            vec![
+                vec![ 3 ],
+            ]
         );
 
-        assert_eq!(bounds, Some(IntegerBounds::new((0,0), (1,1))))
-    }
+        assert_found_smaller_bounds(
+            Vec2(3,3),
 
-    #[test]
-    fn find_bounds8() {
-        let pixels = vec![
-            vec![ 1, 0, 0, 0 ],
-            vec![ 0, 1, 0, 0 ],
-            vec![ 0, 0, 0, 0 ],
-            vec![ 0, 0, 0, 0 ],
-        ];
+            vec![
+                vec![ 0, 1, 1, 2, 1, 0 ],
+                vec![ 0, 1, 3, 1, 1, 0 ],
+                vec![ 0, 1, 1, 1, 1, 0 ],
+            ],
 
-        let bounds = try_find_smaller_bounds(
-            IntegerBounds::new((0,0), (4,4)),
-            |position| pixels[position.y()][position.x()] != 0
+            vec![
+                vec![ 1, 1, 2, 1 ],
+                vec![ 1, 3, 1, 1 ],
+                vec![ 1, 1, 1, 1 ],
+            ]
         );
 
-        assert_eq!(bounds, Some(IntegerBounds::new((0,0), (2,2))))
+        assert_found_smaller_bounds(
+            Vec2(1,3),
+
+            vec![
+                vec![ 1, 0, 0, 0, ],
+                vec![ 0, 0, 0, 0, ],
+                vec![ 0, 0, 0, 0, ],
+            ],
+
+            vec![
+                vec![ 1 ],
+            ]
+        );
+
+        assert_found_smaller_bounds(
+            Vec2(1,3),
+
+            vec![
+                vec![ 0, 0, 0, 0, ],
+                vec![ 0, 1, 0, 0, ],
+                vec![ 0, 0, 0, 0, ],
+            ],
+
+            vec![
+                vec![ 1 ],
+            ]
+        );
+
+        assert_found_smaller_bounds(
+            Vec2(-1,-3),
+
+            vec![
+                vec![ 0, 0, 0, 0, ],
+                vec![ 0, 0, 0, 1, ],
+                vec![ 0, 0, 0, 0, ],
+            ],
+
+            vec![
+                vec![ 1 ],
+            ]
+        );
+
+        assert_found_smaller_bounds(
+            Vec2(-1,-3),
+
+            vec![
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 1, 1, 1, 0, 0 ],
+                vec![ 0, 0, 1, 1, 1, 0, 0 ],
+                vec![ 0, 0, 1, 1, 1, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+            ],
+
+            vec![
+                vec![ 1, 1, 1 ],
+                vec![ 1, 1, 1 ],
+                vec![ 1, 1, 1 ],
+            ]
+        );
+
+
+        assert_found_smaller_bounds(
+            Vec2(-1,-3),
+
+            vec![
+                vec![ 0, 0, 1, 0, ],
+                vec![ 0, 0, 0, 1, ],
+                vec![ 0, 0, 0, 0, ],
+            ],
+
+            vec![
+                vec![ 1, 0, ],
+                vec![ 0, 1, ],
+            ]
+        );
+
+        assert_found_smaller_bounds(
+            Vec2(-1,-3),
+
+            vec![
+                vec![ 1, 0, 0, 0, ],
+                vec![ 0, 1, 0, 0, ],
+                vec![ 0, 0, 0, 0, ],
+                vec![ 0, 0, 0, 0, ],
+            ],
+
+            vec![
+                vec![ 1, 0, ],
+                vec![ 0, 1, ],
+            ]
+        );
     }
 
+
     #[test]
-    fn find_bounds4() {
+    fn find_no_bounds() {
         let pixels = vec![
             vec![ 0, 0, 0, 0 ],
             vec![ 0, 0, 0, 0 ],
