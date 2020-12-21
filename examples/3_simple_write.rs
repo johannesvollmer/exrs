@@ -56,9 +56,12 @@ fn main() {
     );
 
     // crop away transparent pixels from the border
-    // channel order is (a,b,g,r), as channels are already sorted
     let layer = layer
-        .crop_where_eq(&[Some(Sample::F32(0.0)), None, None, None])
+
+        // channel order is (a,b,g,r), as channels are already sorted
+        .crop_where(|samples| samples[0].is_zero())
+
+        // throw error if the image is 100% transparent pixels and should be removed
         .or_none_if_empty().expect("image is empty and cannot be cropped");
 
     let image = Image::from_single_layer(layer);

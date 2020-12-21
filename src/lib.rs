@@ -60,7 +60,7 @@ pub mod prelude {
             image::ReadImage, layers::ReadChannels,
         };
 
-        pub use crate::image::crop::{Crop, CropWhere, CropWhereEq, CropResult, InspectSample, CroppedRgba};
+        pub use crate::image::crop::{Crop, CropWhere, CropResult, InspectSample, CroppedView, ApplyCropedView};
     }
 
     pub use traits::*;

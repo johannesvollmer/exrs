@@ -47,7 +47,7 @@ fn main() {
 
     // crop away invisible pixels
     let layer = layer
-        .crop_where(|(_r, _g, _b, alpha)| alpha == 0.0)
+        .crop_where_eq((0.0, 0.0, 0.0, 0.0))
         .or_crop_to_1x1_if_empty();
 
     let image = Image::from_single_layer(layer);
