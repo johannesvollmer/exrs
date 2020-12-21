@@ -75,7 +75,8 @@ impl<'samples, Samples> WritableChannels<'samples> for AnyChannels<Samples>
 
         debug_assert!(
             std::iter::repeat(mode).zip(self.list.iter().skip(1))
-                .all(|(first, other)| other.sample_data.level_mode() == first)
+                .all(|(first, other)| other.sample_data.level_mode() == first),
+            "level mode must be the same across all levels"
         );
 
         mode
@@ -172,7 +173,7 @@ impl<'channels, Pixels> ChannelsWriter for RgbaChannelsWriter<'channels, Pixels>
             let (b, line_bytes) = line_bytes.split_at_mut(b_line_bytes);
             let (g, line_bytes) = line_bytes.split_at_mut(g_line_bytes);
             let (r, line_bytes) = line_bytes.split_at_mut(r_line_bytes);
-            debug_assert!(line_bytes.is_empty());
+            debug_assert!(line_bytes.is_empty(), "some bytes are left after dividing input for rgba channels");
 
             fn sample_writer(sample_type: SampleType, mut write: impl Write) -> impl FnMut(Sample) {
                 use crate::io::Data;

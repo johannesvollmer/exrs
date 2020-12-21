@@ -188,7 +188,7 @@ impl<C> LayersReader for FirstValidLayerReader<C> where C: ChannelsReader {
     }
 
     fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult {
-        debug_assert_eq!(block.index.layer, self.layer_index);
+        debug_assert_eq!(block.index.layer, self.layer_index, "block should have been filtered out");
         self.layer_reader.channels_reader.read_block(&headers[self.layer_index], block)
     }
 

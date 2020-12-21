@@ -124,7 +124,7 @@ impl<'samples, LevelSamples> WritableSamples<'samples> for Levels<LevelSamples>
 {
     fn sample_type(&self) -> SampleType {
         let sample_type = self.levels_as_slice().first().unwrap().sample_type();
-        debug_assert!(self.levels_as_slice().iter().skip(1).all(|ty| ty.sample_type() == sample_type));
+        debug_assert!(self.levels_as_slice().iter().skip(1).all(|ty| ty.sample_type() == sample_type), "sample types must be the same across all levels");
         sample_type
     }
 
@@ -162,7 +162,7 @@ impl<'samples, LevelSamples> WritableSamples<'samples> for Levels<LevelSamples>
                     )
                 },
                 Levels::Rip(maps) => {
-                    debug_assert_eq!(maps.map_data.len(), maps.level_count.area());
+                    debug_assert_eq!(maps.map_data.len(), maps.level_count.area(), "invalid rip level count");
                     debug_assert_eq!(
                         maps.map_data.len(),
                         rip_map_indices(rounding.expect("rip maps only with tiles"), header.layer_size).count(),

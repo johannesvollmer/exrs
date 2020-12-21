@@ -233,7 +233,7 @@ impl ApplyCropedView for Layer<CroppedChannels<AnyChannels<FlatSamples>>> {
 
         Layer {
             channel_data: if cropped_relative_bounds.size == self.channel_data.full_bounds.size {
-                assert_eq!(cropped_absolute_bounds.position, self.channel_data.full_bounds.position);
+                assert_eq!(cropped_absolute_bounds.position, self.channel_data.full_bounds.position, "crop bounds size equals, but position does not");
 
                 // the cropping would not remove any pixels
                 self.channel_data.full_channels
@@ -402,7 +402,7 @@ mod test {
             let found_bounds = found_bounds.with_origin(-offset);
             for (y, uncropped_line) in uncropped_lines[found_bounds.position.y() as usize .. found_bounds.end().y() as usize].iter().enumerate() {
                 for (x, &value) in uncropped_line[found_bounds.position.x() as usize .. found_bounds.end().x() as usize].iter().enumerate() {
-                    assert_eq!(value, cropped_lines[y][x])
+                    assert_eq!(value, cropped_lines[y][x], "find crop bounds test case failed")
                 }
             }
         }
