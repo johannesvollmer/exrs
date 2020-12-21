@@ -31,15 +31,17 @@ pub trait Crop: Sized {
     /// The type of  this image after cropping (probably the same as before)
     type Cropped;
 
-    /// Reduce your image to a smaller part, usually to save memory.
+    /// Crop the image to exclude unwanted pixels.
     /// Panics for invalid (larger than previously) bounds.
     /// The bounds are specified in absolute coordinates.
-    /// Does not necessarily reduce allocation size of the current image:
-    /// An rgba image will only be viewed in a smaller window instead of reallocating.
+    /// Does not reduce allocation size of the current image, but instead only adjust a few boundary numbers.
+    /// Use `reallocate_cropped()` on the return value to actually reduce the memory footprint.
     fn crop(self, bounds: IntegerBounds) -> Self::Cropped;
 
     /// Reduce your image to a smaller part, usually to save memory.
     /// Crop if bounds are specified, return the original if no bounds are specified.
+    /// Does not reduce allocation size of the current image, but instead only adjust a few boundary numbers.
+    /// Use `reallocate_cropped()` on the return value to actually reduce the memory footprint.
     fn try_crop(self, bounds: Option<IntegerBounds>) -> CropResult<Self::Cropped, Self> {
         match bounds {
             Some(bounds) => CropResult::Cropped(self.crop(bounds)),
@@ -71,11 +73,15 @@ pub trait CropWhere<Sample>: Sized {
     /// The type of the cropped image (probably the same as the original image).
     type Cropped;
 
-    /// Crop away unwanted pixels from the border if they match the specified rule , usually to save memory.
+    /// Crop away unwanted pixels from the border if they match the specified rule.
+    /// Does not reduce allocation size of the current image, but instead only adjust a few boundary numbers.
+    /// Use `reallocate_cropped()` on the return value to actually reduce the memory footprint.
     fn crop_where(self, discard_if: impl Fn(Sample) -> bool) -> CropResult<Self::Cropped, Self>;
 
-    /// Crop away unwanted pixels from the border if they match the specified color , usually to save memory.
+    /// Crop away unwanted pixels from the border if they match the specified color.
     /// If you want discard based on a rule, use `crop_where` with a closure instead.
+    /// Does not reduce allocation size of the current image, but instead only adjust a few boundary numbers.
+    /// Use `reallocate_cropped()` on the return value to actually reduce the memory footprint.
     fn crop_where_eq(self, discard_color: impl Into<Sample>) -> CropResult<Self::Cropped, Self> where Sample: PartialEq;
 
     /// Convert this data to cropped data without discarding any pixels.
@@ -209,19 +215,22 @@ impl InspectSample for Layer<AnyChannels<FlatSamples>> {
 // ALGORITHM IDEA: for arbitrary channels, find the most desired channel,
 // and process that first, keeping the processed bounds as starting point for the other layers
 
-/// Realize a cropped view of the original data, by actually removing the unwanted original pixels,
+/// Realize a cropped view of the original data,
+/// by actually removing the unwanted original pixels,
 /// reducing the memory consumption.
-pub trait ApplyCropedView {
+/// Currently not supported for rgba images.
+pub trait ApplyCroppedView {
 
     /// The simpler type after cropping is realized
     type Reallocated;
 
     /// Make the cropping real by reallocating the underlying storage,
-    /// with the goal of reducing total memory usage
+    /// with the goal of reducing total memory usage.
+    /// Currently not supported for rgba images.
     fn reallocate_cropped(self) -> Self::Reallocated;
 }
 
-impl ApplyCropedView for Layer<CroppedChannels<AnyChannels<FlatSamples>>> {
+impl ApplyCroppedView for Layer<CroppedChannels<AnyChannels<FlatSamples>>> {
     type Reallocated = Layer<AnyChannels<FlatSamples>>;
 
     fn reallocate_cropped(self) -> Self::Reallocated {
