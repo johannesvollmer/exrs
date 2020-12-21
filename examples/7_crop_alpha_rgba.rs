@@ -6,6 +6,8 @@ use exr::prelude::*;
 use exr::image::read::rgba_channels::pixels::*;
 
 
+/// Read an rgba image, crop away transparent pixels,
+/// then write the cropped result to another file.
 pub fn main() {
     let path = "tests/images/valid/custom/oh crop.exr";
 

@@ -1,5 +1,9 @@
 extern crate exr;
 
+/// `exr` offers a few very simple functions for the most basic use cases.
+/// `write_rgb_f32_file` is a simple function which writes a simple exr file.
+/// To write the image, you need to specify how to retrieve a single pixel from it.
+/// The closure may capture variables or generate data on the fly.
 fn main() {
     // write a file without alpha and 32-bit float precision per channel
     exr::prelude::write_rgb_f32_file(

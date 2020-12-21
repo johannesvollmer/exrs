@@ -1,10 +1,13 @@
 extern crate exr;
 
+/// `exr` offers a few very simple functions for the most basic use cases.
+/// `read_first_rgba_layer_from_file` is a simple function which loads an exr file.
+/// To load the image, you need to specify how to create and how to update your image.
 fn main() {
     let image = exr::prelude::read_first_rgba_layer_from_file(
         "tests/images/out/generated_rgba.exr", // run the `1_generate_rgba` example to generate this file
 
-        // instantiate the two-dimensional pixel vector with the size of the image file
+        // instantiate your image type with the size of the image file
         |info| {
             let default_pixel = [0.0, 0.0, 0.0, 0.0];
             let empty_line =  vec![ default_pixel; info.resolution.width() ];
@@ -12,7 +15,7 @@ fn main() {
             empty_image
         },
 
-        // transfer the colors from the file to our instantiated two-dimensional pixel vector
+        // transfer the colors from the file to your image type
         |pixel_vector, position, pixel| {
             pixel_vector[position.y()][position.x()] = pixel.into()
         },

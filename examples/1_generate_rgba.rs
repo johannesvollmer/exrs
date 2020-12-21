@@ -45,7 +45,7 @@ fn main() {
         )
     );
 
-    // crop away invisible pixels
+    // crop away black and transparent pixels from the border
     let layer = layer
         .crop_where_eq((0.0, 0.0, 0.0, 0.0))
         .or_crop_to_1x1_if_empty();
