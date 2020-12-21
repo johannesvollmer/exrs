@@ -1,13 +1,13 @@
 [![Rust Docs](https://docs.rs/exr/badge.svg)](https://docs.rs/exr) 
 [![Crate Crate](https://img.shields.io/crates/v/exr.svg)](https://crates.io/crates/exr) 
-[![Rust Lang Version](https://img.shields.io/badge/rustc-1.43+-lightgray.svg)](https://blog.rust-lang.org/2020/04/23/Rust-1.43.0.html) 
+[![Rust Lang Version](https://img.shields.io/badge/rustc-1.48+-lightgray.svg)](https://blog.rust-lang.org/2020/11/19/Rust-1.48.html) 
 [![Lines of Code](https://tokei.rs/b1/github/johannesvollmer/exrs?category=code)](https://tokei.rs)
 
 # EXRS
 
 This library is a 100% Rust and 100% safe code library for
 reading and writing OpenEXR images.
-See [the examples](https://docs.rs/crate/exr/0.9.0/source/examples/) for a first impression.
+See [the examples](https://docs.rs/crate/exr/1.0.0/source/examples/) for a first impression.
 
 [OpenEXR](http://www.openexr.com/)
 is the de-facto standard image format in animation, VFX, and 
@@ -157,7 +157,7 @@ please leave an issue on this repository, containing the image file.
 Add this to your `Cargo.toml`:
 ```toml
 [dependencies]
-exr = "0.9.0"
+exr = "1.0.0"
 
 # also, optionally add this to your crate for smaller binary size 
 # and better runtime performance
@@ -165,30 +165,26 @@ exr = "0.9.0"
 lto = true
 ```
 
-The master branch of this repository is always an up-to-date version.
+The master branch of this repository is always an up-to-date version, 
+so you could also link the github repository master branch.
 
 ### Example
 
-Example: [Write a generated RGB exr file](https://github.com/johannesvollmer/exrs/blob/master/examples/1_minimal_rgb.rs).
+Example: [generate an rgb exr file](https://github.com/johannesvollmer/exrs/blob/master/examples/1_minimal_rgb.rs).
 
 ```rust
 extern crate exr;
-use exr::prelude::rgba_image::*;
 
 fn main() {
-    // generate an image with 2048*2048 pixels, converting all numbers to f16
-    ImageInfo::rgb((2048, 2048), SampleType::F16).write_pixels_to_file(
-        "tests/images/out/minimal_rgba.exr",
-        write_options::high(), // higher speed, but higher memory usage
-
-        // generate a color for each pixel position
-        &|position: Vec2<usize>| {
-            Pixel::rgb(
-                position.x() as f32 / 2048.0, // red
-                position.y() as f32 / 2048.0, // green
-                1.0 - (position.y() as f32 / 2048.0), // blue
-            )
-        }
+    // write a file without alpha and 32-bit float precision per channel
+    exr::prelude::write_rgb_f32_file(
+        "tests/images/out/minimal_rgb.exr",
+        (2048, 2048), // write an image with 2048x2048 pixels
+        |x,y| ( // generate an f32 rgb color for each of the 2048x2048 pixels
+            x as f32 / 2048.0, // red
+            y as f32 / 2048.0, // green
+            1.0 - (y as f32 / 2048.0), // blue
+        )
     ).unwrap();
 }
 ```

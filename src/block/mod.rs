@@ -7,17 +7,16 @@ pub mod chunk;
 
 use crate::compression::{ByteVec, Compression};
 use crate::math::*;
-use crate::error::{Result, Error, usize_to_i32, UnitResult, u64_to_usize};
-use crate::meta::{MetaData, Blocks, TileIndices, OffsetTables};
+use crate::error::{Result, Error, usize_to_i32, UnitResult, u64_to_usize, usize_to_u64};
+use crate::meta::{MetaData, Blocks, TileIndices, OffsetTables, Headers};
 use crate::block::chunk::{Chunk, Block, TileBlock, ScanLineBlock, TileCoordinates};
 use crate::meta::attribute::LineOrder;
 use rayon::prelude::ParallelBridge;
 use rayon::iter::ParallelIterator;
 use smallvec::alloc::collections::BTreeMap;
 use std::convert::TryFrom;
-use crate::io::{Tracking, PeekRead};
+use crate::io::{Tracking, PeekRead, Write, Data};
 use std::io::{Seek, Read};
-use crate::image::{ReadOptions, OnReadProgress};
 use crate::meta::header::Header;
 
 
@@ -33,7 +32,7 @@ pub struct BlockIndex {
     /// Index of the bottom left pixel from the block.
     pub pixel_position: Vec2<usize>,
 
-    /// Number of pixels in this block.
+    /// Number of pixels in this block. Stays the same across all resolution levels.
     pub pixel_size: Vec2<usize>,
 
     /// Index of the mip or rip level in the image.
@@ -56,6 +55,79 @@ pub struct UncompressedBlock {
 
 
 
+/// Compresses and writes all lines of an image described by `meta_data` and `get_line` to the writer.
+/// Flushes the writer to explicitly handle all errors.
+///
+/// Attention: Currently, using multi-core compression with [LineOrder::Increasing] or [LineOrder::Decreasing] in any header
+/// can potentially allocate large amounts of memory while writing the file. Use unspecified line order for lower memory usage.
+///
+/// Does not buffer the writer, you should always pass a `BufWriter`.
+/// If pedantic, throws errors for files that may produce errors in other exr readers.
+#[inline]
+#[must_use]
+pub fn write_all_blocks_to_buffered(
+    write: impl Write + Seek,
+    mut headers: Headers,
+    get_tile: impl Sync + Fn(&[Header], BlockIndex) -> Vec<u8>, // TODO put these three parameters into a trait?  // TODO why is this sync or send????
+    mut on_progress: impl FnMut(f64),
+    pedantic: bool, parallel: bool,
+) -> UnitResult
+{
+    let has_compression = headers.iter() // TODO cache this in MetaData.has_compression?
+        .any(|header| header.compression != Compression::Uncompressed);
+
+    // if non-parallel compression, we always use increasing order anyways
+    if !parallel || !has_compression {
+        for header in &mut headers {
+            if header.line_order == LineOrder::Unspecified {
+                header.line_order = LineOrder::Increasing;
+            }
+        }
+    }
+
+    let mut write = Tracking::new(write);
+    MetaData::write_validating_to_buffered(&mut write, headers.as_slice(), pedantic)?;
+
+    let offset_table_start_byte = write.byte_position();
+
+    // skip offset tables for now
+    let offset_table_size: usize = headers.iter()
+        .map(|header| header.chunk_count).sum();
+
+    write.seek_write_to(write.byte_position() + offset_table_size * std::mem::size_of::<u64>())?;
+
+    let mut offset_tables: Vec<Vec<u64>> = headers.iter()
+        .map(|header| vec![0; header.chunk_count]).collect();
+
+    let total_chunk_count = offset_table_size as f64;
+    let mut processed_chunk_count = 0; // used for very simple on_progress feedback
+
+    // line order is respected in here
+    crate::block::for_compressed_blocks_in_image(headers.as_slice(), get_tile, parallel, |chunk_index, chunk|{
+        offset_tables[chunk.layer_index][chunk_index] = usize_to_u64(write.byte_position()); // safe indices from `enumerate()`
+        chunk.write(&mut write, headers.as_slice())?;
+
+        on_progress(0.95 * processed_chunk_count as f64 / total_chunk_count /*write.byte_position()*/);
+        processed_chunk_count += 1;
+
+        Ok(())
+    })?;
+
+    debug_assert_eq!(processed_chunk_count, offset_table_size, "not all chunks were written");
+
+    // write all offset tables
+    write.seek_write_to(offset_table_start_byte)?;
+
+    for offset_table in offset_tables {
+        u64::write_slice(&mut write, offset_table.as_slice())?;
+    }
+
+    write.flush()?; // make sure we catch all (possibly delayed) io errors before returning
+    on_progress(1.0);
+
+    Ok(())
+}
+
 
 /// Reads and decompresses all chunks of a file sequentially without seeking.
 /// Will not skip any parts of the file. Does not buffer the reader, you should always pass a `BufReader`.
@@ -65,19 +137,22 @@ pub fn read_all_blocks_from_buffered<T>(
     read: impl Read + Send, // FIXME does not actually need to be send, only for parallel writing
     new: impl Fn(&[Header]) -> Result<T>,
     mut insert: impl FnMut(&mut T, &[Header], UncompressedBlock) -> UnitResult,
-    options: ReadOptions<impl OnReadProgress>,
+    on_progress: impl FnMut(f64),
+    pedantic: bool, parallel: bool,
 ) -> Result<T>
 {
-    let (meta_data, chunk_count, mut read_chunk) = self::read_all_compressed_chunks_from_buffered(read, options.max_pixel_bytes, options.pedantic)?;
+    let (meta_data, chunk_count, mut read_chunk) = self::read_all_compressed_chunks_from_buffered(read, pedantic)?;
     let meta_data_ref = &meta_data;
+
+    // TODO chunk count for ReadOnProgress!
 
     let read_chunks = std::iter::from_fn(move || read_chunk(meta_data_ref));
     let mut result = new(meta_data.headers.as_slice())?;
 
     for_decompressed_blocks_in_chunks(
-        read_chunks, &meta_data,
+        read_chunks, &meta_data, chunk_count,
         |meta, block| insert(&mut result, meta, block),
-        chunk_count, options
+        on_progress, pedantic, parallel
     )?;
 
     Ok(result)
@@ -97,17 +172,20 @@ pub fn read_filtered_blocks_from_buffered<T>(
     new: impl FnOnce(&[Header]) -> Result<T>, // TODO put these into a trait?
     filter: impl Fn(&T, (usize, &Header), (usize, &TileIndices)) -> bool,
     mut insert: impl FnMut(&mut T, &[Header], UncompressedBlock) -> UnitResult,
-    options: ReadOptions<impl OnReadProgress>,
+    on_progress: impl FnMut(f64),
+    pedantic: bool, parallel: bool,
 ) -> Result<T>
 {
     let (meta_data, mut value, chunk_count, mut read_chunk) = {
-        self::read_filtered_chunks_from_buffered(read, new, filter, options.max_pixel_bytes, options.pedantic)?
+        self::read_filtered_chunks_from_buffered(read, new, filter, pedantic)?
     };
 
+    // TODO use chunk_count for reader creation (ReadOnProgresss needs this)
+
     for_decompressed_blocks_in_chunks(
-        std::iter::from_fn(|| read_chunk(&meta_data)), &meta_data,
+        std::iter::from_fn(|| read_chunk(&meta_data)), &meta_data, chunk_count,
         |meta, line| insert(&mut value, meta, line),
-        chunk_count, options
+        on_progress, pedantic, parallel,
     )?;
 
     Ok(value)
@@ -120,20 +198,19 @@ pub fn read_filtered_blocks_from_buffered<T>(
 fn for_decompressed_blocks_in_chunks(
     chunks: impl Send + Iterator<Item = Result<Chunk>>,
     meta_data: &MetaData,
-    mut for_each: impl FnMut(&[Header], UncompressedBlock) -> UnitResult,
     total_chunk_count: usize,
-    mut options: ReadOptions<impl OnReadProgress>,
+    mut for_each: impl FnMut(&[Header], UncompressedBlock) -> UnitResult,
+    mut on_progress: impl FnMut(f64),
+    pedantic: bool, parallel: bool,
 ) -> UnitResult
 {
-    let pedantic = options.pedantic;
-
     // TODO bit-vec keep check that all pixels have been read?
     let has_compression = meta_data.headers.iter() // do not use parallel stuff for uncompressed images
         .any(|header| header.compression != Compression::Uncompressed);
 
     let mut processed_chunk_count = 0;
 
-    if options.parallel_decompression && has_compression {
+    if parallel && has_compression {
         let (sender, receiver) = std::sync::mpsc::channel();
 
         chunks.par_bridge()
@@ -143,7 +220,7 @@ fn for_decompressed_blocks_in_chunks(
             })?;
 
         for decompressed in receiver {
-            options.on_progress.on_read_progressed(processed_chunk_count as f32 / total_chunk_count as f32)?;
+            on_progress(processed_chunk_count as f64 / total_chunk_count as f64);
             processed_chunk_count += 1;
 
             for_each(meta_data.headers.as_slice(), decompressed)?; // allows returning `Error::Abort`
@@ -151,15 +228,16 @@ fn for_decompressed_blocks_in_chunks(
     }
     else {
         for chunk in chunks {
-            options.on_progress.on_read_progressed(processed_chunk_count as f32 / total_chunk_count as f32)?;
+            on_progress(processed_chunk_count as f64 / total_chunk_count as f64);
             processed_chunk_count += 1;
 
-            let decompressed = UncompressedBlock::decompress_chunk(chunk?, &meta_data, options.pedantic)?;
+            let decompressed = UncompressedBlock::decompress_chunk(chunk?, &meta_data, pedantic)?;
             for_each(meta_data.headers.as_slice(), decompressed)?; // allows returning `Error::Abort`
         }
     }
 
     debug_assert_eq!(processed_chunk_count, total_chunk_count, "some chunks were not read");
+    on_progress(1.0);
     Ok(())
 }
 
@@ -170,12 +248,11 @@ fn for_decompressed_blocks_in_chunks(
 #[must_use]
 pub fn read_all_compressed_chunks_from_buffered<'m>(
     read: impl Read + Send, // FIXME does not actually need to be send, only for parallel writing
-    max_pixel_bytes: Option<usize>,
     pedantic: bool
 ) -> Result<(MetaData, usize, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
 {
     let mut read = PeekRead::new(Tracking::new(read));
-    let meta_data = MetaData::read_validated_from_buffered_peekable(&mut read, max_pixel_bytes, pedantic)?;
+    let meta_data = MetaData::read_validated_from_buffered_peekable(&mut read, pedantic)?;
 
     let mut remaining_chunk_count = {
         if pedantic {
@@ -215,14 +292,13 @@ pub fn read_filtered_chunks_from_buffered<'m, T>(
     read: impl Read + Seek + Send, // FIXME does not always need be Send
     new: impl FnOnce(&[Header]) -> Result<T>,
     filter: impl Fn(&T, (usize, &Header), (usize, &TileIndices)) -> bool,
-    max_pixel_bytes: Option<usize>,
     pedantic: bool
 ) -> Result<(MetaData, T, usize, impl FnMut(&'m MetaData) -> Option<Result<Chunk>>)>
 {
     let skip_read = Tracking::new(read);
     let mut read = PeekRead::new(skip_read);
 
-    let meta_data = MetaData::read_validated_from_buffered_peekable(&mut read, max_pixel_bytes, pedantic)?;
+    let meta_data = MetaData::read_validated_from_buffered_peekable(&mut read, pedantic)?;
     let value = new(meta_data.headers.as_slice())?;
 
     let offset_tables = MetaData::read_offset_tables(&mut read, &meta_data.headers)?;

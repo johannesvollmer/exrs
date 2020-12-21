@@ -15,6 +15,7 @@ Yanking shouldn't be the default.
 1. Only unreachable `unwrap()`, `expect("")` and `assert`s
 1. No `println!` outside of tests and examples
 1. `assert_eq` and `debug_assert_eq` should have a message explaining the context
+1. ensure `#![warn(missing_docs)]` in `lib.rs`
 
 ## Tasks
 1. Bump version in

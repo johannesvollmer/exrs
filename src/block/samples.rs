@@ -1,10 +1,10 @@
 //! Extract pixel samples from a block of pixel bytes.
 
-use crate::prelude::common::*;
+use crate::prelude::*;
 
 
 /// A single red, green, blue, or alpha value.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug)]
 pub enum Sample {
 
     /// A 16-bit float sample.
@@ -53,6 +53,36 @@ impl Sample {
             Sample::F16(sample) => sample.to_f32() as u32,
             Sample::F32(sample) => sample as u32,
             Sample::U32(sample) => sample,
+        }
+    }
+
+    /// Is this value not a number?
+    #[inline]
+    pub fn is_nan(&self) -> bool {
+        match *self {
+            Sample::F16(value) => value.is_nan(),
+            Sample::F32(value) => value.is_nan(),
+            Sample::U32(_) => false,
+        }
+    }
+
+    /// Is this value zero or negative zero?
+    #[inline]
+    pub fn is_zero(&self) -> bool {
+        match *self {
+            Sample::F16(value) => value == f16::ZERO || value == f16::NEG_ZERO,
+            Sample::F32(value) => value == 0.0,
+            Sample::U32(value) => value == 0,
+        }
+    }
+}
+
+impl PartialEq for Sample {
+    fn eq(&self, other: &Self) -> bool {
+        match *self {
+            Sample::F16(num) => num == other.to_f16(),
+            Sample::F32(num) => num == other.to_f32(),
+            Sample::U32(num) => num == other.to_u32(),
         }
     }
 }

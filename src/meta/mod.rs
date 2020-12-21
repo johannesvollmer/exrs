@@ -19,6 +19,8 @@ use std::convert::TryFrom;
 use crate::meta::header::{Header};
 
 
+// TODO rename MetaData to ImageInfo?
+
 /// Contains the complete meta data of an exr image.
 /// Defines how the image is split up in the file,
 /// the number and type of images and channels,
@@ -391,10 +393,10 @@ impl MetaData {
     /// Validates the meta data.
     #[must_use]
     pub(crate) fn read_validated_from_buffered_peekable(
-        read: &mut PeekRead<impl Read>, max_pixel_bytes: Option<usize>, pedantic: bool
+        read: &mut PeekRead<impl Read>, pedantic: bool
     ) -> Result<Self> {
         let meta_data = Self::read_unvalidated_from_buffered_peekable(read, !pedantic)?;
-        MetaData::validate(meta_data.headers.as_slice(), max_pixel_bytes, pedantic)?;
+        MetaData::validate(meta_data.headers.as_slice(), pedantic)?;
         Ok(meta_data)
     }
 
@@ -403,7 +405,7 @@ impl MetaData {
     pub(crate) fn write_validating_to_buffered(write: &mut impl Write, headers: &[Header], pedantic: bool) -> UnitResult {
         // pedantic validation to not allow slightly invalid files
         // that still could be read correctly in theory
-        let minimal_requirements = Self::validate(headers, None, pedantic)?;
+        let minimal_requirements = Self::validate(headers, pedantic)?;
 
         magic_number::write(write)?;
         minimal_requirements.write(write)?;
@@ -414,7 +416,7 @@ impl MetaData {
     /// Read one offset table from the reader for each header.
     pub fn read_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<OffsetTables> {
         headers.iter()
-            .map(|header| u64::read_vec(read, header.chunk_count, u16::MAX as usize, None))
+            .map(|header| u64::read_vec(read, header.chunk_count, u16::MAX as usize, None, "offset table size"))
             .collect()
     }
 
@@ -427,7 +429,7 @@ impl MetaData {
     }
 
     /// Validates this meta data. Returns the minimal possible requirements.
-    pub fn validate(headers: &[Header], max_pixel_bytes: Option<usize>, pedantic: bool) -> Result<Requirements> {
+    pub fn validate(headers: &[Header], pedantic: bool) -> Result<Requirements> {
         if headers.len() == 0 {
             return Err(Error::invalid("at least one layer is required"));
         }
@@ -458,7 +460,8 @@ impl MetaData {
             header.validate(is_multilayer, &mut minimal_requirements.has_long_names, pedantic)?;
         }
 
-        if let Some(max) = max_pixel_bytes {
+        // TODO validation fn!
+        /*if let Some(max) = max_pixel_bytes {
             let byte_size: usize = headers.iter()
                 .map(|header| header.total_pixel_bytes())
                 .sum();
@@ -466,7 +469,7 @@ impl MetaData {
             if byte_size > max {
                 return Err(Error::invalid("image larger than specified maximum"));
             }
-        }
+        }*/
 
         if pedantic { // check for duplicate header names
             let mut header_names = HashSet::with_capacity(headers.len());
@@ -610,7 +613,6 @@ impl Requirements {
 mod test {
     use super::*;
     use crate::meta::header::{ImageAttributes, LayerAttributes};
-    use std::convert::TryInto;
 
     #[test]
     fn round_trip_requirements() {
@@ -633,7 +635,7 @@ mod test {
         let header = Header {
             channels: ChannelList::new(smallvec![
                     ChannelInfo {
-                        name: Text::from("main").unwrap(),
+                        name: Text::from("main"),
                         sample_type: SampleType::U32,
                         quantize_linearly: false,
                         sampling: Vec2(1, 1)
@@ -646,19 +648,18 @@ mod test {
             chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), Blocks::ScanLines),
             max_samples_per_pixel: Some(4),
             shared_attributes: ImageAttributes {
-                display_window: IntegerBounds {
+                pixel_aspect: 3.0,
+                .. ImageAttributes::new(IntegerBounds {
                     position: Vec2(2,1),
                     size: Vec2(11, 9)
-                },
-                pixel_aspect: 3.0,
-                .. Default::default()
+                })
             },
 
             blocks: Blocks::ScanLines,
             deep: false,
             layer_size: Vec2(2000, 333),
             own_attributes: LayerAttributes {
-                layer_name: Some(Text::from("test name lol").unwrap()),
+                layer_name: Some(Text::from("test name lol")),
                 layer_position: Vec2(3, -5),
                 screen_window_center: Vec2(0.3, 99.0),
                 screen_window_width: 0.19,
@@ -681,7 +682,7 @@ mod test {
         let mut data: Vec<u8> = Vec::new();
         MetaData::write_validating_to_buffered(&mut data, meta.headers.as_slice(), true).unwrap();
         let meta2 = MetaData::read_from_buffered(data.as_slice(), false).unwrap();
-        MetaData::validate(meta2.headers.as_slice(), None, true).unwrap();
+        MetaData::validate(meta2.headers.as_slice(), true).unwrap();
         assert_eq!(meta, meta2);
     }
 
@@ -690,7 +691,7 @@ mod test {
         let header_version_1_short_names = Header {
             channels: ChannelList::new(smallvec![
                     ChannelInfo {
-                        name: Text::from("main").unwrap(),
+                        name: Text::from("main"),
                         sample_type: SampleType::U32,
                         quantize_linearly: false,
                         sampling: Vec2(1, 1)
@@ -703,12 +704,11 @@ mod test {
             chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), Blocks::ScanLines),
             max_samples_per_pixel: Some(4),
             shared_attributes: ImageAttributes {
-                display_window: IntegerBounds {
+                pixel_aspect: 3.0,
+                .. ImageAttributes::new(IntegerBounds {
                     position: Vec2(2,1),
                     size: Vec2(11, 9)
-                },
-                pixel_aspect: 3.0,
-                .. Default::default()
+                })
             },
             blocks: Blocks::ScanLines,
             deep: false,
@@ -723,7 +723,7 @@ mod test {
         };
 
         let low_requirements = MetaData::validate(
-            &[header_version_1_short_names], None, true
+            &[header_version_1_short_names], true
         ).unwrap();
 
         assert_eq!(low_requirements.has_long_names, false);
@@ -738,7 +738,7 @@ mod test {
             channels: ChannelList::new(
                 smallvec![
                     ChannelInfo {
-                        name: Text::from("main").unwrap(),
+                        name: Text::new_or_panic("main"),
                         sample_type: SampleType::U32,
                         quantize_linearly: false,
                         sampling: Vec2(1, 1)
@@ -751,31 +751,30 @@ mod test {
             chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), Blocks::ScanLines),
             max_samples_per_pixel: Some(4),
             shared_attributes: ImageAttributes {
-                display_window: IntegerBounds {
+                pixel_aspect: 3.0,
+                .. ImageAttributes::new(IntegerBounds {
                     position: Vec2(2,1),
                     size: Vec2(11, 9)
-                },
-                pixel_aspect: 3.0,
-                .. Default::default()
+                })
             },
             blocks: Blocks::ScanLines,
             deep: false,
             layer_size: Vec2(2000, 333),
             own_attributes: LayerAttributes {
-                layer_name: Some("oasdasoidfj".try_into().unwrap()),
+                layer_name: Some(Text::new_or_panic("oasdasoidfj")),
                 other: vec![
-                    (Text::try_from("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx").unwrap(), AttributeValue::F32(3.0)),
-                    (Text::try_from("y").unwrap(), AttributeValue::F32(-1.0)),
+                    (Text::new_or_panic("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"), AttributeValue::F32(3.0)),
+                    (Text::new_or_panic("y"), AttributeValue::F32(-1.0)),
                 ].into_iter().collect(),
                 .. Default::default()
             }
         };
 
         let mut layer_2 = header_version_2_long_names.clone();
-        layer_2.own_attributes.layer_name = Some("anythingelse".try_into().unwrap());
+        layer_2.own_attributes.layer_name = Some(Text::new_or_panic("anythingelse"));
 
         let low_requirements = MetaData::validate(
-            &[header_version_2_long_names, layer_2], None, true
+            &[header_version_2_long_names, layer_2], true
         ).unwrap();
 
         assert_eq!(low_requirements.has_long_names, true);

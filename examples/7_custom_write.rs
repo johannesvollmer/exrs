@@ -10,14 +10,15 @@ use std::fs::File;
 
 // exr imports
 extern crate exr;
-use exr::prelude::common::*;
+use exr::prelude::*;
 use attribute::*;
-use exr::meta::*;
 use exr::math::*;
 
 /// Generate a striped image on the fly and directly write that to a file without allocating the whole image at once.
 /// On my machine, this program produces a 3GB file while only ever allocating 4MB memory (takes a while though).
 fn main() {
+    // TODO implement this example using the new API and not the raw function interface.
+
 
     // pre-compute a list of random values
     let random_values: Vec<f32> = (0..64)
@@ -35,10 +36,10 @@ fn main() {
         "test-image".try_into().unwrap(),
         size,
         smallvec![
-            ChannelInfo::new("B".try_into().unwrap(), SampleType::F32, true),
-            ChannelInfo::new("G".try_into().unwrap(), SampleType::F32, true),
-            ChannelInfo::new("R".try_into().unwrap(), SampleType::F32, true),
-            ChannelInfo::new("Z".try_into().unwrap(), SampleType::F32, true),
+            attribute::ChannelInfo::new("B", SampleType::F32, true),
+            attribute::ChannelInfo::new("G", SampleType::F32, true),
+            attribute::ChannelInfo::new("R", SampleType::F32, true),
+            attribute::ChannelInfo::new("Z", SampleType::F32, true),
         ],
     );
 
@@ -46,7 +47,7 @@ fn main() {
     let mut header = header.with_encoding(
         Compression::Uncompressed,
 
-        Blocks::Tiles(TileDescription {
+        exr::meta::Blocks::Tiles(TileDescription {
             tile_size: Vec2(64, 64),
             level_mode: LevelMode::Singular,
             rounding_mode: RoundingMode::Down
@@ -62,7 +63,6 @@ fn main() {
     let headers = smallvec![ header ];
 
     // print progress only every 100th time
-    let mut count_to_1000_and_then_print = 0;
     let start_time = ::std::time::Instant::now();
 
     // finally write the image
@@ -87,24 +87,12 @@ fn main() {
             }
         },
 
-        // print progress occasionally
-        WriteOptions {
-            parallel_compression: false,
-            pedantic: true,
+        |progress|{
+            println!("progress: {:.2}%", progress*100.0);
+        },
 
-            on_progress: |progress, bytes| {
-                count_to_1000_and_then_print += 1;
-                if count_to_1000_and_then_print == 1000 {
-                    count_to_1000_and_then_print = 0;
-
-                    let mega_bytes = bytes / 1000000;
-                    let percent = (progress * 100.0) as usize;
-                    println!("progress: {}%, wrote {} megabytes", percent, mega_bytes);
-                }
-
-                Ok(())
-            },
-        }
+        true,
+        false
     ).unwrap();
 
     // warning: highly unscientific benchmarks ahead!

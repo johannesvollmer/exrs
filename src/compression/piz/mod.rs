@@ -7,7 +7,7 @@
 mod huffman;
 mod wavelet;
 
-use crate::prelude::common::*;
+use crate::prelude::*;
 use crate::io::Data;
 use crate::meta::attribute::*;
 use crate::compression::{ByteVec, Bytes, mod_p};
@@ -292,7 +292,7 @@ fn apply_lookup_table(data: &mut [u16], table: &[u16]) {
 
 #[cfg(test)]
 mod test {
-    use crate::prelude::common::*;
+    use crate::prelude::*;
     use crate::compression::ByteVec;
     use crate::compression::piz;
     use crate::meta::attribute::*;

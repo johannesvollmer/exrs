@@ -7,6 +7,7 @@ use crate::meta::attribute::*; // FIXME shouldn't this need some more imports???
 use crate::meta::*;
 use crate::math::Vec2;
 
+// TODO rename header to LayerInfo!
 
 /// Describes a single layer in a file.
 /// A file can have any number of layers.
@@ -127,7 +128,7 @@ pub struct LayerAttributes {
     pub screen_window_width: f32,
 
     /// The white luminance of the colors.
-    /// Defines the luminance in candelas per square meter, Nits, of the RGB value `(1, 1, 1)`.
+    /// Defines the luminance in candelas per square meter, Nits, of the rgb value `(1, 1, 1)`.
     // If the chromaticities and the whiteLuminance of an RGB image are
     // known, then it is possible to convert the image's pixels from RGB
     // to CIE XYZ tristimulus values (see function RGBtoXYZ() in header
@@ -215,7 +216,7 @@ pub struct LayerAttributes {
     /// If the image was cropped, contains the original data window.
     pub original_data_window: Option<IntegerBounds>,
 
-    /// An 8-bit RGBA image representing the rendered image.
+    /// An 8-bit rgba image representing the rendered image.
     pub preview: Option<Preview>,
 
     /// Name of the view, which is typically either `"right"` or `"left"` for a stereoscopic image.
@@ -246,9 +247,9 @@ pub struct LayerAttributes {
 impl LayerAttributes {
 
     /// Create default layer attributes with a data position of zero.
-    pub fn new(layer_name: Text) -> Self {
+    pub fn named(layer_name: impl Into<Text>) -> Self {
         Self {
-            layer_name: Some(layer_name),
+            layer_name: Some(layer_name.into()),
             .. Self::default()
         }
     }
@@ -283,18 +284,20 @@ impl LayerAttributes {
 
 impl ImageAttributes {
 
-    /// Create default image attributes with the specified display window size.
-    /// The display window position is set to zero.
-    pub fn new(display_size: impl Into<Vec2<usize>>) -> Self {
+    /// Set the display position and size of this image.
+    pub fn new(display_window: IntegerBounds) -> Self {
         Self {
-            display_window: IntegerBounds::from_dimensions(display_size),
-            .. Self::default()
+            pixel_aspect: 1.0,
+            chromaticities: None,
+            time_code: None,
+            other: Default::default(),
+            display_window,
         }
     }
 
-    /// Set the data position of this layer.
-    pub fn with_display_window(self, display_window: IntegerBounds) -> Self {
-        Self { display_window, ..self }
+    /// Set the display position to zero and use the specified size for this image.
+    pub fn with_size(size: impl Into<Vec2<usize>>) -> Self {
+        Self::new(IntegerBounds::from_dimensions(size))
     }
 }
 
@@ -330,8 +333,8 @@ impl Header {
             channels: ChannelList::new(channels),
             line_order: LineOrder::Unspecified,
 
-            shared_attributes: ImageAttributes::new(data_size),
-            own_attributes: LayerAttributes::new(name),
+            shared_attributes: ImageAttributes::with_size(data_size),
+            own_attributes: LayerAttributes::named(name),
 
             chunk_count: compute_chunk_count(compression, data_size, blocks),
 
@@ -723,7 +726,7 @@ impl Header {
         let mut dwa_compression_level = None;
 
         let mut layer_attributes = LayerAttributes::default();
-        let mut image_attributes = ImageAttributes::default();
+        let mut image_attributes = ImageAttributes::new(IntegerBounds::zero());
 
         // read each attribute in this header
         while !sequence_end::has_come(read)? {
@@ -1115,10 +1118,9 @@ impl std::fmt::Debug for LayerAttributes {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let default_self = Self::default();
 
-        let mut debug = formatter.debug_struct("LayerAttributes (only relevant attributes)");
+        let mut debug = formatter.debug_struct("LayerAttributes (default values omitted)");
 
-        // always debug the following fields
-        debug.field("data_position", &self.layer_position);
+        // always debug the following field
         debug.field("name", &self.layer_name);
 
         macro_rules! debug_non_default_fields {
@@ -1155,17 +1157,5 @@ impl std::fmt::Debug for LayerAttributes {
 
         // debug.finish_non_exhaustive() TODO
         debug.finish()
-    }
-}
-
-impl Default for ImageAttributes {
-    fn default() -> Self {
-        Self {
-            pixel_aspect: 1.0,
-            chromaticities: None,
-            time_code: None,
-            other: Default::default(),
-            display_window: Default::default(),
-        }
     }
 }

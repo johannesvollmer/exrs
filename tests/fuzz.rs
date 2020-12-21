@@ -7,12 +7,12 @@ use rand::rngs::{StdRng};
 use rand::{Rng};
 
 extern crate exr;
-use exr::prelude::common::*;
-use exr::prelude::rgba_image;
+use exr::prelude::*;
 use std::path::PathBuf;
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::Write;
+use std::io::{Write, Cursor};
+use exr::image::read::read_first_rgba_layer_from_file;
 
 fn exr_files(path: &'static str, filter: bool) -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new(path).into_iter().map(std::result::Result::unwrap)
@@ -26,46 +26,71 @@ fn exr_files(path: &'static str, filter: bool) -> impl Iterator<Item=PathBuf> {
 /// Just don't panic.
 #[test]
 pub fn fuzzed(){
-    for file in exr_files("tests/images/fuzzed", false) {
-        let _ = exr::image::full::Image::read_from_file(&file, read_options::high());
-        let _ = exr::image::simple::Image::read_from_file(&file, read_options::high()); // FIXME will these be optimized away?
-        let _ = exr::image::rgba::ImageInfo::read_pixels_from_file(
-            // FIXME will these be optimized away?
-            &file, read_options::high(),
-            rgba_image::pixels::create_flattened_f16,
-            rgba_image::pixels::flattened_pixel_setter()
-        );
+    for ref file in exr_files("tests/images/fuzzed", false) {
+        let _ = read().no_deep_data().largest_resolution_level().all_channels()
+            .first_valid_layer().all_attributes().pedantic().from_file(file);
+
+        let _ = read().no_deep_data().all_resolution_levels().all_channels()
+            .all_layers().all_attributes().pedantic().from_file(file);
     }
 }
 
+/// Require an error but no panic.
 #[test]
 pub fn damaged(){
     let mut passed = true;
 
-    for file in exr_files("tests/images/invalid", false) {
-        let file = &file;
-
+    for ref file in exr_files("tests/images/invalid", false) {
         let result = catch_unwind(move || {
-            let full = exr::image::full::Image::read_from_file(file, read_options::high())?;
-            let _ = exr::image::simple::Image::read_from_file(file, read_options::high())?; // FIXME will these be optimized away?
-            let _ = exr::image::rgba::ImageInfo::read_pixels_from_file( // FIXME will these be optimized away?
-                file, read_options::high(),
-                rgba_image::pixels::create_flattened_f16,
-                rgba_image::pixels::flattened_pixel_setter()
-            )?;
+            let _meta_data = MetaData::read_from_file(file, false)?;
 
-            Ok(full)
+            {
+                let _minimal = read().no_deep_data()
+                    .largest_resolution_level()
+                    .rgba_channels(
+                        |_info: &RgbaChannelsInfo| (),
+                        |_: &mut (), _position: Vec2<usize>, _pixel: RgbaPixel| {}
+                    )
+                    .first_valid_layer().all_attributes()
+                    .from_file(&file)?;
+            }
+
+            {
+                let _minimal = read().no_deep_data()
+                    .all_resolution_levels()
+                    .rgba_channels(
+                        |_info: &RgbaChannelsInfo| (),
+                        |_: &mut (), _position: Vec2<usize>, _pixel: RgbaPixel| {}
+                    )
+                    .all_layers().all_attributes()
+                    .pedantic()
+                    .from_file(&file)?;
+            }
+
+            {
+                let _rgba = read_first_rgba_layer_from_file(
+                    file,
+                    read::rgba_channels::pixels::create_flattened_f16,
+                    read::rgba_channels::pixels::set_flattened_pixel
+                )?;
+            }
+
+            {
+                let _full = read_all_data_from_file(file)?;
+            }
+
+            Ok(())
         });
 
         // this should not panic, only err:
         passed = passed && match result {
-            Ok(Err(Error::Invalid(_))) => {
-                println!("✓ Recognized as invalid: {:?}", file);
+            Ok(Err(Error::Invalid(message))) => {
+                println!("✓ Recognized as invalid ({}): {:?}", message, file);
                 true
             },
 
-            Ok(Err(Error::NotSupported(_))) => {
-                println!("- Unsupported: {:?}", file);
+            Ok(Err(Error::NotSupported(message))) => {
+                println!("- Unsupported ({}): {:?}", message, file);
                 true
             },
 
@@ -79,8 +104,10 @@ pub fn damaged(){
                 false
             },
 
-            Ok(Ok(image)) => {
-                if let Err(error) = MetaData::validate(image.infer_meta_data().as_slice(), None, true) {
+            Ok(Ok(_)) => {
+                let meta_data = MetaData::read_from_file(file, true);
+
+                if let Err(error) = meta_data {
                     println!("✓ Recognized as invalid when pedantic ({}): {:?}", error, file);
                     true
                 }
@@ -123,7 +150,10 @@ pub fn fuzz(){
 
             let file = file.as_slice();
             let result = catch_unwind(move || {
-                match exr::image::full::Image::read_from_buffered(file, read_options::low()) {
+                let read_all_data = read().no_deep_data()
+                    .all_resolution_levels().all_channels().all_layers().all_attributes();
+
+                match read_all_data.from_buffered(Cursor::new(file)) {
                     Err(Error::Invalid(error)) => println!("✓ No Panic. [{}]: Invalid: {}.", fuzz_index, error),
                     Err(Error::NotSupported(error)) => println!("- No Panic. [{}]: Unsupported: {}.", fuzz_index, error),
                     _ => {},

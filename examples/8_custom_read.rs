@@ -7,7 +7,7 @@ use std::fs::File;
 
 // exr imports
 extern crate exr;
-use exr::prelude::common::*;
+use exr::prelude::*;
 
 
 /// Collects the average pixel value for each channel.
@@ -15,7 +15,9 @@ use exr::prelude::common::*;
 /// On my machine, this program analyzes a 3GB file while only allocating 1.1MB.
 fn main() {
 
-    // If this file does not exist yet, you can generate it by running the `5_custom_write` example once.
+    // TODO implement this example using the new API and not the raw function interface.
+
+    // If this file does not exist yet, you can generate it by running the `7_custom_write` example once.
     let file = BufReader::new(File::open("tests/images/out/3GB.exr").unwrap());
 
     /// Collect averages for each layer
@@ -37,7 +39,7 @@ fn main() {
     }
 
     // used later for printing the progress occasionally
-    let mut count_to_1000_and_then_print = 0;
+    // let mut count_to_1000_and_then_print = 0;
     let start_time = ::std::time::Instant::now();
 
 
@@ -97,23 +99,13 @@ fn main() {
             Ok(())
         },
 
-        // print file processing progress into the console, occasionally (important for large files)
-        ReadOptions {
-            parallel_decompression: false,
-            max_pixel_bytes: None,
-            pedantic: false,
-            on_progress: |progress| {
-                count_to_1000_and_then_print += 1;
-                if count_to_1000_and_then_print == 1000 {
-                    count_to_1000_and_then_print = 0;
-
-                    println!("progress: {}%", (progress * 100.0) as usize);
-                }
-
-                Ok(())
-            },
+        // print file processing progress into the console
+        |progress|{
+            println!("progress: {:.2}%", progress*100.0);
         },
 
+        false,
+        false
     ).unwrap();
 
     println!("average values: {:#?}", averages);
