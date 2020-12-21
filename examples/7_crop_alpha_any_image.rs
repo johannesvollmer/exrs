@@ -12,7 +12,8 @@ pub fn main() {
     let image: FlatImage = read_all_flat_layers_from_file(path).unwrap();
 
     // construct a cropped image
-    let image: FlatImage = Image {
+    let image = Image {
+        attributes: image.attributes,
 
         // crop each layer
         layer_data: image.layer_data.into_iter().map(|layer|{
@@ -28,12 +29,12 @@ pub fn main() {
                     .or_crop_to_1x1_if_empty() // do not remove empty layers from image, because it could result in an image without content
                     .reallocate_cropped()
             }
-            else { // return the original layer, as no alpha channel can be used for cropping
+            else {
+                // return the original layer, as no alpha channel can be used for cropping
                 layer
             }
 
-        }).collect(),
-        .. image
+        }).collect::<Layers<_>>(),
     };
 
     image.write().to_file("tests/images/out/cropped.exr").unwrap();

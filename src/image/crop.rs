@@ -60,7 +60,7 @@ pub enum CropResult<Cropped, Old> {
     /// All pixels in the image would be discarded, removing the whole image
     Empty {
 
-        /// The uncropped image after a failed crop operation
+        /// The fully discarded image which caused the cropping to fail
         original: Old
     }
 }
@@ -68,7 +68,7 @@ pub enum CropResult<Cropped, Old> {
 /// Crop away unwanted pixels from the border if they match the specified rule.
 pub trait CropWhere<Sample>: Sized {
 
-    /// The type of the cropped image (probably the same as the original image)
+    /// The type of the cropped image (probably the same as the original image).
     type Cropped;
 
     /// Crop away unwanted pixels from the border if they match the specified rule , usually to save memory.
@@ -77,6 +77,17 @@ pub trait CropWhere<Sample>: Sized {
     /// Crop away unwanted pixels from the border if they match the specified color , usually to save memory.
     /// If you want discard based on a rule, use `crop_where` with a closure instead.
     fn crop_where_eq(self, discard_color: impl Into<Sample>) -> CropResult<Self::Cropped, Self> where Sample: PartialEq;
+
+    /// Convert this data to cropped data without discarding any pixels.
+    fn crop_neutral(self) -> Self::Cropped;
+}
+
+impl<Channels> Crop for Layer<Channels> {
+    type Cropped = Layer<CroppedChannels<Channels>>;
+
+    fn crop(self, bounds: IntegerBounds) -> Self::Cropped {
+        CroppedChannels::crop_layer(bounds, self)
+    }
 }
 
 impl<T> CropWhere<T::Sample> for T where T: Crop + InspectSample {
@@ -95,31 +106,36 @@ impl<T> CropWhere<T::Sample> for T where T: Crop + InspectSample {
         let discard_color: T::Sample = discard_color.into();
         self.crop_where(|sample| sample == discard_color)
     }
+
+    fn crop_neutral(self) -> Self::Cropped {
+        let current_bounds = self.bounds();
+        self.crop(current_bounds)
+    }
 }
 
 /// A smaller window into an existing pixel storage
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct CroppedView<Samples> {
+pub struct CroppedChannels<Channels> {
 
     /// The uncropped pixel storage
-    pub original_storage: Samples,
+    pub full_channels: Channels,
 
     /// The uncropped pixel storage bounds
-    pub original_bounds: IntegerBounds,
+    pub full_bounds: IntegerBounds,
 
     /// The cropped pixel storage bounds
     pub cropped_bounds: IntegerBounds,
 }
 
-impl<Channels> CroppedView<Channels> {
+impl<Channels> CroppedChannels<Channels> {
 
     /// Wrap a layer in a cropped view with adjusted bounds, but without reallocating your pixels
-    pub fn crop_layer(new_bounds: IntegerBounds, layer: Layer<Channels>) -> Layer<CroppedView<Channels>> {
+    pub fn crop_layer(new_bounds: IntegerBounds, layer: Layer<Channels>) -> Layer<CroppedChannels<Channels>> {
         Layer {
-            channel_data: CroppedView {
+            channel_data: CroppedChannels {
                 cropped_bounds: new_bounds,
-                original_bounds: layer.absolute_bounds(),
-                original_storage: layer.channel_data,
+                full_bounds: layer.absolute_bounds(),
+                full_channels: layer.channel_data,
             },
 
             size: new_bounds.size,
@@ -134,34 +150,26 @@ impl<Channels> CroppedView<Channels> {
     }
 }
 
-
-impl<Channels> Crop for Layer<Channels> {
-    type Cropped = Layer<CroppedView<Channels>>;
-
-    fn crop(self, bounds: IntegerBounds) -> Self::Cropped {
-        CroppedView::crop_layer(bounds, self)
-    }
-}
-
+// TODO make cropped view readable if you only need a specific section of the image?
 
 // make cropped view writable:
 
-impl<'slf, Channels:'slf> WritableChannels<'slf> for CroppedView<Channels> where Channels: WritableChannels<'slf> {
+impl<'slf, Channels:'slf> WritableChannels<'slf> for CroppedChannels<Channels> where Channels: WritableChannels<'slf> {
     fn infer_channel_list(&self) -> ChannelList {
-        self.original_storage.infer_channel_list() // no need for adjustments, as the layer content already reflects the changes
+        self.full_channels.infer_channel_list() // no need for adjustments, as the layer content already reflects the changes
     }
 
     fn level_mode(&self) -> LevelMode {
-        self.original_storage.level_mode()
+        self.full_channels.level_mode()
     }
 
     type Writer = CroppedWriter<Channels::Writer>;
 
     fn create_writer(&'slf self, header: &Header) -> Self::Writer {
-        let offset = (self.cropped_bounds.position - self.original_bounds.position)
+        let offset = (self.cropped_bounds.position - self.full_bounds.position)
             .to_usize("invalid cropping bounds for cropped view").unwrap();
 
-        CroppedWriter { channels: self.original_storage.create_writer(header), offset }
+        CroppedWriter { channels: self.full_channels.create_writer(header), offset }
     }
 }
 
@@ -183,33 +191,6 @@ impl<'c, Channels> ChannelsWriter for CroppedWriter<Channels> where Channels: Ch
     }
 }
 
-/*
-// enable writing the cropped rgba channel contents to a file
-impl<Samples> GetRgbaPixel for CroppedRgba<Samples> where Samples: GetRgbaPixel {
-    type Pixel = Samples::Pixel;
-    fn get_pixel(&self, position: Vec2<usize>) -> Samples::Pixel {
-        self.original_storage.get_pixel(position + self.offset)
-    }
-}
-
-impl<Samples> Crop for Layer<RgbaChannels<Samples>> {
-    type Cropped = Layer<RgbaChannels<CroppedRgba<Samples>>>;
-
-    /// Does not actually reallocate, but instead only creates a smaller window into the old storage
-    fn crop(self, bounds: IntegerBounds) -> Self::Cropped {
-        CroppedRgba::crop_layer(bounds, self)
-    }
-}
-
-impl<Samples, Pixel> CropWhereEq<Pixel> for Layer<RgbaChannels<Samples>> where Pixel: Into<RgbaPixel>, Samples: GetRgbaPixel {
-    type Cropped = <Self as Crop>::Cropped;
-
-    fn crop_where_eq(self, rgba: Pixel) -> CropResult<Self::Cropped, Self> {
-        let rgba_pixel: RgbaPixel = rgba.into();
-        self.crop_where(|sample| sample.into() == rgba_pixel)
-    }
-}*/
-
 impl<Samples> InspectSample for Layer<RgbaChannels<Samples>> where Samples: GetRgbaPixel {
     type Sample = Samples::Pixel;
     fn inspect_sample(&self, local_index: Vec2<usize>) -> Samples::Pixel {
@@ -228,96 +209,67 @@ impl InspectSample for Layer<AnyChannels<FlatSamples>> {
 // ALGORITHM IDEA: for arbitrary channels, find the most desired channel,
 // and process that first, keeping the processed bounds as starting point for the other layers
 
-// TODO no allocation? should be borrowable
-/*impl CropWhere<FlatSamplesPixel> for Layer<AnyChannels<FlatSamples>> {
-    type Cropped = Self;
-
-    fn crop_where(self, discard_if: impl Fn(FlatSamplesPixel) -> bool) -> CropResult<Self::Cropped, Self> {
-        let bounds = try_find_smaller_bounds(
-            self.bounds(),
-            |position| !discard_if(self.sample_vec_at(position))
-        );
-
-        self.try_crop(bounds)
-    }
-}
-
-impl<Slice> CropWhereEq<Slice> for Layer<AnyChannels<FlatSamples>>
-    where Slice: AsRef<[Option<Sample>]>
-{
-    type Cropped = Self;
-
-    fn crop_where_eq(self, discard_color: Slice) -> CropResult<Self::Cropped, Self> {
-        let discard_color = discard_color.as_ref();
-        assert_eq!(discard_color.len(), self.channel_data.list.len());
-
-        let bounds = try_find_smaller_bounds(
-            self.bounds(),
-            |position| !(
-                self.samples_at(position).map(Option::Some)
-                    .eq(discard_color.iter().map(|sample| *sample))
-            )
-        );
-
-        self.try_crop(bounds)
-    }
-}*/
-
+/// Realize a cropped view of the original data, by actually removing the unwanted original pixels,
+/// reducing the memory consumption.
 pub trait ApplyCropedView {
+
+    /// The simpler type after cropping is realized
     type Reallocated;
+
+    /// Make the cropping real by reallocating the underlying storage,
+    /// with the goal of reducing total memory usage
     fn reallocate_cropped(self) -> Self::Reallocated;
 }
 
-impl ApplyCropedView for Layer<CroppedView<AnyChannels<FlatSamples>>> {
+impl ApplyCropedView for Layer<CroppedChannels<AnyChannels<FlatSamples>>> {
     type Reallocated = Layer<AnyChannels<FlatSamples>>;
 
     fn reallocate_cropped(self) -> Self::Reallocated {
-        let absolute_bounds = self.channel_data.original_bounds;
-        let bounds = absolute_bounds.with_origin(-self.attributes.layer_position);
+        let cropped_absolute_bounds = self.channel_data.cropped_bounds;
+        let cropped_relative_bounds = cropped_absolute_bounds.with_origin(-self.channel_data.full_bounds.position);
 
-        assert!(self.absolute_bounds().contains(absolute_bounds), "bounds not valid for layer dimensions");
-        assert!(bounds.size.area() > 0, "the cropped image would be empty");
-
-        let start_x = bounds.position.x() as usize; // safe, because just checked above
-        let start_y = bounds.position.y() as usize; // safe, because just checked above
-
-        fn crop_samples<T: Copy>(samples: &[T], old_width: usize, new_height: usize, x_range: std::ops::Range<usize>, y_start: usize) -> Vec<T> {
-            let filtered_lines = samples.chunks_exact(old_width).skip(y_start).take(new_height);
-            let trimmed_lines = filtered_lines.map(|line| &line[x_range.clone()]);
-            trimmed_lines.flatten().map(|x| *x).collect() // TODO does this use memcpy?
-        }
-
-        let self_width = self.size.width();
+        assert!(self.absolute_bounds().contains(cropped_absolute_bounds), "bounds not valid for layer dimensions");
+        assert!(cropped_relative_bounds.size.area() > 0, "the cropped image would be empty");
 
         Layer {
-            channel_data: if bounds.size == self.size {
-                self.channel_data.original_storage
+            channel_data: if cropped_relative_bounds.size == self.channel_data.full_bounds.size {
+                assert_eq!(cropped_absolute_bounds.position, self.channel_data.full_bounds.position);
+
+                // the cropping would not remove any pixels
+                self.channel_data.full_channels
             }
             else {
-                AnyChannels {
-                    list: self.channel_data.original_storage.list.into_iter().map(|channel: AnyChannel<FlatSamples>| {
-                        let x_range = start_x..start_x + bounds.size.width();
+                let start_x = cropped_relative_bounds.position.x() as usize; // safe, because just checked above
+                let start_y = cropped_relative_bounds.position.y() as usize; // safe, because just checked above
+                let x_range = start_x .. start_x + cropped_relative_bounds.size.width();
+                let old_width = self.channel_data.full_bounds.size.width();
+                let new_height = cropped_relative_bounds.size.height();
 
-                        let samples = match channel.sample_data {
-                            FlatSamples::F16(samples) => FlatSamples::F16(crop_samples(
-                                &samples, self_width, bounds.size.height(), x_range.clone(), start_y
-                            )),
+                let channels = self.channel_data.full_channels.list.into_iter().map(|channel: AnyChannel<FlatSamples>| {
+                    fn crop_samples<T:Copy>(samples: Vec<T>, old_width: usize, new_height: usize, x_range: std::ops::Range<usize>, y_start: usize) -> Vec<T> {
+                        let filtered_lines = samples.chunks_exact(old_width).skip(y_start).take(new_height);
+                        let trimmed_lines = filtered_lines.map(|line| &line[x_range.clone()]);
+                        trimmed_lines.flatten().map(|x|*x).collect() // TODO does this use memcpy?
+                    }
 
-                            FlatSamples::F32(samples) => FlatSamples::F32(crop_samples(
-                                &samples, self_width, bounds.size.height(), x_range.clone(), start_y
-                            )),
+                    let samples = match channel.sample_data {
+                        FlatSamples::F16(samples) => FlatSamples::F16(crop_samples(
+                            samples, old_width, new_height, x_range.clone(), start_y
+                        )),
 
-                            FlatSamples::U32(samples) => FlatSamples::U32(crop_samples(
-                                &samples, self_width, bounds.size.height(), x_range.clone(), start_y
-                            )),
-                        };
+                        FlatSamples::F32(samples) => FlatSamples::F32(crop_samples(
+                            samples, old_width, new_height, x_range.clone(), start_y
+                        )),
 
-                        AnyChannel {
-                            sample_data: samples,
-                            ..channel
-                        }
-                    }).collect()
-                }
+                        FlatSamples::U32(samples) => FlatSamples::U32(crop_samples(
+                            samples, old_width, new_height, x_range.clone(), start_y
+                        )),
+                    };
+
+                    AnyChannel { sample_data: samples, ..channel }
+                }).collect();
+
+                AnyChannels { list: channels }
             },
 
             attributes: self.attributes,
@@ -382,6 +334,7 @@ fn try_find_smaller_bounds(current_bounds: IntegerBounds, pixel_at: impl Fn(Vec2
         }
     }
 
+    // TODO add 1px margin to avoid interpolation issues?
     let local_start = Vec2(min_left_x, bottom);
     let local_end = Vec2(max_right_x + 1, top + 1);
     Some(IntegerBounds::new(

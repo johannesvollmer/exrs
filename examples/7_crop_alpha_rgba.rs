@@ -16,7 +16,7 @@ pub fn main() {
     ).unwrap();
 
     // construct a ~simple~ cropped image
-    let image: Image<Layer<CroppedView<RgbaChannels<Flattened<f32>>>>> = Image {
+    let image: Image<Layer<CroppedChannels<RgbaChannels<Flattened<f32>>>>> = Image {
         attributes: image.attributes,
 
         // crop each layer
