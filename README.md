@@ -170,7 +170,7 @@ so you could also link the github repository master branch.
 
 ### Example
 
-Example: [generate an rgb exr file](https://github.com/johannesvollmer/exrs/blob/master/examples/1_minimal_rgb.rs).
+Example: [generate an rgb exr file](https://github.com/johannesvollmer/exrs/blob/master/examples/0_minimal_rgb_write.rs).
 
 ```rust
 extern crate exr;
