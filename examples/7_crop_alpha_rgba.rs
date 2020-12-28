@@ -27,7 +27,7 @@ pub fn main() {
 
             // if has alpha, crop it where alpha is zero
             image.layer_data
-                .crop_where(|pixel: RgbaPixel| pixel.alpha_or_default().is_zero())
+                .crop_where(|pixel: RgbaPixel| pixel.alpha_or_1().is_zero())
                 .or_crop_to_1x1_if_empty() // do not remove empty layers from image, because it could result in an image without content
         },
     };

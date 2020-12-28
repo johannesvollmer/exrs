@@ -742,7 +742,7 @@ impl Header {
                     // otherwise, add the attribute to the vector of custom attributes
 
                     // the following attributes will only be set if the type matches the commonly used type for that attribute
-                    match (attribute_name.bytes(), value) {
+                    match (attribute_name.as_slice(), value) {
                         (name::BLOCK_TYPE, Text(value)) => block_type = Some(attribute::BlockType::parse(value)?),
                         (name::TILES, TileDescription(value)) => tiles = Some(value),
                         (name::CHANNELS, ChannelList(value)) => channels = Some(value),
@@ -979,11 +979,11 @@ impl Header {
         }
 
         for (name, value) in &self.shared_attributes.other {
-            attribute::write(name.bytes(), value, write)?;
+            attribute::write(name.as_slice(), value, write)?;
         }
 
         for (name, value) in &self.own_attributes.other {
-            attribute::write(name.bytes(), value, write)?;
+            attribute::write(name.as_slice(), value, write)?;
         }
 
         sequence_end::write(write)?;

@@ -98,7 +98,7 @@ pub enum AttributeValue {
 /// A byte array with each byte being a char.
 /// This is not UTF an must be constructed from a standard string.
 // TODO is this ascii? use a rust ascii crate?
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Default)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Default)] // hash implemented manually
 pub struct Text {
     bytes: TextBytes,
 }
@@ -366,6 +366,8 @@ pub enum LevelMode {
 // will mostly be "R", "G", "B" or "deepscanlineimage"
 type TextBytes = SmallVec<[u8; 24]>;
 
+/// A byte slice, interpreted as text
+pub type TextSlice = [u8];
 
 
 use crate::io::*;
@@ -374,6 +376,8 @@ use crate::error::*;
 use crate::math::{RoundingMode, Vec2};
 use half::f16;
 use std::convert::{TryFrom};
+use std::borrow::Borrow;
+use std::hash::{Hash, Hasher};
 
 
 fn invalid_type() -> Error {
@@ -401,7 +405,7 @@ impl Text {
 
     /// Create a `Text` from a slice of bytes,
     /// without checking any of the bytes.
-    pub fn from_slice_unchecked(text: &'static [u8]) -> Self {
+    pub fn from_slice_unchecked(text: &TextSlice) -> Self {
         Self::from_bytes_unchecked(SmallVec::from_slice(text))
     }
 
@@ -412,19 +416,19 @@ impl Text {
     }
 
     /// The internal ASCII bytes this text is made of.
-    pub fn bytes(&self) -> &[u8] {
+    pub fn as_slice(&self) -> &TextSlice {
         self.bytes.as_slice()
     }
 
     /// Check whether this string is valid, adjusting `long_names` if required.
     /// If `long_names` is not provided, text length will be entirely unchecked.
     pub fn validate(&self, null_terminated: bool, long_names: Option<&mut bool>) -> UnitResult {
-        Self::validate_bytes(self.bytes(), null_terminated, long_names)
+        Self::validate_bytes(self.as_slice(), null_terminated, long_names)
     }
 
     /// Check whether some bytes are valid, adjusting `long_names` if required.
     /// If `long_names` is not provided, text length will be entirely unchecked.
-    pub fn validate_bytes(text: &[u8], null_terminated: bool, long_names: Option<&mut bool>) -> UnitResult {
+    pub fn validate_bytes(text: &TextSlice, null_terminated: bool, long_names: Option<&mut bool>) -> UnitResult {
         if null_terminated && text.is_empty() {
             return Err(Error::invalid("text must not be empty"));
         }
@@ -487,7 +491,7 @@ impl Text {
 
     /// Write the string contents and a null-terminator.
     pub fn write_null_terminated<W: Write>(&self, write: &mut W) -> UnitResult {
-        Self::write_null_terminated_bytes(self.bytes(), write)
+        Self::write_null_terminated_bytes(self.as_slice(), write)
     }
 
     /// Write the string contents and a null-terminator.
@@ -576,6 +580,19 @@ impl Text {
     }
 }
 
+impl Borrow<TextSlice> for Text {
+    fn borrow(&self) -> &TextSlice {
+        self.as_slice()
+    }
+}
+
+// forwarding implementation. guarantees `text.borrow().hash() == text.hash()` (required for Borrow)
+impl Hash for Text {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.bytes.hash(state)
+    }
+}
+
 impl Into<String> for Text {
     fn into(self) -> String {
         self.to_string()
@@ -652,7 +669,7 @@ impl BlockType {
 
     /// Return a `BlockType` object from the specified attribute text value.
     pub fn parse(text: Text) -> Result<Self> {
-        match text.bytes() {
+        match text.as_slice() {
             block_type_strings::SCAN_LINE => Ok(BlockType::ScanLine),
             block_type_strings::TILE => Ok(BlockType::Tile),
 
@@ -1807,7 +1824,7 @@ mod test {
 
         for (name, value) in &attributes {
             let mut bytes = Vec::new();
-            super::write(name.bytes(), value, &mut bytes).unwrap();
+            super::write(name.as_slice(), value, &mut bytes).unwrap();
             assert_eq!(super::byte_size(name, value), bytes.len(), "attribute.byte_size() for {:?}", (name, value));
 
             let new_attribute = super::read(&mut PeekRead::new(Cursor::new(bytes)), 300).unwrap();

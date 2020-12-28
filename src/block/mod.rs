@@ -18,6 +18,7 @@ use std::convert::TryFrom;
 use crate::io::{Tracking, PeekRead, Write, Data};
 use std::io::{Seek, Read};
 use crate::meta::header::Header;
+use crate::block::lines::{LineRef, LineIndex, LineSlice, LineRefMut};
 
 
 /// Specifies where a block of pixel data should be placed in the actual image.
@@ -544,5 +545,48 @@ impl UncompressedBlock {
                 }),
             }
         })
+    }
+
+
+    // TODO make iterator
+    pub fn for_lines(
+        &self, header: &Header, decompressed: &UncompressedBlock,
+        accept_line: impl Fn(LineRef) -> UnitResult
+    ) -> UnitResult {
+        for (bytes, line) in LineIndex::lines_in_block(decompressed.index, header) {
+            let line_ref = LineSlice { location: line, value: &decompressed.data[bytes] };
+            accept_line(line_ref)?;
+        }
+
+        Ok(())
+    }
+
+    // TODO from iterator??
+    pub fn uncompressed_block_from_lines(
+        header: &Header, block_index: BlockIndex,
+        extract_line: impl Fn(LineRefMut)
+    ) -> Vec<u8> {
+        let byte_count = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
+        let mut block_bytes = vec![0_u8; byte_count];
+
+        for (byte_range, line_index) in LineIndex::lines_in_block(block_index, header) {
+            extract_line(LineRefMut { // TODO subsampling
+                value: &mut block_bytes[byte_range],
+                location: line_index,
+            });
+        }
+
+        block_bytes
+    }
+
+    // TODO from iterator??
+    pub fn from_lines(
+        header: &Header, block_index: BlockIndex,
+        extract_line: impl Fn(LineIndex, LineRefMut)
+    ) -> Self {
+        Self {
+            index: block_index,
+            data: Self::uncompressed_block_from_lines(header, block_index, extract_line)
+        }
     }
 }

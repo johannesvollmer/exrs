@@ -29,7 +29,7 @@ fn main() {
                         tone_map(pixel.red.to_f32()),
                         tone_map(pixel.green.to_f32()),
                         tone_map(pixel.blue.to_f32()),
-                        (pixel.alpha_or_default().to_f32() * 255.0) as u8,
+                        (pixel.alpha_or_1().to_f32() * 255.0) as u8,
                     ])
                 );
             }

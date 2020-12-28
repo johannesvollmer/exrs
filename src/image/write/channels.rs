@@ -3,9 +3,9 @@
 use crate::meta::attribute::{LevelMode, ChannelInfo, SampleType, ChannelList};
 use smallvec::SmallVec;
 use crate::meta::header::Header;
-use crate::block::BlockIndex;
+use crate::block::{BlockIndex, UncompressedBlock};
 use crate::image::{AnyChannels, RgbaChannels, RgbaPixel, RgbaSampleTypes};
-use crate::block::lines::{LineIndex, LineRefMut};
+use crate::block::lines::{LineIndex, LineRefMut, collect_uncompressed_block_from_lines};
 use crate::math::Vec2;
 use crate::io::Write;
 use crate::block::samples::Sample;
@@ -34,7 +34,7 @@ pub trait WritableChannels<'slf> {
 pub trait ChannelsWriter: Sync {
 
     /// Deliver a block of pixels, containing all channel data, to be stored in the file
-    fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex) -> Vec<u8>;
+    fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex) -> Vec<u8>; // TODO return uncompressed block?
 }
 
 
@@ -95,9 +95,11 @@ pub struct AnyChannelsWriter<SamplesWriter> {
     channels: SmallVec<[SamplesWriter; 4]>
 }
 
+
+
 impl<Samples> ChannelsWriter for AnyChannelsWriter<Samples> where Samples: SamplesWriter {
     fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Vec<u8> {
-        let byte_count = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
+        /*let byte_count = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
         let mut block_bytes = vec![0_u8; byte_count];
 
         for (byte_range, line_index) in LineIndex::lines_in_block(block_index, header) {
@@ -107,9 +109,13 @@ impl<Samples> ChannelsWriter for AnyChannelsWriter<Samples> where Samples: Sampl
             });
         }
 
-        block_bytes
+        block_bytes*/
+        UncompressedBlock::uncompressed_block_from_lines(header, block_index, |line_ref| {
+            self.channels[line_ref.location.channel].extract_line(line_ref)
+        })
     }
 }
+
 
 
 
@@ -151,6 +157,7 @@ impl<'channels, Pixels> ChannelsWriter for RgbaChannelsWriter<'channels, Pixels>
     fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Vec<u8> {
         let block_bytes = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
 
+        // TODO use UncompressedBlock::uncompressed_block_from_lines
         let width = block_index.pixel_size.0;
         let line_bytes = width * header.channels.bytes_per_pixel;
 
@@ -201,7 +208,7 @@ impl<'channels, Pixels> ChannelsWriter for RgbaChannelsWriter<'channels, Pixels>
                 write_b(pixel.blue);
 
                 if let Some(write_a) = &mut write_a {
-                    write_a(pixel.alpha_or_default()); // no alpha channel provided = not transparent
+                    write_a(pixel.alpha_or_1()); // no alpha channel provided = not transparent
                 }
             }
         }

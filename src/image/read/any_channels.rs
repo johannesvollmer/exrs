@@ -4,7 +4,7 @@ use crate::image::*;
 use crate::meta::header::{Header};
 use crate::error::{Result, UnitResult};
 use crate::block::UncompressedBlock;
-use crate::block::lines::{LineRef, LineIndex, LineSlice};
+use crate::block::lines::{LineRef, LineIndex, LineSlice, consume_lines_from_uncompressed_block};
 use crate::math::Vec2;
 use crate::meta::attribute::{Text, ChannelInfo};
 use crate::image::read::layers::{ReadChannels, ChannelsReader};
@@ -94,17 +94,20 @@ impl<'s, S: 's + ReadSamples> ReadChannels<'s> for ReadAnyChannels<S> {
 impl<S: SamplesReader> ChannelsReader for AnyChannelsReader<S> {
     type Channels = AnyChannels<S::Samples>;
 
+    fn filter_block(&self, tile: (usize, &TileCoordinates)) -> bool {
+        self.sample_channels_reader.iter().any(|channel| channel.samples.filter_block(tile))
+    }
+
     fn read_block(&mut self, header: &Header, decompressed: UncompressedBlock) -> UnitResult {
-        for (bytes, line) in LineIndex::lines_in_block(decompressed.index, header) {
+        /*for (bytes, line) in LineIndex::lines_in_block(decompressed.index, header) {
             let channel = self.sample_channels_reader.get_mut(line.channel).unwrap();
             channel.samples.read_line(LineSlice { location: line, value: &decompressed.data[bytes] })?;
         }
 
-        Ok(())
-    }
-
-    fn filter_block(&self, tile: (usize, &TileCoordinates)) -> bool {
-        self.sample_channels_reader.iter().any(|channel| channel.samples.filter_block(tile))
+        Ok(())*/
+        decompressed.for_lines(header, &decompressed, |line| {
+            self.sample_channels_reader[line.location.channel].samples.read_line(line)
+        })
     }
 
     fn into_channels(self) -> Self::Channels {

@@ -20,7 +20,7 @@ pub enum Sample {
 impl Sample {
 
     /// Returns the default value of `1.0`, which is used for a missing alpha channel.
-    pub fn default_alpha() -> Self {
+    pub fn one() -> Self {
         Sample::F32(1.0)
     }
 

@@ -22,6 +22,7 @@
 pub mod read;
 pub mod write;
 pub mod crop;
+pub mod channel_groups;
 
 
 use crate::meta::header::{ImageAttributes, LayerAttributes};
@@ -693,8 +694,8 @@ impl RgbaPixel {
     }
 
     /// Returns this pixel's alpha value, or the default value of `1.0` if no alpha is present.
-    #[inline] pub fn alpha_or_default(&self) -> Sample {
-        self.alpha.unwrap_or(Sample::default_alpha())
+    #[inline] pub fn alpha_or_1(&self) -> Sample {
+        self.alpha.unwrap_or(Sample::one())
     }
 }
 
@@ -782,7 +783,7 @@ impl<R, G, B> From<RgbaPixel> for (R, G, B) where R: From<Sample>, G: From<Sampl
 impl<R, G, B, A> From<RgbaPixel> for (R, G, B, A) where R: From<Sample>, G: From<Sample>, B: From<Sample>, A: From<Sample> {
     #[inline] fn from(pixel: RgbaPixel) -> Self { (
         R::from(pixel.red), G::from(pixel.green), B::from(pixel.blue),
-        A::from(pixel.alpha_or_default())
+        A::from(pixel.alpha_or_1())
     ) }
 }
 
@@ -801,7 +802,7 @@ impl<S> From<RgbaPixel> for [S; 3] where S: From<Sample> {
 impl<S> From<RgbaPixel> for [S; 4] where S: From<Sample> {
     #[inline] fn from(pixel: RgbaPixel) -> Self { [
         S::from(pixel.red), S::from(pixel.green), S::from(pixel.blue),
-        S::from(pixel.alpha_or_default())
+        S::from(pixel.alpha_or_1())
     ] }
 }
 

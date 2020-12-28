@@ -155,6 +155,8 @@ impl<Setter, Storage>
     }
 
     fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult {
+        // TODO use decompressed.for_lines(header, &decompressed, |line| {   self.sample_channels_reader[line.location.channel].samples.read_line(line) })
+
         let RgbaSampleTypes(r_type, g_type, b_type, a_type) = self.info.channels;
         let line_bytes = block.index.pixel_size.0 * header.channels.bytes_per_pixel;
 
@@ -338,7 +340,7 @@ pub mod pixels {
         samples[2] = pixel.blue.into();
 
         if samples.len() == 4 {
-            samples[3] = pixel.alpha_or_default().into();
+            samples[3] = pixel.alpha_or_1().into();
         }
     }
 
