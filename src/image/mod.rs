@@ -81,8 +81,6 @@ pub struct Image<Layers> {
 /// A list of layers. `Channels` can be `RgbaChannels` or `AnyChannels`.
 pub type Layers<Channels> = SmallVec<[Layer<Channels>; 2]>;
 
-// TODO pub struct ChannelGroups {}
-
 /// A single Layer, including fancy attributes and compression settings.
 /// `Channels` can be either `RgbaChannels` or `AnyChannels`
 #[derive(Debug, Clone, PartialEq)]
@@ -114,14 +112,8 @@ pub struct Encoding {
     pub compression: Compression,
 
     /// Describes how the pixels of this layer are divided into smaller blocks.
+    /// Either splits the image into its scan lines or splits the image into tiles of the specified size.
     /// A single block can be loaded without processing all bytes of a file.
-    ///
-    /// Also describes whether a file contains multiple resolution levels: mip maps or rip maps.
-    /// This allows loading not the full resolution, but the smallest sensible resolution.
-    ///
-    /// The resolution level setting must match the contents of the channel.
-    // FIXME throw error for mismatch
-    // TODO automatically generate or discard when mismatch
     pub blocks: Blocks,
 
     /// In what order the tiles of this header occur in the file.
@@ -148,7 +140,6 @@ pub enum Blocks {
 }
 
 
-// TODO remove indirection
 /// A grid of rgba pixels. The pixels are written to your custom pixel storage.
 /// `PixelStorage` can be anything, from a flat `Vec<f16>` to `Vec<Vec<AnySample>>`, as desired.
 /// In order to write this image to a file, your `PixelStorage` must implement [`GetRgbaPixel`].
@@ -160,6 +151,7 @@ pub struct RgbaChannels<PixelStorage> {
     pub sample_types: RgbaSampleTypes,
 
     /// Your custom rgba pixel storage
+    // TODO should also support `Levels<YourStorage>`, where rgba levels are desired!
     pub storage: PixelStorage,
 }
 
@@ -173,11 +165,11 @@ pub struct RgbaSampleTypes (pub SampleType, pub SampleType, pub SampleType, pub 
 
 /// A full list of arbitrary channels, not just rgba.
 /// `Samples` can currently only be `FlatSamples` or `Levels<FlatSamples>`.
-// FIXME sort channels on create!
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnyChannels<Samples> {
 
-    /// This list must be sorted. Use `AnyChannels::sorted` for automatic sorting.
+    /// This list must be sorted alphabetically, by channel name.
+    /// Use `AnyChannels::sorted` for automatic sorting.
     pub list: SmallVec<[AnyChannel<Samples>; 4]>
 }
 
@@ -393,7 +385,7 @@ impl Iterator for FlatSampleIterator<'_> {
 impl<SampleData> AnyChannels<SampleData>{
 
     /// A new list of arbitrary channels. Sorts the list to make it alphabetically stable.
-    pub fn sorted(mut list: SmallVec<[AnyChannel<SampleData>; 4]>) -> Self {
+    pub fn sort(mut list: SmallVec<[AnyChannel<SampleData>; 4]>) -> Self {
         list.sort_unstable_by_key(|channel| channel.name.clone()); // TODO no clone?
         Self { list }
     }
@@ -474,8 +466,8 @@ impl<Samples> RipMaps<Samples> {
 
     /// Flatten the 2D level index to a one dimensional index.
     pub fn get_level_index(&self, level: Vec2<usize>) -> usize {
-        self.level_count.0 * level.y() + level.x()
-        // TODO level.flatten_for_width(self.level_count.0)
+        level.flat_index_for_size(self.level_count)
+        // self.level_count.0 * level.y() + level.x()
     }
 
     /// Return a level by level index. Level `0` has the largest resolution.
@@ -566,7 +558,7 @@ impl<'s, ChannelData:'s> Layer<ChannelData> {
     }
 
     // TODO test pls wtf
-    /// Panics for images with Scanline blockmode encoding.
+    /// Panics for images with Scanline encoding.
     pub fn levels_with_resolution<'l, L>(&self, levels: &'l Levels<L>) -> Box<dyn 'l + Iterator<Item=(&'l L, Vec2<usize>)>> {
         match levels {
             Levels::Singular(level) => Box::new(std::iter::once((level, self.size))),

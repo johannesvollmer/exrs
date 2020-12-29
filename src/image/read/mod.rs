@@ -101,7 +101,6 @@ pub fn read_first_flat_layer_from_file(path: impl AsRef<Path>) -> Result<Image<L
         .from_file(path)
 }
 
-// FIXME rgba with resolution levels!!! should at least not throw an error
 /// No deep data, no resolution levels, rgba channels, all layers.
 /// Uses parallel decompression and relaxed error handling.
 /// `Create` and `Set` can be closures, see the examples for more information.

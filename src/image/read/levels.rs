@@ -32,11 +32,11 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     /// Read all arbitrary channels in each layer.
     pub fn all_channels(self) -> ReadAnyChannels<DeepOrFlatSamples> { ReadAnyChannels { read_samples: self.read_samples } } // Instead of Self, the `FlatSamples` are used directly
 
-    // TODO only for flat samples
     /// Read only layers that contain red, green and blue color. If present, also loads alpha channels.
     /// Rejects all layers that don't have rgb channels. Skips any other channels in an rgb layer.
     /// `Create` can be a closure of type [`Fn(&RgbaChannelsInfo) -> YourPixelStorage`].
     /// `Set` can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, RgbaPixel)`].
+    /// Throws an error for images with deep data.
     pub fn rgba_channels<Create, Set>(self, create: Create, set_pixel: Set) -> ReadRgbaChannels<Create, Set>
         where Create: CreateRgbaPixels, Set: SetRgbaPixel<Create::Pixels>
     {
@@ -57,16 +57,17 @@ impl<ReadDeepOrFlatSamples> ReadAllLevels<ReadDeepOrFlatSamples> {
     /// Read all arbitrary channels in each layer.
     pub fn all_channels(self) -> ReadAnyChannels<Self> { ReadAnyChannels { read_samples: self } }
 
-    // TODO only for flat samples
-    /// Read only layers that contain red, green and blue color. If present, also loads alpha channels.
+    // TODO rgba resolution levels
+    /*/// Read only layers that contain red, green and blue color. If present, also loads alpha channels.
     /// Rejects all layers that don't have rgb channels. Skips any other channels in the layer.
     /// `Create` can be a closure of type [`Fn(&RgbaChannelsInfo) -> YourPixelStorage`].
     /// `Set` can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, RgbaPixel)`].
+    /// Throws an error for images with deep data.
     pub fn rgba_channels<Create, Set>(self, create: Create, set_pixel: Set) -> ReadRgbaChannels<Create, Set>
         where Create: CreateRgbaPixels, Set: SetRgbaPixel<Create::Pixels>
     {
         ReadRgbaChannels { create, set_pixel }
-    }
+    }*/
 }
 
 /*pub struct ReadLevels<S> {
@@ -148,7 +149,7 @@ impl<S: SamplesReader> SamplesReader for AllLevelsReader<S> {
     type Samples = Levels<S::Samples>;
 
     fn filter_block(&self, _: (usize, &TileCoordinates)) -> bool {
-        true // TODO this is not beautiful?
+        true
     }
 
     fn read_line(&mut self, line: LineRef<'_>) -> UnitResult {

@@ -57,7 +57,7 @@ pub fn damaged(){
 
             {
                 let _minimal = read().no_deep_data()
-                    .all_resolution_levels()
+                    .largest_resolution_level() // TODO all levels
                     .rgba_channels(
                         |_info: &RgbaChannelsInfo| (),
                         |_: &mut (), _position: Vec2<usize>, _pixel: RgbaPixel| {}

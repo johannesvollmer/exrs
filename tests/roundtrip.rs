@@ -137,7 +137,7 @@ fn round_trip_all_files_rgba() {
     check_files(blacklist, |path| {
         let image_reader = read()
             .no_deep_data()
-            .all_resolution_levels()
+            .largest_resolution_level() // TODO all levels
             .rgba_channels(
                 read::rgba_channels::pixels::create_flattened_f32,
                 read::rgba_channels::pixels::set_flattened_pixel

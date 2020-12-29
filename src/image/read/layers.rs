@@ -109,7 +109,7 @@ impl<C> LayerReader<C> {
                 line_order: header.line_order,
                 blocks: match header.blocks {
                     crate::meta::Blocks::ScanLines => Blocks::ScanLines,
-                    crate::meta::Blocks::Tiles(TileDescription { tile_size, .. }) => Blocks::Tiles(tile_size) // TODO FIXME what happens with the level_mode and rounding_mode?
+                    crate::meta::Blocks::Tiles(TileDescription { tile_size, .. }) => Blocks::Tiles(tile_size)
                 },
             },
         })

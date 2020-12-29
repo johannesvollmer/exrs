@@ -401,7 +401,7 @@ mod test {
         }
 
         fn assert_found_smaller_bounds(offset: Vec2<i32>, uncropped_lines: Vec<Vec<i32>>, cropped_lines: Vec<Vec<i32>>) {
-            let old_bounds = find_bounds(offset, &uncropped_lines); // TODO offset
+            let old_bounds = find_bounds(offset, &uncropped_lines);
 
             let found_bounds = try_find_smaller_bounds(
                 old_bounds, |position| uncropped_lines[position.y()][position.x()] != 0

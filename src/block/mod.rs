@@ -318,7 +318,7 @@ pub fn read_filtered_chunks_from_buffered<'m, T>(
         };
     }
 
-    filtered_offsets.sort(); // enables reading continuously if possible (is probably already sorted)
+    filtered_offsets.sort_unstable(); // enables reading continuously if possible (is probably already sorted)
     let mut filtered_offsets = filtered_offsets.into_iter();
     let block_count = filtered_offsets.len();
 

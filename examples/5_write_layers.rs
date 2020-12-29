@@ -58,7 +58,7 @@ fn main() {
         size,
         LayerAttributes::named("test-image"),
         Encoding::FAST_LOSSLESS,
-        AnyChannels::sorted(smallvec![ // the order does not actually matter
+        AnyChannels::sort(smallvec![ // the order does not actually matter
             foreground_r, foreground_g, foreground_b, foreground_a,
             background_r, background_g, background_b
         ]),

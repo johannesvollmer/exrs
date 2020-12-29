@@ -126,7 +126,7 @@ impl<'slf, ChannelGroup> WritableChannels<'slf> for ChannelGroups<ChannelGroup>
             .unwrap_or_default();
 
         own_channels.extend(child_channels);
-        own_channels.sort(); // TODO only once at end
+        own_channels.sort_unstable(); // TODO only once at end
         ChannelList::new(own_channels) // might be empty, but will be checked in MetaData::validate()
     }
 

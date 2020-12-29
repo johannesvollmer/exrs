@@ -53,7 +53,7 @@ fn main() {
         size,
         layer_attributes,
         Encoding::default(),
-        AnyChannels::sorted(smallvec![ r, g, b, a ]),
+        AnyChannels::sort(smallvec![ r, g, b, a ]),
     );
 
     // crop away transparent pixels from the border
