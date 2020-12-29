@@ -98,32 +98,38 @@ impl<S: ReadSamplesLevel> ReadSamples for ReadAllLevels<S> {
 
         let levels = {
             if let crate::meta::Blocks::Tiles(tiles) = &header.blocks {
-                let round = tiles.rounding_mode;
-
                 match tiles.level_mode {
                     LevelMode::Singular => Levels::Singular(self.read_samples.create_samples_level_reader(header, channel, Vec2(0,0), header.layer_size)?),
 
-                    LevelMode::MipMap => Levels::Mip({
-                        let maps: Result<LevelMaps<S::Reader>> = mip_map_levels(round, data_size)
-                            .map(|(index, level_size)| self.read_samples.create_samples_level_reader(header, channel, Vec2(index, index), level_size))
-                            .collect();
+                    LevelMode::MipMap => Levels::Mip {
+                        rounding_mode: tiles.rounding_mode,
+                        level_data: {
+                            let round = tiles.rounding_mode;
+                            let maps: Result<LevelMaps<S::Reader>> = mip_map_levels(round, data_size)
+                                .map(|(index, level_size)| self.read_samples.create_samples_level_reader(header, channel, Vec2(index, index), level_size))
+                                .collect();
 
-                        maps?
-                    }),
+                            maps?
+                        },
+                    },
 
                     // TODO put this into Levels::new(..) ?
-                    LevelMode::RipMap => Levels::Rip({
-                        let level_count_x = compute_level_count(round, data_size.width());
-                        let level_count_y = compute_level_count(round, data_size.height());
-                        let maps: Result<LevelMaps<S::Reader>> = rip_map_levels(round, data_size)
-                            .map(|(index, level_size)| self.read_samples.create_samples_level_reader(header, channel, index, level_size))
-                            .collect();
+                    LevelMode::RipMap => Levels::Rip {
+                        rounding_mode: tiles.rounding_mode,
+                        level_data: {
+                            let round = tiles.rounding_mode;
+                            let level_count_x = compute_level_count(round, data_size.width());
+                            let level_count_y = compute_level_count(round, data_size.height());
+                            let maps: Result<LevelMaps<S::Reader>> = rip_map_levels(round, data_size)
+                                .map(|(index, level_size)| self.read_samples.create_samples_level_reader(header, channel, index, level_size))
+                                .collect();
 
-                        RipMaps {
-                            map_data: maps?,
-                            level_count: Vec2(level_count_x, level_count_y)
-                        }
-                    })
+                            RipMaps {
+                                map_data: maps?,
+                                level_count: Vec2(level_count_x, level_count_y)
+                            }
+                        },
+                    },
                 }
             }
 
@@ -152,11 +158,17 @@ impl<S: SamplesReader> SamplesReader for AllLevelsReader<S> {
     fn into_samples(self) -> Self::Samples {
         match self.levels {
             Levels::Singular(level) => Levels::Singular(level.into_samples()),
-            Levels::Mip(maps) => Levels::Mip(maps.into_iter().map(|s| s.into_samples()).collect()),
-            Levels::Rip(maps) => Levels::Rip(RipMaps {
-                map_data: maps.map_data.into_iter().map(|s| s.into_samples()).collect(),
-                level_count: maps.level_count
-            }),
+            Levels::Mip { rounding_mode, level_data } => Levels::Mip {
+                rounding_mode, level_data: level_data.into_iter().map(|s| s.into_samples()).collect(),
+            },
+
+            Levels::Rip { rounding_mode, level_data } => Levels::Rip {
+                rounding_mode,
+                level_data: RipMaps {
+                    level_count: level_data.level_count,
+                    map_data: level_data.map_data.into_iter().map(|s| s.into_samples()).collect(),
+                }
+            },
         }
     }
 }

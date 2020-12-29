@@ -141,15 +141,10 @@ pub enum Blocks {
     /// The image is divided into tile blocks.
     /// Also specifies the size of each tile in the image
     /// and whether this image contains multiple resolution levels.
-    Tiles {
-
-        /// The size of each tile.
-        /// Stays the same number of pixels across all levels.
-        tile_size: Vec2<usize>,
-
-        /// Whether to round up or down when calculating Mip/Rip levels.
-        rounding_mode: RoundingMode,
-    }
+    ///
+    /// The inner `Vec2` describes the size of each tile.
+    /// Stays the same number of pixels across all levels.
+    Tiles (Vec2<usize>)
 }
 
 
@@ -224,10 +219,24 @@ pub enum Levels<Samples> {
     Singular(Samples),
 
     /// Contains uniformly scaled smaller versions of the original.
-    Mip(LevelMaps<Samples>),
+    Mip
+    {
+        /// Whether to round up or down when calculating Mip/Rip levels.
+        rounding_mode: RoundingMode,
+
+        /// The smaller versions of the original.
+        level_data: LevelMaps<Samples>
+    },
 
     /// Contains any possible combination of smaller versions of the original.
-    Rip(RipMaps<Samples>),
+    Rip
+    {
+        /// Whether to round up or down when calculating Mip/Rip levels.
+        rounding_mode: RoundingMode,
+
+        /// The smaller versions of the original.
+        level_data: RipMaps<Samples>
+    },
 }
 
 /// A list of resolution levels. `Samples` can currently only be `FlatSamples`.
@@ -390,23 +399,24 @@ impl<SampleData> AnyChannels<SampleData>{
     }
 }
 
+// FIXME check content size of layer somewhere??? before writing?
 impl<LevelSamples> Levels<LevelSamples> {
 
     /// Get a resolution level by index, sorted by size, decreasing.
     pub fn get_level(&self, level: Vec2<usize>) -> Result<&LevelSamples> {
         match self {
-            Levels::Singular(ref block) => {
+            Levels::Singular(block) => {
                 debug_assert_eq!(level, Vec2(0,0), "singular image cannot write leveled blocks bug");
                 Ok(block)
             },
 
-            Levels::Mip(block) => {
+            Levels::Mip { level_data, .. } => {
                 debug_assert_eq!(level.x(), level.y(), "mip map levels must be equal on x and y bug");
-                block.get(level.x()).ok_or(Error::invalid("block mip level index"))
+                level_data.get(level.x()).ok_or(Error::invalid("block mip level index"))
             },
 
-            Levels::Rip(block) => {
-                block.get_by_level(level).ok_or(Error::invalid("block rip level index"))
+            Levels::Rip { level_data, .. } => {
+                level_data.get_by_level(level).ok_or(Error::invalid("block rip level index"))
             }
         }
     }
@@ -420,13 +430,13 @@ impl<LevelSamples> Levels<LevelSamples> {
                 Ok(block)
             },
 
-            Levels::Mip(block) => {
+            Levels::Mip { level_data, .. } => {
                 debug_assert_eq!(level.x(), level.y(), "mip map levels must be equal on x and y bug");
-                block.get_mut(level.x()).ok_or(Error::invalid("block mip level index"))
+                level_data.get_mut(level.x()).ok_or(Error::invalid("block mip level index"))
             },
 
-            Levels::Rip(block) => {
-                block.get_by_level_mut(level).ok_or(Error::invalid("block rip level index"))
+            Levels::Rip { level_data, .. } => {
+                level_data.get_by_level_mut(level).ok_or(Error::invalid("block rip level index"))
             }
         }
     }
@@ -434,9 +444,9 @@ impl<LevelSamples> Levels<LevelSamples> {
     /// Get a slice of all resolution levels, sorted by size, decreasing.
     pub fn levels_as_slice(&self) -> &[LevelSamples] {
         match self {
-            Levels::Singular(ref data) => std::slice::from_ref(data),
-            Levels::Mip(ref maps) => maps,
-            Levels::Rip(ref rip_map) => &rip_map.map_data,
+            Levels::Singular(data) => std::slice::from_ref(data),
+            Levels::Mip { level_data, .. } => level_data,
+            Levels::Rip { level_data, .. } => &level_data.map_data,
         }
     }
 
@@ -454,8 +464,8 @@ impl<LevelSamples> Levels<LevelSamples> {
     pub fn level_mode(&self) -> LevelMode {
         match self {
             Levels::Singular(_) => LevelMode::Singular,
-            Levels::Mip(_) => LevelMode::MipMap,
-            Levels::Rip(_) => LevelMode::RipMap,
+            Levels::Mip { .. } => LevelMode::MipMap,
+            Levels::Rip { .. } => LevelMode::RipMap,
         }
     }
 }
@@ -542,6 +552,7 @@ impl RgbaSampleTypes {
 }
 
 impl<'s, ChannelData:'s> Layer<ChannelData> {
+
     /// Create a layer with the specified size, attributes, encoding and channels.
     /// The channels can be either `RgbaChannels` or `AnyChannels`.
     pub fn new(
@@ -557,21 +568,16 @@ impl<'s, ChannelData:'s> Layer<ChannelData> {
     // TODO test pls wtf
     /// Panics for images with Scanline blockmode encoding.
     pub fn levels_with_resolution<'l, L>(&self, levels: &'l Levels<L>) -> Box<dyn 'l + Iterator<Item=(&'l L, Vec2<usize>)>> {
-        let rounding_mode = match self.encoding.blocks {
-            Blocks::Tiles { rounding_mode, .. } => Some(rounding_mode),
-            _ => None
-        };
-
         match levels {
             Levels::Singular(level) => Box::new(std::iter::once((level, self.size))),
 
-            Levels::Mip(maps) => Box::new(maps.iter().zip(
-                mip_map_levels(rounding_mode.expect("scanline images cannot have mip maps"), self.size)
+            Levels::Mip { rounding_mode, level_data } => Box::new(level_data.iter().zip(
+                mip_map_levels(*rounding_mode, self.size)
                     .map(|(_index, size)| size)
             )),
 
-            Levels::Rip(rip) => Box::new(rip.map_data.iter().zip(
-                rip_map_levels(rounding_mode.expect("scanline images cannot have rip maps"), self.size)
+            Levels::Rip { rounding_mode, level_data } => Box::new(level_data.map_data.iter().zip(
+                rip_map_levels(*rounding_mode, self.size)
                     .map(|(_index, size)| size)
             )),
         }
@@ -592,7 +598,7 @@ impl Encoding {
     /// Almost as fast as uncompressed data, but optimizes single-colored areas such as mattes and masks.
     pub const FAST_LOSSLESS: Encoding = Encoding {
         compression: Compression::RLE,
-        blocks: Blocks::Tiles { tile_size: Vec2(64, 64), rounding_mode: RoundingMode::Down }, // optimize for RLE compression
+        blocks: Blocks::Tiles(Vec2(64, 64)), // optimize for RLE compression
         line_order: LineOrder::Unspecified
     };
 
@@ -606,7 +612,7 @@ impl Encoding {
     /// PIZ compression with tiles of 256x256 pixels. Small images, not too slow. Might produce visible artefacts in the image.
     pub const SMALL_FAST_LOSSY: Encoding = Encoding {
         compression: Compression::PIZ,
-        blocks: Blocks::Tiles { tile_size: Vec2(256, 256), rounding_mode: RoundingMode::Down },
+        blocks: Blocks::Tiles(Vec2(256, 256)),
         line_order: LineOrder::Unspecified
     };
 }

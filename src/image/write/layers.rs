@@ -61,11 +61,9 @@ impl<'slf, Channels: WritableChannels<'slf>> WritableLayers<'slf> for Layer<Chan
     fn infer_headers(&self, image_attributes: &ImageAttributes) -> Headers {
         let blocks = match self.encoding.blocks {
             crate::image::Blocks::ScanLines => crate::meta::Blocks::ScanLines,
-            crate::image::Blocks::Tiles { tile_size, rounding_mode } => {
-                crate::meta::Blocks::Tiles(TileDescription {
-                    level_mode: self.channel_data.level_mode(),
-                    tile_size, rounding_mode,
-                })
+            crate::image::Blocks::Tiles(tile_size) => {
+                let (level_mode, rounding_mode) = self.channel_data.infer_level_modes();
+                crate::meta::Blocks::Tiles(TileDescription { level_mode, rounding_mode, tile_size, })
             },
         };
 

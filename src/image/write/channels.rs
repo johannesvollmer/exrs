@@ -5,7 +5,7 @@ use smallvec::SmallVec;
 use crate::meta::header::Header;
 use crate::block::{BlockIndex, UncompressedBlock};
 use crate::image::{AnyChannels, RgbaChannels, RgbaPixel, RgbaSampleTypes};
-use crate::math::Vec2;
+use crate::math::{Vec2, RoundingMode};
 use crate::io::Write;
 use crate::block::samples::Sample;
 use std::io::Cursor;
@@ -20,7 +20,7 @@ pub trait WritableChannels<'slf> {
     fn infer_channel_list(&self) -> ChannelList;
 
     ///  Generate the file meta data of whether and how resolution levels should be stored in the file
-    fn level_mode(&self) -> LevelMode;
+    fn infer_level_modes(&self) -> (LevelMode, RoundingMode);
 
     /// The type of temporary writer
     type Writer: ChannelsWriter;
@@ -69,13 +69,13 @@ impl<'samples, Samples> WritableChannels<'samples> for AnyChannels<Samples>
         }).collect())
     }
 
-    fn level_mode(&self) -> LevelMode {
-        let mode = self.list.iter().next().unwrap().sample_data.level_mode();
+    fn infer_level_modes(&self) -> (LevelMode, RoundingMode) {
+        let mode = self.list.iter().next().unwrap().sample_data.infer_level_modes();
 
         debug_assert!(
             std::iter::repeat(mode).zip(self.list.iter().skip(1))
-                .all(|(first, other)| other.sample_data.level_mode() == first),
-            "level mode must be the same across all levels"
+                .all(|(first, other)| other.sample_data.infer_level_modes() == first),
+            "level mode must be the same across all levels (do not nest resolution levels!)"
         );
 
         mode
@@ -138,7 +138,9 @@ impl<'channels, Pixels: 'channels> WritableChannels<'channels> for RgbaChannels<
         // ChannelList::new(a.map(|a| smallvec![ a, b, g, r ]).unwrap_or_else(|| smallvec![ b, g, r ]))
     }
 
-    fn level_mode(&self) -> LevelMode { LevelMode::Singular }
+    fn infer_level_modes(&self) -> (LevelMode, RoundingMode) {
+        (LevelMode::Singular, RoundingMode::Down)
+    }
 
     type Writer = RgbaChannelsWriter<'channels, Pixels>;
     fn create_writer(&'channels self, _: &Header) -> Self::Writer {
