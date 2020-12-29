@@ -7,7 +7,7 @@
 //!
 //! For very simple applications, you can alternatively use one of these functions:
 //!
-//! 1. `read_first_rgb_layer_from_file(path, your_constructor, your_pixel_setter)`:
+//! 1. `read_first_rgba_layer_from_file(path, your_constructor, your_pixel_setter)`:
 //!     You specify how to store an `RgbaPixel`.
 //!     The first layer containing rgba channels is then loaded from the file.
 //!     Fails if no rgba layer can be found.
@@ -48,8 +48,6 @@ pub mod rgba_channels;
 pub mod any_channels;
 pub mod levels;
 pub mod samples;
-pub use rgba_channels::*; // TODO put somwehere else??
-
 
 use crate::error::{Result};
 use crate::image::read::samples::{ReadFlatSamples};
@@ -58,6 +56,7 @@ use crate::image::{AnyImage, RgbaLayersImage, RgbaImage, AnyChannels, FlatSample
 use crate::image::read::image::ReadLayers;
 use crate::image::read::layers::ReadChannels;
 use crate::math::Vec2;
+use crate::prelude::RgbaChannelsInfo;
 
 // TODO explain or use these simple functions somewhere
 
@@ -126,7 +125,7 @@ pub fn read_all_rgba_layers_from_file<Set:'static, Create:'static, Pixels: 'stat
 /// Inspect the source code of this function if you need customization.
 // FIXME Set and Create should not need to be static
 pub fn read_first_rgba_layer_from_file<Set:'static, Create:'static, Pixels:'static>(path: impl AsRef<Path>, create: Create, set_pixel: Set)
-                                                                                    -> Result<RgbaImage<Pixels>>
+    -> Result<RgbaImage<Pixels>>
     where Create: Fn(&RgbaChannelsInfo) -> Pixels, // CreateRgbaPixels<Pixels=Pixels>,
           Set: Fn(&mut Pixels, Vec2<usize>, RgbaPixel), // SetRgbaPixel<Pixels>
 {
@@ -158,7 +157,7 @@ pub struct ReadBuilder;
 ///         .all_layers() // or `first_valid_layer()`
 ///         .all_attributes() // (currently required)
 ///         .on_progress(|progress| println!("progress: {:.1}", progress*100.0)) // optional
-///         .from_file("file.exr").unwrap(); // or `from_buffered(my_byte_slice)`
+///         .from_file("image.exr").unwrap(); // or `from_buffered(my_byte_slice)`
 /// ```
 ///
 /// You can alternatively use one of the following simpler functions:

@@ -36,11 +36,11 @@ fn main() {
     let layer = Layer::new(
         (2*2048, 2*2048),
         attributes,
-        Encoding::SMALL_FAST_LOSSY,
+        Encoding::SMALL_FAST_LOSSY, // use fast but lossy compression
 
         RgbaChannels::new(
-            // all generated f32 values are converted to an f16 while writing the file
-            RgbaSampleTypes::RGBA_F16,
+            // use 32 bit color. alpha f32 values are converted to f16 while writing the file
+            RgbaSampleTypes::RGB_F32_A_F16,
             generate_pixels
         )
     );

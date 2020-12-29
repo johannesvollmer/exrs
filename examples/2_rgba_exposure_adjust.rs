@@ -6,8 +6,6 @@ extern crate exr;
 /// Uses multi-core compression where appropriate.
 fn main() {
     use exr::prelude::*;
-    use exr::image::read::RgbaChannelsInfo;
-    use exr::image::write::channels::GetRgbaPixel;
 
     /// This is an example of a custom image type.
     /// You use your own image struct here.

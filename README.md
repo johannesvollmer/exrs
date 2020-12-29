@@ -191,6 +191,7 @@ fn main() {
 
 See the [the examples folder](https://github.com/johannesvollmer/exrs/tree/master/examples) for more examples.
 
+Or read [the guide](https://github.com/johannesvollmer/exrs/tree/master/GUIDE.md).
 
 ### Motivation
 

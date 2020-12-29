@@ -522,24 +522,29 @@ impl FlatSamples {
 
 
 impl RgbaSampleTypes {
-    /// Store F16 values, discarding alpha.
+    /// Store 16 bit values, discarding alpha.
     pub const RGB_F16: RgbaSampleTypes = RgbaSampleTypes(
         SampleType::F16, SampleType::F16, SampleType::F16, None
     );
 
-    /// Store F32 values, discarding alpha.
+    /// Store 32 bit values, discarding alpha.
     pub const RGB_F32: RgbaSampleTypes = RgbaSampleTypes(
         SampleType::F32, SampleType::F32, SampleType::F32, None
     );
 
-    /// Store F16 values, including alpha.
+    /// Store 16 bit values, including alpha.
     pub const RGBA_F16: RgbaSampleTypes = RgbaSampleTypes(
         SampleType::F16, SampleType::F16, SampleType::F16, Some(SampleType::F16)
     );
 
-    /// Store F32 values, including alpha.
+    /// Store 32 bit values, including alpha.
     pub const RGBA_F32: RgbaSampleTypes = RgbaSampleTypes(
         SampleType::F32, SampleType::F32, SampleType::F32, Some(SampleType::F32)
+    );
+
+    /// Store 32 bit color values and 16 bit alpha values.
+    pub const RGB_F32_A_F16: RgbaSampleTypes = RgbaSampleTypes(
+        SampleType::F32, SampleType::F32, SampleType::F32, Some(SampleType::F16)
     );
 }
 
@@ -550,7 +555,8 @@ impl<'s, ChannelData:'s> Layer<ChannelData> {
     pub fn new(
         dimensions: impl Into<Vec2<usize>>,
         attributes: LayerAttributes,
-        encoding: Encoding, channels: ChannelData
+        encoding: Encoding,
+        channels: ChannelData
     ) -> Self
         where ChannelData: WritableChannels<'s>
     {
