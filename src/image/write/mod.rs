@@ -22,32 +22,40 @@ use crate::meta::Headers;
 use crate::error::UnitResult;
 use std::io::{Seek, BufWriter};
 use crate::io::Write;
-use crate::image::{Image, ignore_progress, RgbaChannels, RgbaSampleTypes, RgbaPixel};
+use crate::image::{Image, ignore_progress, RgbaChannels, RgbaSampleTypes};
 use crate::image::write::layers::{WritableLayers, LayersWriter};
 use crate::math::Vec2;
 
 /// An oversimplified function for "just write the damn file already" use cases.
 /// Have a look at the examples to see how you can write an image with more flexibility (it's not that hard).
+/// Use `write_rgb_f32_file` if you do not need an alpha channel.
 pub fn write_rgba_f32_file(
-    path: impl AsRef<std::path::Path>, resolution: impl Into<Vec2<usize>>,
+    path: impl AsRef<std::path::Path>, width: usize, height: usize,
     colors: impl Sync + Fn(usize, usize) -> (f32, f32, f32, f32)
 ) -> UnitResult {
-    Image::with_single_layer(resolution, RgbaChannels::new(
-        RgbaSampleTypes::RGBA_F32,
-        |Vec2(x,y)| RgbaPixel::from(colors(x,y))
-    )).write().to_file(path)
+    Image::with_single_layer(
+        (width, height),
+        RgbaChannels::new(
+            RgbaSampleTypes::RGBA_F32,
+            |Vec2(x,y)| colors(x,y)
+        )
+    ).write().to_file(path)
 }
 
 /// An oversimplified function for "just write the damn file already" use cases.
 /// Have a look at the examples to see how you can write an image with more flexibility (it's not that hard).
+/// Use `write_rgba_f32_file` if you want to output alpha.
 pub fn write_rgb_f32_file(
-    path: impl AsRef<std::path::Path>, resolution: impl Into<Vec2<usize>>,
+    path: impl AsRef<std::path::Path>, width: usize, height: usize,
     colors: impl Sync + Fn(usize, usize) -> (f32, f32, f32)
 ) -> UnitResult {
-    Image::with_single_layer(resolution, RgbaChannels::new(
-        RgbaSampleTypes::RGB_F32,
-        |Vec2(x,y)| RgbaPixel::from(colors(x,y))
-    )).write().to_file(path)
+    Image::with_single_layer(
+        (width, height),
+        RgbaChannels::new(
+            RgbaSampleTypes::RGB_F32,
+            |Vec2(x,y)| colors(x,y)
+        )
+    ).write().to_file(path)
 }
 
 

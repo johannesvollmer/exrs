@@ -637,7 +637,7 @@ impl Header {
         // check if attribute names appear twice
         if strict {
             for (name, _) in &self.shared_attributes.other {
-                if !self.own_attributes.other.contains_key(&name) {
+                if !self.own_attributes.other.contains_key(name) {
                     return Err(Error::invalid(format!("duplicate attribute name: `{}`", name)));
                 }
             }

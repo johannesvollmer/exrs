@@ -2,11 +2,12 @@
 extern crate image as png;
 
 extern crate exr;
-use exr::prelude::*;
 
 /// Read an arbitrary image, crop away transparent pixels,
 /// then write the cropped result to another file.
 pub fn main() {
+    use exr::prelude::*;
+
     let path = "tests/images/valid/custom/oh crop.exr";
 
     // loads any image (excluding deep data)

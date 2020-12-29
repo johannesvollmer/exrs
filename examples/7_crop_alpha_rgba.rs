@@ -2,13 +2,14 @@
 extern crate image as png;
 
 extern crate exr;
-use exr::prelude::*;
-use exr::image::read::rgba_channels::pixels::*;
 
 
 /// Read an rgba image, crop away transparent pixels,
 /// then write the cropped result to another file.
 pub fn main() {
+    use exr::prelude::*;
+    use exr::image::read::rgba_channels::pixels::*;
+
     let path = "tests/images/valid/custom/oh crop.exr";
 
     // load an rgba image

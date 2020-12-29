@@ -7,7 +7,6 @@ extern crate half;
 
 // exr imports
 extern crate exr;
-use exr::prelude::*;
 
 // TODO create a dedicated reader and writer for this scenario
 
@@ -18,6 +17,7 @@ use exr::prelude::*;
 /// Use the natively supported exrs `Layer` types instead, if possible.
 ///
 fn main() {
+    use exr::prelude::*;
     // TODO simplify handling these types of layers using read() and write()
 
     let size = Vec2(512, 512);

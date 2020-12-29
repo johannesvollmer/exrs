@@ -5,7 +5,6 @@ use smallvec::SmallVec;
 use crate::meta::header::Header;
 use crate::block::{BlockIndex, UncompressedBlock};
 use crate::image::{AnyChannels, RgbaChannels, RgbaPixel, RgbaSampleTypes};
-use crate::block::lines::{LineIndex, LineRefMut, collect_uncompressed_block_from_lines};
 use crate::math::Vec2;
 use crate::io::Write;
 use crate::block::samples::Sample;
@@ -110,7 +109,7 @@ impl<Samples> ChannelsWriter for AnyChannelsWriter<Samples> where Samples: Sampl
         }
 
         block_bytes*/
-        UncompressedBlock::uncompressed_block_from_lines(header, block_index, |line_ref| {
+        UncompressedBlock::collect_block_from_lines(header, block_index, |line_ref| {
             self.channels[line_ref.location.channel].extract_line(line_ref)
         })
     }

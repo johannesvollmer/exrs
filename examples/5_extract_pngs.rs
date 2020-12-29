@@ -2,7 +2,6 @@ extern crate image as png;
 use std::cmp::Ordering;
 
 extern crate exr;
-use exr::prelude::*;
 
 /// For each layer in the exr file,
 /// extract each channel as grayscale png,
@@ -11,8 +10,9 @@ use exr::prelude::*;
 // FIXME throws "access denied" sometimes, simply trying again usually works.
 //
 pub fn main() {
-    let path = "tests/images/valid/openexr/BeachBall/multipart.0001.exr";
+    use exr::prelude::*;
 
+    let path = "tests/images/valid/openexr/BeachBall/multipart.0001.exr";
     let now = ::std::time::Instant::now();
 
     // load the exr file from disk with multi-core decompression

@@ -549,12 +549,13 @@ impl UncompressedBlock {
 
 
     // TODO make iterator
+    /// Call a closure for each line of samples in this uncompressed block.
     pub fn for_lines(
-        &self, header: &Header, decompressed: &UncompressedBlock,
-        accept_line: impl Fn(LineRef) -> UnitResult
+        &self, header: &Header,
+        mut accept_line: impl FnMut(LineRef<'_>) -> UnitResult
     ) -> UnitResult {
-        for (bytes, line) in LineIndex::lines_in_block(decompressed.index, header) {
-            let line_ref = LineSlice { location: line, value: &decompressed.data[bytes] };
+        for (bytes, line) in LineIndex::lines_in_block(self.index, header) {
+            let line_ref = LineSlice { location: line, value: &self.data[bytes] };
             accept_line(line_ref)?;
         }
 
@@ -562,9 +563,10 @@ impl UncompressedBlock {
     }
 
     // TODO from iterator??
-    pub fn uncompressed_block_from_lines(
+    /// Create an uncompressed block byte vector by requesting one line of samples after another.
+    pub fn collect_block_from_lines(
         header: &Header, block_index: BlockIndex,
-        extract_line: impl Fn(LineRefMut)
+        mut extract_line: impl FnMut(LineRefMut<'_>)
     ) -> Vec<u8> {
         let byte_count = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
         let mut block_bytes = vec![0_u8; byte_count];
@@ -580,13 +582,14 @@ impl UncompressedBlock {
     }
 
     // TODO from iterator??
+    /// Create an uncompressed block by requesting one line of samples after another.
     pub fn from_lines(
         header: &Header, block_index: BlockIndex,
-        extract_line: impl Fn(LineIndex, LineRefMut)
+        extract_line: impl FnMut(LineRefMut<'_>)
     ) -> Self {
         Self {
             index: block_index,
-            data: Self::uncompressed_block_from_lines(header, block_index, extract_line)
+            data: Self::collect_block_from_lines(header, block_index, extract_line)
         }
     }
 }

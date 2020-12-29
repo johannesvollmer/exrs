@@ -4,7 +4,7 @@ use crate::image::*;
 use crate::meta::header::{Header};
 use crate::error::{Result, UnitResult};
 use crate::block::UncompressedBlock;
-use crate::block::lines::{LineRef, LineIndex, LineSlice, consume_lines_from_uncompressed_block};
+use crate::block::lines::{LineRef};
 use crate::math::Vec2;
 use crate::meta::attribute::{Text, ChannelInfo};
 use crate::image::read::layers::{ReadChannels, ChannelsReader};
@@ -105,7 +105,7 @@ impl<S: SamplesReader> ChannelsReader for AnyChannelsReader<S> {
         }
 
         Ok(())*/
-        decompressed.for_lines(header, &decompressed, |line| {
+        decompressed.for_lines(header, |line| {
             self.sample_channels_reader[line.location.channel].samples.read_line(line)
         })
     }

@@ -3,10 +3,11 @@ extern crate image as png;
 use std::cmp::Ordering;
 
 extern crate exr;
-use exr::prelude::*;
 
 
 pub fn main() {
+    use exr::prelude::*;
+
     let path = "tests/images/valid/openexr/MultiResolution/Kapaa.exr";
     let now = ::std::time::Instant::now();
 

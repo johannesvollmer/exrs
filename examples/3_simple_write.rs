@@ -8,11 +8,12 @@ use rand::Rng;
 
 // exr imports
 extern crate exr;
-use exr::prelude::*;
 
 
 /// Generate a noisy image and write it to a file.
 fn main() {
+    use exr::prelude::*;
+
     fn generate_f16_vector(size: Vec2<usize>) -> Vec<f16> {
         let mut values = vec![ f16::from_f32(0.5); size.area() ];
 

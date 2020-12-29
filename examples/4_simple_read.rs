@@ -1,12 +1,12 @@
 
 // exr imports
 extern crate exr;
-use exr::prelude::*;
 
 /// Read an image and print information about the image into the console.
 /// This example shows how to read an image with multiple layers and arbitrary channels.
 /// This example does not include resolution levels (mipmaps or ripmaps).
 fn main() {
+    use exr::prelude::*;
 
     let image = read().no_deep_data()
         .largest_resolution_level().all_channels().all_layers().all_attributes()

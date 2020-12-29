@@ -22,7 +22,7 @@
 pub mod read;
 pub mod write;
 pub mod crop;
-pub mod channel_groups;
+// pub mod channel_groups;
 
 
 use crate::meta::header::{ImageAttributes, LayerAttributes};

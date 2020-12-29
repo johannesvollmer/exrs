@@ -3,10 +3,10 @@ extern crate image as png;
 
 // exr imports
 extern crate exr;
-use exr::prelude::*;
-use exr::prelude as exrs;
 
 fn main() {
+    use exr::prelude::*;
+    use exr::prelude as exrs;
 
     // read from the exr file directly into a new `png::RgbaImage` image without intermediate buffers
     let reader = exrs::read()
