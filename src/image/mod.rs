@@ -332,7 +332,7 @@ impl<Channels> Layer<Channels> {
 impl<SampleStorage> RgbaChannels<SampleStorage> {
     /// Create a new group of rgba channels. The samples can be a closure of type `Sync + Fn(Vec2<usize>) -> RgbaPixel`,
     /// meaning a closure that returns an rgb color for each point in the image.
-    pub fn new(convert_to: RgbaSampleTypes, source_samples: SampleStorage) -> Self  where SampleStorage: GetRgbaPixel {
+    pub fn new(convert_to: RgbaSampleTypes, source_samples: SampleStorage) -> Self where SampleStorage: GetRgbaPixel {
         RgbaChannels { sample_types: convert_to, storage: source_samples }
     }
 }

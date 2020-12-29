@@ -23,15 +23,15 @@ pub struct ReadRgbaChannels<CreatePixelStorage, SetPixel> {
 }
 
 /// Define how to store an rgba pixel in your custom pixel storage.
-/// Can be a closure of type [`Fn(&RgbaChannelsInfo) -> YourPixelStorage`].
+/// Can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, RgbaPixel)`].
 pub trait SetRgbaPixel<PixelStorage> {
 
     /// Will be called for all pixels in the file, resulting in a complete image.
-    fn set_pixel(&self, pixels: &mut PixelStorage, position: Vec2<usize>, pixel: RgbaPixel);
+    fn set_pixel(&self, pixels: &mut PixelStorage, position: Vec2<usize>, pixel: RgbaPixel); // TODO impl From<RgbaPixel>?
 }
 
 /// Define how to create your custom pixel storage for a given layer.
-/// Can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, RgbaPixel)`].
+    /// Can be a closure of type [`Fn(&RgbaChannelsInfo) -> YourPixelStorage`].
 pub trait CreateRgbaPixels {
 
     /// Your custom pixel storage.
@@ -56,8 +56,11 @@ impl<F, P> CreateRgbaPixels for F where F: Fn(&RgbaChannelsInfo) -> P {
 pub struct RgbaChannelsReader<'s, Set, Image> {
     storage: Image,
     set_pixel: &'s Set,
-    channel_indices: (usize, usize, usize, Option<usize>),
-    info: RgbaChannelsInfo
+    info: RgbaChannelsInfo,
+
+    /// must be multiplied by line width to obtain absolute byte indices
+    // FIXME will never work with sub sampling
+    channel_byte_offset: (usize, usize, usize, Option<usize>)
 }
 
 
@@ -123,22 +126,40 @@ where
             else if channel.name.eq_case_insensitive("r") { rgba_types[0] = channel_type; }
         }
 
-        if let [Some(r), Some(g), Some(b), a] = rgba_types {
-            let channel_indices = (r.0, g.0, b.0, a.map(|a| a.0));
-            let channels = RgbaSampleTypes(r.1, g.1, b.1, a.map(|a| a.1));
-            let info = RgbaChannelsInfo { channels, resolution: header.layer_size, };
+        if let [Some((r_index, r_type)), Some((g_index, g_type)), Some((b_index, b_type)), a] = rgba_types {
+            let (a_index, a_type) = a.map(|(i, t)| (Some(i), Some(t))).unwrap_or((None, None));
+            let (mut r_offset, mut g_offset, mut b_offset, mut a_offset) = (0, 0, 0, None);
+
+            // find cumulative channel size sum, ignores non-rgba channels
+            let mut byte_index = 0;
+            for (channel_index, channel) in header.channels.list.iter().enumerate() {
+                if Some(channel_index) == a_index { a_offset = Some(byte_index) }
+                else if  channel_index == b_index { b_offset = byte_index }
+                else if  channel_index == g_index { g_offset = byte_index }
+                else if  channel_index == r_index { r_offset = byte_index }
+                byte_index += channel.sample_type.bytes_per_sample();
+            };
+
+            let info = RgbaChannelsInfo {
+                channels: RgbaSampleTypes(r_type, g_type, b_type, a_type),
+                resolution: header.layer_size,
+            };
 
             Ok(RgbaChannelsReader {
-                storage: self.create.create(&info),
                 set_pixel: &self.set_pixel,
-                channel_indices,
-                info
+                storage: self.create.create(&info),
+                channel_byte_offset: (r_offset, g_offset, b_offset, a_offset),
+                info,
             })
         }
 
         else {
-            println!("found channels {:#?}", header.channels);
-            Err(Error::invalid("layer has no rgba channels"))
+            Err(Error::invalid(format!(
+                "layer has no rgba channels, only{}",
+                header.channels.list.iter()
+                    .flat_map(|chan| " `".chars().chain(chan.name.chars()).chain("`".chars()))
+                    .collect::<String>()
+            )))
         }
     }
 }
@@ -155,27 +176,20 @@ impl<Setter, Storage>
     }
 
     fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult {
-        // TODO use decompressed.for_lines(header, &decompressed, |line| {   self.sample_channels_reader[line.location.channel].samples.read_line(line) })
+        let pixels_per_line = block.index.pixel_size.0;
+        let line_bytes = pixels_per_line * header.channels.bytes_per_pixel;
 
         let RgbaSampleTypes(r_type, g_type, b_type, a_type) = self.info.channels;
-        let line_bytes = block.index.pixel_size.0 * header.channels.bytes_per_pixel;
+        let (r_offset, g_offset, b_offset, a_offset) = self.channel_byte_offset;
+        let a = a_offset.zip(a_type);
 
-        // TODO compute this once per image, not per block
-        let (mut r_range, mut g_range, mut b_range, mut a_range) = (0..0, 0..0, 0..0, 0..0);
-        let mut byte_index = 0;
-
-        for (channel_index, channel) in header.channels.list.iter().enumerate() {
-            let sample_bytes = channel.sample_type.bytes_per_sample();
-            let channel_bytes = block.index.pixel_size.0 * sample_bytes;
-            let byte_range = byte_index .. byte_index + channel_bytes;
-            byte_index = byte_range.end;
-
-            if      Some(channel_index) == self.channel_indices.3 { a_range = byte_range }
-            else if channel_index == self.channel_indices.2 { b_range = byte_range }
-            else if channel_index == self.channel_indices.1 { g_range = byte_range }
-            else if channel_index == self.channel_indices.0 { r_range = byte_range }
-            else { continue; } // ignore non-rgba channels
-        };
+        // valid across lines
+        let r_range = r_offset * pixels_per_line .. (r_offset + r_type.bytes_per_sample()) * pixels_per_line;
+        let g_range = g_offset * pixels_per_line .. (g_offset + g_type.bytes_per_sample()) * pixels_per_line;
+        let b_range = b_offset * pixels_per_line .. (b_offset + b_type.bytes_per_sample()) * pixels_per_line;
+        let a_range = a.map(|(a_offset, a_type)| {
+            a_offset * pixels_per_line .. (a_offset + a_type.bytes_per_sample()) * pixels_per_line
+        });
 
         let byte_lines = block.data.chunks_exact(line_bytes);
         let y_coords = 0 .. block.index.pixel_size.height();
@@ -184,8 +198,9 @@ impl<Setter, Storage>
             let mut next_r = sample_reader(r_type, &byte_line[r_range.clone()]);
             let mut next_g = sample_reader(g_type, &byte_line[g_range.clone()]);
             let mut next_b = sample_reader(b_type, &byte_line[b_range.clone()]);
-            let mut next_a = a_type
-                .map(|a_type| sample_reader(a_type, &block.data[a_range.clone()]));
+            let mut next_a = a_range.clone().map(|range| sample_reader(
+                a_type.unwrap(), &block.data[range]
+            ));
 
             fn sample_reader<'a, R: Read + 'a>(sample_type: SampleType, mut read: R) -> Box<dyn 'a + FnMut() -> Result<Sample>> {
 
@@ -263,6 +278,18 @@ pub mod pixels {
     }
 
     impl<T> Flattened<T> {
+
+        /// Create a new flattened pixel storage, checking the length of the provided samples vector.
+        pub fn new(resolution: impl Into<Vec2<usize>>, channel_count: usize, samples: Vec<T>) -> Self {
+            let size = resolution.into();
+
+            assert_eq!(
+                size.area() * channel_count, samples.len(),
+                "for each of the {} pixels, there must be {} samples", size.area(), channel_count
+            );
+
+            Self { size, channels: channel_count, samples }
+        }
 
         /// Compute the flat index of a specific pixel. Returns a range of either 3 or 4 samples.
         /// The computed index can be used with `Flattened.samples[index]`.

@@ -58,8 +58,6 @@ use crate::image::read::layers::ReadChannels;
 use crate::math::Vec2;
 use crate::prelude::RgbaChannelsInfo;
 
-// TODO explain or use these simple functions somewhere
-
 /// All resolution levels, all channels, all layers.
 /// Does not support deep data yet. Uses parallel decompression and relaxed error handling.
 /// Inspect the source code of this function if you need customization.

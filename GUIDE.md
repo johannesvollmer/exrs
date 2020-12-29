@@ -15,7 +15,7 @@ even when the loss of precision is acceptable. Furthermore,
 an arbitrary exr image may include possibly unwanted data. 
 Supporting deep data, for example, might be unnecessary for some applications.
 
-To read an image, exrs must know which parts of an image you want to end up with, 
+To read an image, `exrs` must know which parts of an image you want to end up with, 
 and which parts of the file should be skipped. That's why you need
 a little more code to read an exr file, compared to simpler file formats.
 
@@ -177,3 +177,11 @@ FlatSamples = F16(Vec<f16>) | F32(Vec<f32>) | U32(Vec<u32>)
 While you can put anything inside an image, 
 it can only be written if the content of the image implements certain traits.
 This allows you to potentially write your own channel storage system.
+
+# RGBA Closures
+When working with rgba images, the data is not stored directly. 
+Instead, you provide a closure that stores or loads pixels in your existing image data structure.
+
+If you really do not want to provide your own storage, you can use the predefined structures from
+`exr::image::read::rgba_channels::pixels`, such as `Flattened<f32>` or `create_flattened_f32`.
+Use this only if you don't already have a pixel storage.

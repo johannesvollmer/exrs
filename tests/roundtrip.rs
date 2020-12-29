@@ -10,7 +10,8 @@ use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use exr::prelude::*;
-use exr::error::Error;
+use exr::error::{Error, UnitResult};
+use exr::image::read::rgba_channels::pixels::{set_flattened_pixel, Flattened, create_flattened_f16};
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
@@ -193,4 +194,52 @@ fn round_trip_parallel_files() {
     })
 }
 
+#[test]
+fn roundtrip_unusual_rgba() -> UnitResult {
+    let image_reader = read()
+        .no_deep_data()
+        .largest_resolution_level() // TODO all levels
+        .rgba_channels(create_flattened_f16, set_flattened_pixel)
+        .first_valid_layer()
+        .all_attributes()
+        .non_parallel();
 
+    let random_pixels: Vec<f32> = vec![
+        0.1, 0.4, 5.0,
+        0.3, 0.8, 4.0,
+        0.2, 0.6, 2.0,
+        0.8, 0.2, 21.0,
+        0.9, 0.0, 64.0
+    ];
+
+    let size = Vec2(2, 4);
+    let pixels = (0..size.area()*3)
+        .zip(random_pixels.into_iter().map(|x| f16::from_f32(x)).cycle())
+        .map(|(_, x)| x).collect::<Vec<f16>>();
+
+    let pixels = Flattened { channels: 3, size, samples: pixels };
+
+    let image = Image::with_single_layer(size, RgbaChannels::new(
+        RgbaSampleTypes(SampleType::F16, SampleType::F32, SampleType::F32, None),
+        pixels.clone()
+    ));
+
+    let mut tmp_bytes = Vec::new();
+    image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
+
+    let image2 = image_reader.from_buffered(Cursor::new(&tmp_bytes))?;
+
+    // custom compare function: considers nan equal to nan
+    assert_eq!(image.layer_data.size, size, "test is buggy");
+    let pixels1 = &image.layer_data.channel_data.storage.samples;
+    let pixels2 = &image2.layer_data.channel_data.storage.samples;
+
+    assert!(
+        pixels1.iter().map(|f| f.to_bits()).eq(pixels2.iter().map(|f| f.to_bits())),
+        "pixels do not equal: {:?}, {:?}",
+        image.layer_data.channel_data.storage.samples,
+        image2.layer_data.channel_data.storage.samples
+    );
+
+    Ok(())
+}
