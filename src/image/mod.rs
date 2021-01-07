@@ -366,13 +366,13 @@ use crate::prelude::write::channels::IntoSample;
 impl<SampleStorage> SpecificChannels<SampleStorage, (ChannelInfo, ChannelInfo, ChannelInfo)>
 {
     pub fn named<A,B,C>(channels: (impl Into<Text>, impl Into<Text>, impl Into<Text>), source_samples: SampleStorage) -> Self
-        where A: IntoSample, A: IntoSample, A: IntoSample, SampleStorage: GetPixel<Pixel=(A,B,C)>
+        where A: IntoSample, B: IntoSample, C: IntoSample, SampleStorage: GetPixel<Pixel=(A,B,C)>
     {
         SpecificChannels {
             channels: (
-                ChannelInfo::named(channels.0, A::SampleType),
-                ChannelInfo::named(channels.1, B::SampleType),
-                ChannelInfo::named(channels.2, C::SampleType),
+                ChannelInfo::named(channels.0, A::SAMPLE_TYPE),
+                ChannelInfo::named(channels.1, B::SAMPLE_TYPE),
+                ChannelInfo::named(channels.2, C::SAMPLE_TYPE),
             ),
 
             storage: source_samples

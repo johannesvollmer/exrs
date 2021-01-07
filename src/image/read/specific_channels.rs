@@ -209,7 +209,7 @@ where
 
 
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 struct ChannelIndexInfo {
     info: ChannelInfo,
     sample_byte_offset: usize,
@@ -295,7 +295,7 @@ impl<Na,Nb,Nc, A,B,C> ReadFilteredChannels<(A,B,C)> for (Na,Nb,Nc) where
     // (A::ChannelPixelReader, B::ChannelPixelReader, C::ChannelPixelReader): PixelReader<(A,B,C)>,
 {
     type PixelReader = (A::ChannelPixelReader, B::ChannelPixelReader, C::ChannelPixelReader);
-    type SampleTypes = (ChannelInfo, ChannelInfo, ChannelInfo);
+    type SampleTypes = (A::SampleType, B::SampleType, C::SampleType);
 
     fn inspect_channels(&self, channels: &ChannelList) -> Result<(Self::SampleTypes, Self::PixelReader)> {
         let mut result = (None, None, None);
