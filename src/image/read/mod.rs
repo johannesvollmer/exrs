@@ -57,7 +57,7 @@ use crate::image::{AnyImage, RgbaLayersImage, RgbaImage, AnyChannels, FlatSample
 use crate::image::read::image::ReadLayers;
 use crate::image::read::layers::ReadChannels;
 use crate::math::Vec2;
-use crate::image::read::specific_channels::ChannelsInfo;
+use crate::image::read::specific_channels::{ChannelsInfo, ReadFilteredChannels, ChannelsFilter};
 
 
 /// All resolution levels, all channels, all layers.
@@ -113,7 +113,7 @@ pub fn read_all_rgba_layers_from_file<Set:'static, Create:'static, Pixels: 'stat
     read()
         .no_deep_data()
         .largest_resolution_level()
-        .specific_channels(("R", "G", "B", "A"), create, set_pixel)
+        .rgba_channels(create, set_pixel)
         .all_layers()
         .all_attributes()
         .from_file(path)
@@ -132,7 +132,7 @@ pub fn read_first_rgba_layer_from_file<Set:'static, Create:'static, Pixels:'stat
     read()
         .no_deep_data()
         .largest_resolution_level()
-        .specific_channels(("R", "G", "B", "A"), create, set_pixel)
+        .rgba_channels(create, set_pixel)
         .first_valid_layer()
         .all_attributes()
         .from_file(path)

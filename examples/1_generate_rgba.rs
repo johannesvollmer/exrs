@@ -38,9 +38,8 @@ fn main() {
         attributes,
         Encoding::SMALL_FAST_LOSSY, // use fast but lossy compression
 
-        RgbaChannels::new(
+        SpecificChannels::rgba(
             // use 32 bit color. alpha f32 values are converted to f16 while writing the file
-            RgbaChannelsInfo::RGB_F32_A_F16,
             generate_pixels
         )
     );

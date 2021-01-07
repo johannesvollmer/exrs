@@ -8,18 +8,19 @@ extern crate exr;
 /// then write the cropped result to another file.
 pub fn main() {
     use exr::prelude::*;
-    use exr::image::read::rgba_channels::pixels::*;
+    use exr::image::read::specific_channels::pixels::*;
 
     let path = "tests/images/valid/custom/oh crop.exr";
 
     // load an rgba image
     // this specific example discards all but the first valid rgb layers and converts all pixels to f32 values
-    let image: RgbaImage<Flattened<f32>> = read_first_rgba_layer_from_file(
-        path, create_flattened_f32, set_flattened_pixel // use some predefined rgba pixel vector
+    // TODO optional alpha channel!
+    let image: RgbaImage<Flattened<(Sample, Sample, Sample, Sample)>> = read_first_rgba_layer_from_file(
+        path, create_flattened, set_flattened_pixel // use some predefined rgba pixel vector
     ).unwrap();
 
     // construct a ~simple~ cropped image
-    let image: Image<Layer<CroppedChannels<RgbaChannels<Flattened<f32>>>>> = Image {
+    let image: Image<Layer<CroppedChannels<RgbaChannels<Flattened<(Sample, Sample, Sample, Sample)>>>>> = Image {
         attributes: image.attributes,
 
         // crop each layer
@@ -28,7 +29,7 @@ pub fn main() {
 
             // if has alpha, crop it where alpha is zero
             image.layer_data
-                .crop_where(|pixel: RgbaPixel| pixel.alpha_or_1().is_zero())
+                .crop_where(|(_r, _g, _b, alpha): (Sample, Sample, Sample, Sample)| alpha.3.is_zero())
                 .or_crop_to_1x1_if_empty() // do not remove empty layers from image, because it could result in an image without content
         },
     };

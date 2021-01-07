@@ -11,9 +11,13 @@ fn main() {
     let image = read().no_deep_data()
         .largest_resolution_level()
         .specific_channels(
-            ["X", "Y", "Z", "A"],
-            |info| vec![vec![(0.0, 0.0, 0.0); info.resolution.width()]; info.resolution.height()],
-            |vec, position, pixel: (f32, f32, f32, Option<f32>)| { vec[position.y()][position.x()] = pixel }
+            ("X", "Y", "Z", "A"),
+            |info: &ChannelsInfo<_>| vec![vec![(0.0, 0.0, 0.0, 0.0); info.resolution.width()]; info.resolution.height()],
+
+            // all samples will be converted to f32 (you can also use a dynamic `Sample` of `f32` instead here)
+            |vec, position, (x,y,z,a): (f32, f32, f32, Option<f32>)| {
+                vec[position.y()][position.x()] = (x,y,z, a.unwrap_or(1.0))
+            }
         )
         .all_layers()
         .all_attributes()
@@ -25,17 +29,10 @@ fn main() {
 
     // output the average value for each channel of each layer
     for layer in &image.layer_data {
-        for channel in &layer.channel_data.list {
-
-            let sample_vec = &channel.sample_data;
-            let average = sample_vec.values_as_f32().sum::<f32>() / sample_vec.len() as f32;
-
-            if let Some(layer_name) = &layer.attributes.layer_name {
-                println!("Channel `{}` of Layer `{}` has an average value of {}", channel.name, layer_name, average);
-            }
-            else {
-                println!("Channel `{}` has an average value of {}", channel.name, average);
-            }
-        }
+        println!(
+            "bottom left color of layer `{}`: {:?}",
+            layer.attributes.layer_name.unwrap_or_default(),
+            layer.channel_data.storage.first().unwrap()
+        )
     }
 }

@@ -87,6 +87,11 @@ impl PartialEq for Sample {
     }
 }
 
+// this is not recommended because it may hide whether a color is transparent or opaque and might be undesired for depth channels
+impl Default for Sample {
+    fn default() -> Self { Sample::F32(0.0) }
+}
+
 impl From<f16> for Sample { #[inline] fn from(f: f16) -> Self { Sample::F16(f) } }
 impl From<f32> for Sample { #[inline] fn from(f: f32) -> Self { Sample::F32(f) } }
 impl From<u32> for Sample { #[inline] fn from(f: u32) -> Self { Sample::U32(f) } }

@@ -78,8 +78,8 @@ pub fn test_roundtrip() {
     let image =
         read_all_rgba_layers_from_file(
             path,
-            read::rgba_channels::pixels::create_flattened_f32,
-            read::rgba_channels::pixels::set_flattened_pixel
+            read::specific_channels::pixels::create_flattened,
+            read::specific_channels::pixels::set_flattened_pixel
         ).unwrap();
 
         // read_all_data_from_file(path).unwrap();
@@ -105,8 +105,8 @@ pub fn test_roundtrip() {
     let image2 =
         read_all_rgba_layers_from_file(
             path,
-            read::rgba_channels::pixels::create_flattened_f32,
-            read::rgba_channels::pixels::set_flattened_pixel
+            read::specific_channels::pixels::create_flattened,
+            read::specific_channels::pixels::set_flattened_pixel
         ).unwrap();
 
         // read() // Image::read_from_buffered(Cursor::new(&tmp_bytes),ReadOptions { pedantic: true, .. read_options::low() }).unwrap();

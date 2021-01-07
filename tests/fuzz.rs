@@ -49,7 +49,7 @@ pub fn damaged(){
                     .largest_resolution_level()
                     .rgba_channels(
                         |_info: &RgbaChannelsInfo| (),
-                        |_: &mut (), _position: Vec2<usize>, _pixel: RgbaPixel| {}
+                        |_: &mut (), _position: Vec2<usize>, _pixel: AnyRgbaPixel| {}
                     )
                     .first_valid_layer().all_attributes()
                     .from_file(&file)?;
@@ -60,7 +60,7 @@ pub fn damaged(){
                     .largest_resolution_level() // TODO all levels
                     .rgba_channels(
                         |_info: &RgbaChannelsInfo| (),
-                        |_: &mut (), _position: Vec2<usize>, _pixel: RgbaPixel| {}
+                        |_: &mut (), _position: Vec2<usize>, _pixel: AnyRgbaPixel| {}
                     )
                     .all_layers().all_attributes()
                     .pedantic()
@@ -70,8 +70,8 @@ pub fn damaged(){
             {
                 let _rgba = read_first_rgba_layer_from_file(
                     file,
-                    read::rgba_channels::pixels::create_flattened_f16,
-                    read::rgba_channels::pixels::set_flattened_pixel
+                    read::specific_channels::pixels::create_flattened,
+                    read::specific_channels::pixels::set_flattened_pixel
                 )?;
             }
 

@@ -16,8 +16,11 @@ fn main() {
         },
 
         // transfer the colors from the file to your image type
-        |pixel_vector, position, pixel| {
-            pixel_vector[position.y()][position.x()] = pixel.into()
+        |pixel_vector, position, (r,g,b,a)| {
+            pixel_vector[position.y()][position.x()] = [
+                r.to_f32(), g.to_f32(), b.to_f32(),
+                a.map(exr::prelude::Sample::to_f32).unwrap_or(1.0) // alpha channel might not exist in the image, choose 1 as default alpha in this case
+            ]
         },
 
     ).unwrap();

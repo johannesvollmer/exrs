@@ -379,6 +379,13 @@ impl<SampleStorage> SpecificChannels<SampleStorage, (ChannelInfo, ChannelInfo, C
             storage: source_samples
         }
     }
+
+    pub fn rgba<A,B,C,D>(source_samples: SampleStorage) -> Self
+        where A: IntoSample, B: IntoSample, C: IntoSample, D: IntoSample,
+              SampleStorage: GetPixel<Pixel=(A,B,C,D)>
+    {
+        SpecificChannels::named(("R", "G", "B", "A"), source_samples)
+    }
 }
 
 
@@ -804,6 +811,23 @@ impl<T> ContainsNaN for &[T] where T: ContainsNaN {
 impl<A: Array> ContainsNaN for SmallVec<A> where A::Item: ContainsNaN {
     fn contains_nan_pixels(&self) -> bool {
         self.as_ref().contains_nan_pixels()
+    }
+}
+
+// TODO macro
+impl<A,B,C,D> ContainsNaN for (A,B,C,D) where A: ContainsNaN, B: ContainsNaN, C: ContainsNaN, D: ContainsNaN {
+    fn contains_nan_pixels(&self) -> bool {
+        self.0.contains_nan_pixels() || self.1.contains_nan_pixels() ||
+        self.2.contains_nan_pixels() || self.3.contains_nan_pixels()
+    }
+}
+
+impl<S> ContainsNaN for Option<S> where S: ContainsNaN {
+    fn contains_nan_pixels(&self) -> bool {
+        match self {
+            None => false,
+            Some(value) => value.contains_nan_pixels(),
+        }
     }
 }
 

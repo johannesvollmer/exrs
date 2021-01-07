@@ -12,7 +12,7 @@ fn main() {
     // This struct trades sub-optimal memory-efficiency for clarity,
     // because this is an example, and does not have to be perfectly efficient.
     #[derive(Debug, PartialEq)]
-    struct CustomPixels { lines: Vec<Vec<[f16; 4]>> };
+    struct CustomPixels { lines: Vec<Vec<(f16,f16,f16,f16)>> };
 
     // read the image from a file
     let mut image = read().no_deep_data()
@@ -22,20 +22,18 @@ fn main() {
             |image: &RgbaChannelsInfo| -> CustomPixels {
                 println!("loaded image {:#?}", image);
 
-                let default_rgba_pixel = [f16::ZERO, f16::ZERO, f16::ZERO, f16::ONE];
+                let default_rgba_pixel = (f16::ZERO, f16::ZERO, f16::ZERO, f16::ONE);
                 let default_line = vec![default_rgba_pixel; image.resolution.width()];
                 let lines = vec![default_line; image.resolution.height()];
                 CustomPixels { lines }
             },
 
             // set a single pixel with red, green, blue, and optionally and alpha value.
-            |image: &mut CustomPixels, position: Vec2<usize>, pixel: RgbaPixel| {
-
-                // convert all samples, including alpha, to four 16-bit floats
-                let pixel_f16_array: [f16; 4] = pixel.into();
+            |image: &mut CustomPixels, position: Vec2<usize>, (r,g,b,a): (f16, f16, f16, Option<f16>)| {
+                let alpha = a.3.unwrap_or(f16::ONE);
 
                 // insert the values into out custom image
-                image.lines[position.y()][position.x()] = pixel_f16_array;
+                image.lines[position.y()][position.x()] = (r,g,b, alpha);
             }
         )
         .first_valid_layer()
@@ -65,8 +63,8 @@ fn main() {
 
     // enable writing our custom pixel storage to a file
     // TODO this should be passed as a closure to the `write().rgba_with(|x| y)` call
-    impl GetRgbaPixel for CustomPixels {
-        type Pixel = [f16; 4];
+    impl GetPixel for CustomPixels {
+        type Pixel = (f16, f16, f16, f16);
         fn get_pixel(&self, position: Vec2<usize>) -> Self::Pixel {
             self.lines[position.y()][position.x()]
         }
