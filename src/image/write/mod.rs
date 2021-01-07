@@ -22,7 +22,7 @@ use crate::meta::Headers;
 use crate::error::UnitResult;
 use std::io::{Seek, BufWriter};
 use crate::io::Write;
-use crate::image::{Image, ignore_progress, RgbaChannels, RgbaSampleTypes};
+use crate::image::{Image, ignore_progress, SpecificChannels};
 use crate::image::write::layers::{WritableLayers, LayersWriter};
 use crate::math::Vec2;
 
@@ -35,8 +35,8 @@ pub fn write_rgba_f32_file(
 ) -> UnitResult {
     Image::with_single_layer(
         (width, height),
-        RgbaChannels::new(
-            RgbaSampleTypes::RGBA_F32,
+        SpecificChannels::named(
+            ("R", "G", "B", "A"),
             |Vec2(x,y)| colors(x,y)
         )
     ).write().to_file(path)
@@ -51,8 +51,8 @@ pub fn write_rgb_f32_file(
 ) -> UnitResult {
     Image::with_single_layer(
         (width, height),
-        RgbaChannels::new(
-            RgbaSampleTypes::RGB_F32,
+        SpecificChannels::named(
+            ("R", "G", "B", "A"),
             |Vec2(x,y)| colors(x,y)
         )
     ).write().to_file(path)

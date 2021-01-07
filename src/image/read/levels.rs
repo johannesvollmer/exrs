@@ -9,7 +9,7 @@ use crate::math::Vec2;
 use crate::meta::attribute::{ChannelInfo, LevelMode};
 use crate::image::read::any_channels::{SamplesReader, ReadSamples, ReadAnyChannels};
 use crate::block::chunk::TileCoordinates;
-use crate::image::read::rgba_channels::*;
+use crate::image::read::specific_channels::*;
 
 
 // Note: In the resulting image, the `FlatSamples` are placed
@@ -32,15 +32,48 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     /// Read all arbitrary channels in each layer.
     pub fn all_channels(self) -> ReadAnyChannels<DeepOrFlatSamples> { ReadAnyChannels { read_samples: self.read_samples } } // Instead of Self, the `FlatSamples` are used directly
 
-    /// Read only layers that contain red, green and blue color. If present, also loads alpha channels.
-    /// Rejects all layers that don't have rgb channels. Skips any other channels in an rgb layer.
+    /*/// Read only layers that contain red, green and blue color. If present, also loads alpha channels.
+    /// Rejects all layers that don't have rgb channels. Skips all channels other than red, green, blue and alpha.
     /// `Create` can be a closure of type [`Fn(&RgbaChannelsInfo) -> YourPixelStorage`].
     /// `Set` can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, RgbaPixel)`].
     /// Throws an error for images with deep data.
-    pub fn rgba_channels<Create, Set>(self, create: Create, set_pixel: Set) -> ReadRgbaChannels<Create, Set>
-        where Create: CreateRgbaPixels, Set: SetRgbaPixel<Create::Pixels>
+    pub fn rgba_channels<CreatePixelStorage, SetPixel>(self, create: CreatePixelStorage, set_pixel: SetPixel)
+        -> ReadRgbaChannels<CreatePixelStorage, SetPixel>// ReadSpecificChannels<(Sample, Sample, Sample, Option<Sample>), (&'static str, &'static str, &'static str, &'static str), CreatePixelStorage, SetPixel> // TODO type alias?
+        where CreatePixelStorage: CreatePixels<RgbaSampleTypes>, SetPixel: SetPixel<CreatePixelStorage::Pixels, RgbaPixel>
     {
-        ReadRgbaChannels { create, set_pixel }
+        ReadRgbaChannels { channel_names, create, set_pixel, px: Default::default() }
+
+        /*self.specific_channels(
+            ("R", "G", "B", "A"),
+
+            |info| {
+                create.create(&ChannelsInfo {
+                    sample_types: RgbaSampleTypes(info.sample_types.0, info.sample_types.1, info.sample_types.2, info.sample_types.3),
+                    resolution: info.resolution,
+                })
+            },
+
+            |pixels, position, (r,g,b,a): (Sample, Sample, Sample, Option<Sample>)| {
+                set_pixel.set_pixel(pixels, position, RgbaPixel::new(r, g, b, a));
+            }
+        )*/
+    }*/
+
+    /// Read only layers that contain the specified channels. Skips any other channels in the layer.
+    /// `Create` can be a closure of type [`Fn(&ChannelsInfo) -> YourPixelStorage`].
+    /// `Set` can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, YourPixel)`].
+    /// The `set_pixel` closure must define the pixel type, for example with `(f32, f32, f32, Option<f16>)`.
+    // TODO example for pixel s
+    /// Throws an error for images with deep data.
+    pub fn specific_channels<Px, Channels, Create, Set>(
+        self, channel_names: Channels, create: Create, set_pixel: Set
+    ) -> ReadSpecificChannels<Px, Channels, Create, Set>
+        where
+            Channels: ReadFilteredChannels<Px>,
+            Create: CreatePixels<Channels::SampleTypes>,
+            Set: SetPixel<Create::Pixels, Px>,
+    {
+        ReadSpecificChannels { channel_names, create, set_pixel, px: Default::default() }
     }
 }
 

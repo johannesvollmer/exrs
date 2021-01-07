@@ -60,6 +60,9 @@ pub type RgbaLayersImage<Samples> = Image<Layers<RgbaChannels<Samples>>>;
 /// (this is already implemented for all closures of type `Fn(Vec2<usize>) -> RgbaPixel`.
 pub type RgbaImage<Samples> = Image<Layer<RgbaChannels<Samples>>>;
 
+pub type RgbaChannels<Storage> = SpecificChannels<Storage, RgbaChannelsInfo>;
+pub type AnyRgbaPixel = (Sample, Sample, Sample, Option<Sample>);
+pub type RgbaChannelsInfo = (ChannelInfo, ChannelInfo, ChannelInfo, Option<ChannelInfo>); // TODO rename
 
 
 /// The complete exr image.
@@ -139,7 +142,7 @@ pub enum Blocks {
     Tiles (Vec2<usize>)
 }
 
-
+/*
 /// A grid of rgba pixels. The pixels are written to your custom pixel storage.
 /// `PixelStorage` can be anything, from a flat `Vec<f16>` to `Vec<Vec<AnySample>>`, as desired.
 /// In order to write this image to a file, your `PixelStorage` must implement [`GetRgbaPixel`].
@@ -153,15 +156,31 @@ pub struct RgbaChannels<PixelStorage> {
     /// Your custom rgba pixel storage
     // TODO should also support `Levels<YourStorage>`, where rgba levels are desired!
     pub storage: PixelStorage,
+}*/
+
+/// A grid of rgba pixels. The pixels are written to your custom pixel storage.
+/// `PixelStorage` can be anything, from a flat `Vec<f16>` to `Vec<Vec<AnySample>>`, as desired.
+/// In order to write this image to a file, your `PixelStorage` must implement [`GetRgbaPixel`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpecificChannels<PixelStorage, ChannelsDescription> {
+
+    /// A description of the channels in the file, as opposed to the channels in memory.
+    /// Should always be `[ChannelInfo; N]` for varying lengths with `N`.
+    pub channels: ChannelsDescription,
+
+    /// Your custom rgba pixel storage
+    // TODO should also support `Levels<YourStorage>`, where rgba levels are desired!
+    pub storage: PixelStorage,
 }
 
-/// The sample type (`f16`, `f32` or `u32`) of the rgba channels. The alpha channel is optional.
+
+/*/// The sample type (`f16`, `f32` or `u32`) of the rgba channels. The alpha channel is optional.
 /// The first channel is red, the second blue, the third green, and the fourth alpha.
 ///
 /// Careful, not all applications may be able to decode rgba images with arbitrary sample types.
 #[derive(Copy, Debug, Clone, PartialEq, Eq)]
 pub struct RgbaSampleTypes (pub SampleType, pub SampleType, pub SampleType, pub Option<SampleType>);
-
+*/
 
 /// A full list of arbitrary channels, not just rgba.
 /// `Samples` can currently only be `FlatSamples` or `Levels<FlatSamples>`.
@@ -287,7 +306,7 @@ pub enum DeepSamples {
 }*/
 
 
-/// A single pixel with a red, green, blue, and alpha value.
+/*/// A single pixel with a red, green, blue, and alpha value.
 /// Each channel may have a different sample type.
 ///
 /// A Pixel can be created using `Pixel::rgb(0_f32, 0_u32, f16::ONE)` or `Pixel::rgba(0_f32, 0_u32, 0_f32, f16::ONE)`.
@@ -308,14 +327,14 @@ pub struct RgbaPixel {
     /// The alpha component of this pixel.
     /// Most images will keep this number between zero and one.
     pub alpha: Option<Sample>,
-}
+}*/
 
 
 
 use crate::meta::attribute::*;
 use crate::error::Result;
 use crate::block::samples::Sample;
-use crate::image::write::channels::{GetRgbaPixel, WritableChannels};
+use crate::image::write::channels::{GetPixel, WritableChannels};
 use crate::image::write::layers::WritableLayers;
 use crate::image::write::samples::{WritableSamples};
 use crate::meta::{mip_map_levels, rip_map_levels};
@@ -329,13 +348,38 @@ impl<Channels> Layer<Channels> {
     }
 }
 
-impl<SampleStorage> RgbaChannels<SampleStorage> {
+/*impl<SampleStorage> RgbaChannels<SampleStorage> {
     /// Create a new group of rgba channels. The samples can be a closure of type `Sync + Fn(Vec2<usize>) -> RgbaPixel`,
     /// meaning a closure that returns an rgb color for each point in the image.
     pub fn new(convert_to: RgbaSampleTypes, source_samples: SampleStorage) -> Self where SampleStorage: GetRgbaPixel {
         RgbaChannels { sample_types: convert_to, storage: source_samples }
     }
+}*/
+
+impl<SampleStorage, Channels> SpecificChannels<SampleStorage, Channels> {
+    pub fn new(channels: Channels, source_samples: SampleStorage) -> Self {
+        SpecificChannels { channels, storage: source_samples }
+    }
 }
+
+use crate::prelude::write::channels::IntoSample;
+impl<SampleStorage> SpecificChannels<SampleStorage, (ChannelInfo, ChannelInfo, ChannelInfo)>
+{
+    pub fn named<A,B,C>(channels: (impl Into<Text>, impl Into<Text>, impl Into<Text>), source_samples: SampleStorage) -> Self
+        where A: IntoSample, A: IntoSample, A: IntoSample, SampleStorage: GetPixel<Pixel=(A,B,C)>
+    {
+        SpecificChannels {
+            channels: (
+                ChannelInfo::named(channels.0, A::SampleType),
+                ChannelInfo::named(channels.1, B::SampleType),
+                ChannelInfo::named(channels.2, C::SampleType),
+            ),
+
+            storage: source_samples
+        }
+    }
+}
+
 
 /// A list of samples representing a single pixel.
 /// Does not heap allocate for images with 8 or fewer channels.
@@ -521,7 +565,7 @@ impl FlatSamples {
 
 
 
-impl RgbaSampleTypes {
+/*impl RgbaSampleTypes {
     /// Store 16 bit values, discarding alpha.
     pub const RGB_F16: RgbaSampleTypes = RgbaSampleTypes(
         SampleType::F16, SampleType::F16, SampleType::F16, None
@@ -546,7 +590,7 @@ impl RgbaSampleTypes {
     pub const RGB_F32_A_F16: RgbaSampleTypes = RgbaSampleTypes(
         SampleType::F32, SampleType::F32, SampleType::F32, Some(SampleType::F16)
     );
-}
+}*/
 
 impl<'s, ChannelData:'s> Layer<ChannelData> {
 
@@ -659,15 +703,9 @@ impl<'s, SampleData: 's> AnyChannel<SampleData> {
     pub fn new(name: impl Into<Text>, sample_data: SampleData) -> Self where SampleData: WritableSamples<'s> {
         let name: Text = name.into();
 
-        let luminance_based = {
-            name.eq_case_insensitive("R") || name.eq_case_insensitive("G") ||
-                name.eq_case_insensitive("B") || name.eq_case_insensitive("L") ||
-                name.eq_case_insensitive("Y")
-        };
-
         AnyChannel {
             name, sample_data,
-            quantize_linearly: !luminance_based,
+            quantize_linearly: ChannelInfo::default_quantization_linearity(&name),
             sampling: Vec2(1, 1),
         }
     }
@@ -680,7 +718,7 @@ impl<'s, SampleData: 's> AnyChannel<SampleData> {
     }*/
 }
 
-impl RgbaPixel {
+/*impl RgbaPixel {
 
     /// Create a new pixel without the specified samples. Accepts f32, u32, and f16 values for each sample.
     #[inline] pub fn new(red: impl Into<Sample>, green: impl Into<Sample>, blue: impl Into<Sample>, alpha: Option<impl Into<Sample>>) -> Self {
@@ -701,7 +739,7 @@ impl RgbaPixel {
     #[inline] pub fn alpha_or_1(&self) -> Sample {
         self.alpha.unwrap_or(Sample::one())
     }
-}
+}*/
 
 
 
@@ -731,6 +769,12 @@ impl<C> ContainsNaN for AnyChannels<C> where C: ContainsNaN {
 impl<C> ContainsNaN for AnyChannel<C> where C: ContainsNaN {
     fn contains_nan_pixels(&self) -> bool {
         self.sample_data.contains_nan_pixels()
+    }
+}
+
+impl<S, T> ContainsNaN for SpecificChannels<S, T> where S: ContainsNaN {
+    fn contains_nan_pixels(&self) -> bool {
+        self.storage.contains_nan_pixels()
     }
 }
 
@@ -772,7 +816,7 @@ impl ContainsNaN for f16 {
 
 
 
-impl<R, G, B> From<(R, G, B)> for RgbaPixel where R: Into<Sample>, G: Into<Sample>, B: Into<Sample> {
+/*impl<R, G, B> From<(R, G, B)> for RgbaPixel where R: Into<Sample>, G: Into<Sample>, B: Into<Sample> {
     #[inline] fn from((r,g,b): (R, G, B)) -> Self { Self::rgb(r,g,b) }
 }
 
@@ -808,7 +852,7 @@ impl<S> From<RgbaPixel> for [S; 4] where S: From<Sample> {
         S::from(pixel.red), S::from(pixel.green), S::from(pixel.blue),
         S::from(pixel.alpha_or_1())
     ] }
-}
+}*/
 
 
 impl std::fmt::Debug for FlatSamples {

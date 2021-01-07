@@ -3,8 +3,8 @@
 
 use crate::meta::attribute::{IntegerBounds, LevelMode, ChannelList};
 use crate::math::{Vec2, RoundingMode};
-use crate::image::{Layer, FlatSamples, RgbaChannels, AnyChannels, FlatSamplesPixel, AnyChannel};
-use crate::image::write::channels::{GetRgbaPixel, WritableChannels, ChannelsWriter};
+use crate::image::{Layer, FlatSamples, SpecificChannels, AnyChannels, FlatSamplesPixel, AnyChannel};
+use crate::image::write::channels::{GetPixel, WritableChannels, ChannelsWriter};
 use crate::meta::header::{LayerAttributes, Header};
 use crate::block::BlockIndex;
 
@@ -197,7 +197,7 @@ impl<'c, Channels> ChannelsWriter for CroppedWriter<Channels> where Channels: Ch
     }
 }
 
-impl<Samples> InspectSample for Layer<RgbaChannels<Samples>> where Samples: GetRgbaPixel {
+impl<Samples, Channels> InspectSample for Layer<SpecificChannels<Samples, Channels>> where Samples: GetPixel {
     type Sample = Samples::Pixel;
     fn inspect_sample(&self, local_index: Vec2<usize>) -> Samples::Pixel {
         self.channel_data.storage.get_pixel(local_index)

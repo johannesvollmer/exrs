@@ -40,7 +40,7 @@ fn main() {
 
         RgbaChannels::new(
             // use 32 bit color. alpha f32 values are converted to f16 while writing the file
-            RgbaSampleTypes::RGB_F32_A_F16,
+            RgbaChannelsInfo::RGB_F32_A_F16,
             generate_pixels
         )
     );

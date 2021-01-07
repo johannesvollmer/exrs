@@ -98,7 +98,7 @@ pub enum AttributeValue {
 /// A byte array with each byte being a char.
 /// This is not UTF an must be constructed from a standard string.
 // TODO is this ascii? use a rust ascii crate?
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Default)] // hash implemented manually
+#[derive(Clone, PartialEq, Ord, PartialOrd, Default)] // hash implemented manually
 pub struct Text {
     bytes: TextBytes,
 }
@@ -580,6 +580,20 @@ impl Text {
     }
 }
 
+impl PartialEq<str> for Text {
+    fn eq(&self, other: &str) -> bool {
+        self.eq(other)
+    }
+}
+
+impl PartialEq<Text> for str {
+    fn eq(&self, other: &Text) -> bool {
+        other.eq(self)
+    }
+}
+
+impl Eq for Text {}
+
 impl Borrow<TextSlice> for Text {
     fn borrow(&self) -> &TextSlice {
         self.as_slice()
@@ -874,6 +888,26 @@ impl SampleType {
 }
 
 impl ChannelInfo {
+    pub fn default_quantization_linearity(name: &Text) -> bool {
+        !(
+            name.eq_case_insensitive("R") || name.eq_case_insensitive("G") ||
+                name.eq_case_insensitive("B") || name.eq_case_insensitive("L") ||
+                name.eq_case_insensitive("Y") || name.eq_case_insensitive("X") ||
+                name.eq_case_insensitive("Z")
+        )
+    }
+
+    /// Create a new channel with the specified properties and a sampling rate of (1,1).
+    /// Automatically chooses the linearity for compression based on the channel name.
+    pub fn named(name: impl Into<Text>, sample_type: SampleType) -> Self {
+        let name = name.into();
+        let linearity = Self::default_quantization_linearity(&name);
+        Self::new(name, sample_type, linearity)
+    }
+
+    /*pub fn from_name<T: Into<Sample> + Default>(name: impl Into<Text>) -> Self {
+        Self::named(name, T::default().into().sample_type())
+    }*/
 
     /// Create a new channel with the specified properties and a sampling rate of (1,1).
     pub fn new(name: impl Into<Text>, sample_type: SampleType, quantize_linearly: bool) -> Self {
