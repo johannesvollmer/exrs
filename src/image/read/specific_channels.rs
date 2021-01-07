@@ -257,7 +257,13 @@ pub trait ChannelLineReader<Sample>: Clone {
     fn read_next_sample(&mut self, bytes: &[u8]) -> Result<Sample>;
 }
 
-impl ChannelParameter for Sample {
+pub trait FromSample { fn from_sample(sample: Sample) -> Self; }
+impl FromSample for f16 { fn from_sample(sample: Sample) -> Self { sample.to_f16() } }
+impl FromSample for f32 { fn from_sample(sample: Sample) -> Self { sample.to_f32() } }
+impl FromSample for u32 { fn from_sample(sample: Sample) -> Self { sample.to_u32() } }
+impl FromSample for Sample { fn from_sample(sample: Sample) -> Self { sample } }
+
+impl<S> ChannelParameter for S where S: Clone + FromSample {
     type ChannelInfo = ChannelInfo;
     type ChannelPixelReader = ChannelIndexInfo;
     fn create_channel_pixel_reader(info: Option<ChannelIndexInfo>) -> Result<(Self::ChannelInfo, Self::ChannelPixelReader)> {
@@ -266,7 +272,7 @@ impl ChannelParameter for Sample {
     }
 }
 
-impl ChannelParameter for Option<Sample> {
+impl<S> ChannelParameter for Option<S> where S: Clone + FromSample {
     type ChannelInfo = Option<ChannelInfo>;
     type ChannelPixelReader = Option<ChannelIndexInfo>;
     fn create_channel_pixel_reader(info: Option<ChannelIndexInfo>) -> Result<(Self::ChannelInfo, Self::ChannelPixelReader)> {
@@ -274,16 +280,26 @@ impl ChannelParameter for Option<Sample> {
     }
 }
 
-impl ChannelPixelReader<Sample> for ChannelIndexInfo {
-    type ChannelLineReader = (SampleType, usize);
+#[derive(Clone, Debug, PartialEq)]
+pub struct IndexChannelLineReader<S> {
+    file_sample_type: SampleType,
+    next_byte: usize,
+    s: PhantomData<S>,
+}
+
+impl<S> ChannelPixelReader<S> for ChannelIndexInfo where S: Clone + FromSample {
+// impl ChannelPixelReader<Sample> for ChannelIndexInfo {
+    type ChannelLineReader = IndexChannelLineReader<S>;
     fn create_channel_line_reader(&self, pixel_count: usize) -> Self::ChannelLineReader {
         let start = self.sample_byte_offset * pixel_count; // TODO  will never work with subsampling?
-        (self.info.sample_type, start)
+        IndexChannelLineReader { file_sample_type: self.info.sample_type, next_byte: start, s: Default::default() }
     }
 }
 
-impl ChannelPixelReader<Option<Sample>> for Option<ChannelIndexInfo> {
-    type ChannelLineReader = Option<(SampleType, usize)>;
+
+impl<S> ChannelPixelReader<Option<S>> for Option<ChannelIndexInfo> where S: Clone + FromSample {
+// impl ChannelPixelReader<Option<Sample>> for Option<ChannelIndexInfo> {
+    type ChannelLineReader = Option<IndexChannelLineReader<S>>;
     fn create_channel_line_reader(&self, line_width: usize) -> Self::ChannelLineReader {
         self.as_ref().map(|this| {
             this.create_channel_line_reader(line_width)
@@ -291,23 +307,26 @@ impl ChannelPixelReader<Option<Sample>> for Option<ChannelIndexInfo> {
     }
 }
 
-impl ChannelLineReader<Sample> for (SampleType, usize) {
-    fn read_next_sample(&mut self, bytes: &[u8]) -> Result<Sample> {
-        let (sample_type, index) = self;
-        let bytes = &mut &bytes[(*index).min(bytes.len())..]; // required for index out of bounds overflow
+impl<S> ChannelLineReader<S> for IndexChannelLineReader<S> where S: FromSample + Clone {
+    fn read_next_sample(&mut self, bytes: &[u8]) -> Result<S> {
+        let bytes = &mut &bytes[(self.next_byte).min(bytes.len())..]; // required for index out of bounds overflow
 
-        *index += sample_type.bytes_per_sample();
+        // TODO not match as much?
 
-        Ok(match sample_type {
+        self.next_byte += self.file_sample_type.bytes_per_sample();
+
+        let file_sample = match self.file_sample_type {
             SampleType::F16 => Sample::F16(f16::read(bytes)?),
             SampleType::F32 => Sample::F32(f32::read(bytes)?),
             SampleType::U32 => Sample::U32(u32::read(bytes)?),
-        })
+        };
+
+        Ok(S::from_sample(file_sample))
     }
 }
 
-impl ChannelLineReader<Option<Sample>> for Option<(SampleType, usize)> {
-    fn read_next_sample(&mut self, bytes: &[u8]) -> Result<Option<Sample>> {
+impl<S> ChannelLineReader<Option<S>> for Option<IndexChannelLineReader<S>> where S: FromSample + Clone {
+    fn read_next_sample(&mut self, bytes: &[u8]) -> Result<Option<S>> {
         self.as_mut()
             .map(|this| this.read_next_sample(bytes))
             .transpose()

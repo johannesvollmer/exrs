@@ -161,7 +161,8 @@ fn round_trip_all_files_rgba() {
         // custom compare function: considers nan equal to nan
         let pixels1 = &image.layer_data.channel_data.storage.samples;
         let pixels2 = &image2.layer_data.channel_data.storage.samples;
-        assert!(pixels1.iter().map(|f| f.to_bits()).eq(pixels2.iter().map(|f| f.to_bits())));
+        //assert!(pixels1.iter().map(|f| f.to_bits()).eq(pixels2.iter().map(|f| f.to_bits())));
+        assert_eq!(pixels1, pixels2);
 
         Ok(())
     })
