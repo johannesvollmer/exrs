@@ -6,7 +6,7 @@ use crate::meta::header::Header;
 use crate::block::{BlockIndex, UncompressedBlock};
 use crate::image::{AnyChannels, SpecificChannels};
 use crate::math::{Vec2, RoundingMode};
-use crate::io::{Write, Data};
+use crate::io::{Data};
 use crate::block::samples::Sample;
 use crate::image::write::samples::{WritableSamples, SamplesWriter};
 use crate::prelude::{f16};

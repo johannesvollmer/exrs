@@ -70,7 +70,7 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     ) -> ReadSpecificChannels<Px, Channels, Create, Set>
         where
             Channels: ReadFilteredChannels<Px>,
-            Create: CreatePixels<Channels::SampleTypes>,
+            Create: CreatePixels<<Channels::Filter as ChannelsFilter<Px>>::ChannelsInfo>,
             Set: SetPixel<Create::Pixels, Px>,
     {
         ReadSpecificChannels { channel_names, create, set_pixel, px: Default::default() }

@@ -1,5 +1,6 @@
 //! How to read arbitrary but specific selection of arbitrary channels.
 //! This is not a zero-cost abstraction.
+// this module uses too many traits in order to abstract over many possible tuples of channels
 
 use crate::image::*;
 use crate::meta::header::{Header};
@@ -30,10 +31,18 @@ pub struct ReadSpecificChannels<Px, Channels, CreatePixelStorage, SetPixel> {
 // pub type RgbaChannelsInfo = ChannelsInfo<RgbaSampleTypes>; // TODO rename to specific_channels_layout or description, global search for "info"
 
 pub trait ReadFilteredChannels<Pixel> {
-    type PixelReader: PixelReader<Pixel>;
-    type SampleTypes;
+    type Filter: ChannelsFilter<Pixel>;
+    fn filter(&self) -> Self::Filter;
+}
 
-    fn inspect_channels(&self, channels: &ChannelList) -> Result<(Self::SampleTypes, Self::PixelReader)>;
+pub trait ChannelsFilter<Pixel> {
+    type PixelReader: PixelReader<Pixel>;
+    type ChannelsInfo;
+
+    fn visit_channel(&mut self, channel: ChannelIndexInfo);
+
+    /// allow err so that we can abort if a required channel does not exist in the file
+    fn finish(self) -> Result<(Self::ChannelsInfo, Self::PixelReader)>;
 }
 
 
@@ -84,12 +93,11 @@ pub trait PixelLineReader<Pixel> {
 }
 
 /// Processes pixel blocks from a file and accumulates them into the rgba channels.
-#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SpecificChannelsReader<'s, Pixel, Channels, Set, Image> where Channels: ReadFilteredChannels<Pixel> {
     storage: Image,
     set_pixel: &'s Set,
-    info: ChannelsInfo<Channels::SampleTypes>,
-    pixel_reader: Channels::PixelReader,
+    info: ChannelsInfo<<Channels::Filter as ChannelsFilter<Pixel>>::ChannelsInfo>,
+    pixel_reader: <Channels::Filter as ChannelsFilter<Pixel>>::PixelReader,
     pixel: PhantomData<(Pixel, Channels)>,
 }
 
@@ -114,7 +122,7 @@ pub struct ChannelsInfo<SampleTypes> { // TODO remove this struct?
 impl<'s, Px, Channels, Setter: 's, Constructor: 's>
     ReadChannels<'s> for ReadSpecificChannels<Px, Channels, Constructor, Setter> where
     Channels: ReadFilteredChannels<Px>,
-    Constructor: CreatePixels<Channels::SampleTypes>,
+    Constructor: CreatePixels<<Channels::Filter as ChannelsFilter<Px>>::ChannelsInfo>,
     Setter: SetPixel<Constructor::Pixels, Px>,
 {
     type Reader = SpecificChannelsReader<'s, Px, Channels, Setter, Constructor::Pixels>;
@@ -122,7 +130,25 @@ impl<'s, Px, Channels, Setter: 's, Constructor: 's>
     fn create_channels_reader(&'s self, header: &Header) -> Result<Self::Reader> {
         if header.deep { return Err(Error::invalid("layer has deep data, no flat rgba data")) }
 
-        let (sample_types, reader) = self.channel_names.inspect_channels(&header.channels)?;
+        let (sample_types, reader) = {
+            let mut filter = self.channel_names.filter();
+            let mut byte_offset = 0;
+
+            for (channel_index, channel) in header.channels.list.iter().enumerate() {
+                let chan_info = ChannelIndexInfo {
+                    sample_byte_offset: byte_offset,
+                    info: channel.clone(),
+                    channel_index
+                };
+
+                filter.visit_channel(chan_info);
+                byte_offset += channel.sample_type.bytes_per_sample();
+            }
+
+            filter.finish()?
+        };
+
+        // let (sample_types, reader) = self.channel_names.inspect_channels(&header.channels)?;
         let info = ChannelsInfo { sample_types, resolution: header.layer_size, };
 
         Ok(SpecificChannelsReader {
@@ -166,7 +192,7 @@ where
     ChannelNames: ReadFilteredChannels<Px>,
     Setter: SetPixel<Storage, Px>,
 {
-    type Channels = SpecificChannels<Storage, ChannelNames::SampleTypes>;
+    type Channels = SpecificChannels<Storage, <ChannelNames::Filter as ChannelsFilter<Px>>::ChannelsInfo>;
 
     // TODO levels?
     fn filter_block(&self, (_, tile): (usize, &TileCoordinates)) -> bool {
@@ -217,9 +243,9 @@ struct ChannelIndexInfo {
 }
 
 trait ChannelParameter: Clone {
-    type SampleType;
+    type ChannelInfo;
     type ChannelPixelReader: ChannelPixelReader<Self>;
-    fn create_channel_pixel_reader(info: Option<ChannelIndexInfo>) -> Result<(Self::SampleType, Self::ChannelPixelReader)>;
+    fn create_channel_pixel_reader(info: Option<ChannelIndexInfo>) -> Result<(Self::ChannelInfo, Self::ChannelPixelReader)>;
 }
 
 trait ChannelPixelReader<Sample>: Clone {
@@ -232,18 +258,18 @@ trait ChannelLineReader<Sample>: Clone {
 }
 
 impl ChannelParameter for Sample {
-    type SampleType = ChannelInfo;
+    type ChannelInfo = ChannelInfo;
     type ChannelPixelReader = ChannelIndexInfo;
-    fn create_channel_pixel_reader(info: Option<ChannelIndexInfo>) -> Result<(Self::SampleType, Self::ChannelPixelReader)> {
+    fn create_channel_pixel_reader(info: Option<ChannelIndexInfo>) -> Result<(Self::ChannelInfo, Self::ChannelPixelReader)> {
         info.map(|info| (info.info.clone(), info))
             .ok_or_else(|| Error::invalid("layer does not contain all of the specified required channels")) // TODO which channel??
     }
 }
 
 impl ChannelParameter for Option<Sample> {
-    type SampleType = Option<ChannelInfo>;
+    type ChannelInfo = Option<ChannelInfo>;
     type ChannelPixelReader = Option<ChannelIndexInfo>;
-    fn create_channel_pixel_reader(info: Option<ChannelIndexInfo>) -> Result<(Self::SampleType, Self::ChannelPixelReader)> {
+    fn create_channel_pixel_reader(info: Option<ChannelIndexInfo>) -> Result<(Self::ChannelInfo, Self::ChannelPixelReader)> {
         Ok(info.map_or((None,None), |info| (Some(info.info.clone()), Some(info)))) // TODO no clone
     }
 }
@@ -288,11 +314,155 @@ impl ChannelLineReader<Option<Sample>> for Option<(SampleType, usize)> {
     }
 }
 
+/*macro_rules! impl_read_for_tuple {
+    (
+        $( $ChannelTypes:ident ),* |
+        $( $ChannelNames:ident ),* |
+        $( $index:literal ),* |
+        $( $var_name:ident ),*
+    )
+        =>
+    {
 
-impl<Na,Nb,Nc, A,B,C> ReadFilteredChannels<(A,B,C)> for (Na,Nb,Nc) where
+        impl<  $($ChannelNames),*  ,  $($ChannelTypes),*   > // <Na,Nb,Nc, A,B,C>
+            ReadFilteredChannels<(  $($ChannelTypes),*  )>
+            for (  $($ChannelNames),*  )
+            where
+            A: ChannelParameter, B: ChannelParameter, C: ChannelParameter,
+            Na: AsRef<str>, Nb: AsRef<str>, Nc: AsRef<str>,
+        {
+            type PixelReader = (A::ChannelPixelReader, B::ChannelPixelReader, C::ChannelPixelReader);
+            type SampleTypes = (A::SampleType, B::SampleType, C::SampleType);
+
+            fn inspect_channels(&self, channels: &ChannelList) -> Result<(Self::SampleTypes, Self::PixelReader)> {
+                let mut result = (None, None, None);
+                let mut byte_offset = 0;
+
+                for (channel_index, channel) in channels.list.iter().enumerate() {
+                    let chan_info = ChannelIndexInfo {
+                        sample_byte_offset: byte_offset,
+                        info: channel.clone(),
+                        channel_index
+                    };
+
+                    if      &channel.name == self.0.as_ref() { result.0 = Some(chan_info); }
+                    else if &channel.name == self.1.as_ref() { result.1 = Some(chan_info); }
+                    else if &channel.name == self.2.as_ref() { result.2 = Some(chan_info); }
+
+                    byte_offset += channel.sample_type.bytes_per_sample();
+                }
+
+                let (a_type, a_reader) = A::create_channel_pixel_reader(result.0)?;
+                let (b_type, b_reader) = B::create_channel_pixel_reader(result.1)?;
+                let (c_type, c_reader) = C::create_channel_pixel_reader(result.2)?;
+
+                Ok((
+                    (a_type, b_type, c_type),
+                    (a_reader, b_reader, c_reader)
+                ))
+            }
+        }
+
+
+        impl<A,B,C> PixelReader<(A,B,C)> for (
+            <A as ChannelParameter>::ChannelPixelReader,
+            <B as ChannelParameter>::ChannelPixelReader,
+            <C as ChannelParameter>::ChannelPixelReader,
+        )
+            where A: ChannelParameter, B: ChannelParameter, C: ChannelParameter,
+            // (A::ChannelLineReader, B::ChannelLineReader, C::ChannelLineReader): PixelLineReader<(A,B,C)>,
+        {
+            type LineReader = (
+                <<A as ChannelParameter>::ChannelPixelReader as ChannelPixelReader<A>>::ChannelLineReader,
+                <<B as ChannelParameter>::ChannelPixelReader as ChannelPixelReader<B>>::ChannelLineReader,
+                <<C as ChannelParameter>::ChannelPixelReader as ChannelPixelReader<C>>::ChannelLineReader,
+            );
+
+            fn create_pixel_reader_for_line(&self, pixel_count: usize) -> Self::LineReader {
+                (
+                    self.0.create_channel_line_reader(pixel_count),
+                    self.1.create_channel_line_reader(pixel_count),
+                    self.2.create_channel_line_reader(pixel_count),
+                )
+            }
+        }
+
+        impl<A,B,C> PixelLineReader<(A,B,C)> for (
+            <<A as ChannelParameter>::ChannelPixelReader as ChannelPixelReader<A>>::ChannelLineReader,
+            <<B as ChannelParameter>::ChannelPixelReader as ChannelPixelReader<B>>::ChannelLineReader,
+            <<C as ChannelParameter>::ChannelPixelReader as ChannelPixelReader<C>>::ChannelLineReader,
+        )
+            where A: ChannelParameter, B: ChannelParameter, C: ChannelParameter,
+        {
+            // TODO not index each time?
+            fn read_next_pixel(&mut self, bytes: &[u8]) -> Result<(A,B,C)> {
+                Ok((
+                    self.0.read_next_sample(bytes)?,
+                    self.1.read_next_sample(bytes)?,
+                    self.2.read_next_sample(bytes)?,
+                ))
+            }
+        }
+    };
+}*/
+
+
+// impl_read_for_tuple!{ A,B,C | Na, Nb, Nc | 0,1,2 | a,b,c }
+
+struct ChannelFilter<N> {
+    required_name: N,
+    found_channel: Option<ChannelIndexInfo>,
+}
+impl<N> ChannelFilter<N> where N: AsRef<str> {
+    fn new(name:N) -> Self { Self { required_name: name, found_channel: None }  }
+    fn filter(&mut self, info: &ChannelIndexInfo) {
+        if &info.info.name == self.required_name.as_ref() { self.found_channel = Some(info.clone()); }
+    }
+}
+
+impl<A,B,C, L,M,N> ReadFilteredChannels<(A,B,C)> for (L,M,N) where
+    A: ChannelParameter, B: ChannelParameter, C: ChannelParameter,
+    L: Clone + AsRef<str>, M: Clone + AsRef<str>, N: Clone + AsRef<str>,
+{
+    type Filter = (ChannelFilter<L>, ChannelFilter<M>, ChannelFilter<N>, );
+    fn filter(&self) -> Self::Filter { (
+        ChannelFilter::new(self.0.clone()),
+        ChannelFilter::new(self.1.clone()),
+        ChannelFilter::new(self.2.clone()),
+    ) }
+}
+
+impl<A,B,C, L,M,N> ChannelsFilter<(A,B,C)> for (ChannelFilter<L>, ChannelFilter<M>, ChannelFilter<N>)
+    where
+        A: ChannelParameter, B: ChannelParameter, C: ChannelParameter,
+        L: Clone + AsRef<str>, M: Clone + AsRef<str>, N: Clone + AsRef<str>,
+{
+    type PixelReader = (A::ChannelPixelReader, B::ChannelPixelReader, C::ChannelPixelReader);
+    type ChannelsInfo = (A::ChannelInfo, B::ChannelInfo, C::ChannelInfo);
+
+    fn visit_channel(&mut self, channel: ChannelIndexInfo) {
+        self.0.filter(&channel);
+        self.1.filter(&channel);
+        self.2.filter(&channel);
+    }
+
+    fn finish(self) -> Result<(Self::ChannelsInfo, Self::PixelReader)> {
+        let (a_type, a_reader) = A::create_channel_pixel_reader(self.0.found_channel)?;
+        let (b_type, b_reader) = B::create_channel_pixel_reader(self.1.found_channel)?;
+        let (c_type, c_reader) = C::create_channel_pixel_reader(self.2.found_channel)?;
+
+        Ok((
+            (a_type, b_type, c_type),
+            (a_reader, b_reader, c_reader)
+        ))
+    }
+}
+
+
+
+/*impl<Na,Nb,Nc, A,B,C> ReadFilteredChannels<(A,B,C)> for (Na,Nb,Nc) where
     A: ChannelParameter, B: ChannelParameter, C: ChannelParameter,
     Na: AsRef<str>, Nb: AsRef<str>, Nc: AsRef<str>,
-    // (A::ChannelPixelReader, B::ChannelPixelReader, C::ChannelPixelReader): PixelReader<(A,B,C)>,
 {
     type PixelReader = (A::ChannelPixelReader, B::ChannelPixelReader, C::ChannelPixelReader);
     type SampleTypes = (A::SampleType, B::SampleType, C::SampleType);
@@ -324,7 +494,7 @@ impl<Na,Nb,Nc, A,B,C> ReadFilteredChannels<(A,B,C)> for (Na,Nb,Nc) where
             (a_reader, b_reader, c_reader)
         ))
     }
-}
+}*/
 
 
 impl<A,B,C> PixelReader<(A,B,C)> for (
