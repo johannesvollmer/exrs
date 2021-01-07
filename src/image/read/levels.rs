@@ -59,6 +59,30 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
         )*/
     }*/
 
+    /*pub fn rgb_channels<Px, Create, Set>(
+        self, create: Create, set_pixel: Set
+    ) -> ReadSpecificChannels<Px, (&'static str,&'static str,&'static str), Create, Set>
+        where
+            Channels: ReadFilteredChannels<Px>,
+            Create: CreatePixels<<Channels::Filter as ChannelsFilter<Px>>::ChannelsInfo>,
+            Set: SetPixel<Create::Pixels, Px>,
+    {
+        self.specific_channels(("R", "G", "B"), create, set_pixel)
+    }*/
+
+    pub fn rgba_channels<Px, Create, Set>(
+        self, create: Create, set_pixel: Set
+    ) -> ReadSpecificChannels<Px, (&'static str,&'static str,&'static str,&'static str), Create, Set>
+        where
+            (&'static str,&'static str,&'static str,&'static str): ReadFilteredChannels<Px>, // limits `Px`
+            Create: CreatePixels<<<(&'static str,&'static str,&'static str,&'static str) as ReadFilteredChannels<Px>>::Filter as ChannelsFilter<Px>>::ChannelsInfo>,
+            Set: SetPixel<Create::Pixels, Px>,
+    {
+        self.specific_channels(("R", "G", "B", "A"), create, set_pixel)
+    }
+
+    // TODO FIXME support directly using `f32` as parameter, not just Sample!
+
     /// Read only layers that contain the specified channels. Skips any other channels in the layer.
     /// `Create` can be a closure of type [`Fn(&ChannelsInfo) -> YourPixelStorage`].
     /// `Set` can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, YourPixel)`].

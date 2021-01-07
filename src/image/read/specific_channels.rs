@@ -236,24 +236,24 @@ where
 
 
 #[derive(Clone, Debug)]
-struct ChannelIndexInfo {
-    info: ChannelInfo,
-    sample_byte_offset: usize,
-    channel_index: usize,
+pub struct ChannelIndexInfo {
+    pub info: ChannelInfo,
+    pub sample_byte_offset: usize,
+    pub channel_index: usize,
 }
 
-trait ChannelParameter: Clone {
+pub trait ChannelParameter: Clone {
     type ChannelInfo;
     type ChannelPixelReader: ChannelPixelReader<Self>;
     fn create_channel_pixel_reader(info: Option<ChannelIndexInfo>) -> Result<(Self::ChannelInfo, Self::ChannelPixelReader)>;
 }
 
-trait ChannelPixelReader<Sample>: Clone {
+pub trait ChannelPixelReader<Sample>: Clone {
     type ChannelLineReader: ChannelLineReader<Sample>;
     fn create_channel_line_reader(&self, line_width: usize) -> Self::ChannelLineReader;
 }
 
-trait ChannelLineReader<Sample>: Clone {
+pub trait ChannelLineReader<Sample>: Clone {
     fn read_next_sample(&mut self, bytes: &[u8]) -> Result<Sample>;
 }
 
@@ -277,7 +277,7 @@ impl ChannelParameter for Option<Sample> {
 impl ChannelPixelReader<Sample> for ChannelIndexInfo {
     type ChannelLineReader = (SampleType, usize);
     fn create_channel_line_reader(&self, pixel_count: usize) -> Self::ChannelLineReader {
-        let start = self.sample_byte_offset * pixel_count; // TODO  will never work with subsampling
+        let start = self.sample_byte_offset * pixel_count; // TODO  will never work with subsampling?
         (self.info.sample_type, start)
     }
 }
@@ -409,51 +409,54 @@ impl ChannelLineReader<Option<Sample>> for Option<(SampleType, usize)> {
 
 // impl_read_for_tuple!{ A,B,C | Na, Nb, Nc | 0,1,2 | a,b,c }
 
-struct ChannelFilter<N> {
+pub struct ChannelFilter<N> {
     required_name: N,
     found_channel: Option<ChannelIndexInfo>,
 }
 impl<N> ChannelFilter<N> where N: AsRef<str> {
-    fn new(name:N) -> Self { Self { required_name: name, found_channel: None }  }
-    fn filter(&mut self, info: &ChannelIndexInfo) {
+    pub fn new(name:N) -> Self { Self { required_name: name, found_channel: None }  }
+    pub fn filter(&mut self, info: &ChannelIndexInfo) {
         if &info.info.name == self.required_name.as_ref() { self.found_channel = Some(info.clone()); }
     }
 }
 
-impl<A,B,C, L,M,N> ReadFilteredChannels<(A,B,C)> for (L,M,N) where
-    A: ChannelParameter, B: ChannelParameter, C: ChannelParameter,
-    L: Clone + AsRef<str>, M: Clone + AsRef<str>, N: Clone + AsRef<str>,
+impl<A,B,C,D, L,M,N,O> ReadFilteredChannels<(A,B,C,D)> for (L,M,N,O) where
+    A: ChannelParameter, B: ChannelParameter, C: ChannelParameter, D: ChannelParameter,
+    L: Clone + AsRef<str>, M: Clone + AsRef<str>, N: Clone + AsRef<str>, O: Clone + AsRef<str>,
 {
-    type Filter = (ChannelFilter<L>, ChannelFilter<M>, ChannelFilter<N>, );
+    type Filter = (ChannelFilter<L>, ChannelFilter<M>, ChannelFilter<N>,  ChannelFilter<O>, );
     fn filter(&self) -> Self::Filter { (
         ChannelFilter::new(self.0.clone()),
         ChannelFilter::new(self.1.clone()),
         ChannelFilter::new(self.2.clone()),
+        ChannelFilter::new(self.3.clone()),
     ) }
 }
 
-impl<A,B,C, L,M,N> ChannelsFilter<(A,B,C)> for (ChannelFilter<L>, ChannelFilter<M>, ChannelFilter<N>)
+impl<A,B,C,D, L,M,N,O> ChannelsFilter<(A,B,C,D)> for (ChannelFilter<L>, ChannelFilter<M>, ChannelFilter<N>, ChannelFilter<O>)
     where
-        A: ChannelParameter, B: ChannelParameter, C: ChannelParameter,
-        L: Clone + AsRef<str>, M: Clone + AsRef<str>, N: Clone + AsRef<str>,
+        A: ChannelParameter, B: ChannelParameter, C: ChannelParameter, D: ChannelParameter,
+        L: Clone + AsRef<str>, M: Clone + AsRef<str>, N: Clone + AsRef<str>, O: Clone + AsRef<str>,
 {
-    type PixelReader = (A::ChannelPixelReader, B::ChannelPixelReader, C::ChannelPixelReader);
-    type ChannelsInfo = (A::ChannelInfo, B::ChannelInfo, C::ChannelInfo);
+    type PixelReader = (A::ChannelPixelReader, B::ChannelPixelReader, C::ChannelPixelReader, D::ChannelPixelReader);
+    type ChannelsInfo = (A::ChannelInfo, B::ChannelInfo, C::ChannelInfo, D::ChannelInfo);
 
     fn visit_channel(&mut self, channel: ChannelIndexInfo) {
         self.0.filter(&channel);
         self.1.filter(&channel);
         self.2.filter(&channel);
+        self.3.filter(&channel);
     }
 
     fn finish(self) -> Result<(Self::ChannelsInfo, Self::PixelReader)> {
         let (a_type, a_reader) = A::create_channel_pixel_reader(self.0.found_channel)?;
         let (b_type, b_reader) = B::create_channel_pixel_reader(self.1.found_channel)?;
         let (c_type, c_reader) = C::create_channel_pixel_reader(self.2.found_channel)?;
+        let (d_type, d_reader) = D::create_channel_pixel_reader(self.3.found_channel)?;
 
         Ok((
-            (a_type, b_type, c_type),
-            (a_reader, b_reader, c_reader)
+            (a_type, b_type, c_type, d_type),
+            (a_reader, b_reader, c_reader, d_reader)
         ))
     }
 }
@@ -497,18 +500,20 @@ impl<A,B,C, L,M,N> ChannelsFilter<(A,B,C)> for (ChannelFilter<L>, ChannelFilter<
 }*/
 
 
-impl<A,B,C> PixelReader<(A,B,C)> for (
+impl<A,B,C,D> PixelReader<(A,B,C,D)> for (
     <A as ChannelParameter>::ChannelPixelReader,
     <B as ChannelParameter>::ChannelPixelReader,
     <C as ChannelParameter>::ChannelPixelReader,
+    <D as ChannelParameter>::ChannelPixelReader,
 )
-    where A: ChannelParameter, B: ChannelParameter, C: ChannelParameter,
+    where A: ChannelParameter, B: ChannelParameter, C: ChannelParameter, D: ChannelParameter,
     // (A::ChannelLineReader, B::ChannelLineReader, C::ChannelLineReader): PixelLineReader<(A,B,C)>,
 {
     type LineReader = (
         <<A as ChannelParameter>::ChannelPixelReader as ChannelPixelReader<A>>::ChannelLineReader,
         <<B as ChannelParameter>::ChannelPixelReader as ChannelPixelReader<B>>::ChannelLineReader,
         <<C as ChannelParameter>::ChannelPixelReader as ChannelPixelReader<C>>::ChannelLineReader,
+        <<D as ChannelParameter>::ChannelPixelReader as ChannelPixelReader<D>>::ChannelLineReader,
     );
 
     fn create_pixel_reader_for_line(&self, pixel_count: usize) -> Self::LineReader {
@@ -516,23 +521,26 @@ impl<A,B,C> PixelReader<(A,B,C)> for (
             self.0.create_channel_line_reader(pixel_count),
             self.1.create_channel_line_reader(pixel_count),
             self.2.create_channel_line_reader(pixel_count),
+            self.3.create_channel_line_reader(pixel_count),
         )
     }
 }
 
-impl<A,B,C> PixelLineReader<(A,B,C)> for (
+impl<A,B,C,D> PixelLineReader<(A,B,C,D)> for (
     <<A as ChannelParameter>::ChannelPixelReader as ChannelPixelReader<A>>::ChannelLineReader,
     <<B as ChannelParameter>::ChannelPixelReader as ChannelPixelReader<B>>::ChannelLineReader,
     <<C as ChannelParameter>::ChannelPixelReader as ChannelPixelReader<C>>::ChannelLineReader,
+    <<D as ChannelParameter>::ChannelPixelReader as ChannelPixelReader<D>>::ChannelLineReader,
 )
-    where A: ChannelParameter, B: ChannelParameter, C: ChannelParameter,
+    where A: ChannelParameter, B: ChannelParameter, C: ChannelParameter, D: ChannelParameter,
 {
     // TODO not index each time?
-    fn read_next_pixel(&mut self, bytes: &[u8]) -> Result<(A,B,C)> {
+    fn read_next_pixel(&mut self, bytes: &[u8]) -> Result<(A,B,C,D)> {
         Ok((
             self.0.read_next_sample(bytes)?,
             self.1.read_next_sample(bytes)?,
             self.2.read_next_sample(bytes)?,
+            self.3.read_next_sample(bytes)?,
         ))
     }
 }
@@ -555,7 +563,7 @@ pub mod pixels {
     ///
     /// Use `Flattened::compute_pixel_index(image, position)`
     /// to compute the flat index of a specific pixel.
-    #[derive(PartialEq, Clone)]
+    #[derive(Eq, PartialEq, Clone)]
     pub struct Flattened<T> {
 
         /// The resolution of this layer.
@@ -600,6 +608,13 @@ pub mod pixels {
             get_flattened_pixel(self, position)
         }
     }*/
+
+    impl<Px> GetPixel for Flattened<Px> where Px: Clone + Sync {
+        type Pixel = Px;
+        fn get_pixel(&self, position: Vec2<usize>) -> Self::Pixel {
+            get_flattened_pixel(self, position).clone()
+        }
+    }
 
     #[inline] pub fn create_flattened<Pixel: Clone + Default, SampleTypes>(image: &ChannelsInfo<SampleTypes>) -> Flattened<Pixel> {
         Flattened { size: image.resolution, samples: vec![Pixel::default(); image.resolution.area()] }

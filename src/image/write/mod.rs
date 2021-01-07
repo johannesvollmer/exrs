@@ -47,7 +47,7 @@ pub fn write_rgba_f32_file(
 /// Use `write_rgba_f32_file` if you want to output alpha.
 pub fn write_rgb_f32_file(
     path: impl AsRef<std::path::Path>, width: usize, height: usize,
-    colors: impl Sync + Fn(usize, usize) -> (f32, f32, f32)
+    colors: impl Sync + Fn(usize, usize) -> (f32, f32, f32, f32)
 ) -> UnitResult {
     Image::with_single_layer(
         (width, height),

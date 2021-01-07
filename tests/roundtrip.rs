@@ -11,7 +11,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use exr::prelude::*;
 use exr::error::{Error, UnitResult};
-use exr::image::read::rgba_channels::pixels::{set_flattened_pixel, Flattened, create_flattened_f16};
+use exr::image::read::specific_channels::pixels::Flattened;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
@@ -139,9 +139,9 @@ fn round_trip_all_files_rgba() {
         let image_reader = read()
             .no_deep_data()
             .largest_resolution_level() // TODO all levels
-            .rgba_channels(
-                read::rgba_channels::pixels::create_flattened_f32,
-                read::rgba_channels::pixels::set_flattened_pixel
+            .rgba_channels::<(f32,f32,f32,Option<f32>), _, _>(
+                read::specific_channels::pixels::create_flattened,
+                read::specific_channels::pixels::set_flattened_pixel,
             )
             .first_valid_layer()
             .all_attributes()
@@ -199,28 +199,31 @@ fn roundtrip_unusual_rgba() -> UnitResult {
     let image_reader = read()
         .no_deep_data()
         .largest_resolution_level() // TODO all levels
-        .rgba_channels(create_flattened_f16, set_flattened_pixel)
+        .rgba_channels::<(f32,f32,f16,f32),_,_>(
+            read::specific_channels::pixels::create_flattened,
+            read::specific_channels::pixels::set_flattened_pixel,
+        )
         .first_valid_layer()
         .all_attributes()
         .non_parallel();
 
-    let random_pixels: Vec<f32> = vec![
-        0.1, 0.4, 5.0,
-        0.3, 0.8, 4.0,
-        0.2, 0.6, 2.0,
-        0.8, 0.2, 21.0,
-        0.9, 0.0, 64.0
+    let random_pixels: Vec<(f32, f32, f16, f32)> = vec![
+        (0.1, 0.4, f16::from_f32(-5.0), 0.4),
+        (0.3, 0.8, f16::from_f32(4.0), -0.4),
+        (0.2, -0.6, f16::from_f32(2.0), -0.2),
+        (0.8, 0.2, f16::from_f32(21.0), -0.4),
+        (0.9, 0.0, f16::from_f32(64.0), 0.4),
     ];
 
-    let size = Vec2(2, 4);
-    let pixels = (0..size.area()*3)
-        .zip(random_pixels.into_iter().map(|x| f16::from_f32(x)).cycle())
-        .map(|(_, x)| x).collect::<Vec<f16>>();
+    let size = Vec2(31, 7);
+    let pixels = (0..size.area())
+        .zip(random_pixels.into_iter().cycle())
+        .map(|(_index, color)| color).collect::<Vec<_>>();
 
-    let pixels = Flattened { channels: 3, size, samples: pixels };
+    let pixels = Flattened { size, samples: pixels };
 
-    let image = Image::with_single_layer(size, RgbaChannels::new(
-        RgbaSampleTypes(SampleType::F16, SampleType::F32, SampleType::F32, None),
+    let image = Image::with_single_layer(size, SpecificChannels::named(
+        ("R", "G", "B", "A"),
         pixels.clone()
     ));
 
@@ -231,15 +234,10 @@ fn roundtrip_unusual_rgba() -> UnitResult {
 
     // custom compare function: considers nan equal to nan
     assert_eq!(image.layer_data.size, size, "test is buggy");
-    let pixels1 = &image.layer_data.channel_data.storage.samples;
-    let pixels2 = &image2.layer_data.channel_data.storage.samples;
+    let pixels1 = &image.layer_data.channel_data.storage;
+    let pixels2 = &image2.layer_data.channel_data.storage;
 
-    assert!(
-        pixels1.iter().map(|f| f.to_bits()).eq(pixels2.iter().map(|f| f.to_bits())),
-        "pixels do not equal: {:?}, {:?}",
-        image.layer_data.channel_data.storage.samples,
-        image2.layer_data.channel_data.storage.samples
-    );
+    assert_eq!(pixels1, pixels2);
 
     Ok(())
 }

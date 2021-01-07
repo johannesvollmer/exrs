@@ -363,16 +363,17 @@ impl<SampleStorage, Channels> SpecificChannels<SampleStorage, Channels> {
 }
 
 use crate::prelude::write::channels::IntoSample;
-impl<SampleStorage> SpecificChannels<SampleStorage, (ChannelInfo, ChannelInfo, ChannelInfo)>
+impl<SampleStorage> SpecificChannels<SampleStorage, (ChannelInfo, ChannelInfo, ChannelInfo, ChannelInfo)>
 {
-    pub fn named<A,B,C>(channels: (impl Into<Text>, impl Into<Text>, impl Into<Text>), source_samples: SampleStorage) -> Self
-        where A: IntoSample, B: IntoSample, C: IntoSample, SampleStorage: GetPixel<Pixel=(A,B,C)>
+    pub fn named<A,B,C, D>(channels: (impl Into<Text>, impl Into<Text>, impl Into<Text>, impl Into<Text>), source_samples: SampleStorage) -> Self
+        where A: IntoSample, B: IntoSample, C: IntoSample, D: IntoSample, SampleStorage: GetPixel<Pixel=(A,B,C,D)>
     {
         SpecificChannels {
             channels: (
                 ChannelInfo::named(channels.0, A::SAMPLE_TYPE),
                 ChannelInfo::named(channels.1, B::SAMPLE_TYPE),
                 ChannelInfo::named(channels.2, C::SAMPLE_TYPE),
+                ChannelInfo::named(channels.3, D::SAMPLE_TYPE),
             ),
 
             storage: source_samples
@@ -704,8 +705,8 @@ impl<'s, SampleData: 's> AnyChannel<SampleData> {
         let name: Text = name.into();
 
         AnyChannel {
-            name, sample_data,
             quantize_linearly: ChannelInfo::default_quantization_linearity(&name),
+            name, sample_data,
             sampling: Vec2(1, 1),
         }
     }

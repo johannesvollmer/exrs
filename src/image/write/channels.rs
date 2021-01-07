@@ -123,30 +123,16 @@ impl IntoSample for f32 { const SAMPLE_TYPE: SampleType = SampleType::F32; }
 impl IntoSample for u32 { const SAMPLE_TYPE: SampleType = SampleType::U32; }
 // impl IntoSample for Sample { const SAMPLE_TYPE: SampleType = Sample:; }
 
-impl<'c, A,B,C, Storage: 'c + GetPixel<Pixel=(A,B,C)>>
-WritableChannels<'c> for SpecificChannels<Storage, (ChannelInfo, ChannelInfo, ChannelInfo)>
+impl<'c, A,B,C,D, Storage: 'c + GetPixel<Pixel=(A,B,C,D)>>
+WritableChannels<'c> for SpecificChannels<Storage, (ChannelInfo, ChannelInfo, ChannelInfo, ChannelInfo)>
     // where Self::Writer : ChannelsWriter //SpecificChannelsWriter<'c, Px, Storage, Channels>: ChannelsWriter // Pixels: GetPixel<(A,B,C)>, A: IntoSample, B: IntoSample, C: IntoSample
 where
-    A: Into<Sample>, B: Into<Sample>, C: Into<Sample>
+    A: Into<Sample>, B: Into<Sample>, C: Into<Sample>, D: Into<Sample>
 {
     fn infer_channel_list(&self) -> ChannelList {
-        let mut vec = smallvec![ self.channels.0.clone(), self.channels.1.clone(), self.channels.2.clone()  ];
+        let mut vec = smallvec![ self.channels.0.clone(), self.channels.1.clone(), self.channels.2.clone(), self.channels.3.clone()  ];
         vec.sort_by_key(|channel:&ChannelInfo| channel.name.clone()); // TODO no clone?
         ChannelList::new(vec)
-
-        /*let r = ChannelInfo::new("R", self.sample_types.0, false); // FIXME TODO sampling!
-        let g = ChannelInfo::new("G", self.sample_types.1, false);
-        let b = ChannelInfo::new("B", self.sample_types.2, false);
-        let a = self.sample_types.3.map(|ty| ChannelInfo::new("A", ty, true));
-
-        // TODO Rgb__Channels and Rgb_A_Channels as separate writers?
-        ChannelList::new(if let Some(a) = a {
-            smallvec![ a, b, g, r ]
-        }
-        else {
-            smallvec![ b, g, r ]
-        })
-        // ChannelList::new(a.map(|a| smallvec![ a, b, g, r ]).unwrap_or_else(|| smallvec![ b, g, r ]))*/
     }
 
     fn infer_level_modes(&self) -> (LevelMode, RoundingMode) {
@@ -156,13 +142,13 @@ where
     type Writer = SpecificChannelsWriter<
         'c,
         // Px,
-        (ChannelWriter, ChannelWriter, ChannelWriter),
+        (ChannelWriter, ChannelWriter, ChannelWriter, ChannelWriter),
         Storage,
-        (ChannelInfo, ChannelInfo, ChannelInfo)
+        (ChannelInfo, ChannelInfo, ChannelInfo, ChannelInfo)
     >;
 
     fn create_writer(&'c self, header: &Header) -> Self::Writer {
-        let mut byte_offsets = (None, None, None);
+        let mut byte_offsets = (None, None, None, None);
 
         // this loop is required because the channels in the header are sorted
         // and the channels specified by the user are probably not.
@@ -173,9 +159,11 @@ where
             if channel.name == self.channels.0.name { byte_offsets.0 = Some(byte_offset); }
             if channel.name == self.channels.1.name { byte_offsets.1 = Some(byte_offset); }
             if channel.name == self.channels.2.name { byte_offsets.2 = Some(byte_offset); }
+            if channel.name == self.channels.3.name { byte_offsets.3 = Some(byte_offset); }
             byte_offset += channel.sample_type.bytes_per_sample();
         }
 
+        // TODO use generic traits instead of specific tuple
         let pixel_writer = (
             ChannelWriter {
                 start_byte_offset: byte_offsets.0.expect("internal channel mismatch"),
@@ -188,6 +176,10 @@ where
             ChannelWriter {
                 start_byte_offset: byte_offsets.2.expect("internal channel mismatch"),
                 target_sample_type: self.channels.2.sample_type
+            },
+            ChannelWriter {
+                start_byte_offset: byte_offsets.3.expect("internal channel mismatch"),
+                target_sample_type: self.channels.3.sample_type
             },
         );
 
@@ -209,9 +201,10 @@ pub struct SpecificChannelsWriter<'channels, PixelWriter, Storage, Channels> {
 }
 
 
-impl<'channels, PxWriter, Storage> ChannelsWriter
-for SpecificChannelsWriter<'channels, PxWriter, Storage, (ChannelInfo, ChannelInfo, ChannelInfo)>
-    where Storage: GetPixel, PxWriter: PixelsWriter<Storage::Pixel> + Sync
+impl<'channels, PxWriter, Storage, Channels> ChannelsWriter
+for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
+    where Storage: GetPixel, PxWriter: PixelsWriter<Storage::Pixel> + Sync,
+            Channels: Sync
 {
     fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Vec<u8> {
         let block_bytes = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
@@ -293,26 +286,26 @@ for SpecificChannelsWriter<'channels, PxWriter, Storage, (ChannelInfo, ChannelIn
 }
 
 
-trait PixelsWriter<Pixel> {
+pub trait PixelsWriter<Pixel> {
     type LineWriter: Clone + PixelLineWriter<Pixel>;
     fn writer_for_line_width(&self, width: usize) -> Self::LineWriter;
 }
 // TODO no need to separate PixelsWriter and PixelLineWriter?
-trait PixelLineWriter<Pixel> {
-    fn write_pixel(&mut self, whole_line: &mut [u8], pixel: Pixel) -> UnitResult;
+pub trait PixelLineWriter<Pixel> {
+    fn write_pixel(&mut self, whole_line: &mut [u8], pixel: Pixel);
 }
 
 
 // TODO redundant structs?
 #[derive(Clone, Copy, Debug)]
-struct ChannelWriter {
+pub struct ChannelWriter {
     // px: PhantomData<T>,
     target_sample_type: SampleType,
     start_byte_offset: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
-struct ChannelLineWriter {
+pub struct ChannelLineWriter {
     // px: PhantomData<T>,
     target_sample_type: SampleType,
     next_byte_index: usize,
@@ -344,28 +337,29 @@ impl ChannelLineWriter {
     }
 }
 
-impl<A,B,C> PixelsWriter<(A,B,C)> for (ChannelWriter, ChannelWriter, ChannelWriter)
-    where A: Into<Sample>, B: Into<Sample>, C: Into<Sample>,
+impl<A,B,C,D> PixelsWriter<(A,B,C,D)> for (ChannelWriter, ChannelWriter, ChannelWriter, ChannelWriter)
+    where A: Into<Sample>, B: Into<Sample>, C: Into<Sample>, D: Into<Sample>,
 {
-    type LineWriter = (ChannelLineWriter, ChannelLineWriter, ChannelLineWriter);
+    type LineWriter = (ChannelLineWriter, ChannelLineWriter, ChannelLineWriter, ChannelLineWriter);
 
     fn writer_for_line_width(&self, width: usize) -> Self::LineWriter {
         (
             self.0.line_writer(width),
             self.1.line_writer(width),
             self.2.line_writer(width),
+            self.3.line_writer(width),
         )
     }
 }
 
-impl<A,B,C> PixelLineWriter<(A,B,C)> for (ChannelLineWriter, ChannelLineWriter, ChannelLineWriter)
-    where A: Into<Sample>, B: Into<Sample>, C: Into<Sample>,
+impl<A,B,C,D> PixelLineWriter<(A,B,C,D)> for (ChannelLineWriter, ChannelLineWriter, ChannelLineWriter, ChannelLineWriter)
+    where A: Into<Sample>, B: Into<Sample>, C: Into<Sample>, D: Into<Sample>,
 {
-    fn write_pixel(&mut self, whole_line: &mut [u8], pixel: (A, B, C)) -> UnitResult {
-        self.0.write_next_sample(whole_line, pixel.0)?; // order does not really matter, as these start at independent points in time
-        self.1.write_next_sample(whole_line, pixel.1)?;
-        self.2.write_next_sample(whole_line, pixel.2)?;
-        Ok(())
+    fn write_pixel(&mut self, whole_line: &mut [u8], pixel: (A, B, C, D)) {
+        self.0.write_next_sample(whole_line, pixel.0).expect("failed in memory write"); // order does not really matter, as these start at independent points in time
+        self.1.write_next_sample(whole_line, pixel.1).expect("failed in memory write");
+        self.2.write_next_sample(whole_line, pixel.2).expect("failed in memory write");
+        self.3.write_next_sample(whole_line, pixel.3).expect("failed in memory write");
     }
 }
 
