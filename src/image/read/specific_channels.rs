@@ -13,21 +13,25 @@ use crate::block::chunk::TileCoordinates;
 use std::marker::PhantomData;
 
 
-/// Specify to load only rgb channels and how to store the result.
+/// Specify to load only specific channels and how to store the result.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReadSpecificChannels<Px, Channels, CreatePixelStorage, SetPixel> {
+
+    /// A tuple containing `String` or `&str` elements.
+    /// Each tuple element queries the file for a channel with that name.
     pub channel_names: Channels, // impl ReadChannelNames
 
-    /// A function used to create one rgba pixel storage per layer
+    /// Creates a new pixel storage per layer
     pub create: CreatePixelStorage,
 
-    /// A function used to write the rgba pixels from the file to your image storage
+    /// Writes the pixels from the file to your image storage
     pub set_pixel: SetPixel,
 
     // TODO private
-    pub px: PhantomData<Px>, // required to avoid `unconstrained type parameter`
+    /// Required to avoid `unconstrained type parameter` problems.
+    pub px: PhantomData<Px>,
 }
-
+// TODO rename all "info" to "description" or something else
 // pub type RgbaChannelsInfo = ChannelsInfo<RgbaSampleTypes>; // TODO rename to specific_channels_layout or description, global search for "info"
 
 pub trait ReadFilteredChannels<Pixel> {
@@ -47,8 +51,9 @@ pub trait ChannelsFilter<Pixel> {
 
 
 
-/// Define how to store an rgba pixel in your custom pixel storage.
-/// Can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, RgbaPixel)`].
+/// Define how to store a pixel in your custom pixel storage.
+/// Can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, YourPixel)`].
+/// The Pixel type should be a tuple containing any combination of `f32`, `f16`, or `u32` values.
 pub trait SetPixel<PixelStorage, Pixel> {
 
     /// Will be called for all pixels in the file, resulting in a complete image.
@@ -92,7 +97,7 @@ pub trait PixelLineReader<Pixel> {
     fn read_next_pixel(&mut self, bytes: &[u8]) -> Result<Pixel>;
 }
 
-/// Processes pixel blocks from a file and accumulates them into the rgba channels.
+/// Processes pixel blocks from a file and accumulates them into the specific channels pixel storage.
 pub struct SpecificChannelsReader<'s, Pixel, Channels, Set, Image> where Channels: ReadFilteredChannels<Pixel> {
     storage: Image,
     set_pixel: &'s Set,
@@ -128,7 +133,7 @@ impl<'s, Px, Channels, Setter: 's, Constructor: 's>
     type Reader = SpecificChannelsReader<'s, Px, Channels, Setter, Constructor::Pixels>;
 
     fn create_channels_reader(&'s self, header: &Header) -> Result<Self::Reader> {
-        if header.deep { return Err(Error::invalid("layer has deep data, no flat rgba data")) }
+        if header.deep { return Err(Error::invalid("`SpecificChannels` does not support deep data")) }
 
         let (sample_types, reader) = {
             let mut filter = self.channel_names.filter();

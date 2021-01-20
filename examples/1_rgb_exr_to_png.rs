@@ -13,7 +13,7 @@ fn main() {
         .no_deep_data()
         .largest_resolution_level()
         .rgba_channels(
-        |layer_info: &exrs::ChannelsInfo<exrs::RgbaChannelsInfo>| -> png::RgbaImage {
+        |layer_info: &exrs::RgbaChannelsInfo| -> png::RgbaImage {
                 png::ImageBuffer::new(
                     layer_info.resolution.width() as u32,
                     layer_info.resolution.height() as u32
@@ -27,7 +27,7 @@ fn main() {
 
                     png::Rgba([
                         tone_map(r),
-                        tone_map(r),
+                        tone_map(g),
                         tone_map(b),
                         (a.unwrap_or(1.0) * 255.0) as u8,
                     ])

@@ -15,12 +15,14 @@ pub fn main() {
     // load an rgba image
     // this specific example discards all but the first valid rgb layers and converts all pixels to f32 values
     // TODO optional alpha channel!
-    let image: RgbaImage<Flattened<(Sample, Sample, Sample, Sample)>> = read_first_rgba_layer_from_file(
-        path, create_flattened, set_flattened_pixel // use some predefined rgba pixel vector
+    let image: RgbaImage<Flattened<AnyRgbaPixel>> = read_first_rgba_layer_from_file(
+        path,
+        create_flattened, // ::<(Sample, Sample, Sample, Sample)>,
+        set_flattened_pixel // use some predefined rgba pixel vector
     ).unwrap();
 
     // construct a ~simple~ cropped image
-    let image: Image<Layer<CroppedChannels<RgbaChannels<Flattened<(Sample, Sample, Sample, Sample)>>>>> = Image {
+    let image: Image<Layer<CroppedChannels<RgbaChannels<Flattened<AnyRgbaPixel>>>>> = Image {
         attributes: image.attributes,
 
         // crop each layer
@@ -29,7 +31,9 @@ pub fn main() {
 
             // if has alpha, crop it where alpha is zero
             image.layer_data
-                .crop_where(|(_r, _g, _b, alpha): (Sample, Sample, Sample, Sample)| alpha.3.is_zero())
+                .crop_where(|(_r, _g, _b, alpha): AnyRgbaPixel|
+                    alpha.map(|a| a.is_zero()).unwrap_or(false)
+                )
                 .or_crop_to_1x1_if_empty() // do not remove empty layers from image, because it could result in an image without content
         },
     };

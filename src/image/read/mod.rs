@@ -57,7 +57,6 @@ use crate::image::{AnyImage, RgbaLayersImage, RgbaImage, AnyChannels, FlatSample
 use crate::image::read::image::ReadLayers;
 use crate::image::read::layers::ReadChannels;
 use crate::math::Vec2;
-use crate::image::read::specific_channels::{ChannelsInfo, ReadFilteredChannels, ChannelsFilter};
 
 
 /// All resolution levels, all channels, all layers.
@@ -107,7 +106,7 @@ pub fn read_first_flat_layer_from_file(path: impl AsRef<Path>) -> Result<Image<L
 // FIXME Set and Create should not need to be static
 pub fn read_all_rgba_layers_from_file<Set:'static, Create:'static, Pixels: 'static>(path: impl AsRef<Path>, create: Create, set_pixel: Set)
     -> Result<RgbaLayersImage<Pixels>>
-    where Create: Fn(&ChannelsInfo<RgbaChannelsInfo>) -> Pixels, // TODO type alias? CreateRgbaPixels<Pixels=Pixels>,
+    where Create: Fn(&RgbaChannelsInfo) -> Pixels, // TODO type alias? CreateRgbaPixels<Pixels=Pixels>,
           Set: Fn(&mut Pixels, Vec2<usize>, AnyRgbaPixel), // SetRgbaPixel<Pixels>
 {
     read()
@@ -126,7 +125,7 @@ pub fn read_all_rgba_layers_from_file<Set:'static, Create:'static, Pixels: 'stat
 // FIXME Set and Create should not need to be static
 pub fn read_first_rgba_layer_from_file<Set:'static, Create:'static, Pixels:'static>(path: impl AsRef<Path>, create: Create, set_pixel: Set)
     -> Result<RgbaImage<Pixels>>
-    where Create: Fn(&ChannelsInfo<RgbaChannelsInfo>) -> Pixels, // TODO type alias? CreateRgbaPixels<Pixels=Pixels>,
+    where Create: Fn(&RgbaChannelsInfo) -> Pixels, // TODO type alias? CreateRgbaPixels<Pixels=Pixels>,
           Set: Fn(&mut Pixels, Vec2<usize>, AnyRgbaPixel), // SetRgbaPixel<Pixels>
 {
     read()

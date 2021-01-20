@@ -60,10 +60,10 @@ pub type RgbaLayersImage<Samples> = Image<Layers<RgbaChannels<Samples>>>;
 /// (this is already implemented for all closures of type `Fn(Vec2<usize>) -> RgbaPixel`.
 pub type RgbaImage<Samples> = Image<Layer<RgbaChannels<Samples>>>;
 
-pub type RgbaChannels<Storage> = SpecificChannels<Storage, RgbaChannelsInfo>;
+pub type RgbaChannels<Storage> = SpecificChannels<Storage, RgbaChannelInfos>;
 pub type AnyRgbaPixel = (Sample, Sample, Sample, Option<Sample>);
-pub type RgbaChannelsInfo = (ChannelInfo, ChannelInfo, ChannelInfo, Option<ChannelInfo>); // TODO rename
-
+pub type RgbaChannelInfos = (ChannelInfo, ChannelInfo, ChannelInfo, Option<ChannelInfo>); // TODO rename
+pub type RgbaChannelsInfo = ChannelsInfo<RgbaChannelInfos>;
 
 /// The complete exr image.
 /// `Layers` can be either a single `Layer` or `Layers`.
@@ -363,6 +363,8 @@ impl<SampleStorage, Channels> SpecificChannels<SampleStorage, Channels> {
 }
 
 use crate::prelude::write::channels::IntoSample;
+use crate::image::read::specific_channels::ChannelsInfo;
+
 impl<SampleStorage> SpecificChannels<SampleStorage, (ChannelInfo, ChannelInfo, ChannelInfo, ChannelInfo)>
 {
     pub fn named<A,B,C, D>(channels: (impl Into<Text>, impl Into<Text>, impl Into<Text>, impl Into<Text>), source_samples: SampleStorage) -> Self
@@ -712,7 +714,7 @@ impl<'s, SampleData: 's> AnyChannel<SampleData> {
         let name: Text = name.into();
 
         AnyChannel {
-            quantize_linearly: ChannelInfo::default_quantization_linearity(&name),
+            quantize_linearly: ChannelInfo::guess_quantization_linearity(&name),
             name, sample_data,
             sampling: Vec2(1, 1),
         }
@@ -837,6 +839,20 @@ impl ContainsNaN for f32 {
 
 impl ContainsNaN for f16 {
     fn contains_nan_pixels(&self) -> bool { self.is_nan() }
+}
+
+impl ContainsNaN for u32 {
+    fn contains_nan_pixels(&self) -> bool { false }
+}
+
+impl ContainsNaN for Sample {
+    fn contains_nan_pixels(&self) -> bool {
+        match self {
+            Sample::F16(n) => n.contains_nan_pixels(),
+            Sample::F32(n) => n.contains_nan_pixels(),
+            Sample::U32(n) => n.contains_nan_pixels(),
+        }
+    }
 }
 
 

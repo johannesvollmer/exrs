@@ -123,15 +123,16 @@ impl IntoSample for f32 { const SAMPLE_TYPE: SampleType = SampleType::F32; }
 impl IntoSample for u32 { const SAMPLE_TYPE: SampleType = SampleType::U32; }
 // impl IntoSample for Sample { const SAMPLE_TYPE: SampleType = Sample:; }
 
-impl<'c, Pixel, Channels, Storage: 'c + GetPixel>
+impl<'c, Channels: 'c, Storage: 'c + GetPixel>
 WritableChannels<'c> for SpecificChannels<Storage, Channels>
     // where Self::Writer : ChannelsWriter //SpecificChannelsWriter<'c, Px, Storage, Channels>: ChannelsWriter // Pixels: GetPixel<(A,B,C)>, A: IntoSample, B: IntoSample, C: IntoSample
 where
     // A: Into<Sample>, B: Into<Sample>, C: Into<Sample>, D: Into<Sample>,
-    Channels: WritableChannelsInfo<Pixel>
+    Channels: WritableChannelsInfo<Storage::Pixel>
 {
     fn infer_channel_list(&self) -> ChannelList {
-        let mut vec = smallvec![ self.channels.0.clone(), self.channels.1.clone(), self.channels.2.clone(), self.channels.3.clone()  ];
+        // let mut vec = smallvec![ self.channels.0.clone(), self.channels.1.clone(), self.channels.2.clone(), self.channels.3.clone()  ];
+        let mut vec = self.channels.channel_info_list();
         vec.sort_by_key(|channel:&ChannelInfo| channel.name.clone()); // TODO no clone?
         ChannelList::new(vec)
     }
@@ -142,14 +143,13 @@ where
 
     type Writer = SpecificChannelsWriter<
         'c,
-        // Px,
-        (DefaultChannelWriter, DefaultChannelWriter, DefaultChannelWriter, DefaultChannelWriter),
+        <Channels::PixelsWriterBuilder as PixelsWriterBuilder<Storage::Pixel>>::CreatePixelsWriterForWidth,
         Storage,
-        (ChannelInfo, ChannelInfo, ChannelInfo, ChannelInfo)
+        Channels
     >;
 
     fn create_writer(&'c self, header: &Header) -> Self::Writer {
-        let mut writer_builder = self.channels.writer_builder(); // (None, None, None, None);
+        let mut writer_builder = self.channels.pixel_writer_builder(); // (None, None, None, None);
 
         // this loop is required because the channels in the header are sorted
         // and the channels specified by the user are probably not.
@@ -183,10 +183,11 @@ where
                 target_sample_type: self.channels.3.sample_type
             },
         );*/
-        let pixel_writer = writer_builder.build_writer();
+        let pixel_writer = writer_builder.build_width_aware_pixel_writer();
 
         SpecificChannelsWriter {
-            channels: self, pixel_writer,
+            channels: self,
+            width_aware_pixel_writer: pixel_writer,
             // px: Default::default()
         }
     }
@@ -198,15 +199,17 @@ where
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SpecificChannelsWriter<'channels, PixelWriter, Storage, Channels> {
     channels: &'channels SpecificChannels<Storage, Channels>, // TODO this need not be a reference?? impl writer for specific_channels directly?
-    pixel_writer: PixelWriter,
+    width_aware_pixel_writer: PixelWriter,
     // px: Px,
 }
 
 
 impl<'channels, PxWriter, Storage, Channels> ChannelsWriter
 for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
-    where Storage: GetPixel, PxWriter: PixelsWriter<Storage::Pixel> + Sync,
-          Channels: Sync
+    where
+        PxWriter: CreatePixelsWriterForWidth<Storage::Pixel>,
+        Storage: GetPixel,
+        Channels: Sync
 {
     fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Vec<u8> {
         let block_bytes = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
@@ -217,15 +220,16 @@ for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
         let byte_lines = block_bytes.chunks_exact_mut(line_bytes);
         assert_eq!(byte_lines.len(), block_index.pixel_size.height());
 
-        let initial_line_writer = self.pixel_writer.writer_for_line_width(width);
+        let pixel_writer_for_width = self
+            .width_aware_pixel_writer.pixel_writer_for_line_width(width);
 
         for (y, line_bytes) in byte_lines.enumerate() {
-            let mut line_writer = initial_line_writer.clone();
+            let mut pixel_writer = pixel_writer_for_width.clone();
 
             for x in 0..width {
                 let position = block_index.pixel_position + Vec2(x,y);
                 let pixel = self.channels.storage.get_pixel(position);
-                line_writer.write_pixel(line_bytes, pixel);
+                pixel_writer.write_pixel(line_bytes, pixel);
             }
         }
 
@@ -288,48 +292,65 @@ for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
 }
 
 
-trait WritableChannelsInfo<Pixel> {
-    type Builder: PixelsWriterBuilder<Pixel>;
-    fn writer_builder(&self) -> Self::Builder;
+pub trait WritableChannelsInfo<Pixel>: Sync {
+    type PixelsWriterBuilder: PixelsWriterBuilder<Pixel>;
+    fn pixel_writer_builder(&self) -> Self::PixelsWriterBuilder;
+    fn channel_info_list(&self) -> SmallVec<[ChannelInfo; 5]>;
 }
 
-trait PixelsWriterBuilder<Pixel> {
-    type PixelsWriter: PixelsWriter<Pixel>;
+pub trait WritableChannelInfo: Sync {
+    type SampleWriterBuilder: SampleWriterBuilder;
+    fn sample_writer_builder(&self) -> Self::SampleWriterBuilder;
+    fn channel_info(&self) -> Option<&ChannelInfo>;
+}
+
+pub trait PixelsWriterBuilder<Pixel> {
+    type CreatePixelsWriterForWidth: CreatePixelsWriterForWidth<Pixel>;
     fn with_channel(&mut self, channel: &ChannelInfo, byte_offset: usize);
-    fn build_writer(self) -> Self::PixelsWriter;
+    fn build_width_aware_pixel_writer(self) -> Self::CreatePixelsWriterForWidth;
 }
 
-trait WritableChannelInfo {
-    type ChannelBuilder: SampleWriterBuilder;
-    fn channel_writer_builder(&self) -> Self::ChannelBuilder;
-}
-
-trait SampleWriterBuilder {
-    type SampleWriter: ChannelLineWriter;
+pub trait SampleWriterBuilder {
+    type CreateSampleWriterForWidth: CreateSampleWriterForWidth;
     fn visit_channel(&mut self, channel: &ChannelInfo, byte_offset: usize);
-    fn build(self) -> Self::SampleWriter;
+    fn build_width_aware_sample_writer(self) -> Self::CreateSampleWriterForWidth;
 }
 
 
 impl<A,B,C,D, L,M,N,O> WritableChannelsInfo<(A, B, C, D)> for (L,M,N,O)
     where L: WritableChannelInfo, M: WritableChannelInfo, N: WritableChannelInfo, O: WritableChannelInfo,
+          A: Into<Sample>, B: Into<Sample>, C: Into<Sample>, D: Into<Sample>,
 {
-    type Builder = (L::ChannelBuilder, M::ChannelBuilder, N::ChannelBuilder, O::ChannelBuilder, );
+    type PixelsWriterBuilder = (L::SampleWriterBuilder, M::SampleWriterBuilder, N::SampleWriterBuilder, O::SampleWriterBuilder, );
 
-    fn writer_builder(&self) -> Self::Builder {
+    fn pixel_writer_builder(&self) -> Self::PixelsWriterBuilder {
         (
-            self.0.channel_writer_builder(),
-            self.1.channel_writer_builder(),
-            self.2.channel_writer_builder(),
-            self.3.channel_writer_builder(),
+            self.0.sample_writer_builder(),
+            self.1.sample_writer_builder(),
+            self.2.sample_writer_builder(),
+            self.3.sample_writer_builder(),
         )
+    }
+
+    fn channel_info_list(&self) -> SmallVec<[ChannelInfo; 5]> {
+        [
+            self.0.channel_info(),
+            self.1.channel_info(),
+            self.2.channel_info(),
+            self.3.channel_info(),
+        ]
+            .iter()
+            .flatten()
+            .map(|&chan| chan.clone())
+            .collect()
     }
 }
 
 impl<A,B,C,D, L,M,N,O> PixelsWriterBuilder<(A, B, C, D)> for (L,M,N,O)
     where L: SampleWriterBuilder, M: SampleWriterBuilder, N: SampleWriterBuilder, O: SampleWriterBuilder,
+        A: Into<Sample>, B: Into<Sample>, C: Into<Sample>, D: Into<Sample>,
 {
-    type PixelsWriter = (L::SampleWriter, M::SampleWriter, N::SampleWriter, O::SampleWriter);
+    type CreatePixelsWriterForWidth = (L::CreateSampleWriterForWidth, M::CreateSampleWriterForWidth, N::CreateSampleWriterForWidth, O::CreateSampleWriterForWidth);
 
     fn with_channel(&mut self, channel: &ChannelInfo, byte_offset: usize) {
         self.0.visit_channel(channel, byte_offset);
@@ -338,122 +359,126 @@ impl<A,B,C,D, L,M,N,O> PixelsWriterBuilder<(A, B, C, D)> for (L,M,N,O)
         self.3.visit_channel(channel, byte_offset);
     }
 
-    fn build_writer(self) -> Self::PixelsWriter {
+    fn build_width_aware_pixel_writer(self) -> Self::CreatePixelsWriterForWidth {
         (
-            self.0.build(),
-            self.1.build(),
-            self.2.build(),
-            self.3.build(),
+            self.0.build_width_aware_sample_writer(),
+            self.1.build_width_aware_sample_writer(),
+            self.2.build_width_aware_sample_writer(),
+            self.3.build_width_aware_sample_writer(),
         )
     }
 }
 
 
 impl WritableChannelInfo for ChannelInfo {
-    type ChannelBuilder = DefaultSampleWriterBuilder;
-    fn channel_writer_builder(&self) -> Self::ChannelBuilder {
-        DefaultSampleWriterBuilder {
+    type SampleWriterBuilder = AlwaysSampleWriterBuilder;
+    fn sample_writer_builder(&self) -> Self::SampleWriterBuilder {
+        AlwaysSampleWriterBuilder {
             desired_channel_name: self.name.clone(),
             found_channel: None
         }
     }
+
+    fn channel_info(&self) -> Option<&ChannelInfo> { Some(self) }
 }
 
 impl WritableChannelInfo for Option<ChannelInfo> {
-    type ChannelBuilder = Option<DefaultSampleWriterBuilder>;
-    fn channel_writer_builder(&self) -> Self::ChannelBuilder {
-        self.as_ref().map(|info| info.channel_writer_builder())
+    type SampleWriterBuilder = Option<AlwaysSampleWriterBuilder>;
+    fn sample_writer_builder(&self) -> Self::SampleWriterBuilder {
+        self.as_ref().map(|info| info.sample_writer_builder())
     }
+
+    fn channel_info(&self) -> Option<&ChannelInfo> { self.as_ref() }
 }
 
-struct DefaultSampleWriterBuilder {
+pub struct AlwaysSampleWriterBuilder {
     desired_channel_name: Text,
-    found_channel: Option<DefaultChannelLineWriter>
+    found_channel: Option<AlwaysCreateSampleWriterForWidth>
 }
 
-impl SampleWriterBuilder<> for DefaultSampleWriterBuilder<> {
-    type SampleWriter = DefaultChannelLineWriter;
+impl SampleWriterBuilder for AlwaysSampleWriterBuilder {
+    type CreateSampleWriterForWidth = AlwaysCreateSampleWriterForWidth;
 
     fn visit_channel(&mut self, channel: &ChannelInfo, byte_offset: usize) {
         if self.desired_channel_name == channel.name {
-            self.found_channel = Some(DefaultChannelLineWriter {
+            self.found_channel = Some(AlwaysCreateSampleWriterForWidth {
                 target_sample_type: channel.sample_type,
-                next_byte_index: byte_offset
+                start_byte_offset: byte_offset
             })
         }
     }
 
-    fn build(self) -> Self::SampleWriter {
+    fn build_width_aware_sample_writer(self) -> Self::CreateSampleWriterForWidth {
         self.found_channel.expect("channel has not been extracted properly (bug)")
     }
 }
-impl SampleWriterBuilder<> for Option<DefaultSampleWriterBuilder<>> {
-    type SampleWriter = Option<DefaultChannelLineWriter>;
+
+impl SampleWriterBuilder for Option<AlwaysSampleWriterBuilder> {
+    type CreateSampleWriterForWidth = Option<AlwaysCreateSampleWriterForWidth>;
 
     fn visit_channel(&mut self, channel: &ChannelInfo, byte_offset: usize) {
         if let Some(this) = self { this.visit_channel(channel, byte_offset) }
     }
 
-    fn build(self) -> Self::SampleWriter {
-        self.map(|s| s.build())
+    fn build_width_aware_sample_writer(self) -> Self::CreateSampleWriterForWidth {
+        self.map(|s| s.build_width_aware_sample_writer())
     }
 }
 
 
-
-
-
-pub trait PixelsWriter<Pixel> {
-    type LineWriter: Clone + PixelLineWriter<Pixel>;
-    fn writer_for_line_width(&self, width: usize) -> Self::LineWriter;
+pub trait CreatePixelsWriterForWidth<Pixel>: Sync {
+    type PixelWriter: Clone + PixelWriter<Pixel>;
+    fn pixel_writer_for_line_width(&self, width: usize) -> Self::PixelWriter;
 }
+
+pub trait CreateSampleWriterForWidth: Sync {
+    type SampleWriter: SampleWriter;
+    fn sample_writer_for_width(&self, width: usize) -> Self::SampleWriter;
+}
+
 // TODO no need to separate PixelsWriter and PixelLineWriter?
-pub trait PixelLineWriter<Pixel> {
+pub trait PixelWriter<Pixel> {
     fn write_pixel(&mut self, whole_line: &mut [u8], pixel: Pixel);
 }
 
-trait ChannelWriter {
-    type ChannelLineWriter: ChannelLineWriter;
-    fn line_writer(&self, width: usize) -> Self::ChannelLineWriter;
-}
-
-trait ChannelLineWriter: Clone {
+pub trait SampleWriter: Clone {
     fn write_next_sample<T>(&mut self, line: &mut [u8], sample: T) -> UnitResult where T: Into<Sample>;
 }
 
 // TODO redundant structs?
 #[derive(Clone, Copy, Debug)]
-pub struct DefaultChannelWriter {
+pub struct AlwaysCreateSampleWriterForWidth {
     // px: PhantomData<T>,
     target_sample_type: SampleType,
     start_byte_offset: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct DefaultChannelLineWriter {
+pub struct AlwaysSampleWriter {
     // px: PhantomData<T>,
     target_sample_type: SampleType,
     next_byte_index: usize,
 }
 
-impl ChannelWriter for DefaultChannelWriter {
-    type ChannelLineWriter = DefaultChannelLineWriter;
-    fn line_writer(&self, width: usize) -> DefaultChannelLineWriter {
-        DefaultChannelLineWriter {
+impl CreateSampleWriterForWidth for AlwaysCreateSampleWriterForWidth {
+    type SampleWriter = AlwaysSampleWriter;
+    fn sample_writer_for_width(&self, width: usize) -> AlwaysSampleWriter {
+        AlwaysSampleWriter {
             next_byte_index: self.start_byte_offset * width,
             target_sample_type: self.target_sample_type
         }
     }
 }
-impl ChannelWriter for Option<DefaultChannelWriter> {
-    type ChannelLineWriter = Option<DefaultChannelLineWriter>;
 
-    fn line_writer(&self, width: usize) -> Self::ChannelLineWriter {
-        self.map(|default_writer| default_writer.line_writer(width))
+impl CreateSampleWriterForWidth for Option<AlwaysCreateSampleWriterForWidth> {
+    type SampleWriter = Option<AlwaysSampleWriter>;
+
+    fn sample_writer_for_width(&self, width: usize) -> Self::SampleWriter {
+        self.map(|default_writer| default_writer.sample_writer_for_width(width))
     }
 }
 
-impl ChannelLineWriter for DefaultChannelLineWriter {
+impl SampleWriter for AlwaysSampleWriter {
     fn write_next_sample<T>(&mut self, line: &mut [u8], sample: T) -> UnitResult where T: Into<Sample> {
         let index = self.next_byte_index.min(line.len()); // required for index out of bounds error
         self.next_byte_index += self.target_sample_type.bytes_per_sample();
@@ -470,32 +495,32 @@ impl ChannelLineWriter for DefaultChannelLineWriter {
     }
 }
 
-impl ChannelLineWriter for Option<DefaultChannelLineWriter> {
+impl SampleWriter for Option<AlwaysSampleWriter> {
     fn write_next_sample<T>(&mut self, line: &mut [u8], sample: T) -> UnitResult where T: Into<Sample> {
         if let Some(this) = self { this.write_next_sample(line, sample)?; }
         Ok(())
     }
 }
 
-impl<A,B,C,D, WA,WB,WC,WD> PixelsWriter<(A,B,C,D)> for (WA, WB, WC, WD)
+impl<A,B,C,D, WA,WB,WC,WD> CreatePixelsWriterForWidth<(A, B, C, D)> for (WA, WB, WC, WD)
     where A: Into<Sample>, B: Into<Sample>, C: Into<Sample>, D: Into<Sample>,
-    WA: ChannelWriter, WB: ChannelWriter, WC: ChannelWriter, WD: ChannelWriter,
+          WA: CreateSampleWriterForWidth, WB: CreateSampleWriterForWidth, WC: CreateSampleWriterForWidth, WD: CreateSampleWriterForWidth,
 {
-    type LineWriter = (WA::ChannelLineWriter, WB::ChannelLineWriter, WC::ChannelLineWriter, WD::ChannelLineWriter);
+    type PixelWriter = (WA::SampleWriter, WB::SampleWriter, WC::SampleWriter, WD::SampleWriter);
 
-    fn writer_for_line_width(&self, width: usize) -> Self::LineWriter {
+    fn pixel_writer_for_line_width(&self, width: usize) -> Self::PixelWriter {
         (
-            self.0.line_writer(width),
-            self.1.line_writer(width),
-            self.2.line_writer(width),
-            self.3.line_writer(width),
+            self.0.sample_writer_for_width(width),
+            self.1.sample_writer_for_width(width),
+            self.2.sample_writer_for_width(width),
+            self.3.sample_writer_for_width(width),
         )
     }
 }
 
-impl<A,B,C,D, WA,WB,WC,WD> PixelLineWriter<(A,B,C,D)> for (WA, WB, WC, WD)
+impl<A,B,C,D, WA,WB,WC,WD> PixelWriter<(A, B, C, D)> for (WA, WB, WC, WD)
     where A: Into<Sample>, B: Into<Sample>, C: Into<Sample>, D: Into<Sample>,
-    WA: ChannelLineWriter, WB: ChannelLineWriter, WC: ChannelLineWriter, WD: ChannelLineWriter,
+          WA: SampleWriter, WB: SampleWriter, WC: SampleWriter, WD: SampleWriter,
 {
     fn write_pixel(&mut self, whole_line: &mut [u8], pixel: (A, B, C, D)) {
         self.0.write_next_sample(whole_line, pixel.0).expect("failed in memory write"); // order does not really matter, as these start at independent points in time

@@ -15,7 +15,7 @@ fn main() {
             |info: &ChannelsInfo<_>| vec![vec![(0.0, 0.0, 0.0, 0.0); info.resolution.width()]; info.resolution.height()],
 
             // all samples will be converted to f32 (you can also use a dynamic `Sample` of `f32` instead here)
-            |vec, position, (x,y,z,a): (f32, f32, f32, Option<f32>)| {
+            |vec: &mut Vec<Vec<(f32,f32,f32,f32)>>, position: Vec2<usize>, (x,y,z,a): (f32, f32, f32, Option<f32>)| { // TODO infer position type
                 vec[position.y()][position.x()] = (x,y,z, a.unwrap_or(1.0))
             }
         )
@@ -31,7 +31,7 @@ fn main() {
     for layer in &image.layer_data {
         println!(
             "bottom left color of layer `{}`: {:?}",
-            layer.attributes.layer_name.unwrap_or_default(),
+            layer.attributes.layer_name.clone().unwrap_or_default(),
             layer.channel_data.storage.first().unwrap()
         )
     }

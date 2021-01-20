@@ -888,7 +888,9 @@ impl SampleType {
 }
 
 impl ChannelInfo {
-    pub fn default_quantization_linearity(name: &Text) -> bool {
+    /// Choose whether to compress samples linearly or not, based on the channel name.
+    /// Luminance-based channels will be compressed differently than linear data such as alpha.
+    pub fn guess_quantization_linearity(name: &Text) -> bool {
         !(
             name.eq_case_insensitive("R") || name.eq_case_insensitive("G") ||
                 name.eq_case_insensitive("B") || name.eq_case_insensitive("L") ||
@@ -901,7 +903,7 @@ impl ChannelInfo {
     /// Automatically chooses the linearity for compression based on the channel name.
     pub fn named(name: impl Into<Text>, sample_type: SampleType) -> Self {
         let name = name.into();
-        let linearity = Self::default_quantization_linearity(&name);
+        let linearity = Self::guess_quantization_linearity(&name);
         Self::new(name, sample_type, linearity)
     }
 

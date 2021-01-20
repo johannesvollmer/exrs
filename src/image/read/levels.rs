@@ -69,7 +69,12 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     {
         self.specific_channels(("R", "G", "B"), create, set_pixel)
     }*/
-
+    /// Read only layers that contain rgba channels. Skips any other channels in the layer.
+    /// `Create` can be a closure of type [`Fn(&RgbaChannelsInfo) -> YourPixelStorage`].
+    /// `Set` can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, RgbaPixel)`].
+    /// Throws an error for images with deep data.
+    ///
+    /// Use `specific_channels` or `all_channels` if you want to read something other than rgba.
     pub fn rgba_channels<Px, Create, Set>(
         self, create: Create, set_pixel: Set
     ) -> ReadSpecificChannels<Px, (&'static str,&'static str,&'static str,&'static str), Create, Set>
@@ -87,6 +92,8 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     /// `Create` can be a closure of type [`Fn(&ChannelsInfo) -> YourPixelStorage`].
     /// `Set` can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, YourPixel)`].
     /// The `set_pixel` closure must define the pixel type, for example with `(f32, f32, f32, Option<f16>)`.
+    /// The Pixel type should be a tuple containing any combination of `f32`, `f16`, or `u32` values.
+    ///
     // TODO example for pixel s
     /// Throws an error for images with deep data.
     pub fn specific_channels<Px, Channels, Create, Set>(
