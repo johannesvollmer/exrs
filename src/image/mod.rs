@@ -362,13 +362,23 @@ impl<SampleStorage, Channels> SpecificChannels<SampleStorage, Channels> {
     }
 }
 
-use crate::prelude::write::channels::IntoSample;
 use crate::image::read::specific_channels::ChannelsInfo;
+
+pub trait IntoSample: Into<Sample> { const SAMPLE_TYPE: SampleType; }
+impl IntoSample for f16 { const SAMPLE_TYPE: SampleType = SampleType::F16; }
+impl IntoSample for f32 { const SAMPLE_TYPE: SampleType = SampleType::F32; }
+impl IntoSample for u32 { const SAMPLE_TYPE: SampleType = SampleType::U32; }
+// impl IntoSample for Sample { const SAMPLE_TYPE: SampleType = Sample:; }
+
 
 impl<SampleStorage> SpecificChannels<SampleStorage, (ChannelInfo, ChannelInfo, ChannelInfo, ChannelInfo)>
 {
-    pub fn named<A,B,C, D>(channels: (impl Into<Text>, impl Into<Text>, impl Into<Text>, impl Into<Text>), source_samples: SampleStorage) -> Self
-        where A: IntoSample, B: IntoSample, C: IntoSample, D: IntoSample, SampleStorage: GetPixel<Pixel=(A,B,C,D)>
+    pub fn named<A,B,C, D>(
+        channels: (impl Into<Text>, impl Into<Text>, impl Into<Text>, impl Into<Text>),
+        source_samples: SampleStorage
+    ) -> Self
+        where A: IntoSample, B: IntoSample, C: IntoSample, D: IntoSample,
+              SampleStorage: GetPixel<Pixel=(A,B,C,D)>,
     {
         SpecificChannels {
             channels: (

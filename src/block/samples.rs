@@ -99,6 +99,12 @@ impl Default for Sample {
 impl From<f16> for Sample { #[inline] fn from(f: f16) -> Self { Sample::F16(f) } }
 impl From<f32> for Sample { #[inline] fn from(f: f32) -> Self { Sample::F32(f) } }
 impl From<u32> for Sample { #[inline] fn from(f: u32) -> Self { Sample::U32(f) } }
+
+impl<T> From<Option<T>> for Sample where T: Into<Sample> + Default {
+    #[inline] fn from(num: Option<T>) -> Self { num.unwrap_or_default().into() }
+}
+
+
 impl From<Sample> for f16 { #[inline] fn from(s: Sample) -> Self { s.to_f16() } }
 impl From<Sample> for f32 { #[inline] fn from(s: Sample) -> Self { s.to_f32() } }
 impl From<Sample> for u32 { #[inline] fn from(s: Sample) -> Self { s.to_u32() } }

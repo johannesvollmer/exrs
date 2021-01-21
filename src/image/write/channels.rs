@@ -1,4 +1,6 @@
 //! How to read arbitrary channels and rgb channels.
+// TODO this module can be simplified A LOT by using SmallVec<Sample> objects, which is anyways how it works,
+// TODO as the internal sample type always differs from the user-specified concrete type
 
 use crate::meta::attribute::{LevelMode, ChannelInfo, SampleType, ChannelList, Text};
 use smallvec::SmallVec;
@@ -9,7 +11,6 @@ use crate::math::{Vec2, RoundingMode};
 use crate::io::{Data};
 use crate::block::samples::Sample;
 use crate::image::write::samples::{WritableSamples, SamplesWriter};
-use crate::prelude::{f16};
 use crate::error::UnitResult;
 
 // TODO TupleChannelsWriter: Fn(Vec2<usize>) -> impl IntoSamples, where IntoSamples is implemented for tuples, inferring the channel type
@@ -98,17 +99,6 @@ pub struct AnyChannelsWriter<SamplesWriter> {
 
 impl<Samples> ChannelsWriter for AnyChannelsWriter<Samples> where Samples: SamplesWriter {
     fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Vec<u8> {
-        /*let byte_count = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
-        let mut block_bytes = vec![0_u8; byte_count];
-
-        for (byte_range, line_index) in LineIndex::lines_in_block(block_index, header) {
-            self.channels.get(line_index.channel).unwrap().extract_line(LineRefMut { // TODO subsampling
-                value: &mut block_bytes[byte_range],
-                location: line_index,
-            });
-        }
-
-        block_bytes*/
         UncompressedBlock::collect_block_from_lines(header, block_index, |line_ref| {
             self.channels[line_ref.location.channel].extract_line(line_ref)
         })
@@ -117,21 +107,13 @@ impl<Samples> ChannelsWriter for AnyChannelsWriter<Samples> where Samples: Sampl
 
 
 
-pub trait IntoSample: Into<Sample> { const SAMPLE_TYPE: SampleType; }
-impl IntoSample for f16 { const SAMPLE_TYPE: SampleType = SampleType::F16; }
-impl IntoSample for f32 { const SAMPLE_TYPE: SampleType = SampleType::F32; }
-impl IntoSample for u32 { const SAMPLE_TYPE: SampleType = SampleType::U32; }
-// impl IntoSample for Sample { const SAMPLE_TYPE: SampleType = Sample:; }
-
-impl<'c, Channels: 'c, Storage: 'c + GetPixel>
+impl<'c, Channels, Storage>
 WritableChannels<'c> for SpecificChannels<Storage, Channels>
-    // where Self::Writer : ChannelsWriter //SpecificChannelsWriter<'c, Px, Storage, Channels>: ChannelsWriter // Pixels: GetPixel<(A,B,C)>, A: IntoSample, B: IntoSample, C: IntoSample
 where
-    // A: Into<Sample>, B: Into<Sample>, C: Into<Sample>, D: Into<Sample>,
-    Channels: WritableChannelsInfo<Storage::Pixel>
+    Channels: 'c + WritableChannelsInfo<Storage::Pixel>,
+    Storage: 'c + GetPixel
 {
     fn infer_channel_list(&self) -> ChannelList {
-        // let mut vec = smallvec![ self.channels.0.clone(), self.channels.1.clone(), self.channels.2.clone(), self.channels.3.clone()  ];
         let mut vec = self.channels.channel_info_list();
         vec.sort_by_key(|channel:&ChannelInfo| channel.name.clone()); // TODO no clone?
         ChannelList::new(vec)
@@ -157,32 +139,10 @@ where
         // the resulting tuple will have non-increasing start indices from first to last tuple element
         let mut byte_offset = 0;
         for channel in &header.channels.list {
-            // if channel.name == self.channels.0.name { byte_offsets.0 = Some(byte_offset); }
-            // if channel.name == self.channels.1.name { byte_offsets.1 = Some(byte_offset); }
-            // if channel.name == self.channels.2.name { byte_offsets.2 = Some(byte_offset); }
-            // if channel.name == self.channels.3.name { byte_offsets.3 = Some(byte_offset); }
             writer_builder.with_channel(&channel, byte_offset);
             byte_offset += channel.sample_type.bytes_per_sample();
         }
 
-        /*let pixel_writer = (
-            DefaultChannelWriter {
-                start_byte_offset: byte_offsets.0.expect("internal channel mismatch"),
-                target_sample_type: self.channels.0.sample_type
-            },
-            DefaultChannelWriter {
-                start_byte_offset: byte_offsets.1.expect("internal channel mismatch"),
-                target_sample_type: self.channels.1.sample_type
-            },
-            DefaultChannelWriter {
-                start_byte_offset: byte_offsets.2.expect("internal channel mismatch"),
-                target_sample_type: self.channels.2.sample_type
-            },
-            DefaultChannelWriter {
-                start_byte_offset: byte_offsets.3.expect("internal channel mismatch"),
-                target_sample_type: self.channels.3.sample_type
-            },
-        );*/
         let pixel_writer = writer_builder.build_width_aware_pixel_writer();
 
         SpecificChannelsWriter {
@@ -234,60 +194,6 @@ for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
         }
 
         block_bytes
-
-        /*// alpha would always start at 0, then comes b, g, r.
-        let RgbaSampleTypes(r_type, g_type, b_type, a_type) = self.rgba.sample_types;
-        let r_line_bytes = width * r_type.bytes_per_sample();
-        let g_line_bytes = width * g_type.bytes_per_sample();
-        let b_line_bytes = width * b_type.bytes_per_sample();
-        let a_line_bytes = a_type
-            .map(|a_type| width * a_type.bytes_per_sample())
-            .unwrap_or(0);
-
-        let mut block_bytes = vec![0_u8; block_bytes];
-
-        let y_coordinates = 0..block_index.pixel_size.height();
-        let byte_lines = block_bytes.chunks_exact_mut(line_bytes);
-        for (y, line_bytes) in y_coordinates.zip(byte_lines) {
-
-            let (a, line_bytes) = line_bytes.split_at_mut(a_line_bytes);
-            let (b, line_bytes) = line_bytes.split_at_mut(b_line_bytes);
-            let (g, line_bytes) = line_bytes.split_at_mut(g_line_bytes);
-            let (r, line_bytes) = line_bytes.split_at_mut(r_line_bytes);
-            debug_assert!(line_bytes.is_empty(), "some bytes are left after dividing input for rgba channels");
-
-            fn sample_writer(sample_type: SampleType, mut write: impl Write) -> impl FnMut(Sample) {
-                use crate::io::Data;
-
-                move |sample| {
-                    match sample_type {
-                        SampleType::F16 => sample.to_f16().write(&mut write).expect("write to buffer error"),
-                        SampleType::F32 => sample.to_f32().write(&mut write).expect("write to buffer error"),
-                        SampleType::U32 => sample.to_u32().write(&mut write).expect("write to buffer error"),
-                    }
-                }
-            }
-
-            let mut write_r = sample_writer(r_type, Cursor::new(r));
-            let mut write_g = sample_writer(g_type, Cursor::new(g));
-            let mut write_b = sample_writer(b_type, Cursor::new(b));
-            let mut write_a = a_type.map(|a_type| sample_writer(a_type, Cursor::new(a)));
-
-            for x in 0..width {
-                let position = block_index.pixel_position + Vec2(x,y);
-                let pixel: RgbaPixel = self.rgba.storage.get_pixel(position).into();
-
-                write_r(pixel.red);
-                write_g(pixel.green);
-                write_b(pixel.blue);
-
-                if let Some(write_a) = &mut write_a {
-                    write_a(pixel.alpha_or_1()); // no alpha channel provided = not transparent
-                }
-            }
-        }
-
-        block_bytes*/
     }
 }
 
@@ -495,6 +401,9 @@ impl SampleWriter for AlwaysSampleWriter {
     }
 }
 
+// Note: If the channels info is Some, but no sample is provided,
+// the default value is picked, because of `Sample::from(Option<impl IntoSample>)`.
+// If the channels info is None, but the value is provided, it is ignored inside this trait implementation.
 impl SampleWriter for Option<AlwaysSampleWriter> {
     fn write_next_sample<T>(&mut self, line: &mut [u8], sample: T) -> UnitResult where T: Into<Sample> {
         if let Some(this) = self { this.write_next_sample(line, sample)?; }
@@ -502,11 +411,11 @@ impl SampleWriter for Option<AlwaysSampleWriter> {
     }
 }
 
-impl<A,B,C,D, WA,WB,WC,WD> CreatePixelsWriterForWidth<(A, B, C, D)> for (WA, WB, WC, WD)
+impl<A,B,C,D, L, M, N, O> CreatePixelsWriterForWidth<(A, B, C, D)> for (L, M, N, O)
     where A: Into<Sample>, B: Into<Sample>, C: Into<Sample>, D: Into<Sample>,
-          WA: CreateSampleWriterForWidth, WB: CreateSampleWriterForWidth, WC: CreateSampleWriterForWidth, WD: CreateSampleWriterForWidth,
+          L: CreateSampleWriterForWidth, M: CreateSampleWriterForWidth, N: CreateSampleWriterForWidth, O: CreateSampleWriterForWidth,
 {
-    type PixelWriter = (WA::SampleWriter, WB::SampleWriter, WC::SampleWriter, WD::SampleWriter);
+    type PixelWriter = (L::SampleWriter, M::SampleWriter, N::SampleWriter, O::SampleWriter);
 
     fn pixel_writer_for_line_width(&self, width: usize) -> Self::PixelWriter {
         (
@@ -518,9 +427,9 @@ impl<A,B,C,D, WA,WB,WC,WD> CreatePixelsWriterForWidth<(A, B, C, D)> for (WA, WB,
     }
 }
 
-impl<A,B,C,D, WA,WB,WC,WD> PixelWriter<(A, B, C, D)> for (WA, WB, WC, WD)
+impl<A,B,C,D, L, M, N, O> PixelWriter<(A, B, C, D)> for (L, M, N, O)
     where A: Into<Sample>, B: Into<Sample>, C: Into<Sample>, D: Into<Sample>,
-          WA: SampleWriter, WB: SampleWriter, WC: SampleWriter, WD: SampleWriter,
+          L: SampleWriter, M: SampleWriter, N: SampleWriter, O: SampleWriter,
 {
     fn write_pixel(&mut self, whole_line: &mut [u8], pixel: (A, B, C, D)) {
         self.0.write_next_sample(whole_line, pixel.0).expect("failed in memory write"); // order does not really matter, as these start at independent points in time
@@ -548,8 +457,50 @@ impl<A,B,C,D, WA,WB,WC,WD> PixelWriter<(A, B, C, D)> for (WA, WB, WC, WD)
 
 
 
+#[cfg(test)]
+pub mod test {
+    use crate::image::write::channels::WritableChannels;
+    use crate::image::SpecificChannels;
+    use crate::math::Vec2;
+    use crate::prelude::{f16, Sample};
+    use crate::image::read::specific_channels::pixels::Flattened;
+    use crate::meta::attribute::{ChannelInfo, SampleType};
+
+    #[test]
+    fn compiles(){
+        let x = 3_f32;
+        let y = f16::from_f32(4.0);
+        let z = 2_u32;
+        let s = 1.3_f32;
+        let px = (x,y,z,s);
+
+        assert_is_writable_channels(
+            SpecificChannels::named(("R", "G", "B", "A"), |_pos| px)
+        );
+
+        assert_is_writable_channels(SpecificChannels::named(
+            ("R", "G", "B", "A"),
+            Flattened::new((3, 2), vec![px,px,px, px,px,px])
+        ));
+
+        let px = (3_f32, f16::ONE, Option::<f16>::None, Some(4_f32));
+        assert_is_writable_channels(SpecificChannels::new(
+            (
+                ChannelInfo::named("x", SampleType::F32),
+                ChannelInfo::named("y", SampleType::F16),
+                Some(ChannelInfo::named("z", SampleType::U32)),
+                Some(ChannelInfo::named("p", SampleType::F32)),
+            ),
+
+            Flattened::new((3, 2), vec![px,px,px, px,px,px])
+        ));
 
 
+
+        fn assert_is_writable_channels<'s>(_channels: impl WritableChannels<'s>){}
+
+    }
+}
 
 
 

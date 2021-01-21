@@ -1,6 +1,9 @@
 //! How to read arbitrary but specific selection of arbitrary channels.
 //! This is not a zero-cost abstraction.
 // this module uses too many traits in order to abstract over many possible tuples of channels
+// TODO this module can be simplified A LOT by using SmallVec<Sample> objects, which is anyways how it works,
+// TODO as the internal sample type always differs from the user-specified concrete type
+
 
 use crate::image::*;
 use crate::meta::header::{Header};

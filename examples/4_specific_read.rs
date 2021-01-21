@@ -12,11 +12,11 @@ fn main() {
         .largest_resolution_level()
         .specific_channels(
             ("X", "Y", "Z", "A"),
-            |info: &ChannelsInfo<_>| vec![vec![(0.0, 0.0, 0.0, 0.0); info.resolution.width()]; info.resolution.height()],
+            |info: &ChannelsInfo<_>| vec![vec![(0.0, 0.0, 0.0, f16::ZERO); info.resolution.width()]; info.resolution.height()],
 
             // all samples will be converted to f32 (you can also use a dynamic `Sample` of `f32` instead here)
-            |vec: &mut Vec<Vec<(f32,f32,f32,f32)>>, position: Vec2<usize>, (x,y,z,a): (f32, f32, f32, Option<f32>)| { // TODO infer position type
-                vec[position.y()][position.x()] = (x,y,z, a.unwrap_or(1.0))
+            |vec, position, (x,y,z,a): (f32, f32, f32, Option<f16>)| { // TODO infer position type
+                vec[position.y()][position.x()] = (x,y,z, a.unwrap_or(f16::ONE))
             }
         )
         .all_layers()
