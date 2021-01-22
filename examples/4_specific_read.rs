@@ -11,11 +11,11 @@ fn main() {
     let image = read().no_deep_data()
         .largest_resolution_level()
         .specific_channels(
-            ("X", "Y", "Z", "A"),
-            |info: &ChannelsInfo<_>| vec![vec![(0.0, 0.0, 0.0, f16::ZERO); info.resolution.width()]; info.resolution.height()],
+            ("A", "X", "Y", "Z"),
+            |info| vec![vec![(f16::ZERO, 0.0, 0.0, 0.0); info.resolution.width()]; info.resolution.height()],
 
             // all samples will be converted to f32 (you can also use a dynamic `Sample` of `f32` instead here)
-            |vec, position, (x,y,z,a): (f32, f32, f32, Option<f16>)| { // TODO infer position type
+            |vec, position, (a, x,y,z): (Option<f16>, f32, f32, f32)| { // TODO infer position type
                 vec[position.y()][position.x()] = (x,y,z, a.unwrap_or(f16::ONE))
             }
         )
@@ -30,7 +30,7 @@ fn main() {
     // output the average value for each channel of each layer
     for layer in &image.layer_data {
         println!(
-            "bottom left color of layer `{}`: {:?}",
+            "bottom left color of layer `{}`: (a,x,y,z) = {:?}",
             layer.attributes.layer_name.clone().unwrap_or_default(),
             layer.channel_data.storage.first().unwrap()
         )
