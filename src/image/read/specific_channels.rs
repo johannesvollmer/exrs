@@ -96,12 +96,6 @@ pub trait DesiredSample: Sized {
     fn create_channel_pixel_reader(info: Option<ChannelIndexInfo>) -> Result<(Self::ChannelInfo, Self::SampleReader)>;
 }
 
-impl<A,B,C,D> DesiredPixel for (A,B,C,D)
-    where A: DesiredSample, B: DesiredSample, C: DesiredSample, D: DesiredSample,
-{
-    type ChannelNames = (Text, Text, Text, Text);
-    type ChannelsInfo = (A::ChannelInfo, B::ChannelInfo, C::ChannelInfo, D::ChannelInfo);
-}
 
 
 /// Processes pixel blocks from a file and accumulates them into the specific channels pixel storage.
@@ -335,6 +329,34 @@ impl ChannelFilter {
     }
 }
 
+
+/*macro_rules! impl_pixel_for_tuple {
+    (
+        $( $T: ident,)*  | $( $Text: ident,)* |
+    )
+    =>
+    {
+
+        // implement DesiredPixel for (A,B,C) where A/B/C: DesiredSample
+        impl<  $($T,)*  > DesiredPixel for (  $($T,)*  ) where  $($T :DesiredSample,)*
+        {
+            type ChannelNames = (  $($Text,)*  );
+            type ChannelsInfo = (  $($T ::ChannelInfo,)*  );
+        }
+
+
+    };
+}
+
+impl_pixel_for_tuple!{ A,B,C,D, | Text,Text,Text,Text, | }*/
+
+impl<A,B,C,D> DesiredPixel for (A,B,C,D)
+    where A: DesiredSample, B: DesiredSample, C: DesiredSample, D: DesiredSample,
+{
+    type ChannelNames = (Text, Text, Text, Text);
+    type ChannelsInfo = (A::ChannelInfo, B::ChannelInfo, C::ChannelInfo, D::ChannelInfo);
+}
+
 impl<A,B,C,D> ReadFilteredChannels<(A,B,C,D), (A::ChannelInfo, B::ChannelInfo, C::ChannelInfo, D::ChannelInfo)>
 for (Text, Text, Text, Text) where
     A: DesiredSample, B: DesiredSample, C: DesiredSample, D: DesiredSample,
@@ -374,8 +396,6 @@ for (ChannelFilter, ChannelFilter, ChannelFilter, ChannelFilter)
         ))
     }
 }
-
-
 
 impl<A,B,C,D> PixelReader<(A,B,C,D)> for (
     <A as DesiredSample>::SampleReader,
