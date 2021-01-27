@@ -53,12 +53,12 @@ pub mod specific_channels;
 use crate::error::{Result};
 use crate::image::read::samples::{ReadFlatSamples};
 use std::path::Path;
-use crate::image::{AnyImage, AnyChannels, SpecificChannels, FlatSamples, Image, Layer, FlatImage, PixelLayersImage};
+use crate::image::{AnyImage, AnyChannels, FlatSamples, Image, Layer, FlatImage, PixelLayersImage};
 use crate::image::read::image::ReadLayers;
 use crate::image::read::layers::ReadChannels;
 use crate::math::Vec2;
 use crate::image::read::specific_channels::DesiredSample;
-use crate::prelude::{ChannelsInfo, PixelImage};
+use crate::prelude::{ChannelsDescription, PixelImage};
 
 
 /// All resolution levels, all channels, all layers.
@@ -110,10 +110,10 @@ pub fn read_first_flat_layer_from_file(path: impl AsRef<Path>) -> Result<Image<L
 pub fn read_all_rgba_layers_from_file<R,G,B,A, Set:'static, Create:'static, Pixels: 'static>(
     path: impl AsRef<Path>, create: Create, set_pixel: Set
 )
-    -> Result<PixelLayersImage<Pixels, (R::ChannelInfo, G::ChannelInfo, B::ChannelInfo, A::ChannelInfo)>>
+    -> Result<PixelLayersImage<Pixels, (R::ChannelDescription, G::ChannelDescription, B::ChannelDescription, A::ChannelDescription)>>
     where
         R: DesiredSample, G: DesiredSample, B: DesiredSample, A: DesiredSample,
-        Create: Fn(&ChannelsInfo<(R::ChannelInfo, G::ChannelInfo, B::ChannelInfo, A::ChannelInfo)>) -> Pixels, // TODO type alias? CreateRgbaPixels<Pixels=Pixels>,
+        Create: Fn(&ChannelsDescription<(R::ChannelDescription, G::ChannelDescription, B::ChannelDescription, A::ChannelDescription)>) -> Pixels, // TODO type alias? CreateRgbaPixels<Pixels=Pixels>,
         Set: Fn(&mut Pixels, Vec2<usize>, (R,G,B,A)), // SetRgbaPixel<Pixels>
 {
     read()
@@ -133,10 +133,10 @@ pub fn read_all_rgba_layers_from_file<R,G,B,A, Set:'static, Create:'static, Pixe
 pub fn read_first_rgba_layer_from_file<R,G,B,A, Set:'static, Create:'static, Pixels: 'static>(
     path: impl AsRef<Path>, create: Create, set_pixel: Set
 )
-    -> Result<PixelImage<Pixels, (R::ChannelInfo, G::ChannelInfo, B::ChannelInfo, A::ChannelInfo)>>
+    -> Result<PixelImage<Pixels, (R::ChannelDescription, G::ChannelDescription, B::ChannelDescription, A::ChannelDescription)>>
     where
         R: DesiredSample, G: DesiredSample, B: DesiredSample, A: DesiredSample,
-        Create: Fn(&ChannelsInfo<(R::ChannelInfo, G::ChannelInfo, B::ChannelInfo, A::ChannelInfo)>) -> Pixels, // TODO type alias? CreateRgbaPixels<Pixels=Pixels>,
+        Create: Fn(&ChannelsDescription<(R::ChannelDescription, G::ChannelDescription, B::ChannelDescription, A::ChannelDescription)>) -> Pixels, // TODO type alias? CreateRgbaPixels<Pixels=Pixels>,
         Set: Fn(&mut Pixels, Vec2<usize>, (R,G,B,A)), // SetRgbaPixel<Pixels>
 {
     read()

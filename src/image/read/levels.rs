@@ -6,7 +6,7 @@ use crate::meta::header::{Header};
 use crate::error::{Result, UnitResult};
 use crate::block::lines::LineRef;
 use crate::math::Vec2;
-use crate::meta::attribute::{ChannelInfo, LevelMode};
+use crate::meta::attribute::{ChannelDescription, LevelMode};
 use crate::image::read::any_channels::{SamplesReader, ReadSamples, ReadAnyChannels};
 use crate::block::chunk::TileCoordinates;
 use crate::image::read::specific_channels::*;
@@ -70,8 +70,8 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
         self.specific_channels(("R", "G", "B"), create, set_pixel)
     }*/
     /// Read only layers that contain rgba channels. Skips any other channels in the layer.
-    /// `Create` can be a closure of type [`Fn(&RgbaChannelsInfo) -> YourPixelStorage`].
-    /// `Set` can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, RgbaPixel)`].
+    /// `Create` can be a closure of type [`Fn(&ChannelsDescription<_>) -> YourPixelStorage`].
+    /// `Set` can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, YourPixel)`].
     /// Throws an error for images with deep data.
     ///
     /// Use `specific_channels` or `all_channels` if you want to read something other than rgba.
@@ -80,7 +80,7 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     ) -> ReadSpecificChannels<(R,G,B,A), Create, Set>
         where
             R: DesiredSample, G: DesiredSample, B: DesiredSample, A: DesiredSample,
-            Create: Fn(&ChannelsInfo<(R::ChannelInfo, G::ChannelInfo, B::ChannelInfo, A::ChannelInfo)>) -> Pixels,
+            Create: Fn(&ChannelsDescription<(R::ChannelDescription, G::ChannelDescription, B::ChannelDescription, A::ChannelDescription)>) -> Pixels,
             Set:  Fn(&mut Pixels, Vec2<usize>, (R,G,B,A)),
     {
         self.specific_channels(
@@ -92,7 +92,7 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     // TODO FIXME explain this in the guide!
 
     /// Read only layers that contain the specified channels. Skips any other channels in the layer.
-    /// `Create` can be a closure of type [`Fn(&ChannelsInfo) -> YourPixelStorage`].
+    /// `Create` can be a closure of type [`Fn(&ChannelsDescription<_>) -> YourPixelStorage`].
     /// `Set` can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, YourPixel)`].
     /// The `set_pixel` closure must define the pixel type, for example with `(f32, f32, f32, Option<f16>)`.
     /// The Pixel type should be a tuple containing any combination of `f32`, `f16`, or `u32` values.
@@ -117,7 +117,7 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
             Pixel: DesiredPixel,
             /*Create: CreatePixels<Px::ChannelsInfo>,
             Set: SetPixel<Create::Pixels, Px>*/
-            Create: Fn(&ChannelsInfo<Pixel::ChannelsInfo>) -> PixelStorage,
+            Create: Fn(&ChannelsDescription<Pixel::ChannelsDescription>) -> PixelStorage,
             Set:  Fn(&mut PixelStorage, Vec2<usize>, Pixel),
 
     {
@@ -168,14 +168,14 @@ pub trait ReadSamplesLevel {
     type Reader: SamplesReader;
 
     /// Create a single reader for a single resolution level
-    fn create_samples_level_reader(&self, header: &Header, channel: &ChannelInfo, level: Vec2<usize>, resolution: Vec2<usize>) -> Result<Self::Reader>;
+    fn create_samples_level_reader(&self, header: &Header, channel: &ChannelDescription, level: Vec2<usize>, resolution: Vec2<usize>) -> Result<Self::Reader>;
 }
 
 
 impl<S: ReadSamplesLevel> ReadSamples for ReadAllLevels<S> {
     type Reader = AllLevelsReader<S::Reader>;
 
-    fn create_sample_reader(&self, header: &Header, channel: &ChannelInfo) -> Result<Self::Reader> {
+    fn create_sample_reader(&self, header: &Header, channel: &ChannelDescription) -> Result<Self::Reader> {
         let data_size = header.layer_size / channel.sampling;
 
         let levels = {

@@ -311,7 +311,7 @@ mod test {
     #[test]
     fn roundtrip_any_sample_type(){
         for &sample_type in &[SampleType::F16, SampleType::F32, SampleType::U32] {
-            let channel = ChannelInfo {
+            let channel = ChannelDescription {
                 sample_type,
 
                 name: Default::default(),
@@ -332,7 +332,7 @@ mod test {
 
     #[test]
     fn roundtrip_two_channels(){
-        let channel = ChannelInfo {
+        let channel = ChannelDescription {
             sample_type: SampleType::F16,
 
             name: Default::default(),
@@ -340,7 +340,7 @@ mod test {
             sampling: Vec2(1,1)
         };
 
-        let channel2 = ChannelInfo {
+        let channel2 = ChannelDescription {
             sample_type: SampleType::F32,
 
             name: Default::default(),
@@ -363,7 +363,7 @@ mod test {
     #[test]
     fn roundtrip_seven_channels(){
         let channels = ChannelList::new(smallvec![
-            ChannelInfo {
+            ChannelDescription {
                 sample_type: SampleType::F32,
 
                 name: Default::default(),
@@ -371,7 +371,7 @@ mod test {
                 sampling: Vec2(1,1)
             },
 
-            ChannelInfo {
+            ChannelDescription {
                 sample_type: SampleType::F32,
 
                 name: Default::default(),
@@ -379,7 +379,7 @@ mod test {
                 sampling: Vec2(1,1)
             },
 
-            ChannelInfo {
+            ChannelDescription {
                 sample_type: SampleType::F32,
 
                 name: Default::default(),
@@ -387,7 +387,7 @@ mod test {
                 sampling: Vec2(1,1)
             },
 
-            ChannelInfo {
+            ChannelDescription {
                 sample_type: SampleType::F16,
 
                 name: Default::default(),
@@ -395,7 +395,7 @@ mod test {
                 sampling: Vec2(1,1)
             },
 
-            ChannelInfo {
+            ChannelDescription {
                 sample_type: SampleType::F32,
 
                 name: Default::default(),
@@ -403,7 +403,7 @@ mod test {
                 sampling: Vec2(1,1)
             },
 
-            ChannelInfo {
+            ChannelDescription {
                 sample_type: SampleType::F32,
 
                 name: Default::default(),
@@ -411,7 +411,7 @@ mod test {
                 sampling: Vec2(1,1)
             },
 
-            ChannelInfo {
+            ChannelDescription {
                 sample_type: SampleType::U32,
 
                 name: Default::default(),

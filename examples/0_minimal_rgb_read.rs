@@ -8,10 +8,10 @@ fn main() {
         "tests/images/out/generated_rgba.exr", // run the `1_generate_rgba` example to generate this file
 
         // instantiate your image type with the size of the image file
-        |info| {
+        |layer_description| {
             let default_pixel = [0.0, 0.0, 0.0, 0.0];
-            let empty_line =  vec![ default_pixel; info.resolution.width() ];
-            let empty_image =  vec![ empty_line; info.resolution.height() ];
+            let empty_line =  vec![ default_pixel; layer_description.resolution.width() ];
+            let empty_image =  vec![ empty_line; layer_description.resolution.height() ];
             empty_image
         },
 

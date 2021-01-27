@@ -48,7 +48,7 @@ pub fn damaged(){
                 let _minimal = read().no_deep_data()
                     .largest_resolution_level()
                     .rgba_channels(
-                        |_info: &ChannelsInfo<_>| (),
+                        |_channels: &ChannelsDescription<_>| (),
                         |_: &mut (), _position: Vec2<usize>, _pixel: (Sample, Sample, Sample, Option<Sample>)| {}
                     )
                     .first_valid_layer().all_attributes()
@@ -59,7 +59,7 @@ pub fn damaged(){
                 let _minimal = read().no_deep_data()
                     .largest_resolution_level() // TODO all levels
                     .rgba_channels(
-                        |_info: &ChannelsInfo<_>| (),
+                        |_channels: &ChannelsDescription<_>| (),
                         |_: &mut (), _position: Vec2<usize>, _pixel: (Sample, Sample, Sample, Option<Sample>)| {}
                     )
                     .all_layers().all_attributes()

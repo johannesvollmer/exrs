@@ -187,7 +187,7 @@ pub struct FloatRect {
 pub struct ChannelList {
 
     /// The channels in this list.
-    pub list: SmallVec<[ChannelInfo; 5]>,
+    pub list: SmallVec<[ChannelDescription; 5]>,
 
     /// The number of bytes that one pixel in this image needs.
     // FIXME this needs to account for subsampling anywhere?
@@ -201,7 +201,7 @@ pub struct ChannelList {
 /// Does not contain the actual pixel data,
 /// but instead merely describes it.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ChannelInfo {
+pub struct ChannelDescription {
 
     /// One of "R", "G", or "B" most of the time.
     pub name: Text,
@@ -659,7 +659,7 @@ impl ::std::fmt::Display for Text {
 impl ChannelList {
 
     /// Does not validate channel order.
-    pub fn new(channels: SmallVec<[ChannelInfo; 5]>) -> Self {
+    pub fn new(channels: SmallVec<[ChannelDescription; 5]>) -> Self {
         let uniform_sample_type = {
             if let Some(first) = channels.first() {
                 let has_uniform_types = channels.iter().skip(1)
@@ -888,7 +888,7 @@ impl SampleType {
     }
 }
 
-impl ChannelInfo {
+impl ChannelDescription {
     /// Choose whether to compress samples linearly or not, based on the channel name.
     /// Luminance-based channels will be compressed differently than linear data such as alpha.
     pub fn guess_quantization_linearity(name: &Text) -> bool {
@@ -970,7 +970,7 @@ impl ChannelInfo {
         let x_sampling = i32_to_usize(i32::read(read)?, "x channel sampling")?;
         let y_sampling = i32_to_usize(i32::read(read)?, "y channel sampling")?;
 
-        Ok(ChannelInfo {
+        Ok(ChannelDescription {
             name, sample_type,
             quantize_linearly: is_linear,
             sampling: Vec2(x_sampling, y_sampling),
@@ -1012,7 +1012,7 @@ impl ChannelList {
 
     /// Number of bytes this would consume in an exr file.
     pub fn byte_size(&self) -> usize {
-        self.list.iter().map(ChannelInfo::byte_size).sum::<usize>() + sequence_end::byte_size()
+        self.list.iter().map(ChannelDescription::byte_size).sum::<usize>() + sequence_end::byte_size()
     }
 
     /// Without validation, write this instance to the byte stream.
@@ -1030,7 +1030,7 @@ impl ChannelList {
     pub fn read(read: &mut PeekRead<impl Read>) -> Result<Self> {
         let mut channels = SmallVec::new();
         while !sequence_end::has_come(read)? {
-            channels.push(ChannelInfo::read(read)?);
+            channels.push(ChannelDescription::read(read)?);
         }
 
         Ok(ChannelList::new(channels))
@@ -1836,19 +1836,19 @@ mod test {
             (
                 Text::from("leg count, again"),
                 AttributeValue::ChannelList(ChannelList::new(smallvec![
-                        ChannelInfo {
+                        ChannelDescription {
                             name: Text::from("Green"),
                             sample_type: SampleType::F16,
                             quantize_linearly: false,
                             sampling: Vec2(1,2)
                         },
-                        ChannelInfo {
+                        ChannelDescription {
                             name: Text::from("Red"),
                             sample_type: SampleType::F32,
                             quantize_linearly: true,
                             sampling: Vec2(1,2)
                         },
-                        ChannelInfo {
+                        ChannelDescription {
                             name: Text::from("Purple"),
                             sample_type: SampleType::U32,
                             quantize_linearly: false,

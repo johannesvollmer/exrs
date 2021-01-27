@@ -69,7 +69,7 @@ pub mod prelude {
     pub use crate::image::write::{/*write_rgb_f32_file,*/ write_rgba_f32_file};
     pub use crate::image::read::{
         // rgba_channels::*,
-        specific_channels::{SetPixel, CreatePixels, ChannelsInfo},
+        specific_channels::{SetPixel, CreatePixels, ChannelsDescription},
         read_first_rgba_layer_from_file,
         read_all_rgba_layers_from_file,
         read_all_data_from_file,

@@ -12,7 +12,7 @@ fn main() {
         .largest_resolution_level()
         .specific_channels(
             (Text::from("A"), Text::from("X"), Text::from("Y"), Text::from("Z")), // TODO use &str directly without mentioning text
-            |info| vec![vec![(f16::ZERO, 0.0, 0.0, 0.0); info.resolution.width()]; info.resolution.height()],
+            |layer_description| vec![vec![(f16::ZERO, 0.0, 0.0, 0.0); layer_description.resolution.width()]; layer_description.resolution.height()],
 
             // all samples will be converted to f32 (you can also use a dynamic `Sample` of `f32` instead here)
             |vec, position, (a, x,y,z): (Option<f16>, f32, f32, f32)| { // TODO infer position type

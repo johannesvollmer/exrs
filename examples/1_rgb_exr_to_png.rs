@@ -13,10 +13,10 @@ fn main() {
         .no_deep_data()
         .largest_resolution_level()
         .rgba_channels(
-        |layer_info| -> png::RgbaImage {
+        |layer_description| -> png::RgbaImage {
                 png::ImageBuffer::new(
-                    layer_info.resolution.width() as u32,
-                    layer_info.resolution.height() as u32
+                    layer_description.resolution.width() as u32,
+                    layer_description.resolution.height() as u32
                 )
             },
 

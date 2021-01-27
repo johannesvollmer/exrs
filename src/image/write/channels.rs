@@ -2,7 +2,7 @@
 // TODO this module can be simplified A LOT by using SmallVec<Sample> objects, which is anyways how it works,
 // TODO as the internal sample type always differs from the user-specified concrete type
 
-use crate::meta::attribute::{LevelMode, ChannelInfo, SampleType, ChannelList, Text};
+use crate::meta::attribute::{LevelMode, ChannelDescription, SampleType, ChannelList, Text};
 use smallvec::SmallVec;
 use crate::meta::header::Header;
 use crate::block::{BlockIndex, UncompressedBlock};
@@ -60,7 +60,7 @@ impl<'samples, Samples> WritableChannels<'samples> for AnyChannels<Samples>
     where Samples: 'samples + WritableSamples<'samples>
 {
     fn infer_channel_list(&self) -> ChannelList {
-        ChannelList::new(self.list.iter().map(|channel| ChannelInfo {
+        ChannelList::new(self.list.iter().map(|channel| ChannelDescription {
             name: channel.name.clone(),
             sample_type: channel.sample_data.sample_type(),
             quantize_linearly: channel.quantize_linearly,
@@ -110,12 +110,12 @@ impl<Samples> ChannelsWriter for AnyChannelsWriter<Samples> where Samples: Sampl
 impl<'c, Channels, Storage>
 WritableChannels<'c> for SpecificChannels<Storage, Channels>
 where
-    Channels: 'c + WritableChannelsInfo<Storage::Pixel>,
+    Channels: 'c + WritableChannelsDescription<Storage::Pixel>,
     Storage: 'c + GetPixel
 {
     fn infer_channel_list(&self) -> ChannelList {
-        let mut vec = self.channels.channel_info_list();
-        vec.sort_by_key(|channel:&ChannelInfo| channel.name.clone()); // TODO no clone?
+        let mut vec = self.channels.channel_descriptions_list();
+        vec.sort_by_key(|channel:&ChannelDescription| channel.name.clone()); // TODO no clone?
         ChannelList::new(vec)
     }
 
@@ -198,33 +198,33 @@ for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
 }
 
 
-pub trait WritableChannelsInfo<Pixel>: Sync {
+pub trait WritableChannelsDescription<Pixel>: Sync {
     type PixelsWriterBuilder: PixelsWriterBuilder<Pixel>;
     fn pixel_writer_builder(&self) -> Self::PixelsWriterBuilder;
-    fn channel_info_list(&self) -> SmallVec<[ChannelInfo; 5]>;
+    fn channel_descriptions_list(&self) -> SmallVec<[ChannelDescription; 5]>;
 }
 
-pub trait WritableChannelInfo: Sync {
+pub trait WritableChannelDescription: Sync {
     type SampleWriterBuilder: SampleWriterBuilder;
     fn sample_writer_builder(&self) -> Self::SampleWriterBuilder;
-    fn channel_info(&self) -> Option<&ChannelInfo>;
+    fn channel_description(&self) -> Option<&ChannelDescription>;
 }
 
 pub trait PixelsWriterBuilder<Pixel> {
     type CreatePixelsWriterForWidth: CreatePixelsWriterForWidth<Pixel>;
-    fn with_channel(&mut self, channel: &ChannelInfo, byte_offset: usize);
+    fn with_channel(&mut self, channel: &ChannelDescription, byte_offset: usize);
     fn build_width_aware_pixel_writer(self) -> Self::CreatePixelsWriterForWidth;
 }
 
 pub trait SampleWriterBuilder {
     type CreateSampleWriterForWidth: CreateSampleWriterForWidth;
-    fn visit_channel(&mut self, channel: &ChannelInfo, byte_offset: usize);
+    fn visit_channel(&mut self, channel: &ChannelDescription, byte_offset: usize);
     fn build_width_aware_sample_writer(self) -> Self::CreateSampleWriterForWidth;
 }
 
 
-impl<A,B,C,D, L,M,N,O> WritableChannelsInfo<(A, B, C, D)> for (L,M,N,O)
-    where L: WritableChannelInfo, M: WritableChannelInfo, N: WritableChannelInfo, O: WritableChannelInfo,
+impl<A,B,C,D, L,M,N,O> WritableChannelsDescription<(A, B, C, D)> for (L, M, N, O)
+    where L: WritableChannelDescription, M: WritableChannelDescription, N: WritableChannelDescription, O: WritableChannelDescription,
           A: Into<Sample>, B: Into<Sample>, C: Into<Sample>, D: Into<Sample>,
 {
     type PixelsWriterBuilder = (L::SampleWriterBuilder, M::SampleWriterBuilder, N::SampleWriterBuilder, O::SampleWriterBuilder, );
@@ -238,12 +238,12 @@ impl<A,B,C,D, L,M,N,O> WritableChannelsInfo<(A, B, C, D)> for (L,M,N,O)
         )
     }
 
-    fn channel_info_list(&self) -> SmallVec<[ChannelInfo; 5]> {
+    fn channel_descriptions_list(&self) -> SmallVec<[ChannelDescription; 5]> {
         [
-            self.0.channel_info(),
-            self.1.channel_info(),
-            self.2.channel_info(),
-            self.3.channel_info(),
+            self.0.channel_description(),
+            self.1.channel_description(),
+            self.2.channel_description(),
+            self.3.channel_description(),
         ]
             .iter()
             .flatten()
@@ -258,7 +258,7 @@ impl<A,B,C,D, L,M,N,O> PixelsWriterBuilder<(A, B, C, D)> for (L,M,N,O)
 {
     type CreatePixelsWriterForWidth = (L::CreateSampleWriterForWidth, M::CreateSampleWriterForWidth, N::CreateSampleWriterForWidth, O::CreateSampleWriterForWidth);
 
-    fn with_channel(&mut self, channel: &ChannelInfo, byte_offset: usize) {
+    fn with_channel(&mut self, channel: &ChannelDescription, byte_offset: usize) {
         self.0.visit_channel(channel, byte_offset);
         self.1.visit_channel(channel, byte_offset);
         self.2.visit_channel(channel, byte_offset);
@@ -276,7 +276,7 @@ impl<A,B,C,D, L,M,N,O> PixelsWriterBuilder<(A, B, C, D)> for (L,M,N,O)
 }
 
 
-impl WritableChannelInfo for ChannelInfo {
+impl WritableChannelDescription for ChannelDescription {
     type SampleWriterBuilder = AlwaysSampleWriterBuilder;
     fn sample_writer_builder(&self) -> Self::SampleWriterBuilder {
         AlwaysSampleWriterBuilder {
@@ -285,18 +285,19 @@ impl WritableChannelInfo for ChannelInfo {
         }
     }
 
-    fn channel_info(&self) -> Option<&ChannelInfo> { Some(self) }
+    fn channel_description(&self) -> Option<&ChannelDescription> { Some(self) }
 }
 
-impl WritableChannelInfo for Option<ChannelInfo> {
+impl WritableChannelDescription for Option<ChannelDescription> {
     type SampleWriterBuilder = Option<AlwaysSampleWriterBuilder>;
     fn sample_writer_builder(&self) -> Self::SampleWriterBuilder {
-        self.as_ref().map(|info| info.sample_writer_builder())
+        self.as_ref().map(|channel| channel.sample_writer_builder())
     }
 
-    fn channel_info(&self) -> Option<&ChannelInfo> { self.as_ref() }
+    fn channel_description(&self) -> Option<&ChannelDescription> { self.as_ref() }
 }
 
+#[derive(Debug)]
 pub struct AlwaysSampleWriterBuilder {
     desired_channel_name: Text,
     found_channel: Option<AlwaysCreateSampleWriterForWidth>
@@ -305,7 +306,7 @@ pub struct AlwaysSampleWriterBuilder {
 impl SampleWriterBuilder for AlwaysSampleWriterBuilder {
     type CreateSampleWriterForWidth = AlwaysCreateSampleWriterForWidth;
 
-    fn visit_channel(&mut self, channel: &ChannelInfo, byte_offset: usize) {
+    fn visit_channel(&mut self, channel: &ChannelDescription, byte_offset: usize) {
         if self.desired_channel_name == channel.name {
             self.found_channel = Some(AlwaysCreateSampleWriterForWidth {
                 target_sample_type: channel.sample_type,
@@ -322,7 +323,7 @@ impl SampleWriterBuilder for AlwaysSampleWriterBuilder {
 impl SampleWriterBuilder for Option<AlwaysSampleWriterBuilder> {
     type CreateSampleWriterForWidth = Option<AlwaysCreateSampleWriterForWidth>;
 
-    fn visit_channel(&mut self, channel: &ChannelInfo, byte_offset: usize) {
+    fn visit_channel(&mut self, channel: &ChannelDescription, byte_offset: usize) {
         if let Some(this) = self { this.visit_channel(channel, byte_offset) }
     }
 
@@ -461,9 +462,8 @@ impl<A,B,C,D, L, M, N, O> PixelWriter<(A, B, C, D)> for (L, M, N, O)
 pub mod test {
     use crate::image::write::channels::WritableChannels;
     use crate::image::SpecificChannels;
-    use crate::math::Vec2;
-    use crate::prelude::{f16, Sample};
-    use crate::meta::attribute::{ChannelInfo, SampleType};
+    use crate::prelude::{f16};
+    use crate::meta::attribute::{ChannelDescription, SampleType};
     use crate::image::pixel_vec::PixelVec;
 
     #[test]
@@ -486,10 +486,10 @@ pub mod test {
         let px = (3_f32, f16::ONE, Option::<f16>::None, Some(4_f32));
         assert_is_writable_channels(SpecificChannels::new(
             (
-                ChannelInfo::named("x", SampleType::F32),
-                ChannelInfo::named("y", SampleType::F16),
-                Some(ChannelInfo::named("z", SampleType::U32)),
-                Some(ChannelInfo::named("p", SampleType::F32)),
+                ChannelDescription::named("x", SampleType::F32),
+                ChannelDescription::named("y", SampleType::F16),
+                Some(ChannelDescription::named("z", SampleType::U32)),
+                Some(ChannelDescription::named("p", SampleType::F32)),
             ),
 
             PixelVec::new((3, 2), vec![px, px, px, px, px, px])

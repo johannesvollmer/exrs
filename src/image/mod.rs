@@ -134,7 +134,7 @@ pub enum Blocks {
 pub struct SpecificChannels<PixelStorage, ChannelsDescription> {
 
     /// A description of the channels in the file, as opposed to the channels in memory.
-    /// Should always be `[ChannelInfo; N]` for varying lengths with `N`.
+    /// Should always be a tuple containing `ChannelDescription`s, one description for each channel.
     pub channels: ChannelsDescription, // TODO this is awkward. can this be not a type parameter please? maybe vec<option<chan_info>> ??
 
     /// Your custom rgba pixel storage
@@ -290,7 +290,7 @@ impl<SampleStorage, Channels> SpecificChannels<SampleStorage, Channels> {
     }
 }
 
-use crate::image::read::specific_channels::ChannelsInfo;
+use crate::image::read::specific_channels::ChannelsDescription;
 
 pub trait IntoSample: Into<Sample> { const SAMPLE_TYPE: SampleType; }
 impl IntoSample for f16 { const SAMPLE_TYPE: SampleType = SampleType::F16; }
@@ -298,7 +298,7 @@ impl IntoSample for f32 { const SAMPLE_TYPE: SampleType = SampleType::F32; }
 impl IntoSample for u32 { const SAMPLE_TYPE: SampleType = SampleType::U32; }
 
 
-impl<SampleStorage> SpecificChannels<SampleStorage, (ChannelInfo, ChannelInfo, ChannelInfo, ChannelInfo)>
+impl<SampleStorage> SpecificChannels<SampleStorage, (ChannelDescription, ChannelDescription, ChannelDescription, ChannelDescription)>
 {
     pub fn named<A,B,C, D>(
         channels: (impl Into<Text>, impl Into<Text>, impl Into<Text>, impl Into<Text>),
@@ -309,10 +309,10 @@ impl<SampleStorage> SpecificChannels<SampleStorage, (ChannelInfo, ChannelInfo, C
     {
         SpecificChannels {
             channels: (
-                ChannelInfo::named(channels.0, A::SAMPLE_TYPE),
-                ChannelInfo::named(channels.1, B::SAMPLE_TYPE),
-                ChannelInfo::named(channels.2, C::SAMPLE_TYPE),
-                ChannelInfo::named(channels.3, D::SAMPLE_TYPE),
+                ChannelDescription::named(channels.0, A::SAMPLE_TYPE),
+                ChannelDescription::named(channels.1, B::SAMPLE_TYPE),
+                ChannelDescription::named(channels.2, C::SAMPLE_TYPE),
+                ChannelDescription::named(channels.3, D::SAMPLE_TYPE),
             ),
 
             storage: source_samples
@@ -622,7 +622,7 @@ impl<'s, SampleData: 's> AnyChannel<SampleData> {
         let name: Text = name.into();
 
         AnyChannel {
-            quantize_linearly: ChannelInfo::guess_quantization_linearity(&name),
+            quantize_linearly: ChannelDescription::guess_quantization_linearity(&name),
             name, sample_data,
             sampling: Vec2(1, 1),
         }
