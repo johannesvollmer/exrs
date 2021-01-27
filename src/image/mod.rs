@@ -44,6 +44,10 @@ pub type AnyImage = Image<Layers<AnyChannels<Levels<FlatSamples>>>>;
 /// Does not contain resolution levels. Does not support deep data.
 pub type FlatImage = Image<Layers<AnyChannels<FlatSamples>>>;
 
+pub type PixelLayersImage<Storage, Channels> = Image<Layers<SpecificChannels<Storage, Channels>>>;
+pub type PixelImage<Storage, Channels> = Image<Layer<SpecificChannels<Storage, Channels>>>;
+
+/*
 /// This image type contains only the most essential features
 /// and supports any exr image that could also be represented by a list of png or jpg layers.
 ///
@@ -63,7 +67,7 @@ pub type RgbaImage<Samples> = Image<Layer<RgbaChannels<Samples>>>;
 pub type RgbaChannels<Storage> = SpecificChannels<Storage, RgbaChannelInfos>;
 pub type AnyRgbaPixel = (Sample, Sample, Sample, Option<Sample>);
 pub type RgbaChannelInfos = (ChannelInfo, ChannelInfo, ChannelInfo, Option<ChannelInfo>); // TODO rename
-pub type RgbaChannelsInfo = ChannelsInfo<RgbaChannelInfos>;
+pub type RgbaChannelsInfo = ChannelsInfo<RgbaChannelInfos>;*/
 
 /// The complete exr image.
 /// `Layers` can be either a single `Layer` or `Layers`.
@@ -166,7 +170,7 @@ pub struct SpecificChannels<PixelStorage, ChannelsDescription> {
 
     /// A description of the channels in the file, as opposed to the channels in memory.
     /// Should always be `[ChannelInfo; N]` for varying lengths with `N`.
-    pub channels: ChannelsDescription,
+    pub channels: ChannelsDescription, // TODO this is awkward. can this be not a type parameter please? maybe vec<option<chan_info>> ??
 
     /// Your custom rgba pixel storage
     // TODO should also support `Levels<YourStorage>`, where rgba levels are desired!

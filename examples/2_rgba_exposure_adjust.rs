@@ -12,7 +12,8 @@ fn main() {
     // This struct trades sub-optimal memory-efficiency for clarity,
     // because this is an example, and does not have to be perfectly efficient.
     #[derive(Debug, PartialEq)]
-    struct CustomPixels { lines: Vec<Vec<AnyRgbaPixel>> };
+    struct CustomPixels { lines: Vec<Vec<RgbaPixel>> };
+    type RgbaPixel = (f32, f32, f32, Option<f32>);
 
     // read the image from a file
     let mut image = read().no_deep_data()
@@ -22,16 +23,17 @@ fn main() {
             |image: &ChannelsInfo<_>| -> CustomPixels {
                 println!("loaded image {:#?}", image);
 
-                let default_rgba_pixel = (Sample::f32(0.0), Sample::f32(0.0), Sample::f32(0.0), None);
+                let default_rgba_pixel = (0.0, 0.0, 0.0, Option::<f32>::None);
                 let default_line = vec![default_rgba_pixel; image.resolution.width()];
                 let lines = vec![default_line; image.resolution.height()];
                 CustomPixels { lines }
             },
 
-            // set a single pixel with red, green, blue, and optionally and alpha value.
-            |image: &mut CustomPixels, position: Vec2<usize>, (r,g,b,a): AnyRgbaPixel| {
+            // request pixels with red, green, blue, and optionally and alpha values.
+            // transfer each pixel from the file to our image
+            |image: &mut CustomPixels, position: Vec2<usize>, (r,g,b,a): (f32, f32, f32, Option<f32>)| {
 
-                // insert the values into out custom image
+                // insert the values into our custom image
                 image.lines[position.y()][position.x()] = (r,g,b,a);
             }
         )
@@ -45,15 +47,11 @@ fn main() {
     {   // increase exposure of all pixels
         for line in &mut image.layer_data.channel_data.storage.lines {
             for (r,g,b,_) in line {
-                // no gamma correction necessary because
-                // exposure adjustment should be done in linear color space
-                let rgb_modifier = |sample: &mut Sample| {
-                    *sample = Sample::from(sample.to_f32() * exposure_multiplier)
-                };
-
-                rgb_modifier(r);
-                rgb_modifier(g);
-                rgb_modifier(b);
+                // you should probably check the color space and white points
+                // for high quality color adjustments
+                *r *= exposure_multiplier;
+                *g *= exposure_multiplier;
+                *b *= exposure_multiplier;
             }
         }
 
@@ -65,9 +63,9 @@ fn main() {
     }
 
     // enable writing our custom pixel storage to a file
-    // TODO this should be passed as a closure to the `write().rgba_with(|x| y)` call
+    // FIXME this should be passed as a closure to the `write_with(|x| y)` call
     impl GetPixel for CustomPixels {
-        type Pixel = AnyRgbaPixel;
+        type Pixel = RgbaPixel;
         fn get_pixel(&self, position: Vec2<usize>) -> Self::Pixel {
             self.lines[position.y()][position.x()]
         }

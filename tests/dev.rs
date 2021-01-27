@@ -79,7 +79,7 @@ pub fn test_roundtrip() {
         read_all_rgba_layers_from_file(
             path,
             read::specific_channels::pixels::create_flattened,
-            read::specific_channels::pixels::set_flattened_pixel
+            read::specific_channels::pixels::set_flattened_pixel::<(Sample, Sample, Sample, Option<Sample>)>
         ).unwrap();
 
         // read_all_data_from_file(path).unwrap();

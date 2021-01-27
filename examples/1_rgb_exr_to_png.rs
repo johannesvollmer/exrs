@@ -13,7 +13,7 @@ fn main() {
         .no_deep_data()
         .largest_resolution_level()
         .rgba_channels(
-        |layer_info: &exrs::RgbaChannelsInfo| -> png::RgbaImage {
+        |layer_info: &exrs::ChannelsInfo<_>| -> png::RgbaImage {
                 png::ImageBuffer::new(
                     layer_info.resolution.width() as u32,
                     layer_info.resolution.height() as u32
@@ -21,7 +21,7 @@ fn main() {
             },
 
             // set each pixel in the png buffer from the exr file
-            |png_pixels: &mut png::RgbaImage, position: exrs::Vec2<usize>, (r,g,b,a): (f32,f32,f32,Option<f32>)| {
+            |png_pixels: &mut png::RgbaImage, position: exrs::Vec2<usize>, (r,g,b,a): (f32,f32,f32,Option<f32>)| { // TODO implicit argument types!
                 png_pixels.put_pixel(
                     position.x() as u32, position.y() as u32,
 
@@ -38,7 +38,7 @@ fn main() {
         .all_attributes();
 
     // an image that contains a single layer containing an png rgba buffer
-    let image: Image<Layer<RgbaChannels<png::RgbaImage>>> = reader
+    let image: Image<Layer<SpecificChannels<png::RgbaImage, _>>> = reader
         .from_file("tests/images/valid/openexr/MultiResolution/Kapaa.exr")
         .unwrap();
 

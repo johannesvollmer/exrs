@@ -90,7 +90,7 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
         )
     }
 
-    // TODO FIXME support directly using `f32` as parameter, not just Sample!
+    // TODO FIXME explain this in the guide!
 
     /// Read only layers that contain the specified channels. Skips any other channels in the layer.
     /// `Create` can be a closure of type [`Fn(&ChannelsInfo) -> YourPixelStorage`].
