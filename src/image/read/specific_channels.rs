@@ -18,11 +18,11 @@ use std::marker::PhantomData;
 
 /// Specify to load only specific channels and how to store the result.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ReadSpecificChannels<Px, CreatePixelStorage, SetPixel> where Px: DesiredPixel {
+pub struct ReadSpecificChannels<Pixel, CreatePixelStorage, SetPixel> where Pixel: DesiredPixel {
 
     /// A tuple containing `exr::Text` elements.
     /// Each tuple element queries the file for a channel with that name.
-    pub channel_names: Px::ChannelNames,
+    pub channel_names: Pixel::ChannelNames,
 
     /// Creates a new pixel storage per layer
     pub create: CreatePixelStorage,
@@ -32,7 +32,7 @@ pub struct ReadSpecificChannels<Px, CreatePixelStorage, SetPixel> where Px: Desi
 
     // TODO private
     /// Required to avoid `unconstrained type parameter` problems.
-    pub px: PhantomData<Px>,
+    pub px: PhantomData<Pixel>,
 }
 
 
@@ -43,9 +43,9 @@ pub trait ReadFilteredChannels<Pixel, ChannelsDescription> { // TODO ChannelsInf
 }
 
 pub trait ChannelsFilter<Pixel, ChannelsDescription> {
-    type PixelReader: PixelReader<Pixel>;
+    type PixelReader: CreatePixelReaderForWidth<Pixel>;
 
-    fn visit_channel(&mut self, channel: ChannelStartIndices);
+    fn visit_channel(&mut self, channel: AlwaysCreateSampleReaderForWidth);
 
     /// allow err so that we can abort if a required channel does not exist in the file
     fn finish(self) -> Result<(ChannelsDescription, Self::PixelReader)>;
@@ -91,8 +91,8 @@ pub trait DesiredPixel: Sized {
 
 pub trait DesiredSample: Sized {
     type ChannelDescription;
-    type SampleReader: ChannelPixelReader<Self>;
-    fn create_channel_pixel_reader(channels_description: Option<ChannelStartIndices>) -> Result<(Self::ChannelDescription, Self::SampleReader)>;
+    type SampleReader: CreateSampleReaderForWidth<Self>;
+    fn create_channel_pixel_reader(channels_description: Option<AlwaysCreateSampleReaderForWidth>) -> Result<(Self::ChannelDescription, Self::SampleReader)>;
 }
 
 
@@ -123,12 +123,12 @@ pub struct ChannelsDescription<SampleTypes> { // TODO remove this struct?
 
 
 
-pub trait PixelReader<Pixel> {
-    type LineReader: Clone + PixelLineReader<Pixel>;
-    fn create_pixel_reader_for_line(&self, pixel_count: usize) -> Self::LineReader;
+pub trait CreatePixelReaderForWidth<Pixel> {
+    type PixelReader: Clone + PixelReader<Pixel>;
+    fn pixel_reader_for_width(&self, pixel_count: usize) -> Self::PixelReader;
 }
 
-pub trait PixelLineReader<Pixel> {
+pub trait PixelReader<Pixel> {
     fn read_next_pixel(&mut self, bytes: &[u8]) -> Result<Pixel>;
 }
 
@@ -150,7 +150,7 @@ impl<'s, Px, Setter: 's, Constructor: 's>
             let mut byte_offset = 0;
 
             for (channel_index, channel) in header.channels.list.iter().enumerate() {
-                let chan_indices = ChannelStartIndices {
+                let chan_indices = AlwaysCreateSampleReaderForWidth {
                     sample_byte_offset: byte_offset,
                     channel_description: channel.clone(),
                     channel_index
@@ -200,8 +200,7 @@ where
         let byte_lines = block.data.chunks_exact(line_bytes);
         assert_eq!(byte_lines.len(), block.index.pixel_size.height(), "invalid byte count for pixel block height");
 
-        let initial_pixel_line_reader = self.pixel_reader
-            .create_pixel_reader_for_line(pixels_per_line);
+        let initial_pixel_line_reader = self.pixel_reader.pixel_reader_for_width(pixels_per_line);
 
         for (y, byte_line) in byte_lines.enumerate() {
             let mut line_reader = initial_pixel_line_reader.clone();
@@ -227,18 +226,18 @@ where
 
 
 #[derive(Clone, Debug)]
-pub struct ChannelStartIndices {
+pub struct AlwaysCreateSampleReaderForWidth {
     pub channel_description: ChannelDescription,
     pub sample_byte_offset: usize,
     pub channel_index: usize,
 }
 
-pub trait ChannelPixelReader<Sample>: Sized + Clone {
-    type ChannelLineReader: ChannelLineReader<Sample>;
-    fn create_channel_line_reader(&self, line_width: usize) -> Self::ChannelLineReader;
+pub trait CreateSampleReaderForWidth<Sample>: Sized + Clone {
+    type SampleReader: SampleReader<Sample>;
+    fn sample_reader_for_width(&self, line_width: usize) -> Self::SampleReader;
 }
 
-pub trait ChannelLineReader<Sample>: Sized + Clone {
+pub trait SampleReader<Sample>: Sized + Clone {
     fn read_next_sample(&mut self, bytes: &[u8]) -> Result<Sample>;
 }
 
@@ -250,8 +249,8 @@ impl FromSample for Sample { fn from_sample(sample: Sample) -> Self { sample } }
 
 impl<S> DesiredSample for S where S: FromSample {
     type ChannelDescription = ChannelDescription;
-    type SampleReader = ChannelStartIndices;
-    fn create_channel_pixel_reader(channel_indices: Option<ChannelStartIndices>) -> Result<(Self::ChannelDescription, Self::SampleReader)> {
+    type SampleReader = AlwaysCreateSampleReaderForWidth;
+    fn create_channel_pixel_reader(channel_indices: Option<AlwaysCreateSampleReaderForWidth>) -> Result<(Self::ChannelDescription, Self::SampleReader)> {
         channel_indices.map(|chan| (chan.channel_description.clone(), chan))
             .ok_or_else(|| Error::invalid("layer does not contain all of the specified required channels")) // TODO which channel??
     }
@@ -259,38 +258,38 @@ impl<S> DesiredSample for S where S: FromSample {
 
 impl<S> DesiredSample for Option<S> where S: FromSample {
     type ChannelDescription = Option<ChannelDescription>;
-    type SampleReader = Option<ChannelStartIndices>;
-    fn create_channel_pixel_reader(indices: Option<ChannelStartIndices>) -> Result<(Self::ChannelDescription, Self::SampleReader)> {
+    type SampleReader = Option<AlwaysCreateSampleReaderForWidth>;
+    fn create_channel_pixel_reader(indices: Option<AlwaysCreateSampleReaderForWidth>) -> Result<(Self::ChannelDescription, Self::SampleReader)> {
         Ok(indices.map_or((None, None), |chan| (Some(chan.channel_description.clone()), Some(chan)))) // TODO no clone
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct IndexChannelLineReader<S> {
+pub struct AlwaysSampleReader<S> {
     file_sample_type: SampleType,
     next_byte: usize,
     s: PhantomData<S>,
 }
 
-impl<S> ChannelPixelReader<S> for ChannelStartIndices where S: Clone + FromSample {
-    type ChannelLineReader = IndexChannelLineReader<S>;
-    fn create_channel_line_reader(&self, pixel_count: usize) -> Self::ChannelLineReader {
+impl<S> CreateSampleReaderForWidth<S> for AlwaysCreateSampleReaderForWidth where S: Clone + FromSample {
+    type SampleReader = AlwaysSampleReader<S>;
+    fn sample_reader_for_width(&self, pixel_count: usize) -> Self::SampleReader {
         let start = self.sample_byte_offset * pixel_count; // TODO  will never work with subsampling?
-        IndexChannelLineReader { file_sample_type: self.channel_description.sample_type, next_byte: start, s: Default::default() }
+        AlwaysSampleReader { file_sample_type: self.channel_description.sample_type, next_byte: start, s: Default::default() }
     }
 }
 
 
-impl<S> ChannelPixelReader<Option<S>> for Option<ChannelStartIndices> where S: Clone + FromSample {
-    type ChannelLineReader = Option<IndexChannelLineReader<S>>;
-    fn create_channel_line_reader(&self, line_width: usize) -> Self::ChannelLineReader {
+impl<S> CreateSampleReaderForWidth<Option<S>> for Option<AlwaysCreateSampleReaderForWidth> where S: Clone + FromSample {
+    type SampleReader = Option<AlwaysSampleReader<S>>;
+    fn sample_reader_for_width(&self, line_width: usize) -> Self::SampleReader {
         self.as_ref().map(|this| {
-            this.create_channel_line_reader(line_width)
+            this.sample_reader_for_width(line_width)
         })
     }
 }
 
-impl<S> ChannelLineReader<S> for IndexChannelLineReader<S> where S: FromSample + Clone {
+impl<S> SampleReader<S> for AlwaysSampleReader<S> where S: FromSample + Clone {
     fn read_next_sample(&mut self, bytes: &[u8]) -> Result<S> {
         let bytes = &mut &bytes[(self.next_byte).min(bytes.len())..]; // required to prevent index out of bounds overflow
 
@@ -308,7 +307,7 @@ impl<S> ChannelLineReader<S> for IndexChannelLineReader<S> where S: FromSample +
     }
 }
 
-impl<S> ChannelLineReader<Option<S>> for Option<IndexChannelLineReader<S>> where S: FromSample + Clone {
+impl<S> SampleReader<Option<S>> for Option<AlwaysSampleReader<S>> where S: FromSample + Clone {
     fn read_next_sample(&mut self, bytes: &[u8]) -> Result<Option<S>> {
         self.as_mut()
             .map(|this| this.read_next_sample(bytes))
@@ -320,11 +319,11 @@ impl<S> ChannelLineReader<Option<S>> for Option<IndexChannelLineReader<S>> where
 #[derive(Debug, Clone)]
 pub struct ChannelFilter {
     required_name: Text,
-    found_channel: Option<ChannelStartIndices>,
+    found_channel: Option<AlwaysCreateSampleReaderForWidth>,
 }
 impl ChannelFilter {
     pub fn new(name: Text) -> Self { Self { required_name: name, found_channel: None }  }
-    pub fn filter(&mut self, channel_indices: &ChannelStartIndices) {
+    pub fn filter(&mut self, channel_indices: &AlwaysCreateSampleReaderForWidth) {
         if &channel_indices.channel_description.name == &self.required_name { self.found_channel = Some(channel_indices.clone()); }
     }
 }
@@ -377,7 +376,7 @@ for (ChannelFilter, ChannelFilter, ChannelFilter, ChannelFilter)
 {
     type PixelReader = (A::SampleReader, B::SampleReader, C::SampleReader, D::SampleReader);
 
-    fn visit_channel(&mut self, channel: ChannelStartIndices) {
+    fn visit_channel(&mut self, channel: AlwaysCreateSampleReaderForWidth) {
         self.0.filter(&channel);
         self.1.filter(&channel);
         self.2.filter(&channel);
@@ -397,7 +396,8 @@ for (ChannelFilter, ChannelFilter, ChannelFilter, ChannelFilter)
     }
 }
 
-impl<A,B,C,D> PixelReader<(A,B,C,D)> for (
+
+impl<A,B,C,D> CreatePixelReaderForWidth<(A, B, C, D)> for (
     <A as DesiredSample>::SampleReader,
     <B as DesiredSample>::SampleReader,
     <C as DesiredSample>::SampleReader,
@@ -405,28 +405,28 @@ impl<A,B,C,D> PixelReader<(A,B,C,D)> for (
 )
     where A: DesiredSample, B: DesiredSample, C: DesiredSample, D: DesiredSample,
 {
-    type LineReader = (
-        <<A as DesiredSample>::SampleReader as ChannelPixelReader<A>>::ChannelLineReader,
-        <<B as DesiredSample>::SampleReader as ChannelPixelReader<B>>::ChannelLineReader,
-        <<C as DesiredSample>::SampleReader as ChannelPixelReader<C>>::ChannelLineReader,
-        <<D as DesiredSample>::SampleReader as ChannelPixelReader<D>>::ChannelLineReader,
+    type PixelReader = (
+        <<A as DesiredSample>::SampleReader as CreateSampleReaderForWidth<A>>::SampleReader,
+        <<B as DesiredSample>::SampleReader as CreateSampleReaderForWidth<B>>::SampleReader,
+        <<C as DesiredSample>::SampleReader as CreateSampleReaderForWidth<C>>::SampleReader,
+        <<D as DesiredSample>::SampleReader as CreateSampleReaderForWidth<D>>::SampleReader,
     );
 
-    fn create_pixel_reader_for_line(&self, pixel_count: usize) -> Self::LineReader {
+    fn pixel_reader_for_width(&self, pixel_count: usize) -> Self::PixelReader {
         (
-            self.0.create_channel_line_reader(pixel_count),
-            self.1.create_channel_line_reader(pixel_count),
-            self.2.create_channel_line_reader(pixel_count),
-            self.3.create_channel_line_reader(pixel_count),
+            self.0.sample_reader_for_width(pixel_count),
+            self.1.sample_reader_for_width(pixel_count),
+            self.2.sample_reader_for_width(pixel_count),
+            self.3.sample_reader_for_width(pixel_count),
         )
     }
 }
 
-impl<A,B,C,D> PixelLineReader<(A,B,C,D)> for (
-    <<A as DesiredSample>::SampleReader as ChannelPixelReader<A>>::ChannelLineReader,
-    <<B as DesiredSample>::SampleReader as ChannelPixelReader<B>>::ChannelLineReader,
-    <<C as DesiredSample>::SampleReader as ChannelPixelReader<C>>::ChannelLineReader,
-    <<D as DesiredSample>::SampleReader as ChannelPixelReader<D>>::ChannelLineReader,
+impl<A,B,C,D> PixelReader<(A, B, C, D)> for (
+    <<A as DesiredSample>::SampleReader as CreateSampleReaderForWidth<A>>::SampleReader,
+    <<B as DesiredSample>::SampleReader as CreateSampleReaderForWidth<B>>::SampleReader,
+    <<C as DesiredSample>::SampleReader as CreateSampleReaderForWidth<C>>::SampleReader,
+    <<D as DesiredSample>::SampleReader as CreateSampleReaderForWidth<D>>::SampleReader,
 )
     where A: DesiredSample, B: DesiredSample, C: DesiredSample, D: DesiredSample,
 {
