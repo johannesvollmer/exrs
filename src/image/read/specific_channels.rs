@@ -37,7 +37,7 @@ pub struct ReadSpecificChannels<Pixel, CreatePixelStorage, SetPixel> where Pixel
 
 
 // TODO merge into `DesiredPixel` trait?
-pub trait ReadFilteredChannels<Pixel, ChannelsDescription> { // TODO ChannelsInfo = Pixel::ChannelsInfo
+pub trait CreateChannelsFilter<Pixel, ChannelsDescription> { // TODO ChannelsInfo = Pixel::ChannelsInfo
     type Filter: ChannelsFilter<Pixel, ChannelsDescription>;
     fn filter(&self) -> Self::Filter;
 }
@@ -84,15 +84,15 @@ impl<F, P, T> CreatePixels<T> for F where F: Fn(&ChannelsDescription<T>) -> P {
 
 
 pub trait DesiredPixel: Sized {
-    type ChannelNames: ReadFilteredChannels<Self, Self::ChannelsDescription>;
+    type ChannelNames: CreateChannelsFilter<Self, Self::ChannelsDescription>;
     type ChannelsDescription;
 }
 
 
 pub trait DesiredSample: Sized {
     type ChannelDescription;
-    type SampleReader: CreateSampleReaderForWidth<Self>;
-    fn create_channel_pixel_reader(channels_description: Option<AlwaysCreateSampleReaderForWidth>) -> Result<(Self::ChannelDescription, Self::SampleReader)>;
+    type SampleReaderForWidth: CreateSampleReaderForWidth<Self>;
+    fn create_channel_pixel_reader(channels_description: Option<AlwaysCreateSampleReaderForWidth>) -> Result<(Self::ChannelDescription, Self::SampleReaderForWidth)>;
 }
 
 
@@ -103,7 +103,7 @@ pub struct SpecificChannelsReader<'s, Pixel, Set, Image> where Pixel: DesiredPix
     storage: Image,
     set_pixel: &'s Set,
     channels_description: ChannelsDescription<Pixel::ChannelsDescription>,
-    pixel_reader: <<Pixel::ChannelNames as ReadFilteredChannels<Pixel, Pixel::ChannelsDescription>>::Filter as ChannelsFilter<Pixel, Pixel::ChannelsDescription>>::PixelReader,
+    pixel_reader: <<Pixel::ChannelNames as CreateChannelsFilter<Pixel, Pixel::ChannelsDescription>>::Filter as ChannelsFilter<Pixel, Pixel::ChannelsDescription>>::PixelReader,
     pixel: PhantomData<Pixel>,
 }
 
@@ -249,8 +249,8 @@ impl FromSample for Sample { fn from_sample(sample: Sample) -> Self { sample } }
 
 impl<S> DesiredSample for S where S: FromSample {
     type ChannelDescription = ChannelDescription;
-    type SampleReader = AlwaysCreateSampleReaderForWidth;
-    fn create_channel_pixel_reader(channel_indices: Option<AlwaysCreateSampleReaderForWidth>) -> Result<(Self::ChannelDescription, Self::SampleReader)> {
+    type SampleReaderForWidth = AlwaysCreateSampleReaderForWidth;
+    fn create_channel_pixel_reader(channel_indices: Option<AlwaysCreateSampleReaderForWidth>) -> Result<(Self::ChannelDescription, Self::SampleReaderForWidth)> {
         channel_indices.map(|chan| (chan.channel_description.clone(), chan))
             .ok_or_else(|| Error::invalid("layer does not contain all of the specified required channels")) // TODO which channel??
     }
@@ -258,8 +258,8 @@ impl<S> DesiredSample for S where S: FromSample {
 
 impl<S> DesiredSample for Option<S> where S: FromSample {
     type ChannelDescription = Option<ChannelDescription>;
-    type SampleReader = Option<AlwaysCreateSampleReaderForWidth>;
-    fn create_channel_pixel_reader(indices: Option<AlwaysCreateSampleReaderForWidth>) -> Result<(Self::ChannelDescription, Self::SampleReader)> {
+    type SampleReaderForWidth = Option<AlwaysCreateSampleReaderForWidth>;
+    fn create_channel_pixel_reader(indices: Option<AlwaysCreateSampleReaderForWidth>) -> Result<(Self::ChannelDescription, Self::SampleReaderForWidth)> {
         Ok(indices.map_or((None, None), |chan| (Some(chan.channel_description.clone()), Some(chan)))) // TODO no clone
     }
 }
@@ -356,7 +356,7 @@ impl<A,B,C,D> DesiredPixel for (A,B,C,D)
     type ChannelsDescription = (A::ChannelDescription, B::ChannelDescription, C::ChannelDescription, D::ChannelDescription);
 }
 
-impl<A,B,C,D> ReadFilteredChannels<(A,B,C,D), (A::ChannelDescription, B::ChannelDescription, C::ChannelDescription, D::ChannelDescription)>
+impl<A,B,C,D> CreateChannelsFilter<(A, B, C, D), (A::ChannelDescription, B::ChannelDescription, C::ChannelDescription, D::ChannelDescription)>
 for (Text, Text, Text, Text) where
     A: DesiredSample, B: DesiredSample, C: DesiredSample, D: DesiredSample,
 {
@@ -374,7 +374,7 @@ for (ChannelFilter, ChannelFilter, ChannelFilter, ChannelFilter)
     where
         A: DesiredSample, B: DesiredSample, C: DesiredSample, D: DesiredSample,
 {
-    type PixelReader = (A::SampleReader, B::SampleReader, C::SampleReader, D::SampleReader);
+    type PixelReader = (A::SampleReaderForWidth, B::SampleReaderForWidth, C::SampleReaderForWidth, D::SampleReaderForWidth);
 
     fn visit_channel(&mut self, channel: AlwaysCreateSampleReaderForWidth) {
         self.0.filter(&channel);
@@ -398,18 +398,18 @@ for (ChannelFilter, ChannelFilter, ChannelFilter, ChannelFilter)
 
 
 impl<A,B,C,D> CreatePixelReaderForWidth<(A, B, C, D)> for (
-    <A as DesiredSample>::SampleReader,
-    <B as DesiredSample>::SampleReader,
-    <C as DesiredSample>::SampleReader,
-    <D as DesiredSample>::SampleReader,
+    <A as DesiredSample>::SampleReaderForWidth,
+    <B as DesiredSample>::SampleReaderForWidth,
+    <C as DesiredSample>::SampleReaderForWidth,
+    <D as DesiredSample>::SampleReaderForWidth,
 )
     where A: DesiredSample, B: DesiredSample, C: DesiredSample, D: DesiredSample,
 {
     type PixelReader = (
-        <<A as DesiredSample>::SampleReader as CreateSampleReaderForWidth<A>>::SampleReader,
-        <<B as DesiredSample>::SampleReader as CreateSampleReaderForWidth<B>>::SampleReader,
-        <<C as DesiredSample>::SampleReader as CreateSampleReaderForWidth<C>>::SampleReader,
-        <<D as DesiredSample>::SampleReader as CreateSampleReaderForWidth<D>>::SampleReader,
+        <<A as DesiredSample>::SampleReaderForWidth as CreateSampleReaderForWidth<A>>::SampleReader,
+        <<B as DesiredSample>::SampleReaderForWidth as CreateSampleReaderForWidth<B>>::SampleReader,
+        <<C as DesiredSample>::SampleReaderForWidth as CreateSampleReaderForWidth<C>>::SampleReader,
+        <<D as DesiredSample>::SampleReaderForWidth as CreateSampleReaderForWidth<D>>::SampleReader,
     );
 
     fn pixel_reader_for_width(&self, pixel_count: usize) -> Self::PixelReader {
@@ -423,10 +423,10 @@ impl<A,B,C,D> CreatePixelReaderForWidth<(A, B, C, D)> for (
 }
 
 impl<A,B,C,D> PixelReader<(A, B, C, D)> for (
-    <<A as DesiredSample>::SampleReader as CreateSampleReaderForWidth<A>>::SampleReader,
-    <<B as DesiredSample>::SampleReader as CreateSampleReaderForWidth<B>>::SampleReader,
-    <<C as DesiredSample>::SampleReader as CreateSampleReaderForWidth<C>>::SampleReader,
-    <<D as DesiredSample>::SampleReader as CreateSampleReaderForWidth<D>>::SampleReader,
+    <<A as DesiredSample>::SampleReaderForWidth as CreateSampleReaderForWidth<A>>::SampleReader,
+    <<B as DesiredSample>::SampleReaderForWidth as CreateSampleReaderForWidth<B>>::SampleReader,
+    <<C as DesiredSample>::SampleReaderForWidth as CreateSampleReaderForWidth<C>>::SampleReader,
+    <<D as DesiredSample>::SampleReaderForWidth as CreateSampleReaderForWidth<D>>::SampleReader,
 )
     where A: DesiredSample, B: DesiredSample, C: DesiredSample, D: DesiredSample,
 {
