@@ -17,14 +17,13 @@ fn main() {
 
         // transfer the colors from the file to your image type,
         // requesting all values to be f32 numbers, and optionally an f32 alpha channel
+        // you could also use `Sample` instead of `f32` to keep the original data type from the file
         |pixel_vector, position, (r,g,b, alpha): (f32, f32, f32, Option<f32>)| {
-            pixel_vector[position.y()][position.x()] = [
-                r, g, b, alpha.unwrap_or(1.0)
-            ]
+            pixel_vector[position.y()][position.x()] = [r, g, b, alpha.unwrap_or(1.0)]
         },
 
     ).unwrap();
 
-    // printing all pixels might kill the console lol, so only print some meta data about the image
-    println!("opened file generated_rgba.exr.exr: {:#?}", image.layer_data.attributes);
+    // printing all pixels might kill the console, so only print some meta data about the image
+    println!("opened file generated_rgba.exr: {:#?}", image.layer_data.attributes);
 }
