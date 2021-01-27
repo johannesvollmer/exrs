@@ -11,7 +11,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use exr::prelude::*;
 use exr::error::{Error, UnitResult};
-use exr::image::read::specific_channels::pixel_vec::PixelVec;
+use exr::prelude::pixel_vec::PixelVec;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
@@ -140,8 +140,8 @@ fn round_trip_all_files_rgba() {
             .no_deep_data()
             .largest_resolution_level() // TODO all levels
             .rgba_channels(
-                read::specific_channels::pixel_vec::create_pixel_vec,
-                read::specific_channels::pixel_vec::set_pixel_in_vec::<(f32, f32, f32, Option<f32>)>,
+                pixel_vec::create_pixel_vec,
+                pixel_vec::set_pixel_in_vec::<(f32, f32, f32, Option<f32>)>,
             )
             .first_valid_layer()
             .all_attributes()
@@ -199,8 +199,8 @@ fn roundtrip_unusual_rgba() -> UnitResult {
         .no_deep_data()
         .largest_resolution_level() // TODO all levels
         .rgba_channels(
-            read::specific_channels::pixel_vec::create_pixel_vec,
-            read::specific_channels::pixel_vec::set_pixel_in_vec::<(f32, f32, f16, f32)>,
+            pixel_vec::create_pixel_vec,
+            pixel_vec::set_pixel_in_vec::<(f32, f32, f16, f32)>,
         )
         .first_valid_layer()
         .all_attributes()

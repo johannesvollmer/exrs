@@ -70,8 +70,8 @@ pub fn damaged(){
             {
                 let _rgba = read_first_rgba_layer_from_file(
                     file,
-                    read::specific_channels::pixel_vec::create_pixel_vec,
-                    read::specific_channels::pixel_vec::set_pixel_in_vec::<(Sample, Sample, Sample, Option<Sample>)>
+                    pixel_vec::create_pixel_vec,
+                    pixel_vec::set_pixel_in_vec::<(Sample, Sample, Sample, Option<Sample>)>
                 )?;
             }
 

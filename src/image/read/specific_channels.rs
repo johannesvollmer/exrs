@@ -84,15 +84,9 @@ impl<F, P, T> CreatePixels<T> for F where F: Fn(&ChannelsInfo<T>) -> P {
 }
 
 
-pub trait DesiredPixel/*<ChannelNames>*/ : Sized {
+pub trait DesiredPixel: Sized {
     type ChannelNames: ReadFilteredChannels<Self, Self::ChannelsInfo>;
-
-    // type Filter: ChannelsFilter<Self>;
-    // fn filter(&self) -> Self::Filter;
-
     type ChannelsInfo;
-
-
 }
 
 
@@ -149,7 +143,6 @@ pub trait PixelLineReader<Pixel> {
 impl<'s, Px, Setter: 's, Constructor: 's>
     ReadChannels<'s> for ReadSpecificChannels<Px, Constructor, Setter> where
     Px: DesiredPixel,
-    // Channels: ReadFilteredChannels<Px>,
     Constructor: CreatePixels<Px::ChannelsInfo>,
     Setter: SetPixel<Constructor::Pixels, Px>,
 {
@@ -246,12 +239,6 @@ pub struct ChannelIndexInfo {
     pub channel_index: usize,
 }
 
-/*pub trait ChannelParameter: Sized + Clone { is now `DesiredSample`
-    type ChannelInfo;
-    type ChannelPixelReader: ChannelPixelReader<Self>;
-    fn create_channel_pixel_reader(info: Option<ChannelIndexInfo>) -> Result<(Self::ChannelInfo, Self::ChannelPixelReader)>;
-}*/
-
 pub trait ChannelPixelReader<Sample>: Sized + Clone {
     type ChannelLineReader: ChannelLineReader<Sample>;
     fn create_channel_line_reader(&self, line_width: usize) -> Self::ChannelLineReader;
@@ -292,7 +279,6 @@ pub struct IndexChannelLineReader<S> {
 }
 
 impl<S> ChannelPixelReader<S> for ChannelIndexInfo where S: Clone + FromSample {
-// impl ChannelPixelReader<Sample> for ChannelIndexInfo {
     type ChannelLineReader = IndexChannelLineReader<S>;
     fn create_channel_line_reader(&self, pixel_count: usize) -> Self::ChannelLineReader {
         let start = self.sample_byte_offset * pixel_count; // TODO  will never work with subsampling?
@@ -302,7 +288,6 @@ impl<S> ChannelPixelReader<S> for ChannelIndexInfo where S: Clone + FromSample {
 
 
 impl<S> ChannelPixelReader<Option<S>> for Option<ChannelIndexInfo> where S: Clone + FromSample {
-// impl ChannelPixelReader<Option<Sample>> for Option<ChannelIndexInfo> {
     type ChannelLineReader = Option<IndexChannelLineReader<S>>;
     fn create_channel_line_reader(&self, line_width: usize) -> Self::ChannelLineReader {
         self.as_ref().map(|this| {
@@ -313,7 +298,7 @@ impl<S> ChannelPixelReader<Option<S>> for Option<ChannelIndexInfo> where S: Clon
 
 impl<S> ChannelLineReader<S> for IndexChannelLineReader<S> where S: FromSample + Clone {
     fn read_next_sample(&mut self, bytes: &[u8]) -> Result<S> {
-        let bytes = &mut &bytes[(self.next_byte).min(bytes.len())..]; // required for index out of bounds overflow
+        let bytes = &mut &bytes[(self.next_byte).min(bytes.len())..]; // required to prevent index out of bounds overflow
 
         // TODO not match as much?
 
@@ -350,11 +335,9 @@ impl ChannelFilter {
     }
 }
 
-impl<A,B,C,D/*, L,M,N,O*/> ReadFilteredChannels<(A,B,C,D), (A::ChannelInfo, B::ChannelInfo, C::ChannelInfo, D::ChannelInfo)>
+impl<A,B,C,D> ReadFilteredChannels<(A,B,C,D), (A::ChannelInfo, B::ChannelInfo, C::ChannelInfo, D::ChannelInfo)>
 for (Text, Text, Text, Text) where
-// for (L,M,N,O) where
     A: DesiredSample, B: DesiredSample, C: DesiredSample, D: DesiredSample,
-    //L: Clone+Into<Text>, M: Clone+Into<Text>, N: Clone+Into<Text>, O: Clone+Into<Text>,
 {
     type Filter = (ChannelFilter, ChannelFilter, ChannelFilter,  ChannelFilter, );
     fn filter(&self) -> Self::Filter { (
@@ -371,7 +354,6 @@ for (ChannelFilter, ChannelFilter, ChannelFilter, ChannelFilter)
         A: DesiredSample, B: DesiredSample, C: DesiredSample, D: DesiredSample,
 {
     type PixelReader = (A::SampleReader, B::SampleReader, C::SampleReader, D::SampleReader);
-    // type ChannelsInfo = (A::ChannelInfo, B::ChannelInfo, C::ChannelInfo, D::ChannelInfo);
 
     fn visit_channel(&mut self, channel: ChannelIndexInfo) {
         self.0.filter(&channel);
@@ -393,43 +375,6 @@ for (ChannelFilter, ChannelFilter, ChannelFilter, ChannelFilter)
     }
 }
 
-
-
-/*impl<Na,Nb,Nc, A,B,C> ReadFilteredChannels<(A,B,C)> for (Na,Nb,Nc) where
-    A: ChannelParameter, B: ChannelParameter, C: ChannelParameter,
-    Na: AsRef<str>, Nb: AsRef<str>, Nc: AsRef<str>,
-{
-    type PixelReader = (A::ChannelPixelReader, B::ChannelPixelReader, C::ChannelPixelReader);
-    type SampleTypes = (A::SampleType, B::SampleType, C::SampleType);
-
-    fn inspect_channels(&self, channels: &ChannelList) -> Result<(Self::SampleTypes, Self::PixelReader)> {
-        let mut result = (None, None, None);
-        let mut byte_offset = 0;
-
-        for (channel_index, channel) in channels.list.iter().enumerate() {
-            let chan_info = ChannelIndexInfo {
-                sample_byte_offset: byte_offset,
-                info: channel.clone(),
-                channel_index
-            };
-
-            if      &channel.name == self.0.as_ref() { result.0 = Some(chan_info); }
-            else if &channel.name == self.1.as_ref() { result.1 = Some(chan_info); }
-            else if &channel.name == self.2.as_ref() { result.2 = Some(chan_info); }
-
-            byte_offset += channel.sample_type.bytes_per_sample();
-        }
-
-        let (a_type, a_reader) = A::create_channel_pixel_reader(result.0)?;
-        let (b_type, b_reader) = B::create_channel_pixel_reader(result.1)?;
-        let (c_type, c_reader) = C::create_channel_pixel_reader(result.2)?;
-
-        Ok((
-            (a_type, b_type, c_type),
-            (a_reader, b_reader, c_reader)
-        ))
-    }
-}*/
 
 
 impl<A,B,C,D> PixelReader<(A,B,C,D)> for (
@@ -478,95 +423,5 @@ impl<A,B,C,D> PixelLineReader<(A,B,C,D)> for (
 
 
 
-
-/// Provides a predefined pixel storage.
-/// Currently contains a simple flattened vector storage.
-pub mod pixel_vec {
-    use super::*;
-
-    /// Store all samples in a single array.
-    /// All samples will be converted to the type `T`.
-    /// This supports all the sample types, `f16`, `f32`, and `u32`.
-    ///
-    /// The flattened vector contains all rows one after another.
-    /// In each row, for each pixel, its red, green, blue, and then alpha
-    /// samples are stored one after another.
-    ///
-    /// Use `PixelVec.compute_pixel_index(position)`
-    /// to compute the flat index of a specific pixel.
-    #[derive(Eq, PartialEq, Clone)]
-    pub struct PixelVec<T> {
-
-        /// The resolution of this layer.
-        pub resolution: Vec2<usize>,
-
-        /// The flattened vector contains all rows one after another.
-        /// In each row, for each pixel, its red, green, blue, and then alpha
-        /// samples are stored one after another.
-        ///
-        /// Use `Flattened::compute_pixel_index(image, position)`
-        /// to compute the flat index of a specific pixel.
-        pub pixels: Vec<T>,
-    }
-
-    impl<T> PixelVec<T> {
-
-        /// Create a new flattened pixel storage, checking the length of the provided pixels vector.
-        pub fn new(resolution: impl Into<Vec2<usize>>, pixels: Vec<T>) -> Self {
-            let size = resolution.into();
-            assert_eq!(size.area(), pixels.len(), "expected {} samples, but vector length is {}", size.area(), pixels.len());
-            Self { resolution: size, pixels }
-        }
-
-        /// Compute the flat index of a specific pixel. Returns a range of either 3 or 4 samples.
-        /// The computed index can be used with `PixelVec.samples[index]`.
-        /// Panics for invalid sample coordinates.
-        #[inline]
-        pub fn compute_pixel_index(&self, position: Vec2<usize>) -> usize {
-            position.flat_index_for_size(self.resolution)
-        }
-    }
-
-    impl<T> ContainsNaN for PixelVec<T> where T: ContainsNaN {
-        fn contains_nan_pixels(&self) -> bool {
-           self.pixels.as_slice().contains_nan_pixels()
-        }
-    }
-
-    impl<Px> GetPixel for PixelVec<Px> where Px: Clone + Sync {
-        type Pixel = Px;
-        fn get_pixel(&self, position: Vec2<usize>) -> Self::Pixel {
-            get_pixel_from_vec(self, position).clone()
-        }
-    }
-
-    /// Create a new `PixelVec<T>`, given the pixel resolution of the image.
-    /// Can usually be used as a function reference instead of calling it directly.
-    #[inline] pub fn create_pixel_vec<Pixel: Clone + Default, SampleTypes>(image: &ChannelsInfo<SampleTypes>) -> PixelVec<Pixel> {
-        PixelVec { resolution: image.resolution, pixels: vec![Pixel::default(); image.resolution.area()] }
-    }
-
-    /// Examine a pixel of a `PixelVec<T>` image.
-    /// Can usually be used as a function reference instead of calling it directly.
-    #[inline]
-    pub fn get_pixel_from_vec<Pixel>(image: &PixelVec<Pixel>, position: Vec2<usize>) -> &Pixel where Pixel: Sync {
-        &image.pixels[image.compute_pixel_index(position)]
-    }
-
-    /// Update a pixel of a `PixelVec<T>` image.
-    /// Can usually be used as a function reference instead of calling it directly.
-    #[inline]
-    pub fn set_pixel_in_vec<Pixel>(image: &mut PixelVec<Pixel>, position: Vec2<usize>, pixel: Pixel) {
-        let index = image.compute_pixel_index(position);
-        image.pixels[index] = pixel;
-    }
-
-    use std::fmt::*;
-    impl<T> Debug for PixelVec<T> {
-        #[inline] fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-            write!(formatter, "[{}; {}]", std::any::type_name::<T>(), self.pixels.len())
-        }
-    }
-}
 
 

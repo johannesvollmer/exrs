@@ -8,7 +8,7 @@ extern crate exr;
 /// then write the cropped result to another file.
 pub fn main() {
     use exr::prelude::*;
-    use exr::image::read::specific_channels::pixel_vec::*;
+    use exr::image::pixel_vec::*; // import predefined pixel storage
 
     let path = "tests/images/valid/custom/oh crop.exr";
 

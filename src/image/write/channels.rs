@@ -463,8 +463,8 @@ pub mod test {
     use crate::image::SpecificChannels;
     use crate::math::Vec2;
     use crate::prelude::{f16, Sample};
-    use crate::image::read::specific_channels::pixel_vec::PixelVec;
     use crate::meta::attribute::{ChannelInfo, SampleType};
+    use crate::image::pixel_vec::PixelVec;
 
     #[test]
     fn compiles(){

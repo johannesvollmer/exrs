@@ -22,6 +22,7 @@
 pub mod read;
 pub mod write;
 pub mod crop;
+pub mod pixel_vec;
 // pub mod channel_groups;
 
 
@@ -47,27 +48,6 @@ pub type FlatImage = Image<Layers<AnyChannels<FlatSamples>>>;
 pub type PixelLayersImage<Storage, Channels> = Image<Layers<SpecificChannels<Storage, Channels>>>;
 pub type PixelImage<Storage, Channels> = Image<Layer<SpecificChannels<Storage, Channels>>>;
 
-/*
-/// This image type contains only the most essential features
-/// and supports any exr image that could also be represented by a list of png or jpg layers.
-///
-/// `Samples` is your custom pixel storage.
-/// If you want to write it to a file, it needs to implement `GetRgbaPixel`
-/// (this is already implemented for all closures of type `Fn(Vec2<usize>) -> RgbaPixel`.
-pub type RgbaLayersImage<Samples> = Image<Layers<RgbaChannels<Samples>>>;
-
-/// This image type contains only the most essential features
-/// and supports all exr images that could also be represented by a png or jpg file.
-///
-/// `Samples` is your custom pixel storage.
-/// If you want to write it to a file, it needs to implement `GetRgbaPixel`
-/// (this is already implemented for all closures of type `Fn(Vec2<usize>) -> RgbaPixel`.
-pub type RgbaImage<Samples> = Image<Layer<RgbaChannels<Samples>>>;
-
-pub type RgbaChannels<Storage> = SpecificChannels<Storage, RgbaChannelInfos>;
-pub type AnyRgbaPixel = (Sample, Sample, Sample, Option<Sample>);
-pub type RgbaChannelInfos = (ChannelInfo, ChannelInfo, ChannelInfo, Option<ChannelInfo>); // TODO rename
-pub type RgbaChannelsInfo = ChannelsInfo<RgbaChannelInfos>;*/
 
 /// The complete exr image.
 /// `Layers` can be either a single `Layer` or `Layers`.
@@ -146,21 +126,6 @@ pub enum Blocks {
     Tiles (Vec2<usize>)
 }
 
-/*
-/// A grid of rgba pixels. The pixels are written to your custom pixel storage.
-/// `PixelStorage` can be anything, from a flat `Vec<f16>` to `Vec<Vec<AnySample>>`, as desired.
-/// In order to write this image to a file, your `PixelStorage` must implement [`GetRgbaPixel`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RgbaChannels<PixelStorage> {
-
-    /// When writing, all samples are converted to these types.
-    /// When reading, this remembers the original sample type that was found in the file.
-    pub sample_types: RgbaSampleTypes,
-
-    /// Your custom rgba pixel storage
-    // TODO should also support `Levels<YourStorage>`, where rgba levels are desired!
-    pub storage: PixelStorage,
-}*/
 
 /// A grid of rgba pixels. The pixels are written to your custom pixel storage.
 /// `PixelStorage` can be anything, from a flat `Vec<f16>` to `Vec<Vec<AnySample>>`, as desired.
@@ -178,14 +143,6 @@ pub struct SpecificChannels<PixelStorage, ChannelsDescription> {
 }
 
 
-/*/// The sample type (`f16`, `f32` or `u32`) of the rgba channels. The alpha channel is optional.
-/// The first channel is red, the second blue, the third green, and the fourth alpha.
-///
-/// Careful, not all applications may be able to decode rgba images with arbitrary sample types.
-#[derive(Copy, Debug, Clone, PartialEq, Eq)]
-pub struct RgbaSampleTypes (pub SampleType, pub SampleType, pub SampleType, pub Option<SampleType>);
-*/
-
 /// A full list of arbitrary channels, not just rgba.
 /// `Samples` can currently only be `FlatSamples` or `Levels<FlatSamples>`.
 #[derive(Debug, Clone, PartialEq)]
@@ -198,7 +155,6 @@ pub struct AnyChannels<Samples> {
 
 /// A single arbitrary channel.
 /// `Samples` can currently only be `FlatSamples` or `Levels<FlatSamples>`
-// or a closure of type `Fn(Vec2<usize>) -> S` where `S` is f16, f32, or u32. TODO (arbitrary tuple channels instead of only rgba)
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnyChannel<Samples> {
 
@@ -310,31 +266,6 @@ pub enum DeepSamples {
 }*/
 
 
-/*/// A single pixel with a red, green, blue, and alpha value.
-/// Each channel may have a different sample type.
-///
-/// A Pixel can be created using `Pixel::rgb(0_f32, 0_u32, f16::ONE)` or `Pixel::rgba(0_f32, 0_u32, 0_f32, f16::ONE)`.
-/// Additionally, a pixel can be converted from a tuple or array with
-/// either three or four components using `Pixel::from((0_u32, 0_f32, f16::ONE))` or from an array.
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub struct RgbaPixel {
-
-    /// The red component of this rgba pixel.
-    pub red: Sample,
-
-    /// The green component of this rgba pixel.
-    pub green: Sample,
-
-    /// The blue component of this rgba pixel.
-    pub blue: Sample,
-
-    /// The alpha component of this pixel.
-    /// Most images will keep this number between zero and one.
-    pub alpha: Option<Sample>,
-}*/
-
-
-
 use crate::meta::attribute::*;
 use crate::error::Result;
 use crate::block::samples::Sample;
@@ -352,13 +283,6 @@ impl<Channels> Layer<Channels> {
     }
 }
 
-/*impl<SampleStorage> RgbaChannels<SampleStorage> {
-    /// Create a new group of rgba channels. The samples can be a closure of type `Sync + Fn(Vec2<usize>) -> RgbaPixel`,
-    /// meaning a closure that returns an rgb color for each point in the image.
-    pub fn new(convert_to: RgbaSampleTypes, source_samples: SampleStorage) -> Self where SampleStorage: GetRgbaPixel {
-        RgbaChannels { sample_types: convert_to, storage: source_samples }
-    }
-}*/
 
 impl<SampleStorage, Channels> SpecificChannels<SampleStorage, Channels> {
     pub fn new(channels: Channels, source_samples: SampleStorage) -> Self {
@@ -372,7 +296,6 @@ pub trait IntoSample: Into<Sample> { const SAMPLE_TYPE: SampleType; }
 impl IntoSample for f16 { const SAMPLE_TYPE: SampleType = SampleType::F16; }
 impl IntoSample for f32 { const SAMPLE_TYPE: SampleType = SampleType::F32; }
 impl IntoSample for u32 { const SAMPLE_TYPE: SampleType = SampleType::U32; }
-// impl IntoSample for Sample { const SAMPLE_TYPE: SampleType = Sample:; }
 
 
 impl<SampleStorage> SpecificChannels<SampleStorage, (ChannelInfo, ChannelInfo, ChannelInfo, ChannelInfo)>
@@ -535,7 +458,6 @@ impl<Samples> RipMaps<Samples> {
     /// Flatten the 2D level index to a one dimensional index.
     pub fn get_level_index(&self, level: Vec2<usize>) -> usize {
         level.flat_index_for_size(self.level_count)
-        // self.level_count.0 * level.y() + level.x()
     }
 
     /// Return a level by level index. Level `0` has the largest resolution.
@@ -587,34 +509,6 @@ impl FlatSamples {
     }
 }
 
-
-
-/*impl RgbaSampleTypes {
-    /// Store 16 bit values, discarding alpha.
-    pub const RGB_F16: RgbaSampleTypes = RgbaSampleTypes(
-        SampleType::F16, SampleType::F16, SampleType::F16, None
-    );
-
-    /// Store 32 bit values, discarding alpha.
-    pub const RGB_F32: RgbaSampleTypes = RgbaSampleTypes(
-        SampleType::F32, SampleType::F32, SampleType::F32, None
-    );
-
-    /// Store 16 bit values, including alpha.
-    pub const RGBA_F16: RgbaSampleTypes = RgbaSampleTypes(
-        SampleType::F16, SampleType::F16, SampleType::F16, Some(SampleType::F16)
-    );
-
-    /// Store 32 bit values, including alpha.
-    pub const RGBA_F32: RgbaSampleTypes = RgbaSampleTypes(
-        SampleType::F32, SampleType::F32, SampleType::F32, Some(SampleType::F32)
-    );
-
-    /// Store 32 bit color values and 16 bit alpha values.
-    pub const RGB_F32_A_F16: RgbaSampleTypes = RgbaSampleTypes(
-        SampleType::F32, SampleType::F32, SampleType::F32, Some(SampleType::F16)
-    );
-}*/
 
 impl<'s, ChannelData:'s> Layer<ChannelData> {
 
@@ -742,28 +636,6 @@ impl<'s, SampleData: 's> AnyChannel<SampleData> {
     }*/
 }
 
-/*impl RgbaPixel {
-
-    /// Create a new pixel without the specified samples. Accepts f32, u32, and f16 values for each sample.
-    #[inline] pub fn new(red: impl Into<Sample>, green: impl Into<Sample>, blue: impl Into<Sample>, alpha: Option<impl Into<Sample>>) -> Self {
-        Self { red: red.into(), green: green.into(), blue: blue.into(), alpha: alpha.map(Into::into) }
-    }
-
-    /// Create a new pixel without an alpha sample. Accepts f32, u32, and f16 values for each sample.
-    #[inline] pub fn rgb(red: impl Into<Sample>, green: impl Into<Sample>, blue: impl Into<Sample>) -> Self {
-        Self::new(red, green, blue, Option::<f32>::None)
-    }
-
-    /// Create a new pixel with an alpha sample. Accepts f32, u32, and f16 values for each sample.
-    #[inline] pub fn rgba(red: impl Into<Sample>, green: impl Into<Sample>, blue: impl Into<Sample>, alpha: impl Into<Sample>) -> Self {
-        Self::new(red, green, blue, Some(alpha))
-    }
-
-    /// Returns this pixel's alpha value, or the default value of `1.0` if no alpha is present.
-    #[inline] pub fn alpha_or_1(&self) -> Sample {
-        self.alpha.unwrap_or(Sample::one())
-    }
-}*/
 
 
 
@@ -869,45 +741,6 @@ impl ContainsNaN for Sample {
     }
 }
 
-
-
-/*impl<R, G, B> From<(R, G, B)> for RgbaPixel where R: Into<Sample>, G: Into<Sample>, B: Into<Sample> {
-    #[inline] fn from((r,g,b): (R, G, B)) -> Self { Self::rgb(r,g,b) }
-}
-
-impl<R, G, B, A> From<(R, G, B, A)> for RgbaPixel where R: Into<Sample>, G: Into<Sample>, B: Into<Sample>, A: Into<Sample> {
-    #[inline] fn from((r,g,b,a): (R, G, B, A)) -> Self { Self::rgba(r,g,b, a) }
-}
-
-impl<R, G, B> From<RgbaPixel> for (R, G, B) where R: From<Sample>, G: From<Sample>, B: From<Sample> {
-    #[inline] fn from(pixel: RgbaPixel) -> Self { (R::from(pixel.red), G::from(pixel.green), B::from(pixel.blue)) }
-}
-
-impl<R, G, B, A> From<RgbaPixel> for (R, G, B, A) where R: From<Sample>, G: From<Sample>, B: From<Sample>, A: From<Sample> {
-    #[inline] fn from(pixel: RgbaPixel) -> Self { (
-        R::from(pixel.red), G::from(pixel.green), B::from(pixel.blue),
-        A::from(pixel.alpha_or_1())
-    ) }
-}
-
-impl<S> From<[S; 3]> for RgbaPixel where S: Into<Sample> {
-    #[inline] fn from([r,g,b]: [S; 3]) -> Self { Self::rgb(r,g,b) }
-}
-
-impl<S> From<[S; 4]> for RgbaPixel where S: Into<Sample> {
-    #[inline] fn from([r,g,b, a]: [S; 4]) -> Self { Self::rgba(r,g,b, a) }
-}
-
-impl<S> From<RgbaPixel> for [S; 3] where S: From<Sample> {
-    #[inline] fn from(pixel: RgbaPixel) -> Self { [S::from(pixel.red), S::from(pixel.green), S::from(pixel.blue)] }
-}
-
-impl<S> From<RgbaPixel> for [S; 4] where S: From<Sample> {
-    #[inline] fn from(pixel: RgbaPixel) -> Self { [
-        S::from(pixel.red), S::from(pixel.green), S::from(pixel.blue),
-        S::from(pixel.alpha_or_1())
-    ] }
-}*/
 
 
 impl std::fmt::Debug for FlatSamples {
