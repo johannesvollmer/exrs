@@ -75,15 +75,19 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     /// Throws an error for images with deep data.
     ///
     /// Use `specific_channels` or `all_channels` if you want to read something other than rgba.
-    pub fn rgba_channels<Px, Create, Set>(
+    pub fn rgba_channels<R,G,B,A, Create, Set>(
         self, create: Create, set_pixel: Set
-    ) -> ReadSpecificChannels<Px, (&'static str,&'static str,&'static str,&'static str), Create, Set>
+    ) -> ReadSpecificChannels<(R,G,B,A), Create, Set>
         where
-            (&'static str,&'static str,&'static str,&'static str): ReadFilteredChannels<Px>, // limits `Px`
-            Create: CreatePixels<<<(&'static str,&'static str,&'static str,&'static str) as ReadFilteredChannels<Px>>::Filter as ChannelsFilter<Px>>::ChannelsInfo>,
-            Set: SetPixel<Create::Pixels, Px>,
+            R: DesiredSample, G: DesiredSample, B: DesiredSample, A: DesiredSample,
+            Create: CreatePixels<(R::ChannelInfo, G::ChannelInfo, B::ChannelInfo, A::ChannelInfo)>,
+            // Create: Fn(&ChannelsInfo<(R::ChannelInfo, G::ChannelInfo, B::ChannelInfo, A::ChannelInfo)>) -> Storage,
+            Set: SetPixel<Create::Pixels, (R,G,B,A)>,
     {
-        self.specific_channels(("R", "G", "B", "A"), create, set_pixel)
+        self.specific_channels(
+            (Text::from("R"), Text::from("G"), Text::from("B"), Text::from("A")),
+            create, set_pixel
+        )
     }
 
     // TODO FIXME support directly using `f32` as parameter, not just Sample!
@@ -106,13 +110,16 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     {
         ReadSpecificChannels { channel_names, create, set_pixel, px: Default::default() }
     }*/
-    pub fn specific_channels<Px, Channels, Create, Set>(
-        self, channel_names: Channels, create: Create, set_pixel: Set
-    ) -> ReadSpecificChannels<Px, Channels, Create, Set>
+    pub fn specific_channels<Px, Create, Set>(
+        self, channel_names: Px::ChannelNames, create: Create, set_pixel: Set
+    ) -> ReadSpecificChannels<Px, Create, Set>
         where
-            Channels: ReadFilteredChannels<Px>,
-            Create: CreatePixels<<Channels::Filter as ChannelsFilter<Px>>::ChannelsInfo>,
-            Set: SetPixel<Create::Pixels, Px>,
+            Px: DesiredPixel,
+            Create: CreatePixels<Px::ChannelsInfo>,
+            Set: SetPixel<Create::Pixels, Px>
+            // Channels: ReadFilteredChannels<Px>,
+            // Create: CreatePixels<<Channels::Filter as ChannelsFilter<Px>>::ChannelsInfo>,
+            // Set: SetPixel<Create::Pixels, Px>,
     {
         ReadSpecificChannels { channel_names, create, set_pixel, px: Default::default() }
     }

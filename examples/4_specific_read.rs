@@ -10,13 +10,13 @@ fn main() {
 
     let image = read().no_deep_data()
         .largest_resolution_level()
-        .specific_channels(
-            ("A", "X", "Y", "Z"),
-            |info| vec![vec![(f16::ZERO, 0.0, 0.0, 0.0); info.resolution.width()]; info.resolution.height()],
+        .specific_channels::<(Option<f16>, f32, f32, f32), _,_>(
+            (Text::from("A"), Text::from("X"), Text::from("Y"), Text::from("Z")), // TODO use &str directly without mentioning text
+            |info: &ChannelsInfo<_>| vec![vec![(f16::ZERO, 0.0, 0.0, 0.0); info.resolution.width()]; info.resolution.height()],
 
             // all samples will be converted to f32 (you can also use a dynamic `Sample` of `f32` instead here)
-            |vec, position, (a, x,y,z): (Option<f16>, f32, f32, f32)| { // TODO infer position type
-                vec[position.y()][position.x()] = (x,y,z, a.unwrap_or(f16::ONE))
+            |vec:&mut Vec<Vec<(f16,f32,f32,f32)>>, position: Vec2<usize>, (a, x,y,z): (Option<f16>, f32, f32, f32)| { // TODO infer position type
+                vec[position.y()][position.x()] = (a.unwrap_or(f16::ONE), x,y,z)
             }
         )
         .all_layers()

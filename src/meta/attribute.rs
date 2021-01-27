@@ -621,6 +621,7 @@ impl<'s> From<&'s str> for Text {
     }
 }
 
+
 /* TODO (currently conflicts with From<&str>)
 impl<'s> TryFrom<&'s str> for Text {
     type Error = String;

@@ -139,7 +139,7 @@ fn round_trip_all_files_rgba() {
         let image_reader = read()
             .no_deep_data()
             .largest_resolution_level() // TODO all levels
-            .rgba_channels::<(f32,f32,f32,f32), _, _>( // TODO optional images without alpha
+            .rgba_channels::<f32,f32,f32,f32, _, _>( // TODO optional images without alpha
                 read::specific_channels::pixels::create_flattened,
                 read::specific_channels::pixels::set_flattened_pixel,
             )
@@ -200,7 +200,7 @@ fn roundtrip_unusual_rgba() -> UnitResult {
     let image_reader = read()
         .no_deep_data()
         .largest_resolution_level() // TODO all levels
-        .rgba_channels::<(f32,f32,f16,f32),_,_>(
+        .rgba_channels::<f32,f32,f16,f32,_,_>(
             read::specific_channels::pixels::create_flattened,
             read::specific_channels::pixels::set_flattened_pixel,
         )

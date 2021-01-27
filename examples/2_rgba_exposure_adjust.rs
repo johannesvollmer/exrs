@@ -19,7 +19,7 @@ fn main() {
         .largest_resolution_level()
         .rgba_channels(
             // create our custom image based on the file info
-            |image| -> CustomPixels {
+            |image: &ChannelsInfo<_>| -> CustomPixels {
                 println!("loaded image {:#?}", image);
 
                 let default_rgba_pixel = (Sample::f32(0.0), Sample::f32(0.0), Sample::f32(0.0), None);
@@ -29,7 +29,7 @@ fn main() {
             },
 
             // set a single pixel with red, green, blue, and optionally and alpha value.
-            |image, position, (r,g,b,a): AnyRgbaPixel| {
+            |image: &mut CustomPixels, position: Vec2<usize>, (r,g,b,a): AnyRgbaPixel| {
 
                 // insert the values into out custom image
                 image.lines[position.y()][position.x()] = (r,g,b,a);
