@@ -75,14 +75,13 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     /// Throws an error for images with deep data.
     ///
     /// Use `specific_channels` or `all_channels` if you want to read something other than rgba.
-    pub fn rgba_channels<R,G,B,A, Create, Set>(
+    pub fn rgba_channels<R,G,B,A, Create, Set, Pixels>(
         self, create: Create, set_pixel: Set
     ) -> ReadSpecificChannels<(R,G,B,A), Create, Set>
         where
             R: DesiredSample, G: DesiredSample, B: DesiredSample, A: DesiredSample,
-            Create: CreatePixels<(R::ChannelInfo, G::ChannelInfo, B::ChannelInfo, A::ChannelInfo)>,
-            // Create: Fn(&ChannelsInfo<(R::ChannelInfo, G::ChannelInfo, B::ChannelInfo, A::ChannelInfo)>) -> Storage,
-            Set: SetPixel<Create::Pixels, (R,G,B,A)>,
+            Create: Fn(&ChannelsInfo<(R::ChannelInfo, G::ChannelInfo, B::ChannelInfo, A::ChannelInfo)>) -> Pixels,
+            Set:  Fn(&mut Pixels, Vec2<usize>, (R,G,B,A)),
     {
         self.specific_channels(
             (Text::from("R"), Text::from("G"), Text::from("B"), Text::from("A")),
@@ -110,16 +109,17 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     {
         ReadSpecificChannels { channel_names, create, set_pixel, px: Default::default() }
     }*/
-    pub fn specific_channels<Px, Create, Set>(
-        self, channel_names: Px::ChannelNames, create: Create, set_pixel: Set
-    ) -> ReadSpecificChannels<Px, Create, Set>
+
+    pub fn specific_channels<Pixel, Create, Set, PixelStorage>(
+        self, channel_names: Pixel::ChannelNames, create: Create, set_pixel: Set
+    ) -> ReadSpecificChannels<Pixel, Create, Set>
         where
-            Px: DesiredPixel,
-            Create: CreatePixels<Px::ChannelsInfo>,
-            Set: SetPixel<Create::Pixels, Px>
-            // Channels: ReadFilteredChannels<Px>,
-            // Create: CreatePixels<<Channels::Filter as ChannelsFilter<Px>>::ChannelsInfo>,
-            // Set: SetPixel<Create::Pixels, Px>,
+            Pixel: DesiredPixel,
+            /*Create: CreatePixels<Px::ChannelsInfo>,
+            Set: SetPixel<Create::Pixels, Px>*/
+            Create: Fn(&ChannelsInfo<Pixel::ChannelsInfo>) -> PixelStorage,
+            Set:  Fn(&mut PixelStorage, Vec2<usize>, Pixel),
+
     {
         ReadSpecificChannels { channel_names, create, set_pixel, px: Default::default() }
     }

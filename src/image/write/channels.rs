@@ -463,7 +463,7 @@ pub mod test {
     use crate::image::SpecificChannels;
     use crate::math::Vec2;
     use crate::prelude::{f16, Sample};
-    use crate::image::read::specific_channels::pixels::Flattened;
+    use crate::image::read::specific_channels::pixel_vec::PixelVec;
     use crate::meta::attribute::{ChannelInfo, SampleType};
 
     #[test]
@@ -480,7 +480,7 @@ pub mod test {
 
         assert_is_writable_channels(SpecificChannels::named(
             ("R", "G", "B", "A"),
-            Flattened::new((3, 2), vec![px,px,px, px,px,px])
+            PixelVec::new((3, 2), vec![px, px, px, px, px, px])
         ));
 
         let px = (3_f32, f16::ONE, Option::<f16>::None, Some(4_f32));
@@ -492,7 +492,7 @@ pub mod test {
                 Some(ChannelInfo::named("p", SampleType::F32)),
             ),
 
-            Flattened::new((3, 2), vec![px,px,px, px,px,px])
+            PixelVec::new((3, 2), vec![px, px, px, px, px, px])
         ));
 
 

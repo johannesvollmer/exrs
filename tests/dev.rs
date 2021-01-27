@@ -88,8 +88,8 @@ pub fn test_roundtrip() {
             .no_deep_data()
             .largest_resolution_level() // TODO all levels
             .rgba_channels(
-                read::specific_channels::pixels::create_flattened,
-                read::specific_channels::pixels::set_flattened_pixel::<(f32,f32,f32,Option<f32>)>,
+                read::specific_channels::pixel_vec::create_pixel_vec,
+                read::specific_channels::pixel_vec::set_pixel_in_vec::<(f32, f32, f32, Option<f32>)>,
             )
             .first_valid_layer()
             .all_attributes()

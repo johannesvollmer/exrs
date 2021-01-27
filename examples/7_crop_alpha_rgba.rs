@@ -8,21 +8,23 @@ extern crate exr;
 /// then write the cropped result to another file.
 pub fn main() {
     use exr::prelude::*;
-    use exr::image::read::specific_channels::pixels::*;
+    use exr::image::read::specific_channels::pixel_vec::*;
 
     let path = "tests/images/valid/custom/oh crop.exr";
 
     // load an rgba image
     // this specific example discards all but the first valid rgb layers and converts all pixels to f32 values
     // TODO optional alpha channel!
-    let image: PixelImage<Flattened<(Sample, Sample, Sample, Option<Sample>)>, _> = read_first_rgba_layer_from_file(
+    let image: PixelImage<PixelVec<(Sample, Sample, Sample, Option<Sample>)>, _> = read_first_rgba_layer_from_file(
         path,
-        create_flattened, // ::<(Sample, Sample, Sample, Sample)>,
-        set_flattened_pixel // use some predefined rgba pixel vector
+        create_pixel_vec,
+
+        // use this predefined rgba pixel container from the exr crate, requesting any type of pixels with 3 or 4 values
+        set_pixel_in_vec::<(Sample, Sample, Sample, Option<Sample>)>
     ).unwrap();
 
     // construct a ~simple~ cropped image
-    let image: Image<Layer<CroppedChannels<SpecificChannels<Flattened<(Sample, Sample, Sample, Option<Sample>)>, _>>>> = Image {
+    let image: Image<Layer<CroppedChannels<SpecificChannels<PixelVec<(Sample, Sample, Sample, Option<Sample>)>, _>>>> = Image {
         attributes: image.attributes,
 
         // crop each layer

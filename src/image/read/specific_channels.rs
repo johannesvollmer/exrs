@@ -479,9 +479,9 @@ impl<A,B,C,D> PixelLineReader<(A,B,C,D)> for (
 
 
 
-/// Provides a predefined pixel storage for rgba images.
-/// Currently contains a homogeneous flattened vector storage.
-pub mod pixels {
+/// Provides a predefined pixel storage.
+/// Currently contains a simple flattened vector storage.
+pub mod pixel_vec {
     use super::*;
 
     /// Store all samples in a single array.
@@ -492,13 +492,13 @@ pub mod pixels {
     /// In each row, for each pixel, its red, green, blue, and then alpha
     /// samples are stored one after another.
     ///
-    /// Use `Flattened::compute_pixel_index(image, position)`
+    /// Use `PixelVec.compute_pixel_index(position)`
     /// to compute the flat index of a specific pixel.
     #[derive(Eq, PartialEq, Clone)]
-    pub struct Flattened<T> {
+    pub struct PixelVec<T> {
 
         /// The resolution of this layer.
-        pub size: Vec2<usize>,
+        pub resolution: Vec2<usize>,
 
         /// The flattened vector contains all rows one after another.
         /// In each row, for each pixel, its red, green, blue, and then alpha
@@ -506,70 +506,65 @@ pub mod pixels {
         ///
         /// Use `Flattened::compute_pixel_index(image, position)`
         /// to compute the flat index of a specific pixel.
-        pub samples: Vec<T>,
+        pub pixels: Vec<T>,
     }
 
-    impl<T> Flattened<T> {
+    impl<T> PixelVec<T> {
 
-        /// Create a new flattened pixel storage, checking the length of the provided samples vector.
-        pub fn new(resolution: impl Into<Vec2<usize>>, samples: Vec<T>) -> Self {
+        /// Create a new flattened pixel storage, checking the length of the provided pixels vector.
+        pub fn new(resolution: impl Into<Vec2<usize>>, pixels: Vec<T>) -> Self {
             let size = resolution.into();
-            assert_eq!(size.area(), samples.len(), "expected {} samples, but vector length is {}", size.area(), samples.len());
-            Self { size, samples }
+            assert_eq!(size.area(), pixels.len(), "expected {} samples, but vector length is {}", size.area(), pixels.len());
+            Self { resolution: size, pixels }
         }
 
         /// Compute the flat index of a specific pixel. Returns a range of either 3 or 4 samples.
-        /// The computed index can be used with `Flattened.samples[index]`.
+        /// The computed index can be used with `PixelVec.samples[index]`.
         /// Panics for invalid sample coordinates.
         #[inline]
         pub fn compute_pixel_index(&self, position: Vec2<usize>) -> usize {
-            position.flat_index_for_size(self.size)
+            position.flat_index_for_size(self.resolution)
         }
     }
 
-    impl<T> ContainsNaN for Flattened<T> where T: ContainsNaN {
+    impl<T> ContainsNaN for PixelVec<T> where T: ContainsNaN {
         fn contains_nan_pixels(&self) -> bool {
-           self.samples.as_slice().contains_nan_pixels()
+           self.pixels.as_slice().contains_nan_pixels()
         }
     }
 
-    /*impl<T> GetPixel<T> for Flattened<T> where T: Sync {
-        type Pixel = RgbaPixel;
-        fn get_pixel(&self, position: Vec2<usize>) -> RgbaPixel {
-            get_flattened_pixel(self, position)
-        }
-    }*/
-
-    impl<Px> GetPixel for Flattened<Px> where Px: Clone + Sync {
+    impl<Px> GetPixel for PixelVec<Px> where Px: Clone + Sync {
         type Pixel = Px;
         fn get_pixel(&self, position: Vec2<usize>) -> Self::Pixel {
-            get_flattened_pixel(self, position).clone()
+            get_pixel_from_vec(self, position).clone()
         }
     }
 
-    #[inline] pub fn create_flattened<Pixel: Clone + Default, SampleTypes>(image: &ChannelsInfo<SampleTypes>) -> Flattened<Pixel> {
-        Flattened { size: image.resolution, samples: vec![Pixel::default(); image.resolution.area()] }
+    /// Create a new `PixelVec<T>`, given the pixel resolution of the image.
+    /// Can usually be used as a function reference instead of calling it directly.
+    #[inline] pub fn create_pixel_vec<Pixel: Clone + Default, SampleTypes>(image: &ChannelsInfo<SampleTypes>) -> PixelVec<Pixel> {
+        PixelVec { resolution: image.resolution, pixels: vec![Pixel::default(); image.resolution.area()] }
     }
 
-    /// Examine a pixel of a `Flattened<T>` image.
-    /// Can usually be used as a function reference instead of calling it manually.
+    /// Examine a pixel of a `PixelVec<T>` image.
+    /// Can usually be used as a function reference instead of calling it directly.
     #[inline]
-    pub fn get_flattened_pixel<Pixel>(image: &Flattened<Pixel>, position: Vec2<usize>) -> &Pixel where Pixel: Sync {
-        &image.samples[image.compute_pixel_index(position)]
+    pub fn get_pixel_from_vec<Pixel>(image: &PixelVec<Pixel>, position: Vec2<usize>) -> &Pixel where Pixel: Sync {
+        &image.pixels[image.compute_pixel_index(position)]
     }
 
-    /// Update a pixel of a `Flattened<T>` image.
-    /// Can usually be used as a function reference instead of calling it manually.
+    /// Update a pixel of a `PixelVec<T>` image.
+    /// Can usually be used as a function reference instead of calling it directly.
     #[inline]
-    pub fn set_flattened_pixel<Pixel>(image: &mut Flattened<Pixel>, position: Vec2<usize>, pixel: Pixel) {
+    pub fn set_pixel_in_vec<Pixel>(image: &mut PixelVec<Pixel>, position: Vec2<usize>, pixel: Pixel) {
         let index = image.compute_pixel_index(position);
-        image.samples[index] = pixel;
+        image.pixels[index] = pixel;
     }
 
     use std::fmt::*;
-    impl<T> Debug for Flattened<T> {
+    impl<T> Debug for PixelVec<T> {
         #[inline] fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-            write!(formatter, "[{}; {}]", std::any::type_name::<T>(), self.samples.len())
+            write!(formatter, "[{}; {}]", std::any::type_name::<T>(), self.pixels.len())
         }
     }
 }
