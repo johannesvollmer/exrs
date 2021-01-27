@@ -66,7 +66,7 @@ pub mod prelude {
 
     pub use traits::*;
 
-    pub use crate::image::write::{/*write_rgb_f32_file,*/ write_rgba_f32_file};
+    pub use crate::image::write::{/*write_rgb_f32_file,*/ write_rgba_file};
     pub use crate::image::read::{
         // rgba_channels::*,
         specific_channels::{SetPixel, CreatePixels, ChannelsDescription},
