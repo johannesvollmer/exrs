@@ -156,18 +156,8 @@ fn round_trip_all_files_rgba() {
 
         let image2 = image_reader.from_buffered(Cursor::new(&tmp_bytes))?;
 
-        if image.contains_nan_pixels() {
-            if !image2.contains_nan_pixels() { panic!("image NaNity does not match"); }
-            println!("image contains NaN pixels");
-        }
-
-        assert_eq!(image, image2);
-
-        // custom compare function: considers nan equal to nan
-        /*let pixels1 = &image.layer_data.channel_data.storage.samples;
-        let pixels2 = &image2.layer_data.channel_data.storage.samples;
-        //assert!(pixels1.iter().map(|f| f.to_bits()).eq(pixels2.iter().map(|f| f.to_bits())));
-        assert_eq!(pixels1, pixels2);*/
+        assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
+        if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN
 
         Ok(())
     })
@@ -175,57 +165,6 @@ fn round_trip_all_files_rgba() {
 
 // TODO compare rgba vs rgb images for color content, and rgb vs rgb(a?)
 
-#[test]
-fn round_trip_all_files_rgb_forced_alpha() {
-
-    // these files are known to be invalid, because they do not contain any rgb channels
-    let blacklist = vec![
-        PathBuf::from("tests/images/valid/openexr/LuminanceChroma/Garden.exr"),
-        PathBuf::from("tests/images/valid/openexr/MultiView/Fog.exr"),
-        PathBuf::from("tests/images/valid/openexr/TestImages/GrayRampsDiagonal.exr"),
-        PathBuf::from("tests/images/valid/openexr/TestImages/GrayRampsHorizontal.exr"),
-        PathBuf::from("tests/images/valid/openexr/TestImages/WideFloatRange.exr"),
-        PathBuf::from("tests/images/valid/openexr/IlmfmlmflmTest/v1.7.test.tiled.exr")
-    ];
-
-    println!("checking rgb+a! feature set");
-    check_files(blacklist, |path| {
-        let image_reader = read()
-            .no_deep_data()
-            .largest_resolution_level() // TODO all levels
-            .rgba_channels(
-                read::specific_channels::pixels::create_flattened,
-                read::specific_channels::pixels::set_flattened_pixel::<(f32,f32,f32,f32)>,
-            )
-            .first_valid_layer()
-            .all_attributes()
-            .non_parallel();
-
-        let image = image_reader.clone().from_file(path)?;
-
-        let mut tmp_bytes = Vec::new();
-
-        image.write().non_parallel()
-            .to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
-
-        let image2 = image_reader.from_buffered(Cursor::new(&tmp_bytes))?;
-
-        if image.contains_nan_pixels() {
-            if !image2.contains_nan_pixels() { panic!("image NaNity does not match"); }
-            println!("image contains NaN pixels");
-        }
-
-        assert_eq!(image, image2);
-
-        // custom compare function: considers nan equal to nan
-        /*let pixels1 = &image.layer_data.channel_data.storage.samples;
-        let pixels2 = &image2.layer_data.channel_data.storage.samples;
-        //assert!(pixels1.iter().map(|f| f.to_bits()).eq(pixels2.iter().map(|f| f.to_bits())));
-        assert_eq!(pixels1, pixels2);*/
-
-        Ok(())
-    })
-}
 
 #[test]
 fn round_trip_parallel_files() {

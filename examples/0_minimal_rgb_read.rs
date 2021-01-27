@@ -16,10 +16,10 @@ fn main() {
         },
 
         // transfer the colors from the file to your image type,
-        // requesting all values to be f32 numbers, and optionally an alpha channel
-        |pixel_vector, position, (r,g,b,a): (f32, f32, f32, Option<f32>)| {
+        // requesting all values to be f32 numbers, and optionally an f32 alpha channel
+        |pixel_vector, position, (r,g,b, alpha): (f32, f32, f32, Option<f32>)| {
             pixel_vector[position.y()][position.x()] = [
-                r, g, b, a.unwrap_or(1.0) // alpha channel might not exist in the image, choose 1 as default alpha in this case
+                r, g, b, alpha.unwrap_or(1.0)
             ]
         },
 
