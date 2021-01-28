@@ -37,12 +37,12 @@ pub struct ReadSpecificChannels<Pixel, CreatePixelStorage, SetPixel> where Pixel
 
 
 // TODO merge into `DesiredPixel` trait?
-pub trait CreateChannelsFilter<Pixel, ChannelsDescription> { // TODO ChannelsInfo = Pixel::ChannelsInfo
-    type Filter: ChannelsFilter<Pixel, ChannelsDescription>;
-    fn filter(&self) -> Self::Filter;
+pub trait CreateChannelsLocator<Pixel, ChannelsDescription> { // TODO ChannelsInfo = Pixel::ChannelsInfo
+    type Locator: ChannelsLocator<Pixel, ChannelsDescription>;
+    fn create_locator(&self) -> Self::Locator;
 }
 
-pub trait ChannelsFilter<Pixel, ChannelsDescription> {
+pub trait ChannelsLocator<Pixel, ChannelsDescription> {
     type PixelReader: CreatePixelReaderForWidth<Pixel>;
 
     fn visit_channel(&mut self, channel: AlwaysCreateSampleReaderForWidth);
@@ -84,7 +84,7 @@ impl<F, P, T> CreatePixels<T> for F where F: Fn(&ChannelsDescription<T>) -> P {
 
 
 pub trait DesiredPixel: Sized {
-    type ChannelNames: CreateChannelsFilter<Self, Self::ChannelsDescription>;
+    type ChannelNames: CreateChannelsLocator<Self, Self::ChannelsDescription>;
     type ChannelsDescription;
 }
 
@@ -92,7 +92,8 @@ pub trait DesiredPixel: Sized {
 pub trait DesiredSample: Sized {
     type ChannelDescription;
     type SampleReaderForWidth: CreateSampleReaderForWidth<Self>;
-    fn create_channel_pixel_reader(channels_description: Option<AlwaysCreateSampleReaderForWidth>) -> Result<(Self::ChannelDescription, Self::SampleReaderForWidth)>;
+    fn get_channel_description(indices: &Option<AlwaysCreateSampleReaderForWidth>) -> Result<Self::ChannelDescription>;
+    fn create_sample_reader_for_width(indices: Option<AlwaysCreateSampleReaderForWidth>) -> Result<Self::SampleReaderForWidth>;
 }
 
 
@@ -103,7 +104,7 @@ pub struct SpecificChannelsReader<'s, Pixel, Set, Image> where Pixel: DesiredPix
     storage: Image,
     set_pixel: &'s Set,
     channels_description: ChannelsDescription<Pixel::ChannelsDescription>,
-    pixel_reader: <<Pixel::ChannelNames as CreateChannelsFilter<Pixel, Pixel::ChannelsDescription>>::Filter as ChannelsFilter<Pixel, Pixel::ChannelsDescription>>::PixelReader,
+    pixel_reader: <<Pixel::ChannelNames as CreateChannelsLocator<Pixel, Pixel::ChannelsDescription>>::Locator as ChannelsLocator<Pixel, Pixel::ChannelsDescription>>::PixelReader,
     pixel: PhantomData<Pixel>,
 }
 
@@ -146,7 +147,7 @@ impl<'s, Px, Setter: 's, Constructor: 's>
         if header.deep { return Err(Error::invalid("`SpecificChannels` does not support deep data")) }
 
         let (sample_types, reader) = {
-            let mut filter = self.channel_names.filter();
+            let mut locator = self.channel_names.create_locator();
             let mut byte_offset = 0;
 
             for (channel_index, channel) in header.channels.list.iter().enumerate() {
@@ -156,11 +157,11 @@ impl<'s, Px, Setter: 's, Constructor: 's>
                     channel_index
                 };
 
-                filter.visit_channel(chan_indices);
+                locator.visit_channel(chan_indices);
                 byte_offset += channel.sample_type.bytes_per_sample();
             }
 
-            filter.finish()?
+            locator.finish()?
         };
 
         // let (sample_types, reader) = self.channel_names.inspect_channels(&header.channels)?;
@@ -250,17 +251,26 @@ impl FromSample for Sample { fn from_sample(sample: Sample) -> Self { sample } }
 impl<S> DesiredSample for S where S: FromSample {
     type ChannelDescription = ChannelDescription;
     type SampleReaderForWidth = AlwaysCreateSampleReaderForWidth;
-    fn create_channel_pixel_reader(channel_indices: Option<AlwaysCreateSampleReaderForWidth>) -> Result<(Self::ChannelDescription, Self::SampleReaderForWidth)> {
-        channel_indices.map(|chan| (chan.channel_description.clone(), chan))
-            .ok_or_else(|| Error::invalid("layer does not contain all of the specified required channels")) // TODO which channel??
+
+    fn get_channel_description(indices: &Option<AlwaysCreateSampleReaderForWidth>) -> Result<Self::ChannelDescription> {
+        Ok(Self::create_sample_reader_for_width(indices.clone())?.channel_description) // call other method to reuse error message
+    }
+
+    fn create_sample_reader_for_width(indices: Option<AlwaysCreateSampleReaderForWidth>) -> Result<Self::SampleReaderForWidth> {
+        indices.ok_or_else(|| Error::invalid("layer does not contain all of your specified channels")) // TODO be more precise: which layer is missing?
     }
 }
 
 impl<S> DesiredSample for Option<S> where S: FromSample {
     type ChannelDescription = Option<ChannelDescription>;
     type SampleReaderForWidth = Option<AlwaysCreateSampleReaderForWidth>;
-    fn create_channel_pixel_reader(indices: Option<AlwaysCreateSampleReaderForWidth>) -> Result<(Self::ChannelDescription, Self::SampleReaderForWidth)> {
-        Ok(indices.map_or((None, None), |chan| (Some(chan.channel_description.clone()), Some(chan)))) // TODO no clone
+
+    fn get_channel_description(indices: &Option<AlwaysCreateSampleReaderForWidth>) -> Result<Self::ChannelDescription> {
+        Ok(indices.as_ref().map(|chan| chan.channel_description.clone())) // TODO no clone
+    }
+
+    fn create_sample_reader_for_width(indices: Option<AlwaysCreateSampleReaderForWidth>) -> Result<Self::SampleReaderForWidth> {
+        Ok(indices)
     }
 }
 
@@ -317,11 +327,11 @@ impl<S> SampleReader<Option<S>> for Option<AlwaysSampleReader<S>> where S: FromS
 
 
 #[derive(Debug, Clone)]
-pub struct ChannelFilter {
+pub struct ChannelLocator {
     required_name: Text,
     found_channel: Option<AlwaysCreateSampleReaderForWidth>,
 }
-impl ChannelFilter {
+impl ChannelLocator {
     pub fn new(name: Text) -> Self { Self { required_name: name, found_channel: None }  }
     pub fn filter(&mut self, channel_indices: &AlwaysCreateSampleReaderForWidth) {
         if &channel_indices.channel_description.name == &self.required_name { self.found_channel = Some(channel_indices.clone()); }
@@ -331,23 +341,31 @@ impl ChannelFilter {
 
 /*macro_rules! impl_pixel_for_tuple {
     (
-        $( $T: ident,)*  | $( $Text: ident,)* |
+        $($T: ident,)*  | $($Text: ident,)* | $($Locator: ident,)* | $($index: ident,)* $
     )
     =>
     {
 
         // implement DesiredPixel for (A,B,C) where A/B/C: DesiredSample
-        impl<  $($T,)*  > DesiredPixel for (  $($T,)*  ) where  $($T :DesiredSample,)*
+        impl<  $($T,)*  > DesiredPixel for (  $($T,)*  ) where  $($T: DesiredSample,)*
         {
             type ChannelNames = (  $($Text,)*  );
-            type ChannelsInfo = (  $($T ::ChannelInfo,)*  );
+            type ChannelsDescription = (  $($T::ChannelDescription,)*  );
         }
 
-
+        // implement CreateChannelsLocator<(A,B,C), (A,B,C)::ChannelsDescr> for (Text,Text,Text)
+        impl<  $($T,)*  > CreateChannelsLocator<(  $($T,)*  ),  (  $($T::ChannelDescription,)*  )>
+        for (  $($Text,)*  ) where  $($T: DesiredSample,)*
+        {
+            type Locator = (  $($Locator,)*  );
+            fn create_locator(&self) -> Self::Locator { (
+                $(  ChannelLocator::new( self .$index .clone().into()),  )*
+            ) }
+        }
     };
 }
 
-impl_pixel_for_tuple!{ A,B,C,D, | Text,Text,Text,Text, | }*/
+impl_pixel_for_tuple!{ A,B,C,D, | Text,Text,Text,Text, | ChannelLocator,ChannelLocator,ChannelLocator,ChannelLocator, | 0,1,2,3, $ }*/
 
 impl<A,B,C,D> DesiredPixel for (A,B,C,D)
     where A: DesiredSample, B: DesiredSample, C: DesiredSample, D: DesiredSample,
@@ -356,21 +374,21 @@ impl<A,B,C,D> DesiredPixel for (A,B,C,D)
     type ChannelsDescription = (A::ChannelDescription, B::ChannelDescription, C::ChannelDescription, D::ChannelDescription);
 }
 
-impl<A,B,C,D> CreateChannelsFilter<(A, B, C, D), (A::ChannelDescription, B::ChannelDescription, C::ChannelDescription, D::ChannelDescription)>
+impl<A,B,C,D> CreateChannelsLocator<(A, B, C, D), (A::ChannelDescription, B::ChannelDescription, C::ChannelDescription, D::ChannelDescription)>
 for (Text, Text, Text, Text) where
     A: DesiredSample, B: DesiredSample, C: DesiredSample, D: DesiredSample,
 {
-    type Filter = (ChannelFilter, ChannelFilter, ChannelFilter,  ChannelFilter, );
-    fn filter(&self) -> Self::Filter { (
-        ChannelFilter::new(self.0.clone().into()),
-        ChannelFilter::new(self.1.clone().into()),
-        ChannelFilter::new(self.2.clone().into()),
-        ChannelFilter::new(self.3.clone().into()),
+    type Locator = (ChannelLocator, ChannelLocator, ChannelLocator, ChannelLocator, );
+    fn create_locator(&self) -> Self::Locator { (
+        ChannelLocator::new(self.0.clone().into()),
+        ChannelLocator::new(self.1.clone().into()),
+        ChannelLocator::new(self.2.clone().into()),
+        ChannelLocator::new(self.3.clone().into()),
     ) }
 }
 
-impl<A,B,C,D> ChannelsFilter<(A,B,C,D), (A::ChannelDescription, B::ChannelDescription, C::ChannelDescription, D::ChannelDescription)>
-for (ChannelFilter, ChannelFilter, ChannelFilter, ChannelFilter)
+impl<A,B,C,D> ChannelsLocator<(A, B, C, D), (A::ChannelDescription, B::ChannelDescription, C::ChannelDescription, D::ChannelDescription)>
+for (ChannelLocator, ChannelLocator, ChannelLocator, ChannelLocator)
     where
         A: DesiredSample, B: DesiredSample, C: DesiredSample, D: DesiredSample,
 {
@@ -384,10 +402,15 @@ for (ChannelFilter, ChannelFilter, ChannelFilter, ChannelFilter)
     }
 
     fn finish(self) -> Result<((A::ChannelDescription, B::ChannelDescription, C::ChannelDescription, D::ChannelDescription), Self::PixelReader)> {
-        let (a_type, a_reader) = A::create_channel_pixel_reader(self.0.found_channel)?;
-        let (b_type, b_reader) = B::create_channel_pixel_reader(self.1.found_channel)?;
-        let (c_type, c_reader) = C::create_channel_pixel_reader(self.2.found_channel)?;
-        let (d_type, d_reader) = D::create_channel_pixel_reader(self.3.found_channel)?;
+        let a_type = A::get_channel_description(&self.0.found_channel)?;
+        let b_type = B::get_channel_description(&self.1.found_channel)?;
+        let c_type = C::get_channel_description(&self.2.found_channel)?;
+        let d_type = D::get_channel_description(&self.3.found_channel)?;
+
+        let a_reader = A::create_sample_reader_for_width(self.0.found_channel)?;
+        let b_reader = B::create_sample_reader_for_width(self.1.found_channel)?;
+        let c_reader = C::create_sample_reader_for_width(self.2.found_channel)?;
+        let d_reader = D::create_sample_reader_for_width(self.3.found_channel)?;
 
         Ok((
             (a_type, b_type, c_type, d_type),
