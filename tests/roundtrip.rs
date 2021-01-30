@@ -140,8 +140,8 @@ fn round_trip_all_files_rgba() {
             .no_deep_data()
             .largest_resolution_level() // TODO all levels
             .rgba_channels(
-                pixel_vec::create_pixel_vec,
-                pixel_vec::set_pixel_in_vec::<(f32, f32, f32, Option<f32>)>,
+                pixel_vec::create_pixel_vec::<(f32, f32, f32, f32), _>,
+                pixel_vec::set_pixel_in_vec::<(f32, f32, f32, f32)>,
             )
             .first_valid_layer()
             .all_attributes()
@@ -199,7 +199,7 @@ fn roundtrip_unusual_rgba() -> UnitResult {
         .no_deep_data()
         .largest_resolution_level() // TODO all levels
         .rgba_channels(
-            pixel_vec::create_pixel_vec,
+            pixel_vec::create_pixel_vec::<(f32, f32, f16, f32), _>,
             pixel_vec::set_pixel_in_vec::<(f32, f32, f16, f32)>,
         )
         .first_valid_layer()
@@ -214,7 +214,7 @@ fn roundtrip_unusual_rgba() -> UnitResult {
         (0.9, 0.0, f16::from_f32(64.0), 0.4),
     ];
 
-    let size = Vec2(31, 7);
+    let size = Vec2(3, 2);
     let pixels = (0..size.area())
         .zip(random_pixels.into_iter().cycle())
         .map(|(_index, color)| color).collect::<Vec<_>>();
@@ -236,7 +236,7 @@ fn roundtrip_unusual_rgba() -> UnitResult {
     let pixels1 = &image.layer_data.channel_data.storage;
     let pixels2 = &image2.layer_data.channel_data.storage;
 
-    assert_eq!(pixels1, pixels2);
+    assert_eq!(pixels1.pixels, pixels2.pixels);
 
     Ok(())
 }

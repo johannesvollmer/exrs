@@ -48,8 +48,8 @@ pub fn damaged(){
                 let _minimal = read().no_deep_data()
                     .largest_resolution_level()
                     .rgba_channels(
-                        |_channels: &ChannelsDescription<_>| (),
-                        |_: &mut (), _position: Vec2<usize>, _pixel: (Sample, Sample, Sample, Option<Sample>)| {}
+                        |_size, _channels| (),
+                        |_: &mut (), _position: Vec2<usize>, _pixel: (Sample, Sample, Sample, Sample)| {}
                     )
                     .first_valid_layer().all_attributes()
                     .from_file(&file)?;
@@ -59,8 +59,8 @@ pub fn damaged(){
                 let _minimal = read().no_deep_data()
                     .largest_resolution_level() // TODO all levels
                     .rgba_channels(
-                        |_channels: &ChannelsDescription<_>| (),
-                        |_: &mut (), _position: Vec2<usize>, _pixel: (Sample, Sample, Sample, Option<Sample>)| {}
+                        |_size, _channels| (),
+                        |_: &mut (), _position: Vec2<usize>, _pixel: (Sample, Sample, Sample, Sample)| {}
                     )
                     .all_layers().all_attributes()
                     .pedantic()
@@ -70,8 +70,8 @@ pub fn damaged(){
             {
                 let _rgba = read_first_rgba_layer_from_file(
                     file,
-                    pixel_vec::create_pixel_vec,
-                    pixel_vec::set_pixel_in_vec::<(Sample, Sample, Sample, Option<Sample>)>
+                    pixel_vec::create_pixel_vec::<(Sample, Sample, Sample, Sample), _>,
+                    pixel_vec::set_pixel_in_vec::<(Sample, Sample, Sample, Sample)>
                 )?;
             }
 

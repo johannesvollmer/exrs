@@ -48,6 +48,10 @@ pub type FlatImage = Image<Layers<AnyChannels<FlatSamples>>>;
 pub type PixelLayersImage<Storage, Channels> = Image<Layers<SpecificChannels<Storage, Channels>>>;
 pub type PixelImage<Storage, Channels> = Image<Layer<SpecificChannels<Storage, Channels>>>;
 
+pub type RgbaLayersImage<Storage> = PixelLayersImage<Storage, RgbaChannels>;
+pub type RgbaImage<Storage> = PixelImage<Storage, RgbaChannels>;
+
+pub type RgbaChannels = (ChannelDescription, ChannelDescription, ChannelDescription, Option<ChannelDescription>);
 
 /// The complete exr image.
 /// `Layers` can be either a single `Layer` or `Layers`.
@@ -290,7 +294,6 @@ impl<SampleStorage, Channels> SpecificChannels<SampleStorage, Channels> {
     }
 }
 
-use crate::image::read::specific_channels::ChannelsDescription;
 
 pub trait IntoSample: Into<Sample> { const SAMPLE_TYPE: SampleType; }
 impl IntoSample for f16 { const SAMPLE_TYPE: SampleType = SampleType::F16; }
@@ -300,6 +303,9 @@ impl IntoSample for u32 { const SAMPLE_TYPE: SampleType = SampleType::U32; }
 
 impl<SampleStorage> SpecificChannels<SampleStorage, (ChannelDescription, ChannelDescription, ChannelDescription, ChannelDescription)>
 {
+
+    // TODO channels().with_channel().with_channel() ! See read::specific_channels
+
     pub fn named<A,B,C, D>(
         channels: (impl Into<Text>, impl Into<Text>, impl Into<Text>, impl Into<Text>),
         source_samples: SampleStorage

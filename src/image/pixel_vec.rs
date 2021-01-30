@@ -62,8 +62,8 @@ impl<Px> GetPixel for PixelVec<Px> where Px: Clone + Sync {
 
 /// Create a new `PixelVec<T>`, given the pixel resolution of the image.
 /// Can usually be used as a function reference instead of calling it directly.
-#[inline] pub fn create_pixel_vec<Pixel: Clone + Default, SampleTypes>(image: &ChannelsDescription<SampleTypes>) -> PixelVec<Pixel> {
-    PixelVec { resolution: image.resolution, pixels: vec![Pixel::default(); image.resolution.area()] }
+#[inline] pub fn create_pixel_vec<Pixel: Clone + Default, Channels>(resolution: Vec2<usize>, _: &Channels) -> PixelVec<Pixel> {
+    PixelVec { resolution, pixels: vec![Pixel::default(); resolution.area()] }
 }
 
 /// Examine a pixel of a `PixelVec<T>` image.

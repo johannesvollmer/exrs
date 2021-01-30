@@ -69,24 +69,27 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     {
         self.specific_channels(("R", "G", "B"), create, set_pixel)
     }*/
-    /// Read only layers that contain rgba channels. Skips any other channels in the layer.
-    /// `Create` can be a closure of type [`Fn(&ChannelsDescription<_>) -> YourPixelStorage`].
-    /// `Set` can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, YourPixel)`].
-    /// Throws an error for images with deep data.
+    /// Read only layers that contain rgb channels. Skips any other channels in the layer.
+    /// The alpha channel is filled with `1` in case no alpha channel is found in the image.
+    // `Create` can be a closure of type [`Fn(&ChannelsDescription<_>) -> YourPixelStorage`].
+    // `Set` can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, YourPixel)`].
+    /// Throws an error for images with deep data or subsampling.
     ///
     /// Use `specific_channels` or `all_channels` if you want to read something other than rgba.
     pub fn rgba_channels<R,G,B,A, Create, Set, Pixels>(
-        self, create: Create, set_pixel: Set
-    ) -> ReadSpecificChannels<(R,G,B,A), Create, Set>
+        self, create_pixels: Create, set_pixel: Set
+    ) -> CollectSpecificChannels<
+        ReadOptionalChannel<ReadRequiredChannel<ReadRequiredChannel<ReadRequiredChannel<NoneMore, R>, G>, B>, A>,
+        (R, G, B, A), Pixels, Create, Set
+    >
         where
-            R: DesiredSample, G: DesiredSample, B: DesiredSample, A: DesiredSample,
-            Create: Fn(&ChannelsDescription<(R::ChannelDescription, G::ChannelDescription, B::ChannelDescription, A::ChannelDescription)>) -> Pixels,
-            Set:  Fn(&mut Pixels, Vec2<usize>, (R,G,B,A)),
+            R: FromNativeSample, G: FromNativeSample, B: FromNativeSample, A: FromNativeSample,
+            Create: Fn(Vec2<usize>, &RgbaChannels) -> Pixels,
+            Set: Fn(&mut Pixels, Vec2<usize>, (R,G,B,A)),
     {
-        self.specific_channels(
-            (Text::from("R"), Text::from("G"), Text::from("B"), Text::from("A")),
-            create, set_pixel
-        )
+        self.specific_channels()
+            .required("R").required("G").required("B").optional("A", A::from_f32(1.0))
+            .collect_channels(create_pixels, set_pixel)
     }
 
     // TODO FIXME explain this in the guide!
@@ -110,18 +113,20 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
         ReadSpecificChannels { channel_names, create, set_pixel, px: Default::default() }
     }*/
 
-    pub fn specific_channels<Pixel, Create, Set, PixelStorage>(
+    /*pub fn specific_channels<Pixel, Create, Set, PixelStorage>(
         self, channel_names: Pixel::ChannelNames, create: Create, set_pixel: Set
     ) -> ReadSpecificChannels<Pixel, Create, Set>
         where
             Pixel: DesiredPixel,
-            /*Create: CreatePixels<Px::ChannelsInfo>,
-            Set: SetPixel<Create::Pixels, Px>*/
             Create: Fn(&ChannelsDescription<Pixel::ChannelsDescription>) -> PixelStorage,
             Set:  Fn(&mut PixelStorage, Vec2<usize>, Pixel),
 
     {
         ReadSpecificChannels { channel_names, create, set_pixel, px: Default::default() }
+    }*/
+
+    pub fn specific_channels(self) -> ReadNoChannels {
+        ReadNoChannels { }
     }
 }
 

@@ -58,6 +58,7 @@ pub mod prelude {
         pub use crate::image::read::{
             read, any_channels::ReadSamples, image::ReadLayers,
             image::ReadImage, layers::ReadChannels,
+            specific_channels::{ReadSpecificChannel}
             // rgba_channels::{CreateRgbaPixels, SetRgbaPixel},
         };
 
@@ -69,7 +70,6 @@ pub mod prelude {
     pub use crate::image::write::{/*write_rgb_f32_file,*/ write_rgba_file};
     pub use crate::image::read::{
         // rgba_channels::*,
-        specific_channels::{SetPixel, CreatePixels, ChannelsDescription},
         read_first_rgba_layer_from_file,
         read_all_rgba_layers_from_file,
         read_all_data_from_file,
@@ -84,7 +84,7 @@ pub mod prelude {
     pub use crate::block::samples::Sample;
     pub use crate::meta::attribute::{
         AttributeValue, Compression, Text, IntegerBounds,
-        LineOrder, SampleType, TileDescription
+        LineOrder, SampleType, TileDescription, ChannelDescription
     };
 
     // common math

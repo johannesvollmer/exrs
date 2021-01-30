@@ -224,7 +224,7 @@ pub struct ChannelDescription {
     pub sampling: Vec2<usize>,
 }
 
-/// What kind of pixels are in this channel.
+/// The type of samples in this channel.
 #[derive(Clone, Debug, Eq, PartialEq, Copy, Hash)]
 pub enum SampleType {
 
@@ -674,6 +674,16 @@ impl ChannelList {
             bytes_per_pixel: channels.iter().map(|channel| channel.sample_type.bytes_per_sample()).sum(),
             list: channels, uniform_sample_type,
         }
+    }
+
+    /// Iterate over the channels, and adds to each channel the byte offset of the channels sample type.
+    /// Assumes the internal channel list is properly sorted.
+    pub fn channels_with_byte_offset(&self) -> impl Iterator<Item=(usize, &ChannelDescription)> {
+        self.list.iter().scan(0, |byte_position, channel|{
+            let previous_position = *byte_position;
+            *byte_position += channel.sample_type.bytes_per_sample();
+            Some((previous_position, channel))
+        })
     }
 }
 

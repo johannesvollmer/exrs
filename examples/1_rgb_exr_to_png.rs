@@ -13,15 +13,15 @@ fn main() {
         .no_deep_data()
         .largest_resolution_level()
         .rgba_channels(
-        |layer_description| -> png::RgbaImage {
+        |resolution, _channels| -> png::RgbaImage {
                 png::ImageBuffer::new(
-                    layer_description.resolution.width() as u32,
-                    layer_description.resolution.height() as u32
+                    resolution.width() as u32,
+                    resolution.height() as u32
                 )
             },
 
             // set each pixel in the png buffer from the exr file
-            |png_pixels, position, (r,g,b,a): (f32,f32,f32,Option<f32>)| { // TODO implicit argument types!
+            |png_pixels, position, (r,g,b,a): (f32,f32,f32,f32)| { // TODO implicit argument types!
                 png_pixels.put_pixel(
                     position.x() as u32, position.y() as u32,
 
@@ -29,7 +29,7 @@ fn main() {
                         tone_map(r),
                         tone_map(g),
                         tone_map(b),
-                        (a.unwrap_or(1.0) * 255.0) as u8,
+                        (a * 255.0) as u8,
                     ])
                 );
             }
