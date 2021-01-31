@@ -78,7 +78,7 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     /// Use `specific_channels` or `all_channels` if you want to read something other than rgba.
     pub fn rgba_channels<R,G,B,A, Create, Set, Pixels>(
         self, create_pixels: Create, set_pixel: Set
-    ) -> CollectSpecificChannels<
+    ) -> CollectPixels<
         ReadOptionalChannel<ReadRequiredChannel<ReadRequiredChannel<ReadRequiredChannel<NoneMore, R>, G>, B>, A>,
         (R, G, B, A), Pixels, Create, Set
     >
@@ -89,7 +89,7 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     {
         self.specific_channels()
             .required("R").required("G").required("B").optional("A", A::from_f32(1.0))
-            .collect_channels(create_pixels, set_pixel)
+            .collect_pixels(create_pixels, set_pixel)
     }
 
     // TODO FIXME explain this in the guide!

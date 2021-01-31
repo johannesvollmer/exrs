@@ -14,7 +14,7 @@ fn main() {
         .specific_channels()
         .optional("A", f16::ONE)
         .required("X").required("Y").required("Z") // can also accept a closure with a detailed selection mechanism
-        .collect_channels(
+        .collect_pixels(
             |resolution, _channels| {
                 vec![vec![(f16::ZERO, 0.0, 0.0, 0.0); resolution.width()]; resolution.height()]
             },

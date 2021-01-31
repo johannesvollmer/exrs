@@ -11,7 +11,6 @@ use crate::error::{Result, UnitResult, Error};
 use crate::block::UncompressedBlock;
 use crate::math::Vec2;
 use crate::image::read::layers::{ChannelsReader, ReadChannels};
-// use crate::block::samples::Sample;
 use crate::block::chunk::TileCoordinates;
 use std::marker::PhantomData;
 
@@ -21,30 +20,6 @@ pub trait FromNativeSample: Sized + Copy + Default + 'static {
     fn from_u32(value: u32) -> Self;
 }
 
-// TODO havent i implemented this exact behaviour already somewhere else in this library...??
-impl FromNativeSample for f32 {
-    fn from_f16(value: f16) -> Self { value.to_f32() }
-    fn from_f32(value: f32) -> Self { value } // this branch means that we never have to match every single sample if the file format matches the expected output
-    fn from_u32(value: u32) -> Self { value as f32 }
-}
-
-impl FromNativeSample for u32 {
-    fn from_f16(value: f16) -> Self { value.to_f32() as u32 }
-    fn from_f32(value: f32) -> Self { value as u32 }
-    fn from_u32(value: u32) -> Self { value }
-}
-
-impl FromNativeSample for f16 {
-    fn from_f16(value: f16) -> Self { value }
-    fn from_f32(value: f32) -> Self { f16::from_f32(value) }
-    fn from_u32(value: u32) -> Self { f16::from_f32(value as f32) }
-}
-
-impl FromNativeSample for Sample {
-    fn from_f16(value: f16) -> Self { Self::from(value) }
-    fn from_f32(value: f32) -> Self { Self::from(value) }
-    fn from_u32(value: u32) -> Self { Self::from(value) }
-}
 
 pub trait ReadSpecificChannel: Sized {
     type RecursivePixelReader: RecursivePixelReader;
@@ -61,16 +36,16 @@ pub trait ReadSpecificChannel: Sized {
         ReadOptionalChannel { channel_name: channel_name.into(), previous_channels: self, default_sample }
     }
 
-    fn collect_channels<Pixel, PixelStorage, CreatePixels, SetPixel>(
+    fn collect_pixels<Pixel, PixelStorage, CreatePixels, SetPixel>(
         self, create_pixels: CreatePixels, set_pixel: SetPixel
-    ) -> CollectSpecificChannels<Self, Pixel, PixelStorage, CreatePixels, SetPixel>
+    ) -> CollectPixels<Self, Pixel, PixelStorage, CreatePixels, SetPixel>
         where
             <Self::RecursivePixelReader as RecursivePixelReader>::RecursivePixel: IntoTuple<Pixel>,
             <Self::RecursivePixelReader as RecursivePixelReader>::RecursiveChannelDescriptions: IntoNonRecursive,
             CreatePixels: Fn(Vec2<usize>, &<<Self::RecursivePixelReader as RecursivePixelReader>::RecursiveChannelDescriptions as IntoNonRecursive>::NonRecursive) -> PixelStorage,
             SetPixel: Fn(&mut PixelStorage, Vec2<usize>, Pixel),
     {
-        CollectSpecificChannels { read_channels: self, set_pixel, create_pixels, px: Default::default() }
+        CollectPixels { read_channels: self, set_pixel, create_pixels, px: Default::default() }
     }
 }
 
@@ -227,7 +202,7 @@ impl<A,B,C,D,E,F,G,H> IntoNonRecursive for Recursive<Recursive<Recursive<Recursi
 
 
 #[derive(Copy, Clone, Debug)]
-pub struct CollectSpecificChannels<ReadChannels, Pixel, PixelStorage, CreatePixels, SetPixel> {
+pub struct CollectPixels<ReadChannels, Pixel, PixelStorage, CreatePixels, SetPixel> {
     read_channels: ReadChannels,
     create_pixels: CreatePixels,
     set_pixel: SetPixel,
@@ -235,7 +210,7 @@ pub struct CollectSpecificChannels<ReadChannels, Pixel, PixelStorage, CreatePixe
 }
 
 impl<'s, InnerChannels, Pixel, PixelStorage, CreatePixels, SetPixel: 's>
-ReadChannels<'s> for CollectSpecificChannels<InnerChannels, Pixel, PixelStorage, CreatePixels, SetPixel>
+ReadChannels<'s> for CollectPixels<InnerChannels, Pixel, PixelStorage, CreatePixels, SetPixel>
     where
         InnerChannels: ReadSpecificChannel,
         <InnerChannels::RecursivePixelReader as RecursivePixelReader>::RecursivePixel: IntoTuple<Pixel>,
@@ -410,7 +385,6 @@ impl<Sample, InnerReader: RecursivePixelReader>
             },
 
             SampleType::F32 => {
-                // TODO inner first, self second, because of cache
                 let updated_samples = pixels.map(|pixel|{
                     pixel.value = Sample::from_f32(f32::read(&mut own_bytes_reader).expect("invalid byte slice in read pixels (bug)"));
                     &mut pixel.inner
@@ -420,7 +394,6 @@ impl<Sample, InnerReader: RecursivePixelReader>
             },
 
             SampleType::U32 => {
-                // TODO inner first, self second, because of cache
                 let updated_samples = pixels.map(|pixel|{
                     pixel.value = Sample::from_u32(u32::read(&mut own_bytes_reader).expect("invalid byte slice in read pixels (bug)"));
                     &mut pixel.inner
@@ -455,7 +428,6 @@ for Recursive<InnerReader, OptionalSampleReader<Sample>>
 
                 match reader.channel.sample_type {
                     SampleType::F16 => {
-                        // TODO inner first, self second, because of cache
                         let updated_samples = pixels.map(|pixel|{
                             pixel.value = Sample::from_f16(f16::read(&mut own_bytes_reader).expect("invalid byte slice in read pixels (bug)"));
                             &mut pixel.inner
@@ -465,7 +437,6 @@ for Recursive<InnerReader, OptionalSampleReader<Sample>>
                     },
 
                     SampleType::F32 => {
-                        // TODO inner first, self second, because of cache
                         let updated_samples = pixels.map(|pixel|{
                             pixel.value = Sample::from_f32(f32::read(&mut own_bytes_reader).expect("invalid byte slice in read pixels (bug)"));
                             &mut pixel.inner
@@ -475,7 +446,6 @@ for Recursive<InnerReader, OptionalSampleReader<Sample>>
                     },
 
                     SampleType::U32 => {
-                        // TODO inner first, self second, because of cache
                         let updated_samples = pixels.map(|pixel|{
                             pixel.value = Sample::from_u32(u32::read(&mut own_bytes_reader).expect("invalid byte slice in read pixels (bug)"));
                             &mut pixel.inner
@@ -504,3 +474,28 @@ for Recursive<InnerReader, OptionalSampleReader<Sample>>
 }
 
 
+
+// TODO havent i implemented this exact behaviour already somewhere else in this library...??
+impl FromNativeSample for f32 {
+    fn from_f16(value: f16) -> Self { value.to_f32() }
+    fn from_f32(value: f32) -> Self { value } // this branch means that we never have to match every single sample if the file format matches the expected output
+    fn from_u32(value: u32) -> Self { value as f32 }
+}
+
+impl FromNativeSample for u32 {
+    fn from_f16(value: f16) -> Self { value.to_f32() as u32 }
+    fn from_f32(value: f32) -> Self { value as u32 }
+    fn from_u32(value: u32) -> Self { value }
+}
+
+impl FromNativeSample for f16 {
+    fn from_f16(value: f16) -> Self { value }
+    fn from_f32(value: f32) -> Self { f16::from_f32(value) }
+    fn from_u32(value: u32) -> Self { f16::from_f32(value as f32) }
+}
+
+impl FromNativeSample for Sample {
+    fn from_f16(value: f16) -> Self { Self::from(value) }
+    fn from_f32(value: f32) -> Self { Self::from(value) }
+    fn from_u32(value: u32) -> Self { Self::from(value) }
+}
