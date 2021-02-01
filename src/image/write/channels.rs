@@ -2,7 +2,7 @@
 // TODO this module can be simplified A LOT by using SmallVec<Sample> objects, which is anyways how it works,
 // TODO as the internal sample type always differs from the user-specified concrete type
 
-use crate::meta::attribute::{LevelMode, ChannelDescription, SampleType, ChannelList, Text};
+use crate::meta::attribute::{LevelMode, ChannelDescription, SampleType, ChannelList};
 use smallvec::SmallVec;
 use crate::meta::header::Header;
 use crate::block::{BlockIndex, UncompressedBlock};
@@ -11,7 +11,10 @@ use crate::math::{Vec2, RoundingMode};
 use crate::io::{Data};
 use crate::block::samples::Sample;
 use crate::image::write::samples::{WritableSamples, SamplesWriter};
-use crate::error::UnitResult;
+use std::marker::PhantomData;
+use crate::prelude::f16;
+use crate::prelude::read::specific_channels::FromNativeSample;
+use crate::image::recursive::*;
 
 // TODO TupleChannelsWriter: Fn(Vec2<usize>) -> impl IntoSamples, where IntoSamples is implemented for tuples, inferring the channel type
 
@@ -107,14 +110,19 @@ impl<Samples> ChannelsWriter for AnyChannelsWriter<Samples> where Samples: Sampl
 
 
 
+
+
+
 impl<'c, Channels, Storage>
 WritableChannels<'c> for SpecificChannels<Storage, Channels>
 where
-    Channels: 'c + WritableChannelsDescription<Storage::Pixel>,
-    Storage: 'c + GetPixel
+    Storage: 'c + GetPixel,
+    Storage::Pixel: IntoRecursive,
+    Channels: 'c + Sync + Clone + IntoRecursive,
+    <Channels as IntoRecursive>::Recursive: WritableChannelsDescription<<Storage::Pixel as IntoRecursive>::Recursive>,
 {
     fn infer_channel_list(&self) -> ChannelList {
-        let mut vec = self.channels.channel_descriptions_list();
+        let mut vec = self.channels.clone().into_recursive().channel_descriptions_list();
         vec.sort_by_key(|channel:&ChannelDescription| channel.name.clone()); // TODO no clone?
         ChannelList::new(vec)
     }
@@ -125,30 +133,18 @@ where
 
     type Writer = SpecificChannelsWriter<
         'c,
-        <Channels::PixelsWriterBuilder as PixelsWriterBuilder<Storage::Pixel>>::CreatePixelsWriterForWidth,
+        <<Channels as IntoRecursive>::Recursive as WritableChannelsDescription<<Storage::Pixel as IntoRecursive>::Recursive>>::RecursiveWriter,
         Storage,
         Channels
     >;
 
     fn create_writer(&'c self, header: &Header) -> Self::Writer {
-        let mut writer_builder = self.channels.pixel_writer_builder(); // (None, None, None, None);
-
         // this loop is required because the channels in the header are sorted
         // and the channels specified by the user are probably not.
 
-        // the resulting tuple will have non-increasing start indices from first to last tuple element
-        let mut byte_offset = 0;
-        for channel in &header.channels.list {
-            writer_builder.with_channel(&channel, byte_offset);
-            byte_offset += channel.sample_type.bytes_per_sample();
-        }
-
-        let pixel_writer = writer_builder.build_width_aware_pixel_writer();
-
         SpecificChannelsWriter {
             channels: self,
-            width_aware_pixel_writer: pixel_writer,
-            // px: Default::default()
+            recursive_channel_writer: self.channels.clone().into_recursive().create_recursive_writer(&header.channels),
         }
     }
 }
@@ -159,17 +155,17 @@ where
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SpecificChannelsWriter<'channels, PixelWriter, Storage, Channels> {
     channels: &'channels SpecificChannels<Storage, Channels>, // TODO this need not be a reference?? impl writer for specific_channels directly?
-    width_aware_pixel_writer: PixelWriter,
-    // px: Px,
+    recursive_channel_writer: PixelWriter,
 }
 
 
 impl<'channels, PxWriter, Storage, Channels> ChannelsWriter
 for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
     where
-        PxWriter: CreatePixelsWriterForWidth<Storage::Pixel>,
+        Channels: Sync,
         Storage: GetPixel,
-        Channels: Sync
+        Storage::Pixel: IntoRecursive,
+        PxWriter: Sync + RecursivePixelWriter<<Storage::Pixel as IntoRecursive>::Recursive>,
 {
     fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Vec<u8> {
         let block_bytes = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
@@ -180,17 +176,15 @@ for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
         let byte_lines = block_bytes.chunks_exact_mut(line_bytes);
         assert_eq!(byte_lines.len(), block_index.pixel_size.height());
 
-        let pixel_writer_for_width = self
-            .width_aware_pixel_writer.pixel_writer_for_line_width(width);
+        let mut pixel_line = Vec::with_capacity(width);
 
         for (y, line_bytes) in byte_lines.enumerate() {
-            let mut pixel_writer = pixel_writer_for_width.clone();
+            pixel_line.clear();
+            pixel_line.extend((0 .. width).map(|x|
+                self.channels.storage.get_pixel(block_index.pixel_position + Vec2(x,y)).into_recursive()
+            ));
 
-            for x in 0..width {
-                let position = block_index.pixel_position + Vec2(x,y);
-                let pixel = self.channels.storage.get_pixel(position);
-                pixel_writer.write_pixel(line_bytes, pixel);
-            }
+            self.recursive_channel_writer.write_pixels(line_bytes, pixel_line.as_slice(), |px| px);
         }
 
         block_bytes
@@ -199,244 +193,173 @@ for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
 
 
 pub trait WritableChannelsDescription<Pixel>: Sync {
-    type PixelsWriterBuilder: PixelsWriterBuilder<Pixel>;
-    fn pixel_writer_builder(&self) -> Self::PixelsWriterBuilder;
+    type RecursiveWriter: RecursivePixelWriter<Pixel>;
+    fn create_recursive_writer(&self, channels: &ChannelList) -> Self::RecursiveWriter;
     fn channel_descriptions_list(&self) -> SmallVec<[ChannelDescription; 5]>;
 }
 
-pub trait WritableChannelDescription: Sync {
-    type SampleWriterBuilder: SampleWriterBuilder;
-    fn sample_writer_builder(&self) -> Self::SampleWriterBuilder;
-    fn channel_description(&self) -> Option<&ChannelDescription>;
+impl WritableChannelsDescription<NoneMore> for NoneMore {
+    type RecursiveWriter = NoneMore;
+    fn create_recursive_writer(&self, _: &ChannelList) -> Self::RecursiveWriter { NoneMore }
+    fn channel_descriptions_list(&self) -> SmallVec<[ChannelDescription; 5]> { SmallVec::new() }
 }
 
-pub trait PixelsWriterBuilder<Pixel> {
-    type CreatePixelsWriterForWidth: CreatePixelsWriterForWidth<Pixel>;
-    fn with_channel(&mut self, channel: &ChannelDescription, byte_offset: usize);
-    fn build_width_aware_pixel_writer(self) -> Self::CreatePixelsWriterForWidth;
-}
-
-pub trait SampleWriterBuilder {
-    type CreateSampleWriterForWidth: CreateSampleWriterForWidth;
-    fn visit_channel(&mut self, channel: &ChannelDescription, byte_offset: usize);
-    fn build_width_aware_sample_writer(self) -> Self::CreateSampleWriterForWidth;
-}
-
-
-impl<A,B,C,D, L,M,N,O> WritableChannelsDescription<(A, B, C, D)> for (L, M, N, O)
-    where L: WritableChannelDescription, M: WritableChannelDescription, N: WritableChannelDescription, O: WritableChannelDescription,
-          A: Into<Sample>, B: Into<Sample>, C: Into<Sample>, D: Into<Sample>,
+impl<InnerDescriptions, InnerPixel, Sample: IntoNativeSample>
+    WritableChannelsDescription<Recursive<InnerPixel, Sample>>
+    for Recursive<InnerDescriptions, ChannelDescription>
+    where InnerDescriptions: WritableChannelsDescription<InnerPixel>
 {
-    type PixelsWriterBuilder = (L::SampleWriterBuilder, M::SampleWriterBuilder, N::SampleWriterBuilder, O::SampleWriterBuilder, );
+    type RecursiveWriter = RecursiveWriter<InnerDescriptions::RecursiveWriter, Sample>;
 
-    fn pixel_writer_builder(&self) -> Self::PixelsWriterBuilder {
-        (
-            self.0.sample_writer_builder(),
-            self.1.sample_writer_builder(),
-            self.2.sample_writer_builder(),
-            self.3.sample_writer_builder(),
+    fn create_recursive_writer(&self, channels: &ChannelList) -> Self::RecursiveWriter {
+        // this linear lookup is required because the order of the channels changed, due to alphabetical sorting
+        let (start_byte_offset, target_sample_type) = channels.channels_with_byte_offset()
+            .find(|(_offset, channel)| channel.name == self.value.name)
+            .map(|(offset, channel)| (offset, channel.sample_type))
+            .expect("a channel has not been put into channel list");
+
+        Recursive::new(self.inner.create_recursive_writer(channels), SampleWriter {
+            start_byte_offset, target_sample_type,
+            px: PhantomData::default()
+        })
+    }
+
+    fn channel_descriptions_list(&self) -> SmallVec<[ChannelDescription; 5]> {
+        let mut inner_list = self.inner.channel_descriptions_list();
+        inner_list.push(self.value.clone());
+        inner_list
+    }
+}
+
+impl<InnerDescriptions, InnerPixel, Sample: IntoNativeSample>
+WritableChannelsDescription<Recursive<InnerPixel, Sample>>
+for Recursive<InnerDescriptions, Option<ChannelDescription>>
+    where InnerDescriptions: WritableChannelsDescription<InnerPixel>
+{
+    type RecursiveWriter = OptionalRecursiveWriter<InnerDescriptions::RecursiveWriter, Sample>;
+
+    fn create_recursive_writer(&self, channels: &ChannelList) -> Self::RecursiveWriter {
+        // this linear lookup is required because the order of the channels changed, due to alphabetical sorting
+        // FIXME check for duplicates
+
+        let channel = self.value.as_ref().map(|required_channel|
+            channels.channels_with_byte_offset()
+                .find(|(_offset, channel)| channel == &required_channel)
+                .map(|(offset, channel)| (offset, channel.sample_type))
+                .expect("a channel has not been put into channel list")
+        );
+
+        Recursive::new(
+            self.inner.create_recursive_writer(channels),
+            channel.map(|(start_byte_offset, target_sample_type)| SampleWriter {
+                start_byte_offset, target_sample_type,
+                px: PhantomData::default(),
+            })
         )
     }
 
     fn channel_descriptions_list(&self) -> SmallVec<[ChannelDescription; 5]> {
-        [
-            self.0.channel_description(),
-            self.1.channel_description(),
-            self.2.channel_description(),
-            self.3.channel_description(),
-        ]
-            .iter()
-            .flatten()
-            .map(|&chan| chan.clone())
-            .collect()
+        let mut inner_list = self.inner.channel_descriptions_list();
+        if let Some(value) = &self.value { inner_list.push(value.clone()); }
+        inner_list
     }
 }
 
-impl<A,B,C,D, L,M,N,O> PixelsWriterBuilder<(A, B, C, D)> for (L,M,N,O)
-    where L: SampleWriterBuilder, M: SampleWriterBuilder, N: SampleWriterBuilder, O: SampleWriterBuilder,
-        A: Into<Sample>, B: Into<Sample>, C: Into<Sample>, D: Into<Sample>,
-{
-    type CreatePixelsWriterForWidth = (L::CreateSampleWriterForWidth, M::CreateSampleWriterForWidth, N::CreateSampleWriterForWidth, O::CreateSampleWriterForWidth);
-
-    fn with_channel(&mut self, channel: &ChannelDescription, byte_offset: usize) {
-        self.0.visit_channel(channel, byte_offset);
-        self.1.visit_channel(channel, byte_offset);
-        self.2.visit_channel(channel, byte_offset);
-        self.3.visit_channel(channel, byte_offset);
-    }
-
-    fn build_width_aware_pixel_writer(self) -> Self::CreatePixelsWriterForWidth {
-        (
-            self.0.build_width_aware_sample_writer(),
-            self.1.build_width_aware_sample_writer(),
-            self.2.build_width_aware_sample_writer(),
-            self.3.build_width_aware_sample_writer(),
-        )
-    }
+pub trait RecursivePixelWriter<Pixel>: Sync {
+    fn write_pixels<FullPixel>(&self, bytes: &mut [u8], pixels: &[FullPixel], get_pixel: impl Fn(&FullPixel) -> &Pixel);
 }
 
+type RecursiveWriter<Inner, Sample> = Recursive<Inner, SampleWriter<Sample>>;
+type OptionalRecursiveWriter<Inner, Sample> = Recursive<Inner, Option<SampleWriter<Sample>>>;
 
-impl WritableChannelDescription for ChannelDescription {
-    type SampleWriterBuilder = AlwaysSampleWriterBuilder;
-    fn sample_writer_builder(&self) -> Self::SampleWriterBuilder {
-        AlwaysSampleWriterBuilder {
-            desired_channel_name: self.name.clone(),
-            found_channel: None
-        }
-    }
-
-    fn channel_description(&self) -> Option<&ChannelDescription> { Some(self) }
-}
-
-impl WritableChannelDescription for Option<ChannelDescription> {
-    type SampleWriterBuilder = Option<AlwaysSampleWriterBuilder>;
-    fn sample_writer_builder(&self) -> Self::SampleWriterBuilder {
-        self.as_ref().map(|channel| channel.sample_writer_builder())
-    }
-
-    fn channel_description(&self) -> Option<&ChannelDescription> { self.as_ref() }
-}
-
-#[derive(Debug)]
-pub struct AlwaysSampleWriterBuilder {
-    desired_channel_name: Text,
-    found_channel: Option<AlwaysCreateSampleWriterForWidth>
-}
-
-impl SampleWriterBuilder for AlwaysSampleWriterBuilder {
-    type CreateSampleWriterForWidth = AlwaysCreateSampleWriterForWidth;
-
-    fn visit_channel(&mut self, channel: &ChannelDescription, byte_offset: usize) {
-        if self.desired_channel_name == channel.name {
-            self.found_channel = Some(AlwaysCreateSampleWriterForWidth {
-                target_sample_type: channel.sample_type,
-                start_byte_offset: byte_offset
-            })
-        }
-    }
-
-    fn build_width_aware_sample_writer(self) -> Self::CreateSampleWriterForWidth {
-        self.found_channel.expect("channel has not been extracted properly (bug)")
-    }
-}
-
-impl SampleWriterBuilder for Option<AlwaysSampleWriterBuilder> {
-    type CreateSampleWriterForWidth = Option<AlwaysCreateSampleWriterForWidth>;
-
-    fn visit_channel(&mut self, channel: &ChannelDescription, byte_offset: usize) {
-        if let Some(this) = self { this.visit_channel(channel, byte_offset) }
-    }
-
-    fn build_width_aware_sample_writer(self) -> Self::CreateSampleWriterForWidth {
-        self.map(|s| s.build_width_aware_sample_writer())
-    }
-}
-
-
-pub trait CreatePixelsWriterForWidth<Pixel>: Sync {
-    type PixelWriter: Clone + PixelWriter<Pixel>;
-    fn pixel_writer_for_line_width(&self, width: usize) -> Self::PixelWriter;
-}
-
-pub trait CreateSampleWriterForWidth: Sync {
-    type SampleWriter: SampleWriter;
-    fn sample_writer_for_width(&self, width: usize) -> Self::SampleWriter;
-}
-
-// TODO no need to separate PixelsWriter and PixelLineWriter?
-pub trait PixelWriter<Pixel> {
-    fn write_pixel(&mut self, whole_line: &mut [u8], pixel: Pixel);
-}
-
-pub trait SampleWriter: Clone {
-    fn write_next_sample<T>(&mut self, line: &mut [u8], sample: T) -> UnitResult where T: Into<Sample>;
-}
-
-// TODO redundant structs?
-#[derive(Clone, Copy, Debug)]
-pub struct AlwaysCreateSampleWriterForWidth {
-    // px: PhantomData<T>,
+#[derive(Debug, Clone)]
+pub struct SampleWriter<Sample> {
     target_sample_type: SampleType,
     start_byte_offset: usize,
+    px: PhantomData<Sample>,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct AlwaysSampleWriter {
-    // px: PhantomData<T>,
-    target_sample_type: SampleType,
-    next_byte_index: usize,
+impl RecursivePixelWriter<NoneMore> for NoneMore {
+    fn write_pixels<FullPixel>(&self, _: &mut [u8], _: &[FullPixel], _: impl Fn(&FullPixel) -> &NoneMore) {}
 }
 
-impl CreateSampleWriterForWidth for AlwaysCreateSampleWriterForWidth {
-    type SampleWriter = AlwaysSampleWriter;
-    fn sample_writer_for_width(&self, width: usize) -> AlwaysSampleWriter {
-        AlwaysSampleWriter {
-            next_byte_index: self.start_byte_offset * width,
-            target_sample_type: self.target_sample_type
+impl<Inner, InnerPixel, Sample: IntoNativeSample>
+    RecursivePixelWriter<Recursive<InnerPixel, Sample>>
+    for RecursiveWriter<Inner, Sample>
+    where Inner: RecursivePixelWriter<InnerPixel>
+{
+    fn write_pixels<FullPixel>(&self, bytes: &mut [u8], pixels: &[FullPixel], get_pixel: impl Fn(&FullPixel) -> &Recursive<InnerPixel, Sample>){
+        let byte_start_index = self.value.start_byte_offset * self.value.target_sample_type.bytes_per_sample();
+        let byte_count = pixels.len() * self.value.target_sample_type.bytes_per_sample();
+        let ref mut byte_writer = &mut bytes[byte_start_index .. byte_start_index + byte_count];
+
+        // match outside the loop to avoid matching on every single sample
+        // TODO dedup with below
+        match self.value.target_sample_type {
+            SampleType::F16 => {
+                for pixel in pixels {
+                    get_pixel(pixel).value.to_f16().write(byte_writer).expect("memory buffer invalid length when writing");
+                }
+
+                self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
+            },
+            SampleType::F32 => {
+                for pixel in pixels {
+                    get_pixel(pixel).value.to_f32().write(byte_writer).expect("memory buffer invalid length when writing");
+                }
+
+                self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
+            },
+            SampleType::U32 => {
+                for pixel in pixels {
+                    get_pixel(pixel).value.to_u32().write(byte_writer).expect("memory buffer invalid length when writing");
+                }
+
+                self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
+            },
         }
     }
 }
 
-impl CreateSampleWriterForWidth for Option<AlwaysCreateSampleWriterForWidth> {
-    type SampleWriter = Option<AlwaysSampleWriter>;
+impl<Inner, InnerPixel, Sample> RecursivePixelWriter<Recursive<InnerPixel, Sample>>
+    for OptionalRecursiveWriter<Inner, Sample>
+    where Inner: RecursivePixelWriter<InnerPixel>,
+        Sample: IntoNativeSample
+{
+    fn write_pixels<FullPixel>(&self, bytes: &mut [u8], pixels: &[FullPixel], get_pixel: impl Fn(&FullPixel) -> &Recursive<InnerPixel, Sample>) {
+        if let Some(writer) = &self.value {
+            let byte_start_index = writer.start_byte_offset * writer.target_sample_type.bytes_per_sample();
+            let byte_count = pixels.len() * writer.target_sample_type.bytes_per_sample();
+            let ref mut byte_writer = &mut bytes[byte_start_index .. byte_start_index + byte_count]; // TODO this might panic!
 
-    fn sample_writer_for_width(&self, width: usize) -> Self::SampleWriter {
-        self.map(|default_writer| default_writer.sample_writer_for_width(width))
-    }
-}
+            // match outside the loop to avoid matching on every single sample
+            match writer.target_sample_type {
+                SampleType::F16 => {
+                    for pixel in pixels {
+                        get_pixel(pixel).value.to_f16().write(byte_writer).expect("memory buffer invalid length when writing");
+                    }
 
-impl SampleWriter for AlwaysSampleWriter {
-    fn write_next_sample<T>(&mut self, line: &mut [u8], sample: T) -> UnitResult where T: Into<Sample> {
-        let index = self.next_byte_index.min(line.len()); // required for index out of bounds error
-        self.next_byte_index += self.target_sample_type.bytes_per_sample();
-        let bytes = &mut &mut line[index ..];
+                    self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
+                },
+                SampleType::F32 => {
+                    for pixel in pixels {
+                        get_pixel(pixel).value.to_f32().write(byte_writer).expect("memory buffer invalid length when writing");
+                    }
 
-        // TODO not match so many times!
-        match self.target_sample_type {
-            SampleType::F16 => sample.into().to_f16().write(bytes)?, // TODO expect?
-            SampleType::F32 => sample.into().to_f32().write(bytes)?,
-            SampleType::U32 => sample.into().to_u32().write(bytes)?,
+                    self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
+                },
+                SampleType::U32 => {
+                    for pixel in pixels {
+                        get_pixel(pixel).value.to_u32().write(byte_writer).expect("memory buffer invalid length when writing");
+                    }
+
+                    self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
+                },
+            }
         }
-
-        Ok(())
-    }
-}
-
-// Note: If the channels info is Some, but no sample is provided,
-// the default value is picked, because of `Sample::from(Option<impl IntoSample>)`.
-// If the channels info is None, but the value is provided, it is ignored inside this trait implementation.
-impl SampleWriter for Option<AlwaysSampleWriter> {
-    fn write_next_sample<T>(&mut self, line: &mut [u8], sample: T) -> UnitResult where T: Into<Sample> {
-        if let Some(this) = self { this.write_next_sample(line, sample)?; }
-        Ok(())
-    }
-}
-
-impl<A,B,C,D, L, M, N, O> CreatePixelsWriterForWidth<(A, B, C, D)> for (L, M, N, O)
-    where A: Into<Sample>, B: Into<Sample>, C: Into<Sample>, D: Into<Sample>,
-          L: CreateSampleWriterForWidth, M: CreateSampleWriterForWidth, N: CreateSampleWriterForWidth, O: CreateSampleWriterForWidth,
-{
-    type PixelWriter = (L::SampleWriter, M::SampleWriter, N::SampleWriter, O::SampleWriter);
-
-    fn pixel_writer_for_line_width(&self, width: usize) -> Self::PixelWriter {
-        (
-            self.0.sample_writer_for_width(width),
-            self.1.sample_writer_for_width(width),
-            self.2.sample_writer_for_width(width),
-            self.3.sample_writer_for_width(width),
-        )
-    }
-}
-
-impl<A,B,C,D, L, M, N, O> PixelWriter<(A, B, C, D)> for (L, M, N, O)
-    where A: Into<Sample>, B: Into<Sample>, C: Into<Sample>, D: Into<Sample>,
-          L: SampleWriter, M: SampleWriter, N: SampleWriter, O: SampleWriter,
-{
-    fn write_pixel(&mut self, whole_line: &mut [u8], pixel: (A, B, C, D)) {
-        self.0.write_next_sample(whole_line, pixel.0).expect("failed in memory write"); // order does not really matter, as these start at independent points in time
-        self.1.write_next_sample(whole_line, pixel.1).expect("failed in memory write");
-        self.2.write_next_sample(whole_line, pixel.2).expect("failed in memory write");
-        self.3.write_next_sample(whole_line, pixel.3).expect("failed in memory write");
+        else {
+            self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
+        }
     }
 }
 
@@ -445,13 +368,35 @@ impl<A,B,C,D, L, M, N, O> PixelWriter<(A, B, C, D)> for (L, M, N, O)
 
 
 
+pub trait IntoNativeSample: Copy + Default + Sync + 'static {
+    fn to_f16(&self) -> f16;
+    fn to_f32(&self) -> f32;
+    fn to_u32(&self) -> u32;
+}
 
+impl IntoNativeSample for f16 {
+    fn to_f16(&self) -> f16 { f16::from_f16(*self) }
+    fn to_f32(&self) -> f32 { f32::from_f16(*self) }
+    fn to_u32(&self) -> u32 { u32::from_f16(*self) }
+}
 
+impl IntoNativeSample for f32 {
+    fn to_f16(&self) -> f16 { f16::from_f32(*self) }
+    fn to_f32(&self) -> f32 { f32::from_f32(*self) }
+    fn to_u32(&self) -> u32 { u32::from_f32(*self) }
+}
 
+impl IntoNativeSample for u32 {
+    fn to_f16(&self) -> f16 { f16::from_u32(*self) }
+    fn to_f32(&self) -> f32 { f32::from_u32(*self) }
+    fn to_u32(&self) -> u32 { u32::from_u32(*self) }
+}
 
-
-
-
+impl IntoNativeSample for Sample {
+    fn to_f16(&self) -> f16 { Sample::to_f16(*self) }
+    fn to_f32(&self) -> f32 { Sample::to_f32(*self) }
+    fn to_u32(&self) -> u32 { Sample::to_u32(*self) }
+}
 
 
 
@@ -483,7 +428,7 @@ pub mod test {
             PixelVec::new((3, 2), vec![px, px, px, px, px, px])
         ));
 
-        let px = (3_f32, f16::ONE, Option::<f16>::None, Some(4_f32));
+        let px = (3_f32, f16::ONE, 2333_u32, 4_f32);
         assert_is_writable_channels(SpecificChannels::new(
             (
                 ChannelDescription::named("x", SampleType::F32),

@@ -13,7 +13,9 @@ use crate::math::Vec2;
 use crate::image::read::layers::{ChannelsReader, ReadChannels};
 use crate::block::chunk::TileCoordinates;
 use std::marker::PhantomData;
+use crate::image::recursive::*;
 
+/// Create an arbitrary sample type from one of the defined sample types.
 pub trait FromNativeSample: Sized + Copy + Default + 'static {
     fn from_f16(value: f16) -> Self;
     fn from_f32(value: f32) -> Self;
@@ -72,133 +74,6 @@ pub struct ReadRequiredChannel<ReadChannels, Sample> {
     channel_name: Text,
     px: PhantomData<Sample>,
 }
-
-
-#[derive(Copy, Clone, Debug, Default)]
-pub struct Recursive<Inner, Value> {
-    inner: Inner,
-    value: Value,
-}
-
-impl<Inner, Value> Recursive<Inner, Value> { pub fn new(inner: Inner, value: Value) -> Self { Self { inner, value } } }
-
-#[derive(Copy, Clone, Debug, Default)]
-pub struct NoneMore;
-
-
-pub trait IntoTuple<Tuple> {
-    fn into_tuple(self) -> Tuple;
-}
-
-pub trait IntoNonRecursive {
-    type NonRecursive;
-    fn into_non_recursive(self) -> Self::NonRecursive;
-}
-
-// TODO use a macro to generate these impls!
-impl IntoTuple<()> for NoneMore { fn into_tuple(self) -> () { () } }
-impl<A> IntoTuple<A> for Recursive<NoneMore, A> { fn into_tuple(self) -> A { self.value } }
-impl<A,B> IntoTuple<(A,B)> for Recursive<Recursive<NoneMore, A>, B> { fn into_tuple(self) -> (A, B) { (self.inner.value, self.value) } }
-impl<A,B,C> IntoTuple<(A,B,C)> for Recursive<Recursive<Recursive<NoneMore, A>, B>, C> { fn into_tuple(self) -> (A, B, C) { (self.inner.inner.value, self.inner.value, self.value) } }
-impl<A,B,C,D> IntoTuple<(A,B,C,D)> for Recursive<Recursive<Recursive<Recursive<NoneMore, A>, B>, C>, D> { fn into_tuple(self) -> (A, B, C, D) { (self.inner.inner.inner.value, self.inner.inner.value, self.inner.value, self.value) } }
-impl<A,B,C,D,E> IntoTuple<(A,B,C,D,E)> for Recursive<Recursive<Recursive<Recursive<Recursive<NoneMore, A>, B>, C>, D>, E> { fn into_tuple(self) -> (A, B, C, D, E) { (self.inner.inner.inner.inner.value, self.inner.inner.inner.value, self.inner.inner.value, self.inner.value, self.value) } }
-impl<A,B,C,D,E,F> IntoTuple<(A,B,C,D,E,F)> for Recursive<Recursive<Recursive<Recursive<Recursive<Recursive<NoneMore, A>, B>, C>, D>, E>, F> { fn into_tuple(self) -> (A, B, C, D, E, F) { (self.inner.inner.inner.inner.inner.value, self.inner.inner.inner.inner.value, self.inner.inner.inner.value, self.inner.inner.value, self.inner.value, self.value) } }
-impl<A,B,C,D,E,F,G> IntoTuple<(A,B,C,D,E,F,G)> for Recursive<Recursive<Recursive<Recursive<Recursive<Recursive<Recursive<NoneMore, A>, B>, C>, D>, E>, F>, G> { fn into_tuple(self) -> (A, B, C, D, E, F, G) { (self.inner.inner.inner.inner.inner.inner.value, self.inner.inner.inner.inner.inner.value, self.inner.inner.inner.inner.value, self.inner.inner.inner.value, self.inner.inner.value, self.inner.value, self.value) } }
-impl<A,B,C,D,E,F,G,H> IntoTuple<(A,B,C,D,E,F,G,H)> for Recursive<Recursive<Recursive<Recursive<Recursive<Recursive<Recursive<Recursive<NoneMore, A>, B>, C>, D>, E>, F>, G>, H> { fn into_tuple(self) -> (A, B, C, D, E, F, G, H) { (self.inner.inner.inner.inner.inner.inner.inner.value, self.inner.inner.inner.inner.inner.inner.value, self.inner.inner.inner.inner.inner.value, self.inner.inner.inner.inner.value, self.inner.inner.inner.value, self.inner.inner.value, self.inner.value, self.value) } }
-
-/*macro_rules! impl_into_tuple_for_recursive_type {
-    ( $($types: ident),* => => $nested_type:ty => $($accessors:expr),* => /*empty $acessor_prefix:expr*/ ) => {
-        impl<  $($types),*  > IntoTuple<(  $($types),*  )> for $nested_type {
-            fn into_tuple(self) -> (  $($types),*  ) { (  $($accessors),*  ) }
-        }
-    };
-
-    ( $($types: ident),* => $last_type:ident, $($remaining_types:ident),* => $nested_type:ty => $($accessors:expr),* => $acessor_prefix:expr ) => {
-        impl_into_tuple_for_recursive_type!{
-            $($types),* =>
-            $($remaining_types),* =>
-            Recursive< $nested_type, $last_type > =>
-            $acessor_prefix .value, $($accessors),* =>
-            $acessor_prefix .inner
-        }
-    };
-
-    ( $($types:ident),* ) => {
-        impl_into_tuple_for_recursive_type!{
-            $($types),* => $($types),* => NoneMore => => self.value
-        }
-    };
-}*/
-
-/*macro_rules! gen_impl {
-
-    ( IntoTuple:nested_type: $inner_recursive:ty |   ) => {
-        $inner_recursive<>
-    };
-    ( IntoTuple:nested_type: $inner_recursive:ty | $first_chan:ident $(,$remaining_chans:ident)*  ) => {
-        gen_impl!(IntoTuple:nested_type: Recursive<$inner_recursive, $first_chan> | $($remaining_chans),* )
-    };
-
-    ( IntoTuple:accessors: $self:ident | $($types:ident),* ) => {
-        ($self.inner.inner.inner.value, $self.inner.inner.value, $self.inner.value, $self.value)
-    };
-
-    ( IntoTuple: $($types: ident),* ) => {
-        impl<  $($types),*  > IntoTuple<(  $($types),*  )> for ( gen_impl!( IntoTuple:nested_type: $($types),* ) ) {
-            fn into_tuple(self) -> (  $($types),*  ) {
-                gen_impl!( IntoTuple:accessors: self | $($types),* )
-            }
-        }
-    };
-
-}
-
-gen_impl! {
-    IntoTuple:
-    A,B,C,D
-}*/
-
-//impl_into_tuple_for_recursive_type! { A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T }
-
-/*macro_rules! impl_into_tuple_for_recursive_type_all {
-
-    // internal initial call
-    ( $types:expr ) => {
-        impl_into_tuple_for_recursive_type!{
-            $types => $types => NoneMore => => self.value
-        }
-    };
-
-    // initial call
-    ( $( $types:expr );* ) => {
-        impl_into_tuple_for_recursive_type_all!{
-            $($types),* => $($types),* => NoneMore => => self.value
-        }
-    };
-}
-
-// impl for sizes 2,3,4,5,6,7,8,12,16,20.
-impl_into_tuple_for_recursive_type_all! {
-    A,B; A,B,C; A,B,C,D; A,B,C,D,E; A,B,C,D,E,F; A,B,C,D,E,F,G; A,B,C,D,E,F,G,H;
-    A,B,C,D,E,F,G,H,I,J,K,L; A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P; A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T;
-}*/
-
-
-// impl<AsTuple, Tuple> IntoNonRecursive for AsTuple where AsTuple: IntoTuple<Tuple> {
-//     type NonRecursive = Tuple;
-//     fn into_friendlier(self) -> Self::NonRecursive { self.into_tuple() }
-// }
-
-// TODO use macro!
-impl IntoNonRecursive for NoneMore { type NonRecursive = (); fn into_non_recursive(self) -> Self::NonRecursive { () } }
-impl<A> IntoNonRecursive for Recursive<NoneMore, A> { type NonRecursive = A; fn into_non_recursive(self) -> Self::NonRecursive { self.value } }
-impl<A,B> IntoNonRecursive for Recursive<Recursive<NoneMore, A>, B> { type NonRecursive = (A, B); fn into_non_recursive(self) -> Self::NonRecursive { self.into_tuple() } }
-impl<A,B,C> IntoNonRecursive for Recursive<Recursive<Recursive<NoneMore, A>, B>, C> { type NonRecursive = (A, B, C); fn into_non_recursive(self) -> Self::NonRecursive { self.into_tuple() } }
-impl<A,B,C,D> IntoNonRecursive for Recursive<Recursive<Recursive<Recursive<NoneMore, A>, B>, C>, D> { type NonRecursive = (A, B, C, D); fn into_non_recursive(self) -> Self::NonRecursive { self.into_tuple() } }
-impl<A,B,C,D,E> IntoNonRecursive for Recursive<Recursive<Recursive<Recursive<Recursive<NoneMore, A>, B>, C>, D>, E> { type NonRecursive = (A, B, C, D, E); fn into_non_recursive(self) -> Self::NonRecursive { self.into_tuple() } }
-impl<A,B,C,D,E,F> IntoNonRecursive for Recursive<Recursive<Recursive<Recursive<Recursive<Recursive<NoneMore, A>, B>, C>, D>, E>, F> { type NonRecursive = (A, B, C, D, E, F); fn into_non_recursive(self) -> Self::NonRecursive { self.into_tuple() } }
-impl<A,B,C,D,E,F,G> IntoNonRecursive for Recursive<Recursive<Recursive<Recursive<Recursive<Recursive<Recursive<NoneMore, A>, B>, C>, D>, E>, F>, G> { type NonRecursive = (A, B, C, D, E, F, G); fn into_non_recursive(self) -> Self::NonRecursive { self.into_tuple() } }
-impl<A,B,C,D,E,F,G,H> IntoNonRecursive for Recursive<Recursive<Recursive<Recursive<Recursive<Recursive<Recursive<Recursive<NoneMore, A>, B>, C>, D>, E>, F>, G>, H> { type NonRecursive = (A, B, C, D, E, F, G, H); fn into_non_recursive(self) -> Self::NonRecursive { self.into_tuple() } }
 
 
 #[derive(Copy, Clone, Debug)]
@@ -286,7 +161,7 @@ ChannelsReader for SpecificChannelsReader<PixelStorage, SetPixel, PxReader, Pixe
 }
 
 
-pub type ReadNoChannels = NoneMore;
+pub type ReadZeroChannels = NoneMore;
 impl ReadSpecificChannel for NoneMore {
     type RecursivePixelReader = NoneMore;
     fn create_recursive_reader(&self, _: &ChannelList) -> Result<Self::RecursivePixelReader> { Ok(NoneMore) }
@@ -372,6 +247,7 @@ impl<Sample, InnerReader: RecursivePixelReader>
         let mut own_bytes_reader = &bytes[start_index .. start_index + byte_count]; // TODO check block size somewhere
 
         // TODO deduplicate with `Optional[Self]`
+        // match outside the loop to avoid matching on every single sample
         match self.value.channel.sample_type {
             SampleType::F16 => {
 
@@ -426,6 +302,7 @@ for Recursive<InnerReader, OptionalSampleReader<Sample>>
                 let byte_count = pixels.len() * reader.channel.sample_type.bytes_per_sample();
                 let mut own_bytes_reader = &bytes[start_index .. start_index + byte_count]; // TODO check block size somewhere
 
+                // match outside the loop to avoid matching on every single sample
                 match reader.channel.sample_type {
                     SampleType::F16 => {
                         let updated_samples = pixels.map(|pixel|{
@@ -467,8 +344,6 @@ for Recursive<InnerReader, OptionalSampleReader<Sample>>
 
                 self.inner.read_pixels(bytes, updated_samples);
             },
-
-            _ => panic!("contradicting state in recursive pixel reader (bug)")
         }
     }
 }

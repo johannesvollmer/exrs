@@ -23,6 +23,7 @@ pub mod read;
 pub mod write;
 pub mod crop;
 pub mod pixel_vec;
+pub mod recursive;
 // pub mod channel_groups;
 
 
@@ -273,7 +274,7 @@ pub enum DeepSamples {
 use crate::meta::attribute::*;
 use crate::error::Result;
 use crate::block::samples::Sample;
-use crate::image::write::channels::{GetPixel, WritableChannels};
+use crate::image::write::channels::{GetPixel, WritableChannels, IntoNativeSample};
 use crate::image::write::layers::WritableLayers;
 use crate::image::write::samples::{WritableSamples};
 use crate::meta::{mip_map_levels, rip_map_levels};
@@ -295,10 +296,11 @@ impl<SampleStorage, Channels> SpecificChannels<SampleStorage, Channels> {
 }
 
 
-pub trait IntoSample: Into<Sample> { const SAMPLE_TYPE: SampleType; }
-impl IntoSample for f16 { const SAMPLE_TYPE: SampleType = SampleType::F16; }
-impl IntoSample for f32 { const SAMPLE_TYPE: SampleType = SampleType::F32; }
-impl IntoSample for u32 { const SAMPLE_TYPE: SampleType = SampleType::U32; }
+pub trait IntoSample: IntoNativeSample { const PREFERRED_SAMPLE_TYPE: SampleType; }
+impl IntoSample for f16 { const PREFERRED_SAMPLE_TYPE: SampleType = SampleType::F16; }
+impl IntoSample for f32 { const PREFERRED_SAMPLE_TYPE: SampleType = SampleType::F32; }
+impl IntoSample for u32 { const PREFERRED_SAMPLE_TYPE: SampleType = SampleType::U32; }
+
 
 
 impl<SampleStorage> SpecificChannels<SampleStorage, (ChannelDescription, ChannelDescription, ChannelDescription, ChannelDescription)>
@@ -310,26 +312,37 @@ impl<SampleStorage> SpecificChannels<SampleStorage, (ChannelDescription, Channel
         channels: (impl Into<Text>, impl Into<Text>, impl Into<Text>, impl Into<Text>),
         source_samples: SampleStorage
     ) -> Self
-        where A: IntoSample, B: IntoSample, C: IntoSample, D: IntoSample,
+        where A: IntoSample, B: IntoSample,
+              C: IntoSample, D: IntoSample,
               SampleStorage: GetPixel<Pixel=(A,B,C,D)>,
     {
         SpecificChannels {
             channels: (
-                ChannelDescription::named(channels.0, A::SAMPLE_TYPE),
-                ChannelDescription::named(channels.1, B::SAMPLE_TYPE),
-                ChannelDescription::named(channels.2, C::SAMPLE_TYPE),
-                ChannelDescription::named(channels.3, D::SAMPLE_TYPE),
+                ChannelDescription::named(channels.0, A::PREFERRED_SAMPLE_TYPE),
+                ChannelDescription::named(channels.1, B::PREFERRED_SAMPLE_TYPE),
+                ChannelDescription::named(channels.2, C::PREFERRED_SAMPLE_TYPE),
+                ChannelDescription::named(channels.3, D::PREFERRED_SAMPLE_TYPE),
             ),
 
             storage: source_samples
         }
     }
 
-    pub fn rgba<A,B,C,D>(source_samples: SampleStorage) -> Self
-        where A: IntoSample, B: IntoSample, C: IntoSample, D: IntoSample,
-              SampleStorage: GetPixel<Pixel=(A,B,C,D)>
+    /// Create an image with red, green, blue, and alpha channels.
+    pub fn rgba<R, G, B, A>(source_samples: SampleStorage) -> Self
+        where R: IntoSample, G: IntoSample,
+              B: IntoSample, A: IntoSample,
+              SampleStorage: GetPixel<Pixel=(R, G, B, A)>
     {
         SpecificChannels::named(("R", "G", "B", "A"), source_samples)
+    }
+
+    /// Create an image with red, green, blue channels.
+    pub fn rgb<R, G, B>(source_samples: SampleStorage) -> Self
+        where R: IntoSample, G: IntoSample, B: IntoSample,
+              SampleStorage: GetPixel<Pixel=(R, G, B)>
+    {
+        SpecificChannels::named(("R", "G", "B"), source_samples)
     }
 }
 

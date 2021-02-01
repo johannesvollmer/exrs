@@ -10,6 +10,7 @@ use crate::meta::attribute::{ChannelDescription, LevelMode};
 use crate::image::read::any_channels::{SamplesReader, ReadSamples, ReadAnyChannels};
 use crate::block::chunk::TileCoordinates;
 use crate::image::read::specific_channels::*;
+use crate::image::recursive::*;
 
 
 // Note: In the resulting image, the `FlatSamples` are placed
@@ -88,7 +89,8 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
             Set: Fn(&mut Pixels, Vec2<usize>, (R,G,B,A)),
     {
         self.specific_channels()
-            .required("R").required("G").required("B").optional("A", A::from_f32(1.0))
+            .required("R").required("G").required("B")
+            .optional("A", A::from_f32(1.0))
             .collect_pixels(create_pixels, set_pixel)
     }
 
@@ -125,8 +127,8 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
         ReadSpecificChannels { channel_names, create, set_pixel, px: Default::default() }
     }*/
 
-    pub fn specific_channels(self) -> ReadNoChannels {
-        ReadNoChannels { }
+    pub fn specific_channels(self) -> ReadZeroChannels {
+        ReadZeroChannels { }
     }
 }
 
