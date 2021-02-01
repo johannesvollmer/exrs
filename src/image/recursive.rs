@@ -27,6 +27,15 @@ pub trait IntoRecursive {
     fn into_recursive(self) -> Self::Recursive;
 }
 
+impl IntoRecursive for NoneMore {
+    type Recursive = Self;
+    fn into_recursive(self) -> Self::Recursive { self }
+}
+
+impl<Inner: IntoRecursive, Value> IntoRecursive for Recursive<Inner, Value> {
+    type Recursive = Recursive<Inner::Recursive, Value>;
+    fn into_recursive(self) -> Self::Recursive { Recursive::new(self.inner.into_recursive(), self.value) }
+}
 
 // TODO use a macro to generate these impls!
 impl IntoTuple<()> for NoneMore { fn into_tuple(self) -> () { () } }

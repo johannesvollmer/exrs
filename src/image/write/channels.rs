@@ -420,13 +420,20 @@ pub mod test {
         let px = (x,y,z,s);
 
         assert_is_writable_channels(
-            SpecificChannels::named(("R", "G", "B", "A"), |_pos| px)
+            SpecificChannels::rgba(|_pos| px)
         );
 
-        assert_is_writable_channels(SpecificChannels::named(
-            ("R", "G", "B", "A"),
+        assert_is_writable_channels(SpecificChannels::rgba(
             PixelVec::new((3, 2), vec![px, px, px, px, px, px])
         ));
+
+        let px = (2333_u32, 4_f32);
+        assert_is_writable_channels(
+            SpecificChannels::build()
+                .with_named_channel("A")
+                .with_named_channel("C")
+                .with_pixels(PixelVec::new((3, 2), vec![px, px, px, px, px, px]))
+        );
 
         let px = (3_f32, f16::ONE, 2333_u32, 4_f32);
         assert_is_writable_channels(SpecificChannels::new(

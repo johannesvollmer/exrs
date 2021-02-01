@@ -144,7 +144,7 @@ pub struct SpecificChannels<PixelStorage, ChannelsDescription> {
 
     /// Your custom rgba pixel storage
     // TODO should also support `Levels<YourStorage>`, where rgba levels are desired!
-    pub storage: PixelStorage,
+    pub storage: PixelStorage, // TODO rename to "pixels"?
 }
 
 
@@ -279,6 +279,8 @@ use crate::image::write::layers::WritableLayers;
 use crate::image::write::samples::{WritableSamples};
 use crate::meta::{mip_map_levels, rip_map_levels};
 use crate::io::Data;
+use crate::image::recursive::{NoneMore, Recursive, IntoRecursive};
+use std::marker::PhantomData;
 
 
 impl<Channels> Layer<Channels> {
@@ -301,32 +303,50 @@ impl IntoSample for f16 { const PREFERRED_SAMPLE_TYPE: SampleType = SampleType::
 impl IntoSample for f32 { const PREFERRED_SAMPLE_TYPE: SampleType = SampleType::F32; }
 impl IntoSample for u32 { const PREFERRED_SAMPLE_TYPE: SampleType = SampleType::U32; }
 
+pub struct SpecificChannelsBuilder<RecursiveChannels, RecursivePixel> {
+    channels: RecursiveChannels,
+    px: PhantomData<RecursivePixel>
+}
 
-
-impl<SampleStorage> SpecificChannels<SampleStorage, (ChannelDescription, ChannelDescription, ChannelDescription, ChannelDescription)>
+impl SpecificChannels<(),()>
 {
+    pub fn build() -> SpecificChannelsBuilder<NoneMore, NoneMore> {
+        SpecificChannelsBuilder { channels: NoneMore, px: Default::default() }
+    }
+}
 
-    // TODO channels().with_channel().with_channel() ! See read::specific_channels
-
-    pub fn named<A,B,C, D>(
-        channels: (impl Into<Text>, impl Into<Text>, impl Into<Text>, impl Into<Text>),
-        source_samples: SampleStorage
-    ) -> Self
-        where A: IntoSample, B: IntoSample,
-              C: IntoSample, D: IntoSample,
-              SampleStorage: GetPixel<Pixel=(A,B,C,D)>,
+impl<RecursiveChannels, RecursivePixel> SpecificChannelsBuilder<RecursiveChannels, RecursivePixel>
+{
+    pub fn with_named_channel<Sample: IntoSample>(self, name: impl Into<Text>)
+        -> SpecificChannelsBuilder<Recursive<RecursiveChannels, ChannelDescription>, Recursive<RecursivePixel, Sample>>
     {
-        SpecificChannels {
-            channels: (
-                ChannelDescription::named(channels.0, A::PREFERRED_SAMPLE_TYPE),
-                ChannelDescription::named(channels.1, B::PREFERRED_SAMPLE_TYPE),
-                ChannelDescription::named(channels.2, C::PREFERRED_SAMPLE_TYPE),
-                ChannelDescription::named(channels.3, D::PREFERRED_SAMPLE_TYPE),
-            ),
+        self.with_channel::<Sample>(ChannelDescription::named(name, Sample::PREFERRED_SAMPLE_TYPE))
+    }
 
-            storage: source_samples
+    pub fn with_channel<Sample: IntoSample>(self, channel: ChannelDescription)
+        -> SpecificChannelsBuilder<Recursive<RecursiveChannels, ChannelDescription>, Recursive<RecursivePixel, Sample>>
+    {
+        SpecificChannelsBuilder {
+            channels: Recursive::new(self.channels, channel),
+            px: Default::default()
         }
     }
+
+    pub fn with_pixels<Pixels>(self, get_pixel: Pixels) -> SpecificChannels<Pixels, RecursiveChannels>
+        where Pixels: GetPixel, <Pixels as GetPixel>::Pixel: IntoRecursive<Recursive=RecursivePixel>,
+    {
+        SpecificChannels {
+            channels: self.channels,
+            storage: get_pixel
+        }
+    }
+}
+
+impl<SampleStorage> SpecificChannels<
+    SampleStorage,
+    Recursive<Recursive<Recursive<Recursive<NoneMore, ChannelDescription>, ChannelDescription>, ChannelDescription>, ChannelDescription>
+>
+{
 
     /// Create an image with red, green, blue, and alpha channels.
     pub fn rgba<R, G, B, A>(source_samples: SampleStorage) -> Self
@@ -334,15 +354,31 @@ impl<SampleStorage> SpecificChannels<SampleStorage, (ChannelDescription, Channel
               B: IntoSample, A: IntoSample,
               SampleStorage: GetPixel<Pixel=(R, G, B, A)>
     {
-        SpecificChannels::named(("R", "G", "B", "A"), source_samples)
+        SpecificChannels::build()
+            .with_named_channel("R")
+            .with_named_channel("G")
+            .with_named_channel("B")
+            .with_named_channel("A")
+            .with_pixels(source_samples)
     }
+}
 
-    /// Create an image with red, green, blue channels.
-    pub fn rgb<R, G, B>(source_samples: SampleStorage) -> Self
+impl<SampleStorage> SpecificChannels<
+    SampleStorage,
+    Recursive<Recursive<Recursive<NoneMore, ChannelDescription>, ChannelDescription>, ChannelDescription>
+>
+{
+
+    /// Create an image with red, green, and blue channels.
+    pub fn rgb<R, G, B, A>(source_samples: SampleStorage) -> Self
         where R: IntoSample, G: IntoSample, B: IntoSample,
               SampleStorage: GetPixel<Pixel=(R, G, B)>
     {
-        SpecificChannels::named(("R", "G", "B"), source_samples)
+        SpecificChannels::build()
+            .with_named_channel("R")
+            .with_named_channel("G")
+            .with_named_channel("B")
+            .with_pixels(source_samples)
     }
 }
 

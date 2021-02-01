@@ -170,17 +170,14 @@ fn round_trip_all_files_rgba() {
 fn round_trip_parallel_files() {
     check_files(vec![], |path| {
 
-        // let image = Image::read_from_file(path, read_options::high())?;
         let image = read()
             .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
             .from_file(path)?;
 
 
         let mut tmp_bytes = Vec::new();
-        // image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::high())?;
         image.write().to_buffered(Cursor::new(&mut tmp_bytes))?;
 
-        // let image2 = Image::read_from_buffered(&mut tmp_bytes.as_slice(), ReadOptions{ pedantic: true, .. read_options::high() })?;
         let image2 = read()
             .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
             .pedantic()
@@ -193,25 +190,16 @@ fn round_trip_parallel_files() {
     })
 }
 
-#[test]
-fn roundtrip_unusual_rgba() -> UnitResult {
-    let image_reader = read()
-        .no_deep_data()
-        .largest_resolution_level() // TODO all levels
-        .rgba_channels(
-            pixel_vec::create_pixel_vec::<(f32, f32, f16, f32), _>,
-            pixel_vec::set_pixel_in_vec::<(f32, f32, f16, f32)>,
-        )
-        .first_valid_layer()
-        .all_attributes()
-        .non_parallel();
 
-    let random_pixels: Vec<(f32, f32, f16, f32)> = vec![
-        (0.1, 0.4, f16::from_f32(-5.0), 0.4),
-        (0.3, 0.8, f16::from_f32(4.0), -0.4),
-        (0.2, -0.6, f16::from_f32(2.0), -0.2),
-        (0.8, 0.2, f16::from_f32(21.0), -0.4),
-        (0.9, 0.0, f16::from_f32(64.0), 0.4),
+#[test]
+fn roundtrip_unusual_2() -> UnitResult {
+
+    let random_pixels: Vec<(f16, u32)> = vec![
+        ( f16::from_f32(-5.0), 4),
+        ( f16::from_f32(4.0), 9),
+        ( f16::from_f32(2.0), 6),
+        ( f16::from_f32(21.0), 8),
+        ( f16::from_f32(64.0), 7),
     ];
 
     let size = Vec2(3, 2);
@@ -219,15 +207,96 @@ fn roundtrip_unusual_rgba() -> UnitResult {
         .zip(random_pixels.into_iter().cycle())
         .map(|(_index, color)| color).collect::<Vec<_>>();
 
-    let pixels = PixelVec { resolution: size, pixels: pixels };
+    let pixels = PixelVec { resolution: size, pixels };
 
-    let image = Image::with_single_layer(size, SpecificChannels::named(
-        ("R", "G", "B", "A"),
-        pixels.clone()
-    ));
+    let channels = SpecificChannels::build()
+        .with_named_channel("N")
+        .with_named_channel("Ploppalori Taranos")
+        .with_pixels(pixels.clone()
+    );
+
+    let image = Image::with_single_layer(size, channels);
 
     let mut tmp_bytes = Vec::new();
     image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
+
+    let image_reader = read()
+        .no_deep_data()
+        .largest_resolution_level() // TODO all levels
+        .specific_channels().required("N").required("Ploppalori Taranos").collect_pixels(
+            pixel_vec::create_pixel_vec::<(f16, u32), _>,
+            pixel_vec::set_pixel_in_vec::<(f16, u32)>,
+        )
+        .first_valid_layer()
+        .all_attributes()
+        .non_parallel();
+
+    let image2 = image_reader.from_buffered(Cursor::new(&tmp_bytes))?;
+
+    // custom compare function: considers nan equal to nan
+    assert_eq!(image.layer_data.size, size, "test is buggy");
+    let pixels1 = &image.layer_data.channel_data.storage;
+    let pixels2 = &image2.layer_data.channel_data.storage;
+
+    assert_eq!(pixels1.pixels, pixels2.pixels);
+
+    Ok(())
+}
+
+// TODO test optional reader
+// TODO dedup
+#[test]
+fn roundtrip_unusual_7() -> UnitResult {
+
+    let random_pixels: Vec<(f16, u32, f32,f32,f32,f32,f32)> = vec![
+        ( f16::from_f32(-5.0), 4, 1.0,2.0,3.0,4.0,5.0),
+        ( f16::from_f32(4.0), 8, 2.0,3.0,4.0,5.0,1.0),
+        ( f16::from_f32(2.0), 9, 3.0,4.0,5.0,1.0,2.0),
+        ( f16::from_f32(21.0), 6, 4.0,5.0,1.0,2.0,3.0),
+        ( f16::from_f32(64.0), 5, 5.0,1.0,2.0,3.0,4.0),
+    ];
+
+    let size = Vec2(3, 2);
+    let pixels = (0..size.area())
+        .zip(random_pixels.into_iter().cycle())
+        .map(|(_index, color)| color).collect::<Vec<_>>();
+
+    let pixels = PixelVec { resolution: size, pixels };
+
+    let channels = SpecificChannels::build()
+        .with_named_channel("N")
+        .with_named_channel("Ploppalori Taranos")
+        .with_named_channel("4")
+        .with_named_channel(".")
+        .with_named_channel("____")
+        .with_named_channel(" ")
+        .with_named_channel("  ")
+        .with_pixels(pixels.clone()
+    );
+
+    let image = Image::with_single_layer(size, channels);
+
+    let mut tmp_bytes = Vec::new();
+    image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
+
+    let image_reader = read()
+        .no_deep_data()
+        .largest_resolution_level() // TODO all levels
+        .specific_channels()
+            .required("N")
+            .required("Ploppalori Taranos")
+            .required("4")
+            .required(".")
+            .required("____")
+            .required(" ")
+            .required("  ")
+        .collect_pixels(
+            pixel_vec::create_pixel_vec::<(f16, u32, f32,f32,f32,f32,f32), _>,
+            pixel_vec::set_pixel_in_vec::<(f16, u32, f32,f32,f32,f32,f32)>,
+        )
+        .first_valid_layer()
+        .all_attributes()
+        .non_parallel();
 
     let image2 = image_reader.from_buffered(Cursor::new(&tmp_bytes))?;
 
