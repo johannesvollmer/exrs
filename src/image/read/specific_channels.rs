@@ -57,7 +57,7 @@ pub trait ReadSpecificChannel: Sized {
     /// The type of the pixel can be defined by the second closure;
     /// it must be a tuple containing `f16`, `f32`, `u32` or `Sample` values.
     /// For example:
-    /// ````
+    /// ```
     ///     use exr::prelude::*;
     ///         let image_reader = read().no_deep_data().largest_resolution_level()
     ///             .specific_channels().required("L").required("A") // expect luma and alpha channels

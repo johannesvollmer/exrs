@@ -310,6 +310,24 @@ pub struct SampleWriter<Sample> {
     px: PhantomData<Sample>,
 }
 
+impl<Sample> SampleWriter<Sample> where Sample: IntoNativeSample {
+    fn write_own_samples(&self, bytes: &mut [u8], samples: impl ExactSizeIterator<Item=Sample>) {
+        let byte_start_index = samples.len() * self.start_byte_offset;
+        let byte_count = samples.len() * self.target_sample_type.bytes_per_sample();
+        let ref mut byte_writer = &mut bytes[byte_start_index..byte_start_index + byte_count];
+
+        let write_error_msg = "invalid memory buffer length when writing";
+
+        // match outside the loop to avoid matching on every single sample
+        match self.target_sample_type {
+            // TODO does this boil down to a `memcpy` where the sample type equals the type parameter?
+            SampleType::F16 => for sample in samples { sample.to_f16().write(byte_writer).expect(write_error_msg); },
+            SampleType::F32 => for sample in samples { sample.to_f32().write(byte_writer).expect(write_error_msg); },
+            SampleType::U32 => for sample in samples { sample.to_u32().write(byte_writer).expect(write_error_msg); },
+        };
+    }
+}
+
 impl RecursivePixelWriter<NoneMore> for NoneMore {
     fn write_pixels<FullPixel>(&self, _: &mut [u8], _: &[FullPixel], _: impl Fn(&FullPixel) -> &NoneMore) {}
 }
@@ -319,38 +337,10 @@ impl<Inner, InnerPixel, Sample: IntoNativeSample>
     for RecursiveWriter<Inner, Sample>
     where Inner: RecursivePixelWriter<InnerPixel>
 {
+    // TODO impl exact size iterator <item = Self::Pixel>
     fn write_pixels<FullPixel>(&self, bytes: &mut [u8], pixels: &[FullPixel], get_pixel: impl Fn(&FullPixel) -> &Recursive<InnerPixel, Sample>){
-        let byte_start_index = pixels.len() * self.value.start_byte_offset;
-        let byte_count = pixels.len() * self.value.target_sample_type.bytes_per_sample();
-
-        //dbg!("\nstart", byte_count, byte_start_index, bytes.len(), self.value.target_sample_type, self.value.start_byte_offset, pixels.len());
-        let ref mut byte_writer = &mut bytes[byte_start_index .. byte_start_index + byte_count];
-
-        // match outside the loop to avoid matching on every single sample
-        // TODO dedup with below
-        match self.value.target_sample_type {
-            SampleType::F16 => {
-                for pixel in pixels {
-                    get_pixel(pixel).value.to_f16().write(byte_writer).expect("memory buffer invalid length when writing");
-                }
-
-                self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
-            },
-            SampleType::F32 => {
-                for pixel in pixels {
-                    get_pixel(pixel).value.to_f32().write(byte_writer).expect("memory buffer invalid length when writing");
-                }
-
-                self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
-            },
-            SampleType::U32 => {
-                for pixel in pixels {
-                    get_pixel(pixel).value.to_u32().write(byte_writer).expect("memory buffer invalid length when writing");
-                }
-
-                self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
-            },
-        }
+        self.value.write_own_samples(bytes, pixels.iter().map(|px| get_pixel(px).value));
+        self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
     }
 }
 
@@ -361,34 +351,8 @@ impl<Inner, InnerPixel, Sample> RecursivePixelWriter<Recursive<InnerPixel, Sampl
 {
     fn write_pixels<FullPixel>(&self, bytes: &mut [u8], pixels: &[FullPixel], get_pixel: impl Fn(&FullPixel) -> &Recursive<InnerPixel, Sample>) {
         if let Some(writer) = &self.value {
-            let byte_start_index = writer.start_byte_offset * writer.target_sample_type.bytes_per_sample();
-            let byte_count = pixels.len() * writer.target_sample_type.bytes_per_sample();
-            let ref mut byte_writer = &mut bytes[byte_start_index .. byte_start_index + byte_count]; // TODO this might panic!
-
-            // match outside the loop to avoid matching on every single sample
-            match writer.target_sample_type {
-                SampleType::F16 => {
-                    for pixel in pixels {
-                        get_pixel(pixel).value.to_f16().write(byte_writer).expect("memory buffer invalid length when writing");
-                    }
-
-                    self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
-                },
-                SampleType::F32 => {
-                    for pixel in pixels {
-                        get_pixel(pixel).value.to_f32().write(byte_writer).expect("memory buffer invalid length when writing");
-                    }
-
-                    self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
-                },
-                SampleType::U32 => {
-                    for pixel in pixels {
-                        get_pixel(pixel).value.to_u32().write(byte_writer).expect("memory buffer invalid length when writing");
-                    }
-
-                    self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
-                },
-            }
+            writer.write_own_samples(bytes, pixels.iter().map(|px| get_pixel(px).value));
+            self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
         }
         else {
             self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
