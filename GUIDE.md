@@ -31,7 +31,7 @@ a little more code to read an exr file, compared to simpler file formats.
 # Simple Reading and Writing
 There are a few very simple functions for the most common use cases.
 For decoding an image file, use one of these functions 
-from the `exr::image::read` module (complexity increasing):
+from the `exr::image::read` module (data structure complexity increasing):
 
 1. `read_first_rgba_layer_from_file(path, your_constructor, your_pixel_setter)`
 1. `read_all_rgba_layers_from_file(path, your_constructor, your_pixel_setter)`
@@ -44,8 +44,8 @@ then these simple functions will not suffice.
 
 For encoding an image file, use one of these functions in the `exr::image::write` module:
 
-1. `write_rgba_f32_file(path, width, height, |x,y| my_image.get_rgb_at(x,y))`
-1. `write_rgb_f32_filepath, width, height, |x,y| my_image.get_rgba_at(x,y))`
+1. `write_rgba_file(path, width, height, |x,y| my_image.get_rgb_at(x,y))`
+1. `write_rgb_file(path, width, height, |x,y| my_image.get_rgba_at(x,y))`
 
 These functions are only syntactic sugar. If you want to customize the data type,
 the compression method, or write multiple layers, these simple functions will not suffice.
@@ -68,7 +68,39 @@ fn main() {
     let image = read()
         .no_deep_data() // (currently required)
         .largest_resolution_level() // or `all_resolution_levels()`
-        .all_channels() // or `rgba_channels(constructor, setter)`
+        .all_channels() // or `specific_channels() ...`
+        .all_layers() // or `first_valid_layer()`
+        .all_attributes() // (currently required)
+        .on_progress(|progress| println!("progress: {:.1}", progress * 100.0)) // optional
+        .from_file("image.exr").unwrap(); // or `from_buffered(my_byte_slice)`
+}
+```
+
+```rust
+fn main() {
+    use exr::prelude::*;
+
+    // the type of the this image depends on the chosen options
+    let image = read()
+        .no_deep_data() // (currently required)
+        .largest_resolution_level() // or `all_resolution_levels()`
+
+        // or `all_channels()`
+        .specific_channels().required("X").required("Y").required("Z").optional("A", 1.0).collect_pixels(
+            // create our image with the resolution of the file
+            |resolution, (x_channel, y_channel, z_channel, a_channel)|{
+                if a_channel.is_some() { MyImage::with_alpha(resolution) }
+                else { MyImage::without_alpha(resolution) }
+            },
+        
+            // define how to insert a single pixel
+            // define that x should be converted to f32, and y and z should be converted to f16
+            // and alpha should not be converted (may be either f16, f32, or u32)
+            |my_image, pos, (x,y,z,a): (f32,f16,f16,Sample)|{
+                my_image.set_color(pos.x(), pos.y(), (x,y,z,a.to_f32()));
+            }
+        )   
+        
         .all_layers() // or `first_valid_layer()`
         .all_attributes() // (currently required)
         .on_progress(|progress| println!("progress: {:.1}", progress * 100.0)) // optional
@@ -99,6 +131,31 @@ fn main(){
                 AnyChannel::new("G", FlatSamples::F32(vec![0.7; 1920*1080 ])), // this channel contains all green values
                 AnyChannel::new("B", FlatSamples::F32(vec![0.9; 1920*1080 ])), // this channel contains all blue values
             ]),
+        )
+    );
+
+    image.write()
+        .on_progress(|progress| println!("progress: {:.1}", progress*100.0)) // optional
+        .to_file("image.exr").unwrap();
+}
+````
+
+
+````rust
+fn main(){
+    let my_image = unimplemented!();
+    
+    // construct an image to write
+    let image = Image::from_single_layer(
+        Layer::new( // the only layer in this image
+            (my_image.width(), my_image.height()), // resolution
+            LayerAttributes::named("main-luma-layer"), // the layer has a name and other properties
+            Encoding::FAST_LOSSLESS, // compress slightly 
+            
+            SpecificChannels::build().with_channel("Y").with_channel("A").with_pixel_fn(|position| {
+                let (luma, alpha) = my_image.get_pixel(position.x(), position.y());
+                (luma as f32, f16::from_f32(alpha)) // store f32 luma and f16 alpha samples in the file
+            }),
         )
     );
 
@@ -147,16 +204,16 @@ Image {
 }
 
 Layer {
-    channel_data: RgbaChannels | AnyChannels,
+    channel_data: SpecificChannels | AnyChannels,
     attributes: LayerAttributes,
     size: Vec2<usize>,
     encoding: Encoding,
 }
 
-RgbaChannels {
-    sample_types: RgbaSampleTypes,
-    storage: impl GetRgbaPixel | impl Fn(Vec2<usize>) -> IntoRgbaPixel,    
-        where IntoRgbaPixel = RgbaPixel | tuple or array with 3 or 4 of f16 or f32 or u32 values
+SpecificChannels {
+    channels: [any tuple containing `ChannelDescription` or `Option<ChannelDescription>`],
+    storage: impl GetPixel | impl Fn(Vec2<usize>) -> Pixel,    
+        where Pixel = any tuple containing f16 or f32 or u32 values
 }
 
 AnyChannels {
@@ -178,10 +235,10 @@ While you can put anything inside an image,
 it can only be written if the content of the image implements certain traits.
 This allows you to potentially write your own channel storage system.
 
-# RGBA Closures
-When working with rgba images, the data is not stored directly. 
+# Pixel Closures
+When working with specific channels, the data is not stored directly. 
 Instead, you provide a closure that stores or loads pixels in your existing image data structure.
 
 If you really do not want to provide your own storage, you can use the predefined structures from
-`exr::image::read::rgba_channels::pixels`, such as `Flattened<f32>` or `create_flattened_f32`.
+`exr::image::pixel_vec`, such as `PixelVec<(f32,f32,f16)>` or `create_pixel_vec`.
 Use this only if you don't already have a pixel storage.

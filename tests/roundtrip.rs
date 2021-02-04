@@ -210,8 +210,8 @@ fn roundtrip_unusual_2() -> UnitResult {
     let pixels = PixelVec { resolution: size, pixels };
 
     let channels = SpecificChannels::build()
-        .with_named_channel("N")
-        .with_named_channel("Ploppalori Taranos")
+        .with_channel("N")
+        .with_channel("Ploppalori Taranos")
         .with_pixels(pixels.clone()
     );
 
@@ -264,13 +264,13 @@ fn roundtrip_unusual_7() -> UnitResult {
     let pixels = PixelVec { resolution: size, pixels };
 
     let channels = SpecificChannels::build()
-        .with_named_channel("N")
-        .with_named_channel("Ploppalori Taranos")
-        .with_named_channel("4")
-        .with_named_channel(".")
-        .with_named_channel("____")
-        .with_named_channel(" ")
-        .with_named_channel("  ")
+        .with_channel("N")
+        .with_channel("Ploppalori Taranos")
+        .with_channel("4")
+        .with_channel(".")
+        .with_channel("____")
+        .with_channel(" ")
+        .with_channel("  ")
         .with_pixels(pixels.clone()
     );
 

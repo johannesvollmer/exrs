@@ -422,8 +422,8 @@ pub mod test {
         let px = (2333_u32, 4_f32);
         assert_is_writable_channels(
             SpecificChannels::build()
-                .with_named_channel("A")
-                .with_named_channel("C")
+                .with_channel("A")
+                .with_channel("C")
                 .with_pixels(PixelVec::new((3, 2), vec![px, px, px, px, px, px]))
         );
 

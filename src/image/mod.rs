@@ -373,20 +373,20 @@ impl<RecursiveChannels: CheckDuplicates, RecursivePixel> SpecificChannelsBuilder
     /// Panics if the name contains unsupported characters.
     /// Panics if a channel with the same name already exists.
     /// Use `Text::new_or_none()` to manually handle these cases.
-    /// Use `with_channel` instead if you want to specify more options than just the name of the channel.
+    /// Use `with_channel_details` instead if you want to specify more options than just the name of the channel.
     /// The generic parameter can usually be inferred from the closure in `with_pixels`.
-    pub fn with_named_channel<Sample: IntoSample>(self, name: impl Into<Text>)
-        -> SpecificChannelsBuilder<Recursive<RecursiveChannels, ChannelDescription>, Recursive<RecursivePixel, Sample>>
+    pub fn with_channel<Sample: IntoSample>(self, name: impl Into<Text>)
+                                            -> SpecificChannelsBuilder<Recursive<RecursiveChannels, ChannelDescription>, Recursive<RecursivePixel, Sample>>
     {
-        self.with_channel::<Sample>(ChannelDescription::named(name, Sample::PREFERRED_SAMPLE_TYPE))
+        self.with_channel_details::<Sample>(ChannelDescription::named(name, Sample::PREFERRED_SAMPLE_TYPE))
     }
 
     /// Add another channel to this image. Does not add the actual pixels,
     /// but instead only declares the presence of the channel.
-    /// Use `with_named_channel` instead if you only want to specify the name of the channel.
+    /// Use `with_channel` instead if you only want to specify the name of the channel.
     /// Panics if a channel with the same name already exists.
     /// The generic parameter can usually be inferred from the closure in `with_pixels`.
-    pub fn with_channel<Sample: Into<Sample>>(self, channel: ChannelDescription)
+    pub fn with_channel_details<Sample: Into<Sample>>(self, channel: ChannelDescription)
         -> SpecificChannelsBuilder<Recursive<RecursiveChannels, ChannelDescription>, Recursive<RecursivePixel, Sample>>
     {
         // duplicate channel names are checked later, but also check now to make sure there are no problems with the `SpecificChannelsWriter`
@@ -447,10 +447,10 @@ impl<SampleStorage> SpecificChannels<
               SampleStorage: GetPixel<Pixel=(R, G, B, A)>
     {
         SpecificChannels::build()
-            .with_named_channel("R")
-            .with_named_channel("G")
-            .with_named_channel("B")
-            .with_named_channel("A")
+            .with_channel("R")
+            .with_channel("G")
+            .with_channel("B")
+            .with_channel("A")
             .with_pixels(source_samples)
     }
 }
@@ -470,9 +470,9 @@ impl<SampleStorage> SpecificChannels<
               SampleStorage: GetPixel<Pixel=(R, G, B)>
     {
         SpecificChannels::build()
-            .with_named_channel("R")
-            .with_named_channel("G")
-            .with_named_channel("B")
+            .with_channel("R")
+            .with_channel("G")
+            .with_channel("B")
             .with_pixels(source_samples)
     }
 }
@@ -623,6 +623,7 @@ impl<Samples> RipMaps<Samples> {
 }
 
 impl FlatSamples {
+
     /// The number of samples in the image. Should be the width times the height.
     /// Might vary when subsampling is used.
     pub fn len(&self) -> usize {

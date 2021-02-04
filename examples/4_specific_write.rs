@@ -7,12 +7,12 @@ fn main() {
     use exr::prelude::*;
 
     let pixels = SpecificChannels::build()
-        .with_named_channel("Kharthanasus Korthus")
-        .with_named_channel(" Trochäus ")
-        .with_named_channel("11023")
-        .with_named_channel("*?!")
-        .with_named_channel("`--\"")
-        .with_named_channel("\r\r\r\n\n")
+        .with_channel("Kharthanasus Korthus")
+        .with_channel(" Trochäus ")
+        .with_channel("11023")
+        .with_channel("*?!")
+        .with_channel("`--\"")
+        .with_channel("\r\r\r\n\n")
         .with_pixel_fn(|position|{
             if position.0 < 1000 {
                 (f16::from_f32(0.2), 0.666_f32, 4_u32, 1532434.0213_f32, 0.99999_f32, 3.142594_f32/4.0)
