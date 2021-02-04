@@ -1,7 +1,7 @@
 # Guide
 
-This document talks about the capabilities of OpenEXR and outlines the design of this library.
-This might help in special cases which that are not used in the examples.
+This document talks about the capabilities of OpenEXR and outlines the design of this library. 
+In addition to reading this guide, you should also have a look at the examples.
 
 ## Wording
 Some names in this library differ from the classic OpenEXR conventions.
@@ -14,6 +14,9 @@ The old OpenEXR "layers" are called "grouped channels" instead.
 - `Pixel` The color at an exact location in the image. Contains one sample for each channel.
 - `Sample` The value (either f16, f32 or u32) of one channel at an exact location in the image.
             Usually a simple number, such as the red value of the bottom left pixel.
+- `Grouped Channels` Multiple channels may be grouped my prepending the same prefix to the name.
+                    This behaviour is opt-in; it has to be enabled explicitly.
+                    By default, channels are stored in a plain list, and channel names are unmodified.
 
 ## OpenEXR
 This image format supports some features that you won't find in other image formats.
@@ -47,7 +50,8 @@ from the `exr::image::read` module (data structure complexity increasing):
 1. `read_all_data_from_file(path)`
 
 If you don't have a file path, or want to load any other channels than `rgba`, 
-then these simple functions will not suffice. 
+then these simple functions will not suffice. The more complex approaches are
+described later in this document.
 
 For encoding an image file, use one of these functions in the `exr::image::write` module:
 
@@ -56,6 +60,7 @@ For encoding an image file, use one of these functions in the `exr::image::write
 
 These functions are only syntactic sugar. If you want to customize the data type,
 the compression method, or write multiple layers, these simple functions will not suffice.
+Again, the more complex approaches are described in the following paragraph.
 
 # Reading an Image
 
@@ -79,6 +84,7 @@ fn main() {
         .all_layers() // or `first_valid_layer()`
         .all_attributes() // (currently required)
         .on_progress(|progress| println!("progress: {:.1}", progress * 100.0)) // optional
+        .non_parallel() // optional. discouraged. just leave this line out
         .from_file("image.exr").unwrap(); // or `from_buffered(my_byte_slice)`
 }
 ```
@@ -111,6 +117,7 @@ fn main() {
         .all_layers() // or `first_valid_layer()`
         .all_attributes() // (currently required)
         .on_progress(|progress| println!("progress: {:.1}", progress * 100.0)) // optional
+        .non_parallel() // optional. discouraged. just leave this line out
         .from_file("image.exr").unwrap(); // or `from_buffered(my_byte_slice)`
 }
 ```
@@ -143,6 +150,7 @@ fn main(){
 
     image.write()
         .on_progress(|progress| println!("progress: {:.1}", progress*100.0)) // optional
+        .non_parallel() // optional. discouraged. just leave this line out
         .to_file("image.exr").unwrap();
 }
 ````
@@ -168,6 +176,7 @@ fn main(){
 
     image.write()
         .on_progress(|progress| println!("progress: {:.1}", progress*100.0)) // optional
+        .non_parallel() // optional. discouraged. just leave this line out
         .to_file("image.exr").unwrap();
 }
 ````

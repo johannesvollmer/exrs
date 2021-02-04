@@ -381,7 +381,7 @@ for Recursive<InnerReader, OptionalSampleReader<Sample>>
 
 
 
-// TODO havent i implemented this exact behaviour already somewhere else in this library...??
+// TODO haven't i implemented this exact behaviour already somewhere else in this library...??
 impl FromNativeSample for f32 {
     fn from_f16(value: f16) -> Self { value.to_f32() }
     fn from_f32(value: f32) -> Self { value } // this branch means that we never have to match every single sample if the file format matches the expected output

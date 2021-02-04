@@ -59,23 +59,6 @@ pub fn write_rgb_file<R,G,B>(
 }
 
 
-/*/// An oversimplified function for "just write the damn file already" use cases.
-/// Have a look at the examples to see how you can write an image with more flexibility (it's not that hard).
-/// Use `write_rgba_f32_file` if you want to output alpha.
-pub fn write_rgb_f32_file(
-    path: impl AsRef<std::path::Path>, width: usize, height: usize,
-    colors: impl Sync + Fn(usize, usize) -> (f32, f32, f32)
-) -> UnitResult {
-    Image::with_single_layer(
-        (width, height),
-        SpecificChannels::named(
-            ("R", "G", "B"),
-            |Vec2(x,y)| colors(x,y)
-        )
-    ).write().to_file(path)
-}*/
-
-
 
 /// Enables an image to be written to a file. Call `image.write()` where this trait is implemented.
 pub trait WritableImage<'img, WritableLayers>: Sized {
