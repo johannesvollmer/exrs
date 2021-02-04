@@ -287,6 +287,35 @@ pub struct OptionalSampleReader<DefaultSample> {
     default_sample: DefaultSample,
 }
 
+impl<Sample: FromNativeSample> SampleReader<Sample> {
+    fn read_own_samples<'s, FullPixel>(
+        &self, bytes: &'s[u8], pixels: &mut [FullPixel],
+        get_pixel: impl Fn(&mut FullPixel) -> &mut Sample
+    ){
+        let start_index = pixels.len() * self.channel_byte_offset;
+        let byte_count = pixels.len() * self.channel.sample_type.bytes_per_sample();
+        let mut own_bytes_reader = &bytes[start_index .. start_index + byte_count]; // TODO check block size somewhere
+
+        let error_msg = "error when reading from in-memory slice";
+
+        // match outside the loop to avoid matching on every single sample
+        match self.channel.sample_type {
+            SampleType::F16 => for pixel in pixels.iter_mut() {
+                *get_pixel(pixel) = Sample::from_f16(f16::read(&mut own_bytes_reader).expect(error_msg));
+            },
+
+            SampleType::F32 => for pixel in pixels.iter_mut() {
+                *get_pixel(pixel) = Sample::from_f32(f32::read(&mut own_bytes_reader).expect(error_msg));
+            },
+
+            SampleType::U32 => for pixel in pixels.iter_mut() {
+                *get_pixel(pixel) = Sample::from_u32(u32::read(&mut own_bytes_reader).expect(error_msg));
+            },
+        }
+
+        debug_assert!(own_bytes_reader.is_empty());
+    }
+}
 
 
 impl RecursivePixelReader for NoneMore {
@@ -315,42 +344,8 @@ impl<Sample, InnerReader: RecursivePixelReader>
         &self, bytes: &'s[u8], pixels: &mut [FullPixel],
         get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel
     ) {
-        let start_index = pixels.len() * self.value.channel_byte_offset;
-        let byte_count = pixels.len() * self.value.channel.sample_type.bytes_per_sample();
-        let mut own_bytes_reader = &bytes[start_index .. start_index + byte_count]; // TODO check block size somewhere
-
-        // TODO deduplicate with `Optional[Self]`
-        // match outside the loop to avoid matching on every single sample
-        match self.value.channel.sample_type {
-            SampleType::F16 => {
-                for pixel in pixels.iter_mut() {
-                    get_pixel(pixel).value = Sample::from_f16(f16::read(&mut own_bytes_reader)
-                        .expect("invalid byte slice in read pixels (bug)"));
-                }
-
-                self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
-            },
-
-            SampleType::F32 => {
-                for pixel in pixels.iter_mut() {
-                    get_pixel(pixel).value = Sample::from_f32(f32::read(&mut own_bytes_reader)
-                        .expect("invalid byte slice in read pixels (bug)"));
-                }
-
-                self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
-            },
-
-            SampleType::U32 => {
-                for pixel in pixels.iter_mut() {
-                    get_pixel(pixel).value = Sample::from_u32(u32::read(&mut own_bytes_reader)
-                        .expect("invalid byte slice in read pixels (bug)"));
-                }
-
-                self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
-            },
-        }
-
-        debug_assert!(own_bytes_reader.is_empty());
+        self.value.read_own_samples(bytes, pixels, |px| &mut get_pixel(px).value);
+        self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
     }
 }
 
@@ -370,54 +365,17 @@ for Recursive<InnerReader, OptionalSampleReader<Sample>>
         &self, bytes: &'s[u8], pixels: &mut [FullPixel],
         get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel
     ) {
-        match &self.value.reader {
-            Some(reader) => {
-                let start_index = pixels.len() * reader.channel_byte_offset;
-                let byte_count = pixels.len() * reader.channel.sample_type.bytes_per_sample();
-                let mut own_bytes_reader = &bytes[start_index .. start_index + byte_count]; // TODO check block size somewhere
-
-                // match outside the loop to avoid matching on every single sample
-                match reader.channel.sample_type {
-                    SampleType::F16 => {
-                        for pixel in pixels.iter_mut() {
-                            get_pixel(pixel).value = Sample::from_f16(f16::read(&mut own_bytes_reader)
-                                .expect("invalid byte slice in read pixels (bug)"));
-                        }
-
-                        self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
-                    },
-
-                    SampleType::F32 => {
-                        for pixel in pixels.iter_mut() {
-                            get_pixel(pixel).value = Sample::from_f32(f32::read(&mut own_bytes_reader)
-                                .expect("invalid byte slice in read pixels (bug)"));
-                        }
-
-                        self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
-                    },
-
-                    SampleType::U32 => {
-                        for pixel in pixels.iter_mut() {
-                            get_pixel(pixel).value = Sample::from_u32(u32::read(&mut own_bytes_reader)
-                                .expect("invalid byte slice in read pixels (bug)"));
-                        }
-
-                        self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
-                    },
-                }
-
-                debug_assert!(own_bytes_reader.is_empty());
-            }
-
-            // if this channel is optional and was not found in the file, fill the default sample
-            None => {
-                for pixel in pixels.iter_mut() {
-                    get_pixel(pixel).value = self.value.default_sample;
-                }
-
-                self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
-            },
+        if let Some(reader) = &self.value.reader {
+            reader.read_own_samples(bytes, pixels, |px| &mut get_pixel(px).value);
         }
+        else {
+            // if this channel is optional and was not found in the file, fill the default sample
+            for pixel in pixels.iter_mut() {
+                get_pixel(pixel).value = self.value.default_sample;
+            }
+        }
+
+        self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
     }
 }
 

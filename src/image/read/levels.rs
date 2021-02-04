@@ -60,8 +60,6 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
             .collect_pixels(create_pixels, set_pixel)
     }
 
-    // TODO FIXME explain this in the guide!
-
     /// Read only layers that contain the specified channels, skipping any other channels in the layer.
     /// Further specify which channels should be included by calling `.required("ChannelName")`
     /// or `.optional("ChannelName", default_value)` on the result of this function.
