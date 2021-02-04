@@ -28,7 +28,7 @@ pub trait FromNativeSample: Sized + Copy + Default + 'static {
 /// Can be attached one more channel reader.
 /// Call `required` or `optional` on this object to declare another channel to be read from the file.
 /// Call `collect_pixels` at last to define how the previously declared pixels should be stored.
-pub trait ReadSpecificChannel: Sized {
+pub trait ReadSpecificChannel: Sized + CheckDuplicates {
 
     /// A separate internal reader for the pixels. Will be of type `Recursive<_, SampleReader<_>>`,
     /// depending on the pixels of the specific channel combination.
@@ -39,17 +39,24 @@ pub trait ReadSpecificChannel: Sized {
 
     /// Plan to read an additional channel from the image, with the specified name.
     /// If the channel cannot be found in the image when the image is read, the image will not be loaded.
+    /// The generic parameter can usually be inferred from the closure in `collect_pixels`.
     fn required<Sample>(self, channel_name: impl Into<Text>) -> ReadRequiredChannel<Self, Sample> {
-        ReadRequiredChannel { channel_name: channel_name.into(), previous_channels: self, px: Default::default() }
+        let channel_name = channel_name.into();
+        assert!(self.already_contains(&channel_name).not(), "a channel with the name `{}` is already defined", channel_name);
+        ReadRequiredChannel { channel_name, previous_channels: self, px: Default::default() }
     }
 
     /// Plan to read an additional channel from the image, with the specified name.
     /// If the file does not contain this channel, the specified default sample will be returned instead.
-    /// You can check whether the channel has been loaded by checking the presence of the optional channel description before instantiating your own image.
+    /// You can check whether the channel has been loaded by
+    /// checking the presence of the optional channel description before instantiating your own image.
+    /// The generic parameter can usually be inferred from the closure in `collect_pixels`.
     fn optional<Sample>(self, channel_name: impl Into<Text>, default_sample: Sample)
         -> ReadOptionalChannel<Self, Sample>
     {
-        ReadOptionalChannel { channel_name: channel_name.into(), previous_channels: self, default_sample }
+        let channel_name = channel_name.into();
+        assert!(self.already_contains(&channel_name).not(), "a channel with the name `{}` is already defined", channel_name);
+        ReadOptionalChannel { channel_name, previous_channels: self, default_sample }
     }
 
     /// Using two closures, define how to store the pixels.
@@ -120,6 +127,18 @@ pub struct CollectPixels<ReadChannels, Pixel, PixelStorage, CreatePixels, SetPix
     create_pixels: CreatePixels,
     set_pixel: SetPixel,
     px: PhantomData<(Pixel, PixelStorage)>,
+}
+
+impl<Inner: CheckDuplicates, Sample> CheckDuplicates for ReadRequiredChannel<Inner, Sample> {
+    fn already_contains(&self, name: &Text) -> bool {
+        &self.channel_name == name || self.previous_channels.already_contains(name)
+    }
+}
+
+impl<Inner: CheckDuplicates, Sample> CheckDuplicates for ReadOptionalChannel<Inner, Sample> {
+    fn already_contains(&self, name: &Text) -> bool {
+        &self.channel_name == name || self.previous_channels.already_contains(name)
+    }
 }
 
 impl<'s, InnerChannels, Pixel, PixelStorage, CreatePixels, SetPixel: 's>
@@ -215,6 +234,8 @@ impl<DefaultSample, ReadChannels> ReadSpecificChannel for ReadOptionalChannel<Re
     type RecursivePixelReader = Recursive<ReadChannels::RecursivePixelReader, OptionalSampleReader<DefaultSample>>;
 
     fn create_recursive_reader(&self, channels: &ChannelList) -> Result<Self::RecursivePixelReader> {
+        debug_assert!(self.previous_channels.already_contains(&self.channel_name).not(), "duplicate channel name: {}", self.channel_name);
+
         let inner_samples_reader = self.previous_channels.create_recursive_reader(channels)?;
         let reader = channels.channels_with_byte_offset()
             .find(|(_, channel)| channel.name == self.channel_name)

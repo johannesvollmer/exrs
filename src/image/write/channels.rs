@@ -138,7 +138,14 @@ where
 {
     fn infer_channel_list(&self) -> ChannelList {
         let mut vec = self.channels.clone().into_recursive().channel_descriptions_list();
-        vec.sort_by_key(|channel:&ChannelDescription| channel.name.clone()); // TODO no clone?
+        vec.sort_unstable_by_key(|channel:&ChannelDescription| channel.name.clone()); // TODO no clone?
+
+        debug_assert!(
+            // check for equal neighbors in sorted vec
+            vec.iter().zip(vec.iter().skip(1)).all(|(prev, next)| prev.name != next.name),
+            "specific channels contain duplicate channel names"
+        );
+
         ChannelList::new(vec)
     }
 
@@ -154,9 +161,6 @@ where
     >;
 
     fn create_writer(&'c self, header: &Header) -> Self::Writer {
-        // this loop is required because the channels in the header are sorted
-        // and the channels specified by the user are probably not.
-
         SpecificChannelsWriter {
             channels: self,
             recursive_channel_writer: self.channels.clone().into_recursive().create_recursive_writer(&header.channels),
@@ -266,7 +270,6 @@ for Recursive<InnerDescriptions, Option<ChannelDescription>>
 
     fn create_recursive_writer(&self, channels: &ChannelList) -> Self::RecursiveWriter {
         // this linear lookup is required because the order of the channels changed, due to alphabetical sorting
-        // FIXME check for duplicates
 
         let channel = self.value.as_ref().map(|required_channel|
             channels.channels_with_byte_offset()

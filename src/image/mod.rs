@@ -289,6 +289,7 @@ use crate::meta::{mip_map_levels, rip_map_levels};
 use crate::io::Data;
 use crate::image::recursive::{NoneMore, Recursive, IntoRecursive};
 use std::marker::PhantomData;
+use std::ops::Not;
 
 
 impl<Channels> Layer<Channels> {
@@ -337,6 +338,24 @@ pub struct SpecificChannelsBuilder<RecursiveChannels, RecursivePixel> {
     px: PhantomData<RecursivePixel>
 }
 
+/// This check can be executed at compile time
+/// if the channel names are `&'static str` and the compiler is smart enough.
+pub trait CheckDuplicates {
+
+    /// Check for duplicate channel names.
+    fn already_contains(&self, name: &Text) -> bool;
+}
+
+impl CheckDuplicates for NoneMore {
+    fn already_contains(&self, _: &Text) -> bool { false }
+}
+
+impl<Inner: CheckDuplicates> CheckDuplicates for Recursive<Inner, ChannelDescription> {
+    fn already_contains(&self, name: &Text) -> bool {
+        &self.value.name == name || self.inner.already_contains(name)
+    }
+}
+
 impl SpecificChannels<(),()>
 {
     /// Start building some specific channels. On the result of this function,
@@ -347,13 +366,15 @@ impl SpecificChannels<(),()>
     }
 }
 
-impl<RecursiveChannels, RecursivePixel> SpecificChannelsBuilder<RecursiveChannels, RecursivePixel>
+impl<RecursiveChannels: CheckDuplicates, RecursivePixel> SpecificChannelsBuilder<RecursiveChannels, RecursivePixel>
 {
     /// Add another channel to this image. Does not add the actual pixels,
     /// but instead only declares the presence of the channel.
     /// Panics if the name contains unsupported characters.
+    /// Panics if a channel with the same name already exists.
     /// Use `Text::new_or_none()` to manually handle these cases.
     /// Use `with_channel` instead if you want to specify more options than just the name of the channel.
+    /// The generic parameter can usually be inferred from the closure in `with_pixels`.
     pub fn with_named_channel<Sample: IntoSample>(self, name: impl Into<Text>)
         -> SpecificChannelsBuilder<Recursive<RecursiveChannels, ChannelDescription>, Recursive<RecursivePixel, Sample>>
     {
@@ -363,9 +384,14 @@ impl<RecursiveChannels, RecursivePixel> SpecificChannelsBuilder<RecursiveChannel
     /// Add another channel to this image. Does not add the actual pixels,
     /// but instead only declares the presence of the channel.
     /// Use `with_named_channel` instead if you only want to specify the name of the channel.
+    /// Panics if a channel with the same name already exists.
+    /// The generic parameter can usually be inferred from the closure in `with_pixels`.
     pub fn with_channel<Sample: Into<Sample>>(self, channel: ChannelDescription)
         -> SpecificChannelsBuilder<Recursive<RecursiveChannels, ChannelDescription>, Recursive<RecursivePixel, Sample>>
     {
+        // duplicate channel names are checked later, but also check now to make sure there are no problems with the `SpecificChannelsWriter`
+        assert!(self.channels.already_contains(&channel.name).not(), "channel name `{}` is duplicate", channel.name);
+
         SpecificChannelsBuilder {
             channels: Recursive::new(self.channels, channel),
             px: Default::default()
