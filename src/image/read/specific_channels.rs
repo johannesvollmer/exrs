@@ -52,9 +52,10 @@ pub trait ReadSpecificChannel: Sized {
         ReadOptionalChannel { channel_name: channel_name.into(), previous_channels: self, default_sample }
     }
 
-    /// Specify how to create your custom image type and how to store the pixels in your image.
-    /// The last argument of the specified `SetPixel` closure is a tuple containind the pixel values.
-    /// You can control the types of the channels by specifying the type.
+    /// Using two closures, define how to store the pixels.
+    /// The first closure creates an image, and the second closure inserts a single pixel.
+    /// The type of the pixel can be defined by the second closure;
+    /// it must be a tuple containing `f16`, `f32`, `u32` or `Sample` values.
     /// For example:
     /// ````
     ///     use exr::prelude::*;
@@ -67,8 +68,8 @@ pub trait ReadSpecificChannel: Sized {
     ///                     if alpha.is_some(){ MyLumaImage::without_alpha(size) }
     ///                     else { MyLumaImage::with_alpha(size) },
     ///
-    ///                 // create an image for each layer in the file
-    ///                 |my_luma_image, position, (luma, alpha): (f32,f16)|
+    ///                 // set each pixel in a layer
+    ///                 |my_luma_image, position, (luma, alpha): (f32, f16)|
     ///                     my_luma_image.set_pixel(position, (luma, alpha))
     ///             );
     /// ```

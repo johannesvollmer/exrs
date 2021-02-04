@@ -9,7 +9,7 @@ fn main() {
     use exr::prelude::*;
 
     // this function can generate a color for any pixel
-    let generate_pixels = |position: Vec2<usize>| {
+    let generate_pixels = |position: Vec2<usize>| -> (f32,f32,f32,f16) {
 
         // generate some arbitrary rgb colors, with varying size per channel
         fn get_sample_f32(position: Vec2<usize>, channel: usize) -> f32 {
@@ -21,11 +21,12 @@ fn main() {
         }
 
         // return an rgba quadruple
+        // use 32 bit color, but alpha with f16 precision
         (
             get_sample_f32(position, 0),
             get_sample_f32(position, 1),
             get_sample_f32(position, 2),
-            0.8
+            f16::from_f32(0.8)
         )
     };
 
@@ -38,15 +39,12 @@ fn main() {
         attributes,
         Encoding::SMALL_FAST_LOSSY, // use fast but lossy compression
 
-        SpecificChannels::rgba(
-            // use 32 bit color. alpha f32 values are converted to f16 while writing the file
-            generate_pixels
-        )
+        SpecificChannels::rgba(generate_pixels)
     );
 
     // crop away black and transparent pixels from the border
     let layer = layer
-        .crop_where_eq((0.0, 0.0, 0.0, 0.0))
+        .crop_where_eq((0.0, 0.0, 0.0, f16::ZERO))
         .or_crop_to_1x1_if_empty();
 
     let image = Image::from_single_layer(layer);

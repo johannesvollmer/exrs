@@ -106,6 +106,12 @@ pub fn read_first_flat_layer_from_file(path: impl AsRef<Path>) -> Result<Image<L
 /// Uses parallel decompression and relaxed error handling.
 /// `Create` and `Set` can be closures, see the examples for more information.
 /// Inspect the source code of this function if you need customization.
+/// The alpha channel will contain the value `1.0` if no alpha channel can be found in the image.
+///
+/// Using two closures, define how to store the pixels.
+/// The first closure creates an image, and the second closure inserts a single pixel.
+/// The type of the pixel can be defined by the second closure;
+/// it must be a tuple containing four values, each being either `f16`, `f32`, `u32` or `Sample`.
 // FIXME Set and Create should not need to be static
 pub fn read_all_rgba_layers_from_file<R,G,B,A, Set:'static, Create:'static, Pixels: 'static>(
     path: impl AsRef<Path>, create: Create, set_pixel: Set
@@ -129,6 +135,12 @@ pub fn read_all_rgba_layers_from_file<R,G,B,A, Set:'static, Create:'static, Pixe
 /// Uses parallel decompression and relaxed error handling.
 /// `Create` and `Set` can be closures, see the examples for more information.
 /// Inspect the source code of this function if you need customization.
+/// The alpha channel will contain the value `1.0` if no alpha channel can be found in the image.
+///
+/// Using two closures, define how to store the pixels.
+/// The first closure creates an image, and the second closure inserts a single pixel.
+/// The type of the pixel can be defined by the second closure;
+/// it must be a tuple containing four values, each being either `f16`, `f32`, `u32` or `Sample`.
 // FIXME Set and Create should not need to be static
 pub fn read_first_rgba_layer_from_file<R,G,B,A, Set:'static, Create:'static, Pixels: 'static>(
     path: impl AsRef<Path>, create: Create, set_pixel: Set
