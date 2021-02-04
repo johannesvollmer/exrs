@@ -8,6 +8,13 @@ Some names in this library differ from the classic OpenEXR conventions.
 For example, an OpenEXR "multipart" is called a file with multiple "layers" in this library.
 The old OpenEXR "layers" are called "grouped channels" instead.
 
+- `Image` Contains everything that an `.exr` file can contain. Includes meta data and multiple layers.
+- `Layer` A grid of pixels that can be placed anywhere on the two-dimensional canvas
+- `Channel` All samples of a single color component, such as red or blue. Also contains meta data.
+- `Pixel` The color at an exact location in the image. Contains one sample for each channel.
+- `Sample` The value (either f16, f32 or u32) of one channel at an exact location in the image.
+            Usually a simple number, such as the red value of the bottom left pixel.
+
 ## OpenEXR
 This image format supports some features that you won't find in other image formats.
 As a consequence, an exr file cannot necessarily be converted to other formats, 
