@@ -352,11 +352,9 @@ impl<Inner, InnerPixel, Sample> RecursivePixelWriter<Recursive<InnerPixel, Sampl
     fn write_pixels<FullPixel>(&self, bytes: &mut [u8], pixels: &[FullPixel], get_pixel: impl Fn(&FullPixel) -> &Recursive<InnerPixel, Sample>) {
         if let Some(writer) = &self.value {
             writer.write_own_samples(bytes, pixels.iter().map(|px| get_pixel(px).value));
-            self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
         }
-        else {
-            self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
-        }
+
+        self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
     }
 }
 

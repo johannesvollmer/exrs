@@ -56,23 +56,7 @@ pub trait ReadSpecificChannel: Sized {
     /// The first closure creates an image, and the second closure inserts a single pixel.
     /// The type of the pixel can be defined by the second closure;
     /// it must be a tuple containing `f16`, `f32`, `u32` or `Sample` values.
-    /// For example:
-    /// ```
-    ///     use exr::prelude::*;
-    ///         let image_reader = read().no_deep_data().largest_resolution_level()
-    ///             .specific_channels().required("L").required("A") // expect luma and alpha channels
-    ///             .collect_pixels(
-    ///
-    ///                 // create an image for each layer in the file
-    ///                 |size, (luma, alpha)|
-    ///                     if alpha.is_some(){ MyLumaImage::without_alpha(size) }
-    ///                     else { MyLumaImage::with_alpha(size) },
-    ///
-    ///                 // set each pixel in a layer
-    ///                 |my_luma_image, position, (luma, alpha): (f32, f16)|
-    ///                     my_luma_image.set_pixel(position, (luma, alpha))
-    ///             );
-    /// ```
+    /// See the examples for more information.
     fn collect_pixels<Pixel, PixelStorage, CreatePixels, SetPixel>(
         self, create_pixels: CreatePixels, set_pixel: SetPixel
     ) -> CollectPixels<Self, Pixel, PixelStorage, CreatePixels, SetPixel>

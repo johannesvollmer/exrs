@@ -16,7 +16,11 @@ fn main() {
         .required("Y") // TODO also accept a closure with a detailed selection mechanism
         .optional("right.Y", 0.0)
         .collect_pixels(
-            |resolution, (_a_channel, _y_channel, _y_right_channel)| {
+            |resolution, (a_channel, y_channel, y_right_channel)| {
+                println!("image contains alpha channel? {}", a_channel.is_some());
+                println!("image contains stereoscopic luma channel? {}", y_right_channel.is_some());
+                println!("the type of luma samples is {:?}", y_channel.sample_type);
+
                 vec![vec![(f16::ZERO, 0.0, 0.0); resolution.width()]; resolution.height()]
             },
 
@@ -34,10 +38,12 @@ fn main() {
 
     // output a random color of each channel of each layer
     for layer in &image.layer_data {
+        let (alpha, luma, luma_right) = layer.channel_data.storage.first().unwrap().first().unwrap();
+
         println!(
-            "bottom left color of layer `{}`: (a,y,yr) = {:?}",
+            "bottom left color of layer `{}`: (a, y, yr) = {:?}",
             layer.attributes.layer_name.clone().unwrap_or_default(),
-            layer.channel_data.storage.first().unwrap().first().unwrap()
+            (alpha.to_f32(), luma, luma_right)
         )
     }
 }
