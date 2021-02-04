@@ -1,7 +1,10 @@
 
+//! Provides a predefined pixel storage.
+//! Currently only contains a simple flattened vector storage.
+//! Use the functions `create_pixel_vec::<YourPixelTuple>` and
+//! `set_pixel_in_vec::<YourPixelTuple>` for reading a predefined pixel vector.
+//! Use the function `PixelVec::new` to create a pixel vector which can be written to a file.
 
-///! Provides a predefined pixel storage.
-///! Currently contains a simple flattened vector storage.
 use super::*;
 
 /// Store all samples in a single array.

@@ -46,12 +46,20 @@ pub type AnyImage = Image<Layers<AnyChannels<Levels<FlatSamples>>>>;
 /// Does not contain resolution levels. Does not support deep data.
 pub type FlatImage = Image<Layers<AnyChannels<FlatSamples>>>;
 
+/// This image type contains multiple layers, with each layer containing a user-defined type of pixels.
 pub type PixelLayersImage<Storage, Channels> = Image<Layers<SpecificChannels<Storage, Channels>>>;
+
+/// This image type contains a single layer containing a user-defined type of pixels.
 pub type PixelImage<Storage, Channels> = Image<Layer<SpecificChannels<Storage, Channels>>>;
 
+/// This image type contains multiple layers, with each layer containing a user-defined type of rgba pixels.
 pub type RgbaLayersImage<Storage> = PixelLayersImage<Storage, RgbaChannels>;
+
+/// This image type contains a single layer containing a user-defined type of rgba pixels.
 pub type RgbaImage<Storage> = PixelImage<Storage, RgbaChannels>;
 
+/// Contains information about the channels in an rgba image, in the order `(red, green, blue, alpha)`.
+/// The alpha channel is not required. May be `None` if the image did not contain an alpha channel.
 pub type RgbaChannels = (ChannelDescription, ChannelDescription, ChannelDescription, Option<ChannelDescription>);
 
 /// The complete exr image.
@@ -274,7 +282,7 @@ pub enum DeepSamples {
 use crate::meta::attribute::*;
 use crate::error::Result;
 use crate::block::samples::Sample;
-use crate::image::write::channels::{GetPixel, WritableChannels, IntoNativeSample};
+use crate::image::write::channels::{GetPixel, WritableChannels, IntoNativeSample, WritableChannelsDescription};
 use crate::image::write::layers::WritableLayers;
 use crate::image::write::samples::{WritableSamples};
 use crate::meta::{mip_map_levels, rip_map_levels};
@@ -292,17 +300,38 @@ impl<Channels> Layer<Channels> {
 
 
 impl<SampleStorage, Channels> SpecificChannels<SampleStorage, Channels> {
-    pub fn new(channels: Channels, source_samples: SampleStorage) -> Self {
+    /// Create some pixels with channel information.
+    /// The `Channels` must be a tuple containing either `ChannelDescription` or `Option<ChannelDescription>`.
+    /// The length of the tuple dictates the number of channels in the sample storage.
+    pub fn new(channels: Channels, source_samples: SampleStorage) -> Self
+        where
+            SampleStorage: GetPixel,
+            SampleStorage::Pixel: IntoRecursive,
+            Channels: Sync + Clone + IntoRecursive,
+            <Channels as IntoRecursive>::Recursive: WritableChannelsDescription<<SampleStorage::Pixel as IntoRecursive>::Recursive>,
+            // SampleStorage: GetPixel,
+            // <SampleStorage as GetPixel>::Pixel: IntoRecursive<Recursive=RecursivePixel>,
+    {
         SpecificChannels { channels, storage: source_samples }
     }
 }
 
+/// Convert this type into one of the known sample types.
+/// Also specify the preferred native type, which dictates the default sample type in the image.
+pub trait IntoSample: IntoNativeSample {
 
-pub trait IntoSample: IntoNativeSample { const PREFERRED_SAMPLE_TYPE: SampleType; }
+    /// The native sample types that this type should be converted to.
+    const PREFERRED_SAMPLE_TYPE: SampleType;
+}
+
 impl IntoSample for f16 { const PREFERRED_SAMPLE_TYPE: SampleType = SampleType::F16; }
 impl IntoSample for f32 { const PREFERRED_SAMPLE_TYPE: SampleType = SampleType::F32; }
 impl IntoSample for u32 { const PREFERRED_SAMPLE_TYPE: SampleType = SampleType::U32; }
 
+/// Used to construct a `SpecificChannels`.
+/// Call `with_named_channel` as many times as desired,
+/// and then call `with_pixels` to define the colors.
+#[derive(Debug)]
 pub struct SpecificChannelsBuilder<RecursiveChannels, RecursivePixel> {
     channels: RecursiveChannels,
     px: PhantomData<RecursivePixel>
@@ -310,6 +339,9 @@ pub struct SpecificChannelsBuilder<RecursiveChannels, RecursivePixel> {
 
 impl SpecificChannels<(),()>
 {
+    /// Start building some specific channels. On the result of this function,
+    /// call `with_named_channel` as many times as desired,
+    /// and then call `with_pixels` to define the colors.
     pub fn build() -> SpecificChannelsBuilder<NoneMore, NoneMore> {
         SpecificChannelsBuilder { channels: NoneMore, px: Default::default() }
     }
@@ -317,13 +349,21 @@ impl SpecificChannels<(),()>
 
 impl<RecursiveChannels, RecursivePixel> SpecificChannelsBuilder<RecursiveChannels, RecursivePixel>
 {
+    /// Add another channel to this image. Does not add the actual pixels,
+    /// but instead only declares the presence of the channel.
+    /// Panics if the name contains unsupported characters.
+    /// Use `Text::new_or_none()` to manually handle these cases.
+    /// Use `with_channel` instead if you want to specify more options than just the name of the channel.
     pub fn with_named_channel<Sample: IntoSample>(self, name: impl Into<Text>)
         -> SpecificChannelsBuilder<Recursive<RecursiveChannels, ChannelDescription>, Recursive<RecursivePixel, Sample>>
     {
         self.with_channel::<Sample>(ChannelDescription::named(name, Sample::PREFERRED_SAMPLE_TYPE))
     }
 
-    pub fn with_channel<Sample: IntoSample>(self, channel: ChannelDescription)
+    /// Add another channel to this image. Does not add the actual pixels,
+    /// but instead only declares the presence of the channel.
+    /// Use `with_named_channel` instead if you only want to specify the name of the channel.
+    pub fn with_channel<Sample: Into<Sample>>(self, channel: ChannelDescription)
         -> SpecificChannelsBuilder<Recursive<RecursiveChannels, ChannelDescription>, Recursive<RecursivePixel, Sample>>
     {
         SpecificChannelsBuilder {
@@ -332,8 +372,31 @@ impl<RecursiveChannels, RecursivePixel> SpecificChannelsBuilder<RecursiveChannel
         }
     }
 
+    /// Specify the actual pixel contents of the image.
+    /// You can pass a closure that returns a color for each pixel (`Fn(Vec2<usize>) -> Pixel`),
+    /// or you can pass your own image if it implements `GetPixel`.
+    /// The pixel type must be a tuple with the correct number of entries, depending on the number of channels.
+    /// The tuple entries can be either `f16`, `f32`, `u32` or `Sample`.
+    /// Use `with_pixel_fn` instead of this function, to get extra type safety for your pixel closure.
     pub fn with_pixels<Pixels>(self, get_pixel: Pixels) -> SpecificChannels<Pixels, RecursiveChannels>
         where Pixels: GetPixel, <Pixels as GetPixel>::Pixel: IntoRecursive<Recursive=RecursivePixel>,
+    {
+        SpecificChannels {
+            channels: self.channels,
+            storage: get_pixel
+        }
+    }
+
+    /// Specify the contents of the image.
+    /// The pixel type must be a tuple with the correct number of entries, depending on the number of channels.
+    /// The tuple entries can be either `f16`, `f32`, `u32` or `Sample`.
+    /// Use `with_pixels` instead of this function, if you want to pass an object that is not a closure.
+    ///
+    /// Usually, the compiler can infer the type of the pixel (for example, `f16,f32,f32`) from the closure.
+    /// If that's not possible, you can specify the type of the channels
+    /// when declaring the channel (for example, `with_named_channel::<f32>("R")`).
+    pub fn with_pixel_fn<Pixel, Pixels>(self, get_pixel: Pixels) -> SpecificChannels<Pixels, RecursiveChannels>
+        where Pixels: Sync + Fn(Vec2<usize>) -> Pixel, Pixel: IntoRecursive<Recursive=RecursivePixel>,
     {
         SpecificChannels {
             channels: self.channels,
@@ -349,6 +412,9 @@ impl<SampleStorage> SpecificChannels<
 {
 
     /// Create an image with red, green, blue, and alpha channels.
+    /// You can pass a closure that returns a color for each pixel (`Fn(Vec2<usize>) -> (R,G,B,A)`),
+    /// or you can pass your own image if it implements `GetPixel<Pixel=(R,G,B,A)>`.
+    /// Each of `R`, `G`, `B` and `A` can be either `f16`, `f32`, `u32`, or `Sample`.
     pub fn rgba<R, G, B, A>(source_samples: SampleStorage) -> Self
         where R: IntoSample, G: IntoSample,
               B: IntoSample, A: IntoSample,
@@ -370,7 +436,10 @@ impl<SampleStorage> SpecificChannels<
 {
 
     /// Create an image with red, green, and blue channels.
-    pub fn rgb<R, G, B, A>(source_samples: SampleStorage) -> Self
+    /// You can pass a closure that returns a color for each pixel (`Fn(Vec2<usize>) -> (R,G,B)`),
+    /// or you can pass your own image if it implements `GetPixel<Pixel=(R,G,B)>`.
+    /// Each of `R`, `G` and `B` can be either `f16`, `f32`, `u32`, or `Sample`.
+    pub fn rgb<R, G, B>(source_samples: SampleStorage) -> Self
         where R: IntoSample, G: IntoSample, B: IntoSample,
               SampleStorage: GetPixel<Pixel=(R, G, B)>
     {

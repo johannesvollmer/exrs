@@ -1,29 +1,57 @@
 //! A generic wrapper which can be used to represent recursive types.
 //! Supports conversion from and to tuples of the same size.
 
+/// No more recursion. Can be used within any `Recursive<NoneMore, YourValue>` type.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct NoneMore;
 
+/// A recursive type-level linked list of `Value` entries.
+/// Mainly used to represent an arbitrary number of channels.
+/// The recursive architecture removes the need to implement traits for many different tuples.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct Recursive<Inner, Value> {
+
+    /// The remaining values of this linked list,
+    /// probably either `NoneMore` or another instance of the same `Recursive<Inner - 1, Value>`.
     pub inner: Inner,
+
+    /// The next item in this linked list.
     pub value: Value,
 }
 
-impl<Inner, Value> Recursive<Inner, Value> { pub fn new(inner: Inner, value: Value) -> Self { Self { inner, value } } }
+impl<Inner, Value> Recursive<Inner, Value> {
+    /// Create a new recursive type. Equivalent to the manual constructor, but less verbose.
+    pub fn new(inner: Inner, value: Value) -> Self { Self { inner, value } }
+}
 
-
+/// Convert this recursive type into a tuple.
+/// This is nice as it will require less typing for the same type.
+/// A type might or might not be convertible to the specified `Tuple` type.
 pub trait IntoTuple<Tuple> {
+
+    /// Convert this recursive type to a nice tuple.
     fn into_tuple(self) -> Tuple;
 }
 
+/// Convert this recursive type into a tuple.
+/// This is nice as it will require less typing for the same type.
+/// A type will be converted to the specified `Self::NonRecursive` type.
 pub trait IntoNonRecursive {
+
+    /// The resulting tuple type.
     type NonRecursive;
+
+    /// Convert this recursive type to a nice tuple.
     fn into_non_recursive(self) -> Self::NonRecursive;
 }
 
+/// Create a recursive type from this tuple.
 pub trait IntoRecursive {
+
+    /// The recursive type resulting from this tuple.
     type Recursive;
+
+    /// Create a recursive type from this tuple.
     fn into_recursive(self) -> Self::Recursive;
 }
 

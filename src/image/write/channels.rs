@@ -1,6 +1,4 @@
 //! How to read arbitrary channels and rgb channels.
-// TODO this module can be simplified A LOT by using SmallVec<Sample> objects, which is anyways how it works,
-// TODO as the internal sample type always differs from the user-specified concrete type
 
 use crate::meta::attribute::{LevelMode, ChannelDescription, SampleType, ChannelList};
 use smallvec::SmallVec;
@@ -16,7 +14,21 @@ use crate::prelude::f16;
 use crate::prelude::read::specific_channels::FromNativeSample;
 use crate::image::recursive::*;
 
-// TODO TupleChannelsWriter: Fn(Vec2<usize>) -> impl IntoSamples, where IntoSamples is implemented for tuples, inferring the channel type
+
+/// Convert any type into one of the supported sample types.
+/// Should be compiled to a no-op where the file contains the predicted sample type
+pub trait IntoNativeSample: Copy + Default + Sync + 'static {
+
+    /// Convert this sample to an f16, trying to represent the same numerical value.
+    fn to_f16(&self) -> f16;
+
+    /// Convert this sample to an f32, trying to represent the same numerical value.
+    fn to_f32(&self) -> f32;
+
+    /// Convert this sample to an u16, trying to represent the same numerical value.
+    fn to_u32(&self) -> u32;
+}
+
 
 /// Enables an image containing this list of channels to be written to a file.
 pub trait WritableChannels<'slf> {
@@ -45,6 +57,9 @@ pub trait ChannelsWriter: Sync {
 /// Define how to get an rgba pixel from your custom pixel storage.
 /// Can be a closure of type [`Sync + Fn(Vec2<usize>) -> RgbaPixel`].
 pub trait GetPixel: Sync {
+
+    /// The pixel tuple containing `f32`, `f16`, `u32` and `Sample` values.
+    /// The length of the tuple must match the number of channels in the image.
     type Pixel;
 
     /// Inspect a single rgba pixel at the requested position.
@@ -176,6 +191,8 @@ for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
         let byte_lines = block_bytes.chunks_exact_mut(line_bytes);
         assert_eq!(byte_lines.len(), block_index.pixel_size.height());
 
+        //dbg!(width, line_bytes, header.channels.bytes_per_pixel, byte_lines.len());
+
         let mut pixel_line = Vec::with_capacity(width);
 
         for (y, line_bytes) in byte_lines.enumerate() {
@@ -191,10 +208,19 @@ for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
     }
 }
 
-
+/// A tuple containing either `ChannelsDescription` or `Option<ChannelsDescription>` entries.
+/// Use an `Option` if you want to dynamically omit a single channel (probably only for roundtrip tests).
+/// The number of entries must match the number of channels.
 pub trait WritableChannelsDescription<Pixel>: Sync {
+
+    /// A type that has a recursive entry for each channel in the image,
+    /// which must accept the desired pixel type.
     type RecursiveWriter: RecursivePixelWriter<Pixel>;
+
+    /// Create the temporary writer, accepting the sorted list of channels from `channel_descriptions_list`.
     fn create_recursive_writer(&self, channels: &ChannelList) -> Self::RecursiveWriter;
+
+    /// Return all the channels that should actually end up in the image, in any order.
     fn channel_descriptions_list(&self) -> SmallVec<[ChannelDescription; 5]>;
 }
 
@@ -265,13 +291,18 @@ for Recursive<InnerDescriptions, Option<ChannelDescription>>
     }
 }
 
+/// Write pixels to a slice of bytes. The top level writer contains all the other channels,
+/// the most inner channel is `NoneMore`.
 pub trait RecursivePixelWriter<Pixel>: Sync {
+
+    /// Write pixels to a slice of bytes. Recursively do this for all channels.
     fn write_pixels<FullPixel>(&self, bytes: &mut [u8], pixels: &[FullPixel], get_pixel: impl Fn(&FullPixel) -> &Pixel);
 }
 
 type RecursiveWriter<Inner, Sample> = Recursive<Inner, SampleWriter<Sample>>;
 type OptionalRecursiveWriter<Inner, Sample> = Recursive<Inner, Option<SampleWriter<Sample>>>;
 
+/// Write the pixels of a single channel, unconditionally. Generic over the concrete sample type (f16, f32, u32).
 #[derive(Debug, Clone)]
 pub struct SampleWriter<Sample> {
     target_sample_type: SampleType,
@@ -289,8 +320,10 @@ impl<Inner, InnerPixel, Sample: IntoNativeSample>
     where Inner: RecursivePixelWriter<InnerPixel>
 {
     fn write_pixels<FullPixel>(&self, bytes: &mut [u8], pixels: &[FullPixel], get_pixel: impl Fn(&FullPixel) -> &Recursive<InnerPixel, Sample>){
-        let byte_start_index = self.value.start_byte_offset * self.value.target_sample_type.bytes_per_sample();
+        let byte_start_index = pixels.len() * self.value.start_byte_offset;
         let byte_count = pixels.len() * self.value.target_sample_type.bytes_per_sample();
+
+        //dbg!("\nstart", byte_count, byte_start_index, bytes.len(), self.value.target_sample_type, self.value.start_byte_offset, pixels.len());
         let ref mut byte_writer = &mut bytes[byte_start_index .. byte_start_index + byte_count];
 
         // match outside the loop to avoid matching on every single sample
@@ -367,12 +400,6 @@ impl<Inner, InnerPixel, Sample> RecursivePixelWriter<Recursive<InnerPixel, Sampl
 
 
 
-
-pub trait IntoNativeSample: Copy + Default + Sync + 'static {
-    fn to_f16(&self) -> f16;
-    fn to_f32(&self) -> f32;
-    fn to_u32(&self) -> u32;
-}
 
 impl IntoNativeSample for f16 {
     fn to_f16(&self) -> f16 { f16::from_f16(*self) }

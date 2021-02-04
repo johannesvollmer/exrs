@@ -29,6 +29,8 @@ use crate::math::Vec2;
 /// An oversimplified function for "just write the damn file already" use cases.
 /// Have a look at the examples to see how you can write an image with more flexibility (it's not that hard).
 /// Use `write_rgb_file` if you do not need an alpha channel.
+///
+/// Each of `R`, `G`, `B` and `A` can be either `f16`, `f32`, `u32`, or `Sample`.
 // TODO explain pixel tuple f32,f16,u32
 pub fn write_rgba_file<R,G,B,A>(
     path: impl AsRef<std::path::Path>, width: usize, height: usize,
@@ -37,6 +39,22 @@ pub fn write_rgba_file<R,G,B,A>(
     where R: IntoSample, G: IntoSample, B: IntoSample, A: IntoSample,
 {
     let channels = SpecificChannels::rgba(|Vec2(x,y)| colors(x,y));
+    Image::with_single_layer((width, height), channels).write().to_file(path)
+}
+
+/// An oversimplified function for "just write the damn file already" use cases.
+/// Have a look at the examples to see how you can write an image with more flexibility (it's not that hard).
+/// Use `write_rgb_file` if you do not need an alpha channel.
+///
+/// Each of `R`, `G`, and `B` can be either `f16`, `f32`, `u32`, or `Sample`.
+// TODO explain pixel tuple f32,f16,u32
+pub fn write_rgb_file<R,G,B>(
+    path: impl AsRef<std::path::Path>, width: usize, height: usize,
+    colors: impl Sync + Fn(usize, usize) -> (R, G, B)
+) -> UnitResult
+    where R: IntoSample, G: IntoSample, B: IntoSample
+{
+    let channels = SpecificChannels::rgb(|Vec2(x,y)| colors(x,y));
     Image::with_single_layer((width, height), channels).write().to_file(path)
 }
 

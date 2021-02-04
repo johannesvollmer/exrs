@@ -1,9 +1,5 @@
 //! How to read arbitrary but specific selection of arbitrary channels.
 //! This is not a zero-cost abstraction.
-// this module uses too many traits in order to abstract over many possible tuples of channels
-// TODO this module can be simplified A LOT by using SmallVec<Sample> objects, which is anyways how it works,
-// TODO as the internal sample type always differs from the user-specified concrete type
-
 
 use crate::image::*;
 use crate::meta::header::{Header};
@@ -16,50 +12,105 @@ use std::marker::PhantomData;
 use crate::image::recursive::*;
 
 /// Create an arbitrary sample type from one of the defined sample types.
+/// Should be compiled to a no-op where the file contains the predicted sample type.
 pub trait FromNativeSample: Sized + Copy + Default + 'static {
+
+    /// Create this sample from a f16, trying to represent the same numerical value
     fn from_f16(value: f16) -> Self;
+
+    /// Create this sample from a f32, trying to represent the same numerical value
     fn from_f32(value: f32) -> Self;
+
+    /// Create this sample from a u32, trying to represent the same numerical value
     fn from_u32(value: u32) -> Self;
 }
 
-
+/// Can be attached one more channel reader.
+/// Call `required` or `optional` on this object to declare another channel to be read from the file.
+/// Call `collect_pixels` at last to define how the previously declared pixels should be stored.
 pub trait ReadSpecificChannel: Sized {
+
+    /// A separate internal reader for the pixels. Will be of type `Recursive<_, SampleReader<_>>`,
+    /// depending on the pixels of the specific channel combination.
     type RecursivePixelReader: RecursivePixelReader;
+
+    /// Create a separate internal reader for the pixels of the specific channel combination.
     fn create_recursive_reader(&self, channels: &ChannelList) -> Result<Self::RecursivePixelReader>;
 
-
+    /// Plan to read an additional channel from the image, with the specified name.
+    /// If the channel cannot be found in the image when the image is read, the image will not be loaded.
     fn required<Sample>(self, channel_name: impl Into<Text>) -> ReadRequiredChannel<Self, Sample> {
         ReadRequiredChannel { channel_name: channel_name.into(), previous_channels: self, px: Default::default() }
     }
 
+    /// Plan to read an additional channel from the image, with the specified name.
+    /// If the file does not contain this channel, the specified default sample will be returned instead.
+    /// You can check whether the channel has been loaded by checking the presence of the optional channel description before instantiating your own image.
     fn optional<Sample>(self, channel_name: impl Into<Text>, default_sample: Sample)
         -> ReadOptionalChannel<Self, Sample>
     {
         ReadOptionalChannel { channel_name: channel_name.into(), previous_channels: self, default_sample }
     }
 
+    /// Specify how to create your custom image type and how to store the pixels in your image.
+    /// The last argument of the specified `SetPixel` closure is a tuple containind the pixel values.
+    /// You can control the types of the channels by specifying the type.
+    /// For example:
+    /// ````
+    ///     use exr::prelude::*;
+    ///         let image_reader = read().no_deep_data().largest_resolution_level()
+    ///             .specific_channels().required("L").required("A") // expect luma and alpha channels
+    ///             .collect_pixels(
+    ///
+    ///                 // create an image for each layer in the file
+    ///                 |size, (luma, alpha)|
+    ///                     if alpha.is_some(){ MyLumaImage::without_alpha(size) }
+    ///                     else { MyLumaImage::with_alpha(size) },
+    ///
+    ///                 // create an image for each layer in the file
+    ///                 |my_luma_image, position, (luma, alpha): (f32,f16)|
+    ///                     my_luma_image.set_pixel(position, (luma, alpha))
+    ///             );
+    /// ```
     fn collect_pixels<Pixel, PixelStorage, CreatePixels, SetPixel>(
         self, create_pixels: CreatePixels, set_pixel: SetPixel
     ) -> CollectPixels<Self, Pixel, PixelStorage, CreatePixels, SetPixel>
         where
             <Self::RecursivePixelReader as RecursivePixelReader>::RecursivePixel: IntoTuple<Pixel>,
             <Self::RecursivePixelReader as RecursivePixelReader>::RecursiveChannelDescriptions: IntoNonRecursive,
-            CreatePixels: Fn(Vec2<usize>, &<<Self::RecursivePixelReader as RecursivePixelReader>::RecursiveChannelDescriptions as IntoNonRecursive>::NonRecursive) -> PixelStorage,
+            CreatePixels: Fn(
+                Vec2<usize>,
+                &<<Self::RecursivePixelReader as RecursivePixelReader>::RecursiveChannelDescriptions as IntoNonRecursive>::NonRecursive
+            ) -> PixelStorage,
             SetPixel: Fn(&mut PixelStorage, Vec2<usize>, Pixel),
     {
         CollectPixels { read_channels: self, set_pixel, create_pixels, px: Default::default() }
     }
 }
 
+/// A reader containing sub-readers for reading the pixel content of an image.
 pub trait RecursivePixelReader {
+
+    /// The channel descriptions from the image.
+    /// Will be converted to a tuple before being stored in `SpecificChannels<_, ChannelDescriptions>`.
     type RecursiveChannelDescriptions;
+
+    /// Returns the channel descriptions based on the channels in the file.
     fn get_descriptions(&self) -> Self::RecursiveChannelDescriptions;
 
+    /// The pixel type. Will be converted to a tuple at the end of the process.
     type RecursivePixel: Copy + Default + 'static;
-    fn read_pixels<'s>(&self, bytes: &'s[u8], pixels: impl 's + ExactSizeIterator<Item=&'s mut Self::RecursivePixel>);
+
+    /// Read the line of pixels.
+    fn read_pixels<'s, FullPixel>(
+        &self, bytes: &'s[u8], pixels: &mut [FullPixel],
+        get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel
+    );
 }
 
 // does not use the generic `Recursive` struct to reduce the number of angle brackets in the public api
+/// Used to read another specific channel from an image.
+/// Contains the previous `ReadChannels` objects.
 #[derive(Clone, Debug)]
 pub struct ReadOptionalChannel<ReadChannels, Sample> {
     previous_channels: ReadChannels,
@@ -68,6 +119,8 @@ pub struct ReadOptionalChannel<ReadChannels, Sample> {
 }
 
 // does not use the generic `Recursive` struct to reduce the number of angle brackets in the public api
+/// Used to read another specific channel from an image.
+/// Contains the previous `ReadChannels` objects.
 #[derive(Clone, Debug)]
 pub struct ReadRequiredChannel<ReadChannels, Sample> {
     previous_channels: ReadChannels,
@@ -75,7 +128,7 @@ pub struct ReadRequiredChannel<ReadChannels, Sample> {
     px: PhantomData<Sample>,
 }
 
-
+/// Specifies how to collect all the specified channels into a number of individual pixels.
 #[derive(Copy, Clone, Debug)]
 pub struct CollectPixels<ReadChannels, Pixel, PixelStorage, CreatePixels, SetPixel> {
     read_channels: ReadChannels,
@@ -117,6 +170,7 @@ ReadChannels<'s> for CollectPixels<InnerChannels, Pixel, PixelStorage, CreatePix
     }
 }
 
+/// The reader that holds the temporary data that is required to read some specified channels.
 #[derive(Copy, Clone, Debug)]
 pub struct SpecificChannelsReader<PixelStorage, SetPixel, PixelReader, Pixel> {
     set_pixel: SetPixel,
@@ -144,7 +198,7 @@ ChannelsReader for SpecificChannelsReader<PixelStorage, SetPixel, PxReader, Pixe
 
         for (y_offset, line_bytes) in byte_lines.enumerate() { // TODO sampling
             // this two-step copy method should be very cache friendly in theory, and also reduce sample_type lookup count
-            self.pixel_reader.read_pixels(line_bytes, pixels.iter_mut());
+            self.pixel_reader.read_pixels(line_bytes, &mut pixels, |px| px);
 
             for (x_offset, pixel) in pixels.iter().enumerate() {
                 let set_pixel = &self.set_pixel;
@@ -161,7 +215,10 @@ ChannelsReader for SpecificChannelsReader<PixelStorage, SetPixel, PxReader, Pixe
 }
 
 
+/// Read zero channels from an image. Call `with_named_channel` on this object
+/// to read as many channels as desired.
 pub type ReadZeroChannels = NoneMore;
+
 impl ReadSpecificChannel for NoneMore {
     type RecursivePixelReader = NoneMore;
     fn create_recursive_reader(&self, _: &ChannelList) -> Result<Self::RecursivePixelReader> { Ok(NoneMore) }
@@ -205,14 +262,19 @@ impl<Sample, ReadChannels> ReadSpecificChannel for ReadRequiredChannel<ReadChann
     }
 }
 
+/// Reader for a single channel. Generic over the concrete sample type (f16, f32, u32).
 #[derive(Clone, Debug)]
 pub struct SampleReader<Sample> {
+
     /// to be multiplied with line width!
     channel_byte_offset: usize,
+
     channel: ChannelDescription,
     px: PhantomData<Sample>
 }
 
+/// Reader for a single channel. Generic over the concrete sample type (f16, f32, u32).
+/// Can also skip reading a channel if it could not be found in the image.
 #[derive(Clone, Debug)]
 pub struct OptionalSampleReader<DefaultSample> {
     reader: Option<SampleReader<DefaultSample>>,
@@ -226,9 +288,11 @@ impl RecursivePixelReader for NoneMore {
     fn get_descriptions(&self) -> Self::RecursiveChannelDescriptions { NoneMore }
 
     type RecursivePixel = NoneMore;
-    fn read_pixels<'s>(&self, _: &'s[u8], uniterated_samples: impl 's + ExactSizeIterator<Item=&'s mut Self::RecursivePixel>) {
-        for _ in uniterated_samples { } // FIXME needs to run iterator once, this is ugly!
-    }
+
+    fn read_pixels<'s, FullPixel>(
+        &self, _: &'s[u8], _: &mut [FullPixel],
+        _: impl Fn(&mut FullPixel) -> &mut NoneMore
+    ){}
 }
 
 impl<Sample, InnerReader: RecursivePixelReader>
@@ -241,7 +305,10 @@ impl<Sample, InnerReader: RecursivePixelReader>
 
     type RecursivePixel = Recursive<InnerReader::RecursivePixel, Sample>;
 
-    fn read_pixels<'s>(&self, bytes: &'s[u8], pixels: impl 's + ExactSizeIterator<Item=&'s mut Self::RecursivePixel>) {
+    fn read_pixels<'s, FullPixel>(
+        &self, bytes: &'s[u8], pixels: &mut [FullPixel],
+        get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel
+    ) {
         let start_index = pixels.len() * self.value.channel_byte_offset;
         let byte_count = pixels.len() * self.value.channel.sample_type.bytes_per_sample();
         let mut own_bytes_reader = &bytes[start_index .. start_index + byte_count]; // TODO check block size somewhere
@@ -250,32 +317,30 @@ impl<Sample, InnerReader: RecursivePixelReader>
         // match outside the loop to avoid matching on every single sample
         match self.value.channel.sample_type {
             SampleType::F16 => {
+                for pixel in pixels.iter_mut() {
+                    get_pixel(pixel).value = Sample::from_f16(f16::read(&mut own_bytes_reader)
+                        .expect("invalid byte slice in read pixels (bug)"));
+                }
 
-                // FIXME this will not go through per channel, but instead go through all channels in parallel! would need to collect somehow...?
-                let updated_samples = pixels.map(|pixel|{
-                    pixel.value = Sample::from_f16(f16::read(&mut own_bytes_reader).expect("invalid byte slice in read pixels (bug)"));
-                    &mut pixel.inner
-                });
-
-                self.inner.read_pixels(bytes, updated_samples);
+                self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
             },
 
             SampleType::F32 => {
-                let updated_samples = pixels.map(|pixel|{
-                    pixel.value = Sample::from_f32(f32::read(&mut own_bytes_reader).expect("invalid byte slice in read pixels (bug)"));
-                    &mut pixel.inner
-                });
+                for pixel in pixels.iter_mut() {
+                    get_pixel(pixel).value = Sample::from_f32(f32::read(&mut own_bytes_reader)
+                        .expect("invalid byte slice in read pixels (bug)"));
+                }
 
-                self.inner.read_pixels(bytes, updated_samples);
+                self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
             },
 
             SampleType::U32 => {
-                let updated_samples = pixels.map(|pixel|{
-                    pixel.value = Sample::from_u32(u32::read(&mut own_bytes_reader).expect("invalid byte slice in read pixels (bug)"));
-                    &mut pixel.inner
-                });
+                for pixel in pixels.iter_mut() {
+                    get_pixel(pixel).value = Sample::from_u32(u32::read(&mut own_bytes_reader)
+                        .expect("invalid byte slice in read pixels (bug)"));
+                }
 
-                self.inner.read_pixels(bytes, updated_samples);
+                self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
             },
         }
 
@@ -295,7 +360,10 @@ for Recursive<InnerReader, OptionalSampleReader<Sample>>
 
     type RecursivePixel = Recursive<InnerReader::RecursivePixel, Sample>;
 
-    fn read_pixels<'s>(&self, bytes: &'s[u8], pixels: impl 's + ExactSizeIterator<Item=&'s mut Self::RecursivePixel>) {
+    fn read_pixels<'s, FullPixel>(
+        &self, bytes: &'s[u8], pixels: &mut [FullPixel],
+        get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel
+    ) {
         match &self.value.reader {
             Some(reader) => {
                 let start_index = pixels.len() * reader.channel_byte_offset;
@@ -305,30 +373,30 @@ for Recursive<InnerReader, OptionalSampleReader<Sample>>
                 // match outside the loop to avoid matching on every single sample
                 match reader.channel.sample_type {
                     SampleType::F16 => {
-                        let updated_samples = pixels.map(|pixel|{
-                            pixel.value = Sample::from_f16(f16::read(&mut own_bytes_reader).expect("invalid byte slice in read pixels (bug)"));
-                            &mut pixel.inner
-                        });
+                        for pixel in pixels.iter_mut() {
+                            get_pixel(pixel).value = Sample::from_f16(f16::read(&mut own_bytes_reader)
+                                .expect("invalid byte slice in read pixels (bug)"));
+                        }
 
-                        self.inner.read_pixels(bytes, updated_samples);
+                        self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
                     },
 
                     SampleType::F32 => {
-                        let updated_samples = pixels.map(|pixel|{
-                            pixel.value = Sample::from_f32(f32::read(&mut own_bytes_reader).expect("invalid byte slice in read pixels (bug)"));
-                            &mut pixel.inner
-                        });
+                        for pixel in pixels.iter_mut() {
+                            get_pixel(pixel).value = Sample::from_f32(f32::read(&mut own_bytes_reader)
+                                .expect("invalid byte slice in read pixels (bug)"));
+                        }
 
-                        self.inner.read_pixels(bytes, updated_samples);
+                        self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
                     },
 
                     SampleType::U32 => {
-                        let updated_samples = pixels.map(|pixel|{
-                            pixel.value = Sample::from_u32(u32::read(&mut own_bytes_reader).expect("invalid byte slice in read pixels (bug)"));
-                            &mut pixel.inner
-                        });
+                        for pixel in pixels.iter_mut() {
+                            get_pixel(pixel).value = Sample::from_u32(u32::read(&mut own_bytes_reader)
+                                .expect("invalid byte slice in read pixels (bug)"));
+                        }
 
-                        self.inner.read_pixels(bytes, updated_samples);
+                        self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
                     },
                 }
 
@@ -336,13 +404,12 @@ for Recursive<InnerReader, OptionalSampleReader<Sample>>
             }
 
             // if this channel is optional and was not found in the file, fill the default sample
-            None => { // None is the default value, so don't do anything, just continue with the next channel:
-                let updated_samples = pixels.map(|pixel|{
-                    pixel.value = self.value.default_sample;
-                    &mut pixel.inner
-                });
+            None => {
+                for pixel in pixels.iter_mut() {
+                    get_pixel(pixel).value = self.value.default_sample;
+                }
 
-                self.inner.read_pixels(bytes, updated_samples);
+                self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
             },
         }
     }
