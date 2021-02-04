@@ -8,9 +8,9 @@ Some names in this library differ from the classic OpenEXR conventions.
 For example, an OpenEXR "multipart" is called a file with multiple "layers" in this library.
 The old OpenEXR "layers" are called "grouped channels" instead.
 
-- `Image` Contains everything that an `.exr` file can contain. Includes meta data and multiple layers.
+- `Image` Contains everything that an `.exr` file can contain. Includes metadata and multiple layers.
 - `Layer` A grid of pixels that can be placed anywhere on the two-dimensional canvas
-- `Channel` All samples of a single color component, such as red or blue. Also contains meta data.
+- `Channel` All samples of a single color component, such as red or blue. Also contains metadata.
 - `Pixel` The color at an exact location in the image. Contains one sample for each channel.
 - `Sample` The value (either f16, f32 or u32) of one channel at an exact location in the image.
             Usually a simple number, such as the red value of the bottom left pixel.
@@ -71,7 +71,7 @@ Reading an image involves three steps:
    on the reader to actually load an image
 1. Process the resulting image data structure or the error in your application
 
-Full example:
+Full example, loading all channels from the file:
 ```rust
 fn main() {
     use exr::prelude::*;
@@ -89,6 +89,7 @@ fn main() {
 }
 ```
 
+Loading only specified channels:
 ```rust
 fn main() {
     use exr::prelude::*;
@@ -98,7 +99,7 @@ fn main() {
         .no_deep_data() // (currently required)
         .largest_resolution_level() // or `all_resolution_levels()`
 
-        // or `all_channels()`
+        // alternative to `all_channels()`
         .specific_channels().required("X").required("Y").required("Z").optional("A", 1.0).collect_pixels(
             // create our image with the resolution of the file
             |resolution, (x_channel, y_channel, z_channel, a_channel)|{
@@ -131,7 +132,7 @@ Writing an image involves three steps:
 1. Customize the writer, for example in order to listen for the progress
 1. Write the image by calling `to_file(path)`, `to_buffered(bytes)`, or `to_unbuffered(bytes)` on the reader
 
-Full example: 
+Full example, writing a flexible list of channels: 
 ````rust
 fn main(){
     // construct an image to write
@@ -155,7 +156,7 @@ fn main(){
 }
 ````
 
-
+Writing a fixed set of channels: 
 ````rust
 fn main(){
     let my_image = unimplemented!();
@@ -180,6 +181,14 @@ fn main(){
         .to_file("image.exr").unwrap();
 }
 ````
+
+### Pixel Closures
+When working with specific channels, the data is not stored directly.
+Instead, you provide a closure that stores or loads pixels in your existing image data structure.
+
+If you really do not want to provide your own storage, you can use the predefined structures from
+`exr::image::pixel_vec`, such as `PixelVec<(f32,f32,f16)>` or `create_pixel_vec`.
+Use this only if you don't already have a pixel storage.
 
 # The `Image` Data Structure
 
@@ -216,11 +225,16 @@ because these functions watch out for invalid image contents.
 ````
 Image {
     attributes: ImageAttributes,
+    
+    // the layer data can be either a single layer a list of layers
     layer_data: Layer | SmallVec<Layer>,
 }
 
 Layer {
+    
+    // the channel data can either be a fixed set of known channels, or a list of arbitrary channels
     channel_data: SpecificChannels | AnyChannels,
+    
     attributes: LayerAttributes,
     size: Vec2<usize>,
     encoding: Encoding,
@@ -228,6 +242,8 @@ Layer {
 
 SpecificChannels {
     channels: [any tuple containing `ChannelDescription` or `Option<ChannelDescription>`],
+    
+    // the storage is usually a closure or a custom type which implements the `GetPixel` trait
     storage: impl GetPixel | impl Fn(Vec2<usize>) -> Pixel,    
         where Pixel = any tuple containing f16 or f32 or u32 values
 }
@@ -247,14 +263,9 @@ Levels = Singular(FlatSamples) | Mip(FlatSamples) | Rip(FlatSamples)
 FlatSamples = F16(Vec<f16>) | F32(Vec<f32>) | U32(Vec<u32>)
 ````
 
+As a consequence, one of the simpler image types is `Image<Layer<AnyChannels<FlatSamples>>>`. If you
+enable loading multiple resolution levels, you will instead get the type `Image<Layer<AnyChannels<Levels<FlatSamples>>>>`.
+
 While you can put anything inside an image, 
 it can only be written if the content of the image implements certain traits.
 This allows you to potentially write your own channel storage system.
-
-# Pixel Closures
-When working with specific channels, the data is not stored directly. 
-Instead, you provide a closure that stores or loads pixels in your existing image data structure.
-
-If you really do not want to provide your own storage, you can use the predefined structures from
-`exr::image::pixel_vec`, such as `PixelVec<(f32,f32,f16)>` or `create_pixel_vec`.
-Use this only if you don't already have a pixel storage.
