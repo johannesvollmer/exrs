@@ -1,5 +1,4 @@
 
-#[macro_use]
 extern crate smallvec;
 extern crate rand;
 extern crate half;
@@ -8,66 +7,47 @@ extern crate half;
 // exr imports
 extern crate exr;
 
-// TODO create a dedicated reader and writer for this scenario
-
-/// Generate an image with channel groups and write it to a file.
-/// Some legacy software may group layers that contain a `.` in the layer name.
-///
-/// Note: This is an OpenEXR legacy strategy. OpenEXR supports layers natively since 2013.
-/// Use the natively supported exrs `Layer` types instead, if possible.
 ///
 fn main() {
     use exr::prelude::*;
-    // TODO simplify handling these types of layers using read() and write()
-
     let size = Vec2(512, 512);
 
-    let create_channel = |name: &str| -> AnyChannel<FlatSamples> {
-        let color: f16 = f16::from_bits(rand::random::<u16>());
+    // this is the content of our layers
+    // TODO this could be a closure, but two different closures cannot be put into one slice
+    #[derive(Debug)]
+    struct SolidColorRgbPixels((f32, f32, f32)); // r,g,b
 
-        AnyChannel::new(
-            name,
-            FlatSamples::F16(vec![color; size.area() ])
-        )
-    };
+    // make our layer writable
+    impl GetPixel for SolidColorRgbPixels {
+        type Pixel = (f32,f32,f32); // r,g,b
 
+        // return the same color for every pixel
+        fn get_pixel(&self, _: Vec2<usize>) -> Self::Pixel { self.0 }
+    }
 
-    // The channels have the following structure:
-    //
-    // - Object
-    //     - Red
-    //     - Green
-    //     - Blue
-    //     - Alpha
-
-    // - Background
-    //     - Red
-    //     - Green
-    //     - Blue
-
-    let foreground_r = create_channel("Object.R");
-    let foreground_g = create_channel("Object.G");
-    let foreground_b = create_channel("Object.B");
-    let foreground_a = create_channel("Object.A");
-
-    let background_r = create_channel("Background.R");
-    let background_g = create_channel("Background.G");
-    let background_b = create_channel("Background.B");
-
-    let layer = Layer::new(
+    let layer1 = Layer::new(
         size,
-        LayerAttributes::named("test-image"),
+        LayerAttributes::named("teal"),
         Encoding::FAST_LOSSLESS,
-        AnyChannels::sort(smallvec![ // the order does not actually matter
-            foreground_r, foreground_g, foreground_b, foreground_a,
-            background_r, background_g, background_b
-        ]),
+        SpecificChannels::rgb(SolidColorRgbPixels((0.2_f32, 0.8_f32, 0.8_f32))),
     );
 
-    let image = Image::with_layer(layer);
+    let layer2 = Layer::new(
+        size,
+        LayerAttributes::named("orange"),
+        Encoding::FAST_LOSSLESS,
+        SpecificChannels::rgb(SolidColorRgbPixels((0.8_f32, 0.8_f32, 0.2_f32))),
+    );
+
+    let layers = [layer2, layer1]; // could also be a `Vec<Layer<_>>` or `Layers`
+    let image = Image::from_layers_slice(
+        // define the visible area of the canvas
+        ImageAttributes::new(IntegerBounds::from_dimensions(size)),
+        &layers
+    );
 
     println!("writing image {:#?}", image);
-    image.write().to_file("tests/images/out/groups.exr").unwrap();
+    image.write().to_file("tests/images/out/layers.exr").unwrap();
 
-    println!("created file groups.exr");
+    println!("created file layers.exr");
 }

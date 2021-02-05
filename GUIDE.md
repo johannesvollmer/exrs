@@ -306,19 +306,19 @@ Instead, the `Image` data type has a generic parameter, allowing for different i
 ```rust
 fn main(){
     // this image contains only a single layer
-    let single_layer_image: Image<Layer<_>> = Image::with_layer(my_layer);
+    let single_layer_image: Image<Layer<_>> = Image::from_layer(my_layer);
 
     // this image contains an arbitrary number of layers
     let multi_layer_image: Image<Layers<_>> = Image::new(attributes, smallvec![ layer1, layer2 ]);
 
     // this image can only contain rgb or rgba channels
-    let single_layer_rgb_image : Image<Layer<RgbaChannels<_>>> = Image::with_layer(Layer::new(
+    let single_layer_rgb_image : Image<Layer<RgbaChannels<_>>> = Image::from_layer(Layer::new(
         dimensions, attributes, encoding,
         RgbaChannels::new(sample_types, rgba_pixels)
     ));
     
     // this image can contain arbitrary channels, such as LAB or YCbCr
-    let single_layer_image : Image<Layer<AnyChannels<_>>> = Image::with_layer(Layer::new(
+    let single_layer_image : Image<Layer<AnyChannels<_>>> = Image::from_layer(Layer::new(
         dimensions, attributes, encoding,
         AnyChannels::sort(smallvec![ channel_x, channel_y, channel_z ])
     ));
@@ -335,7 +335,7 @@ Image {
     attributes: ImageAttributes,
     
     // the layer data can be either a single layer a list of layers
-    layer_data: Layer | SmallVec<Layer>,
+    layer_data: Layer | SmallVec<Layer> | Vec<Layer> | &[Layer],
 }
 
 Layer {
@@ -393,16 +393,21 @@ You will currently need an `Image<_>` at the top level. The type parameter is th
 
 The following variants are recommended:  
 - `Image::new(image_attributes, layer_data)` where the layer data can be `Layers` or `Layer`.
-- `Image::with_layer(layer)` where the layer data must be a `Layer`.
-- `Image::with_channels(resolution, channels)` where the pixel data must be `SpecificChannels` or `AnyChannels`.
+- `Image::from_layers(image_attributes, layer_vec)` where the layer data can be `Layers`.
+- `Image::from_layers_vec(image_attributes, layer_vec)` where the layer data can be `Vec<Layer>`.
+- `Image::from_layers_slice(image_attributes, layer_vec)` where the layer data can be `&[Layers]`.
+- `Image::from_layer(layer)` where the layer data must be a `Layer`.
+- `Image::from_channels(resolution, channels)` where the pixel data must be `SpecificChannels` or `AnyChannels`.
 
 ```rust
 fn main() {
     use exr::prelude::*;
 
-    let image = Image::new(attributes, layer);
-    let image = Image::with_layer(layer);
-    let image = Image::with_channels(resolution, channels);
+    let image = Image::new(attributes, layers);
+    let image = Image::from_layers(attributes, smallvec![ layer1, layer2 ]);
+    
+    let image = Image::from_layer(layer);
+    let image = Image::from_channels(resolution, channels);
     
     image.write()
         
@@ -434,8 +439,8 @@ fn main() {
         channels
     );
 
-    let image = Image::with_layer(layer);
-    let image = Image::new(attributes, smallvec![ layer.clone(), layer ]);
+    let image = Image::from_layer(layer);
+    let image = Image::from_layers(attributes, smallvec![ layer.clone(), layer ]);
 }
 ```
 
@@ -447,7 +452,7 @@ fn main() {
     use exr::prelude::*;
 
     let channels = AnyChannels::sort(smallvec![ channel1, channel2, channel3 ]);
-    let image = Image::with_channels((1024, 800), channels);
+    let image = Image::from_channels((1024, 800), channels);
 }
 ```
 
@@ -468,7 +473,7 @@ fn main() {
             (l as f32, f16::from_f32(b))
         });
     
-    let image = Image::with_channels((1024, 800), channels);
+    let image = Image::from_channels((1024, 800), channels);
 }
 ```
 
@@ -486,7 +491,7 @@ fn main() {
         (0.4_f32, 0.2_f32, 0.1_f32)
     );
     
-    let image = Image::with_channels((1024, 800), channels);
+    let image = Image::from_channels((1024, 800), channels);
 }
 ```
 
@@ -509,7 +514,7 @@ Writing a flexible list of channels:
 ```rust
 fn main(){
     // construct an image to write
-    let image = Image::with_layer(
+    let image = Image::from_layer(
         Layer::new( // the only layer in this image
             (1920, 1080), // resolution
             LayerAttributes::named("main-rgb-layer"), // the layer has a name and other properties

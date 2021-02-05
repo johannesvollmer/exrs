@@ -65,7 +65,7 @@ fn main() {
         // throw error if the image is 100% transparent pixels and should be removed
         .or_none_if_empty().expect("image is empty and cannot be cropped");
 
-    let image = Image::with_layer(layer);
+    let image = Image::from_layer(layer);
 
     println!("writing image {:#?}", image);
 

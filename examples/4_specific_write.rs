@@ -22,7 +22,7 @@ fn main() {
             }
         });
 
-    let image = Image::with_channels((2000, 1400), pixels);
+    let image = Image::from_channels((2000, 1400), pixels);
 
     image.write()
         .on_progress(|progress| println!("progress: {:.1}", progress*100.0))

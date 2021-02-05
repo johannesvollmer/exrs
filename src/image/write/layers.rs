@@ -40,22 +40,62 @@ pub struct LayerWriter</*'a,*/ ChannelsWriter> {
     channels: ChannelsWriter, // impl ChannelsWriter
 }
 
+// TODO implement for any AsRef<[Layer]>!
 
-
+// impl for smallvec
 impl<'slf, Channels: 'slf> WritableLayers<'slf> for Layers<Channels> where Channels: WritableChannels<'slf> {
     fn infer_headers(&self, image_attributes: &ImageAttributes) -> Headers {
-        self.iter().map(|layer| layer.infer_headers(image_attributes).remove(0)).collect() // TODO no array-vs-first
+        slice_infer_headers(self.as_slice(), image_attributes)
     }
 
     type Writer = AllLayersWriter<Channels::Writer>;
     fn create_writer(&'slf self, headers: &[Header]) -> Self::Writer {
-        AllLayersWriter {
-            layers: self.iter().zip(headers.chunks_exact(1)) // TODO no array-vs-first
-                .map(|(layer, header)| layer.create_writer(header))
-                .collect()
-        }
+        slice_create_writer(self.as_slice(), headers)
     }
 }
+
+// impl for regular vec
+impl<'slf, Channels: 'slf> WritableLayers<'slf> for Vec<Layer<Channels>> where Channels: WritableChannels<'slf> {
+    fn infer_headers(&self, image_attributes: &ImageAttributes) -> Headers {
+        slice_infer_headers(self.as_slice(), image_attributes)
+    }
+
+    type Writer = AllLayersWriter<Channels::Writer>;
+    fn create_writer(&'slf self, headers: &[Header]) -> Self::Writer {
+        slice_create_writer(self.as_slice(), headers)
+    }
+}
+
+// impl for slice
+impl<'slf, Channels: 'slf> WritableLayers<'slf> for &'slf [Layer<Channels>] where Channels: WritableChannels<'slf> {
+    fn infer_headers(&self, image_attributes: &ImageAttributes) -> Headers {
+        slice_infer_headers(self, image_attributes)
+    }
+
+    type Writer = AllLayersWriter<Channels::Writer>;
+    fn create_writer(&'slf self, headers: &[Header]) -> Self::Writer {
+        slice_create_writer(self, headers)
+    }
+}
+
+fn slice_infer_headers<'slf, Channels:'slf + WritableChannels<'slf>>(
+    slice: &[Layer<Channels>], image_attributes: &ImageAttributes
+) -> Headers
+{
+    slice.iter().map(|layer| layer.infer_headers(image_attributes).remove(0)).collect() // TODO no array-vs-first
+}
+
+fn slice_create_writer<'slf, Channels:'slf + WritableChannels<'slf>>(
+    slice: &'slf [Layer<Channels>], headers: &[Header]
+) -> AllLayersWriter<Channels::Writer>
+{
+    AllLayersWriter {
+        layers: slice.iter().zip(headers.chunks_exact(1)) // TODO no array-vs-first
+            .map(|(layer, header)| layer.create_writer(header))
+            .collect()
+    }
+}
+
 
 impl<'slf, Channels: WritableChannels<'slf>> WritableLayers<'slf> for Layer<Channels> {
     fn infer_headers(&self, image_attributes: &ImageAttributes) -> Headers {

@@ -733,29 +733,53 @@ impl Default for Encoding {
 }
 
 impl<'s, LayerData: 's> Image<LayerData> where LayerData: WritableLayers<'s> {
-    /// Create an image with one or multiple layers. The layer can be a `Layer`, or `Layers` small vector.
+    /// Create an image with one or multiple layers. The layer can be a `Layer`, or `Layers` small vector, or `Vec<Layer>` or `&[Layer]`.
     pub fn new(image_attributes: ImageAttributes, layer_data: LayerData) -> Self {
         Image { attributes: image_attributes, layer_data }
+    }
+}
+
+// explorable constructor alias
+impl<'s, Channels: 's> Image<Layers<Channels>> where Channels: WritableChannels<'s> {
+    /// Create an image with multiple layers. The layer can be a `Vec<Layer>`, or `Layers` (a small vector), or `&[Layer]`.
+    pub fn from_layers(image_attributes: ImageAttributes, layer_data: Layers<Channels>) -> Self {
+        Self::new(image_attributes, layer_data)
+    }
+}
+
+// explorable constructor alias
+impl<'s, Channels: 's> Image<Vec<Layer<Channels>>> where Channels: WritableChannels<'s> {
+    /// Create an image with multiple layers. The layer can be a `Vec<Layer>`, or `Layers` (a small vector), or `&[Layer]`.
+    pub fn from_layers_vec(image_attributes: ImageAttributes, layer_data: Vec<Layer<Channels>>) -> Self {
+        Self::new(image_attributes, layer_data)
+    }
+}
+
+// explorable constructor alias
+impl<'s, Channels: 's> Image<&'s [Layer<Channels>]> where Channels: WritableChannels<'s> {
+    /// Create an image with multiple layers. The layer can be a `Vec<Layer>`, or `Layers` (a small vector), or `&[Layer]`.
+    pub fn from_layers_slice(image_attributes: ImageAttributes, layer_data: &'s [Layer<Channels>]) -> Self {
+        Self::new(image_attributes, layer_data)
     }
 }
 
 impl<'s, ChannelData:'s> Image<Layer<ChannelData>> where ChannelData: WritableChannels<'s> {
 
     /// Uses the display position and size to the channel position and size of the layer.
-    pub fn with_layer(layer: Layer<ChannelData>) -> Self {
+    pub fn from_layer(layer: Layer<ChannelData>) -> Self {
         let bounds = IntegerBounds::new(layer.attributes.layer_position, layer.size);
         Self::new(ImageAttributes::new(bounds), layer)
     }
 
     /// Uses empty attributes.
-    pub fn with_encoded_layer(size: impl Into<Vec2<usize>>, encoding: Encoding, channels: ChannelData) -> Self {
+    pub fn from_encoded_layer(size: impl Into<Vec2<usize>>, encoding: Encoding, channels: ChannelData) -> Self {
         // layer name is not required for single-layer images
-        Self::with_layer(Layer::new(size, LayerAttributes::default(), encoding, channels))
+        Self::from_layer(Layer::new(size, LayerAttributes::default(), encoding, channels))
     }
 
     /// Uses empty attributes and fast compression.
-    pub fn with_channels(size: impl Into<Vec2<usize>>, channels: ChannelData) -> Self {
-        Self::with_encoded_layer(size, Encoding::default(), channels)
+    pub fn from_channels(size: impl Into<Vec2<usize>>, channels: ChannelData) -> Self {
+        Self::from_encoded_layer(size, Encoding::default(), channels)
     }
 }
 
