@@ -215,7 +215,7 @@ fn roundtrip_unusual_2() -> UnitResult {
         .with_pixels(pixels.clone()
     );
 
-    let image = Image::with_pixels(size, channels);
+    let image = Image::with_channels(size, channels);
 
     let mut tmp_bytes = Vec::new();
     image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
@@ -274,7 +274,7 @@ fn roundtrip_unusual_7() -> UnitResult {
         .with_pixels(pixels.clone()
     );
 
-    let image = Image::with_pixels(size, channels);
+    let image = Image::with_channels(size, channels);
 
     let mut tmp_bytes = Vec::new();
     image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes))?;

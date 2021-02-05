@@ -120,7 +120,7 @@ pub fn read_all_rgba_layers_from_file<R,G,B,A, Set:'static, Create:'static, Pixe
     where
         R: FromNativeSample, G: FromNativeSample, B: FromNativeSample, A: FromNativeSample,
         Create: Fn(Vec2<usize>, &RgbaChannels) -> Pixels, // TODO type alias? CreateRgbaPixels<Pixels=Pixels>,
-        Set: Fn(&mut Pixels, Vec2<usize>, (R,G,B,A)), // SetRgbaPixel<Pixels>
+        Set: Fn(&mut Pixels, Vec2<usize>, (R,G,B,A)),
 {
     read()
         .no_deep_data()
@@ -149,7 +149,7 @@ pub fn read_first_rgba_layer_from_file<R,G,B,A, Set:'static, Create:'static, Pix
     where
         R: FromNativeSample, G: FromNativeSample, B: FromNativeSample, A: FromNativeSample,
         Create: Fn(Vec2<usize>, &RgbaChannels) -> Pixels, // TODO type alias? CreateRgbaPixels<Pixels=Pixels>,
-        Set: Fn(&mut Pixels, Vec2<usize>, (R,G,B,A)), // SetRgbaPixel<Pixels>
+        Set: Fn(&mut Pixels, Vec2<usize>, (R,G,B,A)),
 {
     read()
         .no_deep_data()

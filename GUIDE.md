@@ -144,7 +144,7 @@ fn main(){
         .specific_channels().required("L").optional("A", 0.0).optional("B", 0.0).collect_pixels(
         
             // create our image based on the resolution of the file
-            |resolution: Vec2<usize>, (l,a,b): (ChannelDescription, Option<ChannelDescription>, Option<ChannelDescription>)|{
+            |resolution: Vec2<usize>, (l,a,b): &(ChannelDescription, Option<ChannelDescription>, Option<ChannelDescription>)|{
                 if a.is_some() && b.is_some() { MyImage::new_lab(resolution) }
                 else { MyImage::new_luma(resolution) }
             },
@@ -186,7 +186,7 @@ fn main(){
         .rgba_channels(
         
             // create our image based on the resolution of the file
-            |resolution: Vec2<usize>, (r,g,b,a)|{
+            |resolution: Vec2<usize>, &(r,g,b,a)|{
                 if a.is_some() { MyImage::new_with_alpha(resolution) }
                 else { MyImage::new_without_alpha(resolution) }
             },
@@ -394,7 +394,7 @@ You will currently need an `Image<_>` at the top level. The type parameter is th
 The following variants are recommended:  
 - `Image::new(image_attributes, layer_data)` where the layer data can be `Layers` or `Layer`.
 - `Image::with_layer(layer)` where the layer data must be a `Layer`.
-- `Image::with_pixels(resolution, pixel_data)` where the pixel data must be `SpecificChannels` or `AnyChannels`.
+- `Image::with_channels(resolution, channels)` where the pixel data must be `SpecificChannels` or `AnyChannels`.
 
 ```rust
 fn main() {
@@ -402,7 +402,7 @@ fn main() {
 
     let image = Image::new(attributes, layer);
     let image = Image::with_layer(layer);
-    let image = Image::with_pixels(resolution, layer);
+    let image = Image::with_channels(resolution, channels);
     
     image.write()
         
@@ -447,7 +447,7 @@ fn main() {
     use exr::prelude::*;
 
     let channels = AnyChannels::sort(smallvec![ channel1, channel2, channel3 ]);
-    let image = Image::with_pixels((1024, 800), channels);
+    let image = Image::with_channels((1024, 800), channels);
 }
 ```
 
@@ -468,7 +468,7 @@ fn main() {
             (l as f32, f16::from_f32(b))
         });
     
-    let image = Image::with_pixels((1024, 800), channels);
+    let image = Image::with_channels((1024, 800), channels);
 }
 ```
 
@@ -486,7 +486,7 @@ fn main() {
         (0.4_f32, 0.2_f32, 0.1_f32)
     );
     
-    let image = Image::with_pixels((1024, 800), channels);
+    let image = Image::with_channels((1024, 800), channels);
 }
 ```
 

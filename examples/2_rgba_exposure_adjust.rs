@@ -4,6 +4,8 @@ extern crate exr;
 
 /// Read an rgba image, increase the exposure, and then write it back.
 /// Uses multi-core compression where appropriate.
+///
+/// All non-rgba channels and all layers except the first rgba layers will not be present in the new file.
 fn main() {
     use exr::prelude::*;
 
@@ -12,8 +14,8 @@ fn main() {
     // This struct trades sub-optimal memory-efficiency for clarity,
     // because this is an example, and does not have to be perfectly efficient.
     #[derive(Debug, PartialEq)]
-    struct CustomPixels { lines: Vec<Vec<RgbaPixel>> };
-    type RgbaPixel = (f32, f32, f32, f32);
+    struct CustomPixels { lines: Vec<Vec<RgbaF32Pixel>> };
+    type RgbaF32Pixel = (f32, f32, f32, f32);
 
     // read the image from a file
     let mut image = read().no_deep_data()
@@ -29,7 +31,7 @@ fn main() {
 
             // request pixels with red, green, blue, and optionally and alpha values.
             // transfer each pixel from the file to our image
-            |image, position, (r,g,b,a): (f32, f32, f32, f32)| {
+            |image, position, (r,g,b,a): RgbaF32Pixel| {
 
                 // insert the values into our custom image
                 image.lines[position.y()][position.x()] = (r,g,b,a);
@@ -63,7 +65,7 @@ fn main() {
     // enable writing our custom pixel storage to a file
     // FIXME this should be passed as a closure to the `write_with(|x| y)` call
     impl GetPixel for CustomPixels {
-        type Pixel = RgbaPixel;
+        type Pixel = RgbaF32Pixel;
         fn get_pixel(&self, position: Vec2<usize>) -> Self::Pixel {
             self.lines[position.y()][position.x()]
         }

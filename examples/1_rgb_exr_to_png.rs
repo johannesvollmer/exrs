@@ -13,7 +13,7 @@ fn main() {
         .no_deep_data()
         .largest_resolution_level()
         .rgba_channels(
-        |resolution, _channels| -> png::RgbaImage {
+        |resolution, _channels: &RgbaChannels| -> png::RgbaImage {
                 png::ImageBuffer::new(
                     resolution.width() as u32,
                     resolution.height() as u32
@@ -32,7 +32,7 @@ fn main() {
         .all_attributes();
 
     // an image that contains a single layer containing an png rgba buffer
-    let image: Image<Layer<SpecificChannels<png::RgbaImage, _>>> = reader
+    let image: Image<Layer<SpecificChannels<png::RgbaImage, RgbaChannels>>> = reader
         .from_file("tests/images/valid/openexr/MultiResolution/Kapaa.exr")
         .unwrap();
 

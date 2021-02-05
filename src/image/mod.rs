@@ -752,7 +752,7 @@ impl<'s, ChannelData:'s> Image<Layer<ChannelData>> where ChannelData: WritableCh
     }
 
     /// Uses empty attributes and fast compression.
-    pub fn with_pixels(size: impl Into<Vec2<usize>>, channels: ChannelData) -> Self {
+    pub fn with_channels(size: impl Into<Vec2<usize>>, channels: ChannelData) -> Self {
         Self::with_encoded_layer(size, Encoding::default(), channels)
     }
 }
@@ -851,12 +851,16 @@ impl<A: Array> ContainsNaN for SmallVec<A> where A::Item: ContainsNaN {
     }
 }
 
-// TODO macro
-impl<A,B,C,D> ContainsNaN for (A,B,C,D) where A: ContainsNaN, B: ContainsNaN, C: ContainsNaN, D: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        self.0.contains_nan_pixels() || self.1.contains_nan_pixels() ||
-        self.2.contains_nan_pixels() || self.3.contains_nan_pixels()
-    }
+// TODO implement contains nan for all pixel tuples
+// (low priority because it is only used in the tests)
+impl<A,B,C,D> ContainsNaN for (A,B,C,D) where A: Clone+ContainsNaN, B: Clone+ContainsNaN, C: Clone+ContainsNaN, D: Clone+ContainsNaN {
+    fn contains_nan_pixels(&self) -> bool { self.clone().into_recursive().contains_nan_pixels() } // TODO no clone?
+}
+
+// implement for recursive types
+impl ContainsNaN for NoneMore { fn contains_nan_pixels(&self) -> bool { false } }
+impl<Inner, T> ContainsNaN for Recursive<Inner, T> where Inner: ContainsNaN, T: ContainsNaN {
+    fn contains_nan_pixels(&self) -> bool { self.inner.contains_nan_pixels() || self.value.contains_nan_pixels() }
 }
 
 impl<S> ContainsNaN for Option<S> where S: ContainsNaN {

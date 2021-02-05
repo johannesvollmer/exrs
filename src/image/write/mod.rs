@@ -39,7 +39,7 @@ pub fn write_rgba_file<R,G,B,A>(
     where R: IntoSample, G: IntoSample, B: IntoSample, A: IntoSample,
 {
     let channels = SpecificChannels::rgba(|Vec2(x,y)| colors(x,y));
-    Image::with_pixels((width, height), channels).write().to_file(path)
+    Image::with_channels((width, height), channels).write().to_file(path)
 }
 
 /// An oversimplified function for "just write the damn file already" use cases.
@@ -55,7 +55,7 @@ pub fn write_rgb_file<R,G,B>(
     where R: IntoSample, G: IntoSample, B: IntoSample
 {
     let channels = SpecificChannels::rgb(|Vec2(x,y)| colors(x,y));
-    Image::with_pixels((width, height), channels).write().to_file(path)
+    Image::with_channels((width, height), channels).write().to_file(path)
 }
 
 
