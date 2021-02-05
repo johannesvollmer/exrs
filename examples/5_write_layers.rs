@@ -64,7 +64,7 @@ fn main() {
         ]),
     );
 
-    let image = Image::from_single_layer(layer);
+    let image = Image::with_layer(layer);
 
     println!("writing image {:#?}", image);
     image.write().to_file("tests/images/out/groups.exr").unwrap();

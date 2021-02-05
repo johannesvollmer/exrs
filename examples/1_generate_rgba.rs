@@ -47,7 +47,7 @@ fn main() {
         .crop_where_eq((0.0, 0.0, 0.0, f16::ZERO))
         .or_crop_to_1x1_if_empty();
 
-    let image = Image::from_single_layer(layer);
+    let image = Image::with_layer(layer);
 
     // write it to a file with all cores in parallel
     image.write().to_file("tests/images/out/generated_rgba.exr").unwrap();

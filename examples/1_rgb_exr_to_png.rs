@@ -24,13 +24,7 @@ fn main() {
             |png_pixels, position, (r,g,b,a): (f32,f32,f32,f32)| { // TODO implicit argument types!
                 png_pixels.put_pixel(
                     position.x() as u32, position.y() as u32,
-
-                    png::Rgba([
-                        tone_map(r),
-                        tone_map(g),
-                        tone_map(b),
-                        (a * 255.0) as u8,
-                    ])
+                    png::Rgba([tone_map(r), tone_map(g), tone_map(b), (a * 255.0) as u8])
                 );
             }
         )

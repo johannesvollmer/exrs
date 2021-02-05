@@ -3,6 +3,14 @@
 This document talks about the capabilities of OpenEXR and outlines the design of this library. 
 In addition to reading this guide, you should also have a look at the examples.
 
+Contents:
+- Wording
+- Why this is complicated
+- One-liners for reading and writing simple images
+- Reading a complex image
+- The Image data structure
+- Writing a complex image
+
 ## Wording
 Some names in this library differ from the classic OpenEXR conventions.
 For example, an OpenEXR "multipart" is called a file with multiple "layers" in this library.
@@ -15,10 +23,10 @@ The old OpenEXR "layers" are called "grouped channels" instead.
 - `Sample` The value (either f16, f32 or u32) of one channel at an exact location in the image.
             Usually a simple number, such as the red value of the bottom left pixel.
 - `Grouped Channels` Multiple channels may be grouped my prepending the same prefix to the name.
-                    This behaviour is opt-in; it has to be enabled explicitly.
+                    This behaviour is opt-in; it has to be enabled explicitly:
                     By default, channels are stored in a plain list, and channel names are unmodified.
 
-## OpenEXR
+## OpenEXR | Complexity
 This image format supports some features that you won't find in other image formats.
 As a consequence, an exr file cannot necessarily be converted to other formats, 
 even when the loss of precision is acceptable. Furthermore, 
@@ -66,55 +74,221 @@ Again, the more complex approaches are described in the following paragraph.
 
 Reading an image involves three steps:
 1. Specify how to load an image by constructing an image reader.
-   Start with `read()`. Chain method calls on the result of this function to customize the reader.
+    1. Start with `read()`
+    1. Chain method calls to customize the reader
 1. Call `from_file(path)`, `from_buffered(bytes)`, or `from_unbuffered(bytes)` 
    on the reader to actually load an image
 1. Process the resulting image data structure or the error in your application
 
-Full example, loading all channels from the file:
-```rust
-fn main() {
-    use exr::prelude::*;
+The type of the resulting image depends on the reader you constructed. For example,
+if you configure the reader to load mip map levels, the resulting image type
+will contain an additional vector with the mip map levels.
 
-    // the type of the this image depends on the chosen options
-    let image = read()
-        .no_deep_data() // (currently required)
-        .largest_resolution_level() // or `all_resolution_levels()`
-        .all_channels() // or `specific_channels() ...`
-        .all_layers() // or `first_valid_layer()`
-        .all_attributes() // (currently required)
-        .on_progress(|progress| println!("progress: {:.1}", progress * 100.0)) // optional
-        .non_parallel() // optional. discouraged. just leave this line out
-        .from_file("image.exr").unwrap(); // or `from_buffered(my_byte_slice)`
+### Deep Data
+The first choice to be made is whether you want to load deep data or not.
+Deep data is where multiple colors are stored in one pixel at the same location.
+Currently, deep data is not supported yet, so we always call `no_deep_data()`.
+
+```rust
+fn main(){
+    use exr::prelude::*;
+    let reader = read().no_deep_data();
 }
 ```
 
-Loading only specified channels:
+### Resolution Levels
+Decide whether you want to load the largest resolution level, or all Mip Maps from the file.
+Loading only the largest level actually skips portions of the image, which should be faster.
+
+Calling `largest_resolution_level()` will result in a single image (`FlatSamples`),
+whereas calling `all_resolution_levels()` will result in multiple levels `Levels<FlatSamples>`.
+
 ```rust
-fn main() {
+fn main(){
     use exr::prelude::*;
+    let reader = read().no_deep_data().largest_resolution_level();
+    let reader = read().no_deep_data().all_resolution_levels();
+}
+```
 
-    // the type of the this image depends on the chosen options
-    let image = read()
-        .no_deep_data() // (currently required)
-        .largest_resolution_level() // or `all_resolution_levels()`
+### Channels
+Decide whether you want to load all channels in a dynamic list, or only load a fixed set of channels.
 
-        // alternative to `all_channels()`
-        .specific_channels().required("X").required("Y").required("Z").optional("A", 1.0).collect_pixels(
-            // create our image with the resolution of the file
-            |resolution, (x_channel, y_channel, z_channel, a_channel)|{
-                if a_channel.is_some() { MyImage::with_alpha(resolution) }
-                else { MyImage::without_alpha(resolution) }
+Calling `all_channels()` will result in a `Vec<Channel<_>>`. 
+
+```rust
+fn main(){
+    use exr::prelude::*;
+    let reader = read().no_deep_data().largest_resolution_level().all_channels();
+}
+```
+
+The alternative, `specific_channels()` allows you to exactly specify which channels should be loaded.
+The usage follows the same builder pattern as the rest of the library.
+
+First, call `specific_channels()`. Then, for each channel you desire,
+call either `required(channel_name)` or `optional(channel_name, default_value)`.
+At last, call `collect_pixels()` to define how the pixels should be stored in an image.
+This additional mechanism will not simply store the pixels in a `Vec<Pixel>`, but instead
+works with a closure. This allows you to instantiate your own existing image type with
+the pixel data from the file. 
+
+```rust
+fn main(){
+    use exr::prelude::*;
+    
+    let reader = read()
+        .no_deep_data().largest_resolution_level()
+        
+        // load LAB channels, with chroma being optional
+        .specific_channels().required("L").optional("A", 0.0).optional("B", 0.0).collect_pixels(
+        
+            // create our image based on the resolution of the file
+            |resolution: Vec2<usize>, (l,a,b): (ChannelDescription, Option<ChannelDescription>, Option<ChannelDescription>)|{
+                if a.is_some() && b.is_some() { MyImage::new_lab(resolution) }
+                else { MyImage::new_luma(resolution) }
             },
         
-            // define how to insert a single pixel
-            // define that x should be converted to f32, and y and z should be converted to f16
-            // and alpha should not be converted (may be either f16, f32, or u32)
-            |my_image, pos, (x,y,z,a): (f32,f16,f16,Sample)|{
-                my_image.set_color(pos.x(), pos.y(), (x,y,z,a.to_f32()));
+            // insert a single pixel into out image
+            |my_image: &mut MyImage, position: Vec<usize>, (l,a,b): (f32, f16, f16)|{
+                my_image.set_pixel_at(position.x(), position.y(), (l, a, b));
             }
-        )   
         
+        );
+}
+```
+
+The first closure is the constructor of your image, and the second closure is the setter for a single pixel in your image.
+The tuple containing the channel descriptions and the pixel tuple depend on the channels that you defined earlier.
+In this example, as we defined to load L,A and B, each pixel has three values. The arguments of the closure
+can usually be inferred, so you don't need to declare the type of your image and the `Vec2<usize>`.
+However, the type of the pixel needs to be defined. In this example, we define the pixel type to be `(f32, f16, f16)`.
+All luma values will be converted to `f32` and all chroma values will be converted to `f16`.
+The pixel type can be any combination of `f16`, `f32`, `u32` or `Sample` values, in a tuple with as many entries as there are channels.
+The `Sample` type is a dynamic enum over the other types, which allows you to keep the original sample type of each image.
+
+_Note: Currently, only up to 8 channels are supported, which is an implementation problem. 
+Open an issue if this is not enough for your use case._
+
+####RGBA Channels
+For rgba images, there is a predefined simpler alternative to `specific_channels` called `rgba_channels`.
+It works just the same as `specific_channels`, but you don't need to specify the names of the channels explicitly.
+
+```rust
+fn main(){
+    use exr::prelude::*;
+    
+    let reader = read()
+        .no_deep_data().largest_resolution_level()
+        
+        // load rgba channels
+        // with alpha being optional, defaulting to 1.0
+        .rgba_channels(
+        
+            // create our image based on the resolution of the file
+            |resolution: Vec2<usize>, (r,g,b,a)|{
+                if a.is_some() { MyImage::new_with_alpha(resolution) }
+                else { MyImage::new_without_alpha(resolution) }
+            },
+        
+            // insert a single pixel into out image
+            |my_image: &mut MyImage, position: Vec<usize>, (r,g,b,a): (f32, f32, f32, f16)|{
+                my_image.set_pixel_at(position.x(), position.y(), (r,g,b,a));
+            }
+        
+        );
+}
+```
+
+
+### Layers
+Use `all_layers()` to load a `Vec<Layer<_>>` or use `first_valid_layer()` to only load 
+the first `Layer<_>` that matches the previously defined requirements 
+(for example, the first layer without deep data).
+
+
+```rust
+fn main() {
+    use exr::prelude::*;
+
+    let image = read()
+        .no_deep_data().largest_resolution_level()
+        .all_channels().all_layers();
+
+    let image = read()
+        .no_deep_data().largest_resolution_level()
+        .all_channels().first_valid_layer();
+}
+```
+
+### Attributes
+Currently, the only option is to load all attributes by calling `all_attributes()`.
+
+### Progress Notification
+This library allows you to listen for the file reading progress by calling `on_progress(callback)`.
+If you don't need this, you can just omit this call.
+
+```rust
+fn main() {
+    use exr::prelude::*;
+
+    let image = read().no_deep_data().largest_resolution_level()
+        .all_channels().first_valid_layer().all_attributes()
+        .on_progress(|progress: f64| println!("progress: {:.3}", progress));
+}
+```
+
+### Parallel Decompression
+By default, this library uses all the available CPU cores if the pixels are compressed.
+You can disable this behaviour by additionally calling `non_parallel()`.
+
+```rust
+fn main() {
+use exr::prelude::*;
+
+    let image = read().no_deep_data().largest_resolution_level()
+        .all_channels().first_valid_layer().all_attributes()
+        .non_parallel();
+}
+```
+
+### Byte Sources
+Any `std::io::Read` byte source can be used as input. However, this library also offers a simplification for files.
+Call `from_file(path)` to load an image from a file. Internally, this wraps the file in a buffered reader.
+Alternatively, you can call `from_buffered` or `from_unbuffered` (which wraps your reader in a buffered reader) to read an image.
+
+```rust
+fn main() {
+use exr::prelude::*;
+
+    let read = read().no_deep_data().largest_resolution_level()
+        .all_channels().first_valid_layer().all_attributes();
+    
+    let image = read.clone().from_file("D:/images/file.exr"); // also accepts `Path` and `PathBuf` and `String`
+    let image = read.clone().from_unbuffered(web_socket);
+    let image = read.clone().from_buffered(Cursor::new(byte_vec));
+}
+```
+
+### Results and Errors
+The type of image returned depends on the options you picked.
+The image is wrapped in a `Result<..., exr::error::Error>`.
+This error type allows you to differentiate between three types of errors:
+- `Error::Io(std::io::Error)` for file system errors (for example, "file does not exist" or "missing access rights")
+- `Error::NotSupported(str)` for files that may be valid but contain features that are not supported yet
+- `Error::Invalid(str)` for files that do not contain a valid exr image (files that are not exr or damaged exr)
+
+## Full Example
+Loading all channels from the file:
+```rust
+fn main() {
+    use exr::prelude::*;
+
+    // the type of the this image depends on the chosen options
+    let image = read()
+        .no_deep_data() // (currently required)
+        .largest_resolution_level() // or `all_resolution_levels()`
+        .all_channels() // or `rgba_channels` or `specific_channels() ...`
         .all_layers() // or `first_valid_layer()`
         .all_attributes() // (currently required)
         .on_progress(|progress| println!("progress: {:.1}", progress * 100.0)) // optional
@@ -123,106 +297,40 @@ fn main() {
 }
 ```
 
-
-# Writing an Image
-
-Writing an image involves three steps:
-1. Construct the image data structure, starting with an `exrs::image::Image`
-1. Call `image_data.write()` to obtain an image writer
-1. Customize the writer, for example in order to listen for the progress
-1. Write the image by calling `to_file(path)`, `to_buffered(bytes)`, or `to_unbuffered(bytes)` on the reader
-
-Full example, writing a flexible list of channels: 
-````rust
-fn main(){
-    // construct an image to write
-    let image = Image::from_single_layer(
-        Layer::new( // the only layer in this image
-            (1920, 1080), // resolution
-            LayerAttributes::named("main-rgb-layer"), // the layer has a name and other properties
-            Encoding::FAST_LOSSLESS, // compress slightly 
-            AnyChannels::sort(smallvec![ // the channels contain the actual pixel data
-                AnyChannel::new("R", FlatSamples::F32(vec![0.6; 1920*1080 ])), // this channel contains all red values
-                AnyChannel::new("G", FlatSamples::F32(vec![0.7; 1920*1080 ])), // this channel contains all green values
-                AnyChannel::new("B", FlatSamples::F32(vec![0.9; 1920*1080 ])), // this channel contains all blue values
-            ]),
-        )
-    );
-
-    image.write()
-        .on_progress(|progress| println!("progress: {:.1}", progress*100.0)) // optional
-        .non_parallel() // optional. discouraged. just leave this line out
-        .to_file("image.exr").unwrap();
-}
-````
-
-Writing a fixed set of channels: 
-````rust
-fn main(){
-    let my_image = unimplemented!();
-    
-    // construct an image to write
-    let image = Image::from_single_layer(
-        Layer::new( // the only layer in this image
-            (my_image.width(), my_image.height()), // resolution
-            LayerAttributes::named("main-luma-layer"), // the layer has a name and other properties
-            Encoding::FAST_LOSSLESS, // compress slightly 
-            
-            SpecificChannels::build().with_channel("Y").with_channel("A").with_pixel_fn(|position| {
-                let (luma, alpha) = my_image.get_pixel(position.x(), position.y());
-                (luma as f32, f16::from_f32(alpha)) // store f32 luma and f16 alpha samples in the file
-            }),
-        )
-    );
-
-    image.write()
-        .on_progress(|progress| println!("progress: {:.1}", progress*100.0)) // optional
-        .non_parallel() // optional. discouraged. just leave this line out
-        .to_file("image.exr").unwrap();
-}
-````
-
-### Pixel Closures
-When working with specific channels, the data is not stored directly.
-Instead, you provide a closure that stores or loads pixels in your existing image data structure.
-
-If you really do not want to provide your own storage, you can use the predefined structures from
-`exr::image::pixel_vec`, such as `PixelVec<(f32,f32,f16)>` or `create_pixel_vec`.
-Use this only if you don't already have a pixel storage.
 
 # The `Image` Data Structure
 
 For great flexibility, this crate does not offer a plain data structure to represent an exr image.
 Instead, the `Image` data type has a generic parameter, allowing for different image contents.
 
-````rust
+```rust
 fn main(){
     // this image contains only a single layer
-    let single_layer_image: Image<Layer<_>> = Image::from_single_layer(my_layer);
+    let single_layer_image: Image<Layer<_>> = Image::with_layer(my_layer);
 
     // this image contains an arbitrary number of layers
     let multi_layer_image: Image<Layers<_>> = Image::new(attributes, smallvec![ layer1, layer2 ]);
 
     // this image can only contain rgb or rgba channels
-    let single_layer_rgb_image : Image<Layer<RgbaChannels<_>>> = Image::from_single_layer(Layer::new(
+    let single_layer_rgb_image : Image<Layer<RgbaChannels<_>>> = Image::with_layer(Layer::new(
         dimensions, attributes, encoding,
         RgbaChannels::new(sample_types, rgba_pixels)
     ));
     
     // this image can contain arbitrary channels, such as LAB or YCbCr
-    let single_layer_image : Image<Layer<AnyChannels<_>>> = Image::from_single_layer(Layer::new(
+    let single_layer_image : Image<Layer<AnyChannels<_>>> = Image::with_layer(Layer::new(
         dimensions, attributes, encoding,
         AnyChannels::sort(smallvec![ channel_x, channel_y, channel_z ])
     ));
     
 }
-````
+```
 
 The following pseudo code illustrates the image data structure.
 The image should always be constructed using the constructor functions such as `Image::new(...)`,
 because these functions watch out for invalid image contents.
 
-````
+```
 Image {
     attributes: ImageAttributes,
     
@@ -261,11 +369,170 @@ AnyChannel {
 
 Levels = Singular(FlatSamples) | Mip(FlatSamples) | Rip(FlatSamples)
 FlatSamples = F16(Vec<f16>) | F32(Vec<f32>) | U32(Vec<u32>)
-````
+```
 
 As a consequence, one of the simpler image types is `Image<Layer<AnyChannels<FlatSamples>>>`. If you
 enable loading multiple resolution levels, you will instead get the type `Image<Layer<AnyChannels<Levels<FlatSamples>>>>`.
 
-While you can put anything inside an image, 
+While you can put anything inside an image,
 it can only be written if the content of the image implements certain traits.
 This allows you to potentially write your own channel storage system.
+
+
+# Writing an Image
+
+Writing an image involves three steps:
+1. Construct the image data structure, starting with an `exrs::image::Image`
+1. Call `image_data.write()` to obtain an image writer
+1. Customize the writer, for example in order to listen for the progress
+1. Write the image by calling `to_file(path)`, `to_buffered(bytes)`, or `to_unbuffered(bytes)` on the reader
+
+
+### Image
+You will currently need an `Image<_>` at the top level. The type parameter is the type of layer.  
+
+The following variants are recommended:  
+- `Image::new(image_attributes, layer_data)` where the layer data can be `Layers` or `Layer`.
+- `Image::with_layer(layer)` where the layer data must be a `Layer`.
+- `Image::with_pixels(resolution, pixel_data)` where the pixel data must be `SpecificChannels` or `AnyChannels`.
+
+```rust
+fn main() {
+    use exr::prelude::*;
+
+    let image = Image::new(attributes, layer);
+    let image = Image::with_layer(layer);
+    let image = Image::with_pixels(resolution, layer);
+    
+    image.write()
+        
+        // print progress (optional, you can remove this line)
+        .on_progress(|progress:f64| println!("progress: {:.3}", progress))
+
+        // use only a single cpu (optional, you should remove this line)
+        .non_parallel()
+
+        // alternatively call to_buffered() or to_unbuffered()
+        // the file path can be str, String, Path, PathBuf
+        .to_file(path);
+}
+```
+
+### Layers
+You can use either `Layers<_>` or `Layer<_>`. The type parameter is the type of channels.  
+Use `Layer::new(resolution, attributes, encoding, channels)` to create a layer.
+Alternatively, use `smallvec![ layer1, layer2 ]` to create `Layers<_>`, which is a type alias for a list of layers.
+
+```rust
+fn main() {
+    use exr::prelude::*;
+
+    let layer = Layer::new(
+        (1024, 800),
+        LayerAttributes::named("first layer"), // name required, other attributes optional
+        Encoding::FAST_LOSSLESS, // or Encoding { .. } or Encoding::default()
+        channels
+    );
+
+    let image = Image::with_layer(layer);
+    let image = Image::new(attributes, smallvec![ layer.clone(), layer ]);
+}
+```
+
+### Channels
+You can create either `SpecificChannels` to write a fixed set of channels, or `AnyChannels` for a dynamic list of channels.
+
+```rust
+fn main() {
+    use exr::prelude::*;
+
+    let channels = AnyChannels::sort(smallvec![ channel1, channel2, channel3 ]);
+    let image = Image::with_pixels((1024, 800), channels);
+}
+```
+
+Alternatively, write specific channels. Start with `SpecificChannels::build()`, 
+then call `with_channel(name)` as many times as desired, then call `collect_pixels(..)` to define the colors.
+You need to provide a closure that defines the content of the channels: Given the pixel location,
+return a tuple with one element per channel. The tuple can contain `f16`, `f32` or `u32` values, 
+which then will be written to the file, without converting any value to a different type.
+
+```rust
+fn main() {
+    use exr::prelude::*;
+
+    let channels = SpecificChannels::build()
+        .with_channel("L").with_channel("B")
+        .with_pixel_fn(|position: Vec2<usize>| {
+            let (l, b) = my_image.lookup_color_at(position.x(), position.y());
+            (l as f32, f16::from_f32(b))
+        });
+    
+    let image = Image::with_pixels((1024, 800), channels);
+}
+```
+
+There is an even simpler alternative for rgba images, namely `SpecificChannels::rgb` and `SpecificChannels::rgba`:
+This is mostly the same as the `SpecificChannels::build` option.
+```rust
+fn main() {
+    use exr::prelude::*;
+
+    let channels = SpecificChannels::rgba(|_position| 
+        (0.4_f32, 0.2_f32, 0.1_f32, f16::ONE)
+    );
+    
+    let channels = SpecificChannels::rgb(|_position| 
+        (0.4_f32, 0.2_f32, 0.1_f32)
+    );
+    
+    let image = Image::with_pixels((1024, 800), channels);
+}
+```
+
+### Channel
+This type can describe any channel and contains all its samples for this layer.   
+Use `AnyChannel::new(channel_name, sample_data)` or `AnyChannel { .. }`.
+The samples can currently only be `FlatSamples` or `Levels<FlatSamples>`, and in the future might be `DeepSamples`.
+
+### Samples
+Currently, only flat samples are supported. These do not contain deep data.  
+Construct flat samples directly using `FlatSamples::F16(samples_vec)`, `FlatSamples::F32(samples_vec)`, or `FlatSamples::U32(samples_vec)`.
+The vector contains all samples of the layer, row by row (bottom up), from left to right.
+
+### Levels
+Optionally include Mip Maps or Rip Maps.  
+Construct directly using `Levels::Singular(flat_samples)` or `Levels::Mip { .. }` or `Levels::Rip { .. }`.
+
+## Full example
+Writing a flexible list of channels: 
+```rust
+fn main(){
+    // construct an image to write
+    let image = Image::with_layer(
+        Layer::new( // the only layer in this image
+            (1920, 1080), // resolution
+            LayerAttributes::named("main-rgb-layer"), // the layer has a name and other properties
+            Encoding::FAST_LOSSLESS, // compress slightly 
+            AnyChannels::sort(smallvec![ // the channels contain the actual pixel data
+                AnyChannel::new("R", FlatSamples::F32(vec![0.6; 1920*1080 ])), // this channel contains all red values
+                AnyChannel::new("G", FlatSamples::F32(vec![0.7; 1920*1080 ])), // this channel contains all green values
+                AnyChannel::new("B", FlatSamples::F32(vec![0.9; 1920*1080 ])), // this channel contains all blue values
+            ]),
+        )
+    );
+
+    image.write()
+        .on_progress(|progress| println!("progress: {:.1}", progress*100.0)) // optional
+        .to_file("image.exr").unwrap();
+}
+```
+
+
+### Pixel Closures
+When working with specific channels, the data is not stored directly.
+Instead, you provide a closure that stores or loads pixels in your existing image data structure.
+
+If you really do not want to provide your own storage, you can use the predefined structures from
+`exr::image::pixel_vec`, such as `PixelVec<(f32,f32,f16)>` or `create_pixel_vec`.
+Use this only if you don't already have a pixel storage.

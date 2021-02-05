@@ -310,8 +310,6 @@ impl<SampleStorage, Channels> SpecificChannels<SampleStorage, Channels> {
             SampleStorage::Pixel: IntoRecursive,
             Channels: Sync + Clone + IntoRecursive,
             <Channels as IntoRecursive>::Recursive: WritableChannelsDescription<<SampleStorage::Pixel as IntoRecursive>::Recursive>,
-            // SampleStorage: GetPixel,
-            // <SampleStorage as GetPixel>::Pixel: IntoRecursive<Recursive=RecursivePixel>,
     {
         SpecificChannels { channels, storage: source_samples }
     }
@@ -732,9 +730,9 @@ impl Default for Encoding {
     fn default() -> Self { Encoding::FAST_LOSSLESS }
 }
 
-impl<'s, LayerData: 's> Image<LayerData> {
+impl<'s, LayerData: 's> Image<LayerData> where LayerData: WritableLayers<'s> {
     /// Create an image with one or multiple layers. The layer can be a `Layer`, or `Layers` small vector.
-    pub fn new(image_attributes: ImageAttributes, layer_data: LayerData) -> Self where LayerData: WritableLayers<'s> {
+    pub fn new(image_attributes: ImageAttributes, layer_data: LayerData) -> Self {
         Image { attributes: image_attributes, layer_data }
     }
 }
@@ -742,20 +740,20 @@ impl<'s, LayerData: 's> Image<LayerData> {
 impl<'s, ChannelData:'s> Image<Layer<ChannelData>> where ChannelData: WritableChannels<'s> {
 
     /// Uses the display position and size to the channel position and size of the layer.
-    pub fn from_single_layer(layer: Layer<ChannelData>) -> Self {
+    pub fn with_layer(layer: Layer<ChannelData>) -> Self {
         let bounds = IntegerBounds::new(layer.attributes.layer_position, layer.size);
         Self::new(ImageAttributes::new(bounds), layer)
     }
 
     /// Uses empty attributes.
-    pub fn with_encoded_single_layer(size: impl Into<Vec2<usize>>, encoding: Encoding, channels: ChannelData) -> Self {
+    pub fn with_encoded_layer(size: impl Into<Vec2<usize>>, encoding: Encoding, channels: ChannelData) -> Self {
         // layer name is not required for single-layer images
-        Self::from_single_layer(Layer::new(size, LayerAttributes::default(), encoding, channels))
+        Self::with_layer(Layer::new(size, LayerAttributes::default(), encoding, channels))
     }
 
     /// Uses empty attributes and fast compression.
-    pub fn with_single_layer(size: impl Into<Vec2<usize>>, channels: ChannelData) -> Self {
-        Self::with_encoded_single_layer(size, Encoding::default(), channels)
+    pub fn with_pixels(size: impl Into<Vec2<usize>>, channels: ChannelData) -> Self {
+        Self::with_encoded_layer(size, Encoding::default(), channels)
     }
 }
 
