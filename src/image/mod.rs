@@ -741,27 +741,12 @@ impl<'s, LayerData: 's> Image<LayerData> where LayerData: WritableLayers<'s> {
 
 // explorable constructor alias
 impl<'s, Channels: 's> Image<Layers<Channels>> where Channels: WritableChannels<'s> {
-    /// Create an image with multiple layers. The layer can be a `Vec<Layer>`, or `Layers` (a small vector), or `&[Layer]`.
-    pub fn from_layers(image_attributes: ImageAttributes, layer_data: Layers<Channels>) -> Self {
-        Self::new(image_attributes, layer_data)
+    /// Create an image with multiple layers. The layer can be a `Vec<Layer>` or `Layers` (a small vector).
+    pub fn from_layers(image_attributes: ImageAttributes, layer_data: impl Into<Layers<Channels>>) -> Self {
+        Self::new(image_attributes, layer_data.into())
     }
 }
 
-// explorable constructor alias
-impl<'s, Channels: 's> Image<Vec<Layer<Channels>>> where Channels: WritableChannels<'s> {
-    /// Create an image with multiple layers. The layer can be a `Vec<Layer>`, or `Layers` (a small vector), or `&[Layer]`.
-    pub fn from_layers_vec(image_attributes: ImageAttributes, layer_data: Vec<Layer<Channels>>) -> Self {
-        Self::new(image_attributes, layer_data)
-    }
-}
-
-// explorable constructor alias
-impl<'s, Channels: 's> Image<&'s [Layer<Channels>]> where Channels: WritableChannels<'s> {
-    /// Create an image with multiple layers. The layer can be a `Vec<Layer>`, or `Layers` (a small vector), or `&[Layer]`.
-    pub fn from_layers_slice(image_attributes: ImageAttributes, layer_data: &'s [Layer<Channels>]) -> Self {
-        Self::new(image_attributes, layer_data)
-    }
-}
 
 impl<'s, ChannelData:'s> Image<Layer<ChannelData>> where ChannelData: WritableChannels<'s> {
 
@@ -783,6 +768,24 @@ impl<'s, ChannelData:'s> Image<Layer<ChannelData>> where ChannelData: WritableCh
     }
 }
 
+
+impl Image<NoneMore> {
+    pub fn empty(attributes: ImageAttributes) -> Self { Self { attributes, layer_data: NoneMore } }
+}
+
+impl<'s, InnerLayers: 's> Image<InnerLayers> where
+    InnerLayers: WritableLayers<'s>,
+{
+    pub fn with_layer<NewChannels>(self, layer: Layer<NewChannels>)
+        -> Image<Recursive<InnerLayers, Layer<NewChannels>>>
+        where NewChannels: 's + WritableChannels<'s>
+    {
+        Image {
+            attributes: self.attributes,
+            layer_data: Recursive::new(self.layer_data, layer)
+        }
+    }
+}
 
 
 impl<'s, SampleData: 's> AnyChannel<SampleData> {

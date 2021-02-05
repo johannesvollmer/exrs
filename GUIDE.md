@@ -392,30 +392,38 @@ Writing an image involves three steps:
 You will currently need an `Image<_>` at the top level. The type parameter is the type of layer.  
 
 The following variants are recommended:  
+- `Image::from_channels(resolution, channels)` where the pixel data must be `SpecificChannels` or `AnyChannels`.
+- `Image::from_layer(layer)` where the layer data must be one `Layer`.
+- `Image::empty(attributes).with_layer(layer1).with_layer(layer2)...` where the two layers can have different types
 - `Image::new(image_attributes, layer_data)` where the layer data can be `Layers` or `Layer`.
 - `Image::from_layers(image_attributes, layer_vec)` where the layer data can be `Layers`.
-- `Image::from_layers_vec(image_attributes, layer_vec)` where the layer data can be `Vec<Layer>`.
-- `Image::from_layers_slice(image_attributes, layer_vec)` where the layer data can be `&[Layers]`.
-- `Image::from_layer(layer)` where the layer data must be a `Layer`.
-- `Image::from_channels(resolution, channels)` where the pixel data must be `SpecificChannels` or `AnyChannels`.
 
 ```rust
 fn main() {
     use exr::prelude::*;
 
-    let image = Image::new(attributes, layers);
-    let image = Image::from_layers(attributes, smallvec![ layer1, layer2 ]);
-    
+    // single layer constructors
     let image = Image::from_layer(layer);
     let image = Image::from_channels(resolution, channels);
     
+    // use this if the layers have different types
+    let image = Image::empty(attributes).with_layer(layer1).with_layer(layer2);
+
+    // use this if the layers have the same type and the above method does not work for you
+    let image = Image::from_layers(attributes, smallvec![ layer1, layer2 ]);
+
+    // this constructor accepts any layers object if it implements a certain trait, use this for custom layers
+    let image = Image::new(attributes, layers);
+
+
+    // create an image writer
     image.write()
         
         // print progress (optional, you can remove this line)
         .on_progress(|progress:f64| println!("progress: {:.3}", progress))
 
         // use only a single cpu (optional, you should remove this line)
-        .non_parallel()
+        // .non_parallel()
 
         // alternatively call to_buffered() or to_unbuffered()
         // the file path can be str, String, Path, PathBuf
@@ -424,7 +432,9 @@ fn main() {
 ```
 
 ### Layers
-You can use either `Layers<_>` or `Layer<_>`. The type parameter is the type of channels.  
+The simple way to create layers is to use `Layers<_>` or `Layer<_>`. 
+The type parameter is the type of channels.  
+
 Use `Layer::new(resolution, attributes, encoding, channels)` to create a layer.
 Alternatively, use `smallvec![ layer1, layer2 ]` to create `Layers<_>`, which is a type alias for a list of layers.
 
@@ -440,9 +450,9 @@ fn main() {
     );
 
     let image = Image::from_layer(layer);
-    let image = Image::from_layers(attributes, smallvec![ layer.clone(), layer ]);
 }
 ```
+
 
 ### Channels
 You can create either `SpecificChannels` to write a fixed set of channels, or `AnyChannels` for a dynamic list of channels.
