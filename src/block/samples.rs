@@ -19,16 +19,20 @@ pub enum Sample {
 
 impl Sample {
 
-    /// Returns the default value of `1.0`, which is used for a missing alpha channel.
-    pub fn one() -> Self {
-        Sample::F32(1.0)
-    }
+    /// Create a sample containing a 32-bit float.
+    pub fn f32(f32: f32) -> Self { Sample::F32(f32) }
+
+    /// Create a sample containing a 16-bit float.
+    pub fn f16(f16: f16) -> Self { Sample::F16(f16) }
+
+    /// Create a sample containing a 32-bit integer.
+    pub fn u32(u32: u32) -> Self { Sample::U32(u32) }
 
     /// Convert the sample to an f16 value. This has lower precision than f32.
     /// Note: An f32 can only represent integers up to `1024` as precise as a u32 could.
     #[inline]
-    pub fn to_f16(&self) -> f16 {
-        match *self {
+    pub fn to_f16(self) -> f16 {
+        match self {
             Sample::F16(sample) => sample,
             Sample::F32(sample) => f16::from_f32(sample),
             Sample::U32(sample) => f16::from_f32(sample as f32),
@@ -38,8 +42,8 @@ impl Sample {
     /// Convert the sample to an f32 value.
     /// Note: An f32 can only represent integers up to `8388608` as precise as a u32 could.
     #[inline]
-    pub fn to_f32(&self) -> f32 {
-        match *self {
+    pub fn to_f32(self) -> f32 {
+        match self {
             Sample::F32(sample) => sample,
             Sample::F16(sample) => sample.to_f32(),
             Sample::U32(sample) => sample as f32,
@@ -48,8 +52,8 @@ impl Sample {
 
     /// Convert the sample to a u32. Rounds floats to integers the same way that `3.1 as u32` does.
     #[inline]
-    pub fn to_u32(&self) -> u32 {
-        match *self {
+    pub fn to_u32(self) -> u32 {
+        match self {
             Sample::F16(sample) => sample.to_f32() as u32,
             Sample::F32(sample) => sample as u32,
             Sample::U32(sample) => sample,
@@ -58,8 +62,8 @@ impl Sample {
 
     /// Is this value not a number?
     #[inline]
-    pub fn is_nan(&self) -> bool {
-        match *self {
+    pub fn is_nan(self) -> bool {
+        match self {
             Sample::F16(value) => value.is_nan(),
             Sample::F32(value) => value.is_nan(),
             Sample::U32(_) => false,
@@ -87,9 +91,20 @@ impl PartialEq for Sample {
     }
 }
 
+// this is not recommended because it may hide whether a color is transparent or opaque and might be undesired for depth channels
+impl Default for Sample {
+    fn default() -> Self { Sample::F32(0.0) }
+}
+
 impl From<f16> for Sample { #[inline] fn from(f: f16) -> Self { Sample::F16(f) } }
 impl From<f32> for Sample { #[inline] fn from(f: f32) -> Self { Sample::F32(f) } }
 impl From<u32> for Sample { #[inline] fn from(f: u32) -> Self { Sample::U32(f) } }
+
+impl<T> From<Option<T>> for Sample where T: Into<Sample> + Default {
+    #[inline] fn from(num: Option<T>) -> Self { num.unwrap_or_default().into() }
+}
+
+
 impl From<Sample> for f16 { #[inline] fn from(s: Sample) -> Self { s.to_f16() } }
 impl From<Sample> for f32 { #[inline] fn from(s: Sample) -> Self { s.to_f32() } }
 impl From<Sample> for u32 { #[inline] fn from(s: Sample) -> Self { s.to_u32() } }

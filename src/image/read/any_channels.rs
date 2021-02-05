@@ -6,7 +6,7 @@ use crate::error::{Result, UnitResult};
 use crate::block::UncompressedBlock;
 use crate::block::lines::{LineRef};
 use crate::math::Vec2;
-use crate::meta::attribute::{Text, ChannelInfo};
+use crate::meta::attribute::{Text, ChannelDescription};
 use crate::image::read::layers::{ReadChannels, ChannelsReader};
 use crate::block::chunk::TileCoordinates;
 
@@ -27,7 +27,7 @@ pub trait ReadSamples {
     type Reader: SamplesReader;
 
     /// Create a single reader for a single channel of a layer
-    fn create_sample_reader(&self, header: &Header, channel: &ChannelInfo) -> Result<Self::Reader>;
+    fn create_sample_reader(&self, header: &Header, channel: &ChannelDescription) -> Result<Self::Reader>;
 }
 
 /// Processes pixel blocks from a file and accumulates them into a collection of arbitrary channels.
@@ -79,7 +79,7 @@ impl<'s, S: 's + ReadSamples> ReadChannels<'s> for ReadAnyChannels<S> {
 
     fn create_channels_reader(&self, header: &Header) -> Result<Self::Reader> {
         let samples: Result<_> = header.channels.list.iter()
-            .map(|channel: &ChannelInfo| Ok(AnyChannelReader {
+            .map(|channel: &ChannelDescription| Ok(AnyChannelReader {
                 samples: self.read_samples.create_sample_reader(header, channel)?,
                 name: channel.name.clone(),
                 sampling_rate: channel.sampling,

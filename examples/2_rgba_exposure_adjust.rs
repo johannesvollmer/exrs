@@ -4,6 +4,8 @@ extern crate exr;
 
 /// Read an rgba image, increase the exposure, and then write it back.
 /// Uses multi-core compression where appropriate.
+///
+/// All non-rgba channels and all layers except the first rgba layers will not be present in the new file.
 fn main() {
     use exr::prelude::*;
 
@@ -12,30 +14,27 @@ fn main() {
     // This struct trades sub-optimal memory-efficiency for clarity,
     // because this is an example, and does not have to be perfectly efficient.
     #[derive(Debug, PartialEq)]
-    struct CustomPixels { lines: Vec<Vec<[f16; 4]>> };
+    struct CustomPixels { lines: Vec<Vec<RgbaF32Pixel>> };
+    type RgbaF32Pixel = (f32, f32, f32, f32);
 
     // read the image from a file
     let mut image = read().no_deep_data()
         .largest_resolution_level()
         .rgba_channels(
             // create our custom image based on the file info
-            |image: &RgbaChannelsInfo| -> CustomPixels {
-                println!("loaded image {:#?}", image);
-
-                let default_rgba_pixel = [f16::ZERO, f16::ZERO, f16::ZERO, f16::ONE];
-                let default_line = vec![default_rgba_pixel; image.resolution.width()];
-                let lines = vec![default_line; image.resolution.height()];
+            |resolution, _channels| -> CustomPixels {
+                let default_rgba_pixel = (0.0, 0.0, 0.0, 0.0);
+                let default_line = vec![default_rgba_pixel; resolution.width()];
+                let lines = vec![default_line; resolution.height()];
                 CustomPixels { lines }
             },
 
-            // set a single pixel with red, green, blue, and optionally and alpha value.
-            |image: &mut CustomPixels, position: Vec2<usize>, pixel: RgbaPixel| {
+            // request pixels with red, green, blue, and optionally and alpha values.
+            // transfer each pixel from the file to our image
+            |image, position, (r,g,b,a): RgbaF32Pixel| {
 
-                // convert all samples, including alpha, to four 16-bit floats
-                let pixel_f16_array: [f16; 4] = pixel.into();
-
-                // insert the values into out custom image
-                image.lines[position.y()][position.x()] = pixel_f16_array;
+                // insert the values into our custom image
+                image.lines[position.y()][position.x()] = (r,g,b,a);
             }
         )
         .first_valid_layer()
@@ -47,12 +46,12 @@ fn main() {
 
     {   // increase exposure of all pixels
         for line in &mut image.layer_data.channel_data.storage.lines {
-            for pixel in line {
-                for sample in &mut pixel[0..3] { // only modify rgb, not alpha
-                    // no gamma correction necessary because
-                    // exposure adjustment should be done in linear color space
-                    *sample = f16::from_f32(sample.to_f32() * exposure_multiplier);
-                }
+            for (r,g,b,_) in line {
+                // you should probably check the color space and white points
+                // for high quality color adjustments
+                *r *= exposure_multiplier;
+                *g *= exposure_multiplier;
+                *b *= exposure_multiplier;
             }
         }
 
@@ -64,9 +63,9 @@ fn main() {
     }
 
     // enable writing our custom pixel storage to a file
-    // TODO this should be passed as a closure to the `write().rgba_with(|x| y)` call
-    impl GetRgbaPixel for CustomPixels {
-        type Pixel = [f16; 4];
+    // FIXME this should be passed as a closure to the `write_with(|x| y)` call
+    impl GetPixel for CustomPixels {
+        type Pixel = RgbaF32Pixel;
         fn get_pixel(&self, position: Vec2<usize>) -> Self::Pixel {
             self.lines[position.y()][position.x()]
         }

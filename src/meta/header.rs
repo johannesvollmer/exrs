@@ -315,7 +315,7 @@ impl Header {
     /// - tiles (64 x 64 px)
     /// - unspecified line order
     /// - no custom attributes
-    pub fn new(name: Text, data_size: impl Into<Vec2<usize>>, channels: SmallVec<[ChannelInfo; 5]>) -> Self {
+    pub fn new(name: Text, data_size: impl Into<Vec2<usize>>, channels: SmallVec<[ChannelDescription; 5]>) -> Self {
         let data_size: Vec2<usize> = data_size.into();
 
         let compression = Compression::RLE;
@@ -564,7 +564,7 @@ impl Header {
         };
 
         self.channels.list.iter()
-            .map(|channel: &ChannelInfo|
+            .map(|channel: &ChannelDescription|
                 pixel_count_of_levels(channel.subsampled_resolution(self.layer_size)) * channel.sample_type.bytes_per_sample()
             )
             .sum()

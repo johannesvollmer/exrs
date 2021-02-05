@@ -181,8 +181,6 @@ pub fn read_filtered_blocks_from_buffered<T>(
         self::read_filtered_chunks_from_buffered(read, new, filter, pedantic)?
     };
 
-    // TODO use chunk_count for reader creation (ReadOnProgresss needs this)
-
     for_decompressed_blocks_in_chunks(
         std::iter::from_fn(|| read_chunk(&meta_data)), &meta_data, chunk_count,
         |meta, line| insert(&mut value, meta, line),

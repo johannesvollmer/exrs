@@ -8,20 +8,22 @@ fn main() {
         "tests/images/out/generated_rgba.exr", // run the `1_generate_rgba` example to generate this file
 
         // instantiate your image type with the size of the image file
-        |info| {
+        |resolution, _channels| {
             let default_pixel = [0.0, 0.0, 0.0, 0.0];
-            let empty_line =  vec![ default_pixel; info.resolution.width() ];
-            let empty_image =  vec![ empty_line; info.resolution.height() ];
+            let empty_line =  vec![ default_pixel; resolution.width() ];
+            let empty_image =  vec![ empty_line; resolution.height() ];
             empty_image
         },
 
-        // transfer the colors from the file to your image type
-        |pixel_vector, position, pixel| {
-            pixel_vector[position.y()][position.x()] = pixel.into()
+        // transfer the colors from the file to your image type,
+        // requesting all values to be converted to f32 numbers (you can also directly use f16 instead)
+        // and you could also use `Sample` instead of `f32` to keep the original data type from the file
+        |pixel_vector, position, (r,g,b, a): (f32, f32, f32, f32)| {
+            pixel_vector[position.y()][position.x()] = [r, g, b, a]
         },
 
     ).unwrap();
 
-    // printing all pixels might kill the console lol, so only print some meta data about the image
-    println!("opened file generated_rgba.exr.exr: {:#?}", image.layer_data.attributes);
+    // printing all pixels might kill the console, so only print some meta data about the image
+    println!("opened file generated_rgba.exr: {:#?}", image.layer_data.attributes);
 }

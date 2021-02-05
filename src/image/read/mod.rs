@@ -44,19 +44,22 @@
 
 pub mod image;
 pub mod layers;
-pub mod rgba_channels;
+// pub mod rgba_channels;
 pub mod any_channels;
 pub mod levels;
 pub mod samples;
+pub mod specific_channels;
 
 use crate::error::{Result};
 use crate::image::read::samples::{ReadFlatSamples};
 use std::path::Path;
-use crate::image::{AnyImage, RgbaLayersImage, RgbaImage, AnyChannels, FlatSamples, Image, Layer, FlatImage, RgbaPixel};
+use crate::image::{AnyImage, AnyChannels, FlatSamples, Image, Layer, FlatImage, PixelLayersImage, RgbaChannels};
 use crate::image::read::image::ReadLayers;
 use crate::image::read::layers::ReadChannels;
 use crate::math::Vec2;
-use crate::prelude::RgbaChannelsInfo;
+use crate::prelude::{PixelImage};
+use crate::image::read::specific_channels::FromNativeSample;
+
 
 /// All resolution levels, all channels, all layers.
 /// Does not support deep data yet. Uses parallel decompression and relaxed error handling.
@@ -99,14 +102,25 @@ pub fn read_first_flat_layer_from_file(path: impl AsRef<Path>) -> Result<Image<L
 }
 
 /// No deep data, no resolution levels, rgba channels, all layers.
+/// If a single layer does not contain rgba data, this method returns an error.
 /// Uses parallel decompression and relaxed error handling.
 /// `Create` and `Set` can be closures, see the examples for more information.
 /// Inspect the source code of this function if you need customization.
+/// The alpha channel will contain the value `1.0` if no alpha channel can be found in the image.
+///
+/// Using two closures, define how to store the pixels.
+/// The first closure creates an image, and the second closure inserts a single pixel.
+/// The type of the pixel can be defined by the second closure;
+/// it must be a tuple containing four values, each being either `f16`, `f32`, `u32` or `Sample`.
 // FIXME Set and Create should not need to be static
-pub fn read_all_rgba_layers_from_file<Set:'static, Create:'static, Pixels: 'static>(path: impl AsRef<Path>, create: Create, set_pixel: Set)
-    -> Result<RgbaLayersImage<Pixels>>
-    where Create: Fn(&RgbaChannelsInfo) -> Pixels, // CreateRgbaPixels<Pixels=Pixels>,
-          Set: Fn(&mut Pixels, Vec2<usize>, RgbaPixel), // SetRgbaPixel<Pixels>
+pub fn read_all_rgba_layers_from_file<R,G,B,A, Set:'static, Create:'static, Pixels: 'static>(
+    path: impl AsRef<Path>, create: Create, set_pixel: Set
+)
+    -> Result<PixelLayersImage<Pixels, RgbaChannels>>
+    where
+        R: FromNativeSample, G: FromNativeSample, B: FromNativeSample, A: FromNativeSample,
+        Create: Fn(Vec2<usize>, &RgbaChannels) -> Pixels, // TODO type alias? CreateRgbaPixels<Pixels=Pixels>,
+        Set: Fn(&mut Pixels, Vec2<usize>, (R,G,B,A)),
 {
     read()
         .no_deep_data()
@@ -117,15 +131,25 @@ pub fn read_all_rgba_layers_from_file<Set:'static, Create:'static, Pixels: 'stat
         .from_file(path)
 }
 
-/// No deep data, no resolution levels, rgba channels, first layer.
+/// No deep data, no resolution levels, rgba channels, choosing the first layer with rgba channels.
 /// Uses parallel decompression and relaxed error handling.
 /// `Create` and `Set` can be closures, see the examples for more information.
 /// Inspect the source code of this function if you need customization.
+/// The alpha channel will contain the value `1.0` if no alpha channel can be found in the image.
+///
+/// Using two closures, define how to store the pixels.
+/// The first closure creates an image, and the second closure inserts a single pixel.
+/// The type of the pixel can be defined by the second closure;
+/// it must be a tuple containing four values, each being either `f16`, `f32`, `u32` or `Sample`.
 // FIXME Set and Create should not need to be static
-pub fn read_first_rgba_layer_from_file<Set:'static, Create:'static, Pixels:'static>(path: impl AsRef<Path>, create: Create, set_pixel: Set)
-    -> Result<RgbaImage<Pixels>>
-    where Create: Fn(&RgbaChannelsInfo) -> Pixels, // CreateRgbaPixels<Pixels=Pixels>,
-          Set: Fn(&mut Pixels, Vec2<usize>, RgbaPixel), // SetRgbaPixel<Pixels>
+pub fn read_first_rgba_layer_from_file<R,G,B,A, Set:'static, Create:'static, Pixels: 'static>(
+    path: impl AsRef<Path>, create: Create, set_pixel: Set
+)
+    -> Result<PixelImage<Pixels, RgbaChannels>>
+    where
+        R: FromNativeSample, G: FromNativeSample, B: FromNativeSample, A: FromNativeSample,
+        Create: Fn(Vec2<usize>, &RgbaChannels) -> Pixels, // TODO type alias? CreateRgbaPixels<Pixels=Pixels>,
+        Set: Fn(&mut Pixels, Vec2<usize>, (R,G,B,A)),
 {
     read()
         .no_deep_data()

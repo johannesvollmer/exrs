@@ -98,7 +98,7 @@ pub enum AttributeValue {
 /// A byte array with each byte being a char.
 /// This is not UTF an must be constructed from a standard string.
 // TODO is this ascii? use a rust ascii crate?
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Default)] // hash implemented manually
+#[derive(Clone, PartialEq, Ord, PartialOrd, Default)] // hash implemented manually
 pub struct Text {
     bytes: TextBytes,
 }
@@ -187,7 +187,7 @@ pub struct FloatRect {
 pub struct ChannelList {
 
     /// The channels in this list.
-    pub list: SmallVec<[ChannelInfo; 5]>,
+    pub list: SmallVec<[ChannelDescription; 5]>,
 
     /// The number of bytes that one pixel in this image needs.
     // FIXME this needs to account for subsampling anywhere?
@@ -201,7 +201,7 @@ pub struct ChannelList {
 /// Does not contain the actual pixel data,
 /// but instead merely describes it.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ChannelInfo {
+pub struct ChannelDescription {
 
     /// One of "R", "G", or "B" most of the time.
     pub name: Text,
@@ -224,7 +224,7 @@ pub struct ChannelInfo {
     pub sampling: Vec2<usize>,
 }
 
-/// What kind of pixels are in this channel.
+/// The type of samples in this channel.
 #[derive(Clone, Debug, Eq, PartialEq, Copy, Hash)]
 pub enum SampleType {
 
@@ -580,6 +580,20 @@ impl Text {
     }
 }
 
+impl PartialEq<str> for Text {
+    fn eq(&self, other: &str) -> bool {
+        self.eq(other)
+    }
+}
+
+impl PartialEq<Text> for str {
+    fn eq(&self, other: &Text) -> bool {
+        other.eq(self)
+    }
+}
+
+impl Eq for Text {}
+
 impl Borrow<TextSlice> for Text {
     fn borrow(&self) -> &TextSlice {
         self.as_slice()
@@ -606,6 +620,7 @@ impl<'s> From<&'s str> for Text {
         Self::new_or_panic(str)
     }
 }
+
 
 /* TODO (currently conflicts with From<&str>)
 impl<'s> TryFrom<&'s str> for Text {
@@ -644,7 +659,7 @@ impl ::std::fmt::Display for Text {
 impl ChannelList {
 
     /// Does not validate channel order.
-    pub fn new(channels: SmallVec<[ChannelInfo; 5]>) -> Self {
+    pub fn new(channels: SmallVec<[ChannelDescription; 5]>) -> Self {
         let uniform_sample_type = {
             if let Some(first) = channels.first() {
                 let has_uniform_types = channels.iter().skip(1)
@@ -659,6 +674,16 @@ impl ChannelList {
             bytes_per_pixel: channels.iter().map(|channel| channel.sample_type.bytes_per_sample()).sum(),
             list: channels, uniform_sample_type,
         }
+    }
+
+    /// Iterate over the channels, and adds to each channel the byte offset of the channels sample type.
+    /// Assumes the internal channel list is properly sorted.
+    pub fn channels_with_byte_offset(&self) -> impl Iterator<Item=(usize, &ChannelDescription)> {
+        self.list.iter().scan(0, |byte_position, channel|{
+            let previous_position = *byte_position;
+            *byte_position += channel.sample_type.bytes_per_sample();
+            Some((previous_position, channel))
+        })
     }
 }
 
@@ -873,7 +898,29 @@ impl SampleType {
     }
 }
 
-impl ChannelInfo {
+impl ChannelDescription {
+    /// Choose whether to compress samples linearly or not, based on the channel name.
+    /// Luminance-based channels will be compressed differently than linear data such as alpha.
+    pub fn guess_quantization_linearity(name: &Text) -> bool {
+        !(
+            name.eq_case_insensitive("R") || name.eq_case_insensitive("G") ||
+                name.eq_case_insensitive("B") || name.eq_case_insensitive("L") ||
+                name.eq_case_insensitive("Y") || name.eq_case_insensitive("X") ||
+                name.eq_case_insensitive("Z")
+        )
+    }
+
+    /// Create a new channel with the specified properties and a sampling rate of (1,1).
+    /// Automatically chooses the linearity for compression based on the channel name.
+    pub fn named(name: impl Into<Text>, sample_type: SampleType) -> Self {
+        let name = name.into();
+        let linearity = Self::guess_quantization_linearity(&name);
+        Self::new(name, sample_type, linearity)
+    }
+
+    /*pub fn from_name<T: Into<Sample> + Default>(name: impl Into<Text>) -> Self {
+        Self::named(name, T::default().into().sample_type())
+    }*/
 
     /// Create a new channel with the specified properties and a sampling rate of (1,1).
     pub fn new(name: impl Into<Text>, sample_type: SampleType, quantize_linearly: bool) -> Self {
@@ -933,7 +980,7 @@ impl ChannelInfo {
         let x_sampling = i32_to_usize(i32::read(read)?, "x channel sampling")?;
         let y_sampling = i32_to_usize(i32::read(read)?, "y channel sampling")?;
 
-        Ok(ChannelInfo {
+        Ok(ChannelDescription {
             name, sample_type,
             quantize_linearly: is_linear,
             sampling: Vec2(x_sampling, y_sampling),
@@ -975,7 +1022,7 @@ impl ChannelList {
 
     /// Number of bytes this would consume in an exr file.
     pub fn byte_size(&self) -> usize {
-        self.list.iter().map(ChannelInfo::byte_size).sum::<usize>() + sequence_end::byte_size()
+        self.list.iter().map(ChannelDescription::byte_size).sum::<usize>() + sequence_end::byte_size()
     }
 
     /// Without validation, write this instance to the byte stream.
@@ -993,7 +1040,7 @@ impl ChannelList {
     pub fn read(read: &mut PeekRead<impl Read>) -> Result<Self> {
         let mut channels = SmallVec::new();
         while !sequence_end::has_come(read)? {
-            channels.push(ChannelInfo::read(read)?);
+            channels.push(ChannelDescription::read(read)?);
         }
 
         Ok(ChannelList::new(channels))
@@ -1799,19 +1846,19 @@ mod test {
             (
                 Text::from("leg count, again"),
                 AttributeValue::ChannelList(ChannelList::new(smallvec![
-                        ChannelInfo {
+                        ChannelDescription {
                             name: Text::from("Green"),
                             sample_type: SampleType::F16,
                             quantize_linearly: false,
                             sampling: Vec2(1,2)
                         },
-                        ChannelInfo {
+                        ChannelDescription {
                             name: Text::from("Red"),
                             sample_type: SampleType::F32,
                             quantize_linearly: true,
                             sampling: Vec2(1,2)
                         },
-                        ChannelInfo {
+                        ChannelDescription {
                             name: Text::from("Purple"),
                             sample_type: SampleType::U32,
                             quantize_linearly: false,

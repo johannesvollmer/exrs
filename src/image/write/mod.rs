@@ -22,40 +22,40 @@ use crate::meta::Headers;
 use crate::error::UnitResult;
 use std::io::{Seek, BufWriter};
 use crate::io::Write;
-use crate::image::{Image, ignore_progress, RgbaChannels, RgbaSampleTypes};
+use crate::image::{Image, ignore_progress, SpecificChannels, IntoSample};
 use crate::image::write::layers::{WritableLayers, LayersWriter};
 use crate::math::Vec2;
 
 /// An oversimplified function for "just write the damn file already" use cases.
 /// Have a look at the examples to see how you can write an image with more flexibility (it's not that hard).
-/// Use `write_rgb_f32_file` if you do not need an alpha channel.
-pub fn write_rgba_f32_file(
+/// Use `write_rgb_file` if you do not need an alpha channel.
+///
+/// Each of `R`, `G`, `B` and `A` can be either `f16`, `f32`, `u32`, or `Sample`.
+// TODO explain pixel tuple f32,f16,u32
+pub fn write_rgba_file<R,G,B,A>(
     path: impl AsRef<std::path::Path>, width: usize, height: usize,
-    colors: impl Sync + Fn(usize, usize) -> (f32, f32, f32, f32)
-) -> UnitResult {
-    Image::with_single_layer(
-        (width, height),
-        RgbaChannels::new(
-            RgbaSampleTypes::RGBA_F32,
-            |Vec2(x,y)| colors(x,y)
-        )
-    ).write().to_file(path)
+    colors: impl Sync + Fn(usize, usize) -> (R, G, B, A)
+) -> UnitResult
+    where R: IntoSample, G: IntoSample, B: IntoSample, A: IntoSample,
+{
+    let channels = SpecificChannels::rgba(|Vec2(x,y)| colors(x,y));
+    Image::with_channels((width, height), channels).write().to_file(path)
 }
 
 /// An oversimplified function for "just write the damn file already" use cases.
 /// Have a look at the examples to see how you can write an image with more flexibility (it's not that hard).
-/// Use `write_rgba_f32_file` if you want to output alpha.
-pub fn write_rgb_f32_file(
+/// Use `write_rgb_file` if you do not need an alpha channel.
+///
+/// Each of `R`, `G`, and `B` can be either `f16`, `f32`, `u32`, or `Sample`.
+// TODO explain pixel tuple f32,f16,u32
+pub fn write_rgb_file<R,G,B>(
     path: impl AsRef<std::path::Path>, width: usize, height: usize,
-    colors: impl Sync + Fn(usize, usize) -> (f32, f32, f32)
-) -> UnitResult {
-    Image::with_single_layer(
-        (width, height),
-        RgbaChannels::new(
-            RgbaSampleTypes::RGB_F32,
-            |Vec2(x,y)| colors(x,y)
-        )
-    ).write().to_file(path)
+    colors: impl Sync + Fn(usize, usize) -> (R, G, B)
+) -> UnitResult
+    where R: IntoSample, G: IntoSample, B: IntoSample
+{
+    let channels = SpecificChannels::rgb(|Vec2(x,y)| colors(x,y));
+    Image::with_channels((width, height), channels).write().to_file(path)
 }
 
 

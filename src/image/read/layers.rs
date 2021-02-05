@@ -174,7 +174,7 @@ impl<'s, C> ReadLayers<'s> for ReadFirstValidLayer<C> where C: ReadChannels<'s> 
                     .ok()
             )
             .next()
-            .ok_or(Error::invalid("no suitable header found"))
+            .ok_or(Error::invalid("no layer in the image matched your specified requirements"))
     }
 }
 

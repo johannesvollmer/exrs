@@ -634,7 +634,7 @@ mod test {
     fn round_trip(){
         let header = Header {
             channels: ChannelList::new(smallvec![
-                    ChannelInfo {
+                    ChannelDescription {
                         name: Text::from("main"),
                         sample_type: SampleType::U32,
                         quantize_linearly: false,
@@ -690,7 +690,7 @@ mod test {
     fn infer_low_requirements() {
         let header_version_1_short_names = Header {
             channels: ChannelList::new(smallvec![
-                    ChannelInfo {
+                    ChannelDescription {
                         name: Text::from("main"),
                         sample_type: SampleType::U32,
                         quantize_linearly: false,
@@ -737,7 +737,7 @@ mod test {
         let header_version_2_long_names = Header {
             channels: ChannelList::new(
                 smallvec![
-                    ChannelInfo {
+                    ChannelDescription {
                         name: Text::new_or_panic("main"),
                         sample_type: SampleType::U32,
                         quantize_linearly: false,

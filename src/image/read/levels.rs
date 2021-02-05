@@ -6,10 +6,11 @@ use crate::meta::header::{Header};
 use crate::error::{Result, UnitResult};
 use crate::block::lines::LineRef;
 use crate::math::Vec2;
-use crate::meta::attribute::{ChannelInfo, LevelMode};
+use crate::meta::attribute::{ChannelDescription, LevelMode};
 use crate::image::read::any_channels::{SamplesReader, ReadSamples, ReadAnyChannels};
 use crate::block::chunk::TileCoordinates;
-use crate::image::read::rgba_channels::*;
+use crate::image::read::specific_channels::*;
+use crate::image::recursive::*;
 
 
 // Note: In the resulting image, the `FlatSamples` are placed
@@ -32,15 +33,41 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     /// Read all arbitrary channels in each layer.
     pub fn all_channels(self) -> ReadAnyChannels<DeepOrFlatSamples> { ReadAnyChannels { read_samples: self.read_samples } } // Instead of Self, the `FlatSamples` are used directly
 
-    /// Read only layers that contain red, green and blue color. If present, also loads alpha channels.
-    /// Rejects all layers that don't have rgb channels. Skips any other channels in an rgb layer.
-    /// `Create` can be a closure of type [`Fn(&RgbaChannelsInfo) -> YourPixelStorage`].
-    /// `Set` can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, RgbaPixel)`].
-    /// Throws an error for images with deep data.
-    pub fn rgba_channels<Create, Set>(self, create: Create, set_pixel: Set) -> ReadRgbaChannels<Create, Set>
-        where Create: CreateRgbaPixels, Set: SetRgbaPixel<Create::Pixels>
+    /// Read only layers that contain rgb channels. Skips any other channels in the layer.
+    /// The alpha channel will contain the value `1.0` if no alpha channel can be found in the image.
+    ///
+    /// Using two closures, define how to store the pixels.
+    /// The first closure creates an image, and the second closure inserts a single pixel.
+    /// The type of the pixel can be defined by the second closure;
+    /// it must be a tuple containing four values, each being either `f16`, `f32`, `u32` or `Sample`.
+    ///
+    /// Throws an error for images with deep data or subsampling.
+    /// Use `specific_channels` or `all_channels` if you want to read something other than rgba.
+    pub fn rgba_channels<R,G,B,A, Create, Set, Pixels>(
+        self, create_pixels: Create, set_pixel: Set
+    ) -> CollectPixels<
+        ReadOptionalChannel<ReadRequiredChannel<ReadRequiredChannel<ReadRequiredChannel<NoneMore, R>, G>, B>, A>,
+        (R, G, B, A), Pixels, Create, Set
+    >
+        where
+            R: FromNativeSample, G: FromNativeSample, B: FromNativeSample, A: FromNativeSample,
+            Create: Fn(Vec2<usize>, &RgbaChannels) -> Pixels,
+            Set: Fn(&mut Pixels, Vec2<usize>, (R,G,B,A)),
     {
-        ReadRgbaChannels { create, set_pixel }
+        self.specific_channels()
+            .required("R").required("G").required("B")
+            .optional("A", A::from_f32(1.0))
+            .collect_pixels(create_pixels, set_pixel)
+    }
+
+    /// Read only layers that contain the specified channels, skipping any other channels in the layer.
+    /// Further specify which channels should be included by calling `.required("ChannelName")`
+    /// or `.optional("ChannelName", default_value)` on the result of this function.
+    /// Call `collect_pixels` afterwards to define the pixel container for your set of channels.
+    ///
+    /// Throws an error for images with deep data or subsampling.
+    pub fn specific_channels(self) -> ReadZeroChannels {
+        ReadZeroChannels { }
     }
 }
 
@@ -58,16 +85,7 @@ impl<ReadDeepOrFlatSamples> ReadAllLevels<ReadDeepOrFlatSamples> {
     pub fn all_channels(self) -> ReadAnyChannels<Self> { ReadAnyChannels { read_samples: self } }
 
     // TODO rgba resolution levels
-    /*/// Read only layers that contain red, green and blue color. If present, also loads alpha channels.
-    /// Rejects all layers that don't have rgb channels. Skips any other channels in the layer.
-    /// `Create` can be a closure of type [`Fn(&RgbaChannelsInfo) -> YourPixelStorage`].
-    /// `Set` can be a closure of type [`Fn(&mut YourPixelStorage, Vec2<usize>, RgbaPixel)`].
-    /// Throws an error for images with deep data.
-    pub fn rgba_channels<Create, Set>(self, create: Create, set_pixel: Set) -> ReadRgbaChannels<Create, Set>
-        where Create: CreateRgbaPixels, Set: SetRgbaPixel<Create::Pixels>
-    {
-        ReadRgbaChannels { create, set_pixel }
-    }*/
+
 }
 
 /*pub struct ReadLevels<S> {
@@ -87,14 +105,14 @@ pub trait ReadSamplesLevel {
     type Reader: SamplesReader;
 
     /// Create a single reader for a single resolution level
-    fn create_samples_level_reader(&self, header: &Header, channel: &ChannelInfo, level: Vec2<usize>, resolution: Vec2<usize>) -> Result<Self::Reader>;
+    fn create_samples_level_reader(&self, header: &Header, channel: &ChannelDescription, level: Vec2<usize>, resolution: Vec2<usize>) -> Result<Self::Reader>;
 }
 
 
 impl<S: ReadSamplesLevel> ReadSamples for ReadAllLevels<S> {
     type Reader = AllLevelsReader<S::Reader>;
 
-    fn create_sample_reader(&self, header: &Header, channel: &ChannelInfo) -> Result<Self::Reader> {
+    fn create_sample_reader(&self, header: &Header, channel: &ChannelDescription) -> Result<Self::Reader> {
         let data_size = header.layer_size / channel.sampling;
 
         let levels = {
