@@ -770,12 +770,17 @@ impl<'s, ChannelData:'s> Image<Layer<ChannelData>> where ChannelData: WritableCh
 
 
 impl Image<NoneMore> {
+
+    /// Create an empty image, to be filled with layers later on. Add at least one layer to obtain a valid image.
+    /// Call `with_layer(another_layer)` for each layer you want to add to this image.
     pub fn empty(attributes: ImageAttributes) -> Self { Self { attributes, layer_data: NoneMore } }
 }
 
 impl<'s, InnerLayers: 's> Image<InnerLayers> where
     InnerLayers: WritableLayers<'s>,
 {
+    /// Add another layer to this image. The layer type does
+    /// not have to equal the existing layers in this image.
     pub fn with_layer<NewChannels>(self, layer: Layer<NewChannels>)
         -> Image<Recursive<InnerLayers, Layer<NewChannels>>>
         where NewChannels: 's + WritableChannels<'s>
