@@ -8,12 +8,12 @@
 //! For very simple applications, you can alternatively use one of these functions:
 //!
 //! 1. `read_first_rgba_layer_from_file(path, your_constructor, your_pixel_setter)`:
-//!     You specify how to store an `RgbaPixel`.
+//!     You specify how to store the pixels.
 //!     The first layer containing rgba channels is then loaded from the file.
 //!     Fails if no rgba layer can be found.
 //!
 //! 1. `read_all_rgba_layers_from_file(path, your_constructor, your_pixel_setter)`:
-//!     You specify how to store an `RgbaPixel`.
+//!     You specify how to store the pixels.
 //!     All layers containing rgba channels are then loaded from the file.
 //!     Fails if any layer in the image does not contain rgba channels.
 //!
@@ -44,7 +44,6 @@
 
 pub mod image;
 pub mod layers;
-// pub mod rgba_channels;
 pub mod any_channels;
 pub mod levels;
 pub mod samples;

@@ -54,15 +54,15 @@ pub trait ChannelsWriter: Sync {
 }
 
 
-/// Define how to get an rgba pixel from your custom pixel storage.
-/// Can be a closure of type [`Sync + Fn(Vec2<usize>) -> RgbaPixel`].
+/// Define how to get a pixel from your custom pixel storage.
+/// Can be a closure of type [`Sync + Fn(Vec2<usize>) -> YourPixel`].
 pub trait GetPixel: Sync {
 
     /// The pixel tuple containing `f32`, `f16`, `u32` and `Sample` values.
     /// The length of the tuple must match the number of channels in the image.
     type Pixel;
 
-    /// Inspect a single rgba pixel at the requested position.
+    /// Inspect a single pixel at the requested position.
     /// Will be called exactly once for each pixel in the image.
     /// The position will not exceed the image dimensions.
     /// Might be called from multiple threads at the same time.
@@ -170,7 +170,7 @@ where
 
 
 
-/// A temporary writer for a layer of rgba channels, alpha being optional
+/// A temporary writer for a layer of channels, alpha being optional
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SpecificChannelsWriter<'channels, PixelWriter, Storage, Channels> {
     channels: &'channels SpecificChannels<Storage, Channels>, // TODO this need not be a reference?? impl writer for specific_channels directly?

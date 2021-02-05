@@ -4,14 +4,16 @@
 //!
 //!
 //! For example, an rgba image containing multiple layers
-//! can be represented using `Image<Layers<RgbaChannels<MyPixelStorage>>>`.
+//! can be represented using `Image<Layers<SpecificChannels<MyPixelStorage>>>`.
 //! An image containing a single layer with arbitrary channels and no deep data
 //! can be represented using `Image<Layer<AnyChannels<FlatSamples>>>`.
 //!
 //!
 //! These and other predefined types are included in this module as
-//! 1. `RgbaImage`: A single layer, rgb or rgba channels
-//! 1. `RgbaLayersImage`: Multiple layers, rgb or rgba channels
+//! 1. `PixelImage`: A single layer, fixed set of arbitrary channels.
+//! 1. `PixelLayersImage`: Multiple layers, fixed set of arbitrary channels.
+//! 1. `RgbaImage`: A single layer, fixed set of channels: rgb, optional a.
+//! 1. `RgbaLayersImage`: Multiple layers, fixed set of channels: rgb, optional a.
 //! 1. `FlatImage`: Multiple layers, any channels, no deep data.
 //! 1. `AnyImage`: All supported data (multiple layers, arbitrary channels, no deep data yet)
 //!
@@ -662,7 +664,7 @@ impl FlatSamples {
 impl<'s, ChannelData:'s> Layer<ChannelData> {
 
     /// Create a layer with the specified size, attributes, encoding and channels.
-    /// The channels can be either `RgbaChannels` or `AnyChannels`.
+    /// The channels can be either `SpecificChannels` or `AnyChannels`.
     pub fn new(
         dimensions: impl Into<Vec2<usize>>,
         attributes: LayerAttributes,
