@@ -193,7 +193,7 @@ for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
         let width = block_index.pixel_size.0;
         let line_bytes = width * header.channels.bytes_per_pixel;
         let byte_lines = block_bytes.chunks_exact_mut(line_bytes);
-        assert_eq!(byte_lines.len(), block_index.pixel_size.height());
+        assert_eq!(byte_lines.len(), block_index.pixel_size.height(), "invalid block line splits");
 
         //dbg!(width, line_bytes, header.channels.bytes_per_pixel, byte_lines.len());
 

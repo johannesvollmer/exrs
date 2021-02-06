@@ -5,6 +5,7 @@ As the github repository is continuously developed, __these examples may be
 newer than the latest version of `exrs` available on `crates.io`__.
 
 The examples of specific `exrs` versions can be found on the `docs.rs` page:
+- [Version 1.1.0](https://docs.rs/crate/exr/1.1.0/source/examples/)
 - [Version 1.0.0](https://docs.rs/crate/exr/1.0.0/source/examples/)
 - [Version 0.9.0](https://docs.rs/crate/exr/0.9.0/source/examples/)
 - [Version 0.8.0](https://docs.rs/crate/exr/0.8.0/source/examples/)

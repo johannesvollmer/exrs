@@ -198,7 +198,7 @@ ChannelsReader for SpecificChannelsReader<PixelStorage, SetPixel, PxReader, Pixe
         let mut pixels = vec![PxReader::RecursivePixel::default(); block.index.pixel_size.width()]; // TODO allocate once in self
 
         let byte_lines = block.data.chunks_exact(header.channels.bytes_per_pixel * block.index.pixel_size.width());
-        debug_assert_eq!(byte_lines.len(), block.index.pixel_size.height());
+        debug_assert_eq!(byte_lines.len(), block.index.pixel_size.height(), "invalid block lines split");
 
         for (y_offset, line_bytes) in byte_lines.enumerate() { // TODO sampling
             // this two-step copy method should be very cache friendly in theory, and also reduce sample_type lookup count

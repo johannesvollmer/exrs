@@ -192,21 +192,6 @@ impl<'c, Channels> ChannelsWriter for GroupChannelsWriter<'c, Channels> where Ch
             channel_reader.read_exact(line.value)
                 .expect("collecting grouped channel byte block failed");
         })
-
-        /*let total_byte_count = block.pixel_size.area() * header.channels.bytes_per_pixel;
-        debug_assert_eq!(blocks_per_channel.map(Vec::len).sum::<usize>(), total_byte_count, "invalid legacy layer blocks length");
-        let mut block_bytes = vec![0_u8; total_byte_count];
-
-        for (target_byte_range, line_index) in LineIndex::lines_in_block(block_index, header) {
-            let channel_block = &mut blocks_per_channel[line_index.channel]; // TODO subsampling
-
-            // read from specific channel into total byte block
-            let target_bytes = &mut block_bytes[target_byte_range.clone()];
-            channel_block.read_exact(target_bytes)
-                .expect("collecting grouped channel byte block failed");
-        }
-
-        block_bytes*/
     }
 }
 
