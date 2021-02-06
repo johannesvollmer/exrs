@@ -110,7 +110,7 @@ impl<'slf, Channels: WritableChannels<'slf>> WritableLayers<'slf> for Layer<Chan
     type Writer = LayerWriter</*'l,*/ Channels::Writer>;
     fn create_writer(&'slf self, headers: &[Header]) -> Self::Writer {
         let channels = self.channel_data
-            .create_writer(headers.first().unwrap()); // TODO no array-vs-first
+            .create_writer(headers.first().expect("inferred header error")); // TODO no array-vs-first
 
         LayerWriter { channels }
     }
@@ -124,7 +124,7 @@ impl<C> LayersWriter for AllLayersWriter<C> where C: ChannelsWriter {
 
 impl<C> LayersWriter for LayerWriter<C> where C: ChannelsWriter {
     fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex) -> Vec<u8> {
-        self.channels.extract_uncompressed_block(headers.first().unwrap(), block) // TODO no array-vs-first
+        self.channels.extract_uncompressed_block(headers.first().expect("invalid inferred header"), block) // TODO no array-vs-first
     }
 }
 

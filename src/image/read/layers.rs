@@ -135,14 +135,14 @@ impl<C> LayersReader for AllLayersReader<C> where C: ChannelsReader {
     type Layers = Layers<C::Channels>;
 
     fn filter_block(&self, header: (usize, &Header), tile: (usize, &TileCoordinates)) -> bool {
-        let layer = self.layer_readers.get(header.0).unwrap();
+        let layer = self.layer_readers.get(header.0).expect("invalid layer index argument");
         layer.channels_reader.filter_block(tile)
     }
 
     fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult {
         self.layer_readers
-            .get_mut(block.index.layer).unwrap()
-            .channels_reader.read_block(headers.get(block.index.layer).unwrap(), block)
+            .get_mut(block.index.layer).expect("invalid layer index argument")
+            .channels_reader.read_block(headers.get(block.index.layer).expect("invalid header index in block"), block)
     }
 
     fn into_layers(self) -> Self::Layers {

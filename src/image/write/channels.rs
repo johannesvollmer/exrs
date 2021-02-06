@@ -87,7 +87,7 @@ impl<'samples, Samples> WritableChannels<'samples> for AnyChannels<Samples>
     }
 
     fn infer_level_modes(&self) -> (LevelMode, RoundingMode) {
-        let mode = self.list.iter().next().unwrap().sample_data.infer_level_modes();
+        let mode = self.list.iter().next().expect("zero channels in list").sample_data.infer_level_modes();
 
         debug_assert!(
             std::iter::repeat(mode).zip(self.list.iter().skip(1))
