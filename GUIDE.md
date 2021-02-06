@@ -292,7 +292,7 @@ fn main() {
         .all_layers() // or `first_valid_layer()`
         .all_attributes() // (currently required)
         .on_progress(|progress| println!("progress: {:.1}", progress * 100.0)) // optional
-        .non_parallel() // optional. discouraged. just leave this line out
+        //.non_parallel() // optional. discouraged. just leave this line out
         .from_file("image.exr").unwrap(); // or `from_buffered(my_byte_slice)`
 }
 ```
@@ -551,3 +551,14 @@ Instead, you provide a closure that stores or loads pixels in your existing imag
 If you really do not want to provide your own storage, you can use the predefined structures from
 `exr::image::pixel_vec`, such as `PixelVec<(f32,f32,f16)>` or `create_pixel_vec`.
 Use this only if you don't already have a pixel storage.
+
+```rust
+fn main(){
+    let read = read()
+        .no_deep_data().largest_resolution_level()
+        .rgba_channels(
+            exr::image::pixel_vec::create_pixel_vec::<(f32,f32,f32,f16)>,
+            exr::image::pixel_vec::set_pixel_in_vec::<(f32,f32,f32,f16)>,
+        );
+}
+```
