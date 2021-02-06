@@ -488,7 +488,11 @@ fn main() {
 ```
 
 There is an even simpler alternative for rgba images, namely `SpecificChannels::rgb` and `SpecificChannels::rgba`:
-This is mostly the same as the `SpecificChannels::build` option.
+This is mostly the same as the `SpecificChannels::build` option. 
+
+The rgb method works with three channels per pixel, 
+whereas the rgba method works with four channels per pixel. The default alpha value of `1.0` will be used 
+if the image does not contain alpha.
 ```rust
 fn main() {
     use exr::prelude::*;
