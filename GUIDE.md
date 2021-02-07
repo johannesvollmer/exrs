@@ -311,13 +311,13 @@ fn main(){
     // this image contains an arbitrary number of layers
     let multi_layer_image: Image<Layers<_>> = Image::new(attributes, smallvec![ layer1, layer2 ]);
 
-    // this image can only contain rgb or rgba channels
-    let single_layer_rgb_image : Image<Layer<RgbaChannels<_>>> = Image::from_layer(Layer::new(
+    // this image can contain the compile-time specified channels
+    let single_layer_rgb_image : Image<Layer<SpecificChannels<_, _>>> = Image::from_layer(Layer::new(
         dimensions, attributes, encoding,
         RgbaChannels::new(sample_types, rgba_pixels)
     ));
     
-    // this image can contain arbitrary channels, such as LAB or YCbCr
+    // this image can contain all channels from a file, even unexpected ones
     let single_layer_image : Image<Layer<AnyChannels<_>>> = Image::from_layer(Layer::new(
         dimensions, attributes, encoding,
         AnyChannels::sort(smallvec![ channel_x, channel_y, channel_z ])
