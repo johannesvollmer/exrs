@@ -2,15 +2,16 @@
 
 use crate::meta::*;
 use crate::image::*;
-use crate::meta::header::{Header};
-use crate::error::{Result, UnitResult};
-use crate::block::lines::LineRef;
-use crate::math::Vec2;
-use crate::meta::attribute::{ChannelDescription, LevelMode};
-use crate::image::read::any_channels::{SamplesReader, ReadSamples, ReadAnyChannels};
+use crate::error::*;
+use crate::meta::attribute::*;
+use crate::image::read::any_channels::*;
 use crate::block::chunk::TileCoordinates;
 use crate::image::read::specific_channels::*;
 use crate::image::recursive::*;
+use crate::math::Vec2;
+use crate::block::lines::LineRef;
+use crate::block::samples::*;
+use crate::meta::header::{Header};
 
 
 // Note: In the resulting image, the `FlatSamples` are placed

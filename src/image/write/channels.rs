@@ -1,33 +1,15 @@
 //! How to read arbitrary channels and rgb channels.
 
-use crate::meta::attribute::{LevelMode, ChannelDescription, SampleType, ChannelList};
-use smallvec::SmallVec;
-use crate::meta::header::Header;
-use crate::block::{BlockIndex, UncompressedBlock};
-use crate::image::{AnyChannels, SpecificChannels};
-use crate::math::{Vec2, RoundingMode};
-use crate::io::{Data};
-use crate::block::samples::Sample;
-use crate::image::write::samples::{WritableSamples, SamplesWriter};
-use std::marker::PhantomData;
-use crate::prelude::f16;
-use crate::prelude::read::specific_channels::FromNativeSample;
+use crate::prelude::*;
+use crate::io::*;
+use crate::math::*;
+use crate::meta::{header::*, attribute::*};
+use crate::block::*;
 use crate::image::recursive::*;
+use crate::block::samples::*;
+use crate::image::write::samples::*;
 
-
-/// Convert any type into one of the supported sample types.
-/// Should be compiled to a no-op where the file contains the predicted sample type
-pub trait IntoNativeSample: Copy + Default + Sync + 'static {
-
-    /// Convert this sample to an f16, trying to represent the same numerical value.
-    fn to_f16(&self) -> f16;
-
-    /// Convert this sample to an f32, trying to represent the same numerical value.
-    fn to_f32(&self) -> f32;
-
-    /// Convert this sample to an u16, trying to represent the same numerical value.
-    fn to_u32(&self) -> u32;
-}
+use std::marker::PhantomData;
 
 
 /// Enables an image containing this list of channels to be written to a file.
@@ -363,34 +345,6 @@ impl<Inner, InnerPixel, Sample> RecursivePixelWriter<Recursive<InnerPixel, Sampl
     }
 }
 
-
-
-
-
-
-impl IntoNativeSample for f16 {
-    fn to_f16(&self) -> f16 { f16::from_f16(*self) }
-    fn to_f32(&self) -> f32 { f32::from_f16(*self) }
-    fn to_u32(&self) -> u32 { u32::from_f16(*self) }
-}
-
-impl IntoNativeSample for f32 {
-    fn to_f16(&self) -> f16 { f16::from_f32(*self) }
-    fn to_f32(&self) -> f32 { f32::from_f32(*self) }
-    fn to_u32(&self) -> u32 { u32::from_f32(*self) }
-}
-
-impl IntoNativeSample for u32 {
-    fn to_f16(&self) -> f16 { f16::from_u32(*self) }
-    fn to_f32(&self) -> f32 { f32::from_u32(*self) }
-    fn to_u32(&self) -> u32 { u32::from_u32(*self) }
-}
-
-impl IntoNativeSample for Sample {
-    fn to_f16(&self) -> f16 { Sample::to_f16(*self) }
-    fn to_f32(&self) -> f32 { Sample::to_f32(*self) }
-    fn to_u32(&self) -> u32 { Sample::to_u32(*self) }
-}
 
 
 

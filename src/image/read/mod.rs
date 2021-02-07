@@ -57,7 +57,7 @@ use crate::image::read::image::ReadLayers;
 use crate::image::read::layers::ReadChannels;
 use crate::math::Vec2;
 use crate::prelude::{PixelImage};
-use crate::image::read::specific_channels::FromNativeSample;
+use crate::block::samples::FromNativeSample;
 
 
 /// All resolution levels, all channels, all layers.

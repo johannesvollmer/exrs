@@ -280,11 +280,11 @@ pub enum DeepSamples {
     U32(Vec<Vec<u32>>),
 }*/
 
-
+use crate::block::samples::*;
 use crate::meta::attribute::*;
 use crate::error::Result;
 use crate::block::samples::Sample;
-use crate::image::write::channels::{GetPixel, WritableChannels, IntoNativeSample, WritableChannelsDescription};
+use crate::image::write::channels::*;
 use crate::image::write::layers::WritableLayers;
 use crate::image::write::samples::{WritableSamples};
 use crate::meta::{mip_map_levels, rip_map_levels};
