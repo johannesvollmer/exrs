@@ -18,6 +18,7 @@ use std::convert::TryFrom;
 use crate::io::{Tracking, PeekRead, Write, Data};
 use std::io::{Seek, Read};
 use crate::meta::header::Header;
+use crate::block::lines::{LineRef, LineIndex, LineSlice, LineRefMut};
 
 
 /// Specifies where a block of pixel data should be placed in the actual image.
@@ -180,8 +181,6 @@ pub fn read_filtered_blocks_from_buffered<T>(
         self::read_filtered_chunks_from_buffered(read, new, filter, pedantic)?
     };
 
-    // TODO use chunk_count for reader creation (ReadOnProgresss needs this)
-
     for_decompressed_blocks_in_chunks(
         std::iter::from_fn(|| read_chunk(&meta_data)), &meta_data, chunk_count,
         |meta, line| insert(&mut value, meta, line),
@@ -317,7 +316,7 @@ pub fn read_filtered_chunks_from_buffered<'m, T>(
         };
     }
 
-    filtered_offsets.sort(); // enables reading continuously if possible (is probably already sorted)
+    filtered_offsets.sort_unstable(); // enables reading continuously if possible (is probably already sorted)
     let mut filtered_offsets = filtered_offsets.into_iter();
     let block_count = filtered_offsets.len();
 
@@ -544,5 +543,51 @@ impl UncompressedBlock {
                 }),
             }
         })
+    }
+
+
+    // TODO make iterator
+    /// Call a closure for each line of samples in this uncompressed block.
+    pub fn for_lines(
+        &self, header: &Header,
+        mut accept_line: impl FnMut(LineRef<'_>) -> UnitResult
+    ) -> UnitResult {
+        for (bytes, line) in LineIndex::lines_in_block(self.index, header) {
+            let line_ref = LineSlice { location: line, value: &self.data[bytes] };
+            accept_line(line_ref)?;
+        }
+
+        Ok(())
+    }
+
+    // TODO from iterator??
+    /// Create an uncompressed block byte vector by requesting one line of samples after another.
+    pub fn collect_block_from_lines(
+        header: &Header, block_index: BlockIndex,
+        mut extract_line: impl FnMut(LineRefMut<'_>)
+    ) -> Vec<u8> {
+        let byte_count = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
+        let mut block_bytes = vec![0_u8; byte_count];
+
+        for (byte_range, line_index) in LineIndex::lines_in_block(block_index, header) {
+            extract_line(LineRefMut { // TODO subsampling
+                value: &mut block_bytes[byte_range],
+                location: line_index,
+            });
+        }
+
+        block_bytes
+    }
+
+    // TODO from iterator??
+    /// Create an uncompressed block by requesting one line of samples after another.
+    pub fn from_lines(
+        header: &Header, block_index: BlockIndex,
+        extract_line: impl FnMut(LineRefMut<'_>)
+    ) -> Self {
+        Self {
+            index: block_index,
+            data: Self::collect_block_from_lines(header, block_index, extract_line)
+        }
     }
 }

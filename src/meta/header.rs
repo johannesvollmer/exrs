@@ -315,7 +315,7 @@ impl Header {
     /// - tiles (64 x 64 px)
     /// - unspecified line order
     /// - no custom attributes
-    pub fn new(name: Text, data_size: impl Into<Vec2<usize>>, channels: SmallVec<[ChannelInfo; 5]>) -> Self {
+    pub fn new(name: Text, data_size: impl Into<Vec2<usize>>, channels: SmallVec<[ChannelDescription; 5]>) -> Self {
         let data_size: Vec2<usize> = data_size.into();
 
         let compression = Compression::RLE;
@@ -564,7 +564,7 @@ impl Header {
         };
 
         self.channels.list.iter()
-            .map(|channel: &ChannelInfo|
+            .map(|channel: &ChannelDescription|
                 pixel_count_of_levels(channel.subsampled_resolution(self.layer_size)) * channel.sample_type.bytes_per_sample()
             )
             .sum()
@@ -637,7 +637,7 @@ impl Header {
         // check if attribute names appear twice
         if strict {
             for (name, _) in &self.shared_attributes.other {
-                if !self.own_attributes.other.contains_key(&name) {
+                if !self.own_attributes.other.contains_key(name) {
                     return Err(Error::invalid(format!("duplicate attribute name: `{}`", name)));
                 }
             }
@@ -742,7 +742,7 @@ impl Header {
                     // otherwise, add the attribute to the vector of custom attributes
 
                     // the following attributes will only be set if the type matches the commonly used type for that attribute
-                    match (attribute_name.bytes(), value) {
+                    match (attribute_name.as_slice(), value) {
                         (name::BLOCK_TYPE, Text(value)) => block_type = Some(attribute::BlockType::parse(value)?),
                         (name::TILES, TileDescription(value)) => tiles = Some(value),
                         (name::CHANNELS, ChannelList(value)) => channels = Some(value),
@@ -979,11 +979,11 @@ impl Header {
         }
 
         for (name, value) in &self.shared_attributes.other {
-            attribute::write(name.bytes(), value, write)?;
+            attribute::write(name.as_slice(), value, write)?;
         }
 
         for (name, value) in &self.own_attributes.other {
-            attribute::write(name.bytes(), value, write)?;
+            attribute::write(name.as_slice(), value, write)?;
         }
 
         sequence_end::write(write)?;

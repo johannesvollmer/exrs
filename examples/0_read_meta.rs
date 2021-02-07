@@ -2,11 +2,12 @@
 
 // exr imports
 extern crate exr;
-use exr::prelude::*;
 
 /// Print the custom meta data of a file, excluding technical encoding meta data.
 /// Prints compression method and tile size, but not purely technical data like chunk count.
 fn main() {
+    use exr::prelude::*;
+
     let meta_data = MetaData::read_from_file(
         "tests/images/valid/custom/crowskull/crow_uncompressed.exr",
         false // do not throw an error for invalid or missing attributes, skipping them instead

@@ -4,9 +4,9 @@ use crate::image::*;
 use crate::meta::header::{Header};
 use crate::error::{Result, UnitResult};
 use crate::block::UncompressedBlock;
-use crate::block::lines::{LineRef, LineIndex, LineSlice};
+use crate::block::lines::{LineRef};
 use crate::math::Vec2;
-use crate::meta::attribute::{Text, ChannelInfo};
+use crate::meta::attribute::{Text, ChannelDescription};
 use crate::image::read::layers::{ReadChannels, ChannelsReader};
 use crate::block::chunk::TileCoordinates;
 
@@ -27,7 +27,7 @@ pub trait ReadSamples {
     type Reader: SamplesReader;
 
     /// Create a single reader for a single channel of a layer
-    fn create_sample_reader(&self, header: &Header, channel: &ChannelInfo) -> Result<Self::Reader>;
+    fn create_sample_reader(&self, header: &Header, channel: &ChannelDescription) -> Result<Self::Reader>;
 }
 
 /// Processes pixel blocks from a file and accumulates them into a collection of arbitrary channels.
@@ -79,7 +79,7 @@ impl<'s, S: 's + ReadSamples> ReadChannels<'s> for ReadAnyChannels<S> {
 
     fn create_channels_reader(&self, header: &Header) -> Result<Self::Reader> {
         let samples: Result<_> = header.channels.list.iter()
-            .map(|channel: &ChannelInfo| Ok(AnyChannelReader {
+            .map(|channel: &ChannelDescription| Ok(AnyChannelReader {
                 samples: self.read_samples.create_sample_reader(header, channel)?,
                 name: channel.name.clone(),
                 sampling_rate: channel.sampling,
@@ -94,17 +94,20 @@ impl<'s, S: 's + ReadSamples> ReadChannels<'s> for ReadAnyChannels<S> {
 impl<S: SamplesReader> ChannelsReader for AnyChannelsReader<S> {
     type Channels = AnyChannels<S::Samples>;
 
+    fn filter_block(&self, tile: (usize, &TileCoordinates)) -> bool {
+        self.sample_channels_reader.iter().any(|channel| channel.samples.filter_block(tile))
+    }
+
     fn read_block(&mut self, header: &Header, decompressed: UncompressedBlock) -> UnitResult {
-        for (bytes, line) in LineIndex::lines_in_block(decompressed.index, header) {
+        /*for (bytes, line) in LineIndex::lines_in_block(decompressed.index, header) {
             let channel = self.sample_channels_reader.get_mut(line.channel).unwrap();
             channel.samples.read_line(LineSlice { location: line, value: &decompressed.data[bytes] })?;
         }
 
-        Ok(())
-    }
-
-    fn filter_block(&self, tile: (usize, &TileCoordinates)) -> bool {
-        self.sample_channels_reader.iter().any(|channel| channel.samples.filter_block(tile))
+        Ok(())*/
+        decompressed.for_lines(header, |line| {
+            self.sample_channels_reader[line.location.channel].samples.read_line(line)
+        })
     }
 
     fn into_channels(self) -> Self::Channels {

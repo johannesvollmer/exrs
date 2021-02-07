@@ -2,11 +2,12 @@
 extern crate image as png;
 
 extern crate exr;
-use exr::prelude::*;
 
 /// Read an arbitrary image, crop away transparent pixels,
 /// then write the cropped result to another file.
 pub fn main() {
+    use exr::prelude::*;
+
     let path = "tests/images/valid/custom/oh crop.exr";
 
     // loads any image (excluding deep data)
@@ -28,7 +29,7 @@ pub fn main() {
             if let Some(alpha_channel_index) = alpha_channel_index {
                 layer.crop_where(|pixel: FlatSamplesPixel| pixel[alpha_channel_index].is_zero())
                     .or_crop_to_1x1_if_empty() // do not remove empty layers from image, because it could result in an image without content
-                    .reallocate_cropped()
+                    .reallocate_cropped() // actually perform the crop operation
             }
             else {
                 // return the original layer, as no alpha channel can be used for cropping

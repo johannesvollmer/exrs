@@ -30,7 +30,7 @@ pub enum Error {
     /// This error will never be triggered by this crate itself,
     /// only by users of this library.
     /// It exists to be returned from a progress callback.
-    Aborted,
+    Aborted, // FIXME remove?? is not used really?
 
     /// The contents of the file are not supported by
     /// this specific implementation of open exr,

@@ -10,13 +10,14 @@ use std::fs::File;
 
 // exr imports
 extern crate exr;
-use exr::prelude::*;
-use attribute::*;
-use exr::math::*;
 
 /// Generate a striped image on the fly and directly write that to a file without allocating the whole image at once.
 /// On my machine, this program produces a 3GB file while only ever allocating 4MB memory (takes a while though).
 fn main() {
+    use exr::prelude::*;
+    use attribute::*;
+    use exr::math::*;
+
     // TODO implement this example using the new API and not the raw function interface.
 
 
@@ -36,10 +37,10 @@ fn main() {
         "test-image".try_into().unwrap(),
         size,
         smallvec![
-            attribute::ChannelInfo::new("B", SampleType::F32, true),
-            attribute::ChannelInfo::new("G", SampleType::F32, true),
-            attribute::ChannelInfo::new("R", SampleType::F32, true),
-            attribute::ChannelInfo::new("Z", SampleType::F32, true),
+            attribute::ChannelDescription::new("B", SampleType::F32, true),
+            attribute::ChannelDescription::new("G", SampleType::F32, true),
+            attribute::ChannelDescription::new("R", SampleType::F32, true),
+            attribute::ChannelDescription::new("Z", SampleType::F32, true),
         ],
     );
 

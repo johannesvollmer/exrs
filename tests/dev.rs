@@ -57,13 +57,17 @@ pub fn test_roundtrip() {
     // let path = "tests/images/valid/openexr/Beachball/multipart.0001.exr";
     // let path = "tests/images/valid/openexr/Tiles/GoldenGate.exr";
     // let path = "tests/images/valid/openexr/v2/Stereo/composited.exr";
+    let path = "tests/images/valid\\custom\\crowskull\\crow_piz.exr";
     // let path = "tests/images/valid/openexr/MultiView/Balls.exr";
     // let path = "tests/images/valid/openexr/MultiResolution/Kapaa.exr"; // rip maps
     // let path = "tests/images/valid/openexr/MultiView/Impact.exr"; // mip maps
 
     // worksn't
     // let path = "tests/images/valid/openexr/Chromaticities/Rec709_YC.exr"; // subsampling
-    let path = "tests/images/valid/openexr/LuminanceChroma/Flowers.exr"; // subsampling
+    // let path = "tests/images/valid/openexr/LuminanceChroma/Flowers.exr"; // subsampling
+
+    // let path = "tests/images/valid/openexr/IlmfmlmflmTest/test_native1.exr";
+    // let path = "tests/images/valid/openexr/IlmfmlmflmTest/test_native2.exr"; // contains NaN
 
     // deep data?
     // let path = "tests/images/valid/openexr/v2/Stereo/Balls.exr";
@@ -75,12 +79,24 @@ pub fn test_roundtrip() {
     let meta = MetaData::read_from_file(path, false).unwrap();
     println!("{:#?}", meta);
 
-    let image =
-        read_all_rgba_layers_from_file(
+    let read =
+        /*read_all_rgba_layers_from_file(
             path,
-            read::rgba_channels::pixels::create_flattened_f32,
-            read::rgba_channels::pixels::set_flattened_pixel
-        ).unwrap();
+            read::specific_channels::pixels::create_flattened,
+            read::specific_channels::pixels::set_flattened_pixel::<(Sample, Sample, Sample, Option<Sample>)>
+        ).unwrap();*/
+        read()
+            .no_deep_data()
+            .largest_resolution_level() // TODO all levels
+            .rgba_channels(
+                pixel_vec::create_pixel_vec::<(f32, f32, f32, f32), _>,
+                pixel_vec::set_pixel_in_vec::<(f32, f32, f32, f32)>,
+            )
+            .first_valid_layer()
+            .all_attributes()
+            .non_parallel();
+
+    let image = read.clone().from_file(path).unwrap();
 
         // read_all_data_from_file(path).unwrap();
         // read() // Image::read_from_file(path, read_options::low()).unwrap();
@@ -102,12 +118,7 @@ pub fn test_roundtrip() {
     print!("starting read 2... ");
     io::stdout().flush().unwrap();
 
-    let image2 =
-        read_all_rgba_layers_from_file(
-            path,
-            read::rgba_channels::pixels::create_flattened_f32,
-            read::rgba_channels::pixels::set_flattened_pixel
-        ).unwrap();
+    let image2 = read.from_file(path).unwrap();
 
         // read() // Image::read_from_buffered(Cursor::new(&tmp_bytes),ReadOptions { pedantic: true, .. read_options::low() }).unwrap();
         // .no_deep_data().all_resolution_levels().all_channels().all_layers().pedantic()

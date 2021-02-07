@@ -54,10 +54,11 @@ pub mod prelude {
 
     /// Import this specifically if you want to be explicit but still use the extension traits.
     pub mod traits {
-        pub use crate::image::write::{WritableImage};
+        pub use crate::image::write::{WritableImage, channels::GetPixel};
         pub use crate::image::read::{
             read, any_channels::ReadSamples, image::ReadLayers,
             image::ReadImage, layers::ReadChannels,
+            specific_channels::{ReadSpecificChannel}
         };
 
         pub use crate::image::crop::{Crop, CropWhere, CropResult, InspectSample, CroppedChannels, ApplyCroppedView};
@@ -65,7 +66,7 @@ pub mod prelude {
 
     pub use traits::*;
 
-    pub use crate::image::write::{write_rgb_f32_file, write_rgba_f32_file};
+    pub use crate::image::write::{write_rgb_file, write_rgba_file};
     pub use crate::image::read::{
         read_first_rgba_layer_from_file,
         read_all_rgba_layers_from_file,
@@ -77,11 +78,10 @@ pub mod prelude {
     // image data structures
     pub use crate::image::*;
     pub use crate::meta::{ attribute, MetaData, header::{ LayerAttributes, ImageAttributes } };
-    pub use crate::image::read::{rgba_channels::*};
     pub use crate::block::samples::Sample;
     pub use crate::meta::attribute::{
         AttributeValue, Compression, Text, IntegerBounds,
-        LineOrder, SampleType, TileDescription
+        LineOrder, SampleType, TileDescription, ChannelDescription
     };
 
     // common math

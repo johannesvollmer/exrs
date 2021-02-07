@@ -55,7 +55,7 @@ pub trait ReadChannels<'s> {
 
 /// Processes pixel blocks from a file and accumulates them into a list of layers.
 /// For example, `ChannelsReader` can be
-/// [`RgbaChannelsReader`] or [`AnyChannelsReader<FlatSamplesReader>`].
+/// [`SpecificChannelsReader`] or [`AnyChannelsReader<FlatSamplesReader>`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct AllLayersReader<ChannelsReader> {
     layer_readers: SmallVec<[LayerReader<ChannelsReader>; 2]>, // TODO unpack struct?
@@ -63,7 +63,7 @@ pub struct AllLayersReader<ChannelsReader> {
 
 /// Processes pixel blocks from a file and accumulates them into a single layers, using only the first.
 /// For example, `ChannelsReader` can be
-/// `RgbaChannelsReader` or `AnyChannelsReader<FlatSamplesReader>`.
+/// `SpecificChannelsReader` or `AnyChannelsReader<FlatSamplesReader>`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FirstValidLayerReader<ChannelsReader> {
     layer_reader: LayerReader<ChannelsReader>,
@@ -72,7 +72,7 @@ pub struct FirstValidLayerReader<ChannelsReader> {
 
 /// Processes pixel blocks from a file and accumulates them into a single layers.
 /// For example, `ChannelsReader` can be
-/// `RgbaChannelsReader` or `AnyChannelsReader<FlatSamplesReader>`.
+/// `SpecificChannelsReader` or `AnyChannelsReader<FlatSamplesReader>`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LayerReader<ChannelsReader> {
     channels_reader: ChannelsReader,
@@ -109,8 +109,7 @@ impl<C> LayerReader<C> {
                 line_order: header.line_order,
                 blocks: match header.blocks {
                     crate::meta::Blocks::ScanLines => Blocks::ScanLines,
-                    crate::meta::Blocks::Tiles(TileDescription { tile_size, rounding_mode, .. }) =>
-                        Blocks::Tiles { tile_size, rounding_mode } // TODO FIXME what happens with the level_mode?
+                    crate::meta::Blocks::Tiles(TileDescription { tile_size, .. }) => Blocks::Tiles(tile_size)
                 },
             },
         })
@@ -136,14 +135,14 @@ impl<C> LayersReader for AllLayersReader<C> where C: ChannelsReader {
     type Layers = Layers<C::Channels>;
 
     fn filter_block(&self, header: (usize, &Header), tile: (usize, &TileCoordinates)) -> bool {
-        let layer = self.layer_readers.get(header.0).unwrap();
+        let layer = self.layer_readers.get(header.0).expect("invalid layer index argument");
         layer.channels_reader.filter_block(tile)
     }
 
     fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult {
         self.layer_readers
-            .get_mut(block.index.layer).unwrap()
-            .channels_reader.read_block(headers.get(block.index.layer).unwrap(), block)
+            .get_mut(block.index.layer).expect("invalid layer index argument")
+            .channels_reader.read_block(headers.get(block.index.layer).expect("invalid header index in block"), block)
     }
 
     fn into_layers(self) -> Self::Layers {
@@ -175,7 +174,7 @@ impl<'s, C> ReadLayers<'s> for ReadFirstValidLayer<C> where C: ReadChannels<'s> 
                     .ok()
             )
             .next()
-            .ok_or(Error::invalid("no suitable header found"))
+            .ok_or(Error::invalid("no layer in the image matched your specified requirements"))
     }
 }
 

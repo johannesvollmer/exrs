@@ -134,7 +134,7 @@ checksum = "3be565ca5c557d7f59e7cfcf1844f9e3033650c929c6566f511e8005f205c1d0"
 
 [[package]]
 name = "exr"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "bencher",
  "bit_field",

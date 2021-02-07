@@ -7,13 +7,13 @@ use std::fs::File;
 
 // exr imports
 extern crate exr;
-use exr::prelude::*;
 
 
 /// Collects the average pixel value for each channel.
 /// Does not load the whole image into memory at once: only processes the image block by block.
 /// On my machine, this program analyzes a 3GB file while only allocating 1.1MB.
 fn main() {
+    use exr::prelude::*;
 
     // TODO implement this example using the new API and not the raw function interface.
 

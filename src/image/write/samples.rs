@@ -4,7 +4,7 @@ use crate::meta::attribute::{LevelMode, SampleType, TileDescription};
 use crate::meta::header::Header;
 use crate::block::lines::LineRefMut;
 use crate::image::{FlatSamples, Levels, RipMaps};
-use crate::math::Vec2;
+use crate::math::{Vec2, RoundingMode};
 use crate::meta::{rip_map_levels, mip_map_levels, rip_map_indices, mip_map_indices, Blocks};
 
 /// Enable an image with this sample grid to be written to a file.
@@ -17,7 +17,7 @@ pub trait WritableSamples<'slf> {
     fn sample_type(&self) -> SampleType;
 
     /// Generate the file meta data regarding resolution levels
-    fn level_mode(&self) -> LevelMode;
+    fn infer_level_modes(&self) -> (LevelMode, RoundingMode);
 
     /// The type of the temporary writer for this sample storage
     type Writer: SamplesWriter;
@@ -66,7 +66,7 @@ impl<'samples> WritableSamples<'samples> for FlatSamples {
         }
     }
 
-    fn level_mode(&self) -> LevelMode { LevelMode::Singular }
+    fn infer_level_modes(&self) -> (LevelMode, RoundingMode) { (LevelMode::Singular, RoundingMode::Down) }
 
     type Writer = FlatSamplesWriter<'samples>; //&'s FlatSamples;
     fn create_samples_writer(&'samples self, header: &Header) -> Self::Writer {
@@ -123,16 +123,16 @@ impl<'samples, LevelSamples> WritableSamples<'samples> for Levels<LevelSamples>
     where LevelSamples: WritableLevel<'samples>
 {
     fn sample_type(&self) -> SampleType {
-        let sample_type = self.levels_as_slice().first().unwrap().sample_type();
+        let sample_type = self.levels_as_slice().first().expect("no levels found").sample_type();
         debug_assert!(self.levels_as_slice().iter().skip(1).all(|ty| ty.sample_type() == sample_type), "sample types must be the same across all levels");
         sample_type
     }
 
-    fn level_mode(&self) -> LevelMode {
+    fn infer_level_modes(&self) -> (LevelMode, RoundingMode) {
         match self {
-            Levels::Singular(_) => LevelMode::Singular,
-            Levels::Mip(_) => LevelMode::MipMap,
-            Levels::Rip(_) => LevelMode::RipMap,
+            Levels::Singular(_) => (LevelMode::Singular, RoundingMode::Down),
+            Levels::Mip { rounding_mode, .. } => (LevelMode::MipMap, *rounding_mode),
+            Levels::Rip { rounding_mode, .. } => (LevelMode::RipMap, *rounding_mode),
         }
     }
 
@@ -146,36 +146,40 @@ impl<'samples, LevelSamples> WritableSamples<'samples> for Levels<LevelSamples>
         LevelsWriter {
             levels: match self {
                 Levels::Singular(level) => Levels::Singular(level.create_level_writer(header.layer_size)),
-                Levels::Mip(levels) => {
+                Levels::Mip { level_data, rounding_mode } => {
                     debug_assert_eq!(
-                        levels.len(),
+                        level_data.len(),
                         mip_map_indices(rounding.expect("mip maps only with tiles"), header.layer_size).count(),
                         "invalid mip map count"
                     );
 
-                    Levels::Mip( // TODO store level size in image??
-                        levels.iter()
+                    Levels::Mip { // TODO store level size in image??
+                        rounding_mode: *rounding_mode,
+                        level_data: level_data.iter()
                             .zip(mip_map_levels(rounding.expect("mip maps only with tiles"), header.layer_size))
                             // .map(|level| level.create_samples_writer(header))
                             .map(|(level, (_level_index, level_size))| level.create_level_writer(level_size))
                             .collect()
-                    )
+                    }
                 },
-                Levels::Rip(maps) => {
-                    debug_assert_eq!(maps.map_data.len(), maps.level_count.area(), "invalid rip level count");
+                Levels::Rip { level_data, rounding_mode } => {
+                    debug_assert_eq!(level_data.map_data.len(), level_data.level_count.area(), "invalid rip level count");
                     debug_assert_eq!(
-                        maps.map_data.len(),
+                        level_data.map_data.len(),
                         rip_map_indices(rounding.expect("rip maps only with tiles"), header.layer_size).count(),
                         "invalid rip map count"
                     );
 
-                    Levels::Rip(RipMaps {
-                        level_count: maps.level_count,
-                        map_data: maps.map_data.iter()
-                            .zip(rip_map_levels(rounding.expect("rip maps only with tiles"), header.layer_size))
-                            .map(|(level, (_level_index, level_size))| level.create_level_writer(level_size))
-                            .collect(),
-                    })
+                    Levels::Rip {
+                        rounding_mode: *rounding_mode,
+                        level_data: RipMaps {
+                            level_count: level_data.level_count,
+                            map_data: level_data.map_data.iter()
+                                .zip(rip_map_levels(rounding.expect("rip maps only with tiles"), header.layer_size))
+                                .map(|(level, (_level_index, level_size))| level.create_level_writer(level_size))
+                                .collect(),
+                        }
+                    }
                 }
             }
         }

@@ -7,7 +7,7 @@
 
 This library is a 100% Rust and 100% safe code library for
 reading and writing OpenEXR images.
-See [the examples](https://docs.rs/crate/exr/1.0.0/source/examples/) for a first impression.
+See [the examples](https://docs.rs/crate/exr/1.1.0/source/examples/) for a first impression.
 
 [OpenEXR](http://www.openexr.com/)
 is the de-facto standard image format in animation, VFX, and 
@@ -157,7 +157,7 @@ please leave an issue on this repository, containing the image file.
 Add this to your `Cargo.toml`:
 ```toml
 [dependencies]
-exr = "1.0.0"
+exr = "1.1.0"
 
 # also, optionally add this to your crate for smaller binary size 
 # and better runtime performance
@@ -176,14 +176,15 @@ Example: [generate an rgb exr file](https://github.com/johannesvollmer/exrs/blob
 extern crate exr;
 
 fn main() {
-    // write a file without alpha and 32-bit float precision per channel
-    exr::prelude::write_rgb_f32_file(
+    // write a file with 16-bit alpha and 32-bit color precision
+    exr::prelude::write_rgba_file(
         "tests/images/out/minimal_rgb.exr",
-        (2048, 2048), // write an image with 2048x2048 pixels
-        |x,y| ( // generate an f32 rgb color for each of the 2048x2048 pixels
-            x as f32 / 2048.0, // red
-            y as f32 / 2048.0, // green
-            1.0 - (y as f32 / 2048.0), // blue
+        2048, 2048, // write an image with 2048x2048 pixels
+        |x,y| ( // generate (or lookup in your own image) an f32 rgb color for each of the 2048x2048 pixels
+                x as f32 / 2048.0, // red
+                y as f32 / 2048.0, // green
+                1.0 - (y as f32 / 2048.0), // blue
+                f16::from_f32(0.8) // 16-bit alpha
         )
     ).unwrap();
 }
@@ -191,6 +192,7 @@ fn main() {
 
 See the [the examples folder](https://github.com/johannesvollmer/exrs/tree/master/examples) for more examples.
 
+Or read [the guide](https://github.com/johannesvollmer/exrs/tree/master/GUIDE.md).
 
 ### Motivation
 

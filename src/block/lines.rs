@@ -157,6 +157,7 @@ pub fn write_all_lines_to_buffered(
 }
 
 
+
 impl LineIndex {
 
     /// Iterates the lines of this block index in interleaved fashion:

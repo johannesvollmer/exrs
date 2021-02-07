@@ -1,15 +1,15 @@
 
 // exr imports
 extern crate exr;
-use exr::prelude::*;
 
 /// Write an rgba exr file, generating the pixel values on the fly.
 /// This streams the generated pixel directly to the file,
 /// never allocating the actual total pixel memory of the image.
 fn main() {
+    use exr::prelude::*;
 
     // this function can generate a color for any pixel
-    let generate_pixels = |position: Vec2<usize>| {
+    let generate_pixels = |position: Vec2<usize>| -> (f32,f32,f32,f16) {
 
         // generate some arbitrary rgb colors, with varying size per channel
         fn get_sample_f32(position: Vec2<usize>, channel: usize) -> f32 {
@@ -21,11 +21,12 @@ fn main() {
         }
 
         // return an rgba quadruple
+        // use 32 bit color, but alpha with f16 precision
         (
             get_sample_f32(position, 0),
             get_sample_f32(position, 1),
             get_sample_f32(position, 2),
-            0.8
+            f16::from_f32(0.8)
         )
     };
 
@@ -36,21 +37,17 @@ fn main() {
     let layer = Layer::new(
         (2*2048, 2*2048),
         attributes,
-        Encoding::SMALL_FAST_LOSSY,
+        Encoding::SMALL_FAST_LOSSY, // use fast but lossy compression
 
-        RgbaChannels::new(
-            // all generated f32 values are converted to an f16 while writing the file
-            RgbaSampleTypes::RGBA_F16,
-            generate_pixels
-        )
+        SpecificChannels::rgba(generate_pixels)
     );
 
     // crop away black and transparent pixels from the border
     let layer = layer
-        .crop_where_eq((0.0, 0.0, 0.0, 0.0))
+        .crop_where_eq((0.0, 0.0, 0.0, f16::ZERO))
         .or_crop_to_1x1_if_empty();
 
-    let image = Image::from_single_layer(layer);
+    let image = Image::from_layer(layer);
 
     // write it to a file with all cores in parallel
     image.write().to_file("tests/images/out/generated_rgba.exr").unwrap();

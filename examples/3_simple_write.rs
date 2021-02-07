@@ -8,11 +8,12 @@ use rand::Rng;
 
 // exr imports
 extern crate exr;
-use exr::prelude::*;
 
 
 /// Generate a noisy image and write it to a file.
 fn main() {
+    use exr::prelude::*;
+
     fn generate_f16_vector(size: Vec2<usize>) -> Vec<f16> {
         let mut values = vec![ f16::from_f32(0.5); size.area() ];
 
@@ -52,7 +53,7 @@ fn main() {
         size,
         layer_attributes,
         Encoding::default(),
-        AnyChannels::sorted(smallvec![ r, g, b, a ]),
+        AnyChannels::sort(smallvec![ r, g, b, a ]),
     );
 
     // crop away transparent pixels from the border
@@ -64,7 +65,7 @@ fn main() {
         // throw error if the image is 100% transparent pixels and should be removed
         .or_none_if_empty().expect("image is empty and cannot be cropped");
 
-    let image = Image::from_single_layer(layer);
+    let image = Image::from_layer(layer);
 
     println!("writing image {:#?}", image);
 

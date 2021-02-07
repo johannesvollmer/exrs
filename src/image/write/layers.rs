@@ -7,6 +7,7 @@ use crate::image::{Layers, Layer};
 use crate::meta::attribute::{TileDescription};
 use crate::prelude::{SmallVec};
 use crate::image::write::channels::{WritableChannels, ChannelsWriter};
+use crate::image::recursive::{Recursive, NoneMore};
 
 /// Enables an image containing this list of layers to be written to a file.
 pub trait WritableLayers<'slf> {
@@ -36,36 +37,48 @@ pub struct AllLayersWriter<ChannelsWriter> {
 
 /// A temporary writer for a single layer
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct LayerWriter</*'a,*/ ChannelsWriter> {
+pub struct LayerWriter<ChannelsWriter> {
     channels: ChannelsWriter, // impl ChannelsWriter
 }
 
-
-
+// impl for smallvec
 impl<'slf, Channels: 'slf> WritableLayers<'slf> for Layers<Channels> where Channels: WritableChannels<'slf> {
     fn infer_headers(&self, image_attributes: &ImageAttributes) -> Headers {
-        self.iter().map(|layer| layer.infer_headers(image_attributes).remove(0)).collect() // TODO no array-vs-first
+        slice_infer_headers(self.as_slice(), image_attributes)
     }
 
     type Writer = AllLayersWriter<Channels::Writer>;
     fn create_writer(&'slf self, headers: &[Header]) -> Self::Writer {
-        AllLayersWriter {
-            layers: self.iter().zip(headers.chunks_exact(1)) // TODO no array-vs-first
-                .map(|(layer, header)| layer.create_writer(header))
-                .collect()
-        }
+        slice_create_writer(self.as_slice(), headers)
     }
 }
+
+fn slice_infer_headers<'slf, Channels:'slf + WritableChannels<'slf>>(
+    slice: &[Layer<Channels>], image_attributes: &ImageAttributes
+) -> Headers
+{
+    slice.iter().map(|layer| layer.infer_headers(image_attributes).remove(0)).collect() // TODO no array-vs-first
+}
+
+fn slice_create_writer<'slf, Channels:'slf + WritableChannels<'slf>>(
+    slice: &'slf [Layer<Channels>], headers: &[Header]
+) -> AllLayersWriter<Channels::Writer>
+{
+    AllLayersWriter {
+        layers: slice.iter().zip(headers.chunks_exact(1)) // TODO no array-vs-first
+            .map(|(layer, header)| layer.create_writer(header))
+            .collect()
+    }
+}
+
 
 impl<'slf, Channels: WritableChannels<'slf>> WritableLayers<'slf> for Layer<Channels> {
     fn infer_headers(&self, image_attributes: &ImageAttributes) -> Headers {
         let blocks = match self.encoding.blocks {
             crate::image::Blocks::ScanLines => crate::meta::Blocks::ScanLines,
-            crate::image::Blocks::Tiles { tile_size, rounding_mode } => {
-                crate::meta::Blocks::Tiles(TileDescription {
-                    level_mode: self.channel_data.level_mode(),
-                    tile_size, rounding_mode,
-                })
+            crate::image::Blocks::Tiles(tile_size) => {
+                let (level_mode, rounding_mode) = self.channel_data.infer_level_modes();
+                crate::meta::Blocks::Tiles(TileDescription { level_mode, rounding_mode, tile_size, })
             },
         };
 
@@ -97,7 +110,7 @@ impl<'slf, Channels: WritableChannels<'slf>> WritableLayers<'slf> for Layer<Chan
     type Writer = LayerWriter</*'l,*/ Channels::Writer>;
     fn create_writer(&'slf self, headers: &[Header]) -> Self::Writer {
         let channels = self.channel_data
-            .create_writer(headers.first().unwrap()); // TODO no array-vs-first
+            .create_writer(headers.first().expect("inferred header error")); // TODO no array-vs-first
 
         LayerWriter { channels }
     }
@@ -111,6 +124,65 @@ impl<C> LayersWriter for AllLayersWriter<C> where C: ChannelsWriter {
 
 impl<C> LayersWriter for LayerWriter<C> where C: ChannelsWriter {
     fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex) -> Vec<u8> {
-        self.channels.extract_uncompressed_block(headers.first().unwrap(), block) // TODO no array-vs-first
+        self.channels.extract_uncompressed_block(headers.first().expect("invalid inferred header"), block) // TODO no array-vs-first
     }
 }
+
+
+
+
+
+impl<'slf> WritableLayers<'slf> for NoneMore {
+    fn infer_headers(&self, _: &ImageAttributes) -> Headers { SmallVec::new() }
+
+    type Writer = NoneMore;
+    fn create_writer(&'slf self, _: &[Header]) -> Self::Writer { NoneMore }
+}
+
+impl<'slf, InnerLayers, Channels> WritableLayers<'slf> for Recursive<InnerLayers, Layer<Channels>>
+    where InnerLayers: WritableLayers<'slf>, Channels: WritableChannels<'slf>
+{
+    fn infer_headers(&self, image_attributes: &ImageAttributes) -> Headers {
+        let mut headers = self.inner.infer_headers(image_attributes);
+        headers.push(self.value.infer_headers(image_attributes).remove(0)); // TODO no unwrap
+        headers
+    }
+
+    type Writer = RecursiveLayersWriter<InnerLayers::Writer, Channels::Writer>;
+
+    fn create_writer(&'slf self, headers: &[Header]) -> Self::Writer {
+        let (own_header, inner_headers) = headers.split_last()
+            .expect("header has not been inferred correctly");
+
+        let layer_index = inner_headers.len();
+        RecursiveLayersWriter {
+            inner: self.inner.create_writer(inner_headers),
+            value: (layer_index, self.value.create_writer(std::slice::from_ref(own_header))) // TODO no slice
+        }
+    }
+}
+
+type RecursiveLayersWriter<InnerLayersWriter, ChannelsWriter> = Recursive<InnerLayersWriter, (usize, LayerWriter<ChannelsWriter>)>;
+
+impl LayersWriter for NoneMore {
+    fn extract_uncompressed_block(&self, _: &[Header], _: BlockIndex) -> Vec<u8> {
+        panic!("recursive length mismatch bug");
+    }
+}
+
+impl<InnerLayersWriter, Channels> LayersWriter for RecursiveLayersWriter<InnerLayersWriter, Channels>
+    where InnerLayersWriter: LayersWriter, Channels: ChannelsWriter
+{
+    fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex) -> Vec<u8> {
+        let (layer_index, layer) = &self.value;
+        if *layer_index == block.layer {
+            let header = headers.get(*layer_index).expect("layer index bug");
+            layer.extract_uncompressed_block(std::slice::from_ref(header), block) // TODO no slice?
+        }
+        else {
+            self.inner.extract_uncompressed_block(headers, block)
+        }
+    }
+}
+
+

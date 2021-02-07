@@ -2,9 +2,9 @@
 //! Currently does not support deep data and resolution levels.
 
 use crate::meta::attribute::{IntegerBounds, LevelMode, ChannelList};
-use crate::math::Vec2;
-use crate::image::{Layer, FlatSamples, RgbaChannels, AnyChannels, FlatSamplesPixel, AnyChannel};
-use crate::image::write::channels::{GetRgbaPixel, WritableChannels, ChannelsWriter};
+use crate::math::{Vec2, RoundingMode};
+use crate::image::{Layer, FlatSamples, SpecificChannels, AnyChannels, FlatSamplesPixel, AnyChannel};
+use crate::image::write::channels::{GetPixel, WritableChannels, ChannelsWriter};
 use crate::meta::header::{LayerAttributes, Header};
 use crate::block::BlockIndex;
 
@@ -165,8 +165,8 @@ impl<'slf, Channels:'slf> WritableChannels<'slf> for CroppedChannels<Channels> w
         self.full_channels.infer_channel_list() // no need for adjustments, as the layer content already reflects the changes
     }
 
-    fn level_mode(&self) -> LevelMode {
-        self.full_channels.level_mode()
+    fn infer_level_modes(&self) -> (LevelMode, RoundingMode) {
+        self.full_channels.infer_level_modes()
     }
 
     type Writer = CroppedWriter<Channels::Writer>;
@@ -197,10 +197,10 @@ impl<'c, Channels> ChannelsWriter for CroppedWriter<Channels> where Channels: Ch
     }
 }
 
-impl<Samples> InspectSample for Layer<RgbaChannels<Samples>> where Samples: GetRgbaPixel {
+impl<Samples, Channels> InspectSample for Layer<SpecificChannels<Samples, Channels>> where Samples: GetPixel {
     type Sample = Samples::Pixel;
     fn inspect_sample(&self, local_index: Vec2<usize>) -> Samples::Pixel {
-        self.channel_data.storage.get_pixel(local_index)
+        self.channel_data.pixels.get_pixel(local_index)
     }
 }
 
@@ -401,7 +401,7 @@ mod test {
         }
 
         fn assert_found_smaller_bounds(offset: Vec2<i32>, uncropped_lines: Vec<Vec<i32>>, cropped_lines: Vec<Vec<i32>>) {
-            let old_bounds = find_bounds(offset, &uncropped_lines); // TODO offset
+            let old_bounds = find_bounds(offset, &uncropped_lines);
 
             let found_bounds = try_find_smaller_bounds(
                 old_bounds, |position| uncropped_lines[position.y()][position.x()] != 0

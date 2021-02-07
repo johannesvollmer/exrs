@@ -16,6 +16,8 @@ Yanking shouldn't be the default.
 1. No `println!` outside of tests and examples
 1. `assert_eq` and `debug_assert_eq` should have a message explaining the context
 1. ensure `#![warn(missing_docs)]` in `lib.rs`
+1. Example in README.md should be up-to-date
+1. GUIDE.md should be up-to-date
 
 ## Tasks
 1. Bump version in
@@ -24,5 +26,4 @@ Yanking shouldn't be the default.
     - `examples/README.md`
     
 1. Run `cargo publish`
-    
     

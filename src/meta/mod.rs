@@ -573,7 +573,7 @@ impl Requirements {
 
     /// Validate this instance.
     pub fn validate(&self) -> UnitResult {
-        if let 1..=2 = self.file_format_version {
+        if self.file_format_version == 2 {
 
             match (
                 self.is_single_layer_and_tiled, self.has_deep_data, self.has_multiple_layers,
@@ -602,9 +602,8 @@ impl Requirements {
             }
         }
         else {
-            Err(Error::unsupported("file version newer than `2.0`"))
+            Err(Error::unsupported("file versions other than 2.0 are not supported"))
         }
-
     }
 }
 
@@ -634,7 +633,7 @@ mod test {
     fn round_trip(){
         let header = Header {
             channels: ChannelList::new(smallvec![
-                    ChannelInfo {
+                    ChannelDescription {
                         name: Text::from("main"),
                         sample_type: SampleType::U32,
                         quantize_linearly: false,
@@ -690,7 +689,7 @@ mod test {
     fn infer_low_requirements() {
         let header_version_1_short_names = Header {
             channels: ChannelList::new(smallvec![
-                    ChannelInfo {
+                    ChannelDescription {
                         name: Text::from("main"),
                         sample_type: SampleType::U32,
                         quantize_linearly: false,
@@ -737,7 +736,7 @@ mod test {
         let header_version_2_long_names = Header {
             channels: ChannelList::new(
                 smallvec![
-                    ChannelInfo {
+                    ChannelDescription {
                         name: Text::new_or_panic("main"),
                         sample_type: SampleType::U32,
                         quantize_linearly: false,
