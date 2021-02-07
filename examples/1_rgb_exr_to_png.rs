@@ -46,7 +46,7 @@ fn main() {
     };
 
     // save the png buffer to a png file
-    let png_buffer = &image.layer_data.channel_data.storage;
+    let png_buffer = &image.layer_data.channel_data.pixels;
     png_buffer.save("tests/images/out/rgb.png").unwrap();
     println!("created image rgb.png")
 }

@@ -202,7 +202,7 @@ for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
         for (y, line_bytes) in byte_lines.enumerate() {
             pixel_line.clear();
             pixel_line.extend((0 .. width).map(|x|
-                self.channels.storage.get_pixel(block_index.pixel_position + Vec2(x,y)).into_recursive()
+                self.channels.pixels.get_pixel(block_index.pixel_position + Vec2(x, y)).into_recursive()
             ));
 
             self.recursive_channel_writer.write_pixels(line_bytes, pixel_line.as_slice(), |px| px);

@@ -214,7 +214,7 @@ ChannelsReader for SpecificChannelsReader<PixelStorage, SetPixel, PxReader, Pixe
     }
 
     fn into_channels(self) -> Self::Channels {
-        SpecificChannels { channels: self.pixel_reader.get_descriptions().into_non_recursive(), storage: self.pixel_storage }
+        SpecificChannels { channels: self.pixel_reader.get_descriptions().into_non_recursive(), pixels: self.pixel_storage }
     }
 }
 

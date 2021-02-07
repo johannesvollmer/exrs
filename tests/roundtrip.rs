@@ -235,8 +235,8 @@ fn roundtrip_unusual_2() -> UnitResult {
 
     // custom compare function: considers nan equal to nan
     assert_eq!(image.layer_data.size, size, "test is buggy");
-    let pixels1 = &image.layer_data.channel_data.storage;
-    let pixels2 = &image2.layer_data.channel_data.storage;
+    let pixels1 = &image.layer_data.channel_data.pixels;
+    let pixels2 = &image2.layer_data.channel_data.pixels;
 
     assert_eq!(pixels1.pixels, pixels2.pixels);
 
@@ -302,8 +302,8 @@ fn roundtrip_unusual_7() -> UnitResult {
 
     // custom compare function: considers nan equal to nan
     assert_eq!(image.layer_data.size, size, "test is buggy");
-    let pixels1 = &image.layer_data.channel_data.storage;
-    let pixels2 = &image2.layer_data.channel_data.storage;
+    let pixels1 = &image.layer_data.channel_data.pixels;
+    let pixels2 = &image2.layer_data.channel_data.pixels;
 
     assert_eq!(pixels1.pixels, pixels2.pixels);
 

@@ -38,7 +38,7 @@ fn main() {
 
     // output a random color of each channel of each layer
     for layer in &image.layer_data {
-        let (alpha, luma, luma_right) = layer.channel_data.storage.first().unwrap().first().unwrap();
+        let (alpha, luma, luma_right) = layer.channel_data.pixels.first().unwrap().first().unwrap();
 
         println!(
             "bottom left color of layer `{}`: (a, y, yr) = {:?}",

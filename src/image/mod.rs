@@ -80,15 +80,15 @@ pub struct Image<Layers> {
     pub layer_data: Layers,
 }
 
-/// A list of layers. `Channels` can be `RgbaChannels` or `AnyChannels`.
+/// A list of layers. `Channels` can be `SpecificChannels` or `AnyChannels`.
 pub type Layers<Channels> = SmallVec<[Layer<Channels>; 2]>;
 
 /// A single Layer, including fancy attributes and compression settings.
-/// `Channels` can be either `RgbaChannels` or `AnyChannels`
+/// `Channels` can be either `SpecificChannels` or `AnyChannels`
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layer<Channels> {
 
-    /// The actual pixel data. Either `RgbaChannels` or `AnyChannels`
+    /// The actual pixel data. Either `SpecificChannels` or `AnyChannels`
     pub channel_data: Channels,
 
     /// Attributes that apply to this layer.
@@ -142,23 +142,23 @@ pub enum Blocks {
 }
 
 
-/// A grid of rgba pixels. The pixels are written to your custom pixel storage.
+/// A grid of pixels. The pixels are written to your custom pixel storage.
 /// `PixelStorage` can be anything, from a flat `Vec<f16>` to `Vec<Vec<AnySample>>`, as desired.
-/// In order to write this image to a file, your `PixelStorage` must implement [`GetRgbaPixel`].
+/// In order to write this image to a file, your `PixelStorage` must implement [`GetPixel`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SpecificChannels<PixelStorage, ChannelsDescription> {
+pub struct SpecificChannels<Pixels, ChannelsDescription> {
 
     /// A description of the channels in the file, as opposed to the channels in memory.
     /// Should always be a tuple containing `ChannelDescription`s, one description for each channel.
     pub channels: ChannelsDescription, // TODO this is awkward. can this be not a type parameter please? maybe vec<option<chan_info>> ??
 
-    /// Your custom rgba pixel storage
-    // TODO should also support `Levels<YourStorage>`, where rgba levels are desired!
-    pub storage: PixelStorage, // TODO rename to "pixels"?
+    /// Your custom pixel storage
+    // TODO should also support `Levels<YourStorage>`, where levels are desired!
+    pub pixels: Pixels, // TODO rename to "pixels"?
 }
 
 
-/// A full list of arbitrary channels, not just rgba.
+/// A dynamic list of arbitrary channels.
 /// `Samples` can currently only be `FlatSamples` or `Levels<FlatSamples>`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnyChannels<Samples> {
@@ -257,7 +257,7 @@ pub enum DeepAndFlatSamples {
 ///
 /// Since this is close to the pixel layout in the byte file,
 /// this will most likely be the fastest storage.
-/// Using a different storage, for example `RgbaChannels`,
+/// Using a different storage, for example `SpecificChannels`,
 /// will probably be slower.
 #[derive(Clone, PartialEq)] // debug is implemented manually
 pub enum FlatSamples {
@@ -313,7 +313,7 @@ impl<SampleStorage, Channels> SpecificChannels<SampleStorage, Channels> {
             Channels: Sync + Clone + IntoRecursive,
             <Channels as IntoRecursive>::Recursive: WritableChannelsDescription<<SampleStorage::Pixel as IntoRecursive>::Recursive>,
     {
-        SpecificChannels { channels, storage: source_samples }
+        SpecificChannels { channels, pixels: source_samples }
     }
 }
 
@@ -409,7 +409,7 @@ impl<RecursiveChannels: CheckDuplicates, RecursivePixel> SpecificChannelsBuilder
     {
         SpecificChannels {
             channels: self.channels,
-            storage: get_pixel
+            pixels: get_pixel
         }
     }
 
@@ -426,7 +426,7 @@ impl<RecursiveChannels: CheckDuplicates, RecursivePixel> SpecificChannelsBuilder
     {
         SpecificChannels {
             channels: self.channels,
-            storage: get_pixel
+            pixels: get_pixel
         }
     }
 }
@@ -853,7 +853,7 @@ impl<C> ContainsNaN for AnyChannel<C> where C: ContainsNaN {
 
 impl<S, T> ContainsNaN for SpecificChannels<S, T> where S: ContainsNaN {
     fn contains_nan_pixels(&self) -> bool {
-        self.storage.contains_nan_pixels()
+        self.pixels.contains_nan_pixels()
     }
 }
 

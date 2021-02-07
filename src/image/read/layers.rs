@@ -55,7 +55,7 @@ pub trait ReadChannels<'s> {
 
 /// Processes pixel blocks from a file and accumulates them into a list of layers.
 /// For example, `ChannelsReader` can be
-/// [`RgbaChannelsReader`] or [`AnyChannelsReader<FlatSamplesReader>`].
+/// [`SpecificChannelsReader`] or [`AnyChannelsReader<FlatSamplesReader>`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct AllLayersReader<ChannelsReader> {
     layer_readers: SmallVec<[LayerReader<ChannelsReader>; 2]>, // TODO unpack struct?
@@ -63,7 +63,7 @@ pub struct AllLayersReader<ChannelsReader> {
 
 /// Processes pixel blocks from a file and accumulates them into a single layers, using only the first.
 /// For example, `ChannelsReader` can be
-/// `RgbaChannelsReader` or `AnyChannelsReader<FlatSamplesReader>`.
+/// `SpecificChannelsReader` or `AnyChannelsReader<FlatSamplesReader>`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FirstValidLayerReader<ChannelsReader> {
     layer_reader: LayerReader<ChannelsReader>,
@@ -72,7 +72,7 @@ pub struct FirstValidLayerReader<ChannelsReader> {
 
 /// Processes pixel blocks from a file and accumulates them into a single layers.
 /// For example, `ChannelsReader` can be
-/// `RgbaChannelsReader` or `AnyChannelsReader<FlatSamplesReader>`.
+/// `SpecificChannelsReader` or `AnyChannelsReader<FlatSamplesReader>`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LayerReader<ChannelsReader> {
     channels_reader: ChannelsReader,

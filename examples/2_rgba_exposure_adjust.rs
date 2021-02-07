@@ -45,7 +45,7 @@ fn main() {
     let exposure_multiplier = 2.0;
 
     {   // increase exposure of all pixels
-        for line in &mut image.layer_data.channel_data.storage.lines {
+        for line in &mut image.layer_data.channel_data.pixels.lines {
             for (r,g,b,_) in line {
                 // you should probably check the color space and white points
                 // for high quality color adjustments
