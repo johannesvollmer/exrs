@@ -103,12 +103,28 @@ pub struct Text {
     bytes: TextBytes,
 }
 
-/// Contains time information.
-// TODO use actual fields instead of bit fields and asseble bit-u32 on write
+/// Contains time information for this frame within a sequence.
+/// Satisfies the SMPTE standard 12M-1999.
 #[derive(Copy, Debug, Clone, Eq, PartialEq, Hash)]
 pub struct TimeCode {
-    time_and_flags: u32,
-    user_data: u32,
+
+    /// 0 - 23
+    hours: u8,
+
+    /// 0 - 59
+    minutes: u8,
+
+    /// 0 - 59
+    seconds: u8,
+
+    /// 0 - 29
+    frame: u8,
+
+    drop_frame: bool,
+    color_frame: bool,
+    field_phase: bool,
+    binary_group_flag_bits: [bool; 3], // TODO enum?
+    binary_groups: [u8; 8]
 }
 
 /// layer type, specifies block type and deepness.
@@ -378,6 +394,8 @@ use half::f16;
 use std::convert::{TryFrom};
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
+use bit_field::BitField;
+use std::cmp::max;
 
 
 fn invalid_type() -> Error {
@@ -1067,10 +1085,38 @@ impl TimeCode {
     /// Number of bytes this would consume in an exr file.
     pub const BYTE_SIZE: usize = 2 * u32::BYTE_SIZE;
 
+    /// Returns an error if this time code is considered invalid.
+    pub fn validate(&self, strict: bool) -> UnitResult {
+        unimplemented!()
+    }
+
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
-        self.time_and_flags.write(write)?;
-        self.user_data.write(write)?;
+        debug_assert!(self.validate(false).is_ok());
+
+        let mut time_and_flags: u32 = 0;
+        let mut user_data: u32 = 0;
+
+        time_and_flags.set_bits(0..5, self.frame);
+        time_and_flags.set_bit(6, self.drop_frame);
+        time_and_flags.set_bit(7, self.color_frame);
+        time_and_flags.set_bits(8..14, self.seconds);
+        time_and_flags.set_bit(15, self.field_phase);
+        time_and_flags.set_bits(16..22, self.minutes);
+        time_and_flags.set_bit(23, self.binary_group_flag_bits[0]);
+        time_and_flags.set_bits(24..29, self.hours);
+        time_and_flags.set_bit(30, self.binary_group_flag_bits[1]);
+        time_and_flags.set_bit(31, self.binary_group_flag_bits[2]);
+
+        for (group_index, user_group) in self.binary_groups.iter().enumerate() {
+            let minBit = 4 * (group_index - 1);
+            let maxBit = minBit + 3;
+            let group = *user_group;
+            user_data.set_bits(minBit .. maxBit, group);
+        }
+
+        time_and_flags.write(write)?;
+        user_data.write(write)?;
         Ok(())
     }
 
@@ -1078,7 +1124,18 @@ impl TimeCode {
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         let time_and_flags = u32::read(read)?;
         let user_data = u32::read(read)?;
-        Ok(Self { time_and_flags, user_data })
+
+        Ok(Self {
+            hours: 0,
+            minutes: 0,
+            seconds: 0,
+            frame: 0,
+            drop_frame: false,
+            color_frame: false,
+            field_phase: false,
+            binary_group_flag_bits: [],
+            binary_groups: unimplemented!()
+        })
     }
 }
 
@@ -1633,6 +1690,7 @@ impl AttributeValue {
             ChannelList(ref channels) => channels.validate(allow_sampling, data_window, strict)?,
             TileDescription(ref value) => value.validate()?,
             Preview(ref value) => value.validate(strict)?,
+            TimeCode(ref time_code) => time_code.validate(strict)?,
 
             TextVector(ref vec) => if strict && vec.is_empty() {
                 return Err(Error::invalid("text vector may not be empty"))
