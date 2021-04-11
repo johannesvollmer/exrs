@@ -144,72 +144,35 @@ macro_rules! generate_single {
     };
 }
 
-/// Generate the trait implementations for the given type names and indices and for all smaller sets of types:
-/// ```nocheck
-/// generate_all_reversed(C, B, A; 2, 1, 0)
-/// ```
-macro_rules! generate_all_reversed {
-    // This macro does most of the work. It re-reverses the type names since we need them in that order for actual code
-    // generation. This macro also chops of the last type name and index and recurses to handle the smaller tuples.
-
-    //entry point base case
-    ( ; ; ) => { };
-
-    //entry point
-    ($($name_back:ident),* ; $($index_back:tt),* ; ) => {
-        generate_all_reversed!(@ ; $($name_back),* ; $($name_back),* ; $($index_back),* );
-    };
-
-    //re-reverse base case
-    (@ $($name_fwd:ident),* ; ; $name_last:ident $(,$name_rest:ident)* ; $index_last:tt $(,$index_rest:tt)* ) => {
-        generate_all_reversed!( $($name_rest),* ; $($index_rest),* ; );
-        generate_single!( $($name_fwd),* ; $name_last $(,$name_rest)* ; $index_last $(,$index_rest)* );
-    };
-    //re-reverse intermediate
-    (@
-        $($name_fwd:ident),* ; $name_last:ident $(,$name_rest:ident)* ;
-        $($name_back:ident),* ;
-        $($index_back:tt),*
-    ) => {
-        generate_all_reversed!(@
-            $name_last $(,$name_fwd)* ; $($name_rest),* ;
-            $($name_back),* ;
-            $($index_back),*
-        );
-    };
-}
-
-/// Generate the trait implementations for the given type names and indices and for all smaller sets of types:
-/// ```nocheck
-/// generate_all(A, B, C; 0, 1, 2)
-/// ```
-macro_rules! generate_all {
-    // The point of this macro is to reverse the input sequences so we can cut off the last values and recurse for the
-    // smaller tuple implementations. Cutting off the last element of a sequence directly is not possible.
-    // In this macro we use [] to resolve parsing ambiguities caused by , and ; being allowed in :tt tokens
-
-    //entry point
-    ($($name_fwd:ident),* ; $($index_fwd:tt),* ; ) => {
-        generate_all!(@ ; $($name_fwd),* ; [] ; [$($index_fwd),*] );
-    };
-
-    //reverse base case
-    (@ $($name_back:ident),* ; ; [$($index_back:tt),*] ; []) => {
-        generate_all_reversed!( $($name_back),* ; $($index_back),* ; );
-    };
-    //reverse intermediate
-    (@
-        $($name_back:ident),* ; $name_first:ident $(,$name_rest:ident)* ;
-        [$($index_back:tt),*] ; [$index_first:tt $(,$index_rest:tt)*]
-    ) => {
-        generate_all!(@
-            $name_first $(,$name_back)* ; $($name_rest),* ;
-            [$index_first $(,$index_back)*] ; [$($index_rest),*]
-        );
-    };
-}
-
-generate_all!(
-        A, B, C, D, E, F, G, H;
-        0, 1, 2, 3, 4, 5, 6, 7;
-);
+generate_single!(A; A; 0);
+generate_single!(A,B; B,A; 1,0);
+generate_single!(A,B,C; C,B,A; 2,1,0);
+generate_single!(A,B,C,D; D,C,B,A; 3,2,1,0);
+generate_single!(A,B,C,D,E; E,D,C,B,A; 4,3,2,1,0);
+generate_single!(A,B,C,D,E,F; F,E,D,C,B,A; 5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G; G,F,E,D,C,B,A; 6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H; H,G,F,E,D,C,B,A; 7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I; I,H,G,F,E,D,C,B,A; 8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J; J,I,H,G,F,E,D,C,B,A; 9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K; K,J,I,H,G,F,E,D,C,B,A; 10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L; L,K,J,I,H,G,F,E,D,C,B,A; 11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M; M,L,K,J,I,H,G,F,E,D,C,B,A; 12,11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M,N; N,M,L,K,J,I,H,G,F,E,D,C,B,A; 13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O; O,N,M,L,K,J,I,H,G,F,E,D,C,B,A; 14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P; P,O,N,M,L,K,J,I,H,G,F,E,D,C,B,A; 15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q; Q,P,O,N,M,L,K,J,I,H,G,F,E,D,C,B,A; 16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R; R,Q,P,O,N,M,L,K,J,I,H,G,F,E,D,C,B,A; 17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S; S,R,Q,P,O,N,M,L,K,J,I,H,G,F,E,D,C,B,A; 18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T; T,S,R,Q,P,O,N,M,L,K,J,I,H,G,F,E,D,C,B,A; 19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U; U,T,S,R,Q,P,O,N,M,L,K,J,I,H,G,F,E,D,C,B,A; 20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V; V,U,T,S,R,Q,P,O,N,M,L,K,J,I,H,G,F,E,D,C,B,A; 21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W; W,V,U,T,S,R,Q,P,O,N,M,L,K,J,I,H,G,F,E,D,C,B,A; 22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X; X,W,V,U,T,S,R,Q,P,O,N,M,L,K,J,I,H,G,F,E,D,C,B,A; 23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y; Y,X,W,V,U,T,S,R,Q,P,O,N,M,L,K,J,I,H,G,F,E,D,C,B,A; 24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z; Z,Y,X,W,V,U,T,S,R,Q,P,O,N,M,L,K,J,I,H,G,F,E,D,C,B,A; 25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z,A1; A1,Z,Y,X,W,V,U,T,S,R,Q,P,O,N,M,L,K,J,I,H,G,F,E,D,C,B,A; 26,25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z,A1,B1; B1,A1,Z,Y,X,W,V,U,T,S,R,Q,P,O,N,M,L,K,J,I,H,G,F,E,D,C,B,A; 27,26,25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z,A1,B1,C1; C1,B1,A1,Z,Y,X,W,V,U,T,S,R,Q,P,O,N,M,L,K,J,I,H,G,F,E,D,C,B,A; 28,27,26,25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z,A1,B1,C1,D1; D1,C1,B1,A1,Z,Y,X,W,V,U,T,S,R,Q,P,O,N,M,L,K,J,I,H,G,F,E,D,C,B,A; 29,28,27,26,25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z,A1,B1,C1,D1,E1; E1,D1,C1,B1,A1,Z,Y,X,W,V,U,T,S,R,Q,P,O,N,M,L,K,J,I,H,G,F,E,D,C,B,A; 30,29,28,27,26,25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+generate_single!(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z,A1,B1,C1,D1,E1,F1; F1,E1,D1,C1,B1,A1,Z,Y,X,W,V,U,T,S,R,Q,P,O,N,M,L,K,J,I,H,G,F,E,D,C,B,A; 31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
