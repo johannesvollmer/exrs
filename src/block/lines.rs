@@ -173,7 +173,7 @@ impl LineIndex {
             layer: usize, level: Vec2<usize>, width: usize,
             end_y: usize, x: usize, channel_sizes: SmallVec<[usize; 8]>,
             byte: usize, channel: usize, y: usize,
-        };
+        }
 
         // FIXME what about sub sampling??
 
