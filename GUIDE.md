@@ -340,7 +340,7 @@ Image {
 
 Layer {
     
-    // the channel data can either be a fixed set of known channels, or a list of arbitrary channels
+    // the channel data can either be a fixed set of known channels, or a dynamic list of arbitrary channels
     channel_data: SpecificChannels | AnyChannels,
     
     attributes: LayerAttributes,
