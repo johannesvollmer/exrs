@@ -66,22 +66,22 @@ pub struct Requirements {
 
     /// This library supports reading version 1 and 2, and writing version 2.
     // TODO write version 1 for simple images
-    file_format_version: u8,
+    pub file_format_version: u8,
 
     /// If true, this image has tiled blocks and contains only a single layer.
     /// If false and not deep and not multilayer, this image is a single layer image with scan line blocks.
-    is_single_layer_and_tiled: bool,
+    pub is_single_layer_and_tiled: bool,
 
     // in c or bad c++ this might have been relevant (omg is he allowed to say that)
     /// Whether this file has strings with a length greater than 31.
     /// Strings can never be longer than 255.
-    has_long_names: bool,
+    pub has_long_names: bool,
 
     /// This image contains at least one layer with deep data.
-    has_deep_data: bool,
+    pub has_deep_data: bool,
 
     /// Whether this file contains multiple layers.
-    has_multiple_layers: bool,
+    pub has_multiple_layers: bool,
 }
 
 
