@@ -26,7 +26,7 @@ fn check_files<T>(
     operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -> exr::error::Result<T>
 ) {
     #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
-    enum Result { Ok, Skipped, Unsupported(String), Error(String) };
+    enum Result { Ok, Skipped, Unsupported(String), Error(String) }
 
     let files: Vec<PathBuf> = exr_files().collect();
     let mut results: Vec<(PathBuf, Result)> = files.into_par_iter()
