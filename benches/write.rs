@@ -47,7 +47,7 @@ fn write_parallel_zip16_to_buffered(bench: &mut Bencher) {
 fn write_uncompressed_to_buffered(bench: &mut Bencher) {
     let path = "tests/images/valid/custom/crowskull/crow_uncompressed.exr";
     let image = read_all_flat_layers_from_file(path).unwrap();
-    assert!(image.layer_data.iter().all(|layer| layer.encoding.compression == Compression::Uncompressed));
+    debug_assert!(image.layer_data.iter().all(|layer| layer.encoding.compression == Compression::Uncompressed));
 
     bench.iter(||{
         let mut result = Vec::new();

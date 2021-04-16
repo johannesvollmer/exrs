@@ -166,8 +166,8 @@ impl Compression {
     pub fn compress_image_section(self, header: &Header, mut uncompressed: ByteVec, pixel_section: IntegerBounds) -> Result<ByteVec> {
         let max_tile_size = header.max_block_pixel_size();
 
-        assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
-        if header.deep { assert!(self.supports_deep_data()) }
+        debug_assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
+        if header.deep { debug_assert!(self.supports_deep_data()) }
 
         // convert data if compression method expects native format
         // see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
@@ -204,8 +204,8 @@ impl Compression {
     pub fn decompress_image_section(self, header: &Header, compressed: ByteVec, pixel_section: IntegerBounds, pedantic: bool) -> Result<ByteVec> {
         let max_tile_size = header.max_block_pixel_size();
 
-        assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
-        if header.deep { assert!(self.supports_deep_data()) }
+        debug_assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
+        if header.deep { debug_assert!(self.supports_deep_data()) }
 
         let expected_byte_size = pixel_section.size.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
 
