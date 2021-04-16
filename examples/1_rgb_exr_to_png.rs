@@ -43,7 +43,7 @@ fn main() {
         // TODO does the `image` crate expect gamma corrected data?
         let clamped = (linear - 0.5).tanh() * 0.5 + 0.5;
         (clamped * 255.0) as u8
-    };
+    }
 
     // save the png buffer to a png file
     let png_buffer = &image.layer_data.channel_data.pixels;
