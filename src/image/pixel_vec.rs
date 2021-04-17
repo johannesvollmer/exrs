@@ -50,9 +50,9 @@ impl<T> PixelVec<T> {
     }
 }
 
-impl<T> ApproximateEq for PixelVec<T> where T: ApproximateEq {
-    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
-        self.pixels.as_slice().approximate_eq(&other.pixels.as_slice(), max_difference)
+impl<T> SimilarToLossy for PixelVec<T> where T: SimilarToLossy {
+    fn similar_to_lossy(&self, lossy_self: &Self, max_difference: f32) -> bool {
+        self.pixels.as_slice().similar_to_lossy(&lossy_self.pixels.as_slice(), max_difference)
     }
 }
 

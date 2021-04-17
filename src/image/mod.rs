@@ -822,123 +822,128 @@ impl<'s, SampleData: 's> AnyChannel<SampleData> {
 
 
 
-/// Compare two objects, but with a few special quirks:
-/// - Two NaN values are considered equal if they have the same bit representation.
-/// - Any two values that differ only by a small amount will be considered equal.
-///
+/// Compare two objects, but with a few special quirks.
 /// Intended mainly for unit testing.
-pub trait ApproximateEq {
+pub trait SimilarToLossy {
 
-    /// Compare this with the other. NaN is considered comparable and the max difference will be respected.
-    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool;
+    /// Compare self with the other.
+    /// Exceptional behaviour:
+    /// - Any two values that differ only by a small amount will be considered equal.
+    /// - Any two NaN values are considered equal, regardless of bit representation.
+    /// - If __self is NaN and the other value is zero, they are considered equal__ (because some compression methods replace nan with zero)
+    ///   This does not work the other way around! This method is not symmetrical!
+    fn similar_to_lossy(&self, lossy_self: &Self, max_difference: f32) -> bool;
 }
 
-impl<L> ApproximateEq for Image<L> where L: ApproximateEq {
-    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool { self.layer_data.approximate_eq(&other.layer_data, max_difference) }
+impl<L> SimilarToLossy for Image<L> where L: SimilarToLossy {
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool { self.layer_data.similar_to_lossy(&other.layer_data, max_difference) }
 }
 
-impl<C> ApproximateEq for Layer<C> where C: ApproximateEq { // TODO if compression is lossy, don't bother with the max difference (but still bother with nan!)
-    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool { self.channel_data.approximate_eq(&other.channel_data, max_difference) }
+impl<C> SimilarToLossy for Layer<C> where C: SimilarToLossy { // TODO if compression is lossy, don't bother with the max difference (but still bother with nan!)
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool { self.channel_data.similar_to_lossy(&other.channel_data, max_difference) }
 }
 
-impl<C> ApproximateEq for AnyChannels<C> where C: ApproximateEq {
-    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool { self.list.approximate_eq(&other.list, max_difference) }
+impl<C> SimilarToLossy for AnyChannels<C> where C: SimilarToLossy {
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool { self.list.similar_to_lossy(&other.list, max_difference) }
 }
 
-impl<C> ApproximateEq for AnyChannel<C> where C: ApproximateEq {
-    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool { self.sample_data.approximate_eq(&other.sample_data, max_difference) }
+impl<C> SimilarToLossy for AnyChannel<C> where C: SimilarToLossy {
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool { self.sample_data.similar_to_lossy(&other.sample_data, max_difference) }
 }
 
-impl<S, T> ApproximateEq for SpecificChannels<S, T> where S: ApproximateEq {
-    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
-        self.pixels.approximate_eq(&other.pixels, max_difference)
+impl<S, T> SimilarToLossy for SpecificChannels<S, T> where S: SimilarToLossy {
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
+        self.pixels.similar_to_lossy(&other.pixels, max_difference)
     }
 }
 
-impl<C> ApproximateEq for Levels<C> where C: ApproximateEq {
-    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
-        self.levels_as_slice().approximate_eq(&other.levels_as_slice(), max_difference)
+impl<C> SimilarToLossy for Levels<C> where C: SimilarToLossy {
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
+        self.levels_as_slice().similar_to_lossy(&other.levels_as_slice(), max_difference)
     }
 }
 
-impl ApproximateEq for FlatSamples {
-    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
+impl SimilarToLossy for FlatSamples {
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
         use FlatSamples::*;
         match (self, other) {
-            (F16(values), F16(other_values)) => values.as_slice().approximate_eq(&other_values.as_slice(), max_difference),
-            (F32(values), F32(other_values)) => values.as_slice().approximate_eq(&other_values.as_slice(), max_difference),
-            (U32(values), U32(other_values)) => values.as_slice().approximate_eq(&other_values.as_slice(), max_difference),
+            (F16(values), F16(other_values)) => values.as_slice().similar_to_lossy(&other_values.as_slice(), max_difference),
+            (F32(values), F32(other_values)) => values.as_slice().similar_to_lossy(&other_values.as_slice(), max_difference),
+            (U32(values), U32(other_values)) => values.as_slice().similar_to_lossy(&other_values.as_slice(), max_difference),
             _ => false
         }
     }
 }
 
-impl<T> ApproximateEq for &[T] where T: ApproximateEq {
-    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
+impl<T> SimilarToLossy for &[T] where T: SimilarToLossy {
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
         self.len() == other.len() && self.iter().zip(other.iter())
-            .all(|(a,b)| a.approximate_eq(b, max_difference))
+            .all(|(slf, other)| slf.similar_to_lossy(other, max_difference))
     }
 }
 
-impl<A: Array> ApproximateEq for SmallVec<A> where A::Item: ApproximateEq {
-    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool { self.as_slice().approximate_eq(&other.as_slice(), max_difference) }
+impl<A: Array> SimilarToLossy for SmallVec<A> where A::Item: SimilarToLossy {
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool { self.as_slice().similar_to_lossy(&other.as_slice(), max_difference) }
 }
 
-impl<A: Array> ApproximateEq for Vec<A> where A: ApproximateEq {
-    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool { self.as_slice().approximate_eq(&other.as_slice(), max_difference) }
+impl<A: Array> SimilarToLossy for Vec<A> where A: SimilarToLossy {
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool { self.as_slice().similar_to_lossy(&other.as_slice(), max_difference) }
 }
 
 // TODO implement contains nan for all pixel tuples
 // (low priority because it is only used in the tests)
-impl<A,B,C,D> ApproximateEq for (A, B, C, D) where A: Clone+ ApproximateEq, B: Clone+ ApproximateEq, C: Clone+ ApproximateEq, D: Clone+ ApproximateEq {
-    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
-        self.clone().into_recursive().approximate_eq(&other.clone().into_recursive(), max_difference)
+impl<A,B,C,D> SimilarToLossy for (A, B, C, D) where A: Clone+ SimilarToLossy, B: Clone+ SimilarToLossy, C: Clone+ SimilarToLossy, D: Clone+ SimilarToLossy {
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
+        self.clone().into_recursive().similar_to_lossy(&other.clone().into_recursive(), max_difference)
     } // TODO no clone?
 }
 
 // implement for recursive types
-impl ApproximateEq for NoneMore { fn approximate_eq(&self, _: &Self, _: f32) -> bool { true } }
-impl<Inner, T> ApproximateEq for Recursive<Inner, T> where Inner: ApproximateEq, T: ApproximateEq {
-    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
-        self.value.approximate_eq(&other.value, max_difference) && self.inner.approximate_eq(&other.inner, max_difference)
+impl SimilarToLossy for NoneMore { fn similar_to_lossy(&self, _: &Self, _: f32) -> bool { true } }
+impl<Inner, T> SimilarToLossy for Recursive<Inner, T> where Inner: SimilarToLossy, T: SimilarToLossy {
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
+        self.value.similar_to_lossy(&other.value, max_difference) && self.inner.similar_to_lossy(&other.inner, max_difference)
     }
 }
 
-impl<S> ApproximateEq for Option<S> where S: ApproximateEq {
-    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
+impl<S> SimilarToLossy for Option<S> where S: SimilarToLossy {
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
         match (self, other) {
             (None, None) => true,
-            (Some(value), Some(other)) => value.approximate_eq(other, max_difference),
+            (Some(value), Some(other)) => value.similar_to_lossy(other, max_difference),
             _ => false
         }
     }
 }
 
-impl ApproximateEq for f32 {
-    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
-        self.to_bits() == other.to_bits() || (self - other).abs() < max_difference.abs()
+impl SimilarToLossy for f32 {
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
+        self == other ||
+            (self.is_nan() && other.is_nan()) ||
+            (self.is_nan() && *other == 0.0) ||
+            (self - other).abs() <= max_difference.abs()
     }
 }
 
-impl ApproximateEq for f16 {
-    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
-        self.to_f32().approximate_eq(&other.to_f32(), max_difference)
+impl SimilarToLossy for f16 {
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
+        self.to_f32().similar_to_lossy(&other.to_f32(), max_difference)
     }
 }
 
-impl ApproximateEq for u32 {
-    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
+impl SimilarToLossy for u32 {
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
         self == other || (*self as f32 - *other as f32).abs() < max_difference.abs()
     }
 }
 
-impl ApproximateEq for Sample {
-    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
+impl SimilarToLossy for Sample {
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
         use Sample::*;
         match (self, other) {
-            (F16(a), F16(b)) => a.approximate_eq(b, max_difference),
-            (F32(a), F32(b)) => a.approximate_eq(b, max_difference),
-            (U32(a), U32(b)) => a.approximate_eq(b, max_difference),
+            (F16(a), F16(b)) => a.similar_to_lossy(b, max_difference),
+            (F32(a), F32(b)) => a.similar_to_lossy(b, max_difference),
+            (U32(a), U32(b)) => a.similar_to_lossy(b, max_difference),
             _ => false
         }
     }

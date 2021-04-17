@@ -127,5 +127,5 @@ pub fn test_roundtrip() {
 
     println!("...read 2 successfull");
 
-    assert!(image.approximate_eq(&image2, 0.05));
+    assert!(image.similar_to_lossy(&image2, 0.05));
 }

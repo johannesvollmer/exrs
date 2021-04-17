@@ -92,7 +92,7 @@ fn round_trip_all_files_full() {
 
         let image2 = read_image.from_buffered(Cursor::new(tmp_bytes))?;
 
-        assert!(image.approximate_eq(&image2, 0.05));
+        assert!(image.similar_to_lossy(&image2, 0.05));
         Ok(())
     })
 }
@@ -112,7 +112,7 @@ fn round_trip_all_files_simple() {
 
         let image2 = read_image.from_buffered(Cursor::new(&tmp_bytes))?;
 
-        assert!(image.approximate_eq(&image2, 0.05));
+        assert!(image.similar_to_lossy(&image2, 0.05));
         Ok(())
     })
 }
@@ -152,7 +152,7 @@ fn round_trip_all_files_rgba() {
 
         let image2 = image_reader.from_buffered(Cursor::new(&tmp_bytes))?;
 
-        assert!(image.approximate_eq(&image2, 0.05));
+        assert!(image.similar_to_lossy(&image2, 0.05));
         Ok(())
     })
 }
@@ -177,7 +177,7 @@ fn round_trip_parallel_files() {
             .pedantic()
             .from_buffered(Cursor::new(tmp_bytes.as_slice()))?;
 
-        assert!(image.approximate_eq(&image2, 0.05));
+        assert!(image.similar_to_lossy(&image2, 0.05));
         Ok(())
     })
 }
@@ -298,6 +298,5 @@ fn roundtrip_unusual_7() -> UnitResult {
     let pixels2 = &image2.layer_data.channel_data.pixels;
 
     assert_eq!(pixels1.pixels, pixels2.pixels);
-
     Ok(())
 }
