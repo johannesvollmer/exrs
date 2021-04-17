@@ -822,108 +822,124 @@ impl<'s, SampleData: 's> AnyChannel<SampleData> {
 
 
 
-/// Check whether this contains any `NaN` value.
-/// This is required for comparing the equality of two images, as `NaN` never equals itself (nice!).
-pub trait ContainsNaN {
-    /// Returns true if this contains any `NaN` value.
-    fn contains_nan_pixels(&self) -> bool;
+/// Compare two objects, but with a few special quirks:
+/// - Two NaN values are considered equal if they have the same bit representation.
+/// - Any two values that differ only by a small amount will be considered equal.
+///
+/// Intended mainly for unit testing.
+pub trait ApproximateEq {
+
+    /// Compare this with the other. NaN is considered comparable and the max difference will be respected.
+    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool;
 }
 
-impl<L> ContainsNaN for Image<L> where L: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool { self.layer_data.contains_nan_pixels() }
+impl<L> ApproximateEq for Image<L> where L: ApproximateEq {
+    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool { self.layer_data.approximate_eq(&other.layer_data, max_difference) }
 }
 
-impl<C> ContainsNaN for Layer<C> where C: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        self.channel_data.contains_nan_pixels()
+impl<C> ApproximateEq for Layer<C> where C: ApproximateEq { // TODO if compression is lossy, don't bother with the max difference (but still bother with nan!)
+    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool { self.channel_data.approximate_eq(&other.channel_data, max_difference) }
+}
+
+impl<C> ApproximateEq for AnyChannels<C> where C: ApproximateEq {
+    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool { self.list.approximate_eq(&other.list, max_difference) }
+}
+
+impl<C> ApproximateEq for AnyChannel<C> where C: ApproximateEq {
+    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool { self.sample_data.approximate_eq(&other.sample_data, max_difference) }
+}
+
+impl<S, T> ApproximateEq for SpecificChannels<S, T> where S: ApproximateEq {
+    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
+        self.pixels.approximate_eq(&other.pixels, max_difference)
     }
 }
 
-impl<C> ContainsNaN for AnyChannels<C> where C: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        self.list.contains_nan_pixels()
+impl<C> ApproximateEq for Levels<C> where C: ApproximateEq {
+    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
+        self.levels_as_slice().approximate_eq(&other.levels_as_slice(), max_difference)
     }
 }
 
-impl<C> ContainsNaN for AnyChannel<C> where C: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        self.sample_data.contains_nan_pixels()
-    }
-}
-
-impl<S, T> ContainsNaN for SpecificChannels<S, T> where S: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        self.pixels.contains_nan_pixels()
-    }
-}
-
-impl<C> ContainsNaN for Levels<C> where C: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        self.levels_as_slice().contains_nan_pixels()
-    }
-}
-
-impl ContainsNaN for FlatSamples {
-    fn contains_nan_pixels(&self) -> bool {
-        match self {
-            FlatSamples::F16(ref values) => values.as_slice().contains_nan_pixels(),
-            FlatSamples::F32(ref values) => values.as_slice().contains_nan_pixels(),
-            FlatSamples::U32(ref _values) => false,
+impl ApproximateEq for FlatSamples {
+    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
+        use FlatSamples::*;
+        match (self, other) {
+            (F16(values), F16(other_values)) => values.as_slice().approximate_eq(&other_values.as_slice(), max_difference),
+            (F32(values), F32(other_values)) => values.as_slice().approximate_eq(&other_values.as_slice(), max_difference),
+            (U32(values), U32(other_values)) => values.as_slice().approximate_eq(&other_values.as_slice(), max_difference),
+            _ => false
         }
     }
 }
 
-impl<T> ContainsNaN for &[T] where T: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        self.iter().any(|value| value.contains_nan_pixels())
+impl<T> ApproximateEq for &[T] where T: ApproximateEq {
+    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
+        self.len() == other.len() && self.iter().zip(other.iter())
+            .all(|(a,b)| a.approximate_eq(b, max_difference))
     }
 }
 
-impl<A: Array> ContainsNaN for SmallVec<A> where A::Item: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        self.as_ref().contains_nan_pixels()
-    }
+impl<A: Array> ApproximateEq for SmallVec<A> where A::Item: ApproximateEq {
+    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool { self.as_slice().approximate_eq(&other.as_slice(), max_difference) }
+}
+
+impl<A: Array> ApproximateEq for Vec<A> where A: ApproximateEq {
+    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool { self.as_slice().approximate_eq(&other.as_slice(), max_difference) }
 }
 
 // TODO implement contains nan for all pixel tuples
 // (low priority because it is only used in the tests)
-impl<A,B,C,D> ContainsNaN for (A,B,C,D) where A: Clone+ContainsNaN, B: Clone+ContainsNaN, C: Clone+ContainsNaN, D: Clone+ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool { self.clone().into_recursive().contains_nan_pixels() } // TODO no clone?
+impl<A,B,C,D> ApproximateEq for (A, B, C, D) where A: Clone+ ApproximateEq, B: Clone+ ApproximateEq, C: Clone+ ApproximateEq, D: Clone+ ApproximateEq {
+    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
+        self.clone().into_recursive().approximate_eq(&other.clone().into_recursive(), max_difference)
+    } // TODO no clone?
 }
 
 // implement for recursive types
-impl ContainsNaN for NoneMore { fn contains_nan_pixels(&self) -> bool { false } }
-impl<Inner, T> ContainsNaN for Recursive<Inner, T> where Inner: ContainsNaN, T: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool { self.inner.contains_nan_pixels() || self.value.contains_nan_pixels() }
+impl ApproximateEq for NoneMore { fn approximate_eq(&self, _: &Self, _: f32) -> bool { true } }
+impl<Inner, T> ApproximateEq for Recursive<Inner, T> where Inner: ApproximateEq, T: ApproximateEq {
+    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
+        self.value.approximate_eq(&other.value, max_difference) && self.inner.approximate_eq(&other.inner, max_difference)
+    }
 }
 
-impl<S> ContainsNaN for Option<S> where S: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        match self {
-            None => false,
-            Some(value) => value.contains_nan_pixels(),
+impl<S> ApproximateEq for Option<S> where S: ApproximateEq {
+    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
+        match (self, other) {
+            (None, None) => true,
+            (Some(value), Some(other)) => value.approximate_eq(other, max_difference),
+            _ => false
         }
     }
 }
 
-impl ContainsNaN for f32 {
-    fn contains_nan_pixels(&self) -> bool { self.is_nan() }
+impl ApproximateEq for f32 {
+    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
+        self.to_bits() == other.to_bits() || (self - other).abs() < max_difference.abs()
+    }
 }
 
-impl ContainsNaN for f16 {
-    fn contains_nan_pixels(&self) -> bool { self.is_nan() }
+impl ApproximateEq for f16 {
+    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
+        self.to_f32().approximate_eq(&other.to_f32(), max_difference)
+    }
 }
 
-impl ContainsNaN for u32 {
-    fn contains_nan_pixels(&self) -> bool { false }
+impl ApproximateEq for u32 {
+    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
+        self == other || (*self as f32 - *other as f32).abs() < max_difference.abs()
+    }
 }
 
-impl ContainsNaN for Sample {
-    fn contains_nan_pixels(&self) -> bool {
-        match self {
-            Sample::F16(n) => n.contains_nan_pixels(),
-            Sample::F32(n) => n.contains_nan_pixels(),
-            Sample::U32(n) => n.contains_nan_pixels(),
+impl ApproximateEq for Sample {
+    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
+        use Sample::*;
+        match (self, other) {
+            (F16(a), F16(b)) => a.approximate_eq(b, max_difference),
+            (F32(a), F32(b)) => a.approximate_eq(b, max_difference),
+            (U32(a), U32(b)) => a.approximate_eq(b, max_difference),
+            _ => false
         }
     }
 }

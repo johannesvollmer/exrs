@@ -50,9 +50,9 @@ impl<T> PixelVec<T> {
     }
 }
 
-impl<T> ContainsNaN for PixelVec<T> where T: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        self.pixels.as_slice().contains_nan_pixels()
+impl<T> ApproximateEq for PixelVec<T> where T: ApproximateEq {
+    fn approximate_eq(&self, other: &Self, max_difference: f32) -> bool {
+        self.pixels.as_slice().approximate_eq(&other.pixels.as_slice(), max_difference)
     }
 }
 

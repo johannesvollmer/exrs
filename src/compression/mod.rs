@@ -67,6 +67,7 @@ pub enum Compression {
     PIZ,
 
     /// Like `ZIP1`, but reduces precision of `f32` images to `f24`.
+    /// Therefore, this is lossless compression for `f16` and `u32` data, lossy compression for `f32` data.
     /// This produces really small image files. Only supported for flat images, not for deep data.
     // After reducing 32-bit floating-point data to 24 bits by rounding (while leaving 16-bit
     // floating-point data unchanged), differences between horizontally adjacent pixels
@@ -260,10 +261,32 @@ impl Compression {
     pub fn supports_deep_data(self) -> bool {
         use self::Compression::*;
         match self {
-            Uncompressed | RLE | ZIP1 | ZIP16 => true,
+            Uncompressed | RLE | ZIP1 /* | ZIP16*/ => true,
             _ => false,
         }
     }
+
+    /// Most compression methods will reconstruct the exact pixel bytes,
+    /// but some might throw away unimportant data for specific types of samples.
+    pub fn is_lossless_for(self, sample_type: SampleType) -> bool {
+        use self::Compression::*;
+        match self {
+            PXR24 => sample_type != SampleType::F32, // pxr reduces f32 to f24
+            Uncompressed | RLE | ZIP1 | ZIP16 | PIZ => true,
+            B44 | B44A | DWAB | DWAA(_) => false,
+        }
+    }
+
+    /// Most compression methods will reconstruct the exact pixel bytes,
+    /// but some might throw away unimportant data in some cases.
+    pub fn may_loose_data(self) -> bool {
+        use self::Compression::*;
+        match self {
+            Uncompressed | RLE | ZIP1 | ZIP16 | PIZ => true,
+            PXR24 | B44 | B44A | DWAB | DWAA(_) => false,
+        }
+    }
+
 }
 
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/6a9f8af6e89547bcd370ae3cec2b12849eee0b54/OpenEXR/IlmImf/ImfMisc.cpp#L1456-L1541

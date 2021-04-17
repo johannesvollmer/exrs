@@ -127,6 +127,5 @@ pub fn test_roundtrip() {
 
     println!("...read 2 successfull");
 
-    assert!(!image.contains_nan_pixels() && !image2.contains_nan_pixels());
-    assert_eq!(image, image2);
+    assert!(image.approximate_eq(&image2, 0.05));
 }

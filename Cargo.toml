@@ -69,7 +69,7 @@ codegen-units = 1
 
 # test with fast runtime speed and moderate build speed
 [profile.test]
-opt-level = 3
+opt-level = 0 # TODO use level 3 and "-C debug-assertions" to enable assertions
 debug = true
 
 # bench with fastest runtime speed
