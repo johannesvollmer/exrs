@@ -282,8 +282,8 @@ impl Compression {
     pub fn may_loose_data(self) -> bool {
         use self::Compression::*;
         match self {
-            Uncompressed | RLE | ZIP1 | ZIP16 | PIZ => true,
-            PXR24 | B44 | B44A | DWAB | DWAA(_) => false,
+            Uncompressed | RLE | ZIP1 | ZIP16 | PIZ => false,
+            PXR24 | B44 | B44A | DWAB | DWAA(_) => true,
         }
     }
 
