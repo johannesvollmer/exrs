@@ -593,6 +593,7 @@ pub fn compress(
     channels: &ChannelList,
     uncompressed: Bytes<'_>,
     rectangle: IntegerBounds,
+    opt_flat_fields: bool,
 ) -> Result<ByteVec> {
     if uncompressed.is_empty() {
         return Ok(Vec::new());
@@ -753,15 +754,12 @@ pub fn compress(
                     convert_from_linear(&mut s);
                 }
 
-                // TODO: Pass this value properly.
-                let _optFlatFields = false;
-
                 // println!("{}..{}", b44_end, (b44_end + 14));
 
                 b44_end += pack(
                     s,
                     &mut b44_compressed[b44_end..(b44_end + 14)],
-                    _optFlatFields,
+                    opt_flat_fields,
                     !channel.quantize_linearly,
                 );
             }
@@ -812,7 +810,7 @@ mod test {
 
         assert!(pixel_bytes.len() > 0);
 
-        let compressed = b44::compress(&channels, &pixel_bytes, rectangle).unwrap();
+        let compressed = b44::compress(&channels, &pixel_bytes, rectangle, true).unwrap();
 
         assert!(compressed.len() <= pixel_bytes.len());
 

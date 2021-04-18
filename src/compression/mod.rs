@@ -196,7 +196,8 @@ impl Compression {
             RLE => rle::compress_bytes(&uncompressed),
             PIZ => piz::compress(&header.channels, &uncompressed, pixel_section),
             PXR24 => pxr24::compress(&header.channels, &uncompressed, pixel_section),
-            B44 => b44::compress(&header.channels, &uncompressed, pixel_section),
+            B44 => b44::compress(&header.channels, &uncompressed, pixel_section, false),
+            B44A => b44::compress(&header.channels, &uncompressed, pixel_section, true),
             _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
         };
 
@@ -236,7 +237,7 @@ impl Compression {
                 RLE => rle::decompress_bytes(&compressed, expected_byte_size, pedantic),
                 PIZ => piz::decompress(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
                 PXR24 => pxr24::decompress(&header.channels, &compressed, pixel_section, expected_byte_size, pedantic),
-                B44 => b44::decompress(&header.channels, &compressed, pixel_section, expected_byte_size, pedantic),
+                B44 | B44A => b44::decompress(&header.channels, &compressed, pixel_section, expected_byte_size, pedantic),
                 _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
             };
 
