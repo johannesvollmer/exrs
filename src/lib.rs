@@ -3,8 +3,9 @@
 //! Read and write OpenEXR images.
 //! This library uses no foreign code or unsafe Rust.
 //!
-//! See the [README.md](https://github.com/johannesvollmer/exrs/blob/master/README.md) for more information,
-//! or check out the [examples](https://github.com/johannesvollmer/exrs/tree/master/examples).
+//! See the [README.md](https://github.com/johannesvollmer/exrs/blob/master/README.md) for crate information.
+//! Read __the [GUIDE.md](https://github.com/johannesvollmer/exrs/blob/master/GUIDE.md) for a API introduction__.
+//! Check out the [examples](https://github.com/johannesvollmer/exrs/tree/master/examples) for a first impression.
 
 #![warn(
     rust_2018_idioms,

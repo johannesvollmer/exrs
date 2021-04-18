@@ -64,6 +64,9 @@ pub type RgbaImage<Storage> = PixelImage<Storage, RgbaChannels>;
 /// The alpha channel is not required. May be `None` if the image did not contain an alpha channel.
 pub type RgbaChannels = (ChannelDescription, ChannelDescription, ChannelDescription, Option<ChannelDescription>);
 
+/// Contains information about the channels in an rgb image, in the order `(red, green, blue)`.
+pub type RgbChannels = (ChannelDescription, ChannelDescription, ChannelDescription);
+
 /// The complete exr image.
 /// `Layers` can be either a single `Layer` or `Layers`.
 #[derive(Debug, Clone, PartialEq)]
@@ -394,7 +397,7 @@ impl<RecursiveChannels: CheckDuplicates, RecursivePixel> SpecificChannelsBuilder
 
         SpecificChannelsBuilder {
             channels: Recursive::new(self.channels, channel),
-            px: Default::default()
+            px: PhantomData::default()
         }
     }
 
@@ -432,8 +435,7 @@ impl<RecursiveChannels: CheckDuplicates, RecursivePixel> SpecificChannelsBuilder
 }
 
 impl<SampleStorage> SpecificChannels<
-    SampleStorage,
-    Recursive<Recursive<Recursive<Recursive<NoneMore, ChannelDescription>, ChannelDescription>, ChannelDescription>, ChannelDescription>
+    SampleStorage, (ChannelDescription, ChannelDescription, ChannelDescription, ChannelDescription)
 >
 {
 
@@ -446,18 +448,20 @@ impl<SampleStorage> SpecificChannels<
               B: IntoSample, A: IntoSample,
               SampleStorage: GetPixel<Pixel=(R, G, B, A)>
     {
-        SpecificChannels::build()
-            .with_channel("R")
-            .with_channel("G")
-            .with_channel("B")
-            .with_channel("A")
-            .with_pixels(source_samples)
+        SpecificChannels {
+            channels: (
+                ChannelDescription::named("R", R::PREFERRED_SAMPLE_TYPE),
+                ChannelDescription::named("G", G::PREFERRED_SAMPLE_TYPE),
+                ChannelDescription::named("B", B::PREFERRED_SAMPLE_TYPE),
+                ChannelDescription::named("A", A::PREFERRED_SAMPLE_TYPE),
+            ),
+            pixels: source_samples
+        }
     }
 }
 
 impl<SampleStorage> SpecificChannels<
-    SampleStorage,
-    Recursive<Recursive<Recursive<NoneMore, ChannelDescription>, ChannelDescription>, ChannelDescription>
+    SampleStorage, (ChannelDescription, ChannelDescription, ChannelDescription)
 >
 {
 
@@ -469,11 +473,14 @@ impl<SampleStorage> SpecificChannels<
         where R: IntoSample, G: IntoSample, B: IntoSample,
               SampleStorage: GetPixel<Pixel=(R, G, B)>
     {
-        SpecificChannels::build()
-            .with_channel("R")
-            .with_channel("G")
-            .with_channel("B")
-            .with_pixels(source_samples)
+        SpecificChannels {
+            channels: (
+                ChannelDescription::named("R", R::PREFERRED_SAMPLE_TYPE),
+                ChannelDescription::named("G", G::PREFERRED_SAMPLE_TYPE),
+                ChannelDescription::named("B", B::PREFERRED_SAMPLE_TYPE),
+            ),
+            pixels: source_samples
+        }
     }
 }
 
@@ -757,14 +764,14 @@ impl<'s, ChannelData:'s> Image<Layer<ChannelData>> where ChannelData: WritableCh
     }
 
     /// Uses empty attributes.
-    pub fn from_encoded_layer(size: impl Into<Vec2<usize>>, encoding: Encoding, channels: ChannelData) -> Self {
+    pub fn from_encoded_channels(size: impl Into<Vec2<usize>>, encoding: Encoding, channels: ChannelData) -> Self {
         // layer name is not required for single-layer images
         Self::from_layer(Layer::new(size, LayerAttributes::default(), encoding, channels))
     }
 
     /// Uses empty attributes and fast compression.
     pub fn from_channels(size: impl Into<Vec2<usize>>, channels: ChannelData) -> Self {
-        Self::from_encoded_layer(size, Encoding::default(), channels)
+        Self::from_encoded_channels(size, Encoding::default(), channels)
     }
 }
 
@@ -836,11 +843,17 @@ pub trait SimilarToLossy {
 }
 
 impl<L> SimilarToLossy for Image<L> where L: SimilarToLossy {
-    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool { self.layer_data.similar_to_lossy(&other.layer_data, max_difference) }
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
+        self.attributes == other.attributes
+            && self.layer_data.similar_to_lossy(&other.layer_data, max_difference)
+    }
 }
 
 impl<C> SimilarToLossy for Layer<C> where C: SimilarToLossy { // TODO if compression is lossy, don't bother with the max difference (but still bother with nan!)
-    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool { self.channel_data.similar_to_lossy(&other.channel_data, max_difference) }
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
+        self.attributes == other.attributes && self.encoding == other.encoding && self.size == other.size
+            && self.channel_data.similar_to_lossy(&other.channel_data, max_difference)
+    }
 }
 
 impl<C> SimilarToLossy for AnyChannels<C> where C: SimilarToLossy {
@@ -848,12 +861,15 @@ impl<C> SimilarToLossy for AnyChannels<C> where C: SimilarToLossy {
 }
 
 impl<C> SimilarToLossy for AnyChannel<C> where C: SimilarToLossy {
-    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool { self.sample_data.similar_to_lossy(&other.sample_data, max_difference) }
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
+        self.name == other.name && self.quantize_linearly == other.quantize_linearly && self.sampling == other.sampling
+            && self.sample_data.similar_to_lossy(&other.sample_data, max_difference)
+    }
 }
 
-impl<S, T> SimilarToLossy for SpecificChannels<S, T> where S: SimilarToLossy {
+impl<Pxs, Chans> SimilarToLossy for SpecificChannels<Pxs, Chans> where Pxs: SimilarToLossy, Chans: Eq {
     fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
-        self.pixels.similar_to_lossy(&other.pixels, max_difference)
+        self.channels == other.channels && self.pixels.similar_to_lossy(&other.pixels, max_difference)
     }
 }
 
@@ -886,17 +902,32 @@ impl<A: Array> SimilarToLossy for SmallVec<A> where A::Item: SimilarToLossy {
     fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool { self.as_slice().similar_to_lossy(&other.as_slice(), max_difference) }
 }
 
-impl<A: Array> SimilarToLossy for Vec<A> where A: SimilarToLossy {
+impl<A> SimilarToLossy for Vec<A> where A: SimilarToLossy {
     fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool { self.as_slice().similar_to_lossy(&other.as_slice(), max_difference) }
 }
 
-// TODO implement contains nan for all pixel tuples
-// (low priority because it is only used in the tests)
 impl<A,B,C,D> SimilarToLossy for (A, B, C, D) where A: Clone+ SimilarToLossy, B: Clone+ SimilarToLossy, C: Clone+ SimilarToLossy, D: Clone+ SimilarToLossy {
     fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
         self.clone().into_recursive().similar_to_lossy(&other.clone().into_recursive(), max_difference)
     } // TODO no clone?
 }
+
+impl<A,B,C> SimilarToLossy for (A, B, C) where A: Clone+ SimilarToLossy, B: Clone+ SimilarToLossy, C: Clone+ SimilarToLossy {
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
+        self.clone().into_recursive().similar_to_lossy(&other.clone().into_recursive(), max_difference)
+    } // TODO no clone?
+}
+
+// // (low priority because it is only used in the tests)
+/*TODO
+impl<Tuple> SimilarToLossy for Tuple where
+    Tuple: Clone + IntoRecursive,
+    <Tuple as IntoRecursive>::Recursive: SimilarToLossy,
+{
+    fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
+        self.clone().into_recursive().similar_to_lossy(&other.clone().into_recursive(), max_difference)
+    } // TODO no clone?
+}*/
 
 // implement for recursive types
 impl SimilarToLossy for NoneMore { fn similar_to_lossy(&self, _: &Self, _: f32) -> bool { true } }
@@ -967,5 +998,82 @@ impl std::fmt::Debug for FlatSamples {
                 FlatSamples::U32(vec) => write!(formatter, "[u32; {}]", vec.len()),
             }
         }
+    }
+}
+
+
+#[cfg(test)]
+mod test_similar_to_lossy {
+    use crate::image::SimilarToLossy;
+    use std::ops::Not;
+    use rand::random;
+    use std::f32::consts::*;
+    use std::io::Cursor;
+    use crate::image::pixel_vec::PixelVec;
+
+    #[test]
+    fn test_f32(){
+        let original:&[f32] = &[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, -20.4];
+        let lossy:&[f32] = &[0.0, 0.2, 0.2, 0.3, 0.4, 0.5, -20.5];
+
+        for _ in 0 .. 100 {
+            assert!(original.similar_to_lossy(&original, random()));
+        }
+
+        assert!(original.similar_to_lossy(&original, 0.0));
+        assert!(original.similar_to_lossy(&lossy, 0.1001));
+        assert!(original.similar_to_lossy(&lossy, 0.2));
+        assert!(original.similar_to_lossy(&lossy, -0.2));
+        assert!(original.similar_to_lossy(&lossy, 0.05).not());
+
+        assert!(original.similar_to_lossy(&&original[..original.len()-2], 1.0).not());
+    }
+
+    #[test]
+    fn test_nan(){
+        let original:&[f32] = &[ 0.0, f32::NAN, f32::NAN ];
+        let lossy:&[f32] = &[ 0.0, f32::NAN, 0.0 ];
+        assert!(original.similar_to_lossy(&lossy, 0.1));
+        assert!(original.similar_to_lossy(&lossy, 0.0));
+        assert!(lossy.similar_to_lossy(&original, 0.05).not());
+    }
+
+    #[test]
+    fn test_pxr24_f32(){
+        use crate::prelude::*;
+
+        let original_pixels: [(f32,f32,f32); 4] = [
+            (0.0, -1.1, PI),
+            (0.0, -1.1, TAU),
+            (0.0, -1.1, f32::EPSILON),
+            (f32::NAN, 10000.1, -1024.009),
+        ];
+
+        let mut file_bytes = Vec::new();
+        let original_image = Image::from_encoded_channels(
+            (2,2),
+            Encoding {
+                compression: Compression::PXR24,
+                .. Encoding::default()
+            },
+            SpecificChannels::rgb(PixelVec::new(Vec2(2,2), original_pixels.to_vec()))
+        );
+
+        original_image.write().to_buffered(Cursor::new(&mut file_bytes)).unwrap();
+
+        let lossy_image = read().no_deep_data().largest_resolution_level()
+            .rgb_channels(pixel_vec::create_pixel_vec::<(f32,f32,f32),_>, pixel_vec::set_pixel_in_vec)
+            .first_valid_layer().all_attributes().from_buffered(Cursor::new(&file_bytes)).unwrap();
+
+        // trait/type tests (must compile)
+        assert!(original_image.layer_data.channel_data.pixels.pixels.similar_to_lossy(&original_image.layer_data.channel_data.pixels.pixels, 0.0));
+        assert!(original_image.layer_data.channel_data.pixels.similar_to_lossy(&original_image.layer_data.channel_data.pixels, 0.0));
+        assert!(original_image.layer_data.channel_data.similar_to_lossy(&original_image.layer_data.channel_data, 0.0));
+        assert!(original_image.layer_data.similar_to_lossy(&original_image.layer_data, 0.0));
+
+        assert!(original_image.similar_to_lossy(&original_image, 0.0));
+        assert!(lossy_image.similar_to_lossy(&lossy_image, 0.0));
+        assert!(original_image.similar_to_lossy(&lossy_image, 0.1));
+        assert!(original_image.similar_to_lossy(&lossy_image, 0.001).not());
     }
 }
