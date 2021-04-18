@@ -1073,7 +1073,11 @@ mod test_similar_to_lossy {
 
         assert!(original_image.similar_to_lossy(&original_image, 0.0));
         assert!(lossy_image.similar_to_lossy(&lossy_image, 0.0));
-        assert!(original_image.similar_to_lossy(&lossy_image, 0.1));
+        assert!(original_image.similar_to_lossy(&lossy_image, 0.0).not());
         assert!(original_image.similar_to_lossy(&lossy_image, 0.001).not());
+
+        assert!(original_image.similar_to_lossy(&lossy_image, 0.1));
+        assert!(lossy_image.similar_to_lossy(&original_image, 0.1), "invalid nan/zero results");
+        assert!(original_image.similar_to_lossy(&lossy_image, -10.1));
     }
 }
