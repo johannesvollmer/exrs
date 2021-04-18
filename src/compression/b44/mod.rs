@@ -31,7 +31,7 @@ fn shift_and_round(x: i32, shift: i32) -> i32 {
 }
 
 /// Pack a block of 4 by 4 16-bit pixels (32 bytes) into either 14 or 3 bytes.
-fn pack(s: [u16; 16], b: &mut [u8], opt_flat_fields: bool, exact_max: bool) -> usize {
+fn pack(s: [u16; 16], b: &mut [u8], optimize_flat_fields: bool, exact_max: bool) -> usize {
     // TODO: b slice should be &mut [u8; 14], but rust doesn't support sized slice.
     let mut t = [0u16; 16];
 
@@ -124,7 +124,7 @@ fn pack(s: [u16; 16], b: &mut [u8], opt_flat_fields: bool, exact_max: bool) -> u
         }
     }
 
-    if r_min == BIAS && r_max == BIAS && opt_flat_fields {
+    if r_min == BIAS && r_max == BIAS && optimize_flat_fields {
         //
         // Special case - all pixels have the same value.
         // We encode this in 3 instead of 14 bytes by
@@ -593,7 +593,7 @@ pub fn compress(
     channels: &ChannelList,
     uncompressed: Bytes<'_>,
     rectangle: IntegerBounds,
-    opt_flat_fields: bool,
+    optimize_flat_fields: bool,
 ) -> Result<ByteVec> {
     if uncompressed.is_empty() {
         return Ok(Vec::new());
@@ -759,7 +759,7 @@ pub fn compress(
                 b44_end += pack(
                     s,
                     &mut b44_compressed[b44_end..(b44_end + 14)],
-                    opt_flat_fields,
+                    optimize_flat_fields,
                     !channel.quantize_linearly,
                 );
             }
