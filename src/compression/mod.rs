@@ -261,7 +261,7 @@ impl Compression {
     pub fn supports_deep_data(self) -> bool {
         use self::Compression::*;
         match self {
-            Uncompressed | RLE | ZIP1 /* | ZIP16*/ => true,
+            Uncompressed | RLE | ZIP1 => true,
             _ => false,
         }
     }
