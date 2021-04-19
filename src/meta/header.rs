@@ -975,16 +975,15 @@ impl Header {
             SOFTWARE: Text = &self.own_attributes.software_name
         );
 
-        let dwa_level = match self.compression {
-            attribute::Compression::DWAA(level) => level,
-            attribute::Compression::DWAB(level) => level,
-            _ => None,
+        // dwa writes compression parameters as attribute.
+        match self.compression {
+            attribute::Compression::DWAA(Some(level)) |
+            attribute::Compression::DWAB(Some(level)) =>
+                attribute::write(DWA_COMPRESSION_LEVEL, &F32(level), write)?,
+
+            _ => {}
         };
 
-        // write compression parameters as attribute
-        if let Some(level) = dwa_level {
-            attribute::write(DWA_COMPRESSION_LEVEL, &F32(level), write)?;
-        }
 
         for (name, value) in &self.shared_attributes.other {
             attribute::write(name.as_slice(), value, write)?;
