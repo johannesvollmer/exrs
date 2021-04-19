@@ -33,6 +33,16 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
 
     /// Specify that any missing or unusual information should result in an error.
     /// Otherwise, `exrs` will try to compute or ignore missing information.
+    ///
+    /// If pedantic is true, then an error will be returned as soon as anything is missing in the file,
+    /// or two values in the image contradict each other. If pedantic is false,
+    /// then only fatal errors will be thrown. By default, reading an image is not pedantic,
+    /// which means that slightly invalid files might still be readable.
+    /// For example, if some attribute is missing but can be recomputed, this flag decides whether an error is thrown.
+    /// Or if the pedantic flag is true and there are still bytes left after the decompression algorithm finished,
+    /// an error is thrown, because this should not happen and something might be wrong with the file.
+    /// Or if your application is a target of attacks, or if you want to emulate the original C++ library,
+    /// you might want to switch to pedantic reading.
     pub fn pedantic(self) -> Self { Self { pedantic: true, ..self } }
 
     /// Specify that multiple pixel blocks should never be decompressed using multiple threads at once.
