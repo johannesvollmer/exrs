@@ -100,7 +100,13 @@ impl<'img, Layers, OnProgress> WriteImageWithOptions<'img, Layers, OnProgress>
     pub fn non_parallel(self) -> Self { Self { parallel: false, ..self } }
 
     /// Skip some checks that ensure a file can be opened by other exr software.
-    /// Might save a few nano seconds, but you must care for not producing an invalid file yourself.
+    /// For example, it is no longer checked that no two headers or two attributes have the same name,
+    /// which might be an expensive check for images with an exorbitant number of headers.
+    ///
+    /// If you write an uncompressed file and need maximum speed, it might save a millisecond to disable the checks,
+    /// if you know that your file is not invalid any ways. I do not recommend this though,
+    /// as the file might not be readably by any other exr library after that.
+    /// __You must care for not producing an invalid file yourself.__
     pub fn skip_compatibility_checks(self) -> Self { Self { check_compatibility: false, ..self } }
 
     /// Specify a function to be called regularly throughout the writing process.
