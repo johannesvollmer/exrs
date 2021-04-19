@@ -72,10 +72,12 @@ impl<T> PixelVec<T> {
     }
 }
 
-impl<T> SimilarToLossy for PixelVec<T> where T: SimilarToLossy {
-    fn similar_to_lossy(&self, lossy_self: &Self, max_difference: f32) -> bool {
+use crate::image::validate_results::ValidateValueResult;
+
+impl<Px> ValidateValueResult for PixelVec<Px> where Px: ValidateValueResult {
+    fn validate_value_result(&self, lossy_self: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool {
         self.resolution == lossy_self.resolution
-            && self.pixels.as_slice().similar_to_lossy(&lossy_self.pixels.as_slice(), max_difference)
+            && self.pixels.as_slice().validate_value_result(&lossy_self.pixels.as_slice(), max_difference, nan_to_zero)
     }
 }
 
@@ -108,6 +110,7 @@ pub fn set_pixel_in_vec<Pixel>(image: &mut PixelVec<Pixel>, position: Vec2<usize
 }
 
 use std::fmt::*;
+
 impl<T> Debug for PixelVec<T> {
     #[inline] fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "[{}; {}]", std::any::type_name::<T>(), self.pixels.len())

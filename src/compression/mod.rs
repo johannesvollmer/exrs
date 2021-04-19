@@ -272,8 +272,9 @@ impl Compression {
         use self::Compression::*;
         match self {
             PXR24 => sample_type != SampleType::F32, // pxr reduces f32 to f24
+            B44 | B44A => sample_type != SampleType::F16, // b44 only compresses f16 values, others are left uncompressed
             Uncompressed | RLE | ZIP1 | ZIP16 | PIZ => true,
-            B44 | B44A | DWAB | DWAA(_) => false,
+            DWAB | DWAA(_) => false,
         }
     }
 
@@ -284,6 +285,16 @@ impl Compression {
         match self {
             Uncompressed | RLE | ZIP1 | ZIP16 | PIZ => false,
             PXR24 | B44 | B44A | DWAB | DWAA(_) => true,
+        }
+    }
+
+    /// Most compression methods will reconstruct the exact pixel bytes,
+    /// but some might replace NaN with zeroes.
+    pub fn supports_nan(self) -> bool {
+        use self::Compression::*;
+        match self {
+            B44 | B44A | DWAB | DWAA(_) => false, // TODO dwa might support it?
+            _ => true
         }
     }
 
