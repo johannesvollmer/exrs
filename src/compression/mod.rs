@@ -124,14 +124,14 @@ pub enum Compression {
     /// __This lossy compression is not yet supported by this implementation.__
     // lossy DCT based compression, in blocks
     // of 32 scanlines. More efficient for partial buffer access.
-    DWAA(Option<f32>), // TODO does this have a default value? make this non optional?
+    DWAA(Option<f32>), // TODO does this have a default value? make this non optional? default Compression Level setting is 45.0
 
     /// __This lossy compression is not yet supported by this implementation.__
     // lossy DCT based compression, in blocks
     // of 256 scanlines. More efficient space
     // wise and faster to decode full frames
     // than DWAA_COMPRESSION.
-    DWAB(Option<f32>), // TODO collapse with B44
+    DWAB(Option<f32>), // TODO collapse with B44. default Compression Level setting is 45.0
 }
 
 impl std::fmt::Display for Compression {
@@ -144,7 +144,7 @@ impl std::fmt::Display for Compression {
             Compression::B44 => "b44",
             Compression::B44A => "b44a",
             Compression::DWAA(_) => "dwaa",
-            Compression::DWAB => "dwab",
+            Compression::DWAB(_) => "dwab",
             Compression::PIZ => "piz",
             Compression::PXR24 => "pxr24",
         })
@@ -167,7 +167,7 @@ impl Compression {
             Compression::PIZ => has_only_f16_channels, // TODO DRY and compute only once??
             Compression::PXR24 => false, //FIXME true in original library  // true, // what??? i thought this is zip?!?!?!
             Compression::B44 | Compression::B44A => has_only_f16_channels,
-            Compression::DWAA(_) | Compression::DWAB => {
+            Compression::DWAA(_) | Compression::DWAB(_) => {
                 cfg!(target_endian = "little") // native if little endian?!
                 // FIXME so... this should always return true, as files are also always stored in little endian???
             },
@@ -264,7 +264,7 @@ impl Compression {
             Uncompressed | RLE   | ZIP1    => 1,
             ZIP16 | PXR24                  => 16,
             PIZ   | B44   | B44A | DWAA(_) => 32,
-            DWAB                           => 256,
+            DWAB(_)                        => 256,
         }
     }
 
@@ -285,7 +285,7 @@ impl Compression {
             PXR24 => sample_type != SampleType::F32, // pxr reduces f32 to f24
             B44 | B44A => sample_type != SampleType::F16, // b44 only compresses f16 values, others are left uncompressed
             Uncompressed | RLE | ZIP1 | ZIP16 | PIZ => true,
-            DWAB | DWAA(_) => false,
+            DWAB(_) | DWAA(_) => false,
         }
     }
 
@@ -295,7 +295,7 @@ impl Compression {
         use self::Compression::*;
         match self {
             Uncompressed | RLE | ZIP1 | ZIP16 | PIZ => false,
-            PXR24 | B44 | B44A | DWAB | DWAA(_) => true,
+            PXR24 | B44 | B44A | DWAB(_) | DWAA(_)  => true,
         }
     }
 
@@ -304,7 +304,7 @@ impl Compression {
     pub fn supports_nan(self) -> bool {
         use self::Compression::*;
         match self {
-            B44 | B44A | DWAB | DWAA(_) => false, // TODO dwa might support it?
+            B44 | B44A | DWAB(_) | DWAA(_) => false, // TODO dwa might support it?
             _ => true
         }
     }
