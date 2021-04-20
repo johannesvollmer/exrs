@@ -1134,7 +1134,7 @@ impl Compression {
             B44 => 6_u8,
             B44A => 7_u8,
             DWAA(_) => 8_u8,
-            DWAB => 9_u8,
+            DWAB(_) => 9_u8,
         }.write(write)?;
         Ok(())
     }
@@ -1152,7 +1152,7 @@ impl Compression {
             6 => B44,
             7 => B44A,
             8 => DWAA(None),
-            9 => DWAB,
+            9 => DWAB(None),
             _ => return Err(Error::unsupported("unknown compression method")),
         })
     }

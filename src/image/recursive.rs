@@ -2,13 +2,13 @@
 //! Supports conversion from and to tuples of the same size.
 
 /// No more recursion. Can be used within any `Recursive<NoneMore, YourValue>` type.
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct NoneMore;
 
 /// A recursive type-level linked list of `Value` entries.
 /// Mainly used to represent an arbitrary number of channels.
 /// The recursive architecture removes the need to implement traits for many different tuples.
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct Recursive<Inner, Value> {
     /// The remaining values of this linked list,
     /// probably either `NoneMore` or another instance of the same `Recursive<Inner - 1, Value>`.
