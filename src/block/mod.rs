@@ -477,15 +477,17 @@ impl UncompressedBlock {
 
         match chunk.block {
             Block::Tile(TileBlock { compressed_pixels, .. }) |
-            Block::ScanLine(ScanLineBlock { compressed_pixels, .. }) => Ok(UncompressedBlock {
-                data: header.compression.decompress_image_section(header, compressed_pixels, absolute_indices, pedantic)?,
-                index: BlockIndex {
-                    layer: chunk.layer_index,
-                    pixel_position: absolute_indices.position.to_usize("data indices start")?,
-                    level: tile_data_indices.level_index,
-                    pixel_size: absolute_indices.size,
-                }
-            }),
+            Block::ScanLine(ScanLineBlock { compressed_pixels, .. }) => {
+                Ok(UncompressedBlock {
+                    data: header.compression.decompress_image_section(header, compressed_pixels, absolute_indices, pedantic)?,
+                    index: BlockIndex {
+                        layer: chunk.layer_index,
+                        pixel_position: absolute_indices.position.to_usize("data indices start")?,
+                        level: tile_data_indices.level_index,
+                        pixel_size: absolute_indices.size,
+                    }
+                })
+            },
 
             _ => return Err(Error::unsupported("deep data not supported yet"))
         }

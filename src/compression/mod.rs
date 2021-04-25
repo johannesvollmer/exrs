@@ -222,7 +222,8 @@ impl Compression {
         let expected_byte_size = pixel_section.size.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
 
         if compressed.len() == expected_byte_size {
-            Ok(convert_little_endian_to_current(compressed, &header.channels, pixel_section)) // the compressed data was larger than the raw data, so the raw data has been written
+            // the compressed data was larger than the raw data, so the small raw data has been written
+            Ok(convert_little_endian_to_current(compressed, &header.channels, pixel_section))
         }
         else {
             use self::Compression::*;
