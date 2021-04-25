@@ -854,10 +854,13 @@ pub mod validate_results {
     use crate::prelude::*;
     use smallvec::Array;
     use crate::prelude::recursive::*;
-    use crate::image::write::channels::WritableChannels;
+    use crate::image::write::samples::WritableSamples;
 
     /// Compare two images, but with a few special quirks.
     /// Intended for unit testing.
+    ///
+    /// Warning: If you use `SpecificChannels`, the comparison might be inaccurate
+    /// for images with mixed compression methods. This is to be used with `AnyChannels` mainly.
     pub trait ValidateImageResult {
 
         /// Compare self with the other. Exceptional behaviour:
@@ -877,7 +880,7 @@ pub mod validate_results {
         /// Exceptional behaviour:
         /// - Any two NaN values are considered equal, regardless of bit representation.
         /// - If a max_difference is specified, any two values that differ only by a small amount will be considered equal.
-        /// - If `nan_to_zero` is true, and __self is NaN and the other value is zero, they are considered equal__
+        /// - If `nan_to_zero` is true, and __self is NaN/Infinite and the other value is zero, they are considered equal__
         ///   (because some compression methods replace nan with zero)
         ///
         /// This does not work the other way around! This method is not symmetrical!
@@ -910,40 +913,42 @@ pub mod validate_results {
     }
 
     impl<S> ValidateImageResult for Layer<AnyChannels<S>>
-        where AnyChannels<S>: ValidateValueResult + for<'a> WritableChannels<'a>
+        where AnyChannel<S>: ValidateValueResult, S: for<'a> WritableSamples<'a>
     {
         fn validate_image_result(&self, other: &Self, max_difference: f32) -> bool {
+            self.attributes == other.attributes && self.encoding == other.encoding && self.size == other.size &&
+                self.channel_data.list.len() == other.channel_data.list.len() &&
+                self.channel_data.list.iter().zip(other.channel_data.list.iter()).all(|(own_chan, other_chan)|{
+                    let lossless = other.encoding.compression.is_lossless_for(other_chan.sample_data.sample_type());
+                    own_chan.validate_value_result(
+                        other_chan,
 
-            // pxr only looses data for f32 values, B44 only for f16, not other any other types
-            let is_lossless_for_all_channels = other.channel_data.infer_channel_list().list.iter().all(|channel|
-                other.encoding.compression.is_lossless_for(channel.sample_type)
-            );
+                        // no tolerance for lossless channels
+                        if lossless { None } else { Some(max_difference) },
 
-            self.attributes == other.attributes && self.encoding == other.encoding && self.size == other.size
-                && self.channel_data.validate_value_result(
-                    &other.channel_data,
-                    if !is_lossless_for_all_channels { Some(max_difference) } else {None}, // merciless for lossless methods
-
-                    // consider nan and zero equal if the compression method does not support nan
-                    !other.encoding.compression.supports_nan()
-                )
+                        // consider nan and zero equal if the compression method does not support nan
+                        !other.encoding.compression.supports_nan()
+                    )
+                })
         }
     }
 
     impl<Px, Desc> ValidateImageResult for Layer<SpecificChannels<Px, Desc>>
         where SpecificChannels<Px, Desc>: ValidateValueResult
     {
+        /// This does an approximate comparison for all channels,
+        /// even if some channels can be compressed without loss.
         fn validate_image_result(&self, other: &Self, max_difference: f32) -> bool {
 
             // pxr only looses data for f32 values, B44 only for f16, not other any other types
             let may_loose_data = other.encoding.compression.may_loose_data(); // TODO check specific channels sample types
 
-            self.attributes == other.attributes && self.encoding == other.encoding && self.size == other.size
-                && self.channel_data.validate_value_result(
-                &other.channel_data,
-                if may_loose_data { Some(max_difference) } else {None}, // merciless for lossless methods
+            self.attributes == other.attributes && self.encoding == other.encoding && self.size == other.size &&
+                self.channel_data.validate_value_result(
+                    &other.channel_data,
+                    if may_loose_data { Some(max_difference) } else { None }, // merciless for lossless methods
 
-                // consider nan and zero equal if the compression method does not support nan
+                    // consider nan and zero equal if the compression method does not support nan
                     !other.encoding.compression.supports_nan()
                 )
         }
@@ -1051,7 +1056,7 @@ pub mod validate_results {
         fn validate_value_result(&self, other: &Self, maybe_max_difference: Option<f32>, nan_to_zero: bool) -> bool {
             self == other ||
                 (self.is_nan() && other.is_nan()) ||
-                (nan_to_zero && self.is_nan() && *other == 0.0) ||
+                (nan_to_zero && !self.is_normal() && *other == 0.0) ||
 
                 maybe_max_difference
                     .map(|max_difference| (self - other).abs() <= max_difference.abs())
