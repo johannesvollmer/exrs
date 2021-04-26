@@ -9,18 +9,21 @@ use std::cmp::min;
 use std::mem::size_of;
 use table::{EXP_TABLE, LOG_TABLE};
 
+#[inline]
 fn convert_from_linear(s: &mut [u16; 16]) {
     for v in s {
         *v = EXP_TABLE[*v as usize];
     }
 }
 
+#[inline]
 fn convert_to_linear(s: &mut [u16; 16]) {
     for v in s {
         *v = LOG_TABLE[*v as usize];
     }
 }
 
+#[inline]
 fn shift_and_round(x: i32, shift: i32) -> i32 {
     let x = x << 1;
     let a = (1 << shift) - 1;
