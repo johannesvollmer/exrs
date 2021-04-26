@@ -14,7 +14,7 @@ fn main() {
     // This struct trades sub-optimal memory-efficiency for clarity,
     // because this is an example, and does not have to be perfectly efficient.
     #[derive(Debug, PartialEq)]
-    struct CustomPixels { lines: Vec<Vec<RgbaF32Pixel>> };
+    struct CustomPixels { lines: Vec<Vec<RgbaF32Pixel>> }
     type RgbaF32Pixel = (f32, f32, f32, f32);
 
     // read the image from a file

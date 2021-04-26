@@ -12,6 +12,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use exr::prelude::*;
 use exr::error::{Error, UnitResult};
 use exr::prelude::pixel_vec::PixelVec;
+use exr::image::validate_results::ValidateImageResult;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
@@ -26,7 +27,7 @@ fn check_files<T>(
     operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -> exr::error::Result<T>
 ) {
     #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
-    enum Result { Ok, Skipped, Unsupported(String), Error(String) };
+    enum Result { Ok, Skipped, Unsupported(String), Error(String) }
 
     let files: Vec<PathBuf> = exr_files().collect();
     let mut results: Vec<(PathBuf, Result)> = files.into_par_iter()
@@ -70,7 +71,7 @@ fn check_files<T>(
         format!("{:?}: {}", result, path.to_str().unwrap())
     }).collect::<Vec<_>>());
 
-    assert!(results.len() >= 100, "Not all files were tested!");
+    assert!(results.len() > 80, "Not enough files were tested!");
 
     if let Result::Error(_) = results.last().unwrap().1 {
         panic!("A file triggered a panic");
@@ -92,9 +93,7 @@ fn round_trip_all_files_full() {
 
         let image2 = read_image.from_buffered(Cursor::new(tmp_bytes))?;
 
-        assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
-        if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN
-
+        assert!(image.validate_image_result(&image2, 0.05));
         Ok(())
     })
 }
@@ -114,9 +113,7 @@ fn round_trip_all_files_simple() {
 
         let image2 = read_image.from_buffered(Cursor::new(&tmp_bytes))?;
 
-        assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
-        if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN
-
+        assert!(image.validate_image_result(&image2, 0.05));
         Ok(())
     })
 }
@@ -156,9 +153,7 @@ fn round_trip_all_files_rgba() {
 
         let image2 = image_reader.from_buffered(Cursor::new(&tmp_bytes))?;
 
-        assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
-        if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN
-
+        assert!(image.validate_image_result(&image2, 0.05));
         Ok(())
     })
 }
@@ -183,9 +178,7 @@ fn round_trip_parallel_files() {
             .pedantic()
             .from_buffered(Cursor::new(tmp_bytes.as_slice()))?;
 
-        assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
-        if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN
-
+        assert!(image.validate_image_result(&image2, 0.05));
         Ok(())
     })
 }
@@ -306,6 +299,5 @@ fn roundtrip_unusual_7() -> UnitResult {
     let pixels2 = &image2.layer_data.channel_data.pixels;
 
     assert_eq!(pixels1.pixels, pixels2.pixels);
-
     Ok(())
 }

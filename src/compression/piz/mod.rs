@@ -206,7 +206,7 @@ pub fn compress(
     let (max_value, table) = forward_lookup_table_from_bitmap(&bitmap);
     apply_lookup_table(&mut tmp, &table);
 
-    let mut piz_compressed = Vec::with_capacity(uncompressed.len() / 3);
+    let mut piz_compressed = Vec::with_capacity(uncompressed.len() / 2);
     u16::try_from(min_non_zero)?.write(&mut piz_compressed)?;
     u16::try_from(max_non_zero)?.write(&mut piz_compressed)?;
 

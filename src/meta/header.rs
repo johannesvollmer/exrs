@@ -830,7 +830,9 @@ impl Header {
         // construct compression with parameters from properties
         let compression = match (dwa_compression_level, compression) {
             (Some(level), Some(Compression::DWAA(_))) => Some(Compression::DWAA(Some(level))),
+            (Some(level), Some(Compression::DWAB(_))) => Some(Compression::DWAB(Some(level))),
             (_, other) => other,
+            // FIXME dwa compression level gets lost if any other compression is used later in the process
         };
 
         let compression = compression.ok_or(missing_attribute("compression"))?;
@@ -973,10 +975,15 @@ impl Header {
             SOFTWARE: Text = &self.own_attributes.software_name
         );
 
-        // write compression parameters as attribute
-        if let attribute::Compression::DWAA(Some(level)) = self.compression {
-            attribute::write(DWA_COMPRESSION_LEVEL, &F32(level), write)?;
-        }
+        // dwa writes compression parameters as attribute.
+        match self.compression {
+            attribute::Compression::DWAA(Some(level)) |
+            attribute::Compression::DWAB(Some(level)) =>
+                attribute::write(DWA_COMPRESSION_LEVEL, &F32(level), write)?,
+
+            _ => {}
+        };
+
 
         for (name, value) in &self.shared_attributes.other {
             attribute::write(name.as_slice(), value, write)?;

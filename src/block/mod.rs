@@ -477,15 +477,17 @@ impl UncompressedBlock {
 
         match chunk.block {
             Block::Tile(TileBlock { compressed_pixels, .. }) |
-            Block::ScanLine(ScanLineBlock { compressed_pixels, .. }) => Ok(UncompressedBlock {
-                data: header.compression.decompress_image_section(header, compressed_pixels, absolute_indices, pedantic)?,
-                index: BlockIndex {
-                    layer: chunk.layer_index,
-                    pixel_position: absolute_indices.position.to_usize("data indices start")?,
-                    level: tile_data_indices.level_index,
-                    pixel_size: absolute_indices.size,
-                }
-            }),
+            Block::ScanLine(ScanLineBlock { compressed_pixels, .. }) => {
+                Ok(UncompressedBlock {
+                    data: header.compression.decompress_image_section(header, compressed_pixels, absolute_indices, pedantic)?,
+                    index: BlockIndex {
+                        layer: chunk.layer_index,
+                        pixel_position: absolute_indices.position.to_usize("data indices start")?,
+                        level: tile_data_indices.level_index,
+                        pixel_size: absolute_indices.size,
+                    }
+                })
+            },
 
             _ => return Err(Error::unsupported("deep data not supported yet"))
         }
@@ -515,15 +517,16 @@ impl UncompressedBlock {
         let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_coordinates)?;
         absolute_indices.validate(Some(header.layer_size))?;
 
-        debug_assert_eq!(
+        if !header.compression.may_loose_data() { debug_assert_eq!(
             &header.compression.decompress_image_section(
                 header,
                 header.compression.compress_image_section(header, data.clone(), absolute_indices)?,
                 absolute_indices,
                 true
             ).unwrap(),
-            &data, "compression method not round trippin'"
-        );
+            &data,
+            "compression method not round trippin'"
+        ); }
 
         let compressed_data = header.compression.compress_image_section(header, data, absolute_indices)?;
 

@@ -34,6 +34,28 @@ pub struct PixelVec<T> {
 
 impl<T> PixelVec<T> {
 
+    /* TODO make external functions pixelvec static methods
+
+    /// Create a new flattened pixel storage, checking the length of the provided pixels vector.
+    pub fn create_empty<Channels>(resolution: impl Into<Vec2<usize>>, _: Channels) -> Self where T: Default + Clone {
+        PixelVec { resolution, pixels: vec![Pixel::default(); resolution.area()] }
+    }
+
+    /// Examine a pixel of a `PixelVec<T>` image.
+    /// Can usually be used as a function reference instead of calling it directly.
+    #[inline]
+    pub fn get_pixel(image: &PixelVec<Pixel>, position: Vec2<usize>) -> &Pixel where Pixel: Sync {
+        &image.pixels[image.compute_pixel_index(position)]
+    }
+
+    /// Update a pixel of a `PixelVec<T>` image.
+    /// Can usually be used as a function reference instead of calling it directly.
+    #[inline]
+    pub fn set_pixel_in_vec<Pixel>(image: &mut PixelVec<Pixel>, position: Vec2<usize>, pixel: Pixel) {
+        let index = image.compute_pixel_index(position);
+        image.pixels[index] = pixel;
+    }*/
+
     /// Create a new flattened pixel storage, checking the length of the provided pixels vector.
     pub fn new(resolution: impl Into<Vec2<usize>>, pixels: Vec<T>) -> Self {
         let size = resolution.into();
@@ -50,9 +72,12 @@ impl<T> PixelVec<T> {
     }
 }
 
-impl<T> ContainsNaN for PixelVec<T> where T: ContainsNaN {
-    fn contains_nan_pixels(&self) -> bool {
-        self.pixels.as_slice().contains_nan_pixels()
+use crate::image::validate_results::ValidateValueResult;
+
+impl<Px> ValidateValueResult for PixelVec<Px> where Px: ValidateValueResult {
+    fn validate_value_result(&self, lossy_self: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool {
+        self.resolution == lossy_self.resolution
+            && self.pixels.as_slice().validate_value_result(&lossy_self.pixels.as_slice(), max_difference, nan_to_zero)
     }
 }
 
@@ -85,6 +110,7 @@ pub fn set_pixel_in_vec<Pixel>(image: &mut PixelVec<Pixel>, position: Vec2<usize
 }
 
 use std::fmt::*;
+
 impl<T> Debug for PixelVec<T> {
     #[inline] fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "[{}; {}]", std::any::type_name::<T>(), self.pixels.len())
