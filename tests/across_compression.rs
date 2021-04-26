@@ -8,10 +8,9 @@ fn compare_compression_contents(){
     let dir = Path::new("tests/images/valid/custom/compression_methods");
 
     for sub_dir in &["f32", "f16"] {
-
-        let mut uncompressed = read_first_flat_layer_from_file(
-            dir.join(sub_dir).join("uncompressed.exr")
-        ).expect("uncompressed image could not be loaded");
+        let uncompressed_path = dir.join(sub_dir).join("uncompressed.exr");
+        let mut uncompressed = read_first_flat_layer_from_file(uncompressed_path)
+            .expect("uncompressed image could not be loaded");
 
         for image_name in &[
             "zip.exr", "zips.exr", "b44.exr", "b44a.exr",
@@ -20,9 +19,7 @@ fn compare_compression_contents(){
             let path = dir.join(sub_dir).join(image_name);
             print!("{}/{}: ", sub_dir, image_name);
 
-            let decompressed = read_first_flat_layer_from_file(path.as_path());
-
-            match decompressed {
+            match read_first_flat_layer_from_file(path) {
                 Err(Error::NotSupported(message)) => println!("skipping ({})", message),
                 Err(error) => panic!("unexpected error: {}", error),
                 Ok(decompressed) => {
