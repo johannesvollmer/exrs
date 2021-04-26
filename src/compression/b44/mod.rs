@@ -152,8 +152,11 @@ fn pack(s: [u16; 16], b: &mut [u8], optimize_flat_fields: bool, exact_max: bool)
     return 14;
 }
 
-fn b_u32(b: &[u8], i: usize) -> u32 {
-    b[i] as u32
+// Tiny macro to simply get block array value as a u32.
+macro_rules! b32 {
+    ($b:expr, $i:expr) => {
+        $b[$i] as u32
+    };
 }
 
 // 0011 1111
@@ -164,29 +167,29 @@ fn unpack14(b: &[u8], s: &mut [u16; 16]) {
     debug_assert_eq!(b.len(), 14);
     debug_assert_ne!(b[2], 0xfc);
 
-    s[0] = ((b_u32(&b, 0) << 8) | b_u32(&b, 1)) as u16;
+    s[0] = ((b32!(b, 0) << 8) | b32!(b, 1)) as u16;
 
-    let shift = b_u32(&b, 2) >> 2;
+    let shift = b32!(b, 2) >> 2;
     let bias = 0x20 << shift;
 
-    s[4] = (s[0] as u32 + ((((b_u32(&b, 2) << 4) | (b_u32(&b, 3) >> 4)) & SIX_BITS) << shift) - bias) as u16;
-    s[8] = (s[4] as u32 + ((((b_u32(&b, 3) << 2) | (b_u32(&b, 4) >> 6)) & SIX_BITS) << shift) - bias) as u16;
-    s[12] = (s[8] as u32 + ((b_u32(&b, 4) & SIX_BITS) << shift) - bias) as u16;
+    s[4] = (s[0] as u32 + ((((b32!(b, 2) << 4) | (b32!(b, 3) >> 4)) & SIX_BITS) << shift) - bias) as u16;
+    s[8] = (s[4] as u32 + ((((b32!(b, 3) << 2) | (b32!(b, 4) >> 6)) & SIX_BITS) << shift) - bias) as u16;
+    s[12] = (s[8] as u32 + ((b32!(b, 4) & SIX_BITS) << shift) - bias) as u16;
 
-    s[1] = (s[0] as u32 + ((b_u32(&b, 5) >> 2) << shift) - bias) as u16;
-    s[5] = (s[4] as u32 + ((((b_u32(&b, 5) << 4) | (b_u32(&b, 6) >> 4)) & SIX_BITS) << shift) - bias) as u16;
-    s[9] = (s[8] as u32 + ((((b_u32(&b, 6) << 2) | (b_u32(&b, 7) >> 6)) & SIX_BITS) << shift) - bias) as u16;
-    s[13] = (s[12] as u32 + ((b_u32(&b, 7) & SIX_BITS) << shift) - bias) as u16;
+    s[1] = (s[0] as u32 + ((b32!(b, 5) >> 2) << shift) - bias) as u16;
+    s[5] = (s[4] as u32 + ((((b32!(b, 5) << 4) | (b32!(b, 6) >> 4)) & SIX_BITS) << shift) - bias) as u16;
+    s[9] = (s[8] as u32 + ((((b32!(b, 6) << 2) | (b32!(b, 7) >> 6)) & SIX_BITS) << shift) - bias) as u16;
+    s[13] = (s[12] as u32 + ((b32!(b, 7) & SIX_BITS) << shift) - bias) as u16;
 
-    s[2] = (s[1] as u32 + ((b_u32(&b, 8) >> 2) << shift) - bias) as u16;
-    s[6] = (s[5] as u32 + ((((b_u32(&b, 8) << 4) | (b_u32(&b, 9) >> 4)) & SIX_BITS) << shift)  - bias) as u16;
-    s[10] = (s[9] as u32 + ((((b_u32(&b, 9) << 2) | (b_u32(&b, 10) >> 6)) & SIX_BITS) << shift) - bias) as u16;
-    s[14] = (s[13] as u32 + ((b_u32(&b, 10) & SIX_BITS) << shift) - bias) as u16;
+    s[2] = (s[1] as u32 + ((b32!(b, 8) >> 2) << shift) - bias) as u16;
+    s[6] = (s[5] as u32 + ((((b32!(b, 8) << 4) | (b32!(b, 9) >> 4)) & SIX_BITS) << shift)  - bias) as u16;
+    s[10] = (s[9] as u32 + ((((b32!(b, 9) << 2) | (b32!(b, 10) >> 6)) & SIX_BITS) << shift) - bias) as u16;
+    s[14] = (s[13] as u32 + ((b32!(b, 10) & SIX_BITS) << shift) - bias) as u16;
 
-    s[3] = (s[2] as u32 + ((b_u32(&b, 11) >> 2) << shift) - bias) as u16;
-    s[7] = (s[6] as u32 + ((((b_u32(&b, 11) << 4) | (b_u32(&b, 12) >> 4)) & SIX_BITS) << shift) - bias) as u16;
-    s[11] = (s[10] as u32 + ((((b_u32(&b, 12) << 2) | (b_u32(&b, 13) >> 6)) & SIX_BITS) << shift) - bias) as u16;
-    s[15] = (s[14] as u32 + ((b_u32(&b, 13) & SIX_BITS) << shift) - bias) as u16;
+    s[3] = (s[2] as u32 + ((b32!(b, 11) >> 2) << shift) - bias) as u16;
+    s[7] = (s[6] as u32 + ((((b32!(b, 11) << 4) | (b32!(b, 12) >> 4)) & SIX_BITS) << shift) - bias) as u16;
+    s[11] = (s[10] as u32 + ((((b32!(b, 12) << 2) | (b32!(b, 13) >> 6)) & SIX_BITS) << shift) - bias) as u16;
+    s[15] = (s[14] as u32 + ((b32!(b, 13) & SIX_BITS) << shift) - bias) as u16;
 
     for i in 0..16 {
         if (s[i] & 0x8000) != 0 {
@@ -202,7 +205,7 @@ fn unpack3(b: &[u8], s: &mut [u16; 16]) {
     debug_assert_eq!(b[2], 0xfc);
 
     // Get the 16-bit value from the block.
-    let mut value = (((b[0] as u32) << 8) | (b[1] as u32)) as u16;
+    let mut value = ((b32!(b, 0) << 8) | b32!(b, 1)) as u16;
 
     if (value & 0x8000) != 0 {
         value &= 0x7fff;
