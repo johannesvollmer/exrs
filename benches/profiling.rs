@@ -7,6 +7,7 @@ use exr::prelude::*;
 use bencher::Bencher;
 use std::fs;
 use std::io::Cursor;
+use exr::image::pixel_vec::PixelVec;
 
 /// Read image from file
 fn read_single_image_all_channels(bench: &mut Bencher) {
@@ -31,7 +32,7 @@ fn read_single_image_from_buffer_rgba_channels(bench: &mut Bencher) {
     bench.iter(||{
         let image = exr::prelude::read()
             .no_deep_data().largest_resolution_level()
-            .rgba_channels(exr::image::pixel_vec::create_pixel_vec::<(f16,f16,f16,f16), _>, exr::image::pixel_vec::set_pixel_in_vec)
+            .rgba_channels(PixelVec::<(f16,f16,f16,f16)>::constructor, PixelVec::set_pixel)
             .all_layers().all_attributes()
             .non_parallel()
             .from_buffered(Cursor::new(file.as_slice())).unwrap();

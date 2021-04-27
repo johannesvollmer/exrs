@@ -12,6 +12,7 @@ use std::io;
 use std::io::{Write, Cursor};
 use exr::meta::header::Header;
 use exr::image::validate_results::ValidateImageResult;
+use exr::image::pixel_vec::PixelVec;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
@@ -89,10 +90,7 @@ pub fn test_roundtrip() {
         read()
             .no_deep_data()
             .largest_resolution_level() // TODO all levels
-            .rgba_channels(
-                pixel_vec::create_pixel_vec::<(f32, f32, f32, f32), _>,
-                pixel_vec::set_pixel_in_vec::<(f32, f32, f32, f32)>,
-            )
+            .rgba_channels(PixelVec::<(f32,f32,f32,f32)>::constructor, PixelVec::set_pixel)
             .first_valid_layer()
             .all_attributes()
             .non_parallel();

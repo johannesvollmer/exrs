@@ -954,7 +954,7 @@ mod test {
     fn round_trip100() {
         let mut random = rand::rngs::StdRng::from_seed(SEED);
 
-        for size_multiplier in 1..100 {
+        for size_multiplier in 1..10 {
             let raw = fill(&mut random, size_multiplier * 50_000);
 
             let compressed = compress(&raw).unwrap();

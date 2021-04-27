@@ -7,6 +7,7 @@ use exr::prelude::*;
 use bencher::Bencher;
 use std::fs;
 use std::io::Cursor;
+use exr::image::pixel_vec::PixelVec;
 
 /// Read uncompressed (always single core)
 fn read_single_image_uncompressed_rgba(bench: &mut Bencher) {
@@ -14,7 +15,7 @@ fn read_single_image_uncompressed_rgba(bench: &mut Bencher) {
         let path = "tests/images/valid/custom/crowskull/crow_uncompressed.exr";
 
         let image = read_all_rgba_layers_from_file(
-            path, exr::image::pixel_vec::create_pixel_vec::<(f16,f16,f16,f16), _>, exr::image::pixel_vec::set_pixel_in_vec::<(f16,f16,f16,f16)>
+            path, PixelVec::<(f16,f16,f16,f16)>::constructor, PixelVec::set_pixel
         ).unwrap();
 
         bencher::black_box(image);
@@ -28,7 +29,7 @@ fn read_single_image_uncompressed_from_buffer_rgba(bench: &mut Bencher) {
     bench.iter(||{
         let image = exr::prelude::read()
             .no_deep_data().largest_resolution_level()
-            .rgba_channels(exr::image::pixel_vec::create_pixel_vec::<(f16,f16,f16,f16), _>, exr::image::pixel_vec::set_pixel_in_vec)
+            .rgba_channels(PixelVec::<(f16,f16,f16,f16)>::constructor, PixelVec::set_pixel)
             .all_layers().all_attributes()
             .from_buffered(Cursor::new(file.as_slice())).unwrap();
 
@@ -42,7 +43,7 @@ fn read_single_image_zips_rgba(bench: &mut Bencher) {
         let path = "tests/images/valid/custom/crowskull/crow_zips.exr";
 
         let image = read_all_rgba_layers_from_file(
-            path, exr::image::pixel_vec::create_pixel_vec::<(f16,f16,f16,f16), _>, exr::image::pixel_vec::set_pixel_in_vec
+            path, PixelVec::<(f16,f16,f16,f16)>::constructor, PixelVec::set_pixel
         ).unwrap();
 
         bencher::black_box(image);
@@ -66,7 +67,7 @@ fn read_single_image_non_parallel_zips_rgba(bench: &mut Bencher) {
 
         let image = exr::prelude::read()
             .no_deep_data().largest_resolution_level()
-            .rgba_channels(exr::image::pixel_vec::create_pixel_vec::<(f16,f16,f16,f16), _>, exr::image::pixel_vec::set_pixel_in_vec)
+            .rgba_channels(PixelVec::<(f16,f16,f16,f16)>::constructor, PixelVec::set_pixel)
             .all_layers().all_attributes()
             .non_parallel()
             .from_file(path).unwrap();

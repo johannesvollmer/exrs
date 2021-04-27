@@ -136,10 +136,7 @@ fn round_trip_all_files_rgba() {
         let image_reader = read()
             .no_deep_data()
             .largest_resolution_level() // TODO all levels
-            .rgba_channels(
-                pixel_vec::create_pixel_vec::<(f32, f32, f32, f32), _>,
-                pixel_vec::set_pixel_in_vec::<(f32, f32, f32, f32)>,
-            )
+            .rgba_channels(PixelVec::<(f32,f32,f32,f32)>::constructor, PixelVec::set_pixel)
             .first_valid_layer()
             .all_attributes()
             .non_parallel();
@@ -216,10 +213,8 @@ fn roundtrip_unusual_2() -> UnitResult {
     let image_reader = read()
         .no_deep_data()
         .largest_resolution_level() // TODO all levels
-        .specific_channels().required("N").required("Ploppalori Taranos").collect_pixels(
-            pixel_vec::create_pixel_vec::<(f16, u32), _>,
-            pixel_vec::set_pixel_in_vec::<(f16, u32)>,
-        )
+        .specific_channels().required("N").required("Ploppalori Taranos")
+        .collect_pixels(PixelVec::<(f16,u32)>::constructor, PixelVec::set_pixel)
         .first_valid_layer()
         .all_attributes()
         .non_parallel();
@@ -283,10 +278,7 @@ fn roundtrip_unusual_7() -> UnitResult {
             .required("____")
             .required(" ")
             .required("  ")
-        .collect_pixels(
-            pixel_vec::create_pixel_vec::<(f16, u32, f32,f32,f32,f32,f32), _>,
-            pixel_vec::set_pixel_in_vec::<(f16, u32, f32,f32,f32,f32,f32)>,
-        )
+        .collect_pixels(PixelVec::<(f16, u32, f32,f32,f32,f32,f32)>::constructor, PixelVec::set_pixel)
         .first_valid_layer()
         .all_attributes()
         .non_parallel();
