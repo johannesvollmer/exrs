@@ -9,6 +9,11 @@ use std::cmp::min;
 use std::mem::size_of;
 use table::{EXP_TABLE, LOG_TABLE};
 
+const BLOCK_SAMPLE_COUNT: usize = 4;
+
+// As B44 compression is only use on f16 channels, we can have a conste for this value.
+const BLOCK_X_BYTE_COUNT: usize = BLOCK_SAMPLE_COUNT * size_of::<u16>();
+
 #[inline]
 fn convert_from_linear(s: &mut [u16; 16]) {
     for v in s {
@@ -69,9 +74,9 @@ fn pack(s: [u16; 16], b: &mut [u8], optimize_flat_fields: bool, exact_max: bool)
         // between t_max and t[0] ... t[15].
         //
         // Shift and round the absolute differences.
-        for i in 0..16 {
-            d[i] = shift_and_round((t_max - t[i]).into(), shift);
-        }
+        d.iter_mut().zip(&t)
+            .for_each(|(d_v, t_v)|
+                *d_v = shift_and_round((t_max - t_v).into(), shift));
 
         // Convert d[0] .. d[15] into running differences
         r[0] = d[0] - d[4] + BIAS;
@@ -96,15 +101,15 @@ fn pack(s: [u16; 16], b: &mut [u8], optimize_flat_fields: bool, exact_max: bool)
         r_min = r[0];
         r_max = r[0];
 
-        for i in 0..15 {
-            if r_min > r[i] {
-                r_min = r[i];
+        r.iter().copied().for_each(|v| {
+            if r_min > v {
+                r_min = v;
             }
 
-            if r_max < r[i] {
-                r_max = r[i];
+            if r_max < v {
+                r_max = v;
             }
-        }
+        });
 
         if !(r_min < 0 || r_max > 0x3f) {
             break;
@@ -218,10 +223,6 @@ fn unpack3(b: &[u8], s: &mut [u16; 16]) {
 
 #[derive(Debug)]
 struct ChannelData {
-    // u16
-    tmp_start_index: usize,
-    tmp_end_index: usize,
-    // u8
     tmp8_start_index: usize,
     tmp8_end_index: usize,
 
@@ -232,42 +233,25 @@ struct ChannelData {
     samples_per_pixel: usize,
 }
 
-// Copy src[src_i..(src_i+n)] to dst[dst_i..(dst_i+n)].
-// fn cpy_u16(src: &[u16], src_i: usize, dst: &mut [u16], dst_i: usize, n: usize) {
-//
-//     let src_slice = &src[src_i..(src_i+n)];
-//     let dst_slice = &mut dst[dst_i..(dst_i+n)];
-//
-//     dst_slice.copy_from_slice(src_slice);
-// }
-
-fn cpy_u8(src: &[u16], src_i: usize, dst: &mut [u8], dst_i: usize, n: usize) {
-
-    let mut i = dst_i;
-
-    for src_v in &src[src_i..(src_i+n)] {
-        for b in &src_v.to_ne_bytes() {
-            dst[i] = *b;
-            i += 1;
-        }
-    }
-    debug_assert_eq!((i - dst_i) / 2, n);
+#[inline]
+fn memcpy_u16_to_u8(src: &[u16], dst: &mut [u8]) {
+    src.iter()
+        .zip(dst.chunks_exact_mut(2))
+        .for_each(|(a, b)| b.copy_from_slice(&a.to_ne_bytes()));
 }
 
-// fn compare(tmp_u16_buffer: &[u16], tmp_u8_buffer: &[u8]) {
-//     debug_assert_eq!(tmp_u16_buffer.len(), tmp_u8_buffer.len() / 2);
-//
-//     let mut i = 0;
-//     for v in tmp_u16_buffer {
-//         for b in &v.to_ne_bytes() {
-//             if i < 200 {
-//                 // print!("b {} tmp {}\n", *b, tmp_u8_buffer[i]);
-//             }
-//             debug_assert_eq!(*b, tmp_u8_buffer[i]);
-//             i += 1;
-//         }
-//     }
-// }
+#[inline]
+fn memcpy_u8_to_u16(src: &[u8], dst: &mut [u16]) {
+    dst.iter_mut()
+        .zip(src.chunks_exact(2))
+        .for_each(|(a, b)| *a = u16::from_ne_bytes([b[0], b[1]]));
+}
+
+#[inline]
+fn cpy_u8(src: &[u16], src_i: usize, dst: &mut [u8], dst_i: usize, n: usize) {
+
+    memcpy_u16_to_u8( &src[src_i..src_i+n], &mut dst[dst_i..dst_i+2*n]);
+}
 
 pub fn decompress(
     channels: &ChannelList,
@@ -288,24 +272,19 @@ pub fn decompress(
 
     // Extract channel information needed for decompression.
     let mut channel_data: Vec<ChannelData> = Vec::with_capacity(channels.list.len());
-    let mut tmp_read_index = 0;
     let mut tmp8_read_index = 0;
 
     for channel in channels.list.iter() {
         let channel = ChannelData {
-            tmp_start_index: tmp_read_index,
-            tmp_end_index: tmp_read_index,
             tmp8_start_index: tmp8_read_index,
             tmp8_end_index: tmp8_read_index,
             resolution: channel.subsampled_resolution(rectangle.size),
             y_sampling: channel.sampling.y(),
             type_: channel.sample_type,
             quantize_linearly: channel.quantize_linearly,
-            // samples_per_pixel: channel.sample_type.bytes_per_sample() / SampleType::F16.bytes_per_sample(),
             samples_per_pixel: channel.sampling.area(),
         };
 
-        tmp_read_index += (channel.resolution.area() * channel.samples_per_pixel  * channel.type_.bytes_per_sample()) / 2;
         tmp8_read_index += channel.resolution.area() * channel.samples_per_pixel * channel.type_.bytes_per_sample();
         channel_data.push(channel);
     }
@@ -313,8 +292,7 @@ pub fn decompress(
     let mut in_i = 0usize;
     let mut remaining = compressed.len();
 
-    // let mut tmp_u16_buffer = Vec::<u16>::with_capacity(expected_byte_size / 2);
-    let mut tmp_u8_buffer = Vec::with_capacity(expected_byte_size );
+    let mut tmp_u8_buffer = Vec::with_capacity(expected_byte_size);
 
     println!("channel count {}", channel_data.len());
 
@@ -341,53 +319,39 @@ pub fn decompress(
                 return Err(Error::invalid("not enough data"));
             }
 
-            let slice = &compressed[in_i..(in_i+byte_count)];
-            // tmp_u16_buffer.extend(slice.chunks_exact(2).map(|c| u16::from_ne_bytes([c[0], c[1]])));
-            tmp_u8_buffer.extend_from_slice(slice);
+            tmp_u8_buffer.extend_from_slice(&compressed[in_i..(in_i+byte_count)]);
 
             in_i += byte_count;
             remaining -= byte_count;
 
-            // debug_assert_eq!(tmp_u16_buffer.len(), tmp_u8_buffer.len() / 2);
-
-            // compare(&tmp_u16_buffer, &tmp_u8_buffer);
-
             continue;
         }
 
+        // HALF channel
+        // The rest of the code assume we are manipulating u16 (2 bytes) values.
         debug_assert_eq!(channel.type_, SampleType::F16);
+        debug_assert_eq!(channel.type_.bytes_per_sample(), size_of::<u16>());
 
         // Increase buffer to get new uncompressed datas.
-        // tmp_u16_buffer.resize(tmp_u16_buffer.len() + sample_count, 0);
         tmp_u8_buffer.resize( tmp_u8_buffer.len() + byte_count, 0);
 
-        // debug_assert_eq!(tmp_u16_buffer.len(), tmp_u8_buffer.len() / 2);
+        let x_sample_count = channel.resolution.x() * channel.samples_per_pixel;
+        let y_sample_count = channel.resolution.y() * channel.samples_per_pixel;
 
-        // compare(&tmp_u16_buffer, &tmp_u8_buffer);
+        let bytes_per_sample = size_of::<u16>();
 
-        let cd_nx = channel.resolution.x() * channel.samples_per_pixel;
-        let cd_ny = channel.resolution.y() * channel.samples_per_pixel;
-        // let cd_start = channel.tmp_start_index;
-
-        let cd8_nx = channel.resolution.x() * channel.samples_per_pixel * channel.type_.bytes_per_sample();
-        // let cd8_ny = channel.resolution.y() * channel.samples_per_pixel * channel.type_.bytes_per_sample();
+        let x_byte_count = x_sample_count * bytes_per_sample;
         let cd8_start = channel.tmp8_start_index;
 
-        // HALF channel
-        for y in (0..cd_ny).step_by(4) {
-            // Compute index in out buffer.
-            // let mut row0 = cd_start + y * cd_nx;
-            // let mut row1 = row0 + cd_nx;
-            // let mut row2 = row1 + cd_nx;
-            // let mut row3 = row2 + cd_nx;
-
-            let mut row8_0 = cd8_start + y * cd8_nx;
-            let mut row8_1 = row8_0 + cd8_nx;
-            let mut row8_2 = row8_1 + cd8_nx;
-            let mut row8_3 = row8_2 + cd8_nx;
+        for y in (0..y_sample_count).step_by(BLOCK_SAMPLE_COUNT) {
+            // Compute index in output (decompressed) buffer.
+            let mut row8_0 = cd8_start + y * x_byte_count;
+            let mut row8_1 = row8_0 + x_byte_count;
+            let mut row8_2 = row8_1 + x_byte_count;
+            let mut row8_3 = row8_2 + x_byte_count;
 
             // Move in pixel x line, 4 by 4.
-            for x in (0..cd_nx).step_by(4) {
+            for x in (0..x_sample_count).step_by(BLOCK_SAMPLE_COUNT) {
 
                 // Extract the 4 by 4 block of 16-bit floats from the compressed buffer.
                 let mut s = [0u16; 16];
@@ -421,69 +385,49 @@ pub fn decompress(
                     convert_to_linear(&mut s);
                 }
 
-                // Get width bytes to copy (without going outside channel).
-                let x_byte_count = match x + 3 < cd_nx {
-                    true => 4 * size_of::<u16>(),
-                    false => (cd_nx - x) * size_of::<u16>(),
+                // Get resting samples from the line to copy in temp buffer (without going outside channel).
+                let x_resting_sample_count = match x + 3 < x_sample_count {
+                    true => BLOCK_SAMPLE_COUNT,
+                    false => (x_sample_count - x),
                 };
 
-                debug_assert!(x_byte_count > 0);
-                debug_assert!(x_byte_count <= 8);
-                debug_assert_eq!(x_byte_count % 2, 0);
-
-                let x_sample_count = x_byte_count / 2;
+                debug_assert!(x_resting_sample_count > 0);
+                debug_assert!(x_resting_sample_count <= BLOCK_SAMPLE_COUNT);
 
                 // Copy rows (without going outside channel).
-                if y + 3 < cd_ny {
-                    // cpy_u16(&s, 0, &mut tmp_u16_buffer, row0, x_sample_count);
-                    // cpy_u16(&s, 4, &mut tmp_u16_buffer, row1, x_sample_count);
-                    // cpy_u16(&s, 8, &mut tmp_u16_buffer, row2, x_sample_count);
-                    // cpy_u16(&s, 12, &mut tmp_u16_buffer, row3, x_sample_count);
-                    cpy_u8(&s, 0, &mut tmp_u8_buffer, row8_0, x_sample_count);
-                    cpy_u8(&s, 4, &mut tmp_u8_buffer, row8_1, x_sample_count);
-                    cpy_u8(&s, 8, &mut tmp_u8_buffer, row8_2, x_sample_count);
-                    cpy_u8(&s, 12, &mut tmp_u8_buffer, row8_3, x_sample_count);
+                if y + 3 < y_sample_count {
+                    cpy_u8(&s, 0, &mut tmp_u8_buffer, row8_0, x_resting_sample_count);
+                    cpy_u8(&s, 4, &mut tmp_u8_buffer, row8_1, x_resting_sample_count);
+                    cpy_u8(&s, 8, &mut tmp_u8_buffer, row8_2, x_resting_sample_count);
+                    cpy_u8(&s, 12, &mut tmp_u8_buffer, row8_3, x_resting_sample_count);
 
                 } else {
-                    debug_assert!(y < cd_ny);
+                    debug_assert!(y < y_sample_count);
 
-                    // cpy_u16(&s, 0, &mut tmp_u16_buffer, row0, x_sample_count);
-                    cpy_u8(&s, 0, &mut tmp_u8_buffer, row8_0, x_sample_count);
+                    cpy_u8(&s, 0, &mut tmp_u8_buffer, row8_0, x_resting_sample_count);
 
-                    if y + 1 < cd_ny {
-                        // cpy_u16(&s, 4, &mut tmp_u16_buffer, row1, x_sample_count);
-                        cpy_u8(&s, 4, &mut tmp_u8_buffer, row8_1, x_sample_count);
+                    if y + 1 < y_sample_count {
+                        cpy_u8(&s, 4, &mut tmp_u8_buffer, row8_1, x_resting_sample_count);
                     }
 
-                    if y + 2 < cd_ny {
-                        // cpy_u16(&s, 8, &mut tmp_u16_buffer, row2, x_sample_count);
-                        cpy_u8(&s, 8, &mut tmp_u8_buffer, row8_2, x_sample_count);
+                    if y + 2 < y_sample_count {
+                        cpy_u8(&s, 8, &mut tmp_u8_buffer, row8_2, x_resting_sample_count);
                     }
                 }
 
                 // Update row's array index to 4 next pixels.
-                // row0 += 4;
-                // row1 += 4;
-                // row2 += 4;
-                // row3 += 4;
-
-                row8_0 += 4 * 2;
-                row8_1 += 4 * 2;
-                row8_2 += 4 * 2;
-                row8_3 += 4 * 2;
+                row8_0 += BLOCK_X_BYTE_COUNT;
+                row8_1 += BLOCK_X_BYTE_COUNT;
+                row8_2 += BLOCK_X_BYTE_COUNT;
+                row8_3 += BLOCK_X_BYTE_COUNT;
             }
         }
     }
 
-    // debug_assert_eq!(tmp_u16_buffer.len(), tmp_u8_buffer.len() / 2);
-    // debug_assert_eq!(tmp_u16_buffer.len() * 2, expected_byte_size);
     debug_assert_eq!(tmp_u8_buffer.len(), expected_byte_size);
-
-    // compare(&tmp_u16_buffer, &tmp_u8_buffer);
 
     println!("tmp_u8_buffer {}", tmp_u8_buffer.len());
 
-    // let mut out_reel16 = Vec::with_capacity(expected_byte_size);
     let mut out_reel = Vec::with_capacity(expected_byte_size);
 
     println!("rectangle {}", rectangle.end().y() - rectangle.position.y());
@@ -501,26 +445,12 @@ pub fn decompress(
                 continue;
             }
 
-            // debug_assert_eq!(channel.tmp_end_index, channel.tmp8_end_index / 2);
-
-            // let u16s_per_line = (channel.resolution.x() * channel.samples_per_pixel * channel.type_.bytes_per_sample()) / 2;
-            // let next_tmp_end_index = channel.tmp_end_index + u16s_per_line;
-            // let range16 = channel.tmp_end_index..next_tmp_end_index;
-            // let values16 = &tmp_u16_buffer[range16.clone()];
-            // channel.tmp_end_index = next_tmp_end_index;
-
-            let bytes_per_line = channel.resolution.x() * channel.samples_per_pixel * channel.type_.bytes_per_sample();
+            let x_sample_count = channel.resolution.x() * channel.samples_per_pixel;
+            let bytes_per_line = x_sample_count * channel.type_.bytes_per_sample();
             let next_tmp8_end_index = channel.tmp8_end_index + bytes_per_line;
             let range8 = channel.tmp8_end_index..next_tmp8_end_index;
             let values8 = &tmp_u8_buffer[range8];
             channel.tmp8_end_index = next_tmp8_end_index;
-
-            // debug_assert_eq!(range16.len(), range8.len() / 2);
-
-            // println!("channel.type_.bytes_per_sample() {}", channel.type_.bytes_per_sample());
-
-            // compare(values16, values8);
-
 
             // We can support uncompressed data in the machine's native format
             // if all image channels are of type HALF, and if the Xdr and the
@@ -528,37 +458,28 @@ pub fn decompress(
             if channels.uniform_sample_type == Some(SampleType::F16) {
                 // machine-dependent data format is a simple memcpy
                 use lebe::io::WriteEndian;
-                // out_reel16
-                //     .write_as_native_endian(values16)
-                //     .expect("write to in-memory failed");
                 out_reel
                     .write_as_native_endian(values8)
                     .expect("write to in-memory failed");
             } else {
-                // u16::write_slice(&mut out_reel16, values16).expect("write to in-memory failed");
                 u8::write_slice(&mut out_reel, values8).expect("write to in-memory failed");
-
-                // out_reel.extend_from_slice(values8);
             }
 
-            // byte_count += values16.len() * 2;
             byte_count += values8.len();
         }
     }
 
     println!("byte count outed {}", byte_count);
 
-    // for index in 1..channel_data.len() {
-    //     debug_assert_eq!(
-    //         channel_data[index - 1].tmp_end_index,
-    //         channel_data[index].tmp_start_index
-    //     );
-    // }
+    for index in 1..channel_data.len() {
+        debug_assert_eq!(
+            channel_data[index - 1].tmp8_end_index,
+            channel_data[index].tmp8_start_index
+        );
+    }
 
-    // debug_assert_eq!(channel_data.last().unwrap().tmp_end_index * 2, out_reel.len());
     debug_assert_eq!(out_reel.len(), expected_byte_size);
 
-    // Ok(out_reel16)
     Ok(out_reel)
 }
 
@@ -575,33 +496,33 @@ pub fn compress(
     println!("compress()");
     println!("uncompressed.len() {}", uncompressed.len());
 
-    let mut tmp = vec![0_u16; uncompressed.len() / 2];
+    let mut tmp8 = vec![0_u8; uncompressed.len()];
 
     let mut channel_data = Vec::new();
 
-    let mut tmp_end_index = 0;
+    let mut tmp8_end_index = 0;
     for channel in &channels.list {
         let number_samples = channel.subsampled_resolution(rectangle.size);
-        let byte_size = channel.sample_type.bytes_per_sample() / SampleType::F16.bytes_per_sample();
-        let byte_count = byte_size * number_samples.area();
+
+        let sample_count = channel.subsampled_resolution(rectangle.size).area();
+        let byte_count8 = sample_count * channel.sample_type.bytes_per_sample();
 
         let channel = ChannelData {
-            tmp_end_index,
-            tmp_start_index: tmp_end_index,
-            tmp8_start_index: 0,
-            tmp8_end_index: 0,
+            tmp8_start_index: tmp8_end_index,
+            tmp8_end_index,
             y_sampling: channel.sampling.y(),
             resolution: number_samples,
             type_: channel.sample_type,
             quantize_linearly: channel.quantize_linearly,
-            samples_per_pixel: byte_size,
+            samples_per_pixel: channel.sampling.area(),
         };
 
-        tmp_end_index += byte_count;
+        tmp8_end_index += byte_count8;
         channel_data.push(channel);
     }
 
-    debug_assert_eq!(tmp_end_index, tmp.len());
+    // debug_assert_eq!(tmp_end_index, tmp.len());
+    debug_assert_eq!(tmp8_end_index, tmp8.len());
 
     let mut remaining_uncompressed_bytes = uncompressed;
     for y in rectangle.position.y()..rectangle.end().y() {
@@ -609,10 +530,13 @@ pub fn compress(
             if mod_p(y, usize_to_i32(channel.y_sampling)) != 0 {
                 continue;
             }
-            let u16s_per_line = channel.resolution.x() * channel.samples_per_pixel;
-            let next_tmp_end_index = channel.tmp_end_index + u16s_per_line;
-            let target = &mut tmp[channel.tmp_end_index..next_tmp_end_index];
-            channel.tmp_end_index = next_tmp_end_index;
+
+            let x_sample_count = channel.resolution.x() * channel.samples_per_pixel;
+            let bytes_per_line = x_sample_count * channel.type_.bytes_per_sample();
+            let next_tmp8_end_index = channel.tmp8_end_index + bytes_per_line;
+            let range8 = channel.tmp8_end_index..next_tmp8_end_index;
+            let target8 = &mut tmp8[range8];
+            channel.tmp8_end_index = next_tmp8_end_index;
 
             // We can support uncompressed data in the machine's native format
             // if all image channels are of type HALF, and if the Xdr and the
@@ -620,10 +544,10 @@ pub fn compress(
             if channels.uniform_sample_type == Some(SampleType::F16) {
                 use lebe::io::ReadEndian;
                 remaining_uncompressed_bytes
-                    .read_from_native_endian_into(target)
+                    .read_from_native_endian_into(target8)
                     .expect("in-memory read failed");
             } else {
-                u16::read_slice(&mut remaining_uncompressed_bytes, target)
+                u8::read_slice(&mut remaining_uncompressed_bytes, target8)
                     .expect("in-memory read failed");
             }
         }
@@ -637,25 +561,29 @@ pub fn compress(
         // U32 and F32 channels are raw copied.
         if channel.type_ != SampleType::F16 {
 
+            debug_assert_eq!(channel.type_.bytes_per_sample(), 4);
+
             // Raw byte copy.
-            for v in &tmp[channel.tmp_start_index..channel.tmp_end_index] {
-                for b in v.to_ne_bytes().iter() {
-                    b44_compressed[b44_end] = *b;
-                    b44_end += 1;
-                }
-            }
+            let slice = &tmp8[channel.tmp8_start_index..channel.tmp8_end_index];
+            slice.iter().copied().for_each(|b|{
+                b44_compressed[b44_end] = b;
+                b44_end += 1;
+            });
 
             continue;
         }
 
-        debug_assert_eq!(channel.type_, SampleType::F16);
-
-        let cd_nx = channel.resolution.x() * channel.samples_per_pixel;
-        let cd_ny = channel.resolution.y() * channel.samples_per_pixel;
-        let cd_start = channel.tmp_start_index;
-
         // HALF channel
-        for y in (0..cd_ny).step_by(4) {
+        debug_assert_eq!(channel.type_, SampleType::F16);
+        debug_assert_eq!(channel.type_.bytes_per_sample(), size_of::<u16>());
+
+        let x_sample_count = channel.resolution.x() * channel.samples_per_pixel;
+        let y_sample_count = channel.resolution.y() * channel.samples_per_pixel;
+
+        let x_byte_count = x_sample_count * size_of::<u16>();
+        let cd8_start = channel.tmp8_start_index;
+
+        for y in (0..y_sample_count).step_by(BLOCK_SAMPLE_COUNT) {
             //
             // Copy the next 4x4 pixel block into array s.
             // If the width, cd.nx, or the height, cd.ny, of
@@ -665,49 +593,49 @@ pub fn compress(
             //
 
             // Compute row index in temp buffer.
-            let mut row0 = cd_start + y * cd_nx;
-            let mut row1 = row0 + cd_nx;
-            let mut row2 = row1 + cd_nx;
-            let mut row3 = row2 + cd_nx;
+            let mut row8_0 = cd8_start + y * x_byte_count;
+            let mut row8_1 = row8_0 + x_byte_count;
+            let mut row8_2 = row8_1 + x_byte_count;
+            let mut row8_3 = row8_2 + x_byte_count;
 
-            if y + 3 >= cd_ny {
-                if y + 1 >= cd_ny {
-                    row1 = row0;
+            if y + 3 >= y_sample_count {
+                if y + 1 >= y_sample_count {
+                    row8_1 = row8_0;
                 }
 
-                if y + 2 >= cd_ny {
-                    row2 = row1;
+                if y + 2 >= y_sample_count {
+                    row8_2 = row8_1;
                 }
 
-                row3 = row2;
+                row8_3 = row8_2;
             }
 
-            for x in (0..cd_nx).step_by(4) {
+            for x in (0..x_sample_count).step_by(BLOCK_SAMPLE_COUNT) {
                 let mut s = [0u16; 16];
 
-                if x + 3 >= cd_nx {
-                    let n = cd_nx - x;
+                if x + 3 >= x_sample_count {
+                    let n = x_sample_count - x;
 
-                    for i in 0..4 {
+                    for i in 0..BLOCK_SAMPLE_COUNT {
                         let j = min(i, n - 1);
 
-                        s[i + 0] = tmp[row0 + j];
-                        s[i + 4] = tmp[row1 + j];
-                        s[i + 8] = tmp[row2 + j];
-                        s[i + 12] = tmp[row3 + j];
+                        s[i + 0] = u16::from_ne_bytes([tmp8[(row8_0 + j)], tmp8[(row8_0 + j + 1)]]);
+                        s[i + 4] = u16::from_ne_bytes([tmp8[(row8_1 + j)], tmp8[(row8_1 + j + 1)]]);
+                        s[i + 8] = u16::from_ne_bytes([tmp8[(row8_2 + j)], tmp8[(row8_2 + j + 1)]]);
+                        s[i + 12] = u16::from_ne_bytes([tmp8[(row8_3 + j)], tmp8[(row8_3 + j + 1)]]);
                     }
                 } else {
-                    s[0..4].copy_from_slice(&tmp[row0..(row0+4)]);
-                    s[4..8].copy_from_slice(&tmp[row1..(row1+4)]);
-                    s[8..12].copy_from_slice(&tmp[row2..(row2+4)]);
-                    s[12..16].copy_from_slice(&tmp[row3..(row3+4)]);
+                    memcpy_u8_to_u16(&tmp8[row8_0..(row8_0+BLOCK_X_BYTE_COUNT)], &mut s[0..4]);
+                    memcpy_u8_to_u16( &tmp8[row8_1..(row8_1+BLOCK_X_BYTE_COUNT)], &mut s[4..8]);
+                    memcpy_u8_to_u16( &tmp8[row8_2..(row8_2+BLOCK_X_BYTE_COUNT)], &mut s[8..12]);
+                    memcpy_u8_to_u16( &tmp8[row8_3..(row8_3+BLOCK_X_BYTE_COUNT)], &mut s[12..16]);
                 }
 
                 // Move to next block.
-                row0 += 4;
-                row1 += 4;
-                row2 += 4;
-                row3 += 4;
+                row8_0 += BLOCK_X_BYTE_COUNT;
+                row8_1 += BLOCK_X_BYTE_COUNT;
+                row8_2 += BLOCK_X_BYTE_COUNT;
+                row8_3 += BLOCK_X_BYTE_COUNT;
 
                 // Compress the contents of array `s` and append the results to the output buffer.
                 if channel.quantize_linearly {
@@ -763,12 +691,6 @@ mod test {
 
     fn test_roundtrip_noise_with(channels: ChannelList, rectangle: IntegerBounds) {
 
-        debug_assert_eq!(channels.list.len(), 2);
-
-        println!("channels.bytes_per_pixel {}", channels.bytes_per_pixel);
-
-        let bytes_per_pixel = channels.bytes_per_pixel * rectangle.size.area();
-        println!("bytes_per_pixel {}", bytes_per_pixel);
         let mut i = 0;
         for channel in &channels.list {
 
@@ -779,7 +701,6 @@ mod test {
         }
         println!("byte_count i {}", i);
 
-        // let pixel_bytes: ByteVec = (0..channels.bytes_per_pixel * rectangle.size.area())
         let pixel_bytes: ByteVec = (0..i)
             .map(|_| rand::random())
             .collect();
@@ -788,11 +709,17 @@ mod test {
 
         let compressed = b44::compress(&channels, &pixel_bytes, rectangle, true).unwrap();
 
+        // Detect if all channels have same sample types.
+        let same_sample_type = channels.list.iter()
+            .all(|c| c.sample_type == channels.list[0].sample_type);
+
         // On my tests, B44 give a size of 44.08% the original data (this assert implies enough
         // pixels to be relevant).
-        match channels.list[0].sample_type {
-            SampleType::F16 => debug_assert!(compressed.len() as f64 <= pixel_bytes.len() as f64 * 0.445),
-            SampleType::F32 | SampleType::U32 => debug_assert_eq!(compressed.len(), pixel_bytes.len()),
+        if same_sample_type {
+            match channels.list[0].sample_type {
+                SampleType::F16 => debug_assert!(compressed.len() as f64 <= pixel_bytes.len() as f64 * 0.445),
+                SampleType::F32 | SampleType::U32 => debug_assert_eq!(compressed.len(), pixel_bytes.len()),
+            }
         };
 
         println!("{:?}", channels.list[0].sample_type);
@@ -802,12 +729,6 @@ mod test {
             b44::decompress(&channels, &compressed, rectangle, pixel_bytes.len(), true).unwrap();
 
         debug_assert_eq!(decompressed.len(), pixel_bytes.len());
-
-        // for i in 0..pixel_bytes.len() {
-        //     let f1 = f16::from_be_bytes([pixel_bytes[i], pixel_bytes[i + 1]]).to_f64();
-        //     let f2 = f16::from_be_bytes([decompressed[i], decompressed[i + 1]]).to_f64();
-        //     debug_assert!((f1 - f2).abs() < 0.01);
-        // }
     }
 
     #[test]
@@ -850,10 +771,6 @@ mod test {
                 position: Vec2(-30, 100),
                 size: Vec2(322, 731),
             };
-            // let rectangle = IntegerBounds {
-            //     position: Vec2(-1, 3),
-            //     size: Vec2(10, 10),
-            // };
 
             test_roundtrip_noise_with(channels, rectangle);
     }
@@ -874,12 +791,40 @@ mod test {
                 position: Vec2(-30, 100),
                 size: Vec2(322, 731),
             };
-            // let rectangle = IntegerBounds {
-            //     position: Vec2(-1, 3),
-            //     size: Vec2(10, 10),
-            // };
 
             test_roundtrip_noise_with(channels, rectangle);
+    }
+
+    #[test]
+    fn roundtrip_any_sample_type_mix_f32_f16_u32() {
+
+        let channels = ChannelList::new(smallvec![
+            ChannelDescription {
+                sample_type: SampleType::F32,
+                name: Default::default(),
+                quantize_linearly: false,
+                sampling: Vec2(1, 1),
+            },
+            ChannelDescription {
+                sample_type: SampleType::F16,
+                name: Default::default(),
+                quantize_linearly: false,
+                sampling: Vec2(1, 1),
+            },
+            ChannelDescription {
+                sample_type: SampleType::U32,
+                name: Default::default(),
+                quantize_linearly: false,
+                sampling: Vec2(1, 1),
+            }
+        ]);
+
+        let rectangle = IntegerBounds {
+            position: Vec2(-30, 100),
+            size: Vec2(322, 731),
+        };
+
+        test_roundtrip_noise_with(channels, rectangle);
     }
 
     #[test]
