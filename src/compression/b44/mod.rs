@@ -37,7 +37,7 @@ fn shift_and_round(x: i32, shift: i32) -> i32 {
     (x + a + b) >> shift
 }
 
-/// Pack a block of 4 by 4 16-bit pixels (32 bytes) into either 14 or 3 bytes.
+/// Pack a block of 4 by 4 16-bit pixels (32 bytes, the array `s`) into either 14 or 3 bytes.
 fn pack(s: [u16; 16], b: &mut [u8], optimize_flat_fields: bool, exact_max: bool) -> usize {
 
     let mut t = [0u16; 16];
@@ -294,11 +294,7 @@ pub fn decompress(
 
     let mut tmp_u8_buffer = Vec::with_capacity(expected_byte_size);
 
-    println!("channel count {}", channel_data.len());
-
     for channel in &channel_data {
-
-         println!("channel iter");
 
         debug_assert_eq!(remaining, compressed.len()-in_i);
 
@@ -311,9 +307,6 @@ pub fn decompress(
         if channel.type_ != SampleType::F16 {
 
             debug_assert_eq!(channel.type_.bytes_per_sample(), 4);
-
-            println!("remaining {}", remaining);
-            println!("byte_count {}", byte_count);
 
             if remaining < byte_count {
                 return Err(Error::invalid("not enough data"));
@@ -396,6 +389,7 @@ pub fn decompress(
 
                 // Copy rows (without going outside channel).
                 if y + 3 < y_sample_count {
+                    // TODO: Can't make lebe to work here.
                     cpy_u8(&s, 0, &mut tmp_u8_buffer, row8_0, x_resting_sample_count);
                     cpy_u8(&s, 4, &mut tmp_u8_buffer, row8_1, x_resting_sample_count);
                     cpy_u8(&s, 8, &mut tmp_u8_buffer, row8_2, x_resting_sample_count);
@@ -426,18 +420,7 @@ pub fn decompress(
 
     debug_assert_eq!(tmp_u8_buffer.len(), expected_byte_size);
 
-    println!("tmp_u8_buffer {}", tmp_u8_buffer.len());
-
-    let mut out_reel = Vec::with_capacity(expected_byte_size);
-
-    println!("rectangle {}", rectangle.end().y() - rectangle.position.y());
-
-    let mut byte_count = 0;
-
-    println!("y size {}", (rectangle.position.y()..rectangle.end().y()).len());  // 731
-
-    println!("channels.uniform_sample_type == Some(SampleType::F16) {}",
-             channels.uniform_sample_type == Some(SampleType::F16));
+    let mut out = Vec::with_capacity(expected_byte_size);
 
     for y in rectangle.position.y()..rectangle.end().y() {
         for channel in &mut channel_data {
@@ -458,18 +441,14 @@ pub fn decompress(
             if channels.uniform_sample_type == Some(SampleType::F16) {
                 // machine-dependent data format is a simple memcpy
                 use lebe::io::WriteEndian;
-                out_reel
+                out
                     .write_as_native_endian(values8)
                     .expect("write to in-memory failed");
             } else {
-                u8::write_slice(&mut out_reel, values8).expect("write to in-memory failed");
+                u8::write_slice(&mut out, values8).expect("write to in-memory failed");
             }
-
-            byte_count += values8.len();
         }
     }
-
-    println!("byte count outed {}", byte_count);
 
     for index in 1..channel_data.len() {
         debug_assert_eq!(
@@ -478,9 +457,9 @@ pub fn decompress(
         );
     }
 
-    debug_assert_eq!(out_reel.len(), expected_byte_size);
+    debug_assert_eq!(out.len(), expected_byte_size);
 
-    Ok(out_reel)
+    Ok(out)
 }
 
 pub fn compress(
@@ -492,9 +471,6 @@ pub fn compress(
     if uncompressed.is_empty() {
         return Ok(Vec::new());
     }
-
-    println!("compress()");
-    println!("uncompressed.len() {}", uncompressed.len());
 
     let mut tmp8 = vec![0_u8; uncompressed.len()];
 
@@ -521,7 +497,6 @@ pub fn compress(
         channel_data.push(channel);
     }
 
-    // debug_assert_eq!(tmp_end_index, tmp.len());
     debug_assert_eq!(tmp8_end_index, tmp8.len());
 
     let mut remaining_uncompressed_bytes = uncompressed;
@@ -619,12 +594,14 @@ pub fn compress(
                     for i in 0..BLOCK_SAMPLE_COUNT {
                         let j = min(i, n - 1);
 
+                        // TODO: Make [u8; 2] to u16 fast.
                         s[i + 0] = u16::from_ne_bytes([tmp8[(row8_0 + j)], tmp8[(row8_0 + j + 1)]]);
                         s[i + 4] = u16::from_ne_bytes([tmp8[(row8_1 + j)], tmp8[(row8_1 + j + 1)]]);
                         s[i + 8] = u16::from_ne_bytes([tmp8[(row8_2 + j)], tmp8[(row8_2 + j + 1)]]);
                         s[i + 12] = u16::from_ne_bytes([tmp8[(row8_3 + j)], tmp8[(row8_3 + j + 1)]]);
                     }
                 } else {
+                    // TODO: Can't make lebe to work here.
                     memcpy_u8_to_u16(&tmp8[row8_0..(row8_0+BLOCK_X_BYTE_COUNT)], &mut s[0..4]);
                     memcpy_u8_to_u16( &tmp8[row8_1..(row8_1+BLOCK_X_BYTE_COUNT)], &mut s[4..8]);
                     memcpy_u8_to_u16( &tmp8[row8_2..(row8_2+BLOCK_X_BYTE_COUNT)], &mut s[8..12]);
@@ -685,27 +662,22 @@ mod test {
         for (u1, u2) in s1.iter().zip(&s2) {
             let f1 = f16::from_bits(*u1).to_f64();
             let f2 = f16::from_bits(*u2).to_f64();
-            debug_assert!((f1 - f2).abs() < 0.01);
+            assert!((f1 - f2).abs() < 0.01);
         }
     }
 
     fn test_roundtrip_noise_with(channels: ChannelList, rectangle: IntegerBounds) {
 
-        let mut i = 0;
-        for channel in &channels.list {
+        let byte_count = channels.list.iter()
+            .map(|c|
+                c.subsampled_resolution(rectangle.size).area() * c.sample_type.bytes_per_sample())
+            .sum();
 
-            let number_samples = channel.subsampled_resolution(rectangle.size);
-            let byte_count = number_samples.area() * channel.sample_type.bytes_per_sample();
-
-            i += byte_count;
-        }
-        println!("byte_count i {}", i);
-
-        let pixel_bytes: ByteVec = (0..i)
+        let pixel_bytes: ByteVec = (0..byte_count)
             .map(|_| rand::random())
             .collect();
 
-        debug_assert!(pixel_bytes.len() > 0);
+        assert!(pixel_bytes.len() > 0);
 
         let compressed = b44::compress(&channels, &pixel_bytes, rectangle, true).unwrap();
 
@@ -717,18 +689,15 @@ mod test {
         // pixels to be relevant).
         if same_sample_type {
             match channels.list[0].sample_type {
-                SampleType::F16 => debug_assert!(compressed.len() as f64 <= pixel_bytes.len() as f64 * 0.445),
-                SampleType::F32 | SampleType::U32 => debug_assert_eq!(compressed.len(), pixel_bytes.len()),
+                SampleType::F16 => assert!(compressed.len() as f64 <= pixel_bytes.len() as f64 * 0.445),
+                SampleType::F32 | SampleType::U32 => assert_eq!(compressed.len(), pixel_bytes.len()),
             }
         };
-
-        println!("{:?}", channels.list[0].sample_type);
-        println!("decompress");
 
         let decompressed =
             b44::decompress(&channels, &compressed, rectangle, pixel_bytes.len(), true).unwrap();
 
-        debug_assert_eq!(decompressed.len(), pixel_bytes.len());
+        assert_eq!(decompressed.len(), pixel_bytes.len());
     }
 
     #[test]
