@@ -1157,7 +1157,7 @@ pub mod validate_results {
             original_image.write().to_buffered(Cursor::new(&mut file_bytes)).unwrap();
 
             let lossy_image = read().no_deep_data().largest_resolution_level()
-                .rgb_channels(pixel_vec::create_pixel_vec::<(f32,f32,f32),_>, pixel_vec::set_pixel_in_vec)
+                .rgb_channels(PixelVec::<(f32,f32,f32)>::constructor, PixelVec::set_pixel)
                 .first_valid_layer().all_attributes().from_buffered(Cursor::new(&file_bytes)).unwrap();
 
             assert!(original_image.validate_image_result(&original_image, 0.0));
@@ -1195,7 +1195,7 @@ pub mod validate_results {
             original_image.write().to_buffered(Cursor::new(&mut file_bytes)).unwrap();
 
             let lossy_image = read().no_deep_data().largest_resolution_level()
-                .rgb_channels(pixel_vec::create_pixel_vec::<(f32,f32,f32),_>, pixel_vec::set_pixel_in_vec)
+                .rgb_channels(PixelVec::<(f32,f32,f32)>::constructor, PixelVec::set_pixel)
                 .first_valid_layer().all_attributes().from_buffered(Cursor::new(&file_bytes)).unwrap();
 
             assert!(original_image.validate_image_result(&original_image, 0.0));

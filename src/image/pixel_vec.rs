@@ -32,32 +32,31 @@ pub struct PixelVec<T> {
     pub pixels: Vec<T>,
 }
 
-impl<T> PixelVec<T> {
+impl<Pixel> PixelVec<Pixel> {
 
-    /* TODO make external functions pixelvec static methods
-
-    /// Create a new flattened pixel storage, checking the length of the provided pixels vector.
-    pub fn create_empty<Channels>(resolution: impl Into<Vec2<usize>>, _: Channels) -> Self where T: Default + Clone {
+    /// Create a new flattened pixel storage, filled with default pixels.
+    /// Accepts a `Channels` parameter, which is not used, so that it can be passed as a function pointer instead of calling it.
+    pub fn constructor<Channels>(resolution: Vec2<usize>, _: &Channels) -> Self where Pixel: Default + Clone {
         PixelVec { resolution, pixels: vec![Pixel::default(); resolution.area()] }
     }
 
     /// Examine a pixel of a `PixelVec<T>` image.
     /// Can usually be used as a function reference instead of calling it directly.
     #[inline]
-    pub fn get_pixel(image: &PixelVec<Pixel>, position: Vec2<usize>) -> &Pixel where Pixel: Sync {
-        &image.pixels[image.compute_pixel_index(position)]
+    pub fn get_pixel(&self, position: Vec2<usize>) -> &Pixel where Pixel: Sync {
+        &self.pixels[self.compute_pixel_index(position)]
     }
 
     /// Update a pixel of a `PixelVec<T>` image.
     /// Can usually be used as a function reference instead of calling it directly.
     #[inline]
-    pub fn set_pixel_in_vec<Pixel>(image: &mut PixelVec<Pixel>, position: Vec2<usize>, pixel: Pixel) {
-        let index = image.compute_pixel_index(position);
-        image.pixels[index] = pixel;
-    }*/
+    pub fn set_pixel(&mut self, position: Vec2<usize>, pixel: Pixel) {
+        let index = self.compute_pixel_index(position);
+        self.pixels[index] = pixel;
+    }
 
     /// Create a new flattened pixel storage, checking the length of the provided pixels vector.
-    pub fn new(resolution: impl Into<Vec2<usize>>, pixels: Vec<T>) -> Self {
+    pub fn new(resolution: impl Into<Vec2<usize>>, pixels: Vec<Pixel>) -> Self {
         let size = resolution.into();
         assert_eq!(size.area(), pixels.len(), "expected {} samples, but vector length is {}", size.area(), pixels.len());
         Self { resolution: size, pixels }
@@ -84,29 +83,8 @@ impl<Px> ValidateValueResult for PixelVec<Px> where Px: ValidateValueResult {
 impl<Px> GetPixel for PixelVec<Px> where Px: Clone + Sync {
     type Pixel = Px;
     fn get_pixel(&self, position: Vec2<usize>) -> Self::Pixel {
-        get_pixel_from_vec(self, position).clone()
+        self.get_pixel(position).clone()
     }
-}
-
-/// Create a new `PixelVec<T>`, given the pixel resolution of the image.
-/// Can usually be used as a function reference instead of calling it directly.
-#[inline] pub fn create_pixel_vec<Pixel: Clone + Default, Channels>(resolution: Vec2<usize>, _: &Channels) -> PixelVec<Pixel> {
-    PixelVec { resolution, pixels: vec![Pixel::default(); resolution.area()] }
-}
-
-/// Examine a pixel of a `PixelVec<T>` image.
-/// Can usually be used as a function reference instead of calling it directly.
-#[inline]
-pub fn get_pixel_from_vec<Pixel>(image: &PixelVec<Pixel>, position: Vec2<usize>) -> &Pixel where Pixel: Sync {
-    &image.pixels[image.compute_pixel_index(position)]
-}
-
-/// Update a pixel of a `PixelVec<T>` image.
-/// Can usually be used as a function reference instead of calling it directly.
-#[inline]
-pub fn set_pixel_in_vec<Pixel>(image: &mut PixelVec<Pixel>, position: Vec2<usize>, pixel: Pixel) {
-    let index = image.compute_pixel_index(position);
-    image.pixels[index] = pixel;
 }
 
 use std::fmt::*;
