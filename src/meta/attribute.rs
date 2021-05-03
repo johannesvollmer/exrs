@@ -109,33 +109,33 @@ pub struct Text {
 pub struct TimeCode {
 
     /// Hours 0 - 23 are valid.
-    hours: u8,
+    pub hours: u8,
 
     /// Minutes 0 - 59 are valid.
-    minutes: u8,
+    pub minutes: u8,
 
     /// Seconds 0 - 59 are valid.
-    seconds: u8,
+    pub seconds: u8,
 
     /// Frame Indices 0 - 29 are valid.
-    frame: u8,
+    pub frame: u8,
 
     /// Whether this is a drop frame.
-    drop_frame: bool,
+    pub drop_frame: bool,
 
     /// Whether this is a color frame.
-    color_frame: bool,
+    pub color_frame: bool,
 
     /// Field Phase (what?).
-    field_phase: bool,
+    pub field_phase: bool,
 
     /// Flags for `TimeCode.binary_groups` (what?).
-    binary_group_flags: [bool; 3],
+    pub binary_group_flags: [bool; 3],
 
     /// The user data.
     /// Every entry in this array can use at most 3 bits.
     /// This results in a maximum value of 4, minimum 0, for each `u8`.
-    binary_groups: [u8; 8]
+    pub binary_groups: [u8; 8]
 }
 
 /// layer type, specifies block type and deepness.
