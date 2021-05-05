@@ -126,5 +126,5 @@ pub fn test_roundtrip() {
 
     println!("...read 2 successfull");
 
-    assert!(image.validate_image_result(&image2, 0.05));
+    assert!(image.validate_image_result(&image2));
 }

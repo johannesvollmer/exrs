@@ -868,7 +868,7 @@ pub mod validate_results {
         /// Returns whether the result is correct for this image.
         /// The max difference is only used for lossy compression.
         /// If the image compression is lossless, this max_difference is ignored.
-        fn validate_image_result(&self, lossy_result: &Self, max_difference: f32) -> bool;
+        fn validate_image_result(&self, lossy_result: &Self) -> bool;
     }
 
 
@@ -879,26 +879,26 @@ pub mod validate_results {
         /// Compare self with the other.
         /// Exceptional behaviour:
         /// - Any two NaN values are considered equal, regardless of bit representation.
-        /// - If a max_difference is specified, any two values that differ only by a small amount will be considered equal.
+        /// - If a `lossy` is specified, any two values that differ only by a small amount will be considered equal.
         /// - If `nan_to_zero` is true, and __self is NaN/Infinite and the other value is zero, they are considered equal__
         ///   (because some compression methods replace nan with zero)
         ///
         /// This does not work the other way around! This method is not symmetrical!
-        fn validate_value_result(&self, lossy_result: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool;
+        fn validate_value_result(&self, lossy_result: &Self, lossy: bool, nan_to_zero: bool) -> bool;
     }
 
 
     impl<L> ValidateImageResult for Image<L> where L: ValidateImageResult {
-        fn validate_image_result(&self, other: &Self, max_difference: f32) -> bool {
+        fn validate_image_result(&self, other: &Self) -> bool {
             self.attributes == other.attributes
-                && self.layer_data.validate_image_result(&other.layer_data, max_difference)
+                && self.layer_data.validate_image_result(&other.layer_data)
         }
     }
 
     impl<C> ValidateImageResult for Layers<C> where Layer<C>: ValidateImageResult {
-        fn validate_image_result(&self, other: &Self, max_difference: f32) -> bool {
+        fn validate_image_result(&self, other: &Self) -> bool {
             self.iter().zip(other.iter()).all(|(val, othr)|{
-                val.validate_image_result(&othr, max_difference)
+                val.validate_image_result(&othr)
             })
         }
     }
@@ -906,7 +906,7 @@ pub mod validate_results {
     impl<S> ValidateImageResult for Layer<AnyChannels<S>>
         where AnyChannel<S>: ValidateValueResult, S: for<'a> WritableSamples<'a>
     {
-        fn validate_image_result(&self, other: &Self, max_difference: f32) -> bool {
+        fn validate_image_result(&self, other: &Self) -> bool {
             self.attributes == other.attributes && self.encoding == other.encoding && self.size == other.size &&
                 self.channel_data.list.len() == other.channel_data.list.len() &&
                 self.channel_data.list.iter().zip(other.channel_data.list.iter()).all(|(own_chan, other_chan)|{
@@ -915,7 +915,7 @@ pub mod validate_results {
                         other_chan,
 
                         // no tolerance for lossless channels
-                        if lossless { None } else { Some(max_difference) },
+                        !lossless,
 
                         // consider nan and zero equal if the compression method does not support nan
                         !other.encoding.compression.supports_nan()
@@ -929,7 +929,7 @@ pub mod validate_results {
     {
         /// This does an approximate comparison for all channels,
         /// even if some channels can be compressed without loss.
-        fn validate_image_result(&self, other: &Self, max_difference: f32) -> bool {
+        fn validate_image_result(&self, other: &Self) -> bool {
 
             // pxr only looses data for f32 values, B44 only for f16, not other any other types
             let may_loose_data = other.encoding.compression.may_loose_data(); // TODO check specific channels sample types
@@ -937,7 +937,7 @@ pub mod validate_results {
             self.attributes == other.attributes && self.encoding == other.encoding && self.size == other.size &&
                 self.channel_data.validate_value_result(
                     &other.channel_data,
-                    if may_loose_data { Some(max_difference) } else { None }, // merciless for lossless methods
+                    may_loose_data, // merciless for lossless methods
 
                     // consider nan and zero equal if the compression method does not support nan
                     !other.encoding.compression.supports_nan()
@@ -946,70 +946,70 @@ pub mod validate_results {
     }
 
     impl<S> ValidateValueResult for AnyChannels<S> where S: ValidateValueResult {
-        fn validate_value_result(&self, other: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool {
-            self.list.validate_value_result(&other.list, max_difference, nan_to_zero)
+        fn validate_value_result(&self, other: &Self, lossy: bool, nan_to_zero: bool) -> bool {
+            self.list.validate_value_result(&other.list, lossy, nan_to_zero)
         }
     }
 
     impl<S> ValidateValueResult for AnyChannel<S> where S: ValidateValueResult {
-        fn validate_value_result(&self, other: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool {
+        fn validate_value_result(&self, other: &Self, lossy: bool, nan_to_zero: bool) -> bool {
             self.name == other.name && self.quantize_linearly == other.quantize_linearly && self.sampling == other.sampling
-                && self.sample_data.validate_value_result(&other.sample_data, max_difference, nan_to_zero)
+                && self.sample_data.validate_value_result(&other.sample_data, lossy, nan_to_zero)
         }
     }
 
     impl<Pxs, Chans> ValidateValueResult for SpecificChannels<Pxs, Chans> where Pxs: ValidateValueResult, Chans: Eq {
-        fn validate_value_result(&self, other: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool {
-            self.channels == other.channels && self.pixels.validate_value_result(&other.pixels, max_difference, nan_to_zero)
+        fn validate_value_result(&self, other: &Self, lossy: bool, nan_to_zero: bool) -> bool {
+            self.channels == other.channels && self.pixels.validate_value_result(&other.pixels, lossy, nan_to_zero)
         }
     }
 
     impl<S> ValidateValueResult for Levels<S> where S: ValidateValueResult {
-        fn validate_value_result(&self, other: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool {
-            self.levels_as_slice().validate_value_result(&other.levels_as_slice(), max_difference, nan_to_zero)
+        fn validate_value_result(&self, other: &Self, lossy: bool, nan_to_zero: bool) -> bool {
+            self.levels_as_slice().validate_value_result(&other.levels_as_slice(), lossy, nan_to_zero)
         }
     }
 
     impl ValidateValueResult for FlatSamples {
-        fn validate_value_result(&self, other: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool {
+        fn validate_value_result(&self, other: &Self, lossy: bool, nan_to_zero: bool) -> bool {
             use FlatSamples::*;
             match (self, other) {
-                (F16(values), F16(other_values)) => values.as_slice().validate_value_result(&other_values.as_slice(), max_difference, nan_to_zero),
-                (F32(values), F32(other_values)) => values.as_slice().validate_value_result(&other_values.as_slice(), max_difference, nan_to_zero),
-                (U32(values), U32(other_values)) => values.as_slice().validate_value_result(&other_values.as_slice(), max_difference, nan_to_zero),
+                (F16(values), F16(other_values)) => values.as_slice().validate_value_result(&other_values.as_slice(), lossy, nan_to_zero),
+                (F32(values), F32(other_values)) => values.as_slice().validate_value_result(&other_values.as_slice(), lossy, nan_to_zero),
+                (U32(values), U32(other_values)) => values.as_slice().validate_value_result(&other_values.as_slice(), lossy, nan_to_zero),
                 _ => false
             }
         }
     }
 
     impl<T> ValidateValueResult for &[T] where T: ValidateValueResult {
-        fn validate_value_result(&self, other: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool {
+        fn validate_value_result(&self, other: &Self, lossy: bool, nan_to_zero: bool) -> bool {
             self.len() == other.len() && self.iter().zip(other.iter())
-                .all(|(slf, other)| slf.validate_value_result(other, max_difference, nan_to_zero))
+                .all(|(slf, other)| slf.validate_value_result(other, lossy, nan_to_zero))
         }
     }
 
     impl<A: Array> ValidateValueResult for SmallVec<A> where A::Item: ValidateValueResult {
-        fn validate_value_result(&self, other: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool {
-            self.as_slice().validate_value_result(&other.as_slice(), max_difference, nan_to_zero)
+        fn validate_value_result(&self, other: &Self, lossy: bool, nan_to_zero: bool) -> bool {
+            self.as_slice().validate_value_result(&other.as_slice(), lossy, nan_to_zero)
         }
     }
 
     impl<A> ValidateValueResult for Vec<A> where A: ValidateValueResult {
-        fn validate_value_result(&self, other: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool {
-            self.as_slice().validate_value_result(&other.as_slice(), max_difference, nan_to_zero)
+        fn validate_value_result(&self, other: &Self, lossy: bool, nan_to_zero: bool) -> bool {
+            self.as_slice().validate_value_result(&other.as_slice(), lossy, nan_to_zero)
         }
     }
 
     impl<A,B,C,D> ValidateValueResult for (A, B, C, D) where A: Clone+ ValidateValueResult, B: Clone+ ValidateValueResult, C: Clone+ ValidateValueResult, D: Clone+ ValidateValueResult {
-        fn validate_value_result(&self, other: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool {
-            self.clone().into_recursive().validate_value_result(&other.clone().into_recursive(), max_difference, nan_to_zero)
+        fn validate_value_result(&self, other: &Self, lossy: bool, nan_to_zero: bool) -> bool {
+            self.clone().into_recursive().validate_value_result(&other.clone().into_recursive(), lossy, nan_to_zero)
         }
     }
 
     impl<A,B,C> ValidateValueResult for (A, B, C) where A: Clone+ ValidateValueResult, B: Clone+ ValidateValueResult, C: Clone+ ValidateValueResult {
-        fn validate_value_result(&self, other: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool {
-            self.clone().into_recursive().validate_value_result(&other.clone().into_recursive(), max_difference, nan_to_zero)
+        fn validate_value_result(&self, other: &Self, lossy: bool, nan_to_zero: bool) -> bool {
+            self.clone().into_recursive().validate_value_result(&other.clone().into_recursive(), lossy, nan_to_zero)
         }
     }
 
@@ -1026,38 +1026,40 @@ pub mod validate_results {
 
 
     // implement for recursive types
-    impl ValidateValueResult for NoneMore { fn validate_value_result(&self, _: &Self, _: Option<f32>, _:bool) -> bool { true } }
+    impl ValidateValueResult for NoneMore { fn validate_value_result(&self, _: &Self, _: bool, _:bool) -> bool { true } }
     impl<Inner, T> ValidateValueResult for Recursive<Inner, T> where Inner: ValidateValueResult, T: ValidateValueResult {
-        fn validate_value_result(&self, other: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool {
-            self.value.validate_value_result(&other.value, max_difference, nan_to_zero)
-                && self.inner.validate_value_result(&other.inner, max_difference, nan_to_zero)
+        fn validate_value_result(&self, other: &Self, lossy: bool, nan_to_zero: bool) -> bool {
+            self.value.validate_value_result(&other.value, lossy, nan_to_zero)
+                && self.inner.validate_value_result(&other.inner, lossy, nan_to_zero)
         }
     }
 
     impl<S> ValidateValueResult for Option<S> where S: ValidateValueResult {
-        fn validate_value_result(&self, other: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool {
+        fn validate_value_result(&self, other: &Self, lossy: bool, nan_to_zero: bool) -> bool {
             match (self, other) {
                 (None, None) => true,
-                (Some(value), Some(other)) => value.validate_value_result(other, max_difference, nan_to_zero),
+                (Some(value), Some(other)) => value.validate_value_result(other, lossy, nan_to_zero),
                 _ => false
             }
         }
     }
 
     impl ValidateValueResult for f32 {
-        fn validate_value_result(&self, other: &Self, maybe_max_difference: Option<f32>, nan_to_zero: bool) -> bool {
+        fn validate_value_result(&self, other: &Self, lossy: bool, nan_to_zero: bool) -> bool {
             if self == other ||
                 (self.is_nan() && other.is_nan()) ||
                 (nan_to_zero && !self.is_normal() && *other == 0.0)
 
             { true }
 
-            else if let Some(max_difference) = maybe_max_difference {
-                let epsilon = 0.1_f32.abs().min(max_difference.abs());
+            else if lossy {
+                let epsilon = 0.06;
+                let max_difference = 0.1;
+
                 let adaptive_threshold = epsilon * (self.abs() + other.abs());
                 let difference = (self - other).abs();
 
-                difference <= adaptive_threshold.max(max_difference.abs())
+                difference <= adaptive_threshold.max(max_difference)
             }
 
             else { false }
@@ -1065,26 +1067,24 @@ pub mod validate_results {
     }
 
     impl ValidateValueResult for f16 {
-        fn validate_value_result(&self, other: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool {
-            self.to_f32().validate_value_result(&other.to_f32(), max_difference, nan_to_zero)
+        fn validate_value_result(&self, other: &Self, lossy: bool, nan_to_zero: bool) -> bool {
+            self.to_f32().validate_value_result(&other.to_f32(), lossy, nan_to_zero)
         }
     }
 
     impl ValidateValueResult for u32 {
-        fn validate_value_result(&self, other: &Self, maybe_max_difference: Option<f32>, _: bool) -> bool {
-            self == other || maybe_max_difference
-                .map(|max_difference| (*self as f32 - *other as f32).abs() <= max_difference.abs())
-                .unwrap_or(false)
+        fn validate_value_result(&self, other: &Self, lossy: bool, _: bool) -> bool {
+            self == other || (lossy && (*self as i64 - *other as i64).abs() <= 5)
         }
     }
 
     impl ValidateValueResult for Sample {
-        fn validate_value_result(&self, other: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool {
+        fn validate_value_result(&self, other: &Self, lossy: bool, nan_to_zero: bool) -> bool {
             use Sample::*;
             match (self, other) {
-                (F16(a), F16(b)) => a.validate_value_result(b, max_difference, nan_to_zero),
-                (F32(a), F32(b)) => a.validate_value_result(b, max_difference, nan_to_zero),
-                (U32(a), U32(b)) => a.validate_value_result(b, max_difference, nan_to_zero),
+                (F16(a), F16(b)) => a.validate_value_result(b, lossy, nan_to_zero),
+                (F32(a), F32(b)) => a.validate_value_result(b, lossy, nan_to_zero),
+                (U32(a), U32(b)) => a.validate_value_result(b, lossy, nan_to_zero),
                 _ => false
             }
         }
@@ -1107,26 +1107,25 @@ pub mod validate_results {
             let lossy:&[f32] = &[0.0, 0.2, 0.2, 0.3, 0.4, 0.5, -20.5, f32::NAN];
 
             for _ in 0 .. 100 {
-                assert!(original.validate_value_result(&original, Some(random()), random()));
-                assert!(lossy.validate_value_result(&lossy, None, random()));
+                assert!(original.validate_value_result(&original, true, random()));
+                assert!(lossy.validate_value_result(&lossy, false, random()));
             }
 
-            assert!(original.validate_value_result(&original, None, false));
-            assert!(original.validate_value_result(&lossy, Some(0.1001), false));
-            assert!(original.validate_value_result(&lossy, Some(0.2), false));
-            assert!(original.validate_value_result(&lossy, Some(-0.2), false));
-            assert!(original.validate_value_result(&lossy, Some(0.05), false).not());
+            assert!(original.validate_value_result(&original, false, false));
+            assert!(original.validate_value_result(&lossy, false, false).not());
+            assert!(original.validate_value_result(&lossy, true, false));
 
-            assert!(original.validate_value_result(&&original[..original.len()-2], Some(1.0), false).not());
+            assert!(original.validate_value_result(&&original[..original.len()-2], true, false).not());
 
             // test relative comparison with some large values
-            assert!(1_000_f32.validate_value_result(&1_001_f32, Some(0.1_f32), false));
-            assert!(1_000_f32.validate_value_result(&1_001_f32, Some(0.0001_f32), false).not());
+            assert!(1_000_f32.validate_value_result(&1_001_f32, true, false));
+            assert!(1_000_f32.validate_value_result(&1_200_f32, true, false).not());
 
-            assert!(10_000_f32.validate_value_result(&10_100_f32, Some(0.1_f32), false));
-            assert!(100_000_f32.validate_value_result(&100_100_f32, Some(0.1_f32), false));
-            assert!(33_120_f32.validate_value_result(&30_120_f32, Some(0.7_f32), false));
-            assert!(33_120_f32.validate_value_result(&30_120_f32, Some(0.007_f32), false).not());
+            assert!(10_000_f32.validate_value_result(&10_100_f32, true, false));
+            assert!(10_000_f32.validate_value_result(&12_000_f32, true, false).not());
+
+            assert!(33_120_f32.validate_value_result(&30_120_f32, true, false));
+            assert!(33_120_f32.validate_value_result(&20_120_f32, true, false).not());
         }
 
         #[test]
@@ -1134,12 +1133,11 @@ pub mod validate_results {
             let original:&[f32] = &[ 0.0, f32::NAN, f32::NAN ];
             let lossy:&[f32] = &[ 0.0, f32::NAN, 0.0 ];
 
-            assert!(original.validate_value_result(&lossy, Some(0.1), true));
-            assert!(original.validate_value_result(&lossy, Some(0.0), true));
-            assert!(lossy.validate_value_result(&original, Some(0.05), true).not());
+            assert!(original.validate_value_result(&lossy, true, true));
+            assert!(lossy.validate_value_result(&original, true, true).not());
 
-            assert!(original.validate_value_result(&lossy, Some(1.0), false).not());
-            assert!(original.validate_value_result(&lossy, Some(0.001), false).not());
+            assert!(lossy.validate_value_result(&lossy, true, true));
+            assert!(lossy.validate_value_result(&lossy, false, true));
         }
 
         #[test]
@@ -1169,14 +1167,9 @@ pub mod validate_results {
                 .rgb_channels(PixelVec::<(f32,f32,f32)>::constructor, PixelVec::set_pixel)
                 .first_valid_layer().all_attributes().from_buffered(Cursor::new(&file_bytes)).unwrap();
 
-            assert!(original_image.validate_image_result(&original_image, 0.0));
-            assert!(lossy_image.validate_image_result(&lossy_image, 0.0));
-            assert!(original_image.validate_image_result(&lossy_image, 0.0).not());
-            assert!(original_image.validate_image_result(&lossy_image, 0.000001).not());
-
-            assert!(original_image.validate_image_result(&lossy_image, 0.1));
-            // PXR supports nan, so we can't assert!(lossy_image.validate_image_result(&original_image, 0.1).not(), "invalid nan/zero results");
-            assert!(original_image.validate_image_result(&lossy_image, -10.1));
+            assert!(original_image.validate_image_result(&original_image));
+            assert!(lossy_image.validate_image_result(&lossy_image));
+            assert!(original_image.validate_image_result(&lossy_image));
         }
 
         #[test]
@@ -1207,15 +1200,11 @@ pub mod validate_results {
                 .rgb_channels(PixelVec::<(f32,f32,f32)>::constructor, PixelVec::set_pixel)
                 .first_valid_layer().all_attributes().from_buffered(Cursor::new(&file_bytes)).unwrap();
 
-            assert!(original_image.validate_image_result(&original_image, 0.0));
-            assert!(lossy_image.validate_image_result(&lossy_image, 0.0));
+            assert!(original_image.validate_image_result(&original_image));
+            assert!(lossy_image.validate_image_result(&lossy_image));
 
-            assert!(original_image.validate_image_result(&lossy_image, 0.0));
-            assert!(original_image.validate_image_result(&lossy_image, 0.001));
-
-            assert!(original_image.validate_image_result(&lossy_image, 0.1));
-            assert!(lossy_image.validate_image_result(&original_image, 0.1));
-            assert!(original_image.validate_image_result(&lossy_image, -10.1));
+            assert!(original_image.validate_image_result(&lossy_image));
+            assert!(lossy_image.validate_image_result(&original_image));
         }
 
         #[test]

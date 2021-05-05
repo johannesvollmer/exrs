@@ -74,7 +74,7 @@ impl<Pixel> PixelVec<Pixel> {
 use crate::image::validate_results::ValidateValueResult;
 
 impl<Px> ValidateValueResult for PixelVec<Px> where Px: ValidateValueResult {
-    fn validate_value_result(&self, lossy_self: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool {
+    fn validate_value_result(&self, lossy_self: &Self, max_difference: bool, nan_to_zero: bool) -> bool {
         self.resolution == lossy_self.resolution
             && self.pixels.as_slice().validate_value_result(&lossy_self.pixels.as_slice(), max_difference, nan_to_zero)
     }

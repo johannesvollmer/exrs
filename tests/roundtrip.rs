@@ -93,7 +93,7 @@ fn round_trip_all_files_full() {
 
         let image2 = read_image.from_buffered(Cursor::new(tmp_bytes))?;
 
-        assert!(image.validate_image_result(&image2, 0.05));
+        assert!(image.validate_image_result(&image2));
         Ok(())
     })
 }
@@ -113,7 +113,7 @@ fn round_trip_all_files_simple() {
 
         let image2 = read_image.from_buffered(Cursor::new(&tmp_bytes))?;
 
-        assert!(image.validate_image_result(&image2, 0.05));
+        assert!(image.validate_image_result(&image2));
         Ok(())
     })
 }
@@ -150,7 +150,7 @@ fn round_trip_all_files_rgba() {
 
         let image2 = image_reader.from_buffered(Cursor::new(&tmp_bytes))?;
 
-        assert!(image.validate_image_result(&image2, 0.05));
+        assert!(image.validate_image_result(&image2));
         Ok(())
     })
 }
@@ -175,7 +175,7 @@ fn round_trip_parallel_files() {
             .pedantic()
             .from_buffered(Cursor::new(tmp_bytes.as_slice()))?;
 
-        assert!(image.validate_image_result(&image2, 0.05));
+        assert!(image.validate_image_result(&image2));
         Ok(())
     })
 }
