@@ -105,6 +105,7 @@ pub struct Text {
 
 /// Contains time information for this frame within a sequence.
 /// Satisfies the [SMPTE standard 12M-1999](https://en.wikipedia.org/wiki/SMPTE_timecode).
+/// For more in-depth information, see [philrees.co.uk/timecode](http://www.philrees.co.uk/articles/timecode.htm).
 #[derive(Copy, Debug, Clone, Eq, PartialEq, Hash)]
 pub struct TimeCode {
 
