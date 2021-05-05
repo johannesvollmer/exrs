@@ -895,15 +895,6 @@ pub mod validate_results {
         }
     }
 
-
-    /*impl<A: Array> ValidateImageResult for SmallVec<A> where A::Item: ValidateImageResult {
-        fn validate_image_result(&self, other: &Self, max_difference: f32) -> bool {
-            //self.as_slice().validate_image_result(&other.as_slice(), max_difference)
-            self.len() == other.len() && self.iter().zip(other.iter())
-                .all(|(slf, other)| slf.validate_image_result(other, max_difference))
-        }
-    }*/
-
     impl<C> ValidateImageResult for Layers<C> where Layer<C>: ValidateImageResult {
         fn validate_image_result(&self, other: &Self, max_difference: f32) -> bool {
             self.iter().zip(other.iter()).all(|(val, othr)|{
@@ -1013,16 +1004,16 @@ pub mod validate_results {
     impl<A,B,C,D> ValidateValueResult for (A, B, C, D) where A: Clone+ ValidateValueResult, B: Clone+ ValidateValueResult, C: Clone+ ValidateValueResult, D: Clone+ ValidateValueResult {
         fn validate_value_result(&self, other: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool {
             self.clone().into_recursive().validate_value_result(&other.clone().into_recursive(), max_difference, nan_to_zero)
-        } // TODO no clone?
+        }
     }
 
     impl<A,B,C> ValidateValueResult for (A, B, C) where A: Clone+ ValidateValueResult, B: Clone+ ValidateValueResult, C: Clone+ ValidateValueResult {
         fn validate_value_result(&self, other: &Self, max_difference: Option<f32>, nan_to_zero: bool) -> bool {
             self.clone().into_recursive().validate_value_result(&other.clone().into_recursive(), max_difference, nan_to_zero)
-        } // TODO no clone?
+        }
     }
 
-// // (low priority because it is only used in the tests)
+    // // (low priority because it is only used in the tests)
     /*TODO
     impl<Tuple> SimilarToLossy for Tuple where
         Tuple: Clone + IntoRecursive,
@@ -1032,6 +1023,7 @@ pub mod validate_results {
             self.clone().into_recursive().similar_to_lossy(&other.clone().into_recursive(), max_difference)
         } // TODO no clone?
     }*/
+
 
     // implement for recursive types
     impl ValidateValueResult for NoneMore { fn validate_value_result(&self, _: &Self, _: Option<f32>, _:bool) -> bool { true } }
@@ -1054,13 +1046,21 @@ pub mod validate_results {
 
     impl ValidateValueResult for f32 {
         fn validate_value_result(&self, other: &Self, maybe_max_difference: Option<f32>, nan_to_zero: bool) -> bool {
-            self == other ||
+            if self == other ||
                 (self.is_nan() && other.is_nan()) ||
-                (nan_to_zero && !self.is_normal() && *other == 0.0) ||
+                (nan_to_zero && !self.is_normal() && *other == 0.0)
 
-                maybe_max_difference
-                    .map(|max_difference| (self - other).abs() <= max_difference.abs())
-                    .unwrap_or(false)
+            { true }
+
+            else if let Some(max_difference) = maybe_max_difference {
+                let epsilon = 0.1_f32.abs().min(max_difference.abs());
+                let adaptive_threshold = epsilon * (self.abs() + other.abs());
+                let difference = (self - other).abs();
+
+                difference <= adaptive_threshold.max(max_difference.abs())
+            }
+
+            else { false }
         }
     }
 
@@ -1118,6 +1118,15 @@ pub mod validate_results {
             assert!(original.validate_value_result(&lossy, Some(0.05), false).not());
 
             assert!(original.validate_value_result(&&original[..original.len()-2], Some(1.0), false).not());
+
+            // test relative comparison with some large values
+            assert!(1_000_f32.validate_value_result(&1_001_f32, Some(0.1_f32), false));
+            assert!(1_000_f32.validate_value_result(&1_001_f32, Some(0.0001_f32), false).not());
+
+            assert!(10_000_f32.validate_value_result(&10_100_f32, Some(0.1_f32), false));
+            assert!(100_000_f32.validate_value_result(&100_100_f32, Some(0.1_f32), false));
+            assert!(33_120_f32.validate_value_result(&30_120_f32, Some(0.7_f32), false));
+            assert!(33_120_f32.validate_value_result(&30_120_f32, Some(0.007_f32), false).not());
         }
 
         #[test]
@@ -1163,7 +1172,7 @@ pub mod validate_results {
             assert!(original_image.validate_image_result(&original_image, 0.0));
             assert!(lossy_image.validate_image_result(&lossy_image, 0.0));
             assert!(original_image.validate_image_result(&lossy_image, 0.0).not());
-            assert!(original_image.validate_image_result(&lossy_image, 0.001).not());
+            assert!(original_image.validate_image_result(&lossy_image, 0.000001).not());
 
             assert!(original_image.validate_image_result(&lossy_image, 0.1));
             // PXR supports nan, so we can't assert!(lossy_image.validate_image_result(&original_image, 0.1).not(), "invalid nan/zero results");
