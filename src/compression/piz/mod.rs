@@ -303,8 +303,9 @@ mod test {
     use crate::meta::attribute::*;
 
     fn test_roundtrip_noise_with(channels: ChannelList, rectangle: IntegerBounds){
-        let pixel_bytes: ByteVec = (0 .. channels.bytes_per_pixel * rectangle.size.area())
-            .map(|_| rand::random()).collect();
+        let pixel_bytes: ByteVec = (0 .. 37).map(|_| rand::random()).collect::<Vec<u8>>().into_iter()
+            .cycle().take(channels.bytes_per_pixel * rectangle.size.area())
+            .collect();
 
         let compressed = piz::compress(&channels, &pixel_bytes, rectangle).unwrap();
         let decompressed = piz::decompress(&channels, compressed, rectangle, pixel_bytes.len(), true).unwrap();
@@ -328,7 +329,7 @@ mod test {
 
             let rectangle = IntegerBounds {
                 position: Vec2(-30, 100),
-                size: Vec2(322, 731),
+                size: Vec2(1080, 720),
             };
 
             test_roundtrip_noise_with(channels, rectangle);
@@ -357,7 +358,7 @@ mod test {
 
         let rectangle = IntegerBounds {
             position: Vec2(-3, 1),
-            size: Vec2(2323, 3132),
+            size: Vec2(223, 3132),
         };
 
         test_roundtrip_noise_with(channels, rectangle);
@@ -427,7 +428,7 @@ mod test {
 
         let rectangle = IntegerBounds {
             position: Vec2(-3, 1),
-            size: Vec2(1323, 1132),
+            size: Vec2(1323, 132),
         };
 
         test_roundtrip_noise_with(channels, rectangle);
