@@ -118,7 +118,7 @@ pub struct TimeCode {
     /// Seconds 0 - 59 are valid.
     pub seconds: u8,
 
-    /// Frame Indices 0 - 59 are valid.
+    /// Frame Indices 0 - 29 are valid.
     pub frame: u8,
 
     /// Whether this is a drop frame.
@@ -1092,16 +1092,13 @@ impl ChannelList {
 }
 
 fn u8_to_decimal32(binary: u8) -> u32 {
-    let binary = binary as i32;
-    let units = binary % 10;
-    let tens = (binary / 10) % 10;
-    println!("val {} decimal={}", binary, units | (tens << 4));
-    (units | (tens << 4)) as u32
+    let units = binary as u32 % 10;
+    let tens = (binary as u32 / 10) % 10;
+    units | (tens << 4)
 }
 
 // assumes value fits into u8
 fn u8_from_decimal32(coded: u32) -> u8 {
-    let coded = coded as i32;
     ((coded & 0x0f) + 10 * ((coded >> 4) & 0x0f)) as u8
 }
 
@@ -1114,7 +1111,7 @@ impl TimeCode {
     /// Returns an error if this time code is considered invalid.
     pub fn validate(&self, strict: bool) -> UnitResult {
         if strict {
-            if self.frame > 59 { Err(Error::invalid("time code frame larger than 59")) }
+            if self.frame > 29 { Err(Error::invalid("time code frame larger than 29")) }
             else if self.seconds > 59 { Err(Error::invalid("time code seconds larger than 59")) }
             else if self.minutes > 59 { Err(Error::invalid("time code minutes larger than 59")) }
             else if self.hours > 23 { Err(Error::invalid("time code hours larger than 23")) }
@@ -2089,7 +2086,7 @@ mod test {
             hours: rng.gen_range(0, 24),
             minutes: rng.gen_range(0, 60),
             seconds: rng.gen_range(0, 60),
-            frame: rng.gen_range(0, 60),
+            frame: rng.gen_range(0, 29),
             drop_frame: random(),
             color_frame: random(),
             field_phase: random(),
