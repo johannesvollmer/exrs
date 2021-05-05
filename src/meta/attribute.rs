@@ -104,6 +104,9 @@ pub struct Text {
 }
 
 /// Contains time information for this frame within a sequence.
+/// Also defined methods to compile this information into a
+/// `TV60`, `TV50` or `Film24` bit sequence, packed into `u32`.
+///
 /// Satisfies the [SMPTE standard 12M-1999](https://en.wikipedia.org/wiki/SMPTE_timecode).
 /// For more in-depth information, see [philrees.co.uk/timecode](http://www.philrees.co.uk/articles/timecode.htm).
 #[derive(Copy, Debug, Clone, Eq, PartialEq, Hash)]
@@ -127,13 +130,13 @@ pub struct TimeCode {
     /// Whether this is a color frame.
     pub color_frame: bool,
 
-    /// Field Phase (what?).
+    /// Field Phase.
     pub field_phase: bool,
 
-    /// Flags for `TimeCode.binary_groups` (what?).
+    /// Flags for `TimeCode.binary_groups`.
     pub binary_group_flags: [bool; 3],
 
-    /// The user data (what?).
+    /// The user-defined control codes.
     /// Every entry in this array can use at most 3 bits.
     /// This results in a maximum value of 15, including 0, for each `u8`.
     pub binary_groups: [u8; 8]
@@ -1242,10 +1245,10 @@ impl TimeCode {
     }
 
 
-    /// Without validation, write this time code to the byte stream, encoded as TV60 integers.
+    /// Write this time code to the byte stream, encoded as TV60 integers.
+    /// Returns an `Error::Invalid` if the fields are out of the allowed range.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
-        debug_assert!(self.validate(true).is_ok());
-        self.pack_time_as_tv60_u32()?.write(write)?;
+        self.pack_time_as_tv60_u32()?.write(write)?; // will validate
         self.pack_user_data_as_u32().write(write)?;
         Ok(())
     }
