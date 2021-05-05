@@ -103,12 +103,43 @@ pub struct Text {
     bytes: TextBytes,
 }
 
-/// Contains time information.
-// TODO use actual fields instead of bit fields and asseble bit-u32 on write
+/// Contains time information for this frame within a sequence.
+/// Also defined methods to compile this information into a
+/// `TV60`, `TV50` or `Film24` bit sequence, packed into `u32`.
+///
+/// Satisfies the [SMPTE standard 12M-1999](https://en.wikipedia.org/wiki/SMPTE_timecode).
+/// For more in-depth information, see [philrees.co.uk/timecode](http://www.philrees.co.uk/articles/timecode.htm).
 #[derive(Copy, Debug, Clone, Eq, PartialEq, Hash)]
 pub struct TimeCode {
-    time_and_flags: u32,
-    user_data: u32,
+
+    /// Hours 0 - 23 are valid.
+    pub hours: u8,
+
+    /// Minutes 0 - 59 are valid.
+    pub minutes: u8,
+
+    /// Seconds 0 - 59 are valid.
+    pub seconds: u8,
+
+    /// Frame Indices 0 - 29 are valid.
+    pub frame: u8,
+
+    /// Whether this is a drop frame.
+    pub drop_frame: bool,
+
+    /// Whether this is a color frame.
+    pub color_frame: bool,
+
+    /// Field Phase.
+    pub field_phase: bool,
+
+    /// Flags for `TimeCode.binary_groups`.
+    pub binary_group_flags: [bool; 3],
+
+    /// The user-defined control codes.
+    /// Every entry in this array can use at most 3 bits.
+    /// This results in a maximum value of 15, including 0, for each `u8`.
+    pub binary_groups: [u8; 8]
 }
 
 /// layer type, specifies block type and deepness.
@@ -378,6 +409,7 @@ use half::f16;
 use std::convert::{TryFrom};
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
+use bit_field::BitField;
 
 
 fn invalid_type() -> Error {
@@ -1062,23 +1094,170 @@ impl ChannelList {
     }
 }
 
+fn u8_to_decimal32(binary: u8) -> u32 {
+    let units = binary as u32 % 10;
+    let tens = (binary as u32 / 10) % 10;
+    units | (tens << 4)
+}
+
+// assumes value fits into u8
+fn u8_from_decimal32(coded: u32) -> u8 {
+    ((coded & 0x0f) + 10 * ((coded >> 4) & 0x0f)) as u8
+}
+
+// https://github.com/AcademySoftwareFoundation/openexr/blob/master/src/lib/OpenEXR/ImfTimeCode.cpp
 impl TimeCode {
 
     /// Number of bytes this would consume in an exr file.
     pub const BYTE_SIZE: usize = 2 * u32::BYTE_SIZE;
 
-    /// Without validation, write this instance to the byte stream.
+    /// Returns an error if this time code is considered invalid.
+    pub fn validate(&self, strict: bool) -> UnitResult {
+        if strict {
+            if self.frame > 29 { Err(Error::invalid("time code frame larger than 29")) }
+            else if self.seconds > 59 { Err(Error::invalid("time code seconds larger than 59")) }
+            else if self.minutes > 59 { Err(Error::invalid("time code minutes larger than 59")) }
+            else if self.hours > 23 { Err(Error::invalid("time code hours larger than 23")) }
+            else if self.binary_groups.iter().any(|&group| group > 15) {
+                Err(Error::invalid("time code binary group value too large for 3 bits"))
+            }
+            else { Ok(()) }
+        }
+        else { Ok(()) }
+    }
+
+
+    /// Pack the SMPTE time code into a u32 value, according to TV60 packing.
+    /// This is the encoding which is used within a binary exr file.
+    pub fn pack_time_as_tv60_u32(&self) -> Result<u32> {
+        // validate strictly to prevent set_bit panic! below
+        self.validate(true)?;
+
+        Ok(*0_u32
+            .set_bits(0..6, u8_to_decimal32(self.frame))
+            .set_bit(6, self.drop_frame)
+            .set_bit(7, self.color_frame)
+            .set_bits(8..15, u8_to_decimal32(self.seconds))
+            .set_bit(15, self.field_phase)
+            .set_bits(16..23, u8_to_decimal32(self.minutes))
+            .set_bit(23, self.binary_group_flags[0])
+            .set_bits(24..30, u8_to_decimal32(self.hours))
+            .set_bit(30, self.binary_group_flags[1])
+            .set_bit(31, self.binary_group_flags[2])
+        )
+    }
+
+    /// Unpack a time code from one TV60 encoded u32 value and the encoded user data.
+    /// This is the encoding which is used within a binary exr file.
+    pub fn from_tv60_time(tv60_time: u32, user_data: u32) -> Self {
+        Self {
+            frame: u8_from_decimal32(tv60_time.get_bits(0..6)), // cast cannot fail, as these are less than 8 bits
+            drop_frame: tv60_time.get_bit(6),
+            color_frame: tv60_time.get_bit(7),
+            seconds: u8_from_decimal32(tv60_time.get_bits(8..15)), // cast cannot fail, as these are less than 8 bits
+            field_phase: tv60_time.get_bit(15),
+            minutes: u8_from_decimal32(tv60_time.get_bits(16..23)), // cast cannot fail, as these are less than 8 bits
+            hours: u8_from_decimal32(tv60_time.get_bits(24..30)), // cast cannot fail, as these are less than 8 bits
+            binary_group_flags: [
+                tv60_time.get_bit(23),
+                tv60_time.get_bit(30),
+                tv60_time.get_bit(31),
+            ],
+
+            binary_groups: Self::unpack_user_data_from_u32(user_data)
+        }
+    }
+
+    /// Pack the SMPTE time code into a u32 value, according to TV50 packing.
+    /// This encoding does not support the `drop_frame` flag, it will be lost.
+    pub fn pack_time_as_tv50_u32(&self) -> Result<u32> {
+        Ok(*self.pack_time_as_tv60_u32()?
+
+            // swap some fields by replacing some bits in the packed u32
+            .set_bit(6, false)
+            .set_bit(15, self.binary_group_flags[0])
+            .set_bit(30, self.binary_group_flags[1])
+            .set_bit(23, self.binary_group_flags[2])
+            .set_bit(31, self.field_phase)
+        )
+    }
+
+    /// Unpack a time code from one TV50 encoded u32 value and the encoded user data.
+    /// This encoding does not support the `drop_frame` flag, it will always be false.
+    pub fn from_tv50_time(tv50_time: u32, user_data: u32) -> Self {
+        Self {
+            drop_frame: false, // do not use bit [6]
+
+            // swap some fields:
+            field_phase: tv50_time.get_bit(31),
+            binary_group_flags: [
+                tv50_time.get_bit(15),
+                tv50_time.get_bit(30),
+                tv50_time.get_bit(23),
+            ],
+
+            .. Self::from_tv60_time(tv50_time, user_data)
+        }
+    }
+
+
+    /// Pack the SMPTE time code into a u32 value, according to FILM24 packing.
+    /// This encoding does not support the `drop_frame` and `color_frame` flags, they will be lost.
+    pub fn pack_time_as_film24_u32(&self) -> Result<u32> {
+        Ok(*self.pack_time_as_tv60_u32()?
+            .set_bit(6, false)
+            .set_bit(7, false)
+        )
+    }
+
+    /// Unpack a time code from one TV60 encoded u32 value and the encoded user data.
+    /// This encoding does not support the `drop_frame` and `color_frame` flags, they will always be `false`.
+    pub fn from_film24_time(film24_time: u32, user_data: u32) -> Self {
+        Self {
+            drop_frame: false, // bit [6]
+            color_frame: false, // bit [7]
+            .. Self::from_tv60_time(film24_time, user_data)
+        }
+    }
+
+
+    // in rust, group index starts at zero, not at one.
+    fn user_data_bit_indices(group_index: usize) -> std::ops::Range<usize> {
+        let min_bit = 4 * group_index;
+        min_bit .. min_bit + 4 // +4, not +3, as `Range` is exclusive
+    }
+
+    /// Pack the user data `u8` array into one u32.
+    /// User data values are clamped to the valid range (maximum value is 4).
+    pub fn pack_user_data_as_u32(&self) -> u32 {
+        let packed = self.binary_groups.iter().enumerate().fold(0_u32, |mut packed, (group_index, group_value)|
+            *packed.set_bits(Self::user_data_bit_indices(group_index), *group_value.min(&15) as u32)
+        );
+
+        debug_assert_eq!(Self::unpack_user_data_from_u32(packed), self.binary_groups, "round trip user data encoding");
+        packed
+    }
+
+    // Unpack the encoded u32 user data to an array of bytes, each byte having a value from 0 to 4.
+    fn unpack_user_data_from_u32(user_data: u32) -> [u8; 8] {
+        (0..8).map(|group_index| user_data.get_bits(Self::user_data_bit_indices(group_index)) as u8)
+            .collect::<SmallVec<[u8;8]>>().into_inner().expect("array index bug")
+    }
+
+
+    /// Write this time code to the byte stream, encoded as TV60 integers.
+    /// Returns an `Error::Invalid` if the fields are out of the allowed range.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
-        self.time_and_flags.write(write)?;
-        self.user_data.write(write)?;
+        self.pack_time_as_tv60_u32()?.write(write)?; // will validate
+        self.pack_user_data_as_u32().write(write)?;
         Ok(())
     }
 
-    /// Read the value without validating.
+    /// Read the time code, without validating, extracting from TV60 integers.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         let time_and_flags = u32::read(read)?;
         let user_data = u32::read(read)?;
-        Ok(Self { time_and_flags, user_data })
+        Ok(Self::from_tv60_time(time_and_flags, user_data))
     }
 }
 
@@ -1633,6 +1812,7 @@ impl AttributeValue {
             ChannelList(ref channels) => channels.validate(allow_sampling, data_window, strict)?,
             TileDescription(ref value) => value.validate()?,
             Preview(ref value) => value.validate(strict)?,
+            TimeCode(ref time_code) => time_code.validate(strict)?,
 
             TextVector(ref vec) => if strict && vec.is_empty() {
                 return Err(Error::invalid("text vector may not be empty"))
@@ -1739,6 +1919,7 @@ pub mod type_names {
 mod test {
     use super::*;
     use ::std::io::Cursor;
+    use rand::{random, thread_rng, Rng};
 
     #[test]
     fn text_ord() {
@@ -1899,4 +2080,64 @@ mod test {
             super::validate(&name, &value, &mut false, false, IntegerBounds::zero(), false).expect_err("name length check failed");
         }
     }
+
+    #[test]
+    fn time_code_pack(){
+        let mut rng = thread_rng();
+
+        let codes = std::iter::repeat_with(|| TimeCode {
+            hours: rng.gen_range(0, 24),
+            minutes: rng.gen_range(0, 60),
+            seconds: rng.gen_range(0, 60),
+            frame: rng.gen_range(0, 29),
+            drop_frame: random(),
+            color_frame: random(),
+            field_phase: random(),
+            binary_group_flags: [random(),random(),random()],
+            binary_groups: std::iter::repeat_with(|| rng.gen_range(0,16)).take(8)
+                .collect::<SmallVec<[u8;8]>>().into_inner().unwrap()
+        });
+
+        for code in codes.take(500) {
+            code.validate(true).expect("invalid timecode test input");
+
+            {   // through tv60 packing, roundtrip
+                let packed_tv60 = code.pack_time_as_tv60_u32().expect("invalid timecode test input");
+                let packed_user = code.pack_user_data_as_u32();
+                assert_eq!(TimeCode::from_tv60_time(packed_tv60, packed_user), code);
+            }
+
+            {   // through bytes, roundtrip
+                let mut bytes = Vec::<u8>::new();
+                code.write(&mut bytes).unwrap();
+                let decoded = TimeCode::read(&mut bytes.as_slice()).unwrap();
+                assert_eq!(code, decoded);
+            }
+
+            {
+                let tv50_code = TimeCode {
+                    drop_frame: false, // apparently, tv50 does not support drop frame, so do not use this value
+                   .. code
+                };
+
+                let packed_tv50 = code.pack_time_as_tv50_u32().expect("invalid timecode test input");
+                let packed_user = code.pack_user_data_as_u32();
+                assert_eq!(TimeCode::from_tv50_time(packed_tv50, packed_user), tv50_code);
+            }
+
+            {
+                let film24_code = TimeCode {
+                    // apparently, film24 does not support some flags, so do not use those values
+                    color_frame: false,
+                    drop_frame: false,
+                   .. code
+                };
+
+                let packed_film24 = code.pack_time_as_film24_u32().expect("invalid timecode test input");
+                let packed_user = code.pack_user_data_as_u32();
+                assert_eq!(TimeCode::from_film24_time(packed_film24, packed_user), film24_code);
+            }
+        }
+    }
+
 }
