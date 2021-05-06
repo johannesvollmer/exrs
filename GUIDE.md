@@ -167,12 +167,13 @@ All luma values will be converted to `f32` and all chroma values will be convert
 The pixel type can be any combination of `f16`, `f32`, `u32` or `Sample` values, in a tuple with as many entries as there are channels.
 The `Sample` type is a dynamic enum over the other types, which allows you to keep the original sample type of each image.
 
-_Note: Currently, only up to 8 channels are supported, which is an implementation problem. 
-Open an issue if this is not enough for your use case._
+_Note: Currently, up to 32 channels are supported, which is an implementation problem. 
+Open an issue if this is not enough for your use case. Alternatively, 
+you can always use `all_channels()`, which has no limitations._
 
 ####RGBA Channels
-For rgba images, there is a predefined simpler alternative to `specific_channels` called `rgba_channels`.
-It works just the same as `specific_channels`, but you don't need to specify the names of the channels explicitly.
+For rgba images, there is a predefined simpler alternative to `specific_channels` called `rgb_channels` and `rgba_channels`.
+It works just the same as `specific_channels` and , but you don't need to specify the names of the channels explicitly.
 
 ```rust
 fn main(){
@@ -186,13 +187,13 @@ fn main(){
         .rgba_channels(
         
             // create our image based on the resolution of the file
-            |resolution: Vec2<usize>, &(r,g,b,a)|{
-                if a.is_some() { MyImage::new_with_alpha(resolution) }
-                else { MyImage::new_without_alpha(resolution) }
+            |resolution, &(r,g,b,a)|{
+                if a.is_some() { MyImage::new_with_alpha(resolution.x(), resolution.y()) }
+                else { MyImage::new_without_alpha(resolution.x(), resolution.y()) }
             },
         
             // insert a single pixel into out image
-            |my_image: &mut MyImage, position: Vec<usize>, (r,g,b,a): (f32, f32, f32, f16)|{
+            |my_image, position, (r,g,b,a): (f32, f32, f32, f16)|{
                 my_image.set_pixel_at(position.x(), position.y(), (r,g,b,a));
             }
         
@@ -204,7 +205,7 @@ fn main(){
 ### Layers
 Use `all_layers()` to load a `Vec<Layer<_>>` or use `first_valid_layer()` to only load 
 the first `Layer<_>` that matches the previously defined requirements 
-(for example, the first layer without deep data).
+(for example, the first layer without deep data and cmyk channels).
 
 
 ```rust
@@ -308,7 +309,7 @@ fn main(){
     // this image contains only a single layer
     let single_layer_image: Image<Layer<_>> = Image::from_layer(my_layer);
 
-    // this image contains an arbitrary number of layers
+    // this image contains an arbitrary number of layers (notice the S for plural on `Layers`)
     let multi_layer_image: Image<Layers<_>> = Image::new(attributes, smallvec![ layer1, layer2 ]);
 
     // this image can contain the compile-time specified channels
@@ -335,7 +336,7 @@ Image {
     attributes: ImageAttributes,
     
     // the layer data can be either a single layer a list of layers
-    layer_data: Layer | SmallVec<Layer> | Vec<Layer> | &[Layer],
+    layer_data: Layer | SmallVec<Layer> | Vec<Layer> | &[Layer] (writing only),
 }
 
 Layer {
@@ -487,6 +488,7 @@ fn main() {
 }
 ```
 
+#### RGB, RGBA
 There is an even simpler alternative for rgba images, namely `SpecificChannels::rgb` and `SpecificChannels::rgba`:
 This is mostly the same as the `SpecificChannels::build` option. 
 
@@ -510,7 +512,7 @@ fn main() {
 ```
 
 ### Channel
-This type can describe any channel and contains all its samples for this layer.   
+The type `AnyChannel` can describe every possible channel and contains all its samples for this layer.   
 Use `AnyChannel::new(channel_name, sample_data)` or `AnyChannel { .. }`.
 The samples can currently only be `FlatSamples` or `Levels<FlatSamples>`, and in the future might be `DeepSamples`.
 
@@ -522,6 +524,7 @@ The vector contains all samples of the layer, row by row (bottom up), from left 
 ### Levels
 Optionally include Mip Maps or Rip Maps.  
 Construct directly using `Levels::Singular(flat_samples)` or `Levels::Mip { .. }` or `Levels::Rip { .. }`.
+Put this into the channel, for example`AnyChannel::new("R", Levels::Singular(FlatSamples::F32(vec)))`.
 
 ## Full example
 Writing a flexible list of channels: 
@@ -561,8 +564,8 @@ fn main(){
     let read = read()
         .no_deep_data().largest_resolution_level()
         .rgba_channels(
-            exr::image::pixel_vec::create_pixel_vec::<(f32,f32,f32,f16)>,
-            exr::image::pixel_vec::set_pixel_in_vec::<(f32,f32,f32,f16)>,
-        );
+            PixelVec::<(f32,f32,f32,f16)>::constructor, // how to create an image
+            PixelVec::set_pixel, // how to update a single pixel in the image
+        )/* ... */;
 }
 ```
