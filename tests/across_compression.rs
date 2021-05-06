@@ -1,6 +1,6 @@
 use std::path::Path;
 use exr::prelude::*;
-use exr::image::validate_results::ValidateImageResult;
+use exr::image::validate_results::ValidateResult;
 
 #[test]
 fn compare_compression_contents(){
@@ -31,9 +31,8 @@ fn compare_compression_contents(){
                     debug_assert_eq!(uncompressed.layer_data.size, decompressed.layer_data.size, "size should not be affected by compression");
 
                     // Note: Unimplemented methods may still work, if each compressed tile would be larger than uncompressed.
-                    let is_similar = uncompressed.validate_image_result(&decompressed);
-                    assert!(is_similar, "{} does not match uncompressed", decompressed.layer_data.encoding.compression);
-                    println!("{} equals uncompressed", decompressed.layer_data.encoding.compression);
+                    println!("checking {} for equality to uncompressed data", decompressed.layer_data.encoding.compression);
+                    uncompressed.assert_equals_result(&decompressed);
                 }
             }
         }

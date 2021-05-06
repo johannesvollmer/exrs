@@ -11,8 +11,8 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::io;
 use std::io::{Write, Cursor};
 use exr::meta::header::Header;
-use exr::image::validate_results::ValidateImageResult;
 use exr::image::pixel_vec::PixelVec;
+use exr::image::validate_results::ValidateResult;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
@@ -126,5 +126,5 @@ pub fn test_roundtrip() {
 
     println!("...read 2 successfull");
 
-    assert!(image.validate_image_result(&image2));
+    image.assert_equals_result(&image2);
 }
