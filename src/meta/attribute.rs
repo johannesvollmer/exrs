@@ -2,12 +2,14 @@
 //! Contains all meta data attributes.
 //! Each layer can have any number of [`Attribute`]s, including custom attributes.
 
+#[cfg(feature = "serialize-meta-data")] use serde::{Serialize, Deserialize};
 use smallvec::SmallVec;
 
 
 /// Contains one of all possible attributes.
 /// Includes a variant for custom attributes.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub enum AttributeValue {
 
     /// Channel meta data.
@@ -99,6 +101,8 @@ pub enum AttributeValue {
 /// This is not UTF an must be constructed from a standard string.
 // TODO is this ascii? use a rust ascii crate?
 #[derive(Clone, PartialEq, Ord, PartialOrd, Default)] // hash implemented manually
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serialize-meta-data", serde(from = "std::string::String", into="std::string::String"))]
 pub struct Text {
     bytes: TextBytes,
 }
@@ -110,6 +114,7 @@ pub struct Text {
 /// Satisfies the [SMPTE standard 12M-1999](https://en.wikipedia.org/wiki/SMPTE_timecode).
 /// For more in-depth information, see [philrees.co.uk/timecode](http://www.philrees.co.uk/articles/timecode.htm).
 #[derive(Copy, Debug, Clone, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub struct TimeCode {
 
     /// Hours 0 - 23 are valid.
@@ -144,6 +149,7 @@ pub struct TimeCode {
 
 /// layer type, specifies block type and deepness.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub enum BlockType {
 
     /// Corresponds to the string value `scanlineimage`.
@@ -195,6 +201,7 @@ pub type Matrix3x3 = [f32; 3*3];
 
 /// A rectangular section anywhere in 2D integer space.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub struct IntegerBounds {
 
     /// The bottom left corner of this rectangle.
@@ -208,6 +215,7 @@ pub struct IntegerBounds {
 
 /// A rectangular section anywhere in 2D float space.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub struct FloatRect {
     min: Vec2<f32>,
     max: Vec2<f32>
@@ -215,6 +223,7 @@ pub struct FloatRect {
 
 /// A List of channels. Channels must be sorted alphabetically.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub struct ChannelList {
 
     /// The channels in this list.
@@ -232,6 +241,7 @@ pub struct ChannelList {
 /// Does not contain the actual pixel data,
 /// but instead merely describes it.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub struct ChannelDescription {
 
     /// One of "R", "G", or "B" most of the time.
@@ -257,6 +267,7 @@ pub struct ChannelDescription {
 
 /// The type of samples in this channel.
 #[derive(Clone, Debug, Eq, PartialEq, Copy, Hash)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub enum SampleType {
 
     /// This channel contains 32-bit unsigned int values.
@@ -274,6 +285,7 @@ pub enum SampleType {
 /// If a file doesn't have a chromaticities attribute, display software
 /// should assume that the file's primaries and the white point match `Rec. ITU-R BT.709-3`.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub struct Chromaticities {
 
     /// "Red" location on the CIE XY chromaticity diagram.
@@ -292,6 +304,7 @@ pub struct Chromaticities {
 /// If this attribute is present, it describes
 /// how this texture should be projected onto an environment.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub enum EnvironmentMap {
 
     /// This image is an environment map projected like a world map.
@@ -303,6 +316,7 @@ pub enum EnvironmentMap {
 
 /// Uniquely identifies a motion picture film frame.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub struct KeyCode {
 
     /// Identifies a film manufacturer.
@@ -329,6 +343,7 @@ pub struct KeyCode {
 
 /// In what order the `Block`s of pixel data appear in a file.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub enum LineOrder {
 
     /// The blocks in the file are ordered in descending rows from left to right.
@@ -349,6 +364,7 @@ pub enum LineOrder {
 /// A small `rgba` image of `i8` values that approximates the real exr image.
 // TODO is this linear?
 #[derive(Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub struct Preview {
 
     /// The dimensions of the preview image.
@@ -364,6 +380,7 @@ pub struct Preview {
 /// Specifies the size of each tile in the image
 /// and whether this image contains multiple resolution levels.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub struct TileDescription {
 
     /// The size of each tile.
@@ -379,6 +396,7 @@ pub struct TileDescription {
 
 /// Whether to also store increasingly smaller versions of the original image.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub enum LevelMode {
 
     /// Only a single level.
@@ -421,7 +439,7 @@ impl Text {
 
     /// Create a `Text` from an `str` reference.
     /// Returns `None` if this string contains unsupported chars.
-    pub fn new_or_none(string: impl AsRef<str>) -> Option<Self> {
+    pub fn from_str_or_none(string: impl AsRef<str>) -> Option<Self> {
         let vec : Option<TextBytes> = string.as_ref().chars()
             .map(|character| u8::try_from(character as u64).ok())
             .collect();
@@ -431,8 +449,23 @@ impl Text {
 
     /// Create a `Text` from an `str` reference.
     /// Panics if this string contains unsupported chars.
-    pub fn new_or_panic(string: impl AsRef<str>) -> Self {
-        Self::new_or_none(string).expect("exr::Text contains unsupported characters")
+    pub fn from_str_or_panic(string: impl AsRef<str>) -> Self {
+        Self::from_str_or_none(string).expect("string contains unsupported characters")
+    }
+
+    /// Create a `Text` from a `String`, moving the internal byte buffer if possible.
+    /// Returns `None` if this string contains unsupported chars.
+    pub fn from_string_or_none(string: String) -> Option<Self> {
+        if !string.is_ascii() { None } else {
+            debug_assert_eq!(string.len(), string.chars().count());
+            Some(Text::from_bytes_unchecked(TextBytes::from_vec(string.into_bytes())))
+        }
+    }
+
+    /// Create a `Text` from a `String`, moving the internal byte buffer if possible.
+    /// Panics if this string contains unsupported chars.
+    pub fn from_string_or_panic(string: String) -> Self {
+        Self::from_string_or_none(string).expect("string contains unsupported characters")
     }
 
     /// Create a `Text` from a slice of bytes,
@@ -649,7 +682,15 @@ impl<'s> From<&'s str> for Text {
 
     /// Panics if the string contains an unsupported character
     fn from(str: &'s str) -> Self {
-        Self::new_or_panic(str)
+        Self::from_str_or_panic(str)
+    }
+}
+
+impl From<String> for Text {
+
+    /// Panics if the string contains an unsupported character
+    fn from(str: String) -> Self {
+        Self::from_string_or_panic(str)
     }
 }
 

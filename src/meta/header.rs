@@ -2,6 +2,7 @@
 //! Contains collections of common attributes.
 //! Defines some data types that list all standard attributes.
 
+#[cfg(feature = "serialize-meta-data")] use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use crate::meta::attribute::*; // FIXME shouldn't this need some more imports????
 use crate::meta::*;
@@ -13,6 +14,7 @@ use crate::math::Vec2;
 /// A file can have any number of layers.
 /// The meta data contains one header per layer.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub struct Header {
 
     /// List of channels in this layer.
@@ -42,6 +44,7 @@ pub struct Header {
     pub deep: bool,
 
     /// This library supports only deep data version 1.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub deep_data_version: Option<i32>,
 
     /// Number of chunks, that is, scan line blocks or tiles, that this image has been divided into.
@@ -67,6 +70,7 @@ pub struct Header {
     // remain. In this case, the value must be derived
     // by decoding each chunk in the layer
     /// Maximum number of samples in a single pixel in a deep image.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub max_samples_per_pixel: Option<usize>,
 
     /// Includes mandatory fields like pixel aspect or display window
@@ -82,6 +86,7 @@ pub struct Header {
 /// which must be the same for all layers.
 /// For more attributes, see struct `LayerAttributes`.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub struct ImageAttributes {
 
     /// The rectangle anywhere in the global infinite 2D space
@@ -89,17 +94,21 @@ pub struct ImageAttributes {
     pub display_window: IntegerBounds,
 
     /// Aspect ratio of each pixel in this header.
+    // #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="!= 1.0"))]
     pub pixel_aspect: f32,
 
     /// The chromaticities attribute of the image. See the `Chromaticities` type.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub chromaticities: Option<Chromaticities>,
 
     /// The time code of the image.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub time_code: Option<TimeCode>,
 
     /// Contains custom attributes.
     /// Does not contain the attributes already present in the `ImageAttributes`.
     /// Contains only attributes that are standardized to be the same for all headers: chromaticities and time codes.
+    #[cfg_attr(feature = "serialize-meta-data", serde(flatten))]
     pub other: HashMap<Text, AttributeValue>,
 }
 
@@ -107,6 +116,7 @@ pub struct ImageAttributes {
 /// Excludes standard fields that must be the same for all headers.
 /// For more attributes, see struct `ImageAttributes`.
 #[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub struct LayerAttributes {
 
     /// The name of this layer.
@@ -133,113 +143,148 @@ pub struct LayerAttributes {
     // known, then it is possible to convert the image's pixels from RGB
     // to CIE XYZ tristimulus values (see function RGBtoXYZ() in header
     // file ImfChromaticities.h).
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub white_luminance: Option<f32>,
 
     /// The adopted neutral of the colors. Specifies the CIE (x,y) frequency coordinates that should
     /// be considered neutral during color rendering. Pixels in the image
     /// whose CIE (x,y) frequency coordinates match the adopted neutral value should
     /// be mapped to neutral values on the given display.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub adopted_neutral: Option<Vec2<f32>>,
 
     /// Name of the color transform function that is applied for rendering the image.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub rendering_transform_name: Option<Text>,
 
     /// Name of the color transform function that computes the look modification of the image.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub look_modification_transform_name: Option<Text>,
 
     /// The horizontal density, in pixels per inch.
     /// The image's vertical output density can be computed using `horizontal_density * pixel_aspect_ratio`.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub horizontal_density: Option<f32>,
 
     /// Name of the owner.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub owner: Option<Text>,
 
     /// Additional textual information.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub comments: Option<Text>,
 
     /// The date of image creation, in `YYYY:MM:DD hh:mm:ss` format.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     // TODO parse!
     pub capture_date: Option<Text>,
 
     /// Time offset from UTC.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub utc_offset: Option<f32>,
 
     /// Geographical image location.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub longitude: Option<f32>,
 
     /// Geographical image location.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub latitude: Option<f32>,
 
     /// Geographical image location.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub altitude: Option<f32>,
 
     /// Camera focus in meters.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub focus: Option<f32>,
 
     /// Exposure time in seconds.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub exposure: Option<f32>,
 
     /// Camera aperture measured in f-stops. Equals the focal length
     /// of the lens divided by the diameter of the iris opening.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub aperture: Option<f32>,
 
     /// Iso-speed of the camera sensor.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub iso_speed: Option<f32>,
 
     /// If this is an environment map, specifies how to interpret it.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub environment_map: Option<EnvironmentMap>,
 
     /// Identifies film manufacturer, film type, film roll and frame position within the roll.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub film_key_code: Option<KeyCode>,
 
     /// Specifies how texture map images are extrapolated.
     /// Values can be `black`, `clamp`, `periodic`, or `mirror`.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub wrap_mode_name: Option<Text>,
 
     /// Frames per second if this is a frame in a sequence.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub frames_per_second: Option<Rational>,
 
     /// Specifies the view names for multi-view, for example stereo, image files.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub multi_view_names: Option<Vec<Text>>,
 
     /// The matrix that transforms 3D points from the world to the camera coordinate space.
     /// Left-handed coordinate system, y up, z forward.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub world_to_camera: Option<Matrix4x4>,
 
     /// The matrix that transforms 3D points from the world to the "Normalized Device Coordinate" space.
     /// Left-handed coordinate system, y up, z forward.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub world_to_normalized_device: Option<Matrix4x4>,
 
     /// Specifies whether the pixels in a deep image are sorted and non-overlapping.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub deep_image_state: Option<Rational>,
 
     /// If the image was cropped, contains the original data window.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub original_data_window: Option<IntegerBounds>,
 
     /// An 8-bit rgba image representing the rendered image.
+    /// There can be other previews in the custom attributes,
+    /// this attribute only looks for the attribute with the exact name `preview`.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub preview: Option<Preview>,
 
     /// Name of the view, which is typically either `"right"` or `"left"` for a stereoscopic image.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub view_name: Option<Text>,
 
     /// The name of the software that produced this image.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub software_name: Option<Text>,
 
     /// The near clip plane of the virtual camera projection.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub near_clip_plane: Option<f32>,
 
     /// The far clip plane of the virtual camera projection.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub far_clip_plane: Option<f32>,
 
     /// The field of view angle, along the horizontal axis, in degrees.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub horizontal_field_of_view: Option<f32>,
 
     /// The field of view angle, along the horizontal axis, in degrees.
+    #[cfg_attr(feature = "serialize-meta-data", serde(skip_serializing_if="Option::is_none", default))]
     pub vertical_field_of_view: Option<f32>,
 
     /// Contains custom attributes.
     /// Does not contain the attributes already present in the `Header` or `LayerAttributes` struct.
     /// Does not contain attributes that are standardized to be the same for all layers: no chromaticities and no time codes.
+    #[cfg_attr(feature = "serialize-meta-data", serde(flatten))]
     pub other: HashMap<Text, AttributeValue>,
 }
 

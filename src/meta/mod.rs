@@ -18,6 +18,9 @@ use std::collections::{HashSet};
 use std::convert::TryFrom;
 use crate::meta::header::{Header};
 
+#[cfg(feature = "serialize-meta-data")]
+use serde::{Serialize, Deserialize};
+
 
 // TODO rename MetaData to ImageInfo?
 
@@ -27,6 +30,7 @@ use crate::meta::header::{Header};
 /// and various other attributes.
 /// The usage of custom attributes is encouraged.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub struct MetaData {
 
     /// Some flags summarizing the features that must be supported to decode the file.
@@ -62,10 +66,10 @@ pub type OffsetTable = Vec<u64>;
 /// Used to determine whether this file can be read by a given reader.
 /// It includes the OpenEXR version number. This library aims to support version `2.0`.
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub struct Requirements {
 
     /// This library supports reading version 1 and 2, and writing version 2.
-    // TODO write version 1 for simple images
     pub file_format_version: u8,
 
     /// If true, this image has tiled blocks and contains only a single layer.
@@ -87,6 +91,7 @@ pub struct Requirements {
 
 /// Locates a rectangular section of pixels in an image.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub struct TileIndices {
 
     /// Index of the tile.
@@ -98,6 +103,7 @@ pub struct TileIndices {
 
 /// How the image pixels are split up into separate blocks.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub enum Blocks {
 
     /// The image is divided into scan line blocks.
@@ -737,7 +743,7 @@ mod test {
             channels: ChannelList::new(
                 smallvec![
                     ChannelDescription {
-                        name: Text::new_or_panic("main"),
+                        name: Text::from("main"),
                         sample_type: SampleType::U32,
                         quantize_linearly: false,
                         sampling: Vec2(1, 1)
@@ -760,17 +766,17 @@ mod test {
             deep: false,
             layer_size: Vec2(2000, 333),
             own_attributes: LayerAttributes {
-                layer_name: Some(Text::new_or_panic("oasdasoidfj")),
+                layer_name: Some(Text::from_str_or_panic("oasdasoidfj")),
                 other: vec![
-                    (Text::new_or_panic("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"), AttributeValue::F32(3.0)),
-                    (Text::new_or_panic("y"), AttributeValue::F32(-1.0)),
+                    (Text::from_str_or_panic("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"), AttributeValue::F32(3.0)),
+                    (Text::from_str_or_panic("y"), AttributeValue::F32(-1.0)),
                 ].into_iter().collect(),
                 .. Default::default()
             }
         };
 
         let mut layer_2 = header_version_2_long_names.clone();
-        layer_2.own_attributes.layer_name = Some(Text::new_or_panic("anythingelse"));
+        layer_2.own_attributes.layer_name = Some(Text::from_str_or_panic("anythingelse"));
 
         let low_requirements = MetaData::validate(
             &[header_version_2_long_names, layer_2], true

@@ -4,6 +4,9 @@
 
 use crate::meta::attribute::{IntegerBounds};
 
+#[cfg(feature = "serialize-meta-data")]
+use serde::{Serialize, Deserialize};
+
 /// A generic block of pixel information.
 /// Contains pixel data and an index to the corresponding header.
 /// All pixel data in a file is split into a list of chunks.
@@ -73,6 +76,7 @@ pub struct TileBlock {
 
 /// Indicates the position and resolution level of a `TileBlock` or `DeepTileBlock`.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub struct TileCoordinates {
 
     /// Index of the tile, not pixel position.

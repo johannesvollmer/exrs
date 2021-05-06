@@ -1,4 +1,4 @@
-
+//! Run this example with all features, for example by using `cargo run --package exr --example 0_read_meta --all-features`.
 
 // exr imports
 extern crate exr;
@@ -8,15 +8,17 @@ extern crate exr;
 fn main() {
     use exr::prelude::*;
 
-    let meta_data = MetaData::read_from_file(
-        "tests/images/valid/custom/crowskull/crow_uncompressed.exr",
+    let mut meta_data = MetaData::read_from_file(
+        "tests/images/valid/openexr/MultiResolution/Kapaa.exr",
         false // do not throw an error for invalid or missing attributes, skipping them instead
     ).unwrap();
 
-    for (layer_index, image_layer) in meta_data.headers.iter().enumerate() {
-        println!(
-            "custom meta data of layer #{}:\n{:#?}",
-            layer_index, image_layer.own_attributes
-        );
+    // remove preview attributes, as they contain very large pixel arrays,
+    // which we are not interested in today
+    for header in &mut meta_data.headers {
+        header.own_attributes.preview.take();
     }
+
+    // write the meta data to the console, as pretty json
+    serde_json::to_writer_pretty(std::io::stdout(), &meta_data).unwrap();
 }

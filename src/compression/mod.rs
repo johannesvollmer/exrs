@@ -11,6 +11,7 @@ mod pxr24;
 
 
 
+#[cfg(feature = "serialize-meta-data")] use serde::{Serialize, Deserialize};
 use crate::meta::attribute::{IntegerBounds, SampleType, ChannelList};
 use crate::error::{Result, Error, usize_to_i32};
 use crate::meta::header::Header;
@@ -27,6 +28,7 @@ pub type Bytes<'s> = &'s [u8];
 /// Use RLE compression for fast loading and writing with slight memory savings.
 /// Use ZIP compression for slow processing with large memory savings.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub enum Compression {
 
     /// Store uncompressed values.

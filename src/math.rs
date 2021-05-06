@@ -3,6 +3,9 @@
 // https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
 
 //! Simple math utilities.
+//!
+#[cfg(feature = "serialize-meta-data")]
+use serde::{Serialize, Deserialize};
 
 use std::convert::TryFrom;
 use crate::error::{i32_to_usize};
@@ -14,6 +17,7 @@ use std::fmt::Debug;
 /// Supports only few mathematical operations
 /// as this is used mainly as data struct.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub struct Vec2<T> (pub T, pub T);
 
 impl<T> Vec2<T> {
@@ -177,6 +181,7 @@ pub(crate) fn ceil_log_2(mut number: u32) -> u32 {
 
 /// Round up or down in specific calculations.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "serialize-meta-data", derive(Serialize, Deserialize))]
 pub enum RoundingMode {
 
     /// Round down.
