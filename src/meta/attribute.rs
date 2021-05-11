@@ -209,8 +209,12 @@ pub struct IntegerBounds {
 /// A rectangular section anywhere in 2D float space.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FloatRect {
-    min: Vec2<f32>,
-    max: Vec2<f32>
+
+    /// The bottom left corner location of the rectangle (inclusive)
+    pub min: Vec2<f32>,
+
+    /// The top right corner location of the rectangle (inclusive)
+    pub max: Vec2<f32>
 }
 
 /// A List of channels. Channels must be sorted alphabetically.
@@ -395,7 +399,7 @@ pub enum LevelMode {
 /// The raw bytes that make up a string in an exr file.
 /// Each `u8` is a single char.
 // will mostly be "R", "G", "B" or "deepscanlineimage"
-type TextBytes = SmallVec<[u8; 24]>;
+pub type TextBytes = SmallVec<[u8; 24]>;
 
 /// A byte slice, interpreted as text
 pub type TextSlice = [u8];

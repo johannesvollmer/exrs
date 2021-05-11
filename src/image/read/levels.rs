@@ -142,7 +142,7 @@ impl<S: ReadSamplesLevel> ReadSamples for ReadAllLevels<S> {
         let data_size = header.layer_size / channel.sampling;
 
         let levels = {
-            if let crate::meta::Blocks::Tiles(tiles) = &header.blocks {
+            if let crate::meta::BlockDescription::Tiles(tiles) = &header.blocks {
                 match tiles.level_mode {
                     LevelMode::Singular => Levels::Singular(self.read_samples.create_samples_level_reader(header, channel, Vec2(0,0), header.layer_size)?),
 

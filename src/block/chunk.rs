@@ -196,7 +196,7 @@ impl TileCoordinates {
 
 
 
-use crate::meta::{MetaData, Blocks, calculate_block_size};
+use crate::meta::{MetaData, BlockDescription, calculate_block_size};
 
 impl ScanLineBlock {
 
@@ -365,12 +365,12 @@ impl Chunk {
             layer_index: layer_number,
             block: match header.blocks {
                 // flat data
-                Blocks::ScanLines if !header.deep => Block::ScanLine(ScanLineBlock::read(read, max_block_byte_size)?),
-                Blocks::Tiles(_) if !header.deep     => Block::Tile(TileBlock::read(read, max_block_byte_size)?),
+                BlockDescription::ScanLines if !header.deep => Block::ScanLine(ScanLineBlock::read(read, max_block_byte_size)?),
+                BlockDescription::Tiles(_) if !header.deep     => Block::Tile(TileBlock::read(read, max_block_byte_size)?),
 
                 // deep data
-                Blocks::ScanLines   => Block::DeepScanLine(DeepScanLineBlock::read(read, max_block_byte_size)?),
-                Blocks::Tiles(_)    => Block::DeepTile(DeepTileBlock::read(read, max_block_byte_size)?),
+                BlockDescription::ScanLines   => Block::DeepScanLine(DeepScanLineBlock::read(read, max_block_byte_size)?),
+                BlockDescription::Tiles(_)    => Block::DeepTile(DeepTileBlock::read(read, max_block_byte_size)?),
             },
         };
 
