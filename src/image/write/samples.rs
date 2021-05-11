@@ -5,7 +5,7 @@ use crate::meta::header::Header;
 use crate::block::lines::LineRefMut;
 use crate::image::{FlatSamples, Levels, RipMaps};
 use crate::math::{Vec2, RoundingMode};
-use crate::meta::{rip_map_levels, mip_map_levels, rip_map_indices, mip_map_indices, Blocks};
+use crate::meta::{rip_map_levels, mip_map_levels, rip_map_indices, mip_map_indices, BlockDescription};
 
 /// Enable an image with this sample grid to be written to a file.
 /// Also can contain multiple resolution levels.
@@ -139,8 +139,8 @@ impl<'samples, LevelSamples> WritableSamples<'samples> for Levels<LevelSamples>
     type Writer = LevelsWriter<LevelSamples::Writer>;
     fn create_samples_writer(&'samples self, header: &Header) -> Self::Writer {
         let rounding = match header.blocks {
-            Blocks::Tiles(TileDescription { rounding_mode, .. }) => Some(rounding_mode),
-            Blocks::ScanLines => None,
+            BlockDescription::Tiles(TileDescription { rounding_mode, .. }) => Some(rounding_mode),
+            BlockDescription::ScanLines => None,
         };
 
         LevelsWriter {
