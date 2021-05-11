@@ -30,7 +30,7 @@ pub struct Header {
     // Required if file contains deep data or multiple layers.
     // Note: This value must agree with the version field's tile bit and deep data bit.
     // In this crate, this attribute will always have a value, for simplicity.
-    pub blocks: Blocks,
+    pub blocks: BlockDescription,
 
     /// In what order the tiles of this header occur in the file.
     pub line_order: LineOrder,
@@ -319,7 +319,7 @@ impl Header {
         let data_size: Vec2<usize> = data_size.into();
 
         let compression = Compression::RLE;
-        let blocks = Blocks::Tiles(TileDescription {
+        let blocks = BlockDescription::Tiles(TileDescription {
             tile_size: Vec2(64, 64),
             level_mode: LevelMode::Singular,
             rounding_mode: RoundingMode::Down
@@ -358,7 +358,7 @@ impl Header {
     }
 
     /// Set compression, tiling, and line order. Automatically computes chunk count.
-    pub fn with_encoding(self, compression: Compression, blocks: Blocks, line_order: LineOrder) -> Self {
+    pub fn with_encoding(self, compression: Compression, blocks: BlockDescription, line_order: LineOrder) -> Self {
         Self {
             chunk_count: compute_chunk_count(compression, self.layer_size, blocks),
             compression, blocks, line_order,
@@ -414,7 +414,7 @@ impl Header {
         }
 
         let vec: Vec<TileIndices> = {
-            if let Blocks::Tiles(tiles) = self.blocks {
+            if let BlockDescription::Tiles(tiles) = self.blocks {
                 match tiles.level_mode {
                     LevelMode::Singular => {
                         tiles_of(self.layer_size, tiles.tile_size, Vec2(0, 0)).collect()
@@ -449,8 +449,8 @@ impl Header {
     /// Not all blocks have this size, because they may be cutoff at the end of the image.
     pub fn max_block_pixel_size(&self) -> Vec2<usize> {
         match self.blocks {
-            Blocks::ScanLines => Vec2(self.layer_size.0, self.compression.scan_lines_per_block()),
-            Blocks::Tiles(tiles) => tiles.tile_size,
+            BlockDescription::ScanLines => Vec2(self.layer_size.0, self.compression.scan_lines_per_block()),
+            BlockDescription::Tiles(tiles) => tiles.tile_size,
         }
     }
 
@@ -462,7 +462,7 @@ impl Header {
 
     /// Calculate the pixel index rectangle inside this header. Is not negative. Starts at `0`.
     pub fn get_absolute_block_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntegerBounds> {
-        if let Blocks::Tiles(tiles) = self.blocks {
+        if let BlockDescription::Tiles(tiles) = self.blocks {
             let Vec2(data_width, data_height) = self.layer_size;
 
             let data_width = compute_level_size(tiles.rounding_mode, data_width, tile.level_index.x());
@@ -537,8 +537,8 @@ impl Header {
     /// Maximum byte length of an uncompressed or compressed block, used for validation.
     pub fn max_block_byte_size(&self) -> usize {
         self.channels.bytes_per_pixel * match self.blocks {
-            Blocks::Tiles(tiles) => tiles.tile_size.area(),
-            Blocks::ScanLines => self.compression.scan_lines_per_block() * self.layer_size.width()
+            BlockDescription::Tiles(tiles) => tiles.tile_size.area(),
+            BlockDescription::ScanLines => self.compression.scan_lines_per_block() * self.layer_size.width()
             // TODO What about deep data???
         }
     }
@@ -550,8 +550,8 @@ impl Header {
 
         let pixel_count_of_levels = |size: Vec2<usize>| -> usize {
             match self.blocks {
-                Blocks::ScanLines => size.area(),
-                Blocks::Tiles(tile_description) => match tile_description.level_mode {
+                BlockDescription::ScanLines => size.area(),
+                BlockDescription::Tiles(tile_description) => match tile_description.level_mode {
                     LevelMode::Singular => size.area(),
 
                     LevelMode::MipMap => mip_map_levels(tile_description.rounding_mode, size)
@@ -597,7 +597,7 @@ impl Header {
                 }
             }
 
-            if self.blocks == Blocks::ScanLines && self.line_order == LineOrder::Unspecified {
+            if self.blocks == BlockDescription::ScanLines && self.line_order == LineOrder::Unspecified {
                 return Err(Error::invalid("unspecified line order in scan line images"));
             }
 
@@ -618,7 +618,7 @@ impl Header {
             }
         }
 
-        let allow_subsampling = !self.deep && self.blocks == Blocks::ScanLines;
+        let allow_subsampling = !self.deep && self.blocks == BlockDescription::ScanLines;
         self.channels.validate(allow_subsampling, self.data_window(), strict)?;
 
         for (name, value) in &self.shared_attributes.other {
@@ -845,13 +845,13 @@ impl Header {
 
         let blocks = match block_type {
             None if requirements.is_single_layer_and_tiled => {
-                Blocks::Tiles(tiles.ok_or(missing_attribute("tiles"))?)
+                BlockDescription::Tiles(tiles.ok_or(missing_attribute("tiles"))?)
             },
             Some(BlockType::Tile) | Some(BlockType::DeepTile) => {
-                Blocks::Tiles(tiles.ok_or(missing_attribute("tiles"))?)
+                BlockDescription::Tiles(tiles.ok_or(missing_attribute("tiles"))?)
             },
 
-            _ => Blocks::ScanLines,
+            _ => BlockDescription::ScanLines,
         };
 
         // check size now to prevent panics while computing the chunk size
@@ -906,8 +906,8 @@ impl Header {
         use AttributeValue::*;
 
         let (block_type, tiles) = match self.blocks {
-            Blocks::ScanLines => (attribute::BlockType::ScanLine, None),
-            Blocks::Tiles(tiles) => (attribute::BlockType::Tile, Some(tiles))
+            BlockDescription::ScanLines => (attribute::BlockType::ScanLine, None),
+            BlockDescription::Tiles(tiles) => (attribute::BlockType::Tile, Some(tiles))
         };
 
         fn usize_as_i32(value: usize) -> AttributeValue {

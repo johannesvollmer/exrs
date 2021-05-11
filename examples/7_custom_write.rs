@@ -48,7 +48,7 @@ fn main() {
     let mut header = header.with_encoding(
         Compression::Uncompressed,
 
-        exr::meta::Blocks::Tiles(TileDescription {
+        exr::meta::BlockDescription::Tiles(TileDescription {
             tile_size: Vec2(64, 64),
             level_mode: LevelMode::Singular,
             rounding_mode: RoundingMode::Down

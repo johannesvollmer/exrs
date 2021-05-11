@@ -108,8 +108,8 @@ impl<C> LayerReader<C> {
                 compression: header.compression,
                 line_order: header.line_order,
                 blocks: match header.blocks {
-                    crate::meta::Blocks::ScanLines => Blocks::ScanLines,
-                    crate::meta::Blocks::Tiles(TileDescription { tile_size, .. }) => Blocks::Tiles(tile_size)
+                    crate::meta::BlockDescription::ScanLines => Blocks::ScanLines,
+                    crate::meta::BlockDescription::Tiles(TileDescription { tile_size, .. }) => Blocks::Tiles(tile_size)
                 },
             },
         })
