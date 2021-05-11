@@ -8,7 +8,7 @@ pub mod chunk;
 use crate::compression::{ByteVec, Compression};
 use crate::math::*;
 use crate::error::{Result, Error, usize_to_i32, UnitResult, u64_to_usize, usize_to_u64};
-use crate::meta::{MetaData, Blocks, TileIndices, OffsetTables, Headers};
+use crate::meta::{MetaData, BlockDescription, TileIndices, OffsetTables, Headers};
 use crate::block::chunk::{Chunk, Block, TileBlock, ScanLineBlock, TileCoordinates};
 use crate::meta::attribute::LineOrder;
 use rayon::prelude::ParallelBridge;
@@ -533,14 +533,14 @@ impl UncompressedBlock {
         Ok(Chunk {
             layer_index: index.layer,
             block : match header.blocks {
-                Blocks::ScanLines => Block::ScanLine(ScanLineBlock {
+                BlockDescription::ScanLines => Block::ScanLine(ScanLineBlock {
                     compressed_pixels: compressed_data,
 
                     // FIXME this calculation should not be made here but elsewhere instead (in meta::header?)
                     y_coordinate: usize_to_i32(index.pixel_position.y()) + header.own_attributes.layer_position.y(),
                 }),
 
-                Blocks::Tiles(_) => Block::Tile(TileBlock {
+                BlockDescription::Tiles(_) => Block::Tile(TileBlock {
                     compressed_pixels: compressed_data,
                     coordinates: tile_coordinates,
                 }),

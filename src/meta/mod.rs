@@ -98,7 +98,7 @@ pub struct TileIndices {
 
 /// How the image pixels are split up into separate blocks.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum Blocks {
+pub enum BlockDescription {
 
     /// The image is divided into scan line blocks.
     /// The number of scan lines in a block depends on the compression method.
@@ -135,12 +135,12 @@ pub enum Blocks {
     }
 }*/
 
-impl Blocks {
+impl BlockDescription {
 
     /// Whether this image is tiled. If false, this image is divided into scan line blocks.
     pub fn has_tiles(&self) -> bool {
         match self {
-            Blocks::Tiles { .. } => true,
+            BlockDescription::Tiles { .. } => true,
             _ => false
         }
     }
@@ -308,9 +308,9 @@ pub fn mip_map_indices(round: RoundingMode, max_resolution: Vec2<usize>) -> impl
 // If not multilayer and chunkCount not present,
 // the number of entries in the chunk table is computed
 // using the dataWindow and tileDesc attributes and the compression format
-pub fn compute_chunk_count(compression: Compression, data_size: Vec2<usize>, blocks: Blocks) -> usize {
+pub fn compute_chunk_count(compression: Compression, data_size: Vec2<usize>, blocks: BlockDescription) -> usize {
 
-    if let Blocks::Tiles(tiles) = blocks {
+    if let BlockDescription::Tiles(tiles) = blocks {
         let round = tiles.rounding_mode;
         let Vec2(tile_width, tile_height) = tiles.tile_size;
 
@@ -644,7 +644,7 @@ mod test {
             compression: Compression::Uncompressed,
             line_order: LineOrder::Increasing,
             deep_data_version: Some(1),
-            chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), Blocks::ScanLines),
+            chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), BlockDescription::ScanLines),
             max_samples_per_pixel: Some(4),
             shared_attributes: ImageAttributes {
                 pixel_aspect: 3.0,
@@ -654,7 +654,7 @@ mod test {
                 })
             },
 
-            blocks: Blocks::ScanLines,
+            blocks: BlockDescription::ScanLines,
             deep: false,
             layer_size: Vec2(2000, 333),
             own_attributes: LayerAttributes {
@@ -700,7 +700,7 @@ mod test {
             compression: Compression::Uncompressed,
             line_order: LineOrder::Increasing,
             deep_data_version: Some(1),
-            chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), Blocks::ScanLines),
+            chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), BlockDescription::ScanLines),
             max_samples_per_pixel: Some(4),
             shared_attributes: ImageAttributes {
                 pixel_aspect: 3.0,
@@ -709,7 +709,7 @@ mod test {
                     size: Vec2(11, 9)
                 })
             },
-            blocks: Blocks::ScanLines,
+            blocks: BlockDescription::ScanLines,
             deep: false,
             layer_size: Vec2(2000, 333),
             own_attributes: LayerAttributes {
@@ -747,7 +747,7 @@ mod test {
             compression: Compression::Uncompressed,
             line_order: LineOrder::Increasing,
             deep_data_version: Some(1),
-            chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), Blocks::ScanLines),
+            chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), BlockDescription::ScanLines),
             max_samples_per_pixel: Some(4),
             shared_attributes: ImageAttributes {
                 pixel_aspect: 3.0,
@@ -756,7 +756,7 @@ mod test {
                     size: Vec2(11, 9)
                 })
             },
-            blocks: Blocks::ScanLines,
+            blocks: BlockDescription::ScanLines,
             deep: false,
             layer_size: Vec2(2000, 333),
             own_attributes: LayerAttributes {
