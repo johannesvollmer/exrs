@@ -143,7 +143,7 @@ pub struct TimeCode {
 }
 
 /// layer type, specifies block type and deepness.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum BlockType {
 
     /// Corresponds to the string value `scanlineimage`.
@@ -194,7 +194,7 @@ pub type Matrix4x4 = [f32; 4*4];
 pub type Matrix3x3 = [f32; 3*3];
 
 /// A rectangular section anywhere in 2D integer space.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Default, Hash)]
 pub struct IntegerBounds {
 
     /// The bottom left corner of this rectangle.
@@ -218,7 +218,7 @@ pub struct FloatRect {
 }
 
 /// A List of channels. Channels must be sorted alphabetically.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct ChannelList {
 
     /// The channels in this list.
@@ -235,7 +235,7 @@ pub struct ChannelList {
 /// A single channel in an layer.
 /// Does not contain the actual pixel data,
 /// but instead merely describes it.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct ChannelDescription {
 
     /// One of "R", "G", or "B" most of the time.
@@ -295,7 +295,7 @@ pub struct Chromaticities {
 
 /// If this attribute is present, it describes
 /// how this texture should be projected onto an environment.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum EnvironmentMap {
 
     /// This image is an environment map projected like a world map.
@@ -306,7 +306,7 @@ pub enum EnvironmentMap {
 }
 
 /// Uniquely identifies a motion picture film frame.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct KeyCode {
 
     /// Identifies a film manufacturer.
@@ -332,7 +332,7 @@ pub struct KeyCode {
 }
 
 /// In what order the `Block`s of pixel data appear in a file.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum LineOrder {
 
     /// The blocks in the file are ordered in descending rows from left to right.
@@ -367,7 +367,7 @@ pub struct Preview {
 /// Describes how the layer is divided into tiles.
 /// Specifies the size of each tile in the image
 /// and whether this image contains multiple resolution levels.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct TileDescription {
 
     /// The size of each tile.
@@ -382,7 +382,7 @@ pub struct TileDescription {
 }
 
 /// Whether to also store increasingly smaller versions of the original image.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum LevelMode {
 
     /// Only a single level.

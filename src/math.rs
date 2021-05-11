@@ -176,7 +176,7 @@ pub(crate) fn ceil_log_2(mut number: u32) -> u32 {
 
 
 /// Round up or down in specific calculations.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum RoundingMode {
 
     /// Round down.

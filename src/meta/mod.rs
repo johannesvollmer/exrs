@@ -61,7 +61,7 @@ pub type OffsetTable = Vec<u64>;
 /// A summary of requirements that must be met to read this exr file.
 /// Used to determine whether this file can be read by a given reader.
 /// It includes the OpenEXR version number. This library aims to support version `2.0`.
-#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Hash)]
 pub struct Requirements {
 
     /// This library supports reading version 1 and 2, and writing version 2.
@@ -97,7 +97,7 @@ pub struct TileIndices {
 }
 
 /// How the image pixels are split up into separate blocks.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum BlockDescription {
 
     /// The image is divided into scan line blocks.

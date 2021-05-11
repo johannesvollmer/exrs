@@ -7,18 +7,17 @@ pub mod chunk;
 
 use crate::compression::{ByteVec, Compression};
 use crate::math::*;
-use crate::error::{Result, Error, usize_to_i32, UnitResult, u64_to_usize, usize_to_u64, IoError};
-use crate::meta::{MetaData, Blocks, TileIndices, OffsetTables, Headers};
+use crate::error::{Result, Error, usize_to_i32, UnitResult, u64_to_usize, usize_to_u64};
+use crate::meta::{MetaData, BlockDescription, TileIndices, OffsetTables, Headers};
 use crate::block::chunk::{Chunk, Block, TileBlock, ScanLineBlock, TileCoordinates};
 use crate::meta::attribute::LineOrder;
 use rayon::prelude::*;
 use smallvec::alloc::collections::BTreeMap;
 use std::convert::TryFrom;
 use crate::io::{Tracking, PeekRead, Write, Data};
-use std::io::{Seek, Read, ErrorKind};
+use std::io::{Seek, Read};
 use crate::meta::header::Header;
 use crate::block::lines::{LineRef, LineIndex, LineSlice, LineRefMut};
-use std::sync::mpsc::Receiver;
 
 
 /// Specifies where a block of pixel data should be placed in the actual image.
@@ -54,23 +53,36 @@ pub struct UncompressedBlock {
     pub data: ByteVec,
 }
 
+/// Decode the meta data from a byte source, keeping the source ready for further reading.
+/// Continue decoding the remaining bytes by calling `filtered_chunks` or `all_chunks`.
+#[derive(Debug)]
 pub struct MetaDataReader<R> {
     meta_data: MetaData,
     remaining_reader: PeekRead<Tracking<R>>,
 }
 
 impl<R: Read + Seek> MetaDataReader<R> {
+
+    /// Start the reading process.
+    /// Immediately decodes the meta data into an internal field.
+    /// Access it via`meta_data()`.
     pub fn read(read: R, pedantic: bool) -> Result<Self> {
         let mut remaining_reader = PeekRead::new(Tracking::new(read));
         let meta_data = MetaData::read_validated_from_buffered_peekable(&mut remaining_reader, pedantic)?;
         Ok(Self { meta_data, remaining_reader })
     }
 
-    // avoid mutable, as relied upon later on
+    // must not be mutable, as reading the file later on relies on the meta data
+    /// The decoded exr meta data from the file.
     pub fn meta_data(&self) -> &MetaData { &self.meta_data }
 
+    /// Obtain the meta data ownership.
+    pub fn into_meta_data(self) -> MetaData { self.meta_data }
 
-    pub fn all_blocks(mut self, pedantic: bool) -> Result<AllChunksReader<R>> {
+    /// Prepare to read all the chunks from the file.
+    /// Does not decode the chunks now, but returns a decoder.
+    /// Reading all chunks reduces seeking the file, but some chunks might be read without being used.
+    pub fn all_chunks(mut self, pedantic: bool) -> Result<AllChunksReader<R>> {
         let total_chunk_count = {
             if pedantic {
                 let offset_tables = MetaData::read_offset_tables(&mut self.remaining_reader, &self.meta_data.headers)?;
@@ -86,12 +98,16 @@ impl<R: Read + Seek> MetaDataReader<R> {
         Ok(AllChunksReader {
             meta_data: self.meta_data,
             remaining_chunks: 0 .. total_chunk_count,
-            remaining_bytes: self.remaining_reader
+            remaining_bytes: self.remaining_reader,
+            pedantic
         })
     }
 
+    /// Prepare to read some the chunks from the file.
+    /// Does not decode the chunks now, but returns a decoder.
+    /// Reading only some chunks may seeking the file, potentially skipping many bytes.
     // TODO tile indices add no new information to block index??
-    pub fn filter_blocks(mut self, pedantic: bool, mut filter: impl FnMut((usize, &Header), (/*TODO BlockIndex*/usize, TileIndices)) -> bool) -> Result<FilteredChunksReader<R>> {
+    pub fn filter_chunks(mut self, pedantic: bool, mut filter: impl FnMut((usize, &Header), (/*TODO BlockIndex*/usize, TileIndices)) -> bool) -> Result<FilteredChunksReader<R>> {
         let offset_tables = MetaData::read_offset_tables(&mut self.remaining_reader, &self.meta_data.headers)?;
 
         // TODO regardless of pedantic, if invalid, read all chunks instead, and filter after reading each chunk?
@@ -102,7 +118,12 @@ impl<R: Read + Seek> MetaDataReader<R> {
             )?;
         }
 
-        let mut filtered_offsets = Vec::with_capacity((self.meta_data.headers.len() * 32).min(2*2048));
+        let mut filtered_offsets = Vec::with_capacity(
+            (self.meta_data.headers.len() * 32).min(2*2048)
+        );
+
+        // TODO detect whether the filter actually would skip chunks, and aviod sorting etc when not filtering is applied
+
         for (header_index, header) in self.meta_data.headers.iter().enumerate() { // offset tables are stored same order as headers
             for (block_index, block) in header.blocks_increasing_y_order().enumerate() { // in increasing_y order
                 if filter((header_index, header), (block_index, block)) {
@@ -112,44 +133,89 @@ impl<R: Read + Seek> MetaDataReader<R> {
         }
 
         filtered_offsets.sort_unstable(); // enables reading continuously if possible (is probably already sorted)
-        let mut filtered_offsets = filtered_offsets.into_iter();
+        let filtered_offsets = filtered_offsets.into_iter();
 
         Ok(FilteredChunksReader {
             meta_data: self.meta_data,
-            // filtered_chunk_count: filtered_offsets.len(),
+            filtered_chunk_count: filtered_offsets.len(),
             remaining_filtered_chunk_indices: filtered_offsets.into_iter(),
             remaining_bytes: self.remaining_reader
         })
     }
 }
 
+/// Decode the desired chunks and skip the unimportant chunks in the file.
+/// The decoded chunks can be decompressed by calling
+/// `decompress_parallel`, `decompress_sequential`, or `sequential_decompressor`.
+/// Also contains the image meta data. Supports `on_progress`.
+#[derive(Debug)]
 pub struct FilteredChunksReader<R> {
     meta_data: MetaData,
-    // filtered_chunk_count: usize,
+    filtered_chunk_count: usize,
     remaining_filtered_chunk_indices: std::vec::IntoIter<u64>,
     remaining_bytes: PeekRead<Tracking<R>>,
 }
 
+/// Decode all chunks in the file without seeking.
+/// The decoded chunks can be decompressed by calling
+/// `decompress_parallel`, `decompress_sequential`, or `sequential_decompressor`.
+/// Also contains the image meta data. Supports `on_progress`.
+#[derive(Debug)]
 pub struct AllChunksReader<R> {
     meta_data: MetaData,
     remaining_chunks: std::ops::Range<usize>,
     remaining_bytes: PeekRead<Tracking<R>>,
+    pedantic: bool,
 }
 
-pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> {
+/// Decode all chunks in the file without seeking.
+/// The decoded chunks can be decompressed by calling
+/// `decompress_parallel`, `decompress_sequential`, or `sequential_decompressor`.
+/// Also contains the image meta data and a callback for the progress.
+#[derive(Debug)]
+pub struct OnProgressChunksReader<R, F> {
+    chunks_reader: R,
+    decoded_chunks: usize,
+    callback: F,
+}
+
+/// Decode all or some chunks in the file.
+/// The decoded chunks can be decompressed by calling
+/// `decompress_parallel`, `decompress_sequential`, or `sequential_decompressor`.
+/// Also contains the image meta data.
+pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator {
+
+    /// The decoded exr meta data from the file.
     fn meta_data(&self) -> &MetaData;
+
+    /// The number of chunks that this reader will return in total.
+    /// Can be less than the total number of chunks in the file, if some chunks are skipped.
+    fn chunk_count(&self) -> usize { self.len() }
+
+    /// Read the next compressed chunk from the file. Equivalent to `.next()`, as this also is an iterator.
     fn read_next_chunk(&mut self) -> Option<Result<Chunk>> { self.next() }
 
-    // TODO fn expected_chunk_count() -> usize;
-    // TODO fn remaining_chunk_count() -> usize;
+    /// Create a new `ChunkReader` that triggers the provided progress
+    /// callback for each chunk that is read from the file.
+    /// If the file can be successfully decoded,
+    /// the progress is guaranteed to include 0.0 at the start and 1.0 at the end.
+    fn on_progress<F>(self, on_progress: F) -> OnProgressChunksReader<Self, F> where F: FnMut(f64) {
+        OnProgressChunksReader { chunks_reader: self, callback: on_progress, decoded_chunks: 0 }
+    }
 
-    // TODO calling this immediately starts the decompression process...? acceptable?
-    //-/ Requires the byte source (`file` or other `Read`) to also be `Send`.
-    //-/ Use `decompress_sequential`, or the `sequential_decompressor` if your byte source is not sendable.
+    /// Decompress all blocks in the file, and accumulate the result using a `fold` operation.
+    /// You provide the initial image value, based on the decoded meta data, and you specify
+    /// how each block of pixels is inserted into the image.
+    ///
+    /// __WARNING__: This currently allocates way too much memory, probably twice the file size. This will be fixed.
+    /// Requires the byte source (`file` or other `Read`) to also be `Send`.
+    /// Use `decompress_sequential`, or the `sequential_decompressor` if your byte source is not sendable.
+
+    // FIXME try async + futures instead of rayon! Maybe even allows for external async decoding?
     fn decompress_parallel<Image: Send>(
         self, pedantic: bool,
         initial: Image,
-        insert_block: impl Send + Fn(Image, UncompressedBlock) -> Result<Image>
+        insert_block: impl Send + Fn(Image, UncompressedBlock) -> Result<Image>,
     ) -> Result<Image>
         where Self: Send // requires `Read + Seek + Send`
     {
@@ -158,6 +224,7 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> {
         if !has_compression { return self.decompress_sequential(pedantic, initial, insert_block); }
 
         let meta_clone = self.meta_data().clone(); // TODO no clone?
+
         self
             .collect::<Vec<_>>().into_par_iter() // FIXME DO NOT allocate all at once
             .map(|compressed_chunk| UncompressedBlock::decompress_chunk(compressed_chunk?, &meta_clone, pedantic))
@@ -196,45 +263,85 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> {
         image*/
     }
 
+    /// Decompress all blocks in the file, and accumulate the result using a `fold` operation.
+    /// You provide the initial image value, based on the decoded meta data, and you specify
+    /// how each block of pixels is inserted into the image.
+    ///
+    /// You can alternatively use `sequential_decompressor` if you prefer an external iterator.
     fn decompress_sequential<Image: Send>(
         self, pedantic: bool,
         initial: Image,
         insert_block: impl Fn(Image, UncompressedBlock) -> Result<Image>
     ) -> Result<Image>
     {
-        let image = self.sequential_decompressor(pedantic)
-            .try_fold(initial, |image, block| insert_block(image, block?))?;
-
-        // TODO
-        // if pedantic && (self.remaining_chunk_count != 0 || self.inner_writer().peek_u8().is_ok()){
-        //     Err(Error::invalid("bytes left after all chunks have been processed"))
-        // }
-
-        Ok(image)
+        self.sequential_decompressor(pedantic)
+            .try_fold(initial, |image, block| insert_block(image, block?))
     }
 
-    /// Prepare reading the chunks sequentially, using one CPU at a time, with less memory overhead.
+    /// Prepare reading the chunks sequentially, only a single thread, but with less memory overhead.
     fn sequential_decompressor(self, pedantic: bool) -> SequentialBlockReader<Self> {
         SequentialBlockReader { remaining_chunks_reader: self, pedantic }
     }
 }
 
+
+impl<R, F> ChunksReader for OnProgressChunksReader<R, F> where R: ChunksReader, F: FnMut(f64) {
+    fn meta_data(&self) -> &MetaData { self.chunks_reader.meta_data() }
+}
+
+impl<R, F> ExactSizeIterator for OnProgressChunksReader<R, F> where R: ChunksReader, F: FnMut(f64) {}
+impl<R, F> Iterator for OnProgressChunksReader<R, F> where R: ChunksReader, F: FnMut(f64) {
+    type Item = Result<Chunk>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.chunks_reader.next().map(|item|{
+            {
+                let total_chunks = self.chunk_count() as f64;
+                let callback = &mut self.callback;
+                callback(self.decoded_chunks as f64 / total_chunks);
+            }
+
+            self.decoded_chunks += 1;
+            item
+        }).or_else(||{
+            let callback = &mut self.callback;
+            callback(1.0);
+            None
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) { self.chunks_reader.size_hint() }
+}
+
 impl<R: Read + Seek> ChunksReader for AllChunksReader<R> {
     fn meta_data(&self) -> &MetaData { &self.meta_data }
 }
+impl<R: Read + Seek> ExactSizeIterator for AllChunksReader<R> {}
 impl<R: Read + Seek> Iterator for AllChunksReader<R> {
     type Item = Result<Chunk>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // read as many chunks as the file should contain
-        self.remaining_chunks.next()
-            .map(|_| Chunk::read(&mut self.remaining_bytes, &self.meta_data))
+        // read as many chunks as the file should contain (inferred from meta data)
+        let next_chunk = self.remaining_chunks.next()
+            .map(|_| Chunk::read(&mut self.remaining_bytes, &self.meta_data));
+
+        // if no chunks are left, but some bytes remain, return error
+        if self.pedantic && next_chunk.is_none() && self.remaining_bytes.peek_u8().is_ok() {
+            return Some(Err(Error::invalid("end of file expected")));
+        }
+
+        next_chunk
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining_chunks.end, Some(self.remaining_chunks.end))
     }
 }
 
 impl<R: Read + Seek> ChunksReader for FilteredChunksReader<R> {
     fn meta_data(&self) -> &MetaData { &self.meta_data }
 }
+impl<R: Read + Seek> ExactSizeIterator for FilteredChunksReader<R> {}
 impl<R: Read + Seek> Iterator for FilteredChunksReader<R> {
     type Item = Result<Chunk>;
 
@@ -250,22 +357,22 @@ impl<R: Read + Seek> Iterator for FilteredChunksReader<R> {
             Chunk::read(&mut self.remaining_bytes, meta_data)
         })
 
-        // TODO else if indices empty but file remains, do a check
-        // if pedantic && read.peek_u8().is_ok() {
-        //     return Some(Err(Error::invalid("end of file expected")));
-        // }
+        // TODO remember last chunk index and then seek to index+size and check whether bytes are left?
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.filtered_chunk_count, Some(self.filtered_chunk_count))
     }
 }
 
+/// Read all chunks from the file, decompressing each chunk immediately.
+#[derive(Debug)]
 pub struct SequentialBlockReader<R: ChunksReader> {
     remaining_chunks_reader: R,
     pedantic: bool,
 }
 
-
 impl<R: ChunksReader> SequentialBlockReader<R> {
-    // TODO on_progress(processed_chunk_count as f64 / total_chunk_count as f64);
-    // processed_chunk_count += 1;
 
     /// Read and then decompress a single block of pixels from the byte source.
     pub fn decompress_next_block(&mut self) -> Option<Result<UncompressedBlock>> {
@@ -275,9 +382,11 @@ impl<R: ChunksReader> SequentialBlockReader<R> {
     }
 }
 
+impl<R: ChunksReader> ExactSizeIterator for SequentialBlockReader<R> {}
 impl<R: ChunksReader> Iterator for SequentialBlockReader<R> {
     type Item = Result<UncompressedBlock>;
     fn next(&mut self) -> Option<Self::Item> { self.decompress_next_block() }
+    fn size_hint(&self) -> (usize, Option<usize>) { self.remaining_chunks_reader.size_hint() }
 }
 
 
