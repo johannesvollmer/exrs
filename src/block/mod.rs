@@ -1,5 +1,5 @@
 //! Handle compressed and uncompressed pixel byte blocks. Includes compression and decompression,
-//! and some functions that completely read an image into blocks.
+//! and reading a complete image into blocks.
 
 pub mod lines;
 pub mod samples;
@@ -7,18 +7,18 @@ pub mod chunk;
 
 use crate::compression::{ByteVec, Compression};
 use crate::math::*;
-use crate::error::{Result, Error, usize_to_i32, UnitResult, u64_to_usize, usize_to_u64};
+use crate::error::{Result, Error, usize_to_i32, UnitResult, u64_to_usize, usize_to_u64, IoError};
 use crate::meta::{MetaData, Blocks, TileIndices, OffsetTables, Headers};
 use crate::block::chunk::{Chunk, Block, TileBlock, ScanLineBlock, TileCoordinates};
 use crate::meta::attribute::LineOrder;
-use rayon::prelude::ParallelBridge;
-use rayon::iter::ParallelIterator;
+use rayon::prelude::*;
 use smallvec::alloc::collections::BTreeMap;
 use std::convert::TryFrom;
 use crate::io::{Tracking, PeekRead, Write, Data};
-use std::io::{Seek, Read};
+use std::io::{Seek, Read, ErrorKind};
 use crate::meta::header::Header;
 use crate::block::lines::{LineRef, LineIndex, LineSlice, LineRefMut};
+use std::sync::mpsc::Receiver;
 
 
 /// Specifies where a block of pixel data should be placed in the actual image.
@@ -53,6 +53,236 @@ pub struct UncompressedBlock {
     /// For each line in the tile, for each channel, the row values are contiguous.
     pub data: ByteVec,
 }
+
+pub struct MetaDataReader<R> {
+    meta_data: MetaData,
+    remaining_reader: PeekRead<Tracking<R>>,
+}
+
+impl<R: Read + Seek> MetaDataReader<R> {
+    pub fn read(read: R, pedantic: bool) -> Result<Self> {
+        let mut remaining_reader = PeekRead::new(Tracking::new(read));
+        let meta_data = MetaData::read_validated_from_buffered_peekable(&mut remaining_reader, pedantic)?;
+        Ok(Self { meta_data, remaining_reader })
+    }
+
+    // avoid mutable, as relied upon later on
+    pub fn meta_data(&self) -> &MetaData { &self.meta_data }
+
+
+    pub fn all_blocks(mut self, pedantic: bool) -> Result<AllChunksReader<R>> {
+        let total_chunk_count = {
+            if pedantic {
+                let offset_tables = MetaData::read_offset_tables(&mut self.remaining_reader, &self.meta_data.headers)?;
+                validate_offset_tables(self.meta_data.headers.as_slice(), &offset_tables, self.remaining_reader.byte_position())?;
+                offset_tables.iter().map(|table| table.len()).sum()
+            }
+            else {
+                usize::try_from(MetaData::skip_offset_tables(&mut self.remaining_reader, &self.meta_data.headers)?)
+                    .expect("too large chunk count for this machine")
+            }
+        };
+
+        Ok(AllChunksReader {
+            meta_data: self.meta_data,
+            remaining_chunks: 0 .. total_chunk_count,
+            remaining_bytes: self.remaining_reader
+        })
+    }
+
+    // TODO tile indices add no new information to block index??
+    pub fn filter_blocks(mut self, pedantic: bool, mut filter: impl FnMut((usize, &Header), (/*TODO BlockIndex*/usize, TileIndices)) -> bool) -> Result<FilteredChunksReader<R>> {
+        let offset_tables = MetaData::read_offset_tables(&mut self.remaining_reader, &self.meta_data.headers)?;
+
+        // TODO regardless of pedantic, if invalid, read all chunks instead, and filter after reading each chunk?
+        if pedantic {
+            validate_offset_tables(
+                self.meta_data.headers.as_slice(), &offset_tables,
+                self.remaining_reader.byte_position()
+            )?;
+        }
+
+        let mut filtered_offsets = Vec::with_capacity((self.meta_data.headers.len() * 32).min(2*2048));
+        for (header_index, header) in self.meta_data.headers.iter().enumerate() { // offset tables are stored same order as headers
+            for (block_index, block) in header.blocks_increasing_y_order().enumerate() { // in increasing_y order
+                if filter((header_index, header), (block_index, block)) {
+                    filtered_offsets.push(offset_tables[header_index][block_index]) // safe indexing from `enumerate()`
+                }
+            };
+        }
+
+        filtered_offsets.sort_unstable(); // enables reading continuously if possible (is probably already sorted)
+        let mut filtered_offsets = filtered_offsets.into_iter();
+
+        Ok(FilteredChunksReader {
+            meta_data: self.meta_data,
+            // filtered_chunk_count: filtered_offsets.len(),
+            remaining_filtered_chunk_indices: filtered_offsets.into_iter(),
+            remaining_bytes: self.remaining_reader
+        })
+    }
+}
+
+pub struct FilteredChunksReader<R> {
+    meta_data: MetaData,
+    // filtered_chunk_count: usize,
+    remaining_filtered_chunk_indices: std::vec::IntoIter<u64>,
+    remaining_bytes: PeekRead<Tracking<R>>,
+}
+
+pub struct AllChunksReader<R> {
+    meta_data: MetaData,
+    remaining_chunks: std::ops::Range<usize>,
+    remaining_bytes: PeekRead<Tracking<R>>,
+}
+
+pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> {
+    fn meta_data(&self) -> &MetaData;
+    fn read_next_chunk(&mut self) -> Option<Result<Chunk>> { self.next() }
+
+    // TODO fn expected_chunk_count() -> usize;
+    // TODO fn remaining_chunk_count() -> usize;
+
+    // TODO calling this immediately starts the decompression process...? acceptable?
+    //-/ Requires the byte source (`file` or other `Read`) to also be `Send`.
+    //-/ Use `decompress_sequential`, or the `sequential_decompressor` if your byte source is not sendable.
+    fn decompress_parallel<Image: Send>(
+        self, pedantic: bool,
+        initial: Image,
+        insert_block: impl Send + Fn(Image, UncompressedBlock) -> Result<Image>
+    ) -> Result<Image>
+        where Self: Send // requires `Read + Seek + Send`
+    {
+        // do not use parallel stuff for uncompressed images
+        let has_compression = self.meta_data().headers.iter().any(|header| header.compression != Compression::Uncompressed);
+        if !has_compression { return self.decompress_sequential(pedantic, initial, insert_block); }
+
+        let meta_clone = self.meta_data().clone(); // TODO no clone?
+        self
+            .collect::<Vec<_>>().into_par_iter() // FIXME DO NOT allocate all at once
+            .map(|compressed_chunk| UncompressedBlock::decompress_chunk(compressed_chunk?, &meta_clone, pedantic))
+            .collect::<Result<Vec<_>>>()?.into_iter().try_fold(initial, insert_block)
+
+        /*// if 12 tiles have already been decompressed, wait until they are processed before decompressing more tiles
+        let (sender, receiver) = std::sync::mpsc::sync_channel(12);
+
+        // assemble the image by processing block by block, in a new thread
+        // TODO when collector has error, it kills the sender, right?
+        let collector = std::thread::spawn(move ||{ // TODO async/futures instead?
+            // receiver.into_iter().try_fold(image, insert_block)
+            let mut image = initial;
+
+            // iter gracefully ends, if the decompressor has had an error
+            for block in receiver { image = insert_block(image, block?)?; }
+
+            Ok(image)
+        });
+
+        let meta_clone = self.meta_data().clone(); // TODO no clone?
+        let all_blocks_were_decompressed = self.par_bridge()
+            .map(|compressed_chunk| UncompressedBlock::decompress_chunk(compressed_chunk?, &meta_clone, pedantic))
+            .try_fold_with(sender, |sender, block: Result<UncompressedBlock>| {
+                // sending may fail when the collector has an Err(), so we gracefully exit this fold operation when sending fails
+
+                block.and_then(|block: UncompressedBlock| sender.send(block).map_err(|_| )))?;
+                Ok(sender)
+            }).try_reduce_with();
+
+        // if the decompressor errors, this returns and drops the collector thread without joining
+        // however, this reports the artificial error from the decompressor, not the original collector error
+        all_blocks_were_decompressed?;
+
+        let image = collector.join().expect("thread error");
+        image*/
+    }
+
+    fn decompress_sequential<Image: Send>(
+        self, pedantic: bool,
+        initial: Image,
+        insert_block: impl Fn(Image, UncompressedBlock) -> Result<Image>
+    ) -> Result<Image>
+    {
+        let image = self.sequential_decompressor(pedantic)
+            .try_fold(initial, |image, block| insert_block(image, block?))?;
+
+        // TODO
+        // if pedantic && (self.remaining_chunk_count != 0 || self.inner_writer().peek_u8().is_ok()){
+        //     Err(Error::invalid("bytes left after all chunks have been processed"))
+        // }
+
+        Ok(image)
+    }
+
+    /// Prepare reading the chunks sequentially, using one CPU at a time, with less memory overhead.
+    fn sequential_decompressor(self, pedantic: bool) -> SequentialBlockReader<Self> {
+        SequentialBlockReader { remaining_chunks_reader: self, pedantic }
+    }
+}
+
+impl<R: Read + Seek> ChunksReader for AllChunksReader<R> {
+    fn meta_data(&self) -> &MetaData { &self.meta_data }
+}
+impl<R: Read + Seek> Iterator for AllChunksReader<R> {
+    type Item = Result<Chunk>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // read as many chunks as the file should contain
+        self.remaining_chunks.next()
+            .map(|_| Chunk::read(&mut self.remaining_bytes, &self.meta_data))
+    }
+}
+
+impl<R: Read + Seek> ChunksReader for FilteredChunksReader<R> {
+    fn meta_data(&self) -> &MetaData { &self.meta_data }
+}
+impl<R: Read + Seek> Iterator for FilteredChunksReader<R> {
+    type Item = Result<Chunk>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // read as many chunks as we have desired chunk offsets
+        self.remaining_filtered_chunk_indices.next().map(|next_chunk_location|{
+            self.remaining_bytes.skip_to( // no-op for seek at current position, uses skip_bytes for small amounts
+              usize::try_from(next_chunk_location)
+                  .expect("too large chunk position for this machine")
+            )?;
+
+            let meta_data = &self.meta_data;
+            Chunk::read(&mut self.remaining_bytes, meta_data)
+        })
+
+        // TODO else if indices empty but file remains, do a check
+        // if pedantic && read.peek_u8().is_ok() {
+        //     return Some(Err(Error::invalid("end of file expected")));
+        // }
+    }
+}
+
+pub struct SequentialBlockReader<R: ChunksReader> {
+    remaining_chunks_reader: R,
+    pedantic: bool,
+}
+
+
+impl<R: ChunksReader> SequentialBlockReader<R> {
+    // TODO on_progress(processed_chunk_count as f64 / total_chunk_count as f64);
+    // processed_chunk_count += 1;
+
+    /// Read and then decompress a single block of pixels from the byte source.
+    pub fn decompress_next_block(&mut self) -> Option<Result<UncompressedBlock>> {
+        self.remaining_chunks_reader.read_next_chunk().map(|compressed_chunk|{
+            UncompressedBlock::decompress_chunk(compressed_chunk?, &self.remaining_chunks_reader.meta_data(), self.pedantic)
+        })
+    }
+}
+
+impl<R: ChunksReader> Iterator for SequentialBlockReader<R> {
+    type Item = Result<UncompressedBlock>;
+    fn next(&mut self) -> Option<Self::Item> { self.decompress_next_block() }
+}
+
+
+
+
 
 
 
@@ -353,26 +583,25 @@ pub fn uncompressed_image_blocks_ordered<'l>(
     get_block: &'l (impl 'l + Sync + (Fn(&[Header], BlockIndex) -> Vec<u8>)) // TODO reduce sync requirements, at least if parrallel is false
 ) -> impl 'l + Iterator<Item = Result<(usize, UncompressedBlock)>> + Send // TODO reduce sync requirements, at least if parrallel is false
 {
-    headers.iter().enumerate()
-        .flat_map(move |(layer_index, header)|{
-            header.enumerate_ordered_blocks().map(move |(chunk_index, tile)|{
-                let data_indices = header.get_absolute_block_pixel_coordinates(tile.location).expect("tile coordinate bug");
+    headers.iter().enumerate().flat_map(move |(layer_index, header)|{
+        header.enumerate_ordered_blocks().map(move |(chunk_index, tile)|{
+            let data_indices = header.get_absolute_block_pixel_coordinates(tile.location).expect("tile coordinate bug");
 
-                let block_indices = BlockIndex {
-                    layer: layer_index, level: tile.location.level_index,
-                    pixel_position: data_indices.position.to_usize("data indices start").expect("data index bug"),
-                    pixel_size: data_indices.size,
-                };
+            let block_indices = BlockIndex {
+                layer: layer_index, level: tile.location.level_index,
+                pixel_position: data_indices.position.to_usize("data indices start").expect("data index bug"),
+                pixel_size: data_indices.size,
+            };
 
-                let block_bytes = get_block(headers, block_indices);
+            let block_bytes = get_block(headers, block_indices);
 
-                // byte length is validated in block::compress_to_chunk
-                Ok((chunk_index, UncompressedBlock {
-                    index: block_indices,
-                    data: block_bytes
-                }))
-            })
+            // byte length is validated in block::compress_to_chunk
+            Ok((chunk_index, UncompressedBlock {
+                index: block_indices,
+                data: block_bytes
+            }))
         })
+    })
 }
 
 
@@ -394,11 +623,10 @@ pub fn for_compressed_blocks_in_image(
     let parallel = parallel && headers.iter() // do not use parallel stuff for uncompressed images
         .any(|header| header.compression != Compression::Uncompressed);
 
-    let requires_sorting = headers.iter()
-        .any(|header| header.line_order != LineOrder::Unspecified);
-
-
     if parallel {
+        let requires_sorting = headers.iter()
+            .any(|header| header.line_order != LineOrder::Unspecified);
+
         let (sender, receiver) = std::sync::mpsc::channel();
 
         blocks.par_bridge()
@@ -510,7 +738,7 @@ impl UncompressedBlock {
 
         let tile_coordinates = TileCoordinates {
             // FIXME this calculation should not be made here but elsewhere instead (in meta::header?)
-            tile_index: index.pixel_position / header.max_block_pixel_size(),
+            tile_index: index.pixel_position / header.max_block_pixel_size(), // TODO sampling??
             level_index: index.level,
         };
 
@@ -537,7 +765,7 @@ impl UncompressedBlock {
                     compressed_pixels: compressed_data,
 
                     // FIXME this calculation should not be made here but elsewhere instead (in meta::header?)
-                    y_coordinate: usize_to_i32(index.pixel_position.y()) + header.own_attributes.layer_position.y(),
+                    y_coordinate: usize_to_i32(index.pixel_position.y()) + header.own_attributes.layer_position.y(), // TODO sampling??
                 }),
 
                 Blocks::Tiles(_) => Block::Tile(TileBlock {
