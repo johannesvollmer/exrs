@@ -209,7 +209,11 @@ pub struct IntegerBounds {
 /// A rectangular section anywhere in 2D float space.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FloatRect {
+
+    /// The bottom left corner location of the rectangle (inclusive)
     pub min: Vec2<f32>,
+
+    /// The top right corner location of the rectangle (inclusive)
     pub max: Vec2<f32>
 }
 
