@@ -332,10 +332,10 @@ use crate::meta::header::Header;
 impl Chunk {
 
     /// Without validation, write this instance to the byte stream.
-    pub fn write(&self, write: &mut impl Write, headers: &[Header]) -> UnitResult {
-        debug_assert!(self.layer_index < headers.len(), "layer index bug"); // validation is done in full_image or simple_image
+    pub fn write(&self, write: &mut impl Write, header_count: usize) -> UnitResult {
+        debug_assert!(self.layer_index < header_count, "layer index bug"); // validation is done in full_image or simple_image
 
-        if headers.len() != 1 {  usize_to_i32(self.layer_index).write(write)?; }
+        if header_count != 1 {  usize_to_i32(self.layer_index).write(write)?; }
         else { assert_eq!(self.layer_index, 0, "invalid header index for single layer file"); }
 
         match self.block {

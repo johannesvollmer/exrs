@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use crate::meta::attribute::*; // FIXME shouldn't this need some more imports????
 use crate::meta::*;
 use crate::math::Vec2;
+use crate::block::BlockIndex;
 
 // TODO rename header to LayerInfo!
 
@@ -443,6 +444,21 @@ impl Header {
 
         vec.into_iter() // TODO without collect
     }
+
+    /* TODO
+    /// The block indices of this header, ordered as they would appear in the file.
+    pub fn ordered_block_indices<'s>(&'s self, layer_index: usize) -> impl 's + Iterator<Item=BlockIndex> {
+        self.enumerate_ordered_blocks().map(|(chunk_index, tile)|{
+            let data_indices = self.get_absolute_block_pixel_coordinates(tile.location).expect("tile coordinate bug");
+
+            BlockIndex {
+                layer: layer_index,
+                level: tile.location.level_index,
+                pixel_position: data_indices.position.to_usize("data indices start").expect("data index bug"),
+                pixel_size: data_indices.size,
+            }
+        })
+    }*/
 
     // TODO reuse this function everywhere
     /// The default pixel resolution of a single block (tile or scan line block).
