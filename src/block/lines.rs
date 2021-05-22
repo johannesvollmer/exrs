@@ -9,6 +9,7 @@ use std::ops::Range;
 use crate::block::{BlockIndex, UncompressedBlock};
 use crate::meta::header::Header;
 use crate::meta::Headers;
+use crate::meta::attribute::ChannelList;
 
 
 /// A single line of pixels.
@@ -79,7 +80,7 @@ pub fn read_all_lines_from_buffered<T>(
         let header = headers.get(decompressed.index.layer)
             .ok_or(Error::invalid("chunk index"))?;
 
-        for (bytes, line) in LineIndex::lines_in_block(decompressed.index, header) {
+        for (bytes, line) in LineIndex::lines_in_block(decompressed.index, &header.channels) {
             insert(value, headers, LineSlice { location: line, value: &decompressed.data[bytes] })?; // allows returning `Error::Abort`
         }
 
@@ -108,7 +109,7 @@ pub fn read_filtered_lines_from_buffered<T>(
         let header = headers.get(decompressed.index.layer)
             .ok_or(Error::invalid("chunk index"))?;
 
-        for (bytes, line) in LineIndex::lines_in_block(decompressed.index, header) {
+        for (bytes, line) in LineIndex::lines_in_block(decompressed.index, &header.channels) {
             insert(value, headers, LineSlice { location: line, value: &decompressed.data[bytes] })?; // allows returning `Error::Abort`
         }
 
@@ -143,7 +144,7 @@ pub fn write_all_lines_to_buffered(
         let bytes = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
         let mut block_bytes = vec![0_u8; bytes];
 
-        for (byte_range, line_index) in LineIndex::lines_in_block(block_index, header) {
+        for (byte_range, line_index) in LineIndex::lines_in_block(block_index, &header.channels) {
             get_line(headers, LineRefMut {
                 value: &mut block_bytes[byte_range],
                 location: line_index,
@@ -168,7 +169,7 @@ impl LineIndex {
     // TODO be sure this cannot produce incorrect data, as this is not further checked but only handled with panics
     #[inline]
     #[must_use]
-    pub fn lines_in_block(block: BlockIndex, header: &Header) -> impl Iterator<Item=(Range<usize>, LineIndex)> {
+    pub fn lines_in_block(block: BlockIndex, channels: &ChannelList) -> impl Iterator<Item=(Range<usize>, LineIndex)> {
         struct LineIter {
             layer: usize, level: Vec2<usize>, width: usize,
             end_y: usize, x: usize, channel_sizes: SmallVec<[usize; 8]>,
@@ -215,7 +216,7 @@ impl LineIndex {
             }
         }
 
-        let channel_line_sizes: SmallVec<[usize; 8]> = header.channels.list.iter()
+        let channel_line_sizes: SmallVec<[usize; 8]> = channels.list.iter()
             .map(move |channel| block.pixel_size.0 * channel.sample_type.bytes_per_sample()) // FIXME is it fewer samples per tile or just fewer tiles for sampled images???
             .collect();
 

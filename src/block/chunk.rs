@@ -326,7 +326,6 @@ impl DeepTileBlock {
 
 use crate::error::{UnitResult, Result, Error, u64_to_usize, usize_to_i32, i32_to_usize};
 use crate::math::Vec2;
-use crate::meta::header::Header;
 
 /// Validation of chunks is done while reading and writing the actual data. (For example in exr::full_image)
 impl Chunk {

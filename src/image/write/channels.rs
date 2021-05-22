@@ -99,7 +99,7 @@ pub struct AnyChannelsWriter<SamplesWriter> {
 
 impl<Samples> ChannelsWriter for AnyChannelsWriter<Samples> where Samples: SamplesWriter {
     fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Vec<u8> {
-        UncompressedBlock::collect_block_from_lines(header, block_index, |line_ref| {
+        UncompressedBlock::collect_block_data_from_lines(&header.channels, block_index, |line_ref| {
             self.channels[line_ref.location.channel].extract_line(line_ref)
         })
     }

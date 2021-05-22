@@ -105,9 +105,11 @@ impl<S: SamplesReader> ChannelsReader for AnyChannelsReader<S> {
         }
 
         Ok(())*/
-        decompressed.for_lines(header, |line| {
-            self.sample_channels_reader[line.location.channel].samples.read_line(line)
-        })
+        for line in decompressed.lines(&header.channels) {
+            self.sample_channels_reader[line.location.channel].samples.read_line(line)?;
+        }
+
+        Ok(())
     }
 
     fn into_channels(self) -> Self::Channels {

@@ -17,6 +17,7 @@ use crate::math::*;
 use std::collections::{HashSet};
 use std::convert::TryFrom;
 use crate::meta::header::{Header};
+use crate::block::BlockIndex;
 
 
 // TODO rename MetaData to ImageInfo?
@@ -33,6 +34,7 @@ pub struct MetaData {
     pub requirements: Requirements,
 
     /// One header to describe each layer in this file.
+    // TODO rename to layer descriptions?
     pub headers: Headers,
 }
 
@@ -427,6 +429,15 @@ impl MetaData {
         let chunk_count: usize = headers.iter().map(|header| header.chunk_count).sum();
         crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE)?; // TODO this should seek for large tables
         Ok(chunk_count)
+    }
+
+    /// This iterator tells you the block indices of all blocks that must be in the image.
+    /// The order of the blocks depends on the `LineOrder` attribute
+    /// (unspecified line order is treated the same as increasing line order).
+    /// The blocks written to the file must be exactly in this order,
+    /// except for when the `LineOrder` is unspecified.
+    pub fn ordered_blocks_indices(&self) -> impl '_ + Iterator<Item=BlockIndex> {
+        crate::block::ordered_blocks_indices(&self.headers)
     }
 
     /// Validates this meta data. Returns the minimal possible requirements.

@@ -7,6 +7,7 @@ extern crate half;
 use std::convert::TryInto;
 use std::io::BufWriter;
 use std::fs::File;
+use exr::block::{BlocksWriter, UncompressedBlock};
 
 // exr imports
 extern crate exr;
@@ -18,9 +19,6 @@ fn main() {
     use attribute::*;
     use exr::math::*;
 
-    // TODO implement this example using the new API and not the raw function interface.
-
-
     // pre-compute a list of random values
     let random_values: Vec<f32> = (0..64)
         .map(|_| rand::random::<f32>())
@@ -28,9 +26,6 @@ fn main() {
 
     // resulting resolution (268 megapixels for 3GB files)
     let size = (2048*8, 2048*8);
-
-    // specify output path, and buffer it for better performance
-    let file = BufWriter::new(File::create("tests/images/out/3GB.exr").unwrap());
 
     // define meta data header that will be written
     let header = exr::meta::header::Header::new(
@@ -63,16 +58,57 @@ fn main() {
 
     let headers = smallvec![ header ];
 
+    // specify output path, and buffer it for better performance
+    let file = BufWriter::new(File::create("tests/images/out/3GB.exr").unwrap());
+
     // print progress only every 100th time
     let start_time = ::std::time::Instant::now();
 
     // finally write the image
+    exr::block::write_chunks_with(
+        file, headers, true,
+        |meta_data, chunk_writer|{
+
+            /* TODO let chunk_write = chunk_writer.on_progress(|progress| {
+                println!("progress: {:.2}%", progress*100.0);
+            });*/
+
+            let mut block_writer = BlocksWriter::new(&meta_data, chunk_writer);
+
+            let blocks = meta_data.ordered_blocks_indices().map(|block_index|{
+                let channel_description = &meta_data.headers[block_index.layer].channels;
+
+                // fill the image file contents with one of the precomputed random values,
+                // picking a different one per channel
+                UncompressedBlock::from_lines(channel_description, block_index, |line_mut|{
+                    // TODO iterate mut instead??
+
+                    let chan = line_mut.location.channel;
+
+                    if chan == 3 { // write time as depth (could also do _meta.channels[chan].name == "Z")
+                        line_mut.write_samples(|_| start_time.elapsed().as_secs_f32())
+                            .expect("write to line bug");
+                    }
+
+                    else { // write rgba color
+                        line_mut
+                            .write_samples(|sample_index| random_values[(sample_index + chan) % random_values.len()])
+                            .expect("write to line bug");
+                    }
+                })
+            });
+
+            block_writer.compress_all_blocks_parallel(blocks)?;
+
+            Ok(())
+        }
+    ).unwrap();
+
+    /*
     exr::block::lines::write_all_lines_to_buffered(
         file,
         headers,
 
-        // fill the image file contents with one of the precomputed random values,
-        // picking a different one per channel
         |_meta, line_mut|{
             let chan = line_mut.location.channel;
 
@@ -94,7 +130,7 @@ fn main() {
 
         true,
         false
-    ).unwrap();
+    ).unwrap();*/
 
     // warning: highly unscientific benchmarks ahead!
     println!("\ncreated file 3GB.exr in {:?}s", start_time.elapsed().as_secs_f32());

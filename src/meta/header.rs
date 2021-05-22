@@ -6,9 +6,8 @@ use std::collections::HashMap;
 use crate::meta::attribute::*; // FIXME shouldn't this need some more imports????
 use crate::meta::*;
 use crate::math::Vec2;
-use crate::block::BlockIndex;
 
-// TODO rename header to LayerInfo!
+// TODO rename header to LayerDescription!
 
 /// Describes a single layer in a file.
 /// A file can have any number of layers.
@@ -377,8 +376,22 @@ impl Header {
         Self { shared_attributes, .. self }
     }
 
-    /// Iterate over all blocks, in the order specified by the headers line order attribute,
-    /// with an index returning the original index of the block if it were `LineOrder::Increasing`.
+    /// Iterate over all blocks, in the order specified by the headers line order attribute.
+    /// Unspecified line order is treated as increasing line order.
+    pub fn ordered_blocks(&self) -> impl Iterator<Item=TileIndices> + Send {
+        let increasing_y = self.blocks_increasing_y_order();
+
+        // TODO without box?
+        let ordered: Box<dyn Send + Iterator<Item=TileIndices>> = {
+            if self.line_order == LineOrder::Decreasing { Box::new(increasing_y.rev()) }
+            else { Box::new(increasing_y) }
+        };
+
+        ordered
+    }
+
+    /*/// Iterate over all blocks, in the order specified by the headers line order attribute.
+    /// Also includes an index of the block if it were `LineOrder::Increasing`, starting at zero for this header.
     pub fn enumerate_ordered_blocks(&self) -> impl Iterator<Item = (usize, TileIndices)> + Send {
         let increasing_y = self.blocks_increasing_y_order().enumerate();
 
@@ -392,7 +405,7 @@ impl Header {
         };
 
         ordered
-    }
+    }*/
 
     /// Iterate over all tile indices in this header in `LineOrder::Increasing` order.
     pub fn blocks_increasing_y_order(&self) -> impl Iterator<Item = TileIndices> + ExactSizeIterator + DoubleEndedIterator {

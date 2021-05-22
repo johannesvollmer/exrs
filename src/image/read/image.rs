@@ -4,7 +4,7 @@
 use crate::image::*;
 use crate::meta::header::{Header, ImageAttributes};
 use crate::error::{Result, UnitResult};
-use crate::block::UncompressedBlock;
+use crate::block::{UncompressedBlock, ChunksReader};
 use crate::block::chunk::TileCoordinates;
 use std::path::Path;
 use std::io::{Read, BufReader};
@@ -21,7 +21,7 @@ pub struct ReadImage<OnProgress, ReadLayers> {
     parallel: bool,
 }
 
-impl<F, L> ReadImage<F, L> where F: FnMut(f64)
+impl<F, L> ReadImage<F, L> where F: FnMut(f64) + Send // TODO only if required
 {
     /// Uses relaxed error handling and parallel decompression.
     pub fn new(read_layers: L, on_progress: F) -> Self {
@@ -78,11 +78,13 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
     /// Read the exr image from a buffered reader.
     /// Use [`ReadImage::read_from_file`] instead, if you have a file path.
     /// Use [`ReadImage::read_from_unbuffered`] instead, if this is not an in-memory reader.
+    // TODO Use Parallel<> Wrapper to only require sendable byte source where parallel decompression is required
     #[must_use]
     pub fn from_buffered<Layers>(mut self, buffered: impl Read + Seek + Send) -> Result<Image<Layers>>
         where for<'s> L: ReadLayers<'s, Layers = Layers>
     {
         let Self { pedantic, parallel, ref mut on_progress, ref mut read_layers } = self;
+        let meta_reader = crate::block::MetaDataReader::read_from_buffered(buffered, pedantic)?;
 
         #[derive(Debug, Clone, PartialEq)]
         pub struct ImageWithAttributesReader<L> {
@@ -90,7 +92,30 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
             layers_reader: L,
         }
 
-        let reader: ImageWithAttributesReader<L::Reader> = crate::block::read_filtered_blocks_from_buffered(
+        let mut reader = ImageWithAttributesReader {
+            image_attributes: meta_reader.headers().first().as_ref().expect("invalid headers").shared_attributes.clone(),
+            layers_reader: read_layers.create_layers_reader(&meta_reader.headers())?,
+        };
+
+        let block_reader = meta_reader
+            .filter_chunks(pedantic, |header, (tile_index, tile)| {
+                reader.layers_reader.filter_block(header, (tile_index, &tile.location)) // TODO pass TileIndices directly!
+            })?
+            .on_progress(on_progress);
+
+        // TODO propagate send requirement further upwards
+        if parallel {
+            block_reader.decompress_parallel(pedantic, |meta_data, block|{
+                reader.layers_reader.read_block(&meta_data.headers, block)
+            })?;
+        }
+        else {
+            block_reader.decompress_sequential(pedantic, |meta_data, block|{
+                reader.layers_reader.read_block(&meta_data.headers, block)
+            })?;
+        }
+
+        /*let reader: ImageWithAttributesReader<L::Reader> = crate::block::read_filtered_blocks_from_buffered(
             buffered,
 
             move |headers| {
@@ -110,7 +135,7 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
 
             |progress| on_progress(progress),
             pedantic, parallel
-        )?;
+        )?;*/
 
         Ok(Image {
             attributes: reader.image_attributes,

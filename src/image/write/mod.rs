@@ -25,6 +25,7 @@ use crate::io::Write;
 use crate::image::{Image, ignore_progress, SpecificChannels, IntoSample};
 use crate::image::write::layers::{WritableLayers, LayersWriter};
 use crate::math::Vec2;
+use crate::block::{UncompressedBlock, BlocksWriter};
 
 /// An oversimplified function for "just write the damn file already" use cases.
 /// Have a look at the examples to see how you can write an image with more flexibility (it's not that hard).
@@ -140,13 +141,38 @@ impl<'img, Layers, OnProgress> WriteImageWithOptions<'img, Layers, OnProgress>
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first.
     #[must_use]
     pub fn to_buffered(self, write: impl Write + Seek) -> UnitResult {
-        let meta_data = self.infer_meta_data(); // TODO non-failing gen_meta?
-        let layers = self.image.layer_data.create_writer(&meta_data);
+        let headers = self.infer_meta_data();
+        let layers = self.image.layer_data.create_writer(&headers);
 
-        crate::block::write_all_blocks_to_buffered(
+        /*crate::block::write_all_blocks_to_buffered(
             write, meta_data,
             move |meta, block| layers.extract_uncompressed_block(meta, block),
             self.on_progress, self.check_compatibility, self.parallel,
+        )*/
+
+        crate::block::write_chunks_with(
+            write, headers, self.check_compatibility,
+            move |meta, chunk_writer|{
+                let mut blocks_writer = BlocksWriter::new(&meta, chunk_writer);
+
+                let blocks = meta.ordered_blocks_indices()
+                    .map(|block_index| {
+                        UncompressedBlock {
+                            index: block_index,
+                            data: layers.extract_uncompressed_block(&meta.headers, block_index)
+                        }
+                    });
+
+                // TODO propagage send requirement further upwards
+                if self.parallel {
+                    blocks_writer.compress_all_blocks_parallel(blocks)?;
+                }
+                else {
+                    blocks_writer.compress_all_blocks_sequential(blocks)?;
+                }
+
+                Ok(())
+            }
         )
     }
 }
