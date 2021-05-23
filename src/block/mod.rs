@@ -20,6 +20,8 @@ use crate::meta::header::Header;
 use crate::block::lines::{LineRef, LineIndex, LineSlice, LineRefMut};
 use smallvec::alloc::sync::Arc;
 use std::iter::Peekable;
+use std::ops::Not;
+use smallvec::SmallVec;
 
 
 /// Specifies where a block of pixel data should be placed in the actual image.
@@ -137,8 +139,14 @@ impl<R: Read + Seek> MetaDataReader<R> {
             };
         }
 
-        filtered_offsets.sort_unstable(); // enables reading continuously if possible (is probably already sorted)
-        let filtered_offsets = filtered_offsets.into_iter();
+        filtered_offsets.sort_unstable(); // enables reading continuously if possible (already sorted where line order increasing)
+
+        if pedantic {
+            // table is sorted. if any two neighbours are equal, we have duplicates. this is invalid.
+            if filtered_offsets.windows(2).any(|pair| pair[0] == pair[1]) {
+                return Err(Error::invalid("chunk offset table"))
+            }
+        }
 
         Ok(FilteredChunksReader {
             meta_data: self.meta_data,
@@ -222,22 +230,12 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
     // FIXME try async + futures instead of rayon! Maybe even allows for external async decoding? (-> impl Stream<UncompressedBlock>)
     fn decompress_parallel(
         mut self, pedantic: bool,
-        // initial: Image,
-        // insert_block: impl Send + Fn(Image, UncompressedBlock) -> Result<Image>,
-        mut insert_block: impl /*Send + */FnMut(&MetaData, UncompressedBlock) -> UnitResult
+        mut insert_block: impl FnMut(&MetaData, UncompressedBlock) -> UnitResult
     ) -> UnitResult
-        // where Self: Send
     {
         // do not use parallel procedure for uncompressed images
         let has_compression = self.meta_data().headers.iter().any(|header| header.compression != Compression::Uncompressed);
         if !has_compression || true /*FIXME*/ { return self.decompress_sequential(pedantic, insert_block); }
-
-        /*let meta_clone = self.meta_data().clone(); // TODO no clone?
-
-        self
-            .par_bridge() // FIXME DO NOT allocate all at once
-            .map(move |compressed_chunk| UncompressedBlock::decompress_chunk(compressed_chunk?, &meta_clone, pedantic))
-            .collect::<Result<Vec<_>>>()?.into_iter().try_fold(initial, insert_block)*/
 
         #[allow(unused)]
         let mut remaining_chunks = self.chunk_count() as i64; // used for debug_assert
@@ -245,43 +243,37 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
         let meta_data_arc = Arc::new(self.meta_data().clone());
 
         let pool = rayon::ThreadPoolBuilder::new().build().expect("thread error");
-        // rayon::scope(move |scope|{
-            //let meta_data = meta_data; // borrow the meta data from above
 
-            let (send, recv) = std::sync::mpsc::channel(); // TODO crossbeam?
-            let mut currently_running = 0;
-            // let mut image = initial;
+        let (send, recv) = std::sync::mpsc::channel(); // TODO crossbeam?
+        let mut currently_running = 0;
 
-            while let Some(chunk) = self.read_next_chunk() {
-                while currently_running >= 12 {
-                    let decompressed = recv.recv().expect("thread error")?;
-                    // image = insert_block(image, answer)?;
-                    insert_block(self.meta_data(), decompressed)?;
-                    currently_running -= 1;
-                    remaining_chunks -= 1;
-                }
-
-                let send = send.clone();
-                let meta_data_arc = meta_data_arc.clone();
-                currently_running += 1;
-
-                pool.spawn(move || {
-                    let decompressed = chunk.and_then(|chunk| UncompressedBlock::decompress_chunk(chunk, &meta_data_arc, pedantic));
-                    send.send(decompressed).expect("thread error");
-                });
-            }
-
-            while currently_running > 0 {
+        while let Some(chunk) = self.read_next_chunk() {
+            while currently_running >= 12 {
                 let decompressed = recv.recv().expect("thread error")?;
-                // image = insert_block(image, answer)?;
                 insert_block(self.meta_data(), decompressed)?;
                 currently_running -= 1;
                 remaining_chunks -= 1;
             }
 
-            assert_eq!(remaining_chunks, 0);
-            Ok(())
-        // })
+            let send = send.clone();
+            let meta_data_arc = meta_data_arc.clone();
+            currently_running += 1;
+
+            pool.spawn(move || {
+                let decompressed = chunk.and_then(|chunk| UncompressedBlock::decompress_chunk(chunk, &meta_data_arc, pedantic));
+                send.send(decompressed).expect("thread error");
+            });
+        }
+
+        while currently_running > 0 {
+            let decompressed = recv.recv().expect("thread error")?;
+            insert_block(self.meta_data(), decompressed)?;
+            currently_running -= 1;
+            remaining_chunks -= 1;
+        }
+
+        assert_eq!(remaining_chunks, 0);
+        Ok(())
     }
 
     /// Decompress all blocks in the file, and accumulate the result using a `fold` operation.
@@ -291,8 +283,6 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
     /// You can alternatively use `sequential_decompressor` if you prefer an external iterator.
     fn decompress_sequential(
         self, pedantic: bool,
-        // initial: Image,
-        // insert_block: impl Fn(Image, UncompressedBlock) -> Result<Image>
         mut insert_block: impl FnMut(&MetaData, UncompressedBlock) -> UnitResult
     ) -> UnitResult
     {
@@ -499,7 +489,7 @@ impl<R: ChunksReader> SequentialBlockReader<R> {
         }
         else {
             None
-        }*/
+        }
     }
 }*/
 
@@ -515,87 +505,109 @@ impl<R: ChunksReader> Iterator for SequentialBlockReader<R> {
 
 
 
-
-// #[must_use]
-/// Write chunks to a byte destination.
-/// Then write each chunk with `writer.write_chunk(chunk)`.
-/// Use `writer.total_chunk_count()` and `writer.written_chunks_count()` to observe progress.
-#[derive(Debug)]
-#[must_use]
-pub struct ChunksWriter<W> {
-    header_count: usize,
-    byte_writer: Tracking<W>,
-    offset_table_byte_location: std::ops::Range<usize>,
-    collected_offset_table: Vec<u64>,
-    chunk_count: usize, // TODO compose?
-}
-
-/// Write an exr file by writing one chunk after another.
-/// In the closure, you have to write all the chunks, using the writer.
-/// Assumes the writer is buffered.
+/// Write an exr file by writing one chunk after another in a closure.
+/// In the closure, you are provided a chunk writer, which should be used to write all the chunks.
+/// Assumes the your write destination is buffered.
 pub fn write_chunks_with<W: Write + Seek>(
     buffered_write: W, headers: Headers, pedantic: bool,
-    write_chunks: impl FnOnce(MetaData, &mut ChunksWriter<W>) -> UnitResult
+    write_chunks: impl FnOnce(MetaData, &mut ChunkWriter<W>) -> UnitResult
 ) -> UnitResult {
     // this closure approach ensures that after writing all chunks, the file is always completed and checked and flushed
-    let (meta, mut writer) = ChunksWriter::new_for_buffered(buffered_write, headers, pedantic)?;
+    let (meta, mut writer) = ChunkWriter::new_for_buffered(buffered_write, headers, pedantic)?;
     write_chunks(meta, &mut writer)?;
     writer.complete_meta_data()
 }
 
+// #[must_use]
+#[derive(Debug)]
+#[must_use]
+pub struct ChunkWriter<W> {
+    header_count: usize,
+    byte_writer: Tracking<W>,
+    chunk_indices_byte_location: std::ops::Range<usize>,
+    chunk_indices_increasing_y: OffsetTables,
+    chunk_count: usize, // TODO compose?
+}
 
-impl<W> ChunksWriter<W> where W: Write + Seek {
+pub struct OnProgressChunkWriter<'w, W, F> {
+    chunk_writer: &'w mut W,
+    written_chunks: usize,
+    on_progress: F,
+}
 
-    /// The number of chunks that have already been written.
-    pub fn written_chunks_count(&self) -> usize { self.collected_offset_table.len() }
+/// Write chunks to a byte destination.
+/// Then write each chunk with `writer.write_chunk(chunk)`.
+pub trait ChunksWriter: Sized {
 
     /// The total number of chunks that the complete file will contain.
-    pub fn total_chunks_count(&self) -> usize { self.chunk_count }
+    fn total_chunks_count(&self) -> usize;
 
-    /// Are all chunks written to the byte writer?
+    /// Any more calls will result in an error and have no effect.
+    /// If writing results in an error, the file and the writer
+    /// may remain in an invalid state and should not be used further.
+    /// Errors when the chunk at this index was already written.
+    fn write_chunk(&mut self, index_in_header_increasing_y: usize, chunk: Chunk) -> UnitResult;
+
+    fn on_progress<F>(&mut self, on_progress: F) -> OnProgressChunkWriter<'_, Self, F> where F: FnMut(f64) {
+        OnProgressChunkWriter { chunk_writer: self, written_chunks: 0, on_progress }
+    }
+
+    fn as_blocks_writer<'w>(&'w mut self, meta: &'w MetaData) -> BlocksWriter<'w, Self> {
+        BlocksWriter::new(meta, self)
+    }
+}
+
+
+impl<W> ChunksWriter for ChunkWriter<W> where W: Write + Seek {
+
+    /// The total number of chunks that the complete file will contain.
+    fn total_chunks_count(&self) -> usize { self.chunk_count }
+
+    /*/// The number of chunks that have already been written.
+    pub fn written_chunks_count(&self) -> usize { self.chunk_indices_increasing_y.len() }
+
+
+    /// Have the right number of chunks been written to the byte writer?
     pub fn all_chunks_are_written(&self) -> bool {
-        debug_assert!(self.collected_offset_table.len() <= self.chunk_count);
-        self.collected_offset_table.len() == self.chunk_count
-    }
+        debug_assert!(self.chunk_indices_increasing_y.len() <= self.chunk_count);
+        self.chunk_indices_increasing_y.len() == self.chunk_count
+    }*/
 
-    /// Returns the next block index that has to be written.
-    /// After the correct number of chunks has been written, this updates the offset table and flushes the writer.
     /// Any more calls will result in an error and have no effect.
     /// If writing results in an error, the file and the writer
     /// may remain in an invalid state and should not be used further.
-    pub fn write_chunk(&mut self, chunk: Chunk) -> UnitResult {
-        if self.all_chunks_are_written() { return Err(Error::invalid("too many chunks provided")) }
-        self.write_chunk_unchecked(chunk)
-    }
+    /// Errors when the chunk at this index was already written.
+    fn write_chunk(&mut self, index_in_header_increasing_y: usize, chunk: Chunk) -> UnitResult {
+        let header_chunk_indices = &mut self.chunk_indices_increasing_y[chunk.layer_index];
 
-    // -- the following functions are private, because they must be called in a strict order --
-
-    /// Returns the next block index that has to be written.
-    /// After the correct number of chunks has been written, this updates the offset table and flushes the writer.
-    /// Any more calls will result in an error and have no effect.
-    /// If writing results in an error, the file and the writer
-    /// may remain in an invalid state and should not be used further.
-    fn write_chunk_unchecked(&mut self, chunk: Chunk) -> UnitResult {
-        chunk.write(&mut self.byte_writer, self.header_count)?;
-        self.collected_offset_table.push(usize_to_u64(self.byte_writer.byte_position()));
-        Ok(())
-    }
-
-    /// Seek back to the meta data, write offset tables, and flush the byte writer.
-    /// Leaves the writer seeked to the middle of the file.
-    fn complete_meta_data(mut self) -> UnitResult {
-        if !self.all_chunks_are_written() {
-            return Err(Error::invalid("not enough chunks provided"))
+        if index_in_header_increasing_y >= header_chunk_indices.len() {
+            return Err(Error::invalid("too large chunk index"));
         }
 
-        // write all offset tables
-        debug_assert_ne!(self.byte_writer.byte_position(), self.offset_table_byte_location.end);
-        self.byte_writer.seek_write_to(self.offset_table_byte_location.start)?;
-        u64::write_slice(&mut self.byte_writer, self.collected_offset_table.as_slice())?;
+        let chunk_index_slot = &mut header_chunk_indices[index_in_header_increasing_y];
+        if *chunk_index_slot != 0 {
+            return Err(Error::invalid("chunk at this index is already written"));
+        }
 
-        self.byte_writer.flush()?; // make sure we catch all (possibly delayed) io errors before returning
-        Ok(()) // this could return ownership of the meta data
+        *chunk_index_slot = usize_to_u64(self.byte_writer.byte_position());
+        chunk.write(&mut self.byte_writer, self.header_count)?;
+        Ok(())
     }
+}
+
+impl<W> ChunkWriter<W> where W: Write + Seek {
+    // -- the following functions are private, because they must be called in a strict order --
+
+    /*/// Returns the next block index that has to be written.
+    /// After the correct number of chunks has been written, this updates the offset table and flushes the writer.
+    /// Any more calls will result in an error and have no effect.
+    /// If writing results in an error, the file and the writer
+    /// may remain in an invalid state and should not be used further.
+    fn write_chunk_unchecked(&mut self, increasing_y_index: usize, chunk: Chunk) -> UnitResult {
+        self.chunk_indices_increasing_y[increasing_y_index] = usize_to_u64(self.byte_writer.byte_position());
+        chunk.write(&mut self.byte_writer, self.header_count)?;
+        Ok(())
+    }*/
 
     /// Writes the meta data and zeroed offset tables as a placeholder.
     fn new_for_buffered(buffered_byte_writer: W, headers: Headers, pedantic: bool) -> Result<(MetaData, Self)> {
@@ -621,26 +633,73 @@ impl<W> ChunksWriter<W> where W: Write + Seek {
         write.seek_write_to(offset_table_end_byte)?;
 
         let header_count = headers.len();
+        let chunk_indices_increasing_y = headers.iter()
+            .map(|header| vec![0_u64; header.chunk_count]).collect();
+
         let meta_data = MetaData { requirements, headers };
 
-        Ok((meta_data, ChunksWriter {
+        Ok((meta_data, ChunkWriter {
             header_count,
             byte_writer: write,
-            offset_table_byte_location: offset_table_start_byte .. offset_table_end_byte,
-            collected_offset_table: Vec::with_capacity(offset_table_size),
             chunk_count: offset_table_size,
+            chunk_indices_byte_location: offset_table_start_byte .. offset_table_end_byte,
+            chunk_indices_increasing_y,
         }))
+    }
+
+    /// Seek back to the meta data, write offset tables, and flush the byte writer.
+    /// Leaves the writer seeked to the middle of the file.
+    fn complete_meta_data(mut self) -> UnitResult {
+        if self.chunk_indices_increasing_y.iter().flatten().any(|&index| index == 0) {
+            return Err(Error::invalid("some chunks are not written yet"))
+        }
+
+        // write all offset tables
+        debug_assert_ne!(self.byte_writer.byte_position(), self.chunk_indices_byte_location.end);
+        self.byte_writer.seek_write_to(self.chunk_indices_byte_location.start)?;
+
+        for table in self.chunk_indices_increasing_y {
+            u64::write_slice(&mut self.byte_writer, table.as_slice())?;
+        }
+
+        self.byte_writer.flush()?; // make sure we catch all (possibly delayed) io errors before returning
+        Ok(())
+    }
+
+}
+
+
+impl<'w, W, F> ChunksWriter for OnProgressChunkWriter<'w, W, F> where W: 'w + ChunksWriter, F: FnMut(f64) {
+    fn total_chunks_count(&self) -> usize {
+        self.chunk_writer.total_chunks_count()
+    }
+
+    fn write_chunk(&mut self, index_in_header_increasing_y: usize, chunk: Chunk) -> UnitResult {
+        let total_chunks = self.total_chunks_count();
+        let on_progress = &mut self.on_progress;
+
+        // guarantee on_progress being called with 0 once
+        if self.written_chunks == 0 { on_progress(0.0); }
+
+        self.chunk_writer.write_chunk(index_in_header_increasing_y, chunk)?;
+
+        self.written_chunks += 1;
+        on_progress(self.written_chunks as f64 / total_chunks as f64); // 1.0 for last block
+
+        Ok(())
     }
 }
 
+
+
 pub struct BlocksWriter<'w, W> {
     meta: &'w MetaData,
-    chunks_writer: &'w mut ChunksWriter<W>,
+    chunks_writer: &'w mut W,
 }
 
 pub struct SortedBlocksWriter {
     pending_chunks: BTreeMap<usize, Chunk>,
-    remaining_chunk_indices: Peekable<std::ops::Range<usize>>,
+    unwritten_chunk_indices: Peekable<std::ops::Range<usize>>,
 }
 
 
@@ -653,7 +712,7 @@ impl SortedBlocksWriter {
         if requires_sorting {
             Some(SortedBlocksWriter {
                 pending_chunks: BTreeMap::new(),
-                remaining_chunk_indices: (0 .. total_chunk_count).peekable(),
+                unwritten_chunk_indices: (0 .. total_chunk_count).peekable(),
             })
         }
         else {
@@ -661,114 +720,115 @@ impl SortedBlocksWriter {
         }
     }
 
-    pub fn write_or_buffer_chunk(&mut self, chunk_index: usize, compressed_chunk: Chunk, mut write_chunk: impl FnMut(Chunk) -> UnitResult) -> UnitResult {
+    pub fn write_or_stash_chunk(&mut self, chunk_index: usize, compressed_chunk: Chunk, mut write_chunk: impl FnMut(Chunk) -> UnitResult) -> UnitResult {
         // TODO not insert if happens to be correct?
         self.pending_chunks.insert(chunk_index, compressed_chunk);
 
         // TODO return iter instead of calling closure?
         // write all pending blocks that are immediate successors
         while let Some(next_chunk) = self
-            .remaining_chunk_indices.peek().cloned()
+            .unwritten_chunk_indices.peek().cloned()
             .and_then(|id| self.pending_chunks.remove(&id))
         {
-            //let pending_chunk_index = next_id.unwrap().1; // must be safe in this branch
-            //write_chunk(pending_chunk_index, pending_chunk)?;
             write_chunk(next_chunk)?;
-            self.remaining_chunk_indices.next().expect("peeked chunk index missing");
+            self.unwritten_chunk_indices.next().expect("peeked chunk index missing");
         }
 
         Ok(())
     }
 }
 
-impl<'w, W> BlocksWriter<'w, W> where W: 'w + Write + Seek {
+impl<'w, W> BlocksWriter<'w, W> where W: 'w + ChunksWriter {
 
-    pub fn new(meta: &'w MetaData, chunks_writer: &'w mut ChunksWriter<W>) -> Self { Self { meta, chunks_writer, } }
-    pub fn inner_chunks_writer(&'w self) -> &'w ChunksWriter<W> { self.chunks_writer }
+    pub fn new(meta: &'w MetaData, chunks_writer: &'w mut W) -> Self { Self { meta, chunks_writer, } }
+    pub fn inner_chunks_writer(&'w self) -> &'w W { self.chunks_writer }
 
-    pub fn compress_block(&mut self, block: UncompressedBlock) -> UnitResult {
-        self.chunks_writer.write_chunk(block.compress_to_chunk(&self.meta.headers)?)
+    fn compress_block(&mut self, index_in_header_increasing_y: usize, block: UncompressedBlock) -> UnitResult {
+        self.chunks_writer.write_chunk(
+            index_in_header_increasing_y,
+            block.compress_to_chunk(&self.meta.headers)?
+        )
     }
 
-    pub fn compress_all_blocks_sequential(&mut self, blocks: impl Iterator<Item=UncompressedBlock>) -> UnitResult {
+    /// Obtain iterator with `MetaData::collect_ordered_blocks(...)` or similar methods.
+    pub fn compress_all_blocks_sequential(mut self, blocks: impl Iterator<Item=(usize, UncompressedBlock)>) -> UnitResult {
         // TODO check block order if line order is not unspecified!
-        for block in blocks { self.compress_block(block)?; }
+        for (index_in_header_increasing_y, block) in blocks {
+            self.compress_block(index_in_header_increasing_y, block)?;
+        }
+
         Ok(())
     }
 
-    pub fn compress_all_blocks_parallel(&mut self, blocks: impl Iterator<Item=UncompressedBlock>) -> UnitResult {
+    /// Obtain iterator with `MetaData::collect_ordered_blocks(...)` or similar methods.
+    pub fn compress_all_blocks_parallel(mut self, blocks: impl Iterator<Item=(usize, UncompressedBlock)>) -> UnitResult {
         // do not use parallel procedure for uncompressed images
         let has_compression = self.meta.headers.iter().any(|header| header.compression != Compression::Uncompressed);
         if !has_compression || true /*FIXME*/ {
             return self.compress_all_blocks_sequential(blocks);
         }
 
-        #[allow(unused)]
-        let mut remaining_chunks = self.chunks_writer.total_chunks_count() as i64; // used for debug_assert
+        // #[allow(unused)]
+        // let mut remaining_chunks = self.chunks_writer.total_chunks_count() as i64; // used for debug_assert
         let meta_data_arc = Arc::new(self.meta.clone());
 
         let mut sorted_blocks_writer = SortedBlocksWriter::new(
             self.chunks_writer.total_chunks_count(), &self.meta.headers
         );
 
-        // rayon::scope(move |scope|{
-        //     let meta_data = meta_data; // borrow the meta data from above
         let pool = rayon::ThreadPoolBuilder::new().build().expect("thread error");
 
-            let (send, recv) = std::sync::mpsc::channel(); // TODO crossbeam?
-            let mut currently_running = 0;
+        let (send, recv) = std::sync::mpsc::channel(); // TODO crossbeam?
+        let mut currently_running = 0;
 
-            for (block_index, block) in blocks.enumerate() {
-                while currently_running >= 12 {
-                    // unimplemented!("needs sorting");
-                    let (chunk_index, chunk) = recv.recv().expect("thread error")?;
-                    //self.chunks_writer.write_chunk(compressed?)?;
-                    // write_block_to(&mut self, chunk_index, compressed?)?;
-                    if let Some(ref mut writer) = sorted_blocks_writer {
-                        writer.write_or_buffer_chunk(chunk_index, chunk, |chunk| self.chunks_writer.write_chunk(chunk))?;
-                    }
-                    else {
-                        self.chunks_writer.write_chunk(chunk)?;
-                    }
-
-                    currently_running -= 1;
-                    remaining_chunks -= 1;
-                }
-
-                let send = send.clone();
-                let meta_data_arc = meta_data_arc.clone();
-
-                currently_running += 1;
-
-                pool.spawn(move || {
-                    let compressed = block.compress_to_chunk(&meta_data_arc.headers);
-                    send.send(compressed.map(|compressed| (block_index, compressed))).expect("thread error");
-                });
-            }
-
-            while currently_running > 0 {
-                unimplemented!("needs sorting");
-                let (chunk_index, chunk) = recv.recv().expect("thread error")?;
-                // self.chunks_writer.write_chunk(compressed?)?;
-                //write_block_to(&mut self, chunk_index, compressed?)?;
+        for (block_file_index, (block_y_index, block)) in blocks.enumerate() {
+            while currently_running >= 12 {
+                let (chunk_file_index, chunk_y_index, chunk) = recv.recv().expect("thread error")?;
                 if let Some(ref mut writer) = sorted_blocks_writer {
-                    writer.write_or_buffer_chunk(chunk_index, chunk, |chunk| self.chunks_writer.write_chunk(chunk))?;
+                    writer.write_or_stash_chunk(chunk_file_index, chunk, |chunk| {
+                        self.chunks_writer.write_chunk(chunk_y_index, chunk)
+                    })?;
                 }
                 else {
-                    self.chunks_writer.write_chunk(chunk)?;
+                    self.chunks_writer.write_chunk(chunk_y_index, chunk)?;
                 }
 
                 currently_running -= 1;
-                remaining_chunks -= 1;
+                // remaining_chunks -= 1;
             }
 
-        if let Some(writer) = sorted_blocks_writer {
-            debug_assert_eq!(writer.remaining_chunk_indices.len(), 0);
+            let send = send.clone();
+            let meta_data_arc = meta_data_arc.clone();
+
+            currently_running += 1;
+
+            pool.spawn(move || {
+                let compressed = block.compress_to_chunk(&meta_data_arc.headers);
+                send.send(compressed.map(|compressed| (block_file_index, block_y_index, compressed))).expect("thread error");
+            });
         }
 
-            assert_eq!(remaining_chunks, 0);
-            Ok(())
-        //})
+        while currently_running > 0 {
+            let (chunk_file_index, chunk_y_index, chunk) = recv.recv().expect("thread error")?;
+            if let Some(ref mut writer) = sorted_blocks_writer {
+                writer.write_or_stash_chunk(chunk_file_index, chunk, |chunk| {
+                    self.chunks_writer.write_chunk(chunk_y_index, chunk)
+                })?;
+            }
+            else {
+                self.chunks_writer.write_chunk(chunk_y_index, chunk)?;
+            }
+
+            currently_running -= 1;
+            // remaining_chunks -= 1;
+        }
+
+        if let Some(writer) = sorted_blocks_writer {
+            debug_assert_eq!(writer.unwritten_chunk_indices.len(), 0);
+        }
+
+        // assert_eq!(remaining_chunks, 0);
+        Ok(())
     }
 }
 
@@ -1047,17 +1107,20 @@ impl<W> SequentialBlockWriter<W> where W: Write + Seek {
 /// (unspecified line order is treated the same as increasing line order).
 /// The blocks written to the file must be exactly in this order,
 /// except for when the `LineOrder` is unspecified.
-pub fn ordered_blocks_indices(headers: &[Header]) -> impl '_ + Iterator<Item=BlockIndex> {
+/// The index represents the block index, in increasing line order, within the header.
+pub fn enumerate_ordered_header_block_indices(headers: &[Header]) -> impl '_ + Iterator<Item=(usize, BlockIndex)> {
     headers.iter().enumerate().flat_map(|(layer_index, header)|{
-        header.ordered_blocks().map(move |tile|{
+        header.enumerate_ordered_blocks().map(move |(index_in_header, tile)|{
             let data_indices = header.get_absolute_block_pixel_coordinates(tile.location).expect("tile coordinate bug");
 
-            BlockIndex {
+            let block = BlockIndex {
                 layer: layer_index,
                 level: tile.location.level_index,
                 pixel_position: data_indices.position.to_usize("data indices start").expect("data index bug"),
                 pixel_size: data_indices.size,
-            }
+            };
+
+            (index_in_header, block)
         })
     })
 }
@@ -1189,7 +1252,7 @@ fn read_all_blocks_from_buffered<T>(
 /// This may leave you with an uninitialized image, when all blocks are filtered out.
 #[inline]
 #[must_use]
-fn read_filtered_blocks_from_buffered<T>(
+pub /*TODO Remove*/ fn read_filtered_blocks_from_buffered<T>(
     read: impl Read + Seek + Send, // FIXME does not always need be Send
     new: impl FnOnce(&[Header]) -> Result<T>, // TODO put these into a trait?
     filter: impl Fn(&T, (usize, &Header), (usize, &TileIndices)) -> bool,
@@ -1361,7 +1424,7 @@ fn uncompressed_image_blocks_ordered<'l>(
 ) -> impl 'l + Iterator<Item = Result<(usize, UncompressedBlock)>> + Send // TODO reduce sync requirements, at least if parrallel is false
 {
     headers.iter().enumerate().flat_map(move |(layer_index, header)|{
-        header.ordered_blocks().map(move |tile|{
+        header.enumerate_ordered_blocks().map(move |(_index_in_header_increasing_y, tile)|{
             if true { unimplemented!() }
             let data_indices = header.get_absolute_block_pixel_coordinates(tile.location).expect("tile coordinate bug");
 

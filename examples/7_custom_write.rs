@@ -7,7 +7,7 @@ extern crate half;
 use std::convert::TryInto;
 use std::io::BufWriter;
 use std::fs::File;
-use exr::block::{BlocksWriter, UncompressedBlock};
+use exr::block::{BlocksWriter, UncompressedBlock, ChunksWriter};
 
 // exr imports
 extern crate exr;
@@ -69,13 +69,8 @@ fn main() {
         file, headers, true,
         |meta_data, chunk_writer|{
 
-            /* TODO let chunk_write = chunk_writer.on_progress(|progress| {
-                println!("progress: {:.2}%", progress*100.0);
-            });*/
 
-            let mut block_writer = BlocksWriter::new(&meta_data, chunk_writer);
-
-            let blocks = meta_data.ordered_blocks_indices().map(|block_index|{
+            let blocks = meta_data.collect_ordered_blocks(|block_index|{
                 let channel_description = &meta_data.headers[block_index.layer].channels;
 
                 // fill the image file contents with one of the precomputed random values,
@@ -85,7 +80,7 @@ fn main() {
 
                     let chan = line_mut.location.channel;
 
-                    if chan == 3 { // write time as depth (could also do _meta.channels[chan].name == "Z")
+                    if chan == 3 { // write time as depth (could also check for _meta.channels[chan].name == "Z")
                         line_mut.write_samples(|_| start_time.elapsed().as_secs_f32())
                             .expect("write to line bug");
                     }
@@ -98,7 +93,10 @@ fn main() {
                 })
             });
 
-            block_writer.compress_all_blocks_parallel(blocks)?;
+            chunk_writer
+                .on_progress(|progress| println!("progress: {:.2}%", progress*100.0))
+                .as_blocks_writer(&meta_data)
+                .compress_all_blocks_parallel(blocks)?;
 
             Ok(())
         }

@@ -378,11 +378,12 @@ impl Header {
 
     /// Iterate over all blocks, in the order specified by the headers line order attribute.
     /// Unspecified line order is treated as increasing line order.
-    pub fn ordered_blocks(&self) -> impl Iterator<Item=TileIndices> + Send {
-        let increasing_y = self.blocks_increasing_y_order();
+    /// Also enumerates the index of each block in the header, as if it were sorted in increasing line order.
+    pub fn enumerate_ordered_blocks(&self) -> impl Iterator<Item=(usize, TileIndices)> + Send {
+        let increasing_y = self.blocks_increasing_y_order().enumerate();
 
         // TODO without box?
-        let ordered: Box<dyn Send + Iterator<Item=TileIndices>> = {
+        let ordered: Box<dyn Send + Iterator<Item=(usize, TileIndices)>> = {
             if self.line_order == LineOrder::Decreasing { Box::new(increasing_y.rev()) }
             else { Box::new(increasing_y) }
         };

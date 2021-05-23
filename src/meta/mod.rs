@@ -17,7 +17,7 @@ use crate::math::*;
 use std::collections::{HashSet};
 use std::convert::TryFrom;
 use crate::meta::header::{Header};
-use crate::block::BlockIndex;
+use crate::block::{BlockIndex, UncompressedBlock};
 
 
 // TODO rename MetaData to ImageInfo?
@@ -436,8 +436,25 @@ impl MetaData {
     /// (unspecified line order is treated the same as increasing line order).
     /// The blocks written to the file must be exactly in this order,
     /// except for when the `LineOrder` is unspecified.
-    pub fn ordered_blocks_indices(&self) -> impl '_ + Iterator<Item=BlockIndex> {
-        crate::block::ordered_blocks_indices(&self.headers)
+    /// The index represents the block index, in increasing line order, within the header.
+    pub fn enumerate_ordered_header_block_indices(&self) -> impl '_ + Iterator<Item=(usize, BlockIndex)> {
+        crate::block::enumerate_ordered_header_block_indices(&self.headers)
+    }
+
+    pub fn collect_ordered_blocks<'s>(&'s self, mut get_block: impl 's + FnMut(BlockIndex) -> UncompressedBlock)
+        -> impl 's + Iterator<Item=(usize, UncompressedBlock)>
+    {
+        self.enumerate_ordered_header_block_indices().map(move |(index_in_header, block_index)|{
+            (index_in_header, get_block(block_index))
+        })
+    }
+
+    pub fn collect_ordered_block_data<'s>(&'s self, mut get_block_data: impl 's + FnMut(BlockIndex) -> Vec<u8>)
+        -> impl 's + Iterator<Item=(usize, UncompressedBlock)>
+    {
+        self.collect_ordered_blocks(move |block_index|
+            UncompressedBlock { index: block_index, data: get_block_data(block_index) }
+        )
     }
 
     /// Validates this meta data. Returns the minimal possible requirements.

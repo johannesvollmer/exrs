@@ -84,7 +84,6 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64) + Send // TODO only if required
         where for<'s> L: ReadLayers<'s, Layers = Layers>
     {
         let Self { pedantic, parallel, ref mut on_progress, ref mut read_layers } = self;
-        let meta_reader = crate::block::MetaDataReader::read_from_buffered(buffered, pedantic)?;
 
         #[derive(Debug, Clone, PartialEq)]
         pub struct ImageWithAttributesReader<L> {
@@ -92,6 +91,7 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64) + Send // TODO only if required
             layers_reader: L,
         }
 
+        let meta_reader = crate::block::MetaDataReader::read_from_buffered(buffered, pedantic)?;
         let mut reader = ImageWithAttributesReader {
             image_attributes: meta_reader.headers().first().as_ref().expect("invalid headers").shared_attributes.clone(),
             layers_reader: read_layers.create_layers_reader(&meta_reader.headers())?,
@@ -114,28 +114,6 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64) + Send // TODO only if required
                 reader.layers_reader.read_block(&meta_data.headers, block)
             })?;
         }
-
-        /*let reader: ImageWithAttributesReader<L::Reader> = crate::block::read_filtered_blocks_from_buffered(
-            buffered,
-
-            move |headers| {
-                Ok(ImageWithAttributesReader {
-                    image_attributes: headers.first().expect("invalid headers").shared_attributes.clone(),
-                    layers_reader: read_layers.create_layers_reader(headers)?,
-                })
-            },
-
-            |reader, header, (tile_index, tile)| {
-                reader.layers_reader.filter_block(header, (tile_index, &tile.location)) // TODO pass TileIndices directly!
-            },
-
-            |reader, headers, block| {
-                reader.layers_reader.read_block(headers, block)
-            },
-
-            |progress| on_progress(progress),
-            pedantic, parallel
-        )?;*/
 
         Ok(Image {
             attributes: reader.image_attributes,

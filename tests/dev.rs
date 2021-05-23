@@ -59,7 +59,8 @@ pub fn test_roundtrip() {
     // let path = "tests/images/valid/openexr/Beachball/multipart.0001.exr";
     // let path = "tests/images/valid/openexr/Tiles/GoldenGate.exr";
     // let path = "tests/images/valid/openexr/v2/Stereo/composited.exr";
-    let path = "tests/images/valid\\custom\\crowskull\\crow_piz.exr";
+    // let path = "tests/images/valid\\custom\\crowskull\\crow_piz.exr";
+    let path = "tests/images/valid\\openexr\\IlmfmlmflmTest\\v1.7.test.1.exr";
     // let path = "tests/images/valid/openexr/MultiView/Balls.exr";
     // let path = "tests/images/valid/openexr/MultiResolution/Kapaa.exr"; // rip maps
     // let path = "tests/images/valid/openexr/MultiView/Impact.exr"; // mip maps
@@ -75,56 +76,16 @@ pub fn test_roundtrip() {
     // let path = "tests/images/valid/openexr/v2/Stereo/Balls.exr";
     // let path = "tests/images/valid/openexr/v2/Stereo/Ground.exr";
 
-    print!("starting read 1... ");
-    io::stdout().flush().unwrap();
+    let read_image = read()
+        .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
+        .non_parallel();
 
-    let meta = MetaData::read_from_file(path, false).unwrap();
-    println!("{:#?}", meta);
-
-    let read =
-        /*read_all_rgba_layers_from_file(
-            path,
-            read::specific_channels::pixels::create_flattened,
-            read::specific_channels::pixels::set_flattened_pixel::<(Sample, Sample, Sample, Option<Sample>)>
-        ).unwrap();*/
-        read()
-            .no_deep_data()
-            .largest_resolution_level() // TODO all levels
-            .rgba_channels(PixelVec::<(f32,f32,f32,f32)>::constructor, PixelVec::set_pixel)
-            .first_valid_layer()
-            .all_attributes()
-            .non_parallel();
-
-    let image = read.clone().from_file(path).unwrap();
-
-        // read_all_data_from_file(path).unwrap();
-        // read() // Image::read_from_file(path, read_options::low()).unwrap();
-        // .no_deep_data().all_resolution_levels().all_channels().all_layers().pedantic().non_parallel()
-        // .read_from_file(path).unwrap();
-
-    println!("...read 1 successfull");
+    let image = read_image.clone().from_file(path).unwrap();
 
     let mut tmp_bytes = Vec::new();
+    image.write().non_parallel().to_buffered(Cursor::new(&mut tmp_bytes)).unwrap();
 
-    print!("starting write... ");
-    io::stdout().flush().unwrap();
-
-    // image.write_to_buffered(&mut Cursor::new(&mut tmp_bytes), write_options::low()).unwrap();
-    image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes)).unwrap();
-
-    println!("...write successfull: {}mb", tmp_bytes.len() as f32 / 1000000.0);
-
-    print!("starting read 2... ");
-    io::stdout().flush().unwrap();
-
-    let image2 = read.from_file(path).unwrap();
-
-        // read() // Image::read_from_buffered(Cursor::new(&tmp_bytes),ReadOptions { pedantic: true, .. read_options::low() }).unwrap();
-        // .no_deep_data().all_resolution_levels().all_channels().all_layers().pedantic()
-        // .read_from_buffered(Cursor::new(&tmp_bytes))
-        // .unwrap();
-
-    println!("...read 2 successfull");
+    let image2 = read_image.from_buffered(Cursor::new(tmp_bytes)).unwrap();
 
     image.assert_equals_result(&image2);
 }
