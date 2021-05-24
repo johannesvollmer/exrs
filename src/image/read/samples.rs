@@ -75,7 +75,7 @@ impl ReadSamplesLevel for ReadFlatSamples {
 impl SamplesReader for FlatSamplesReader {
     type Samples = FlatSamples;
 
-    fn filter_block(&self, (_, tile): (usize, &TileCoordinates)) -> bool {
+    fn filter_block(&self, tile: TileCoordinates) -> bool {
         tile.level_index == self.level
     }
 

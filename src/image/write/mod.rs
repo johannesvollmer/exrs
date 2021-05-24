@@ -25,7 +25,7 @@ use crate::io::Write;
 use crate::image::{Image, ignore_progress, SpecificChannels, IntoSample};
 use crate::image::write::layers::{WritableLayers, LayersWriter};
 use crate::math::Vec2;
-use crate::block::{UncompressedBlock, BlocksWriter, ChunksWriter};
+use crate::block::{ChunksWriter};
 
 /// An oversimplified function for "just write the damn file already" use cases.
 /// Have a look at the examples to see how you can write an image with more flexibility (it's not that hard).

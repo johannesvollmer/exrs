@@ -3,10 +3,11 @@
 use crate::image::*;
 use crate::meta::header::{Header, LayerAttributes};
 use crate::error::{Result, UnitResult, Error};
-use crate::block::UncompressedBlock;
+use crate::block::{UncompressedBlock, BlockIndex};
 use crate::math::Vec2;
 use crate::image::read::image::{ReadLayers, LayersReader};
 use crate::block::chunk::TileCoordinates;
+use crate::meta::MetaData;
 
 /// Specify to read all channels, aborting if any one is invalid.
 /// [`ReadRgbaChannels`] or [`ReadAnyChannels<ReadFlatSamples>`].
@@ -88,7 +89,7 @@ pub trait ChannelsReader {
     type Channels;
 
     /// Specify whether a single block of pixels should be loaded from the file
-    fn filter_block(&self, tile: (usize, &TileCoordinates)) -> bool;
+    fn filter_block(&self, tile: TileCoordinates) -> bool;
 
     /// Load a single pixel block, which has not been filtered, into the reader, accumulating the channel data
     fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult;
@@ -134,8 +135,8 @@ impl<'s, C> ReadLayers<'s> for ReadAllLayers<C> where C: ReadChannels<'s> {
 impl<C> LayersReader for AllLayersReader<C> where C: ChannelsReader {
     type Layers = Layers<C::Channels>;
 
-    fn filter_block(&self, header: (usize, &Header), tile: (usize, &TileCoordinates)) -> bool {
-        let layer = self.layer_readers.get(header.0).expect("invalid layer index argument");
+    fn filter_block(&self, _: &MetaData, tile: TileCoordinates, block: BlockIndex) -> bool {
+        let layer = self.layer_readers.get(block.layer).expect("invalid layer index argument");
         layer.channels_reader.filter_block(tile)
     }
 
@@ -182,8 +183,8 @@ impl<'s, C> ReadLayers<'s> for ReadFirstValidLayer<C> where C: ReadChannels<'s> 
 impl<C> LayersReader for FirstValidLayerReader<C> where C: ChannelsReader {
     type Layers = Layer<C::Channels>;
 
-    fn filter_block(&self, (header_index, _): (usize, &Header), tile: (usize, &TileCoordinates)) -> bool {
-        header_index == self.layer_index && self.layer_reader.channels_reader.filter_block(tile)
+    fn filter_block(&self, _: &MetaData, tile: TileCoordinates, block: BlockIndex) -> bool {
+        block.layer == self.layer_index && self.layer_reader.channels_reader.filter_block(tile)
     }
 
     fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult {

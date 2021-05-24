@@ -181,7 +181,7 @@ ChannelsReader for SpecificChannelsReader<PixelStorage, SetPixel, PxReader, Pixe
 {
     type Channels = SpecificChannels<PixelStorage, <PxReader::RecursiveChannelDescriptions as IntoNonRecursive>::NonRecursive>;
 
-    fn filter_block(&self, (_, tile): (usize, &TileCoordinates)) -> bool { tile.is_largest_resolution_level() } // TODO all levels
+    fn filter_block(&self, tile: TileCoordinates) -> bool { tile.is_largest_resolution_level() } // TODO all levels
 
     fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult {
         let mut pixels = vec![PxReader::RecursivePixel::default(); block.index.pixel_size.width()]; // TODO allocate once in self

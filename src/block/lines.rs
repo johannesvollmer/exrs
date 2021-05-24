@@ -1,14 +1,11 @@
 //! Extract lines from a block of pixel bytes.
 
 use crate::math::*;
-use std::io::{Read, Seek, Write, Cursor};
-use crate::error::{Result, Error, UnitResult};
-use crate::meta::{TileIndices};
+use std::io::{Cursor};
+use crate::error::{Result, UnitResult};
 use smallvec::SmallVec;
 use std::ops::Range;
-use crate::block::{BlockIndex, UncompressedBlock};
-use crate::meta::header::Header;
-use crate::meta::Headers;
+use crate::block::{BlockIndex};
 use crate::meta::attribute::ChannelList;
 
 
@@ -16,6 +13,8 @@ use crate::meta::attribute::ChannelList;
 /// Use [LineRef] or [LineRefMut] for easier type names.
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub struct LineSlice<T> {
+
+    // TODO also store enum SampleType, as it would always be matched in every place it is used
 
     /// Where this line is located inside the image.
     pub location: LineIndex,
@@ -64,101 +63,6 @@ pub struct LineIndex {
 }
 
 
-/// Reads and decompresses all chunks of a file sequentially without seeking.
-/// Will not skip any parts of the file. Does not buffer the reader, you should always pass a `BufReader`.
-#[inline]
-#[must_use]
-pub fn read_all_lines_from_buffered<T>(
-    read: impl Read + Send, // FIXME does not actually need to be send, only for parallel writing
-    new: impl Fn(&[Header]) -> Result<T>,
-    mut insert: impl FnMut(&mut T, &[Header], LineRef<'_>) -> UnitResult,
-    on_progress: impl FnMut(f64),
-    pedantic: bool, parallel: bool,
-) -> Result<T>
-{
-    let insert = |value: &mut T, headers: &[Header], decompressed: UncompressedBlock| {
-        let header = headers.get(decompressed.index.layer)
-            .ok_or(Error::invalid("chunk index"))?;
-
-        for (bytes, line) in LineIndex::lines_in_block(decompressed.index, &header.channels) {
-            insert(value, headers, LineSlice { location: line, value: &decompressed.data[bytes] })?; // allows returning `Error::Abort`
-        }
-
-        Ok(())
-    };
-
-    crate::block::read_all_blocks_from_buffered(read, new, insert, on_progress, pedantic, parallel)
-}
-
-/// Reads and decompresses all desired chunks of a file sequentially, possibly seeking.
-/// Will skip any parts of the file that do not match the specified filter condition.
-/// Will never seek if the filter condition matches all chunks.
-/// Does not buffer the reader, you should always pass a `BufReader`.
-#[inline]
-#[must_use]
-pub fn read_filtered_lines_from_buffered<T>(
-    read: impl Read + Seek + Send, // FIXME does not always need be Send
-    new: impl Fn(&[Header]) -> Result<T>, // TODO put these into a trait?
-    filter: impl Fn(&T, (usize, &Header), (usize, &TileIndices)) -> bool,
-    mut insert: impl FnMut(&mut T, &[Header], LineRef<'_>) -> UnitResult,
-    on_progress: impl FnMut(f64),
-    pedantic: bool, parallel: bool,
-) -> Result<T>
-{
-    let insert = |value: &mut T, headers: &[Header], decompressed: UncompressedBlock| {
-        let header = headers.get(decompressed.index.layer)
-            .ok_or(Error::invalid("chunk index"))?;
-
-        for (bytes, line) in LineIndex::lines_in_block(decompressed.index, &header.channels) {
-            insert(value, headers, LineSlice { location: line, value: &decompressed.data[bytes] })?; // allows returning `Error::Abort`
-        }
-
-        Ok(())
-    };
-
-    crate::block::read_filtered_blocks_from_buffered(read, new, filter, insert, on_progress, pedantic, parallel)
-}
-
-
-
-/// Compresses and writes all lines of an image described by `meta_data` and `get_line` to the writer.
-/// Flushes the writer to explicitly handle all errors.
-///
-/// Attention: Currently, using multi-core compression with `LineOrder::Increasing` or `LineOrder::Decreasing` in any header
-/// can potentially allocate large amounts of memory while writing the file. Use unspecified line order for lower memory usage.
-///
-/// Does not buffer the writer, you should always pass a `BufWriter`.
-/// If pedantic, throws errors for files that may produce errors in other exr readers.
-#[inline]
-#[must_use]
-pub fn write_all_lines_to_buffered(
-    write: impl Write + Seek, headers: Headers,
-    get_line: impl Sync + Fn(&[Header], LineRefMut<'_>), // TODO put these three parameters into a trait?  // TODO why is this sync or send????
-    on_progress: impl FnMut(f64),
-    pedantic: bool, parallel: bool
-) -> UnitResult
-{
-    let get_block = |headers: &[Header], block_index: BlockIndex| {
-        let header: &Header = &headers.get(block_index.layer).expect("invalid block index");
-
-        let bytes = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
-        let mut block_bytes = vec![0_u8; bytes];
-
-        for (byte_range, line_index) in LineIndex::lines_in_block(block_index, &header.channels) {
-            get_line(headers, LineRefMut {
-                value: &mut block_bytes[byte_range],
-                location: line_index,
-            });
-        }
-
-        block_bytes
-    };
-
-    crate::block::write_all_blocks_to_buffered(write, headers, get_block, on_progress, pedantic, parallel)
-}
-
-
-
 impl LineIndex {
 
     /// Iterates the lines of this block index in interleaved fashion:
@@ -180,6 +84,7 @@ impl LineIndex {
 
         impl Iterator for LineIter {
             type Item = (Range<usize>, LineIndex);
+            // TODO size hint?
 
             fn next(&mut self) -> Option<Self::Item> {
                 if self.y < self.end_y {

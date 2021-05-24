@@ -4,11 +4,12 @@
 use crate::image::*;
 use crate::meta::header::{Header, ImageAttributes};
 use crate::error::{Result, UnitResult};
-use crate::block::{UncompressedBlock, ChunksReader};
+use crate::block::{UncompressedBlock, ChunksReader, BlockIndex};
 use crate::block::chunk::TileCoordinates;
 use std::path::Path;
 use std::io::{Read, BufReader};
 use std::io::Seek;
+use crate::meta::MetaData;
 
 /// Specify whether to read the image in parallel,
 /// whether to use pedantic error handling,
@@ -91,15 +92,15 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64) + Send // TODO only if required
             layers_reader: L,
         }
 
-        let meta_reader = crate::block::MetaDataReader::read_from_buffered(buffered, pedantic)?;
+        let meta_reader = crate::block::Reader::read_from_buffered(buffered, pedantic)?;
         let mut reader = ImageWithAttributesReader {
             image_attributes: meta_reader.headers().first().as_ref().expect("invalid headers").shared_attributes.clone(),
             layers_reader: read_layers.create_layers_reader(&meta_reader.headers())?,
         };
 
         let block_reader = meta_reader
-            .filter_chunks(pedantic, |header, (tile_index, tile)| {
-                reader.layers_reader.filter_block(header, (tile_index, &tile.location)) // TODO pass TileIndices directly!
+            .filter_chunks(pedantic, |meta, tile, block| {
+                reader.layers_reader.filter_block(meta, tile, block)
             })?
             .on_progress(on_progress);
 
@@ -148,7 +149,7 @@ pub trait LayersReader {
     type Layers;
 
     /// Specify whether a single block of pixels should be loaded from the file
-    fn filter_block(&self, header: (usize, &Header), tile: (usize, &TileCoordinates)) -> bool;
+    fn filter_block(&self, meta: &MetaData, tile: TileCoordinates, block: BlockIndex) -> bool;
 
     /// Load a single pixel block, which has not been filtered, into the reader, accumulating the layer
     fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult;
