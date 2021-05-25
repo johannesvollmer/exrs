@@ -84,44 +84,83 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64) + Send // TODO only if required
     pub fn from_buffered<Layers>(mut self, buffered: impl Read + Seek + Send) -> Result<Image<Layers>>
         where for<'s> L: ReadLayers<'s, Layers = Layers>
     {
+        let chunks = crate::block::Reader::read_from_buffered(buffered, self.pedantic)?;
+        self.from_chunks(chunks)
+    }
+
+    /// Read the exr image from an initialized chunks reader
+    /// that has already extracted the meta data from the file.
+    /// Use [`ReadImage::read_from_file`] instead, if you have a file path.
+    /// Use [`ReadImage::read_from_buffered`] instead, if this is an in-memory reader.
+    // TODO Use Parallel<> Wrapper to only require sendable byte source where parallel decompression is required
+    #[must_use]
+    pub fn from_chunks<Layers>(mut self, chunks_reader: crate::block::Reader<impl Read + Seek>) -> Result<Image<Layers>>
+        where for<'s> L: ReadLayers<'s, Layers = Layers>
+    {
         let Self { pedantic, parallel, ref mut on_progress, ref mut read_layers } = self;
 
-        #[derive(Debug, Clone, PartialEq)]
-        pub struct ImageWithAttributesReader<L> {
-            image_attributes: ImageAttributes,
-            layers_reader: L,
-        }
+        let layers_reader = read_layers.create_layers_reader(chunks_reader.headers())?;
+        let mut image_collector = ImageWithAttributesReader::new(chunks_reader.headers(), layers_reader)?;
 
-        let meta_reader = crate::block::Reader::read_from_buffered(buffered, pedantic)?;
-        let mut reader = ImageWithAttributesReader {
-            image_attributes: meta_reader.headers().first().as_ref().expect("invalid headers").shared_attributes.clone(),
-            layers_reader: read_layers.create_layers_reader(&meta_reader.headers())?,
-        };
-
-        let block_reader = meta_reader
+        let block_reader = chunks_reader
             .filter_chunks(pedantic, |meta, tile, block| {
-                reader.layers_reader.filter_block(meta, tile, block)
+                image_collector.filter_block(meta, tile, block)
             })?
             .on_progress(on_progress);
 
         // TODO propagate send requirement further upwards
         if parallel {
             block_reader.decompress_parallel(pedantic, |meta_data, block|{
-                reader.layers_reader.read_block(&meta_data.headers, block)
+                image_collector.read_block(&meta_data.headers, block)
             })?;
         }
         else {
             block_reader.decompress_sequential(pedantic, |meta_data, block|{
-                reader.layers_reader.read_block(&meta_data.headers, block)
+                image_collector.read_block(&meta_data.headers, block)
             })?;
         }
 
-        Ok(Image {
-            attributes: reader.image_attributes,
-            layer_data: reader.layers_reader.into_layers()
-        })
+        Ok(image_collector.into_image())
     }
 }
+
+/// Processes blocks from a file and collects them into a complete `Image`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImageWithAttributesReader<L> {
+    image_attributes: ImageAttributes,
+    layers_reader: L,
+}
+
+impl<L> ImageWithAttributesReader<L> where L: LayersReader {
+
+    /// A new image reader with image attributes.
+    pub fn new(headers: &[Header], layers_reader: L) -> Result<Self>
+    {
+        Ok(ImageWithAttributesReader {
+            image_attributes: headers.first().as_ref().expect("invalid headers").shared_attributes.clone(),
+            layers_reader,
+        })
+    }
+
+    /// Specify whether a single block of pixels should be loaded from the file
+    fn filter_block(&self, meta: &MetaData, tile: TileCoordinates, block: BlockIndex) -> bool {
+        self.layers_reader.filter_block(meta, tile, block)
+    }
+
+    /// Load a single pixel block, which has not been filtered, into the reader, accumulating the image
+    fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult {
+        self.layers_reader.read_block(headers, block)
+    }
+
+    /// Deliver the complete accumulated image
+    fn into_image(self) -> Image<L::Layers> {
+        Image {
+            attributes: self.image_attributes,
+            layer_data: self.layers_reader.into_layers()
+        }
+    }
+}
+
 
 /// A template that creates a `LayerReader` for each layer in the file.
 pub trait ReadLayers<'s> {
