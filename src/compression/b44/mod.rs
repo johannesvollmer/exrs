@@ -675,7 +675,7 @@ mod test {
         }
     }
 
-    fn test_roundtrip_noise_with(channels: ChannelList, rectangle: IntegerBounds) -> (ByteVec, ByteVec) {
+    fn test_roundtrip_noise_with(channels: ChannelList, rectangle: IntegerBounds) -> (ByteVec, ByteVec, ByteVec) {
 
         let byte_count = channels.list.iter()
             .map(|c|
@@ -697,7 +697,7 @@ mod test {
 
         assert_eq!(decompressed.len(), pixel_bytes.len());
 
-        (compressed, decompressed)
+        (pixel_bytes, compressed, decompressed)
     }
 
     #[test]
@@ -717,10 +717,13 @@ mod test {
             size: Vec2(322, 731),
         };
 
-        let (compressed, decompressed) = test_roundtrip_noise_with(channels, rectangle);
+        let (pixel_bytes,
+             compressed,
+             decompressed) = test_roundtrip_noise_with(channels, rectangle);
 
         // On my tests, B44 give a size of 44.08% the original data (this assert implies enough
         // pixels to be relevant).
+        assert_eq!(pixel_bytes.len(), 941528);
         assert_eq!(compressed.len(), 415044);
         assert_eq!(decompressed.len(), 941528);
     }
@@ -742,9 +745,12 @@ mod test {
             size: Vec2(3, 2),
         };
 
-        let (compressed, decompressed) = test_roundtrip_noise_with(channels, rectangle);
+        let (pixel_bytes,
+             compressed,
+             decompressed) = test_roundtrip_noise_with(channels, rectangle);
 
         // B44 being 4 by 4 block, compression is less efficient for tiny images.
+        assert_eq!(pixel_bytes.len(), 24);
         assert_eq!(compressed.len(), 28);
         assert_eq!(decompressed.len(), 24);
     }
@@ -766,10 +772,14 @@ mod test {
             size: Vec2(322, 731),
         };
 
-        let (compressed, decompressed) = test_roundtrip_noise_with(channels, rectangle);
+        let (pixel_bytes,
+             compressed,
+             decompressed) = test_roundtrip_noise_with(channels, rectangle);
 
+        assert_eq!(pixel_bytes.len(), 1883056);
         assert_eq!(compressed.len(), 1883056);
         assert_eq!(decompressed.len(), 1883056);
+        assert_eq!(pixel_bytes, decompressed);
     }
 
     #[test]
@@ -789,10 +799,14 @@ mod test {
             size: Vec2(3, 2),
         };
 
-        let (compressed, decompressed) = test_roundtrip_noise_with(channels, rectangle);
+        let (pixel_bytes,
+             compressed,
+             decompressed) = test_roundtrip_noise_with(channels, rectangle);
 
+        assert_eq!(pixel_bytes.len(), 48);
         assert_eq!(compressed.len(), 48);
         assert_eq!(decompressed.len(), 48);
+        assert_eq!(pixel_bytes, decompressed);
     }
 
     #[test]
@@ -812,10 +826,14 @@ mod test {
             size: Vec2(322, 731),
         };
 
-        let (compressed, decompressed) = test_roundtrip_noise_with(channels, rectangle);
+        let (pixel_bytes,
+             compressed,
+             decompressed) = test_roundtrip_noise_with(channels, rectangle);
 
+        assert_eq!(pixel_bytes.len(), 1883056);
         assert_eq!(compressed.len(), 1883056);
         assert_eq!(decompressed.len(), 1883056);
+        assert_eq!(pixel_bytes, decompressed);
     }
 
     #[test]
@@ -835,10 +853,14 @@ mod test {
             size: Vec2(3, 2),
         };
 
-        let (compressed, decompressed) = test_roundtrip_noise_with(channels, rectangle);
+        let (pixel_bytes,
+             compressed,
+             decompressed) = test_roundtrip_noise_with(channels, rectangle);
 
+        assert_eq!(pixel_bytes.len(), 48);
         assert_eq!(compressed.len(), 48);
         assert_eq!(decompressed.len(), 48);
+        assert_eq!(pixel_bytes, decompressed);
     }
 
     #[test]
@@ -870,8 +892,11 @@ mod test {
             size: Vec2(322, 731),
         };
 
-        let (compressed, decompressed) = test_roundtrip_noise_with(channels, rectangle);
+        let (pixel_bytes,
+             compressed,
+             decompressed) = test_roundtrip_noise_with(channels, rectangle);
 
+        assert_eq!(pixel_bytes.len(), 2353820);
         assert_eq!(compressed.len(), 2090578);
         assert_eq!(decompressed.len(), 2353820);
     }
@@ -905,8 +930,11 @@ mod test {
             size: Vec2(3, 2),
         };
 
-        let (compressed, decompressed) = test_roundtrip_noise_with(channels, rectangle);
+        let (pixel_bytes,
+             compressed,
+             decompressed) = test_roundtrip_noise_with(channels, rectangle);
 
+        assert_eq!(pixel_bytes.len(), 60);
         assert_eq!(compressed.len(), 62);
         assert_eq!(decompressed.len(), 60);
     }
