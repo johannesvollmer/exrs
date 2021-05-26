@@ -74,9 +74,9 @@ fn pack(s: [u16; 16], b: &mut [u8], optimize_flat_fields: bool, exact_max: bool)
         // between t_max and t[0] ... t[15].
         //
         // Shift and round the absolute differences.
-        d.iter_mut().zip(&t)
-            .for_each(|(d_v, t_v)|
-                *d_v = shift_and_round((t_max - t_v).into(), shift));
+        d.iter_mut()
+            .zip(&t)
+            .for_each(|(d_v, t_v)| *d_v = shift_and_round((t_max - t_v).into(), shift));
 
         // Convert d[0] .. d[15] into running differences
         r[0] = d[0] - d[4] + BIAS;
@@ -218,7 +218,7 @@ fn unpack3(b: &[u8], s: &mut [u16; 16]) {
         value = !value;
     }
 
-    s.fill(value);  // All pixels have save value.
+    s.fill(value); // All pixels have save value.
 }
 
 #[derive(Debug)]
@@ -250,8 +250,7 @@ fn memcpy_u8_to_u16(src: &[u8], dst: &mut [u16]) {
 
 #[inline]
 fn cpy_u8(src: &[u16], src_i: usize, dst: &mut [u8], dst_i: usize, n: usize) {
-
-    memcpy_u16_to_u8( &src[src_i..src_i+n], &mut dst[dst_i..dst_i+2*n]);
+    memcpy_u16_to_u8(&src[src_i..src_i + n], &mut dst[dst_i..dst_i + 2 * n]);
 }
 
 pub fn decompress(
@@ -286,7 +285,9 @@ pub fn decompress(
             samples_per_pixel: channel.sampling.area(),
         };
 
-        tmp_read_index += channel.resolution.area() * channel.samples_per_pixel * channel.type_.bytes_per_sample();
+        tmp_read_index += channel.resolution.area()
+            * channel.samples_per_pixel
+            * channel.type_.bytes_per_sample();
 
         channel_data.push(channel);
     }
@@ -318,7 +319,7 @@ pub fn decompress(
                 return Err(Error::invalid("not enough data"));
             }
 
-            tmp.extend_from_slice(&compressed[in_i..(in_i+byte_count)]);
+            tmp.extend_from_slice(&compressed[in_i..(in_i + byte_count)]);
 
             in_i += byte_count;
             remaining -= byte_count;
@@ -401,7 +402,6 @@ pub fn decompress(
                     cpy_u8(&s, 4, &mut tmp, row1, x_resting_sample_count);
                     cpy_u8(&s, 8, &mut tmp, row2, x_resting_sample_count);
                     cpy_u8(&s, 12, &mut tmp, row3, x_resting_sample_count);
-
                 } else {
                     debug_assert!(y < y_sample_count);
 
@@ -450,8 +450,7 @@ pub fn decompress(
             if channels.uniform_sample_type == Some(SampleType::F16) {
                 // machine-dependent data format is a simple memcpy
                 use lebe::io::WriteEndian;
-                out
-                    .write_as_native_endian(values)
+                out.write_as_native_endian(values)
                     .expect("write to in-memory failed");
             } else {
                 u8::write_slice(&mut out, values).expect("write to in-memory failed");
@@ -509,6 +508,7 @@ pub fn compress(
     debug_assert_eq!(tmp_end_index, tmp.len());
 
     let mut remaining_uncompressed_bytes = uncompressed;
+
     for y in rectangle.position.y()..rectangle.end().y() {
         for channel in &mut channel_data {
             if mod_p(y, usize_to_i32(channel.y_sampling)) != 0 {
@@ -549,7 +549,7 @@ pub fn compress(
 
             // Raw byte copy.
             let slice = &tmp[channel.tmp_start_index..channel.tmp_end_index];
-            slice.iter().copied().for_each(|b|{
+            slice.iter().copied().for_each(|b| {
                 b44_compressed[b44_end] = b;
                 b44_end += 1;
             });
@@ -611,10 +611,10 @@ pub fn compress(
                     }
                 } else {
                     // TODO: Can't make lebe to work here.
-                    memcpy_u8_to_u16(&tmp[row0..(row0+BLOCK_X_BYTE_COUNT)], &mut s[0..4]);
-                    memcpy_u8_to_u16( &tmp[row1..(row1+BLOCK_X_BYTE_COUNT)], &mut s[4..8]);
-                    memcpy_u8_to_u16( &tmp[row2..(row2+BLOCK_X_BYTE_COUNT)], &mut s[8..12]);
-                    memcpy_u8_to_u16( &tmp[row3..(row3+BLOCK_X_BYTE_COUNT)], &mut s[12..16]);
+                    memcpy_u8_to_u16(&tmp[row0..(row0 + BLOCK_X_BYTE_COUNT)], &mut s[0..4]);
+                    memcpy_u8_to_u16(&tmp[row1..(row1 + BLOCK_X_BYTE_COUNT)], &mut s[4..8]);
+                    memcpy_u8_to_u16(&tmp[row2..(row2 + BLOCK_X_BYTE_COUNT)], &mut s[8..12]);
+                    memcpy_u8_to_u16(&tmp[row3..(row3 + BLOCK_X_BYTE_COUNT)], &mut s[12..16]);
                 }
 
                 // Move to next block.
@@ -676,18 +676,21 @@ mod test {
         }
     }
 
-    fn test_roundtrip_noise_with(channels: ChannelList, rectangle: IntegerBounds) -> (ByteVec, ByteVec, ByteVec) {
-
-        let byte_count = channels.list.iter()
-            .map(|c|
-                c.subsampled_resolution(rectangle.size).area() * c.sample_type.bytes_per_sample())
+    fn test_roundtrip_noise_with(
+        channels: ChannelList,
+        rectangle: IntegerBounds,
+    ) -> (ByteVec, ByteVec, ByteVec) {
+        let byte_count = channels
+            .list
+            .iter()
+            .map(|c| {
+                c.subsampled_resolution(rectangle.size).area() * c.sample_type.bytes_per_sample()
+            })
             .sum();
 
         assert!(byte_count > 0);
 
-        let pixel_bytes: ByteVec = (0..byte_count)
-            .map(|_| rand::random())
-            .collect();
+        let pixel_bytes: ByteVec = (0..byte_count).map(|_| rand::random()).collect();
 
         assert_eq!(pixel_bytes.len(), byte_count);
 
@@ -718,9 +721,8 @@ mod test {
             size: Vec2(322, 731),
         };
 
-        let (pixel_bytes,
-             compressed,
-             decompressed) = test_roundtrip_noise_with(channels, rectangle);
+        let (pixel_bytes, compressed, decompressed) =
+            test_roundtrip_noise_with(channels, rectangle);
 
         // On my tests, B44 give a size of 44.08% the original data (this assert implies enough
         // pixels to be relevant).
@@ -746,9 +748,8 @@ mod test {
             size: Vec2(3, 2),
         };
 
-        let (pixel_bytes,
-             compressed,
-             decompressed) = test_roundtrip_noise_with(channels, rectangle);
+        let (pixel_bytes, compressed, decompressed) =
+            test_roundtrip_noise_with(channels, rectangle);
 
         // B44 being 4 by 4 block, compression is less efficient for tiny images.
         assert_eq!(pixel_bytes.len(), 24);
@@ -773,9 +774,8 @@ mod test {
             size: Vec2(322, 731),
         };
 
-        let (pixel_bytes,
-             compressed,
-             decompressed) = test_roundtrip_noise_with(channels, rectangle);
+        let (pixel_bytes, compressed, decompressed) =
+            test_roundtrip_noise_with(channels, rectangle);
 
         assert_eq!(pixel_bytes.len(), 1883056);
         assert_eq!(compressed.len(), 1883056);
@@ -800,9 +800,8 @@ mod test {
             size: Vec2(3, 2),
         };
 
-        let (pixel_bytes,
-             compressed,
-             decompressed) = test_roundtrip_noise_with(channels, rectangle);
+        let (pixel_bytes, compressed, decompressed) =
+            test_roundtrip_noise_with(channels, rectangle);
 
         assert_eq!(pixel_bytes.len(), 48);
         assert_eq!(compressed.len(), 48);
@@ -827,9 +826,8 @@ mod test {
             size: Vec2(322, 731),
         };
 
-        let (pixel_bytes,
-             compressed,
-             decompressed) = test_roundtrip_noise_with(channels, rectangle);
+        let (pixel_bytes, compressed, decompressed) =
+            test_roundtrip_noise_with(channels, rectangle);
 
         assert_eq!(pixel_bytes.len(), 1883056);
         assert_eq!(compressed.len(), 1883056);
@@ -854,9 +852,8 @@ mod test {
             size: Vec2(3, 2),
         };
 
-        let (pixel_bytes,
-             compressed,
-             decompressed) = test_roundtrip_noise_with(channels, rectangle);
+        let (pixel_bytes, compressed, decompressed) =
+            test_roundtrip_noise_with(channels, rectangle);
 
         assert_eq!(pixel_bytes.len(), 48);
         assert_eq!(compressed.len(), 48);
@@ -866,7 +863,6 @@ mod test {
 
     #[test]
     fn roundtrip_noise_mix_f32_f16_u32() {
-
         let channels = ChannelList::new(smallvec![
             ChannelDescription {
                 sample_type: SampleType::F32,
@@ -893,9 +889,8 @@ mod test {
             size: Vec2(322, 731),
         };
 
-        let (pixel_bytes,
-             compressed,
-             decompressed) = test_roundtrip_noise_with(channels, rectangle);
+        let (pixel_bytes, compressed, decompressed) =
+            test_roundtrip_noise_with(channels, rectangle);
 
         assert_eq!(pixel_bytes.len(), 2353820);
         assert_eq!(compressed.len(), 2090578);
@@ -904,7 +899,6 @@ mod test {
 
     #[test]
     fn roundtrip_noise_mix_f32_f16_u32_tiny() {
-
         let channels = ChannelList::new(smallvec![
             ChannelDescription {
                 sample_type: SampleType::F32,
@@ -931,9 +925,8 @@ mod test {
             size: Vec2(3, 2),
         };
 
-        let (pixel_bytes,
-             compressed,
-             decompressed) = test_roundtrip_noise_with(channels, rectangle);
+        let (pixel_bytes, compressed, decompressed) =
+            test_roundtrip_noise_with(channels, rectangle);
 
         assert_eq!(pixel_bytes.len(), 60);
         assert_eq!(compressed.len(), 62);
@@ -946,15 +939,25 @@ mod test {
         let path = "/mnt/storage/code/repo/exrs/tests/images/valid/openexr/MultiView/Adjuster.exr";
 
         let read_image = read()
-            .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
+            .no_deep_data()
+            .all_resolution_levels()
+            .all_channels()
+            .all_layers()
+            .all_attributes()
             .non_parallel();
 
         let image = read_image.clone().from_file(path).unwrap();
 
         let mut tmp_bytes = Vec::new();
-        image.write().non_parallel().to_buffered(std::io::Cursor::new(&mut tmp_bytes)).unwrap();
+        image
+            .write()
+            .non_parallel()
+            .to_buffered(std::io::Cursor::new(&mut tmp_bytes))
+            .unwrap();
 
-        let image2 = read_image.from_buffered(std::io::Cursor::new(tmp_bytes)).unwrap();
+        let image2 = read_image
+            .from_buffered(std::io::Cursor::new(tmp_bytes))
+            .unwrap();
 
         image.assert_equals_result(&image2);
     }
