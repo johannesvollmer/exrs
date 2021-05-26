@@ -601,7 +601,7 @@ pub fn compress(
                     let n = x_sample_count - x;
 
                     for i in 0..BLOCK_SAMPLE_COUNT {
-                        let j = min(i, n - 1);
+                        let j = min(i, n - 1) * 2;
 
                         // TODO: Make [u8; 2] to u16 fast.
                         s[i + 0] = u16::from_ne_bytes([tmp[(row0 + j)], tmp[(row0 + j + 1)]]);
@@ -648,7 +648,8 @@ mod test {
     use crate::compression::b44;
     use crate::compression::b44::{convert_from_linear, convert_to_linear};
     use crate::compression::ByteVec;
-    use crate::meta::attribute::*;
+    use crate::image::validate_results::ValidateResult;
+    use crate::meta::attribute::ChannelList;
     use crate::prelude::f16;
     use crate::prelude::*;
 
@@ -937,5 +938,24 @@ mod test {
         assert_eq!(pixel_bytes.len(), 60);
         assert_eq!(compressed.len(), 62);
         assert_eq!(decompressed.len(), 60);
+    }
+
+    #[test]
+    fn border_on_multiview() {
+        // This test is hard to reproduce, so we use the direct image.
+        let path = "/mnt/storage/code/repo/exrs/tests/images/valid/openexr/MultiView/Adjuster.exr";
+
+        let read_image = read()
+            .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
+            .non_parallel();
+
+        let image = read_image.clone().from_file(path).unwrap();
+
+        let mut tmp_bytes = Vec::new();
+        image.write().non_parallel().to_buffered(std::io::Cursor::new(&mut tmp_bytes)).unwrap();
+
+        let image2 = read_image.from_buffered(std::io::Cursor::new(tmp_bytes)).unwrap();
+
+        image.assert_equals_result(&image2);
     }
 }
