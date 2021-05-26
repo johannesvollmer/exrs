@@ -304,7 +304,6 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
         }
 
         while currently_running > 0 {
-            // receiving will fail if a sending thread panicked and is missing, as the sender has hung up
             let decompressed = recv.recv()
                 .expect("all decompressing senders hung up but more messages were expected");
 
@@ -659,7 +658,7 @@ impl<W> ChunksWriter for ChunkWriter<W> where W: Write + Seek {
 
         let chunk_index_slot = &mut header_chunk_indices[index_in_header_increasing_y];
         if *chunk_index_slot != 0 {
-            return Err(Error::invalid("chunk at this index is already written"));
+            return Err(Error::invalid(format!("chunk at index {} is already written", index_in_header_increasing_y)));
         }
 
         *chunk_index_slot = usize_to_u64(self.byte_writer.byte_position());
@@ -676,7 +675,7 @@ impl<W> ChunkWriter<W> where W: Write + Seek {
         let mut write = Tracking::new(buffered_byte_writer);
         let requirements = MetaData::write_validating_to_buffered(&mut write, headers.as_slice(), pedantic)?;
 
-        // TODO: use increasing line order where possible
+        // TODO: use increasing line order where possible, but this requires us to know whether we want to be parallel right now
         /*// if non-parallel compression, we always use increasing order anyways
         if !parallel || !has_compression {
             for header in &mut headers {
@@ -746,7 +745,12 @@ impl<'w, W, F> ChunksWriter for OnProgressChunkWriter<'w, W, F> where W: 'w + Ch
         self.chunk_writer.write_chunk(index_in_header_increasing_y, chunk)?;
 
         self.written_chunks += 1;
-        on_progress(self.written_chunks as f64 / total_chunks as f64); // 1.0 for last block
+
+        on_progress({
+            // guarantee finishing with progress 1.0 for last block at least once, float division might slightly differ from 1.0
+            if self.written_chunks == total_chunks { 1.0 }
+            else { self.written_chunks as f64 / total_chunks as f64 }
+        });
 
         Ok(())
     }
@@ -764,16 +768,16 @@ pub struct BlocksWriter<'w, W> {
 /// Write blocks that appear in any order and reorder them before writing.
 #[derive(Debug)]
 #[must_use]
-pub struct SortedBlocksWriter {
-    pending_chunks: BTreeMap<usize, Chunk>,
+pub struct SortedBlocksWriter<T> {
+    pending_chunks: BTreeMap<usize, T>,
     unwritten_chunk_indices: Peekable<std::ops::Range<usize>>,
 }
 
 
-impl SortedBlocksWriter {
+impl<T> SortedBlocksWriter<T> {
 
     /// New sorting writer. Returns `None` if sorting is not required.
-    pub fn new(total_chunk_count: usize, headers: &[Header]) -> Option<SortedBlocksWriter> {
+    pub fn new(total_chunk_count: usize, headers: &[Header]) -> Option<SortedBlocksWriter<T>> {
         let requires_sorting = headers.iter()
             .any(|header| header.line_order != LineOrder::Unspecified);
 
@@ -789,18 +793,28 @@ impl SortedBlocksWriter {
     }
 
     /// Write the chunk or stash it. In the closure, write all chunks that can be written now.
-    pub fn write_or_stash_chunk(&mut self, chunk_index: usize, compressed_chunk: Chunk, mut write_chunk: impl FnMut(Chunk) -> UnitResult) -> UnitResult {
-        // TODO not insert if happens to be correct?
-        self.pending_chunks.insert(chunk_index, compressed_chunk);
+    pub fn write_or_stash_chunk(&mut self, chunk_index: usize, compressed_chunk: T, mut write_chunk: impl FnMut(T) -> UnitResult) -> UnitResult {
 
-        // TODO return iter instead of calling closure?
-        // write all pending blocks that are immediate successors
-        while let Some(next_chunk) = self
-            .unwritten_chunk_indices.peek().cloned()
-            .and_then(|id| self.pending_chunks.remove(&id))
-        {
-            write_chunk(next_chunk)?;
+        // write this chunk now if possible
+        if self.unwritten_chunk_indices.peek() == Some(&chunk_index){
+            write_chunk(compressed_chunk)?;
             self.unwritten_chunk_indices.next().expect("peeked chunk index missing");
+
+            // write all pending blocks that are immediate successors of this block
+            while let Some(next_chunk) = self
+                .unwritten_chunk_indices.peek().cloned()
+                .and_then(|id| self.pending_chunks.remove(&id))
+            {
+                write_chunk(next_chunk)?;
+                self.unwritten_chunk_indices.next().expect("peeked chunk index missing");
+            }
+        }
+
+        else {
+            // the argument block is not to be written now,
+            // and all the pending blocks are not next up either,
+            // so just stash this block
+            self.pending_chunks.insert(chunk_index, compressed_chunk);
         }
 
         Ok(())
@@ -838,31 +852,44 @@ impl<'w, W> BlocksWriter<'w, W> where W: 'w + ChunksWriter {
     /// Compresses all blocks to the file, using multiple threads.
     /// The index of the block must be in increasing line order.
     /// Obtain iterator with `MetaData::collect_ordered_blocks(...)` or similar methods.
-    pub fn compress_all_blocks_parallel(self, blocks: impl Iterator<Item=(usize, UncompressedBlock)>) -> UnitResult {
-        // do not use parallel procedure for uncompressed images
-        let has_compression = self.meta.headers.iter().any(|header| header.compression != Compression::Uncompressed);
-        if !has_compression || true /*FIXME*/ {
+    pub fn compress_all_blocks_parallel(self, mut blocks: impl Iterator<Item=(usize, UncompressedBlock)>) -> UnitResult {
+        // only the decompression algorithms run in parallel.
+        // if there is no compression, there is no reason to create threads and stuff.
+        if self.meta.headers.iter().all(|header| header.compression == Compression::Uncompressed) {
             return self.compress_all_blocks_sequential(blocks);
         }
 
-        // #[allow(unused)]
-        // let mut remaining_chunks = self.chunks_writer.total_chunks_count() as i64; // used for debug_assert
-        let meta_data_arc = Arc::new(self.meta.clone());
+        let pool = rayon::ThreadPoolBuilder::new()
+            .panic_handler(move |_anything_and_nothing| {
+                eprintln!("OpenEXR compressor thread panicked (maybe a debug assertion failed - use non-parallel compression to see panic messages)");
+                let _ = std::io::stdout().flush();
 
-        let mut sorted_blocks_writer = SortedBlocksWriter::new(
-            self.chunks_writer.total_chunks_count(), &self.meta.headers
-        );
+                panic!(); // abort now. TODO instead, do not recv() block forever (recv_timeout?) maybe send(unwind_catch(decompress))?
+            })
 
-        let pool = rayon::ThreadPoolBuilder::new().build().expect("thread error");
+            // todo no more threads than remaining block count (self.len())
+            .build();
+
+        let pool = if let Ok(pool) = pool { pool } else {
+            return self.compress_all_blocks_sequential(blocks);
+        };
 
         let (send, recv) = std::sync::mpsc::channel(); // TODO crossbeam?
+
+        let chunk_count = self.chunks_writer.total_chunks_count();
+        let meta_data_arc = Arc::new(self.meta.clone());
+        let max_currently_running = pool.current_num_threads().max(1).min(chunk_count) + 2; // ca one block for each thread at all times
         let mut currently_running = 0;
 
+        let mut sorted_blocks_writer = SortedBlocksWriter::new(chunk_count, &self.meta.headers);
+
         for (block_file_index, (block_y_index, block)) in blocks.enumerate() {
-            while currently_running >= 12 {
-                let (chunk_file_index, chunk_y_index, chunk) = recv.recv().expect("thread error")?;
+            while currently_running >= max_currently_running {
+                let (chunk_file_index, chunk_y_index, chunk) = recv.recv()
+                    .expect("all decompressing senders hung up but more messages were expected")?;
+
                 if let Some(ref mut writer) = sorted_blocks_writer {
-                    writer.write_or_stash_chunk(chunk_file_index, chunk, |chunk| {
+                    writer.write_or_stash_chunk(chunk_file_index, (chunk_y_index, chunk), |(chunk_y_index, chunk)| {
                         self.chunks_writer.write_chunk(chunk_y_index, chunk)
                     })?;
                 }
@@ -871,24 +898,25 @@ impl<'w, W> BlocksWriter<'w, W> where W: 'w + ChunksWriter {
                 }
 
                 currently_running -= 1;
-                // remaining_chunks -= 1;
             }
 
             let send = send.clone();
             let meta_data_arc = meta_data_arc.clone();
-
             currently_running += 1;
 
             pool.spawn(move || {
-                let compressed = block.compress_to_chunk(&meta_data_arc.headers);
-                send.send(compressed.map(|compressed| (block_file_index, block_y_index, compressed))).expect("thread error");
+                let compressed_or_err = block.compress_to_chunk(&meta_data_arc.headers);
+                let sent = send.send(compressed_or_err.map(|compressed| (block_file_index, block_y_index, compressed)));
+                if sent.is_err() { eprintln!("decompressing failed in another thread. the decompressed block will not be sent from this thread"); }
             });
         }
 
         while currently_running > 0 {
-            let (chunk_file_index, chunk_y_index, chunk) = recv.recv().expect("thread error")?;
+            let (chunk_file_index, chunk_y_index, chunk) = recv.recv()
+                .expect("all decompressing senders hung up but more messages were expected")?;
+
             if let Some(ref mut writer) = sorted_blocks_writer {
-                writer.write_or_stash_chunk(chunk_file_index, chunk, |chunk| {
+                writer.write_or_stash_chunk(chunk_file_index, (chunk_y_index, chunk), |(chunk_y_index, chunk)| {
                     self.chunks_writer.write_chunk(chunk_y_index, chunk)
                 })?;
             }
@@ -897,14 +925,14 @@ impl<'w, W> BlocksWriter<'w, W> where W: 'w + ChunksWriter {
             }
 
             currently_running -= 1;
-            // remaining_chunks -= 1;
         }
+
+        debug_assert!(recv.try_recv().is_err(), "uncompressed chunks left in channel????"); // FIXME not reliable
 
         if let Some(writer) = sorted_blocks_writer {
             debug_assert_eq!(writer.unwritten_chunk_indices.len(), 0);
         }
 
-        // assert_eq!(remaining_chunks, 0);
         Ok(())
     }
 }
