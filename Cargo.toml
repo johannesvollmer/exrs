@@ -57,7 +57,7 @@ harness = false
 
 # test with fast runtime speed and moderate build speed
 [profile.dev]
-opt-level = 3
+opt-level = 0
 debug = true
 
 # release with fastest runtime speed

@@ -81,7 +81,7 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64) + Send // TODO only if required
     /// Use [`ReadImage::read_from_unbuffered`] instead, if this is not an in-memory reader.
     // TODO Use Parallel<> Wrapper to only require sendable byte source where parallel decompression is required
     #[must_use]
-    pub fn from_buffered<Layers>(mut self, buffered: impl Read + Seek + Send) -> Result<Image<Layers>>
+    pub fn from_buffered<Layers>(self, buffered: impl Read + Seek + Send) -> Result<Image<Layers>>
         where for<'s> L: ReadLayers<'s, Layers = Layers>
     {
         let chunks = crate::block::Reader::read_from_buffered(buffered, self.pedantic)?;

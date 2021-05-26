@@ -50,17 +50,17 @@ fn search_previews_of_all_files() {
 }
 
 #[test]
-#[ignore]
+//#[ignore]
 pub fn test_roundtrip() {
     // works
     // let path = "tests/images/valid/custom/crowskull/crow_piz.exr";
     // let path = "tests/images/valid/custom/crowskull/crow_dwa.exr";
-    // let path = "tests/images/valid/custom/crowskull/crow_zip_half.exr";
+     let path = "tests/images/valid/custom/crowskull/crow_zip_half.exr";
     // let path = "tests/images/valid/openexr/Beachball/multipart.0001.exr";
     // let path = "tests/images/valid/openexr/Tiles/GoldenGate.exr";
     // let path = "tests/images/valid/openexr/v2/Stereo/composited.exr";
     // let path = "tests/images/valid\\custom\\crowskull\\crow_piz.exr";
-    let path = "tests/images/valid\\openexr\\IlmfmlmflmTest\\v1.7.test.1.exr";
+    //let path = "tests/images/valid\\openexr\\IlmfmlmflmTest\\v1.7.test.1.exr";
     // let path = "tests/images/valid/openexr/MultiView/Balls.exr";
     // let path = "tests/images/valid/openexr/MultiResolution/Kapaa.exr"; // rip maps
     // let path = "tests/images/valid/openexr/MultiView/Impact.exr"; // mip maps
@@ -77,15 +77,34 @@ pub fn test_roundtrip() {
     // let path = "tests/images/valid/openexr/v2/Stereo/Ground.exr";
 
     let read_image = read()
-        .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
-        .non_parallel();
+        .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes();
 
     let image = read_image.clone().from_file(path).unwrap();
 
     let mut tmp_bytes = Vec::new();
-    image.write().non_parallel().to_buffered(Cursor::new(&mut tmp_bytes)).unwrap();
+    image.write().to_buffered(Cursor::new(&mut tmp_bytes)).unwrap();
 
     let image2 = read_image.from_buffered(Cursor::new(tmp_bytes)).unwrap();
+
+    image.assert_equals_result(&image2);
+}
+
+#[test]
+fn test_failing_parallel(){
+    let path = "tests/images/valid/custom/crowskull/crow_zip_half.exr";
+
+    let image = read()
+        .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
+        .from_file(path).unwrap();
+
+
+    let mut tmp_bytes = Vec::new();
+    image.write().to_buffered(Cursor::new(&mut tmp_bytes)).unwrap();
+
+    let image2 = read()
+        .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
+        .pedantic()
+        .from_buffered(Cursor::new(tmp_bytes.as_slice())).unwrap();
 
     image.assert_equals_result(&image2);
 }

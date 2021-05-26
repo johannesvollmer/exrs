@@ -7,7 +7,7 @@ pub mod chunk;
 
 use crate::compression::{ByteVec, Compression};
 use crate::math::*;
-use crate::error::{Result, Error, usize_to_i32, UnitResult, u64_to_usize, usize_to_u64};
+use crate::error::{Result, Error, usize_to_i32, UnitResult, u64_to_usize, usize_to_u64, IoError};
 use crate::meta::{MetaData, BlockDescription, OffsetTables, Headers};
 use crate::block::chunk::{Chunk, Block, TileBlock, ScanLineBlock, TileCoordinates};
 use crate::meta::attribute::{LineOrder, ChannelList};
@@ -20,6 +20,8 @@ use crate::block::lines::{LineRef, LineIndex, LineSlice, LineRefMut};
 use smallvec::alloc::sync::Arc;
 use std::iter::Peekable;
 use rayon::{ThreadPool};
+use std::any::Any;
+use std::fmt::Debug;
 
 
 /// Specifies where a block of pixel data should be placed in the actual image.
@@ -248,26 +250,42 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
         debug_assert_eq!(decompressor.len(), 0);
         Ok(())*/
 
+        // only the decompression algorithms run in parallel.
+        // if there is no compression, there is no reason to create threads and stuff.
         if self.meta_data().headers.iter().all(|header| header.compression == Compression::Uncompressed) {
             return self.decompress_sequential(pedantic, insert_block)
         }
 
-        #[allow(unused)]
-        let mut remaining_chunks = self.expected_chunk_count() as i64; // used for debug_assert
+        let pool = rayon::ThreadPoolBuilder::new()
+            .panic_handler(move |_anything_and_nothing| {
+                eprintln!("OpenEXR decompressor thread panicked (maybe a debug assertion failed - use non-parallel decompression to see panic messages)");
+                let _ = std::io::stdout().flush();
+
+                panic!(); // abort now. TODO instead, do not recv() block forever (recv_timeout?) maybe send(unwind_catch(decompress))?
+            })
+
+            // todo no more threads than remaining block count (self.len())
+            .build();
+
+        let pool = if let Ok(pool) = pool { pool } else {
+            return self.decompress_sequential(pedantic, insert_block);
+        };
+
+        let (send, recv) = std::sync::mpsc::channel::<Result<UncompressedBlock>>(); // TODO crossbeam?
 
         let meta_data_arc = Arc::new(self.meta_data().clone());
-
-        let pool = rayon::ThreadPoolBuilder::new().stack_size(1_000_000_000).build().expect("thread error");
-
-        let (send, recv) = std::sync::mpsc::channel(); // TODO crossbeam?
+        let max_currently_running = pool.current_num_threads().max(1).min(self.len()) + 2; // ca one block for each thread at all times
         let mut currently_running = 0;
 
         while let Some(chunk) = self.read_next_chunk() {
-            while currently_running >= 6 {
-                let decompressed = recv.recv().expect("thread error")?;
-                insert_block(self.meta_data(), decompressed)?;
+            let chunk = chunk?; // return errors early, and not later in spawned decompressor thread
+
+            while currently_running >= max_currently_running {
+                let decompressed = recv.recv()
+                    .expect("all decompressing senders hung up but more messages were expected");
+
+                insert_block(self.meta_data(), decompressed?)?;
                 currently_running -= 1;
-                remaining_chunks -= 1;
             }
 
             let send = send.clone();
@@ -275,26 +293,36 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
             currently_running += 1;
 
             pool.spawn(move || {
-                let decompressed = chunk.and_then(|chunk| UncompressedBlock::decompress_chunk(chunk, &meta_data_arc, pedantic));
-                send.send(decompressed).expect("thread error");
+                let decompressed_or_err = // std::panic::catch_unwind(move ||{
+                    UncompressedBlock::decompress_chunk(chunk, &meta_data_arc, pedantic)
+                // })
+                ;
+
+                let sent = send.send(decompressed_or_err);
+                if sent.is_err() { eprintln!("decompressing failed in another thread. the decompressed block will not be sent from this thread"); }
             });
         }
 
         while currently_running > 0 {
-            let decompressed = recv.recv().expect("thread error")?;
-            insert_block(self.meta_data(), decompressed)?;
+            // receiving will fail if a sending thread panicked and is missing, as the sender has hung up
+            let decompressed = recv.recv()
+                .expect("all decompressing senders hung up but more messages were expected");
+
+            insert_block(self.meta_data(), decompressed?)?;
             currently_running -= 1;
-            remaining_chunks -= 1;
         }
 
-        assert_eq!(remaining_chunks, 0);
+        debug_assert!(recv.try_recv().is_err(), "uncompressed chunks left in channel????"); // FIXME not reliable
+        assert_eq!(self.len(), 0);
         Ok(())
     }
 
     /*/// Return an iterator that decompresses all chunks with multiple threads.
     /// Use `ParallelBlockDecompressor::new` if you want to use your own thread pool.
     /// By default, this uses as many threads as there are CPUs.
-    fn parallel_decompressor(self, pedantic: bool) -> ParallelBlockDecompressor<Self> {
+    /// Returns `None` if the sequential compressor should be used
+    /// (due to thread pool errors or no need for parallel decompression).
+    fn parallel_decompressor(self, pedantic: bool) -> Option<ParallelBlockDecompressor<Self>> {
         let pool = ThreadPoolBuilder::new().build().expect("thread error");
         ParallelBlockDecompressor::new(self, pedantic, pool)
     }*/
