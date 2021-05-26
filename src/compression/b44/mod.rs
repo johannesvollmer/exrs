@@ -481,8 +481,6 @@ pub fn compress(
         return Ok(Vec::new());
     }
 
-    let mut tmp = vec![0_u8; uncompressed.len()];
-
     let mut channel_data = Vec::new();
 
     let mut tmp_end_index = 0;
@@ -505,6 +503,8 @@ pub fn compress(
         tmp_end_index += byte_count;
         channel_data.push(channel);
     }
+
+    let mut tmp = vec![0_u8; uncompressed.len()];
 
     debug_assert_eq!(tmp_end_index, tmp.len());
 
