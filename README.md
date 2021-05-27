@@ -50,7 +50,7 @@ __Currently supported:__
         - [x] rle (lossless)
         - [x] piz (lossless)
         - [x] pxr24 (lossless for f16 and u32)
-        - [ ] b44, b44a
+        - [x] b44, b44a
         - [ ] dwaa, dwab
 
 - Nice Things

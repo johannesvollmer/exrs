@@ -2090,15 +2090,15 @@ mod test {
         let mut rng = thread_rng();
 
         let codes = std::iter::repeat_with(|| TimeCode {
-            hours: rng.gen_range(0, 24),
-            minutes: rng.gen_range(0, 60),
-            seconds: rng.gen_range(0, 60),
-            frame: rng.gen_range(0, 29),
+            hours: rng.gen_range(0 .. 24),
+            minutes: rng.gen_range(0 .. 60),
+            seconds: rng.gen_range(0 .. 60),
+            frame: rng.gen_range(0 .. 29),
             drop_frame: random(),
             color_frame: random(),
             field_phase: random(),
             binary_group_flags: [random(),random(),random()],
-            binary_groups: std::iter::repeat_with(|| rng.gen_range(0,16)).take(8)
+            binary_groups: std::iter::repeat_with(|| rng.gen_range(0 .. 16)).take(8)
                 .collect::<SmallVec<[u8;8]>>().into_inner().unwrap()
         });
 

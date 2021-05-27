@@ -921,7 +921,7 @@ mod test {
         let mut data = vec![0_u16; size];
 
         data.iter_mut().for_each(|v| {
-            *v = rng.gen_range(0_u16, u16::MAX);
+            *v = rng.gen_range(0_u16 .. u16::MAX);
         });
 
         data
