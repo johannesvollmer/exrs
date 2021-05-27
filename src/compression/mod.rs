@@ -83,7 +83,7 @@ pub enum Compression {
     PXR24, // TODO specify zip compression level?
 
     /// This is a lossy compression method for f16 images.
-    /// This is the predecessor of the `B44A` compression,
+    /// It's the predecessor of the `B44A` compression,
     /// which has improved compression rates for uniformly colored areas.
     /// You should probably use `B44A` instead of the plain `B44`.
     ///
