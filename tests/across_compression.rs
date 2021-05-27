@@ -11,7 +11,6 @@ fn expect_eq_other(sub_dir: &str, image_name: &str, expected_image: &str) {
         .expect("uncompressed image could not be loaded");
 
     let path = dir.join(sub_dir).join(image_name);
-    print!("{}/{}: ", sub_dir, image_name);
 
     match read_first_flat_layer_from_file(path) {
         Err(Error::NotSupported(message)) => println!("skipping ({})", message),
