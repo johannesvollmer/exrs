@@ -298,14 +298,16 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
                 // })
                 ;
 
-                let sent = send.send(decompressed_or_err);
-                if sent.is_err() { eprintln!("decompressing failed in another thread. the decompressed block will not be sent from this thread"); }
+                // by now, decompressing could have failed in another thread.
+                // the error is then already handled, so we simply
+                // don't send the decompressed block and do nothing
+                let _ = send.send(decompressed_or_err);
             });
         }
 
         while currently_running > 0 {
             let decompressed = recv.recv()
-                .expect("all decompressing senders hung up but more messages were expected");
+                .expect("all decompressing senders hung up but more messages were expected"); // TODO shouldn't this panic when any block failed to send?
 
             insert_block(self.meta_data(), decompressed?)?;
             currently_running -= 1;
@@ -906,8 +908,11 @@ impl<'w, W> BlocksWriter<'w, W> where W: 'w + ChunksWriter {
 
             pool.spawn(move || {
                 let compressed_or_err = block.compress_to_chunk(&meta_data_arc.headers);
-                let sent = send.send(compressed_or_err.map(|compressed| (block_file_index, block_y_index, compressed)));
-                if sent.is_err() { eprintln!("decompressing failed in another thread. the decompressed block will not be sent from this thread"); }
+
+                // by now, decompressing could have failed in another thread.
+                // the error is then already handled, so we simply
+                // don't send the decompressed block and do nothing
+                let _ = send.send(compressed_or_err.map(|compressed| (block_file_index, block_y_index, compressed)));
             });
         }
 
