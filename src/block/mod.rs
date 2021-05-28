@@ -19,9 +19,10 @@ use crate::meta::header::Header;
 use crate::block::lines::{LineRef, LineIndex, LineSlice, LineRefMut};
 use smallvec::alloc::sync::Arc;
 use std::iter::Peekable;
-use rayon::{ThreadPool};
+use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::any::Any;
 use std::fmt::Debug;
+use std::ops::Not;
 
 
 /// Specifies where a block of pixel data should be placed in the actual image.
@@ -235,27 +236,34 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
     }
 
     /// Decompress all blocks in the file, using multiple cpu cores, and call the supplied closure for each block.
-    /// The order of the blocks may vary.
+    /// The order of the blocks is not deterministic.
+    /// You can also use `parallel_decompressor` to obtain an iterator instead.
     // FIXME try async + futures instead of rayon! Maybe even allows for external async decoding? (-> impl Stream<UncompressedBlock>)
     fn decompress_parallel(
         mut self, pedantic: bool,
         mut insert_block: impl FnMut(&MetaData, UncompressedBlock) -> UnitResult
     ) -> UnitResult
     {
-        /*let mut decompressor = self.parallel_decompressor(pedantic);
+        let mut decompressor = match self.parallel_decompressor(pedantic) {
+            Err(old_self) => return old_self.decompress_sequential(pedantic, insert_block),
+            Ok(decompressor) => decompressor,
+        };
+
         while let Some(block) = decompressor.next() {
             insert_block(decompressor.meta_data(), block?)?;
         }
 
         debug_assert_eq!(decompressor.len(), 0);
-        Ok(())*/
+        Ok(())
+    }
 
-        // only the decompression algorithms run in parallel.
-        // if there is no compression, there is no reason to create threads and stuff.
-        if self.meta_data().headers.iter().all(|header| header.compression == Compression::Uncompressed) {
-            return self.decompress_sequential(pedantic, insert_block)
-        }
-
+    /// Return an iterator that decompresses the chunks with multiple threads.
+    /// The order of the blocks is not deterministic.
+    /// Use `ParallelBlockDecompressor::new` if you want to use your own thread pool.
+    /// By default, this uses as many threads as there are CPUs.
+    /// Returns the `self` if the sequential compressor should be used
+    /// (due to thread pool errors or no need for parallel decompression).
+    fn parallel_decompressor(self, pedantic: bool) -> std::result::Result<ParallelBlockDecompressor<Self>, Self> {
         let pool = rayon::ThreadPoolBuilder::new()
             .panic_handler(move |_anything_and_nothing| {
                 eprintln!("OpenEXR decompressor thread panicked (maybe a debug assertion failed - use non-parallel decompression to see panic messages)");
@@ -267,67 +275,15 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
             // todo no more threads than remaining block count (self.len())
             .build();
 
-        let pool = if let Ok(pool) = pool { pool } else {
-            return self.decompress_sequential(pedantic, insert_block);
+        let pool = match pool {
+            Ok(pool) => pool,
+            Err(_) => return Err(self),
         };
 
-        let (send, recv) = std::sync::mpsc::channel::<Result<UncompressedBlock>>(); // TODO crossbeam?
-
-        let meta_data_arc = Arc::new(self.meta_data().clone());
-        let max_currently_running = pool.current_num_threads().max(1).min(self.len()) + 2; // ca one block for each thread at all times
-        let mut currently_running = 0;
-
-        while let Some(chunk) = self.read_next_chunk() {
-            let chunk = chunk?; // return errors early, and not later in spawned decompressor thread
-
-            while currently_running >= max_currently_running {
-                let decompressed = recv.recv()
-                    .expect("all decompressing senders hung up but more messages were expected");
-
-                insert_block(self.meta_data(), decompressed?)?;
-                currently_running -= 1;
-            }
-
-            let send = send.clone();
-            let meta_data_arc = meta_data_arc.clone();
-            currently_running += 1;
-
-            pool.spawn(move || {
-                let decompressed_or_err = // std::panic::catch_unwind(move ||{
-                    UncompressedBlock::decompress_chunk(chunk, &meta_data_arc, pedantic)
-                // })
-                ;
-
-                // by now, decompressing could have failed in another thread.
-                // the error is then already handled, so we simply
-                // don't send the decompressed block and do nothing
-                let _ = send.send(decompressed_or_err);
-            });
-        }
-
-        while currently_running > 0 {
-            let decompressed = recv.recv()
-                .expect("all decompressing senders hung up but more messages were expected"); // TODO shouldn't this panic when any block failed to send?
-
-            insert_block(self.meta_data(), decompressed?)?;
-            currently_running -= 1;
-        }
-
-        debug_assert!(recv.try_recv().is_err(), "uncompressed chunks left in channel????"); // FIXME not reliable
-        assert_eq!(self.len(), 0);
-        Ok(())
+        ParallelBlockDecompressor::new(self, pedantic, pool)
     }
 
-    /*/// Return an iterator that decompresses all chunks with multiple threads.
-    /// Use `ParallelBlockDecompressor::new` if you want to use your own thread pool.
-    /// By default, this uses as many threads as there are CPUs.
-    /// Returns `None` if the sequential compressor should be used
-    /// (due to thread pool errors or no need for parallel decompression).
-    fn parallel_decompressor(self, pedantic: bool) -> Option<ParallelBlockDecompressor<Self>> {
-        let pool = ThreadPoolBuilder::new().build().expect("thread error");
-        ParallelBlockDecompressor::new(self, pedantic, pool)
-    }*/
-
+    /// Return an iterator that decompresses the chunks in this thread.
     /// You can alternatively use `sequential_decompressor` if you prefer an external iterator.
     fn decompress_sequential(
         self, pedantic: bool,
@@ -467,10 +423,7 @@ pub struct ParallelBlockDecompressor<R: ChunksReader> {
     sender: std::sync::mpsc::Sender<Result<UncompressedBlock>>,
     receiver: std::sync::mpsc::Receiver<Result<UncompressedBlock>>,
     currently_decompressing_count: usize,
-
-    // /// Number of blocks that have been returned
-    // required for size hint, must be independent of internal chunk iterator
-    //remaining_chunk_count: usize,
+    max_threads: usize,
 
     shared_meta_data_ref: Arc<MetaData>,
     pedantic: bool,
@@ -482,28 +435,35 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
 
     /// Create a new decompressor. Does not immediately spawn any tasks.
     /// Decompression starts after the first call to `next`.
-    pub fn new(chunks: R, pedantic: bool, pool: ThreadPool) -> Self {
+    /// Returns the chunks if parallel decompression should not be used.
+    pub fn new(chunks: R, pedantic: bool, pool: ThreadPool) -> std::result::Result<Self, R> {
+        if chunks.meta_data().headers.iter()
+            .all(|head|head.compression == Compression::Uncompressed)
+        {
+            return Err(chunks);
+        }
+
+        let max_threads = pool.current_num_threads().max(1).min(chunks.len()) + 2; // ca one block for each thread at all times
+
         let (send, recv) = std::sync::mpsc::channel(); // TODO crossbeam
-        Self {
+        Ok(Self {
             shared_meta_data_ref: Arc::new(chunks.meta_data().clone()),
-            // remaining_chunk_count: chunks.expected_chunk_count(),
             currently_decompressing_count: 0,
             remaining_chunks: chunks,
             sender: send,
             receiver: recv,
             pedantic,
+            max_threads,
 
             pool,
-        }
+        })
     }
 
     /// Fill the pool with decompression jobs. Returns the first job that finishes.
     pub fn decompress_next_block(&mut self) -> Option<Result<UncompressedBlock>> {
         // if self.remaining_chunk_count == 0 { return None; }
 
-        let max_parallel_blocks = 4; // TODO num cpu cores?
-
-        while self.currently_decompressing_count < max_parallel_blocks {
+        while self.currently_decompressing_count < self.max_threads {
             let block = self.remaining_chunks.next();
             if let Some(block) = block {
                 let block = match block {
@@ -519,7 +479,7 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
                     if self.remaining_chunk_count > 0 {
                         let next = self.remaining_chunks.next();
                         if next.is_some() { self.remaining_chunk_count -= 1; }
-                        return next;
+                        return UncompressedBlock::decompress(next, headers); // no actual compression, as data is uncompressed
                     }
                 }*/
 
@@ -531,8 +491,14 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
                 self.currently_decompressing_count += 1;
 
                 self.pool.spawn(move || {
-                    sender.send(UncompressedBlock::decompress_chunk(block, &meta, pedantic))
-                        .expect("thread error");
+                    let decompressed_or_err = UncompressedBlock::decompress_chunk(
+                        block, &meta, pedantic
+                    );
+
+                    // by now, decompressing could have failed in another thread.
+                    // the error is then already handled, so we simply
+                    // don't send the decompressed block and do nothing
+                    let _ = sender.send(decompressed_or_err);
                 });
             }
             else {
@@ -542,12 +508,15 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
         }
 
         if self.currently_decompressing_count > 0 {
-            let next = self.receiver.recv().expect("thread error");
+            let next = self.receiver.recv()
+                .expect("all decompressing senders hung up but more messages were expected");
+
             self.currently_decompressing_count -= 1;
-            // self.remaining_chunk_count -= 1;
             Some(next)
         }
         else {
+            debug_assert!(self.receiver.try_recv().is_err(), "uncompressed chunks left in channel after decompressing all chunks"); // TODO not reliable
+            debug_assert_eq!(self.len(), 0, "compressed chunks left after decompressing all chunks");
             None
         }
     }
@@ -569,7 +538,6 @@ impl<R: ChunksReader> Iterator for ParallelBlockDecompressor<R> {
     fn next(&mut self) -> Option<Self::Item> { self.decompress_next_block() }
     fn size_hint(&self) -> (usize, Option<usize>) {
         let remaining = self.remaining_chunks.len() + self.currently_decompressing_count;
-        // self.remaining_chunks.expected_chunk_count() - self.remaining_chunk_count;
         (remaining, Some(remaining))
     }
 }
@@ -636,8 +604,59 @@ pub trait ChunksWriter: Sized {
     }
 
     /// Obtain a new writer that can compress blocks to chunks, which are then passed to this writer.
-    fn as_blocks_writer<'w>(&'w mut self, meta: &'w MetaData) -> BlocksWriter<'w, Self> {
-        BlocksWriter::new(meta, self)
+    fn sequential_blocks_compressor<'w>(&'w mut self, meta: &'w MetaData) -> SequentialBlocksCompressor<'w, Self> {
+        SequentialBlocksCompressor::new(meta, self)
+    }
+
+    /// Obtain a new writer that can compress blocks to chunks on multiple threads, which are then passed to this writer.
+    /// Returns none if the sequential compressor should be used instead (thread pool creation failure or too large performance overhead).
+    fn parallel_blocks_compressor<'w>(&'w mut self, meta: &'w MetaData) -> Option<ParallelBlocksCompressor<'w, Self>> {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .panic_handler(move |_anything_and_nothing| {
+                eprintln!("OpenEXR decompressor thread panicked (maybe a debug assertion failed - use non-parallel decompression to see panic messages)");
+                let _ = std::io::stdout().flush();
+
+                panic!(); // abort now. TODO instead, do not recv() block forever (recv_timeout?) maybe send(unwind_catch(decompress))?
+            })
+
+            // todo no more threads than remaining block count (self.len())
+            .build()
+            .ok()?;
+
+        ParallelBlocksCompressor::new(meta, self, pool)
+    }
+
+    /// Compresses all blocks to the file.
+    /// The index of the block must be in increasing line order within the header.
+    /// Obtain iterator with `MetaData::collect_ordered_blocks(...)` or similar methods.
+    fn compress_all_blocks_sequential(mut self, meta: &MetaData, blocks: impl Iterator<Item=(usize, UncompressedBlock)>) -> UnitResult {
+        let mut writer = self.sequential_blocks_compressor(meta);
+
+        // TODO check block order if line order is not unspecified!
+        for (index_in_header_increasing_y, block) in blocks {
+            writer.compress_block(index_in_header_increasing_y, block)?;
+        }
+
+        // TODO debug_assert_eq!(self.is_complete());
+        Ok(())
+    }
+
+    /// Compresses all blocks to the file.
+    /// The index of the block must be in increasing line order within the header.
+    /// Obtain iterator with `MetaData::collect_ordered_blocks(...)` or similar methods.
+    fn compress_all_blocks_parallel(mut self, meta: &MetaData, blocks: impl Iterator<Item=(usize, UncompressedBlock)>) -> UnitResult {
+        let mut parallel_writer = match self.parallel_blocks_compressor(meta) {
+            None => return self.compress_all_blocks_sequential(meta, blocks),
+            Some(writer) => writer,
+        };
+
+        // TODO check block order if line order is not unspecified!
+        for (index_in_header_increasing_y, block) in blocks {
+            parallel_writer.add_block_to_compression_queue(index_in_header_increasing_y, block)?;
+        }
+
+        // TODO debug_assert_eq!(self.is_complete());
+        Ok(())
     }
 }
 
@@ -759,56 +778,52 @@ impl<'w, W, F> ChunksWriter for OnProgressChunkWriter<'w, W, F> where W: 'w + Ch
 }
 
 
-/// Compress blocks to a chunk writer.
-#[derive(Debug)]
-#[must_use]
-pub struct BlocksWriter<'w, W> {
-    meta: &'w MetaData,
-    chunks_writer: &'w mut W,
-}
-
 /// Write blocks that appear in any order and reorder them before writing.
 #[derive(Debug)]
 #[must_use]
-pub struct SortedBlocksWriter<T> {
-    pending_chunks: BTreeMap<usize, T>,
+pub struct SortedBlocksWriter<'w, W> {
+    chunk_writer: &'w mut W,
+    pending_chunks: BTreeMap<usize, (usize, Chunk)>,
     unwritten_chunk_indices: Peekable<std::ops::Range<usize>>,
+    requires_sorting: bool, // using this instead of Option, because of borrowing
 }
 
 
-impl<T> SortedBlocksWriter<T> {
+impl<'w, W> SortedBlocksWriter<'w, W> where W: ChunksWriter {
 
     /// New sorting writer. Returns `None` if sorting is not required.
-    pub fn new(total_chunk_count: usize, headers: &[Header]) -> Option<SortedBlocksWriter<T>> {
-        let requires_sorting = headers.iter()
+    pub fn new(meta_data: &MetaData, chunk_writer: &'w mut W) -> SortedBlocksWriter<'w, W> {
+        let requires_sorting = meta_data.headers.iter()
             .any(|header| header.line_order != LineOrder::Unspecified);
 
-        if requires_sorting {
-            Some(SortedBlocksWriter {
-                pending_chunks: BTreeMap::new(),
-                unwritten_chunk_indices: (0 .. total_chunk_count).peekable(),
-            })
-        }
-        else {
-            None
+        let total_chunk_count = chunk_writer.total_chunks_count();
+
+        SortedBlocksWriter {
+            pending_chunks: BTreeMap::new(),
+            unwritten_chunk_indices: (0 .. total_chunk_count).peekable(),
+            requires_sorting,
+            chunk_writer
         }
     }
 
     /// Write the chunk or stash it. In the closure, write all chunks that can be written now.
-    pub fn write_or_stash_chunk(&mut self, chunk_index: usize, compressed_chunk: T, mut write_chunk: impl FnMut(T) -> UnitResult) -> UnitResult {
+    pub fn write_or_stash_chunk(&mut self, chunk_index_in_file: usize, chunk_y_index: usize, chunk: Chunk) -> UnitResult {
+        if self.requires_sorting.not() {
+            return self.chunk_writer.write_chunk(chunk_y_index, chunk);
+        }
 
         // write this chunk now if possible
-        if self.unwritten_chunk_indices.peek() == Some(&chunk_index){
-            write_chunk(compressed_chunk)?;
-            self.unwritten_chunk_indices.next().expect("peeked chunk index missing");
+        if self.unwritten_chunk_indices.peek() == Some(&chunk_index_in_file){
+            self.chunk_writer.write_chunk(chunk_y_index, chunk)?;
+            self.unwritten_chunk_indices.next().expect("peeked chunk index is missing");
 
             // write all pending blocks that are immediate successors of this block
-            while let Some(next_chunk) = self
+            while let Some((next_chunk_y_index, next_chunk)) = self
                 .unwritten_chunk_indices.peek().cloned()
                 .and_then(|id| self.pending_chunks.remove(&id))
             {
-                write_chunk(next_chunk)?;
-                self.unwritten_chunk_indices.next().expect("peeked chunk index missing");
+                self.chunk_writer.write_chunk(next_chunk_y_index, next_chunk)?;
+                self.unwritten_chunk_indices.next().expect("peeked chunk index is missing");
             }
         }
 
@@ -816,14 +831,28 @@ impl<T> SortedBlocksWriter<T> {
             // the argument block is not to be written now,
             // and all the pending blocks are not next up either,
             // so just stash this block
-            self.pending_chunks.insert(chunk_index, compressed_chunk);
+            self.pending_chunks.insert(chunk_index_in_file, (chunk_y_index, chunk));
         }
 
         Ok(())
     }
+
+    pub fn inner_chunks_writer(&self) -> &W {
+        &self.chunk_writer
+    }
 }
 
-impl<'w, W> BlocksWriter<'w, W> where W: 'w + ChunksWriter {
+
+
+/// Compress blocks to a chunk writer in this thread.
+#[derive(Debug)]
+#[must_use]
+pub struct SequentialBlocksCompressor<'w, W> {
+    meta: &'w MetaData,
+    chunks_writer: &'w mut W,
+}
+
+impl<'w, W> SequentialBlocksCompressor<'w, W> where W: 'w + ChunksWriter {
 
     /// New blocks writer.
     pub fn new(meta: &'w MetaData, chunks_writer: &'w mut W) -> Self { Self { meta, chunks_writer, } }
@@ -832,110 +861,117 @@ impl<'w, W> BlocksWriter<'w, W> where W: 'w + ChunksWriter {
     pub fn inner_chunks_writer(&'w self) -> &'w W { self.chunks_writer }
 
     /// Compress a single block immediately. The index of the block must be in increasing line order.
-    fn compress_block(&mut self, index_in_header_increasing_y: usize, block: UncompressedBlock) -> UnitResult {
+    pub fn compress_block(&mut self, index_in_header_increasing_y: usize, block: UncompressedBlock) -> UnitResult {
         self.chunks_writer.write_chunk(
             index_in_header_increasing_y,
             block.compress_to_chunk(&self.meta.headers)?
         )
     }
+}
 
-    /// Compresses all blocks to the file.
-    /// The index of the block must be in increasing line order.
-    /// Obtain iterator with `MetaData::collect_ordered_blocks(...)` or similar methods.
-    pub fn compress_all_blocks_sequential(mut self, blocks: impl Iterator<Item=(usize, UncompressedBlock)>) -> UnitResult {
-        // TODO check block order if line order is not unspecified!
-        for (index_in_header_increasing_y, block) in blocks {
-            self.compress_block(index_in_header_increasing_y, block)?;
+/// Compress blocks to a chunk writer with multiple threads.
+#[derive(Debug)]
+#[must_use]
+pub struct ParallelBlocksCompressor<'w, W> {
+    meta: &'w MetaData,
+    sorted_writer: SortedBlocksWriter<'w, W>,
+
+    sender: std::sync::mpsc::Sender<Result<(usize, usize, Chunk)>>,
+    receiver: std::sync::mpsc::Receiver<Result<(usize, usize, Chunk)>>,
+    shared_meta_data_ref: Arc<MetaData>,
+    pool: rayon::ThreadPool,
+
+    currently_compressing_count: usize,
+    written_chunk_count: usize, // used to check for last chunk
+    max_threads: usize,
+    next_incoming_chunk_index: usize, // used to remember original chunk order
+}
+
+impl<'w, W> ParallelBlocksCompressor<'w, W> where W: 'w + ChunksWriter {
+
+    /// New blocks writer. Returns none if sequential compression should be used.
+    pub fn new(meta: &'w MetaData, chunks_writer: &'w mut W, pool: ThreadPool) -> Option<Self> {
+        if meta.headers.iter().all(|head|head.compression == Compression::Uncompressed) {
+            return None;
         }
 
+        let max_threads = pool.current_num_threads().max(1).min(chunks_writer.total_chunks_count()) + 2; // ca one block for each thread at all times
+        let (send, recv) = std::sync::mpsc::channel(); // TODO crossbeam
+
+        Some(Self {
+            sorted_writer: SortedBlocksWriter::new(meta, chunks_writer),
+            shared_meta_data_ref: Arc::new(meta.clone()),
+            next_incoming_chunk_index: 0,
+            currently_compressing_count: 0,
+            written_chunk_count: 0,
+            sender: send,
+            receiver: recv,
+            max_threads,
+            pool,
+            meta,
+        })
+    }
+
+    /// This is where the compressed blocks are written to.
+    pub fn inner_chunks_writer(&'w self) -> &'w W { self.sorted_writer.inner_chunks_writer() }
+
+    // private, as may underflow counter in release mode
+    fn write_next_decompressed_chunk(&mut self) -> UnitResult {
+        debug_assert!(self.currently_compressing_count > 0);
+
+        let some_compressed_chunk = self.receiver.recv()
+            .expect("cannot receive compressed block");
+
+        self.currently_compressing_count -= 1;
+        let (chunk_file_index, chunk_y_index, chunk) = some_compressed_chunk?;
+        self.sorted_writer.write_or_stash_chunk(chunk_file_index, chunk_y_index, chunk)?;
+
+        self.written_chunk_count += 1;
         Ok(())
     }
 
-    /// Compresses all blocks to the file, using multiple threads.
-    /// The index of the block must be in increasing line order.
-    /// Obtain iterator with `MetaData::collect_ordered_blocks(...)` or similar methods.
-    pub fn compress_all_blocks_parallel(self, mut blocks: impl Iterator<Item=(usize, UncompressedBlock)>) -> UnitResult {
-        // only the decompression algorithms run in parallel.
-        // if there is no compression, there is no reason to create threads and stuff.
-        if self.meta.headers.iter().all(|header| header.compression == Compression::Uncompressed) {
-            return self.compress_all_blocks_sequential(blocks);
+    /// Wait until all currently compressing chunks in the compressor have been written.
+    pub fn write_all_decompressing_chunks(&mut self) -> UnitResult {
+        while self.currently_compressing_count > 0 {
+            self.write_next_decompressed_chunk()?;
         }
 
-        let pool = rayon::ThreadPoolBuilder::new()
-            .panic_handler(move |_anything_and_nothing| {
-                eprintln!("OpenEXR compressor thread panicked (maybe a debug assertion failed - use non-parallel compression to see panic messages)");
-                let _ = std::io::stdout().flush();
+        debug_assert_eq!(self.currently_compressing_count, 0);
+        Ok(())
+    }
 
-                panic!(); // abort now. TODO instead, do not recv() block forever (recv_timeout?) maybe send(unwind_catch(decompress))?
-            })
+    /// Add a single block to the compressor queue. The index of the block must be in increasing line order.
+    /// When calling this function for the last block, this method waits until all the blocks have been written.
+    /// This only works when you write as many blocks as the image expects, otherwise you can use `wait_for_all_remaining_chunks`.
+    /// Waits for a block from the queue to be written, if the queue already has enough items.
+    pub fn add_block_to_compression_queue(&mut self, index_in_header_increasing_y: usize, block: UncompressedBlock) -> UnitResult {
 
-            // todo no more threads than remaining block count (self.len())
-            .build();
-
-        let pool = if let Ok(pool) = pool { pool } else {
-            return self.compress_all_blocks_sequential(blocks);
-        };
-
-        let (send, recv) = std::sync::mpsc::channel(); // TODO crossbeam?
-
-        let chunk_count = self.chunks_writer.total_chunks_count();
-        let meta_data_arc = Arc::new(self.meta.clone());
-        let max_currently_running = pool.current_num_threads().max(1).min(chunk_count) + 2; // ca one block for each thread at all times
-        let mut currently_running = 0;
-
-        let mut sorted_blocks_writer = SortedBlocksWriter::new(chunk_count, &self.meta.headers);
-
-        for (block_file_index, (block_y_index, block)) in blocks.enumerate() {
-            while currently_running >= max_currently_running {
-                let (chunk_file_index, chunk_y_index, chunk) = recv.recv()
-                    .expect("all decompressing senders hung up but more messages were expected")?;
-
-                if let Some(ref mut writer) = sorted_blocks_writer {
-                    writer.write_or_stash_chunk(chunk_file_index, (chunk_y_index, chunk), |(chunk_y_index, chunk)| {
-                        self.chunks_writer.write_chunk(chunk_y_index, chunk)
-                    })?;
-                }
-                else {
-                    self.chunks_writer.write_chunk(chunk_y_index, chunk)?;
-                }
-
-                currently_running -= 1;
-            }
-
-            let send = send.clone();
-            let meta_data_arc = meta_data_arc.clone();
-            currently_running += 1;
-
-            pool.spawn(move || {
-                let compressed_or_err = block.compress_to_chunk(&meta_data_arc.headers);
-
-                // by now, decompressing could have failed in another thread.
-                // the error is then already handled, so we simply
-                // don't send the decompressed block and do nothing
-                let _ = send.send(compressed_or_err.map(|compressed| (block_file_index, block_y_index, compressed)));
-            });
+        // if pipe is full, block to wait for a slot to free up
+        if self.currently_compressing_count >= self.max_threads {
+            self.write_next_decompressed_chunk()?;
         }
 
-        while currently_running > 0 {
-            let (chunk_file_index, chunk_y_index, chunk) = recv.recv()
-                .expect("all decompressing senders hung up but more messages were expected")?;
+        // add the argument chunk to the compression queueue
+        let index_in_file = self.next_incoming_chunk_index;
+        let sender = self.sender.clone();
+        let meta = self.meta.clone();
 
-            if let Some(ref mut writer) = sorted_blocks_writer {
-                writer.write_or_stash_chunk(chunk_file_index, (chunk_y_index, chunk), |(chunk_y_index, chunk)| {
-                    self.chunks_writer.write_chunk(chunk_y_index, chunk)
-                })?;
-            }
-            else {
-                self.chunks_writer.write_chunk(chunk_y_index, chunk)?;
-            }
+        self.pool.spawn(move ||{
+            let compressed_or_err = block.compress_to_chunk(&meta.headers);
 
-            currently_running -= 1;
-        }
+            // by now, decompressing could have failed in another thread.
+            // the error is then already handled, so we simply
+            // don't send the decompressed block and do nothing
+            let _ = sender.send(compressed_or_err.map(move |compressed| (index_in_file, index_in_header_increasing_y, compressed)));
+        });
 
-        debug_assert!(recv.try_recv().is_err(), "uncompressed chunks left in channel????"); // FIXME not reliable
+        self.currently_compressing_count += 1;
+        self.next_incoming_chunk_index += 1;
 
-        if let Some(writer) = sorted_blocks_writer {
-            debug_assert_eq!(writer.unwritten_chunk_indices.len(), 0);
+        // if this is the last chunk, wait for all chunks to complete before returning
+        if self.written_chunk_count + self.currently_compressing_count == self.inner_chunks_writer().total_chunks_count() {
+            self.write_all_decompressing_chunks()?;
+            debug_assert_eq!(self.written_chunk_count, self.inner_chunks_writer().total_chunks_count());
         }
 
         Ok(())

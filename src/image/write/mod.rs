@@ -155,7 +155,9 @@ impl<'img, Layers, OnProgress> WriteImageWithOptions<'img, Layers, OnProgress>
                 );
 
                 let mut chunk_writer = chunk_writer.on_progress(self.on_progress);
-                let blocks_writer = chunk_writer.as_blocks_writer(&meta);
+                if self.parallel { chunk_writer.compress_all_blocks_parallel(&meta, blocks)?; }
+                else { chunk_writer.compress_all_blocks_sequential(&meta, blocks)?; }
+                /*let blocks_writer = chunk_writer.as_blocks_writer(&meta);
 
                 // TODO propagate send requirement further upwards
                 if self.parallel {
@@ -163,7 +165,7 @@ impl<'img, Layers, OnProgress> WriteImageWithOptions<'img, Layers, OnProgress>
                 }
                 else {
                     blocks_writer.compress_all_blocks_sequential(blocks)?;
-                }
+                }*/
 
                 Ok(())
             }

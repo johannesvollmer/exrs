@@ -22,7 +22,7 @@ pub struct ReadImage<OnProgress, ReadLayers> {
     parallel: bool,
 }
 
-impl<F, L> ReadImage<F, L> where F: FnMut(f64) + Send // TODO only if required
+impl<F, L> ReadImage<F, L> where F: FnMut(f64) // TODO only if required
 {
     /// Uses relaxed error handling and parallel decompression.
     pub fn new(read_layers: L, on_progress: F) -> Self {
@@ -70,7 +70,7 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64) + Send // TODO only if required
     /// Use [`ReadImage::read_from_file`] instead, if you have a file path.
     #[inline]
     #[must_use]
-    pub fn from_unbuffered<Layers>(self, unbuffered: impl Read + Seek + Send) -> Result<Image<Layers>>
+    pub fn from_unbuffered<Layers>(self, unbuffered: impl Read + Seek) -> Result<Image<Layers>>
         where for<'s> L: ReadLayers<'s, Layers = Layers>
     {
         self.from_buffered(BufReader::new(unbuffered))
@@ -81,7 +81,7 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64) + Send // TODO only if required
     /// Use [`ReadImage::read_from_unbuffered`] instead, if this is not an in-memory reader.
     // TODO Use Parallel<> Wrapper to only require sendable byte source where parallel decompression is required
     #[must_use]
-    pub fn from_buffered<Layers>(self, buffered: impl Read + Seek + Send) -> Result<Image<Layers>>
+    pub fn from_buffered<Layers>(self, buffered: impl Read + Seek) -> Result<Image<Layers>>
         where for<'s> L: ReadLayers<'s, Layers = Layers>
     {
         let chunks = crate::block::Reader::read_from_buffered(buffered, self.pedantic)?;

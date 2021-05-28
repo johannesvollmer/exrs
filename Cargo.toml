@@ -59,7 +59,7 @@ harness = false
 
 # test with fast runtime speed and moderate build speed
 [profile.dev]
-opt-level = 0
+opt-level = 3
 debug = true
 
 # release with fastest runtime speed
@@ -71,7 +71,7 @@ codegen-units = 1
 
 # test with fast runtime speed and moderate build speed
 [profile.test]
-opt-level = 0 # TODO use level 3 and "-C debug-assertions" to enable assertions
+opt-level = 3 # TODO use level 3 and "-C debug-assertions" to enable assertions
 debug = true
 
 # bench with fastest runtime speed

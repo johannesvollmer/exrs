@@ -7,7 +7,7 @@ extern crate half;
 use std::convert::TryInto;
 use std::io::BufWriter;
 use std::fs::File;
-use exr::block::{BlocksWriter, UncompressedBlock, ChunksWriter};
+use exr::block::{UncompressedBlock, ChunksWriter};
 
 // exr imports
 extern crate exr;
@@ -41,7 +41,7 @@ fn main() {
 
     // define encoding that will be written
     let mut header = header.with_encoding(
-        Compression::Uncompressed,
+        Compression::PIZ,
 
         exr::meta::BlockDescription::Tiles(TileDescription {
             tile_size: Vec2(64, 64),
@@ -94,8 +94,7 @@ fn main() {
 
             chunk_writer
                 .on_progress(|progress| println!("progress: {:.2}%", progress*100.0))
-                .as_blocks_writer(&meta_data)
-                .compress_all_blocks_parallel(blocks)?;
+                .compress_all_blocks_parallel(&meta_data, blocks)?;
 
             Ok(())
         }
