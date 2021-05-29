@@ -5,24 +5,19 @@
 //! and `block::write_chunks_with()` function.
 
 
-use crate::compression::{ByteVec, Compression};
-use crate::math::*;
-use crate::error::{Result, Error, usize_to_i32, UnitResult, u64_to_usize, usize_to_u64};
-use crate::meta::{MetaData, BlockDescription, OffsetTables, Headers};
-use crate::block::chunk::{Chunk, CompressedBlock, CompressedTileBlock, CompressedScanLineBlock, TileCoordinates};
-use crate::meta::attribute::{LineOrder, ChannelList};
-use smallvec::alloc::collections::{BTreeMap};
 use std::convert::TryFrom;
-use crate::io::{Tracking, PeekRead, Write, Data};
-use std::io::{Seek, Read};
-use crate::meta::header::Header;
-use crate::block::lines::{LineRef, LineIndex, LineSlice, LineRefMut};
-use smallvec::alloc::sync::Arc;
-use std::iter::Peekable;
 use std::fmt::Debug;
-use std::ops::Not;
-use crate::block::{BlockIndex, UncompressedBlock};
+use std::io::{Read, Seek};
 
+use smallvec::alloc::sync::Arc;
+
+use crate::block::{BlockIndex, UncompressedBlock};
+use crate::block::chunk::{Chunk, TileCoordinates};
+use crate::compression::Compression;
+use crate::error::{Error, Result, u64_to_usize, UnitResult};
+use crate::io::{PeekRead, Tracking};
+use crate::meta::{MetaData, OffsetTables};
+use crate::meta::header::Header;
 
 /// Decode the meta data from a byte source, keeping the source ready for further reading.
 /// Continue decoding the remaining bytes by calling `filtered_chunks` or `all_chunks`.

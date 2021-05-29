@@ -5,22 +5,21 @@
 //! and `block::write_chunks_with()` function.
 
 
-use crate::compression::{Compression};
-use crate::error::{Result, Error, usize_to_i32, UnitResult, u64_to_usize, usize_to_u64};
-use crate::meta::{MetaData, BlockDescription, OffsetTables, Headers};
-use crate::block::chunk::{Chunk, CompressedBlock, CompressedTileBlock, CompressedScanLineBlock, TileCoordinates};
-use crate::meta::attribute::{LineOrder, ChannelList};
-use smallvec::alloc::collections::{BTreeMap};
-use crate::io::{Tracking, Write, Data};
-use std::io::{Seek};
-use crate::meta::header::Header;
-use crate::block::lines::{LineRef, LineIndex, LineSlice, LineRefMut};
-use smallvec::alloc::sync::Arc;
-use std::iter::Peekable;
 use std::fmt::Debug;
+use std::io::Seek;
+use std::iter::Peekable;
 use std::ops::Not;
-use crate::block::{UncompressedBlock, BlockIndex};
 
+use smallvec::alloc::collections::BTreeMap;
+use smallvec::alloc::sync::Arc;
+
+use crate::block::UncompressedBlock;
+use crate::block::chunk::{Chunk};
+use crate::compression::Compression;
+use crate::error::{Error, Result, UnitResult, usize_to_u64};
+use crate::io::{Data, Tracking, Write};
+use crate::meta::{Headers, MetaData, OffsetTables};
+use crate::meta::attribute::LineOrder;
 
 /// Write an exr file by writing one chunk after another in a closure.
 /// In the closure, you are provided a chunk writer, which should be used to write all the chunks.
