@@ -7,7 +7,6 @@ Yanking shouldn't be the default.
 1. Builds with `--release` flag
 1. All tests pass
 1. All tests pass, including `#[ignore]` tests and fuzzing!
-1. All tests pass, even with `opt-level = 0` in `cargo.toml` (takes a while)
 1. Images produced by running the examples can be opened in other software
 1. Only safe `as` casts
 1. Always have a max limit when allocating based on file contents
