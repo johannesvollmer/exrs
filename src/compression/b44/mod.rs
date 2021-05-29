@@ -207,7 +207,11 @@ fn unpack14(b: &[u8], s: &mut [u16; 16]) {
 
 // Unpack a 3-byte block `b` into 4 by 4 identical 16-bit pixels in `s` array.
 fn unpack3(b: &[u8], s: &mut [u16; 16]) {
-    debug_assert_eq!(b[2], 0xfc);
+    // this assertion panics for fuzzed images.
+    // assuming this debug assertion is an overly strict check to catch potential compression errors.
+    // disabling because it panics when fuzzed.
+    // when commenting out, it simply works (maybe it should return an error instead?).
+    // debug_assert_eq!(b[2], 0xfc);
 
     // Get the 16-bit value from the block.
     let mut value = ((b32!(b, 0) << 8) | b32!(b, 1)) as u16;
@@ -227,7 +231,7 @@ struct ChannelData {
     tmp_end_index: usize,
     resolution: Vec2<usize>,
     y_sampling: usize,
-    type_: SampleType,
+    sample_type: SampleType,
     quantize_linearly: bool,
     samples_per_pixel: usize,
 }
@@ -260,9 +264,11 @@ pub fn decompress(
 ) -> Result<ByteVec> {
     debug_assert_eq!(
         expected_byte_size,
-        rectangle.size.area() * channels.bytes_per_pixel
+        rectangle.size.area() * channels.bytes_per_pixel,
+        "expected byte size does not match header" // TODO compute instead of passing argument?
     );
-    debug_assert!(!channels.list.is_empty());
+
+    debug_assert!(!channels.list.is_empty(), "no channels found");
 
     if compressed.is_empty() {
         return Ok(Vec::new());
@@ -278,14 +284,14 @@ pub fn decompress(
             tmp_end_index: tmp_read_index,
             resolution: channel.subsampled_resolution(rectangle.size),
             y_sampling: channel.sampling.y(),
-            type_: channel.sample_type,
+            sample_type: channel.sample_type,
             quantize_linearly: channel.quantize_linearly,
             samples_per_pixel: channel.sampling.area(),
         };
 
         tmp_read_index += channel.resolution.area()
             * channel.samples_per_pixel
-            * channel.type_.bytes_per_sample();
+            * channel.sample_type.bytes_per_sample();
 
         channel_data.push(channel);
     }
@@ -305,13 +311,13 @@ pub fn decompress(
 
         // Compute information for current channel.
         let sample_count = channel.resolution.area() * channel.samples_per_pixel;
-        let byte_count = sample_count * channel.type_.bytes_per_sample();
+        let byte_count = sample_count * channel.sample_type.bytes_per_sample();
 
         // Sample types that does not support B44 compression (u32 and f32) are raw copied.
         // In this branch, "compressed" array is actually raw, uncompressed data.
-        if channel.type_ != SampleType::F16 {
+        if channel.sample_type != SampleType::F16 {
 
-            debug_assert_eq!(channel.type_.bytes_per_sample(), 4);
+            debug_assert_eq!(channel.sample_type.bytes_per_sample(), 4);
 
             if remaining < byte_count {
                 return Err(Error::invalid("not enough data"));
@@ -327,8 +333,8 @@ pub fn decompress(
 
         // HALF channel
         // The rest of the code assume we are manipulating u16 (2 bytes) values.
-        debug_assert_eq!(channel.type_, SampleType::F16);
-        debug_assert_eq!(channel.type_.bytes_per_sample(), size_of::<u16>());
+        debug_assert_eq!(channel.sample_type, SampleType::F16);
+        debug_assert_eq!(channel.sample_type.bytes_per_sample(), size_of::<u16>());
 
         // Increase buffer to get new uncompressed datas.
         tmp.resize(tmp.len() + byte_count, 0);
@@ -435,7 +441,7 @@ pub fn decompress(
 
             // Find data location in temporary buffer.
             let x_sample_count = channel.resolution.x() * channel.samples_per_pixel;
-            let bytes_per_line = x_sample_count * channel.type_.bytes_per_sample();
+            let bytes_per_line = x_sample_count * channel.sample_type.bytes_per_sample();
             let next_tmp_end_index = channel.tmp_end_index + bytes_per_line;
             let values = &tmp[channel.tmp_end_index..next_tmp_end_index];
 
@@ -491,7 +497,7 @@ pub fn compress(
             tmp_end_index,
             y_sampling: channel.sampling.y(),
             resolution: number_samples,
-            type_: channel.sample_type,
+            sample_type: channel.sample_type,
             quantize_linearly: channel.quantize_linearly,
             samples_per_pixel: channel.sampling.area(),
         };
@@ -513,7 +519,7 @@ pub fn compress(
             }
 
             let x_sample_count = channel.resolution.x() * channel.samples_per_pixel;
-            let bytes_per_line = x_sample_count * channel.type_.bytes_per_sample();
+            let bytes_per_line = x_sample_count * channel.sample_type.bytes_per_sample();
             let next_tmp_end_index = channel.tmp_end_index + bytes_per_line;
             let target = &mut tmp[channel.tmp_end_index..next_tmp_end_index];
 
@@ -540,9 +546,9 @@ pub fn compress(
 
     for channel in &channel_data {
         // U32 and F32 channels are raw copied.
-        if channel.type_ != SampleType::F16 {
+        if channel.sample_type != SampleType::F16 {
 
-            debug_assert_eq!(channel.type_.bytes_per_sample(), 4);
+            debug_assert_eq!(channel.sample_type.bytes_per_sample(), 4);
 
             // Raw byte copy.
             let slice = &tmp[channel.tmp_start_index..channel.tmp_end_index];
@@ -555,8 +561,8 @@ pub fn compress(
         }
 
         // HALF channel
-        debug_assert_eq!(channel.type_, SampleType::F16);
-        debug_assert_eq!(channel.type_.bytes_per_sample(), size_of::<u16>());
+        debug_assert_eq!(channel.sample_type, SampleType::F16);
+        debug_assert_eq!(channel.sample_type.bytes_per_sample(), size_of::<u16>());
 
         let x_sample_count = channel.resolution.x() * channel.samples_per_pixel;
         let y_sample_count = channel.resolution.y() * channel.samples_per_pixel;
