@@ -6,73 +6,81 @@
 # EXRS
 
 This library is a 100% Rust and 100% safe code library for
-reading and writing OpenEXR images.
-See [the examples](https://docs.rs/crate/exr/1.1.0/source/examples/) for a first impression.
+reading and writing OpenEXR images. 
 
 [OpenEXR](http://www.openexr.com/)
-is the de-facto standard image format in animation, VFX, and 
-other computer graphics pipelines, for it can represent an immense variety of pixel data with lossless compression. 
+is the de-facto standard image format in animation, VFX, and
+other computer graphics pipelines, for it can represent an immense variety of pixel data with lossless compression.
+
+
+The library attempts to provide
+an interface that reduces the possibility of invalid files and runtime errors.
+It contains a complete image data structure that can contain any exr image, 
+but also includes a low level block interface.
+
+See [the examples](https://docs.rs/crate/exr/1.1.0/source/examples/) for a first impression.
 
 Features include:
-- any number of layers placed anywhere in 2d space
-- any number of channels in an image (rgb, xyz, lab, depth, motion, mask, ...)
-- any type of high dynamic range values (16bit float, 32bit float, 32bit unsigned integer) per channel
-- any number of samples per pixel ("deep data")
+- any number of layers placed anywhere in 2d space, like in Photoshop
+- any set of channels in an image (rgb, xyz, lab, depth, motion, mask, anything, ...)
+- three types of high dynamic range values (16bit float, 32bit float, 32bit unsigned integer) per channel
 - uncompressed pixel data for fast file access
 - lossless compression for any image type 
 - lossy compression for non-deep image types to produce very small files
 - load specific sections of an image without processing the whole file
-- compress and decompress image pixels in parallel
-- embed any kind of meta data, including custom structs, with full backwards compatibility
+- compress and decompress image pixels on multiple threads in parallel
+- add arbitrary meta data to any image, including custom byte data, with full backwards compatibility
+- any number of samples per pixel ("deep data") (not yet supported)
 
 ### Current Status
 
-This library is in an early stage of development. It only supports a few of all possible image types.
-Currently, deep data and complex compression algorithms are not supported yet.
+This library has matured quite a bit, but should still be considered incomplete. 
+For example, deep data and DWA compression algorithms are not supported yet.
 
-_Highly experimental!_
+If you encounter an exr file that cannot be opened by this crate but should be,
+please leave an issue on this repository, containing the image file.
 
-__Currently supported:__
+The focus is set on supporting all feature and correctness; 
+some performance optimizations are to be done.
+
+__What we can do:__
 
 - Supported OpenEXR Features
     - [x] custom attributes
-    - [x] multi-part images
-    - [x] multi-resolution images: mip maps, rip maps
-    - [x] any line order
-    - [x] extract meta data of any file, 
-          including files with deep data and any compression format
+    - [x] multi-part images (multiple layers, like Photoshop)
+    - [x] multi-resolution images (mip maps, rip maps)
+    - [x] access meta data and raw pixel blocks independently
     - [ ] channel subsampling
     - [ ] deep data
-    - [ ] compression methods (help wanted)
+    - [ ] compression methods
         - [x] uncompressed
         - [x] zip line (lossless)
         - [x] zip block (lossless)
         - [x] rle (lossless)
-        - [x] piz (lossless)
+        - [x] piz (lossless) (huge thanks to @dgsantana)
         - [x] pxr24 (lossless for f16 and u32)
-        - [x] b44, b44a
-        - [ ] dwaa, dwab
+        - [x] b44, b44a (huge thanks to @narann)
+        - [ ] dwaa, dwab __(help wanted)__
 
 - Nice Things
-    - [x] no external dependency or environment variable paths to set up
-    - [x] read meta data without having to load image data
-    - [x] read all contents at once
-        - [x] decompress image sections either 
-              in parallel or with low memory overhead
-    - [x] write all contents at once
-        - [x] compress blocks in parallel
-    - [x] read only some blocks dynamically
+    - [x] no unsafe code, no undefined behaviour
+    - [x] no compiling C++, no configuring CMake, 
+            no setting up external dependencies or environment variables 
+    - [x] re-imagined exr api with low barrier of entry, 
+            see `read_rgba_file`, `write_rgba_file`, `read_all_data_from_file`
+    - [x] a full-fledged image data structure that can contain any exr image,
+            can open any image with a single function call (`read_all_data_from_file`)
+            without knowing anything about the file in advance
+    - [x] decompress and decompress image sections either 
+            in parallel or with low memory overhead
     - [x] read and write progress callback
-    - [x] abortable read and write
-    - [ ] write blocks streams, one after another
-    - [ ] memory mapping
-    
+    - [x] write blocks streams, one after another
+    - [x] memory mapping automatically supported 
+            by using the generic `std::io::Read` and `std::io::Write` traits
 
-If you encounter an exr file that cannot be opened by this crate, 
-please leave an issue on this repository, containing the image file.
 
     
-<!--
+<!-- detailed internal feature checklist:
 - [x] Inspecting Metadata
     - [x] Singlepart
         - [x] Tiles
@@ -92,7 +100,7 @@ please leave an issue on this repository, containing the image file.
         - [x] Reading those with known names and unknown names
         - [x] Reading those with known types
         - [x] Reading those with unknown types into a plain byte buffer
-    - [ ] Nice API for preview attribute extraction
+    - [x] Nice API for preview attribute extraction
     
 - [ ] Decompressing Pixel Data
     - [x] Any LineOrder
@@ -106,9 +114,9 @@ please leave an issue on this repository, containing the image file.
         - [x] ZIPS
         - [x] ZIP
         - [x] RLE
-        - [ ] PIZ
-        - [ ] RXR24
-        - [ ] B44, B44A
+        - [x] PIZ
+        - [x] RXR24
+        - [x] B44, B44A
         - [ ] DWAA, DWAB
 
 - [ ] Writing images
@@ -126,14 +134,14 @@ please leave an issue on this repository, containing the image file.
         - [x] RLE (lossless)
         - [x] PIZ (lossless)
         - [x] PXR24 (lossless for f16 and u32)
-        - [ ] B44, B44A
+        - [x] B44, B44A
         - [ ] DWAA, DWAB
     
-- [x] Decompressing multiple blocks in parallel
-- [x] Compressing multiple blocks in parallel
+- [x] De/compressing multiple blocks in parallel
 
 - [ ] Profiling and real optimization
-    - [ ] Memory Mapping?
+    - [x] Memory Mapping
+
 - [x] IO Progress callback?
 - [ ] SIMD
 - [x] Detailed file validation
@@ -165,7 +173,7 @@ exr = "1.1.0"
 lto = true
 ```
 
-The master branch of this repository is always an up-to-date version, 
+The master branch of this repository always matches the `crates.io` version, 
 so you could also link the github repository master branch.
 
 ### Example
@@ -196,8 +204,8 @@ Or read [the guide](https://github.com/johannesvollmer/exrs/tree/master/GUIDE.md
 
 ### Motivation
 
-Using any Rust bindings to the original OpenEXR 
-library unfortunately requires compiling multiple C++ Libraries 
+Using Rust bindings to a C++ library unfortunately 
+requires compiling one or more C++ Libraries 
 and possibly setting environment variables, 
 which I didn't quite feel like to do, 
 so I wrote this library instead.
@@ -211,25 +219,26 @@ which had an 'X' in its name in my git repositories.
 interface to the OpenEXR file format.
 
 This library does not try to be a general purpose image file or image processing library.
-Therefore, color conversion, subsampling, and mip map generation are left to other crates for now.
+Therefore, color conversion, beautiful subsampling, and mip map generation are left to other crates for now.
 As the original OpenEXR implementation supports those operations, this library may choose to support them later.
 Furthermore, this implementation does not try to produce byte-exact file output
-matching the original implementation, but only correct output.
+matching the original implementation, instead, it is only aimed for correct output.
 
 #### Safety
 This library uses no unsafe code. In fact, this crate is annotated with `#[forbid(unsafe_code)]`.
-Its dependencies use unsafe code, though.
+Some dependencies use unsafe code, though this is minimized by selecting dependencies carefully.
 
 All information from a file is handled with caution.
-Allocations have a safe maximum size that will not be exceeded at once.
+Allocations have a safe maximum size that will not be exceeded at once, 
+to reduce memory exhaustion attacks.
 
 
 ### What I am proud of
 
--   Flexible API allows for custom parallelization
--   Difficult to misuse API
--   This is a pretty detailed README
--   (more to come)
+-   Flexible API (choose how to store your data instead of receiving an allocated image)
+-   Safe API (almost impossible to accidentally write invalid files)
+-   This is a pretty detailed README, yay
+-   [Awesome Contributors!](CONTRIBUTORS.md)
 
 ### Running Tests
 
