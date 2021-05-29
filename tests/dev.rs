@@ -8,10 +8,8 @@ use exr::prelude::*;
 use std::path::{PathBuf};
 use std::ffi::OsStr;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use std::io;
-use std::io::{Write, Cursor};
+use std::io::{Cursor};
 use exr::meta::header::Header;
-use exr::image::pixel_vec::PixelVec;
 use exr::image::validate_results::ValidateResult;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {

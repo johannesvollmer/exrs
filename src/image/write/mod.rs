@@ -154,7 +154,7 @@ impl<'img, Layers, OnProgress> WriteImageWithOptions<'img, Layers, OnProgress>
                      layers.extract_uncompressed_block(&meta.headers, block_index)
                 );
 
-                let mut chunk_writer = chunk_writer.on_progress(self.on_progress);
+                let chunk_writer = chunk_writer.on_progress(self.on_progress);
                 if self.parallel { chunk_writer.compress_all_blocks_parallel(&meta, blocks)?; }
                 else { chunk_writer.compress_all_blocks_sequential(&meta, blocks)?; }
                 /*let blocks_writer = chunk_writer.as_blocks_writer(&meta);

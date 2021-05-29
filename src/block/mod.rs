@@ -7,7 +7,7 @@ pub mod chunk;
 
 use crate::compression::{ByteVec, Compression};
 use crate::math::*;
-use crate::error::{Result, Error, usize_to_i32, UnitResult, u64_to_usize, usize_to_u64, IoError};
+use crate::error::{Result, Error, usize_to_i32, UnitResult, u64_to_usize, usize_to_u64};
 use crate::meta::{MetaData, BlockDescription, OffsetTables, Headers};
 use crate::block::chunk::{Chunk, Block, TileBlock, ScanLineBlock, TileCoordinates};
 use crate::meta::attribute::{LineOrder, ChannelList};
@@ -19,8 +19,7 @@ use crate::meta::header::Header;
 use crate::block::lines::{LineRef, LineIndex, LineSlice, LineRefMut};
 use smallvec::alloc::sync::Arc;
 use std::iter::Peekable;
-use rayon::{ThreadPool, ThreadPoolBuilder};
-use std::any::Any;
+use rayon::{ThreadPool};
 use std::fmt::Debug;
 use std::ops::Not;
 
@@ -240,7 +239,7 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
     /// You can also use `parallel_decompressor` to obtain an iterator instead.
     // FIXME try async + futures instead of rayon! Maybe even allows for external async decoding? (-> impl Stream<UncompressedBlock>)
     fn decompress_parallel(
-        mut self, pedantic: bool,
+        self, pedantic: bool,
         mut insert_block: impl FnMut(&MetaData, UncompressedBlock) -> UnitResult
     ) -> UnitResult
     {
@@ -418,6 +417,7 @@ impl<R: ChunksReader> SequentialBlockDecompressor<R> {
 /// The first call to `next` will fill the thread pool with jobs,
 /// starting to decompress the next few blocks.
 /// These jobs will finish, even if you stop reading more blocks.
+#[derive(Debug)]
 pub struct ParallelBlockDecompressor<R: ChunksReader> {
     remaining_chunks: R,
     sender: std::sync::mpsc::Sender<Result<UncompressedBlock>>,
@@ -837,6 +837,7 @@ impl<'w, W> SortedBlocksWriter<'w, W> where W: ChunksWriter {
         Ok(())
     }
 
+    /// Where the chunks will be written to.
     pub fn inner_chunks_writer(&self) -> &W {
         &self.chunk_writer
     }
@@ -1108,6 +1109,8 @@ impl UncompressedBlock {
         })
     }
 
+    /// Iterate all the lines in this block.
+    /// Each line contains the all samples for one of the channels.
     pub fn lines(&self, channels: &ChannelList) -> impl Iterator<Item=LineRef<'_>> {
         LineIndex::lines_in_block(self.index, channels)
             .map(move |(bytes, line)| LineSlice { location: line, value: &self.data[bytes] })

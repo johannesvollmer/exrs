@@ -101,7 +101,7 @@ fn main() {
                     channel.average += value? / channel_sample_count;
                 },
 
-                SampleType::U32 => for value in line.read_samples::<f32>() {
+                SampleType::U32 => for value in line.read_samples::<u32>() {
                     channel.average += (value? as f32) / channel_sample_count;
                 },
             }

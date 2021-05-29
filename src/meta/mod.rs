@@ -441,6 +441,9 @@ impl MetaData {
         crate::block::enumerate_ordered_header_block_indices(&self.headers)
     }
 
+    /// Go through all the block indices in the correct order and call the specified closure for each of these blocks.
+    /// That way, the blocks indices are filled with real block data and returned as an iterator.
+    /// The closure returns the an `UncompressedBlock` for each block index.
     pub fn collect_ordered_blocks<'s>(&'s self, mut get_block: impl 's + FnMut(BlockIndex) -> UncompressedBlock)
         -> impl 's + Iterator<Item=(usize, UncompressedBlock)>
     {
@@ -449,6 +452,9 @@ impl MetaData {
         })
     }
 
+    /// Go through all the block indices in the correct order and call the specified closure for each of these blocks.
+    /// That way, the blocks indices are filled with real block data and returned as an iterator.
+    /// The closure returns the byte data for each block index.
     pub fn collect_ordered_block_data<'s>(&'s self, mut get_block_data: impl 's + FnMut(BlockIndex) -> Vec<u8>)
         -> impl 's + Iterator<Item=(usize, UncompressedBlock)>
     {

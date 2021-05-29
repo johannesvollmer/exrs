@@ -41,7 +41,7 @@ fn main() {
 
     // define encoding that will be written
     let mut header = header.with_encoding(
-        Compression::PIZ,
+        Compression::Uncompressed,
 
         exr::meta::BlockDescription::Tiles(TileDescription {
             tile_size: Vec2(64, 64),
