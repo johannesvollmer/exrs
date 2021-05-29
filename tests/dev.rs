@@ -54,7 +54,8 @@ pub fn test_roundtrip() {
     // works
     // let path = "tests/images/valid/custom/crowskull/crow_piz.exr";
     // let path = "tests/images/valid/custom/crowskull/crow_dwa.exr";
-     let path = "tests/images/valid/custom/crowskull/crow_zip_half.exr";
+     //let path = "tests/images/valid/custom/crowskull/crow_zip_half.exr";
+     let path = "tests/images/fuzzed/fuzz_51_92-1-0-130-211-8-21-70-74-4-9-5-0-23-0-3-20-25-6-5-229-30-0-34-218-0-40-7-5-2-7-0.exr";
     // let path = "tests/images/valid/openexr/Beachball/multipart.0001.exr";
     // let path = "tests/images/valid/openexr/Tiles/GoldenGate.exr";
     // let path = "tests/images/valid/openexr/v2/Stereo/composited.exr";
