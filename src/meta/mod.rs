@@ -1,6 +1,7 @@
 
 //! Describes all meta data possible in an exr file.
 //! Contains functionality to read and write meta data from bytes.
+//! Browse the `exr::image` module to get started with the high-level interface.
 
 pub mod attribute;
 pub mod header;

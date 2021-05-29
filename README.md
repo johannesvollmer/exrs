@@ -12,20 +12,12 @@ reading and writing OpenEXR images.
 is the de-facto standard image format in animation, VFX, and
 other computer graphics pipelines, for it can represent an immense variety of pixel data with lossless compression.
 
-
-The library attempts to provide
-an interface that reduces the possibility of invalid files and runtime errors.
-It contains a complete image data structure that can contain any exr image, 
-but also includes a low level block interface.
-
-See [the examples](https://docs.rs/crate/exr/1.1.0/source/examples/) for a first impression.
-
 Features include:
 - any number of layers placed anywhere in 2d space, like in Photoshop
 - any set of channels in an image (rgb, xyz, lab, depth, motion, mask, anything, ...)
 - three types of high dynamic range values (16bit float, 32bit float, 32bit unsigned integer) per channel
 - uncompressed pixel data for fast file access
-- lossless compression for any image type 
+- lossless compression for any image type
 - lossy compression for non-deep image types to produce very small files
 - load specific sections of an image without processing the whole file
 - compress and decompress image pixels on multiple threads in parallel
@@ -50,6 +42,7 @@ __What we can do:__
     - [x] multi-part images (multiple layers, like Photoshop)
     - [x] multi-resolution images (mip maps, rip maps)
     - [x] access meta data and raw pixel blocks independently
+    - [x] automatically crop away transparent pixels of an image (opt-in)   
     - [ ] channel subsampling
     - [ ] deep data
     - [ ] compression methods
@@ -66,8 +59,9 @@ __What we can do:__
     - [x] no unsafe code, no undefined behaviour
     - [x] no compiling C++, no configuring CMake, 
             no setting up external dependencies or environment variables 
-    - [x] re-imagined exr api with low barrier of entry, 
-            see `read_rgba_file`, `write_rgba_file`, `read_all_data_from_file`
+    - [x] re-imagined exr api with low barrier of entry
+            (see `read_rgba_file`, `write_rgba_file`, `read_all_data_from_file`),
+            plus embracing common high-level Rust abstractions
     - [x] a full-fledged image data structure that can contain any exr image,
             can open any image with a single function call (`read_all_data_from_file`)
             without knowing anything about the file in advance
@@ -216,7 +210,10 @@ which had an 'X' in its name in my git repositories.
 ### Goals
 
 `exrs` aims to provide a safe and convenient 
-interface to the OpenEXR file format.
+interface to the OpenEXR file format. It is designed 
+to minimize the possibility of invalid files and runtime errors.
+It contains a full-fledged image data structure that can contain any exr image,
+but also grants access a low level block interface.
 
 This library does not try to be a general purpose image file or image processing library.
 Therefore, color conversion, beautiful subsampling, and mip map generation are left to other crates for now.
@@ -231,7 +228,6 @@ Some dependencies use unsafe code, though this is minimized by selecting depende
 All information from a file is handled with caution.
 Allocations have a safe maximum size that will not be exceeded at once, 
 to reduce memory exhaustion attacks.
-
 
 ### What I am proud of
 
