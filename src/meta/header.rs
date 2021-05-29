@@ -525,13 +525,13 @@ impl Header {
 
     /// Return the tile index, converting scan line block coordinates to tile indices.
     /// Starts at `0` and is not negative.
-    pub fn get_block_data_indices(&self, block: &Block) -> Result<TileCoordinates> {
+    pub fn get_block_data_indices(&self, block: &CompressedBlock) -> Result<TileCoordinates> {
         Ok(match block {
-            Block::Tile(ref tile) => {
+            CompressedBlock::Tile(ref tile) => {
                 tile.coordinates
             },
 
-            Block::ScanLine(ref block) => {
+            CompressedBlock::ScanLine(ref block) => {
                 let size = self.compression.scan_lines_per_block() as i32;
                 let y = (block.y_coordinate - self.own_attributes.layer_position.y()) / size;
 

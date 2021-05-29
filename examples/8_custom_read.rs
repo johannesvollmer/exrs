@@ -4,7 +4,7 @@ extern crate half;
 
 use std::io::{BufReader};
 use std::fs::File;
-use exr::block::ChunksReader;
+use exr::block::reader::ChunksReader;
 
 // exr imports
 extern crate exr;
@@ -47,7 +47,7 @@ fn main() {
     // -- read the file, summing up the average pixel values --
 
     // start reading the file, extracting the meta data of the image
-    let reader = exr::block::Reader::read_from_buffered(file, true).unwrap();
+    let reader = exr::block::read(file, true).unwrap();
 
     // create the empty data structure that will collect the analyzed results,
     // based on the extracted meta data of the file

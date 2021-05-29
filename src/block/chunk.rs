@@ -18,7 +18,7 @@ pub struct Chunk {
     pub layer_index: usize,
 
     /// The compressed pixel contents.
-    pub block: Block,
+    pub compressed_block: CompressedBlock,
 }
 
 /// The raw, possibly compressed pixel data of a file.
@@ -27,25 +27,25 @@ pub struct Chunk {
 /// data block in the corresponding layer.
 /// Exists inside a `Chunk`.
 #[derive(Debug, Clone)]
-pub enum Block {
+pub enum CompressedBlock {
 
     /// Scan line blocks of flat data.
-    ScanLine(ScanLineBlock),
+    ScanLine(CompressedScanLineBlock),
 
     /// Tiles of flat data.
-    Tile(TileBlock),
+    Tile(CompressedTileBlock),
 
     /// Scan line blocks of deep data.
-    DeepScanLine(DeepScanLineBlock),
+    DeepScanLine(CompressedDeepScanLineBlock),
 
     /// Tiles of deep data.
-    DeepTile(DeepTileBlock),
+    DeepTile(CompressedDeepTileBlock),
 }
 
 /// A `Block` of possibly compressed flat scan lines.
 /// Corresponds to type attribute `scanlineimage`.
 #[derive(Debug, Clone)]
-pub struct ScanLineBlock {
+pub struct CompressedScanLineBlock {
 
     /// The block's y coordinate is the pixel space y coordinate of the top scan line in the block.
     /// The top scan line block in the image is aligned with the top edge of the data window.
@@ -60,7 +60,7 @@ pub struct ScanLineBlock {
 /// This `Block` is a tile of flat (non-deep) data.
 /// Corresponds to type attribute `tiledimage`.
 #[derive(Debug, Clone)]
-pub struct TileBlock {
+pub struct CompressedTileBlock {
 
     /// The tile location.
     pub coordinates: TileCoordinates,
@@ -85,7 +85,7 @@ pub struct TileCoordinates {
 /// This `Block` consists of one or more deep scan lines.
 /// Corresponds to type attribute `deepscanline`.
 #[derive(Debug, Clone)]
-pub struct DeepScanLineBlock {
+pub struct CompressedDeepScanLineBlock {
 
     /// The block's y coordinate is the pixel space y coordinate of the top scan line in the block.
     /// The top scan line block in the image is aligned with the top edge of the data window.
@@ -108,7 +108,7 @@ pub struct DeepScanLineBlock {
 /// This `Block` is a tile of deep data.
 /// Corresponds to type attribute `deeptile`.
 #[derive(Debug, Clone)]
-pub struct DeepTileBlock {
+pub struct CompressedDeepTileBlock {
 
     /// The tile location.
     pub coordinates: TileCoordinates,
@@ -198,7 +198,7 @@ impl TileCoordinates {
 
 use crate::meta::{MetaData, BlockDescription, calculate_block_size};
 
-impl ScanLineBlock {
+impl CompressedScanLineBlock {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
@@ -213,11 +213,11 @@ impl ScanLineBlock {
     pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let y_coordinate = i32::read(read)?;
         let compressed_pixels = u8::read_i32_sized_vec(read, max_block_byte_size, Some(max_block_byte_size), "scan line block sample count")?;
-        Ok(ScanLineBlock { y_coordinate, compressed_pixels })
+        Ok(CompressedScanLineBlock { y_coordinate, compressed_pixels })
     }
 }
 
-impl TileBlock {
+impl CompressedTileBlock {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
@@ -232,11 +232,11 @@ impl TileBlock {
     pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let coordinates = TileCoordinates::read(read)?;
         let compressed_pixels = u8::read_i32_sized_vec(read, max_block_byte_size, Some(max_block_byte_size), "tile block sample count")?;
-        Ok(TileBlock { coordinates, compressed_pixels })
+        Ok(CompressedTileBlock { coordinates, compressed_pixels })
     }
 }
 
-impl DeepScanLineBlock {
+impl CompressedDeepScanLineBlock {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
@@ -271,7 +271,7 @@ impl DeepScanLineBlock {
             "deep scan line block sample count"
         )?;
 
-        Ok(DeepScanLineBlock {
+        Ok(CompressedDeepScanLineBlock {
             y_coordinate,
             decompressed_sample_data_size,
             compressed_pixel_offset_table,
@@ -281,7 +281,7 @@ impl DeepScanLineBlock {
 }
 
 
-impl DeepTileBlock {
+impl CompressedDeepTileBlock {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
@@ -315,7 +315,7 @@ impl DeepTileBlock {
             "deep tile block sample count"
         )?;
 
-        Ok(DeepTileBlock {
+        Ok(CompressedDeepTileBlock {
             coordinates,
             decompressed_sample_data_size,
             compressed_pixel_offset_table,
@@ -337,11 +337,11 @@ impl Chunk {
         if header_count != 1 {  usize_to_i32(self.layer_index).write(write)?; }
         else { assert_eq!(self.layer_index, 0, "invalid header index for single layer file"); }
 
-        match self.block {
-            Block::ScanLine     (ref value) => value.write(write),
-            Block::Tile         (ref value) => value.write(write),
-            Block::DeepScanLine (ref value) => value.write(write),
-            Block::DeepTile     (ref value) => value.write(write),
+        match self.compressed_block {
+            CompressedBlock::ScanLine     (ref value) => value.write(write),
+            CompressedBlock::Tile         (ref value) => value.write(write),
+            CompressedBlock::DeepScanLine (ref value) => value.write(write),
+            CompressedBlock::DeepTile     (ref value) => value.write(write),
         }
     }
 
@@ -362,14 +362,14 @@ impl Chunk {
 
         let chunk = Chunk {
             layer_index: layer_number,
-            block: match header.blocks {
+            compressed_block: match header.blocks {
                 // flat data
-                BlockDescription::ScanLines if !header.deep => Block::ScanLine(ScanLineBlock::read(read, max_block_byte_size)?),
-                BlockDescription::Tiles(_) if !header.deep     => Block::Tile(TileBlock::read(read, max_block_byte_size)?),
+                BlockDescription::ScanLines if !header.deep => CompressedBlock::ScanLine(CompressedScanLineBlock::read(read, max_block_byte_size)?),
+                BlockDescription::Tiles(_) if !header.deep     => CompressedBlock::Tile(CompressedTileBlock::read(read, max_block_byte_size)?),
 
                 // deep data
-                BlockDescription::ScanLines   => Block::DeepScanLine(DeepScanLineBlock::read(read, max_block_byte_size)?),
-                BlockDescription::Tiles(_)    => Block::DeepTile(DeepTileBlock::read(read, max_block_byte_size)?),
+                BlockDescription::ScanLines   => CompressedBlock::DeepScanLine(CompressedDeepScanLineBlock::read(read, max_block_byte_size)?),
+                BlockDescription::Tiles(_)    => CompressedBlock::DeepTile(CompressedDeepTileBlock::read(read, max_block_byte_size)?),
             },
         };
 

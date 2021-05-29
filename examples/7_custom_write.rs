@@ -7,7 +7,8 @@ extern crate half;
 use std::convert::TryInto;
 use std::io::BufWriter;
 use std::fs::File;
-use exr::block::{UncompressedBlock, ChunksWriter};
+use exr::block::{UncompressedBlock};
+use exr::block::writer::ChunksWriter;
 
 // exr imports
 extern crate exr;
@@ -64,7 +65,7 @@ fn main() {
     let start_time = ::std::time::Instant::now();
 
     // finally write the image
-    exr::block::write_chunks_with(
+    exr::block::write(
         file, headers, true,
         |meta_data, chunk_writer|{
 

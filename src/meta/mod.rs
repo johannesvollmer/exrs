@@ -9,7 +9,7 @@ pub mod header;
 use crate::io::*;
 use ::smallvec::SmallVec;
 use self::attribute::*;
-use crate::block::chunk::{TileCoordinates, Block};
+use crate::block::chunk::{TileCoordinates, CompressedBlock};
 use crate::error::*;
 use std::fs::File;
 use std::io::{BufReader};

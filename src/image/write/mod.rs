@@ -25,7 +25,7 @@ use crate::io::Write;
 use crate::image::{Image, ignore_progress, SpecificChannels, IntoSample};
 use crate::image::write::layers::{WritableLayers, LayersWriter};
 use crate::math::Vec2;
-use crate::block::{ChunksWriter};
+use crate::block::writer::ChunksWriter;
 
 /// An oversimplified function for "just write the damn file already" use cases.
 /// Have a look at the examples to see how you can write an image with more flexibility (it's not that hard).
@@ -146,7 +146,7 @@ impl<'img, Layers, OnProgress> WriteImageWithOptions<'img, Layers, OnProgress>
         let headers = self.infer_meta_data();
         let layers = self.image.layer_data.create_writer(&headers);
 
-        crate::block::write_chunks_with(
+        crate::block::write(
             write, headers, self.check_compatibility,
             move |meta, chunk_writer|{
 

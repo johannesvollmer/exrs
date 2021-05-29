@@ -569,3 +569,17 @@ fn main(){
         )/* ... */;
 }
 ```
+
+
+## Low Level Operations
+The image abstraction builds up on some low level code. 
+You can use this low level directly, 
+as shown in the examples `custom_write.rs` and `custom_read.rs`. 
+This allows you to work with 
+raw OpenEXR pixel blocks and chunks directly, 
+or use custom parallelization mechanisms.
+
+You can find these low level operations in the `exr::block` module.
+Start with the `block::read(...)`
+and `block::write(...)` functions.
+

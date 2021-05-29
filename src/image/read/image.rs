@@ -4,12 +4,13 @@
 use crate::image::*;
 use crate::meta::header::{Header, ImageAttributes};
 use crate::error::{Result, UnitResult};
-use crate::block::{UncompressedBlock, ChunksReader, BlockIndex};
+use crate::block::{UncompressedBlock, BlockIndex};
 use crate::block::chunk::TileCoordinates;
 use std::path::Path;
 use std::io::{Read, BufReader};
 use std::io::Seek;
 use crate::meta::MetaData;
+use crate::block::reader::ChunksReader;
 
 /// Specify whether to read the image in parallel,
 /// whether to use pedantic error handling,
@@ -84,7 +85,7 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64) // TODO only if required
     pub fn from_buffered<Layers>(self, buffered: impl Read + Seek) -> Result<Image<Layers>>
         where for<'s> L: ReadLayers<'s, Layers = Layers>
     {
-        let chunks = crate::block::Reader::read_from_buffered(buffered, self.pedantic)?;
+        let chunks = crate::block::read(buffered, self.pedantic)?;
         self.from_chunks(chunks)
     }
 
@@ -94,7 +95,7 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64) // TODO only if required
     /// Use [`ReadImage::read_from_buffered`] instead, if this is an in-memory reader.
     // TODO Use Parallel<> Wrapper to only require sendable byte source where parallel decompression is required
     #[must_use]
-    pub fn from_chunks<Layers>(mut self, chunks_reader: crate::block::Reader<impl Read + Seek>) -> Result<Image<Layers>>
+    pub fn from_chunks<Layers>(mut self, chunks_reader: crate::block::reader::Reader<impl Read + Seek>) -> Result<Image<Layers>>
         where for<'s> L: ReadLayers<'s, Layers = Layers>
     {
         let Self { pedantic, parallel, ref mut on_progress, ref mut read_layers } = self;
