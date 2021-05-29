@@ -14,7 +14,7 @@ Yanking shouldn't be the default.
     - careful with `vec![ 0; x ]`
 1. Only unreachable `unwrap()`, `expect("")` and `assert`s
 1. No `println!` outside of tests and examples
-1. `assert_eq` and `debug_assert_eq` should have a message explaining the context
+1. `assert_eq` and `debug_assert_eq` should have a message explaining the context, except in internal algorithms like compressors
 1. ensure `#![warn(missing_docs)]` in `lib.rs`
 1. Example in README.md should be up-to-date
 1. GUIDE.md should be up-to-date

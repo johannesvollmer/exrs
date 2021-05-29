@@ -232,7 +232,7 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
             insert_block(decompressor.meta_data(), block?)?;
         }
 
-        debug_assert_eq!(decompressor.len(), 0);
+        debug_assert_eq!(decompressor.len(), 0, "compressed blocks left after decompressing all blocks");
         Ok(())
     }
 
@@ -262,7 +262,7 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
             insert_block(decompressor.meta_data(), block?)?;
         }
 
-        debug_assert_eq!(decompressor.len(), 0);
+        debug_assert_eq!(decompressor.len(), 0, "compressed blocks left after decompressing all blocks");
         Ok(())
     }
 
@@ -293,7 +293,11 @@ impl<R, F> Iterator for OnProgressChunksReader<R, F> where R: ChunksReader, F: F
             item
         })
             .or_else(||{
-                debug_assert_eq!(self.decoded_chunks, self.expected_chunk_count());
+                debug_assert_eq!(
+                    self.decoded_chunks, self.expected_chunk_count(),
+                    "chunks reader finished but not all chunks are decompressed"
+                );
+
                 let callback = &mut self.callback;
                 callback(1.0);
                 None

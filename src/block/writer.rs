@@ -205,7 +205,7 @@ impl<W> ChunkWriter<W> where W: Write + Seek {
         }
 
         // write all offset tables
-        debug_assert_ne!(self.byte_writer.byte_position(), self.chunk_indices_byte_location.end);
+        debug_assert_ne!(self.byte_writer.byte_position(), self.chunk_indices_byte_location.end, "offset table has already been updated");
         self.byte_writer.seek_write_to(self.chunk_indices_byte_location.start)?;
 
         for table in self.chunk_indices_increasing_y {
@@ -386,7 +386,7 @@ impl<'w, W> ParallelBlocksCompressor<'w, W> where W: 'w + ChunksWriter {
 
     // private, as may underflow counter in release mode
     fn write_next_queued_chunk(&mut self) -> UnitResult {
-        debug_assert!(self.currently_compressing_count > 0);
+        debug_assert!(self.currently_compressing_count > 0, "cannot wait for chunks as there are none left");
 
         assert_eq!( // propagate panics (in release mode unlikely, but possible of course)
                     self.pool.panic_count(), 0,
@@ -412,7 +412,7 @@ impl<'w, W> ParallelBlocksCompressor<'w, W> where W: 'w + ChunksWriter {
             self.write_next_queued_chunk()?;
         }
 
-        debug_assert_eq!(self.currently_compressing_count, 0);
+        debug_assert_eq!(self.currently_compressing_count, 0, "counter does not match block count");
         Ok(())
     }
 
@@ -447,8 +447,12 @@ impl<'w, W> ParallelBlocksCompressor<'w, W> where W: 'w + ChunksWriter {
         // if this is the last chunk, wait for all chunks to complete before returning
         if self.written_chunk_count + self.currently_compressing_count == self.inner_chunks_writer().total_chunks_count() {
             self.write_all_queued_chunks()?;
-            debug_assert_eq!(self.written_chunk_count, self.inner_chunks_writer().total_chunks_count());
+            debug_assert_eq!(
+                self.written_chunk_count, self.inner_chunks_writer().total_chunks_count(),
+                "written chunk count mismatch"
+            );
         }
+
 
         Ok(())
     }

@@ -302,7 +302,7 @@ impl<Sample: FromNativeSample> SampleReader<Sample> {
             },
         }
 
-        debug_assert!(own_bytes_reader.is_empty());
+        debug_assert!(own_bytes_reader.is_empty(), "bytes left after reading all samples");
     }
 }
 

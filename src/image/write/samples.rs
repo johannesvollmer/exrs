@@ -124,7 +124,12 @@ impl<'samples, LevelSamples> WritableSamples<'samples> for Levels<LevelSamples>
 {
     fn sample_type(&self) -> SampleType {
         let sample_type = self.levels_as_slice().first().expect("no levels found").sample_type();
-        debug_assert!(self.levels_as_slice().iter().skip(1).all(|ty| ty.sample_type() == sample_type), "sample types must be the same across all levels");
+
+        debug_assert!(
+            self.levels_as_slice().iter().skip(1).all(|ty| ty.sample_type() == sample_type),
+            "sample types must be the same across all levels"
+        );
+
         sample_type
     }
 

@@ -539,7 +539,7 @@ impl MetaData {
             }
         }
 
-        debug_assert!(minimal_requirements.validate().is_ok());
+        debug_assert!(minimal_requirements.validate().is_ok(), "inferred requirements are invalid");
         Ok(minimal_requirements)
     }
 }

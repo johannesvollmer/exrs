@@ -311,7 +311,7 @@ impl<Sample> SampleWriter<Sample> where Sample: IntoNativeSample {
             SampleType::U32 => for sample in samples { sample.to_u32().write(byte_writer).expect(write_error_msg); },
         };
 
-        debug_assert!(byte_writer.is_empty());
+        debug_assert!(byte_writer.is_empty(), "all samples are written, but more were expected");
     }
 }
 

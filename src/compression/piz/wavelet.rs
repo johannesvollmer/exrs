@@ -142,8 +142,8 @@ pub fn decode_14_or_16_bit(
         let (offset1_x, offset1_y) = (offset_x * p, offset_y * p);
         let (offset2_x, offset2_y) = (offset_x * p2, offset_y * p2);
 
-        debug_assert_ne!(offset_x, 0, "offset is zero (but shouldnt be???)"); // ????
-        debug_assert_ne!(offset_y, 0, "offset is zero (but shouldnt be???)"); // ????
+        debug_assert_ne!(offset_x, 0, "offset should not be zero");
+        debug_assert_ne!(offset_y, 0, "offset should not be zero");
 
         while position_y <= end_y {
             let mut position_x = position_y;
