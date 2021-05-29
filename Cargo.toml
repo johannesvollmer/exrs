@@ -57,27 +57,37 @@ name = "write"
 harness = false
 
 
-
-# test with fast runtime speed and moderate build speed
-[profile.dev]
-opt-level = 0
-debug = true
-
-# release with fastest runtime speed
+# recommended release settings for max runtime performance
 [profile.release]
 opt-level = 3
 lto = true
 debug = false
+debug-assertions = false
 codegen-units = 1
+
+# test with fast runtime speed and slow build speed
+[profile.dev]
+incremental = true
+opt-level = 3
+debug-assertions = true
+overflow-checks = true
+debug = true
+lto = true
 
 # test with fast runtime speed and moderate build speed
 [profile.test]
-opt-level = 0 # TODO use level 3 and "-C debug-assertions" to enable assertions
+incremental = true
+opt-level = 3
+debug-assertions = true
+overflow-checks = true
 debug = true
+lto = true
 
 # bench with fastest runtime speed
 [profile.bench]
 opt-level = 3
+debug-assertions = false
+overflow-checks = false
 lto = true
 debug = true
 codegen-units = 1
