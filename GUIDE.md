@@ -25,6 +25,9 @@ The old OpenEXR "layers" are called "grouped channels" instead.
 - `Grouped Channels` Multiple channels may be grouped my prepending the same prefix to the name.
                     This behaviour is opt-in; it has to be enabled explicitly:
                     By default, channels are stored in a plain list, and channel names are unmodified.
+- `pedantic: bool` When reading, pedantic being false will generally ignore 
+    invalid information instead of aborting the reading process where possible. 
+    When writing, pedantic being false will generally skip some expensive image validation checks.
 
 ## OpenEXR | Complexity
 This image format supports some features that you won't find in other image formats.
