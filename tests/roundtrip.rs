@@ -7,7 +7,6 @@ use std::io::{Cursor};
 use std::panic::catch_unwind;
 use std::path::{PathBuf, Path};
 use std::ffi::OsStr;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use exr::prelude::*;
 use exr::error::{Error, UnitResult};
@@ -30,7 +29,7 @@ fn check_files<T>(
     enum Result { Ok, Skipped, Unsupported(String), Error(String) }
 
     let files: Vec<PathBuf> = exr_files().collect();
-    let mut results: Vec<(PathBuf, Result)> = files.into_par_iter()
+    let mut results: Vec<(PathBuf, Result)> = files.into_iter()
         .map(|file| {
             if ignore.contains(&file) {
                 return (file, Result::Skipped);

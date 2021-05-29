@@ -7,7 +7,6 @@ use exr::prelude::*;
 
 use std::path::{PathBuf};
 use std::ffi::OsStr;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::io::{Cursor};
 use exr::meta::header::Header;
 use exr::image::validate_results::ValidateResult;
@@ -23,7 +22,7 @@ fn exr_files() -> impl Iterator<Item=PathBuf> {
 fn print_meta_of_all_files() {
     let files: Vec<PathBuf> = exr_files().collect();
 
-    files.into_par_iter().for_each(|path| {
+    files.into_iter().for_each(|path| {
         let meta = MetaData::read_from_file(&path, false);
         println!("{:?}: \t\t\t {:?}", path.file_name().unwrap(), meta.unwrap());
     });
@@ -34,7 +33,7 @@ fn print_meta_of_all_files() {
 fn search_previews_of_all_files() {
     let files: Vec<PathBuf> = exr_files().collect();
 
-    files.into_par_iter().for_each(|path| {
+    files.into_iter().for_each(|path| {
         let meta = MetaData::read_from_file(&path, false).unwrap();
         let has_preview = meta.headers.iter().any(|header: &Header|
             header.own_attributes.preview.is_some() || header.own_attributes.other.values()
