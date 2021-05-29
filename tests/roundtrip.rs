@@ -12,6 +12,8 @@ use exr::prelude::*;
 use exr::error::{Error, UnitResult};
 use exr::prelude::pixel_vec::PixelVec;
 use exr::image::validate_results::ValidateResult;
+use rayon::prelude::IntoParallelIterator;
+use rayon::iter::ParallelIterator;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
@@ -29,7 +31,7 @@ fn check_files<T>(
     enum Result { Ok, Skipped, Unsupported(String), Error(String) }
 
     let files: Vec<PathBuf> = exr_files().collect();
-    let mut results: Vec<(PathBuf, Result)> = files.into_iter()
+    let mut results: Vec<(PathBuf, Result)> = files.into_par_iter()
         .map(|file| {
             if ignore.contains(&file) {
                 return (file, Result::Skipped);
