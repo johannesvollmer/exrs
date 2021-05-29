@@ -159,7 +159,7 @@ __What we can do:__
 Add this to your `Cargo.toml`:
 ```toml
 [dependencies]
-exr = "1.1.0"
+exr = "1.2.0"
 
 # also, optionally add this to your crate for smaller binary size 
 # and better runtime performance

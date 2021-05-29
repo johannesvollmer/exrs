@@ -1,10 +1,9 @@
 # Examples
 
-These are examples that demonstrate how to use `exrs`. 
-As the github repository is continuously developed, __these examples may be 
-newer than the latest version of `exrs` available on `crates.io`__.
+These are examples that demonstrate how to use `exrs`.
 
-The examples of specific `exrs` versions can be found on the `docs.rs` page:
+The examples for specific `exrs` versions can be found on the `docs.rs` page:
+- [Version 1.2.0](https://docs.rs/crate/exr/1.2.0/source/examples/)
 - [Version 1.1.0](https://docs.rs/crate/exr/1.1.0/source/examples/)
 - [Version 1.0.0](https://docs.rs/crate/exr/1.0.0/source/examples/)
 - [Version 0.9.0](https://docs.rs/crate/exr/0.9.0/source/examples/)

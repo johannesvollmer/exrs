@@ -5,7 +5,7 @@ Yanking shouldn't be the default.
 1. No `unsafe`
 1. Everything builds, not only `cargo test`
 1. Builds with `--release` flag
-1. All tests pass
+1. All tests pass, all benchmarks run
 1. All tests pass, including `#[ignore]` tests and fuzzing!
 1. Images produced by running the examples can be opened in other software
 1. Only safe `as` casts
