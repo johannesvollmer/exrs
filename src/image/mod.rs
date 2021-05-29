@@ -20,6 +20,8 @@
 //! You can also use your own types inside an image,
 //! for example if you want to use a custom sample storage.
 //!
+//! This is the high-level interface for the pixels of an image.
+//! See `exr::blocks` module for a low-level interface.
 
 pub mod read;
 pub mod write;

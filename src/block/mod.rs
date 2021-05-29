@@ -1,3 +1,6 @@
+//! This is the low-level interface for the raw blocks of an image.
+//! See `exr::image` module for a high-level interface.
+//!
 //! Handle compressed and uncompressed pixel byte blocks. Includes compression and decompression,
 //! and reading a complete image into blocks.
 //!
