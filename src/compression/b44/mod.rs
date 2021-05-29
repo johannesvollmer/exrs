@@ -235,17 +235,15 @@ struct ChannelData {
 // TODO: Unsafe seems to be required to efficiently copy whole slice of u16 ot u8. For now, we use
 //   a less efficient, yet safe, implementation.
 #[inline]
-fn memcpy_u16_to_u8(src: &[u16], dst: &mut [u8]) {
-    src.iter()
-        .zip(dst.chunks_exact_mut(2))
-        .for_each(|(a, b)| b.copy_from_slice(&a.to_ne_bytes()));
+fn memcpy_u16_to_u8(src: &[u16], mut dst: &mut [u8]) {
+    use lebe::prelude::*;
+    dst.write_as_native_endian(src).expect("byte copy error");
 }
 
 #[inline]
-fn memcpy_u8_to_u16(src: &[u8], dst: &mut [u16]) {
-    dst.iter_mut()
-        .zip(src.chunks_exact(2))
-        .for_each(|(a, b)| *a = u16::from_ne_bytes([b[0], b[1]]));
+fn memcpy_u8_to_u16(mut src: &[u8], dst: &mut [u16]) {
+    use lebe::prelude::*;
+    src.read_from_native_endian_into(dst).expect("byte copy error");
 }
 
 #[inline]
@@ -397,7 +395,6 @@ pub fn decompress(
 
                 // Copy rows (without going outside channel).
                 if y + 3 < y_sample_count {
-                    // TODO: Can't make lebe to work here.
                     cpy_u8(&s, 0, &mut tmp, row0, x_resting_sample_count);
                     cpy_u8(&s, 4, &mut tmp, row1, x_resting_sample_count);
                     cpy_u8(&s, 8, &mut tmp, row2, x_resting_sample_count);
@@ -610,7 +607,6 @@ pub fn compress(
                         s[i + 12] = u16::from_ne_bytes([tmp[(row3 + j)], tmp[(row3 + j + 1)]]);
                     }
                 } else {
-                    // TODO: Can't make lebe to work here.
                     memcpy_u8_to_u16(&tmp[row0..(row0 + BLOCK_X_BYTE_COUNT)], &mut s[0..4]);
                     memcpy_u8_to_u16(&tmp[row1..(row1 + BLOCK_X_BYTE_COUNT)], &mut s[4..8]);
                     memcpy_u8_to_u16(&tmp[row2..(row2 + BLOCK_X_BYTE_COUNT)], &mut s[8..12]);
