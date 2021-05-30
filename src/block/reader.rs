@@ -1,8 +1,4 @@
-//! Handle compressed and uncompressed pixel byte blocks. Includes compression and decompression,
-//! and reading a complete image into blocks.
-//!
-//! Start with the `block::Reader::read_from_buffered()`
-//! and `block::write_chunks_with()` function.
+//! Composable structures to handle reading an image.
 
 
 use std::convert::TryFrom;
