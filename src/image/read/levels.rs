@@ -2,15 +2,16 @@
 
 use crate::meta::*;
 use crate::image::*;
-use crate::meta::header::{Header};
-use crate::error::{Result, UnitResult};
-use crate::block::lines::LineRef;
-use crate::math::Vec2;
-use crate::meta::attribute::{ChannelDescription, LevelMode};
-use crate::image::read::any_channels::{SamplesReader, ReadSamples, ReadAnyChannels};
+use crate::error::*;
+use crate::meta::attribute::*;
+use crate::image::read::any_channels::*;
 use crate::block::chunk::TileCoordinates;
 use crate::image::read::specific_channels::*;
 use crate::image::recursive::*;
+use crate::math::Vec2;
+use crate::block::lines::LineRef;
+use crate::block::samples::*;
+use crate::meta::header::{Header};
 
 
 // Note: In the resulting image, the `FlatSamples` are placed
@@ -33,7 +34,7 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     /// Read all arbitrary channels in each layer.
     pub fn all_channels(self) -> ReadAnyChannels<DeepOrFlatSamples> { ReadAnyChannels { read_samples: self.read_samples } } // Instead of Self, the `FlatSamples` are used directly
 
-    /// Read only layers that contain rgb channels. Skips any other channels in the layer.
+    /// Read only layers that contain rgba channels. Skips any other channels in the layer.
     /// The alpha channel will contain the value `1.0` if no alpha channel can be found in the image.
     ///
     /// Using two closures, define how to store the pixels.
@@ -57,6 +58,31 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
         self.specific_channels()
             .required("R").required("G").required("B")
             .optional("A", A::from_f32(1.0))
+            .collect_pixels(create_pixels, set_pixel)
+    }
+
+    /// Read only layers that contain rgb channels. Skips any other channels in the layer.
+    ///
+    /// Using two closures, define how to store the pixels.
+    /// The first closure creates an image, and the second closure inserts a single pixel.
+    /// The type of the pixel can be defined by the second closure;
+    /// it must be a tuple containing three values, each being either `f16`, `f32`, `u32` or `Sample`.
+    ///
+    /// Throws an error for images with deep data or subsampling.
+    /// Use `specific_channels` or `all_channels` if you want to read something other than rgb.
+    pub fn rgb_channels<R,G,B, Create, Set, Pixels>(
+        self, create_pixels: Create, set_pixel: Set
+    ) -> CollectPixels<
+        ReadRequiredChannel<ReadRequiredChannel<ReadRequiredChannel<NoneMore, R>, G>, B>,
+        (R, G, B), Pixels, Create, Set
+    >
+        where
+            R: FromNativeSample, G: FromNativeSample, B: FromNativeSample,
+            Create: Fn(Vec2<usize>, &RgbChannels) -> Pixels,
+            Set: Fn(&mut Pixels, Vec2<usize>, (R,G,B)),
+    {
+        self.specific_channels()
+            .required("R").required("G").required("B")
             .collect_pixels(create_pixels, set_pixel)
     }
 
@@ -84,7 +110,7 @@ impl<ReadDeepOrFlatSamples> ReadAllLevels<ReadDeepOrFlatSamples> {
     /// Read all arbitrary channels in each layer.
     pub fn all_channels(self) -> ReadAnyChannels<Self> { ReadAnyChannels { read_samples: self } }
 
-    // TODO rgba resolution levels
+    // TODO specific channels for multiple resolution levels
 
 }
 
@@ -116,7 +142,7 @@ impl<S: ReadSamplesLevel> ReadSamples for ReadAllLevels<S> {
         let data_size = header.layer_size / channel.sampling;
 
         let levels = {
-            if let crate::meta::Blocks::Tiles(tiles) = &header.blocks {
+            if let crate::meta::BlockDescription::Tiles(tiles) = &header.blocks {
                 match tiles.level_mode {
                     LevelMode::Singular => Levels::Singular(self.read_samples.create_samples_level_reader(header, channel, Vec2(0,0), header.layer_size)?),
 
@@ -166,7 +192,7 @@ impl<S: ReadSamplesLevel> ReadSamples for ReadAllLevels<S> {
 impl<S: SamplesReader> SamplesReader for AllLevelsReader<S> {
     type Samples = Levels<S::Samples>;
 
-    fn filter_block(&self, _: (usize, &TileCoordinates)) -> bool {
+    fn filter_block(&self, _: TileCoordinates) -> bool {
         true
     }
 

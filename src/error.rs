@@ -16,7 +16,7 @@ use std::num::TryFromIntError;
 /// A result that may contain an exr error.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// A that, if ok, contains nothing, and otherwise contains an exr error.
+/// A result that, if ok, contains nothing, and otherwise contains an exr error.
 pub type UnitResult = Result<()>;
 
 

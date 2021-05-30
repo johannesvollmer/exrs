@@ -4,7 +4,7 @@ description = "Read and write OpenEXR files without any unsafe code"
 keywords = ["exr", "openexr", "file", "binary", "io"]
 categories = ["encoding", "filesystem", "graphics", "multimedia"]
 
-version = "1.1.0"
+version = "1.2.0"
 edition = "2018"
 authors = ["johannesvollmer <johannes596@t-online.de>"]
 
@@ -26,19 +26,22 @@ plugin = false
 proc-macro = false
 
 [dependencies]
-lebe = "0.5.1"        # generic binary serialization
-half = "1.6.0"        # 16 bit float pixel data type
-bit_field = "0.10.0"  # exr file version bit flags
-deflate = "0.8.4"     # DEFLATE compression
-inflate = "0.4.5"     # DEFLATE decompression
-smallvec = "1.3.0"    # make cache friendly allocations             TODO profile if smallvec is really an improvement!
-rayon = "1.3.0"       # multi-core compression and decompression     TODO make this an optional feature?
+lebe = "0.5.1"                # generic binary serialization
+half = "1.7.1"                # 16 bit float pixel data type
+bit_field = "0.10.1"          # exr file version bit flags
+deflate = "0.9.1"             # DEFLATE compression
+inflate = "0.4.5"             # DEFLATE decompression
+smallvec = "1.6.1"            # make cache-friendly allocations        TODO profile if smallvec is really an improvement!
+threadpool = "1.8.1"          # threading for parallel compression     TODO make this an optional feature?
+flume = "0.10.5"              # crossbeam, but less unsafe code        TODO make this an optional feature?
 
 [dev-dependencies]
+image = { version = "0.23.14", features = ["png"] }         # used to convert one exr to some pngs
+
 bencher = "0.1.5"
-image = "0.23.4"          # used to convert one exr to some pngs
-walkdir = "2.3.1"         # automatically test things for all files in a directory
-rand = "0.7.3"            # used for fuzz testing
+walkdir = "2.3.2"         # automatically test things for all files in a directory
+rand = "0.8.3"            # used for fuzz testing
+rayon = "1.5.1"           # run tests for many files in parallel
 
 
 [[bench]]
@@ -53,31 +56,38 @@ harness = false
 name = "write"
 harness = false
 
-[[bench]]
-name = "rgba"
-harness = false
 
-
-# test with fast runtime speed and moderate build speed
-[profile.dev]
-opt-level = 3
-debug = true
-
-# release with fastest runtime speed
+# recommended release settings for max runtime performance
 [profile.release]
 opt-level = 3
 lto = true
 debug = false
+debug-assertions = false
 codegen-units = 1
+
+# test with fast runtime speed and slow build speed
+[profile.dev]
+incremental = true
+opt-level = 3
+debug-assertions = true
+overflow-checks = true
+debug = true
+lto = true
 
 # test with fast runtime speed and moderate build speed
 [profile.test]
+incremental = true
 opt-level = 3
+debug-assertions = true
+overflow-checks = true
 debug = true
+lto = true
 
 # bench with fastest runtime speed
 [profile.bench]
 opt-level = 3
+debug-assertions = false
+overflow-checks = false
 lto = true
 debug = true
 codegen-units = 1

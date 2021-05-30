@@ -75,10 +75,10 @@ fn slice_create_writer<'slf, Channels:'slf + WritableChannels<'slf>>(
 impl<'slf, Channels: WritableChannels<'slf>> WritableLayers<'slf> for Layer<Channels> {
     fn infer_headers(&self, image_attributes: &ImageAttributes) -> Headers {
         let blocks = match self.encoding.blocks {
-            crate::image::Blocks::ScanLines => crate::meta::Blocks::ScanLines,
+            crate::image::Blocks::ScanLines => crate::meta::BlockDescription::ScanLines,
             crate::image::Blocks::Tiles(tile_size) => {
                 let (level_mode, rounding_mode) = self.channel_data.infer_level_modes();
-                crate::meta::Blocks::Tiles(TileDescription { level_mode, rounding_mode, tile_size, })
+                crate::meta::BlockDescription::Tiles(TileDescription { level_mode, rounding_mode, tile_size, })
             },
         };
 

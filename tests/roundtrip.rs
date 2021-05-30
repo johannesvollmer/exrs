@@ -7,11 +7,13 @@ use std::io::{Cursor};
 use std::panic::catch_unwind;
 use std::path::{PathBuf, Path};
 use std::ffi::OsStr;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use exr::prelude::*;
 use exr::error::{Error, UnitResult};
 use exr::prelude::pixel_vec::PixelVec;
+use exr::image::validate_results::ValidateResult;
+use rayon::prelude::IntoParallelIterator;
+use rayon::iter::ParallelIterator;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
@@ -26,7 +28,7 @@ fn check_files<T>(
     operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -> exr::error::Result<T>
 ) {
     #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
-    enum Result { Ok, Skipped, Unsupported(String), Error(String) };
+    enum Result { Ok, Skipped, Unsupported(String), Error(String) }
 
     let files: Vec<PathBuf> = exr_files().collect();
     let mut results: Vec<(PathBuf, Result)> = files.into_par_iter()
@@ -70,7 +72,7 @@ fn check_files<T>(
         format!("{:?}: {}", result, path.to_str().unwrap())
     }).collect::<Vec<_>>());
 
-    assert!(results.len() >= 100, "Not all files were tested!");
+    assert!(results.len() > 80, "Not enough files were tested!");
 
     if let Result::Error(_) = results.last().unwrap().1 {
         panic!("A file triggered a panic");
@@ -92,9 +94,7 @@ fn round_trip_all_files_full() {
 
         let image2 = read_image.from_buffered(Cursor::new(tmp_bytes))?;
 
-        assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
-        if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN
-
+        image.assert_equals_result(&image2);
         Ok(())
     })
 }
@@ -114,9 +114,7 @@ fn round_trip_all_files_simple() {
 
         let image2 = read_image.from_buffered(Cursor::new(&tmp_bytes))?;
 
-        assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
-        if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN
-
+        image.assert_equals_result(&image2);
         Ok(())
     })
 }
@@ -139,10 +137,7 @@ fn round_trip_all_files_rgba() {
         let image_reader = read()
             .no_deep_data()
             .largest_resolution_level() // TODO all levels
-            .rgba_channels(
-                pixel_vec::create_pixel_vec::<(f32, f32, f32, f32), _>,
-                pixel_vec::set_pixel_in_vec::<(f32, f32, f32, f32)>,
-            )
+            .rgba_channels(PixelVec::<(f32,f32,f32,f32)>::constructor, PixelVec::set_pixel)
             .first_valid_layer()
             .all_attributes()
             .non_parallel();
@@ -156,9 +151,7 @@ fn round_trip_all_files_rgba() {
 
         let image2 = image_reader.from_buffered(Cursor::new(&tmp_bytes))?;
 
-        assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
-        if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN
-
+        image.assert_equals_result(&image2);
         Ok(())
     })
 }
@@ -183,9 +176,7 @@ fn round_trip_parallel_files() {
             .pedantic()
             .from_buffered(Cursor::new(tmp_bytes.as_slice()))?;
 
-        assert_eq!(image.contains_nan_pixels(), image2.contains_nan_pixels());
-        if !image.contains_nan_pixels() { assert_eq!(image, image2); } // thanks, NaN
-
+        image.assert_equals_result(&image2);
         Ok(())
     })
 }
@@ -223,10 +214,8 @@ fn roundtrip_unusual_2() -> UnitResult {
     let image_reader = read()
         .no_deep_data()
         .largest_resolution_level() // TODO all levels
-        .specific_channels().required("N").required("Ploppalori Taranos").collect_pixels(
-            pixel_vec::create_pixel_vec::<(f16, u32), _>,
-            pixel_vec::set_pixel_in_vec::<(f16, u32)>,
-        )
+        .specific_channels().required("N").required("Ploppalori Taranos")
+        .collect_pixels(PixelVec::<(f16,u32)>::constructor, PixelVec::set_pixel)
         .first_valid_layer()
         .all_attributes()
         .non_parallel();
@@ -290,10 +279,7 @@ fn roundtrip_unusual_7() -> UnitResult {
             .required("____")
             .required(" ")
             .required("  ")
-        .collect_pixels(
-            pixel_vec::create_pixel_vec::<(f16, u32, f32,f32,f32,f32,f32), _>,
-            pixel_vec::set_pixel_in_vec::<(f16, u32, f32,f32,f32,f32,f32)>,
-        )
+        .collect_pixels(PixelVec::<(f16, u32, f32,f32,f32,f32,f32)>::constructor, PixelVec::set_pixel)
         .first_valid_layer()
         .all_attributes()
         .non_parallel();
@@ -306,6 +292,5 @@ fn roundtrip_unusual_7() -> UnitResult {
     let pixels2 = &image2.layer_data.channel_data.pixels;
 
     assert_eq!(pixels1.pixels, pixels2.pixels);
-
     Ok(())
 }

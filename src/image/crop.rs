@@ -85,7 +85,7 @@ pub trait CropWhere<Sample>: Sized {
     fn crop_where_eq(self, discard_color: impl Into<Sample>) -> CropResult<Self::Cropped, Self> where Sample: PartialEq;
 
     /// Convert this data to cropped data without discarding any pixels.
-    fn crop_neutral(self) -> Self::Cropped;
+    fn crop_nowhere(self) -> Self::Cropped;
 }
 
 impl<Channels> Crop for Layer<Channels> {
@@ -113,7 +113,7 @@ impl<T> CropWhere<T::Sample> for T where T: Crop + InspectSample {
         self.crop_where(|sample| sample == discard_color)
     }
 
-    fn crop_neutral(self) -> Self::Cropped {
+    fn crop_nowhere(self) -> Self::Cropped {
         let current_bounds = self.bounds();
         self.crop(current_bounds)
     }
@@ -218,7 +218,7 @@ impl InspectSample for Layer<AnyChannels<FlatSamples>> {
 /// Realize a cropped view of the original data,
 /// by actually removing the unwanted original pixels,
 /// reducing the memory consumption.
-/// Currently not supported for rgba images.
+/// Currently not supported for `SpecificChannels`.
 pub trait ApplyCroppedView {
 
     /// The simpler type after cropping is realized
@@ -226,7 +226,7 @@ pub trait ApplyCroppedView {
 
     /// Make the cropping real by reallocating the underlying storage,
     /// with the goal of reducing total memory usage.
-    /// Currently not supported for rgba images.
+    /// Currently not supported for `SpecificChannels`.
     fn reallocate_cropped(self) -> Self::Reallocated;
 }
 
@@ -375,7 +375,7 @@ impl<Cropped, Original> CropResult<Cropped, Original> {
             CropResult::Cropped (cropped) => cropped,
             CropResult::Empty { original } => {
                 let bounds = original.bounds();
-                if bounds.size == Vec2(0,0) { panic!("rgba layer has width and height of zero") }
+                if bounds.size == Vec2(0,0) { panic!("layer has width and height of zero") }
                 original.crop(IntegerBounds::new(bounds.position, Vec2(1,1)))
             },
         }

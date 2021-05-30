@@ -1,6 +1,7 @@
 
 //! Describes all meta data possible in an exr file.
 //! Contains functionality to read and write meta data from bytes.
+//! Browse the `exr::image` module to get started with the high-level interface.
 
 pub mod attribute;
 pub mod header;
@@ -9,7 +10,7 @@ pub mod header;
 use crate::io::*;
 use ::smallvec::SmallVec;
 use self::attribute::*;
-use crate::block::chunk::{TileCoordinates, Block};
+use crate::block::chunk::{TileCoordinates, CompressedBlock};
 use crate::error::*;
 use std::fs::File;
 use std::io::{BufReader};
@@ -17,6 +18,7 @@ use crate::math::*;
 use std::collections::{HashSet};
 use std::convert::TryFrom;
 use crate::meta::header::{Header};
+use crate::block::{BlockIndex, UncompressedBlock};
 
 
 // TODO rename MetaData to ImageInfo?
@@ -33,6 +35,7 @@ pub struct MetaData {
     pub requirements: Requirements,
 
     /// One header to describe each layer in this file.
+    // TODO rename to layer descriptions?
     pub headers: Headers,
 }
 
@@ -61,27 +64,27 @@ pub type OffsetTable = Vec<u64>;
 /// A summary of requirements that must be met to read this exr file.
 /// Used to determine whether this file can be read by a given reader.
 /// It includes the OpenEXR version number. This library aims to support version `2.0`.
-#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Hash)]
 pub struct Requirements {
 
     /// This library supports reading version 1 and 2, and writing version 2.
     // TODO write version 1 for simple images
-    file_format_version: u8,
+    pub file_format_version: u8,
 
     /// If true, this image has tiled blocks and contains only a single layer.
     /// If false and not deep and not multilayer, this image is a single layer image with scan line blocks.
-    is_single_layer_and_tiled: bool,
+    pub is_single_layer_and_tiled: bool,
 
     // in c or bad c++ this might have been relevant (omg is he allowed to say that)
     /// Whether this file has strings with a length greater than 31.
     /// Strings can never be longer than 255.
-    has_long_names: bool,
+    pub has_long_names: bool,
 
     /// This image contains at least one layer with deep data.
-    has_deep_data: bool,
+    pub has_deep_data: bool,
 
     /// Whether this file contains multiple layers.
-    has_multiple_layers: bool,
+    pub has_multiple_layers: bool,
 }
 
 
@@ -97,8 +100,8 @@ pub struct TileIndices {
 }
 
 /// How the image pixels are split up into separate blocks.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum Blocks {
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum BlockDescription {
 
     /// The image is divided into scan line blocks.
     /// The number of scan lines in a block depends on the compression method.
@@ -135,12 +138,12 @@ pub enum Blocks {
     }
 }*/
 
-impl Blocks {
+impl BlockDescription {
 
     /// Whether this image is tiled. If false, this image is divided into scan line blocks.
     pub fn has_tiles(&self) -> bool {
         match self {
-            Blocks::Tiles { .. } => true,
+            BlockDescription::Tiles { .. } => true,
             _ => false
         }
     }
@@ -308,9 +311,9 @@ pub fn mip_map_indices(round: RoundingMode, max_resolution: Vec2<usize>) -> impl
 // If not multilayer and chunkCount not present,
 // the number of entries in the chunk table is computed
 // using the dataWindow and tileDesc attributes and the compression format
-pub fn compute_chunk_count(compression: Compression, data_size: Vec2<usize>, blocks: Blocks) -> usize {
+pub fn compute_chunk_count(compression: Compression, data_size: Vec2<usize>, blocks: BlockDescription) -> usize {
 
-    if let Blocks::Tiles(tiles) = blocks {
+    if let BlockDescription::Tiles(tiles) = blocks {
         let round = tiles.rounding_mode;
         let Vec2(tile_width, tile_height) = tiles.tile_size;
 
@@ -402,7 +405,8 @@ impl MetaData {
 
     /// Validates the meta data and writes it to the stream.
     /// If pedantic, throws errors for files that may produce errors in other exr readers.
-    pub(crate) fn write_validating_to_buffered(write: &mut impl Write, headers: &[Header], pedantic: bool) -> UnitResult {
+    /// Returns the automatically detected minimum requirement flags.
+    pub(crate) fn write_validating_to_buffered(write: &mut impl Write, headers: &[Header], pedantic: bool) -> Result<Requirements> {
         // pedantic validation to not allow slightly invalid files
         // that still could be read correctly in theory
         let minimal_requirements = Self::validate(headers, pedantic)?;
@@ -410,7 +414,7 @@ impl MetaData {
         magic_number::write(write)?;
         minimal_requirements.write(write)?;
         Header::write_all(headers, write, minimal_requirements.has_multiple_layers)?;
-        Ok(())
+        Ok(minimal_requirements)
     }
 
     /// Read one offset table from the reader for each header.
@@ -426,6 +430,38 @@ impl MetaData {
         let chunk_count: usize = headers.iter().map(|header| header.chunk_count).sum();
         crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE)?; // TODO this should seek for large tables
         Ok(chunk_count)
+    }
+
+    /// This iterator tells you the block indices of all blocks that must be in the image.
+    /// The order of the blocks depends on the `LineOrder` attribute
+    /// (unspecified line order is treated the same as increasing line order).
+    /// The blocks written to the file must be exactly in this order,
+    /// except for when the `LineOrder` is unspecified.
+    /// The index represents the block index, in increasing line order, within the header.
+    pub fn enumerate_ordered_header_block_indices(&self) -> impl '_ + Iterator<Item=(usize, BlockIndex)> {
+        crate::block::enumerate_ordered_header_block_indices(&self.headers)
+    }
+
+    /// Go through all the block indices in the correct order and call the specified closure for each of these blocks.
+    /// That way, the blocks indices are filled with real block data and returned as an iterator.
+    /// The closure returns the an `UncompressedBlock` for each block index.
+    pub fn collect_ordered_blocks<'s>(&'s self, mut get_block: impl 's + FnMut(BlockIndex) -> UncompressedBlock)
+        -> impl 's + Iterator<Item=(usize, UncompressedBlock)>
+    {
+        self.enumerate_ordered_header_block_indices().map(move |(index_in_header, block_index)|{
+            (index_in_header, get_block(block_index))
+        })
+    }
+
+    /// Go through all the block indices in the correct order and call the specified closure for each of these blocks.
+    /// That way, the blocks indices are filled with real block data and returned as an iterator.
+    /// The closure returns the byte data for each block index.
+    pub fn collect_ordered_block_data<'s>(&'s self, mut get_block_data: impl 's + FnMut(BlockIndex) -> Vec<u8>)
+        -> impl 's + Iterator<Item=(usize, UncompressedBlock)>
+    {
+        self.collect_ordered_blocks(move |block_index|
+            UncompressedBlock { index: block_index, data: get_block_data(block_index) }
+        )
     }
 
     /// Validates this meta data. Returns the minimal possible requirements.
@@ -503,7 +539,7 @@ impl MetaData {
             }
         }
 
-        debug_assert!(minimal_requirements.validate().is_ok());
+        debug_assert!(minimal_requirements.validate().is_ok(), "inferred requirements are invalid");
         Ok(minimal_requirements)
     }
 }
@@ -644,7 +680,7 @@ mod test {
             compression: Compression::Uncompressed,
             line_order: LineOrder::Increasing,
             deep_data_version: Some(1),
-            chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), Blocks::ScanLines),
+            chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), BlockDescription::ScanLines),
             max_samples_per_pixel: Some(4),
             shared_attributes: ImageAttributes {
                 pixel_aspect: 3.0,
@@ -654,7 +690,7 @@ mod test {
                 })
             },
 
-            blocks: Blocks::ScanLines,
+            blocks: BlockDescription::ScanLines,
             deep: false,
             layer_size: Vec2(2000, 333),
             own_attributes: LayerAttributes {
@@ -700,7 +736,7 @@ mod test {
             compression: Compression::Uncompressed,
             line_order: LineOrder::Increasing,
             deep_data_version: Some(1),
-            chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), Blocks::ScanLines),
+            chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), BlockDescription::ScanLines),
             max_samples_per_pixel: Some(4),
             shared_attributes: ImageAttributes {
                 pixel_aspect: 3.0,
@@ -709,7 +745,7 @@ mod test {
                     size: Vec2(11, 9)
                 })
             },
-            blocks: Blocks::ScanLines,
+            blocks: BlockDescription::ScanLines,
             deep: false,
             layer_size: Vec2(2000, 333),
             own_attributes: LayerAttributes {
@@ -747,7 +783,7 @@ mod test {
             compression: Compression::Uncompressed,
             line_order: LineOrder::Increasing,
             deep_data_version: Some(1),
-            chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), Blocks::ScanLines),
+            chunk_count: compute_chunk_count(Compression::Uncompressed, Vec2(2000, 333), BlockDescription::ScanLines),
             max_samples_per_pixel: Some(4),
             shared_attributes: ImageAttributes {
                 pixel_aspect: 3.0,
@@ -756,7 +792,7 @@ mod test {
                     size: Vec2(11, 9)
                 })
             },
-            blocks: Blocks::ScanLines,
+            blocks: BlockDescription::ScanLines,
             deep: false,
             layer_size: Vec2(2000, 333),
             own_attributes: LayerAttributes {

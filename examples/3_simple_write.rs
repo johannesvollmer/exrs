@@ -18,7 +18,7 @@ fn main() {
         let mut values = vec![ f16::from_f32(0.5); size.area() ];
 
         for _ in 0..(1024*1024/3)/4 {
-            let index = rand::thread_rng().gen_range(0, values.len());
+            let index = rand::thread_rng().gen_range(0 .. values.len());
             let value = 1.0 / rand::random::<f32>() - 1.0;
             let value = if !value.is_normal() || value > 1000.0 { 1000.0 } else { value };
             values[index] = f16::from_f32(value);

@@ -7,7 +7,7 @@ use crate::meta::attribute::*; // FIXME shouldn't this need some more imports???
 use crate::meta::*;
 use crate::math::Vec2;
 
-// TODO rename header to LayerInfo!
+// TODO rename header to LayerDescription!
 
 /// Describes a single layer in a file.
 /// A file can have any number of layers.
@@ -30,7 +30,7 @@ pub struct Header {
     // Required if file contains deep data or multiple layers.
     // Note: This value must agree with the version field's tile bit and deep data bit.
     // In this crate, this attribute will always have a value, for simplicity.
-    pub blocks: Blocks,
+    pub blocks: BlockDescription,
 
     /// In what order the tiles of this header occur in the file.
     pub line_order: LineOrder,
@@ -319,7 +319,7 @@ impl Header {
         let data_size: Vec2<usize> = data_size.into();
 
         let compression = Compression::RLE;
-        let blocks = Blocks::Tiles(TileDescription {
+        let blocks = BlockDescription::Tiles(TileDescription {
             tile_size: Vec2(64, 64),
             level_mode: LevelMode::Singular,
             rounding_mode: RoundingMode::Down
@@ -358,7 +358,7 @@ impl Header {
     }
 
     /// Set compression, tiling, and line order. Automatically computes chunk count.
-    pub fn with_encoding(self, compression: Compression, blocks: Blocks, line_order: LineOrder) -> Self {
+    pub fn with_encoding(self, compression: Compression, blocks: BlockDescription, line_order: LineOrder) -> Self {
         Self {
             chunk_count: compute_chunk_count(compression, self.layer_size, blocks),
             compression, blocks, line_order,
@@ -376,8 +376,23 @@ impl Header {
         Self { shared_attributes, .. self }
     }
 
-    /// Iterate over all blocks, in the order specified by the headers line order attribute,
-    /// with an index returning the original index of the block if it were `LineOrder::Increasing`.
+    /// Iterate over all blocks, in the order specified by the headers line order attribute.
+    /// Unspecified line order is treated as increasing line order.
+    /// Also enumerates the index of each block in the header, as if it were sorted in increasing line order.
+    pub fn enumerate_ordered_blocks(&self) -> impl Iterator<Item=(usize, TileIndices)> + Send {
+        let increasing_y = self.blocks_increasing_y_order().enumerate();
+
+        // TODO without box?
+        let ordered: Box<dyn Send + Iterator<Item=(usize, TileIndices)>> = {
+            if self.line_order == LineOrder::Decreasing { Box::new(increasing_y.rev()) }
+            else { Box::new(increasing_y) }
+        };
+
+        ordered
+    }
+
+    /*/// Iterate over all blocks, in the order specified by the headers line order attribute.
+    /// Also includes an index of the block if it were `LineOrder::Increasing`, starting at zero for this header.
     pub fn enumerate_ordered_blocks(&self) -> impl Iterator<Item = (usize, TileIndices)> + Send {
         let increasing_y = self.blocks_increasing_y_order().enumerate();
 
@@ -391,7 +406,7 @@ impl Header {
         };
 
         ordered
-    }
+    }*/
 
     /// Iterate over all tile indices in this header in `LineOrder::Increasing` order.
     pub fn blocks_increasing_y_order(&self) -> impl Iterator<Item = TileIndices> + ExactSizeIterator + DoubleEndedIterator {
@@ -414,7 +429,7 @@ impl Header {
         }
 
         let vec: Vec<TileIndices> = {
-            if let Blocks::Tiles(tiles) = self.blocks {
+            if let BlockDescription::Tiles(tiles) = self.blocks {
                 match tiles.level_mode {
                     LevelMode::Singular => {
                         tiles_of(self.layer_size, tiles.tile_size, Vec2(0, 0)).collect()
@@ -444,13 +459,28 @@ impl Header {
         vec.into_iter() // TODO without collect
     }
 
+    /* TODO
+    /// The block indices of this header, ordered as they would appear in the file.
+    pub fn ordered_block_indices<'s>(&'s self, layer_index: usize) -> impl 's + Iterator<Item=BlockIndex> {
+        self.enumerate_ordered_blocks().map(|(chunk_index, tile)|{
+            let data_indices = self.get_absolute_block_pixel_coordinates(tile.location).expect("tile coordinate bug");
+
+            BlockIndex {
+                layer: layer_index,
+                level: tile.location.level_index,
+                pixel_position: data_indices.position.to_usize("data indices start").expect("data index bug"),
+                pixel_size: data_indices.size,
+            }
+        })
+    }*/
+
     // TODO reuse this function everywhere
     /// The default pixel resolution of a single block (tile or scan line block).
     /// Not all blocks have this size, because they may be cutoff at the end of the image.
     pub fn max_block_pixel_size(&self) -> Vec2<usize> {
         match self.blocks {
-            Blocks::ScanLines => Vec2(self.layer_size.0, self.compression.scan_lines_per_block()),
-            Blocks::Tiles(tiles) => tiles.tile_size,
+            BlockDescription::ScanLines => Vec2(self.layer_size.0, self.compression.scan_lines_per_block()),
+            BlockDescription::Tiles(tiles) => tiles.tile_size,
         }
     }
 
@@ -462,7 +492,7 @@ impl Header {
 
     /// Calculate the pixel index rectangle inside this header. Is not negative. Starts at `0`.
     pub fn get_absolute_block_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntegerBounds> {
-        if let Blocks::Tiles(tiles) = self.blocks {
+        if let BlockDescription::Tiles(tiles) = self.blocks {
             let Vec2(data_width, data_height) = self.layer_size;
 
             let data_width = compute_level_size(tiles.rounding_mode, data_width, tile.level_index.x());
@@ -495,13 +525,13 @@ impl Header {
 
     /// Return the tile index, converting scan line block coordinates to tile indices.
     /// Starts at `0` and is not negative.
-    pub fn get_block_data_indices(&self, block: &Block) -> Result<TileCoordinates> {
+    pub fn get_block_data_indices(&self, block: &CompressedBlock) -> Result<TileCoordinates> {
         Ok(match block {
-            Block::Tile(ref tile) => {
+            CompressedBlock::Tile(ref tile) => {
                 tile.coordinates
             },
 
-            Block::ScanLine(ref block) => {
+            CompressedBlock::ScanLine(ref block) => {
                 let size = self.compression.scan_lines_per_block() as i32;
                 let y = (block.y_coordinate - self.own_attributes.layer_position.y()) / size;
 
@@ -537,8 +567,8 @@ impl Header {
     /// Maximum byte length of an uncompressed or compressed block, used for validation.
     pub fn max_block_byte_size(&self) -> usize {
         self.channels.bytes_per_pixel * match self.blocks {
-            Blocks::Tiles(tiles) => tiles.tile_size.area(),
-            Blocks::ScanLines => self.compression.scan_lines_per_block() * self.layer_size.width()
+            BlockDescription::Tiles(tiles) => tiles.tile_size.area(),
+            BlockDescription::ScanLines => self.compression.scan_lines_per_block() * self.layer_size.width()
             // TODO What about deep data???
         }
     }
@@ -550,8 +580,8 @@ impl Header {
 
         let pixel_count_of_levels = |size: Vec2<usize>| -> usize {
             match self.blocks {
-                Blocks::ScanLines => size.area(),
-                Blocks::Tiles(tile_description) => match tile_description.level_mode {
+                BlockDescription::ScanLines => size.area(),
+                BlockDescription::Tiles(tile_description) => match tile_description.level_mode {
                     LevelMode::Singular => size.area(),
 
                     LevelMode::MipMap => mip_map_levels(tile_description.rounding_mode, size)
@@ -597,7 +627,7 @@ impl Header {
                 }
             }
 
-            if self.blocks == Blocks::ScanLines && self.line_order == LineOrder::Unspecified {
+            if self.blocks == BlockDescription::ScanLines && self.line_order == LineOrder::Unspecified {
                 return Err(Error::invalid("unspecified line order in scan line images"));
             }
 
@@ -618,7 +648,7 @@ impl Header {
             }
         }
 
-        let allow_subsampling = !self.deep && self.blocks == Blocks::ScanLines;
+        let allow_subsampling = !self.deep && self.blocks == BlockDescription::ScanLines;
         self.channels.validate(allow_subsampling, self.data_window(), strict)?;
 
         for (name, value) in &self.shared_attributes.other {
@@ -830,7 +860,9 @@ impl Header {
         // construct compression with parameters from properties
         let compression = match (dwa_compression_level, compression) {
             (Some(level), Some(Compression::DWAA(_))) => Some(Compression::DWAA(Some(level))),
+            (Some(level), Some(Compression::DWAB(_))) => Some(Compression::DWAB(Some(level))),
             (_, other) => other,
+            // FIXME dwa compression level gets lost if any other compression is used later in the process
         };
 
         let compression = compression.ok_or(missing_attribute("compression"))?;
@@ -843,13 +875,13 @@ impl Header {
 
         let blocks = match block_type {
             None if requirements.is_single_layer_and_tiled => {
-                Blocks::Tiles(tiles.ok_or(missing_attribute("tiles"))?)
+                BlockDescription::Tiles(tiles.ok_or(missing_attribute("tiles"))?)
             },
             Some(BlockType::Tile) | Some(BlockType::DeepTile) => {
-                Blocks::Tiles(tiles.ok_or(missing_attribute("tiles"))?)
+                BlockDescription::Tiles(tiles.ok_or(missing_attribute("tiles"))?)
             },
 
-            _ => Blocks::ScanLines,
+            _ => BlockDescription::ScanLines,
         };
 
         // check size now to prevent panics while computing the chunk size
@@ -904,8 +936,8 @@ impl Header {
         use AttributeValue::*;
 
         let (block_type, tiles) = match self.blocks {
-            Blocks::ScanLines => (attribute::BlockType::ScanLine, None),
-            Blocks::Tiles(tiles) => (attribute::BlockType::Tile, Some(tiles))
+            BlockDescription::ScanLines => (attribute::BlockType::ScanLine, None),
+            BlockDescription::Tiles(tiles) => (attribute::BlockType::Tile, Some(tiles))
         };
 
         fn usize_as_i32(value: usize) -> AttributeValue {
@@ -973,10 +1005,15 @@ impl Header {
             SOFTWARE: Text = &self.own_attributes.software_name
         );
 
-        // write compression parameters as attribute
-        if let attribute::Compression::DWAA(Some(level)) = self.compression {
-            attribute::write(DWA_COMPRESSION_LEVEL, &F32(level), write)?;
-        }
+        // dwa writes compression parameters as attribute.
+        match self.compression {
+            attribute::Compression::DWAA(Some(level)) |
+            attribute::Compression::DWAB(Some(level)) =>
+                attribute::write(DWA_COMPRESSION_LEVEL, &F32(level), write)?,
+
+            _ => {}
+        };
+
 
         for (name, value) in &self.shared_attributes.other {
             attribute::write(name.as_slice(), value, write)?;

@@ -1,29 +1,18 @@
 //! How to read arbitrary but specific selection of arbitrary channels.
 //! This is not a zero-cost abstraction.
 
+use crate::image::recursive::*;
+use crate::block::samples::*;
 use crate::image::*;
-use crate::meta::header::{Header};
-use crate::error::{Result, UnitResult, Error};
+use crate::math::*;
+use crate::meta::header::*;
+use crate::error::*;
 use crate::block::UncompressedBlock;
-use crate::math::Vec2;
 use crate::image::read::layers::{ChannelsReader, ReadChannels};
 use crate::block::chunk::TileCoordinates;
+
 use std::marker::PhantomData;
-use crate::image::recursive::*;
 
-/// Create an arbitrary sample type from one of the defined sample types.
-/// Should be compiled to a no-op where the file contains the predicted sample type.
-pub trait FromNativeSample: Sized + Copy + Default + 'static {
-
-    /// Create this sample from a f16, trying to represent the same numerical value
-    fn from_f16(value: f16) -> Self;
-
-    /// Create this sample from a f32, trying to represent the same numerical value
-    fn from_f32(value: f32) -> Self;
-
-    /// Create this sample from a u32, trying to represent the same numerical value
-    fn from_u32(value: u32) -> Self;
-}
 
 /// Can be attached one more channel reader.
 /// Call `required` or `optional` on this object to declare another channel to be read from the file.
@@ -192,7 +181,7 @@ ChannelsReader for SpecificChannelsReader<PixelStorage, SetPixel, PxReader, Pixe
 {
     type Channels = SpecificChannels<PixelStorage, <PxReader::RecursiveChannelDescriptions as IntoNonRecursive>::NonRecursive>;
 
-    fn filter_block(&self, (_, tile): (usize, &TileCoordinates)) -> bool { tile.is_largest_resolution_level() } // TODO all levels
+    fn filter_block(&self, tile: TileCoordinates) -> bool { tile.is_largest_resolution_level() } // TODO all levels
 
     fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult {
         let mut pixels = vec![PxReader::RecursivePixel::default(); block.index.pixel_size.width()]; // TODO allocate once in self
@@ -313,7 +302,7 @@ impl<Sample: FromNativeSample> SampleReader<Sample> {
             },
         }
 
-        debug_assert!(own_bytes_reader.is_empty());
+        debug_assert!(own_bytes_reader.is_empty(), "bytes left after reading all samples");
     }
 }
 
@@ -380,28 +369,3 @@ for Recursive<InnerReader, OptionalSampleReader<Sample>>
 }
 
 
-
-// TODO haven't i implemented this exact behaviour already somewhere else in this library...??
-impl FromNativeSample for f32 {
-    fn from_f16(value: f16) -> Self { value.to_f32() }
-    fn from_f32(value: f32) -> Self { value } // this branch means that we never have to match every single sample if the file format matches the expected output
-    fn from_u32(value: u32) -> Self { value as f32 }
-}
-
-impl FromNativeSample for u32 {
-    fn from_f16(value: f16) -> Self { value.to_f32() as u32 }
-    fn from_f32(value: f32) -> Self { value as u32 }
-    fn from_u32(value: u32) -> Self { value }
-}
-
-impl FromNativeSample for f16 {
-    fn from_f16(value: f16) -> Self { value }
-    fn from_f32(value: f32) -> Self { f16::from_f32(value) }
-    fn from_u32(value: u32) -> Self { f16::from_f32(value as f32) }
-}
-
-impl FromNativeSample for Sample {
-    fn from_f16(value: f16) -> Self { Self::from(value) }
-    fn from_f32(value: f32) -> Self { Self::from(value) }
-    fn from_u32(value: u32) -> Self { Self::from(value) }
-}

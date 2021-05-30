@@ -12,6 +12,7 @@ use std::{
     io::{Cursor, Read, Write},
 };
 use std::convert::TryFrom;
+use smallvec::SmallVec;
 
 
 pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
@@ -105,7 +106,7 @@ const LONGEST_LONG_RUN: u64 = 255 + SHORTEST_LONG_RUN;
 enum Code {
     Empty,
     Short(ShortCode),
-    Long(Vec<u32>),
+    Long(SmallVec<[u32; 2]>), // often 2, sometimes 4, rarely 8
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -259,7 +260,7 @@ fn build_decoding_table(
             let long_code = &mut decoding_table[u64_to_usize(code >> (length - DECODE_BITS))];
 
             match long_code {
-                Code::Empty => *long_code = Code::Long(vec![code_index]),
+                Code::Empty => *long_code = Code::Long(smallvec![code_index]),
                 Code::Long(lits) => lits.push(code_index),
                 _ => { return Err(Error::invalid(INVALID_TABLE_ENTRY)); }
             }
@@ -289,12 +290,11 @@ fn read_encoding_table(
     max_code_index: usize,
 ) -> Result<Vec<u64>>
 {
-    let mut encoding_table = vec![0_u64; ENCODING_TABLE_SIZE];
     let mut code_bits = 0_u64;
     let mut code_bit_count = 0_u64;
 
     // TODO push() into encoding table instead of index stuff?
-
+        let mut encoding_table = vec![0_u64; ENCODING_TABLE_SIZE];
     let mut code_index = min_code_index;
     while code_index <= max_code_index {
         let code_len = read_bits(6, &mut code_bits, &mut code_bit_count, packed)?;
@@ -613,7 +613,7 @@ fn build_canonical_table(code_table: &mut [u64]) {
     // numerically lowest code with length i, and
     // store that code in n[i].
     {
-        let mut code = 0_u64;
+        let mut code = 0_u64; // TODO use foldr?
         for count in &mut count_per_code.iter_mut().rev() {
             let next_code = (code + *count) >> 1;
             *count = code;
@@ -624,7 +624,7 @@ fn build_canonical_table(code_table: &mut [u64]) {
     // code[i] contains the length, l, of the
     // code for symbol i.  Assign the next available
     // code of length l to the symbol and store both
-    // l and the code in code[i].
+    // l and the code in code[i]. // TODO iter + filter ?
     for symbol_length in code_table.iter_mut() {
         let current_length = *symbol_length;
         let code_index = u64_to_usize(current_length);
@@ -700,8 +700,13 @@ fn build_encoding_table(
 
     let mut max_frequency_index = 0;
     let mut frequency_count = 0;
+
+    // assert bounds check to optimize away bounds check in loops
+    assert!(links.len() >= ENCODING_TABLE_SIZE);
+    assert!(frequencies.len() >= ENCODING_TABLE_SIZE);
+
     for index in min_frequency_index..ENCODING_TABLE_SIZE {
-        links[index] = index;
+        links[index] = index; // TODO for x in links.iter().enumerate()
 
         if frequencies[index] != 0 {
             frequency_heap[frequency_count] = index;
@@ -780,7 +785,7 @@ fn build_encoding_table(
         // into a single list that starts at scode[m].
 
         // Add a bit to all codes in the first list.
-        let mut index = high_position;
+        let mut index = high_position; // TODO fold()
         loop {
             s_code[index] += 1;
             debug_assert!(s_code[index] <= 58);
@@ -795,7 +800,7 @@ fn build_encoding_table(
         }
 
         // Add a bit to all codes in the second list
-        let mut index = low_position;
+        let mut index = low_position; // TODO fold()
         loop {
             s_code[index] += 1;
             debug_assert!(s_code[index] <= 58);
@@ -916,7 +921,7 @@ mod test {
         let mut data = vec![0_u16; size];
 
         data.iter_mut().for_each(|v| {
-            *v = rng.gen_range(0_u16, u16::MAX);
+            *v = rng.gen_range(0_u16 .. u16::MAX);
         });
 
         data
@@ -954,7 +959,7 @@ mod test {
     fn round_trip100() {
         let mut random = rand::rngs::StdRng::from_seed(SEED);
 
-        for size_multiplier in 1..100 {
+        for size_multiplier in 1..10 {
             let raw = fill(&mut random, size_multiplier * 50_000);
 
             let compressed = compress(&raw).unwrap();

@@ -13,6 +13,7 @@ use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{Write, Cursor};
 use exr::image::read::read_first_rgba_layer_from_file;
+use exr::image::pixel_vec::PixelVec;
 
 fn exr_files(path: &'static str, filter: bool) -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new(path).into_iter().map(std::result::Result::unwrap)
@@ -70,8 +71,8 @@ pub fn damaged(){
             {
                 let _rgba = read_first_rgba_layer_from_file(
                     file,
-                    pixel_vec::create_pixel_vec::<(Sample, Sample, Sample, Sample), _>,
-                    pixel_vec::set_pixel_in_vec::<(Sample, Sample, Sample, Sample)>
+                    PixelVec::<(Sample, Sample, Sample, Sample)>::constructor,
+                    PixelVec::set_pixel
                 )?;
             }
 
@@ -139,7 +140,7 @@ pub fn fuzz(){
     let start_index = 0; // default is 0. increase this integer for debugging a specific fuzz case
     for fuzz_index in 0 .. 1024_u64 * 2048 * 4 {
 
-        let file_1_name = &files[random.gen_range(0, files.len())];
+        let file_1_name = &files[random.gen_range(0 .. files.len())];
         let mutation_point = random.gen::<f32>().powi(3);
         let mutation = random.gen::<u8>();
 

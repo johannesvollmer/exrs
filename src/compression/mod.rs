@@ -8,6 +8,7 @@ mod zip;
 mod rle;
 mod piz;
 mod pxr24;
+mod b44;
 
 
 
@@ -44,12 +45,12 @@ pub enum Compression {
     /// Uses ZIP compression to compress each line. Slowly produces small images
     /// which can be read with moderate speed. This compression method is lossless.
     /// Might be slightly faster but larger than `ZIP16´.
-    ZIP1, // TODO specify zip compression level?
+    ZIP1,  // TODO ZIP { individual_lines: bool, compression_level: Option<u8> }  // TODO specify zip compression level?
 
     /// Uses ZIP compression to compress blocks of 16 lines. Slowly produces small images
     /// which can be read with moderate speed. This compression method is lossless.
     /// Might be slightly slower but smaller than `ZIP1´.
-    ZIP16, // TODO specify zip compression level?
+    ZIP16, // TODO collapse with ZIP1
 
     /// PIZ compression works well for noisy and natural images. Works better with larger tiles.
     /// Only supported for flat images, but not for deep data.
@@ -67,26 +68,26 @@ pub enum Compression {
     PIZ,
 
     /// Like `ZIP1`, but reduces precision of `f32` images to `f24`.
+    /// Therefore, this is lossless compression for `f16` and `u32` data, lossy compression for `f32` data.
+    /// This compression method works well for depth
+    /// buffers and similar images, where the possible range of values is very large, but
+    /// where full 32-bit floating-point accuracy is not necessary. Rounding improves
+    /// compression significantly by eliminating the pixels' 8 least significant bits, which
+    /// tend to be very noisy, and therefore difficult to compress.
     /// This produces really small image files. Only supported for flat images, not for deep data.
     // After reducing 32-bit floating-point data to 24 bits by rounding (while leaving 16-bit
     // floating-point data unchanged), differences between horizontally adjacent pixels
     // are compressed with zlib, similar to ZIP. PXR24 compression preserves image
     // channels of type HALF and UINT exactly, but the relative error of FLOAT data
-    // increases to about
-    // . This compression method works well for depth
-    // buffers and similar images, where the possible range of values is very large, but
-    // where full 32-bit floating-point accuracy is not necessary. Rounding improves
-    // compression significantly by eliminating the pixels' 8 least significant bits, which
-    // tend to be very noisy, and therefore difficult to compress.
-    // PXR24 compression is only supported for flat images.
+    // increases to about ???.
     PXR24, // TODO specify zip compression level?
 
-    /// __This lossy compression is not yet supported by this implementation.__
-    // lossy 4-by-4 pixel block compression,
-    // fixed compression rate
-    B44,
-
-    /// __This lossy compression is not yet supported by this implementation.__
+    /// This is a lossy compression method for f16 images.
+    /// It's the predecessor of the `B44A` compression,
+    /// which has improved compression rates for uniformly colored areas.
+    /// You should probably use `B44A` instead of the plain `B44`.
+    ///
+    /// Only supported for flat images, not for deep data.
     // lossy 4-by-4 pixel block compression,
     // flat fields are compressed more
     // Channels of type HALF are split into blocks of four by four pixels or 32 bytes. Each
@@ -103,23 +104,35 @@ pub enum Compression {
     // support real-time playback of image sequences; the predictable file size makes it
     // easier to allocate space on storage media efficiently.
     // B44 compression is only supported for flat images.
-    B44A,
+    B44, // TODO B44 { optimize_uniform_areas: bool }
+
+    /// This is a lossy compression method for f16 images.
+    /// All f32 and u32 channels will be stored without compression.
+    /// All the f16 pixels are divided into 4x4 blocks.
+    /// Each block is then compressed as a whole.
+    ///
+    /// The 32 bytes of a block will require only ~14 bytes after compression,
+    /// independent of the actual pixel contents. With chroma subsampling,
+    /// a block will be compressed to ~7 bytes.
+    /// Uniformly colored blocks will be compressed to ~3 bytes.
+    ///
+    /// The 512 bytes of an f32 block will not be compressed at all.
+    ///
+    /// Should be fast enough for realtime playback.
+    /// Only supported for flat images, not for deep data.
+    B44A, // TODO collapse with B44
 
     /// __This lossy compression is not yet supported by this implementation.__
     // lossy DCT based compression, in blocks
-    // of 32 scanlines. More efficient for partial
-    // buffer access.Like B44, except for blocks of four by four pixels where all pixels have the same
-    // value, which are packed into 3 instead of 14 bytes. For images with large uniform
-    // areas, B44A produces smaller files than B44 compression.
-    // B44A compression is only supported for flat images.
-    DWAA(Option<f32>), // TODO does this have a default value? make this non optional?
+    // of 32 scanlines. More efficient for partial buffer access.
+    DWAA(Option<f32>), // TODO does this have a default value? make this non optional? default Compression Level setting is 45.0
 
     /// __This lossy compression is not yet supported by this implementation.__
     // lossy DCT based compression, in blocks
     // of 256 scanlines. More efficient space
     // wise and faster to decode full frames
     // than DWAA_COMPRESSION.
-    DWAB,
+    DWAB(Option<f32>), // TODO collapse with B44. default Compression Level setting is 45.0
 }
 
 impl std::fmt::Display for Compression {
@@ -132,7 +145,7 @@ impl std::fmt::Display for Compression {
             Compression::B44 => "b44",
             Compression::B44A => "b44a",
             Compression::DWAA(_) => "dwaa",
-            Compression::DWAB => "dwab",
+            Compression::DWAB(_) => "dwab",
             Compression::PIZ => "piz",
             Compression::PXR24 => "pxr24",
         })
@@ -155,7 +168,7 @@ impl Compression {
             Compression::PIZ => has_only_f16_channels, // TODO DRY and compute only once??
             Compression::PXR24 => false, //FIXME true in original library  // true, // what??? i thought this is zip?!?!?!
             Compression::B44 | Compression::B44A => has_only_f16_channels,
-            Compression::DWAA(_) | Compression::DWAB => {
+            Compression::DWAA(_) | Compression::DWAB(_) => {
                 cfg!(target_endian = "little") // native if little endian?!
                 // FIXME so... this should always return true, as files are also always stored in little endian???
             },
@@ -183,6 +196,8 @@ impl Compression {
             RLE => rle::compress_bytes(&uncompressed),
             PIZ => piz::compress(&header.channels, &uncompressed, pixel_section),
             PXR24 => pxr24::compress(&header.channels, &uncompressed, pixel_section),
+            B44 => b44::compress(&header.channels, &uncompressed, pixel_section, false),
+            B44A => b44::compress(&header.channels, &uncompressed, pixel_section, true),
             _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
         };
 
@@ -210,7 +225,8 @@ impl Compression {
         let expected_byte_size = pixel_section.size.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
 
         if compressed.len() == expected_byte_size {
-            Ok(convert_little_endian_to_current(compressed, &header.channels, pixel_section)) // the compressed data was larger than the raw data, so the raw data has been written
+            // the compressed data was larger than the raw data, so the small raw data has been written
+            Ok(convert_little_endian_to_current(compressed, &header.channels, pixel_section))
         }
         else {
             use self::Compression::*;
@@ -221,6 +237,7 @@ impl Compression {
                 RLE => rle::decompress_bytes(&compressed, expected_byte_size, pedantic),
                 PIZ => piz::decompress(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
                 PXR24 => pxr24::decompress(&header.channels, &compressed, pixel_section, expected_byte_size, pedantic),
+                B44 | B44A => b44::decompress(&header.channels, &compressed, pixel_section, expected_byte_size, pedantic),
                 _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
             };
 
@@ -252,7 +269,7 @@ impl Compression {
             Uncompressed | RLE   | ZIP1    => 1,
             ZIP16 | PXR24                  => 16,
             PIZ   | B44   | B44A | DWAA(_) => 32,
-            DWAB                           => 256,
+            DWAB(_)                        => 256,
         }
     }
 
@@ -260,10 +277,43 @@ impl Compression {
     pub fn supports_deep_data(self) -> bool {
         use self::Compression::*;
         match self {
-            Uncompressed | RLE | ZIP1 | ZIP16 => true,
+            Uncompressed | RLE | ZIP1 => true,
             _ => false,
         }
     }
+
+    /// Most compression methods will reconstruct the exact pixel bytes,
+    /// but some might throw away unimportant data for specific types of samples.
+    pub fn is_lossless_for(self, sample_type: SampleType) -> bool {
+        use self::Compression::*;
+        match self {
+            PXR24 => sample_type != SampleType::F32, // pxr reduces f32 to f24
+            B44 | B44A => sample_type != SampleType::F16, // b44 only compresses f16 values, others are left uncompressed
+            Uncompressed | RLE | ZIP1 | ZIP16 | PIZ => true,
+            DWAB(_) | DWAA(_) => false,
+        }
+    }
+
+    /// Most compression methods will reconstruct the exact pixel bytes,
+    /// but some might throw away unimportant data in some cases.
+    pub fn may_loose_data(self) -> bool {
+        use self::Compression::*;
+        match self {
+            Uncompressed | RLE | ZIP1 | ZIP16 | PIZ => false,
+            PXR24 | B44 | B44A | DWAB(_) | DWAA(_)  => true,
+        }
+    }
+
+    /// Most compression methods will reconstruct the exact pixel bytes,
+    /// but some might replace NaN with zeroes.
+    pub fn supports_nan(self) -> bool {
+        use self::Compression::*;
+        match self {
+            B44 | B44A | DWAB(_) | DWAA(_) => false, // TODO dwa might support it?
+            _ => true
+        }
+    }
+
 }
 
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/6a9f8af6e89547bcd370ae3cec2b12849eee0b54/OpenEXR/IlmImf/ImfMisc.cpp#L1456-L1541

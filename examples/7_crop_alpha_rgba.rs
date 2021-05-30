@@ -18,10 +18,10 @@ pub fn main() {
     // TODO optional alpha channel!
     let image: PixelImage<PixelVec<DynamicRgbaPixel>, RgbaChannels> = read_first_rgba_layer_from_file(
         path,
-        create_pixel_vec::<DynamicRgbaPixel, RgbaChannels>,
+        PixelVec::<DynamicRgbaPixel>::constructor,
 
         // use this predefined rgba pixel container from the exr crate, requesting any type of pixels with 3 or 4 values
-        set_pixel_in_vec::<DynamicRgbaPixel>
+        PixelVec::set_pixel
     ).unwrap();
 
     // construct a ~simple~ cropped image

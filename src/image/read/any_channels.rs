@@ -64,7 +64,7 @@ pub trait SamplesReader {
     type Samples;
 
     /// Specify whether a single block of pixels should be loaded from the file
-    fn filter_block(&self, tile: (usize, &TileCoordinates)) -> bool;
+    fn filter_block(&self, tile: TileCoordinates) -> bool;
 
     /// Load a single pixel line, which has not been filtered, into the reader, accumulating the sample data
     fn read_line(&mut self, line: LineRef<'_>) -> UnitResult;
@@ -94,7 +94,7 @@ impl<'s, S: 's + ReadSamples> ReadChannels<'s> for ReadAnyChannels<S> {
 impl<S: SamplesReader> ChannelsReader for AnyChannelsReader<S> {
     type Channels = AnyChannels<S::Samples>;
 
-    fn filter_block(&self, tile: (usize, &TileCoordinates)) -> bool {
+    fn filter_block(&self, tile: TileCoordinates) -> bool {
         self.sample_channels_reader.iter().any(|channel| channel.samples.filter_block(tile))
     }
 
@@ -105,9 +105,11 @@ impl<S: SamplesReader> ChannelsReader for AnyChannelsReader<S> {
         }
 
         Ok(())*/
-        decompressed.for_lines(header, |line| {
-            self.sample_channels_reader[line.location.channel].samples.read_line(line)
-        })
+        for line in decompressed.lines(&header.channels) {
+            self.sample_channels_reader[line.location.channel].samples.read_line(line)?;
+        }
+
+        Ok(())
     }
 
     fn into_channels(self) -> Self::Channels {

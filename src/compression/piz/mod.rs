@@ -33,36 +33,19 @@ pub fn decompress(
     channels: &ChannelList,
     compressed: ByteVec,
     rectangle: IntegerBounds,
-    expected_byte_size: usize,
+    expected_byte_size: usize, // TODO remove expected byte size as it can be computed with `rectangle.size.area() * channels.bytes_per_pixel`
     pedantic: bool
 ) -> Result<ByteVec>
 {
-    let expected_value_count = expected_byte_size / 2;
+    let expected_u16_count = expected_byte_size / 2;
     debug_assert_eq!(expected_byte_size, rectangle.size.area() * channels.bytes_per_pixel);
-    debug_assert_ne!(expected_value_count, 0);
     debug_assert!(!channels.list.is_empty());
 
     if compressed.is_empty() {
         return Ok(Vec::new());
     }
 
-    let mut channel_data: Vec<ChannelData> = Vec::with_capacity(channels.list.len());
-    let mut tmp_read_index = 0;
-
-    for channel in channels.list.iter() {
-        let channel = ChannelData {
-            tmp_start_index: tmp_read_index,
-            tmp_end_index: tmp_read_index,
-            y_sampling: channel.sampling.y(),
-            resolution: channel.subsampled_resolution(rectangle.size),
-            samples_per_pixel: channel.sample_type.bytes_per_sample() / SampleType::F16.bytes_per_sample()
-        };
-
-        tmp_read_index += channel.resolution.area() * channel.samples_per_pixel;
-        channel_data.push(channel);
-    }
-
-    debug_assert_eq!(tmp_read_index, expected_value_count);
+    debug_assert_ne!(expected_u16_count, 0);
 
     let mut bitmap = vec![0_u8; BITMAP_SIZE]; // FIXME use bit_vec!
 
@@ -88,7 +71,27 @@ pub fn decompress(
         }
     }
 
-    let mut tmp_u16_buffer = huffman::decompress(remaining_input, expected_value_count)?;
+    let mut tmp_u16_buffer = huffman::decompress(remaining_input, expected_u16_count)?;
+
+    let mut channel_data: SmallVec<[ChannelData; 6]> = {
+        let mut tmp_read_index = 0;
+
+        let channel_data = channels.list.iter().map(|channel| {
+            let channel_data = ChannelData {
+                tmp_start_index: tmp_read_index,
+                tmp_end_index: tmp_read_index,
+                y_sampling: channel.sampling.y(),
+                resolution: channel.subsampled_resolution(rectangle.size),
+                samples_per_pixel: channel.sample_type.bytes_per_sample() / SampleType::F16.bytes_per_sample()
+            };
+
+            tmp_read_index += channel_data.resolution.area() * channel_data.samples_per_pixel;
+            channel_data
+        }).collect();
+
+        debug_assert_eq!(tmp_read_index, expected_u16_count);
+        channel_data
+    };
 
     for channel in &channel_data {
         let u16_count = channel.resolution.area() * channel.samples_per_pixel;
@@ -134,8 +137,8 @@ pub fn decompress(
         }
     }
 
-    for index in 1..channel_data.len() {
-        debug_assert_eq!(channel_data[index - 1].tmp_end_index, channel_data[index].tmp_start_index);
+    for (previous, current) in channel_data.iter().zip(channel_data.iter().skip(1)) {
+        debug_assert_eq!(previous.tmp_end_index, current.tmp_start_index);
     }
 
     debug_assert_eq!(channel_data.last().unwrap().tmp_end_index, tmp_u16_buffer.len());
@@ -157,27 +160,29 @@ pub fn compress(
     }
 
     let mut tmp = vec![0_u16; uncompressed.len() / 2 ];
-    let mut channel_data = Vec::new();
+    let mut channel_data: SmallVec<[ChannelData; 6]> = {
+        let mut tmp_end_index = 0;
 
-    let mut tmp_end_index = 0;
-    for channel in &channels.list {
-        let number_samples = channel.subsampled_resolution(rectangle.size);
-        let byte_size = channel.sample_type.bytes_per_sample() / SampleType::F16.bytes_per_sample();
-        let byte_count = byte_size * number_samples.area();
+        let vec = channels.list.iter().map(|channel| {
+            let number_samples = channel.subsampled_resolution(rectangle.size);
+            let byte_size = channel.sample_type.bytes_per_sample() / SampleType::F16.bytes_per_sample();
+            let byte_count = byte_size * number_samples.area();
 
-        let channel = ChannelData {
-            tmp_end_index,
-            tmp_start_index: tmp_end_index,
-            y_sampling: channel.sampling.y(),
-            resolution: number_samples,
-            samples_per_pixel: byte_size,
-        };
+            let channel = ChannelData {
+                tmp_end_index,
+                tmp_start_index: tmp_end_index,
+                y_sampling: channel.sampling.y(),
+                resolution: number_samples,
+                samples_per_pixel: byte_size,
+            };
 
-        tmp_end_index += byte_count;
-        channel_data.push(channel);
-    }
+            tmp_end_index += byte_count;
+            channel
+        }).collect();
 
-    debug_assert_eq!(tmp_end_index, tmp.len());
+        debug_assert_eq!(tmp_end_index, tmp.len());
+        vec
+    };
 
     let mut remaining_uncompressed_bytes = uncompressed;
     for y in rectangle.position.y() .. rectangle.end().y() {
@@ -206,7 +211,7 @@ pub fn compress(
     let (max_value, table) = forward_lookup_table_from_bitmap(&bitmap);
     apply_lookup_table(&mut tmp, &table);
 
-    let mut piz_compressed = Vec::with_capacity(uncompressed.len() / 3);
+    let mut piz_compressed = Vec::with_capacity(uncompressed.len() / 2);
     u16::try_from(min_non_zero)?.write(&mut piz_compressed)?;
     u16::try_from(max_non_zero)?.write(&mut piz_compressed)?;
 
@@ -268,7 +273,7 @@ pub fn forward_lookup_table_from_bitmap(bitmap: &[u8]) -> (u16, Vec<u16>) {
 fn reverse_lookup_table_from_bitmap(bitmap: Bytes<'_>) -> (Vec<u16>, u16) {
     let mut table = Vec::with_capacity(U16_RANGE);
 
-    for index in 0 .. U16_RANGE {
+    for index in 0 .. U16_RANGE { // cannot use iter because filter removes capacity sizehint
         if index == 0 || ((bitmap[index >> 3] as usize & (1 << (index & 7))) != 0) {
             table.push(usize_to_u16(index).unwrap());
         }
@@ -298,8 +303,9 @@ mod test {
     use crate::meta::attribute::*;
 
     fn test_roundtrip_noise_with(channels: ChannelList, rectangle: IntegerBounds){
-        let pixel_bytes: ByteVec = (0 .. channels.bytes_per_pixel * rectangle.size.area())
-            .map(|_| rand::random()).collect();
+        let pixel_bytes: ByteVec = (0 .. 37).map(|_| rand::random()).collect::<Vec<u8>>().into_iter()
+            .cycle().take(channels.bytes_per_pixel * rectangle.size.area())
+            .collect();
 
         let compressed = piz::compress(&channels, &pixel_bytes, rectangle).unwrap();
         let decompressed = piz::decompress(&channels, compressed, rectangle, pixel_bytes.len(), true).unwrap();
@@ -323,7 +329,7 @@ mod test {
 
             let rectangle = IntegerBounds {
                 position: Vec2(-30, 100),
-                size: Vec2(322, 731),
+                size: Vec2(1080, 720),
             };
 
             test_roundtrip_noise_with(channels, rectangle);
@@ -352,7 +358,7 @@ mod test {
 
         let rectangle = IntegerBounds {
             position: Vec2(-3, 1),
-            size: Vec2(2323, 3132),
+            size: Vec2(223, 3132),
         };
 
         test_roundtrip_noise_with(channels, rectangle);
@@ -422,7 +428,7 @@ mod test {
 
         let rectangle = IntegerBounds {
             position: Vec2(-3, 1),
-            size: Vec2(2323, 3132),
+            size: Vec2(1323, 132),
         };
 
         test_roundtrip_noise_with(channels, rectangle);

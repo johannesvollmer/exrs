@@ -121,7 +121,7 @@ pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: In
             }
         }
 
-        debug_assert_eq!(write.len(), 0);
+        debug_assert_eq!(write.len(), 0, "bytes left after compression");
     }
 
     // TODO fine-tune compression options

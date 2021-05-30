@@ -4,11 +4,13 @@
 use crate::image::*;
 use crate::meta::header::{Header, ImageAttributes};
 use crate::error::{Result, UnitResult};
-use crate::block::UncompressedBlock;
+use crate::block::{UncompressedBlock, BlockIndex};
 use crate::block::chunk::TileCoordinates;
 use std::path::Path;
 use std::io::{Read, BufReader};
 use std::io::Seek;
+use crate::meta::MetaData;
+use crate::block::reader::ChunksReader;
 
 /// Specify whether to read the image in parallel,
 /// whether to use pedantic error handling,
@@ -21,7 +23,7 @@ pub struct ReadImage<OnProgress, ReadLayers> {
     parallel: bool,
 }
 
-impl<F, L> ReadImage<F, L> where F: FnMut(f64)
+impl<F, L> ReadImage<F, L> where F: FnMut(f64) // TODO only if required
 {
     /// Uses relaxed error handling and parallel decompression.
     pub fn new(read_layers: L, on_progress: F) -> Self {
@@ -33,6 +35,16 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
 
     /// Specify that any missing or unusual information should result in an error.
     /// Otherwise, `exrs` will try to compute or ignore missing information.
+    ///
+    /// If pedantic is true, then an error will be returned as soon as anything is missing in the file,
+    /// or two values in the image contradict each other. If pedantic is false,
+    /// then only fatal errors will be thrown. By default, reading an image is not pedantic,
+    /// which means that slightly invalid files might still be readable.
+    /// For example, if some attribute is missing but can be recomputed, this flag decides whether an error is thrown.
+    /// Or if the pedantic flag is true and there are still bytes left after the decompression algorithm finished,
+    /// an error is thrown, because this should not happen and something might be wrong with the file.
+    /// Or if your application is a target of attacks, or if you want to emulate the original C++ library,
+    /// you might want to switch to pedantic reading.
     pub fn pedantic(self) -> Self { Self { pedantic: true, ..self } }
 
     /// Specify that multiple pixel blocks should never be decompressed using multiple threads at once.
@@ -59,7 +71,7 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
     /// Use [`ReadImage::read_from_file`] instead, if you have a file path.
     #[inline]
     #[must_use]
-    pub fn from_unbuffered<Layers>(self, unbuffered: impl Read + Seek + Send) -> Result<Image<Layers>>
+    pub fn from_unbuffered<Layers>(self, unbuffered: impl Read + Seek) -> Result<Image<Layers>>
         where for<'s> L: ReadLayers<'s, Layers = Layers>
     {
         self.from_buffered(BufReader::new(unbuffered))
@@ -68,46 +80,88 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
     /// Read the exr image from a buffered reader.
     /// Use [`ReadImage::read_from_file`] instead, if you have a file path.
     /// Use [`ReadImage::read_from_unbuffered`] instead, if this is not an in-memory reader.
+    // TODO Use Parallel<> Wrapper to only require sendable byte source where parallel decompression is required
     #[must_use]
-    pub fn from_buffered<Layers>(mut self, buffered: impl Read + Seek + Send) -> Result<Image<Layers>>
+    pub fn from_buffered<Layers>(self, buffered: impl Read + Seek) -> Result<Image<Layers>>
+        where for<'s> L: ReadLayers<'s, Layers = Layers>
+    {
+        let chunks = crate::block::read(buffered, self.pedantic)?;
+        self.from_chunks(chunks)
+    }
+
+    /// Read the exr image from an initialized chunks reader
+    /// that has already extracted the meta data from the file.
+    /// Use [`ReadImage::read_from_file`] instead, if you have a file path.
+    /// Use [`ReadImage::read_from_buffered`] instead, if this is an in-memory reader.
+    // TODO Use Parallel<> Wrapper to only require sendable byte source where parallel decompression is required
+    #[must_use]
+    pub fn from_chunks<Layers>(mut self, chunks_reader: crate::block::reader::Reader<impl Read + Seek>) -> Result<Image<Layers>>
         where for<'s> L: ReadLayers<'s, Layers = Layers>
     {
         let Self { pedantic, parallel, ref mut on_progress, ref mut read_layers } = self;
 
-        #[derive(Debug, Clone, PartialEq)]
-        pub struct ImageWithAttributesReader<L> {
-            image_attributes: ImageAttributes,
-            layers_reader: L,
+        let layers_reader = read_layers.create_layers_reader(chunks_reader.headers())?;
+        let mut image_collector = ImageWithAttributesReader::new(chunks_reader.headers(), layers_reader)?;
+
+        let block_reader = chunks_reader
+            .filter_chunks(pedantic, |meta, tile, block| {
+                image_collector.filter_block(meta, tile, block)
+            })?
+            .on_progress(on_progress);
+
+        // TODO propagate send requirement further upwards
+        if parallel {
+            block_reader.decompress_parallel(pedantic, |meta_data, block|{
+                image_collector.read_block(&meta_data.headers, block)
+            })?;
+        }
+        else {
+            block_reader.decompress_sequential(pedantic, |meta_data, block|{
+                image_collector.read_block(&meta_data.headers, block)
+            })?;
         }
 
-        let reader: ImageWithAttributesReader<L::Reader> = crate::block::read_filtered_blocks_from_buffered(
-            buffered,
-
-            move |headers| {
-                Ok(ImageWithAttributesReader {
-                    image_attributes: headers.first().expect("invalid headers").shared_attributes.clone(),
-                    layers_reader: read_layers.create_layers_reader(headers)?,
-                })
-            },
-
-            |reader, header, (tile_index, tile)| {
-                reader.layers_reader.filter_block(header, (tile_index, &tile.location)) // TODO pass TileIndices directly!
-            },
-
-            |reader, headers, block| {
-                reader.layers_reader.read_block(headers, block)
-            },
-
-            |progress| on_progress(progress),
-            pedantic, parallel
-        )?;
-
-        Ok(Image {
-            attributes: reader.image_attributes,
-            layer_data: reader.layers_reader.into_layers()
-        })
+        Ok(image_collector.into_image())
     }
 }
+
+/// Processes blocks from a file and collects them into a complete `Image`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImageWithAttributesReader<L> {
+    image_attributes: ImageAttributes,
+    layers_reader: L,
+}
+
+impl<L> ImageWithAttributesReader<L> where L: LayersReader {
+
+    /// A new image reader with image attributes.
+    pub fn new(headers: &[Header], layers_reader: L) -> Result<Self>
+    {
+        Ok(ImageWithAttributesReader {
+            image_attributes: headers.first().as_ref().expect("invalid headers").shared_attributes.clone(),
+            layers_reader,
+        })
+    }
+
+    /// Specify whether a single block of pixels should be loaded from the file
+    fn filter_block(&self, meta: &MetaData, tile: TileCoordinates, block: BlockIndex) -> bool {
+        self.layers_reader.filter_block(meta, tile, block)
+    }
+
+    /// Load a single pixel block, which has not been filtered, into the reader, accumulating the image
+    fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult {
+        self.layers_reader.read_block(headers, block)
+    }
+
+    /// Deliver the complete accumulated image
+    fn into_image(self) -> Image<L::Layers> {
+        Image {
+            attributes: self.image_attributes,
+            layer_data: self.layers_reader.into_layers()
+        }
+    }
+}
+
 
 /// A template that creates a `LayerReader` for each layer in the file.
 pub trait ReadLayers<'s> {
@@ -135,7 +189,7 @@ pub trait LayersReader {
     type Layers;
 
     /// Specify whether a single block of pixels should be loaded from the file
-    fn filter_block(&self, header: (usize, &Header), tile: (usize, &TileCoordinates)) -> bool;
+    fn filter_block(&self, meta: &MetaData, tile: TileCoordinates, block: BlockIndex) -> bool;
 
     /// Load a single pixel block, which has not been filtered, into the reader, accumulating the layer
     fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult;
