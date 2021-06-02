@@ -23,7 +23,7 @@ pub struct ReadImage<OnProgress, ReadLayers> {
     parallel: bool,
 }
 
-impl<F, L> ReadImage<F, L> where F: FnMut(f64) // TODO only if required
+impl<F, L> ReadImage<F, L> where F: FnMut(f64)
 {
     /// Uses relaxed error handling and parallel decompression.
     pub fn new(read_layers: L, on_progress: F) -> Self {
@@ -53,7 +53,16 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64) // TODO only if required
 
     /// Specify a function to be called regularly throughout the loading process.
     /// Replaces all previously specified progress functions in this reader.
-    pub fn on_progress(self, on_progress: F) -> Self where F: FnMut(f64) { Self { on_progress, ..self } }
+    pub fn on_progress<OnProgress>(self, on_progress: OnProgress) -> ReadImage<OnProgress, L>
+        where OnProgress: FnMut(f64)
+    {
+        ReadImage {
+            on_progress,
+            read_layers: self.read_layers,
+            pedantic: self.pedantic,
+            parallel: self.parallel
+        }
+    }
 
 
     /// Read the exr image from a file.

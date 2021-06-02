@@ -49,6 +49,9 @@ fn main() {
     // start reading the file, extracting the meta data of the image
     let reader = exr::block::read(file, true).unwrap();
 
+    // print progress only if it advances more than 1%
+    let mut current_progress_percentage = 0;
+
     // create the empty data structure that will collect the analyzed results,
     // based on the extracted meta data of the file
     let mut averages = reader.headers().iter()
@@ -78,7 +81,11 @@ fn main() {
         }).unwrap()
 
         .on_progress(|progress|{
-            println!("progress: {:.2}%", progress*100.0);
+            let new_progress = (progress * 100.0) as usize;
+            if new_progress != current_progress_percentage {
+                current_progress_percentage = new_progress;
+                println!("progress: {}%", current_progress_percentage)
+            }
         });
 
     // read all pixel blocks from the image, decompressing in parallel
