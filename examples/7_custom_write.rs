@@ -93,8 +93,17 @@ fn main() {
                 })
             });
 
+            // print progress only if it advances more than 1%
+            let mut current_progress_percentage = 0;
+
             chunk_writer
-                .on_progress(|progress| println!("progress: {:.2}%", progress*100.0))
+                .on_progress(|progress|{
+                    let new_progress = (progress * 100.0) as usize;
+                    if new_progress != current_progress_percentage {
+                        current_progress_percentage = new_progress;
+                        println!("progress: {}%", current_progress_percentage)
+                    }
+                })
                 .compress_all_blocks_parallel(&meta_data, blocks)?;
 
             Ok(())

@@ -90,8 +90,8 @@ pub struct WriteImageWithOptions<'img, Layers, OnProgress> {
 }
 
 
-impl<'img, Layers, OnProgress> WriteImageWithOptions<'img, Layers, OnProgress>
-    where Layers: WritableLayers<'img>, OnProgress: FnMut(f64)
+impl<'img, L, F> WriteImageWithOptions<'img, L, F>
+    where L: WritableLayers<'img>, F: FnMut(f64)
 {
     /// Generate file meta data for this image. The meta data structure is close to the data in the file.
     pub fn infer_meta_data(&self) -> Headers { // TODO this should perform all validity checks? and none after that?
@@ -114,7 +114,16 @@ impl<'img, Layers, OnProgress> WriteImageWithOptions<'img, Layers, OnProgress>
 
     /// Specify a function to be called regularly throughout the writing process.
     /// Replaces all previously specified progress functions in this reader.
-    pub fn on_progress(self, on_progress: OnProgress) -> Self where OnProgress: FnMut(f64) { Self { on_progress, ..self } }
+    pub fn on_progress<OnProgress>(self, on_progress: OnProgress) -> WriteImageWithOptions<'img, L, OnProgress>
+        where OnProgress: FnMut(f64)
+    {
+        WriteImageWithOptions {
+            on_progress,
+            image: self.image,
+            check_compatibility: self.check_compatibility,
+            parallel: self.parallel
+        }
+    }
 
     /// Write the exr image to a file.
     /// Use `to_unbuffered` instead, if you do not have a file.

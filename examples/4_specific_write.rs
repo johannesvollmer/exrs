@@ -24,8 +24,17 @@ fn main() {
 
     let image = Image::from_channels((2000, 1400), pixels);
 
+    // print progress only if it advances more than 1%
+    let mut current_progress_percentage = 0;
+
     image.write()
-        .on_progress(|progress| println!("progress: {:.1}", progress*100.0))
+        .on_progress(|progress| {
+            let new_progress = (progress * 100.0) as usize;
+            if new_progress != current_progress_percentage {
+                current_progress_percentage = new_progress;
+                println!("progress: {}%", current_progress_percentage)
+            }
+        })
         .to_file("tests/images/out/strange_channels.exr").unwrap();
 
     println!("created file strange_channels.exr");
