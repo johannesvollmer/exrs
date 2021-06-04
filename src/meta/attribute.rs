@@ -595,6 +595,11 @@ impl Text {
         Ok(())
     }
 
+    /// The underlying bytes that represent this text.
+    pub fn bytes(&self) -> &[u8] {
+        self.bytes.as_slice()
+    }
+
     /// Iterate over the individual chars in this text, similar to `String::chars()`.
     /// Does not do any heap-allocation but borrows from this instance instead.
     pub fn chars(&self) -> impl '_ + Iterator<Item = char> {
@@ -720,6 +725,12 @@ impl ChannelList {
             *byte_position += channel.sample_type.bytes_per_sample();
             Some((previous_position, channel))
         })
+    }
+
+    /// Return the index of the channel with the exact name, case sensitive, or none.
+    /// Potentially uses less than linear time.
+    pub fn find_index_of_channel(&self, exact_name: &Text) -> Option<usize> {
+        self.list.binary_search_by_key(&exact_name.bytes(), |chan| chan.name.bytes()).ok()
     }
 }
 
