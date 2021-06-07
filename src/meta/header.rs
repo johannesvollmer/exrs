@@ -114,9 +114,9 @@ pub struct LayerAttributes {
     // As this is an attribute value, it is not restricted in length, may even be empty
     pub layer_name: Option<Text>,
 
-    /// The bottom left corner of the rectangle that positions this layer
+    /// The top left corner of the rectangle that positions this layer
     /// within the global infinite 2D space of the whole file.
-    /// Equivalent to the position of the `DataWindow`.
+    /// This represents the position of the `DataWindow`.
     pub layer_position: Vec2<i32>,
 
     /// Part of the perspective projection. Default should be `(0, 0)`.

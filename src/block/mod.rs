@@ -36,10 +36,11 @@ pub struct BlockIndex {
     /// Index of the layer.
     pub layer: usize,
 
-    /// Index of the bottom left pixel from the block within the data window.
+    /// Index of the top left pixel from the block within the data window.
     pub pixel_position: Vec2<usize>,
 
-    /// Number of pixels in this block. Stays the same across all resolution levels.
+    /// Number of pixels in this block, extending to the right and downwards.
+    /// Stays the same across all resolution levels.
     pub pixel_size: Vec2<usize>,
 
     /// Index of the mip or rip level in the image.

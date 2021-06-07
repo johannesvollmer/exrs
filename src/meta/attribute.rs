@@ -197,11 +197,12 @@ pub type Matrix3x3 = [f32; 3*3];
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default, Hash)]
 pub struct IntegerBounds {
 
-    /// The bottom left corner of this rectangle.
+    /// The top left corner of this rectangle.
     /// The `Box2I32` includes this pixel if the size is not zero.
     pub position: Vec2<i32>,
 
     /// How many pixels to include in this `Box2I32`.
+    /// Extends to the right and downwards.
     /// Does not include the actual boundary, just like `Vec::len()`.
     pub size: Vec2<usize>,
 }
@@ -210,10 +211,10 @@ pub struct IntegerBounds {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FloatRect {
 
-    /// The bottom left corner location of the rectangle (inclusive)
+    /// The top left corner location of the rectangle (inclusive)
     pub min: Vec2<f32>,
 
-    /// The top right corner location of the rectangle (inclusive)
+    /// The bottom right corner location of the rectangle (inclusive)
     pub max: Vec2<f32>
 }
 

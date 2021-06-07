@@ -41,7 +41,7 @@ fn main() {
         let (alpha, luma, luma_right) = layer.channel_data.pixels.first().unwrap().first().unwrap();
 
         println!(
-            "bottom left color of layer `{}`: (a, y, yr) = {:?}",
+            "top left color of layer `{}`: (a, y, yr) = {:?}",
             layer.attributes.layer_name.clone().unwrap_or_default(),
             (alpha.to_f32(), luma, luma_right)
         )

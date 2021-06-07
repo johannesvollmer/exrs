@@ -21,7 +21,8 @@ pub trait InspectSample: GetBounds {
     /// The type of pixel in this pixel grid.
     type Sample;
 
-    /// Index is not in world coordinates. Position `(0,0)` always represents the bottom left pixel.
+    /// Index is not in world coordinates, but within the data window.
+    /// Position `(0,0)` always represents the top left pixel.
     fn inspect_sample(&self, local_index: Vec2<usize>) -> Self::Sample;
 }
 
@@ -292,50 +293,53 @@ impl ApplyCroppedView for Layer<CroppedChannels<AnyChannels<FlatSamples>>> {
 
 /// Return the smallest bounding rectangle including all pixels that satisfy the predicate.
 /// Worst case: Fully transparent image, visits each pixel once.
-/// Best case: Fully opaque image, visits four pixels.
+/// Best case: Fully opaque image, visits two pixels.
 /// Returns `None` if the image is fully transparent.
 /// Returns `[(0,0), size]` if the image is fully opaque.
-fn try_find_smaller_bounds(current_bounds: IntegerBounds, pixel_at: impl Fn(Vec2<usize>) -> bool) -> Option<IntegerBounds> {
+/// Designed to be cache-friendly linear search. Optimized for row-major image vectors.
+pub fn try_find_smaller_bounds(current_bounds: IntegerBounds, pixel_at: impl Fn(Vec2<usize>) -> bool) -> Option<IntegerBounds> {
     assert_ne!(current_bounds.size.area(), 0, "cannot find smaller bounds of an image with zero width or height");
     let Vec2(width, height) = current_bounds.size;
 
     // scans top to bottom (left to right)
-    let first_top_left_pixel = (0 .. height).rev()
+    let first_top_left_pixel = (0 .. height)
         .flat_map(|y| (0 .. width).map(move |x| Vec2(x,y)))
-        .find(|&position| pixel_at(position));
-
-    let first_top_left_pixel = {
-        if let Some(xy) = first_top_left_pixel { xy }
-        else { return None }
-    };
+        .find(|&position| pixel_at(position))?; // return none if no pixel should be kept
 
     // scans bottom to top (right to left)
-    let first_bottom_right_pixel = (0 .. first_top_left_pixel.y()) // excluding the top line
-        .flat_map(|y| (first_top_left_pixel.x() + 1 .. width).rev().map(move |x| Vec2(x, y))) // excluding some left pixel
-        .find(|&position| pixel_at(position))
-        .unwrap_or(first_top_left_pixel); // did not inspect but we know top has a pixel
+    let first_bottom_right_pixel = (first_top_left_pixel.y() + 1 .. height) // excluding the top line
+        .flat_map(|y| (0 .. width).map(move |x| Vec2(x, y))) // x search cannot start at first_top.x, because this must catch all bottom pixels
+        .rev().find(|&position| pixel_at(position))
+        .unwrap_or(first_top_left_pixel); // did not find any at bottom, but we know top has some pixel
 
-    // now we know exactly how much we can throw away top and bottom
+    // now we know exactly how much we can throw away top and bottom,
+    // but we don't know exactly about left or right
     let top = first_top_left_pixel.y();
     let bottom = first_bottom_right_pixel.y();
 
-    // but we only now some random left and right bounds which we need to refine
-    let mut min_left_x = first_top_left_pixel.x();
-    let mut max_right_x = first_bottom_right_pixel.x();
+    // we only now some arbitrary left and right bounds which we need to refine.
+    // because the actual image contents might be wider than the corner points.
+    // we know that we do not need to look in the center between min x and max x,
+    // as these must be included in any case.
+    let mut min_left_x = first_top_left_pixel.x().min(first_bottom_right_pixel.x());
+    let mut max_right_x = first_bottom_right_pixel.x().max(first_top_left_pixel.x());
 
     // requires for loop, because bounds change while searching
-    for y in (bottom ..= top).rev() {
+    for y in top ..= bottom {
+
         // escape the loop if there is nothing left to crop
         if min_left_x == 0 && max_right_x == width - 1 { break; }
 
-        // search from right bound to image center for existing pixels
+        // search from right image edge towards image center, until known max x, for existing pixels,
+        // possibly including some pixels that would have been cropped otherwise
         if max_right_x != width - 1 {
             max_right_x = (max_right_x + 1 .. width).rev() // excluding current max
                 .find(|&x| pixel_at(Vec2(x, y)))
                 .unwrap_or(max_right_x);
         }
 
-        // search from left bound to image center for existing pixels
+        // search from left image edge towards image center, until known min x, for existing pixels,
+        // possibly including some pixels that would have been cropped otherwise
         if min_left_x != 0 {
             min_left_x = (0 .. min_left_x) // excluding current min
                 .find(|&x| pixel_at(Vec2(x, y)))
@@ -344,8 +348,8 @@ fn try_find_smaller_bounds(current_bounds: IntegerBounds, pixel_at: impl Fn(Vec2
     }
 
     // TODO add 1px margin to avoid interpolation issues?
-    let local_start = Vec2(min_left_x, bottom);
-    let local_end = Vec2(max_right_x + 1, top + 1);
+    let local_start = Vec2(min_left_x, top);
+    let local_end = Vec2(max_right_x + 1, bottom + 1);
     Some(IntegerBounds::new(
         current_bounds.position + local_start.to_i32(),
         local_end - local_start
@@ -400,20 +404,23 @@ mod test {
             }
         }
 
-        fn assert_found_smaller_bounds(offset: Vec2<i32>, uncropped_lines: Vec<Vec<i32>>, cropped_lines: Vec<Vec<i32>>) {
+        fn assert_found_smaller_bounds(offset: Vec2<i32>, uncropped_lines: Vec<Vec<i32>>, expected_cropped_lines: Vec<Vec<i32>>) {
             let old_bounds = find_bounds(offset, &uncropped_lines);
 
             let found_bounds = try_find_smaller_bounds(
-                old_bounds, |position| uncropped_lines[position.y()][position.x()] != 0
+                old_bounds,
+                |position| uncropped_lines[position.y()][position.x()] != 0
             ).unwrap();
 
-            // convert bounds to relative index
-            let found_bounds = found_bounds.with_origin(-offset);
-            for (y, uncropped_line) in uncropped_lines[found_bounds.position.y() as usize .. found_bounds.end().y() as usize].iter().enumerate() {
-                for (x, &value) in uncropped_line[found_bounds.position.x() as usize .. found_bounds.end().x() as usize].iter().enumerate() {
-                    assert_eq!(value, cropped_lines[y][x], "find crop bounds test case failed")
-                }
-            }
+            let found_bounds = found_bounds.with_origin(-offset); // make indices local
+
+            let cropped_lines: Vec<Vec<i32>> =
+                uncropped_lines[found_bounds.position.y() as usize .. found_bounds.end().y() as usize]
+                .iter().map(|uncropped_line|{
+                    uncropped_line[found_bounds.position.x() as usize .. found_bounds.end().x() as usize].to_vec()
+                }).collect();
+
+            assert_eq!(cropped_lines, expected_cropped_lines);
         }
 
         assert_found_smaller_bounds(
@@ -486,6 +493,56 @@ mod test {
         );
 
         assert_found_smaller_bounds(
+            Vec2(3,3),
+
+            vec![
+                vec![ 0, 0, 0, 0 ],
+                vec![ 1, 1, 2, 1 ],
+                vec![ 1, 3, 1, 1 ],
+                vec![ 1, 1, 1, 1 ],
+                vec![ 0, 0, 0, 0 ],
+            ],
+
+            vec![
+                vec![ 1, 1, 2, 1 ],
+                vec![ 1, 3, 1, 1 ],
+                vec![ 1, 1, 1, 1 ],
+            ]
+        );
+
+        assert_found_smaller_bounds(
+            Vec2(3,3),
+
+            vec![
+                vec![ 0, 1, 1, 2, 1, 0 ],
+                vec![ 0, 0, 3, 1, 0, 0 ],
+                vec![ 0, 1, 1, 1, 1, 0 ],
+            ],
+
+            vec![
+                vec![ 1, 1, 2, 1 ],
+                vec![ 0, 3, 1, 0 ],
+                vec![ 1, 1, 1, 1 ],
+            ]
+        );
+
+        assert_found_smaller_bounds(
+            Vec2(3,3),
+
+            vec![
+                vec![ 0, 0, 1, 2, 0, 0 ],
+                vec![ 0, 1, 3, 1, 1, 0 ],
+                vec![ 0, 0, 1, 1, 0, 0 ],
+            ],
+
+            vec![
+                vec![ 0, 1, 2, 0 ],
+                vec![ 1, 3, 1, 1 ],
+                vec![ 0, 1, 1, 0 ],
+            ]
+        );
+
+        assert_found_smaller_bounds(
             Vec2(1,3),
 
             vec![
@@ -544,6 +601,146 @@ mod test {
                 vec![ 1, 1, 1 ],
                 vec![ 1, 1, 1 ],
                 vec![ 1, 1, 1 ],
+            ]
+        );
+
+        assert_found_smaller_bounds(
+            Vec2(1000,-300),
+
+            vec![
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 1, 1, 1, 0, 0 ],
+                vec![ 0, 1, 1, 1, 1, 1, 0 ],
+                vec![ 0, 0, 1, 1, 1, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+            ],
+
+            vec![
+                vec![ 0, 1, 1, 1, 0 ],
+                vec![ 1, 1, 1, 1, 1 ],
+                vec![ 0, 1, 1, 1, 0 ],
+            ]
+        );
+
+        assert_found_smaller_bounds(
+            Vec2(-10,-300),
+
+            vec![
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 1, 0, 1, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 1, 0, 1, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+            ],
+
+            vec![
+                vec![ 1, 0, 1 ],
+                vec![ 0, 0, 0 ],
+                vec![ 1, 0, 1 ],
+            ]
+        );
+
+        assert_found_smaller_bounds(
+            Vec2(-10,-300),
+
+            vec![
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 1, 0, 1, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+            ],
+
+            vec![
+                vec![ 1, 0, 1 ],
+            ]
+        );
+
+        assert_found_smaller_bounds(
+            Vec2(-10,-300),
+
+            vec![
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 1, 0, 0, 0 ],
+                vec![ 0, 0, 0, 2, 0, 0, 0 ],
+                vec![ 0, 0, 3, 3, 3, 0, 0 ],
+                vec![ 0, 0, 0, 4, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+            ],
+
+            vec![
+                vec![ 0, 1, 0 ],
+                vec![ 0, 2, 0 ],
+                vec![ 3, 3, 3 ],
+                vec![ 0, 4, 0 ],
+            ]
+        );
+
+        assert_found_smaller_bounds(
+            Vec2(-10,-300),
+
+            vec![
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 1, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 1, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+            ],
+
+            vec![
+                vec![ 0, 0, 1 ],
+                vec![ 0, 0, 0 ],
+                vec![ 0, 0, 0 ],
+                vec![ 1, 0, 0 ],
+            ]
+        );
+
+        assert_found_smaller_bounds(
+            Vec2(-10,-300),
+
+            vec![
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 1, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 1, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+            ],
+
+            vec![
+                vec![ 1, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 1 ],
+            ]
+        );
+
+        assert_found_smaller_bounds(
+            Vec2(-10,-300),
+
+            vec![
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 1, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+                vec![ 0, 0, 1, 0, 0, 0, 0 ],
+                vec![ 0, 0, 0, 0, 0, 0, 0 ],
+            ],
+
+            vec![
+                vec![ 1 ],
+                vec![ 0 ],
+                vec![ 0 ],
+                vec![ 1 ],
             ]
         );
 

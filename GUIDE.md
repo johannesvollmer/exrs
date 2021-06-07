@@ -522,7 +522,7 @@ The samples can currently only be `FlatSamples` or `Levels<FlatSamples>`, and in
 ### Samples
 Currently, only flat samples are supported. These do not contain deep data.  
 Construct flat samples directly using `FlatSamples::F16(samples_vec)`, `FlatSamples::F32(samples_vec)`, or `FlatSamples::U32(samples_vec)`.
-The vector contains all samples of the layer, row by row (bottom up), from left to right.
+The vector contains all samples of the layer, row by row (from top to bottom), from left to right.
 
 ### Levels
 Optionally include Mip Maps or Rip Maps.  
