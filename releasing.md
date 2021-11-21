@@ -18,6 +18,7 @@ Yanking shouldn't be the default.
 1. ensure `#![warn(missing_docs)]` in `lib.rs`
 1. Example in README.md should be up-to-date
 1. GUIDE.md should be up-to-date
+1. Update Dependencies while you're at it?
 
 ## Tasks
 1. Bump version in

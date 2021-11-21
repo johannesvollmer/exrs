@@ -806,23 +806,30 @@ impl IntegerBounds {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, max: Option<Vec2<usize>>) -> UnitResult {
-        if let Some(max) = max {
-            if self.size.width() > max.width() || self.size.height() > max.height()  {
+    pub fn validate(&self, max_size: Option<Vec2<usize>>) -> UnitResult {
+        if let Some(max_size) = max_size {
+            if self.size.width() > max_size.width() || self.size.height() > max_size.height()  {
                 return Err(Error::invalid("window attribute dimension value"));
             }
         }
 
-        let max_int = i32::MAX as i64 / 2; // cannot go bigger than that ever
+        let min_i64 = Vec2(self.position.x() as i64, self.position.y() as i64);
 
-        let self_max = Vec2(
+        let max_i64 = Vec2(
             self.position.x() as i64 + self.size.width() as i64,
             self.position.y() as i64 + self.size.height() as i64,
         );
 
-        if self_max.x() >= max_int || self_max.y() >= max_int
-            || self.position.x() as i64 <= -max_int
-            || self.position.y() as i64 <= -max_int
+        Self::validate_min_max_u64(min_i64, max_i64)
+    }
+
+    fn validate_min_max_u64(min: Vec2<i64>, max: Vec2<i64>) -> UnitResult {
+        let max_box_size_as_i64 = (i32::MAX / 2) as i64; // as defined in the original c++ library
+
+        if     max.x() >=  max_box_size_as_i64
+            || max.y() >=  max_box_size_as_i64
+            || min.x() <= -max_box_size_as_i64
+            || min.y() <= -max_box_size_as_i64
         {
             return Err(Error::invalid("window size exceeding integer maximum"));
         }
@@ -856,6 +863,13 @@ impl IntegerBounds {
 
         let min = Vec2(x_min.min(x_max), y_min.min(y_max));
         let max  = Vec2(x_min.max(x_max), y_min.max(y_max)); // these are inclusive!
+
+        // prevent addition overflow
+        Self::validate_min_max_u64(
+            Vec2(min.x() as i64, min.y() as i64),
+            Vec2(max.x() as i64, max.y() as i64),
+        )?;
+
         let size = Vec2(max.x() + 1 - min.x(), max.y() + 1 - min.y()); // which is why we add 1
         let size = size.to_usize("box coordinates")?;
 
