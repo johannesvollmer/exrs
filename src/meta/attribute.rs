@@ -194,14 +194,17 @@ pub type Matrix4x4 = [f32; 4*4];
 pub type Matrix3x3 = [f32; 3*3];
 
 /// A rectangular section anywhere in 2D integer space.
+/// Valid from minimum coordinate (including) `-1,073,741,822`
+/// to maximum coordinate (including) `1,073,741,822`, the value of (`i32::MAX/2 -1`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default, Hash)]
 pub struct IntegerBounds {
 
-    /// The bottom left corner of this rectangle.
+    /// The top left corner of this rectangle.
     /// The `Box2I32` includes this pixel if the size is not zero.
     pub position: Vec2<i32>,
 
     /// How many pixels to include in this `Box2I32`.
+    /// Extends to the right and downwards.
     /// Does not include the actual boundary, just like `Vec::len()`.
     pub size: Vec2<usize>,
 }
@@ -210,10 +213,10 @@ pub struct IntegerBounds {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FloatRect {
 
-    /// The bottom left corner location of the rectangle (inclusive)
+    /// The top left corner location of the rectangle (inclusive)
     pub min: Vec2<f32>,
 
-    /// The top right corner location of the rectangle (inclusive)
+    /// The bottom right corner location of the rectangle (inclusive)
     pub max: Vec2<f32>
 }
 
@@ -595,6 +598,11 @@ impl Text {
         Ok(())
     }
 
+    /// The underlying bytes that represent this text.
+    pub fn bytes(&self) -> &[u8] {
+        self.bytes.as_slice()
+    }
+
     /// Iterate over the individual chars in this text, similar to `String::chars()`.
     /// Does not do any heap-allocation but borrows from this instance instead.
     pub fn chars(&self) -> impl '_ + Iterator<Item = char> {
@@ -721,6 +729,12 @@ impl ChannelList {
             Some((previous_position, channel))
         })
     }
+
+    /// Return the index of the channel with the exact name, case sensitive, or none.
+    /// Potentially uses less than linear time.
+    pub fn find_index_of_channel(&self, exact_name: &Text) -> Option<usize> {
+        self.list.binary_search_by_key(&exact_name.bytes(), |chan| chan.name.bytes()).ok()
+    }
 }
 
 impl BlockType {
@@ -794,23 +808,30 @@ impl IntegerBounds {
     }
 
     /// Validate this instance.
-    pub fn validate(&self, max: Option<Vec2<usize>>) -> UnitResult {
-        if let Some(max) = max {
-            if self.size.width() > max.width() || self.size.height() > max.height()  {
+    pub fn validate(&self, max_size: Option<Vec2<usize>>) -> UnitResult {
+        if let Some(max_size) = max_size {
+            if self.size.width() > max_size.width() || self.size.height() > max_size.height()  {
                 return Err(Error::invalid("window attribute dimension value"));
             }
         }
 
-        let max_int = i32::MAX as i64 / 2; // cannot go bigger than that ever
+        let min_i64 = Vec2(self.position.x() as i64, self.position.y() as i64);
 
-        let self_max = Vec2(
+        let max_i64 = Vec2(
             self.position.x() as i64 + self.size.width() as i64,
             self.position.y() as i64 + self.size.height() as i64,
         );
 
-        if self_max.x() >= max_int || self_max.y() >= max_int
-            || self.position.x() as i64 <= -max_int
-            || self.position.y() as i64 <= -max_int
+        Self::validate_min_max_u64(min_i64, max_i64)
+    }
+
+    fn validate_min_max_u64(min: Vec2<i64>, max: Vec2<i64>) -> UnitResult {
+        let max_box_size_as_i64 = (i32::MAX / 2) as i64; // as defined in the original c++ library
+
+        if     max.x() >=  max_box_size_as_i64
+            || max.y() >=  max_box_size_as_i64
+            || min.x() <= -max_box_size_as_i64
+            || min.y() <= -max_box_size_as_i64
         {
             return Err(Error::invalid("window size exceeding integer maximum"));
         }
@@ -843,8 +864,16 @@ impl IntegerBounds {
         let y_max = i32::read(read)?;
 
         let min = Vec2(x_min.min(x_max), y_min.min(y_max));
-        let max  = Vec2(x_min.max(x_max), y_min.max(y_max)); // these are inclusive!
-        let size = Vec2(max.x() + 1 - min.x(), max.y() + 1 - min.y()); // which is why we add 1
+        let max  = Vec2(x_min.max(x_max), y_min.max(y_max));
+
+        // prevent addition overflow
+        Self::validate_min_max_u64(
+            Vec2(min.x() as i64, min.y() as i64),
+            Vec2(max.x() as i64, max.y() as i64),
+        )?;
+
+        // add one to max because the max inclusive, but the size is not
+        let size = Vec2(max.x() + 1 - min.x(), max.y() + 1 - min.y());
         let size = size.to_usize("box coordinates")?;
 
         Ok(IntegerBounds { position: min, size })
@@ -2009,6 +2038,27 @@ mod test {
                 AttributeValue::FloatRect(FloatRect {
                     min: Vec2(23.4234, 345.23),
                     max: Vec2(68623.0, 3.12425926538),
+                }),
+            ),
+            (
+                Text::from("rabbit area int"),
+                AttributeValue::IntegerBounds(IntegerBounds {
+                    position: Vec2(23, 345),
+                    size: Vec2(68623, 3),
+                }),
+            ),
+            (
+                Text::from("rabbit area int"),
+                AttributeValue::IntegerBounds(IntegerBounds {
+                    position: Vec2(-(i32::MAX / 2 - 1), -(i32::MAX / 2 - 1)),
+                    size: Vec2(i32::MAX as usize - 2, i32::MAX as usize - 2),
+                }),
+            ),
+            (
+                Text::from("rabbit area int 2"),
+                AttributeValue::IntegerBounds(IntegerBounds {
+                    position: Vec2(0, 0),
+                    size: Vec2(i32::MAX as usize / 2 - 1, i32::MAX as usize / 2 - 1),
                 }),
             ),
             (
