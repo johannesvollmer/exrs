@@ -194,6 +194,8 @@ pub type Matrix4x4 = [f32; 4*4];
 pub type Matrix3x3 = [f32; 3*3];
 
 /// A rectangular section anywhere in 2D integer space.
+/// Valid from minimum coordinate (including) `-1,073,741,822`
+/// to maximum coordinate (including) `1,073,741,822`, the value of (`i32::MAX/2 -1`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default, Hash)]
 pub struct IntegerBounds {
 
@@ -2035,6 +2037,27 @@ mod test {
                 AttributeValue::FloatRect(FloatRect {
                     min: Vec2(23.4234, 345.23),
                     max: Vec2(68623.0, 3.12425926538),
+                }),
+            ),
+            (
+                Text::from("rabbit area int"),
+                AttributeValue::IntegerBounds(IntegerBounds {
+                    position: Vec2(23, 345),
+                    size: Vec2(68623, 3),
+                }),
+            ),
+            (
+                Text::from("rabbit area int"),
+                AttributeValue::IntegerBounds(IntegerBounds {
+                    position: Vec2(-(i32::MAX / 2 - 1), -(i32::MAX / 2 - 1)),
+                    size: Vec2(i32::MAX as usize - 2, i32::MAX as usize - 2),
+                }),
+            ),
+            (
+                Text::from("rabbit area int 2"),
+                AttributeValue::IntegerBounds(IntegerBounds {
+                    position: Vec2(0, 0),
+                    size: Vec2(i32::MAX as usize / 2 - 1, i32::MAX as usize / 2 - 1),
                 }),
             ),
             (
