@@ -864,7 +864,7 @@ impl IntegerBounds {
         let y_max = i32::read(read)?;
 
         let min = Vec2(x_min.min(x_max), y_min.min(y_max));
-        let max  = Vec2(x_min.max(x_max), y_min.max(y_max)); // these are inclusive!
+        let max  = Vec2(x_min.max(x_max), y_min.max(y_max));
 
         // prevent addition overflow
         Self::validate_min_max_u64(
@@ -872,7 +872,8 @@ impl IntegerBounds {
             Vec2(max.x() as i64, max.y() as i64),
         )?;
 
-        let size = Vec2(max.x() + 1 - min.x(), max.y() + 1 - min.y()); // which is why we add 1
+        // add one to max because the max inclusive, but the size is not
+        let size = Vec2(max.x() + 1 - min.x(), max.y() + 1 - min.y());
         let size = size.to_usize("box coordinates")?;
 
         Ok(IntegerBounds { position: min, size })
