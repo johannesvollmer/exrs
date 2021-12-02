@@ -52,18 +52,8 @@ fn search_previews_of_all_files() {
 #[ignore]
 pub fn test_roundtrip() {
     // works
-    // let path = "tests/images/valid/custom/crowskull/crow_piz.exr";
-    // let path = "tests/images/valid/custom/crowskull/crow_dwa.exr";
-     //let path = "tests/images/valid/custom/crowskull/crow_zip_half.exr";
-     let path = "tests/images/fuzzed/b44_overly_restrictive_assert.exr";
-    // let path = "tests/images/valid/openexr/Beachball/multipart.0001.exr";
-    // let path = "tests/images/valid/openexr/Tiles/GoldenGate.exr";
-    // let path = "tests/images/valid/openexr/v2/Stereo/composited.exr";
-    // let path = "tests/images/valid\\custom\\crowskull\\crow_piz.exr";
-    //let path = "tests/images/valid\\openexr\\IlmfmlmflmTest\\v1.7.test.1.exr";
-    // let path = "tests/images/valid/openexr/MultiView/Balls.exr";
-    // let path = "tests/images/valid/openexr/MultiResolution/Kapaa.exr"; // rip maps
-    // let path = "tests/images/valid/openexr/MultiView/Impact.exr"; // mip maps
+     //let path = "tests/images/fuzzed/b44_overly_restrictive_assert.exr";
+     let path = "tests/images/fuzzed/zero-tilesize.exr";
 
     // worksn't
     // let path = "tests/images/valid/openexr/Chromaticities/Rec709_YC.exr"; // subsampling

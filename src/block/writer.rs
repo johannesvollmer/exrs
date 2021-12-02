@@ -7,7 +7,6 @@ use std::iter::Peekable;
 use std::ops::Not;
 
 use smallvec::alloc::collections::BTreeMap;
-use smallvec::alloc::sync::Arc;
 
 use crate::block::UncompressedBlock;
 use crate::block::chunk::{Chunk};
@@ -343,7 +342,6 @@ pub struct ParallelBlocksCompressor<'w, W> {
 
     sender: flume::Sender<Result<(usize, usize, Chunk)>>,
     receiver: flume::Receiver<Result<(usize, usize, Chunk)>>,
-    shared_meta_data_ref: Arc<MetaData>,
     pool: threadpool::ThreadPool,
 
     currently_compressing_count: usize,
@@ -365,7 +363,6 @@ impl<'w, W> ParallelBlocksCompressor<'w, W> where W: 'w + ChunksWriter {
 
         Some(Self {
             sorted_writer: SortedBlocksWriter::new(meta, chunks_writer),
-            shared_meta_data_ref: Arc::new(meta.clone()),
             next_incoming_chunk_index: 0,
             currently_compressing_count: 0,
             written_chunk_count: 0,

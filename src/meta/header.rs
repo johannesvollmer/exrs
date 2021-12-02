@@ -612,10 +612,6 @@ impl Header {
 
     /// Validate this instance.
     pub fn validate(&self, is_multilayer: bool, long_names: &mut bool, strict: bool) -> UnitResult {
-        debug_assert_eq!(
-            self.chunk_count, compute_chunk_count(self.compression, self.layer_size, self.blocks),
-            "incorrect chunk count value"
-        );
 
         self.data_window().validate(None)?;
         self.shared_attributes.display_window.validate(None)?;
@@ -866,13 +862,15 @@ impl Header {
         };
 
         let compression = compression.ok_or(missing_attribute("compression"))?;
-        let data_window = data_window.ok_or(missing_attribute("data window"))?;
-
         image_attributes.display_window = display_window.ok_or(missing_attribute("display window"))?;
+
+        let data_window = data_window.ok_or(missing_attribute("data window"))?;
+        data_window.validate(None)?; // validate now to avoid errors when computing the chunk_count
         layer_attributes.layer_position = data_window.position;
 
-        let data_size = data_window.size;
 
+        // validate now to avoid errors when computing the chunk_count
+        if let Some(tiles) = tiles { tiles.validate()?; }
         let blocks = match block_type {
             None if requirements.is_single_layer_and_tiled => {
                 BlockDescription::Tiles(tiles.ok_or(missing_attribute("tiles"))?)
@@ -884,10 +882,7 @@ impl Header {
             _ => BlockDescription::ScanLines,
         };
 
-        // check size now to prevent panics while computing the chunk size
-        data_window.validate(None)?;
-
-        let computed_chunk_count = compute_chunk_count(compression, data_size, blocks);
+        let computed_chunk_count = compute_chunk_count(compression, data_window.size, blocks);
         if chunk_count.is_some() && pedantic && chunk_count != Some(computed_chunk_count) {
             return Err(Error::invalid("chunk count not matching data size"));
         }
@@ -898,7 +893,7 @@ impl Header {
             // always compute ourselves, because we cannot trust anyone out there 😱
             chunk_count: computed_chunk_count,
 
-            layer_size: data_size,
+            layer_size: data_window.size,
 
             shared_attributes: image_attributes,
             own_attributes: layer_attributes,
