@@ -94,7 +94,7 @@ impl<'s, S: 's + ReadSamples> ReadChannels<'s> for ReadAnyChannels<S> {
 impl<S: SamplesReader> ChannelsReader for AnyChannelsReader<S> {
     type Channels = AnyChannels<S::Samples>;
 
-    fn filter_block(&self, tile: TileCoordinates) -> bool {
+    fn is_block_desired(&self, tile: TileCoordinates) -> bool {
         self.sample_channels_reader.iter().any(|channel| channel.samples.filter_block(tile))
     }
 

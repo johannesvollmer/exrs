@@ -89,10 +89,11 @@ pub trait ChannelsReader {
     type Channels;
 
     /// Specify whether a single block of pixels should be loaded from the file
-    fn filter_block(&self, tile: TileCoordinates) -> bool;
+    fn is_block_desired(&self, tile: TileCoordinates) -> bool;
 
-    /// Load a single pixel block, which has not been filtered, into the reader, accumulating the channel data
-    fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult;
+    /// Load a single block of pixels that passed the filters into the reader,
+    /// slowly accumulating the pixel data with each call
+    fn read_block(&mut self, header: &Header, block: &UncompressedBlock) -> UnitResult;
 
     /// Deliver the final accumulated channel collection for the image
     fn into_channels(self) -> Self::Channels;
@@ -137,7 +138,7 @@ impl<C> LayersReader for AllLayersReader<C> where C: ChannelsReader {
 
     fn filter_block(&self, _: &MetaData, tile: TileCoordinates, block: BlockIndex) -> bool {
         let layer = self.layer_readers.get(block.layer).expect("invalid layer index argument");
-        layer.channels_reader.filter_block(tile)
+        layer.channels_reader.is_block_desired(tile)
     }
 
     fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult {
@@ -184,7 +185,7 @@ impl<C> LayersReader for FirstValidLayerReader<C> where C: ChannelsReader {
     type Layers = Layer<C::Channels>;
 
     fn filter_block(&self, _: &MetaData, tile: TileCoordinates, block: BlockIndex) -> bool {
-        block.layer == self.layer_index && self.layer_reader.channels_reader.filter_block(tile)
+        block.layer == self.layer_index && self.layer_reader.channels_reader.is_block_desired(tile)
     }
 
     fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult {

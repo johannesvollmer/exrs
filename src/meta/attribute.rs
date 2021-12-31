@@ -220,11 +220,11 @@ pub struct FloatRect {
     pub max: Vec2<f32>
 }
 
-/// A List of channels. Channels must be sorted alphabetically.
+/// A List of channels. Channels are sorted alphabetically by name.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct ChannelList {
 
-    /// The channels in this list.
+    /// The channels in this list, sorted by name.
     pub list: SmallVec<[ChannelDescription; 5]>,
 
     /// The number of bytes that one pixel in this image needs.
