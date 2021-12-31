@@ -34,10 +34,12 @@ impl<Channels> Groups<Channels>  {
     //     self.channels.iter().chain(children).collect()
     // }
 
-    // pub fn all_channels(&self) -> impl Iterator<Item=&Channels> {
-    //     let children = self.child_groups.iter().flat_map(|group| group.all_channels());
-    //     self.own_channels.iter().chain(children)//.collect()
-    // }
+    pub fn all_channel_groups(&self) -> impl Iterator<Item=&Channels> {
+        let children = self.child_groups.iter()
+            .flat_map(|group| group.all_channel_groups());
+
+        self.own_channels.iter().chain(children)
+    }
 
     // pub fn absolute_channels(&self) -> impl Iterator<Item=Channels> {
     //     let children = self.child_groups.iter()
@@ -153,7 +155,7 @@ impl<'slf, Channels> Groups<Channels> where Channels: WritableChannels<'slf> {
             .map(|own| own.infer_channel_list().list)
             .flatten();
 
-        child_channels.concat(own_channels)
+        child_channels.chain(own_channels)
     }
 }
 
@@ -194,18 +196,6 @@ impl<'slf, ChannelGroup> WritableChannels<'slf> for Groups<ChannelGroup>
     type Writer = GroupChannelsWriter<'slf, ChannelGroup>;
 
     fn create_writer(&'slf self, header: &Header) -> Self::Writer {
-        /*let channels_writers = header.channels.list.iter()
-            .map(|meta_channel_info|{
-                // hashmap order is not guaranteed? so look up each channel group manually instead of generating new
-                let writable_channels = self
-                    .lookup_channel_group(meta_channel_info.name.as_slice())
-                    .expect("channels not found bug");
-
-                writable_channels.create_writer(header)
-            })
-            .collect();
-        // TODO order must be sorted maybe? who knows?*/
-
         GroupChannelsWriter {
             all_channel_groups: self.all_channel_groups()
                 .map(|channel_group: ChannelGroup| channel_group.create_writer(header))
@@ -220,25 +210,9 @@ struct GroupChannelsWriter<'c, ChannelGroupWriter> {
 
 impl<'c, Channels> ChannelsWriter for GroupChannelsWriter<'c, Channels> where Channels: ChannelsWriter {
     fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex, output_block_data: &mut [u8]) {
-
         for channels_group in self.all_channel_groups {
             channels_group.extract_uncompressed_block(header, block_index, output_block_data);
         }
-
-        /*let mut blocks_per_channel: Vec<Cursor<Vec<u8>>> = self
-            .channels_list.iter()
-            .map(|channels| Cursor::new(channels.extract_uncompressed_block(header, block)))
-            .collect();
-
-        UncompressedBlock::uncompressed_block_from_lines(header, block, |line|{
-            let channel_reader = &mut blocks_per_channel[line.location.channel]; // TODO subsampling
-
-            // read from specific channel into total byte block
-            // this assumes that the lines in the callback are iterated in strictly increasing order
-            // because each channel reader is consumed
-            channel_reader.read_exact(line.value)
-                .expect("collecting grouped channel byte block failed");
-        })*/
     }
 }
 
@@ -261,34 +235,12 @@ impl<'s, ReadChannelGroup> ReadChannels<'s> for ReadChannelGroups<ReadChannelGro
     type Reader = ChannelGroupsReader<ReadChannelGroup::Reader>;
 
     fn create_channels_reader(&'s self, header: &Header, selected_channels_indices: &[usize]) -> Result<Self::Reader> {
-
         // indices refer to `selected_channels_indices`
         let channel_groups = parse_list_to_indices(
             selected_channels_indices.iter()
                 .map(|&index| header.channels.list[index])
                 .map(|selected_channel| selected_channel.name)
         );
-
-        /*let mut indexed_channels = Vec::new();
-        let channel_groups = channel_groups.map(|channels| {
-
-            let mut channels_header = header.clone(); // TODO no clone?
-            channels_header.channels = ChannelList::new(channels.iter().map(|(name, index)|{
-                let mut channel_info = header.channels.list[index].clone();
-                channel_info.name = name;
-                channel_info
-            }).collect()); // FIXME does not comply to `header.chunk_count` and that stuff?? change ReadChannels fn signature?
-
-            indexed_channels.push(self.read_channels.create_channels_reader(&channels_header));
-
-            // FIXME this is not the original order indexed_channels.len() - 1
-            indexed_channels[]
-        });
-
-        Ok(ChannelGroupsReader {
-            channels: channel_groups,
-            indexed_channels,
-        })*/
 
         Ok(ChannelGroupsReader {
             // own_channels_indices refer to `selected_channels_indices`
@@ -301,10 +253,6 @@ impl<'s, ReadChannelGroup> ReadChannels<'s> for ReadChannelGroups<ReadChannelGro
                 let reader = self.read_channels.create_channels_reader(header, &group_selected_channel_indices);
                 reader
             })?
-            /*channels: header.channels.list.iter().map(|channel| {
-                let reader = self.read_channels.create_channels_reader(&channels_header);
-                (channels_header, reader)
-            }).collect(),*/
         })
     }
 }
