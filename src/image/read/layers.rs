@@ -8,6 +8,7 @@ use crate::math::Vec2;
 use crate::image::read::image::{ReadLayers, LayersReader};
 use crate::block::chunk::TileCoordinates;
 use crate::meta::MetaData;
+use crate::prelude::read::image::ChannelMask;
 
 /// Specify to read all channels, aborting if any one is invalid.
 /// [`ReadRgbaChannels`] or [`ReadAnyChannels<ReadFlatSamples>`].
@@ -34,7 +35,7 @@ pub trait ReadChannels<'s> {
     type Reader: ChannelsReader;
 
     /// Create a single reader for all channels of a specific layer
-    fn create_channels_reader(&'s self, header: &Header) -> Result<Self::Reader>;
+    fn create_channels_reader(&'s self, header: &Header, selected_channels_indices: &ChannelMask) -> Result<Self::Reader>;
 
 
     /// Read only the first layer which meets the previously specified requirements
@@ -124,7 +125,7 @@ impl<'s, C> ReadLayers<'s> for ReadAllLayers<C> where C: ReadChannels<'s> {
 
     fn create_layers_reader(&'s self, headers: &[Header]) -> Result<Self::Reader> {
         let readers: Result<_> = headers.iter()
-            .map(|header| LayerReader::new(header, self.read_channels.create_channels_reader(header)?))
+            .map(|header| LayerReader::new(header, self.read_channels.create_channels_reader(header, &ChannelMask::all(header.channels.list.len()))?))
             .collect();
 
         Ok(AllLayersReader {
@@ -141,7 +142,7 @@ impl<C> LayersReader for AllLayersReader<C> where C: ChannelsReader {
         layer.channels_reader.is_block_desired(tile)
     }
 
-    fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult {
+    fn read_block(&mut self, headers: &[Header], block: &UncompressedBlock) -> UnitResult {
         self.layer_readers
             .get_mut(block.index.layer).expect("invalid layer index argument")
             .channels_reader.read_block(headers.get(block.index.layer).expect("invalid header index in block"), block)
@@ -168,7 +169,7 @@ impl<'s, C> ReadLayers<'s> for ReadFirstValidLayer<C> where C: ReadChannels<'s> 
     fn create_layers_reader(&'s self, headers: &[Header]) -> Result<Self::Reader> {
         headers.iter().enumerate()
             .flat_map(|(index, header)|
-                self.read_channels.create_channels_reader(header)
+                self.read_channels.create_channels_reader(header, &ChannelMask::all(header.channels.list.len()))
                     .and_then(|reader| Ok(FirstValidLayerReader {
                         layer_reader: LayerReader::new(header, reader)?,
                         layer_index: index
@@ -188,7 +189,7 @@ impl<C> LayersReader for FirstValidLayerReader<C> where C: ChannelsReader {
         block.layer == self.layer_index && self.layer_reader.channels_reader.is_block_desired(tile)
     }
 
-    fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult {
+    fn read_block(&mut self, headers: &[Header], block: &UncompressedBlock) -> UnitResult {
         debug_assert_eq!(block.index.layer, self.layer_index, "block should have been filtered out");
         self.layer_reader.channels_reader.read_block(&headers[self.layer_index], block)
     }

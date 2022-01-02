@@ -404,7 +404,7 @@ pub enum LevelMode {
 // will mostly be "R", "G", "B" or "deepscanlineimage"
 pub type TextBytes = SmallVec<[u8; 24]>;
 
-/// A byte slice, interpreted as text
+/// A byte slice, interpreted as text.
 pub type TextSlice = [u8];
 
 
@@ -621,6 +621,12 @@ impl Text {
         let string_chars = string.chars().flat_map(|ch| ch.to_lowercase());
 
         string_chars.eq(self_chars)
+    }
+
+    /// Append characters to the front of the text.
+    // Always valid, as each u8 cannot be invalid.
+    pub fn push_front(&mut self, other: &TextSlice) {
+        self.bytes.insert_many(0, other.iter().cloned());
     }
 }
 

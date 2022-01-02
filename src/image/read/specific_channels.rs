@@ -12,6 +12,7 @@ use crate::image::read::layers::{ChannelsReader, ReadChannels};
 use crate::block::chunk::TileCoordinates;
 
 use std::marker::PhantomData;
+use crate::prelude::read::image::ChannelMask;
 
 
 /// Can be attached one more channel reader.
@@ -24,7 +25,7 @@ pub trait ReadSpecificChannel: Sized + CheckDuplicates {
     type RecursivePixelReader: RecursivePixelReader;
 
     /// Create a separate internal reader for the pixels of the specific channel combination.
-    fn create_recursive_reader(&self, channels: &ChannelList) -> Result<Self::RecursivePixelReader>;
+    fn create_recursive_reader(&self, channels: &ChannelList, selected_channel_indices: &ChannelMask) -> Result<Self::RecursivePixelReader>;
 
     /// Plan to read an additional channel from the image, with the specified name.
     /// If the channel cannot be found in the image when the image is read, the image will not be loaded.
@@ -145,10 +146,10 @@ ReadChannels<'s> for CollectPixels<InnerChannels, Pixel, PixelStorage, CreatePix
         Pixel,
     >;
 
-    fn create_channels_reader(&'s self, header: &Header) -> Result<Self::Reader> {
+    fn create_channels_reader(&'s self, header: &Header, selected_channel_indices: &ChannelMask) -> Result<Self::Reader> {
         if header.deep { return Err(Error::invalid("`SpecificChannels` does not support deep data yet")) }
 
-        let pixel_reader = self.read_channels.create_recursive_reader(&header.channels)?;
+        let pixel_reader = self.read_channels.create_recursive_reader(&header.channels, selected_channel_indices)?;
         let channel_descriptions = pixel_reader.get_descriptions().into_non_recursive();// TODO not call this twice
 
         let create = &self.create_pixels;
@@ -183,7 +184,7 @@ ChannelsReader for SpecificChannelsReader<PixelStorage, SetPixel, PxReader, Pixe
 
     fn is_block_desired(&self, tile: TileCoordinates) -> bool { tile.is_largest_resolution_level() } // TODO all levels
 
-    fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult {
+    fn read_block(&mut self, header: &Header, block: &UncompressedBlock) -> UnitResult {
         let mut pixels = vec![PxReader::RecursivePixel::default(); block.index.pixel_size.width()]; // TODO allocate once in self
 
         let byte_lines = block.data.chunks_exact(header.channels.bytes_per_pixel * block.index.pixel_size.width());
@@ -214,7 +215,25 @@ pub type ReadZeroChannels = NoneMore;
 
 impl ReadSpecificChannel for NoneMore {
     type RecursivePixelReader = NoneMore;
-    fn create_recursive_reader(&self, _: &ChannelList) -> Result<Self::RecursivePixelReader> { Ok(NoneMore) }
+    fn create_recursive_reader(&self, _: &ChannelList, _: &ChannelMask) -> Result<Self::RecursivePixelReader> { Ok(NoneMore) }
+}
+
+fn find_channel_with_offset<S>(channels: &ChannelList, selected_channel_indices: &ChannelMask, channel_name: &Text)
+    -> Option<SampleReader<S>>
+{
+    channels.channels_with_byte_offset()
+
+        // search only in selected channels, fails if no matching channels have been selected
+        .enumerate().filter_map(|(channel_index, channel_with_offset)| {
+            if selected_channel_indices.is_selected(channel_index)
+            { Some(channel_with_offset) } else { None }
+        })
+
+        .find(|(_, channel)| &channel.name == channel_name)
+        .map(|(channel_byte_offset, channel)| SampleReader {
+            channel_byte_offset, channel: channel.clone(),
+            px: Default::default()
+        })
 }
 
 impl<DefaultSample, ReadChannels> ReadSpecificChannel for ReadOptionalChannel<ReadChannels, DefaultSample>
@@ -222,16 +241,11 @@ impl<DefaultSample, ReadChannels> ReadSpecificChannel for ReadOptionalChannel<Re
 {
     type RecursivePixelReader = Recursive<ReadChannels::RecursivePixelReader, OptionalSampleReader<DefaultSample>>;
 
-    fn create_recursive_reader(&self, channels: &ChannelList) -> Result<Self::RecursivePixelReader> {
+    fn create_recursive_reader(&self, channels: &ChannelList, selected_channel_indices: &ChannelMask) -> Result<Self::RecursivePixelReader> {
         debug_assert!(self.previous_channels.already_contains(&self.channel_name).not(), "duplicate channel name: {}", self.channel_name);
 
-        let inner_samples_reader = self.previous_channels.create_recursive_reader(channels)?;
-        let reader = channels.channels_with_byte_offset()
-            .find(|(_, channel)| channel.name == self.channel_name)
-            .map(|(channel_byte_offset, channel)| SampleReader {
-                channel_byte_offset, channel: channel.clone(),
-                px: Default::default()
-            });
+        let inner_samples_reader = self.previous_channels.create_recursive_reader(channels, selected_channel_indices)?;
+        let reader = find_channel_with_offset(channels, selected_channel_indices, &self.channel_name);
 
         Ok(Recursive::new(inner_samples_reader, OptionalSampleReader {
             reader, default_sample: self.default_sample,
@@ -244,16 +258,18 @@ impl<Sample, ReadChannels> ReadSpecificChannel for ReadRequiredChannel<ReadChann
 {
     type RecursivePixelReader = Recursive<ReadChannels::RecursivePixelReader, SampleReader<Sample>>;
 
-    fn create_recursive_reader(&self, channels: &ChannelList) -> Result<Self::RecursivePixelReader> {
-        let previous_samples_reader = self.previous_channels.create_recursive_reader(channels)?;
-        let (channel_byte_offset, channel) = channels.channels_with_byte_offset()
-                .find(|(_, channel)| channel.name == self.channel_name)
-                .ok_or_else(|| Error::invalid(format!(
-                    "layer does not contain all of your specified channels (`{}` is missing)",
-                    self.channel_name
-                )))?;
+    // TODO deduplicate logic with above function
+    fn create_recursive_reader(&self, channels: &ChannelList, selected_channel_indices: &ChannelMask) -> Result<Self::RecursivePixelReader> {
+        debug_assert!(self.previous_channels.already_contains(&self.channel_name).not(), "duplicate channel name: {}", self.channel_name);
 
-        Ok(Recursive::new(previous_samples_reader, SampleReader { channel_byte_offset, channel: channel.clone(), px: Default::default() }))
+        let previous_samples_reader = self.previous_channels.create_recursive_reader(channels, selected_channel_indices)?;
+        let reader = find_channel_with_offset(channels, selected_channel_indices, &self.channel_name)
+            .ok_or_else(|| Error::invalid(format!(
+                "layer does not contain all of your specified channels (`{}` is missing)",
+                self.channel_name
+            )))?;
+
+        Ok(Recursive::new(previous_samples_reader, reader))
     }
 }
 

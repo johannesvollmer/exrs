@@ -26,6 +26,7 @@ use crate::image::{Image, ignore_progress, SpecificChannels, IntoSample};
 use crate::image::write::layers::{WritableLayers, LayersWriter};
 use crate::math::Vec2;
 use crate::block::writer::ChunksWriter;
+use crate::block::UncompressedBlock;
 
 /// An oversimplified function for "just write the damn file already" use cases.
 /// Have a look at the examples to see how you can write an image with more flexibility (it's not that hard).
@@ -159,22 +160,17 @@ impl<'img, L, F> WriteImageWithOptions<'img, L, F>
             write, headers, self.check_compatibility,
             move |meta, chunk_writer|{
 
-                let blocks = meta.collect_ordered_block_data(|block_index|
-                     layers.extract_uncompressed_block(&meta.headers, block_index)
+                let blocks = meta.collect_ordered_block_data(|header, block_index|
+                    UncompressedBlock::fill_block_data(&header.channels, block_index, |output_block_bytes|{
+                        layers.extract_uncompressed_block(&meta.headers, block_index, output_block_bytes)
+                    })
                 );
 
                 let chunk_writer = chunk_writer.on_progress(self.on_progress);
-                if self.parallel { chunk_writer.compress_all_blocks_parallel(&meta, blocks)?; }
-                else { chunk_writer.compress_all_blocks_sequential(&meta, blocks)?; }
-                /*let blocks_writer = chunk_writer.as_blocks_writer(&meta);
 
                 // TODO propagate send requirement further upwards
-                if self.parallel {
-                    blocks_writer.compress_all_blocks_parallel(blocks)?;
-                }
-                else {
-                    blocks_writer.compress_all_blocks_sequential(blocks)?;
-                }*/
+                if self.parallel { chunk_writer.compress_all_blocks_parallel(&meta, blocks)?; }
+                else { chunk_writer.compress_all_blocks_sequential(&meta, blocks)?; } // TODO reuse uncompressed_block allocation here
 
                 Ok(())
             }
