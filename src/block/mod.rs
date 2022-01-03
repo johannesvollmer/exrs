@@ -234,7 +234,7 @@ impl UncompressedBlock {
     /// Create an uncompressed block by filling bytes.
     pub fn fill_block_data(
         channels: &ChannelList, block_index: BlockIndex,
-        fill_bytes: impl FnMut(&mut[u8])
+        mut fill_bytes: impl FnMut(&mut[u8])
     ) -> Vec<u8> {
         let mut block_bytes = vec![0_u8; block_index.byte_size(channels)];
         fill_bytes(block_bytes.as_mut_slice());

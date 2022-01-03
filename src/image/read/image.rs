@@ -173,23 +173,29 @@ impl<L> ImageWithAttributesReader<L> where L: LayersReader {
     }
 }
 
+/// Stores which channels to ignore when loading and image.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChannelMask {
     valid_indices: BTreeSet<usize>, // TODO optimize for case where everything is selected?
 }
 
 impl ChannelMask {
+    /// Include all channels in the specified range.
     pub fn all(channel_count: usize) -> Self {
         Self { valid_indices: BTreeSet::from_iter(0..channel_count) }
     }
 
+    /// Include only the specified channels.
     pub fn only(channels: impl IntoIterator<Item=usize>) -> Self {
         Self { valid_indices: BTreeSet::from_iter(channels.into_iter()) }
     }
 
+    /// Is a specific channel selected?
     pub fn is_selected(&self, channel_index: usize) -> bool {
         self.valid_indices.contains(&channel_index)
     }
 
+    /// Iterate all selected channels.
     pub fn selected_channel_indices(&self) -> impl '_ + Iterator<Item=usize> {
         self.valid_indices.iter().cloned()
     }
