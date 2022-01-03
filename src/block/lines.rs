@@ -152,7 +152,7 @@ impl<'s> LineRefMut<'s> {
         debug_assert_eq!(slice.len(), self.location.sample_count, "slice size does not match the line width");
         debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
 
-        T::write_slice(&mut Cursor::new(self.value), slice)
+        T::write_slice(&mut Cursor::new(self.value), slice) // TODO this cant fail, return no result?
     }
 
     /// Iterate over all samples in this line, from left to right.
@@ -168,7 +168,7 @@ impl<'s> LineRefMut<'s> {
         let mut write = Cursor::new(self.value);
 
         for index in 0..self.location.sample_count {
-            T::write(get_sample(index), &mut write)?;
+            T::write(get_sample(index), &mut write)?; // TODO this cannot fail...? do not return a result?
         }
 
         Ok(())

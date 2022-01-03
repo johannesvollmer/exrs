@@ -70,24 +70,24 @@ fn main() {
         |meta_data, chunk_writer|{
 
 
-            let blocks = meta_data.collect_ordered_blocks(|block_index|{
-                let channel_description = &meta_data.headers[block_index.layer].channels;
+            let blocks = meta_data.collect_ordered_blocks(|header, block_index|{
+                let channel_description = &header.channels;
 
                 // fill the image file contents with one of the precomputed random values,
                 // picking a different one per channel
                 UncompressedBlock::from_lines(channel_description, block_index, |line_mut|{
                     // TODO iterate mut instead??
 
-                    let chan = line_mut.location.channel;
+                    let channel_index = line_mut.location.channel;
 
-                    if chan == 3 { // write time as depth (could also check for _meta.channels[chan].name == "Z")
+                    if channel_description.list[channel_index].name.eq("Z") { // write time as depth
                         line_mut.write_samples(|_| start_time.elapsed().as_secs_f32())
                             .expect("write to line bug");
                     }
 
                     else { // write rgba color
                         line_mut
-                            .write_samples(|sample_index| random_values[(sample_index + chan) % random_values.len()])
+                            .write_samples(|sample_index| random_values[(sample_index + channel_index) % random_values.len()])
                             .expect("write to line bug");
                     }
                 })
