@@ -8,8 +8,6 @@ extern crate half;
 // exr imports
 extern crate exr;
 
-// TODO create a dedicated reader and writer for this scenario
-
 /// Generate an image with channel groups and write it to a file.
 /// Some legacy software may group layers that contain a `.` in the layer name.
 ///
@@ -18,8 +16,6 @@ extern crate exr;
 ///
 fn main() {
     use exr::prelude::*;
-    // TODO simplify handling these types of layers using read() and write()
-
     let size = Vec2(512, 512);
 
     let create_channel = |name: &str| -> AnyChannel<FlatSamples> {
@@ -32,35 +28,30 @@ fn main() {
     };
 
 
-    // The channels have the following structure:
-    //
-    // - Object
-    //     - Red
-    //     - Green
-    //     - Blue
-    //     - Alpha
-
-    // - Background
-    //     - Red
-    //     - Green
-    //     - Blue
-
-    let foreground_r = create_channel("Object.R");
-    let foreground_g = create_channel("Object.G");
-    let foreground_b = create_channel("Object.B");
-    let foreground_a = create_channel("Object.A");
-
-    let background_r = create_channel("Background.R");
-    let background_g = create_channel("Background.G");
-    let background_b = create_channel("Background.B");
-
     let layer = Layer::new(
         size,
         LayerAttributes::named("test-image"),
         Encoding::FAST_LOSSLESS,
-        AnyChannels::sort(smallvec![ // the order does not actually matter
-            foreground_r, foreground_g, foreground_b, foreground_a,
-            background_r, background_g, background_b
+
+        ChannelGroups::from_list([
+            (
+                // the foreground layer will be rgba
+                "Foreground",
+                AnyChannels::sort(smallvec![
+                    create_channel("R"), create_channel("G"),
+                    create_channel("B"), create_channel("A"),
+                ])
+            ),
+
+            (
+                // the background layer will be rgb
+                "Background",
+                AnyChannels::sort(smallvec![
+                    create_channel("R"),
+                    create_channel("G"),
+                    create_channel("B")
+                ])
+            ),
         ]),
     );
 

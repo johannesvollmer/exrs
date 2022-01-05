@@ -625,8 +625,8 @@ impl Text {
 
     /// Append characters to the front of the text.
     // Always valid, as each u8 cannot be invalid.
-    pub fn push_front(&mut self, other: &TextSlice) {
-        self.bytes.insert_many(0, other.iter().cloned());
+    pub fn push_front(&mut self, other: impl IntoIter<Item=u8>) {
+        self.bytes.insert_many(0, other);
     }
 }
 

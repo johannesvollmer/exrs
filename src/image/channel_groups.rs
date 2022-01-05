@@ -10,77 +10,53 @@ use crate::block::chunk::TileCoordinates;
 use crate::prelude::{SmallVec, ChannelDescription};
 use crate::math::RoundingMode;
 use crate::image::read::image::ChannelMask;
+use std::iter::FromIterator;
+use crate::image::AnyChannels;
+
+pub trait ReadGroupedChannels: Sized {
+    fn grouped_channels(self) -> ReadChannelGroups<Self> {
+        ReadChannelGroups { read_channels: self }
+    }
+}
+
+impl<T> ReadGroupedChannels for T
+    where T: ReadChannels {}
 
 
 #[derive(Default, Eq, PartialEq, Debug)]
-pub struct Groups<Channels> {
-    own_channels: Option<Channels>,
-    child_groups: HashMap<Text, Self>
+pub struct ChannelGroups<Channels> {
+    pub channels: Option<Channels>,
+    pub children: HashMap<Text, Self>
 }
 
 
-/*#[derive(Default, Debug)]
-pub struct GroupedChannels<Channels> {
-    indices: Groups<usize>,
-    entries: Vec<Channels>
-}
-
-impl<Channels> GroupedChannels<Channels>  {
-
-    pub fn all_channel_groups_sorted(&self) -> impl Iterator<Item=&Channels> {
-        self.entries.iter()
-    }
-
-    pub fn lookup_channel_group(&self, group_name: &TextSlice) -> Option<&Channels> {
-        self.indices.lookup_channel_group(group_name)
-            .map(|index| self.entries[index])
-    }
-
-    fn map<T>(self, mapper: impl FnMut(Channels) -> T) -> Groups<T> {
-        Groups {
-            own_channels: self.own_channels.map(&mapper),
-            child_groups: self.child_groups.into_iter()
-                .map(|(name, child)| (name, child.map(&mapper)))
-                .collect(),
-        }
-    }
-}*/
-
-impl<Channels> Groups<Channels>  {
+impl<Channels> ChannelGroups<Channels>  {
 
     // pub fn insert(&mut self, parent_group_name: Text, channels: Channels){
     //
     // }
 
     // TODO other construction methods
-
+    pub fn from_list<Txt: Into<Text>>(named_groups: impl IntoIterator<Item=(Txt, Channels)>) -> Self {
+        Self { channels: None, children: HashMap::from_iter(named_groups) }
+    }
 
     // TODO depth first or not?
     pub fn all_channel_groups(&self) -> impl Iterator<Item=&Channels> {
-        // https://fasterthanli.me/articles/recursive-iterators-rust
-
-        // TODO check empty and throw?
-        //Box::new(
-            self.child_groups.iter()
-                .flat_map(|(_, child)| child.all_channel_groups())
-                .chain(self.own_channels.iter())
-
-                .collect::<SmallVec<[&Channels; 20]>>().into_iter()
-        //)
+        // TODO https://fasterthanli.me/articles/recursive-iterators-rust
+        self.children.iter()
+            .flat_map(|(_, child)| child.all_channel_groups())
+            .chain(self.channels.iter())
+            .collect::<SmallVec<[&Channels; 20]>>().into_iter()
     }
 
     // TODO depth first or not?
     pub fn all_channel_groups_mut(&mut self) -> impl Iterator<Item=&mut Channels> {
-        // https://fasterthanli.me/articles/recursive-iterators-rust
-
-        // TODO check empty and throw?
-        //Box::new(
-            self.child_groups.iter_mut()
-                .flat_map(|(_, child)| child.all_channel_groups_mut())
-                .chain(self.own_channels.iter_mut())
-
-                .collect::<SmallVec<[&mut Channels; 20]>>().into_iter()
-        //)
+        // TODO https://fasterthanli.me/articles/recursive-iterators-rust
+        self.children.iter_mut()
+            .flat_map(|(_, child)| child.all_channel_groups_mut())
+            .chain(self.channels.iter_mut())
+            .collect::<SmallVec<[&mut Channels; 20]>>().into_iter()
     }
 
     /*TODO pub fn lookup_channel_group(&self, group_name: &TextSlice) -> Option<&Channels> {
@@ -99,27 +75,28 @@ impl<Channels> Groups<Channels>  {
 
 
 
-    fn map<T>(self, mut mapper: impl FnMut(Channels) -> T) -> Groups<T> {
-        Groups {
-            own_channels: self.own_channels.map(&mut mapper),
-            child_groups: self.child_groups.into_iter()
+    fn map<T>(self, mut mapper: impl FnMut(Channels) -> T) -> ChannelGroups<T> {
+        ChannelGroups {
+            channels: self.channels.map(&mut mapper),
+            children: self.children.into_iter()
                 .map(|(name, child)| (name, child.map(&mut mapper)))
                 .collect(),
         }
     }
 
-    fn try_map<T>(self, mut mapper: impl FnMut(Channels) -> Result<T>) -> Result<Groups<T>> {
-        let channels = match self.own_channels {
+    fn try_map<T>(self, mut mapper: impl FnMut(Channels) -> Result<T>) -> Result<ChannelGroups<T>> {
+        let channels = match self.channels {
             Some(channels) => Some(mapper(channels)?),
             None => None,
         };
 
-        let new_child_groups = HashMap::with_capacity(self.child_groups.len());
-        let child_groups = self.child_groups.into_iter()
+        let new_child_groups = HashMap::with_capacity(self.children.len());
+        let child_groups = self.children.into_iter()
             .map(|(name, child)| Ok((name, child.try_map(&mut mapper)?)))
             .try_fold(
                 new_child_groups,
-                |mut map: HashMap<Text, Groups<T>>, item: Result<(Text, Groups<T>)>| {
+                |mut map: HashMap<Text, ChannelGroups<T>>, item: Result<(Text, ChannelGroups<T>)>| {
+                    // TODO this is complicated!
                     item.map(move |(k,v)| {
                         map.insert(k,v);
                         map
@@ -127,21 +104,18 @@ impl<Channels> Groups<Channels>  {
                 }
             )?;
 
-        Ok(Groups {
-            own_channels: channels,
-            child_groups: child_groups,
-        })
+        Ok(ChannelGroups { channels, children: child_groups, })
     }
 }
 
 type SmallIndicesVec = SmallVec<[usize; 12]>;
 
-impl Groups<SmallIndicesVec> {
+impl ChannelGroups<SmallIndicesVec> {
 
     // returns indices that reference the argument items
     pub fn parse_list_to_indices(channels: impl Iterator<Item=Text>) -> Self {
         channels.enumerate().fold(
-            Groups::default(),
+            ChannelGroups::default(),
             |mut groups, (index, name)|{
                 groups.insert_channel_index(name, index);
                 groups
@@ -158,34 +132,41 @@ impl Groups<SmallIndicesVec> {
             let group_name = Text::from_slice_unchecked(&name.as_slice()[.. dot_index]);
             let child_channel = Text::from_slice_unchecked(&name.as_slice()[dot_index + 1 ..]);
 
-            let child_group = self.child_groups.entry(group_name)
-                .or_insert_with(Groups::default);
+            let child_group = self.children.entry(group_name)
+                .or_insert_with(ChannelGroups::default);
 
             child_group.insert_channel_index(child_channel, item_index);
         }
 
         else {
             // insert directly into group
-            let groups = self.own_channels.get_or_insert_with(SmallIndicesVec::new);
+            let groups = self.channels.get_or_insert_with(SmallIndicesVec::new);
             groups.push(item_index);
         }
     }
 }
 
 
-impl<'slf, Channels> Groups<Channels> where Channels: WritableChannels<'slf> {
-    pub fn absolute_names_unsorted<Channel>(&self, to_channels: impl Fn(&Channels) -> SmallVec<[(Text, Channel);5]>) -> SmallVec<[(Text, Channel);5]> {
-        let child_channels = self.child_groups.iter().flat_map(|(child_name, child)| {
-            // child.into_absolute_names(&to_channels).map(move |(mut name, value)| {
-            //     name.push_front(child_name.as_slice());
-            //     (name, value)
-            // }).as_slice()
-            let mut children = child.absolute_names_unsorted(&to_channels);
-            for (name, _) in &mut children { name.push_front(child_name.as_slice()); }
+impl<'slf, Channels> ChannelGroups<Channels> where Channels: WritableChannels<'slf> {
+    // TODO reduce tuples and make simpler
+    pub fn absolute_names_unsorted<Channel>(
+        &self,
+        to_channels: impl Fn(&Channels) -> SmallVec<[Channel;5]>,
+        channel_name: impl Fn(&mut Channel) -> &mut Text,
+    ) -> SmallVec<[Channel;5]> {
+        let child_channels = self.children.iter().flat_map(|(child_group_name, child_group)| {
+            let mut children = child_group.absolute_names_unsorted(&to_channels, &channel_name);
+
+            for channel in &mut children {
+                channel_name(channel).push_front(
+                    child_group_name.as_slice().iter().cloned().chain("." as u8)
+                );
+            }
+
             children
         });
 
-        let own_channels = self.own_channels.iter()
+        let own_channels = self.channels.iter()
             // TODO check empty and throw?
             .flat_map(|own| to_channels(own));
 
@@ -194,22 +175,15 @@ impl<'slf, Channels> Groups<Channels> where Channels: WritableChannels<'slf> {
     }
 }
 
-impl<'slf, ChannelGroup> WritableChannels<'slf> for Groups<ChannelGroup>
-    where ChannelGroup: WritableChannels<'slf>
+impl<'slf, ChannelGroup> WritableChannels<'slf> for ChannelGroups<ChannelGroup>
+    where ChannelGroup: WritableChannelGroup<'slf>
 {
     fn infer_channel_list(&self) -> ChannelList {
         let mut all_channels: SmallVec<[ChannelDescription; 5]> = self
-            .absolute_names_unsorted(|chans| {
-                chans.infer_channel_list().list.into_iter().map(|channel|{
-                    (channel.name.clone(), channel)
-                }).collect()
-            })
-
-            .into_iter().map(|(name, mut channel)|{
-                channel.name = name;
-                channel
-            })
-
+            .absolute_names_unsorted(
+                |chans| chans.infer_channel_list().list.clone(),
+                |channel| &mut channel.name
+            )
             .collect();
 
         all_channels.sort_by_key(|chan| chan.name.clone()); // TODO borrow? // TODO check empty and throw?
@@ -218,17 +192,8 @@ impl<'slf, ChannelGroup> WritableChannels<'slf> for Groups<ChannelGroup>
 
     ///  Generate the file meta data of whether and how resolution levels should be stored in the file
     fn infer_level_modes(&self) -> (LevelMode, RoundingMode) {
-        let mode = self.all_channel_groups().map(WritableChannels::infer_level_modes).next();
-
-        // fn find_mode_or_none(channels: &Groups<ChannelGroup>) -> Option<LevelMode> {
-        //     channels.own_channels.map(WritableChannels::level_mode).or_else(|| {
-        //         channels.child_groups.iter().map(find_mode_or_none).next()
-        //     })
-        // }
-
-        let mode = mode//find_mode_or_none(self)
-            .expect("empty channel groups (check failed)"); // TODO only happens for empty channels, right? panic maybe?
-
+        let mode = self.all_channel_groups().map(WritableChannels::infer_level_modes)
+            .next().expect("empty channel groups (check failed)"); // TODO only happens for empty channels, right? panic maybe?
 
         debug_assert!(
             self.all_channel_groups().map(WritableChannels::infer_level_modes)
@@ -245,11 +210,27 @@ impl<'slf, ChannelGroup> WritableChannels<'slf> for Groups<ChannelGroup>
     fn create_writer(&'slf self, header: &Header) -> Self::Writer {
         GroupChannelsWriter {
             all_channel_groups: self.all_channel_groups()
-                .map(|channel_group: &ChannelGroup| channel_group.create_writer(header))
+                .map(|channel_group: &ChannelGroup| panic!("this uses relative names but expects absolute names, and all will write first byte")/*channel_group.create_channel_group_writer(header)*/)
                 .collect()
         }
     }
 }
+
+
+pub trait WritableChannelGroup<'slf>: WritableChannels {
+    fn create_channel_group_writer(&'slf self, header: &Header, channel_indices: &[usize])
+        -> <Self as WritableChannels>::Writer;
+}
+
+impl<'slf> WritableChannelGroup<'slf> for AnyChannels<T>
+    where AnyChannels<T>: WritableChannels<'slf>
+{
+    fn create_channel_group_writer(&'slf self, header: &Header, channel_indices: &[usize]) -> Self::Writer {
+        self.create_writer(header)
+    }
+}
+
+
 
 pub struct GroupChannelsWriter<ChannelGroupWriter> {
     all_channel_groups: Vec<ChannelGroupWriter>,
@@ -269,7 +250,7 @@ struct ReadChannelGroups<ReadChannelGroup> {
 }
 
 struct ChannelGroupsReader<ChannelGroupReader> {
-    channels: Groups<ChannelGroupReader>,
+    channels: ChannelGroups<ChannelGroupReader>,
 
     // TODO optimize by iterating a vec instead of the nested groups:
     //channels: Groups<usize>,
@@ -286,7 +267,7 @@ impl<'s, ReadChannelGroup> ReadChannels<'s> for ReadChannelGroups<ReadChannelGro
             .selected_channel_indices().collect::<SmallVec<[usize; 20]>>();
 
         // indices refer to `selected_channels_indices`
-        let channel_groups = Groups::parse_list_to_indices(
+        let channel_groups = ChannelGroups::parse_list_to_indices(
             selected_channels_indices.iter()
                 .map(|&index| &header.channels.list[index])
                 .map(|selected_channel| selected_channel.name.clone())
@@ -309,7 +290,7 @@ impl<'s, ReadChannelGroup> ReadChannels<'s> for ReadChannelGroups<ReadChannelGro
 }
 
 impl<ChannelGroupReader> ChannelsReader for ChannelGroupsReader<ChannelGroupReader> where ChannelGroupReader: ChannelsReader {
-    type Channels = Groups<ChannelGroupReader::Channels>;
+    type Channels = ChannelGroups<ChannelGroupReader::Channels>;
 
     fn is_block_desired(&self, tile: TileCoordinates) -> bool {
         // TODO linear memory iterator

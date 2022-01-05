@@ -41,6 +41,8 @@ pub trait ReadChannels<'s> {
     /// Read only the first layer which meets the previously specified requirements
     /// For example, skips layers with deep data, if specified earlier.
     /// Aborts if the image contains no layers.
+    /// If certain channels are required by the caller but missing in the file,
+    /// the layer is also considered invalid.
     // TODO test if this filters non-deep layers while ignoring deep data layers!
     fn first_valid_layer(self) -> ReadFirstValidLayer<Self> where Self:Sized { ReadFirstValidLayer { read_channels: self } }
 
