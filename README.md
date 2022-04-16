@@ -161,7 +161,7 @@ __Big-endian code is not yet fully implemented. Help wanted.__
 Add this to your `Cargo.toml`:
 ```toml
 [dependencies]
-exr = "1.4.1"
+exr = "1.4.2"
 
 # also, optionally add this to your crate for smaller binary size 
 # and better runtime performance
