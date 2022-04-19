@@ -10,6 +10,7 @@ use crate::block::samples::*;
 use crate::image::write::samples::*;
 
 use std::marker::PhantomData;
+use crate::block::lines::{LineIndex, LineRefMut};
 
 
 /// Enables an image containing this list of channels to be written to a file.
@@ -31,8 +32,8 @@ pub trait WritableChannels<'slf> {
 /// A temporary writer for a list of channels
 pub trait ChannelsWriter: Sync {
 
-    /// Deliver a block of pixels, containing all channel data, to be stored in the file
-    fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex) -> Vec<u8>; // TODO return uncompressed block?
+    /// Fill a block of bytes with pixels, containing all channel data, to be stored in the file.
+    fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex, block_data: &mut [u8]);
 }
 
 
@@ -98,10 +99,15 @@ pub struct AnyChannelsWriter<SamplesWriter> {
 }
 
 impl<Samples> ChannelsWriter for AnyChannelsWriter<Samples> where Samples: SamplesWriter {
-    fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Vec<u8> {
-        UncompressedBlock::collect_block_data_from_lines(&header.channels, block_index, |line_ref| {
-            self.channels[line_ref.location.channel].extract_line(line_ref)
-        })
+    fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex, block_bytes: &mut [u8]) {
+        for (byte_range, line_index) in LineIndex::lines_in_block(block_index, &header.channels) {
+            let line_ref = LineRefMut { // TODO subsampling
+                value: &mut block_bytes[byte_range],
+                location: line_index,
+            };
+
+            self.channels[line_ref.location.channel].extract_line(line_ref);
+        }
     }
 }
 
@@ -168,10 +174,7 @@ for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
         Storage::Pixel: IntoRecursive,
         PxWriter: Sync + RecursivePixelWriter<<Storage::Pixel as IntoRecursive>::Recursive>,
 {
-    fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Vec<u8> {
-        let block_bytes = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
-        let mut block_bytes = vec![0_u8; block_bytes];
-
+    fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex, block_bytes: &mut [u8]) {
         let width = block_index.pixel_size.0;
         let line_bytes = width * header.channels.bytes_per_pixel;
         let byte_lines = block_bytes.chunks_exact_mut(line_bytes);
@@ -189,8 +192,6 @@ for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
 
             self.recursive_channel_writer.write_pixels(line_bytes, pixel_line.as_slice(), |px| px);
         }
-
-        block_bytes
     }
 }
 

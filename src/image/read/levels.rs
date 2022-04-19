@@ -192,7 +192,7 @@ impl<S: ReadSamplesLevel> ReadSamples for ReadAllLevels<S> {
 impl<S: SamplesReader> SamplesReader for AllLevelsReader<S> {
     type Samples = Levels<S::Samples>;
 
-    fn filter_block(&self, _: TileCoordinates) -> bool {
+    fn is_block_desired(&self, _: TileCoordinates) -> bool {
         true
     }
 

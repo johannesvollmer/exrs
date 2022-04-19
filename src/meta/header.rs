@@ -595,10 +595,10 @@ impl Header {
 
         self.channels.list.iter()
             .map(|channel: &ChannelDescription|
-                pixel_count_of_levels(channel.subsampled_resolution(self.layer_size)) * channel.sample_type.bytes_per_sample()
+                pixel_count_of_levels(channel.subsampled_resolution(self.layer_size))
+                    * channel.sample_type.bytes_per_sample()
             )
             .sum()
-
     }
 
     /// Approximates the maximum number of bytes that the pixels of this header will consume in a file.

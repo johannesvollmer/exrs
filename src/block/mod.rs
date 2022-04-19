@@ -25,6 +25,7 @@ use crate::block::chunk::{CompressedBlock, CompressedTileBlock, CompressedScanLi
 use crate::meta::header::Header;
 use crate::block::lines::{LineIndex, LineRef, LineSlice, LineRefMut};
 use crate::meta::attribute::ChannelList;
+use std::hash::Hash;
 
 
 /// Specifies where a block of pixel data should be placed in the actual image.
@@ -40,7 +41,7 @@ pub struct BlockIndex {
     pub pixel_position: Vec2<usize>,
 
     /// Number of pixels in this block, extending to the right and downwards.
-    /// Stays the same across all resolution levels.
+    /// Stays the same across all resolution levels. Border tiles are smaller than average.
     pub pixel_size: Vec2<usize>,
 
     /// Index of the mip or rip level in the image.
@@ -92,7 +93,7 @@ pub fn write<W: Write + Seek>(
 /// The blocks written to the file must be exactly in this order,
 /// except for when the `LineOrder` is unspecified.
 /// The index represents the block index, in increasing line order, within the header.
-pub fn enumerate_ordered_header_block_indices(headers: &[Header]) -> impl '_ + Iterator<Item=(usize, BlockIndex)> {
+pub fn enumerate_ordered_header_block_indices(headers: &[Header]) -> impl '_ + Iterator<Item=(&Header, usize, BlockIndex)> {
     headers.iter().enumerate().flat_map(|(layer_index, header)|{
         header.enumerate_ordered_blocks().map(move |(index_in_header, tile)|{
             let data_indices = header.get_absolute_block_pixel_coordinates(tile.location).expect("tile coordinate bug");
@@ -104,11 +105,17 @@ pub fn enumerate_ordered_header_block_indices(headers: &[Header]) -> impl '_ + I
                 pixel_size: data_indices.size,
             };
 
-            (index_in_header, block)
+            (header, index_in_header, block)
         })
     })
 }
 
+impl BlockIndex {
+    /// The number of bytes required for the referenced uncompressed block
+    pub fn byte_size(&self, channels: &ChannelList) -> usize {
+        self.pixel_size.area() * channels.bytes_per_pixel
+    }
+}
 
 impl UncompressedBlock {
 
@@ -153,7 +160,7 @@ impl UncompressedBlock {
         let header: &Header = headers.get(index.layer)
             .expect("block layer index bug");
 
-        let expected_byte_size = header.channels.bytes_per_pixel * self.index.pixel_size.area(); // TODO sampling??
+        let expected_byte_size = self.index.byte_size(&header.channels); // header.channels.bytes_per_pixel * self.index.pixel_size.area(); // TODO sampling??
         if expected_byte_size != data.len() {
             panic!("get_line byte size should be {} but was {}", expected_byte_size, data.len());
         }
@@ -224,6 +231,16 @@ impl UncompressedBlock {
         Ok(())
     }*/
 
+    /// Create an uncompressed block by filling bytes.
+    pub fn fill_block_data(
+        channels: &ChannelList, block_index: BlockIndex,
+        mut fill_bytes: impl FnMut(&mut[u8])
+    ) -> Vec<u8> {
+        let mut block_bytes = vec![0_u8; block_index.byte_size(channels)];
+        fill_bytes(block_bytes.as_mut_slice());
+        block_bytes
+    }
+
     // TODO from iterator??
     /// Create an uncompressed block byte vector by requesting one line of samples after another.
     pub fn collect_block_data_from_lines(
@@ -231,17 +248,14 @@ impl UncompressedBlock {
         mut extract_line: impl FnMut(LineRefMut<'_>)
     ) -> Vec<u8>
     {
-        let byte_count = block_index.pixel_size.area() * channels.bytes_per_pixel;
-        let mut block_bytes = vec![0_u8; byte_count];
-
-        for (byte_range, line_index) in LineIndex::lines_in_block(block_index, channels) {
-            extract_line(LineRefMut { // TODO subsampling
-                value: &mut block_bytes[byte_range],
-                location: line_index,
-            });
-        }
-
-        block_bytes
+        Self::fill_block_data(channels, block_index, |block_bytes|{
+            for (byte_range, line_index) in LineIndex::lines_in_block(block_index, channels) {
+                extract_line(LineRefMut { // TODO subsampling
+                    value: &mut block_bytes[byte_range],
+                    location: line_index,
+                });
+            }
+        })
     }
 
     /// Create an uncompressed block by requesting one line of samples after another.

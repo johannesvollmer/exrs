@@ -25,8 +25,8 @@ pub trait WritableLayers<'slf> {
 /// A temporary writer for a list of channels
 pub trait LayersWriter: Sync {
 
-    /// Deliver a block of pixels from a single layer to be stored in the file
-    fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex) -> Vec<u8>;
+    /// Fill a block of bytes with pixels data from a single layer to be stored in the file
+    fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex, output_block_data: &mut [u8]);
 }
 
 /// A temporary writer for an arbitrary list of layers
@@ -117,14 +117,14 @@ impl<'slf, Channels: WritableChannels<'slf>> WritableLayers<'slf> for Layer<Chan
 }
 
 impl<C> LayersWriter for AllLayersWriter<C> where C: ChannelsWriter {
-    fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex) -> Vec<u8> {
-        self.layers[block.layer].extract_uncompressed_block(std::slice::from_ref(&headers[block.layer]), block) // TODO no array-vs-first
+    fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex, output_block_data: &mut [u8]) {
+        self.layers[block.layer].extract_uncompressed_block(std::slice::from_ref(&headers[block.layer]), block, output_block_data) // TODO no array-vs-first
     }
 }
 
 impl<C> LayersWriter for LayerWriter<C> where C: ChannelsWriter {
-    fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex) -> Vec<u8> {
-        self.channels.extract_uncompressed_block(headers.first().expect("invalid inferred header"), block) // TODO no array-vs-first
+    fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex, output_block_data: &mut [u8]) {
+        self.channels.extract_uncompressed_block(headers.first().expect("invalid inferred header"), block, output_block_data) // TODO no array-vs-first
     }
 }
 
@@ -165,7 +165,7 @@ impl<'slf, InnerLayers, Channels> WritableLayers<'slf> for Recursive<InnerLayers
 type RecursiveLayersWriter<InnerLayersWriter, ChannelsWriter> = Recursive<InnerLayersWriter, (usize, LayerWriter<ChannelsWriter>)>;
 
 impl LayersWriter for NoneMore {
-    fn extract_uncompressed_block(&self, _: &[Header], _: BlockIndex) -> Vec<u8> {
+    fn extract_uncompressed_block(&self, _: &[Header], _: BlockIndex, _: &mut [u8]) {
         panic!("recursive length mismatch bug");
     }
 }
@@ -173,14 +173,14 @@ impl LayersWriter for NoneMore {
 impl<InnerLayersWriter, Channels> LayersWriter for RecursiveLayersWriter<InnerLayersWriter, Channels>
     where InnerLayersWriter: LayersWriter, Channels: ChannelsWriter
 {
-    fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex) -> Vec<u8> {
+    fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex, output_block_data: &mut [u8]) {
         let (layer_index, layer) = &self.value;
         if *layer_index == block.layer {
             let header = headers.get(*layer_index).expect("layer index bug");
-            layer.extract_uncompressed_block(std::slice::from_ref(header), block) // TODO no slice?
+            layer.extract_uncompressed_block(std::slice::from_ref(header), block, output_block_data) // TODO no slice?
         }
         else {
-            self.inner.extract_uncompressed_block(headers, block)
+            self.inner.extract_uncompressed_block(headers, block, output_block_data)
         }
     }
 }

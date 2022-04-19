@@ -11,6 +11,8 @@ use std::io::{Read, BufReader};
 use std::io::Seek;
 use crate::meta::MetaData;
 use crate::block::reader::ChunksReader;
+use std::collections::BTreeSet;
+use std::iter::FromIterator;
 
 /// Specify whether to read the image in parallel,
 /// whether to use pedantic error handling,
@@ -121,12 +123,12 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
         // TODO propagate send requirement further upwards
         if parallel {
             block_reader.decompress_parallel(pedantic, |meta_data, block|{
-                image_collector.read_block(&meta_data.headers, block)
+                image_collector.read_block(&meta_data.headers, &block)
             })?;
         }
         else {
             block_reader.decompress_sequential(pedantic, |meta_data, block|{
-                image_collector.read_block(&meta_data.headers, block)
+                image_collector.read_block(&meta_data.headers, &block)
             })?;
         }
 
@@ -158,7 +160,7 @@ impl<L> ImageWithAttributesReader<L> where L: LayersReader {
     }
 
     /// Load a single pixel block, which has not been filtered, into the reader, accumulating the image
-    fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult {
+    fn read_block(&mut self, headers: &[Header], block: &UncompressedBlock) -> UnitResult {
         self.layers_reader.read_block(headers, block)
     }
 
@@ -171,6 +173,33 @@ impl<L> ImageWithAttributesReader<L> where L: LayersReader {
     }
 }
 
+/// Stores which channels to ignore when loading and image.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChannelMask {
+    valid_indices: BTreeSet<usize>, // TODO optimize for case where everything is selected?
+}
+
+impl ChannelMask {
+    /// Include all channels in the specified range.
+    pub fn all(channel_count: usize) -> Self {
+        Self { valid_indices: BTreeSet::from_iter(0..channel_count) }
+    }
+
+    /// Include only the specified channels.
+    pub fn only(channels: impl IntoIterator<Item=usize>) -> Self {
+        Self { valid_indices: BTreeSet::from_iter(channels.into_iter()) }
+    }
+
+    /// Is a specific channel selected?
+    pub fn is_selected(&self, channel_index: usize) -> bool {
+        self.valid_indices.contains(&channel_index)
+    }
+
+    /// Iterate all selected channels.
+    pub fn selected_channel_indices(&self) -> impl '_ + Iterator<Item=usize> {
+        self.valid_indices.iter().cloned()
+    }
+}
 
 /// A template that creates a `LayerReader` for each layer in the file.
 pub trait ReadLayers<'s> {
@@ -201,7 +230,7 @@ pub trait LayersReader {
     fn filter_block(&self, meta: &MetaData, tile: TileCoordinates, block: BlockIndex) -> bool;
 
     /// Load a single pixel block, which has not been filtered, into the reader, accumulating the layer
-    fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult;
+    fn read_block(&mut self, headers: &[Header], block: &UncompressedBlock) -> UnitResult;
 
     /// Deliver the final accumulated layers for the image
     fn into_layers(self) -> Self::Layers;

@@ -188,13 +188,13 @@ pub struct CroppedWriter<ChannelsWriter> {
 }
 
 impl<'c, Channels> ChannelsWriter for CroppedWriter<Channels> where Channels: ChannelsWriter {
-    fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex) -> Vec<u8> {
+    fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex, output_block_data: &mut [u8]) {
         let block = BlockIndex {
             pixel_position: block.pixel_position + self.offset,
             .. block
         };
 
-        self.channels.extract_uncompressed_block(header, block)
+        self.channels.extract_uncompressed_block(header, block, output_block_data);
     }
 }
 

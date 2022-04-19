@@ -9,6 +9,7 @@ use crate::math::Vec2;
 use crate::meta::attribute::{Text, ChannelDescription};
 use crate::image::read::layers::{ReadChannels, ChannelsReader};
 use crate::block::chunk::TileCoordinates;
+use crate::prelude::read::image::ChannelMask;
 
 /// A template that creates an [AnyChannelsReader] for each layer in the image.
 /// This loads all channels for each layer.
@@ -35,8 +36,9 @@ pub trait ReadSamples {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AnyChannelsReader<SamplesReader> {
 
-    /// Stores a separate sample reader per channel in the layer
-    sample_channels_reader: SmallVec<[AnyChannelReader<SamplesReader>; 4]>,
+    /// Stores a separate sample reader per channel in the layer.
+    /// Only selected channels contain some value, ignored channels contain none.
+    sample_channels_reader: SmallVec<[Option<AnyChannelReader<SamplesReader>>; 4]>,
 }
 
 /// Processes pixel blocks from a file and accumulates them into a single arbitrary channel.
@@ -64,7 +66,7 @@ pub trait SamplesReader {
     type Samples;
 
     /// Specify whether a single block of pixels should be loaded from the file
-    fn filter_block(&self, tile: TileCoordinates) -> bool;
+    fn is_block_desired(&self, tile: TileCoordinates) -> bool;
 
     /// Load a single pixel line, which has not been filtered, into the reader, accumulating the sample data
     fn read_line(&mut self, line: LineRef<'_>) -> UnitResult;
@@ -77,13 +79,20 @@ pub trait SamplesReader {
 impl<'s, S: 's + ReadSamples> ReadChannels<'s> for ReadAnyChannels<S> {
     type Reader = AnyChannelsReader<S::Reader>;
 
-    fn create_channels_reader(&self, header: &Header) -> Result<Self::Reader> {
-        let samples: Result<_> = header.channels.list.iter()
-            .map(|channel: &ChannelDescription| Ok(AnyChannelReader {
-                samples: self.read_samples.create_sample_reader(header, channel)?,
-                name: channel.name.clone(),
-                sampling_rate: channel.sampling,
-                quantize_linearly: channel.quantize_linearly
+    fn create_channels_reader(&self, header: &Header, selected_channels_indices: &ChannelMask) -> Result<Self::Reader> {
+        let samples: Result<_> = header.channels.list.iter().enumerate()
+            .map(|(channel_index, channel)| Ok({
+                if selected_channels_indices.is_selected(channel_index){
+                    Some(AnyChannelReader {
+                        samples: self.read_samples.create_sample_reader(header, channel)?,
+                        name: channel.name.clone(),
+                        sampling_rate: channel.sampling,
+                        quantize_linearly: channel.quantize_linearly
+                    })
+                }
+                else {
+                    None
+                }
             }))
             .collect();
 
@@ -94,19 +103,15 @@ impl<'s, S: 's + ReadSamples> ReadChannels<'s> for ReadAnyChannels<S> {
 impl<S: SamplesReader> ChannelsReader for AnyChannelsReader<S> {
     type Channels = AnyChannels<S::Samples>;
 
-    fn filter_block(&self, tile: TileCoordinates) -> bool {
-        self.sample_channels_reader.iter().any(|channel| channel.samples.filter_block(tile))
+    fn is_block_desired(&self, tile: TileCoordinates) -> bool {
+        self.sample_channels_reader.iter().flatten().any(|channel| channel.samples.is_block_desired(tile))
     }
 
-    fn read_block(&mut self, header: &Header, decompressed: UncompressedBlock) -> UnitResult {
-        /*for (bytes, line) in LineIndex::lines_in_block(decompressed.index, header) {
-            let channel = self.sample_channels_reader.get_mut(line.channel).unwrap();
-            channel.samples.read_line(LineSlice { location: line, value: &decompressed.data[bytes] })?;
-        }
-
-        Ok(())*/
+    fn read_block(&mut self, header: &Header, decompressed: &UncompressedBlock) -> UnitResult {
         for line in decompressed.lines(&header.channels) {
-            self.sample_channels_reader[line.location.channel].samples.read_line(line)?;
+            if let Some(channel) = &mut self.sample_channels_reader[line.location.channel] {
+                channel.samples.read_line(line)?;
+            }
         }
 
         Ok(())
@@ -114,7 +119,7 @@ impl<S: SamplesReader> ChannelsReader for AnyChannelsReader<S> {
 
     fn into_channels(self) -> Self::Channels {
         AnyChannels { // not using `new()` as the channels are already sorted
-            list: self.sample_channels_reader.into_iter()
+            list: self.sample_channels_reader.into_iter().flatten()
                 .map(|channel| AnyChannel {
                     sample_data: channel.samples.into_samples(),
 
