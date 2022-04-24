@@ -6,11 +6,13 @@ extern crate exr;
 
 /// Read an rgba image, crop away transparent pixels,
 /// then write the cropped result to another file.
+/// This retains only the rgb pixels, and no other layers.
 pub fn main() {
     use exr::prelude::*;
     use exr::image::pixel_vec::*; // import predefined pixel storage
 
     let path = "tests/images/valid/custom/oh crop.exr";
+
     type DynamicRgbaPixel = (Sample, Sample, Sample, Sample); // `Sample` is an enum containing the original data type (f16,f32, or u32)
 
     // load an rgba image
@@ -39,7 +41,7 @@ pub fn main() {
         },
     };
 
-    image.write().to_file("tests/images/out/cropped_rgba.exr").unwrap();
+    image.write().to_file("cropped_rgba.exr").unwrap();
     println!("cropped file to cropped_rgba.exr");
 }
 

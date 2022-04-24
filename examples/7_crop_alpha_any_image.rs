@@ -39,7 +39,7 @@ pub fn main() {
         }).collect::<Layers<_>>(),
     };
 
-    image.write().to_file("tests/images/out/cropped.exr").unwrap();
+    image.write().to_file("cropped.exr").unwrap();
     println!("cropped file to cropped.exr");
 }
 

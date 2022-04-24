@@ -739,8 +739,8 @@ impl Encoding {
         line_order: LineOrder::Increasing
     };
 
-    /// PIZ compression with tiles of 256x256 pixels. Small images, not too slow. Might produce visible artefacts in the image.
-    pub const SMALL_FAST_LOSSY: Encoding = Encoding {
+    /// PIZ compression with tiles of 256x256 pixels. Small images, not too slow.
+    pub const SMALL_FAST_LOSSLESS: Encoding = Encoding {
         compression: Compression::PIZ,
         blocks: Blocks::Tiles(Vec2(256, 256)),
         line_order: LineOrder::Unspecified

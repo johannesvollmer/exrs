@@ -2,6 +2,12 @@
 
 These are examples that demonstrate how to use `exrs`.
 
+# Custom Meta Data
+
+# Writing Dynamic number of channels
+
+
+
 The examples for any specific `exrs` version can be found on the `docs.rs` page:
 - [docs.rs/crate/exr/1.4.2/source/examples/](https://docs.rs/crate/exr/1.4.2/source/examples/)
 - [docs.rs/crate/exr/1.4.1/source/examples/](https://docs.rs/crate/exr/1.4.1/source/examples/)

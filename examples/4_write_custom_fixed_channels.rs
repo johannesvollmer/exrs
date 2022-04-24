@@ -8,7 +8,7 @@ fn main() {
 
     let pixels = SpecificChannels::build()
         .with_channel("Kharthanasus Korthus")
-        .with_channel(" Trochäus ")
+        .with_channel("Y")
         .with_channel("11023")
         .with_channel("*?!")
         .with_channel("`--\"")
@@ -35,7 +35,7 @@ fn main() {
                 println!("progress: {}%", current_progress_percentage)
             }
         })
-        .to_file("tests/images/out/strange_channels.exr").unwrap();
+        .to_file("custom_channels.exr").unwrap();
 
-    println!("created file strange_channels.exr");
+    println!("created file custom_channels.exr");
 }

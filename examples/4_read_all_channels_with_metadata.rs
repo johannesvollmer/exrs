@@ -4,6 +4,7 @@ extern crate exr;
 
 /// Read an image and print information about the image into the console.
 /// This example shows how to read an image with multiple layers and arbitrary channels.
+/// For example, a layer with XYZ channels, and additionally a separate Depth layer.
 /// This example does not include resolution levels (mipmaps or ripmaps).
 fn main() {
     use exr::prelude::*;
@@ -11,8 +12,8 @@ fn main() {
     let image = read().no_deep_data()
         .largest_resolution_level().all_channels().all_layers().all_attributes()
         .on_progress(|progress| println!("progress: {:.1}", progress*100.0))
-        .from_file("tests/images/valid/openexr/Beachball/multipart.0004.exr")
-        .unwrap();
+        .from_file("generated_rgba_with_meta.exr")
+        .expect("run example `1_write_rgba_with_metadata` to generate this image file");
 
     println!("image was read: {:#?}", image);
 

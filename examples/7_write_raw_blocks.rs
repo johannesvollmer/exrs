@@ -60,7 +60,7 @@ fn main() {
     let headers = smallvec![ header ];
 
     // specify output path, and buffer it for better performance
-    let file = BufWriter::new(File::create("tests/images/out/3GB.exr").unwrap());
+    let file = BufWriter::new(File::create("3GB.exr").unwrap());
 
     let start_time = ::std::time::Instant::now();
 

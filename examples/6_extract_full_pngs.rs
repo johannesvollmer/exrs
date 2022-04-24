@@ -8,14 +8,15 @@ extern crate exr;
 pub fn main() {
     use exr::prelude::*;
 
-    let path = "tests/images/valid/openexr/MultiResolution/Kapaa.exr";
-    let now = ::std::time::Instant::now();
+    let path = "mip_maps.exr";
+    let start_time = ::std::time::Instant::now();
 
     // load the exr file from disk with multi-core decompression
-    let image = read_all_data_from_file(path).unwrap();
+    let image = read_all_data_from_file(path)
+        .expect("run example `5_write_mip_maps.rs` to generate this image file");
 
     // warning: highly unscientific benchmarks ahead!
-    println!("\nloaded file in {:?}s", now.elapsed().as_secs_f32());
+    println!("\nloaded file in {:?}s", start_time.elapsed().as_secs_f32());
     println!("writing images...");
 
     for (layer_index, layer) in image.layer_data.iter().enumerate() {
@@ -27,7 +28,7 @@ pub fn main() {
                 let data : Vec<f32> = level.values_as_f32().collect();
 
                 save_f32_image_as_png(&data, level_size, format!(
-                    "tests/images/out/{} ({}) {}.{}x{}.png",
+                    "pngs/{} ({}) {}.{}x{}.png",
                     layer_index, layer_name, channel.name,
                     level_size.width(), level_size.height(),
                 ))
@@ -65,6 +66,6 @@ pub fn main() {
         png_buffer.save(&name).unwrap();
     }
 
-    println!("created all images");
+    println!("extracted all layers to folder `./pngs/*.png`");
 }
 

@@ -33,8 +33,8 @@ fn main() {
 
     // an image that contains a single layer containing an png rgba buffer
     let image: Image<Layer<SpecificChannels<png::RgbaImage, RgbaChannels>>> = reader
-        .from_file("tests/images/valid/openexr/MultiResolution/Kapaa.exr")
-        .unwrap();
+        .from_file("generated_rgba.exr")
+        .expect("run the `1_write_rgba` example to generate the required file");
 
 
     /// compress any possible f32 into the range of [0,1].
@@ -47,6 +47,6 @@ fn main() {
 
     // save the png buffer to a png file
     let png_buffer = &image.layer_data.channel_data.pixels;
-    png_buffer.save("tests/images/out/rgb.png").unwrap();
+    png_buffer.save("rgb.png").unwrap();
     println!("created image rgb.png")
 }

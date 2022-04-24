@@ -12,13 +12,13 @@ extern crate exr;
 pub fn main() {
     use exr::prelude::*;
 
-    let path = "tests/images/valid/openexr/BeachBall/multipart.0001.exr";
+    let path = "layers.exr";
     let now = ::std::time::Instant::now();
 
     // load the exr file from disk with multi-core decompression
     let image = read()
         .no_deep_data().largest_resolution_level().all_channels().all_layers().all_attributes()
-        .from_file(path).unwrap();
+        .from_file(path).expect("run example `5_write_multiple_layers` to generate this image file");
 
     // warning: highly unscientific benchmarks ahead!
     println!("\nloaded file in {:?}s", now.elapsed().as_secs_f32());
@@ -31,7 +31,7 @@ pub fn main() {
         for channel in &layer.channel_data.list {
             let data : Vec<f32> = channel.sample_data.values_as_f32().collect();
             save_f32_image_as_png(&data, layer.size, format!(
-                "tests/images/out/{} ({}) {}_{}x{}.png",
+                "pngs/{} ({}) {}_{}x{}.png",
                 layer_index, layer_name, channel.name,
                 layer.size.width(), layer.size.height(),
             ))
@@ -68,6 +68,6 @@ pub fn main() {
         png_buffer.save(&name).unwrap();
     }
 
-    println!("created all images");
+    println!("extracted all layers to folder `./pngs/*.png`");
 }
 
