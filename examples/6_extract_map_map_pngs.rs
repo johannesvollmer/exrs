@@ -17,6 +17,7 @@ pub fn main() {
 
     // warning: highly unscientific benchmarks ahead!
     println!("\nloaded file in {:?}s", start_time.elapsed().as_secs_f32());
+    std::fs::create_dir("pngs/").unwrap();
     println!("writing images...");
 
     for (layer_index, layer) in image.layer_data.iter().enumerate() {

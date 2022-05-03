@@ -7,13 +7,13 @@ extern crate half;
 // exr imports
 extern crate exr;
 
-use exr::image::Levels::Mip;
 
 
 /// Writes multiple layers
 fn main() {
     use exr::prelude::*;
     use exr::math::RoundingMode;
+    use smallvec::smallvec;
 
     let full_size = Vec2(512, 512);
     let size_rounding = RoundingMode::Up;
@@ -22,17 +22,23 @@ fn main() {
         size_rounding, full_size
     ).collect::<Vec<_>>();
 
-    let red_mip_levels = mip_levels_sizes.map(|(_index, level_size)|{
-        FlatSamples::F32(vec![0.1_f32; level_size.area() ])
-    });
+    let red_mip_levels = mip_levels_sizes.iter()
+        .map(|(_index, level_size)|{
+            FlatSamples::F32(vec![0.1_f32; level_size.area() ])
+        })
+        .collect();
 
-    let green_mip_levels = mip_levels_sizes.map(|(_index, level_size)|{
-        FlatSamples::F32(vec![0.6_f32; level_size.area() ])
-    });
+    let green_mip_levels = mip_levels_sizes.iter()
+        .map(|(_index, level_size)|{
+            FlatSamples::F32(vec![0.6_f32; level_size.area() ])
+        })
+        .collect();
 
-    let blue_mip_levels = mip_levels_sizes.map(|(_index, level_size)|{
-        FlatSamples::F32(vec![1.0_f32; level_size.area() ])
-    });
+    let blue_mip_levels = mip_levels_sizes.iter()
+        .map(|(_index, level_size)|{
+            FlatSamples::F32(vec![1.0_f32; level_size.area() ])
+        })
+        .collect();
 
     let rgb_mip_maps = AnyChannels::sort(smallvec![
         AnyChannel::new("R", Levels::Mip { level_data: red_mip_levels, rounding_mode: size_rounding }),
@@ -41,14 +47,14 @@ fn main() {
     ]);
 
     let layer1 = Layer::new(
-        size,
+        full_size,
         LayerAttributes::named("teal rgb"),
         Encoding::FAST_LOSSLESS,
         rgb_mip_maps
     );
 
     let mut layer2 = layer1.clone();
-    layer2.attributes.layer_name = "Copied Layer".into();
+    layer2.attributes.layer_name = Some("Copied Layer".into());
     layer2.encoding = Encoding::SMALL_FAST_LOSSLESS;
 
     // define the visible area of the canvas
