@@ -11,7 +11,8 @@ pub fn main() {
     let path = "tests/images/valid/custom/oh crop.exr";
 
     // loads any image (excluding deep data)
-    let image: FlatImage = read_all_flat_layers_from_file(path).unwrap();
+    let image: FlatImage = read_all_flat_layers_from_file(path)
+        .expect("this file exists in the exrs repository. download that?");
 
     // construct a cropped image
     let image = Image {

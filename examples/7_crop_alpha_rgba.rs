@@ -25,7 +25,7 @@ pub fn main() {
 
         // use this predefined rgba pixel container from the exr crate, requesting any type of pixels with 3 or 4 values
         PixelVec::set_pixel
-    ).unwrap();
+    ).expect("this file exists in the exrs repository. download that?");
 
     // construct a ~simple~ cropped image
     let image: Image<Layer<CroppedChannels<SpecificChannels<PixelVec<DynamicRgbaPixel>, RgbaChannels>>>> = Image {

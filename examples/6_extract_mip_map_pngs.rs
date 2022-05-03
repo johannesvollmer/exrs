@@ -15,11 +15,11 @@ pub fn main() {
 
     // load the exr file from disk with multi-core decompression
     let image = read_all_data_from_file(path)
-        .expect("run example `5_write_mip_maps.rs` to generate this image file");
+        .expect("run example `5c_write_mip_maps` to generate this image file");
 
     // warning: highly unscientific benchmarks ahead!
     println!("\nloaded file in {:?}s", start_time.elapsed().as_secs_f32());
-    std::fs::create_dir("pngs/").unwrap();
+    let _ = std::fs::create_dir_all("pngs/");
     println!("writing images...");
 
     for (layer_index, layer) in image.layer_data.iter().enumerate() {

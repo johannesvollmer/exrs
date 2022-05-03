@@ -18,11 +18,11 @@ pub fn main() {
     // load the exr file from disk with multi-core decompression
     let image = read()
         .no_deep_data().largest_resolution_level().all_channels().all_layers().all_attributes()
-        .from_file(path).expect("run example `5_write_multiple_layers` to generate this image file");
+        .from_file(path).expect("run example `5a_write_multiple_layers` to generate this image file");
 
     // warning: highly unscientific benchmarks ahead!
     println!("\nloaded file in {:?}s", now.elapsed().as_secs_f32());
-    std::fs::create_dir("pngs/").unwrap();
+    let _ = std::fs::create_dir_all("pngs/");
     println!("writing images...");
 
     for (layer_index, layer) in image.layer_data.iter().enumerate() {
