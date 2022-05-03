@@ -7,7 +7,8 @@ extern crate half;
 // exr imports
 extern crate exr;
 
-/// Writes multiple layers
+/// Writes multiple layers into one exr file
+/// Note: this may not be supported by legacy software
 fn main() {
     use exr::prelude::*;
     let size = Vec2(512, 512);

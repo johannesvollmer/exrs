@@ -71,7 +71,7 @@ fn main() {
         }
     }
 
-     // write the image to a file
+    // write the image to a file
     image
         .write().to_file("rgba_exposure_adjusted.exr")
         .unwrap();

@@ -4,7 +4,9 @@ use std::cmp::Ordering;
 
 extern crate exr;
 
-
+/// Extract all exr pixel information into pngs.
+/// Writes each channel of each mip map of each layer as one grayscale png.
+/// May appear black for single-color images.
 pub fn main() {
     use exr::prelude::*;
 

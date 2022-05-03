@@ -4,8 +4,9 @@ extern crate image as png;
 extern crate exr;
 
 
-/// Read an rgba image, crop away transparent pixels,
-/// then write the cropped result to another file.
+/// Read an rgba image, or fail if none can be found.
+/// Then crop away transparent pixels,
+/// and write the cropped result to another file.
 /// This retains only the rgb pixels, and no other layers.
 pub fn main() {
     use exr::prelude::*;

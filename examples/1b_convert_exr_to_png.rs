@@ -4,6 +4,7 @@ extern crate image as png;
 // exr imports
 extern crate exr;
 
+/// Converts one rgba exr with one layer to one png, or fail.
 fn main() {
     use exr::prelude::*;
     use exr::prelude as exrs;

@@ -9,7 +9,8 @@ extern crate exr;
 
 
 
-/// Writes multiple layers
+/// Writes two layers, each with multiple mip maps.
+/// All mip maps have solid color for brevity.
 fn main() {
     use exr::prelude::*;
     use exr::math::RoundingMode;

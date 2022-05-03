@@ -10,7 +10,8 @@ use rand::Rng;
 extern crate exr;
 
 
-/// Generate a noisy image and write it to a file.
+/// Generate a noisy image and write it to a file,
+/// also attaching some meta data.
 fn main() {
     use exr::prelude::*;
 
