@@ -109,7 +109,7 @@ pub struct Text {
 ///
 /// Satisfies the [SMPTE standard 12M-1999](https://en.wikipedia.org/wiki/SMPTE_timecode).
 /// For more in-depth information, see [philrees.co.uk/timecode](http://www.philrees.co.uk/articles/timecode.htm).
-#[derive(Copy, Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Copy, Debug, Clone, Eq, PartialEq, Hash, Default)]
 pub struct TimeCode {
 
     /// Hours 0 - 23 are valid.

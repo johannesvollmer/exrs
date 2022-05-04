@@ -1,40 +1,41 @@
+
 extern crate image as png;
 use std::cmp::Ordering;
 
 extern crate exr;
 
-/// For each layer in the exr file,
-/// extract each channel as grayscale png,
-/// including all multi-resolution levels.
-//
-// FIXME throws "access denied" sometimes, simply trying again usually works.
-//
+/// Extract all exr pixel information into pngs.
+/// Writes each channel of each mip map of each layer as one grayscale png.
+/// May appear black for single-color images.
 pub fn main() {
     use exr::prelude::*;
 
-    let path = "tests/images/valid/openexr/BeachBall/multipart.0001.exr";
-    let now = ::std::time::Instant::now();
+    let path = "mip_maps.exr";
+    let start_time = ::std::time::Instant::now();
 
     // load the exr file from disk with multi-core decompression
-    let image = read()
-        .no_deep_data().largest_resolution_level().all_channels().all_layers().all_attributes()
-        .from_file(path).unwrap();
+    let image = read_all_data_from_file(path)
+        .expect("run example `5c_write_mip_maps` to generate this image file");
 
     // warning: highly unscientific benchmarks ahead!
-    println!("\nloaded file in {:?}s", now.elapsed().as_secs_f32());
+    println!("\nloaded file in {:?}s", start_time.elapsed().as_secs_f32());
+    let _ = std::fs::create_dir_all("pngs/");
     println!("writing images...");
 
     for (layer_index, layer) in image.layer_data.iter().enumerate() {
         let layer_name = layer.attributes.layer_name.as_ref()
-            .map_or(String::from("main_layer"), Text::to_string);
+            .map_or(String::from("1"), Text::to_string);
 
         for channel in &layer.channel_data.list {
-            let data : Vec<f32> = channel.sample_data.values_as_f32().collect();
-            save_f32_image_as_png(&data, layer.size, format!(
-                "tests/images/out/{} ({}) {}_{}x{}.png",
-                layer_index, layer_name, channel.name,
-                layer.size.width(), layer.size.height(),
-            ))
+            for (level, level_size) in layer.levels_with_resolution(&channel.sample_data) {
+                let data : Vec<f32> = level.values_as_f32().collect();
+
+                save_f32_image_as_png(&data, level_size, format!(
+                    "pngs/{} ({}) {}.{}x{}.png",
+                    layer_index, layer_name, channel.name,
+                    level_size.width(), level_size.height(),
+                ))
+            }
         }
     }
 
@@ -68,6 +69,6 @@ pub fn main() {
         png_buffer.save(&name).unwrap();
     }
 
-    println!("created all images");
+    println!("extracted all layers to folder `./pngs/*.png`");
 }
 

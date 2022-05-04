@@ -6,3 +6,5 @@
 testout
 /.run
 .vscode
+*.exr
+pngs/

@@ -16,9 +16,10 @@ extern crate exr;
 fn main() {
     use exr::prelude::*;
 
-    // If this file does not exist yet, you can generate it by running the `7_custom_write` example once.
-    let file = BufReader::new(File::open("tests/images/out/3GB.exr").unwrap());
-
+    let file = BufReader::new(
+        File::open("3GB.exr")
+            .expect("run example `7_write_raw_blocks` to generate this image file")
+    );
 
 
     // -- the following structs will hold the collected data from the image --

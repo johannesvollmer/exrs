@@ -33,8 +33,8 @@ fn main() {
         .all_layers()
         .all_attributes()
         .on_progress(|progress| println!("progress: {:.1}", progress*100.0))
-        .from_file("tests/images/valid/openexr/MultiView/Fog.exr")
-        .unwrap();
+        .from_file("custom_channels.exr")
+        .expect("run example `4_write_custom_fixed_channels` to generate this image file");
 
     // output a random color of each channel of each layer
     for layer in &image.layer_data {

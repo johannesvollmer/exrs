@@ -10,7 +10,8 @@ use rand::Rng;
 extern crate exr;
 
 
-/// Generate a noisy image and write it to a file.
+/// Generate a noisy image and write it to a file,
+/// also attaching some meta data.
 fn main() {
     use exr::prelude::*;
 
@@ -71,7 +72,7 @@ fn main() {
 
     image.write()
         .on_progress(|progress| println!("progress: {:.1}", progress*100.0))
-        .to_file("tests/images/out/noisy.exr").unwrap();
+        .to_file("noisy.exr").unwrap();
 
     println!("created file noisy.exr");
 }

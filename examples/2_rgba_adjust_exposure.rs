@@ -39,8 +39,8 @@ fn main() {
         )
         .first_valid_layer()
         .all_attributes()
-        .from_file("tests/images/valid/openexr/MultiResolution/Kapaa.exr")
-        .unwrap();
+        .from_file("generated_rgba.exr")
+        .expect("run the `1_write_rgba` example to generate the required file");
 
     let exposure_multiplier = 2.0;
 
@@ -71,10 +71,10 @@ fn main() {
         }
     }
 
-     // write the image to a file
+    // write the image to a file
     image
-        .write().to_file("tests/images/out/exposure_adjusted.exr")
+        .write().to_file("rgba_exposure_adjusted.exr")
         .unwrap();
 
-    println!("created file exposure_adjusted.exr");
+    println!("created file rgba_exposure_adjusted.exr");
 }

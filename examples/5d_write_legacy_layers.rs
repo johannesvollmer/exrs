@@ -67,7 +67,7 @@ fn main() {
     let image = Image::from_layer(layer);
 
     println!("writing image {:#?}", image);
-    image.write().to_file("tests/images/out/groups.exr").unwrap();
+    image.write().to_file("groups.exr").unwrap();
 
     println!("created file groups.exr");
 }

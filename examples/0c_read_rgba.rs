@@ -1,13 +1,14 @@
 extern crate exr;
 
-/// `exr` offers a few very simple functions for the most basic use cases.
-/// `read_first_rgba_layer_from_file` is a simple function which loads an exr file.
-/// To load the image, you need to specify how to create and how to update your image.
+/// `exr` offers a few simplified functions for the most basic use cases.
+/// `read_first_rgba_layer_from_file` is a such a function, which loads rgba exr files.
+/// To load the pixel data, you need to specify
+/// how to create and how to set the pixels of your image.
 fn main() {
     let image = exr::prelude::read_first_rgba_layer_from_file(
-        "tests/images/out/generated_rgba.exr", // run the `1_generate_rgba` example to generate this file
+        "generated_rgba.exr",
 
-        // instantiate your image type with the size of the image file
+        // instantiate your image type with the size of the image in file
         |resolution, _| {
             let default_pixel = [0.0, 0.0, 0.0, 0.0];
             let empty_line =  vec![ default_pixel; resolution.width() ];
@@ -22,7 +23,7 @@ fn main() {
             pixel_vector[position.y()][position.x()] = [r, g, b, a]
         },
 
-    ).unwrap();
+    ).expect("run the `1_write_rgba` example to generate the required file");
 
     // printing all pixels might kill the console, so only print some meta data about the image
     println!("opened file generated_rgba.exr: {:#?}", image.layer_data.attributes);
