@@ -42,31 +42,43 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Install qemu-user-static
+#      - name: Install qemu-user-static
+#        run: |
+#          sudo apt update
+#          sudo apt install qemu-user-static
+
+      - name: Install binfmt-support & qemu-user-static
         run: |
           sudo apt update
-          sudo apt install qemu-user-static
+          sudo apt install --assume-yes binfmt-support qemu-user-static
 
       - name: Install cross
         run: |
+          export CROSS_DOCKER_IN_DOCKER=true
           cargo install cross
 
       - name: Start Docker (for cross)
         run: |
+          export CROSS_DOCKER_IN_DOCKER=true
           sudo systemctl start docker
 
       - name: Cross-Compile project to sparc64
         run: |
+          export CROSS_DOCKER_IN_DOCKER=true
           export RUSTFLAGS="-C linker=sparc64-linux-gnu-gcc-9"
           cross build --target=sparc64-unknown-linux-gnu --verbose
 
+      # https://github.com/cross-rs/cross#supported-targets
+      - name: Cross-Run Tests in sparc64 using Qemu
+        run: |
+          export QEMU_STRACE=1
+                                        export CROSS_DOCKER_IN_DOCKER=true
+          cross test --target sparc64-unknown-linux-gnu --verbose
+
       - name: Cross-Compile Test Executables to sparc64
         run: |
+          export CROSS_DOCKER_IN_DOCKER=true
           cross test --target sparc64-unknown-linux-gnu --verbose --no-run
-
-      - name: Cross-Run Tests in sparc64
-        run: |
-          cross test --target sparc64-unknown-linux-gnu --verbose
 
       - name: Qemu Run Tests
         # qemu-sparc64-static ./target/debug/deps/exr-2f623f7e2888e8f5
