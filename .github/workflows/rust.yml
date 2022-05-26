@@ -41,18 +41,18 @@ jobs:
         run: |
           sudo apt update
           sudo apt install qemu-user-static
-      - name: Install gcc-6-multilib-sparc64-linux-gnu and Sparc64 Rust toolchain
+      - name: Install gcc-8-multilib-sparc64-linux-gnu and Sparc64 Rust toolchain
         run: |
-          sudo apt install gcc-6-multilib-sparc64-linux-gnu
+          sudo apt install gcc-8-multilib-sparc64-linux-gnu
           rustup target add sparc64-unknown-linux-gnu
       - name: Cross-Compile project to Sparc64
         # see https://gist.github.com/tatsuya6502/cb584d073dbe792e2a1aa31ee49d3a25
         run: |
-          RUSTFLAGS="-C linker=gcc-6-multilib-sparc64-linux-gnu"
+          RUSTFLAGS="-C linker=gcc-8-multilib-sparc64-linux-gnu"
           cargo build --target=sparc64-unknown-linux-gnu --verbose
       - name: Cross-Compile Test Executables to Sparc64
         run: |
-          RUSTFLAGS="-C linker=gcc-6-multilib-sparc64-linux-gnu"
+          RUSTFLAGS="-C linker=gcc-8-multilib-sparc64-linux-gnu"
           cargo test --target=sparc64-unknown-linux-gnu --no-run --verbose
       - name: Qemu Run Tests
         # qemu-sparc64-static ./target/debug/deps/exr-2f623f7e2888e8f5
