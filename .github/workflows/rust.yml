@@ -7,8 +7,7 @@ on:
     branches: [ master, dev ]
 
 jobs:
-  build:
-
+  ubuntu:
     runs-on: ubuntu-latest
 
     steps:
@@ -17,3 +16,41 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+
+
+  macos:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests
+        run: cargo test --verbose
+
+  # github actions does not support big endian systems directly, but it does support QEMU
+  # see https://github.com/wasm3/wasm3/blob/main/.github/workflows/tests.yml#L318
+  sparc64:
+    runs-on: ubuntu-20.04
+    name: cross-qemu-sparc64
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install QEMU
+        run: |
+          sudo apt update
+          sudo apt install qemu-user-static
+      - name: Install gcc-sparc64-linux-gnu
+        run: |
+          sudo apt install gcc-sparc64-linux-gnu
+      - name: Cross-Compile to Sparc64
+        # cross-compiles to sparc64 on this ubuntu host os,
+        # see https://gist.github.com/tatsuya6502/cb584d073dbe792e2a1aa31ee49d3a25
+        run: |
+          RUSTFLAGS="-C linker=gcc-sparc64-linux-gnu"
+          cargo build --target=sparc64-unknown-linux-gnu
+      - name: Run Tests using Qemu
+        run: |
+          qemu-sparc64-static cargo test
+
