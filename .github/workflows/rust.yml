@@ -41,19 +41,17 @@ jobs:
         run: |
           sudo apt update
           sudo apt install qemu-user-static
-      - name: Install gcc-9-sparc64-linux-gnu and Sparc64 Rust toolchain
+      - name: Install gcc-sparc64-linux-gnu and Sparc64 Rust toolchain
         run: |
           sudo apt update
-          sudo apt install gcc-9-sparc64-linux-gnu
-          echo "installed gcc-9-sparc64-linux-gnu"
-          gcc-9-sparc64-linux-gnu --help
+          sudo apt install gcc-sparc64-linux-gnu
           rustup target add sparc64-unknown-linux-gnu
-      - name: Cross-Compile project to Sparc64
+      - name: Cross-Compile project to Sparc64 using gcc-sparc64-linux-gnu
         # see https://gist.github.com/tatsuya6502/cb584d073dbe792e2a1aa31ee49d3a25
         run: |
           export RUSTFLAGS="-C linker=gcc"
           cargo build --target=sparc64-unknown-linux-gnu --verbose
-      - name: Cross-Compile Test Executables to Sparc64
+      - name: Cross-Compile Test Executables to Sparc64 using gcc-sparc64-linux-gnu
         run: |
           export RUSTFLAGS="-C linker=gcc"
           cargo test --target=sparc64-unknown-linux-gnu --no-run --verbose
