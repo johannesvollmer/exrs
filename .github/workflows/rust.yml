@@ -49,10 +49,16 @@ jobs:
         # see https://gist.github.com/tatsuya6502/cb584d073dbe792e2a1aa31ee49d3a25
         run: |
           export RUSTFLAGS="-C linker=gcc-sparc64-linux-gnu"
+          set RUSTFLAGS="-C linker=gcc-sparc64-linux-gnu"
+          export CARGO_TARGET_SPARC64_UNKNOWN_LINUX_GNU_LINKER=gcc-sparc64-linux-gnu
+          set CARGO_TARGET_SPARC64_UNKNOWN_LINUX_GNU_LINKER=gcc-sparc64-linux-gnu
           cargo build --target=sparc64-unknown-linux-gnu --verbose
       - name: Cross-Compile Test Executables to Sparc64
         run: |
           export RUSTFLAGS="-C linker=gcc-sparc64-linux-gnu"
+          set RUSTFLAGS="-C linker=gcc-sparc64-linux-gnu"
+          export CARGO_TARGET_SPARC64_UNKNOWN_LINUX_GNU_LINKER=gcc-sparc64-linux-gnu
+          set CARGO_TARGET_SPARC64_UNKNOWN_LINUX_GNU_LINKER=gcc-sparc64-linux-gnu
           cargo test --target=sparc64-unknown-linux-gnu --no-run --verbose
       - name: Qemu Run Tests
         # qemu-sparc64-static ./target/debug/deps/exr-2f623f7e2888e8f5
