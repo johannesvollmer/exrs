@@ -45,17 +45,23 @@ jobs:
         run: |
           sudo apt install gcc-sparc64-linux-gnu
           rustup target add sparc64-unknown-linux-gnu
-      - name: Cross-Compile to Sparc64 on this Ubuntu Host
+      - name: Cross-Compile project to Sparc64
         # see https://gist.github.com/tatsuya6502/cb584d073dbe792e2a1aa31ee49d3a25
         run: |
           RUSTFLAGS="-C linker=gcc-sparc64-linux-gnu"
-          cargo build --target=sparc64-unknown-linux-gnu
-      - name: Run Tests using Qemu
+          cargo build --target=sparc64-unknown-linux-gnu --verbose
+      - name: Cross-Compile Test Executables to Sparc64
         run: |
-          qemu-sparc64-static cargo test
+          cargo test --target=sparc64-unknown-linux-gnu --no-run --verbose
 
+      - name: Cross-Run Tests on Sparc64
+        run: |
+          cargo test --target=sparc64-unknown-linux-gnu --verbose
+      - name: Qemu Run Tests
+        run: |
+          qemu-sparc64-static ./target/debug/deps/exrs-1a3af12dafb80133
 
-  # github actions does not support big endian systems directly, but it does support QEMU
+# github actions does not support big endian systems directly, but it does support QEMU
   # see https://github.com/wasm3/wasm3/blob/main/.github/workflows/tests.yml#L318
 #  big-endian-systems:
 #    runs-on: ubuntu-20.04
