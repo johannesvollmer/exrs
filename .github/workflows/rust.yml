@@ -67,6 +67,12 @@ jobs:
           ls
           echo "all files in ./target"
           ls ./target
+          echo "all files in ./target/sparc64-unknown-linux-gnu"
+          ls ./target/sparc64-unknown-linux-gnu
+          echo "all files in ./target/sparc64-unknown-linux-gnu/debug"
+          ls ./target/sparc64-unknown-linux-gnu/debug
+          echo "all files in ./target/sparc64-unknown-linux-gnu/debug/deps"
+          ls ./target/sparc64-unknown-linux-gnu/debug/deps
           echo "all files in ./target/debug"
           ls ./target/debug
           echo "all files in ./target/debug/deps"
