@@ -54,11 +54,6 @@ jobs:
         run: |
           RUSTFLAGS="-C linker=gcc-sparc64-linux-gnu"
           cargo test --target=sparc64-unknown-linux-gnu --no-run --verbose
-
-      - name: Cross-Run Tests on Sparc64
-        run: |
-          RUSTFLAGS="-C linker=gcc-sparc64-linux-gnu"
-          cargo test --target=sparc64-unknown-linux-gnu --verbose
       - name: Qemu Run Tests
         run: |
 #         FIXME this is just one of the tests and the hash will change
