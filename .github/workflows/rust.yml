@@ -44,18 +44,15 @@ jobs:
 
       - name: Install cross-rs/cross
         run: |
-          export CROSS_DOCKER_IN_DOCKER=true
           cargo install cross
           sudo systemctl start docker
 
       - name: Cross-Compile project to mips-unknown-linux-gnu
         run: |
-          export CROSS_DOCKER_IN_DOCKER=true
           cross build --target=mips-unknown-linux-gnu --verbose
 
       # https://github.com/cross-rs/cross#supported-targets
       - name: Cross-Run Tests in mips-unknown-linux-gnu using Qemu
         run: |
           export QEMU_STRACE=1
-          export CROSS_DOCKER_IN_DOCKER=true
           cross test --target mips-unknown-linux-gnu --verbose
