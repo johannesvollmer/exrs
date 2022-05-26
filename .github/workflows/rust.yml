@@ -62,34 +62,34 @@ jobs:
           export CROSS_DOCKER_IN_DOCKER=true
           sudo systemctl start docker
 
-      - name: Cross-Compile project to sparc64
+      - name: Cross-Compile project to mips-unknown-linux-gnu
         run: |
           export CROSS_DOCKER_IN_DOCKER=true
           export RUSTFLAGS="-C linker=sparc64-linux-gnu-gcc-9"
-          cross build --target=sparc64-unknown-linux-gnu --verbose
+          cross build --target=mips-unknown-linux-gnu --verbose
 
       # https://github.com/cross-rs/cross#supported-targets
-      - name: Cross-Run Tests in sparc64 using Qemu
+      - name: Cross-Run Tests in mips-unknown-linux-gnu using Qemu
         run: |
           export QEMU_STRACE=1
-                                        export CROSS_DOCKER_IN_DOCKER=true
-          cross test --target sparc64-unknown-linux-gnu --verbose
+          export CROSS_DOCKER_IN_DOCKER=true
+          cross test --target mips-unknown-linux-gnu --verbose
 
-      - name: Cross-Compile Test Executables to sparc64
+      - name: Cross-Compile Test Executables to mips-unknown-linux-gnu
         run: |
           export CROSS_DOCKER_IN_DOCKER=true
-          cross test --target sparc64-unknown-linux-gnu --verbose --no-run
+          cross test --target mips-unknown-linux-gnu --verbose --no-run
 
       - name: Qemu Run Tests
         # qemu-sparc64-static ./target/debug/deps/exr-2f623f7e2888e8f5
         # for each of the test binaries, run them in qemu (see https://askubuntu.com/questions/315335/bash-command-for-each-file-in-a-folder)
         run: |
           echo "attempting to run the following binary, which should contain the Rust tests:"
-          find ./target/sparc64-unknown-linux-gnu/debug/deps -iname 'exr-*' ! -name "*.*" -exec echo {} \;
+          find ./target/mips-unknown-linux-gnu/debug/deps -iname 'exr-*' ! -name "*.*" -exec echo {} \;
           echo "dependencies:"
-          find ./target/sparc64-unknown-linux-gnu/debug/deps -iname 'exr-*' ! -name "*.*" -exec ldd {} \;
+          find ./target/mips-unknown-linux-gnu/debug/deps -iname 'exr-*' ! -name "*.*" -exec ldd {} \;
           export QEMU_STRACE=1
-          find ./target/sparc64-unknown-linux-gnu/debug/deps -iname 'exr-*' ! -name "*.*" -exec qemu-sparc64-static {} \;
+          find ./target/mips-unknown-linux-gnu/debug/deps -iname 'exr-*' ! -name "*.*" -exec qemu-sparc64-static {} \;
 
 # github actions does not support big endian systems directly, but it does support QEMU
   # see https://github.com/wasm3/wasm3/blob/main/.github/workflows/tests.yml#L318
