@@ -65,9 +65,11 @@ jobs:
         run: |
           echo "all deps:"
           ls ./target/sparc64-unknown-linux-gnu/debug/deps
-          find ./target/sparc64-unknown-linux-gnu/debug/deps -iname 'exr*' -exec bash -c 'echo "found potential test binary" >>"$1"' _ {} \;
+          echo "all deps:"
+          find ./target/sparc64-unknown-linux-gnu/debug/deps -iname 'exr*' -exec echo {} \;
+          find ./target/sparc64-unknown-linux-gnu/debug/deps -iname 'exr-*' -exec echo {} \;
           find ./target/sparc64-unknown-linux-gnu/debug/deps -iname 'exr-*' -exec bash -c 'echo "found potential test binary" >>"$1"' _ {} \;
-          find ./target/sparc64-unknown-linux-gnu/debug/deps -iname 'exr-*' -exec qemu-sparc64-static \;
+          find ./target/sparc64-unknown-linux-gnu/debug/deps -iname 'exr-*' -exec qemu-sparc64-static {} \;
 
 # github actions does not support big endian systems directly, but it does support QEMU
   # see https://github.com/wasm3/wasm3/blob/main/.github/workflows/tests.yml#L318
