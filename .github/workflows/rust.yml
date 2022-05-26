@@ -71,6 +71,8 @@ jobs:
           ls ./target/debug
           echo "all files in ./target/debug/deps"
           ls ./target/debug/deps
+          echo "all files in ./target/debug/deps/"
+          ls ./target/debug/deps/
           find ./target/debug/deps -iname 'exr-*' -exec bash -c 'echo "found test binary" >>"$1"' _ {} \;
           find target/debug/deps -iname 'exr-*' -exec bash -c 'echo "found test binary" >>"$1"' _ {} \;
           find ./target/debug/deps/ -iname 'exr-*' -exec bash -c 'echo "found test binary" >>"$1"' _ {} \;
