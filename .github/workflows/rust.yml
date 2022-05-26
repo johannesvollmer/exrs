@@ -63,7 +63,11 @@ jobs:
         # qemu-sparc64-static ./target/debug/deps/exr-2f623f7e2888e8f5
         # for each of the test binaries, run them in qemu (see https://askubuntu.com/questions/315335/bash-command-for-each-file-in-a-folder)
         run: |
+          echo "attempting to run the following binary, which should contain the Rust tests:"
           find ./target/sparc64-unknown-linux-gnu/debug/deps -iname 'exr-*' ! -name "*.*" -exec echo {} \;
+          echo "dependencies:"
+          find ./target/sparc64-unknown-linux-gnu/debug/deps -iname 'exr-*' ! -name "*.*" -exec ldd {} \;
+          export QEMU_STRACE=1
           find ./target/sparc64-unknown-linux-gnu/debug/deps -iname 'exr-*' ! -name "*.*" -exec qemu-sparc64-static {} \;
 
 # github actions does not support big endian systems directly, but it does support QEMU
