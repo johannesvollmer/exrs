@@ -54,5 +54,4 @@ jobs:
       # https://github.com/cross-rs/cross#supported-targets
       - name: Cross-Run Tests in mips-unknown-linux-gnu using Qemu
         run: |
-          export QEMU_STRACE=1
           cross test --target mips-unknown-linux-gnu --verbose
