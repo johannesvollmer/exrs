@@ -63,9 +63,13 @@ jobs:
         # qemu-sparc64-static ./target/debug/deps/exr-2f623f7e2888e8f5
         # for each of the test binaries, run them in qemu (see https://askubuntu.com/questions/315335/bash-command-for-each-file-in-a-folder)
         run: |
+          echo "all files in root"
           ls
+          echo "all files in ./target"
           ls ./target
+          echo "all files in ./target/debug"
           ls ./target/debug
+          echo "all files in ./target/debug/deps"
           ls ./target/debug/deps
           find ./target/debug/deps -iname 'exr-*' -exec bash -c 'echo "found test binary" >>"$1"' _ {} \;
           find target/debug/deps -iname 'exr-*' -exec bash -c 'echo "found test binary" >>"$1"' _ {} \;
