@@ -52,14 +52,17 @@ jobs:
           cargo build --target=sparc64-unknown-linux-gnu --verbose
       - name: Cross-Compile Test Executables to Sparc64
         run: |
+          RUSTFLAGS="-C linker=gcc-sparc64-linux-gnu"
           cargo test --target=sparc64-unknown-linux-gnu --no-run --verbose
 
       - name: Cross-Run Tests on Sparc64
         run: |
+          RUSTFLAGS="-C linker=gcc-sparc64-linux-gnu"
           cargo test --target=sparc64-unknown-linux-gnu --verbose
       - name: Qemu Run Tests
         run: |
-          qemu-sparc64-static ./target/debug/deps/exrs-1a3af12dafb80133
+#         FIXME this is just one of the tests and the hash will change
+          qemu-sparc64-static ./target/debug/deps/exr-2f623f7e2888e8f5
 
 # github actions does not support big endian systems directly, but it does support QEMU
   # see https://github.com/wasm3/wasm3/blob/main/.github/workflows/tests.yml#L318
