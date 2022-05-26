@@ -51,6 +51,7 @@ jobs:
         # see https://gist.github.com/tatsuya6502/cb584d073dbe792e2a1aa31ee49d3a25
         # note: even though we installed `gcc-9-sparc64-linux-gnu`,
         # we want to use the binary named `sparc64-linux-gnu-gcc-9`
+        # see https://ubuntu.pkgs.org/20.04/ubuntu-universe-amd64/gcc-9-sparc64-linux-gnu_9.3.0-10ubuntu1cross1_amd64.deb.html
         run: |
           export RUSTFLAGS="-C linker=sparc64-linux-gnu-gcc-9"
           cargo build --target=sparc64-unknown-linux-gnu --verbose
@@ -62,6 +63,10 @@ jobs:
         # qemu-sparc64-static ./target/debug/deps/exr-2f623f7e2888e8f5
         # for each of the test binaries, run them in qemu (see https://askubuntu.com/questions/315335/bash-command-for-each-file-in-a-folder)
         run: |
+          ls
+          ls ./target
+          ls ./target/debug
+          ls ./target/debug/deps
           find ./target/debug/deps -iname 'exr-*' -exec bash -c 'echo "found test binary" >>"$1"' _ {} \;
           find target/debug/deps -iname 'exr-*' -exec bash -c 'echo "found test binary" >>"$1"' _ {} \;
           find ./target/debug/deps/ -iname 'exr-*' -exec bash -c 'echo "found test binary" >>"$1"' _ {} \;
