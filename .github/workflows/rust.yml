@@ -49,11 +49,11 @@ jobs:
       - name: Cross-Compile project to Sparc64 using gcc-sparc64-linux-gnu
         # see https://gist.github.com/tatsuya6502/cb584d073dbe792e2a1aa31ee49d3a25
         run: |
-          export RUSTFLAGS="-C linker=sparc64-linux-gnu-gcc-9"
+          export RUSTFLAGS="-C linker=sparc64-linux-gnu-gcc-nm-9"
           cargo build --target=sparc64-unknown-linux-gnu --verbose
       - name: Cross-Compile Test Executables to Sparc64 using gcc-sparc64-linux-gnu
         run: |
-          export RUSTFLAGS="-C linker=sparc64-linux-gnu-gcc-9"
+          export RUSTFLAGS="-C linker=sparc64-linux-gnu-gcc-nm-9"
           cargo test --target=sparc64-unknown-linux-gnu --no-run --verbose
       - name: Qemu Run Tests
         # qemu-sparc64-static ./target/debug/deps/exr-2f623f7e2888e8f5
