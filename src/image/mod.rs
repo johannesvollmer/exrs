@@ -1253,39 +1253,6 @@ pub mod validate_results {
         }
 
         #[test]
-        fn test_pxr24_f32(){
-            use crate::prelude::*;
-
-            let original_pixels: [(f32,f32,f32); 4] = [
-                (0.0, -1.1, PI),
-                (0.0, -1.1, TAU),
-                (0.0, -1.1, f32::EPSILON),
-                (f32::NAN, 10000.1, -1024.009),
-            ];
-
-            let mut file_bytes = Vec::new();
-            let original_image = Image::from_encoded_channels(
-                (2,2),
-                Encoding {
-                    compression: Compression::PXR24,
-                    .. Encoding::default()
-                },
-                SpecificChannels::rgb(PixelVec::new(Vec2(2,2), original_pixels.to_vec()))
-            );
-
-            original_image.write().to_buffered(Cursor::new(&mut file_bytes)).unwrap();
-
-            let lossy_image = read().no_deep_data().largest_resolution_level()
-                .rgb_channels(PixelVec::<(f32,f32,f32)>::constructor, PixelVec::set_pixel)
-                .first_valid_layer().all_attributes().from_buffered(Cursor::new(&file_bytes)).unwrap();
-
-            // use automatic lossy detection by compression method
-            original_image.assert_equals_result(&original_image);
-            lossy_image.assert_equals_result(&lossy_image);
-            original_image.assert_equals_result(&lossy_image);
-        }
-
-        #[test]
         fn test_uncompressed(){
             use crate::prelude::*;
 

@@ -294,3 +294,78 @@ fn roundtrip_unusual_7() -> UnitResult {
     assert_eq!(pixels1.pixels, pixels2.pixels);
     Ok(())
 }
+
+
+
+#[test]
+fn test_pxr24_f32() {
+    test_f32_roundtrip_with_compression(Compression::PXR24)
+}
+
+#[test]
+fn test_rle_f32() {
+    test_f32_roundtrip_with_compression(Compression::RLE)
+}
+
+#[test]
+fn test_zip1_f32() {
+    test_f32_roundtrip_with_compression(Compression::ZIP1)
+}
+
+#[test]
+fn test_zip16_f32() {
+    test_f32_roundtrip_with_compression(Compression::ZIP16)
+}
+
+#[test]
+fn test_b44_f32() {
+    test_f32_roundtrip_with_compression(Compression::B44)
+}
+
+#[test]
+fn test_b44a_f32() {
+    test_f32_roundtrip_with_compression(Compression::B44A)
+}
+
+#[test]
+fn test_piz_f32() {
+    test_f32_roundtrip_with_compression(Compression::PIZ)
+}
+
+#[test]
+fn test_uncompressed_f32() {
+    test_f32_roundtrip_with_compression(Compression::Uncompressed)
+}
+
+fn test_f32_roundtrip_with_compression(compression: Compression) {
+
+    let original_pixels: [(f32,f32,f32); 4] = [
+        (0.0, -1.1, std::f32::consts::PI),
+        (9.1, -3.1, std::f32::consts::TAU),
+        (-10.0, -11.1, f32::EPSILON),
+        (f32::NAN, 10000.1, -1024.009),
+    ];
+
+    let mut file_bytes = Vec::new();
+    let original_image = Image::from_encoded_channels(
+        (2,2),
+        Encoding {
+            compression,
+            .. Encoding::default()
+        },
+        SpecificChannels::rgb(
+            PixelVec::new(Vec2(2,2), original_pixels.to_vec())
+        )
+    );
+
+    original_image.write().to_buffered(Cursor::new(&mut file_bytes)).unwrap();
+
+    let lossy_image = read().no_deep_data().largest_resolution_level()
+        .rgb_channels(PixelVec::<(f32,f32,f32)>::constructor, PixelVec::set_pixel)
+        .first_valid_layer().all_attributes().from_buffered(Cursor::new(&file_bytes)).unwrap();
+
+    // use automatic lossy detection by compression method
+    original_image.assert_equals_result(&original_image);
+    lossy_image.assert_equals_result(&lossy_image);
+    original_image.assert_equals_result(&lossy_image);
+}
