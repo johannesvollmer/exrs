@@ -1,8 +1,6 @@
 use std::path::Path;
 use exr::prelude::*;
 use exr::image::validate_results::ValidateResult;
-use exr::image::pixel_vec::PixelVec;
-use std::convert::TryInto;
 
 fn dir() -> &'static Path { Path::new("tests/images/valid/custom/compression_methods") }
 
@@ -65,9 +63,6 @@ fn expect_eq_png(image_name: &str) {
             let ground_truth_png = truth_dyn_img.to_rgb8();
             let exr_as_png_px = decompressed.layer_data.channel_data.pixels;
             debug_assert_eq!(ground_truth_png.dimensions(), exr_as_png_px.dimensions(), "size should not be affected by compression");
-
-            println!("pixel {:?}", ground_truth_png.pixels().take(4).collect::<Vec<_>>());
-            println!("pixel {:?}", exr_as_png_px.pixels().take(4).collect::<Vec<_>>());
 
             let expected_px = ground_truth_png.pixels()
                 .flat_map(|px| px.0.iter().copied());

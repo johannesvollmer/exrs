@@ -15,7 +15,6 @@ mod b44;
 use crate::meta::attribute::{IntegerBounds, SampleType, ChannelList};
 use crate::error::{Result, Error, usize_to_i32};
 use crate::meta::header::Header;
-use crate::io::Data;
 
 
 /// A byte vector.
