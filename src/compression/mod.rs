@@ -15,6 +15,7 @@ mod b44;
 use crate::meta::attribute::{IntegerBounds, SampleType, ChannelList};
 use crate::error::{Result, Error, usize_to_i32};
 use crate::meta::header::Header;
+use crate::io::Data;
 
 
 /// A byte vector.
@@ -346,6 +347,38 @@ fn convert_current_to_little_endian(bytes: ByteVec, channels: &ChannelList, rect
         return little;
     }
 
+    /*fn convert_big_to_little_endian(
+        mut bytes: ByteVec, channels: &ChannelList,
+        rectangle: IntegerBounds
+    ) -> ByteVec {
+        use lebe::prelude::*;
+
+        let remaining_bytes = bytes.as_slice();
+
+        for y in rectangle.position.y() .. rectangle.end().y() {
+            for channel in &channels.list {
+                if mod_p(y, usize_to_i32(channel.sampling.y())) != 0 { continue; }
+
+                // FIXME do not match on every value
+
+                //for _x in 0 .. rectangle.size.width() / channel.sampling.x() {
+                    match channel.sample_type {
+                        SampleType::F16 => {
+                            let values: &mut [::half::f16] = remaining_bytes[..len].read_from_native_endian_mut()
+                                .expect("memory read failed");
+
+                            values.convert_current_to_little_endian();
+                        }
+                        // SampleType::F16 => little.write_as_little_endian(&u16::read_from_native_endian(&mut native).expect("read from in-memory buffer failed")),
+                        // SampleType::F32 => little.write_as_little_endian(&f32::read_from_native_endian(&mut native).expect("read from in-memory buffer failed")),
+                        // SampleType::U32 => little.write_as_little_endian(&u32::read_from_native_endian(&mut native).expect("read from in-memory buffer failed")),
+                    }.expect("write to in-memory buffer failed");
+                    remaining_bytes = remaining_bytes[len..];
+                //}
+            }
+        }
+    }*/
+
     bytes
 }
 
@@ -486,10 +519,56 @@ mod optimize_bytes {
             let mut modified = source.clone();
 
             super::samples_to_differences(&mut modified);
-
             super::differences_to_samples(&mut modified);
 
             assert_eq!(source, modified);
         }
+
+    }
+}
+
+
+#[cfg(test)]
+pub mod test {
+    use super::*;
+    use crate::meta::attribute::ChannelDescription;
+    use crate::block::samples::IntoNativeSample;
+
+    #[test]
+    fn roundtrip_endianness_mixed_channels(){
+        let a32 = ChannelDescription::new("A", SampleType::F32, true);
+        let y16 = ChannelDescription::new("Y", SampleType::F16, true);
+        let channels = ChannelList::new(smallvec![ a32, y16 ]);
+
+        let data = vec![
+            23582740683_f32.to_ne_bytes().as_slice(),
+            35827420683_f32.to_ne_bytes().as_slice(),
+            27406832358_f32.to_f16().to_ne_bytes().as_slice(),
+            74062358283_f32.to_f16().to_ne_bytes().as_slice(),
+
+            52582740683_f32.to_ne_bytes().as_slice(),
+            45827420683_f32.to_ne_bytes().as_slice(),
+            15406832358_f32.to_f16().to_ne_bytes().as_slice(),
+            65062358283_f32.to_f16().to_ne_bytes().as_slice(),
+        ].into_iter().flatten().map(|x| *x).collect();
+
+        roundtrip_convert_endianness(
+            data, &channels,
+            IntegerBounds::from_dimensions((2, 2))
+        );
+    }
+
+    fn roundtrip_convert_endianness(
+        current_endian: ByteVec, channels: &ChannelList, rectangle: IntegerBounds
+    ){
+        let little_endian = convert_current_to_little_endian(
+            current_endian.clone(), channels, rectangle
+        );
+
+        let current_endian_decoded = convert_little_endian_to_current(
+            little_endian, channels, rectangle
+        );
+
+        assert_eq!(current_endian, current_endian_decoded, "endianness conversion failed");
     }
 }

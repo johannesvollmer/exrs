@@ -27,7 +27,9 @@ fn main() {
     /// Collect averages for each layer in the image
     #[derive(Debug)]
     struct Layer {
+        #[allow(unused)] // note: is used in Debug impl
         layer_name: Option<Text>,
+
         data_window: IntegerBounds,
 
         /// Collect one average float per channel in the layer
@@ -37,7 +39,9 @@ fn main() {
     /// A single channel in the layer, holds a single average value
     #[derive(Debug)]
     struct Channel {
+        #[allow(unused)] // note: is used in Debug impl
         channel_name: Text,
+
         sample_type: SampleType, // f32, u32, or f16
         average: f32,
     }

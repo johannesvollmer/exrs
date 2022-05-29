@@ -1,21 +1,21 @@
 use std::path::Path;
 use exr::prelude::*;
 use exr::image::validate_results::ValidateResult;
+use exr::image::pixel_vec::PixelVec;
+use std::convert::TryInto;
 
+fn dir() -> &'static Path { Path::new("tests/images/valid/custom/compression_methods") }
 
-fn expect_eq_other(sub_dir: &str, image_name: &str, expected_image: &str) {
-    let dir = Path::new("tests/images/valid/custom/compression_methods");
-
-    let decompressed_path = dir.join(sub_dir).join(expected_image);
-    let mut expected_decompressed = read_first_flat_layer_from_file(decompressed_path)
-        .expect("uncompressed image could not be loaded");
-
-    let path = dir.join(sub_dir).join(image_name);
+fn expect_eq_other(sub_dir: &str, image_name: &str, expected: &str) {
+    let path = dir().join(sub_dir).join(image_name);
 
     match read_first_flat_layer_from_file(path) {
         Err(Error::NotSupported(message)) => println!("skipping ({})", message),
         Err(error) => panic!("unexpected error: {}", error),
         Ok(mut decompressed) => {
+            let decompressed_path = dir().join(sub_dir).join(expected);
+            let mut expected_decompressed = read_first_flat_layer_from_file(decompressed_path)
+                .expect("uncompressed image could not be loaded");
 
             // HACK: make metadata match artificially, to avoid failing the check due to meta data mismatch
             // (the name of the compression methods should not be equal, as we test between compression methods)
@@ -31,10 +31,68 @@ fn expect_eq_other(sub_dir: &str, image_name: &str, expected_image: &str) {
     }
 }
 
+fn expect_eq_png(image_name: &str) {
+    let exr_path = dir().join("png").join(image_name);
+    let png_from_exr = read_first_rgba_layer_from_file(
+        exr_path,
+
+        |resolution, _channels: &RgbaChannels| -> ::image::RgbImage {
+            ::image::ImageBuffer::new(
+                resolution.width() as u32,
+                resolution.height() as u32
+            )
+        },
+
+        // set each pixel in the png buffer from the exr file
+        |png_pixels: &mut ::image::RgbImage, position: Vec2<usize>, (r,g,b,_): (f32,f32,f32,f32)| {
+            png_pixels.put_pixel(
+                position.x() as u32, position.y() as u32,
+                ::image::Rgb([to_u8(r), to_u8(g), to_u8(b)])
+            );
+        }
+    );
+
+    fn to_u8(num: f32) -> u8 { (num.powf(1.0/2.2).clamp(0.0, 1.0) * 255.0).round() as u8 }
+
+    match png_from_exr {
+        Err(Error::NotSupported(message)) => println!("skipping ({})", message),
+        Err(error) => panic!("unexpected error: {}", error),
+        Ok(decompressed) => {
+            let truth_path = dir().join("png").join("ground_truth.png");
+            let truth_dyn_img = image::open(truth_path).unwrap();
+            dbg!(truth_dyn_img.color());
+
+            let ground_truth_png = truth_dyn_img.to_rgb8();
+            let exr_as_png_px = decompressed.layer_data.channel_data.pixels;
+            debug_assert_eq!(ground_truth_png.dimensions(), exr_as_png_px.dimensions(), "size should not be affected by compression");
+
+            println!("pixel {:?}", ground_truth_png.pixels().take(4).collect::<Vec<_>>());
+            println!("pixel {:?}", exr_as_png_px.pixels().take(4).collect::<Vec<_>>());
+
+            let expected_px = ground_truth_png.pixels()
+                .flat_map(|px| px.0.iter().copied());
+
+            let actual_px = exr_as_png_px.pixels()
+                .flat_map(|px| px.0.iter().copied());
+
+            ground_truth_png.save(dir().join("png")
+                .join("debug").join("truth.png")).unwrap();
+
+            exr_as_png_px.save(dir().join("png")
+                .join("debug").join(image_name.to_owned() + ".exr-to-png.png")).unwrap();
+
+
+            for (exp, val) in expected_px.zip(actual_px) {
+                assert!(exp.abs_diff(val) < 8);
+            }
+        }
+    }
+}
 
 fn expect_eq_uncompressed(sub_dir: &str, image_name: &str) {
     expect_eq_other(sub_dir, image_name, "uncompressed.exr")
 }
+
 
 #[test]
 fn compare_compression_contents_zip_f32() {
@@ -114,4 +172,59 @@ fn compare_compression_contents_rle_f32() {
 #[test]
 fn compare_compression_contents_rle_f16() {
     expect_eq_uncompressed("f16", "rle.exr");
+}
+
+
+
+#[test]
+fn compare_png_to_uncompressed_f16() {
+    expect_eq_png("f16_uncompressed.exr");
+}
+
+#[test]
+fn compare_png_to_piz_f16() {
+    expect_eq_png("f16_piz.exr");
+}
+
+#[test]
+fn compare_png_to_rle_f16() {
+    expect_eq_png("f16_rle.exr");
+}
+
+#[test]
+fn compare_png_to_zip_f16() {
+    expect_eq_png("f16_zip.exr");
+}
+
+#[test]
+fn compare_png_to_zips_f16() {
+    expect_eq_png("f16_zips.exr");
+}
+
+
+
+
+#[test]
+fn compare_png_to_uncompressed_f32() {
+    expect_eq_png("f32_uncompressed.exr");
+}
+
+#[test]
+fn compare_png_to_piz_f32() {
+    expect_eq_png("f32_piz.exr");
+}
+
+#[test]
+fn compare_png_to_rle_f32() {
+    expect_eq_png("f32_rle.exr");
+}
+
+#[test]
+fn compare_png_to_zip_f32() {
+    expect_eq_png("f32_zip.exr");
+}
+
+#[test]
+fn compare_png_to_zips_f32() {
+    expect_eq_png("f32_zips.exr");
 }

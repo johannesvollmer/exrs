@@ -254,9 +254,16 @@ to reduce memory exhaustion attacks.
 
 ### Running Tests
 
-To run all fast tests, use `cargo test`.
-To start fuzzing indefinitely, use `cargo test --package exr --test fuzz fuzz -- --exact --ignored`.
+To run all fast tests on your native system, use `cargo test`.
 
+To start fuzzing on your native system indefinitely, 
+use `cargo test --package exr --test fuzz fuzz -- --exact --ignored`.
+
+To run all fast tests on an emulated system, use one of the following commands.
+Each command requires a running `docker` instance,
+and `cross-rs` to be installed on your machine (`cargo install cross-rs`).
+- Mips (Big Endian) `cross test --target mips-unknown-linux-gnu --verbose`
+c
 ### Specification
 
 This library is modeled after the 

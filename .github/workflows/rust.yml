@@ -31,9 +31,9 @@ jobs:
   # github actions does not support big endian systems directly, but it does support QEMU.
   # so we install qemu, cross-compile to sparc64, and then run the tests in an emulated sparc64.
   # see https://github.com/wasm3/wasm3/blob/main/.github/workflows/tests.yml#L318
-  sparc64:
+  mips:
     runs-on: ubuntu-20.04
-    name: cross-qemu-sparc64
+    name: mips-unknown-linux-gnu
     timeout-minutes: 25
 
     # we are using the cross project for cross compilation to sparc64:

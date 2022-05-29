@@ -14,6 +14,7 @@ use exr::prelude::pixel_vec::PixelVec;
 use exr::image::validate_results::ValidateResult;
 use rayon::prelude::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
+use exr::block::samples::IntoNativeSample;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
@@ -298,52 +299,52 @@ fn roundtrip_unusual_7() -> UnitResult {
 
 
 #[test]
-fn test_pxr24_f32() {
-    test_f32_roundtrip_with_compression(Compression::PXR24)
+fn roundtrip_pxr24() {
+    test_mixed_roundtrip_with_compression(Compression::PXR24)
 }
 
 #[test]
-fn test_rle_f32() {
-    test_f32_roundtrip_with_compression(Compression::RLE)
+fn roundtrip_rle() {
+    test_mixed_roundtrip_with_compression(Compression::RLE)
 }
 
 #[test]
-fn test_zip1_f32() {
-    test_f32_roundtrip_with_compression(Compression::ZIP1)
+fn roundtrip_zip1() {
+    test_mixed_roundtrip_with_compression(Compression::ZIP1)
 }
 
 #[test]
-fn test_zip16_f32() {
-    test_f32_roundtrip_with_compression(Compression::ZIP16)
+fn roundtrip_zip16() {
+    test_mixed_roundtrip_with_compression(Compression::ZIP16)
 }
 
 #[test]
-fn test_b44_f32() {
-    test_f32_roundtrip_with_compression(Compression::B44)
+fn roundtrip_b44() {
+    test_mixed_roundtrip_with_compression(Compression::B44)
 }
 
 #[test]
-fn test_b44a_f32() {
-    test_f32_roundtrip_with_compression(Compression::B44A)
+fn roundtrip_b44a() {
+    test_mixed_roundtrip_with_compression(Compression::B44A)
 }
 
 #[test]
-fn test_piz_f32() {
-    test_f32_roundtrip_with_compression(Compression::PIZ)
+fn roundtrip_piz() {
+    test_mixed_roundtrip_with_compression(Compression::PIZ)
 }
 
 #[test]
-fn test_uncompressed_f32() {
-    test_f32_roundtrip_with_compression(Compression::Uncompressed)
+fn roundtrip_uncompressed() {
+    test_mixed_roundtrip_with_compression(Compression::Uncompressed)
 }
 
-fn test_f32_roundtrip_with_compression(compression: Compression) {
+fn test_mixed_roundtrip_with_compression(compression: Compression) {
 
-    let original_pixels: [(f32,f32,f32); 4] = [
-        (0.0, -1.1, std::f32::consts::PI),
-        (9.1, -3.1, std::f32::consts::TAU),
-        (-10.0, -11.1, f32::EPSILON),
-        (f32::NAN, 10000.1, -1024.009),
+    let original_pixels: [(f16,f32,f32); 4] = [
+        (0.0.to_f16(), -1.1, std::f32::consts::PI),
+        (9.1.to_f16(), -3.1, std::f32::consts::TAU),
+        (-10.0.to_f16(), -11.1, f32::EPSILON),
+        (half::f16::NAN, 10000.1, -1024.009),
     ];
 
     let mut file_bytes = Vec::new();
@@ -361,7 +362,7 @@ fn test_f32_roundtrip_with_compression(compression: Compression) {
     original_image.write().to_buffered(Cursor::new(&mut file_bytes)).unwrap();
 
     let lossy_image = read().no_deep_data().largest_resolution_level()
-        .rgb_channels(PixelVec::<(f32,f32,f32)>::constructor, PixelVec::set_pixel)
+        .rgb_channels(PixelVec::<(f16,f32,f32)>::constructor, PixelVec::set_pixel)
         .first_valid_layer().all_attributes().from_buffered(Cursor::new(&file_bytes)).unwrap();
 
     // use automatic lossy detection by compression method
