@@ -7,10 +7,7 @@ use crate::meta::attribute::ChannelList;
 use crate::prelude::*;
 use std::cmp::min;
 use std::convert::TryInto;
-use std::mem;
 use std::mem::size_of;
-use lebe::Endian;
-use lebe::io::{ReadPrimitive, WriteEndian};
 use table::{EXP_TABLE, LOG_TABLE};
 
 const BLOCK_SAMPLE_COUNT: usize = 4;
