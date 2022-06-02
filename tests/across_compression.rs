@@ -30,7 +30,7 @@ fn expect_eq_other(sub_dir: &str, image_name: &str, expected: &str) {
 }
 
 fn expect_eq_png(image_name: &str) {
-    let exr_path = dir().join("png").join(image_name);
+    let exr_path = dir().join("u8").join(image_name);
     let png_from_exr = read_first_rgba_layer_from_file(
         exr_path,
 
@@ -56,7 +56,7 @@ fn expect_eq_png(image_name: &str) {
         Err(Error::NotSupported(message)) => println!("skipping ({})", message),
         Err(error) => panic!("unexpected error: {}", error),
         Ok(decompressed) => {
-            let truth_path = dir().join("png").join("ground_truth.png");
+            let truth_path = dir().join("u8").join("ground_truth.png");
             let truth_dyn_img = image::open(truth_path).unwrap();
             dbg!(truth_dyn_img.color());
 
@@ -69,13 +69,6 @@ fn expect_eq_png(image_name: &str) {
 
             let actual_px = exr_as_png_px.pixels()
                 .flat_map(|px| px.0.iter().copied());
-
-            ground_truth_png.save(dir().join("png")
-                .join("debug").join("truth.png")).unwrap();
-
-            exr_as_png_px.save(dir().join("png")
-                .join("debug").join(image_name.to_owned() + ".exr-to-png.png")).unwrap();
-
 
             for (exp, val) in expected_px.zip(actual_px) {
                 assert!(exp.abs_diff(val) < 8);

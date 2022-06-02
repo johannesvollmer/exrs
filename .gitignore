@@ -2,9 +2,9 @@
 **/*.rs.bk
 /.idea
 *.iml
-*.png
+./*.png
 testout
 /.run
 .vscode
-*.exr
+./*.exr
 pngs/
