@@ -6,7 +6,11 @@ use crate::io::Data;
 use crate::meta::attribute::ChannelList;
 use crate::prelude::*;
 use std::cmp::min;
+use std::convert::TryInto;
+use std::mem;
 use std::mem::size_of;
+use lebe::Endian;
+use lebe::io::{ReadPrimitive, WriteEndian};
 use table::{EXP_TABLE, LOG_TABLE};
 
 const BLOCK_SAMPLE_COUNT: usize = 4;
@@ -443,20 +447,37 @@ pub fn decompress(
             let x_sample_count = channel.resolution.x() * channel.samples_per_pixel;
             let bytes_per_line = x_sample_count * channel.sample_type.bytes_per_sample();
             let next_tmp_end_index = channel.tmp_end_index + bytes_per_line;
-            let values = &tmp[channel.tmp_end_index..next_tmp_end_index];
+            let channel_bytes = &tmp[channel.tmp_end_index..next_tmp_end_index];
 
             channel.tmp_end_index = next_tmp_end_index;
 
             // We can support uncompressed data in the machine's native format
             // if all image channels are of type HALF, and if the Xdr and the
             // native representations of a half have the same size.
-            if channels.uniform_sample_type == Some(SampleType::F16) {
+            let only_f16_channels = channels.uniform_sample_type == Some(SampleType::F16);
+
+            if only_f16_channels {
                 // machine-dependent data format is a simple memcpy
                 use lebe::io::WriteEndian;
-                out.write_as_native_endian(values)
+                out.write_as_native_endian(channel_bytes)
                     .expect("write to in-memory failed");
-            } else {
-                u8::write_slice(&mut out, values).expect("write to in-memory failed");
+            }
+            else {
+                if channel.sample_type == SampleType::F16 {
+                    // TODO simplify this!!
+                    // https://github.com/AcademySoftwareFoundation/openexr/blob/a03aca31fa1ce85d3f28627dbb3e5ded9494724a/src/lib/OpenEXR/ImfB44Compressor.cpp#L943
+                    for f16_bytes in channel_bytes.chunks(2) {
+                        // FIXME why should we write little endian to the output of the compressor???
+                        //       don't we want native endian data in the end?
+
+                        let val = f16::from_ne_bytes(f16_bytes.try_into().expect("f16 must be 2 bytes"));
+                        val.write(&mut out).expect("little-endian memory write failed");
+                    }
+                }
+                else {
+                    u8::write_slice(&mut out, channel_bytes)
+                        .expect("write to in-memory failed");
+                }
             }
         }
     }
@@ -528,14 +549,31 @@ pub fn compress(
             // We can support uncompressed data in the machine's native format
             // if all image channels are of type HALF, and if the Xdr and the
             // native representations of a half have the same size.
-            if channels.uniform_sample_type == Some(SampleType::F16) {
+            let only_f16_channels = channels.uniform_sample_type == Some(SampleType::F16);
+            if only_f16_channels {
                 use lebe::io::ReadEndian;
                 remaining_uncompressed_bytes
                     .read_from_native_endian_into(target)
                     .expect("in-memory read failed");
-            } else {
-                u8::read_slice(&mut remaining_uncompressed_bytes, target)
-                    .expect("in-memory read failed");
+            }
+            else {
+                if channel.sample_type == SampleType::F16 {
+
+                    // TODO simplify this!!
+                    // https://github.com/AcademySoftwareFoundation/openexr/blob/a03aca31fa1ce85d3f28627dbb3e5ded9494724a/src/lib/OpenEXR/ImfB44Compressor.cpp#L640
+
+                    // FIXME why should we read little endian from to the input passed to the compressor???
+                    //       don't we receive native endian data?
+                    for f16_bytes in target.chunks_mut(2) {
+                        let val = f16::read(&mut remaining_uncompressed_bytes).expect("read from memory failed");
+                        f16_bytes.copy_from_slice(&val.to_ne_bytes());
+                    }
+                }
+                else {
+                    u8::read_slice(&mut remaining_uncompressed_bytes, target)
+                        .expect("in-memory read failed");
+                }
+
             }
         }
     }
