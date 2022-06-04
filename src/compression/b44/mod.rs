@@ -463,7 +463,7 @@ pub fn decompress(
                 if channel.sample_type == SampleType::F16 {
                     // TODO simplify this!!
                     // https://github.com/AcademySoftwareFoundation/openexr/blob/a03aca31fa1ce85d3f28627dbb3e5ded9494724a/src/lib/OpenEXR/ImfB44Compressor.cpp#L943
-                    for f16_bytes in channel_bytes.chunks(2) {
+                    for f16_bytes in channel_bytes.chunks(std::mem::size_of::<f16>()) {
                         // FIXME why should we write little endian to the output of the compressor???
                         //       don't we want native endian data in the end?
 
