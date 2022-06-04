@@ -41,8 +41,12 @@ use deflate::write::ZlibEncoder;
 // 4. Fill the frame buffer with pixel data, respective to sampling and whatnot
 
 
-pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: IntegerBounds) -> Result<ByteVec> {
+pub fn compress(channels: &ChannelList, remaining_bytes: Bytes<'_>, area: IntegerBounds) -> Result<ByteVec> {
     if remaining_bytes.is_empty() { return Ok(Vec::new()); }
+
+    // see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
+    let remaining_bytes = super::convert_current_to_little_endian(remaining_bytes, channels, area);
+    let mut remaining_bytes = remaining_bytes.as_slice(); // TODO less allocation
 
     let bytes_per_pixel: usize = channels.list.iter()
         .map(|channel| match channel.sample_type {
@@ -135,10 +139,10 @@ pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: In
 }
 
 
-pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntegerBounds, expected_byte_size: usize, pedantic: bool) -> Result<ByteVec> {
+pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, expected_byte_size: usize, pedantic: bool) -> Result<ByteVec> {
     if bytes.is_empty() { return Ok(Vec::new()) }
 
-    let raw = inflate_bytes_zlib(bytes)
+    let raw = inflate_bytes_zlib(&bytes)
         .map_err(|msg| Error::invalid(msg))?; // TODO share code with zip?
 
     let mut read = raw.as_slice();
@@ -201,7 +205,7 @@ pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntegerBounds,
         return Err(Error::invalid("too much data"));
     }
 
-    Ok(out)
+    Ok(super::convert_little_endian_to_current(&out, channels, area))
 }
 
 

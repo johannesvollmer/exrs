@@ -144,7 +144,12 @@ pub fn decompress(
     debug_assert_eq!(channel_data.last().unwrap().tmp_end_index, tmp_u16_buffer.len());
     debug_assert_eq!(out.len(), expected_byte_size);
 
-    Ok(out)
+    let has_only_f16_channels = channels.uniform_sample_type == Some(SampleType::F16);
+
+    if !has_only_f16_channels {
+        Ok(super::convert_little_endian_to_current(&out, channels, rectangle))
+    }
+    else { Ok(out) }
 }
 
 
@@ -158,6 +163,14 @@ pub fn compress(
     if uncompressed.is_empty() {
         return Ok(Vec::new());
     }
+
+    // see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
+    let has_only_f16_channels = channels.uniform_sample_type == Some(SampleType::F16);
+    let uncompressed = if !has_only_f16_channels {
+        super::convert_current_to_little_endian(uncompressed, channels, rectangle)
+    }
+    else { uncompressed.to_vec() };
+    let uncompressed = uncompressed.as_slice();// TODO no alloc
 
     let mut tmp = vec![0_u16; uncompressed.len() / 2 ];
     let mut channel_data: SmallVec<[ChannelData; 6]> = {

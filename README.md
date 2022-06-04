@@ -55,8 +55,6 @@ __What we can do:__
         - [x] b44, b44a (huge thanks to @narann)
         - [ ] dwaa, dwab __(help wanted)__
 
-__Big-endian code is not yet fully implemented. Help wanted.__
-
 - Nice Things
     - [x] no unsafe code, no undefined behaviour
     - [x] no compiling C++, no configuring CMake, 

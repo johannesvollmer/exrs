@@ -258,7 +258,7 @@ fn cpy_u8(src: &[u16], src_i: usize, dst: &mut [u8], dst_i: usize, n: usize) {
 
 pub fn decompress(
     channels: &ChannelList,
-    compressed: &ByteVec,
+    compressed: ByteVec,
     rectangle: IntegerBounds,
     expected_byte_size: usize,
     _pedantic: bool,
@@ -467,8 +467,8 @@ pub fn decompress(
                         // FIXME why should we write little endian to the output of the compressor???
                         //       don't we want native endian data in the end?
 
-                        let val = f16::from_ne_bytes(f16_bytes.try_into().expect("f16 must be 2 bytes"));
-                        val.write(&mut out).expect("little-endian memory write failed");
+                        let f16 = f16::from_ne_bytes(f16_bytes.try_into().expect("f16 must be 2 bytes"));
+                        f16.write(&mut out).expect("little-endian memory write failed");
                     }
                 }
                 else {
@@ -488,7 +488,12 @@ pub fn decompress(
 
     debug_assert_eq!(out.len(), expected_byte_size);
 
-    Ok(out)
+    let has_only_f16_channels = channels.uniform_sample_type == Some(SampleType::F16);
+
+    if !has_only_f16_channels {
+        Ok(super::convert_little_endian_to_current(&out, channels, rectangle))
+    }
+    else { Ok(out) }
 }
 
 pub fn compress(
@@ -500,6 +505,14 @@ pub fn compress(
     if uncompressed.is_empty() {
         return Ok(Vec::new());
     }
+    let has_only_f16_channels = channels.uniform_sample_type == Some(SampleType::F16);
+
+    let uncompressed = if !has_only_f16_channels {
+        super::convert_current_to_little_endian(uncompressed, channels, rectangle)
+    }
+    else { uncompressed.to_vec() }; // TODO no alloc
+
+    let uncompressed = uncompressed.as_slice(); // TODO no alloc
 
     let mut channel_data = Vec::new();
 
@@ -734,7 +747,7 @@ mod test {
         let compressed = b44::compress(&channels, &pixel_bytes, rectangle, true).unwrap();
 
         let decompressed =
-            b44::decompress(&channels, &compressed, rectangle, pixel_bytes.len(), true).unwrap();
+            b44::decompress(&channels, compressed.clone(), rectangle, pixel_bytes.len(), true).unwrap();
 
         assert_eq!(decompressed.len(), pixel_bytes.len());
 

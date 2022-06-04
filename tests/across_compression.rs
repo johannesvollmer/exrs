@@ -29,12 +29,17 @@ fn expect_eq_other(sub_dir: &str, image_name: &str, expected: &str) {
     }
 }
 
+// comparing to a different format, png,
+// is the only real way to check that
+// little endian data is unpacked correctly on big endian systems
 fn expect_eq_png(image_name: &str) {
-    let exr_path = dir().join("u8").join(image_name);
+    type Rgb16Image = ::image::ImageBuffer<::image::Rgb<u16>, Vec<u16>>;
+
+    let exr_path = dir().join("u16").join(image_name);
     let png_from_exr = read_first_rgba_layer_from_file(
         exr_path,
 
-        |resolution, _channels: &RgbaChannels| -> ::image::RgbImage {
+        |resolution, _channels: &RgbaChannels| -> Rgb16Image {
             ::image::ImageBuffer::new(
                 resolution.width() as u32,
                 resolution.height() as u32
@@ -42,27 +47,33 @@ fn expect_eq_png(image_name: &str) {
         },
 
         // set each pixel in the png buffer from the exr file
-        |png_pixels: &mut ::image::RgbImage, position: Vec2<usize>, (r,g,b,_): (f32,f32,f32,f32)| {
+        |png_pixels: &mut Rgb16Image, position: Vec2<usize>, (r,g,b,_): (f32,f32,f32,f32)| {
             png_pixels.put_pixel(
                 position.x() as u32, position.y() as u32,
-                ::image::Rgb([to_u8(r), to_u8(g), to_u8(b)])
+                ::image::Rgb([to_u16(r), to_u16(g), to_u16(b)])
             );
         }
     );
 
-    fn to_u8(num: f32) -> u8 { (num.powf(1.0/2.2).clamp(0.0, 1.0) * 255.0).round() as u8 }
+    fn to_u16(num: f32) -> u16 { (num.powf(1.0/2.14).clamp(0.0, 1.0) * u16::MAX as f32).round() as u16 }
 
     match png_from_exr {
         Err(Error::NotSupported(message)) => println!("skipping ({})", message),
         Err(error) => panic!("unexpected error: {}", error),
         Ok(decompressed) => {
-            let truth_path = dir().join("u8").join("ground_truth.png");
+            let truth_path = dir().join("u16").join("ground_truth.png");
             let truth_dyn_img = image::open(truth_path).unwrap();
             dbg!(truth_dyn_img.color());
 
-            let ground_truth_png = truth_dyn_img.to_rgb8();
+            let ground_truth_png = truth_dyn_img.to_rgb16();
             let exr_as_png_px = decompressed.layer_data.channel_data.pixels;
             debug_assert_eq!(ground_truth_png.dimensions(), exr_as_png_px.dimensions(), "size should not be affected by compression");
+
+            ground_truth_png.save(dir().join("u16")
+                .join("debug").join("truth.png")).unwrap();
+
+            exr_as_png_px.save(dir().join("u16")
+                .join("debug").join(image_name.to_owned() + ".exr-to-png.png")).unwrap();
 
             let expected_px = ground_truth_png.pixels()
                 .flat_map(|px| px.0.iter().copied());
@@ -70,8 +81,9 @@ fn expect_eq_png(image_name: &str) {
             let actual_px = exr_as_png_px.pixels()
                 .flat_map(|px| px.0.iter().copied());
 
+            let max_diff = u16::MAX/10;
             for (exp, val) in expected_px.zip(actual_px) {
-                assert!(exp.abs_diff(val) < 8);
+                assert!(exp.abs_diff(val) < max_diff, "too large difference: {}", val);
             }
         }
     }
@@ -189,6 +201,21 @@ fn compare_png_to_zips_f16() {
     expect_eq_png("f16_zips.exr");
 }
 
+#[test]
+fn compare_png_to_dwaa_f16() {
+    expect_eq_png("f16_dwaa.exr");
+}
+
+#[test]
+fn compare_png_to_b44_f16() {
+    expect_eq_png("f16_b44.exr");
+}
+
+#[test]
+fn compare_png_to_b44a_f16() {
+    expect_eq_png("f16_b44a.exr");
+}
+
 
 
 
@@ -213,6 +240,6 @@ fn compare_png_to_zip_f32() {
 }
 
 #[test]
-fn compare_png_to_zips_f32() {
-    expect_eq_png("f32_zips.exr");
+fn compare_png_to_dwaa_f32() {
+    expect_eq_png("f32_dwaa.exr");
 }
