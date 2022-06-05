@@ -6,9 +6,9 @@ use crate::io::Data;
 use crate::meta::attribute::ChannelList;
 use crate::prelude::*;
 use std::cmp::min;
-use std::convert::TryInto;
 use std::mem::size_of;
 use table::{EXP_TABLE, LOG_TABLE};
+use lebe::io::{ReadPrimitive, WriteEndian};
 
 const BLOCK_SAMPLE_COUNT: usize = 4;
 
@@ -448,34 +448,24 @@ pub fn decompress(
 
             channel.tmp_end_index = next_tmp_end_index;
 
+            // TODO do not convert endianness for f16-only images
+            //      see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
             // We can support uncompressed data in the machine's native format
             // if all image channels are of type HALF, and if the Xdr and the
             // native representations of a half have the same size.
-            // let only_f16_channels = channels.uniform_sample_type == Some(SampleType::F16);
 
-            // if only_f16_channels {
-            //     // machine-dependent data format is a simple memcpy
-            //     use lebe::io::WriteEndian;
-            //     out.write_as_native_endian(channel_bytes)
-            //         .expect("write to in-memory failed");
-            // }
-            // else {
-                if channel.sample_type == SampleType::F16 {
-                    // TODO simplify this!!
-                    // https://github.com/AcademySoftwareFoundation/openexr/blob/a03aca31fa1ce85d3f28627dbb3e5ded9494724a/src/lib/OpenEXR/ImfB44Compressor.cpp#L943
-                    for f16_bytes in channel_bytes.chunks(std::mem::size_of::<f16>()) {
-                        // FIXME why should we write little endian to the output of the compressor???
-                        //       don't we want native endian data in the end?
-
-                        let f16 = f16::from_ne_bytes(f16_bytes.try_into().expect("f16 must be 2 bytes"));
-                        f16.write(&mut out).expect("little-endian memory write failed");
-                    }
+            if channel.sample_type == SampleType::F16 {
+                // TODO simplify this and make it memcpy on little endian systems
+                // https://github.com/AcademySoftwareFoundation/openexr/blob/a03aca31fa1ce85d3f28627dbb3e5ded9494724a/src/lib/OpenEXR/ImfB44Compressor.cpp#L943
+                for mut f16_bytes in channel_bytes.chunks(std::mem::size_of::<f16>()) {
+                    let native_endian_f16_bits = u16::read_from_little_endian(&mut f16_bytes).expect("memory read failed");
+                    out.write_as_native_endian(&native_endian_f16_bits).expect("memory write failed");
                 }
-                else {
-                    u8::write_slice(&mut out, channel_bytes)
-                        .expect("write to in-memory failed");
-                }
-            //}
+            }
+            else {
+                u8::write_slice(&mut out, channel_bytes)
+                    .expect("write to in-memory failed");
+            }
         }
     }
 
@@ -488,14 +478,9 @@ pub fn decompress(
 
     debug_assert_eq!(out.len(), expected_byte_size);
 
-    // TODO optimize for when all channels are f16!
-    //      we should be able to omit endianness conversions in that case
-    // let has_only_f16_channels = channels.uniform_sample_type == Some(SampleType::F16);
-
-    //if !has_only_f16_channels {
-        Ok(super::convert_little_endian_to_current(&out, channels, rectangle))
-    //}
-    //else { Ok(out) }
+    // TODO do not convert endianness for f16-only images
+    //      see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
+    Ok(super::convert_little_endian_to_current(&out, channels, rectangle))
 }
 
 pub fn compress(
@@ -507,14 +492,10 @@ pub fn compress(
     if uncompressed.is_empty() {
         return Ok(Vec::new());
     }
-    //let has_only_f16_channels = channels.uniform_sample_type == Some(SampleType::F16);
 
-    let uncompressed = //if !has_only_f16_channels {
-        super::convert_current_to_little_endian(uncompressed, channels, rectangle)
-    //}
-    //else { uncompressed.to_vec() }
-    ; // TODO no alloc
-
+    // TODO do not convert endianness for f16-only images
+    //      see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
+    let uncompressed = super::convert_current_to_little_endian(uncompressed, channels, rectangle);
     let uncompressed = uncompressed.as_slice(); // TODO no alloc
 
     let mut channel_data = Vec::new();
@@ -559,35 +540,26 @@ pub fn compress(
 
             channel.tmp_end_index = next_tmp_end_index;
 
+            // TODO do not convert endianness for f16-only images
+            //      see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
             // We can support uncompressed data in the machine's native format
             // if all image channels are of type HALF, and if the Xdr and the
             // native representations of a half have the same size.
-            // let only_f16_channels = channels.uniform_sample_type == Some(SampleType::F16);
-            // if only_f16_channels {
-            //     use lebe::io::ReadEndian;
-            //     remaining_uncompressed_bytes
-            //         .read_from_native_endian_into(target)
-            //         .expect("in-memory read failed");
-            // }
-            // else {
-                if channel.sample_type == SampleType::F16 {
 
-                    // TODO simplify this!!
-                    // https://github.com/AcademySoftwareFoundation/openexr/blob/a03aca31fa1ce85d3f28627dbb3e5ded9494724a/src/lib/OpenEXR/ImfB44Compressor.cpp#L640
+            if channel.sample_type == SampleType::F16 {
 
-                    // FIXME why should we read little endian from to the input passed to the compressor???
-                    //       don't we receive native endian data?
-                    for f16_bytes in target.chunks_mut(2) {
-                        let val = f16::read(&mut remaining_uncompressed_bytes).expect("read from memory failed");
-                        f16_bytes.copy_from_slice(&val.to_ne_bytes());
-                    }
+                // TODO simplify this and make it memcpy on little endian systems
+                // https://github.com/AcademySoftwareFoundation/openexr/blob/a03aca31fa1ce85d3f28627dbb3e5ded9494724a/src/lib/OpenEXR/ImfB44Compressor.cpp#L640
+
+                for mut out_f16_bytes in target.chunks_mut(2) {
+                    let native_endian_f16_bits = u16::read_from_native_endian(&mut remaining_uncompressed_bytes).expect("memory read failed");
+                    out_f16_bytes.write_as_little_endian(&native_endian_f16_bits).expect("memory write failed");
                 }
-                else {
-                    u8::read_slice(&mut remaining_uncompressed_bytes, target)
-                        .expect("in-memory read failed");
-                }
-
-            //}
+            }
+            else {
+                u8::read_slice(&mut remaining_uncompressed_bytes, target)
+                    .expect("in-memory read failed");
+            }
         }
     }
 
