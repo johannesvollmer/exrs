@@ -144,6 +144,9 @@ pub fn decompress(
     debug_assert_eq!(channel_data.last().unwrap().tmp_end_index, tmp_u16_buffer.len());
     debug_assert_eq!(out.len(), expected_byte_size);
 
+    // TODO optimize for when all channels are f16!
+    //      we should be able to omit endianness conversions in that case
+
     //let has_only_f16_channels = channels.uniform_sample_type == Some(SampleType::F16);
     //if !has_only_f16_channels {
         Ok(super::convert_little_endian_to_current(&out, channels, rectangle))

@@ -451,15 +451,15 @@ pub fn decompress(
             // We can support uncompressed data in the machine's native format
             // if all image channels are of type HALF, and if the Xdr and the
             // native representations of a half have the same size.
-            let only_f16_channels = channels.uniform_sample_type == Some(SampleType::F16);
+            // let only_f16_channels = channels.uniform_sample_type == Some(SampleType::F16);
 
-            if only_f16_channels {
-                // machine-dependent data format is a simple memcpy
-                use lebe::io::WriteEndian;
-                out.write_as_native_endian(channel_bytes)
-                    .expect("write to in-memory failed");
-            }
-            else {
+            // if only_f16_channels {
+            //     // machine-dependent data format is a simple memcpy
+            //     use lebe::io::WriteEndian;
+            //     out.write_as_native_endian(channel_bytes)
+            //         .expect("write to in-memory failed");
+            // }
+            // else {
                 if channel.sample_type == SampleType::F16 {
                     // TODO simplify this!!
                     // https://github.com/AcademySoftwareFoundation/openexr/blob/a03aca31fa1ce85d3f28627dbb3e5ded9494724a/src/lib/OpenEXR/ImfB44Compressor.cpp#L943
@@ -475,7 +475,7 @@ pub fn decompress(
                     u8::write_slice(&mut out, channel_bytes)
                         .expect("write to in-memory failed");
                 }
-            }
+            //}
         }
     }
 
@@ -488,12 +488,14 @@ pub fn decompress(
 
     debug_assert_eq!(out.len(), expected_byte_size);
 
-    let has_only_f16_channels = channels.uniform_sample_type == Some(SampleType::F16);
+    // TODO optimize for when all channels are f16!
+    //      we should be able to omit endianness conversions in that case
+    // let has_only_f16_channels = channels.uniform_sample_type == Some(SampleType::F16);
 
-    if !has_only_f16_channels {
+    //if !has_only_f16_channels {
         Ok(super::convert_little_endian_to_current(&out, channels, rectangle))
-    }
-    else { Ok(out) }
+    //}
+    //else { Ok(out) }
 }
 
 pub fn compress(
@@ -505,12 +507,13 @@ pub fn compress(
     if uncompressed.is_empty() {
         return Ok(Vec::new());
     }
-    let has_only_f16_channels = channels.uniform_sample_type == Some(SampleType::F16);
+    //let has_only_f16_channels = channels.uniform_sample_type == Some(SampleType::F16);
 
-    let uncompressed = if !has_only_f16_channels {
+    let uncompressed = //if !has_only_f16_channels {
         super::convert_current_to_little_endian(uncompressed, channels, rectangle)
-    }
-    else { uncompressed.to_vec() }; // TODO no alloc
+    //}
+    //else { uncompressed.to_vec() }
+    ; // TODO no alloc
 
     let uncompressed = uncompressed.as_slice(); // TODO no alloc
 
@@ -559,14 +562,14 @@ pub fn compress(
             // We can support uncompressed data in the machine's native format
             // if all image channels are of type HALF, and if the Xdr and the
             // native representations of a half have the same size.
-            let only_f16_channels = channels.uniform_sample_type == Some(SampleType::F16);
-            if only_f16_channels {
-                use lebe::io::ReadEndian;
-                remaining_uncompressed_bytes
-                    .read_from_native_endian_into(target)
-                    .expect("in-memory read failed");
-            }
-            else {
+            // let only_f16_channels = channels.uniform_sample_type == Some(SampleType::F16);
+            // if only_f16_channels {
+            //     use lebe::io::ReadEndian;
+            //     remaining_uncompressed_bytes
+            //         .read_from_native_endian_into(target)
+            //         .expect("in-memory read failed");
+            // }
+            // else {
                 if channel.sample_type == SampleType::F16 {
 
                     // TODO simplify this!!
@@ -584,7 +587,7 @@ pub fn compress(
                         .expect("in-memory read failed");
                 }
 
-            }
+            //}
         }
     }
 

@@ -69,12 +69,6 @@ fn expect_eq_png(image_name: &str) {
             let exr_as_png_px = decompressed.layer_data.channel_data.pixels;
             debug_assert_eq!(ground_truth_png.dimensions(), exr_as_png_px.dimensions(), "size should not be affected by compression");
 
-            ground_truth_png.save(dir().join("u16")
-                .join("debug").join("truth.png")).unwrap();
-
-            exr_as_png_px.save(dir().join("u16")
-                .join("debug").join(image_name.to_owned() + ".exr-to-png.png")).unwrap();
-
             let expected_px = ground_truth_png.pixels()
                 .flat_map(|px| px.0.iter().copied());
 
@@ -83,7 +77,7 @@ fn expect_eq_png(image_name: &str) {
 
             let max_diff = u16::MAX/10;
             for (exp, val) in expected_px.zip(actual_px) {
-                assert!(exp.abs_diff(val) < max_diff, "too large difference: {}", val);
+                assert!(exp.abs_diff(val) < max_diff, "too large difference: found {}, expected {}", val, exp);
             }
         }
     }
