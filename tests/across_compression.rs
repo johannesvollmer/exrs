@@ -32,6 +32,7 @@ fn expect_eq_other(sub_dir: &str, image_name: &str, expected: &str) {
 // comparing to a different format, png,
 // is the only real way to check that
 // little endian data is unpacked correctly on big endian systems
+// it does not attempt to compare NaN
 fn expect_eq_png(image_name: &str) {
     type Rgb16Image = ::image::ImageBuffer<::image::Rgb<u16>, Vec<u16>>;
 
