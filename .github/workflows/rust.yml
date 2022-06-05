@@ -14,6 +14,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - name: Cache Cargo Dependencies
+      uses: Swatinem/rust-cache@v1.3.0
     - name: Build
       run: cargo build --verbose
     - name: Run tests
@@ -27,6 +29,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
+      - name: Cache Cargo Dependencies
+        uses: Swatinem/rust-cache@v1.3.0
       - name: Build
         run: cargo build --verbose
       - name: Run tests
@@ -46,10 +50,16 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Install cross-rs/cross
-        run: |
-          cargo install cross
-          sudo systemctl start docker
+      - name: Install or use cached cross-rs/cross
+        uses: baptiste0928/cargo-install@v1
+        with:
+          crate: cross
+
+      - name: Cache Cargo Dependencies
+        uses: Swatinem/rust-cache@v1.3.0
+
+      - name: Start Docker
+        run: sudo systemctl start docker
 
       - name: Cross-Compile project to mips-unknown-linux-gnu
         run: |
