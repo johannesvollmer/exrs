@@ -9,6 +9,8 @@ on:
 jobs:
   ubuntu:
     runs-on: ubuntu-latest
+    name: ubuntu
+    timeout-minutes: 15
 
     steps:
     - uses: actions/checkout@v2
@@ -20,6 +22,8 @@ jobs:
 
   macos:
     runs-on: macos-latest
+    name: mac os
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v2
@@ -33,10 +37,10 @@ jobs:
   # see https://github.com/wasm3/wasm3/blob/main/.github/workflows/tests.yml#L318
   mips:
     runs-on: ubuntu-20.04
-    name: mips-unknown-linux-gnu
-    timeout-minutes: 25
+    name: emulated big endian mips system
+    timeout-minutes: 45
 
-    # we are using the cross project for cross compilation to sparc64:
+    # we are using the cross project for cross compilation to mips:
     # https://github.com/cross-rs/cross
 
     steps:
