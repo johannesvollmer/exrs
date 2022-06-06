@@ -211,7 +211,10 @@ fn compare_png_to_b44a_f16() {
     expect_eq_png("f16_b44a.exr");
 }
 
-
+#[test]
+fn compare_png_to_pxr24_f16() {
+    expect_eq_png("f16_pxr24.exr");
+}
 
 
 #[test]
@@ -237,4 +240,9 @@ fn compare_png_to_zip_f32() {
 #[test]
 fn compare_png_to_dwaa_f32() {
     expect_eq_png("f32_dwaa.exr");
+}
+
+#[test]
+fn compare_png_to_pxr24_f32() {
+    expect_eq_png("f32_pxr24.exr");
 }
