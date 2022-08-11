@@ -64,7 +64,6 @@ fn expect_eq_png(image_name: &str) {
         Ok(decompressed) => {
             let truth_path = dir().join("u16").join("ground_truth.png");
             let truth_dyn_img = image::open(truth_path).unwrap();
-            dbg!(truth_dyn_img.color());
 
             let ground_truth_png = truth_dyn_img.to_rgb16();
             let exr_as_png_px = decompressed.layer_data.channel_data.pixels;
@@ -78,7 +77,10 @@ fn expect_eq_png(image_name: &str) {
 
             let max_diff = u16::MAX/10;
             for (exp, val) in expected_px.zip(actual_px) {
-                assert!(exp.abs_diff(val) < max_diff, "too large difference: found {}, expected {}", val, exp);
+                assert!(
+                    exp.abs_diff(val) < max_diff,
+                    "values not similar enough: found {}, expected {}", val, exp
+                );
             }
         }
     }
@@ -170,6 +172,17 @@ fn compare_compression_contents_rle_f16() {
 }
 
 
+#[test]
+#[cfg(target_endian = "little")] // TODO make it work on big endian
+fn compare_compression_contents_pxr24_f16() {
+    expect_eq_other("f16", "pxr24.exr", "decompressed_pxr24.exr");
+}
+
+#[test]
+#[cfg(target_endian = "little")] // TODO make it work on big endian
+fn compare_compression_contents_pxr24_f32() {
+    expect_eq_other("f32", "pxr24.exr", "decompressed_pxr24.exr");
+}
 
 #[test]
 fn compare_png_to_uncompressed_f16() {
@@ -212,6 +225,7 @@ fn compare_png_to_b44a_f16() {
 }
 
 #[test]
+#[cfg(target_endian = "little")] // TODO make it work on big endian
 fn compare_png_to_pxr24_f16() {
     expect_eq_png("f16_pxr24.exr");
 }
@@ -243,6 +257,7 @@ fn compare_png_to_dwaa_f32() {
 }
 
 #[test]
+#[cfg(target_endian = "little")] // TODO make it work on big endian
 fn compare_png_to_pxr24_f32() {
     expect_eq_png("f32_pxr24.exr");
 }

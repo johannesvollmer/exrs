@@ -45,13 +45,15 @@ __What we can do:__
     - [x] automatically crop away transparent pixels of an image (opt-in)   
     - [ ] channel subsampling
     - [ ] deep data
-    - [ ] compression methods
+    - [x] compression methods
         - [x] uncompressed
         - [x] zip line (lossless)
         - [x] zip block (lossless)
         - [x] rle (lossless)
         - [x] piz (lossless) (huge thanks to @dgsantana)
         - [x] pxr24 (lossless for f16 and u32)
+            - [x] little-endian architectures
+            - [ ] big-endian architectures __(help wanted)__
         - [x] b44, b44a (huge thanks to @narann)
         - [ ] dwaa, dwab __(help wanted)__
 
