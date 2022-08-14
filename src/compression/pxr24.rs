@@ -30,9 +30,7 @@
 use super::*;
 
 use crate::error::Result;
-use inflate::inflate_bytes_zlib;
 use lebe::io::ReadPrimitive;
-use deflate::write::ZlibEncoder;
 
 
 // scanline decompression routine, see https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfScanLineInputFile.cpp
@@ -124,22 +122,16 @@ pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: In
         debug_assert_eq!(write.len(), 0, "bytes left after compression");
     }
 
-    // TODO fine-tune compression options
-    let mut compressor = ZlibEncoder::new(
-        Vec::with_capacity(raw.len()),
-        deflate::Compression::Fast
-    );
-
-    std::io::copy(&mut raw.as_slice(), &mut compressor)?;
-    Ok(compressor.finish()?)
+    Ok(miniz_oxide::deflate::compress_to_vec_zlib(raw.as_slice(), 4))
 }
 
 
 pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntegerBounds, expected_byte_size: usize, pedantic: bool) -> Result<ByteVec> {
     if bytes.is_empty() { return Ok(Vec::new()) }
 
-    let raw = inflate_bytes_zlib(bytes)
-        .map_err(|msg| Error::invalid(msg))?; // TODO share code with zip?
+    let raw = miniz_oxide::inflate
+        ::decompress_to_vec_zlib_with_limit(bytes, expected_byte_size)
+        .map_err(|_| Error::invalid("zlib-compressed data malformed"))?; // TODO share code with zip?
 
     let mut read = raw.as_slice();
     let mut out = Vec::with_capacity(expected_byte_size.min(2048*4));
