@@ -130,7 +130,8 @@ pub fn decompress(channels: &ChannelList, bytes: Bytes<'_>, area: IntegerBounds,
     if bytes.is_empty() { return Ok(Vec::new()) }
 
     let raw = miniz_oxide::inflate
-        ::decompress_to_vec_zlib_with_limit(bytes, expected_byte_size)
+        // TODO ::decompress_to_vec_zlib_with_limit(bytes, expected_byte_size)
+        ::decompress_to_vec_zlib(bytes)
         .map_err(|_| Error::invalid("zlib-compressed data malformed"))?; // TODO share code with zip?
 
     let mut read = raw.as_slice();

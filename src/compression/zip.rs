@@ -12,9 +12,10 @@ use crate::error::Result;
 // 4. Fill the frame buffer with pixel data, respective to sampling and whatnot
 
 
-pub fn decompress_bytes(data: Bytes<'_>, expected_byte_size: usize) -> Result<ByteVec> {
+pub fn decompress_bytes(data: Bytes<'_>, _expected_byte_size: usize) -> Result<ByteVec> {
     let mut decompressed = miniz_oxide::inflate
-        ::decompress_to_vec_zlib_with_limit(data, expected_byte_size)
+        // TODO ::decompress_to_vec_zlib_with_limit(data, expected_byte_size)
+        ::decompress_to_vec_zlib(data)
         .map_err(|_| Error::invalid("zlib-compressed data malformed"))?;
 
     differences_to_samples(&mut decompressed);
