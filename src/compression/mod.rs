@@ -232,8 +232,8 @@ impl Compression {
             use self::Compression::*;
             let bytes = match self {
                 Uncompressed => Ok(compressed),
-                ZIP16 => zip::decompress_bytes(&compressed),
-                ZIP1 => zip::decompress_bytes(&compressed),
+                ZIP16 => zip::decompress_bytes(&compressed, expected_byte_size),
+                ZIP1 => zip::decompress_bytes(&compressed, expected_byte_size),
                 RLE => rle::decompress_bytes(&compressed, expected_byte_size, pedantic),
                 PIZ => piz::decompress(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
                 PXR24 => pxr24::decompress(&header.channels, &compressed, pixel_section, expected_byte_size, pedantic),
