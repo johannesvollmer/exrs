@@ -21,7 +21,7 @@ pub fn decompress_bytes(
 ) -> Result<ByteVec> {
     let mut decompressed = miniz_oxide::inflate
     // TODO ::decompress_to_vec_zlib_with_limit(data, expected_byte_size)
-    ::decompress_to_vec_zlib(data)
+    ::decompress_to_vec_zlib(&data)
         .map_err(|_| Error::invalid("zlib-compressed data malformed"))?;
 
     differences_to_samples(&mut decompressed);
