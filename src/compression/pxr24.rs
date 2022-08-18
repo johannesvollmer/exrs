@@ -1,6 +1,6 @@
 
 //! Lossy compression for F32 data, but lossless compression for U32 and F16 data.
-// see https://github.com/AcademySoftwareFoundation/openexr/blob/main/src/lib/OpenEXR/ImfPxr24Compressor.cpp
+// see https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfPxr24Compressor.cpp
 
 // This compressor is based on source code that was contributed to
 // OpenEXR by Pixar Animation Studios. The compression method was
@@ -45,11 +45,15 @@ use deflate::write::ZlibEncoder;
 pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: IntegerBounds) -> Result<ByteVec> {
     #[cfg(target_endian = "big")] {
         return Err(Error::unsupported(
-            "PXR24 compression method not supported yet on this processor architecture"
+            "PXR24 compression method not supported yet on big endian processor architecture"
         ))
     }
 
     if remaining_bytes.is_empty() { return Ok(Vec::new()); }
+
+    // see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
+    let remaining_bytes = super::convert_current_to_little_endian(remaining_bytes, channels, area);
+    let mut remaining_bytes = remaining_bytes.as_slice(); // TODO less allocation
 
     let bytes_per_pixel: usize = channels.list.iter()
         .map(|channel| match channel.sample_type {
@@ -84,8 +88,7 @@ pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: In
 
                         for (out_byte_0, out_byte_1) in out_byte_tuples {
                             let pixel = u16::read_from_native_endian(&mut remaining_bytes).unwrap() as u32;
-                            let [byte_0, byte_1] = (pixel.wrapping_sub(previous_pixel) as u16)
-                                .to_le_bytes();
+                            let [byte_1, byte_0] = (pixel.wrapping_sub(previous_pixel) as u16).to_ne_bytes();
 
                             *out_byte_0 = byte_0;
                             *out_byte_1 = byte_1;
@@ -101,8 +104,7 @@ pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: In
 
                         for (((out_byte_0, out_byte_1), out_byte_2), out_byte_3) in out_byte_quadruplets {
                             let pixel = u32::read_from_native_endian(&mut remaining_bytes).unwrap();
-                            let [byte_0, byte_1, byte_2, byte_3] = pixel
-                                .wrapping_sub(previous_pixel).to_le_bytes();
+                            let [byte_3, byte_2, byte_1, byte_0] = pixel.wrapping_sub(previous_pixel).to_ne_bytes();
 
                             *out_byte_0 = byte_0;
                             *out_byte_1 = byte_1;
@@ -119,13 +121,12 @@ pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: In
 
                         for ((out_byte_0, out_byte_1), out_byte_2) in out_byte_triplets {
                             let pixel = f32_to_f24(f32::read_from_native_endian(&mut remaining_bytes).unwrap());
-                            let [byte_0, byte_1, byte_2, _] = pixel
-                                .wrapping_sub(previous_pixel).to_le_bytes();
+                            let [byte_2, byte_1, byte_0, _] = pixel.wrapping_sub(previous_pixel).to_ne_bytes();
+                            previous_pixel = pixel;
 
                             *out_byte_0 = byte_0;
                             *out_byte_1 = byte_1;
                             *out_byte_2 = byte_2;
-                            previous_pixel = pixel;
                         }
                     },
                 }
@@ -149,7 +150,7 @@ pub fn compress(channels: &ChannelList, mut remaining_bytes: Bytes<'_>, area: In
 pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, expected_byte_size: usize, pedantic: bool) -> Result<ByteVec> {
     #[cfg(target_endian = "big")] {
         return Err(Error::unsupported(
-            "PXR24 decompression method not supported yet on this processor architecture"
+            "PXR24 decompression method not supported yet on big endian processor architecture"
         ))
     }
 
@@ -181,8 +182,7 @@ pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, e
                         .zip(read_sample_line()?);
 
                     for (&in_byte_0, &in_byte_1) in sample_byte_pairs {
-                        // let mut difference = ((in_byte_0 as u32) << 8) | in_byte_1 as u32;
-                        let difference = u16::from_le_bytes([in_byte_1, in_byte_0]) as u32;
+                        let difference = u16::from_ne_bytes([in_byte_1, in_byte_0]) as u32;
                         pixel_accumulation = pixel_accumulation.overflowing_add(difference).0;
                         out.extend_from_slice(&(pixel_accumulation as u16).to_ne_bytes());
                     }
@@ -195,9 +195,7 @@ pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, e
                         .zip(read_sample_line()?);
 
                     for (((&in_byte_0, &in_byte_1), &in_byte_2), &in_byte_3) in sample_byte_quads {
-                        // let difference = ((in_byte_0 as u32) << 24) | ((in_byte_1 as u32) << 16)
-                        //     | ((in_byte_2 as u32) << 8) | in_byte_3 as u32;
-                        let difference = u32::from_le_bytes([in_byte_3, in_byte_2, in_byte_1, in_byte_0]);
+                        let difference = u32::from_ne_bytes([in_byte_3, in_byte_2, in_byte_1, in_byte_0]);
                         pixel_accumulation = pixel_accumulation.overflowing_add(difference).0;
                         out.extend_from_slice(&pixel_accumulation.to_ne_bytes());
                     }
@@ -208,16 +206,7 @@ pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, e
                         .zip(read_sample_line()?).zip(read_sample_line()?);
 
                     for ((&in_byte_0, &in_byte_1), &in_byte_2) in sample_byte_triplets {
-                        // #[cfg(target_endian = "big")]
-                        // let difference = ((in_byte_2 as u32) << 24)
-                        //     | ((in_byte_1 as u32) << 16)
-                        //     | ((in_byte_0 as u32) << 8);
-                        //
-                        // #[cfg(target_endian = "little")]
-                        // let difference = ((in_byte_0 as u32) << 24)
-                        //     | ((in_byte_1 as u32) << 16)
-                        //     | ((in_byte_2 as u32) << 8);
-                        let difference = u32::from_le_bytes([ 0, in_byte_2, in_byte_1, in_byte_0 ]);
+                        let difference = u32::from_ne_bytes([0, in_byte_2, in_byte_1, in_byte_0]);
                         pixel_accumulation = pixel_accumulation.overflowing_add(difference).0;
                         out.extend_from_slice(&pixel_accumulation.to_ne_bytes());
                     }
@@ -230,7 +219,7 @@ pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, e
         return Err(Error::invalid("too much data"));
     }
 
-    Ok(out)
+    Ok(super::convert_little_endian_to_current(&out, channels, area))
 }
 
 

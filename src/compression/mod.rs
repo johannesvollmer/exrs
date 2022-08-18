@@ -219,7 +219,15 @@ impl Compression {
 
             // map all errors to compression errors
             let bytes = bytes
-                .map_err(|_| Error::invalid(format!("compressed data ({:?})", self)))?;
+                .map_err(|decompression_error| match decompression_error {
+                    Error::NotSupported(message) =>
+                        Error::unsupported(format!("yet unimplemented compression special case ({})", message)),
+
+                    error => Error::invalid(format!(
+                        "compressed {:?} data ({})",
+                        self, error.to_string()
+                    )),
+                })?;
 
             if bytes.len() != expected_byte_size {
                 Err(Error::invalid("decompressed data"))

@@ -68,6 +68,8 @@ pub fn test_roundtrip() {
     // let path = "tests/images/valid/openexr/v2/Stereo/Balls.exr";
     // let path = "tests/images/valid/openexr/v2/Stereo/Ground.exr";
 
+    println!("{:?}", exr::meta::MetaData::read_from_file(path, true));
+
     let read_image = read()
         .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
         .non_parallel();
