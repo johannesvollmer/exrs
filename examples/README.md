@@ -18,6 +18,7 @@ Only the cropping examples use images from the source repository's test folder.
 
 ## Older Versions
 The examples for any specific `exrs` version can be found on the `docs.rs` page:
+- [docs.rs/crate/exr/1.5.0/source/examples/](https://docs.rs/crate/exr/1.5.0/source/examples/)
 - [docs.rs/crate/exr/1.4.2/source/examples/](https://docs.rs/crate/exr/1.4.2/source/examples/)
 - [docs.rs/crate/exr/1.4.1/source/examples/](https://docs.rs/crate/exr/1.4.1/source/examples/)
 - [docs.rs/crate/exr/1.4.0/source/examples/](https://docs.rs/crate/exr/1.4.0/source/examples/)
