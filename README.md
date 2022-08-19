@@ -45,17 +45,17 @@ __What we can do:__
     - [x] automatically crop away transparent pixels of an image (opt-in)   
     - [ ] channel subsampling
     - [ ] deep data
-    - [ ] compression methods
+    - [x] compression methods
         - [x] uncompressed
         - [x] zip line (lossless)
         - [x] zip block (lossless)
         - [x] rle (lossless)
         - [x] piz (lossless) (huge thanks to @dgsantana)
         - [x] pxr24 (lossless for f16 and u32)
+            - [x] little-endian architectures
+            - [ ] big-endian architectures __(help wanted)__
         - [x] b44, b44a (huge thanks to @narann)
         - [ ] dwaa, dwab __(help wanted)__
-
-__Big-endian code is not yet fully implemented. Help wanted.__
 
 - Nice Things
     - [x] no unsafe code, no undefined behaviour
@@ -254,9 +254,16 @@ to reduce memory exhaustion attacks.
 
 ### Running Tests
 
-To run all fast tests, use `cargo test`.
-To start fuzzing indefinitely, use `cargo test --package exr --test fuzz fuzz -- --exact --ignored`.
+To run all fast tests on your native system, use `cargo test`.
 
+To start fuzzing on your native system indefinitely, 
+use `cargo test --package exr --test fuzz fuzz -- --exact --ignored`.
+
+To run all fast tests on an emulated system, use one of the following commands.
+Each command requires a running `docker` instance,
+and `cross-rs` to be installed on your machine (`cargo install cross-rs`).
+- Mips (Big Endian) `cross test --target mips-unknown-linux-gnu --verbose`
+c
 ### Specification
 
 This library is modeled after the 

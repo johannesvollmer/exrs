@@ -14,6 +14,7 @@ use exr::prelude::pixel_vec::PixelVec;
 use exr::image::validate_results::ValidateResult;
 use rayon::prelude::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
+use exr::block::samples::IntoNativeSample;
 
 fn exr_files() -> impl Iterator<Item=PathBuf> {
     walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
@@ -293,4 +294,91 @@ fn roundtrip_unusual_7() -> UnitResult {
 
     assert_eq!(pixels1.pixels, pixels2.pixels);
     Ok(())
+}
+
+#[test]
+#[cfg(target_endian = "big")] // TODO big endian pxr24
+fn pxr24_expect_error_on_big_endian(){
+    let image = exr::prelude::read_all_data_from_file(
+        "tests/images/valid/custom/compression_methods/f16/pxr24.exr"
+    );
+
+    match image {
+        Err(Error::NotSupported(_)) => {}
+        _ => panic!("pxr24 should report an error on big endian architecture")
+    }
+}
+
+#[test]
+#[cfg(target_endian = "little")] // TODO big endian pxr24
+fn roundtrip_pxr24() {
+    test_mixed_roundtrip_with_compression(Compression::PXR24)
+}
+
+#[test]
+fn roundtrip_rle() {
+    test_mixed_roundtrip_with_compression(Compression::RLE)
+}
+
+#[test]
+fn roundtrip_zip1() {
+    test_mixed_roundtrip_with_compression(Compression::ZIP1)
+}
+
+#[test]
+fn roundtrip_zip16() {
+    test_mixed_roundtrip_with_compression(Compression::ZIP16)
+}
+
+#[test]
+fn roundtrip_b44() {
+    test_mixed_roundtrip_with_compression(Compression::B44)
+}
+
+#[test]
+fn roundtrip_b44a() {
+    test_mixed_roundtrip_with_compression(Compression::B44A)
+}
+
+#[test]
+fn roundtrip_piz() {
+    test_mixed_roundtrip_with_compression(Compression::PIZ)
+}
+
+#[test]
+fn roundtrip_uncompressed() {
+    test_mixed_roundtrip_with_compression(Compression::Uncompressed)
+}
+
+fn test_mixed_roundtrip_with_compression(compression: Compression) {
+
+    let original_pixels: [(f16,f32,f32); 4] = [
+        (0.0.to_f16(), -1.1, std::f32::consts::PI),
+        (9.1.to_f16(), -3.1, std::f32::consts::TAU),
+        (-10.0.to_f16(), -11.1, f32::EPSILON),
+        (half::f16::NAN, 10000.1, -1024.009),
+    ];
+
+    let mut file_bytes = Vec::new();
+    let original_image = Image::from_encoded_channels(
+        (2,2),
+        Encoding {
+            compression,
+            .. Encoding::default()
+        },
+        SpecificChannels::rgb(
+            PixelVec::new(Vec2(2,2), original_pixels.to_vec())
+        )
+    );
+
+    original_image.write().to_buffered(Cursor::new(&mut file_bytes)).unwrap();
+
+    let lossy_image = read().no_deep_data().largest_resolution_level()
+        .rgb_channels(PixelVec::<(f16,f32,f32)>::constructor, PixelVec::set_pixel)
+        .first_valid_layer().all_attributes().from_buffered(Cursor::new(&file_bytes)).unwrap();
+
+    // use automatic lossy detection by compression method
+    original_image.assert_equals_result(&original_image);
+    lossy_image.assert_equals_result(&lossy_image);
+    original_image.assert_equals_result(&lossy_image);
 }

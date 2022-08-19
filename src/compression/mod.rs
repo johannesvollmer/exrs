@@ -156,62 +156,37 @@ impl std::fmt::Display for Compression {
 
 impl Compression {
 
-    // FIXME this conversion should be done inside each compression algorithm! not inside the general compression.
-    fn native_format(self, header: &Header) -> bool {
-        let has_only_f16_channels = header.channels.uniform_sample_type == Some(SampleType::F16);
-
-        match self {
-            Compression::Uncompressed => true,
-            Compression::RLE => true, // false, // FIXME false in original library???
-            Compression::ZIP1 => false,
-            Compression::ZIP16 => false,
-            Compression::PIZ => has_only_f16_channels, // TODO DRY and compute only once??
-            Compression::PXR24 => false, //FIXME true in original library  // true, // what??? i thought this is zip?!?!?!
-            Compression::B44 | Compression::B44A => has_only_f16_channels,
-            Compression::DWAA(_) | Compression::DWAB(_) => {
-                cfg!(target_endian = "little") // native if little endian?!
-                // FIXME so... this should always return true, as files are also always stored in little endian???
-            },
-        }
-    }
-
     /// Compress the image section of bytes.
-    pub fn compress_image_section(self, header: &Header, mut uncompressed: ByteVec, pixel_section: IntegerBounds) -> Result<ByteVec> {
+    pub fn compress_image_section(self, header: &Header, uncompressed_native_endian: ByteVec, pixel_section: IntegerBounds) -> Result<ByteVec> {
         let max_tile_size = header.max_block_pixel_size();
 
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
         if header.deep { assert!(self.supports_deep_data()) }
 
-        // convert data if compression method expects native format
-        // see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
-        if !self.native_format(header) {
-            uncompressed = convert_current_to_little_endian(uncompressed, &header.channels, pixel_section);
-        }
-
         use self::Compression::*;
-        let compressed = match self {
-            Uncompressed => Ok(uncompressed.clone()), // TODO no clone!
-            ZIP16 => zip::compress_bytes(&uncompressed),
-            ZIP1 => zip::compress_bytes(&uncompressed),
-            RLE => rle::compress_bytes(&uncompressed),
-            PIZ => piz::compress(&header.channels, &uncompressed, pixel_section),
-            PXR24 => pxr24::compress(&header.channels, &uncompressed, pixel_section),
-            B44 => b44::compress(&header.channels, &uncompressed, pixel_section, false),
-            B44A => b44::compress(&header.channels, &uncompressed, pixel_section, true),
+        let compressed_little_endian = match self {
+            Uncompressed => Ok(convert_current_to_little_endian(&uncompressed_native_endian, &header.channels, pixel_section)),
+            ZIP16 => zip::compress_bytes(&header.channels, &uncompressed_native_endian, pixel_section),
+            ZIP1 => zip::compress_bytes(&header.channels, &uncompressed_native_endian, pixel_section),
+            RLE => rle::compress_bytes(&header.channels, &uncompressed_native_endian, pixel_section),
+            PIZ => piz::compress(&header.channels, &uncompressed_native_endian, pixel_section),
+            PXR24 => pxr24::compress(&header.channels, &uncompressed_native_endian, pixel_section),
+            B44 => b44::compress(&header.channels, &uncompressed_native_endian, pixel_section, false),
+            B44A => b44::compress(&header.channels, &uncompressed_native_endian, pixel_section, true),
             _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
         };
 
-        let compressed = compressed.map_err(|_|
+        let compressed_little_endian = compressed_little_endian.map_err(|_|
             Error::invalid(format!("pixels cannot be compressed ({})", self))
         )?;
 
-        if compressed.len() < uncompressed.len() {
-            // only write compressed if it actually is smaller than raw
-            Ok(compressed)
+        if self == Uncompressed || compressed_little_endian.len() < uncompressed_native_endian.len() {
+            // only write compressed if it actually is smaller than raw, or no compression is used
+            Ok(compressed_little_endian)
         }
         else {
-            // manually convert uncompressed data
-            Ok(convert_current_to_little_endian(uncompressed, &header.channels, pixel_section))
+            // if we do not use compression, manually convert uncompressed data
+            Ok(convert_current_to_little_endian(&uncompressed_native_endian, &header.channels, pixel_section))
         }
     }
 
@@ -224,39 +199,41 @@ impl Compression {
 
         let expected_byte_size = pixel_section.size.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
 
+        // note: always true where self == Uncompressed
         if compressed.len() == expected_byte_size {
             // the compressed data was larger than the raw data, so the small raw data has been written
-            Ok(convert_little_endian_to_current(compressed, &header.channels, pixel_section))
+            Ok(convert_little_endian_to_current(&compressed, &header.channels, pixel_section))
         }
         else {
             use self::Compression::*;
             let bytes = match self {
-                Uncompressed => Ok(compressed),
-                ZIP16 => zip::decompress_bytes(&compressed, expected_byte_size),
-                ZIP1 => zip::decompress_bytes(&compressed, expected_byte_size),
-                RLE => rle::decompress_bytes(&compressed, expected_byte_size, pedantic),
+                Uncompressed => Ok(convert_little_endian_to_current(&compressed, &header.channels, pixel_section)),
+                ZIP16 => zip::decompress_bytes(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
+                ZIP1 => zip::decompress_bytes(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
+                RLE => rle::decompress_bytes(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
                 PIZ => piz::decompress(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
-                PXR24 => pxr24::decompress(&header.channels, &compressed, pixel_section, expected_byte_size, pedantic),
-                B44 | B44A => b44::decompress(&header.channels, &compressed, pixel_section, expected_byte_size, pedantic),
+                PXR24 => pxr24::decompress(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
+                B44 | B44A => b44::decompress(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
                 _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
             };
 
             // map all errors to compression errors
             let bytes = bytes
-                .map_err(|_| Error::invalid(format!("compressed data ({:?})", self)))?;
+                .map_err(|decompression_error| match decompression_error {
+                    Error::NotSupported(message) =>
+                        Error::unsupported(format!("yet unimplemented compression special case ({})", message)),
+
+                    error => Error::invalid(format!(
+                        "compressed {:?} data ({})",
+                        self, error.to_string()
+                    )),
+                })?;
 
             if bytes.len() != expected_byte_size {
                 Err(Error::invalid("decompressed data"))
             }
 
-            else {
-                // convert data if compression method has output native format
-                if !self.native_format(header) {
-                    Ok(convert_little_endian_to_current(bytes, &header.channels, pixel_section))
-                }
-
-                else { Ok(bytes) }
-            }
+            else { Ok(bytes) }
         }
     }
 
@@ -320,13 +297,13 @@ impl Compression {
 // FIXME this should really be done inside each compression method
 
 #[allow(unused)]
-fn convert_current_to_little_endian(bytes: ByteVec, channels: &ChannelList, rectangle: IntegerBounds) -> ByteVec { // TODO is this really not already somewhere else?
+fn convert_current_to_little_endian(bytes: Bytes<'_>, channels: &ChannelList, rectangle: IntegerBounds) -> ByteVec { // TODO is this really not already somewhere else?
     #[cfg(target = "big_endian")] {
         use lebe::prelude::*;
 
         // FIXME do this in-place
         let mut little = Vec::with_capacity(bytes.len());
-        let mut native = bytes.as_slice();
+        let mut native = bytes;
 
         for y in rectangle.position.y() .. rectangle.end().y() {
             for channel in &channels.list {
@@ -346,11 +323,43 @@ fn convert_current_to_little_endian(bytes: ByteVec, channels: &ChannelList, rect
         return little;
     }
 
-    bytes
+    /*fn convert_big_to_little_endian(
+        mut bytes: ByteVec, channels: &ChannelList,
+        rectangle: IntegerBounds
+    ) -> ByteVec {
+        use lebe::prelude::*;
+
+        let remaining_bytes = bytes.as_slice();
+
+        for y in rectangle.position.y() .. rectangle.end().y() {
+            for channel in &channels.list {
+                if mod_p(y, usize_to_i32(channel.sampling.y())) != 0 { continue; }
+
+                // FIXME do not match on every value
+
+                //for _x in 0 .. rectangle.size.width() / channel.sampling.x() {
+                    match channel.sample_type {
+                        SampleType::F16 => {
+                            let values: &mut [::half::f16] = remaining_bytes[..len].read_from_native_endian_mut()
+                                .expect("memory read failed");
+
+                            values.convert_current_to_little_endian();
+                        }
+                        // SampleType::F16 => little.write_as_little_endian(&u16::read_from_native_endian(&mut native).expect("read from in-memory buffer failed")),
+                        // SampleType::F32 => little.write_as_little_endian(&f32::read_from_native_endian(&mut native).expect("read from in-memory buffer failed")),
+                        // SampleType::U32 => little.write_as_little_endian(&u32::read_from_native_endian(&mut native).expect("read from in-memory buffer failed")),
+                    }.expect("write to in-memory buffer failed");
+                    remaining_bytes = remaining_bytes[len..];
+                //}
+            }
+        }
+    }*/
+
+    bytes.to_vec()
 }
 
 #[allow(unused)]
-fn convert_little_endian_to_current(bytes: ByteVec, channels: &ChannelList, rectangle: IntegerBounds) -> ByteVec { // TODO is this really not already somewhere else?
+fn convert_little_endian_to_current(bytes: Bytes<'_>, channels: &ChannelList, rectangle: IntegerBounds) -> ByteVec { // TODO is this really not already somewhere else?
     #[cfg(target = "big_endian")] {
         use lebe::prelude::*;
 
@@ -376,7 +385,7 @@ fn convert_little_endian_to_current(bytes: ByteVec, channels: &ChannelList, rect
         return native;
     }
 
-    bytes
+    bytes.to_vec()
 }
 
 
@@ -486,10 +495,56 @@ mod optimize_bytes {
             let mut modified = source.clone();
 
             super::samples_to_differences(&mut modified);
-
             super::differences_to_samples(&mut modified);
 
             assert_eq!(source, modified);
         }
+
+    }
+}
+
+
+#[cfg(test)]
+pub mod test {
+    use super::*;
+    use crate::meta::attribute::ChannelDescription;
+    use crate::block::samples::IntoNativeSample;
+
+    #[test]
+    fn roundtrip_endianness_mixed_channels(){
+        let a32 = ChannelDescription::new("A", SampleType::F32, true);
+        let y16 = ChannelDescription::new("Y", SampleType::F16, true);
+        let channels = ChannelList::new(smallvec![ a32, y16 ]);
+
+        let data = vec![
+            23582740683_f32.to_ne_bytes().as_slice(),
+            35827420683_f32.to_ne_bytes().as_slice(),
+            27406832358_f32.to_f16().to_ne_bytes().as_slice(),
+            74062358283_f32.to_f16().to_ne_bytes().as_slice(),
+
+            52582740683_f32.to_ne_bytes().as_slice(),
+            45827420683_f32.to_ne_bytes().as_slice(),
+            15406832358_f32.to_f16().to_ne_bytes().as_slice(),
+            65062358283_f32.to_f16().to_ne_bytes().as_slice(),
+        ].into_iter().flatten().map(|x| *x).collect();
+
+        roundtrip_convert_endianness(
+            data, &channels,
+            IntegerBounds::from_dimensions((2, 2))
+        );
+    }
+
+    fn roundtrip_convert_endianness(
+        current_endian: ByteVec, channels: &ChannelList, rectangle: IntegerBounds
+    ){
+        let little_endian = convert_current_to_little_endian(
+            &current_endian, channels, rectangle
+        );
+
+        let current_endian_decoded = convert_little_endian_to_current(
+            &little_endian, channels, rectangle
+        );
+
+        assert_eq!(current_endian, current_endian_decoded, "endianness conversion failed");
     }
 }

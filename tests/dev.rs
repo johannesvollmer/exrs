@@ -48,12 +48,14 @@ fn search_previews_of_all_files() {
     });
 }
 
+// use this command for big endian testing:
+// cross test --target mips-unknown-linux-gnu --verbose --test dev test_roundtrip -- --ignored
 #[test]
 #[ignore]
 pub fn test_roundtrip() {
     // works
      //let path = "tests/images/fuzzed/b44_overly_restrictive_assert.exr";
-     let path = "tests/images/fuzzed/zero-tilesize.exr";
+     let path = "tests/images/valid/custom/compression_methods/f32/pxr24.exr";
 
     // worksn't
     // let path = "tests/images/valid/openexr/Chromaticities/Rec709_YC.exr"; // subsampling
@@ -66,6 +68,8 @@ pub fn test_roundtrip() {
     // let path = "tests/images/valid/openexr/v2/Stereo/Balls.exr";
     // let path = "tests/images/valid/openexr/v2/Stereo/Ground.exr";
 
+    println!("{:?}", exr::meta::MetaData::read_from_file(path, true));
+
     let read_image = read()
         .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
         .non_parallel();
@@ -74,6 +78,7 @@ pub fn test_roundtrip() {
 
     let mut tmp_bytes = Vec::new();
     image.write().to_buffered(Cursor::new(&mut tmp_bytes)).unwrap();
+    image.write().to_file("debug_pxr24.exr").unwrap();
 
     let image2 = read_image.from_buffered(Cursor::new(tmp_bytes)).unwrap();
 

@@ -735,6 +735,19 @@ impl ChannelList {
     pub fn find_index_of_channel(&self, exact_name: &Text) -> Option<usize> {
         self.list.binary_search_by_key(&exact_name.bytes(), |chan| chan.name.bytes()).ok()
     }
+
+    // TODO use this in compression methods
+    /*pub fn pixel_section_indices(&self, bounds: IntegerBounds) -> impl '_ + Iterator<Item=(&Channel, usize, usize)> {
+        (bounds.position.y() .. bounds.end().y()).flat_map(|y| {
+            self.list
+                .filter(|channel| mod_p(y, usize_to_i32(channel.sampling.1)) == 0)
+                .flat_map(|channel|{
+                    (bounds.position.x() .. bounds.end().x())
+                        .filter(|x| mod_p(*x, usize_to_i32(channel.sampling.0)) == 0)
+                        .map(|x| (channel, x, y))
+                })
+        })
+    }*/
 }
 
 impl BlockType {

@@ -7,13 +7,65 @@ on:
     branches: [ master, dev ]
 
 jobs:
-  build:
-
+  ubuntu:
     runs-on: ubuntu-latest
+    name: ubuntu
+    timeout-minutes: 30
 
     steps:
     - uses: actions/checkout@v2
+    - name: Cache Cargo Dependencies
+      uses: Swatinem/rust-cache@v1.3.0
     - name: Build
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+
+
+  macos:
+    runs-on: macos-latest
+    name: mac os
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Cache Cargo Dependencies
+        uses: Swatinem/rust-cache@v1.3.0
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests
+        run: cargo test --verbose
+
+  # github actions does not support big endian systems directly, but it does support QEMU.
+  # so we install qemu, cross-compile to sparc64, and then run the tests in an emulated sparc64.
+  # see https://github.com/wasm3/wasm3/blob/main/.github/workflows/tests.yml#L318
+  mips:
+    runs-on: ubuntu-20.04
+    name: emulated big endian mips system
+    timeout-minutes: 90 # todo just make tests faster wtf
+
+    # we are using the cross project for cross compilation to mips:
+    # https://github.com/cross-rs/cross
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install or use cached cross-rs/cross
+        uses: baptiste0928/cargo-install@v1
+        with:
+          crate: cross
+
+      - name: Cache Cargo Dependencies
+        uses: Swatinem/rust-cache@v1.3.0
+
+      - name: Start Docker
+        run: sudo systemctl start docker
+
+      - name: Cross-Compile project to mips-unknown-linux-gnu
+        run: |
+          cross build --target=mips-unknown-linux-gnu --verbose
+
+      # https://github.com/cross-rs/cross#supported-targets
+      - name: Cross-Run Tests in mips-unknown-linux-gnu using Qemu
+        run: |
+          cross test --target mips-unknown-linux-gnu --verbose

@@ -9,7 +9,14 @@ const MIN_RUN_LENGTH : usize = 3;
 const MAX_RUN_LENGTH : usize = 127;
 
 
-pub fn decompress_bytes(mut remaining: Bytes<'_>, expected_byte_size: usize, pedantic: bool) -> Result<ByteVec> {
+pub fn decompress_bytes(
+    channels: &ChannelList,
+    compressed: ByteVec,
+    rectangle: IntegerBounds,
+    expected_byte_size: usize,
+    pedantic: bool,
+) -> Result<ByteVec> {
+    let mut remaining = compressed.as_slice();
     let mut decompressed = Vec::with_capacity(expected_byte_size.min(8*2048));
 
     while !remaining.is_empty() && decompressed.len() != expected_byte_size {
@@ -33,16 +40,13 @@ pub fn decompress_bytes(mut remaining: Bytes<'_>, expected_byte_size: usize, ped
 
     differences_to_samples(&mut decompressed);
     interleave_byte_blocks(&mut decompressed);
-
-    // FIXME this function returns little-endian data, but possibly must run on big-endian architecture????
-    #[cfg(target_endian = "big")]
-        unimplemented!(this function probably returns little-endian data);
-
-    Ok(decompressed)
+    Ok(super::convert_little_endian_to_current(&decompressed, channels, rectangle))// TODO no alloc
 }
 
-pub fn compress_bytes(data: Bytes<'_>) -> Result<ByteVec> {
-    let mut data = Vec::from(data); // TODO no alloc
+pub fn compress_bytes(channels: &ChannelList, uncompressed: Bytes<'_>, rectangle: IntegerBounds) -> Result<ByteVec> {
+    // see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
+    let mut data = super::convert_current_to_little_endian(uncompressed, channels, rectangle);// TODO no alloc
+
     separate_bytes_fragments(&mut data);
     samples_to_differences(&mut data);
 
@@ -105,19 +109,4 @@ fn take_n<'s>(slice: &mut &'s [u8], n: usize) -> Result<&'s [u8]> {
     } else {
         Err(Error::invalid("compressed data"))
     }
-}
-
-#[cfg(test)]
-mod test {
-
-    #[test]
-    fn test(){
-        let data = vec![ 0, 23, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 0, 0, 0, 1, 23, 43, 4];
-        let compressed = super::compress_bytes(&data).unwrap();
-        let decompressed = super::decompress_bytes(&compressed, data.len(), true).unwrap();
-
-        assert_eq!(decompressed, data);
-    }
-
-    // TODO fuzz testing
 }
