@@ -263,7 +263,9 @@ To run all fast tests on an emulated system, use one of the following commands.
 Each command requires a running `docker` instance,
 and `cross-rs` to be installed on your machine (`cargo install cross-rs`).
 - Mips (Big Endian) `cross test --target mips-unknown-linux-gnu --verbose`
-c
+
+To benchmark the library, simply run `cargo bench`.
+
 ### Specification
 
 This library is modeled after the 
