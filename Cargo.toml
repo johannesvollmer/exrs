@@ -26,7 +26,7 @@ plugin = false
 proc-macro = false
 
 [dependencies]
-lebe = "^0.5.1"                # generic binary serialization
+lebe = "^0.5.2"                # generic binary serialization
 half = "^1.8.2"                # 16 bit float pixel data type
 bit_field = "^0.10.1"          # exr file version bit flags
 miniz_oxide = "^0.5.3"         # zip compression for pxr24
@@ -39,8 +39,8 @@ image = { version = "0.23.14", features = ["png"] }         # used to convert on
 
 bencher = "0.1.5"
 walkdir = "2.3.2"         # automatically test things for all files in a directory
-rand = "0.8.4"            # used for fuzz testing
-rayon = "1.5.1"           # run tests for many files in parallel
+rand = "0.8.5"            # used for fuzz testing
+rayon = "1.5.3"           # run tests for many files in parallel
 
 
 [[bench]]
