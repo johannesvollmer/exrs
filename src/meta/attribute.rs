@@ -1500,14 +1500,31 @@ impl Preview {
         let width = u32::read(read)? as usize;
         let height = u32::read(read)? as usize;
 
-        let pixel_data = i8::read_vec(read, width * height * components_per_pixel, 1024*1024*4, None, "preview attribute pixel count")?;
+        if let Some(size) = width.checked_mul(height) {
+            if let Some(total_size) = size.checked_mul(components_per_pixel) {
+                let pixel_data = i8::read_vec(
+                    read,
+                    total_size,
+                    1024 * 1024 * 4,
+                    None,
+                    "preview attribute pixel count",
+                )?;
 
-        let preview = Preview {
-            size: Vec2(width, height),
-            pixel_data,
-        };
+                let preview = Preview {
+                    size: Vec2(width, height),
+                    pixel_data,
+                };
 
-        Ok(preview)
+                return Ok(preview);
+            }
+        }
+
+        return Err(Error::invalid(
+                format!("Overflow while calculating image size \
+                (width: {}, height: {}, components_per_pixel: {}).",
+                width,
+                height,
+                components_per_pixel)));
     }
 
     /// Validate this instance.
