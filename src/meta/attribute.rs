@@ -1496,18 +1496,34 @@ impl Preview {
 
     /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
-        let components_per_pixel = 4;
         let width = u32::read(read)? as usize;
         let height = u32::read(read)? as usize;
 
-        let pixel_data = i8::read_vec(read, width * height * components_per_pixel, 1024*1024*4, None, "preview attribute pixel count")?;
+        if let Some(pixel_count) = width.checked_mul(height) {
+            // Multiply by the number of bytes per pixel.
+            if let Some(byte_count) = pixel_count.checked_mul(4) {
+                let pixel_data = i8::read_vec(
+                    read,
+                    byte_count,
+                    1024 * 1024 * 4,
+                    None,
+                    "preview attribute pixel count",
+                )?;
 
-        let preview = Preview {
-            size: Vec2(width, height),
-            pixel_data,
-        };
+                let preview = Preview {
+                    size: Vec2(width, height),
+                    pixel_data,
+                };
 
-        Ok(preview)
+                return Ok(preview);
+            }
+        }
+
+        return Err(Error::invalid(
+                format!("Overflow while calculating preview image Attribute size \
+                (width: {}, height: {}).",
+                width,
+                height)));
     }
 
     /// Validate this instance.
