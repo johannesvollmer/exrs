@@ -16,12 +16,11 @@ pub fn decompress_bytes(
     channels: &ChannelList,
     data: ByteVec,
     rectangle: IntegerBounds,
-    _expected_byte_size: usize,
+    expected_byte_size: usize,
     _pedantic: bool,
 ) -> Result<ByteVec> {
     let mut decompressed = miniz_oxide::inflate
-    // TODO ::decompress_to_vec_zlib_with_limit(data, expected_byte_size)
-    ::decompress_to_vec_zlib(&data)
+    ::decompress_to_vec_zlib_with_limit(&data, expected_byte_size)
         .map_err(|_| Error::invalid("zlib-compressed data malformed"))?;
 
     differences_to_samples(&mut decompressed);
