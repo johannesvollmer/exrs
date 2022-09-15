@@ -146,8 +146,7 @@ pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, e
     }
 
     let raw = miniz_oxide::inflate
-        // TODO ::decompress_to_vec_zlib_with_limit(bytes, expected_byte_size)
-        ::decompress_to_vec_zlib(&bytes)
+        ::decompress_to_vec_zlib_with_limit(&bytes, expected_byte_size)
         .map_err(|_| Error::invalid("zlib-compressed data malformed"))?; // TODO share code with zip?
 
     let mut read = raw.as_slice();
