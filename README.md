@@ -1,6 +1,6 @@
 [![Rust Docs](https://docs.rs/exr/badge.svg)](https://docs.rs/exr) 
 [![Crate Crate](https://img.shields.io/crates/v/exr.svg)](https://crates.io/crates/exr) 
-[![Rust Lang Version](https://img.shields.io/badge/rustc-1.48+-lightgray.svg)](https://blog.rust-lang.org/2020/11/19/Rust-1.48.html) 
+[![Rust Lang Version](https://img.shields.io/badge/rustc-1.58.1-lightgray.svg)](https://github.com/rust-lang/rust/blob/master/RELEASES.md#version-1581-2022-01-19) 
 [![Lines of Code](https://tokei.rs/b1/github/johannesvollmer/exrs?category=code)](https://tokei.rs)
 
 # EXRS
