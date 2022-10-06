@@ -394,7 +394,7 @@ pub fn decompress(
                 // Get resting samples from the line to copy in temp buffer (without going outside channel).
                 let x_resting_sample_count = match x + 3 < x_sample_count {
                     true => BLOCK_SAMPLE_COUNT,
-                    false => (x_sample_count - x),
+                    false => x_sample_count - x,
                 };
 
                 debug_assert!(x_resting_sample_count > 0);
