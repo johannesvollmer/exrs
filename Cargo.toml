@@ -4,7 +4,7 @@ description = "Read and write OpenEXR files without any unsafe code"
 keywords = ["exr", "openexr", "file", "binary", "io"]
 categories = ["encoding", "filesystem", "graphics", "multimedia"]
 
-version = "1.5.1"
+version = "1.5.2"
 edition = "2018"
 authors = ["johannesvollmer <johannes596@t-online.de>"]
 
@@ -12,6 +12,7 @@ repository = "https://github.com/johannesvollmer/exrs"
 readme = "README.md"
 license = "BSD-3-Clause"
 exclude = [ "specification/*", "specification/**", "tests/images/*", "tests/images/**" ]
+rust-version = "1.58.1"
 
 [badges]
 maintenance = { status = "actively-developed" }
@@ -35,7 +36,7 @@ threadpool = "^1.8.1"          # threading for parallel compression     TODO mak
 flume = "^0.10.9"              # crossbeam, but less unsafe code        TODO make this an optional feature?
 
 [dev-dependencies]
-image = { version = "0.24.3", features = ["png"] }         # used to convert one exr to some pngs
+image = { version = "0.24.3", default-features = false, features = ["png"] }         # used to convert one exr to some pngs
 
 bencher = "0.1.5"
 walkdir = "2.3.2"         # automatically test things for all files in a directory
