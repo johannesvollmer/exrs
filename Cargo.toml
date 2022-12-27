@@ -34,6 +34,7 @@ miniz_oxide = "^0.6.2"         # zip compression for pxr24
 smallvec = "^1.7.0"            # make cache-friendly allocations        TODO profile if smallvec is really an improvement!
 threadpool = "^1.8.1"          # threading for parallel compression     TODO make this an optional feature?
 flume = "^0.10.9"              # crossbeam, but less unsafe code        TODO make this an optional feature?
+zune-inflate = {git = "https://github.com/etemesi254/zune-image.git"}
 
 [dev-dependencies]
 image = { version = "0.24.3", default-features = false, features = ["png"] }         # used to convert one exr to some pngs
