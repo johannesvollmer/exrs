@@ -408,16 +408,23 @@ fn mod_p(x: i32, y: i32) -> i32 {
 mod optimize_bytes {
 
     /// Integrate over all differences to the previous value in order to reconstruct sample values.
-    pub fn differences_to_samples(buffer: &mut [u8]){
+    pub fn differences_to_samples(buffer: &mut [u8]) {
         let mut previous = buffer[0] as i16;
+        // Process elements in pairs to take advantage of instruction-level parallelism,
+        // since this function is responsible for a very large chunk of execution time.
         for chunk in &mut buffer[1..].chunks_exact_mut(2) {
             let diff0 = chunk[0] as i16;
             let diff1 = chunk[1] as i16;
             let sample0 = (previous + diff0 - 128) as u8;
-            let sample1 = (previous + diff0 + diff1 - 256) as u8;
+            let sample1 = (previous + diff0 + diff1 - 128 * 2) as u8;
             chunk[0] = sample0;
             chunk[1] = sample1;
             previous = sample1 as i16;
+        }
+        // handle the remaining elements at the end not processed by the loop over pairs, if present
+        if (buffer.len() % 1 == 1) && buffer.len() > 1 {
+            let diff = buffer.last_mut().unwrap();
+            *diff = (previous + *diff as i16 - 128) as u8;
         }
     }
 
