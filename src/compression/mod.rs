@@ -409,10 +409,19 @@ mod optimize_bytes {
 
     /// Integrate over all differences to the previous value in order to reconstruct sample values.
     pub fn differences_to_samples(buffer: &mut [u8]) {
+        // The naive implementation is very simple:
+        //
+        // for index in 1..buffer.len() {
+        //    buffer[index] = (buffer[index - 1] as i32 + buffer[index] as i32 - 128) as u8;
+        // }
+        //
+        // But we process elements in pairs to take advantage of instruction-level parallelism.
+        // When computations within a pair do not depend on each other, they can be processed in parallel.
+        // Since this function is responsible for a very large chunk of execution time,
+        // this tweak alone improves decoding performance of RLE images by 20%.
         let mut previous = buffer[0] as i16;
-        // Process elements in pairs to take advantage of instruction-level parallelism,
-        // since this function is responsible for a very large chunk of execution time.
         for chunk in &mut buffer[1..].chunks_exact_mut(2) {
+            // no bounds checks here due to indices and chunk size being constant
             let diff0 = chunk[0] as i16;
             let diff1 = chunk[1] as i16;
             let sample0 = (previous + diff0 - 128) as u8;
