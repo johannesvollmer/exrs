@@ -421,27 +421,34 @@ mod optimize_bytes {
         }
     }
 
-    /// Interleave the bytes such that the second halv of the array is each other byte.
+    /// Interleave the bytes such that the second half of the array is every other byte.
     pub fn interleave_byte_blocks(separated: &mut [u8]) {
-        // TODO rustify
         // TODO without extra allocation!
-        let mut interleaved = Vec::with_capacity(separated.len());
+        let mut interleaved = vec![0; separated.len()];
         let (first_half, second_half) = separated
             .split_at((separated.len() + 1) / 2);
 
-        let mut second_half_index = 0;
-        let mut first_half_index = 0;
+        // The first half can be 1 byte longer than the second if the length of the input is odd.
+        // But the loop below only processes numbers in pairs.
+        // To handle it, preserve the last element of the first slice, to be handled after the loop.
+        let first_half_last = first_half.last();
+        // Truncate the first half to match the lenght of the second one; more optimizer-friendly
+        let first_half_iter = &first_half[..second_half.len()];
 
-        loop {
-            if interleaved.len() < separated.len() {
-                interleaved.push(first_half[first_half_index]); // index unsafe but handled with care and unit-tested
-                first_half_index += 1;
-            } else { break; }
+        // Main loop that performs the interleaving
+        for ((first, second), interleaved) in first_half_iter.iter().zip(second_half.iter())
+            .zip(interleaved.chunks_exact_mut(2)) {
+                interleaved[0] = *first;
+                interleaved[1] = *second;
+        }
 
-            if interleaved.len() < separated.len() {
-                interleaved.push(second_half[second_half_index]); // index unsafe but handled with care and unit-tested
-                second_half_index += 1;
-            } else { break; }
+        // If the length of the slice was odd, restore the last element of the first half that we saved
+        if interleaved.len() % 2 == 1 {
+            if let Some(value) = first_half_last {
+                // we can unwrap() here because we just checked that the lenght is non-zero:
+                // `% 2 == 1` will fail for zero
+                *interleaved.last_mut().unwrap() = *value;
+            }
         }
 
         separated.copy_from_slice(interleaved.as_slice())
