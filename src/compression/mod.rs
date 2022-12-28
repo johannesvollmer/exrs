@@ -438,6 +438,9 @@ mod optimize_bytes {
         // Main loop that performs the interleaving
         for ((first, second), interleaved) in first_half_iter.iter().zip(second_half.iter())
             .zip(interleaved.chunks_exact_mut(2)) {
+                // The length of each chunk is known to be 2 at compile time,
+                // and each index is also a constant.
+                // This allows the compiler to remove the bounds checks.
                 interleaved[0] = *first;
                 interleaved[1] = *second;
         }
