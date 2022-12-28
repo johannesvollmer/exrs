@@ -409,14 +409,15 @@ mod optimize_bytes {
 
     /// Integrate over all differences to the previous value in order to reconstruct sample values.
     pub fn differences_to_samples(buffer: &mut [u8]){
-        let mut previous = buffer[0];
+        let mut previous = buffer[0] as i16;
         for chunk in &mut buffer[1..].chunks_exact_mut(2) {
-            let sample1 = (previous as i32 + chunk[0] as i32 - 128) as u8;
-            let diff2 = (chunk[0] as i32 + chunk[1] as i32 - 128) as u8;
-            let sample2 = (sample1 as i32 + diff2 as i32 - 128) as u8;
-            chunk[0] = sample1;
-            chunk[1] = sample2;
-            previous = sample2;
+            let diff0 = chunk[0] as i16;
+            let diff1 = chunk[1] as i16;
+            let sample0 = (previous + diff0 - 128) as u8;
+            let sample1 = (previous + diff0 + diff1 - 256) as u8;
+            chunk[0] = sample0;
+            chunk[1] = sample1;
+            previous = sample1 as i16;
         }
     }
 
