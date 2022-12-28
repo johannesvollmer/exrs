@@ -419,21 +419,24 @@ mod optimize_bytes {
         // When computations within a pair do not depend on each other, they can be processed in parallel.
         // Since this function is responsible for a very large chunk of execution time,
         // this tweak alone improves decoding performance of RLE images by 20%.
-        let mut previous = buffer[0] as i16;
-        for chunk in &mut buffer[1..].chunks_exact_mut(2) {
-            // no bounds checks here due to indices and chunk size being constant
-            let diff0 = chunk[0] as i16;
-            let diff1 = chunk[1] as i16;
-            let sample0 = (previous + diff0 - 128) as u8;
-            let sample1 = (previous + diff0 + diff1 - 128 * 2) as u8;
-            chunk[0] = sample0;
-            chunk[1] = sample1;
-            previous = sample1 as i16;
-        }
-        // handle the remaining elements at the end not processed by the loop over pairs, if present
-        if (buffer.len() % 1 == 1) && buffer.len() > 1 {
-            let diff = buffer.last_mut().unwrap();
-            *diff = (previous + *diff as i16 - 128) as u8;
+        if let Some(first) = buffer.get(0) {
+            let mut previous = *first as i16;
+            for chunk in &mut buffer[1..].chunks_exact_mut(2) {
+                // no bounds checks here due to indices and chunk size being constant
+                let diff0 = chunk[0] as i16;
+                let diff1 = chunk[1] as i16;
+                let sample0 = (previous + diff0 - 128) as u8;
+                let sample1 = (previous + diff0 + diff1 - 128 * 2) as u8;
+                chunk[0] = sample0;
+                chunk[1] = sample1;
+                previous = sample1 as i16;
+            }
+            // handle the remaining element at the end not processed by the loop over pairs, if present
+            for elem in &mut buffer[1..].chunks_exact_mut(2).into_remainder().iter_mut() {
+                let sample = (previous + *elem as i16 - 128) as u8;
+                *elem = sample;
+                previous = sample as i16;
+            }
         }
     }
 
