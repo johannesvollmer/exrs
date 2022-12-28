@@ -428,8 +428,8 @@ mod optimize_bytes {
         let (first_half, second_half) = separated
             .split_at((separated.len() + 1) / 2);
 
-        // The first half can be 1 byte longer than the second if the length of the input is odd.
-        // But the loop below only processes numbers in pairs.
+        // The first half can be 1 byte longer than the second if the length of the input is odd,
+        // but the loop below only processes numbers in pairs.
         // To handle it, preserve the last element of the first slice, to be handled after the loop.
         let first_half_last = first_half.last();
         // Truncate the first half to match the lenght of the second one; more optimizer-friendly
@@ -457,32 +457,41 @@ mod optimize_bytes {
         separated.copy_from_slice(interleaved.as_slice())
     }
 
-    /// Separate the bytes such that the second half contains each other byte.
-    pub fn separate_bytes_fragments(source: &mut [u8]) {
-        // TODO without extra allocation?
-        let mut first_half = Vec::with_capacity(source.len() / 2);
-        let mut second_half = Vec::with_capacity(source.len() / 2);
-        let mut interleaved_index = 0;
+/// Separate the bytes such that the second half contains every other byte.
+/// This performs deinterleaving - the inverse of interleaving.
+pub fn separate_bytes_fragments(source: &mut [u8]) {
+    // TODO without extra allocation?
+    let mut separated = vec![0; source.len()];
+    let (first_half, second_half) = separated
+        .split_at_mut((source.len() + 1) / 2);
 
-        // TODO rustify!
-        loop {
-            if interleaved_index < source.len() {
-                first_half.push(source[interleaved_index]); // index unsafe but handled with care and unit-tested
-                interleaved_index += 1;
+    // The first half can be 1 byte longer than the second if the length of the input is odd,
+    // but the loop below only processes numbers in pairs.
+    // To handle it, preserve the last element of the input, to be handled after the loop.
+    let last = source.last();
+    let first_half_iter = &mut first_half[..second_half.len()];
 
-            } else { break; }
-
-            if interleaved_index < source.len() {
-                second_half.push(source[interleaved_index]); // index unsafe but handled with care and unit-tested
-                interleaved_index += 1;
-
-            } else { break; }
-        }
-
-        let mut result = first_half;
-        result.append(&mut second_half);
-        source.copy_from_slice(result.as_slice());
+    // Main loop that performs the deinterleaving
+    for ((first, second), interleaved) in first_half_iter.iter_mut().zip(second_half.iter_mut())
+        .zip(source.chunks_exact(2)) {
+            // The length of each chunk is known to be 2 at compile time,
+            // and each index is also a constant.
+            // This allows the compiler to remove the bounds checks.
+            *first = interleaved[0];
+            *second = interleaved[1];
     }
+
+    // If the length of the slice was odd, restore the last element of the input that we saved
+    if source.len() % 2 == 1 {
+        if let Some(value) = last {
+            // we can unwrap() here because we just checked that the lenght is non-zero:
+            // `% 2 == 1` will fail for zero
+            *first_half.last_mut().unwrap() = *value;
+        }
+    }
+
+    source.copy_from_slice(&separated);
+}
 
 
     #[cfg(test)]
