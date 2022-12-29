@@ -425,6 +425,8 @@ mod optimize_bytes {
                 // no bounds checks here due to indices and chunk size being constant
                 let diff0 = chunk[0] as i16;
                 let diff1 = chunk[1] as i16;
+                // these two computations do not depend on each other, unlike in the naive version,
+                // so they can be executed by the CPU in parallel via instruction-level parallelism
                 let sample0 = (previous + diff0 - 128) as u8;
                 let sample1 = (previous + diff0 + diff1 - 128 * 2) as u8;
                 chunk[0] = sample0;
