@@ -449,12 +449,38 @@ mod optimize_bytes {
         //     buffer[index] = (buffer[index] as i32 - buffer[index - 1] as i32 + 128) as u8;
         // }
 
-        for i in (2..buffer.len()).rev().step_by(2) {
-            let (sample0, sample1, next_sample) = (buffer[i] as i32, buffer[i-1] as i32, buffer[i-2] as i32);
-            let diff0 = (sample0 - sample1 + 128) as u8;
-            let diff1 = (sample1 - next_sample + 128) as u8;
-            buffer[i] = diff0;
-            buffer[i-1] = diff1;
+        if let Some(first) = buffer.get(0) {
+            let mut previous = *first as i16;
+            for chunk in &mut buffer[1..].chunks_exact_mut(8) {
+                // no bounds checks here due to indices and chunk size being constant
+                let sample0 = chunk[0] as i16;
+                let sample1 = chunk[1] as i16;
+                let sample2 = chunk[2] as i16;
+                let sample3 = chunk[3] as i16;
+                let sample4 = chunk[4] as i16;
+                let sample5 = chunk[5] as i16;
+                let sample6 = chunk[6] as i16;
+                let sample7 = chunk[7] as i16;
+                // these computations do not depend on each other, unlike in the naive version,
+                // so they can be executed by the CPU in parallel via instruction-level parallelism.
+                // Unlike in decoding, here we don't have to do more work when using parallelism,
+                // so we can do way more work in parallel than in decoding
+                chunk[0] = (sample0 - previous + 128) as u8;
+                chunk[1] = (sample1 - sample0 + 128) as u8;
+                chunk[2] = (sample2 - sample1 + 128) as u8;
+                chunk[3] = (sample3 - sample2 + 128) as u8;
+                chunk[4] = (sample4 - sample3 + 128) as u8;
+                chunk[5] = (sample5 - sample4 + 128) as u8;
+                chunk[6] = (sample6 - sample5 + 128) as u8;
+                chunk[7] = (sample7 - sample6 + 128) as u8;
+                previous = sample7;
+            }
+            // handle the remaining element at the end not processed by the loop over pairs, if present
+            for elem in &mut buffer[1..].chunks_exact_mut(8).into_remainder().iter_mut() {
+                let diff = (*elem as i16 - previous + 128) as u8;
+                previous = *elem as i16;
+                *elem = diff;
+            }
         }
     }
 
