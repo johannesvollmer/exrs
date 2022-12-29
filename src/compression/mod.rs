@@ -444,8 +444,17 @@ mod optimize_bytes {
 
     /// Derive over all values in order to produce differences to the previous value.
     pub fn samples_to_differences(buffer: &mut [u8]){
-        for index in (1..buffer.len()).rev() {
-            buffer[index] = (buffer[index] as i32 - buffer[index - 1] as i32 + 128) as u8; // index unsafe but handled with care and unit-tested
+        // naive version:
+        // for index in (1..buffer.len()).rev() {
+        //     buffer[index] = (buffer[index] as i32 - buffer[index - 1] as i32 + 128) as u8;
+        // }
+
+        for i in (2..buffer.len()).rev().step_by(2) {
+            let (sample0, sample1, next_sample) = (buffer[i] as i32, buffer[i-1] as i32, buffer[i-2] as i32);
+            let diff0 = (sample0 - sample1 + 128) as u8;
+            let diff1 = (sample1 - next_sample + 128) as u8;
+            buffer[i] = diff0;
+            buffer[i-1] = diff1;
         }
     }
 
