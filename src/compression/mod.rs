@@ -448,7 +448,8 @@ mod optimize_bytes {
         // for index in (1..buffer.len()).rev() {
         //     buffer[index] = (buffer[index] as i32 - buffer[index - 1] as i32 + 128) as u8;
         // }
-
+        // But we process elements in batches to take advantage of instruction-level parallelism.
+        // When computations within a batch do not depend on each other, they can be processed in parallel.
         if let Some(first) = buffer.get(0) {
             let mut previous = *first as i16;
             for chunk in &mut buffer[1..].chunks_exact_mut(8) {
@@ -463,8 +464,9 @@ mod optimize_bytes {
                 let sample7 = chunk[7] as i16;
                 // these computations do not depend on each other, unlike in the naive version,
                 // so they can be executed by the CPU in parallel via instruction-level parallelism.
-                // Unlike in decoding, here we don't have to do more work when using parallelism,
-                // so we can do way more work in parallel than in decoding
+                // Unlike in decoding, computations in here are truly independent from each other,
+                // so using more parallelism doesn't imply doing more work,
+                // and we're not really limited in how wide we can go.
                 chunk[0] = (sample0 - previous + 128) as u8;
                 chunk[1] = (sample1 - sample0 + 128) as u8;
                 chunk[2] = (sample2 - sample1 + 128) as u8;
