@@ -477,7 +477,7 @@ mod optimize_bytes {
                 chunk[7] = (sample7 - sample6 + 128) as u8;
                 previous = sample7;
             }
-            // handle the remaining element at the end not processed by the loop over pairs, if present
+            // handle the remaining element at the end not processed by the loop over batches, if present
             for elem in &mut buffer[1..].chunks_exact_mut(8).into_remainder().iter_mut() {
                 let diff = (*elem as i16 - previous + 128) as u8;
                 previous = *elem as i16;
