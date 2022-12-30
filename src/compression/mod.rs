@@ -448,11 +448,16 @@ mod optimize_bytes {
         // for index in (1..buffer.len()).rev() {
         //     buffer[index] = (buffer[index] as i32 - buffer[index - 1] as i32 + 128) as u8;
         // }
-        // But we process elements in batches to take advantage of instruction-level parallelism.
-        // When computations within a batch do not depend on each other, they can be processed in parallel.
+        //
+        // But we process elements in batches to take advantage of autovectorization.
+        // If the target platform has no vector instructions (e.g. 32-bit ARM without `-C target-cpu=native`)
+        // this will instead take advantage of instruction-level parallelism.
         if let Some(first) = buffer.get(0) {
             let mut previous = *first as i16;
-            for chunk in &mut buffer[1..].chunks_exact_mut(8) {
+            // Chunk size is 16 because we process bytes (8 bits),
+            // and 8*16 = 128 bits is the size of a typical SIMD register.
+            // Even WASM has 128-bit SIMD registers.
+            for chunk in &mut buffer[1..].chunks_exact_mut(16) {
                 // no bounds checks here due to indices and chunk size being constant
                 let sample0 = chunk[0] as i16;
                 let sample1 = chunk[1] as i16;
@@ -462,9 +467,17 @@ mod optimize_bytes {
                 let sample5 = chunk[5] as i16;
                 let sample6 = chunk[6] as i16;
                 let sample7 = chunk[7] as i16;
-                // these computations do not depend on each other, unlike in the naive version,
-                // so they can be executed by the CPU in parallel via instruction-level parallelism.
+                let sample8 = chunk[8] as i16;
+                let sample9 = chunk[9] as i16;
+                let sample10 = chunk[10] as i16;
+                let sample11 = chunk[11] as i16;
+                let sample12 = chunk[12] as i16;
+                let sample13 = chunk[13] as i16;
+                let sample14 = chunk[14] as i16;
+                let sample15 = chunk[15] as i16;
                 // Unlike in decoding, computations in here are truly independent from each other,
+                // which enables the compiler to vectorize this loop.
+                // Even if the target platform has no vector instructions,
                 // so using more parallelism doesn't imply doing more work,
                 // and we're not really limited in how wide we can go.
                 chunk[0] = (sample0 - previous + 128) as u8;
@@ -475,10 +488,19 @@ mod optimize_bytes {
                 chunk[5] = (sample5 - sample4 + 128) as u8;
                 chunk[6] = (sample6 - sample5 + 128) as u8;
                 chunk[7] = (sample7 - sample6 + 128) as u8;
-                previous = sample7;
+                chunk[8] = (sample8 - sample7 + 128) as u8;
+                chunk[9] = (sample9 - sample8 + 128) as u8;
+                chunk[10] = (sample10 - sample9 + 128) as u8;
+                chunk[11] = (sample11 - sample10 + 128) as u8;
+                chunk[12] = (sample12 - sample11 + 128) as u8;
+                chunk[13] = (sample13 - sample12 + 128) as u8;
+                chunk[14] = (sample14 - sample13 + 128) as u8;
+                chunk[15] = (sample15 - sample14 + 128) as u8;
+                previous = sample15;
             }
-            // handle the remaining element at the end not processed by the loop over batches, if present
-            for elem in &mut buffer[1..].chunks_exact_mut(8).into_remainder().iter_mut() {
+            // Handle the remaining element at the end not processed by the loop over batches, if present
+            // This is what the iterator-based version of this function would look like without vectorization
+            for elem in &mut buffer[1..].chunks_exact_mut(16).into_remainder().iter_mut() {
                 let diff = (*elem as i16 - previous + 128) as u8;
                 previous = *elem as i16;
                 *elem = diff;
