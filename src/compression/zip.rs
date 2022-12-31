@@ -19,7 +19,7 @@ pub fn decompress_bytes(
     expected_byte_size: usize,
     _pedantic: bool,
 ) -> Result<ByteVec> {
-    let options = zune_inflate::DeflateOptions::default().set_limit(expected_byte_size);
+    let options = zune_inflate::DeflateOptions::default().set_limit(expected_byte_size).set_size_hint(expected_byte_size);
     let mut decoder = zune_inflate::DeflateDecoder::new_with_options(&data, options);
     let mut decompressed = decoder.decode_zlib()
         .map_err(|_| Error::invalid("zlib-compressed data malformed"))?;
