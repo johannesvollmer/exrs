@@ -626,7 +626,8 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 [[package]]
 name = "zune-inflate"
 version = "0.2.0"
-source = "git+https://github.com/etemesi254/zune-image.git#3fd5558cf483f5c6b1455cbe9ab97fe92f2dd942"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0bc976eac2cf2935926045b751d9bc7f1a268aa9ba0e11bef491dce239c7f26"
 dependencies = [
  "simd-adler32",
 ]
