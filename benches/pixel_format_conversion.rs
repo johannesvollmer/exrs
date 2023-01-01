@@ -10,7 +10,7 @@ use std::io::Cursor;
 use exr::image::pixel_vec::PixelVec;
 
 /// Read an image from an in-memory buffer into its native f32 format
-fn read_image_rgba_without_conversion(bench: &mut Bencher) {
+fn read_image_rgba_f32_to_f32(bench: &mut Bencher) {
     let mut file = fs::read("tests/images/valid/custom/crowskull/crow_uncompressed.exr").unwrap();
     bencher::black_box(&mut file);
 
@@ -61,7 +61,7 @@ fn read_image_rgba_f32_to_f16(bench: &mut Bencher) {
 }
 
 benchmark_group!(pixel_format_conversion,
-    read_image_rgba_without_conversion,
+    read_image_rgba_f32_to_f32,
     read_image_rgba_f32_to_u32,
     read_image_rgba_f32_to_f16,
 );
