@@ -56,6 +56,10 @@ harness = false
 name = "write"
 harness = false
 
+[[bench]]
+name = "pixel_format_conversion"
+harness = false
+
 
 # recommended release settings for max runtime performance
 [profile.release]
