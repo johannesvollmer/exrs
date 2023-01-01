@@ -60,6 +60,24 @@ fn read_single_image_rle_all_channels(bench: &mut Bencher) {
     })
 }
 
+/// Read without multi-core RLE decompression
+fn read_single_image_rle_non_parallel_all_channels(bench: &mut Bencher) {
+    bench.iter(||{
+        let path = "tests/images/valid/custom/crowskull/crow_rle.exr";
+
+        // copied from `read_all_flat_layers_from_file` and added `.non_parallel()`
+        let image = exr::prelude::read()
+            .no_deep_data()
+            .largest_resolution_level()
+            .all_channels()
+            .all_layers()
+            .all_attributes()
+            .non_parallel()
+            .from_file(path).unwrap();
+        bencher::black_box(image);
+    })
+}
+
 /// Read without multi-core ZIP decompression
 fn read_single_image_non_parallel_zips_rgba(bench: &mut Bencher) {
     bench.iter(||{
@@ -82,6 +100,7 @@ benchmark_group!(read,
     read_single_image_uncompressed_rgba,
     read_single_image_zips_rgba,
     read_single_image_rle_all_channels,
+    read_single_image_rle_non_parallel_all_channels,
     read_single_image_non_parallel_zips_rgba
 );
 
