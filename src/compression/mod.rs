@@ -406,8 +406,6 @@ fn mod_p(x: i32, y: i32) -> i32 {
 
 /// A collection of functions used to prepare data for compression.
 mod optimize_bytes {
-    use crate::compression::SCRATCH_SPACE;
-
 
     /// Integrate over all differences to the previous value in order to reconstruct sample values.
     pub fn differences_to_samples(buffer: &mut [u8]) {
@@ -519,7 +517,7 @@ mod optimize_bytes {
         static SCRATCH_SPACE: Cell<Vec<u8>> = Cell::new(Vec::new());
     }
 
-    fn with_reused_buffer<F>(length: usize, func: F) where F: FnMut(&mut [u8]) {
+    fn with_reused_buffer<F>(length: usize, mut func: F) where F: FnMut(&mut [u8]) {
         SCRATCH_SPACE.with(|scratch_space| {
             // reuse a buffer if we've already initialized one
             let mut buffer = scratch_space.take();
