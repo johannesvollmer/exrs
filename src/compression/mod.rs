@@ -408,71 +408,207 @@ fn mod_p(x: i32, y: i32) -> i32 {
 mod optimize_bytes {
 
     /// Integrate over all differences to the previous value in order to reconstruct sample values.
-    pub fn differences_to_samples(buffer: &mut [u8]){
-        for index in 1..buffer.len() {
-            buffer[index] = (buffer[index - 1] as i32 + buffer[index] as i32 - 128) as u8; // index unsafe but handled with care and unit-tested
+    pub fn differences_to_samples(buffer: &mut [u8]) {
+        // The naive implementation is very simple:
+        //
+        // for index in 1..buffer.len() {
+        //    buffer[index] = (buffer[index - 1] as i32 + buffer[index] as i32 - 128) as u8;
+        // }
+        //
+        // But we process elements in pairs to take advantage of instruction-level parallelism.
+        // When computations within a pair do not depend on each other, they can be processed in parallel.
+        // Since this function is responsible for a very large chunk of execution time,
+        // this tweak alone improves decoding performance of RLE images by 20%.
+        if let Some(first) = buffer.get(0) {
+            let mut previous = *first as i16;
+            for chunk in &mut buffer[1..].chunks_exact_mut(2) {
+                // no bounds checks here due to indices and chunk size being constant
+                let diff0 = chunk[0] as i16;
+                let diff1 = chunk[1] as i16;
+                // these two computations do not depend on each other, unlike in the naive version,
+                // so they can be executed by the CPU in parallel via instruction-level parallelism
+                let sample0 = (previous + diff0 - 128) as u8;
+                let sample1 = (previous + diff0 + diff1 - 128 * 2) as u8;
+                chunk[0] = sample0;
+                chunk[1] = sample1;
+                previous = sample1 as i16;
+            }
+            // handle the remaining element at the end not processed by the loop over pairs, if present
+            for elem in &mut buffer[1..].chunks_exact_mut(2).into_remainder().iter_mut() {
+                let sample = (previous + *elem as i16 - 128) as u8;
+                *elem = sample;
+                previous = sample as i16;
+            }
         }
     }
 
     /// Derive over all values in order to produce differences to the previous value.
     pub fn samples_to_differences(buffer: &mut [u8]){
-        for index in (1..buffer.len()).rev() {
-            buffer[index] = (buffer[index] as i32 - buffer[index - 1] as i32 + 128) as u8; // index unsafe but handled with care and unit-tested
+        // naive version:
+        // for index in (1..buffer.len()).rev() {
+        //     buffer[index] = (buffer[index] as i32 - buffer[index - 1] as i32 + 128) as u8;
+        // }
+        //
+        // But we process elements in batches to take advantage of autovectorization.
+        // If the target platform has no vector instructions (e.g. 32-bit ARM without `-C target-cpu=native`)
+        // this will instead take advantage of instruction-level parallelism.
+        if let Some(first) = buffer.get(0) {
+            let mut previous = *first as i16;
+            // Chunk size is 16 because we process bytes (8 bits),
+            // and 8*16 = 128 bits is the size of a typical SIMD register.
+            // Even WASM has 128-bit SIMD registers.
+            for chunk in &mut buffer[1..].chunks_exact_mut(16) {
+                // no bounds checks here due to indices and chunk size being constant
+                let sample0 = chunk[0] as i16;
+                let sample1 = chunk[1] as i16;
+                let sample2 = chunk[2] as i16;
+                let sample3 = chunk[3] as i16;
+                let sample4 = chunk[4] as i16;
+                let sample5 = chunk[5] as i16;
+                let sample6 = chunk[6] as i16;
+                let sample7 = chunk[7] as i16;
+                let sample8 = chunk[8] as i16;
+                let sample9 = chunk[9] as i16;
+                let sample10 = chunk[10] as i16;
+                let sample11 = chunk[11] as i16;
+                let sample12 = chunk[12] as i16;
+                let sample13 = chunk[13] as i16;
+                let sample14 = chunk[14] as i16;
+                let sample15 = chunk[15] as i16;
+                // Unlike in decoding, computations in here are truly independent from each other,
+                // which enables the compiler to vectorize this loop.
+                // Even if the target platform has no vector instructions,
+                // so using more parallelism doesn't imply doing more work,
+                // and we're not really limited in how wide we can go.
+                chunk[0] = (sample0 - previous + 128) as u8;
+                chunk[1] = (sample1 - sample0 + 128) as u8;
+                chunk[2] = (sample2 - sample1 + 128) as u8;
+                chunk[3] = (sample3 - sample2 + 128) as u8;
+                chunk[4] = (sample4 - sample3 + 128) as u8;
+                chunk[5] = (sample5 - sample4 + 128) as u8;
+                chunk[6] = (sample6 - sample5 + 128) as u8;
+                chunk[7] = (sample7 - sample6 + 128) as u8;
+                chunk[8] = (sample8 - sample7 + 128) as u8;
+                chunk[9] = (sample9 - sample8 + 128) as u8;
+                chunk[10] = (sample10 - sample9 + 128) as u8;
+                chunk[11] = (sample11 - sample10 + 128) as u8;
+                chunk[12] = (sample12 - sample11 + 128) as u8;
+                chunk[13] = (sample13 - sample12 + 128) as u8;
+                chunk[14] = (sample14 - sample13 + 128) as u8;
+                chunk[15] = (sample15 - sample14 + 128) as u8;
+                previous = sample15;
+            }
+            // Handle the remaining element at the end not processed by the loop over batches, if present
+            // This is what the iterator-based version of this function would look like without vectorization
+            for elem in &mut buffer[1..].chunks_exact_mut(16).into_remainder().iter_mut() {
+                let diff = (*elem as i16 - previous + 128) as u8;
+                previous = *elem as i16;
+                *elem = diff;
+            }
         }
     }
 
-    /// Interleave the bytes such that the second halv of the array is each other byte.
+    use std::cell::Cell;
+    thread_local! {
+        // A buffer for reusing between invocations of interleaving and deinterleaving.
+        // Allocating memory is cheap, but zeroing or otherwise initializing it is not.
+        // Doing it hundreds of times (once per block) would be expensive.
+        // This optimization brings down the time spent in interleaving from 15% to 5%.
+        static SCRATCH_SPACE: Cell<Vec<u8>> = Cell::new(Vec::new());
+    }
+
+    fn with_reused_buffer<F>(length: usize, mut func: F) where F: FnMut(&mut [u8]) {
+        SCRATCH_SPACE.with(|scratch_space| {
+            // reuse a buffer if we've already initialized one
+            let mut buffer = scratch_space.take();
+            if buffer.len() < length {
+                // Efficiently create a zeroed Vec by requesting zeroed memory from the OS.
+                // This is slightly faster than a `memcpy()` plus `memset()` that would happen otherwise,
+                // but is not a big deal either way since it's not a hot codepath.
+                buffer = vec![0u8; length];
+            }
+
+            // call the function
+            func(&mut buffer[..length]);
+
+            // save the internal buffer for reuse
+            scratch_space.set(buffer);
+        });
+    }
+
+    /// Interleave the bytes such that the second half of the array is every other byte.
     pub fn interleave_byte_blocks(separated: &mut [u8]) {
-        // TODO rustify
-        // TODO without extra allocation!
-        let mut interleaved = Vec::with_capacity(separated.len());
-        let (first_half, second_half) = separated
-            .split_at((separated.len() + 1) / 2);
+        with_reused_buffer(separated.len(), |interleaved| {
 
-        let mut second_half_index = 0;
-        let mut first_half_index = 0;
+            // Split the two halves that we are going to interleave.
+            let (first_half, second_half) = separated.split_at((separated.len() + 1) / 2);
+            // The first half can be 1 byte longer than the second if the length of the input is odd,
+            // but the loop below only processes numbers in pairs.
+            // To handle it, preserve the last element of the first slice, to be handled after the loop.
+            let first_half_last = first_half.last();
+            // Truncate the first half to match the lenght of the second one; more optimizer-friendly
+            let first_half_iter = &first_half[..second_half.len()];
 
-        loop {
-            if interleaved.len() < separated.len() {
-                interleaved.push(first_half[first_half_index]); // index unsafe but handled with care and unit-tested
-                first_half_index += 1;
-            } else { break; }
+            // Main loop that performs the interleaving
+            for ((first, second), interleaved) in first_half_iter.iter().zip(second_half.iter())
+                .zip(interleaved.chunks_exact_mut(2)) {
+                    // The length of each chunk is known to be 2 at compile time,
+                    // and each index is also a constant.
+                    // This allows the compiler to remove the bounds checks.
+                    interleaved[0] = *first;
+                    interleaved[1] = *second;
+            }
 
-            if interleaved.len() < separated.len() {
-                interleaved.push(second_half[second_half_index]); // index unsafe but handled with care and unit-tested
-                second_half_index += 1;
-            } else { break; }
-        }
+            // If the length of the slice was odd, restore the last element of the first half that we saved
+            if interleaved.len() % 2 == 1 {
+                if let Some(value) = first_half_last {
+                    // we can unwrap() here because we just checked that the lenght is non-zero:
+                    // `% 2 == 1` will fail for zero
+                    *interleaved.last_mut().unwrap() = *value;
+                }
+            }
 
-        separated.copy_from_slice(interleaved.as_slice())
+            // write out the results
+            separated.copy_from_slice(&interleaved);
+        });
     }
 
-    /// Separate the bytes such that the second half contains each other byte.
-    pub fn separate_bytes_fragments(source: &mut [u8]) {
-        // TODO without extra allocation?
-        let mut first_half = Vec::with_capacity(source.len() / 2);
-        let mut second_half = Vec::with_capacity(source.len() / 2);
-        let mut interleaved_index = 0;
+/// Separate the bytes such that the second half contains every other byte.
+/// This performs deinterleaving - the inverse of interleaving.
+pub fn separate_bytes_fragments(source: &mut [u8]) {
+    with_reused_buffer(source.len(), |separated| {
 
-        // TODO rustify!
-        loop {
-            if interleaved_index < source.len() {
-                first_half.push(source[interleaved_index]); // index unsafe but handled with care and unit-tested
-                interleaved_index += 1;
+        // Split the two halves that we are going to interleave.
+        let (first_half, second_half) = separated.split_at_mut((source.len() + 1) / 2);
+        // The first half can be 1 byte longer than the second if the length of the input is odd,
+        // but the loop below only processes numbers in pairs.
+        // To handle it, preserve the last element of the input, to be handled after the loop.
+        let last = source.last();
+        let first_half_iter = &mut first_half[..second_half.len()];
 
-            } else { break; }
-
-            if interleaved_index < source.len() {
-                second_half.push(source[interleaved_index]); // index unsafe but handled with care and unit-tested
-                interleaved_index += 1;
-
-            } else { break; }
+        // Main loop that performs the deinterleaving
+        for ((first, second), interleaved) in first_half_iter.iter_mut().zip(second_half.iter_mut())
+            .zip(source.chunks_exact(2)) {
+                // The length of each chunk is known to be 2 at compile time,
+                // and each index is also a constant.
+                // This allows the compiler to remove the bounds checks.
+                *first = interleaved[0];
+                *second = interleaved[1];
         }
 
-        let mut result = first_half;
-        result.append(&mut second_half);
-        source.copy_from_slice(result.as_slice());
-    }
+        // If the length of the slice was odd, restore the last element of the input that we saved
+        if source.len() % 2 == 1 {
+            if let Some(value) = last {
+                // we can unwrap() here because we just checked that the lenght is non-zero:
+                // `% 2 == 1` will fail for zero
+                *first_half.last_mut().unwrap() = *value;
+            }
+        }
+
+        // write out the results
+        source.copy_from_slice(&separated);
+    });
+}
 
 
     #[cfg(test)]
