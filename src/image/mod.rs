@@ -531,8 +531,13 @@ impl Iterator for FlatSampleIterator<'_> {
         else { None }
     }
 
+    fn nth(&mut self, pos: usize) -> Option<Self::Item> {
+        self.channel_index += pos;
+        self.next()
+    }
+
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.layer.channel_data.list.len() - self.channel_index;
+        let remaining = self.layer.channel_data.list.len().saturating_sub(self.channel_index);
         (remaining, Some(remaining))
     }
 }
