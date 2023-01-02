@@ -413,6 +413,23 @@ thread_local! {
     static SCRATCH_SPACE: Cell<Vec<u8>> = Cell::new(Vec::new());
 }
 
+fn with_reused_buffer(length: usize, func: fn(&mut [u8])) {
+    SCRATCH_SPACE.with(|scratch_space| {
+        // reuse a buffer if we've already initialized one
+        let mut buffer = scratch_space.take();
+        if buffer.len() < length {
+            // efficiently create a zeroed Vec by requesting zeroed memory from the OS
+            buffer = vec![0u8; length];
+        }
+
+        // call the function
+        func(&mut buffer[..length]);
+
+        // save the internal buffer for reuse
+        scratch_space.set(buffer);
+    });
+}
+
 /// A collection of functions used to prepare data for compression.
 mod optimize_bytes {
     use crate::compression::SCRATCH_SPACE;
