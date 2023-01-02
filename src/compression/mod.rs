@@ -404,32 +404,6 @@ fn mod_p(x: i32, y: i32) -> i32 {
     x - y * div_p(x, y)
 }
 
-use std::cell::Cell;
-thread_local! {
-    // A buffer for reusing between invocations of interleaving and deinterleaving.
-    // Allocating memory is cheap, but zeroing or otherwise initializing it is not.
-    // Doing it hundreds of times (once per block) would be expensive.
-    // This optimization brings down the time spent in interleaving from 15% to 5%.
-    static SCRATCH_SPACE: Cell<Vec<u8>> = Cell::new(Vec::new());
-}
-
-fn with_reused_buffer(length: usize, func: fn(&mut [u8])) {
-    SCRATCH_SPACE.with(|scratch_space| {
-        // reuse a buffer if we've already initialized one
-        let mut buffer = scratch_space.take();
-        if buffer.len() < length {
-            // efficiently create a zeroed Vec by requesting zeroed memory from the OS
-            buffer = vec![0u8; length];
-        }
-
-        // call the function
-        func(&mut buffer[..length]);
-
-        // save the internal buffer for reuse
-        scratch_space.set(buffer);
-    });
-}
-
 /// A collection of functions used to prepare data for compression.
 mod optimize_bytes {
     use crate::compression::SCRATCH_SPACE;
@@ -536,18 +510,37 @@ mod optimize_bytes {
         }
     }
 
-    /// Interleave the bytes such that the second half of the array is every other byte.
-    pub fn interleave_byte_blocks(separated: &mut [u8]) {
+    use std::cell::Cell;
+    thread_local! {
+        // A buffer for reusing between invocations of interleaving and deinterleaving.
+        // Allocating memory is cheap, but zeroing or otherwise initializing it is not.
+        // Doing it hundreds of times (once per block) would be expensive.
+        // This optimization brings down the time spent in interleaving from 15% to 5%.
+        static SCRATCH_SPACE: Cell<Vec<u8>> = Cell::new(Vec::new());
+    }
+
+    fn with_reused_buffer<F>(length: usize, func: F) where F: FnMut(&mut [u8]) {
         SCRATCH_SPACE.with(|scratch_space| {
             // reuse a buffer if we've already initialized one
             let mut buffer = scratch_space.take();
-            if buffer.len() < separated.len() {
-                // efficiently create a zeroed Vec by requesting zeroed memory from the OS
-                buffer = vec![0u8; separated.len()];
+            if buffer.len() < length {
+                // Efficiently create a zeroed Vec by requesting zeroed memory from the OS.
+                // This is slightly faster than a `memcpy()` plus `memset()` that would happen otherwise,
+                // but is not a big deal either way since it's not a hot codepath.
+                buffer = vec![0u8; length];
             }
 
-            // Slice the reused buffer to the size of the input, without losing initialized state like truncate() would.
-            let interleaved = &mut buffer[..separated.len()];
+            // call the function
+            func(&mut buffer[..length]);
+
+            // save the internal buffer for reuse
+            scratch_space.set(buffer);
+        });
+    }
+
+    /// Interleave the bytes such that the second half of the array is every other byte.
+    pub fn interleave_byte_blocks(separated: &mut [u8]) {
+        with_reused_buffer(separated.len(), |interleaved| {
 
             // Split the two halves that we are going to interleave.
             let (first_half, second_half) = separated.split_at((separated.len() + 1) / 2);
@@ -579,24 +572,13 @@ mod optimize_bytes {
 
             // write out the results
             separated.copy_from_slice(&interleaved);
-            // save the internal buffer for reuse
-            scratch_space.set(buffer);
         });
     }
 
 /// Separate the bytes such that the second half contains every other byte.
 /// This performs deinterleaving - the inverse of interleaving.
 pub fn separate_bytes_fragments(source: &mut [u8]) {
-    SCRATCH_SPACE.with(|scratch_space| {
-        // reuse a buffer if we've already initialized one
-        let mut buffer = scratch_space.take();
-        if buffer.len() < source.len() {
-            // efficiently create a zeroed Vec by requesting zeroed memory from the OS
-            buffer = vec![0u8; source.len()];
-        }
-
-        // Slice the reused buffer to the size of the input, without losing initialized state like truncate() would.
-        let separated = &mut buffer[..source.len()];
+    with_reused_buffer(source.len(), |separated| {
 
         // Split the two halves that we are going to interleave.
         let (first_half, second_half) = separated.split_at_mut((source.len() + 1) / 2);
@@ -627,8 +609,6 @@ pub fn separate_bytes_fragments(source: &mut [u8]) {
 
         // write out the results
         source.copy_from_slice(&separated);
-        // save the internal buffer for reuse
-        scratch_space.set(buffer);
     });
 }
 
