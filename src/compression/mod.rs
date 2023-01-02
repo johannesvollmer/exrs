@@ -508,76 +508,106 @@ mod optimize_bytes {
         }
     }
 
+    use std::cell::Cell;
+    thread_local! {
+        // A buffer for reusing between invocations of interleaving and deinterleaving.
+        // Allocating memory is cheap, but zeroing or otherwise initializing it is not.
+        // Doing it hundreds of times (once per block) would be expensive.
+        // This optimization brings down the time spent in interleaving from 15% to 5%.
+        static SCRATCH_SPACE: Cell<Vec<u8>> = Cell::new(Vec::new());
+    }
+
+    fn with_reused_buffer<F>(length: usize, mut func: F) where F: FnMut(&mut [u8]) {
+        SCRATCH_SPACE.with(|scratch_space| {
+            // reuse a buffer if we've already initialized one
+            let mut buffer = scratch_space.take();
+            if buffer.len() < length {
+                // Efficiently create a zeroed Vec by requesting zeroed memory from the OS.
+                // This is slightly faster than a `memcpy()` plus `memset()` that would happen otherwise,
+                // but is not a big deal either way since it's not a hot codepath.
+                buffer = vec![0u8; length];
+            }
+
+            // call the function
+            func(&mut buffer[..length]);
+
+            // save the internal buffer for reuse
+            scratch_space.set(buffer);
+        });
+    }
+
     /// Interleave the bytes such that the second half of the array is every other byte.
     pub fn interleave_byte_blocks(separated: &mut [u8]) {
-        // TODO without extra allocation!
-        let mut interleaved = vec![0; separated.len()];
-        let (first_half, second_half) = separated
-            .split_at((separated.len() + 1) / 2);
+        with_reused_buffer(separated.len(), |interleaved| {
 
-        // The first half can be 1 byte longer than the second if the length of the input is odd,
-        // but the loop below only processes numbers in pairs.
-        // To handle it, preserve the last element of the first slice, to be handled after the loop.
-        let first_half_last = first_half.last();
-        // Truncate the first half to match the lenght of the second one; more optimizer-friendly
-        let first_half_iter = &first_half[..second_half.len()];
+            // Split the two halves that we are going to interleave.
+            let (first_half, second_half) = separated.split_at((separated.len() + 1) / 2);
+            // The first half can be 1 byte longer than the second if the length of the input is odd,
+            // but the loop below only processes numbers in pairs.
+            // To handle it, preserve the last element of the first slice, to be handled after the loop.
+            let first_half_last = first_half.last();
+            // Truncate the first half to match the lenght of the second one; more optimizer-friendly
+            let first_half_iter = &first_half[..second_half.len()];
 
-        // Main loop that performs the interleaving
-        for ((first, second), interleaved) in first_half_iter.iter().zip(second_half.iter())
-            .zip(interleaved.chunks_exact_mut(2)) {
-                // The length of each chunk is known to be 2 at compile time,
-                // and each index is also a constant.
-                // This allows the compiler to remove the bounds checks.
-                interleaved[0] = *first;
-                interleaved[1] = *second;
-        }
-
-        // If the length of the slice was odd, restore the last element of the first half that we saved
-        if interleaved.len() % 2 == 1 {
-            if let Some(value) = first_half_last {
-                // we can unwrap() here because we just checked that the lenght is non-zero:
-                // `% 2 == 1` will fail for zero
-                *interleaved.last_mut().unwrap() = *value;
+            // Main loop that performs the interleaving
+            for ((first, second), interleaved) in first_half_iter.iter().zip(second_half.iter())
+                .zip(interleaved.chunks_exact_mut(2)) {
+                    // The length of each chunk is known to be 2 at compile time,
+                    // and each index is also a constant.
+                    // This allows the compiler to remove the bounds checks.
+                    interleaved[0] = *first;
+                    interleaved[1] = *second;
             }
-        }
 
-        separated.copy_from_slice(interleaved.as_slice())
+            // If the length of the slice was odd, restore the last element of the first half that we saved
+            if interleaved.len() % 2 == 1 {
+                if let Some(value) = first_half_last {
+                    // we can unwrap() here because we just checked that the lenght is non-zero:
+                    // `% 2 == 1` will fail for zero
+                    *interleaved.last_mut().unwrap() = *value;
+                }
+            }
+
+            // write out the results
+            separated.copy_from_slice(&interleaved);
+        });
     }
 
 /// Separate the bytes such that the second half contains every other byte.
 /// This performs deinterleaving - the inverse of interleaving.
 pub fn separate_bytes_fragments(source: &mut [u8]) {
-    // TODO without extra allocation?
-    let mut separated = vec![0; source.len()];
-    let (first_half, second_half) = separated
-        .split_at_mut((source.len() + 1) / 2);
+    with_reused_buffer(source.len(), |separated| {
 
-    // The first half can be 1 byte longer than the second if the length of the input is odd,
-    // but the loop below only processes numbers in pairs.
-    // To handle it, preserve the last element of the input, to be handled after the loop.
-    let last = source.last();
-    let first_half_iter = &mut first_half[..second_half.len()];
+        // Split the two halves that we are going to interleave.
+        let (first_half, second_half) = separated.split_at_mut((source.len() + 1) / 2);
+        // The first half can be 1 byte longer than the second if the length of the input is odd,
+        // but the loop below only processes numbers in pairs.
+        // To handle it, preserve the last element of the input, to be handled after the loop.
+        let last = source.last();
+        let first_half_iter = &mut first_half[..second_half.len()];
 
-    // Main loop that performs the deinterleaving
-    for ((first, second), interleaved) in first_half_iter.iter_mut().zip(second_half.iter_mut())
-        .zip(source.chunks_exact(2)) {
-            // The length of each chunk is known to be 2 at compile time,
-            // and each index is also a constant.
-            // This allows the compiler to remove the bounds checks.
-            *first = interleaved[0];
-            *second = interleaved[1];
-    }
-
-    // If the length of the slice was odd, restore the last element of the input that we saved
-    if source.len() % 2 == 1 {
-        if let Some(value) = last {
-            // we can unwrap() here because we just checked that the lenght is non-zero:
-            // `% 2 == 1` will fail for zero
-            *first_half.last_mut().unwrap() = *value;
+        // Main loop that performs the deinterleaving
+        for ((first, second), interleaved) in first_half_iter.iter_mut().zip(second_half.iter_mut())
+            .zip(source.chunks_exact(2)) {
+                // The length of each chunk is known to be 2 at compile time,
+                // and each index is also a constant.
+                // This allows the compiler to remove the bounds checks.
+                *first = interleaved[0];
+                *second = interleaved[1];
         }
-    }
 
-    source.copy_from_slice(&separated);
+        // If the length of the slice was odd, restore the last element of the input that we saved
+        if source.len() % 2 == 1 {
+            if let Some(value) = last {
+                // we can unwrap() here because we just checked that the lenght is non-zero:
+                // `% 2 == 1` will fail for zero
+                *first_half.last_mut().unwrap() = *value;
+            }
+        }
+
+        // write out the results
+        source.copy_from_slice(&separated);
+    });
 }
 
 
