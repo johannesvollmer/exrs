@@ -159,14 +159,14 @@ fn read_single_image_zips_non_parallel_rgba(bench: &mut Bencher) {
 }
 
 benchmark_group!(read,
+    read_single_image_uncompressed_rgba,
+    read_single_image_uncompressed_non_parallel_rgba,
+    read_single_image_rle_rgba,
+    read_single_image_rle_non_parallel_rgba,
     read_single_image_rle_all_channels,
     read_single_image_rle_non_parallel_all_channels,
-    read_single_image_rle_non_parallel_rgba,
-    read_single_image_rle_rgba,
-    read_single_image_uncompressed_non_parallel_rgba,
-    read_single_image_uncompressed_rgba,
-    read_single_image_zips_non_parallel_rgba,
     read_single_image_zips_rgba,
+    read_single_image_zips_non_parallel_rgba,
 );
 
 benchmark_main!(read);
