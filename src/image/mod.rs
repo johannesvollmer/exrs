@@ -530,8 +530,14 @@ impl Iterator for FlatSampleIterator<'_> {
         }
         else { None }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.layer.channel_data.list.len() - self.channel_index;
+        (remaining, Some(remaining))
+    }
 }
 
+impl ExactSizeIterator for FlatSampleIterator<'_> {}
 
 impl<SampleData> AnyChannels<SampleData>{
 
