@@ -54,7 +54,7 @@ pub struct CompressedScanLineBlock {
     /// One or more scan lines may be stored together as a scan line block.
     /// The number of scan lines per block depends on how the pixel data are compressed.
     /// For each line in the tile, for each channel, the row values are contiguous.
-    pub compressed_pixels: Vec<u8>,
+    pub compressed_pixels: Vec<u8>, // TODO rename to compressed_sample_data
 }
 
 /// This `Block` is a tile of flat (non-deep) data.
@@ -68,7 +68,7 @@ pub struct CompressedTileBlock {
     /// One or more scan lines may be stored together as a scan line block.
     /// The number of scan lines per block depends on how the pixel data are compressed.
     /// For each line in the tile, for each channel, the row values are contiguous.
-    pub compressed_pixels: Vec<u8>,
+    pub compressed_pixels: Vec<u8>, // TODO rename to compressed_sample_data
 }
 
 /// Indicates the position and resolution level of a `TileBlock` or `DeepTileBlock`.

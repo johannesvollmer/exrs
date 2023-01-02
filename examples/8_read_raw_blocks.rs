@@ -89,7 +89,7 @@ fn main() {
             let new_progress = (progress * 100.0) as usize;
             if new_progress != current_progress_percentage {
                 current_progress_percentage = new_progress;
-                println!("progress: {}%", current_progress_percentage)
+                println!("progress: {}%", current_progress_percentage*100.0)
             }
         });
 
