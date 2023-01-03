@@ -273,13 +273,13 @@ pub trait Data: Sized + Default + Clone {
 
     /// Read as many values of type `Self` as specified with `data_size`.
     ///
-    /// This method will not allocate more memory than `soft_max` at once.
     /// If `hard_max` is specified, it will never read any more than that.
     /// Returns `Error::Invalid` if reader does not contain the desired number of elements.
+    /// The `_soft_max` parameter is unused and can be set to any value. It will be removed in the future.
     #[inline]
-    fn read_vec(read: &mut impl Read, data_size: usize, soft_max: usize, hard_max: Option<usize>, purpose: &'static str) -> Result<Vec<Self>> {
+    fn read_vec(read: &mut impl Read, data_size: usize, _soft_max: usize, hard_max: Option<usize>, purpose: &'static str) -> Result<Vec<Self>> {
         let mut vec = Vec::new();
-        Self::read_into_vec(read, &mut vec, data_size, soft_max, hard_max, purpose)?;
+        Self::read_into_vec(read, &mut vec, data_size, _soft_max, hard_max, purpose)?;
         Ok(vec)
     }
 
@@ -292,29 +292,20 @@ pub trait Data: Sized + Default + Clone {
 
     /// Read as many values of type `Self` as specified with `data_size` into the provided vector.
     ///
-    /// This method will not allocate more memory than `soft_max` at once.
     /// If `hard_max` is specified, it will never read any more than that.
     /// Returns `Error::Invalid` if reader does not contain the desired number of elements.
+    /// The `_soft_max` parameter is unused and can be set to any value. It will be removed in the future.
     #[inline]
-    fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, soft_max: usize, hard_max: Option<usize>, purpose: &'static str) -> UnitResult {
+    fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, _soft_max: usize, hard_max: Option<usize>, purpose: &'static str) -> UnitResult {
         if let Some(max) = hard_max {
             if data_size > max {
                 return Err(Error::invalid(purpose))
             }
         }
 
-        let soft_max = hard_max.unwrap_or(soft_max).min(soft_max);
-        let end = data.len() + data_size;
-
-        // do not allocate more than $chunks memory at once
-        // (most of the time, this loop will run only once)
-        while data.len() < end {
-            let chunk_start = data.len();
-            let chunk_end = (chunk_start + soft_max).min(data_size);
-
-            data.resize(chunk_end, Self::default());
-            Self::read_slice(read, &mut data[chunk_start .. chunk_end])?; // safe because of `min(data_size)``
-        }
+        let new_len = data.len() + data_size;
+        data.resize(new_len, Self::default());
+        Self::read_slice(read, data)?;
 
         Ok(())
     }
