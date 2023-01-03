@@ -413,7 +413,9 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
             return Err(chunks);
         }
 
-        let max_threads = pool.max_count().max(1).min(chunks.len()) + 2; // ca one block for each thread at all times
+        // Have up to twice as many sent for decoding at the same time as there are threads.
+        // This ensures that at no point a worker thread is blocked waiting for more work to be sent
+        let max_threads = (pool.max_count().max(1) * 2).min(chunks.len());
 
         let (send, recv) = flume::unbounded(); // TODO bounded channel simplifies logic?
         Ok(Self {
