@@ -285,22 +285,22 @@ impl<Sample: FromNativeSample> SampleReader<Sample> {
         let start_index = pixels.len() * self.channel_byte_offset;
         let byte_count = pixels.len() * self.channel.sample_type.bytes_per_sample();
         let mut own_bytes_reader = &mut &bytes[start_index .. start_index + byte_count]; // TODO check block size somewhere
-        let output = pixels.iter_mut().map(|pixel| get_sample(pixel));
+        let samples_out = pixels.iter_mut().map(|pixel| get_sample(pixel));
 
-        // match outside the loop to avoid matching on every single sample
+        // match the type once for the whole line, not on every single sample
         match self.channel.sample_type {
-            SampleType::F16 => read_and_convert_samples_batched(
-                &mut own_bytes_reader, output,
+            SampleType::F16 => read_and_convert_all_samples_batched(
+                &mut own_bytes_reader, samples_out,
                 Sample::from_f16s
             ),
 
-            SampleType::F32 => read_and_convert_samples_batched(
-                &mut own_bytes_reader, output,
+            SampleType::F32 => read_and_convert_all_samples_batched(
+                &mut own_bytes_reader, samples_out,
                 Sample::from_f32s
             ),
 
-            SampleType::U32 => read_and_convert_samples_batched(
-                &mut own_bytes_reader, output,
+            SampleType::U32 => read_and_convert_all_samples_batched(
+                &mut own_bytes_reader, samples_out,
                 Sample::from_u32s
             ),
         }
@@ -310,7 +310,7 @@ impl<Sample: FromNativeSample> SampleReader<Sample> {
 
         /// performs something similar to
         /// `for sample in out_samples { *sample = Sample::convert_from(f16/f32/u32::read_from_bytes(bytes)); }`
-        fn read_and_convert_samples_batched<'t, From, To>(
+        fn read_and_convert_all_samples_batched<'t, From, To>(
             mut bytes: impl Read,
             mut out_samples: impl ExactSizeIterator<Item=&'t mut To>,
             convert_slice: impl Fn(&[From], &mut [To])
@@ -357,8 +357,9 @@ impl<Sample: FromNativeSample> SampleReader<Sample> {
                 }
             }
 
-            debug_assert!(out_samples.next().is_none(), "not all samples have been written");
+            debug_assert!(out_samples.next().is_none(), "more elements than calculated");
         }
+
     }
 }
 
