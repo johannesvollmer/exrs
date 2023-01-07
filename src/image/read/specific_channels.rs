@@ -316,15 +316,9 @@ impl<Sample: FromNativeSample> SampleReader<Sample> {
             convert_slice: impl Fn(&[From], &mut [To])
         ) where From: Data + Default + Copy, To: 't + Default + Copy
         {
-            // using a batch size of 4
-            // because that's what `half` has vectorization for,
-            // and we want the compiler to
-            // optimize away all the logic in
-            // `HalfFloatSliceExt::convert_from_f32_slice`
-
             // this is not a global! why is this warning triggered?
             #[allow(non_upper_case_globals)]
-            const batch_size: usize = 4;
+            const batch_size: usize = 16;
 
             let mut source_samples_batch: [From; batch_size] = Default::default();
             let mut desired_samples_batch: [To; batch_size] = Default::default();
