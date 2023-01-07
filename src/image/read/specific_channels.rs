@@ -12,6 +12,7 @@ use crate::image::read::layers::{ChannelsReader, ReadChannels};
 use crate::block::chunk::TileCoordinates;
 
 use std::marker::PhantomData;
+use crate::io::Read;
 
 
 /// Can be attached one more channel reader.
@@ -279,30 +280,85 @@ pub struct OptionalSampleReader<DefaultSample> {
 impl<Sample: FromNativeSample> SampleReader<Sample> {
     fn read_own_samples<'s, FullPixel>(
         &self, bytes: &'s[u8], pixels: &mut [FullPixel],
-        get_pixel: impl Fn(&mut FullPixel) -> &mut Sample
+        get_sample: impl Fn(&mut FullPixel) -> &mut Sample
     ){
         let start_index = pixels.len() * self.channel_byte_offset;
         let byte_count = pixels.len() * self.channel.sample_type.bytes_per_sample();
-        let mut own_bytes_reader = &bytes[start_index .. start_index + byte_count]; // TODO check block size somewhere
-
-        let error_msg = "error when reading from in-memory slice";
+        let mut own_bytes_reader = &mut &bytes[start_index .. start_index + byte_count]; // TODO check block size somewhere
+        let output = pixels.iter_mut().map(|pixel| get_sample(pixel));
 
         // match outside the loop to avoid matching on every single sample
         match self.channel.sample_type {
-            SampleType::F16 => for pixel in pixels.iter_mut() {
-                *get_pixel(pixel) = Sample::from_f16(f16::read(&mut own_bytes_reader).expect(error_msg));
-            },
+            SampleType::F16 => read_and_convert_samples_batched(
+                &mut own_bytes_reader, output,
+                Sample::from_f16s
+            ),
 
-            SampleType::F32 => for pixel in pixels.iter_mut() {
-                *get_pixel(pixel) = Sample::from_f32(f32::read(&mut own_bytes_reader).expect(error_msg));
-            },
+            SampleType::F32 => read_and_convert_samples_batched(
+                &mut own_bytes_reader, output,
+                Sample::from_f32s
+            ),
 
-            SampleType::U32 => for pixel in pixels.iter_mut() {
-                *get_pixel(pixel) = Sample::from_u32(u32::read(&mut own_bytes_reader).expect(error_msg));
-            },
+            SampleType::U32 => read_and_convert_samples_batched(
+                &mut own_bytes_reader, output,
+                Sample::from_u32s
+            ),
         }
 
         debug_assert!(own_bytes_reader.is_empty(), "bytes left after reading all samples");
+
+
+        /// performs something similar to
+        /// `for sample in out_samples { *sample = Sample::convert_from(f16/f32/u32::read_from_bytes(bytes)); }`
+        fn read_and_convert_samples_batched<'t, From, To>(
+            mut bytes: impl Read,
+            mut out_samples: impl ExactSizeIterator<Item=&'t mut To>,
+            convert_slice: impl Fn(&[From], &mut [To])
+        ) where From: Data + Default + Copy, To: 't + Default + Copy
+        {
+            // using a batch size of 4
+            // because that's what `half` has vectorization for,
+            // and we want the compiler to
+            // optimize away all the logic in
+            // `HalfFloatSliceExt::convert_from_f32_slice`
+
+            // this is not a global! why is this warning triggered?
+            #[allow(non_upper_case_globals)]
+            const batch_size: usize = 4;
+
+            let mut source_samples_batch: [From; batch_size] = Default::default();
+            let mut desired_samples_batch: [To; batch_size] = Default::default();
+
+            let total_sample_count = out_samples.len();
+            let batch_count = total_sample_count / batch_size;
+            let remaining_samples_count = total_sample_count % batch_size;
+
+            let error_msg = "error when reading from in-memory slice";
+
+            for _ in 0 .. batch_count {
+                Data::read_slice(&mut bytes, &mut source_samples_batch).expect(error_msg);
+                convert_slice(source_samples_batch.as_slice(), desired_samples_batch.as_mut_slice());
+
+                for converted_sample in desired_samples_batch {
+                    *out_samples.next().expect("less elements than calculated") = converted_sample;
+                }
+            }
+
+            if remaining_samples_count != 0 {
+                let source_samples_batch = &mut source_samples_batch[..remaining_samples_count];
+                let desired_samples_batch = &mut desired_samples_batch[..remaining_samples_count];
+
+                // TODO dedup with above
+                Data::read_slice(&mut bytes, source_samples_batch).expect(error_msg);
+                convert_slice(source_samples_batch, desired_samples_batch);
+
+                for converted_sample in desired_samples_batch {
+                    *out_samples.next().expect("less elements than calculated") = *converted_sample;
+                }
+            }
+
+            debug_assert!(out_samples.next().is_none(), "not all samples have been written");
+        }
     }
 }
 
