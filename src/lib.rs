@@ -62,7 +62,7 @@ pub mod prelude {
             specific_channels::{ReadSpecificChannel}
         };
 
-        pub use crate::image::crop::{Crop, CropWhere, CropResult, InspectSample, CroppedChannels, ApplyCroppedView};
+        pub use crate::image::crop::{Crop, CropWhere, CropResult, CroppedChannels, ApplyCroppedView};
     }
 
     pub use traits::*;

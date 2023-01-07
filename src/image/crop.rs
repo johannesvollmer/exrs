@@ -3,27 +3,17 @@
 
 use crate::meta::attribute::{IntegerBounds, LevelMode, ChannelList};
 use crate::math::{Vec2, RoundingMode};
-use crate::image::{Layer, FlatSamples, SpecificChannels, AnyChannels, FlatSamplesPixel, AnyChannel};
+use crate::image::{Layer, FlatSamples, SpecificChannels, AnyChannels, FlatSamplesPixel, AnyChannel, FlatSampleIterator};
 use crate::image::write::channels::{GetPixel, WritableChannels, ChannelsWriter};
 use crate::meta::header::{LayerAttributes, Header};
 use crate::block::BlockIndex;
+use crate::block::samples::Sample;
 
 /// Something that has a two-dimensional rectangular shape
 pub trait GetBounds {
 
     /// The bounding rectangle of this pixel grid.
     fn bounds(&self) -> IntegerBounds;
-}
-
-/// Inspect the pixels in this image to determine where to crop some away
-pub trait InspectSample: GetBounds {
-
-    /// The type of pixel in this pixel grid.
-    type Sample;
-
-    /// Index is not in world coordinates, but within the data window.
-    /// Position `(0,0)` always represents the top left pixel.
-    fn inspect_sample(&self, local_index: Vec2<usize>) -> Self::Sample;
 }
 
 /// Crop some pixels ways when specifying a smaller rectangle
@@ -94,29 +84,6 @@ impl<Channels> Crop for Layer<Channels> {
 
     fn crop(self, bounds: IntegerBounds) -> Self::Cropped {
         CroppedChannels::crop_layer(bounds, self)
-    }
-}
-
-impl<T> CropWhere<T::Sample> for T where T: Crop + InspectSample {
-    type Cropped = <Self as Crop>::Cropped;
-
-    fn crop_where(self, discard_if: impl Fn(T::Sample) -> bool) -> CropResult<Self::Cropped, Self> {
-        let smaller_bounds = {
-            let keep_if = |position| !discard_if(self.inspect_sample(position));
-            try_find_smaller_bounds(self.bounds(), keep_if)
-        };
-
-        self.try_crop(smaller_bounds)
-    }
-
-    fn crop_where_eq(self, discard_color: impl Into<T::Sample>) -> CropResult<Self::Cropped, Self> where T::Sample: PartialEq {
-        let discard_color: T::Sample = discard_color.into();
-        self.crop_where(|sample| sample == discard_color)
-    }
-
-    fn crop_nowhere(self) -> Self::Cropped {
-        let current_bounds = self.bounds();
-        self.crop(current_bounds)
     }
 }
 
@@ -198,18 +165,59 @@ impl<'c, Channels> ChannelsWriter for CroppedWriter<Channels> where Channels: Ch
     }
 }
 
+/*
 impl<Samples, Channels> InspectSample for Layer<SpecificChannels<Samples, Channels>> where Samples: GetPixel {
     type Sample = Samples::Pixel;
     fn inspect_sample(&self, local_index: Vec2<usize>) -> Samples::Pixel {
         self.channel_data.pixels.get_pixel(local_index)
     }
 }
+*/
 
-impl InspectSample for Layer<AnyChannels<FlatSamples>> {
-    type Sample = FlatSamplesPixel;
+impl CropWhere<FlatSampleIterator<'_>> for Layer<AnyChannels<FlatSamples>> {
+    type Cropped = <Self as Crop>::Cropped;
 
-    fn inspect_sample(&self, local_index: Vec2<usize>) -> FlatSamplesPixel {
-        self.sample_vec_at(local_index)
+    fn crop_where(self, discard_if: impl Fn(FlatSampleIterator<'_>) -> bool) -> CropResult<Self::Cropped, Self> {
+        let smaller_bounds = {
+            let keep_if = |position| !discard_if(self.samples_at(position));
+            try_find_smaller_bounds(self.bounds(), keep_if)
+        };
+
+        self.try_crop(smaller_bounds)
+    }
+
+    fn crop_where_eq(self, discard_color: impl Into<impl Iterator<Item=Sample>>) -> CropResult<Self::Cropped, Self> {
+        let discard_color: impl Iterator<Item=Sample> = discard_color.into();
+        self.crop_where(|sample| sample == discard_color)
+    }
+
+    fn crop_nowhere(self) -> Self::Cropped {
+        let current_bounds = self.bounds();
+        self.crop(current_bounds)
+    }
+}
+
+
+impl<T> CropWhere<T::Pixel> for T where T: Crop + GetPixel {
+    type Cropped = <Self as Crop>::Cropped;
+
+    fn crop_where(self, discard_if: impl Fn(T::Pixel) -> bool) -> CropResult<Self::Cropped, Self> {
+        let smaller_bounds = {
+            let keep_if = |position| !discard_if(self.get_pixel(position));
+            try_find_smaller_bounds(self.bounds(), keep_if)
+        };
+
+        self.try_crop(smaller_bounds)
+    }
+
+    fn crop_where_eq(self, discard_color: impl Into<T::Pixel>) -> CropResult<Self::Cropped, Self> where T::Pixel: PartialEq {
+        let discard_color: T::Sample = discard_color.into();
+        self.crop_where(|sample| sample == discard_color)
+    }
+
+    fn crop_nowhere(self) -> Self::Cropped {
+        let current_bounds = self.bounds();
+        self.crop(current_bounds)
     }
 }
 
