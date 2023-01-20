@@ -7,7 +7,7 @@ use std::io::{Read, Seek};
 
 use smallvec::alloc::sync::Arc;
 
-use crate::block::{BlockIndex, UncompressedBlock};
+use crate::block::{BlockIndex, UncompressedBlock, read};
 use crate::block::chunk::{Chunk, TileCoordinates};
 use crate::compression::Compression;
 use crate::error::{Error, Result, u64_to_usize, UnitResult};
@@ -380,6 +380,56 @@ impl<R: ChunksReader> SequentialBlockDecompressor<R> {
             UncompressedBlock::decompress_chunk(compressed_chunk?, &self.remaining_chunks_reader.meta_data(), self.pedantic)
         })
     }
+}
+
+// note: this is just pseudocode, it will be split up into a lot of separate pieces to allow for customization
+fn read_all_blocks_fully_parallel<R, PixelBlock>(
+    mut create_reader_at_byte: impl Sync + FnMut(u64) -> Result<R>,
+    pedantic: bool
+)
+    -> Result<impl Iterator<Result<PixelBlock>>>
+    where R: Read, PixelBlock: PixelsFromDecompressedBlock
+{
+    // TODO no buffer for in-memory vectors
+
+    let mut read_buffered = Tracking::new(BufRead::new(create_reader_at_byte(0)?));
+    let meta = MetaData::read_from_buffered(&mut read_buffered, pedantic)?;
+
+    let offset_tables = MetaData::read_offset_tables(&mut read_buffered, &meta.headers)?;
+
+    if pedantic {
+        validate_offset_tables(
+            meta.headers.as_slice(), &offset_tables,
+            read_buffered.byte_position()
+        )?;
+    }
+
+    std::mem::drop(read_buffered); // TODO re-use when single threaded?
+
+    let meta = Arc::new(meta);
+    let thread_pool = threadpool::Builder::new().build();
+    let (sender, receiver) = ::flume::unbounded(); // TODO bounded? bounded to threadpool size?
+
+    for chunk_index in offset_tables.iter().flatten() {
+        let meta = meta.clone();
+
+        thread_pool.spawn(move ||{
+            let meta = meta.as_ref();
+
+            let result = {
+                // TODO might want to do this on main thread such that the closure does not have to be sync?
+                let file_handle = create_reader_at_byte(chunk_index)?;
+                let chunk = Chunk::read(file_handle, meta)?;
+                let decompressed = UncompressedBlock::decompress_chunk(chunk, meta, pedantic)?;
+                let interleaved = PixelBlock::from_uncompressed_block(decompressed)?;
+                Ok(interleaved)
+            };
+
+            sender.send(result);
+        })
+    }
+
+    receiver.into_iter()
 }
 
 /// Decompress the chunks in a file in parallel.
