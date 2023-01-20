@@ -314,30 +314,7 @@ impl<Sample: FromNativeSample> SampleReader<Sample> {
         fn read_and_convert_all_samples_batched<'t, From, To>(
             mut bytes: impl Read,
             mut out_samples: impl ExactSizeIterator<Item=&'t mut To>,
-            convert_slice: impl Fn(&[From; 16], &mut [To; 16])
-        ) where From: Data + Default + Copy, To: 't + Default + Copy
-        {
-            convert_batched::<'t, From, To>(
-                |source_samples|
-                    From::read_slice(bytes, source_samples)
-                        .expect("failed to read from memory"),
-
-                |converted_samples| {
-                    for sample in converted_samples {
-                        *out_samples.next().expect("less elements than calculated") = sample
-                    }
-                },
-
-                convert_slice
-            );
-
-            debug_assert!(out_samples.next().is_none(), "more elements than calculated");
-        }
-
-        fn convert_batched<'t, From, To>(
-            mut read_values_into: impl FnMut(&mut [From]),
-            mut use_values: impl FnMut(&[To]),
-            convert_slice: impl Fn(&[From; 16], &mut [To; 16]),
+            convert_slice: impl Fn(&[From], &mut [To])
         ) where From: Data + Default + Copy, To: 't + Default + Copy
         {
             // this is not a global! why is this warning triggered?
@@ -345,26 +322,39 @@ impl<Sample: FromNativeSample> SampleReader<Sample> {
             const batch_size: usize = 16;
 
             let mut source_samples_batch: [From; batch_size] = Default::default();
-            let mut converted_samples_batch: [To; batch_size] = Default::default();
+            let mut desired_samples_batch: [To; batch_size] = Default::default();
 
             let total_sample_count = out_samples.len();
             let batch_count = total_sample_count / batch_size;
             let remaining_samples_count = total_sample_count % batch_size;
 
+            let error_msg = "error when reading from in-memory slice";
+
             for _ in 0 .. batch_count {
-                read_values_into(&mut source_samples_batch);
-                convert_slice(&source_samples_batch, &mut converted_samples_batch);
-                use_values(converted_samples_batch.as_slice());
+                Data::read_slice(&mut bytes, &mut source_samples_batch).expect(error_msg);
+                convert_slice(source_samples_batch.as_slice(), desired_samples_batch.as_mut_slice());
+
+                for converted_sample in desired_samples_batch {
+                    *out_samples.next().expect("less elements than calculated") = converted_sample;
+                }
             }
 
             if remaining_samples_count != 0 {
-                read_values_into(&mut source_samples_batch[..remaining_samples_count]);
-                convert_slice(&source_samples_batch, &mut converted_samples_batch);
-                use_values(&converted_samples_batch[..remaining_samples_count]);
+                let source_samples_batch = &mut source_samples_batch[..remaining_samples_count];
+                let desired_samples_batch = &mut desired_samples_batch[..remaining_samples_count];
+
+                // TODO dedup with above
+                Data::read_slice(&mut bytes, source_samples_batch).expect(error_msg);
+                convert_slice(source_samples_batch, desired_samples_batch);
+
+                for converted_sample in desired_samples_batch {
+                    *out_samples.next().expect("less elements than calculated") = *converted_sample;
+                }
             }
 
             debug_assert!(out_samples.next().is_none(), "more elements than calculated");
         }
+
     }
 }
 
