@@ -383,15 +383,14 @@ impl<R: ChunksReader> SequentialBlockDecompressor<R> {
 }
 
 // note: this is just pseudocode, it will be split up into a lot of separate pieces to allow for customization
-fn read_all_blocks_fully_parallel<R, PixelBlock>(
-    mut create_reader_at_byte: impl Sync + FnMut(u64) -> Result<R>,
+fn read_all_blocks_fully_parallel<Read, PixelBlock>(
+    mut create_reader_at_byte: impl Sync + FnMut(u64) -> Result<Read>,
     pedantic: bool
 )
-    -> Result<impl Iterator<Result<PixelBlock>>>
-    where R: Read, PixelBlock: PixelsFromDecompressedBlock
+    -> Result<impl Iterator<Item = Result<PixelBlock>>>
+    where Read: Read, PixelBlock: PixelsFromDecompressedBlock
 {
-    // TODO no buffer for in-memory vectors
-
+    // TODO do not create a buffer for in-memory vectors
     let mut read_buffered = Tracking::new(BufRead::new(create_reader_at_byte(0)?));
     let meta = MetaData::read_from_buffered(&mut read_buffered, pedantic)?;
 
@@ -410,7 +409,7 @@ fn read_all_blocks_fully_parallel<R, PixelBlock>(
     let thread_pool = threadpool::Builder::new().build();
     let (sender, receiver) = ::flume::unbounded(); // TODO bounded? bounded to threadpool size?
 
-    for chunk_index in offset_tables.iter().flatten() {
+    for &chunk_index in offset_tables.iter().flatten() {
         let meta = meta.clone();
 
         thread_pool.spawn(move ||{
