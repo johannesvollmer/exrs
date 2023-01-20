@@ -51,7 +51,7 @@ pub fn compress(channels: &ChannelList, remaining_bytes: Bytes<'_>, area: Intege
 
     // see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
     let remaining_bytes = super::convert_current_to_little_endian(remaining_bytes, channels, area);
-    let mut remaining_bytes = remaining_bytes.as_slice(); // TODO less allocation
+    let mut remaining_bytes = &*remaining_bytes;
 
     let bytes_per_pixel: usize = channels.list.iter()
         .map(|channel| match channel.sample_type {
@@ -138,7 +138,7 @@ pub fn compress(channels: &ChannelList, remaining_bytes: Bytes<'_>, area: Intege
 }
 
 #[cfg_attr(target_endian = "big", allow(unused, unreachable_code))]
-pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, expected_byte_size: usize, pedantic: bool) -> Result<ByteVec> {
+pub fn decompress(channels: &ChannelList, bytes: Bytes, area: IntegerBounds, expected_byte_size: usize, pedantic: bool) -> Result<ByteVec> {
     #[cfg(target_endian = "big")] {
         return Err(Error::unsupported(
             "PXR24 decompression method not supported yet on big endian processor architecture"

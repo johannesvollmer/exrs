@@ -258,7 +258,7 @@ fn cpy_u8(src: &[u16], src_i: usize, dst: &mut [u8], dst_i: usize, n: usize) {
 
 pub fn decompress(
     channels: &ChannelList,
-    compressed: ByteVec,
+    compressed: Bytes,
     rectangle: IntegerBounds,
     expected_byte_size: usize,
     _pedantic: bool,
@@ -496,7 +496,7 @@ pub fn compress(
     // TODO do not convert endianness for f16-only images
     //      see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
     let uncompressed = super::convert_current_to_little_endian(uncompressed, channels, rectangle);
-    let uncompressed = uncompressed.as_slice(); // TODO no alloc
+    let uncompressed = &*uncompressed; 
 
     let mut channel_data = Vec::new();
 
@@ -722,7 +722,7 @@ mod test {
         let compressed = b44::compress(&channels, &pixel_bytes, rectangle, true).unwrap();
 
         let decompressed =
-            b44::decompress(&channels, compressed.clone(), rectangle, pixel_bytes.len(), true).unwrap();
+            b44::decompress(&channels, &compressed, rectangle, pixel_bytes.len(), true).unwrap();
 
         assert_eq!(decompressed.len(), pixel_bytes.len());
 

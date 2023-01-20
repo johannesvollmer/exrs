@@ -15,6 +15,7 @@ mod b44;
 use crate::meta::attribute::{IntegerBounds, SampleType, ChannelList};
 use crate::error::{Result, Error, usize_to_i32};
 use crate::meta::header::Header;
+use std::borrow::Cow;
 
 
 /// A byte vector.
@@ -165,7 +166,12 @@ impl Compression {
 
         use self::Compression::*;
         let compressed_little_endian = match self {
-            Uncompressed => Ok(convert_current_to_little_endian(&uncompressed_native_endian, &header.channels, pixel_section)),
+            Uncompressed => return Ok({
+                match convert_current_to_little_endian(&uncompressed_native_endian, &header.channels, pixel_section) {
+                    Cow::Owned(converted) => converted,
+                    Cow::Borrowed(_original) => uncompressed_native_endian,
+                }
+        }),
             ZIP16 => zip::compress_bytes(&header.channels, &uncompressed_native_endian, pixel_section),
             ZIP1 => zip::compress_bytes(&header.channels, &uncompressed_native_endian, pixel_section),
             RLE => rle::compress_bytes(&header.channels, &uncompressed_native_endian, pixel_section),
@@ -186,12 +192,12 @@ impl Compression {
         }
         else {
             // if we do not use compression, manually convert uncompressed data
-            Ok(convert_current_to_little_endian(&uncompressed_native_endian, &header.channels, pixel_section))
+            Ok(convert_current_to_little_endian(&uncompressed_native_endian, &header.channels, pixel_section).into_owned())
         }
     }
 
     /// Decompress the image section of bytes.
-    pub fn decompress_image_section(self, header: &Header, compressed: ByteVec, pixel_section: IntegerBounds, pedantic: bool) -> Result<ByteVec> {
+    pub fn decompress_image_section(self, header: &Header, compressed: Bytes, pixel_section: IntegerBounds, pedantic: bool) -> Result<ByteVec> {
         let max_tile_size = header.max_block_pixel_size();
 
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
@@ -207,7 +213,7 @@ impl Compression {
         else {
             use self::Compression::*;
             let bytes = match self {
-                Uncompressed => Ok(convert_little_endian_to_current(&compressed, &header.channels, pixel_section)),
+                Uncompressed => Ok(convert_little_endian_to_current(compressed, &header.channels, pixel_section)),
                 ZIP16 => zip::decompress_bytes(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
                 ZIP1 => zip::decompress_bytes(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
                 RLE => rle::decompress_bytes(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
@@ -297,7 +303,7 @@ impl Compression {
 // FIXME this should really be done inside each compression method
 
 #[allow(unused)]
-fn convert_current_to_little_endian(bytes: Bytes<'_>, channels: &ChannelList, rectangle: IntegerBounds) -> ByteVec { // TODO is this really not already somewhere else?
+fn convert_current_to_little_endian<'a>(bytes: Bytes<'a>, channels: &ChannelList, rectangle: IntegerBounds) -> Cow<'a, [u8]> { // TODO is this really not already somewhere else?
     #[cfg(target = "big_endian")] {
         use lebe::prelude::*;
 
@@ -320,7 +326,7 @@ fn convert_current_to_little_endian(bytes: Bytes<'_>, channels: &ChannelList, re
             }
         }
 
-        return little;
+        return Cow::Owned(little);
     }
 
     /*fn convert_big_to_little_endian(
@@ -355,7 +361,7 @@ fn convert_current_to_little_endian(bytes: Bytes<'_>, channels: &ChannelList, re
         }
     }*/
 
-    bytes.to_vec()
+    Cow::Borrowed(bytes)
 }
 
 #[allow(unused)]

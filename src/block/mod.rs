@@ -129,7 +129,7 @@ impl UncompressedBlock {
             CompressedBlock::Tile(CompressedTileBlock { compressed_pixels, .. }) |
             CompressedBlock::ScanLine(CompressedScanLineBlock { compressed_pixels, .. }) => {
                 Ok(UncompressedBlock {
-                    data: header.compression.decompress_image_section(header, compressed_pixels, absolute_indices, pedantic)?,
+                    data: header.compression.decompress_image_section(header, &compressed_pixels, absolute_indices, pedantic)?,
                     index: BlockIndex {
                         layer: chunk.layer_index,
                         pixel_position: absolute_indices.position.to_usize("data indices start")?,
@@ -170,7 +170,7 @@ impl UncompressedBlock {
         if !header.compression.may_loose_data() { debug_assert_eq!(
             &header.compression.decompress_image_section(
                 header,
-                header.compression.compress_image_section(header, data.clone(), absolute_indices)?,
+                &header.compression.compress_image_section(header, data.clone(), absolute_indices)?,
                 absolute_indices,
                 true
             ).unwrap(),

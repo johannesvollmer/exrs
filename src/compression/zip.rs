@@ -14,13 +14,13 @@ use crate::error::Result;
 
 pub fn decompress_bytes(
     channels: &ChannelList,
-    data: ByteVec,
+    data: Bytes,
     rectangle: IntegerBounds,
     expected_byte_size: usize,
     _pedantic: bool,
 ) -> Result<ByteVec> {
     let mut decompressed = miniz_oxide::inflate
-    ::decompress_to_vec_zlib_with_limit(&data, expected_byte_size)
+    ::decompress_to_vec_zlib_with_limit(data, expected_byte_size)
         .map_err(|_| Error::invalid("zlib-compressed data malformed"))?;
 
     differences_to_samples(&mut decompressed);
@@ -31,7 +31,7 @@ pub fn decompress_bytes(
 
 pub fn compress_bytes(channels: &ChannelList, uncompressed: Bytes<'_>, rectangle: IntegerBounds) -> Result<ByteVec> {
     // see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
-    let mut packed = convert_current_to_little_endian(uncompressed, channels, rectangle);
+    let mut packed = convert_current_to_little_endian(uncompressed, channels, rectangle).into_owned();
 
     separate_bytes_fragments(&mut packed);
     samples_to_differences(&mut packed);

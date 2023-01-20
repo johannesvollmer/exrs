@@ -11,12 +11,12 @@ const MAX_RUN_LENGTH : usize = 127;
 
 pub fn decompress_bytes(
     channels: &ChannelList,
-    compressed: ByteVec,
+    compressed: Bytes,
     rectangle: IntegerBounds,
     expected_byte_size: usize,
     pedantic: bool,
 ) -> Result<ByteVec> {
-    let mut remaining = compressed.as_slice();
+    let mut remaining = compressed;
     let mut decompressed = Vec::with_capacity(expected_byte_size.min(8*2048));
 
     while !remaining.is_empty() && decompressed.len() != expected_byte_size {
@@ -45,7 +45,7 @@ pub fn decompress_bytes(
 
 pub fn compress_bytes(channels: &ChannelList, uncompressed: Bytes<'_>, rectangle: IntegerBounds) -> Result<ByteVec> {
     // see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
-    let mut data = super::convert_current_to_little_endian(uncompressed, channels, rectangle);// TODO no alloc
+    let mut data = super::convert_current_to_little_endian(uncompressed, channels, rectangle).into_owned();// TODO no alloc
 
     separate_bytes_fragments(&mut data);
     samples_to_differences(&mut data);

@@ -31,7 +31,7 @@ struct ChannelData {
 
 pub fn decompress(
     channels: &ChannelList,
-    compressed: ByteVec,
+    compressed: Bytes,
     rectangle: IntegerBounds,
     expected_byte_size: usize, // TODO remove expected byte size as it can be computed with `rectangle.size.area() * channels.bytes_per_pixel`
     pedantic: bool
@@ -49,7 +49,7 @@ pub fn decompress(
 
     let mut bitmap = vec![0_u8; BITMAP_SIZE]; // FIXME use bit_vec!
 
-    let mut remaining_input = compressed.as_slice();
+    let mut remaining_input = compressed;
     let min_non_zero = u16::read(&mut remaining_input)? as usize;
     let max_non_zero = u16::read(&mut remaining_input)? as usize;
 
@@ -161,7 +161,7 @@ pub fn compress(
     // TODO do not convert endianness for f16-only images
     //      see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
     let uncompressed = super::convert_current_to_little_endian(uncompressed, channels, rectangle);
-    let uncompressed = uncompressed.as_slice();// TODO no alloc
+    let uncompressed = &*uncompressed;
 
     let mut tmp = vec![0_u16; uncompressed.len() / 2 ];
     let mut channel_data: SmallVec<[ChannelData; 6]> = {
@@ -308,7 +308,7 @@ mod test {
             .collect();
 
         let compressed = piz::compress(&channels, &pixel_bytes, rectangle).unwrap();
-        let decompressed = piz::decompress(&channels, compressed, rectangle, pixel_bytes.len(), true).unwrap();
+        let decompressed = piz::decompress(&channels, &compressed, rectangle, pixel_bytes.len(), true).unwrap();
 
         assert_eq!(pixel_bytes, decompressed);
     }
