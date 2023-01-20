@@ -285,26 +285,27 @@ impl<Sample: FromNativeSample> SampleReader<Sample> {
         let start_index = pixels.len() * self.channel_byte_offset;
         let byte_count = pixels.len() * self.channel.sample_type.bytes_per_sample();
         let mut own_bytes_reader = &mut &bytes[start_index .. start_index + byte_count]; // TODO check block size somewhere
-        let samples_out = pixels.iter_mut().map(|pixel| get_sample(pixel));
+        let mut samples_out = pixels.iter_mut().map(|pixel| get_sample(pixel));
 
         // match the type once for the whole line, not on every single sample
         match self.channel.sample_type {
             SampleType::F16 => read_and_convert_all_samples_batched(
-                &mut own_bytes_reader, samples_out,
+                &mut own_bytes_reader, &mut samples_out,
                 Sample::from_f16s
             ),
 
             SampleType::F32 => read_and_convert_all_samples_batched(
-                &mut own_bytes_reader, samples_out,
+                &mut own_bytes_reader, &mut samples_out,
                 Sample::from_f32s
             ),
 
             SampleType::U32 => read_and_convert_all_samples_batched(
-                &mut own_bytes_reader, samples_out,
+                &mut own_bytes_reader, &mut samples_out,
                 Sample::from_u32s
             ),
         }
 
+        debug_assert!(samples_out.next().is_none(), "not all samples have been converted");
         debug_assert!(own_bytes_reader.is_empty(), "bytes left after reading all samples");
 
 
@@ -312,49 +313,55 @@ impl<Sample: FromNativeSample> SampleReader<Sample> {
         /// and then converts those to the desired sample types.
         /// Uses batches to allow vectorization, converting multiple values with one instruction.
         fn read_and_convert_all_samples_batched<'t, From, To>(
-            mut bytes: impl Read,
-            mut out_samples: impl ExactSizeIterator<Item=&'t mut To>,
-            convert_slice: impl Fn(&[From], &mut [To])
+            mut in_bytes: impl Read,
+            out_samples: &mut impl ExactSizeIterator<Item=&'t mut To>,
+            convert_batch: impl Fn(&[From], &mut [To])
         ) where From: Data + Default + Copy, To: 't + Default + Copy
         {
             // this is not a global! why is this warning triggered?
             #[allow(non_upper_case_globals)]
             const batch_size: usize = 16;
 
-            let mut source_samples_batch: [From; batch_size] = Default::default();
-            let mut desired_samples_batch: [To; batch_size] = Default::default();
-
             let total_sample_count = out_samples.len();
             let batch_count = total_sample_count / batch_size;
             let remaining_samples_count = total_sample_count % batch_size;
 
-            let error_msg = "error when reading from in-memory slice";
+            let len_error_msg = "sample count was miscalculated";
+            let byte_error_msg = "error when reading from in-memory slice";
 
-            for _ in 0 .. batch_count {
-                Data::read_slice(&mut bytes, &mut source_samples_batch).expect(error_msg);
-                convert_slice(source_samples_batch.as_slice(), desired_samples_batch.as_mut_slice());
-
-                for converted_sample in desired_samples_batch {
-                    *out_samples.next().expect("less elements than calculated") = converted_sample;
+            // write samples from a given slice to the output iterator. should be inlined.
+            let output_n_samples = &mut move |samples: &[To]| {
+                for converted_sample in samples {
+                    *out_samples.next().expect(len_error_msg) = *converted_sample;
                 }
+            };
+
+            // read samples from the byte source into a given slice. should be inlined.
+            let read_n_samples = &mut move |samples: &mut [From]| {
+                Data::read_slice(&mut in_bytes, samples).expect(byte_error_msg);
+            };
+
+            // temporary arrays with fixed size, operations should be vectorized within these arrays
+            let mut source_samples_batch: [From; batch_size] = Default::default();
+            let mut desired_samples_batch: [To; batch_size] = Default::default();
+
+            // first convert all whole batches, size statically known to be 16 element arrays
+            for _ in 0 .. batch_count {
+                read_n_samples(&mut source_samples_batch);
+                convert_batch(source_samples_batch.as_slice(), desired_samples_batch.as_mut_slice());
+                output_n_samples(&desired_samples_batch);
             }
 
+            // then convert a partial remaining batch, size known only at runtime
             if remaining_samples_count != 0 {
                 let source_samples_batch = &mut source_samples_batch[..remaining_samples_count];
                 let desired_samples_batch = &mut desired_samples_batch[..remaining_samples_count];
 
-                // TODO dedup with above
-                Data::read_slice(&mut bytes, source_samples_batch).expect(error_msg);
-                convert_slice(source_samples_batch, desired_samples_batch);
-
-                for converted_sample in desired_samples_batch {
-                    *out_samples.next().expect("less elements than calculated") = *converted_sample;
-                }
+                read_n_samples(source_samples_batch);
+                convert_batch(source_samples_batch, desired_samples_batch);
+                output_n_samples(desired_samples_batch);
             }
-
-            debug_assert!(out_samples.next().is_none(), "more elements than calculated");
         }
-
     }
 }
 
