@@ -34,6 +34,7 @@ miniz_oxide = "^0.6.2"         # zip compression for pxr24
 zune-inflate = { version = "^0.2.3", default-features = false, features = ["zlib"] }  # zip decompression, faster than miniz_oxide
 smallvec = "^1.7.0"            # make cache-friendly allocations        TODO profile if smallvec is really an improvement!
 threadpool = "^1.8.1"          # threading for parallel compression     TODO make this an optional feature?
+scoped_threadpool = "0.1.9"    # for fully parallel decompression
 flume = "^0.10.9"              # crossbeam, but less unsafe code        TODO make this an optional feature?
 
 [dev-dependencies]
@@ -45,20 +46,10 @@ rand = "0.8.5"            # used for fuzz testing
 rayon = "1.5.3"           # run tests for many files in parallel
 
 
-[[bench]]
-name = "read"
-harness = false
+
 
 [[bench]]
-name = "profiling"
-harness = false
-
-[[bench]]
-name = "write"
-harness = false
-
-[[bench]]
-name = "pixel_format_conversion"
+name = "read_parallel_file_handles"
 harness = false
 
 
