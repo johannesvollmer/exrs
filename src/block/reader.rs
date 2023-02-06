@@ -3,7 +3,7 @@
 
 use std::convert::TryFrom;
 use std::fmt::Debug;
-use std::io::{Read, Seek, BufReader, SeekFrom};
+use std::io::{Read, Seek, BufReader, SeekFrom, BufRead};
 
 use smallvec::alloc::sync::Arc;
 
@@ -386,8 +386,8 @@ impl<R: ChunksReader> SequentialBlockDecompressor<R> {
 
 
 pub trait MultiReadByteSource: Send + Sync {
-    type Read: Read;
-    type BufferedRead: Read;
+    type Read: Seek + Read;
+    type BufferedRead: Seek + BufRead;
 
     fn create_unbuffered_reader_at_position(&self, position: u64) -> Result<Self::Read>;
     fn create_buffered_reader_at_position(&self, position: u64) -> Result<Self::BufferedRead>;
@@ -427,6 +427,51 @@ impl<T> MultiReadByteSource for std::io::Cursor<T> where T: AsRef<[u8]> + Send +
 }
 
 // note: this is just pseudocode, it will be split up into a lot of separate pieces to allow for customization
+pub fn read_all_blocks_fully_parallel_rayon<PixelBlock, Reader>(
+    byte_source: impl MultiReadByteSource,
+    pixels_from_block: fn(UncompressedBlock) -> Result<PixelBlock>,
+    mut insert_block: impl FnMut(PixelBlock) -> UnitResult,
+    pedantic: bool
+) -> Result<()>
+    where PixelBlock: 'static + Send
+{
+    let (meta, sorted_chunk_offsets) = read_meta_and_chunk_indices(
+        byte_source.create_buffered_reader_at_position(0)?, pedantic
+    )?;
+
+    let meta = Arc::new(meta);
+
+    let (sender, receiver) = ::flume::unbounded(); // TODO bounded? bounded to threadpool size?
+
+    use rayon::prelude::*;
+
+    sorted_chunk_offsets.into_par_iter()
+        .map_init(
+            || (byte_source.create_unbuffered_reader_at_position(0), meta.clone()),
+            |state_ref_mut, chunk_offset| {
+                match state_ref_mut {
+                    (Ok(reader), meta) => {
+                        reader.seek(SeekFrom::Start(chunk_offset))?;
+                        process_chunk(meta.as_ref(), reader, pedantic, pixels_from_block)
+                    },
+                    (Err(_error), _) => todo!(),
+                }
+
+            }
+        )
+        .try_for_each_with(sender, |sender, block| block.map(|block|{
+            sender.send(block).unwrap();
+        }))?;
+
+    // TODO return iter instead
+    for block in receiver.into_iter() {
+        insert_block(block)?;
+    }
+
+    Ok(())
+}
+
+// note: this is just pseudocode, it will be split up into a lot of separate pieces to allow for customization
 pub fn read_all_blocks_fully_parallel<PixelBlock>(
     byte_source: impl MultiReadByteSource,
     pixels_from_block: fn(UncompressedBlock) -> Result<PixelBlock>,
@@ -435,13 +480,70 @@ pub fn read_all_blocks_fully_parallel<PixelBlock>(
 ) -> Result<()>
     where PixelBlock: 'static + Send
 {
+    let (meta, sorted_chunk_offsets) = read_meta_and_chunk_indices(
+        byte_source.create_buffered_reader_at_position(0)?, pedantic
+    )?;
+
+    let meta = Arc::new(meta);
+
+    let thread_count = 32;
+    let mut thread_pool = scoped_threadpool::Pool::new(thread_count);
+
+    let (sender, receiver) = ::flume::unbounded(); // TODO bounded? bounded to threadpool size?
+    let sync_byte_source = Arc::new(byte_source); // TODO borrow instead?
+
+    // must be scoped because we want the multi byte source to contain byte slices, which have a lifetime
+    let result = thread_pool.scoped(|scope|{
+        for chunk_location in sorted_chunk_offsets {
+
+            let meta = meta.clone();
+            let sync_byte_source = sync_byte_source.clone();
+            let sender = sender.clone();
+
+            scope.execute(move ||{
+                //println!("starting job for chunk at byte {}...", chunk_location);
+                let try_process_chunk = move || -> Result<PixelBlock> {
+                    // TODO might want to do open file on main thread such that the closure does not have to be sync?
+                    let reader_for_block = sync_byte_source.as_ref()
+                        .create_unbuffered_reader_at_position(chunk_location)?;
+
+                    let meta = meta.as_ref();
+                    process_chunk(meta, reader_for_block, pedantic, pixels_from_block)
+                };
+
+                let result = try_process_chunk();
+
+                // by now, decompression could have failed in another thread.
+                // the error is then already handled, so in this thread, we simply
+                // don't send the decompressed block and complete
+                let _ = sender.send(result);
+            })
+        }
+
+        // the original sender must be dropped,
+        // as the receiver waits for all senders to be dropped
+        std::mem::drop(sender);
+
+        // this must be done inside the scope, because the scope will block until it is done
+        for block_result in receiver.into_iter() {
+            let block = block_result?;
+            insert_block(block)?;
+        }
+
+        Ok(())
+    });
+
+    result
+}
+
+fn read_meta_and_chunk_indices(
+    byte_source: impl BufRead,
+    pedantic: bool
+) -> Result<(MetaData, Vec<u64>)> {
     //println!("reading all blocks fully parallel...");
 
     // TODO do not create a buffer for in-memory vectors
-    let mut read_buffered = PeekRead::new(Tracking::new(
-        byte_source.create_buffered_reader_at_position(0)?
-    ));
-
+    let mut read_buffered = PeekRead::new(Tracking::new(byte_source));
     let meta = MetaData::read_from_buffered(&mut read_buffered, pedantic)?;
     let offset_tables = MetaData::read_offset_tables(&mut read_buffered, &meta.headers)?;
 
@@ -456,80 +558,22 @@ pub fn read_all_blocks_fully_parallel<PixelBlock>(
         std::mem::drop(read_buffered); // TODO re-use when single threaded?
     }
 
-    let mut sorted_chunk_offsets = offset_tables.iter().flatten().collect::<Vec<_>>();
+    let mut sorted_chunk_offsets = offset_tables.into_iter().flatten().collect::<Vec<_>>();
     sorted_chunk_offsets.sort_unstable();
     //println!("processed offset tables");
+    Ok((meta, sorted_chunk_offsets))
+}
 
-    let meta = Arc::new(meta);
-
-    let thread_count = 32;
-    let mut thread_pool = scoped_threadpool::Pool::new(thread_count)
-        // .thread_name("OpenEXR Block Decompressor".to_string())
-        // todo no more threads than remaining block count (self.len())
-        //.build();
-    ;
-
-    let (sender, receiver) = ::flume::unbounded(); // TODO bounded? bounded to threadpool size?
-    let sync_byte_source = Arc::new(byte_source); // TODO borrow instead?
-
-    //println!("starting thread pool work...");
-
-    // must be scoped because we want the multi byte source to contain byte slices, which have a lifetime
-    let result = thread_pool.scoped(|scope|{
-        for &chunk_location in sorted_chunk_offsets {
-            //println!("adding job for chunk at byte {}...", chunk_location);
-
-            let meta = meta.clone();
-            let sync_byte_source = sync_byte_source.clone();
-            let sender = sender.clone();
-
-            scope.execute(move ||{
-                //println!("starting job for chunk at byte {}...", chunk_location);
-                let try_process_chunk = move || -> Result<PixelBlock> {
-                    // TODO might want to do open file on main thread such that the closure does not have to be sync?
-                    let mut reader_for_block = sync_byte_source.as_ref()
-                        .create_unbuffered_reader_at_position(chunk_location)?;
-
-                    let meta = meta.as_ref();
-                    let chunk = Chunk::read(&mut reader_for_block, meta)?;
-                    let decompressed = UncompressedBlock::decompress_chunk(chunk, meta, pedantic)?;
-                    let interleaved = pixels_from_block(decompressed)?; // TODO maybe PixelBlock::try_from(decompressed)?;
-                    Ok(interleaved)
-                };
-
-                let result = try_process_chunk();
-                //println!("finished job for chunk at byte {}.", chunk_location);
-
-                // by now, decompression could have failed in another thread.
-                // the error is then already handled, so in this thread, we simply
-                // don't send the decompressed block and complete
-                let _ = sender.send(result);
-
-                //println!("terminated job for chunk at byte {}.", chunk_location);
-            })
-        }
-
-
-        //println!("pushed all jobs to the threadpool.");
-        //println!("waiting for all jobs to finish...");
-
-        // the original sender must be dropped,
-        // as the receiver waits for all senders to be dropped
-        std::mem::drop(sender);
-
-        // this must be done inside the scope, because the scope will block until it is done
-        for block_result in receiver.into_iter() {
-            //println!("received an uncompressed block");
-            let block = block_result?;
-            insert_block(block)?;
-        }
-
-        //println!("all jobs finished.");
-        Ok(())
-    });
-
-    //println!("threadpool scope to finished.");
-    result
+fn process_chunk<PixelBlock>(
+    meta: &MetaData,
+    mut reader_for_block: impl Read,
+    pedantic: bool,
+    pixels_from_block: fn(UncompressedBlock) -> Result<PixelBlock>
+) -> Result<PixelBlock> {
+    let chunk = Chunk::read(&mut reader_for_block, meta)?;
+    let decompressed = UncompressedBlock::decompress_chunk(chunk, meta, pedantic)?;
+    let interleaved = pixels_from_block(decompressed)?; // TODO maybe PixelBlock::try_from(decompressed)?;
+    Ok(interleaved)
 }
 
 /// Decompress the chunks in a file in parallel.

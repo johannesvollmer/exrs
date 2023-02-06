@@ -35,6 +35,7 @@ zune-inflate = { version = "^0.2.3", default-features = false, features = ["zlib
 smallvec = "^1.7.0"            # make cache-friendly allocations        TODO profile if smallvec is really an improvement!
 threadpool = "^1.8.1"          # threading for parallel compression     TODO make this an optional feature?
 scoped_threadpool = "0.1.9"    # for fully parallel decompression
+rayon = "1.6.1"                # for fully parallel decompression
 flume = "^0.10.9"              # crossbeam, but less unsafe code        TODO make this an optional feature?
 
 [dev-dependencies]
