@@ -25,6 +25,7 @@ use crate::block::chunk::{CompressedBlock, CompressedTileBlock, CompressedScanLi
 use crate::meta::header::Header;
 use crate::block::lines::{LineIndex, LineRef, LineSlice, LineRefMut};
 use crate::meta::attribute::ChannelList;
+use crate::block::reader::Block;
 
 
 /// Specifies where a block of pixel data should be placed in the actual image.
@@ -47,9 +48,11 @@ pub struct BlockIndex {
     pub level: Vec2<usize>,
 }
 
+pub type UncompressedBlock = Block<ByteVec>; // TODO define block here
+
 /// Contains a block of pixel data and where that data should be placed in the actual image.
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub struct UncompressedBlock {
+pub struct UncompressedBlock1_TODO_REMOVE_ME {
 
     /// Location of the data inside the image.
     pub index: BlockIndex,

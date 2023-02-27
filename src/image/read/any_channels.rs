@@ -9,6 +9,8 @@ use crate::math::Vec2;
 use crate::meta::attribute::{Text, ChannelDescription};
 use crate::image::read::layers::{ReadChannels, ChannelsReader};
 use crate::block::chunk::TileCoordinates;
+use crate::compression::ByteVec;
+use crate::block::reader::Block;
 
 /// A template that creates an [AnyChannelsReader] for each layer in the image.
 /// This loads all channels for each layer.
@@ -93,18 +95,15 @@ impl<'s, S: 's + ReadSamples> ReadChannels<'s> for ReadAnyChannels<S> {
 
 impl<S: SamplesReader> ChannelsReader for AnyChannelsReader<S> {
     type Channels = AnyChannels<S::Samples>;
+    type UnpackedBlockData = ByteVec;
 
     fn filter_block(&self, tile: TileCoordinates) -> bool {
         self.sample_channels_reader.iter().any(|channel| channel.samples.filter_block(tile))
     }
 
-    fn read_block(&mut self, header: &Header, decompressed: UncompressedBlock) -> UnitResult {
-        /*for (bytes, line) in LineIndex::lines_in_block(decompressed.index, header) {
-            let channel = self.sample_channels_reader.get_mut(line.channel).unwrap();
-            channel.samples.read_line(LineSlice { location: line, value: &decompressed.data[bytes] })?;
-        }
+    fn read_block(&mut self, header: &Header, decompressed: Block<ByteVec>) -> UnitResult {
+        let decompressed = UncompressedBlock { index: decompressed.index, data: decompressed.data }; // TODO cleaner
 
-        Ok(())*/
         for line in decompressed.lines(&header.channels) {
             self.sample_channels_reader[line.location.channel].samples.read_line(line)?;
         }

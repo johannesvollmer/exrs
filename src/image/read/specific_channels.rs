@@ -12,6 +12,8 @@ use crate::image::read::layers::{ChannelsReader, ReadChannels};
 use crate::block::chunk::TileCoordinates;
 
 use std::marker::PhantomData;
+use crate::compression::ByteVec;
+use crate::block::reader::Block;
 
 
 /// Can be attached one more channel reader.
@@ -180,10 +182,11 @@ ChannelsReader for SpecificChannelsReader<PixelStorage, SetPixel, PxReader, Pixe
           SetPixel: Fn(&mut PixelStorage, Vec2<usize>, Pixel),
 {
     type Channels = SpecificChannels<PixelStorage, <PxReader::RecursiveChannelDescriptions as IntoNonRecursive>::NonRecursive>;
+    type UnpackedBlockData = ByteVec;
 
     fn filter_block(&self, tile: TileCoordinates) -> bool { tile.is_largest_resolution_level() } // TODO all levels
 
-    fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult {
+    fn read_block(&mut self, header: &Header, block: Block<ByteVec>) -> UnitResult {
         let mut pixels = vec![PxReader::RecursivePixel::default(); block.index.pixel_size.width()]; // TODO allocate once in self
 
         let byte_lines = block.data.chunks_exact(header.channels.bytes_per_pixel * block.index.pixel_size.width());

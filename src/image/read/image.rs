@@ -10,7 +10,7 @@ use std::path::Path;
 use std::io::{Read, BufReader};
 use std::io::Seek;
 use crate::meta::MetaData;
-use crate::block::reader::ChunksReader;
+use crate::block::reader::{ChunksReader, Block, UnpackedBlockData};
 
 /// Specify whether to read the image in parallel,
 /// whether to use pedantic error handling,
@@ -104,8 +104,8 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
     /// Use [`ReadImage::read_from_buffered`] instead, if this is an in-memory reader.
     // TODO Use Parallel<> Wrapper to only require sendable byte source where parallel decompression is required
     #[must_use]
-    pub fn from_chunks<Layers>(mut self, chunks_reader: crate::block::reader::Reader<impl Read + Seek>) -> Result<Image<Layers>>
-        where for<'s> L: ReadLayers<'s, Layers = Layers>
+    pub fn from_chunks<Layers>(mut self, chunks_reader: crate::block::reader::Reader<impl Read + Seek>)
+        -> Result<Image<Layers>> where for<'s> L: ReadLayers<'s, Layers = Layers>
     {
         let Self { pedantic, parallel, ref mut on_progress, ref mut read_layers } = self;
 
@@ -158,7 +158,7 @@ impl<L> ImageWithAttributesReader<L> where L: LayersReader {
     }
 
     /// Load a single pixel block, which has not been filtered, into the reader, accumulating the image
-    fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult {
+    fn read_block(&mut self, headers: &[Header], block: Block<L::UnpackedBlockData>) -> UnitResult {
         self.layers_reader.read_block(headers, block)
     }
 
@@ -197,11 +197,13 @@ pub trait LayersReader {
     /// The type of resulting layers
     type Layers;
 
+    type UnpackedBlockData: UnpackedBlockData;
+
     /// Specify whether a single block of pixels should be loaded from the file
     fn filter_block(&self, meta: &MetaData, tile: TileCoordinates, block: BlockIndex) -> bool;
 
     /// Load a single pixel block, which has not been filtered, into the reader, accumulating the layer
-    fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult;
+    fn read_block(&mut self, headers: &[Header], block: Block<Self::UnpackedBlockData>) -> UnitResult;
 
     /// Deliver the final accumulated layers for the image
     fn into_layers(self) -> Self::Layers;
