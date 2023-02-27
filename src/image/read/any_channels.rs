@@ -3,14 +3,13 @@
 use crate::image::*;
 use crate::meta::header::{Header};
 use crate::error::{Result, UnitResult};
-use crate::block::UncompressedBlock;
+use crate::block::{UncompressedBlock, Block};
 use crate::block::lines::{LineRef};
 use crate::math::Vec2;
 use crate::meta::attribute::{Text, ChannelDescription};
 use crate::image::read::layers::{ReadChannels, ChannelsReader};
 use crate::block::chunk::TileCoordinates;
 use crate::compression::ByteVec;
-use crate::block::reader::Block;
 
 /// A template that creates an [AnyChannelsReader] for each layer in the image.
 /// This loads all channels for each layer.

@@ -7,13 +7,12 @@ use crate::image::*;
 use crate::math::*;
 use crate::meta::header::*;
 use crate::error::*;
-use crate::block::UncompressedBlock;
+use crate::block::{UncompressedBlock, Block};
 use crate::image::read::layers::{ChannelsReader, ReadChannels};
 use crate::block::chunk::TileCoordinates;
 
 use std::marker::PhantomData;
 use crate::compression::ByteVec;
-use crate::block::reader::Block;
 
 
 /// Can be attached one more channel reader.

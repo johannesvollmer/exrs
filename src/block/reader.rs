@@ -7,7 +7,7 @@ use std::io::{Read, Seek};
 
 use smallvec::alloc::sync::Arc;
 
-use crate::block::{BlockIndex, UncompressedBlock};
+use crate::block::{BlockIndex, UncompressedBlock, Block};
 use crate::block::chunk::{Chunk, TileCoordinates};
 use crate::compression::{Compression, ByteVec};
 use crate::error::{Error, Result, u64_to_usize, UnitResult};
@@ -181,11 +181,6 @@ pub struct OnProgressChunksReader<R, F> {
     callback: F,
 }
 
-//  TODO impl UncompressedBlock = Block<ByteVec>?
-pub struct Block<Data> {
-    pub index: BlockIndex,
-    pub data: Data
-}
 
 pub trait UnpackedBlockData: Send + 'static {
     fn unpack(data: ByteVec, index: BlockIndex, headers: &[Header]) -> Self;

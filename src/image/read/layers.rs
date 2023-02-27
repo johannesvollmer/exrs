@@ -3,12 +3,12 @@
 use crate::image::*;
 use crate::meta::header::{Header, LayerAttributes};
 use crate::error::{Result, UnitResult, Error};
-use crate::block::{UncompressedBlock, BlockIndex};
+use crate::block::{UncompressedBlock, BlockIndex, Block};
 use crate::math::Vec2;
 use crate::image::read::image::{ReadLayers, LayersReader};
 use crate::block::chunk::TileCoordinates;
 use crate::meta::MetaData;
-use crate::block::reader::{Block, UnpackedBlockData};
+use crate::block::reader::{UnpackedBlockData};
 
 /// Specify to read all channels, aborting if any one is invalid.
 /// [`ReadRgbaChannels`] or [`ReadAnyChannels<ReadFlatSamples>`].

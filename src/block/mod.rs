@@ -25,7 +25,6 @@ use crate::block::chunk::{CompressedBlock, CompressedTileBlock, CompressedScanLi
 use crate::meta::header::Header;
 use crate::block::lines::{LineIndex, LineRef, LineSlice, LineRefMut};
 use crate::meta::attribute::ChannelList;
-use crate::block::reader::Block;
 
 
 /// Specifies where a block of pixel data should be placed in the actual image.
@@ -48,22 +47,26 @@ pub struct BlockIndex {
     pub level: Vec2<usize>,
 }
 
-pub type UncompressedBlock = Block<ByteVec>; // TODO define block here
-
 /// Contains a block of pixel data and where that data should be placed in the actual image.
-#[derive(Clone, Eq, PartialEq, Debug)]
-pub struct UncompressedBlock1_TODO_REMOVE_ME {
+pub struct Block<Data> {
 
     /// Location of the data inside the image.
     pub index: BlockIndex,
 
-    /// Uncompressed pixel values of the whole block.
-    /// One or more scan lines may be stored together as a scan line block.
-    /// This byte vector contains all pixel rows, one after another.
-    /// For each line in the tile, for each channel, the row values are contiguous.
-    /// Stores all samples of the first channel, then all samples of the second channel, and so on.
-    pub data: ByteVec,
+    pub data: Data
 }
+
+pub type UncompressedBlock = Block<ByteVec>; // TODO instead Block<PackedBlockData>, rename to PackedBlock?
+
+
+/// Uncompressed pixel values of the whole block.
+/// One or more scan lines may be stored together as a scan line block.
+/// This byte vector contains all pixel rows, one after another.
+/// For each line in the tile, for each channel, the row values are contiguous.
+/// Stores all samples of the first channel, then all samples of the second channel, and so on.
+#[derive(Clone, Eq, PartialEq, Debug)]
+struct PackedBlockData(pub ByteVec);
+
 
 /// Immediately reads the meta data from the file.
 /// Then, returns a reader that can be used to read all pixel blocks.

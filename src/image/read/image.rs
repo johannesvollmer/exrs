@@ -4,13 +4,13 @@
 use crate::image::*;
 use crate::meta::header::{Header, ImageAttributes};
 use crate::error::{Result, UnitResult};
-use crate::block::{UncompressedBlock, BlockIndex};
+use crate::block::{UncompressedBlock, BlockIndex, Block};
 use crate::block::chunk::TileCoordinates;
 use std::path::Path;
 use std::io::{Read, BufReader};
 use std::io::Seek;
 use crate::meta::MetaData;
-use crate::block::reader::{ChunksReader, Block, UnpackedBlockData};
+use crate::block::reader::{ChunksReader, UnpackedBlockData};
 
 /// Specify whether to read the image in parallel,
 /// whether to use pedantic error handling,
