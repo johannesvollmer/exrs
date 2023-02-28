@@ -5,10 +5,12 @@ use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::io::{Read, Seek};
 
+#[cfg(feature = "parallel")]
 use smallvec::alloc::sync::Arc;
 
 use crate::block::{BlockIndex, UncompressedBlock};
 use crate::block::chunk::{Chunk, TileCoordinates};
+#[cfg(feature = "parallel")]
 use crate::compression::Compression;
 use crate::error::{Error, Result, u64_to_usize, UnitResult};
 use crate::io::{PeekRead, Tracking};
@@ -214,6 +216,7 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
     /// The order of the blocks is not deterministic.
     /// You can also use `parallel_decompressor` to obtain an iterator instead.
     // FIXME try async + futures instead of rayon! Maybe even allows for external async decoding? (-> impl Stream<UncompressedBlock>)
+    #[cfg(feature = "parallel")]
     fn decompress_parallel(
         self, pedantic: bool,
         mut insert_block: impl FnMut(&MetaData, UncompressedBlock) -> UnitResult
@@ -237,6 +240,7 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
     /// Use `ParallelBlockDecompressor::new` if you want to use your own thread pool.
     /// By default, this uses as many threads as there are CPUs.
     /// Returns the `self` if there is no need for parallel decompression.
+    #[cfg(feature = "parallel")]
     fn parallel_decompressor(self, pedantic: bool) -> std::result::Result<ParallelBlockDecompressor<Self>, Self> {
         let pool = threadpool::Builder::new()
             .thread_name("OpenEXR Block Decompressor".to_string())
@@ -387,6 +391,7 @@ impl<R: ChunksReader> SequentialBlockDecompressor<R> {
 /// starting to decompress the next few blocks.
 /// These jobs will finish, even if you stop reading more blocks.
 /// Implements iterator.
+#[cfg(feature = "parallel")]
 #[derive(Debug)]
 pub struct ParallelBlockDecompressor<R: ChunksReader> {
     remaining_chunks: R,
@@ -401,6 +406,7 @@ pub struct ParallelBlockDecompressor<R: ChunksReader> {
     pool: threadpool::ThreadPool,
 }
 
+#[cfg(feature = "parallel")]
 impl<R: ChunksReader> ParallelBlockDecompressor<R> {
 
     /// Create a new decompressor. Does not immediately spawn any tasks.
@@ -509,7 +515,9 @@ impl<R: ChunksReader> Iterator for SequentialBlockDecompressor<R> {
     fn size_hint(&self) -> (usize, Option<usize>) { self.remaining_chunks_reader.size_hint() }
 }
 
+#[cfg(feature = "parallel")]
 impl<R: ChunksReader> ExactSizeIterator for ParallelBlockDecompressor<R> {}
+#[cfg(feature = "parallel")]
 impl<R: ChunksReader> Iterator for ParallelBlockDecompressor<R> {
     type Item = Result<UncompressedBlock>;
     fn next(&mut self) -> Option<Self::Item> { self.decompress_next_block() }

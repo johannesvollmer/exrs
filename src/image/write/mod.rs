@@ -164,7 +164,12 @@ impl<'img, L, F> WriteImageWithOptions<'img, L, F>
                 );
 
                 let chunk_writer = chunk_writer.on_progress(self.on_progress);
-                if self.parallel { chunk_writer.compress_all_blocks_parallel(&meta, blocks)?; }
+                if self.parallel { 
+                    #[cfg(feature = "parallel")]
+                    chunk_writer.compress_all_blocks_parallel(&meta, blocks)?; 
+                    #[cfg(not(feature = "parallel"))]
+                    chunk_writer.compress_all_blocks_sequential(&meta, blocks)?;
+                }
                 else { chunk_writer.compress_all_blocks_sequential(&meta, blocks)?; }
                 /*let blocks_writer = chunk_writer.as_blocks_writer(&meta);
 

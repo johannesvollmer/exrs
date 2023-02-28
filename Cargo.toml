@@ -33,7 +33,7 @@ bit_field = "^0.10.1"          # exr file version bit flags
 miniz_oxide = "^0.6.2"         # zip compression for pxr24
 zune-inflate = { version = "^0.2.3", default-features = false, features = ["zlib"] }  # zip decompression, faster than miniz_oxide
 smallvec = "^1.7.0"            # make cache-friendly allocations        TODO profile if smallvec is really an improvement!
-threadpool = "^1.8.1"          # threading for parallel compression     TODO make this an optional feature?
+threadpool = {version = "^1.8.1", optional = true}          # threading for parallel compression     TODO make this an optional feature?
 flume = "^0.10.9"              # crossbeam, but less unsafe code        TODO make this an optional feature?
 
 [dev-dependencies]
@@ -44,6 +44,9 @@ walkdir = "2.3.2"         # automatically test things for all files in a directo
 rand = "0.8.5"            # used for fuzz testing
 rayon = "1.5.3"           # run tests for many files in parallel
 
+[features]
+default = ["parallel"]
+parallel = ["threadpool"] # "parallel" is the feature which enables parallel (de)compression, threadpool is the current dependency
 
 [[bench]]
 name = "read"

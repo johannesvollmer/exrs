@@ -10,6 +10,7 @@ use smallvec::alloc::collections::BTreeMap;
 
 use crate::block::UncompressedBlock;
 use crate::block::chunk::{Chunk};
+#[cfg(feature = "parallel")]
 use crate::compression::Compression;
 use crate::error::{Error, Result, UnitResult, usize_to_u64};
 use crate::io::{Data, Tracking, Write};
@@ -80,6 +81,7 @@ pub trait ChunksWriter: Sized {
 
     /// Obtain a new writer that can compress blocks to chunks on multiple threads, which are then passed to this writer.
     /// Returns none if the sequential compressor should be used instead (thread pool creation failure or too large performance overhead).
+    #[cfg(feature = "parallel")]
     fn parallel_blocks_compressor<'w>(&'w mut self, meta: &'w MetaData) -> Option<ParallelBlocksCompressor<'w, Self>> {
         let pool = threadpool::Builder::new()
             .thread_name("OpenEXR Block Compressor".to_string())
@@ -107,6 +109,7 @@ pub trait ChunksWriter: Sized {
     /// Compresses all blocks to the file.
     /// The index of the block must be in increasing line order within the header.
     /// Obtain iterator with `MetaData::collect_ordered_blocks(...)` or similar methods.
+    #[cfg(feature = "parallel")]
     fn compress_all_blocks_parallel(mut self, meta: &MetaData, blocks: impl Iterator<Item=(usize, UncompressedBlock)>) -> UnitResult {
         let mut parallel_writer = match self.parallel_blocks_compressor(meta) {
             None => return self.compress_all_blocks_sequential(meta, blocks),
@@ -334,6 +337,7 @@ impl<'w, W> SequentialBlocksCompressor<'w, W> where W: 'w + ChunksWriter {
 }
 
 /// Compress blocks to a chunk writer with multiple threads.
+#[cfg(feature = "parallel")]
 #[derive(Debug)]
 #[must_use]
 pub struct ParallelBlocksCompressor<'w, W> {
@@ -350,6 +354,7 @@ pub struct ParallelBlocksCompressor<'w, W> {
     next_incoming_chunk_index: usize, // used to remember original chunk order
 }
 
+#[cfg(feature = "parallel")]
 impl<'w, W> ParallelBlocksCompressor<'w, W> where W: 'w + ChunksWriter {
 
     /// New blocks writer. Returns none if sequential compression should be used.

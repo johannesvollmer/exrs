@@ -120,7 +120,12 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
 
         // TODO propagate send requirement further upwards
         if parallel {
+            #[cfg(feature = "parallel")]
             block_reader.decompress_parallel(pedantic, |meta_data, block|{
+                image_collector.read_block(&meta_data.headers, block)
+            })?;
+            #[cfg(not(feature = "parallel"))]
+            block_reader.decompress_sequential(pedantic, |meta_data, block|{
                 image_collector.read_block(&meta_data.headers, block)
             })?;
         }
