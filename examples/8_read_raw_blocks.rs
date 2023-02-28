@@ -4,6 +4,7 @@ extern crate half;
 
 use std::io::{BufReader};
 use std::fs::File;
+use exr::block::UncompressedBlock;
 use exr::block::reader::ChunksReader;
 
 // exr imports
@@ -92,9 +93,8 @@ fn main() {
                 println!("progress: {}%", current_progress_percentage)
             }
         });
-
-    // read all pixel blocks from the image, decompressing in parallel
-    reader.decompress_parallel(true, |meta_data, block|{
+    
+    let on_decompress = |meta_data: &MetaData, block: UncompressedBlock| {
         let header = &meta_data.headers[block.index.layer];
 
         // collect all pixel values from the pixel block
@@ -118,9 +118,14 @@ fn main() {
                 },
             }
         }
-
         Ok(())
-    }).unwrap();
+    };
+
+    // read all pixel blocks from the image, decompressing in parallel
+    #[cfg(feature = "parallel")]
+    reader.decompress_parallel(true, on_decompress).unwrap();
+    #[cfg(not(feature = "parallel"))]
+    reader.decompress_sequential(true, on_decompress).unwrap();
 
     println!("average values: {:#?}", averages);
 
