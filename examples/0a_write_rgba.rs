@@ -20,6 +20,7 @@ fn main() {
 
         // generate (or lookup in your own image)
         // an f32 rgb color for each of the 2048x2048 pixels
+        // (you could also create f16 values here to save disk space)
         |x,y| {
             (
                 x as f32 / 2048.0, // red
