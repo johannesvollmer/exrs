@@ -3,7 +3,7 @@
 use crate::image::*;
 use crate::meta::header::{Header};
 use crate::error::{Result, UnitResult};
-use crate::block::{UncompressedBlock, Block};
+use crate::block::{Block};
 use crate::block::lines::{LineRef};
 use crate::math::Vec2;
 use crate::meta::attribute::{Text, ChannelDescription};
@@ -101,8 +101,6 @@ impl<S: SamplesReader> ChannelsReader for AnyChannelsReader<S> {
     }
 
     fn read_block(&mut self, header: &Header, decompressed: Block<ByteVec>) -> UnitResult {
-        let decompressed = UncompressedBlock { index: decompressed.index, data: decompressed.data }; // TODO cleaner
-
         for line in decompressed.lines(&header.channels) {
             self.sample_channels_reader[line.location.channel].samples.read_line(line)?;
         }

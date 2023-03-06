@@ -4,7 +4,7 @@
 use crate::image::*;
 use crate::meta::header::{Header, ImageAttributes};
 use crate::error::{Result, UnitResult};
-use crate::block::{UncompressedBlock, BlockIndex, Block};
+use crate::block::{BlockIndex, Block};
 use crate::block::chunk::TileCoordinates;
 use std::path::Path;
 use std::io::{Read, BufReader};

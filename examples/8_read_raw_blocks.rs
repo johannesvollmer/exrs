@@ -4,8 +4,7 @@ extern crate half;
 
 use std::io::{BufReader};
 use std::fs::File;
-use exr::block::reader::{ChunksReader, Block};
-use exr::compression::ByteVec;
+use exr::block::reader::{ChunksReader};
 use exr::block::UncompressedBlock;
 
 // exr imports

@@ -14,7 +14,6 @@ use crate::error::{Error, Result, u64_to_usize, UnitResult};
 use crate::io::{PeekRead, Tracking};
 use crate::meta::{MetaData, OffsetTables};
 use crate::meta::header::Header;
-use std::marker::PhantomData;
 
 /// Decode the meta data from a byte source, keeping the source ready for further reading.
 /// Continue decoding the remaining bytes by calling `filtered_chunks` or `all_chunks`.
@@ -183,7 +182,7 @@ pub struct OnProgressChunksReader<R, F> {
 
 
 pub trait UnpackedBlockData: Send + 'static {
-    fn unpack(data: ByteVec, index: BlockIndex, headers: &[Header]) -> Self;
+    fn unpack(block: UncompressedBlock, headers: &[Header]) -> Self;
     // fn avoid_parallel_overhead(channels: &Channels) -> bool;
 }
 
@@ -264,9 +263,7 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
     {
         let mut decompressor = self.sequential_decompressor(pedantic);
         while let Some(block) = decompressor.next() {
-            let UncompressedBlock { data, index } = block?;
-            let data = Unpacked::unpack(data, index, decompressor.meta_data().headers.as_slice()); // TODO does not need allocation technically
-
+            let data = Unpacked::unpack(block?, decompressor.meta_data().headers.as_slice()); // TODO does not need allocation technically
             insert_block(decompressor.meta_data(), Block { data, index })?;
         }
 
@@ -281,8 +278,8 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
 }
 
 impl UnpackedBlockData for ByteVec {
-    fn unpack(data: ByteVec, _index: BlockIndex, _headers: &[Header]) -> Self {
-        data
+    fn unpack(block: UncompressedBlock, _headers: &[Header]) -> Self {
+        block.data
     }
 }
 
@@ -481,8 +478,8 @@ impl<R: ChunksReader, Unpacked: UnpackedBlockData>
 
                     let unpacked_block_or_err =
                         decompressed_or_err.map(|block| Block {
-                            data: Unpacked::unpack(block.data, block.index, &meta.headers),
-                            index: block.index
+                            index: block.index,
+                            data: Unpacked::unpack(block, &meta.headers),
                         });
 
                     // by now, decompressing could have failed in another thread.

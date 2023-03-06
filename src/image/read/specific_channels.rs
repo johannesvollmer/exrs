@@ -7,12 +7,13 @@ use crate::image::*;
 use crate::math::*;
 use crate::meta::header::*;
 use crate::error::*;
-use crate::block::{UncompressedBlock, Block};
+use crate::block::{Block, BlockIndex, UncompressedBlock};
 use crate::image::read::layers::{ChannelsReader, ReadChannels};
 use crate::block::chunk::TileCoordinates;
 
 use std::marker::PhantomData;
 use crate::compression::ByteVec;
+use crate::block::reader::UnpackedBlockData;
 
 
 /// Can be attached one more channel reader.
@@ -173,6 +174,35 @@ pub struct SpecificChannelsReader<PixelStorage, SetPixel, PixelReader, Pixel> {
     px: PhantomData<Pixel>
 }
 
+pub struct UnpackedSpecificPixels<Pixel>(Vec<Pixel>);
+
+impl<PxReader, Pixel> UnpackedBlockData for UnpackedSpecificPixels<Pixel>
+    where   PxReader: RecursivePixelReader,
+            PxReader::RecursivePixel: IntoTuple<Pixel>,
+            PxReader::RecursiveChannelDescriptions: IntoNonRecursive,
+{
+    fn unpack(block: UncompressedBlock, headers: &[Header]) -> Self {
+        let header: &Header = &headers[block.index.layer];
+        let mut pixel_block = Vec::with_capacity(block.index.pixel_size.area());
+
+        let packed_pixel_byte_lines = block.data.chunks_exact(header.channels.bytes_per_pixel * block.index.pixel_size.width());
+        debug_assert_eq!(packed_pixel_byte_lines.len(), block.index.pixel_size.height(), "invalid block lines split");
+
+        let mut recursive_pixels_line = vec![PxReader::RecursivePixel::default(); block.index.pixel_size.width()]; // TODO allocate once in self
+        for (_y_offset, line_bytes) in packed_pixel_byte_lines.enumerate() { // TODO sampling
+            // this two-step copy method should be very cache friendly in theory, and also reduce sample_type lookup count
+            self.pixel_reader.read_pixels(line_bytes, &mut recursive_pixels_line, |px| px);
+
+            for (_x_offset, pixel) in recursive_pixels_line.iter().enumerate() {
+                let pixel = pixel.into_tuple();
+                pixel_block.push(pixel);
+            }
+        }
+
+        UnpackedSpecificPixels(pixel_block)
+    }
+}
+
 impl<PixelStorage, SetPixel, PxReader, Pixel>
 ChannelsReader for SpecificChannelsReader<PixelStorage, SetPixel, PxReader, Pixel>
     where PxReader: RecursivePixelReader,
@@ -181,23 +211,22 @@ ChannelsReader for SpecificChannelsReader<PixelStorage, SetPixel, PxReader, Pixe
           SetPixel: Fn(&mut PixelStorage, Vec2<usize>, Pixel),
 {
     type Channels = SpecificChannels<PixelStorage, <PxReader::RecursiveChannelDescriptions as IntoNonRecursive>::NonRecursive>;
-    type UnpackedBlockData = ByteVec;
+    type UnpackedBlockData = UnpackedSpecificPixels<Pixel>;
 
     fn filter_block(&self, tile: TileCoordinates) -> bool { tile.is_largest_resolution_level() } // TODO all levels
 
-    fn read_block(&mut self, header: &Header, block: Block<ByteVec>) -> UnitResult {
-        let mut pixels = vec![PxReader::RecursivePixel::default(); block.index.pixel_size.width()]; // TODO allocate once in self
+    fn read_block(&mut self, _header: &Header, block: Block<UnpackedSpecificPixels<Pixel>>) -> UnitResult {
+        let set_pixel = &self.set_pixel;
 
-        let byte_lines = block.data.chunks_exact(header.channels.bytes_per_pixel * block.index.pixel_size.width());
-        debug_assert_eq!(byte_lines.len(), block.index.pixel_size.height(), "invalid block lines split");
+        for y in 0 .. block.index.pixel_size.height() {
+            for x in 0 .. block.index.pixel_size.width() {
+                let flat_pixel_index = Vec2(x, y).flat_index_for_size(block.index.pixel_size);
 
-        for (y_offset, line_bytes) in byte_lines.enumerate() { // TODO sampling
-            // this two-step copy method should be very cache friendly in theory, and also reduce sample_type lookup count
-            self.pixel_reader.read_pixels(line_bytes, &mut pixels, |px| px);
-
-            for (x_offset, pixel) in pixels.iter().enumerate() {
-                let set_pixel = &self.set_pixel;
-                set_pixel(&mut self.pixel_storage, block.index.pixel_position + Vec2(x_offset, y_offset), pixel.into_tuple());
+                set_pixel(
+                    &mut self.pixel_storage,
+                    block.index.pixel_position + Vec2(x_offset, y_offset),
+                    block.data[flat_pixel_index]
+                );
             }
         }
 

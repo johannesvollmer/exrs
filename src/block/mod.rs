@@ -48,6 +48,7 @@ pub struct BlockIndex {
 }
 
 /// Contains a block of pixel data and where that data should be placed in the actual image.
+#[derive(Clone, Copy, Eq, Hash, PartialEq, Debug)]
 pub struct Block<Data> {
 
     /// Location of the data inside the image.

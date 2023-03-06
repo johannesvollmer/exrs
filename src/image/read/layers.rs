@@ -3,7 +3,7 @@
 use crate::image::*;
 use crate::meta::header::{Header, LayerAttributes};
 use crate::error::{Result, UnitResult, Error};
-use crate::block::{UncompressedBlock, BlockIndex, Block};
+use crate::block::{BlockIndex, Block};
 use crate::math::Vec2;
 use crate::image::read::image::{ReadLayers, LayersReader};
 use crate::block::chunk::TileCoordinates;
