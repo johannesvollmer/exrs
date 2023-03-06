@@ -213,6 +213,7 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
     /// Decompress all blocks in the file, using multiple cpu cores, and call the supplied closure for each block.
     /// The order of the blocks is not deterministic.
     /// You can also use `parallel_decompressor` to obtain an iterator instead.
+    /// Will fallback to sequential processing where threads are not available, or where it would not speed up the process.
     // FIXME try async + futures instead of rayon! Maybe even allows for external async decoding? (-> impl Stream<UncompressedBlock>)
     fn decompress_parallel(
         self, pedantic: bool,
@@ -238,12 +239,7 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
     /// By default, this uses as many threads as there are CPUs.
     /// Returns the `self` if there is no need for parallel decompression.
     fn parallel_decompressor(self, pedantic: bool) -> std::result::Result<ParallelBlockDecompressor<Self>, Self> {
-        let pool = threadpool::Builder::new()
-            .thread_name("OpenEXR Block Decompressor".to_string())
-            // todo no more threads than remaining block count (self.len())
-            .build();
-
-        ParallelBlockDecompressor::new(self, pedantic, pool)
+        ParallelBlockDecompressor::new(self, pedantic)
     }
 
     /// Return an iterator that decompresses the chunks in this thread.
@@ -398,7 +394,7 @@ pub struct ParallelBlockDecompressor<R: ChunksReader> {
     shared_meta_data_ref: Arc<MetaData>,
     pedantic: bool,
 
-    pool: threadpool::ThreadPool,
+    pool: rayon_core::ThreadPool,
 }
 
 impl<R: ChunksReader> ParallelBlockDecompressor<R> {
@@ -406,16 +402,32 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
     /// Create a new decompressor. Does not immediately spawn any tasks.
     /// Decompression starts after the first call to `next`.
     /// Returns the chunks if parallel decompression should not be used.
-    pub fn new(chunks: R, pedantic: bool, pool: threadpool::ThreadPool) -> std::result::Result<Self, R> {
+    pub fn new(chunks: R, pedantic: bool) -> std::result::Result<Self, R> {
+
+        // if no compression is used in the file, don't use a threadpool
         if chunks.meta_data().headers.iter()
             .all(|head|head.compression == Compression::Uncompressed)
         {
             return Err(chunks);
         }
 
-        let max_threads = pool.max_count().max(1).min(chunks.len()) + 2; // ca one block for each thread at all times
+        let maybe_pool = rayon_core::ThreadPoolBuilder::new()
+            .thread_name(|index| format!("OpenEXR Block Decompressor Thread #{}", index))
+            .build();
+
+        // in case thread pool creation fails (for example on WASM currently),
+        // we revert to sequential decompression
+        let pool = match maybe_pool {
+            Ok(pool) => pool,
+
+            // TODO print warning?
+            Err(_) => return Err(chunks),
+        };
+
+        let max_threads = pool.current_num_threads().max(1).min(chunks.len()) + 2; // ca one block for each thread at all times
 
         let (send, recv) = flume::unbounded(); // TODO bounded channel simplifies logic?
+
         Ok(Self {
             shared_meta_data_ref: Arc::new(chunks.meta_data().clone()),
             currently_decompressing_count: 0,
@@ -431,14 +443,6 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
 
     /// Fill the pool with decompression jobs. Returns the first job that finishes.
     pub fn decompress_next_block(&mut self) -> Option<Result<UncompressedBlock>> {
-        // if self.remaining_chunk_count == 0 { return None; }
-
-        assert_eq!( // propagate panics (in release mode unlikely, but possible of course)
-                    self.pool.panic_count(), 0,
-                    "OpenEXR decompressor thread panicked \
-            (maybe a debug assertion failed) - \
-            Use non-parallel decompression to see panic messages."
-        );
 
         while self.currently_decompressing_count < self.max_threads {
             let block = self.remaining_chunks.next();
@@ -448,26 +452,13 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
                     Err(error) => return Some(Err(error))
                 };
 
-                // TODO if no compression, return directly
-                /*if self.meta_data().headers.get(block.layer_index)
-                    .ok_or_else(|| Error::invalid("header index in block"))?
-                    .compression == Compression::Uncompressed
-                {
-                    if self.remaining_chunk_count > 0 {
-                        let next = self.remaining_chunks.next();
-                        if next.is_some() { self.remaining_chunk_count -= 1; }
-                        return UncompressedBlock::decompress(next, headers); // no actual compression, as data is uncompressed
-                    }
-                }*/
-
-
                 let sender = self.sender.clone();
                 let meta = self.shared_meta_data_ref.clone();
                 let pedantic = self.pedantic;
 
                 self.currently_decompressing_count += 1;
 
-                self.pool.execute(move || {
+                self.pool.spawn_fifo(move || {
                     let decompressed_or_err = UncompressedBlock::decompress_chunk(
                         block, &meta, pedantic
                     );

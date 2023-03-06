@@ -1,6 +1,9 @@
 [![Rust Docs](https://docs.rs/exr/badge.svg)](https://docs.rs/exr) 
-[![Crate Crate](https://img.shields.io/crates/v/exr.svg)](https://crates.io/crates/exr) 
-[![Rust Lang Version](https://img.shields.io/badge/rustc-1.58.1-lightgray.svg)](https://github.com/rust-lang/rust/blob/master/RELEASES.md#version-1581-2022-01-19) 
+[![Rust Crate](https://img.shields.io/crates/v/exr.svg)](https://crates.io/crates/exr) 
+
+[![Rust Lang Version](https://img.shields.io/badge/rustc-1.58.1-lightgray.svg)](https://github.com/rust-lang/rust/blob/master/RELEASES.md#version-1581-2022-01-19)
+[![Wasm Ready](https://img.shields.io/badge/wasm-supported-%236d0)](https://crates.io/crates/exr)
+
 [![Lines of Code](https://tokei.rs/b1/github/johannesvollmer/exrs?category=code)](https://tokei.rs)
 
 # EXRS
@@ -252,6 +255,11 @@ to reduce memory exhaustion attacks.
 -   Safe API (almost impossible to accidentally write invalid files)
 -   This is a pretty detailed README, yay
 -   [Awesome Contributors!](CONTRIBUTORS.md)
+
+### Wasm
+This crate supports the `wasm-unknown-unknown` target.
+Until WASM has threads, decoding and encoding will be slower for compressed files.
+Of course, you will need to read from byte buffers instead of file handles.
 
 ### Running Tests
 
