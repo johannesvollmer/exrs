@@ -427,7 +427,7 @@ impl<'w, W> ParallelBlocksCompressor<'w, W> where W: 'w + ChunksWriter {
         let sender = self.sender.clone();
         let meta = self.meta.clone();
 
-        self.pool.spawn_fifo(move ||{
+        self.pool.spawn(move ||{
             let compressed_or_err = block.compress_to_chunk(&meta.headers);
 
             // by now, decompressing could have failed in another thread.

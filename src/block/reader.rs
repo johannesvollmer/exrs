@@ -458,7 +458,7 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
 
                 self.currently_decompressing_count += 1;
 
-                self.pool.spawn_fifo(move || {
+                self.pool.spawn(move || {
                     let decompressed_or_err = UncompressedBlock::decompress_chunk(
                         block, &meta, pedantic
                     );
