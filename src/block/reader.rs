@@ -4,6 +4,7 @@
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::io::{Read, Seek};
+use rayon_core::{ThreadPool, ThreadPoolBuildError};
 
 use smallvec::alloc::sync::Arc;
 
@@ -394,7 +395,7 @@ pub struct ParallelBlockDecompressor<R: ChunksReader> {
     shared_meta_data_ref: Arc<MetaData>,
     pedantic: bool,
 
-    pool: rayon_core::ThreadPool,
+    pool: ThreadPool,
 }
 
 impl<R: ChunksReader> ParallelBlockDecompressor<R> {
@@ -402,8 +403,22 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
     /// Create a new decompressor. Does not immediately spawn any tasks.
     /// Decompression starts after the first call to `next`.
     /// Returns the chunks if parallel decompression should not be used.
+    /// Use `new_with_thread_pool` to customize the threadpool.
     pub fn new(chunks: R, pedantic: bool) -> std::result::Result<Self, R> {
+        Self::new_with_thread_pool(chunks, pedantic, ||{
+            rayon_core::ThreadPoolBuilder::new()
+                .thread_name(|index| format!("OpenEXR Block Decompressor Thread #{}", index))
+                .build()
+        })
+    }
 
+    /// Create a new decompressor. Does not immediately spawn any tasks.
+    /// Decompression starts after the first call to `next`.
+    /// Returns the chunks if parallel decompression should not be used.
+    pub fn new_with_thread_pool<CreatePool>(chunks: R, pedantic: bool, try_create_thread_pool: CreatePool)
+        -> std::result::Result<Self, R>
+        where CreatePool: FnOnce() -> std::result::Result<ThreadPool, ThreadPoolBuildError>
+    {
         // if no compression is used in the file, don't use a threadpool
         if chunks.meta_data().headers.iter()
             .all(|head|head.compression == Compression::Uncompressed)
@@ -411,13 +426,9 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
             return Err(chunks);
         }
 
-        let maybe_pool = rayon_core::ThreadPoolBuilder::new()
-            .thread_name(|index| format!("OpenEXR Block Decompressor Thread #{}", index))
-            .build();
-
         // in case thread pool creation fails (for example on WASM currently),
         // we revert to sequential decompression
-        let pool = match maybe_pool {
+        let pool = match try_create_thread_pool() {
             Ok(pool) => pool,
 
             // TODO print warning?

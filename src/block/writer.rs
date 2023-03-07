@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::io::Seek;
 use std::iter::Peekable;
 use std::ops::Not;
+use rayon_core::{ThreadPool, ThreadPoolBuildError};
 
 use smallvec::alloc::collections::BTreeMap;
 
@@ -349,18 +350,28 @@ pub struct ParallelBlocksCompressor<'w, W> {
 impl<'w, W> ParallelBlocksCompressor<'w, W> where W: 'w + ChunksWriter {
 
     /// New blocks writer. Returns none if sequential compression should be used.
+    /// Use `new_with_thread_pool` to customize the threadpool.
     pub fn new(meta: &'w MetaData, chunks_writer: &'w mut W) -> Option<Self> {
+        Self::new_with_thread_pool(meta, chunks_writer, ||{
+            rayon_core::ThreadPoolBuilder::new()
+                .thread_name(|index| format!("OpenEXR Block Compressor Thread #{}", index))
+                .build()
+        })
+    }
+
+    /// New blocks writer. Returns none if sequential compression should be used.
+    pub fn new_with_thread_pool<CreatePool>(
+        meta: &'w MetaData, chunks_writer: &'w mut W, try_create_thread_pool: CreatePool)
+        -> Option<Self>
+        where CreatePool: FnOnce() -> std::result::Result<ThreadPool, ThreadPoolBuildError>
+    {
         if meta.headers.iter().all(|head|head.compression == Compression::Uncompressed) {
             return None;
         }
 
-        let maybe_pool = rayon_core::ThreadPoolBuilder::new()
-            .thread_name(|index| format!("OpenEXR Block Compressor Thread #{}", index))
-            .build();
-
         // in case thread pool creation fails (for example on WASM currently),
         // we revert to sequential compression
-        let pool = match maybe_pool {
+        let pool = match try_create_thread_pool() {
             Ok(pool) => pool,
 
             // TODO print warning?
