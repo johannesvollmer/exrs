@@ -31,10 +31,10 @@ lebe = "^0.5.2"                # generic binary serialization
 half = "^2.1.0"                # 16 bit float pixel data type
 bit_field = "^0.10.1"          # exr file version bit flags
 miniz_oxide = "^0.6.2"         # zip compression for pxr24
-zune-inflate = { version = "^0.2.3", default-features = false, features = ["zlib"] }  # zip decompression, faster than miniz_oxide
 smallvec = "^1.7.0"            # make cache-friendly allocations        TODO profile if smallvec is really an improvement!
-threadpool = "^1.8.1"          # threading for parallel compression     TODO make this an optional feature?
+rayon-core = "^1.11.0"         # threading for parallel compression     TODO make this an optional feature?
 flume = "^0.10.9"              # crossbeam, but less unsafe code        TODO make this an optional feature?
+zune-inflate = { version = "^0.2.3", default-features = false, features = ["zlib"] }  # zip decompression, faster than miniz_oxide
 
 [dev-dependencies]
 image = { version = "0.24.3", default-features = false, features = ["png"] }         # used to convert one exr to some pngs

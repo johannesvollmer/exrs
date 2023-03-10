@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::io::Seek;
 use std::iter::Peekable;
 use std::ops::Not;
+use rayon_core::{ThreadPool, ThreadPoolBuildError};
 
 use smallvec::alloc::collections::BTreeMap;
 
@@ -81,12 +82,7 @@ pub trait ChunksWriter: Sized {
     /// Obtain a new writer that can compress blocks to chunks on multiple threads, which are then passed to this writer.
     /// Returns none if the sequential compressor should be used instead (thread pool creation failure or too large performance overhead).
     fn parallel_blocks_compressor<'w>(&'w mut self, meta: &'w MetaData) -> Option<ParallelBlocksCompressor<'w, Self>> {
-        let pool = threadpool::Builder::new()
-            .thread_name("OpenEXR Block Compressor".to_string())
-            // todo no more threads than remaining block count (self.len())
-            .build();
-
-        ParallelBlocksCompressor::new(meta, self, pool)
+        ParallelBlocksCompressor::new(meta, self)
     }
 
     /// Compresses all blocks to the file.
@@ -107,6 +103,7 @@ pub trait ChunksWriter: Sized {
     /// Compresses all blocks to the file.
     /// The index of the block must be in increasing line order within the header.
     /// Obtain iterator with `MetaData::collect_ordered_blocks(...)` or similar methods.
+    /// Will fallback to sequential processing where threads are not available, or where it would not speed up the process.
     fn compress_all_blocks_parallel(mut self, meta: &MetaData, blocks: impl Iterator<Item=(usize, UncompressedBlock)>) -> UnitResult {
         let mut parallel_writer = match self.parallel_blocks_compressor(meta) {
             None => return self.compress_all_blocks_sequential(meta, blocks),
@@ -342,7 +339,7 @@ pub struct ParallelBlocksCompressor<'w, W> {
 
     sender: flume::Sender<Result<(usize, usize, Chunk)>>,
     receiver: flume::Receiver<Result<(usize, usize, Chunk)>>,
-    pool: threadpool::ThreadPool,
+    pool: rayon_core::ThreadPool,
 
     currently_compressing_count: usize,
     written_chunk_count: usize, // used to check for last chunk
@@ -353,12 +350,35 @@ pub struct ParallelBlocksCompressor<'w, W> {
 impl<'w, W> ParallelBlocksCompressor<'w, W> where W: 'w + ChunksWriter {
 
     /// New blocks writer. Returns none if sequential compression should be used.
-    pub fn new(meta: &'w MetaData, chunks_writer: &'w mut W, pool: threadpool::ThreadPool) -> Option<Self> {
+    /// Use `new_with_thread_pool` to customize the threadpool.
+    pub fn new(meta: &'w MetaData, chunks_writer: &'w mut W) -> Option<Self> {
+        Self::new_with_thread_pool(meta, chunks_writer, ||{
+            rayon_core::ThreadPoolBuilder::new()
+                .thread_name(|index| format!("OpenEXR Block Compressor Thread #{}", index))
+                .build()
+        })
+    }
+
+    /// New blocks writer. Returns none if sequential compression should be used.
+    pub fn new_with_thread_pool<CreatePool>(
+        meta: &'w MetaData, chunks_writer: &'w mut W, try_create_thread_pool: CreatePool)
+        -> Option<Self>
+        where CreatePool: FnOnce() -> std::result::Result<ThreadPool, ThreadPoolBuildError>
+    {
         if meta.headers.iter().all(|head|head.compression == Compression::Uncompressed) {
             return None;
         }
 
-        let max_threads = pool.max_count().max(1).min(chunks_writer.total_chunks_count()) + 2; // ca one block for each thread at all times
+        // in case thread pool creation fails (for example on WASM currently),
+        // we revert to sequential compression
+        let pool = match try_create_thread_pool() {
+            Ok(pool) => pool,
+
+            // TODO print warning?
+            Err(_) => return None,
+        };
+
+        let max_threads = pool.current_num_threads().max(1).min(chunks_writer.total_chunks_count()) + 2; // ca one block for each thread at all times
         let (send, recv) = flume::unbounded(); // TODO bounded channel simplifies logic?
 
         Some(Self {
@@ -380,13 +400,6 @@ impl<'w, W> ParallelBlocksCompressor<'w, W> where W: 'w + ChunksWriter {
     // private, as may underflow counter in release mode
     fn write_next_queued_chunk(&mut self) -> UnitResult {
         debug_assert!(self.currently_compressing_count > 0, "cannot wait for chunks as there are none left");
-
-        assert_eq!( // propagate panics (in release mode unlikely, but possible of course)
-                    self.pool.panic_count(), 0,
-                    "OpenEXR compressor thread panicked \
-            (maybe a debug assertion failed) - \
-            Use non-parallel decompression to see panic messages."
-        );
 
         let some_compressed_chunk = self.receiver.recv()
             .expect("cannot receive compressed block");
@@ -425,7 +438,7 @@ impl<'w, W> ParallelBlocksCompressor<'w, W> where W: 'w + ChunksWriter {
         let sender = self.sender.clone();
         let meta = self.meta.clone();
 
-        self.pool.execute(move ||{
+        self.pool.spawn(move ||{
             let compressed_or_err = block.compress_to_chunk(&meta.headers);
 
             // by now, decompressing could have failed in another thread.
