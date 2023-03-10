@@ -10,7 +10,7 @@ use std::path::Path;
 use std::io::{Read, BufReader};
 use std::io::Seek;
 use crate::meta::MetaData;
-use crate::block::reader::{ChunksReader, UnpackedBlockData};
+use crate::block::reader::{ChunksReader, BlockDecoder};
 
 /// Specify whether to read the image in parallel,
 /// whether to use pedantic error handling,
@@ -118,14 +118,16 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
             })?
             .on_progress(on_progress);
 
+        let decoder: <L::Reader as LayersReader>::BlockDecoder = image_collector.layers_reader.create_block_decoder();
+
         // TODO propagate send requirement further upwards
         if parallel {
-            block_reader.decompress_parallel(pedantic, |meta_data, block|{
+            block_reader.decompress_parallel(pedantic, decoder, |meta_data, block|{
                 image_collector.read_block(&meta_data.headers, block)
             })?;
         }
         else {
-            block_reader.decompress_sequential(pedantic, |meta_data, block|{
+            block_reader.decompress_sequential(pedantic, decoder, |meta_data, block|{
                 image_collector.read_block(&meta_data.headers, block)
             })?;
         }
@@ -158,7 +160,7 @@ impl<L> ImageWithAttributesReader<L> where L: LayersReader {
     }
 
     /// Load a single pixel block, which has not been filtered, into the reader, accumulating the image
-    fn read_block(&mut self, headers: &[Header], block: Block<L::UnpackedBlockData>) -> UnitResult {
+    fn read_block(&mut self, headers: &[Header], block: Block<<L::BlockDecoder as BlockDecoder>::Decoded>) -> UnitResult {
         self.layers_reader.read_block(headers, block)
     }
 
@@ -197,13 +199,15 @@ pub trait LayersReader {
     /// The type of resulting layers
     type Layers;
 
-    type UnpackedBlockData: UnpackedBlockData;
+    type BlockDecoder: BlockDecoder;
 
     /// Specify whether a single block of pixels should be loaded from the file
     fn filter_block(&self, meta: &MetaData, tile: TileCoordinates, block: BlockIndex) -> bool;
 
+    fn create_block_decoder(&self) -> Self::BlockDecoder;
+
     /// Load a single pixel block, which has not been filtered, into the reader, accumulating the layer
-    fn read_block(&mut self, headers: &[Header], block: Block<Self::UnpackedBlockData>) -> UnitResult;
+    fn read_block(&mut self, headers: &[Header], block: Block<<Self::BlockDecoder as BlockDecoder>::Decoded>) -> UnitResult;
 
     /// Deliver the final accumulated layers for the image
     fn into_layers(self) -> Self::Layers;

@@ -112,7 +112,7 @@ impl From<Sample> for u32 { #[inline] fn from(s: Sample) -> Self { s.to_u32() } 
 
 /// Create an arbitrary sample type from one of the defined sample types.
 /// Should be compiled to a no-op where the file contains the predicted sample type.
-pub trait FromNativeSample: Sized + Copy + Default + 'static {
+pub trait FromNativeSample: Sized + Copy + Default + 'static + Send + Sync {
 
     /// Create this sample from a f16, trying to represent the same numerical value
     fn from_f16(value: f16) -> Self;

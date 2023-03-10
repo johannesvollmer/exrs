@@ -3,13 +3,14 @@
 use crate::image::*;
 use crate::meta::header::{Header};
 use crate::error::{Result, UnitResult};
-use crate::block::{Block};
+use crate::block::{Block, UncompressedBlock};
 use crate::block::lines::{LineRef};
 use crate::math::Vec2;
 use crate::meta::attribute::{Text, ChannelDescription};
 use crate::image::read::layers::{ReadChannels, ChannelsReader};
 use crate::block::chunk::TileCoordinates;
 use crate::compression::ByteVec;
+use crate::block::reader::BlockDecoder;
 
 /// A template that creates an [AnyChannelsReader] for each layer in the image.
 /// This loads all channels for each layer.
@@ -92,13 +93,26 @@ impl<'s, S: 's + ReadSamples> ReadChannels<'s> for ReadAnyChannels<S> {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct RawBlockDecoder;
+
+impl BlockDecoder for RawBlockDecoder {
+    type Decoded = ByteVec;
+
+    fn decode(&self, _headers: &[Header], block: UncompressedBlock) -> Self::Decoded {
+        block.data
+    }
+}
+
 impl<S: SamplesReader> ChannelsReader for AnyChannelsReader<S> {
     type Channels = AnyChannels<S::Samples>;
-    type UnpackedBlockData = ByteVec;
+    type BlockDecoder = RawBlockDecoder;
 
     fn filter_block(&self, tile: TileCoordinates) -> bool {
         self.sample_channels_reader.iter().any(|channel| channel.samples.filter_block(tile))
     }
+
+    fn create_block_decoder(&self) -> RawBlockDecoder { RawBlockDecoder }
 
     fn read_block(&mut self, header: &Header, decompressed: Block<ByteVec>) -> UnitResult {
         for line in decompressed.lines(&header.channels) {

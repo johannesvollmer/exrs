@@ -3,12 +3,12 @@
 use crate::image::*;
 use crate::meta::header::{Header, LayerAttributes};
 use crate::error::{Result, UnitResult, Error};
-use crate::block::{BlockIndex, Block};
+use crate::block::{BlockIndex, Block, UncompressedBlock};
 use crate::math::Vec2;
 use crate::image::read::image::{ReadLayers, LayersReader};
 use crate::block::chunk::TileCoordinates;
 use crate::meta::MetaData;
-use crate::block::reader::{UnpackedBlockData};
+use crate::block::reader::BlockDecoder;
 
 /// Specify to read all channels, aborting if any one is invalid.
 /// [`ReadRgbaChannels`] or [`ReadAnyChannels<ReadFlatSamples>`].
@@ -90,13 +90,15 @@ pub trait ChannelsReader {
     type Channels;
 
     /// The data that an uncompressed block should be converted to (possibly in multiple threads).
-    type UnpackedBlockData: UnpackedBlockData;
+    type BlockDecoder: BlockDecoder;
 
     /// Specify whether a single block of pixels should be loaded from the file
     fn filter_block(&self, tile: TileCoordinates) -> bool;
 
+    fn create_block_decoder(&self) -> Self::BlockDecoder;
+
     /// Load a single pixel block, which has not been filtered, into the reader, accumulating the channel data
-    fn read_block(&mut self, header: &Header, block: Block<Self::UnpackedBlockData>) -> UnitResult;
+    fn read_block(&mut self, header: &Header, block: Block<<Self::BlockDecoder as BlockDecoder>::Decoded>) -> UnitResult;
 
     /// Deliver the final accumulated channel collection for the image
     fn into_channels(self) -> Self::Channels;
@@ -136,16 +138,35 @@ impl<'s, C> ReadLayers<'s> for ReadAllLayers<C> where C: ReadChannels<'s> {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct LayersBlockDecoder<ChannelsDecoder> {
+    decoder_per_layer: SmallVec<[ChannelsDecoder; 12]>
+}
+
+impl<ChannelsDecoder: BlockDecoder> BlockDecoder for LayersBlockDecoder<ChannelsDecoder> {
+    type Decoded = ChannelsDecoder::Decoded;
+
+    fn decode(&self, headers: &[Header], block: UncompressedBlock) -> Self::Decoded {
+        self.decoder_per_layer[block.index.layer].decode(headers, block)
+    }
+}
+
 impl<C> LayersReader for AllLayersReader<C> where C: ChannelsReader {
     type Layers = Layers<C::Channels>;
-    type UnpackedBlockData = C::UnpackedBlockData;
+    type BlockDecoder = LayersBlockDecoder<C::BlockDecoder>;
 
     fn filter_block(&self, _: &MetaData, tile: TileCoordinates, block: BlockIndex) -> bool {
         let layer = self.layer_readers.get(block.layer).expect("invalid layer index argument");
         layer.channels_reader.filter_block(tile)
     }
 
-    fn read_block(&mut self, headers: &[Header], block: Block<Self::UnpackedBlockData>) -> UnitResult {
+    fn create_block_decoder(&self) -> Self::BlockDecoder {
+        LayersBlockDecoder {
+            decoder_per_layer: self.layer_readers.iter().map(|layer| layer.channels_reader.create_block_decoder()).collect()
+        }
+    }
+
+    fn read_block(&mut self, headers: &[Header], block: Block<<Self::BlockDecoder as BlockDecoder>::Decoded>) -> UnitResult {
         self.layer_readers
             .get_mut(block.index.layer).expect("invalid layer index argument")
             .channels_reader.read_block(headers.get(block.index.layer).expect("invalid header index in block"), block)
@@ -187,13 +208,17 @@ impl<'s, C> ReadLayers<'s> for ReadFirstValidLayer<C> where C: ReadChannels<'s> 
 
 impl<C> LayersReader for FirstValidLayerReader<C> where C: ChannelsReader {
     type Layers = Layer<C::Channels>;
-    type UnpackedBlockData = C::UnpackedBlockData;
+    type BlockDecoder = C::BlockDecoder;
 
     fn filter_block(&self, _: &MetaData, tile: TileCoordinates, block: BlockIndex) -> bool {
         block.layer == self.layer_index && self.layer_reader.channels_reader.filter_block(tile)
     }
 
-    fn read_block(&mut self, headers: &[Header], block: Block<C::UnpackedBlockData>) -> UnitResult {
+    fn create_block_decoder(&self) -> Self::BlockDecoder {
+        self.layer_reader.channels_reader.create_block_decoder()
+    }
+
+    fn read_block(&mut self, headers: &[Header], block: Block<<C::BlockDecoder as BlockDecoder>::Decoded>) -> UnitResult {
         debug_assert_eq!(block.index.layer, self.layer_index, "block should have been filtered out");
         self.layer_reader.channels_reader.read_block(&headers[self.layer_index], block)
     }

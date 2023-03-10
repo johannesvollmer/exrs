@@ -180,11 +180,13 @@ pub struct OnProgressChunksReader<R, F> {
     callback: F,
 }
 
+pub trait BlockDecoder: Clone + Send + Sync + 'static {
+    type Decoded: Send;
 
-pub trait UnpackedBlockData: Send + 'static {
-    fn unpack(block: UncompressedBlock, headers: &[Header]) -> Self;
+    fn decode(&self, headers: &[Header], block: UncompressedBlock) -> Self::Decoded;
     // fn avoid_parallel_overhead(channels: &Channels) -> bool;
 }
+
 
 /// Decode chunks in the file.
 /// The decoded chunks can be decompressed by calling
@@ -220,13 +222,14 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
     /// The order of the blocks is not deterministic.
     /// You can also use `parallel_decompressor` to obtain an iterator instead.
     // FIXME try async + futures instead of rayon! Maybe even allows for external async decoding? (-> impl Stream<UncompressedBlock>)
-    fn decompress_parallel<Unpacked: UnpackedBlockData>(
+    fn decompress_parallel<Decoder: BlockDecoder>(
         self, pedantic: bool,
-        mut insert_block: impl FnMut(&MetaData, Block<Unpacked>) -> UnitResult
+        decoder: Decoder, // required here to allow for parallel conversion
+        mut insert_block: impl FnMut(&MetaData, Block<Decoder::Decoded>) -> UnitResult
     ) -> UnitResult
     {
-        let mut decompressor = match self.parallel_decompressor(pedantic) {
-            Err(old_self) => return old_self.decompress_sequential(pedantic, insert_block),
+        let mut decompressor = match self.parallel_decompressor(decoder.clone(), pedantic) { // TODO no clone
+            Err(old_self) => return old_self.decompress_sequential(pedantic, decoder, insert_block),
             Ok(decompressor) => decompressor,
         };
 
@@ -243,27 +246,30 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
     /// Use `ParallelBlockDecompressor::new` if you want to use your own thread pool.
     /// By default, this uses as many threads as there are CPUs.
     /// Returns the `self` if there is no need for parallel decompression.
-    fn parallel_decompressor<Unpacked: UnpackedBlockData>(self, pedantic: bool)
-        -> std::result::Result<ParallelBlockDecompressor<Self, Unpacked>, Self>
+    fn parallel_decompressor<Decoder: BlockDecoder>(self, decoder: Decoder, pedantic: bool)
+        -> std::result::Result<ParallelBlockDecompressor<Self, Decoder>, Self>
     {
         let pool = threadpool::Builder::new()
             .thread_name("OpenEXR Block Decompressor".to_string())
             // todo no more threads than remaining block count (self.len())
             .build();
 
-        ParallelBlockDecompressor::new(self, pedantic, pool)
+        ParallelBlockDecompressor::new(self, decoder, pedantic, pool)
     }
 
     /// Return an iterator that decompresses the chunks in this thread.
     /// You can alternatively use `sequential_decompressor` if you prefer an external iterator.
-    fn decompress_sequential<Unpacked: UnpackedBlockData>(
+    fn decompress_sequential<Decoder: BlockDecoder>(
         self, pedantic: bool,
-        mut insert_block: impl FnMut(&MetaData, Block<Unpacked>) -> UnitResult
+        decoder: Decoder,
+        mut insert_block: impl FnMut(&MetaData, Block<Decoder::Decoded>) -> UnitResult
     ) -> UnitResult
     {
         let mut decompressor = self.sequential_decompressor(pedantic);
         while let Some(block) = decompressor.next() {
-            let data = Unpacked::unpack(block?, decompressor.meta_data().headers.as_slice()); // TODO does not need allocation technically
+            let block = block?;
+            let index = block.index;
+            let data = decoder.decode(decompressor.meta_data().headers.as_slice(), block); // TODO does not need allocation technically
             insert_block(decompressor.meta_data(), Block { data, index })?;
         }
 
@@ -274,12 +280,6 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
     /// Prepare reading the chunks sequentially, only a single thread, but with less memory overhead.
     fn sequential_decompressor(self, pedantic: bool) -> SequentialBlockDecompressor<Self> {
         SequentialBlockDecompressor { remaining_chunks_reader: self, pedantic }
-    }
-}
-
-impl UnpackedBlockData for ByteVec {
-    fn unpack(block: UncompressedBlock, _headers: &[Header]) -> Self {
-        block.data
     }
 }
 
@@ -403,27 +403,29 @@ impl<R: ChunksReader> SequentialBlockDecompressor<R> {
 /// These jobs will finish, even if you stop reading more blocks.
 /// Implements iterator.
 #[derive(Debug)]
-pub struct ParallelBlockDecompressor<R: ChunksReader, Unpacked> {
+pub struct ParallelBlockDecompressor<R: ChunksReader, Decoder: BlockDecoder> {
     remaining_chunks: R,
-    sender: flume::Sender<Result<Block<Unpacked>>>,
-    receiver: flume::Receiver<Result<Block<Unpacked>>>,
+    sender: flume::Sender<Result<Block<Decoder::Decoded>>>,
+    receiver: flume::Receiver<Result<Block<Decoder::Decoded>>>,
     currently_decompressing_count: usize,
     max_threads: usize,
 
     shared_meta_data_ref: Arc<MetaData>,
     pedantic: bool,
 
+    block_decoder: Arc<Decoder>,
+
     pool: threadpool::ThreadPool
 }
 
-impl<R: ChunksReader, Unpacked: UnpackedBlockData>
-    ParallelBlockDecompressor<R, Unpacked>
+impl<R: ChunksReader, Decoder: BlockDecoder>
+    ParallelBlockDecompressor<R, Decoder>
 {
 
     /// Create a new decompressor. Does not immediately spawn any tasks.
     /// Decompression starts after the first call to `next`.
     /// Returns the chunks if parallel decompression should not be used.
-    pub fn new(chunks: R, pedantic: bool, pool: threadpool::ThreadPool) -> std::result::Result<Self, R> {
+    pub fn new(chunks: R, decoder: Decoder, pedantic: bool, pool: threadpool::ThreadPool) -> std::result::Result<Self, R> {
         if chunks.meta_data().headers.iter()
             .all(|head|head.compression == Compression::Uncompressed)
             // TODO only use single threaded if also no conversion between f32/f16 must be performed
@@ -442,13 +444,13 @@ impl<R: ChunksReader, Unpacked: UnpackedBlockData>
             receiver: recv,
             pedantic,
             max_threads,
-
+            block_decoder: Arc::new(decoder),
             pool,
         })
     }
 
     /// Fill the pool with decompression jobs. Returns the first job that finishes.
-    pub fn decompress_next_block(&mut self) -> Option<Result<Block<Unpacked>>> {
+    pub fn decompress_next_block(&mut self) -> Option<Result<Block<Decoder::Decoded>>> {
         assert_eq!( // propagate panics (in release mode unlikely, but possible of course)
             self.pool.panic_count(), 0,
             "OpenEXR decompressor thread panicked \
@@ -466,6 +468,7 @@ impl<R: ChunksReader, Unpacked: UnpackedBlockData>
 
                 let sender = self.sender.clone();
                 let meta = self.shared_meta_data_ref.clone();
+                let block_decoder = self.block_decoder.clone();
                 let pedantic = self.pedantic;
 
                 self.currently_decompressing_count += 1;
@@ -479,7 +482,7 @@ impl<R: ChunksReader, Unpacked: UnpackedBlockData>
                     let unpacked_block_or_err =
                         decompressed_or_err.map(|block| Block {
                             index: block.index,
-                            data: Unpacked::unpack(block, &meta.headers),
+                            data: block_decoder.decode(&meta.headers, block),
                         });
 
                     // by now, decompressing could have failed in another thread.
@@ -519,9 +522,9 @@ impl<R: ChunksReader> Iterator for SequentialBlockDecompressor<R> {
     fn size_hint(&self) -> (usize, Option<usize>) { self.remaining_chunks_reader.size_hint() }
 }
 
-impl<R: ChunksReader, Data: UnpackedBlockData> ExactSizeIterator for ParallelBlockDecompressor<R, Data> {}
-impl<R: ChunksReader, Data: UnpackedBlockData> Iterator for ParallelBlockDecompressor<R, Data> {
-    type Item = Result<Block<Data>>;
+impl<R: ChunksReader, Decoder: BlockDecoder> ExactSizeIterator for ParallelBlockDecompressor<R, Decoder> {}
+impl<R: ChunksReader, Decoder: BlockDecoder> Iterator for ParallelBlockDecompressor<R, Decoder> {
+    type Item = Result<Block<Decoder::Decoded>>;
     fn next(&mut self) -> Option<Self::Item> { self.decompress_next_block() }
     fn size_hint(&self) -> (usize, Option<usize>) {
         let remaining = self.remaining_chunks.len() + self.currently_decompressing_count;

@@ -4,8 +4,10 @@ extern crate half;
 
 use std::io::{BufReader};
 use std::fs::File;
-use exr::block::reader::{ChunksReader};
+use exr::block::reader::{ChunksReader, BlockDecoder};
 use exr::block::UncompressedBlock;
+use exr::meta::header::Header;
+use exr::image::read::any_channels::RawBlockDecoder;
 
 // exr imports
 extern crate exr;
@@ -94,8 +96,9 @@ fn main() {
             }
         });
 
+
     // read all pixel blocks from the image, decompressing in parallel
-    reader.decompress_parallel(true, |meta_data, block: UncompressedBlock|{
+    reader.decompress_parallel(true, RawBlockDecoder, |meta_data, block: UncompressedBlock|{
         let header = &meta_data.headers[block.index.layer];
 
         // collect all pixel values from the pixel block

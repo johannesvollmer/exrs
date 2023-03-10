@@ -13,7 +13,7 @@ use crate::block::chunk::TileCoordinates;
 
 use std::marker::PhantomData;
 use crate::compression::ByteVec;
-use crate::block::reader::UnpackedBlockData;
+use crate::block::reader::{BlockDecoder};
 
 
 /// Can be attached one more channel reader.
@@ -72,7 +72,7 @@ pub trait ReadSpecificChannel: Sized + CheckDuplicates {
 }
 
 /// A reader containing sub-readers for reading the pixel content of an image.
-pub trait RecursivePixelReader {
+pub trait RecursivePixelReader: Clone + Send + Sync + 'static {
 
     /// The channel descriptions from the image.
     /// Will be converted to a tuple before being stored in `SpecificChannels<_, ChannelDescriptions>`.
@@ -82,7 +82,7 @@ pub trait RecursivePixelReader {
     fn get_descriptions(&self) -> Self::RecursiveChannelDescriptions;
 
     /// The pixel type. Will be converted to a tuple at the end of the process.
-    type RecursivePixel: Copy + Default + 'static;
+    type RecursivePixel: Copy + Default + 'static + Send;
 
     /// Read the line of pixels.
     fn read_pixels<'s, FullPixel>(
@@ -174,14 +174,18 @@ pub struct SpecificChannelsReader<PixelStorage, SetPixel, PixelReader, Pixel> {
     px: PhantomData<Pixel>
 }
 
-pub struct UnpackedSpecificPixels<Pixel>(Vec<Pixel>);
+#[derive(Debug, Clone)]
+pub struct SpecificChannelsBlockDecoder<PixelReader> {
+    pixel_reader: PixelReader
+}
 
-impl<PxReader, Pixel> UnpackedBlockData for UnpackedSpecificPixels<Pixel>
+impl<PxReader> BlockDecoder for SpecificChannelsBlockDecoder<PxReader>
     where   PxReader: RecursivePixelReader,
-            PxReader::RecursivePixel: IntoTuple<Pixel>,
-            PxReader::RecursiveChannelDescriptions: IntoNonRecursive,
+            PxReader::RecursiveChannelDescriptions: IntoNonRecursive
 {
-    fn unpack(block: UncompressedBlock, headers: &[Header]) -> Self {
+    type Decoded = Vec<PxReader::RecursivePixel>;
+
+    fn decode(&self, headers: &[Header], block: UncompressedBlock) -> Self::Decoded {
         let header: &Header = &headers[block.index.layer];
         let mut pixel_block = Vec::with_capacity(block.index.pixel_size.area());
 
@@ -194,38 +198,45 @@ impl<PxReader, Pixel> UnpackedBlockData for UnpackedSpecificPixels<Pixel>
             self.pixel_reader.read_pixels(line_bytes, &mut recursive_pixels_line, |px| px);
 
             for (_x_offset, pixel) in recursive_pixels_line.iter().enumerate() {
-                let pixel = pixel.into_tuple();
-                pixel_block.push(pixel);
+                pixel_block.push(*pixel); // TODO collect
             }
         }
 
-        UnpackedSpecificPixels(pixel_block)
+        pixel_block
     }
 }
+
 
 impl<PixelStorage, SetPixel, PxReader, Pixel>
 ChannelsReader for SpecificChannelsReader<PixelStorage, SetPixel, PxReader, Pixel>
     where PxReader: RecursivePixelReader,
           PxReader::RecursivePixel: IntoTuple<Pixel>,
           PxReader::RecursiveChannelDescriptions: IntoNonRecursive,
-          SetPixel: Fn(&mut PixelStorage, Vec2<usize>, Pixel),
+          SetPixel: Fn(&mut PixelStorage, Vec2<usize>, Pixel)
 {
     type Channels = SpecificChannels<PixelStorage, <PxReader::RecursiveChannelDescriptions as IntoNonRecursive>::NonRecursive>;
-    type UnpackedBlockData = UnpackedSpecificPixels<Pixel>;
+    type BlockDecoder = SpecificChannelsBlockDecoder<PxReader>;
 
     fn filter_block(&self, tile: TileCoordinates) -> bool { tile.is_largest_resolution_level() } // TODO all levels
 
-    fn read_block(&mut self, _header: &Header, block: Block<UnpackedSpecificPixels<Pixel>>) -> UnitResult {
+    fn create_block_decoder(&self) -> Self::BlockDecoder {
+        SpecificChannelsBlockDecoder {
+            pixel_reader: self.pixel_reader.clone()
+        }
+    }
+
+    fn read_block(&mut self, _header: &Header, block: Block<Vec<PxReader::RecursivePixel>>) -> UnitResult {
         let set_pixel = &self.set_pixel;
 
-        for y in 0 .. block.index.pixel_size.height() {
-            for x in 0 .. block.index.pixel_size.width() {
-                let flat_pixel_index = Vec2(x, y).flat_index_for_size(block.index.pixel_size);
+        for y_offset in 0 .. block.index.pixel_size.height() {
+            for x_offset in 0 .. block.index.pixel_size.width() {
+                let flat_pixel_index = Vec2(x_offset, y_offset)
+                    .flat_index_for_size(block.index.pixel_size);
 
                 set_pixel(
                     &mut self.pixel_storage,
                     block.index.pixel_position + Vec2(x_offset, y_offset),
-                    block.data[flat_pixel_index]
+                    block.data[flat_pixel_index].into_tuple()
                 );
             }
         }
@@ -353,7 +364,7 @@ impl RecursivePixelReader for NoneMore {
 impl<Sample, InnerReader: RecursivePixelReader>
     RecursivePixelReader
     for Recursive<InnerReader, SampleReader<Sample>>
-    where Sample: FromNativeSample + 'static
+    where Sample: FromNativeSample
 {
     type RecursiveChannelDescriptions = Recursive<InnerReader::RecursiveChannelDescriptions, ChannelDescription>;
     fn get_descriptions(&self) -> Self::RecursiveChannelDescriptions { Recursive::new(self.inner.get_descriptions(), self.value.channel.clone()) }
