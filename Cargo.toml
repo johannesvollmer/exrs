@@ -12,7 +12,7 @@ repository = "https://github.com/johannesvollmer/exrs"
 readme = "README.md"
 license = "BSD-3-Clause"
 exclude = [ "specification/*", "specification/**", "tests/images/*", "tests/images/**" ]
-rust-version = "1.58.1"
+rust-version = "1.59.0"
 
 [badges]
 maintenance = { status = "actively-developed" }
