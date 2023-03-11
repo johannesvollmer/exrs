@@ -38,25 +38,25 @@ jobs:
 
   verify-msrv:
     runs-on: ubuntu-20.04
-      name: verify minimum supported rust version (ubuntu)
+    name: verify minimum supported rust version (ubuntu)
 
-      # we are using the `cargo-msrv` app
-      # https://github.com/foresterre/cargo-msrv
+    # we are using the `cargo-msrv` app
+    # https://github.com/foresterre/cargo-msrv
 
-      steps:
-        - uses: actions/checkout@v2
+    steps:
+      - uses: actions/checkout@v2
 
-        - name: Install or use cached foresterre/cargo-msrv
-          uses: baptiste0928/cargo-install@v1
-          with:
-            crate: cargo-msrv
+      - name: Install or use cached foresterre/cargo-msrv
+        uses: baptiste0928/cargo-install@v1
+        with:
+          crate: cargo-msrv
 
-        - name: Cache Cargo Dependencies
-          uses: Swatinem/rust-cache@v1.3.0
+      - name: Cache Cargo Dependencies
+        uses: Swatinem/rust-cache@v1.3.0
 
-        - name: Verify the Rustc version declared in `cargo.toml`
-          run: |
-            cargo-msrv verify
+      - name: Verify the Rustc version declared in `cargo.toml`
+        run: |
+          cargo-msrv verify
 
 
   # github actions does not support big endian systems directly, but it does support QEMU.
