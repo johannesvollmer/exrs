@@ -426,10 +426,13 @@ impl<R: ChunksReader, Decoder: BlockDecoder>
     /// Decompression starts after the first call to `next`.
     /// Returns the chunks if parallel decompression should not be used.
     pub fn new(chunks: R, decoder: Decoder, pedantic: bool, pool: threadpool::ThreadPool) -> std::result::Result<Self, R> {
-        if chunks.meta_data().headers.iter()
-            .all(|head|head.compression == Compression::Uncompressed)
-            // TODO only use single threaded if also no conversion between f32/f16 must be performed
-        {
+        let file_has_no_compression = chunks.meta_data().headers.iter()
+            .all(|head|head.compression == Compression::Uncompressed);
+
+        // TODO only use single threaded if also no conversion between f32/f16 must be performed
+        let no_sample_type_conversion_needed = false; // TODO!!
+
+        if file_has_no_compression && no_sample_type_conversion_needed {
             return Err(chunks);
         }
 
