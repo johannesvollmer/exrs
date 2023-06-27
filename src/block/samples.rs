@@ -128,6 +128,8 @@ pub trait FromNativeSample: Sized + Copy + Default + 'static {
     /// Convert all values from the slice into this type.
     /// This function exists to allow the compiler to perform a vectorization optimization.
     /// Note that this default implementation will **not** be vectorized by the compiler automatically.
+    /// For maximum performance you will need to override this function and implement it via
+    /// an explicit batched conversion such as [`convert_to_f32_slice`](https://docs.rs/half/2.3.1/half/slice/trait.HalfFloatSliceExt.html#tymethod.convert_to_f32_slice)
     #[inline]
     fn from_f16s(from: &[f16], to: &mut [Self]) {
         assert_eq!(from.len(), to.len(), "slices must have the same length");
