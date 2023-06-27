@@ -1,6 +1,8 @@
 [![Rust Docs](https://docs.rs/exr/badge.svg)](https://docs.rs/exr) 
-[![Crate Crate](https://img.shields.io/crates/v/exr.svg)](https://crates.io/crates/exr) 
-[![Rust Lang Version](https://img.shields.io/badge/rustc-1.58.1-lightgray.svg)](https://github.com/rust-lang/rust/blob/master/RELEASES.md#version-1581-2022-01-19) 
+[![Rust Crate](https://img.shields.io/crates/v/exr.svg)](https://crates.io/crates/exr)
+[![Rust Lang Version](https://img.shields.io/badge/rustc-1.59.0-lightgray.svg)](https://blog.rust-lang.org/2022/02/24/Rust-1.59.0.html)
+[![Wasm Ready](https://img.shields.io/badge/wasm-supported-%236d0)](https://github.com/johannesvollmer/exrs/actions?query=branch%3Amaster)
+[![downloads](https://img.shields.io/crates/d/exr)](https://crates.io/crates/exr)
 [![Lines of Code](https://tokei.rs/b1/github/johannesvollmer/exrs?category=code)](https://tokei.rs)
 
 # EXRS
@@ -59,8 +61,7 @@ __What we can do:__
 
 - Nice Things
     - [x] no unsafe code, no undefined behaviour
-    - [x] no compiling C++, no configuring CMake, 
-            no setting up external dependencies or environment variables 
+    - [x] no CMake required or environment variables required
     - [x] re-imagined exr api with low barrier of entry
             (see `read_rgba_file`, `write_rgba_file`, `read_all_data_from_file`),
             plus embracing common high-level Rust abstractions
@@ -73,7 +74,6 @@ __What we can do:__
     - [x] write blocks streams, one after another
     - [x] memory mapping automatically supported 
             by using the generic `std::io::Read` and `std::io::Write` traits
-
 
     
 <!-- detailed internal feature checklist:
@@ -161,7 +161,7 @@ __What we can do:__
 Add this to your `Cargo.toml`:
 ```toml
 [dependencies]
-exr = "1.5.3"
+exr = "1.6.4"
 
 # also, optionally add this to your crate for smaller binary size 
 # and better runtime performance
@@ -213,16 +213,6 @@ See the [the examples folder](https://github.com/johannesvollmer/exrs/tree/maste
 
 Or read [the guide](https://github.com/johannesvollmer/exrs/tree/master/GUIDE.md).
 
-### Motivation
-
-Using Rust bindings to a C++ library unfortunately 
-requires compiling one or more C++ Libraries 
-and possibly setting environment variables, 
-which I didn't quite feel like to do, 
-so I wrote this library instead.
-
-Also, I really wanted to have a library 
-which had an 'X' in its name in my git repositories.
 
 ### Goals
 
@@ -239,6 +229,7 @@ Furthermore, this implementation does not try to produce byte-exact file output
 matching the original implementation, instead, it is only aimed for correct output.
 
 #### Safety
+
 This library uses no unsafe code. In fact, this crate is annotated with `#[forbid(unsafe_code)]`.
 Some dependencies use unsafe code, though this is minimized by selecting dependencies carefully.
 
@@ -250,14 +241,58 @@ to reduce memory exhaustion attacks.
 
 -   Flexible API (choose how to store your data instead of receiving an allocated image)
 -   Safe API (almost impossible to accidentally write invalid files)
--   This is a pretty detailed README, yay
+-   "if it compiles, it runs" methodology
 -   [Awesome Contributors!](CONTRIBUTORS.md)
+
+### Wasm
+This crate supports the `wasm-unknown-unknown` target.
+Until WASM has threads, decoding and encoding will be slower for compressed files.
+Of course, you will need to read from byte buffers instead of file handles.
+
+### Motivation
+
+This library does not support the toxic mindset of
+rewriting existing C++ code in Rust just for the sake of switching the language.
+The OpenEXR image format is defined by a proven
+and battle-tested reference implementation.
+
+However, as an alternative to the official reference implementation,
+this library has the opportunity to explore radically different
+designs, no matter what language it is written in. Neat!
+
+Also, I really wanted to have a library
+which had an 'X' in its name in my git repositories.
+
+Keep in mind that there are official Rust bindings to the C++ reference implementation,
+and they offer several advantages over this Rust implementation:
+- they support all the features and can read any file, no surprises
+- they are constantly driven by industry giants,
+  so they have the higher probability of still being maintained in a decade
+- they are battle tested and relied upon by a lot of existing projects
+
+### Specification
+
+This library is modeled after the 
+official [`OpenEXRFileLayout.pdf`](http://www.openexr.com/documentation.html)
+document. Unspecified behavior is concluded from the C++ library.
+
+### Roadmap
+1. Support all compression formats (missing format: DWAA/DWAB)
+1. Support subsampling
+1. Support Deep Data
+1. Automatic conversion between color spaces
+1. Profiling and other optimization
+1. Tooling (Image Viewer App, Metadata Extraction Tool, ...)
+
+## Contributing
+This project has awesome contributors and is welcoming for
+contributions on [Github](https://github.com/johannesvollmer/exrs).
 
 ### Running Tests
 
 To run all fast tests on your native system, use `cargo test`.
 
-To start fuzzing on your native system indefinitely, 
+To start fuzzing on your native system indefinitely,
 use `cargo test --package exr --test fuzz fuzz -- --exact --ignored`.
 
 To run all fast tests on an emulated system, use one of the following commands.
@@ -266,16 +301,3 @@ and `cross-rs` to be installed on your machine (`cargo install cross-rs`).
 - Mips (Big Endian) `cross test --target mips-unknown-linux-gnu --verbose`
 
 To benchmark the library, simply run `cargo bench`.
-
-### Specification
-
-This library is modeled after the 
-official [`OpenEXRFileLayout.pdf`](http://www.openexr.com/documentation.html)
-document. Unspecified behavior is concluded from the C++ library.
-
-### PRIORITIES
-1. Support all compression formats
-1. Support Deep Data
-1. Simple rendering of common image formats
-1. Profiling and other optimization
-1. Tooling (Image Viewer App)

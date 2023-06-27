@@ -36,6 +36,26 @@ jobs:
       - name: Run tests
         run: cargo test --verbose
 
+  verify-msrv:
+    runs-on: ubuntu-latest
+    name: verify minimum supported rust version (ubuntu)
+    timeout-minutes: 30
+
+    # we are using the `cargo-msrv` app
+    # https://github.com/foresterre/cargo-msrv
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install or use cached foresterre/cargo-msrv
+        uses: baptiste0928/cargo-install@v1
+        with:
+          crate: cargo-msrv
+
+      - name: Verify the Rustc version declared in `cargo.toml`
+        run: |
+          cargo-msrv verify
+
   # github actions does not support big endian systems directly, but it does support QEMU.
   # so we install qemu, cross-compile to sparc64, and then run the tests in an emulated sparc64.
   # see https://github.com/wasm3/wasm3/blob/main/.github/workflows/tests.yml#L318

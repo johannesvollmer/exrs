@@ -630,10 +630,10 @@ pub fn compress(
                         let j = min(i, n - 1) * 2;
 
                         // TODO: Make [u8; 2] to u16 fast.
-                        s[i + 0] = u16::from_ne_bytes([tmp[(row0 + j)], tmp[(row0 + j + 1)]]);
-                        s[i + 4] = u16::from_ne_bytes([tmp[(row1 + j)], tmp[(row1 + j + 1)]]);
-                        s[i + 8] = u16::from_ne_bytes([tmp[(row2 + j)], tmp[(row2 + j + 1)]]);
-                        s[i + 12] = u16::from_ne_bytes([tmp[(row3 + j)], tmp[(row3 + j + 1)]]);
+                        s[i + 0] = u16::from_ne_bytes([tmp[row0 + j], tmp[row0 + j + 1]]);
+                        s[i + 4] = u16::from_ne_bytes([tmp[row1 + j], tmp[row1 + j + 1]]);
+                        s[i + 8] = u16::from_ne_bytes([tmp[row2 + j], tmp[row2 + j + 1]]);
+                        s[i + 12] = u16::from_ne_bytes([tmp[row3 + j], tmp[row3 + j + 1]]);
                     }
                 } else {
                     memcpy_u8_to_u16(&tmp[row0..(row0 + BLOCK_X_BYTE_COUNT)], &mut s[0..4]);
