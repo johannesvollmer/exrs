@@ -151,7 +151,10 @@ pub trait FromNativeSample: Sized + Copy + Default + 'static {
 
     /// Convert all values from the slice into this type.
     /// This function exists to allow the compiler to perform a vectorization optimization.
-    /// Note that this default implementation will **not** be vectorized by the compiler automatically.
+    /// Note that this default implementation will be vectorized by the compiler automatically,
+    /// provided that the CPU supports the necessary conversion instructions.
+    /// For example, x86_64 lacks the instructions to convert `u32` to floats,
+    /// so this will inevitably be slow on x86_64.
     #[inline]
     fn from_u32s(from: &[u32], to: &mut [Self]) {
         assert_eq!(from.len(), to.len(), "slices must have the same length");
