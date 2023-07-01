@@ -10,3 +10,6 @@ testout
 ./*.exr
 pngs/
 ./*.png
+
+# ignore Cargo.lock since this is package
+Cargo.lock
