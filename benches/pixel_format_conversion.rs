@@ -17,30 +17,47 @@ const F16_UNCOMPRESSED_PATH: &'static str = "tests/images/valid/custom/crowskull
 const F16_ZIP_PATH: &'static str = "tests/images/valid/custom/crowskull/crow_zip_half.exr";
 
 /// Read an image from an in-memory buffer into its native f32 format
-fn read_f32_to_f32_uncompressed(bench: &mut Bencher) {
+fn read_f32_to_f32_uncompressed_1thread(bench: &mut Bencher) {
     bench_read_image_rgba_to::<f32>(bench, F32_UNCOMPRESSED_PATH, false);
 }
 
 /// Read image and convert the samples to u32 (from native f32)
-fn read_f32_to_u32_uncompressed(bench: &mut Bencher) {
+fn read_f32_to_u32_uncompressed_1thread(bench: &mut Bencher) {
     bench_read_image_rgba_to::<u32>(bench, F32_UNCOMPRESSED_PATH, false);
 }
 
 /// f16 is not natively supported by CPUs, which introduces unique performance pitfalls
-fn read_f32_to_f16_uncompressed(bench: &mut Bencher) {
+fn read_f32_to_f16_uncompressed_1thread(bench: &mut Bencher) {
     bench_read_image_rgba_to::<f16>(bench, F32_UNCOMPRESSED_PATH, false);
 }
 
-fn read_f16_to_f16_uncompressed(bench: &mut Bencher) {
+fn read_f16_to_f16_uncompressed_1thread(bench: &mut Bencher) {
     bench_read_image_rgba_to::<f16>(bench, F16_UNCOMPRESSED_PATH, false);
 }
 
-fn read_f16_to_f32_uncompressed(bench: &mut Bencher) {
+fn read_f16_to_f32_uncompressed_1thread(bench: &mut Bencher) {
     bench_read_image_rgba_to::<f32>(bench, F16_UNCOMPRESSED_PATH, false);
 }
 
-fn read_f16_to_u32_uncompressed(bench: &mut Bencher) {
+fn read_f16_to_u32_uncompressed_1thread(bench: &mut Bencher) {
     bench_read_image_rgba_to::<u32>(bench, F16_UNCOMPRESSED_PATH, false);
+}
+
+
+fn read_f32_to_f16_zips_1thread(bench: &mut Bencher) {
+    bench_read_image_rgba_to::<f16>(bench, F32_ZIPS_PATH, false);
+}
+
+fn read_f16_to_f32_zip_1thread(bench: &mut Bencher) {
+    bench_read_image_rgba_to::<f32>(bench, F16_ZIP_PATH, false);
+}
+
+fn read_f32_to_f16_zips_nthreads(bench: &mut Bencher) {
+    bench_read_image_rgba_to::<f16>(bench, F32_ZIPS_PATH, true);
+}
+
+fn read_f16_to_f32_zip_nthreads(bench: &mut Bencher) {
+    bench_read_image_rgba_to::<f32>(bench, F16_ZIP_PATH, true);
 }
 
 fn bench_read_image_rgba_to<T>(bench: &mut Bencher, path: &str, parallel: bool) {
@@ -66,12 +83,17 @@ fn read_file_from_memory_to<T>(file: &[u8], parallel: bool) -> RgbaImage<PixelVe
 }
 
 benchmark_group!(pixel_format_conversion,
-    read_f32_to_f32_uncompressed,
-    read_f32_to_u32_uncompressed,
-    read_f32_to_f16_uncompressed,
-    read_f16_to_f16_uncompressed,
-    read_f16_to_f32_uncompressed,
-    read_f16_to_u32_uncompressed,
+    read_f32_to_f32_uncompressed_1thread,
+    read_f32_to_u32_uncompressed_1thread,
+    read_f32_to_f16_uncompressed_1thread,
+    read_f32_to_f16_zips_1thread,
+    read_f32_to_f16_zips_nthreads,
+
+    read_f16_to_f16_uncompressed_1thread,
+    read_f16_to_u32_uncompressed_1thread,
+    read_f16_to_f32_uncompressed_1thread,
+    read_f16_to_f32_zip_1thread,
+    read_f16_to_f32_zip_nthreads,
 );
 
 benchmark_main!(pixel_format_conversion);
