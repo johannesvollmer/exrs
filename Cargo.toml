@@ -4,7 +4,7 @@ description = "Read and write OpenEXR files without any unsafe code"
 keywords = ["exr", "openexr", "file", "binary", "io"]
 categories = ["encoding", "filesystem", "graphics", "multimedia"]
 
-version = "1.6.4"
+version = "1.6.5"
 edition = "2018"
 authors = ["johannesvollmer <johannes596@t-online.de>"]
 
