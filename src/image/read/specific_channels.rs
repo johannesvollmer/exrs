@@ -332,17 +332,20 @@ fn read_and_convert_all_samples_batched<'t, From, To>(
     let len_error_msg = "sample count was miscalculated";
     let byte_error_msg = "error when reading from in-memory slice";
 
-    // write samples from a given slice to the output iterator.
-    let output_n_samples = &mut (#[inline] move |samples: &[To]| {
+    // write samples from a given slice to the output iterator. should be inlined.
+    let output_n_samples = &mut move |samples: &[To]| {
         for converted_sample in samples {
             *out_samples.next().expect(len_error_msg) = *converted_sample;
         }
-    });
+    };
 
     // read samples from the byte source into a given slice. should be inlined.
-    let read_n_samples = &mut (#[inline] move |samples: &mut [From]| {
+    // todo: use #[inline] when available
+    // error[E0658]: attributes on expressions are experimental,
+    // see issue #15701 <https://github.com/rust-lang/rust/issues/15701> for more information
+    let read_n_samples = &mut move |samples: &mut [From]| {
         Data::read_slice(&mut in_bytes, samples).expect(byte_error_msg);
-    });
+    };
 
     // temporary arrays with fixed size, operations should be vectorized within these arrays
     let mut source_samples_batch: [From; batch_size] = Default::default();
