@@ -22,7 +22,7 @@ jobs:
 #       run: cargo test --verbose
 
 
-  macos:
+#   macos:
 #     runs-on: macos-latest
 #     name: mac os
 #     timeout-minutes: 30
@@ -51,10 +51,18 @@ jobs:
         uses: baptiste0928/cargo-install@v1
         with:
           crate: cargo-msrv
-
-      - name: Verify the Rustc version declared in `cargo.toml`
+          
+      - name: show msrv
         run: |
-          cargo-msrv verify
+          cargo-msrv --output-format json show
+
+      - name: verify msrv in Cargo.toml
+        run: |
+          cargo-msrv --output-format json verify
+          
+      - name: find the cargo msrv
+        run: |
+          cargo-msrv --output-format json
 
   # github actions does not support big endian systems directly, but it does support QEMU.
   # so we install qemu, cross-compile to sparc64, and then run the tests in an emulated sparc64.
