@@ -86,3 +86,24 @@ jobs:
       # https://github.com/cross-rs/cross#supported-targets
       - name: Cross-Run Tests in mips-unknown-linux-gnu using Qemu
         run: cross test --target mips-unknown-linux-gnu --verbose
+
+  wasm32:
+    runs-on: ubuntu-latest
+    name: wasm32
+    timeout-minutes: 60
+
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Cache Cargo Dependencies
+      uses: Swatinem/rust-cache@v1.3.0
+      
+    - name: Add wasm32 Target
+      run: rustup target add wasm32-unknown-unknown
+      
+    - name: Build without default features
+      run: cargo build --verbose --no-default-features --target wasm32-unknown-unknown
+      
+    - name: Run tests without default features
+      run: cargo test --verbose --no-default-features
+
