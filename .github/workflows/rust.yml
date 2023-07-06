@@ -47,13 +47,15 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Install or use cached foresterre/cargo-msrv
-        uses: baptiste0928/cargo-install@v1
-        with:
-          crate: cargo-msrv
+      - name: Install foresterre/cargo-msrv without cache
+        run: |
+          cargo-install cargo-msrv
 
       - name: Verify the Rustc version declared in `cargo.toml`
-        run: cargo-msrv verify
+        run: |
+          rm -f Cargo.lock
+          cargo update
+          cargo-msrv verify
 
   # github actions does not support big endian systems directly, but it does support QEMU.
   # so we install qemu, cross-compile to sparc64, and then run the tests in an emulated sparc64.
