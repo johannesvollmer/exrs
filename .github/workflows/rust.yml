@@ -47,11 +47,10 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Install foresterre/cargo-msrv without cache
-        run: |
-          cargo install cargo-msrv
+      - name: Install foresterre/cargo-msrv without cache (takes longer, but caching produces unexpected behaviour)
+        run: cargo install cargo-msrv
 
-      - name: Verify the Rustc version declared in `cargo.toml`
+      - name: Verify the Rustc version declared in `cargo.toml` without cache (takes longer, but caching produces unexpected behaviour)
         run: |
           rm -f Cargo.lock
           cargo update
