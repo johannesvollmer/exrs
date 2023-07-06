@@ -49,7 +49,7 @@ jobs:
 
       - name: Install foresterre/cargo-msrv without cache
         run: |
-          cargo-install cargo-msrv
+          cargo install cargo-msrv
 
       - name: Verify the Rustc version declared in `cargo.toml`
         run: |
