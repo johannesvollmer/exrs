@@ -40,7 +40,7 @@ use lebe::io::ReadPrimitive;
 
 
 #[cfg_attr(target_endian = "big", allow(unused, unreachable_code))]
-pub fn compress(channels: &ChannelList, remaining_bytes: Bytes<'_>, area: IntegerBounds) -> Result<ByteVec> {
+pub fn compress(channels: &ChannelList, remaining_bytes: ByteVec, area: IntegerBounds) -> Result<ByteVec> {
     #[cfg(target_endian = "big")] {
         return Err(Error::unsupported(
             "PXR24 compression method not supported yet on big endian processor architecture"
@@ -210,7 +210,7 @@ pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, e
         return Err(Error::invalid("too much data"));
     }
 
-    Ok(super::convert_little_endian_to_current(&out, channels, area))
+    Ok(super::convert_little_endian_to_current(out, channels, area))
 }
 
 

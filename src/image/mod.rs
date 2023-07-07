@@ -897,7 +897,7 @@ pub mod validate_results {
         /// Warning: If you use `SpecificChannels`, the comparison might be inaccurate
         /// for images with mixed compression methods. This is to be used with `AnyChannels` mainly.
         fn assert_equals_result(&self, result: &Self) {
-            self.validate_result(result, ValidationOptions::default(), String::new()).unwrap();
+            self.validate_result(result, ValidationOptions::default(), || String::new()).unwrap();
         }
 
         /// Compare self with the other.
@@ -911,7 +911,9 @@ pub mod validate_results {
         fn validate_result(
             &self, lossy_result: &Self,
             options: ValidationOptions,
-            context: String
+            // this is a lazy string, because constructing a string is only necessary in the case of an error,
+            // but eats up memory and allocation time every time. this was measured.
+            context: impl Fn() -> String
         ) -> ValidationResult;
     }
 
@@ -927,21 +929,21 @@ pub mod validate_results {
 
 
     impl<C> ValidateResult for Image<C> where C: ValidateResult {
-        fn validate_result(&self, other: &Self, options: ValidationOptions, location: String) -> ValidationResult {
-            if self.attributes != other.attributes { Err(location + "| image > attributes") }
-            else { self.layer_data.validate_result(&other.layer_data, options, location + "| image > layer data") }
+        fn validate_result(&self, other: &Self, options: ValidationOptions, location: impl Fn()->String) -> ValidationResult {
+            if self.attributes != other.attributes { Err(location() + "| image > attributes") }
+            else { self.layer_data.validate_result(&other.layer_data, options, || location() + "| image > layer data") }
         }
     }
 
     impl<S> ValidateResult for Layer<AnyChannels<S>>
         where AnyChannel<S>: ValidateResult, S: for<'a> WritableSamples<'a>
     {
-        fn validate_result(&self, other: &Self, _overridden: ValidationOptions, location: String) -> ValidationResult {
-            let location = format!("{} (layer `{:?}`)", location, self.attributes.layer_name);
-            if self.attributes != other.attributes { Err(location + " > attributes") }
-            else if self.encoding != other.encoding { Err(location + " > encoding") }
-            else if self.size != other.size { Err(location + " > size") }
-            else if self.channel_data.list.len() != other.channel_data.list.len() { Err(location + " > channel count") }
+        fn validate_result(&self, other: &Self, _overridden: ValidationOptions, location: impl Fn()->String) -> ValidationResult {
+            let location = || format!("{} (layer `{:?}`)", location(), self.attributes.layer_name);
+            if self.attributes != other.attributes { Err(location() + " > attributes") }
+            else if self.encoding != other.encoding { Err(location() + " > encoding") }
+            else if self.size != other.size { Err(location() + " > size") }
+            else if self.channel_data.list.len() != other.channel_data.list.len() { Err(location() + " > channel count") }
             else {
                 for (own_chan, other_chan) in self.channel_data.list.iter().zip(other.channel_data.list.iter()) {
                     own_chan.validate_result(
@@ -956,7 +958,7 @@ pub mod validate_results {
                             nan_converted_to_zero: other.encoding.compression.supports_nan().not()
                         },
 
-                        format!("{} > channel `{}`", location, own_chan.name)
+                        || format!("{} > channel `{}`", location(), own_chan.name)
                     )?;
                 }
                 Ok(())
@@ -969,13 +971,13 @@ pub mod validate_results {
     {
         /// This does an approximate comparison for all channels,
         /// even if some channels can be compressed without loss.
-        fn validate_result(&self, other: &Self, _overridden: ValidationOptions, location: String) -> ValidationResult {
-            let location = format!("{} (layer `{:?}`)", location, self.attributes.layer_name);
+        fn validate_result(&self, other: &Self, _overridden: ValidationOptions, location: impl Fn()->String) -> ValidationResult {
+            let location = || format!("{} (layer `{:?}`)", location(), self.attributes.layer_name);
 
             // TODO dedup with above
-            if self.attributes != other.attributes { Err(location + " > attributes") }
-            else if self.encoding != other.encoding { Err(location + " > encoding") }
-            else if self.size != other.size { Err(location + " > size") }
+            if self.attributes != other.attributes { Err(location() + " > attributes") }
+            else if self.encoding != other.encoding { Err(location() + " > encoding") }
+            else if self.size != other.size { Err(location() + " > size") }
             else {
                 let options = ValidationOptions {
                     // no tolerance for lossless channels
@@ -986,60 +988,60 @@ pub mod validate_results {
                     nan_converted_to_zero: other.encoding.compression.supports_nan().not()
                 };
 
-                self.channel_data.validate_result(&other.channel_data, options, location + " > channel_data")?;
+                self.channel_data.validate_result(&other.channel_data, options, || location() + " > channel_data")?;
                 Ok(())
             }
         }
     }
 
     impl<S> ValidateResult for AnyChannels<S> where S: ValidateResult {
-        fn validate_result(&self, other: &Self, options: ValidationOptions, location: String) -> ValidationResult {
+        fn validate_result(&self, other: &Self, options: ValidationOptions, location: impl Fn()->String) -> ValidationResult {
             self.list.validate_result(&other.list, options, location)
         }
     }
 
     impl<S> ValidateResult for AnyChannel<S> where S: ValidateResult {
-        fn validate_result(&self, other: &Self, options: ValidationOptions, location: String) -> ValidationResult {
-            if self.name != other.name { Err(location + " > name") }
-            else if self.quantize_linearly != other.quantize_linearly { Err(location + " > quantize_linearly") }
-            else if self.sampling != other.sampling { Err(location + " > sampling") }
+        fn validate_result(&self, other: &Self, options: ValidationOptions, location: impl Fn()->String) -> ValidationResult {
+            if self.name != other.name { Err(location() + " > name") }
+            else if self.quantize_linearly != other.quantize_linearly { Err(location() + " > quantize_linearly") }
+            else if self.sampling != other.sampling { Err(location() + " > sampling") }
             else {
-                self.sample_data.validate_result(&other.sample_data, options, location + " > sample_data")
+                self.sample_data.validate_result(&other.sample_data, options, || location() + " > sample_data")
             }
         }
     }
 
     impl<Pxs, Chans> ValidateResult for SpecificChannels<Pxs, Chans> where Pxs: ValidateResult, Chans: Eq {
-        fn validate_result(&self, other: &Self, options: ValidationOptions, location: String) -> ValidationResult {
-            if self.channels != other.channels { Err(location + " > specific channels") }
-            else { self.pixels.validate_result(&other.pixels, options, location + " > specific pixels") }
+        fn validate_result(&self, other: &Self, options: ValidationOptions, location: impl Fn()->String) -> ValidationResult {
+            if self.channels != other.channels { Err(location() + " > specific channels") }
+            else { self.pixels.validate_result(&other.pixels, options, || location() + " > specific pixels") }
         }
     }
 
     impl<S> ValidateResult for Levels<S> where S: ValidateResult {
-        fn validate_result(&self, other: &Self, options: ValidationOptions, location: String) -> ValidationResult {
-            self.levels_as_slice().validate_result(&other.levels_as_slice(), options, location + " > levels")
+        fn validate_result(&self, other: &Self, options: ValidationOptions, location: impl Fn()->String) -> ValidationResult {
+            self.levels_as_slice().validate_result(&other.levels_as_slice(), options, || location() + " > levels")
         }
     }
 
     impl ValidateResult for FlatSamples {
-        fn validate_result(&self, other: &Self, options: ValidationOptions, location: String) -> ValidationResult {
+        fn validate_result(&self, other: &Self, options: ValidationOptions, location: impl Fn()->String) -> ValidationResult {
             use FlatSamples::*;
             match (self, other) {
-                (F16(values), F16(other_values)) => values.as_slice().validate_result(&other_values.as_slice(), options, location + " > f16 samples"),
-                (F32(values), F32(other_values)) => values.as_slice().validate_result(&other_values.as_slice(), options, location + " > f32 samples"),
-                (U32(values), U32(other_values)) => values.as_slice().validate_result(&other_values.as_slice(), options, location + " > u32 samples"),
-                (own, other) => Err(format!("{}: samples type mismatch. expected {:?}, found {:?}", location, own.sample_type(), other.sample_type()))
+                (F16(values), F16(other_values)) => values.as_slice().validate_result(&other_values.as_slice(), options, ||location() + " > f16 samples"),
+                (F32(values), F32(other_values)) => values.as_slice().validate_result(&other_values.as_slice(), options, ||location() + " > f32 samples"),
+                (U32(values), U32(other_values)) => values.as_slice().validate_result(&other_values.as_slice(), options, ||location() + " > u32 samples"),
+                (own, other) => Err(format!("{}: samples type mismatch. expected {:?}, found {:?}", location(), own.sample_type(), other.sample_type()))
             }
         }
     }
 
     impl<T> ValidateResult for &[T] where T: ValidateResult {
-        fn validate_result(&self, other: &Self, options: ValidationOptions, location: String) -> ValidationResult {
-            if self.len() != other.len() { Err(location + " count") }
+        fn validate_result(&self, other: &Self, options: ValidationOptions, location: impl Fn()->String) -> ValidationResult {
+            if self.len() != other.len() { Err(location() + " count") }
             else {
                 for (index, (slf, other)) in self.iter().zip(other.iter()).enumerate() {
-                    slf.validate_result(other, options, format!("{} element [{}] of {}", location, index, self.len()))?;
+                    slf.validate_result(other, options, ||format!("{} element [{}] of {}", location(), index, self.len()))?;
                 }
                 Ok(())
             }
@@ -1047,25 +1049,25 @@ pub mod validate_results {
     }
 
     impl<A: Array> ValidateResult for SmallVec<A> where A::Item: ValidateResult {
-        fn validate_result(&self, other: &Self, options: ValidationOptions, location: String) -> ValidationResult {
+        fn validate_result(&self, other: &Self, options: ValidationOptions, location: impl Fn()->String) -> ValidationResult {
             self.as_slice().validate_result(&other.as_slice(), options, location)
         }
     }
 
     impl<A> ValidateResult for Vec<A> where A: ValidateResult {
-        fn validate_result(&self, other: &Self, options: ValidationOptions, location: String) -> ValidationResult {
+        fn validate_result(&self, other: &Self, options: ValidationOptions, location: impl Fn()->String) -> ValidationResult {
             self.as_slice().validate_result(&other.as_slice(), options, location)
         }
     }
 
     impl<A,B,C,D> ValidateResult for (A, B, C, D) where A: Clone+ ValidateResult, B: Clone+ ValidateResult, C: Clone+ ValidateResult, D: Clone+ ValidateResult {
-        fn validate_result(&self, other: &Self, options: ValidationOptions, location: String) -> ValidationResult {
+        fn validate_result(&self, other: &Self, options: ValidationOptions, location: impl Fn()->String) -> ValidationResult {
             self.clone().into_recursive().validate_result(&other.clone().into_recursive(), options, location)
         }
     }
 
     impl<A,B,C> ValidateResult for (A, B, C) where A: Clone+ ValidateResult, B: Clone+ ValidateResult, C: Clone+ ValidateResult {
-        fn validate_result(&self, other: &Self, options: ValidationOptions, location: String) -> ValidationResult {
+        fn validate_result(&self, other: &Self, options: ValidationOptions, location: impl Fn()->String) -> ValidationResult {
             self.clone().into_recursive().validate_result(&other.clone().into_recursive(), options, location)
         }
     }
@@ -1084,29 +1086,29 @@ pub mod validate_results {
 
     // implement for recursive types
     impl ValidateResult for NoneMore {
-        fn validate_result(&self, _: &Self, _: ValidationOptions, _: String) -> ValidationResult { Ok(()) }
+        fn validate_result(&self, _: &Self, _: ValidationOptions, _: impl Fn()->String) -> ValidationResult { Ok(()) }
     }
 
     impl<Inner, T> ValidateResult for Recursive<Inner, T> where Inner: ValidateResult, T: ValidateResult {
-        fn validate_result(&self, other: &Self, options: ValidationOptions, location: String) -> ValidationResult {
-            self.value.validate_result(&other.value, options, location.clone()).and_then(|()|
-                self.inner.validate_result(&other.inner, options, location)
+        fn validate_result(&self, other: &Self, options: ValidationOptions, location: impl Fn()->String) -> ValidationResult {
+            self.value.validate_result(&other.value, options, &location).and_then(|()|
+                self.inner.validate_result(&other.inner, options, &location)
             )
         }
     }
 
     impl<S> ValidateResult for Option<S> where S: ValidateResult {
-        fn validate_result(&self, other: &Self, options: ValidationOptions, location: String) -> ValidationResult {
+        fn validate_result(&self, other: &Self, options: ValidationOptions, location: impl Fn()->String) -> ValidationResult {
             match (self, other) {
                 (None, None) => Ok(()),
                 (Some(value), Some(other)) => value.validate_result(other, options, location),
-                _ => Err(location + ": option mismatch")
+                _ => Err(location() + ": option mismatch")
             }
         }
     }
 
     impl ValidateResult for f32 {
-        fn validate_result(&self, other: &Self, options: ValidationOptions, location: String) -> ValidationResult {
+        fn validate_result(&self, other: &Self, options: ValidationOptions, location: impl Fn()->String) -> ValidationResult {
             if self == other || (self.is_nan() && other.is_nan()) || (options.nan_converted_to_zero && !self.is_normal() && *other == 0.0) {
                 return Ok(());
             }
@@ -1120,15 +1122,15 @@ pub mod validate_results {
                 let difference = (self - other).abs();
 
                 return if difference <= tolerance { Ok(()) }
-                else { Err(format!("{}: expected ~{}, found {} (adaptive tolerance {})", location, self, other, tolerance)) };
+                else { Err(format!("{}: expected ~{}, found {} (adaptive tolerance {})", location(), self, other, tolerance)) };
             }
 
-            Err(format!("{}: expected exactly {}, found {}", location, self, other))
+            Err(format!("{}: expected exactly {}, found {}", location(), self, other))
         }
     }
 
     impl ValidateResult for f16 {
-        fn validate_result(&self, other: &Self, options: ValidationOptions, location: String) -> ValidationResult {
+        fn validate_result(&self, other: &Self, options: ValidationOptions, location: impl Fn()->String) -> ValidationResult {
             if self.to_bits() == other.to_bits() { Ok(()) } else {
                 self.to_f32().validate_result(&other.to_f32(), options, location)
             }
@@ -1136,7 +1138,7 @@ pub mod validate_results {
     }
 
     impl ValidateResult for u32 {
-        fn validate_result(&self, other: &Self, options: ValidationOptions, location: String) -> ValidationResult {
+        fn validate_result(&self, other: &Self, options: ValidationOptions, location: impl Fn()->String) -> ValidationResult {
             if self == other { Ok(()) } else { // todo to float conversion resulting in nan/infinity?
                 self.to_f32().validate_result(&other.to_f32(), options, location)
             }
@@ -1144,13 +1146,13 @@ pub mod validate_results {
     }
 
     impl ValidateResult for Sample {
-        fn validate_result(&self, other: &Self, options: ValidationOptions, location: String) -> ValidationResult {
+        fn validate_result(&self, other: &Self, options: ValidationOptions, location: impl Fn()->String) -> ValidationResult {
             use Sample::*;
             match (self, other) {
-                (F16(a), F16(b)) => a.validate_result(b, options, location + " (f16)"),
-                (F32(a), F32(b)) => a.validate_result(b, options, location + " (f32)"),
-                (U32(a), U32(b)) => a.validate_result(b, options, location + " (u32)"),
-                (_,_) => Err(location + ": sample type mismatch")
+                (F16(a), F16(b)) => a.validate_result(b, options, ||location() + " (f16)"),
+                (F32(a), F32(b)) => a.validate_result(b, options, ||location() + " (f32)"),
+                (U32(a), U32(b)) => a.validate_result(b, options, ||location() + " (u32)"),
+                (_,_) => Err(location() + ": sample type mismatch")
             }
         }
     }
@@ -1169,7 +1171,7 @@ pub mod validate_results {
             original.validate_result(
                 result,
                 ValidationOptions { allow_lossy, nan_converted_to_zero },
-                String::new()
+                || String::new()
             ).unwrap();
         }
 
@@ -1177,7 +1179,7 @@ pub mod validate_results {
             assert!(original.validate_result(
                 result,
                 ValidationOptions { allow_lossy, nan_converted_to_zero },
-                String::new()
+                || String::new()
             ).is_err());
         }
 
@@ -1227,7 +1229,7 @@ pub mod validate_results {
                     .validate_result(
                         &lossy,
                         ValidationOptions { allow_lossy, .. Default::default() },
-                        String::new() // type_name::<T>().to_string()
+                        || String::new() // type_name::<T>().to_string()
                     )
                     .unwrap_err();
 

@@ -56,7 +56,7 @@ pub fn main() {
 
         // for each pixel, tone map the value
         for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
-            let v = data[(y as usize * size.0 + x as usize)];
+            let v = data[y as usize * size.0 + x as usize];
             let v = (v - min) / (max - min);
             let v = tone(v);
 

@@ -278,7 +278,7 @@ pub trait Data: Sized + Default + Clone {
     /// Returns `Error::Invalid` if reader does not contain the desired number of elements.
     #[inline]
     fn read_vec(read: &mut impl Read, data_size: usize, soft_max: usize, hard_max: Option<usize>, purpose: &'static str) -> Result<Vec<Self>> {
-        let mut vec = Vec::new();
+        let mut vec = Vec::with_capacity(data_size.min(soft_max));
         Self::read_into_vec(read, &mut vec, data_size, soft_max, hard_max, purpose)?;
         Ok(vec)
     }

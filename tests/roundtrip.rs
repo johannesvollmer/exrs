@@ -16,28 +16,118 @@ use rayon::prelude::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
 use exr::block::samples::IntoNativeSample;
 
-fn exr_files() -> impl Iterator<Item=PathBuf> {
-    walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
-        .filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
-        .map(walkdir::DirEntry::into_path)
+#[test]
+fn roundtrip_all_files_in_repository_x4(){
+    check_all_files_in_repo(|path|{
+        let file = std::fs::read(path).expect("cannot open file");
+
+        round_trip_simple(&file)?;
+        round_trip_full(&file)?;
+        round_trip_rgba_file(path, &file)?;
+        round_trip_parallel_file(&file)?;
+
+        Ok(())
+    });
+}
+
+
+fn round_trip_full(file: &[u8]) -> Result<()> {
+    let read_image = read()
+        .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
+        .non_parallel();
+
+    let image = read_image.clone().from_buffered(Cursor::new(file))?;
+
+    let mut tmp_bytes = Vec::with_capacity(file.len());
+    image.write().non_parallel().to_buffered(Cursor::new(&mut tmp_bytes))?;
+
+    let image2 = read_image.from_buffered(Cursor::new(tmp_bytes))?;
+
+    image.assert_equals_result(&image2);
+    Ok(())
+}
+
+fn round_trip_simple(file: &[u8]) -> Result<()> {
+    let read_image = read()
+        .no_deep_data().largest_resolution_level().all_channels().all_layers().all_attributes()
+        .non_parallel();
+
+    let image = read_image.clone().from_buffered(Cursor::new(file))?;
+
+    let mut tmp_bytes = Vec::with_capacity(file.len());
+    image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
+
+    let image2 = read_image.from_buffered(Cursor::new(&tmp_bytes))?;
+
+    image.assert_equals_result(&image2);
+    Ok(())
+}
+
+fn round_trip_rgba_file(path: &Path, file: &[u8]) -> Result<()> {
+    // these files are known to be invalid, because they do not contain any rgb channels
+    let blacklist = [
+        Path::new("tests/images/valid/openexr/LuminanceChroma/Garden.exr"),
+        Path::new("tests/images/valid/openexr/MultiView/Fog.exr"),
+        Path::new("tests/images/valid/openexr/TestImages/GrayRampsDiagonal.exr"),
+        Path::new("tests/images/valid/openexr/TestImages/GrayRampsHorizontal.exr"),
+        Path::new("tests/images/valid/openexr/TestImages/WideFloatRange.exr"),
+        Path::new("tests/images/valid/openexr/IlmfmlmflmTest/v1.7.test.tiled.exr")
+    ];
+
+    if blacklist.contains(&path) { return Ok(()) }
+
+    let image_reader = read()
+        .no_deep_data()
+        .largest_resolution_level() // TODO all levels
+        .rgba_channels(PixelVec::<(f32,f32,f32,f32)>::constructor, PixelVec::set_pixel)
+        .first_valid_layer()
+        .all_attributes()
+        .non_parallel();
+
+    let image = image_reader.clone().from_buffered(Cursor::new(file))?;
+
+    let mut tmp_bytes = Vec::with_capacity(file.len());
+
+    image.write().non_parallel()
+        .to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
+
+    let image2 = image_reader.from_buffered(Cursor::new(&tmp_bytes))?;
+
+    image.assert_equals_result(&image2);
+    Ok(())
+}
+
+// TODO compare rgba vs rgb images for color content, and rgb vs rgb(a?)
+
+
+fn round_trip_parallel_file(file: &[u8]) -> Result<()> {
+    let image = read()
+        .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
+        .from_buffered(Cursor::new(file))?;
+
+    let mut tmp_bytes = Vec::with_capacity(file.len());
+    image.write().to_buffered(Cursor::new(&mut tmp_bytes))?;
+
+    let image2 = read()
+        .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
+        .pedantic()
+        .from_buffered(Cursor::new(tmp_bytes.as_slice()))?;
+
+    image.assert_equals_result(&image2);
+    Ok(())
 }
 
 /// read all images in a directory.
 /// does not check any content, just checks whether a read error or panic happened.
-fn check_files<T>(
-    ignore: Vec<PathBuf>,
+fn check_all_files_in_repo<T>(
     operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -> exr::error::Result<T>
 ) {
     #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
-    enum Result { Ok, Skipped, Unsupported(String), Error(String) }
+    enum Result { Ok, Unsupported(String), Error(String) }
 
-    let files: Vec<PathBuf> = exr_files().collect();
+    let files: Vec<PathBuf> = all_exr_files_in_repo().collect();
     let mut results: Vec<(PathBuf, Result)> = files.into_par_iter()
         .map(|file| {
-            if ignore.contains(&file) {
-                return (file, Result::Skipped);
-            }
-
             let result = catch_unwind(||{
                 let prev_hook = panic::take_hook();
                 panic::set_hook(Box::new(|_| (/* do not println panics */)));
@@ -80,112 +170,14 @@ fn check_files<T>(
     }
 }
 
-#[test]
-fn round_trip_all_files_full() {
-    println!("checking full feature set");
-    check_files(vec![], |path| {
-        let read_image = read()
-            .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
-            .non_parallel();
-
-        let image = read_image.clone().from_file(path)?;
-
-        let mut tmp_bytes = Vec::new();
-        image.write().non_parallel().to_buffered(Cursor::new(&mut tmp_bytes))?;
-
-        let image2 = read_image.from_buffered(Cursor::new(tmp_bytes))?;
-
-        image.assert_equals_result(&image2);
-        Ok(())
-    })
+fn all_exr_files_in_repo() -> impl Iterator<Item=PathBuf> {
+    walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
+        .filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
+        .map(walkdir::DirEntry::into_path)
 }
-
-#[test]
-fn round_trip_all_files_simple() {
-    println!("checking full feature set but not resolution levels");
-    check_files(vec![], |path| {
-        let read_image = read()
-            .no_deep_data().largest_resolution_level().all_channels().all_layers().all_attributes()
-            .non_parallel();
-
-        let image = read_image.clone().from_file(path)?;
-
-        let mut tmp_bytes = Vec::new();
-        image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
-
-        let image2 = read_image.from_buffered(Cursor::new(&tmp_bytes))?;
-
-        image.assert_equals_result(&image2);
-        Ok(())
-    })
-}
-
-#[test]
-fn round_trip_all_files_rgba() {
-
-    // these files are known to be invalid, because they do not contain any rgb channels
-    let blacklist = vec![
-        PathBuf::from("tests/images/valid/openexr/LuminanceChroma/Garden.exr"),
-        PathBuf::from("tests/images/valid/openexr/MultiView/Fog.exr"),
-        PathBuf::from("tests/images/valid/openexr/TestImages/GrayRampsDiagonal.exr"),
-        PathBuf::from("tests/images/valid/openexr/TestImages/GrayRampsHorizontal.exr"),
-        PathBuf::from("tests/images/valid/openexr/TestImages/WideFloatRange.exr"),
-        PathBuf::from("tests/images/valid/openexr/IlmfmlmflmTest/v1.7.test.tiled.exr")
-    ];
-
-    println!("checking rgba feature set");
-    check_files(blacklist, |path| {
-        let image_reader = read()
-            .no_deep_data()
-            .largest_resolution_level() // TODO all levels
-            .rgba_channels(PixelVec::<(f32,f32,f32,f32)>::constructor, PixelVec::set_pixel)
-            .first_valid_layer()
-            .all_attributes()
-            .non_parallel();
-
-        let image = image_reader.clone().from_file(path)?;
-
-        let mut tmp_bytes = Vec::new();
-
-        image.write().non_parallel()
-            .to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
-
-        let image2 = image_reader.from_buffered(Cursor::new(&tmp_bytes))?;
-
-        image.assert_equals_result(&image2);
-        Ok(())
-    })
-}
-
-// TODO compare rgba vs rgb images for color content, and rgb vs rgb(a?)
-
-
-#[test]
-fn round_trip_parallel_files() {
-    check_files(vec![], |path| {
-
-        let image = read()
-            .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
-            .from_file(path)?;
-
-
-        let mut tmp_bytes = Vec::new();
-        image.write().to_buffered(Cursor::new(&mut tmp_bytes))?;
-
-        let image2 = read()
-            .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
-            .pedantic()
-            .from_buffered(Cursor::new(tmp_bytes.as_slice()))?;
-
-        image.assert_equals_result(&image2);
-        Ok(())
-    })
-}
-
 
 #[test]
 fn roundtrip_unusual_2() -> UnitResult {
-
     let random_pixels: Vec<(f16, u32)> = vec![
         ( f16::from_f32(-5.0), 4),
         ( f16::from_f32(4.0), 9),
