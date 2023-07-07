@@ -1,6 +1,6 @@
 mod table;
 
-use crate::compression::{mod_p, ByteVec, Bytes};
+use crate::compression::{mod_p, ByteVec};
 use crate::error::usize_to_i32;
 use crate::io::Data;
 use crate::meta::attribute::ChannelList;
@@ -480,12 +480,12 @@ pub fn decompress(
 
     // TODO do not convert endianness for f16-only images
     //      see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
-    Ok(super::convert_little_endian_to_current(&out, channels, rectangle))
+    Ok(super::convert_little_endian_to_current(out, channels, rectangle))
 }
 
 pub fn compress(
     channels: &ChannelList,
-    uncompressed: Bytes<'_>,
+    uncompressed: ByteVec,
     rectangle: IntegerBounds,
     optimize_flat_fields: bool,
 ) -> Result<ByteVec> {
@@ -719,7 +719,7 @@ mod test {
 
         assert_eq!(pixel_bytes.len(), byte_count);
 
-        let compressed = b44::compress(&channels, &pixel_bytes, rectangle, true).unwrap();
+        let compressed = b44::compress(&channels, pixel_bytes.clone(), rectangle, true).unwrap();
 
         let decompressed =
             b44::decompress(&channels, compressed.clone(), rectangle, pixel_bytes.len(), true).unwrap();
