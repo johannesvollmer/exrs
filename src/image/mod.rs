@@ -1171,7 +1171,7 @@ pub mod validate_results {
             original.validate_result(
                 result,
                 ValidationOptions { allow_lossy, nan_converted_to_zero },
-                String::new()
+                || String::new()
             ).unwrap();
         }
 
@@ -1179,7 +1179,7 @@ pub mod validate_results {
             assert!(original.validate_result(
                 result,
                 ValidationOptions { allow_lossy, nan_converted_to_zero },
-                String::new()
+                || String::new()
             ).is_err());
         }
 
@@ -1229,7 +1229,7 @@ pub mod validate_results {
                     .validate_result(
                         &lossy,
                         ValidationOptions { allow_lossy, .. Default::default() },
-                        String::new() // type_name::<T>().to_string()
+                        || String::new() // type_name::<T>().to_string()
                     )
                     .unwrap_err();
 
