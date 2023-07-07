@@ -197,7 +197,7 @@ impl Compression {
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
         if header.deep { assert!(self.supports_deep_data()) }
 
-        let expected_byte_size = pixel_section.size.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
+        let expected_byte_size = header.channels.total_bytes_for_block(pixel_section);
 
         // note: always true where self == Uncompressed
         if compressed.len() == expected_byte_size {

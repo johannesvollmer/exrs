@@ -42,7 +42,7 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     /// The type of the pixel can be defined by the second closure;
     /// it must be a tuple containing four values, each being either `f16`, `f32`, `u32` or `Sample`.
     ///
-    /// Throws an error for images with deep data or subsampling.
+    /// Throws an error for images with deep data.
     /// Use `specific_channels` or `all_channels` if you want to read something other than rgba.
     pub fn rgba_channels<R,G,B,A, Create, Set, Pixels>(
         self, create_pixels: Create, set_pixel: Set
@@ -68,7 +68,7 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     /// The type of the pixel can be defined by the second closure;
     /// it must be a tuple containing three values, each being either `f16`, `f32`, `u32` or `Sample`.
     ///
-    /// Throws an error for images with deep data or subsampling.
+    /// Throws an error for images with deep data.
     /// Use `specific_channels` or `all_channels` if you want to read something other than rgb.
     pub fn rgb_channels<R,G,B, Create, Set, Pixels>(
         self, create_pixels: Create, set_pixel: Set
@@ -91,7 +91,7 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     /// or `.optional("ChannelName", default_value)` on the result of this function.
     /// Call `collect_pixels` afterwards to define the pixel container for your set of channels.
     ///
-    /// Throws an error for images with deep data or subsampling.
+    /// Throws an error for images with deep data.
     pub fn specific_channels(self) -> ReadZeroChannels {
         ReadZeroChannels { }
     }

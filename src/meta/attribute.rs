@@ -227,9 +227,10 @@ pub struct ChannelList {
     /// The channels in this list.
     pub list: SmallVec<[ChannelDescription; 5]>,
 
-    /// The number of bytes that one pixel in this image needs.
+    // The number of bytes that one pixel in this image needs.
     // FIXME this needs to account for subsampling anywhere?
-    pub bytes_per_pixel: usize, // FIXME only makes sense for flat images!
+    // pub bytes_per_pixel: usize, // FIXME only makes sense for flat images!
+    // pub has_subsampling: bool,
 
     /// The sample type of all channels, if all channels have the same type.
     pub uniform_sample_type: Option<SampleType>,
@@ -416,6 +417,7 @@ use half::f16;
 use std::convert::{TryFrom};
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
+use std::ops::Range;
 use bit_field::BitField;
 
 
@@ -715,10 +717,47 @@ impl ChannelList {
         };
 
         ChannelList {
-            bytes_per_pixel: channels.iter().map(|channel| channel.sample_type.bytes_per_sample()).sum(),
+            // has_subsampling: channels.iter().any(|channel| channel.sampling != Vec2(1,1)),
+            // bytes_per_pixel: channels.iter().map(|channel| channel.sample_type.bytes_per_sample()).sum(),
             list: channels, uniform_sample_type,
         }
     }
+
+    /// Respects subsampling.
+    pub fn total_bytes_for_block(&self, pixel_section: IntegerBounds) -> usize {
+        // FIXME if the tile starts on an odd coordinate, shouldn't we subtract one?
+        // TODO FIXME cache bytes_per_pixel if no channel has subsampling
+        self.list.iter().map(|chan| chan.subsampled_pixels(pixel_section.size)).sum()
+    }
+
+    /// Respects subsampling.
+    pub fn total_bytes_for_line(&self, x_range: Range<i32>) -> usize {
+        // FIXME if the tile starts on an odd coordinate, shouldn't we subtract one?
+        // TODO FIXME cache bytes_per_pixel if no channel has subsampling
+        self.list.iter().map(|chan| x_range.count() / chan.sampling.x()).sum()
+    }
+
+    /*pub fn iterate_bounds(&self, pixel_section: IntegerBounds) -> impl '_ + Iterator<Item=(&ChannelDescription, Vec2<usize>)> {
+        let y = pixel_section.y_range();
+        let channels = &self.list;
+        let x = pixel_section.x_range();
+
+        fn mod_p(x: i32, y: i32) -> i32 { x - y * div_p(x, y) }
+        use crate::error::{usize_to_i32};
+
+        y.flat_map(|y| channels.iter().map(|chan| ((chan, y))))
+            .filter(|(&channel, &y)| mod_p(y, usize_to_i32(channel.sampling.y())) != 0)
+            .flat_map(|(channel, y)|{
+                x.map(|x|{
+                    x
+                })
+            })
+    }*/
+
+    // pub fn bytes_per_pixel(&self) -> Option<usize> {
+    //     if self.has_subsampling { None }
+    //     else { Some() }
+    // }
 
     /// Iterate over the channels, and adds to each channel the byte offset of the channels sample type.
     /// Assumes the internal channel list is properly sorted.
@@ -818,6 +857,14 @@ impl IntegerBounds {
     /// Returns the maximum coordinate that a value in this rectangle may have.
     pub fn max(self) -> Vec2<i32> {
         self.end() - Vec2(1,1)
+    }
+
+    pub fn x_range(self) -> Range<i32> {
+        self.position.x() .. self.end().x()
+    }
+
+    pub fn y_range(self) -> Range<i32> {
+        self.position.y() .. self.end().y()
     }
 
     /// Validate this instance.
@@ -1083,13 +1130,6 @@ impl ChannelDescription {
 
         if data_window.size.x() % self.sampling.x() != 0 || data_window.size.y() % self.sampling.y() != 0 {
             return Err(Error::invalid("channel sampling factor not dividing data window size"));
-        }
-
-        if self.sampling != Vec2(1,1) {
-            // TODO this must only be implemented in the crate::image module and child modules,
-            //      should not be too difficult
-
-            return Err(Error::unsupported("channel subsampling not supported yet"));
         }
 
         Ok(())

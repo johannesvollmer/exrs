@@ -68,6 +68,7 @@ impl LineIndex {
     /// Iterates the lines of this block index in interleaved fashion:
     /// For each line in this block, this iterator steps once through each channel.
     /// This is how lines are stored in a pixel data block.
+    /// Respects subsampling.
     ///
     /// Does not check whether `self.layer_index`, `self.level`, `self.size` and `self.position` are valid indices.__
     // TODO be sure this cannot produce incorrect data, as this is not further checked but only handled with panics
@@ -80,14 +81,13 @@ impl LineIndex {
             byte: usize, channel: usize, y: usize,
         }
 
-        // FIXME what about sub sampling??
-
         impl Iterator for LineIter {
             type Item = (Range<usize>, LineIndex);
             // TODO size hint?
 
             fn next(&mut self) -> Option<Self::Item> {
                 if self.y < self.end_y {
+                    // FIXME some Y values need to be skipped due to subsampling
 
                     // compute return value before incrementing
                     let byte_len = self.channel_sizes[self.channel];
@@ -122,7 +122,7 @@ impl LineIndex {
         }
 
         let channel_line_sizes: SmallVec<[usize; 8]> = channels.list.iter()
-            .map(move |channel| block.pixel_size.0 * channel.sample_type.bytes_per_sample()) // FIXME is it fewer samples per tile or just fewer tiles for sampled images???
+            .map(move |channel| channel.subsampled_pixels(block.pixel_size)) // FIXME is it fewer samples per tile or just fewer tiles for sampled images???
             .collect();
 
         LineIter {

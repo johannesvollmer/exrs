@@ -278,7 +278,6 @@ document. Unspecified behavior is concluded from the C++ library.
 
 ### Roadmap
 1. Support all compression formats (missing format: DWAA/DWAB)
-1. Support subsampling
 1. Support Deep Data
 1. Automatic conversion between color spaces
 1. Profiling and other optimization

@@ -235,7 +235,7 @@ impl UncompressedBlock {
         let mut block_bytes = vec![0_u8; byte_count];
 
         for (byte_range, line_index) in LineIndex::lines_in_block(block_index, channels) {
-            extract_line(LineRefMut { // TODO subsampling
+            extract_line(LineRefMut {
                 value: &mut block_bytes[byte_range],
                 location: line_index,
             });
