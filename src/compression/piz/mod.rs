@@ -307,7 +307,7 @@ mod test {
             .cycle().take(channels.bytes_per_pixel * rectangle.size.area())
             .collect();
 
-        let compressed = piz::compress(&channels, &pixel_bytes, rectangle).unwrap();
+        let compressed = piz::compress(&channels, pixel_bytes.clone(), rectangle).unwrap();
         let decompressed = piz::decompress(&channels, compressed, rectangle, pixel_bytes.len(), true).unwrap();
 
         assert_eq!(pixel_bytes, decompressed);

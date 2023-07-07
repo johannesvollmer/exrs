@@ -719,7 +719,7 @@ mod test {
 
         assert_eq!(pixel_bytes.len(), byte_count);
 
-        let compressed = b44::compress(&channels, &pixel_bytes, rectangle, true).unwrap();
+        let compressed = b44::compress(&channels, pixel_bytes.clone(), rectangle, true).unwrap();
 
         let decompressed =
             b44::decompress(&channels, compressed.clone(), rectangle, pixel_bytes.len(), true).unwrap();

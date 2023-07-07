@@ -11,7 +11,9 @@ mod pxr24;
 mod b44;
 
 
-
+use std::convert::TryInto;
+use std::mem::size_of;
+use half::f16;
 use crate::meta::attribute::{IntegerBounds, SampleType, ChannelList};
 use crate::error::{Result, Error, usize_to_i32};
 use crate::meta::header::Header;
@@ -187,7 +189,7 @@ impl Compression {
         )?;
 
         if self == Uncompressed || compressed_little_endian.len() < uncompressed_native_endian.len() {
-            // only write compressed if it actually is smaller than raw, or no compression is used
+            // only write compressed if it actually is smaller than raw
             Ok(compressed_little_endian)
         }
         else {
@@ -300,103 +302,72 @@ impl Compression {
 }
 
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/6a9f8af6e89547bcd370ae3cec2b12849eee0b54/OpenEXR/IlmImf/ImfMisc.cpp#L1456-L1541
-// FIXME this should really be done inside each compression method
 
-#[allow(unused)]
-fn convert_current_to_little_endian(bytes: ByteVec, channels: &ChannelList, rectangle: IntegerBounds) -> ByteVec { // TODO is this really not already somewhere else?
+#[allow(unused)] // allows the extra parameters to be unused
+fn convert_current_to_little_endian(mut bytes: ByteVec, channels: &ChannelList, rectangle: IntegerBounds) -> ByteVec {
     #[cfg(target = "big_endian")]
-    {
-        use lebe::prelude::*;
-
-        // FIXME do this in-place
-        let mut little = Vec::with_capacity(bytes.len());
-        let mut native = bytes;
-
-        for y in rectangle.position.y() .. rectangle.end().y() {
-            for channel in &channels.list {
-                if mod_p(y, usize_to_i32(channel.sampling.y())) != 0 { continue; }
-
-                // FIXME do not match on every value
-                for _x in 0 .. rectangle.size.width() / channel.sampling.x() {
-                    match channel.sample_type {
-                        SampleType::F16 => little.write_as_little_endian(&u16::read_from_native_endian(&mut native).expect("read from in-memory buffer failed")),
-                        SampleType::F32 => little.write_as_little_endian(&f32::read_from_native_endian(&mut native).expect("read from in-memory buffer failed")),
-                        SampleType::U32 => little.write_as_little_endian(&u32::read_from_native_endian(&mut native).expect("read from in-memory buffer failed")),
-                    }.expect("write to in-memory buffer failed");
-                }
-            }
-        }
-
-        return little;
-    }
-
-    /*fn convert_big_to_little_endian(
-        mut bytes: ByteVec, channels: &ChannelList,
-        rectangle: IntegerBounds
-    ) -> ByteVec {
-        use lebe::prelude::*;
-
-        let remaining_bytes = bytes.as_slice();
-
-        for y in rectangle.position.y() .. rectangle.end().y() {
-            for channel in &channels.list {
-                if mod_p(y, usize_to_i32(channel.sampling.y())) != 0 { continue; }
-
-                // FIXME do not match on every value
-
-                //for _x in 0 .. rectangle.size.width() / channel.sampling.x() {
-                    match channel.sample_type {
-                        SampleType::F16 => {
-                            let values: &mut [::half::f16] = remaining_bytes[..len].read_from_native_endian_mut()
-                                .expect("memory read failed");
-
-                            values.convert_current_to_little_endian();
-                        }
-                        // SampleType::F16 => little.write_as_little_endian(&u16::read_from_native_endian(&mut native).expect("read from in-memory buffer failed")),
-                        // SampleType::F32 => little.write_as_little_endian(&f32::read_from_native_endian(&mut native).expect("read from in-memory buffer failed")),
-                        // SampleType::U32 => little.write_as_little_endian(&u32::read_from_native_endian(&mut native).expect("read from in-memory buffer failed")),
-                    }.expect("write to in-memory buffer failed");
-                    remaining_bytes = remaining_bytes[len..];
-                //}
-            }
-        }
-    }*/
+    reverse_block_endianness(&mut byte_vec, channels, rectangle);
 
     bytes
 }
 
-#[allow(unused)]
-fn convert_little_endian_to_current(bytes: ByteVec, channels: &ChannelList, rectangle: IntegerBounds) -> ByteVec { // TODO is this really not already somewhere else?
+#[allow(unused)] // allows the extra parameters to be unused
+fn convert_little_endian_to_current(mut bytes: ByteVec, channels: &ChannelList, rectangle: IntegerBounds) -> ByteVec {
     #[cfg(target = "big_endian")]
-    {
-        use lebe::prelude::*;
-
-        // FIXME do this in-place
-        let mut native = Vec::with_capacity(bytes.len());
-        let mut little = bytes.as_slice();
-
-        for y in rectangle.position.y() .. rectangle.end().y() {
-            for channel in &channels.list {
-                if mod_p(y, usize_to_i32(channel.sampling.y())) != 0 { continue; }
-
-                // FIXME do not match on every value
-                for _x in 0 .. rectangle.size.width() / channel.sampling.x() {
-                    match channel.sample_type {
-                        SampleType::F16 => native.write_as_native_endian(&u16::read_from_little_endian(&mut little).expect("read from in-memory buffer failed")),
-                        SampleType::F32 => native.write_as_native_endian(&f32::read_from_little_endian(&mut little).expect("read from in-memory buffer failed")),
-                        SampleType::U32 => native.write_as_native_endian(&u32::read_from_little_endian(&mut little).expect("read from in-memory buffer failed")),
-                    }.expect("write to in-memory buffer failed");
-                }
-            }
-        }
-
-        return native;
-    }
+    reverse_block_endianness(&mut bytes, channels, rectangle);
 
     bytes
 }
 
+#[allow(unused)] // unused when on little endian system
+fn reverse_block_endianness(bytes: &mut [u8], channels: &ChannelList, rectangle: IntegerBounds){
+    let mut remaining_bytes: &mut [u8] = bytes;
 
+    for y in rectangle.position.y() .. rectangle.end().y() {
+        for channel in &channels.list {
+            let line_is_subsampled = mod_p(y, usize_to_i32(channel.sampling.y())) != 0;
+            if line_is_subsampled { continue; }
+
+            let sample_count = rectangle.size.width() / channel.sampling.x();
+
+            match channel.sample_type {
+                SampleType::F16 => remaining_bytes = chomp_convert_n::<f16>(reverse_2_bytes, remaining_bytes, sample_count),
+                SampleType::F32 => remaining_bytes = chomp_convert_n::<f32>(reverse_4_bytes, remaining_bytes, sample_count),
+                SampleType::U32 => remaining_bytes = chomp_convert_n::<u32>(reverse_4_bytes, remaining_bytes, sample_count),
+            }
+        }
+    }
+
+    #[inline]
+    fn chomp_convert_n<T>(convert_single_value: impl Fn(&mut[u8]), mut bytes: &mut [u8], count: usize) -> &mut [u8] {
+        let type_size = size_of::<T>();
+        let (line_bytes, rest) = bytes.split_at_mut(count * type_size);
+        let value_byte_chunks = line_bytes.chunks_exact_mut(type_size);
+
+        for value_bytes in value_byte_chunks {
+            convert_single_value(value_bytes);
+        }
+
+        rest
+    }
+
+    debug_assert!(remaining_bytes.is_empty(), "not all bytes were converted to little endian");
+}
+
+#[inline]
+fn reverse_2_bytes(bytes: &mut [u8]){
+    // this code seems like it could be optimized easily by the compiler
+    let two_bytes: [u8; 2] = bytes.try_into().expect("invalid byte count");
+    bytes.copy_from_slice(&[two_bytes[1], two_bytes[0]]);
+}
+
+#[inline]
+fn reverse_4_bytes(bytes: &mut [u8]){
+    let four_bytes: [u8; 4] = bytes.try_into().expect("invalid byte count");
+    bytes.copy_from_slice(&[four_bytes[3], four_bytes[2], four_bytes[1], four_bytes[0]]);
+}
+
+#[inline]
 fn div_p (x: i32, y: i32) -> i32 {
     if x >= 0 {
         if y >= 0 { x  / y }
@@ -408,6 +379,7 @@ fn div_p (x: i32, y: i32) -> i32 {
     }
 }
 
+#[inline]
 fn mod_p(x: i32, y: i32) -> i32 {
     x - y * div_p(x, y)
 }
@@ -682,11 +654,11 @@ pub mod test {
         current_endian: ByteVec, channels: &ChannelList, rectangle: IntegerBounds
     ){
         let little_endian = convert_current_to_little_endian(
-            &current_endian, channels, rectangle
+            current_endian.clone(), channels, rectangle
         );
 
         let current_endian_decoded = convert_little_endian_to_current(
-            &little_endian, channels, rectangle
+            little_endian.clone(), channels, rectangle
         );
 
         assert_eq!(current_endian, current_endian_decoded, "endianness conversion failed");
