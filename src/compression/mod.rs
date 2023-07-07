@@ -339,7 +339,7 @@ fn reverse_block_endianness(bytes: &mut [u8], channels: &ChannelList, rectangle:
     }
 
     #[inline]
-    fn chomp_convert_n<T>(convert_single_value: impl Fn(&mut[u8]), mut bytes: &mut [u8], count: usize) -> &mut [u8] {
+    fn chomp_convert_n<T>(convert_single_value: fn(&mut[u8]), mut bytes: &mut [u8], count: usize) -> &mut [u8] {
         let type_size = size_of::<T>();
         let (line_bytes, rest) = bytes.split_at_mut(count * type_size);
         let value_byte_chunks = line_bytes.chunks_exact_mut(type_size);
