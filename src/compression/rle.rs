@@ -40,10 +40,10 @@ pub fn decompress_bytes(
 
     differences_to_samples(&mut decompressed);
     interleave_byte_blocks(&mut decompressed);
-    Ok(super::convert_little_endian_to_current(&decompressed, channels, rectangle))// TODO no alloc
+    Ok(super::convert_little_endian_to_current(decompressed, channels, rectangle))// TODO no alloc
 }
 
-pub fn compress_bytes(channels: &ChannelList, uncompressed: Bytes<'_>, rectangle: IntegerBounds) -> Result<ByteVec> {
+pub fn compress_bytes(channels: &ChannelList, uncompressed: ByteVec, rectangle: IntegerBounds) -> Result<ByteVec> {
     // see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
     let mut data = super::convert_current_to_little_endian(uncompressed, channels, rectangle);// TODO no alloc
 

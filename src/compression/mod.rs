@@ -165,14 +165,20 @@ impl Compression {
 
         use self::Compression::*;
         let compressed_little_endian = match self {
-            Uncompressed => Ok(convert_current_to_little_endian(&uncompressed_native_endian, &header.channels, pixel_section)),
-            ZIP16 => zip::compress_bytes(&header.channels, &uncompressed_native_endian, pixel_section),
-            ZIP1 => zip::compress_bytes(&header.channels, &uncompressed_native_endian, pixel_section),
-            RLE => rle::compress_bytes(&header.channels, &uncompressed_native_endian, pixel_section),
-            PIZ => piz::compress(&header.channels, &uncompressed_native_endian, pixel_section),
-            PXR24 => pxr24::compress(&header.channels, &uncompressed_native_endian, pixel_section),
-            B44 => b44::compress(&header.channels, &uncompressed_native_endian, pixel_section, false),
-            B44A => b44::compress(&header.channels, &uncompressed_native_endian, pixel_section, true),
+            Uncompressed => {
+                return Ok(convert_current_to_little_endian(
+                    uncompressed_native_endian, &header.channels, pixel_section
+                ))
+            },
+
+            // we need to clone here, because we might have to fallback to the uncompressed data later (when compressed data is larger than raw data)
+            ZIP16 => zip::compress_bytes(&header.channels, uncompressed_native_endian.clone(), pixel_section),
+            ZIP1 => zip::compress_bytes(&header.channels, uncompressed_native_endian.clone(), pixel_section),
+            RLE => rle::compress_bytes(&header.channels, uncompressed_native_endian.clone(), pixel_section),
+            PIZ => piz::compress(&header.channels, uncompressed_native_endian.clone(), pixel_section),
+            PXR24 => pxr24::compress(&header.channels, uncompressed_native_endian.clone(), pixel_section),
+            B44 => b44::compress(&header.channels, uncompressed_native_endian.clone(), pixel_section, false),
+            B44A => b44::compress(&header.channels, uncompressed_native_endian.clone(), pixel_section, true),
             _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
         };
 
@@ -186,7 +192,7 @@ impl Compression {
         }
         else {
             // if we do not use compression, manually convert uncompressed data
-            Ok(convert_current_to_little_endian(&uncompressed_native_endian, &header.channels, pixel_section))
+            Ok(convert_current_to_little_endian(uncompressed_native_endian, &header.channels, pixel_section))
         }
     }
 
@@ -202,12 +208,12 @@ impl Compression {
         // note: always true where self == Uncompressed
         if compressed.len() == expected_byte_size {
             // the compressed data was larger than the raw data, so the small raw data has been written
-            Ok(convert_little_endian_to_current(&compressed, &header.channels, pixel_section))
+            Ok(convert_little_endian_to_current(compressed, &header.channels, pixel_section))
         }
         else {
             use self::Compression::*;
             let bytes = match self {
-                Uncompressed => Ok(convert_little_endian_to_current(&compressed, &header.channels, pixel_section)),
+                Uncompressed => Ok(convert_little_endian_to_current(compressed, &header.channels, pixel_section)),
                 ZIP16 => zip::decompress_bytes(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
                 ZIP1 => zip::decompress_bytes(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
                 RLE => rle::decompress_bytes(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
@@ -297,8 +303,9 @@ impl Compression {
 // FIXME this should really be done inside each compression method
 
 #[allow(unused)]
-fn convert_current_to_little_endian(bytes: Bytes<'_>, channels: &ChannelList, rectangle: IntegerBounds) -> ByteVec { // TODO is this really not already somewhere else?
-    #[cfg(target = "big_endian")] {
+fn convert_current_to_little_endian(bytes: ByteVec, channels: &ChannelList, rectangle: IntegerBounds) -> ByteVec { // TODO is this really not already somewhere else?
+    #[cfg(target = "big_endian")]
+    {
         use lebe::prelude::*;
 
         // FIXME do this in-place
@@ -355,12 +362,13 @@ fn convert_current_to_little_endian(bytes: Bytes<'_>, channels: &ChannelList, re
         }
     }*/
 
-    bytes.to_vec()
+    bytes
 }
 
 #[allow(unused)]
-fn convert_little_endian_to_current(bytes: Bytes<'_>, channels: &ChannelList, rectangle: IntegerBounds) -> ByteVec { // TODO is this really not already somewhere else?
-    #[cfg(target = "big_endian")] {
+fn convert_little_endian_to_current(bytes: ByteVec, channels: &ChannelList, rectangle: IntegerBounds) -> ByteVec { // TODO is this really not already somewhere else?
+    #[cfg(target = "big_endian")]
+    {
         use lebe::prelude::*;
 
         // FIXME do this in-place
@@ -385,7 +393,7 @@ fn convert_little_endian_to_current(bytes: Bytes<'_>, channels: &ChannelList, re
         return native;
     }
 
-    bytes.to_vec()
+    bytes
 }
 
 
