@@ -318,7 +318,7 @@ impl<Sample: FromNativeSample> SampleReader<Sample> {
 fn read_and_convert_all_samples_batched<'t, From, To>(
     mut in_bytes: impl Read,
     out_samples: &mut impl ExactSizeIterator<Item=&'t mut To>,
-    convert_batch: impl Fn(&[From], &mut [To])
+    convert_batch: fn(&[From], &mut [To])
 ) where From: Data + Default + Copy, To: 't + Default + Copy
 {
     // this is not a global! why is this warning triggered?
