@@ -4,7 +4,7 @@ description = "Read and write OpenEXR files without any unsafe code"
 keywords = ["exr", "openexr", "file", "binary", "io"]
 categories = ["encoding", "filesystem", "graphics", "multimedia"]
 
-version = "2.0.0"
+version = "1.7.0"
 edition = "2018"
 authors = ["johannesvollmer <johannes596@t-online.de>"]
 
@@ -12,7 +12,7 @@ repository = "https://github.com/johannesvollmer/exrs"
 readme = "README.md"
 license = "BSD-3-Clause"
 exclude = [ "specification/*", "specification/**", "tests/images/*", "tests/images/**" ]
-rust-version = "1.70.0"
+rust-version = "1.59.0"
 
 [badges]
 maintenance = { status = "actively-developed" }
@@ -28,7 +28,7 @@ proc-macro = false
 
 [dependencies]
 lebe = "^0.5.2"                # generic binary serialization
-half = "^2.1.0"                # 16 bit float pixel data type
+half = ">=2.1.0, <2.3"               # 16 bit float pixel data type
 bit_field = "^0.10.1"          # exr file version bit flags
 miniz_oxide = "^0.7.1"         # zip compression for pxr24
 smallvec = "^1.7.0"            # make cache-friendly allocations        TODO profile if smallvec is really an improvement!
