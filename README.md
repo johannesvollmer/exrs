@@ -28,6 +28,11 @@ Features include:
 
 ### Current Status
 
+MSRV Note: This crate is now on Rust `1.70.0`. If you want to use the
+newest version of `exrs` with an older Rust version, you can still do that:
+By specifying a version `half = "2.1.0"` in your project, the crate will work with Rust `1.59.0`.
+
+
 This library has matured quite a bit, but should still be considered incomplete. 
 For example, deep data and DWA compression algorithms are not supported yet.
 
