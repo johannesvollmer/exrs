@@ -1,6 +1,7 @@
 //! Extract pixel samples from a block of pixel bytes.
 
 use crate::prelude::*;
+use half::prelude::HalfFloatSliceExt;
 
 
 /// A single red, green, blue, or alpha value.
@@ -112,6 +113,7 @@ impl From<Sample> for u32 { #[inline] fn from(s: Sample) -> Self { s.to_u32() } 
 
 /// Create an arbitrary sample type from one of the defined sample types.
 /// Should be compiled to a no-op where the file contains the predicted sample type.
+/// The slice functions should be optimized into a `memcpy` where there is no conversion needed.
 pub trait FromNativeSample: Sized + Copy + Default + 'static {
 
     /// Create this sample from a f16, trying to represent the same numerical value
@@ -122,31 +124,85 @@ pub trait FromNativeSample: Sized + Copy + Default + 'static {
 
     /// Create this sample from a u32, trying to represent the same numerical value
     fn from_u32(value: u32) -> Self;
+
+    /// Convert all values from the slice into this type.
+    /// This function exists to allow the compiler to perform a vectorization optimization.
+    /// Note that this default implementation will **not** be vectorized by the compiler automatically.
+    /// For maximum performance you will need to override this function and implement it via
+    /// an explicit batched conversion such as [`convert_to_f32_slice`](https://docs.rs/half/2.3.1/half/slice/trait.HalfFloatSliceExt.html#tymethod.convert_to_f32_slice)
+    #[inline]
+    fn from_f16s(from: &[f16], to: &mut [Self]) {
+        assert_eq!(from.len(), to.len(), "slices must have the same length");
+        for (from, to) in from.iter().zip(to.iter_mut()) {
+            *to = Self::from_f16(*from);
+        }
+    }
+
+    /// Convert all values from the slice into this type.
+    /// This function exists to allow the compiler to perform a vectorization optimization.
+    /// Note that this default implementation will be vectorized by the compiler automatically.
+    #[inline]
+    fn from_f32s(from: &[f32], to: &mut [Self]) {
+        assert_eq!(from.len(), to.len(), "slices must have the same length");
+        for (from, to) in from.iter().zip(to.iter_mut()) {
+            *to = Self::from_f32(*from);
+        }
+    }
+
+    /// Convert all values from the slice into this type.
+    /// This function exists to allow the compiler to perform a vectorization optimization.
+    /// Note that this default implementation will be vectorized by the compiler automatically,
+    /// provided that the CPU supports the necessary conversion instructions.
+    /// For example, x86_64 lacks the instructions to convert `u32` to floats,
+    /// so this will inevitably be slow on x86_64.
+    #[inline]
+    fn from_u32s(from: &[u32], to: &mut [Self]) {
+        assert_eq!(from.len(), to.len(), "slices must have the same length");
+        for (from, to) in from.iter().zip(to.iter_mut()) {
+            *to = Self::from_u32(*from);
+        }
+    }
 }
 
 // TODO haven't i implemented this exact behaviour already somewhere else in this library...??
 impl FromNativeSample for f32 {
-    fn from_f16(value: f16) -> Self { value.to_f32() }
-    fn from_f32(value: f32) -> Self { value } // this branch means that we never have to match every single sample if the file format matches the expected output
-    fn from_u32(value: u32) -> Self { value as f32 }
+    #[inline] fn from_f16(value: f16) -> Self { value.to_f32() }
+    #[inline] fn from_f32(value: f32) -> Self { value }
+    #[inline] fn from_u32(value: u32) -> Self { value as f32 }
+
+    // f16 is a custom type
+    // so the compiler can not automatically vectorize the conversion
+    // that's why we need to specialize this function
+    #[inline]
+    fn from_f16s(from: &[f16], to: &mut [Self]) {
+        from.convert_to_f32_slice(to);
+    }
 }
 
 impl FromNativeSample for u32 {
-    fn from_f16(value: f16) -> Self { value.to_f32() as u32 }
-    fn from_f32(value: f32) -> Self { value as u32 }
-    fn from_u32(value: u32) -> Self { value }
+    #[inline] fn from_f16(value: f16) -> Self { value.to_f32() as u32 }
+    #[inline] fn from_f32(value: f32) -> Self { value as u32 }
+    #[inline] fn from_u32(value: u32) -> Self { value }
 }
 
 impl FromNativeSample for f16 {
-    fn from_f16(value: f16) -> Self { value }
-    fn from_f32(value: f32) -> Self { f16::from_f32(value) }
-    fn from_u32(value: u32) -> Self { f16::from_f32(value as f32) }
+    #[inline] fn from_f16(value: f16) -> Self { value }
+    #[inline] fn from_f32(value: f32) -> Self { f16::from_f32(value) }
+    #[inline] fn from_u32(value: u32) -> Self { f16::from_f32(value as f32) }
+
+    // f16 is a custom type
+    // so the compiler can not automatically vectorize the conversion
+    // that's why we need to specialize this function
+    #[inline]
+    fn from_f32s(from: &[f32], to: &mut [Self]) {
+        to.convert_from_f32_slice(from)
+    }
 }
 
 impl FromNativeSample for Sample {
-    fn from_f16(value: f16) -> Self { Self::from(value) }
-    fn from_f32(value: f32) -> Self { Self::from(value) }
-    fn from_u32(value: u32) -> Self { Self::from(value) }
+    #[inline] fn from_f16(value: f16) -> Self { Self::from(value) }
+    #[inline] fn from_f32(value: f32) -> Self { Self::from(value) }
+    #[inline] fn from_u32(value: u32) -> Self { Self::from(value) }
 }
 
 

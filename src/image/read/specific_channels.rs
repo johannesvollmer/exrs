@@ -12,6 +12,7 @@ use crate::image::read::layers::{ChannelsReader, ReadChannels};
 use crate::block::chunk::TileCoordinates;
 
 use std::marker::PhantomData;
+use crate::io::Read;
 
 
 /// Can be attached one more channel reader.
@@ -279,30 +280,121 @@ pub struct OptionalSampleReader<DefaultSample> {
 impl<Sample: FromNativeSample> SampleReader<Sample> {
     fn read_own_samples<'s, FullPixel>(
         &self, bytes: &'s[u8], pixels: &mut [FullPixel],
-        get_pixel: impl Fn(&mut FullPixel) -> &mut Sample
+        get_sample: impl Fn(&mut FullPixel) -> &mut Sample
     ){
         let start_index = pixels.len() * self.channel_byte_offset;
         let byte_count = pixels.len() * self.channel.sample_type.bytes_per_sample();
-        let mut own_bytes_reader = &bytes[start_index .. start_index + byte_count]; // TODO check block size somewhere
+        let mut own_bytes_reader = &mut &bytes[start_index .. start_index + byte_count]; // TODO check block size somewhere
+        let mut samples_out = pixels.iter_mut().map(|pixel| get_sample(pixel));
 
-        let error_msg = "error when reading from in-memory slice";
-
-        // match outside the loop to avoid matching on every single sample
+        // match the type once for the whole line, not on every single sample
         match self.channel.sample_type {
-            SampleType::F16 => for pixel in pixels.iter_mut() {
-                *get_pixel(pixel) = Sample::from_f16(f16::read(&mut own_bytes_reader).expect(error_msg));
-            },
+            SampleType::F16 => read_and_convert_all_samples_batched(
+                &mut own_bytes_reader, &mut samples_out,
+                Sample::from_f16s
+            ),
 
-            SampleType::F32 => for pixel in pixels.iter_mut() {
-                *get_pixel(pixel) = Sample::from_f32(f32::read(&mut own_bytes_reader).expect(error_msg));
-            },
+            SampleType::F32 => read_and_convert_all_samples_batched(
+                &mut own_bytes_reader, &mut samples_out,
+                Sample::from_f32s
+            ),
 
-            SampleType::U32 => for pixel in pixels.iter_mut() {
-                *get_pixel(pixel) = Sample::from_u32(u32::read(&mut own_bytes_reader).expect(error_msg));
-            },
+            SampleType::U32 => read_and_convert_all_samples_batched(
+                &mut own_bytes_reader, &mut samples_out,
+                Sample::from_u32s
+            ),
         }
 
+        debug_assert!(samples_out.next().is_none(), "not all samples have been converted");
         debug_assert!(own_bytes_reader.is_empty(), "bytes left after reading all samples");
+    }
+}
+
+
+/// Does the same as `convert_batch(in_bytes.chunks().map(From::from_bytes))`, but vectorized.
+/// Reads the samples for one line, using the sample type specified in the file,
+/// and then converts those to the desired sample types.
+/// Uses batches to allow vectorization, converting multiple values with one instruction.
+fn read_and_convert_all_samples_batched<'t, From, To>(
+    mut in_bytes: impl Read,
+    out_samples: &mut impl ExactSizeIterator<Item=&'t mut To>,
+    convert_batch: fn(&[From], &mut [To])
+) where From: Data + Default + Copy, To: 't + Default + Copy
+{
+    // this is not a global! why is this warning triggered?
+    #[allow(non_upper_case_globals)]
+    const batch_size: usize = 16;
+
+    let total_sample_count = out_samples.len();
+    let batch_count = total_sample_count / batch_size;
+    let remaining_samples_count = total_sample_count % batch_size;
+
+    let len_error_msg = "sample count was miscalculated";
+    let byte_error_msg = "error when reading from in-memory slice";
+
+    // write samples from a given slice to the output iterator. should be inlined.
+    let output_n_samples = &mut move |samples: &[To]| {
+        for converted_sample in samples {
+            *out_samples.next().expect(len_error_msg) = *converted_sample;
+        }
+    };
+
+    // read samples from the byte source into a given slice. should be inlined.
+    // todo: use #[inline] when available
+    // error[E0658]: attributes on expressions are experimental,
+    // see issue #15701 <https://github.com/rust-lang/rust/issues/15701> for more information
+    let read_n_samples = &mut move |samples: &mut [From]| {
+        Data::read_slice(&mut in_bytes, samples).expect(byte_error_msg);
+    };
+
+    // temporary arrays with fixed size, operations should be vectorized within these arrays
+    let mut source_samples_batch: [From; batch_size] = Default::default();
+    let mut desired_samples_batch: [To; batch_size] = Default::default();
+
+    // first convert all whole batches, size statically known to be 16 element arrays
+    for _ in 0 .. batch_count {
+        read_n_samples(&mut source_samples_batch);
+        convert_batch(source_samples_batch.as_slice(), desired_samples_batch.as_mut_slice());
+        output_n_samples(&desired_samples_batch);
+    }
+
+    // then convert a partial remaining batch, size known only at runtime
+    if remaining_samples_count != 0 {
+        let source_samples_batch = &mut source_samples_batch[..remaining_samples_count];
+        let desired_samples_batch = &mut desired_samples_batch[..remaining_samples_count];
+
+        read_n_samples(source_samples_batch);
+        convert_batch(source_samples_batch, desired_samples_batch);
+        output_n_samples(desired_samples_batch);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn equals_naive_f32(){
+        for total_array_size in [3, 7, 30, 41, 120, 10_423] {
+            let input_f32s = (0..total_array_size).map(|_| rand::random::<f32>()).collect::<Vec<f32>>();
+            let in_f32s_bytes = input_f32s.iter().cloned().flat_map(f32::to_le_bytes).collect::<Vec<u8>>();
+
+            let mut out_f16_samples_batched = vec![
+                f16::from_f32(rand::random::<f32>());
+                total_array_size
+            ];
+
+            read_and_convert_all_samples_batched(
+                &mut in_f32s_bytes.as_slice(),
+                &mut out_f16_samples_batched.iter_mut(),
+                f16::from_f32s
+            );
+
+            let out_f16_samples_naive = input_f32s.iter()
+                .cloned().map(f16::from_f32);
+
+            assert!(out_f16_samples_naive.eq(out_f16_samples_batched));
+        }
     }
 }
 

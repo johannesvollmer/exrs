@@ -47,13 +47,13 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Install or use cached foresterre/cargo-msrv
-        uses: baptiste0928/cargo-install@v1
-        with:
-          crate: cargo-msrv
+      - name: Install foresterre/cargo-msrv without cache (takes longer, but caching produces unexpected behaviour)
+        run: cargo install cargo-msrv
 
-      - name: Verify the Rustc version declared in `cargo.toml`
+      - name: Verify the Rustc version declared in `cargo.toml` without cache (takes longer, but caching produces unexpected behaviour)
         run: |
+          rm -f Cargo.lock
+          cargo update
           cargo-msrv verify
 
   # github actions does not support big endian systems directly, but it does support QEMU.
@@ -82,13 +82,11 @@ jobs:
         run: sudo systemctl start docker
 
       - name: Cross-Compile project to mips-unknown-linux-gnu
-        run: |
-          cross build --target=mips-unknown-linux-gnu --verbose
+        run: cross build --target=mips-unknown-linux-gnu --verbose
 
       # https://github.com/cross-rs/cross#supported-targets
       - name: Cross-Run Tests in mips-unknown-linux-gnu using Qemu
-        run: |
-          cross test --target mips-unknown-linux-gnu --verbose
+        run: cross test --target mips-unknown-linux-gnu --verbose
 
   wasm32:
     runs-on: ubuntu-latest
@@ -109,3 +107,4 @@ jobs:
       
     - name: Run tests without default features
       run: cargo test --verbose --no-default-features
+

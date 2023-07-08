@@ -194,9 +194,15 @@ impl RoundingMode {
         }
     }
 
+    /// Only works for positive numbers.
     pub(crate) fn divide<T>(self, dividend: T, divisor: T) -> T
-        where T: Copy + Add<Output = T> + Sub<Output = T> + Div<Output = T> + From<u8>
+        where T: Copy + Add<Output = T> + Sub<Output = T> + Div<Output = T> + From<u8> + std::cmp::PartialOrd
     {
+        assert!(
+            dividend >= T::from(0) && divisor >= T::from(1),
+            "division with rounding up only works for positive numbers"
+        );
+
         match self {
             RoundingMode::Up => (dividend + divisor - T::from(1_u8)) / divisor, // only works for positive numbers
             RoundingMode::Down => dividend / divisor,
