@@ -197,7 +197,7 @@ impl Compression {
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
         if header.deep { assert!(self.supports_deep_data()) }
 
-        let expected_byte_size = header.channels.total_bytes_for_block(pixel_section);
+        let expected_byte_size = header.channels.total_bytes_for_block(pixel_section.size);
 
         // note: always true where self == Uncompressed
         if compressed.len() == expected_byte_size {
@@ -388,21 +388,6 @@ fn convert_little_endian_to_current(bytes: Bytes<'_>, channels: &ChannelList, re
     bytes.to_vec()
 }
 
-
-fn div_p (x: i32, y: i32) -> i32 {
-    if x >= 0 {
-        if y >= 0 { x  / y }
-        else { -(x  / -y) }
-    }
-    else {
-        if y >= 0 { -((y-1-x) / y) }
-        else { (-y-1-x) / -y }
-    }
-}
-
-fn mod_p(x: i32, y: i32) -> i32 {
-    x - y * div_p(x, y)
-}
 
 /// A collection of functions used to prepare data for compression.
 mod optimize_bytes {

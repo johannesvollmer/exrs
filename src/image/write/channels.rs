@@ -169,11 +169,11 @@ for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
         PxWriter: Sync + RecursivePixelWriter<<Storage::Pixel as IntoRecursive>::Recursive>,
 {
     fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Vec<u8> {
-        let block_bytes = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
+        let block_bytes = header.channels.total_bytes_for_block(block_index.pixel_size);
         let mut block_bytes = vec![0_u8; block_bytes];
 
-        let width = block_index.pixel_size.0;
-        let line_bytes = width * header.channels.bytes_per_pixel;
+        let width = block_index.pixel_size.width();
+        let line_bytes = header.channels.total_bytes_for_line(width);
         let byte_lines = block_bytes.chunks_exact_mut(line_bytes);
         assert_eq!(byte_lines.len(), block_index.pixel_size.height(), "invalid block line splits");
 

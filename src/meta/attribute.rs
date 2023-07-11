@@ -724,17 +724,19 @@ impl ChannelList {
     }
 
     /// Respects subsampling.
-    pub fn total_bytes_for_block(&self, pixel_section: IntegerBounds) -> usize {
+    pub fn total_bytes_for_block(&self, size: Vec2<usize>) -> usize {
+        // TODO i think we should debug_assert_eq!(pixel_section.position.x() % sampling == 0);
+
         // FIXME if the tile starts on an odd coordinate, shouldn't we subtract one?
         // TODO FIXME cache bytes_per_pixel if no channel has subsampling
-        self.list.iter().map(|chan| chan.subsampled_pixels(pixel_section.size)).sum()
+        self.list.iter().map(|chan| chan.subsampled_pixels(size)).sum()
     }
 
     /// Respects subsampling.
-    pub fn total_bytes_for_line(&self, x_range: Range<i32>) -> usize {
+    pub fn total_bytes_for_line(&self, x: usize) -> usize {
         // FIXME if the tile starts on an odd coordinate, shouldn't we subtract one?
         // TODO FIXME cache bytes_per_pixel if no channel has subsampling
-        self.list.iter().map(|chan| x_range.count() / chan.sampling.x()).sum()
+        self.list.iter().map(|chan| x / chan.sampling.x()).sum()
     }
 
     /*pub fn iterate_bounds(&self, pixel_section: IntegerBounds) -> impl '_ + Iterator<Item=(&ChannelDescription, Vec2<usize>)> {
@@ -1052,15 +1054,33 @@ impl ChannelDescription {
         Self { name: name.into(), sample_type, quantize_linearly, sampling: Vec2(1, 1) }
     }
 
+    /// The resolution pf this channel, respecting subsampling.
+    pub fn subsampled_resolution(&self, dimensions: Vec2<usize>) -> Vec2<usize> {
+        dimensions / self.sampling
+    }
+
     /// The count of pixels this channel contains, respecting subsampling.
     // FIXME this must be used everywhere
     pub fn subsampled_pixels(&self, dimensions: Vec2<usize>) -> usize {
         self.subsampled_resolution(dimensions).area()
     }
 
-    /// The resolution pf this channel, respecting subsampling.
-    pub fn subsampled_resolution(&self, dimensions: Vec2<usize>) -> Vec2<usize> {
-        dimensions / self.sampling
+    /// The byte size of a block, respecting subsampling.
+    // FIXME this must be used everywhere
+    pub fn subsampled_bytes(&self, dimensions: Vec2<usize>) -> usize {
+        self.subsampled_pixels(dimensions) * self.sample_type.bytes_per_sample()
+    }
+
+    /// The count of pixels a given line of pixels contains, respecting subsampling.
+    // FIXME this must be used everywhere
+    pub fn subsampled_line_pixels(&self, block_width: usize) -> usize {
+        block_width / self.sampling.width()
+    }
+
+    /// The byte size of a given line of pixels, respecting subsampling.
+    // FIXME this must be used everywhere
+    pub fn subsampled_line_bytes(&self, block_width: usize) -> usize {
+        self.subsampled_line_bytes(block_width) * self.sample_type.bytes_per_sample()
     }
 
     /// Number of bytes this would consume in an exr file.

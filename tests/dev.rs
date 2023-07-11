@@ -55,10 +55,10 @@ fn search_previews_of_all_files() {
 pub fn test_roundtrip() {
     // works
      //let path = "tests/images/fuzzed/b44_overly_restrictive_assert.exr";
-     let path = "tests/images/valid/custom/compression_methods/f32/pxr24.exr";
+     //let path = "tests/images/valid/custom/compression_methods/f32/pxr24.exr";
 
     // worksn't
-    // let path = "tests/images/valid/openexr/Chromaticities/Rec709_YC.exr"; // subsampling
+    let path = "tests/images/valid/openexr/Chromaticities/Rec709_YC.exr"; // subsampling
     // let path = "tests/images/valid/openexr/LuminanceChroma/Flowers.exr"; // subsampling
 
     // let path = "tests/images/valid/openexr/IlmfmlmflmTest/test_native1.exr";

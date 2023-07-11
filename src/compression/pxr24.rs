@@ -31,6 +31,7 @@ use super::*;
 
 use crate::error::Result;
 use lebe::io::ReadPrimitive;
+use crate::math::{subsampled_image_contains_line};
 
 
 // scanline decompression routine, see https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfScanLineInputFile.cpp
@@ -67,7 +68,9 @@ pub fn compress(channels: &ChannelList, remaining_bytes: Bytes<'_>, area: Intege
         // TODO this loop should be an iterator in the `IntegerBounds` class, as it is used in all compressio methods
         for y in area.position.1..area.end().1 {
             for channel in &channels.list {
-                if mod_p(y, usize_to_i32(channel.sampling.1)) != 0 { continue; }
+                if !subsampled_image_contains_line(usize_to_i32(channel.sampling.y()), y) {
+                    continue;
+                }
 
                 // this apparently can't be a closure in Rust 1.43 due to borrowing ambiguity
                 let sample_count_x = channel.subsampled_resolution(area.size).0;
@@ -155,7 +158,9 @@ pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, e
 
     for y in area.position.1 .. area.end().1 {
         for channel in &channels.list {
-            if mod_p(y, usize_to_i32(channel.sampling.1)) != 0 { continue; }
+            if !subsampled_image_contains_line(usize_to_i32(channel.sampling.y()), y) {
+                continue;
+            }
 
             let sample_count_x = channel.subsampled_resolution(area.size).0;
             let mut read_sample_line = ||{

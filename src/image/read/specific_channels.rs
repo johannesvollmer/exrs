@@ -187,7 +187,7 @@ ChannelsReader for SpecificChannelsReader<PixelStorage, SetPixel, PxReader, Pixe
     fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult {
         let mut pixels = vec![PxReader::RecursivePixel::default(); block.index.pixel_size.width()]; // TODO allocate once in self
 
-        let byte_lines = block.data.chunks_exact(header.channels.bytes_per_pixel * block.index.pixel_size.width());
+        let byte_lines = block.data.chunks_exact(header.channels.total_bytes_for_line(block.index.pixel_size.x()));
         debug_assert_eq!(byte_lines.len(), block.index.pixel_size.height(), "invalid block lines split");
 
         for (y_offset, line_bytes) in byte_lines.enumerate() { // TODO sampling

@@ -10,9 +10,10 @@ mod wavelet;
 use crate::prelude::*;
 use crate::io::Data;
 use crate::meta::attribute::*;
-use crate::compression::{ByteVec, Bytes, mod_p};
+use crate::compression::{ByteVec, Bytes};
 use crate::error::{usize_to_i32, usize_to_u16};
 use std::convert::TryFrom;
+use crate::math::{subsampled_image_contains_line};
 
 
 const U16_RANGE: usize = (1_i32 << 16_i32) as usize;
@@ -37,8 +38,9 @@ pub fn decompress(
     pedantic: bool
 ) -> Result<ByteVec>
 {
+
     let expected_u16_count = expected_byte_size / 2;
-    debug_assert_eq!(expected_byte_size, rectangle.size.area() * channels.bytes_per_pixel);
+    debug_assert_eq!(expected_byte_size,  channels.total_bytes_for_block(rectangle.size));
     debug_assert!(!channels.list.is_empty());
 
     if compressed.is_empty() {
@@ -115,7 +117,7 @@ pub fn decompress(
 
     for y in rectangle.position.y() .. rectangle.end().y() {
         for channel in &mut channel_data {
-            if mod_p(y, usize_to_i32(channel.y_sampling)) != 0 {
+            if !subsampled_image_contains_line(usize_to_i32(channel.y_sampling), y) {
                 continue;
             }
 
@@ -191,7 +193,10 @@ pub fn compress(
     let mut remaining_uncompressed_bytes = uncompressed;
     for y in rectangle.position.y() .. rectangle.end().y() {
         for channel in &mut channel_data {
-            if mod_p(y, usize_to_i32(channel.y_sampling)) != 0 { continue; }
+            if !subsampled_image_contains_line(usize_to_i32(channel.y_sampling), y) {
+                continue;
+            }
+
             let u16s_per_line = channel.resolution.x() * channel.samples_per_pixel;
             let next_tmp_end_index = channel.tmp_end_index + u16s_per_line;
             let target = &mut tmp[channel.tmp_end_index .. next_tmp_end_index];
@@ -304,7 +309,7 @@ mod test {
 
     fn test_roundtrip_noise_with(channels: ChannelList, rectangle: IntegerBounds){
         let pixel_bytes: ByteVec = (0 .. 37).map(|_| rand::random()).collect::<Vec<u8>>().into_iter()
-            .cycle().take(channels.bytes_per_pixel * rectangle.size.area())
+            .cycle().take(channels.total_bytes_for_block(rectangle.size))
             .collect();
 
         let compressed = piz::compress(&channels, &pixel_bytes, rectangle).unwrap();

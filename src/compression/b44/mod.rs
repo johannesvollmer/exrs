@@ -1,6 +1,6 @@
 mod table;
 
-use crate::compression::{mod_p, ByteVec, Bytes};
+use crate::compression::{ByteVec, Bytes};
 use crate::error::usize_to_i32;
 use crate::io::Data;
 use crate::meta::attribute::ChannelList;
@@ -9,6 +9,7 @@ use std::cmp::min;
 use std::mem::size_of;
 use table::{EXP_TABLE, LOG_TABLE};
 use lebe::io::{ReadPrimitive, WriteEndian};
+use crate::math::{subsampled_image_contains_line};
 
 const BLOCK_SAMPLE_COUNT: usize = 4;
 
@@ -265,7 +266,7 @@ pub fn decompress(
 ) -> Result<ByteVec> {
     debug_assert_eq!(
         expected_byte_size,
-        rectangle.size.area() * channels.bytes_per_pixel,
+        channels.total_bytes_for_block(rectangle.size),
         "expected byte size does not match header" // TODO compute instead of passing argument?
     );
 
@@ -436,7 +437,7 @@ pub fn decompress(
 
     for y in rectangle.position.y()..rectangle.end().y() {
         for channel in &mut channel_data {
-            if mod_p(y, usize_to_i32(channel.y_sampling)) != 0 {
+            if !subsampled_image_contains_line(usize_to_i32(channel.y_sampling), y) {
                 continue;
             }
 
@@ -529,7 +530,7 @@ pub fn compress(
 
     for y in rectangle.position.y()..rectangle.end().y() {
         for channel in &mut channel_data {
-            if mod_p(y, usize_to_i32(channel.y_sampling)) != 0 {
+            if !subsampled_image_contains_line(usize_to_i32(channel.y_sampling), y) {
                 continue;
             }
 

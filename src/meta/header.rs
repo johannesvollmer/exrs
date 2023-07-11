@@ -566,11 +566,8 @@ impl Header {
 
     /// Maximum byte length of an uncompressed or compressed block, used for validation.
     pub fn max_block_byte_size(&self) -> usize {
-        self.channels.bytes_per_pixel * match self.blocks {
-            BlockDescription::Tiles(tiles) => tiles.tile_size.area(),
-            BlockDescription::ScanLines => self.compression.scan_lines_per_block() * self.layer_size.width()
-            // TODO What about deep data???
-        }
+        // TODO What about deep data???
+        self.channels.total_bytes_for_block(self.max_block_pixel_size())
     }
 
     /// Returns the number of bytes that the pixels of this header will require

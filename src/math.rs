@@ -210,4 +210,29 @@ impl RoundingMode {
     }
 }
 
+
+// TODO only positive?? debug_assert!()
+pub fn div_p(x: i32, y: i32) -> i32 {
+    if x >= 0 {
+        if y >= 0 { x  / y }
+        else { -(x  / -y) }
+    }
+    else {
+        if y >= 0 { -((y-1-x) / y) }
+        else { (-y-1-x) / -y }
+    }
+}
+
+// TODO only positive?? debug_assert!()
+pub fn mod_p(x: i32, y: i32) -> i32 {
+    x - y * div_p(x, y)
+}
+
+// TODO use everywhere instead of mod_p
+pub fn subsampled_image_contains_line(sampling_y: i32, data_window_line_y: i32) -> bool {
+    // FIXME is this relative to data window???? or world space?
+    mod_p(data_window_line_y, sampling_y) == 0
+}
+
+
 // TODO log2 tests

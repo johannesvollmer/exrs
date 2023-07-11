@@ -2,8 +2,7 @@
 
 use crate::math::*;
 use std::io::{Cursor};
-use crate::error::{Result, UnitResult};
-use smallvec::SmallVec;
+use crate::error::{Result, UnitResult, usize_to_i32};
 use std::ops::Range;
 use crate::block::{BlockIndex};
 use crate::meta::attribute::ChannelList;
@@ -57,13 +56,21 @@ pub struct LineIndex {
     /// Position of the most left pixel of the row.
     pub position: Vec2<usize>,
 
-    /// The width of the line; the number of samples in this row,
-    /// that is, the number of f16, f32, or u32 values.
-    pub sample_count: usize,
+    /// The width of the line; the number of
+    /// samples in this row if there was no subsampling.
+    pub max_sample_count: usize,
+
+    /// The subsampled width of the line; the number of samples in this row,
+    /// that is, the number of f16, f32, or u32 values, but may be less than expected because of subsampling.
+    pub sub_sample_count: usize,
 }
 
 
 impl LineIndex {
+
+    /*pub fn for_lines_in_block(block: Block, channels: &ChannelList) {
+
+    }*/
 
     /// Iterates the lines of this block index in interleaved fashion:
     /// For each line in this block, this iterator steps once through each channel.
@@ -72,13 +79,60 @@ impl LineIndex {
     ///
     /// Does not check whether `self.layer_index`, `self.level`, `self.size` and `self.position` are valid indices.__
     // TODO be sure this cannot produce incorrect data, as this is not further checked but only handled with panics
+    // TODO make this an internally iterated closure function instead of iter? to avoid allocation and simplify logic?
     #[inline]
     #[must_use]
-    pub fn lines_in_block(block: BlockIndex, channels: &ChannelList) -> impl Iterator<Item=(Range<usize>, LineIndex)> {
-        struct LineIter {
+    pub fn lines_in_block(block: BlockIndex, channels: &ChannelList) -> impl '_ + Iterator<Item=(Range<usize>, LineIndex)> {
+        #[derive(Copy, Clone)]
+        struct ChannelInfo {
+            sampling: Vec2<usize>,
+            subsampled_line_bytes: usize,
+            subsampled_sample_count: usize,
+        }
+
+        let (width, height) = block.pixel_size.into();
+        let start_y = block.pixel_position.y();
+        let x = block.pixel_position.x();
+
+        let channel_info = channels.list.iter()
+            .cloned().map(move |channel|{
+                ChannelInfo {
+                    sampling: channel.sampling,
+                    subsampled_sample_count: channel.subsampled_line_pixels(width),
+                    subsampled_line_bytes: channel.subsampled_line_bytes(width) }
+            });
+
+        return channel_info.enumerate()
+            .flat_map(move |(channel_index, channel)| {
+                (start_y .. start_y + height)
+                    .filter(move |&absolute_y| subsampled_image_contains_line(
+                        usize_to_i32(channel.sampling.y()),
+                        usize_to_i32(absolute_y)
+                    ))
+                    .scan(0_usize, move |byte, absolute_y| {
+                        let byte_len = channel.subsampled_line_bytes;
+                        let byte_range = *byte .. *byte + byte_len;
+                        *byte += byte_len;
+
+                        Some((byte_range, LineIndex {
+                            layer: block.layer,
+                            level: block.level,
+                            channel: channel_index,
+                            position: Vec2(x, absolute_y),
+                            max_sample_count: width,
+                            sub_sample_count: channel.subsampled_sample_count
+                        }))
+                    })
+            });
+
+
+        /*struct LineIter {
             layer: usize, level: Vec2<usize>, width: usize,
-            end_y: usize, x: usize, channel_sizes: SmallVec<[usize; 8]>,
-            byte: usize, channel: usize, y: usize,
+            end_y: usize, x: usize, y: usize,
+            byte: usize,
+            channel: usize,
+            channel_sampling: SmallVec<[Vec2<usize>; 8]>,
+            subsampled_channel_line_bytes: SmallVec<[usize; 8]>,
         }
 
         impl Iterator for LineIter {
@@ -86,19 +140,32 @@ impl LineIndex {
             // TODO size hint?
 
             fn next(&mut self) -> Option<Self::Item> {
+                while !subsampled_image_contains_line(
+                    usize_to_i32(self.channel_sampling[self.channel].y()),
+                    usize_to_i32(self.start_y + self.y)
+                ) {
+                    self.channel += 1;
+
+                    if self.channel == self.subsampled_channel_line_bytes.len() {
+                        self.channel = 0;
+                        self.y += 1;
+                    }
+                }
+
                 if self.y < self.end_y {
                     // FIXME some Y values need to be skipped due to subsampling
 
                     // compute return value before incrementing
-                    let byte_len = self.channel_sizes[self.channel];
+                    let byte_len = self.subsampled_channel_line_bytes[self.channel];
                     let return_value = (
-                        (self.byte .. self.byte + byte_len),
+                        (self.byte .. self.byte + byte_len), // FIXME this indexes into bytes, but uses sample count, not byte count????
                         LineIndex {
                             channel: self.channel,
                             layer: self.layer,
                             level: self.level,
                             position: Vec2(self.x, self.y),
-                            sample_count: self.width,
+                            max_sample_count: self.width,
+                            sub_sample_count: self.width / self.channel_sampling[self.channel].x()
                         }
                     );
 
@@ -106,7 +173,7 @@ impl LineIndex {
                         self.byte += byte_len;
                         self.channel += 1;
 
-                        if self.channel == self.channel_sizes.len() {
+                        if self.channel == self.subsampled_channel_line_bytes.len() {
                             self.channel = 0;
                             self.y += 1;
                         }
@@ -121,22 +188,22 @@ impl LineIndex {
             }
         }
 
-        let channel_line_sizes: SmallVec<[usize; 8]> = channels.list.iter()
-            .map(move |channel| channel.subsampled_pixels(block.pixel_size)) // FIXME is it fewer samples per tile or just fewer tiles for sampled images???
+        let subsampled_channel_line_width: SmallVec<[usize; 8]> = channels.list.iter()
+            .map(move |channel| channel.subsampled_line_bytes(block.pixel_size.width())) // FIXME is it fewer samples per tile or just fewer tiles for sampled images???
             .collect();
 
         LineIter {
             layer: block.layer,
             level: block.level,
-            width: block.pixel_size.0,
-            x: block.pixel_position.0,
+            width: block.pixel_size.width(),
+            x: block.pixel_position.x(),
             end_y: block.pixel_position.y() + block.pixel_size.height(),
-            channel_sizes: channel_line_sizes,
+            subsampled_channel_line_bytes: subsampled_channel_line_width,
 
             byte: 0,
             channel: 0,
             y: block.pixel_position.y()
-        }
+        }*/
     }
 }
 

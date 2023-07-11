@@ -153,7 +153,7 @@ impl UncompressedBlock {
         let header: &Header = headers.get(index.layer)
             .expect("block layer index bug");
 
-        let expected_byte_size = header.channels.bytes_per_pixel * self.index.pixel_size.area(); // TODO sampling??
+        let expected_byte_size = header.channels.total_bytes_for_block(self.index.pixel_size);
         if expected_byte_size != data.len() {
             panic!("get_line byte size should be {} but was {}", expected_byte_size, data.len());
         }
@@ -200,7 +200,7 @@ impl UncompressedBlock {
 
     /// Iterate all the lines in this block.
     /// Each line contains the all samples for one of the channels.
-    pub fn lines(&self, channels: &ChannelList) -> impl Iterator<Item=LineRef<'_>> {
+    pub fn lines<'s>(&'s self, channels: &'s ChannelList) -> impl 's + Iterator<Item=LineRef<'s>> {
         LineIndex::lines_in_block(self.index, channels)
             .map(move |(bytes, line)| LineSlice { location: line, value: &self.data[bytes] })
     }
@@ -231,7 +231,7 @@ impl UncompressedBlock {
         mut extract_line: impl FnMut(LineRefMut<'_>)
     ) -> Vec<u8>
     {
-        let byte_count = block_index.pixel_size.area() * channels.bytes_per_pixel;
+        let byte_count = channels.total_bytes_for_block(block_index.pixel_size);
         let mut block_bytes = vec![0_u8; byte_count];
 
         for (byte_range, line_index) in LineIndex::lines_in_block(block_index, channels) {
