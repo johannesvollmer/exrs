@@ -3,7 +3,7 @@
 //!
 
 
-mod linear_lookup;
+mod linear_lookup_tables;
 mod discrete_cosine_transform;
 
 use crate::compression::{mod_p, ByteVec, Bytes};
