@@ -9,6 +9,7 @@ mod rle;
 mod piz;
 mod pxr24;
 mod b44;
+mod dwa;
 
 
 use std::convert::TryInto;
@@ -181,7 +182,9 @@ impl Compression {
             PXR24 => pxr24::compress(&header.channels, uncompressed_native_endian.clone(), pixel_section),
             B44 => b44::compress(&header.channels, uncompressed_native_endian.clone(), pixel_section, false),
             B44A => b44::compress(&header.channels, uncompressed_native_endian.clone(), pixel_section, true),
-            _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
+            // DWAA(ratio) => dwa::compress(&header.channels, &uncompressed_native_endian, pixel_section, ratio, false),
+            // DWAB(ratio) => dwa::compress(&header.channels, &uncompressed_native_endian, pixel_section, ratio, true),
+            _ => unimplemented!()
         };
 
         let compressed_little_endian = compressed_little_endian.map_err(|_|
@@ -222,7 +225,8 @@ impl Compression {
                 PIZ => piz::decompress(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
                 PXR24 => pxr24::decompress(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
                 B44 | B44A => b44::decompress(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
-                _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
+                //DWAA(_) | DWAB(_) => dwa::decompress(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
+                _ => unimplemented!()
             };
 
             // map all errors to compression errors

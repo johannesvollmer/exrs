@@ -900,6 +900,21 @@ pub mod validate_results {
             self.validate_result(result, ValidationOptions::default(), || String::new()).unwrap();
         }
 
+        /// Compare self with the other. Panics if not equal.
+        ///
+        /// Exceptional behaviour:
+        /// This does not work the other way around! This method is not symmetrical!
+        /// Returns whether the result is correct for this image.
+        /// Explicitly uses approximate float equality.
+        /// Intended for unit testing.
+        fn assert_approx_equals_result(&self, result: &Self) {
+            self.validate_result(
+                result,
+                ValidationOptions { allow_lossy: true, .. ValidationOptions::default() },
+                || String::new()
+            ).unwrap();
+        }
+
         /// Compare self with the other.
         /// Exceptional behaviour:
         /// - Any two NaN values are considered equal, regardless of bit representation.
