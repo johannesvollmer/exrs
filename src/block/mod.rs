@@ -201,7 +201,7 @@ impl UncompressedBlock {
     /// Iterate all the lines in this block.
     /// Each line contains the all samples for one of the channels.
     pub fn lines<'s>(&'s self, channels: &'s ChannelList) -> impl 's + Iterator<Item=LineRef<'s>> {
-        LineIndex::lines_in_block(self.index, channels)
+        LineIndex::byte_lines_in_block(self.index, channels)
             .map(move |(bytes, line)| LineSlice { location: line, value: &self.data[bytes] })
     }
 
@@ -234,7 +234,7 @@ impl UncompressedBlock {
         let byte_count = channels.total_bytes_for_block(block_index.pixel_size);
         let mut block_bytes = vec![0_u8; byte_count];
 
-        for (byte_range, line_index) in LineIndex::lines_in_block(block_index, channels) {
+        for (byte_range, line_index) in LineIndex::byte_lines_in_block(block_index, channels) {
             extract_line(LineRefMut {
                 value: &mut block_bytes[byte_range],
                 location: line_index,
