@@ -1,11 +1,12 @@
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/main/src/lib/OpenEXR/ImfDwaCompressorSimd.h
 // TODO SIMD
 use std::f32::consts::PI;
-use half::f16;
+use half::prelude::*;
 
 #[cfg(test)]
 pub mod test {
     use std::convert::TryInto;
+    use half::slice::{HalfBitsSliceExt, HalfFloatSliceExt};
     use rand::random;
     use crate::image::validate_results::ValidateResult;
     use super::*;
@@ -13,7 +14,7 @@ pub mod test {
     #[test]
     pub fn interleave() {
         let mut dst = [0,0,0,0];
-        interleave_byte2(&mut dst, &[5, 8], &[3, 2], 2);// TODO reuse simd impl from compression module??
+        interleave_byte2(&mut dst, &[5, 8], &[3, 2]);// TODO reuse simd impl from compression module??
         assert_eq!(dst, [5,3,8,2]);
     }
 
@@ -50,6 +51,19 @@ pub mod test {
         input_c.as_slice().assert_approx_equals_result(&result_c.as_slice());
     }
 
+    #[test]
+    fn roundtrip_zigzag(){
+        let input = rand_8x8_f32();
+
+        let mut tmp_zigzag_u16 = [0_u16; 8*8];
+        f32_to_zig_zag_f16(&mut tmp_zigzag_u16, &input);
+
+        let mut un_zigzagged = [1.0_f32; 8*8];
+        f32_from_zig_zag_f16(&tmp_zigzag_u16, &mut un_zigzagged);
+
+        input.as_slice().assert_approx_equals_result(&un_zigzagged.as_slice());
+    }
+
     fn rand_8x8_f32() -> [f32; 64] {
         (0..8 * 8)
             .map(|_| 31.0 * random::<f32>())
@@ -57,13 +71,14 @@ pub mod test {
     }
 }
 
+
 /// Forward 709 CSC, R'G'B' -> Y'CbCr
 pub fn csc709_forward(a: &mut [f32; 8 * 8], b: &mut [f32; 8 * 8], c: &mut [f32; 8 * 8]) {
     for ((a, b), c) in a.iter_mut().zip(b).zip(c) {
-        let mut src = [*a, *b, *c];
-        *a = 0.2126 * src[0] + 0.7152 * src[1] + 0.0722 * src[2];
-        *b = -0.1146 * src[0] - 0.3854 * src[1] + 0.5000 * src[2];
-        *c = 0.5000 * src[0] - 0.4542 * src[1] - 0.0458 * src[2];
+        let (va, vb, vc) = (*a, *b, *c);
+        *a = 0.2126 * va + 0.7152 * vb + 0.0722 * vc;
+        *b = -0.1146 * va - 0.3854 * vb + 0.5000 * vc;
+        *c = 0.5000 * va - 0.4542 * vb - 0.0458 * vc;
     }
 }
 
@@ -82,14 +97,39 @@ fn _dct_inverse_8x8_dc_only(data: &mut [f32; 8 * 8]) {
     data.fill(val);
 }
 
-fn interleave_byte2(dst: &mut [u8], src0: &[u8], src1: &[u8], count: usize) { // TODO iterate dst instead of count
-    for ((x, &a), &b) in (0..count).zip(src0).zip(src1) {
-        dst[2 * x] = a;
-        dst[2 * x + 1] = b;
+#[inline]
+pub fn interleave_byte2(dst: &mut [u8], src0: &[u8], src1: &[u8]) {
+    let interleaved = src0.iter().zip(src1).flat_map(|(a, b)| [*a,*b]);
+    for (slot, val) in dst.iter_mut().zip(interleaved) { *slot = val; }
+}
+
+
+pub fn f32_to_zig_zag_f16(destination: &mut [u16; 8*8], source: &[f32; 8*8]) {
+    let mut source_u16 = [0_u16; 8*8];
+    f32_to_uf16(&source, &mut source_u16);
+    to_zig_zag(destination, &source_u16);
+}
+
+fn f32_to_uf16(source: &[f32; 8*8], destination_f16: &mut [u16; 8*8]){
+    let destination_f16: &mut [f16] = destination_f16.reinterpret_cast_mut();
+    destination_f16.convert_from_f32_slice(source);
+}
+
+pub fn to_zig_zag<T>(destination: &mut [T; 8*8], source: &[T; 8*8]) where T: Copy {
+    const REMAP: [usize; 8*8] =  [
+        0,  1,  8,  16, 9,  2,  3,  10, 17, 24, 32, 25, 18,
+        11, 4,  5,  12, 19, 26, 33, 40, 48, 41, 34, 27, 20,
+        13, 6,  7,  14, 21, 28, 35, 42, 49, 56, 57, 50, 43,
+        36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45,
+        38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63
+    ];
+
+    for (slot, index_in_src) in destination.iter_mut().zip(REMAP) {
+        *slot = source[index_in_src];
     }
 }
 
-fn _from_half_zig_zag_scalar(src: &mut [u16; 8 * 8], dst: &mut [f32; 8 * 8]) {
+pub fn f32_from_zig_zag_f16(src: &[u16; 8 * 8], dst: &mut [f32; 8 * 8]) {
     fn to_f32(half: u16) -> f32 { f16::to_f32(f16::from_bits(half)) }
 
     dst[0] = to_f32(src[0]);
@@ -165,7 +205,6 @@ fn _from_half_zig_zag_scalar(src: &mut [u16; 8 * 8], dst: &mut [f32; 8 * 8]) {
 }
 
 // https://github.com/AcademySoftwareFoundation/openexr/blob/main/src/lib/OpenEXR/ImfDwaCompressorSimd.h#L930C1-L1031
-#[inline]
 pub fn dct_inverse_8x8(data: &mut [f32; 8 * 8], zeroed_rows: usize) {
     let a: f32 = 0.5 * cos(PI / 4.0);
     let b: f32 = 0.5 * cos(PI / 16.0);
@@ -250,21 +289,7 @@ pub fn dct_inverse_8x8(data: &mut [f32; 8 * 8], zeroed_rows: usize) {
 }
 
 // https://github.com/AcademySoftwareFoundation/openexr/blob/main/src/lib/OpenEXR/ImfDwaCompressorSimd.h#L1815-L1984
-#[inline]
 pub fn dct_forward_8x8(data: &mut [f32; 8 * 8]) {
-    /*let fn c(x: f32) -> (f32, f32) {
-        let c = cos(PI * x / 16.0);
-        (c, 0.5 * c)
-    }
-
-    let [
-        (c1, c1half), (c2, c2half), (c3, c3half),
-        (c4, c4Half), (c5, c5half), (c6, c6half), (c7, c7half)
-    ] = [
-        c(1.0), c(2.0), c(3.0),
-        c(4.0), c(5.0), c(6.0), c(7.0)
-    ];*/
-
     let c1: f32 = cos(PI * 1.0 / 16.0);
     let c2: f32 = cos(PI * 2.0 / 16.0);
     let c3: f32 = cos(PI * 3.0 / 16.0);
