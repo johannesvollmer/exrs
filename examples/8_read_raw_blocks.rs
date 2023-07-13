@@ -98,22 +98,22 @@ fn main() {
         let header = &meta_data.headers[block.index.layer];
 
         // collect all pixel values from the pixel block
-        for line in block.lines(&header.channels) {
+        for line in block.subsampled_line_bytes(&header.channels) {
             let layer = &mut averages[line.location.layer];
             let channel = &mut layer.channels[line.location.channel];
             let channel_sample_count = layer.data_window.size.area() as f32;
 
             // now sum the average based on the values in this line section of pixels
             match channel.sample_type {
-                SampleType::F16 => for value in line.read_samples::<f16>() {
+                SampleType::F16 => for value in line.read_subsamples::<f16>() {
                     channel.average += value?.to_f32() / channel_sample_count;
                 },
 
-                SampleType::F32 => for value in line.read_samples::<f32>() {
+                SampleType::F32 => for value in line.read_subsamples::<f32>() {
                     channel.average += value? / channel_sample_count;
                 },
 
-                SampleType::U32 => for value in line.read_samples::<u32>() {
+                SampleType::U32 => for value in line.read_subsamples::<u32>() {
                     channel.average += (value? as f32) / channel_sample_count;
                 },
             }

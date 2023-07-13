@@ -724,12 +724,12 @@ impl ChannelList {
     }
 
     /// Respects subsampling.
-    pub fn total_bytes_for_block(&self, size: Vec2<usize>) -> usize {
+    pub fn find_total_bytes_for_block(&self, size: Vec2<usize>) -> usize {
         // TODO i think we should debug_assert_eq!(pixel_section.position.x() % sampling == 0);
 
         // FIXME if the tile starts on an odd coordinate, shouldn't we subtract one?
         // TODO FIXME cache bytes_per_pixel if no channel has subsampling
-        self.list.iter().map(|chan| chan.subsampled_pixels(size)).sum()
+        self.list.iter().map(|chan| chan.subsampled_bytes(size)).sum()
     }
 
     /// Respects subsampling.
@@ -1080,7 +1080,7 @@ impl ChannelDescription {
     /// The byte size of a given line of pixels, respecting subsampling.
     // FIXME this must be used everywhere
     pub fn subsampled_line_bytes(&self, block_width: usize) -> usize {
-        self.subsampled_line_bytes(block_width) * self.sample_type.bytes_per_sample()
+        self.subsampled_line_pixels(block_width) * self.sample_type.bytes_per_sample()
     }
 
     /// Number of bytes this would consume in an exr file.

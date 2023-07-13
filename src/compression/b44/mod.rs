@@ -266,7 +266,7 @@ pub fn decompress(
 ) -> Result<ByteVec> {
     debug_assert_eq!(
         expected_byte_size,
-        channels.total_bytes_for_block(rectangle.size),
+        channels.find_total_bytes_for_block(rectangle.size),
         "expected byte size does not match header" // TODO compute instead of passing argument?
     );
 
@@ -710,7 +710,7 @@ mod test {
             .list
             .iter()
             .map(|c| {
-                c.subsampled_resolution(rectangle.size).area() * c.sample_type.bytes_per_sample()
+                c.subsampled_bytes(rectangle.size)
             })
             .sum();
 

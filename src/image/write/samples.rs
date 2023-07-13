@@ -23,7 +23,7 @@ pub trait WritableSamples<'slf> {
     type Writer: SamplesWriter;
 
     /// Create a temporary writer for this sample storage
-    fn create_samples_writer(&'slf self, header: &Header) -> Self::Writer;
+    fn create_samples_writer(&'slf self, header: &Header, channel_index: usize) -> Self::Writer;
 }
 
 /// Enable an image with this single level sample grid to be written to a file.
@@ -50,8 +50,10 @@ pub trait SamplesWriter: Sync {
 /// A temporary writer for a predefined non-deep sample storage
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct FlatSamplesWriter<'samples> {
-    resolution: Vec2<usize>, // respects resolution level
-    samples: &'samples FlatSamples
+    // resolution: Vec2<usize>, // respects resolution level
+    subsampling: Vec2<usize>,
+    subsampled_resolution: Vec2<usize>, // respects resolution level
+    subsamples: &'samples FlatSamples
 }
 
 
@@ -69,11 +71,14 @@ impl<'samples> WritableSamples<'samples> for FlatSamples {
     fn infer_level_modes(&self) -> (LevelMode, RoundingMode) { (LevelMode::Singular, RoundingMode::Down) }
 
     type Writer = FlatSamplesWriter<'samples>; //&'s FlatSamples;
-    fn create_samples_writer(&'samples self, header: &Header) -> Self::Writer {
-        FlatSamplesWriter {
-            resolution: header.layer_size,
-            samples: self
-        }
+    fn create_samples_writer(&'samples self, header: &Header, channel_index: usize) -> Self::Writer {
+        let channel = &header.channels.list[channel_index];
+        let subsamples = self;
+        let subsampling = channel.sampling;
+        let subsampled_resolution = channel.subsampled_resolution(header.layer_size);
+        assert_eq!(subsampled_resolution.area(), subsamples.len(), "samples length does not match the specified resolution");
+
+        FlatSamplesWriter { subsampled_resolution, subsamples, subsampling }
     }
 }
 
@@ -89,28 +94,40 @@ impl<'samples> WritableLevel<'samples> for FlatSamples {
 
     type Writer = FlatSamplesWriter<'samples>;
     fn create_level_writer(&'samples self, size: Vec2<usize>) -> Self::Writer {
+        // as mip maps are only allowed with tiles, and tiles are not allowed subsampling, they are exvlusive
+        // therefore we never have a resolution level with subsampling
+
+        // TODO this is not really clean though... how can we check here that those conditions are actually met?
+
+        // TODO can we simply accept the given size here, and calculate the subsampled size at the calling site?
+        // TODO how will this interact? same size, more image area? or smaller levels?
         FlatSamplesWriter {
-            resolution: size,
-            samples: self
+            subsamples: self,
+            subsampling: Vec2(1,1),
+            subsampled_resolution: size,
         }
     }
 }
 
 impl<'samples> SamplesWriter for FlatSamplesWriter<'samples> {
     fn extract_line(&self, line: LineRefMut<'_>) {
-        let image_width = self.resolution.width(); // header.layer_size.width();
-        debug_assert_ne!(image_width, 0, "image width calculation bug");
+        // let image_fullres_width = self.resolution.width(); // header.layer_size.width();
+        let image_subsampled_width = self.subsampled_resolution.width(); // header.layer_size.width();
 
-        let start_index = line.location.position.y() * image_width + line.location.position.x();
-        let end_index = start_index + line.location.sample_count;
+        debug_assert_ne!(image_subsampled_width, 0, "image width calculation bug");
+
+        let position_in_subsampled = line.location.position / self.subsampling;
+        let start_index = position_in_subsampled.flat_index_for_size(self.subsampled_resolution);
+        // let start_index = position_in_subsampled.y() * image_subsampled_width + position_in_subsampled.x();
+        let end_index = start_index + image_subsampled_width;
 
         debug_assert!(
-            start_index < end_index && end_index <= self.samples.len(),
+            start_index < end_index && end_index <= self.subsamples.len(),
             "for resolution {:?}, this is an invalid line: {:?}",
-            self.resolution, line.location
+            self.subsampled_resolution, line.location
         );
 
-        match self.samples {
+        match self.subsamples {
             FlatSamples::F16(samples) => line.write_samples_from_slice(&samples[start_index .. end_index]),
             FlatSamples::F32(samples) => line.write_samples_from_slice(&samples[start_index .. end_index]),
             FlatSamples::U32(samples) => line.write_samples_from_slice(&samples[start_index .. end_index]),
@@ -142,11 +159,16 @@ impl<'samples, LevelSamples> WritableSamples<'samples> for Levels<LevelSamples>
     }
 
     type Writer = LevelsWriter<LevelSamples::Writer>;
-    fn create_samples_writer(&'samples self, header: &Header) -> Self::Writer {
+    fn create_samples_writer(&'samples self, header: &Header, _channel_index: usize) -> Self::Writer {
         let rounding = match header.blocks {
             BlockDescription::Tiles(TileDescription { rounding_mode, .. }) => Some(rounding_mode),
             BlockDescription::ScanLines => None,
         };
+
+        // as mip maps are only allowed with tiles, and tiles are not allowed subsampling, they are exvlusive
+        // therefore we never have a resolution level with subsampling
+        // TODO this is not really clean though... how can we check here that those conditions are actually met?
+        // TODO what about that ugly _channel_index, which is not used here? not clean!
 
         LevelsWriter {
             levels: match self {

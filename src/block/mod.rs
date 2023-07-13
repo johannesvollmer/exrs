@@ -23,7 +23,7 @@ use crate::math::Vec2;
 use crate::compression::ByteVec;
 use crate::block::chunk::{CompressedBlock, CompressedTileBlock, CompressedScanLineBlock, Chunk, TileCoordinates};
 use crate::meta::header::Header;
-use crate::block::lines::{LineIndex, LineRef, LineSlice, LineRefMut};
+use crate::block::lines::{LineIndex, LineRef, LineRefMut};
 use crate::meta::attribute::ChannelList;
 
 
@@ -153,7 +153,7 @@ impl UncompressedBlock {
         let header: &Header = headers.get(index.layer)
             .expect("block layer index bug");
 
-        let expected_byte_size = header.channels.total_bytes_for_block(self.index.pixel_size);
+        let expected_byte_size = header.channels.find_total_bytes_for_block(self.index.pixel_size);
         if expected_byte_size != data.len() {
             panic!("get_line byte size should be {} but was {}", expected_byte_size, data.len());
         }
@@ -198,12 +198,15 @@ impl UncompressedBlock {
         })
     }
 
-    /// Iterate all the lines in this block.
-    /// Each line contains the all samples for one of the channels.
-    pub fn lines<'s>(&'s self, channels: &'s ChannelList) -> impl 's + Iterator<Item=LineRef<'s>> {
-        LineIndex::byte_lines_in_block(self.index, channels)
-            .map(move |(bytes, line)| LineSlice { location: line, value: &self.data[bytes] })
+    /// Iterate all the lines in this block that are left after subsampling.
+    /// Each line contains the all the leftover samples for one of the channels.
+    pub fn subsampled_line_bytes<'s>(&'s self, channels: &'s ChannelList) -> impl 's + Iterator<Item=LineRef<'s>> {
+        LineIndex::subsampled_line_bytes_in_block(self.index, channels)
+            .map(move |(bytes, line)|
+                LineRef { location: line, value: &self.data[bytes] }
+            )
     }
+
 
     /* TODO pub fn lines_mut<'s>(&'s mut self, header: &Header) -> impl 's + Iterator<Item=LineRefMut<'s>> {
         LineIndex::lines_in_block(self.index, &header.channels)
@@ -231,10 +234,10 @@ impl UncompressedBlock {
         mut extract_line: impl FnMut(LineRefMut<'_>)
     ) -> Vec<u8>
     {
-        let byte_count = channels.total_bytes_for_block(block_index.pixel_size);
+        let byte_count = channels.find_total_bytes_for_block(block_index.pixel_size);
         let mut block_bytes = vec![0_u8; byte_count];
 
-        for (byte_range, line_index) in LineIndex::byte_lines_in_block(block_index, channels) {
+        for (byte_range, line_index) in LineIndex::subsampled_line_bytes_in_block(block_index, channels) {
             extract_line(LineRefMut {
                 value: &mut block_bytes[byte_range],
                 location: line_index,

@@ -58,12 +58,12 @@ pub struct LineIndex {
 
     /// The width of the line; the number of
     /// samples in this row if there was no subsampling.
-    pub full_sample_count: usize,
+    pub fullres_sample_count: usize,
 
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Hash)]
-enum LineSampleBytes {
+pub enum LineSampleBytes {
     Skipped,
 
     Sampled {
@@ -92,11 +92,13 @@ impl LineIndex {
     // TODO make this an internally iterated closure function instead of iter? to avoid allocation and simplify logic?
     #[inline]
     #[must_use]
-    pub fn byte_lines_in_block(block: BlockIndex, channels: &ChannelList) -> impl '_ + Iterator<Item=(LineSampleBytes, LineIndex)> {
-        Self::full_lines_in_block(block, channels)
+    pub fn line_bytes_in_block(block: BlockIndex, channels: &ChannelList)
+        -> impl '_ + Iterator<Item=(LineSampleBytes, LineIndex)>
+    {
+        Self::fullres_lines_in_block(block, channels)
             .scan(0_usize, move |byte, line| {
                 let channel = &channels.list[line.channel];
-                let width = line.full_sample_count;
+                let width = line.fullres_sample_count;
 
                 let skip_line = !subsampled_image_contains_line(
                     usize_to_i32(channel.sampling.y()),
@@ -133,22 +135,41 @@ impl LineIndex {
     // TODO make this an internally iterated closure function instead of iter? to avoid allocation and simplify logic?
     #[inline]
     #[must_use]
-    pub fn full_lines_in_block(block: BlockIndex, channels: &ChannelList) -> impl '_ + Iterator<Item=LineIndex> {
-        let channels = channels.list.as_slice();
+    pub fn subsampled_line_bytes_in_block(block: BlockIndex, channels: &ChannelList)
+        -> impl '_ + Iterator<Item=(Range<usize>, LineIndex)>
+    {
+        Self::line_bytes_in_block(block, channels).filter_map(|(samples, index)| match samples {
+            LineSampleBytes::Sampled { bytes_in_block, .. } => Some((bytes_in_block, index)),
+            LineSampleBytes::Skipped => None,
+        } )
+    }
+
+    /// Iterates the lines of this block index in interleaved fashion:
+    /// For each line in this block, this iterator steps once through each channel.
+    /// This is how lines are stored in a pixel data block.
+    /// Respects subsampling.
+    ///
+    /// Does not check whether `self.layer_index`, `self.level`, `self.size` and `self.position` are valid indices.__
+    // TODO be sure this cannot produce incorrect data, as this is not further checked but only handled with panics
+    // TODO make this an internally iterated closure function instead of iter? to avoid allocation and simplify logic?
+    #[inline]
+    #[must_use]
+    pub fn fullres_lines_in_block(block: BlockIndex, channels: &ChannelList) -> impl Iterator<Item=LineIndex> {
+        let channels = channels.list.len();
         let (width, height) = block.pixel_size.into();
         let start_y = block.pixel_position.y();
         let x = block.pixel_position.x();
 
         return (start_y .. start_y + height)
             .flat_map(move |absolute_y| {
-                channels.iter().enumerate()
-                    .map(move |(chan_index, chan)| {
+                (0..channels)
+                    .map(move |chan_index| {
                         LineIndex {
                             layer: block.layer,
                             level: block.level,
                             channel: chan_index,
                             position: Vec2(x, absolute_y),
-                            full_sample_count: width,
+                            fullres_sample_count: width,
                         }
                     })
             })
@@ -164,8 +185,8 @@ impl<'s> LineRefMut<'s> {
     #[inline]
     #[must_use]
     pub fn write_samples_from_slice<T: crate::io::Data>(self, slice: &[T]) -> UnitResult {
-        debug_assert_eq!(slice.len(), self.location.sample_count, "slice size does not match the line width");
-        debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
+        debug_assert_eq!(slice.len() * T::BYTE_SIZE, self.value.len(), "slice size does not match the line width. (note: when subsampling is used, the slice will contain less samples than one would expect in a block)");
+        // TODO this would need channels access: debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
 
         T::write_slice(&mut Cursor::new(self.value), slice)
     }
@@ -178,11 +199,11 @@ impl<'s> LineRefMut<'s> {
     #[inline]
     #[must_use]
     pub fn write_samples<T: crate::io::Data>(self, mut get_sample: impl FnMut(usize) -> T) -> UnitResult {
-        debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
-
+        // TODO this would need channels access: debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
+        let subsample_count = self.value.len() / T::BYTE_SIZE;
         let mut write = Cursor::new(self.value);
 
-        for index in 0..self.location.sample_count {
+        for index in 0.. subsample_count {
             T::write(get_sample(index), &mut write)?;
         }
 
@@ -194,19 +215,26 @@ impl LineRef<'_> {
 
     /// Read the samples (f16, f32, u32 values) from this line value reference.
     /// Use `read_samples` if there is not slice available.
-    pub fn read_samples_into_slice<T: crate::io::Data>(self, slice: &mut [T]) -> UnitResult {
-        debug_assert_eq!(slice.len(), self.location.sample_count, "slice size does not match the line width");
-        debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
+    pub fn read_subsamples_into_slice<T: crate::io::Data>(self, slice: &mut [T]) -> UnitResult {
+        debug_assert_eq!(slice.len() * T::BYTE_SIZE, self.value.len(), "slice size does not match the line width (note: when subsampling is used, the slice will contain less samples than one would expect in a block)");
+        // debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
+        // TODO this debug statement would need a channels reference
+        // debug_assert_eq!(self.value.len(), channel.subsampled_line_bytes(self.location.fullres_samples), "sample type size does not match line byte size");
+        // && channels.sample_type == T
 
         T::read_slice(&mut Cursor::new(self.value), slice)
     }
 
     /// Iterate over all samples in this line, from left to right.
     /// Use `read_sample_into_slice` if you already have a slice of samples.
-    pub fn read_samples<T: crate::io::Data>(&self) -> impl Iterator<Item = Result<T>> + '_ {
-        debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
+    /// May return less than expected, because this slice may contain fewer samples than the fullres width, when subsampling is used.
+    pub fn read_subsamples<T: crate::io::Data>(&self) -> impl Iterator<Item = Result<T>> + '_ {
+        // TODO this debug statement would need a channels reference
+        // debug_assert_eq!(self.value.len(), channel.subsampled_line_bytes(self.location.fullres_samples), "sample type size does not match line byte size");
+        // && channels.sample_type == T
 
         let mut read = self.value.clone(); // FIXME deep data
-        (0..self.location.sample_count).map(move |_| T::read(&mut read))
+        let subsampled_count = self.value.len() / T::BYTE_SIZE;
+        (0..subsampled_count).map(move |_| T::read(&mut read))
     }
 }

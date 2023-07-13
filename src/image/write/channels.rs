@@ -83,8 +83,10 @@ impl<'samples, Samples> WritableChannels<'samples> for AnyChannels<Samples>
 
     type Writer = AnyChannelsWriter<Samples::Writer>;
     fn create_writer(&'samples self, header: &Header) -> Self::Writer {
-        let channels = self.list.iter()
-            .map(|chan| chan.sample_data.create_samples_writer(header))
+        debug_assert_eq!(self.list.len(), header.channels.list.len(), "channel count mismatch");
+
+        let channels = self.list.iter().enumerate()
+            .map(|(chan_index, chan)| chan.sample_data.create_samples_writer(header, chan_index))
             .collect();
 
         AnyChannelsWriter { channels }
@@ -169,7 +171,7 @@ for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
         PxWriter: Sync + RecursivePixelWriter<<Storage::Pixel as IntoRecursive>::Recursive>,
 {
     fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Vec<u8> {
-        let block_bytes = header.channels.total_bytes_for_block(block_index.pixel_size);
+        let block_bytes = header.channels.find_total_bytes_for_block(block_index.pixel_size);
         let mut block_bytes = vec![0_u8; block_bytes];
 
         let width = block_index.pixel_size.width();

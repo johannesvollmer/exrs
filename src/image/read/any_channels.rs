@@ -66,7 +66,8 @@ pub trait SamplesReader {
     /// Specify whether a single block of pixels should be loaded from the file
     fn filter_block(&self, tile: TileCoordinates) -> bool;
 
-    /// Load a single pixel line, which has not been filtered, into the reader, accumulating the sample data
+    /// Load a single pixel line, which has not been filtered, into the reader, accumulating the sample data.
+    /// Contains only the samples left after subsampling, so less than you might expect.
     fn read_line(&mut self, line: LineRef<'_>) -> UnitResult;
 
     /// Deliver the final accumulated sample storage for the image
@@ -99,13 +100,7 @@ impl<S: SamplesReader> ChannelsReader for AnyChannelsReader<S> {
     }
 
     fn read_block(&mut self, header: &Header, decompressed: UncompressedBlock) -> UnitResult {
-        /*for (bytes, line) in LineIndex::lines_in_block(decompressed.index, header) {
-            let channel = self.sample_channels_reader.get_mut(line.channel).unwrap();
-            channel.samples.read_line(LineSlice { location: line, value: &decompressed.data[bytes] })?;
-        }
-
-        Ok(())*/
-        for line in decompressed.lines(&header.channels) {
+        for line in decompressed.subsampled_line_bytes(&header.channels) {
             self.sample_channels_reader[line.location.channel].samples.read_line(line)?;
         }
 

@@ -183,6 +183,9 @@ pub struct AnyChannel<Samples> {
 
     /// The actual pixel data.
     /// Can be `FlatSamples` or `Levels<FlatSamples>`.
+    ///
+    /// Note that in case of `FlatSamples`, these are the samples left after subsampling, so
+    /// there might be fewer samples than the full resolution suggests.
     pub sample_data: Samples,
 
     /// This attribute only tells lossy compression methods

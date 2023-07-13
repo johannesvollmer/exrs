@@ -190,6 +190,10 @@ ChannelsReader for SpecificChannelsReader<PixelStorage, SetPixel, PxReader, Pixe
         let byte_lines = block.data.chunks_exact(header.channels.total_bytes_for_line(block.index.pixel_size.x()));
         debug_assert_eq!(byte_lines.len(), block.index.pixel_size.height(), "invalid block lines split");
 
+        if true {
+            panic!("here's the plan: go through each hypothetical fullres line, and if it is missing, find a suitable replacement line from the given block");
+        }
+
         for (y_offset, line_bytes) in byte_lines.enumerate() { // TODO sampling
             // this two-step copy method should be very cache friendly in theory, and also reduce sample_type lookup count
             self.pixel_reader.read_pixels(line_bytes, &mut pixels, |px| px);
@@ -286,6 +290,10 @@ impl<Sample: FromNativeSample> SampleReader<Sample> {
         let byte_count = pixels.len() * self.channel.sample_type.bytes_per_sample();
         let mut own_bytes_reader = &mut &bytes[start_index .. start_index + byte_count]; // TODO check block size somewhere
         let mut samples_out = pixels.iter_mut().map(|pixel| get_sample(pixel));
+
+        if true {
+            panic!("here's the plan: if subsampling exists, to some kind of non-memcpy replacement, like samples.flat_map(sample.repeat(subsampling.x)). y-sampling is already handled at callsite, so this only needs to worry about x sampling");
+        }
 
         // match the type once for the whole line, not on every single sample
         match self.channel.sample_type {
