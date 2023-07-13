@@ -74,9 +74,9 @@ impl<Pixel> PixelVec<Pixel> {
 use crate::image::validate_results::{ValidateResult, ValidationResult};
 
 impl<Px> ValidateResult for PixelVec<Px> where Px: ValidateResult {
-    fn validate_result(&self, other: &Self, options: ValidationOptions, location: String) -> ValidationResult {
-        if self.resolution != other.resolution { Err(location + " > resolution") }
-        else { self.pixels.as_slice().validate_result(&other.pixels.as_slice(), options, location + " > pixels") }
+    fn validate_result(&self, other: &Self, options: ValidationOptions, location: impl Fn() -> String) -> ValidationResult {
+        if self.resolution != other.resolution { Err(location() + " > resolution") }
+        else { self.pixels.as_slice().validate_result(&other.pixels.as_slice(), options, || location() + " > pixels") }
     }
 }
 

@@ -145,14 +145,14 @@ pub fn decompress(
     // TODO optimize for when all channels are f16!
     //      we should be able to omit endianness conversions in that case
     //      see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
-    Ok(super::convert_little_endian_to_current(&out, channels, rectangle))
+    Ok(super::convert_little_endian_to_current(out, channels, rectangle))
 }
 
 
 
 pub fn compress(
     channels: &ChannelList,
-    uncompressed: Bytes<'_>,
+    uncompressed: ByteVec,
     rectangle: IntegerBounds
 ) -> Result<ByteVec>
 {
@@ -312,7 +312,7 @@ mod test {
             .cycle().take(channels.find_total_bytes_for_block(rectangle.size))
             .collect();
 
-        let compressed = piz::compress(&channels, &pixel_bytes, rectangle).unwrap();
+        let compressed = piz::compress(&channels, pixel_bytes.clone(), rectangle).unwrap();
         let decompressed = piz::decompress(&channels, compressed, rectangle, pixel_bytes.len(), true).unwrap();
 
         assert_eq!(pixel_bytes, decompressed);
