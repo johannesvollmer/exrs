@@ -1,6 +1,6 @@
 mod table;
 
-use crate::compression::{mod_p, ByteVec, Bytes};
+use crate::compression::{ByteVec};
 use crate::error::usize_to_i32;
 use crate::io::Data;
 use crate::meta::attribute::ChannelList;

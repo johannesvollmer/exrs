@@ -185,14 +185,13 @@ ChannelsReader for SpecificChannelsReader<PixelStorage, SetPixel, PxReader, Pixe
     fn filter_block(&self, tile: TileCoordinates) -> bool { tile.is_largest_resolution_level() } // TODO all levels
 
     fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult {
-        let mut pixels = vec![PxReader::RecursivePixel::default(); block.index.pixel_size.width()]; // TODO allocate once in self
-
-        let byte_lines = block.data.chunks_exact(header.channels.total_bytes_for_line(block.index.pixel_size.x()));
-        debug_assert_eq!(byte_lines.len(), block.index.pixel_size.height(), "invalid block lines split");
-
         if true {
             panic!("here's the plan: go through each hypothetical fullres line, and if it is missing, find a suitable replacement line from the given block");
         }
+
+        let mut pixels = vec![PxReader::RecursivePixel::default(); block.index.pixel_size.width()]; // TODO allocate once in self
+        let byte_lines = block.data.chunks_exact(header.channels.total_bytes_for_line(block.index.pixel_size.x()));
+        debug_assert_eq!(byte_lines.len(), block.index.pixel_size.height(), "invalid block lines split");
 
         for (y_offset, line_bytes) in byte_lines.enumerate() { // TODO sampling
             // this two-step copy method should be very cache friendly in theory, and also reduce sample_type lookup count
