@@ -40,7 +40,7 @@ pub type LineRefMut<'s> = LineSlice<&'s mut [u8]>;
 
 /// Specifies where a row of pixels lies inside an image.
 /// This is a unique identifier within one image.
-/// Itincludes the layer, channel index, and pixel location.
+/// It includes the layer, channel index, and pixel location.
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Hash)]
 pub struct LineIndex {
 
@@ -54,7 +54,7 @@ pub struct LineIndex {
     pub level: Vec2<usize>,
 
     /// Position of the most left pixel of the row.
-    pub position: Vec2<usize>,
+    pub position_in_data_window: Vec2<usize>,
 
     /// The width of the line; the number of
     /// samples in this row if there was no subsampling.
@@ -168,7 +168,7 @@ impl LineIndex {
                             layer: block.layer,
                             level: block.level,
                             channel: chan_index,
-                            position: Vec2(x, absolute_y),
+                            position_in_data_window: Vec2(x, absolute_y),
                             fullres_sample_count: width,
                         }
                     })

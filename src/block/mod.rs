@@ -153,7 +153,7 @@ impl UncompressedBlock {
         let header: &Header = headers.get(index.layer)
             .expect("block layer index bug");
 
-        let expected_byte_size = header.channels.find_total_bytes_for_block(self.index.pixel_size);
+        let expected_byte_size = header.channels.find_subsampled_bytes_for_block(self.index.pixel_size);
         if expected_byte_size != data.len() {
             panic!("get_line byte size should be {} but was {}", expected_byte_size, data.len());
         }
@@ -234,7 +234,7 @@ impl UncompressedBlock {
         mut extract_line: impl FnMut(LineRefMut<'_>)
     ) -> Vec<u8>
     {
-        let byte_count = channels.find_total_bytes_for_block(block_index.pixel_size);
+        let byte_count = channels.find_subsampled_bytes_for_block(block_index.pixel_size);
         let mut block_bytes = vec![0_u8; byte_count];
 
         for (byte_range, line_index) in LineIndex::subsampled_line_bytes_in_block(block_index, channels) {

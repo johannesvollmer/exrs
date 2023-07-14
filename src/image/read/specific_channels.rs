@@ -7,11 +7,12 @@ use crate::image::*;
 use crate::math::*;
 use crate::meta::header::*;
 use crate::error::*;
-use crate::block::UncompressedBlock;
+use crate::block::{BlockIndex, UncompressedBlock};
 use crate::image::read::layers::{ChannelsReader, ReadChannels};
 use crate::block::chunk::TileCoordinates;
 
 use std::marker::PhantomData;
+use crate::block::lines::{LineIndex, LineSampleBytes};
 use crate::io::Read;
 
 
@@ -185,21 +186,29 @@ ChannelsReader for SpecificChannelsReader<PixelStorage, SetPixel, PxReader, Pixe
     fn filter_block(&self, tile: TileCoordinates) -> bool { tile.is_largest_resolution_level() } // TODO all levels
 
     fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult {
-        if true {
-            panic!("here's the plan: go through each hypothetical fullres line, and if it is missing, find a suitable replacement line from the given block");
-        }
 
-        let mut pixels = vec![PxReader::RecursivePixel::default(); block.index.pixel_size.width()]; // TODO allocate once in self
-        let byte_lines = block.data.chunks_exact(header.channels.total_bytes_for_line(block.index.pixel_size.x()));
-        debug_assert_eq!(byte_lines.len(), block.index.pixel_size.height(), "invalid block lines split");
+        let full_res_width = block.index.pixel_size.width();
+        let mut tmp_fullres_pixels = vec![PxReader::RecursivePixel::default(); full_res_width]; // TODO allocate once in self
+        // let subsampled_byte_lines = block.data.chunks_exact(header.channels.find_subsampled_bytes_for_line(block.index.pixel_size.x()));
+        // debug_assert_eq!(byte_lines.len(), block.index.pixel_size.height(), "invalid block lines split");
 
-        for (y_offset, line_bytes) in byte_lines.enumerate() { // TODO sampling
+        for (line_bytes, line) in LineIndex::line_bytes_in_block(block.index, &header.channels) {
+            let subsampled_line_bytes = match line_bytes {
+                LineSampleBytes::Skipped => {
+                    unimplemented!("fetch the neares existing line?")
+                }
+                LineSampleBytes::Sampled { bytes_in_block, .. } => {
+                    &block.data[bytes_in_block]
+                }
+            };
+
             // this two-step copy method should be very cache friendly in theory, and also reduce sample_type lookup count
-            self.pixel_reader.read_pixels(line_bytes, &mut pixels, |px| px);
+            self.pixel_reader.read_pixels(subsampled_line_bytes, &mut tmp_fullres_pixels, |px| px);
 
-            for (x_offset, pixel) in pixels.iter().enumerate() {
+            for (x_offset, pixel) in tmp_fullres_pixels.iter().enumerate() {
                 let set_pixel = &self.set_pixel;
-                set_pixel(&mut self.pixel_storage, block.index.pixel_position + Vec2(x_offset, y_offset), pixel.into_tuple());
+                let absolute_position =  block.index.pixel_position + Vec2(x_offset, line.position.y()/* TODO is this absolute already??*/);
+                set_pixel(&mut self.pixel_storage, absolute_position, pixel.into_tuple());
             }
         }
 

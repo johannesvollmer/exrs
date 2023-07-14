@@ -724,7 +724,7 @@ impl ChannelList {
     }
 
     /// Respects subsampling.
-    pub fn find_total_bytes_for_block(&self, size: Vec2<usize>) -> usize {
+    pub fn find_subsampled_bytes_for_block(&self, size: Vec2<usize>) -> usize {
         // TODO i think we should debug_assert_eq!(pixel_section.position.x() % sampling == 0);
 
         // FIXME if the tile starts on an odd coordinate, shouldn't we subtract one?
@@ -733,7 +733,7 @@ impl ChannelList {
     }
 
     /// Respects subsampling.
-    pub fn total_bytes_for_line(&self, x: usize) -> usize {
+    pub fn find_subsampled_bytes_for_line(&self, x: usize) -> usize {
         // FIXME if the tile starts on an odd coordinate, shouldn't we subtract one?
         // TODO FIXME cache bytes_per_pixel if no channel has subsampling
         self.list.iter().map(|chan| x / chan.sampling.x()).sum()
@@ -1060,30 +1060,26 @@ impl ChannelDescription {
     }
 
     /// The count of pixels this channel contains, respecting subsampling.
-    // FIXME this must be used everywhere
     pub fn subsampled_pixels(&self, dimensions: Vec2<usize>) -> usize {
         self.subsampled_resolution(dimensions).area()
     }
 
     /// The byte size of a block, respecting subsampling.
-    // FIXME this must be used everywhere
     pub fn subsampled_bytes(&self, dimensions: Vec2<usize>) -> usize {
         self.subsampled_pixels(dimensions) * self.sample_type.bytes_per_sample()
     }
 
     /// The count of pixels a given line of pixels contains, respecting subsampling.
-    // FIXME this must be used everywhere
     pub fn subsampled_line_pixels(&self, block_width: usize) -> usize {
         block_width / self.sampling.width()
     }
 
     /// The byte size of a given line of pixels, respecting subsampling.
-    // FIXME this must be used everywhere
     pub fn subsampled_line_bytes(&self, block_width: usize) -> usize {
         self.subsampled_line_pixels(block_width) * self.sample_type.bytes_per_sample()
     }
 
-    /// Number of bytes this would consume in an exr file.
+    /// Number of bytes this attribute would consume in an exr file.
     pub fn byte_size(&self) -> usize {
         self.name.null_terminated_byte_size()
             + SampleType::byte_size()

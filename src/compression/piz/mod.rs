@@ -40,7 +40,7 @@ pub fn decompress(
 {
 
     let expected_u16_count = expected_byte_size / 2;
-    debug_assert_eq!(expected_byte_size,  channels.find_total_bytes_for_block(rectangle.size));
+    debug_assert_eq!(expected_byte_size,  channels.find_subsampled_bytes_for_block(rectangle.size));
     debug_assert!(!channels.list.is_empty());
 
     if compressed.is_empty() {
@@ -309,7 +309,7 @@ mod test {
 
     fn test_roundtrip_noise_with(channels: ChannelList, rectangle: IntegerBounds){
         let pixel_bytes: ByteVec = (0 .. 37).map(|_| rand::random()).collect::<Vec<u8>>().into_iter()
-            .cycle().take(channels.find_total_bytes_for_block(rectangle.size))
+            .cycle().take(channels.find_subsampled_bytes_for_block(rectangle.size))
             .collect();
 
         let compressed = piz::compress(&channels, pixel_bytes.clone(), rectangle).unwrap();
