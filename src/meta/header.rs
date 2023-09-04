@@ -533,7 +533,9 @@ impl Header {
 
             CompressedBlock::ScanLine(ref block) => {
                 let size = self.compression.scan_lines_per_block() as i32;
-                let y = (block.y_coordinate - self.own_attributes.layer_position.y()) / size;
+
+                let diff = block.y_coordinate.checked_sub(self.own_attributes.layer_position.y()).ok_or(Error::invalid("invalid header"))?;
+                let y = diff.checked_div(size).ok_or(Error::invalid("invalid header"))?;
 
                 if y < 0 {
                     return Err(Error::invalid("scan block y coordinate"));
@@ -552,7 +554,9 @@ impl Header {
     /// Computes the absolute tile coordinate data indices, which start at `0`.
     pub fn get_scan_line_block_tile_coordinates(&self, block_y_coordinate: i32) -> Result<TileCoordinates> {
         let size = self.compression.scan_lines_per_block() as i32;
-        let y = (block_y_coordinate - self.own_attributes.layer_position.1) / size;
+
+        let diff = block_y_coordinate.checked_sub(self.own_attributes.layer_position.1).ok_or(Error::invalid("invalid header"))?;
+        let y = diff.checked_div(size).ok_or(Error::invalid("invalid header"))?;
 
         if y < 0 {
             return Err(Error::invalid("scan block y coordinate"));
