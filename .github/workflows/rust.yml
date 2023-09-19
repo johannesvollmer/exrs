@@ -82,11 +82,11 @@ jobs:
         run: sudo systemctl start docker
 
       - name: Cross-Compile project to mips-unknown-linux-gnu
-        run: cross build --target=mips-unknown-linux-gnu --verbose
+        run: cross build --target=mips-unknown-linux-gnu --verbose -Z build-std=std
 
       # https://github.com/cross-rs/cross#supported-targets
       - name: Cross-Run Tests in mips-unknown-linux-gnu using Qemu
-        run: cross test --target mips-unknown-linux-gnu --verbose
+        run: cross test --target mips-unknown-linux-gnu --verbose -Z build-std=std
 
   wasm32:
     runs-on: ubuntu-latest
