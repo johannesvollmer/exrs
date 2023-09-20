@@ -9,7 +9,7 @@ on:
 jobs:
   ubuntu:
     runs-on: ubuntu-latest
-    name: ubuntu
+    name: test on ubuntu
     timeout-minutes: 30
 
     steps:
@@ -24,7 +24,7 @@ jobs:
 
   macos:
     runs-on: macos-latest
-    name: mac os
+    name: test on mac os
     timeout-minutes: 30
 
     steps:
@@ -57,14 +57,13 @@ jobs:
           cargo-msrv verify
 
   # github actions does not support big endian systems directly, but it does support QEMU.
-  # so we install qemu, cross-compile to sparc64, and then run the tests in an emulated sparc64.
-  # see https://github.com/wasm3/wasm3/blob/main/.github/workflows/tests.yml#L318
-  mips:
+  # so we use cross-rs, which uses QEMU internally.
+  big-endian:
     runs-on: ubuntu-20.04
-    name: emulated big endian mips system
+    name: test on emulated big endian system
     timeout-minutes: 90 # todo just make tests faster wtf
 
-    # we are using the cross project for cross compilation to mips:
+    # we are using the cross project for cross compilation:
     # https://github.com/cross-rs/cross
 
     steps:
@@ -81,16 +80,16 @@ jobs:
       - name: Start Docker
         run: sudo systemctl start docker
 
-      - name: Cross-Compile project to mips-unknown-linux-gnu
-        run: cross build --target=mips-unknown-linux-gnu --verbose
+      - name: Cross-Compile project to powerpc-unknown-linux-gnu
+        run: cross build --target powerpc-unknown-linux-gnu --verbose
 
       # https://github.com/cross-rs/cross#supported-targets
-      - name: Cross-Run Tests in mips-unknown-linux-gnu using Qemu
-        run: cross test --target mips-unknown-linux-gnu --verbose
+      - name: Cross-Run Tests in powerpc-unknown-linux-gnu using Qemu
+        run: cross test --target powerpc-unknown-linux-gnu --verbose
 
   wasm32:
     runs-on: ubuntu-latest
-    name: wasm32
+    name: test on wasm32
     timeout-minutes: 60
 
     steps:

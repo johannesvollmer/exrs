@@ -297,7 +297,7 @@ use `cargo test --package exr --test fuzz fuzz -- --exact --ignored`.
 
 To run all fast tests on an emulated system, use one of the following commands.
 Each command requires a running `docker` instance,
-and `cross-rs` to be installed on your machine (`cargo install cross-rs`).
+and `cross-rs` to be installed on your machine (`cargo install cross`).
 - Mips (Big Endian) `cross test --target mips-unknown-linux-gnu --verbose`
 
 To benchmark the library, simply run `cargo bench`.
