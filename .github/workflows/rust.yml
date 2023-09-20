@@ -82,7 +82,11 @@ jobs:
         run: sudo systemctl start docker
 
       - name: Cross-Compile project to mips-unknown-linux-gnu
-        run: cross build --target mips-unknown-linux-gnu --verbose
+        run: |
+          rm -f Cargo.lock
+          cargo clean
+          cargo update
+          cross build --target mips-unknown-linux-gnu --verbose
 
       # https://github.com/cross-rs/cross#supported-targets
       - name: Cross-Run Tests in mips-unknown-linux-gnu using Qemu
