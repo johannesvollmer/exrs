@@ -57,14 +57,13 @@ jobs:
           cargo-msrv verify
 
   # github actions does not support big endian systems directly, but it does support QEMU.
-  # so we install qemu, cross-compile to sparc64, and then run the tests in an emulated sparc64.
-  # see https://github.com/wasm3/wasm3/blob/main/.github/workflows/tests.yml#L318
-  mips:
+  # so we use cross-rs, which uses QEMU internally.
+  big-endian:
     runs-on: ubuntu-20.04
     name: test on emulated big endian system
     timeout-minutes: 90 # todo just make tests faster wtf
 
-    # we are using the cross project for cross compilation to mips:
+    # we are using the cross project for cross compilation:
     # https://github.com/cross-rs/cross
 
     steps:
