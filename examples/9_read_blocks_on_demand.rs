@@ -19,8 +19,8 @@ fn main() {
     let header_index = 0; // only load pixels from the first header
     let mip_level = (0, 0); // only load largest mip map
 
-    /// for this example, we use a hashmap instead of a real sparse texture.
-    /// it stores blocks of rgba pixels, indexed by the position of the block (usize, usize)
+    // for this example, we use a hashmap instead of a real sparse texture.
+    // it stores blocks of rgba pixels, indexed by the position of the block (usize, usize)
     let mut my_sparse_texture: HashMap<(usize, usize), Vec<[f32; 4]>> = Default::default();
 
     let file = BufReader::new(
@@ -32,8 +32,8 @@ fn main() {
     let mut chunk_reader = exr::block::read(file, true).unwrap()
         .on_demand_chunks().unwrap();
 
-    // this object can decode packed exr blocks to simple rgb
-    let mut rgb_from_block_extractor = read_specific_channels()
+    // this object can decode packed exr blocks to simple rgb (can be shared or cloned across threads)
+    let rgb_from_block_extractor = read_specific_channels()
             .required("R").required("G").required("B")
             .optional("A", 1.0)
             .create_recursive_reader(&chunk_reader.header(header_index).channels).unwrap();
@@ -45,8 +45,8 @@ fn main() {
         let compressed_chunks = chunk_reader
             .load_all_chunks_for_display_space_section(header_index, mip_level, pixel_section)
 
-            // we use .flatten(), this simply discards all errors and only continues with the successfully loaded chunks
-            // we collect here due to borrowing meta data
+            // in this example, we use .flatten(), this simply discards all errors and only continues with the successfully loaded chunks
+            // in this example, we collect here due to borrowing meta data
             .flatten().collect::<Vec<Chunk>>();
 
         // this could be done in parallel, e.g. by using rayon par_iter
