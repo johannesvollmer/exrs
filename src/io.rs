@@ -8,7 +8,7 @@ pub use ::std::io::{Read, Write};
 use half::slice::{HalfFloatSliceExt};
 use lebe::prelude::*;
 use ::half::f16;
-use crate::error::{Error, Result, UnitResult, IoResult};
+use crate::error::{Error, Result, UnitResult, IoResult, usize_to_u64};
 use std::io::{Seek, SeekFrom};
 use std::path::Path;
 use std::fs::File;
@@ -185,7 +185,7 @@ pub struct Tracking<T> {
 impl<T: Read> Read for Tracking<T> {
     fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
         let count = self.inner.read(buffer)?;
-        self.position += count;
+        self.position += usize_to_u64(count);
         Ok(count)
     }
 }
@@ -193,7 +193,7 @@ impl<T: Read> Read for Tracking<T> {
 impl<T: Write> Write for Tracking<T> {
     fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
         let count = self.inner.write(buffer)?;
-        self.position += count;
+        self.position += usize_to_u64(count);
         Ok(count)
     }
 
@@ -222,14 +222,14 @@ impl<T: Read + Seek> Tracking<T> {
     /// If it is only a couple of bytes, no seek system call is performed.
     pub fn seek_read_to(&mut self, target_position: u64) -> std::io::Result<()> {
         let delta = target_position as i128 - self.position as i128; // FIXME  panicked at 'attempt to subtract with overflow'
-        debug_assert!(delta.abs() < usize::MAX as i128);
+        assert!(delta.abs() < u64::MAX as i128 && delta.abs() < usize::MAX as i128);
 
         if delta > 0 && delta < 16 { // TODO profile that this is indeed faster than a syscall! (should be because of bufread buffer discard)
             skip_bytes(self, delta as usize)?;
-            self.position += delta as usize;
+            self.position += delta as u64;
         }
         else if delta != 0 {
-            self.inner.seek(SeekFrom::Start(u64::try_from(target_position).unwrap()))?;
+            self.inner.seek(SeekFrom::Start(target_position))?;
             self.position = target_position;
         }
 

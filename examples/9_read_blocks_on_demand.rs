@@ -9,6 +9,7 @@ extern crate exr;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
+use exr::block::chunk::Chunk;
 use exr::block::UncompressedBlock;
 use exr::image::read::specific_channels::{read_specific_channels, RecursivePixelReader};
 use exr::prelude::{IntegerBounds, ReadSpecificChannel};
@@ -42,12 +43,15 @@ fn main() {
 
         // todo: only load blocks that are not loaded yet. maybe an additional filter? or replace this with a more modular filtering architecture?
         let compressed_chunks = chunk_reader
-            .load_all_chunks_for_display_space_section(header_index, mip_level, pixel_section);
+            .load_all_chunks_for_display_space_section(header_index, mip_level, pixel_section)
+
+            // we use .flatten(), this simply discards all errors and only continues with the successfully loaded chunks
+            // we collect here due to borrowing meta data
+            .flatten().collect::<Vec<Chunk>>();
 
         // this could be done in parallel, e.g. by using rayon par_iter
-        // we use .flatten(), this simply discards all errors and only continues with the successfully loaded chunks
-        let packed_pixel_blocks = compressed_chunks.flatten()
-            .map(|chunk| UncompressedBlock::decompress_chunk(chunk, chunk_reader.meta_data(), chunk_reader.pedantic()))
+        let packed_pixel_blocks = compressed_chunks.into_iter()
+            .map(|chunk| UncompressedBlock::decompress_chunk(chunk, chunk_reader.meta_data(), true))
             .flatten();
 
         // the exr blocks may contain arbitrary channels, but we are only interested in rgba.
@@ -57,7 +61,7 @@ fn main() {
 
             let position = block.index.pixel_position;
             let size = block.index.pixel_size;
-            let rgba_buffer = vec![[0.0; 4], size.area()]; // rgba = 4 floats
+            let mut rgba_buffer = vec![[0.0; 4]; size.area()]; // rgba = 4 floats
 
             // decode individual pixels into our f32 buffer
             // automatically converts f16 samples to f32 if required

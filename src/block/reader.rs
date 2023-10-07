@@ -1,7 +1,7 @@
 //! Composable structures to handle reading an image.
 
 
-use std::convert::TryFrom;
+use std::convert::{TryFrom};
 use std::fmt::Debug;
 use std::io::{Read, Seek};
 use rayon_core::{ThreadPool, ThreadPoolBuildError};
@@ -11,12 +11,12 @@ use smallvec::alloc::sync::Arc;
 use crate::block::{BlockIndex, UncompressedBlock};
 use crate::block::chunk::{Chunk, TileCoordinates};
 use crate::compression::Compression;
-use crate::error::{Error, Result, u64_to_usize, UnitResult};
+use crate::error::{Error, Result, UnitResult};
 use crate::io::{PeekRead, Tracking};
 use crate::math::Vec2;
 use crate::meta::{MetaData, OffsetTables, TileIndices};
 use crate::meta::header::Header;
-use crate::prelude::{IntegerBounds, ReadSpecificChannel};
+use crate::prelude::{IntegerBounds};
 
 /// Decode the meta data from a byte source, keeping the source ready for further reading.
 /// Continue decoding the remaining bytes by calling `filtered_chunks` or `all_chunks`.
@@ -76,7 +76,7 @@ impl<R: Read + Seek> Reader<R> {
             meta_data: self.meta_data,
             remaining_chunks: 0 .. total_chunk_count,
             remaining_bytes: self.remaining_reader,
-            pedantic
+            pedantic: self.pedantic
         })
     }
 
@@ -148,7 +148,7 @@ impl<R: Read + Seek> Reader<R> {
         }
 
         Ok(OnDemandChunksReader {
-            offset_tables, pedantic: self.pedantic,
+            offset_tables, 
             seekable_bytes: self.remaining_reader,
             meta_data: self.meta_data,
         })
@@ -158,7 +158,7 @@ impl<R: Read + Seek> Reader<R> {
 
 fn validate_offset_tables(headers: &[Header], offset_tables: &OffsetTables, chunks_start_byte: u64) -> UnitResult {
     let max_pixel_bytes: u64 = headers.iter() // when compressed, chunks are smaller, but never larger than max
-        .map(|header| header.max_pixel_file_bytes().into())
+        .map(|header| u64::try_from(header.max_pixel_file_bytes()).expect("failed to cast usize to u64"))
         .sum();
 
     // check that each offset is within the bounds
@@ -207,7 +207,6 @@ pub struct OnDemandChunksReader<R> {
     meta_data: MetaData,
     offset_tables: OffsetTables,
     seekable_bytes: PeekRead<Tracking<R>>,
-    pedantic: bool,
 }
 
 /// While decoding chunks,
@@ -284,7 +283,8 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
     /// By default, this uses as many threads as there are CPUs.
     /// Returns the `self` if there is no need for parallel decompression.
     fn parallel_decompressor(self) -> std::result::Result<ParallelBlockDecompressor<Self>, Self> {
-        ParallelBlockDecompressor::new(self, self.pedantic())
+        let pedantic = self.pedantic();
+        ParallelBlockDecompressor::new(self, pedantic)
     }
 
     /// Return an iterator that decompresses the chunks in this thread.
@@ -304,7 +304,8 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
 
     /// Prepare reading the chunks sequentially, only a single thread, but with less memory overhead.
     fn sequential_decompressor(self) -> SequentialBlockDecompressor<Self> {
-        SequentialBlockDecompressor { remaining_chunks_reader: self, pedantic: self.pedantic() }
+        let pedantic = self.pedantic();
+        SequentialBlockDecompressor { remaining_chunks_reader: self, pedantic }
     }
 }
 
@@ -586,12 +587,14 @@ impl<R: Read + Seek> OnDemandChunksReader<R> {
         &mut self, header_index: usize, level: impl Into<Vec2<usize>>, display_window_section: IntegerBounds
     ) -> impl '_ + Iterator<Item = Result<Chunk>>
     {
-        self.load_chunks_for_blocks(|tile_index, block_index|{
+        let level = level.into();
+
+        self.load_chunks_for_blocks(move |meta, tile_index, block_index|{
             if block_index.layer != header_index || block_index.level != level {
                 return false
             }
 
-            let header = &self.meta_data.headers[block_index.layer];
+            let header = &meta.headers[block_index.layer];
             let block_in_display_window = header
                 .get_block_display_window_pixel_coordinates(tile_index.location)
                 .expect("invalid tile index");
@@ -605,49 +608,59 @@ impl<R: Read + Seek> OnDemandChunksReader<R> {
         &mut self, header_index: usize, level: impl Into<Vec2<usize>>, data_window_section: IntegerBounds
     ) -> impl '_ + Iterator<Item = Result<Chunk>>
     {
-        self.load_chunks_for_blocks(|tile_index, block_index|{
+        let level = level.into();
+
+        self.load_chunks_for_blocks(move |_meta, _tile_index, block_index|{
             if block_index.layer != header_index || block_index.level != level {
                 return false
             }
 
-            let block_section = IntegerBounds::new(block_index.pixel_position, block_index.pixel_size);
+            let block_section = IntegerBounds::new(block_index.pixel_position.to_i32(), block_index.pixel_size);
             let should_load_block = data_window_section.intersects(block_section);
             should_load_block
         })
     }
 
     /// Returned order is arbitrary (optimized for speed).
-    pub fn load_chunks_for_blocks(&mut self, filter_blocks: impl Fn(TileIndices, BlockIndex) -> bool) -> impl '_ + Iterator<Item = Result<Chunk>> {
-        let chunks_indices = self.find_seek_positions_for_blocks(filter_blocks).collect();
+    pub fn load_chunks_for_blocks(&mut self, filter_blocks: impl Fn(&MetaData, TileIndices, BlockIndex) -> bool) -> impl '_ + Iterator<Item = Result<Chunk>> {
+        let chunks_indices = self.find_seek_positions_for_blocks(filter_blocks);
         self.load_chunks(chunks_indices)
     }
 
     /// Computes which chunks to seek to in the file, based on the specified predicate.
     /// Iterator returns block indices in increasing-y order.
-    pub fn find_seek_positions_for_blocks(&self, filter_blocks: impl Fn(TileIndices, BlockIndex) -> bool) -> impl '_ + Iterator<Item=u64> {
+    pub fn find_seek_positions_for_blocks(&self, filter_blocks: impl Fn(&MetaData, TileIndices, BlockIndex) -> bool) -> Vec<u64> {
         debug_assert_eq!(self.meta_data.headers.len(), self.offset_tables.len());
+        let filter_blocks = &filter_blocks;
 
         self.meta_data.headers.iter().zip(&self.offset_tables).enumerate()
             .flat_map(move |(header_index, (header, offset_table))| {
                 debug_assert_eq!(header.chunk_count, offset_table.len());
 
                 header.blocks_increasing_y_order().zip(offset_table) // todo: this iter allocates, save it in the reader later
-                    .filter(move |(tile_coordinates, &seek_position)|{
+                    .filter(move |(tile_coordinates, _seek_pos)|{
 
                         // TODO this algorithm should not now whether we need to make coordinates absolute?
                         // deduplicate with block::UncompressedBlock::decompress_chunk()?
-                        let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_coordinates.location)?;
-                        let absolute_position = absolute_indices.position.to_usize("coordinate calculation bug").unwrap();
+                        let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_coordinates.location)
+                            .expect("tile index bug");
 
-                        filter_blocks(*tile_coordinates, BlockIndex {
-                            layer: header_index,
-                            pixel_position: absolute_position,
-                            pixel_size: tile_coordinates.size,
-                            level: tile_coordinates.location.level_index,
-                        })
+                        let absolute_position = absolute_indices.position
+                            .to_usize("coordinate calculation bug").unwrap();
+
+                        filter_blocks(
+                            self.meta_data(), *tile_coordinates,
+                            BlockIndex {
+                                layer: header_index,
+                                pixel_position: absolute_position,
+                                pixel_size: tile_coordinates.size,
+                                level: tile_coordinates.location.level_index,
+                            }
+                        )
                     })
-                    .map(|(_, chunk_byte_position)| chunk_byte_position)
+                    .map(move |(_, &chunk_byte_position)| chunk_byte_position)
             })
+            .collect()
     }
 
     /*pub fn find_seek_position_for_block(&self, layer_index: usize, filter_blocks: impl Fn(TileIndices) -> bool) -> impl Iterator<> {

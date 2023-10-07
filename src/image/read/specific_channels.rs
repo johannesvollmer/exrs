@@ -91,11 +91,11 @@ pub trait RecursivePixelReader {
 
     // TODO dedup with SpecificChannelsReader::read_block(..)?
     /// Note: The (x,y) coordinates are in block space. You will have to add `block.index.pixel_position` for the pixel position in the layer.
-    fn read_block_pixels(
+    fn read_block_pixels<Pixel>(
         &self, header: &Header, block: UncompressedBlock,
-        mut set_pixel: impl FnMut(Vec2<usize>, <Self::RecursivePixel as IntoNonRecursive>::NonRecursive)
+        mut set_pixel: impl FnMut(Vec2<usize>, Pixel)
     )
-        where Self::RecursivePixel: IntoNonRecursive
+        where Self::RecursivePixel: IntoTuple<Pixel>
     {
         let mut one_line_of_recursive_pixels = vec![Self::RecursivePixel::default(); block.index.pixel_size.width()];
 
