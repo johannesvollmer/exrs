@@ -14,7 +14,15 @@ use exr::block::UncompressedBlock;
 use exr::image::read::specific_channels::{read_specific_channels, RecursivePixelReader};
 use exr::prelude::{IntegerBounds, ReadSpecificChannel};
 
-/// Load only some specific pixel sections from the file, just when they are needed.
+/// load only some specific pixel sections from the file, just when they are needed.
+/// load blocks of pixels into a sparse texture (illustrated with a hashmap in this example).
+/// the process is as follows:
+///
+/// 1. prepare some state (open the file, read meta data, define the channels we want to read)
+/// 2. when needed, load more pixel blocks from the file
+///    a. load compressed chunks for a specific pixel section
+///    b. decompress chunks and extract rgba pixels from the packed channel data in the block
+///    c. write the loaded rgba pixel blocks into the sparse texture
 fn main() {
     let header_index = 0; // only load pixels from the first header
     let mip_level = (0, 0); // only load largest mip map
