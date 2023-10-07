@@ -156,7 +156,7 @@ impl<T: Read + Seek> PeekRead<Tracking<T>> {
 
     /// Seek this read to the specified byte position.
     /// Discards any previously peeked value.
-    pub fn skip_to(&mut self, position: usize) -> std::io::Result<()> {
+    pub fn skip_to(&mut self, position: u64) -> std::io::Result<()> {
         self.inner.seek_read_to(position)?;
         self.peeked = None;
         Ok(())
@@ -166,7 +166,7 @@ impl<T: Read + Seek> PeekRead<Tracking<T>> {
 impl<T: Read> PeekRead<Tracking<T>> {
 
     /// Current number of bytes read.
-    pub fn byte_position(&self) -> usize {
+    pub fn byte_position(&self) -> u64 {
         self.inner.byte_position()
     }
 }
@@ -179,7 +179,7 @@ pub struct Tracking<T> {
     /// Do not expose to prevent seeking without updating position
     inner: T,
 
-    position: usize,
+    position: u64,
 }
 
 impl<T: Read> Read for Tracking<T> {
@@ -211,7 +211,7 @@ impl<T> Tracking<T> {
     }
 
     /// Current number of bytes written or read.
-    pub fn byte_position(&self) -> usize {
+    pub fn byte_position(&self) -> u64 {
         self.position
     }
 }
@@ -220,7 +220,7 @@ impl<T: Read + Seek> Tracking<T> {
 
     /// Set the reader to the specified byte position.
     /// If it is only a couple of bytes, no seek system call is performed.
-    pub fn seek_read_to(&mut self, target_position: usize) -> std::io::Result<()> {
+    pub fn seek_read_to(&mut self, target_position: u64) -> std::io::Result<()> {
         let delta = target_position as i128 - self.position as i128; // FIXME  panicked at 'attempt to subtract with overflow'
         debug_assert!(delta.abs() < usize::MAX as i128);
 
@@ -241,7 +241,7 @@ impl<T: Write + Seek> Tracking<T> {
 
     /// Move the writing cursor to the specified target byte index.
     /// If seeking forward, this will write zeroes.
-    pub fn seek_write_to(&mut self, target_position: usize) -> std::io::Result<()> {
+    pub fn seek_write_to(&mut self, target_position: u64) -> std::io::Result<()> {
         if target_position < self.position {
             self.inner.seek(SeekFrom::Start(u64::try_from(target_position).unwrap()))?;
         }

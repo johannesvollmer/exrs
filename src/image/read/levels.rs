@@ -93,7 +93,7 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
     ///
     /// Throws an error for images with deep data or subsampling.
     pub fn specific_channels(self) -> ReadZeroChannels {
-        ReadZeroChannels { }
+        read_specific_channels()
     }
 }
 

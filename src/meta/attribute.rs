@@ -899,10 +899,19 @@ impl IntegerBounds {
 
     /// Returns whether the specified rectangle is equal to or inside this rectangle.
     pub fn contains(self, subset: Self) -> bool {
-           subset.position.x() >= self.position.x()
-        && subset.position.y() >= self.position.y()
-        && subset.end().x() <= self.end().x()
-        && subset.end().y() <= self.end().y()
+        subset.position.x() >= self.position.x()
+            && subset.position.y() >= self.position.y()
+            && subset.end().x() <= self.end().x()
+            && subset.end().y() <= self.end().y()
+    }
+
+    /// Returns whether the specified rectangle touches this rectangle.
+    pub fn intersects(self, other: Self) -> bool {
+        // https://stackoverflow.com/questions/2752349/fast-rectangle-to-rectangle-intersection
+        other.position.x() <= self.end().x()
+            && self.position.x() <= other.end().x()
+            && other.position.y() <= self.end().y()
+            && self.position.y() <= other.end().y()
     }
 }
 
@@ -2223,4 +2232,13 @@ mod test {
         }
     }
 
+    #[test]
+    fn rectangle_intersect(){
+        unimplemented!()
+    }
+
+    #[test]
+    fn rectangle_contains(){
+        unimplemented!()
+    }
 }

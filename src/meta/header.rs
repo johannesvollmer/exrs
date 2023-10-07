@@ -484,10 +484,17 @@ impl Header {
         }
     }
 
-    /// Calculate the position of a block in the global infinite 2D space of a file. May be negative.
-    pub fn get_block_data_window_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntegerBounds> {
-        let data = self.get_absolute_block_pixel_coordinates(tile)?;
-        Ok(data.with_origin(self.own_attributes.layer_position))
+    /// Calculate the position of a block in the global infinite 2D space of a file (the display space).
+    /// Position may be negative.
+    pub fn get_block_display_window_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntegerBounds> {
+        let data_coords = self.get_absolute_block_pixel_coordinates(tile)?;
+        Ok(self.get_display_window_from_data_window(data_coords))
+    }
+
+    /// Transform a data-space section to the display-space section (the global infinite 2D space of a file).
+    /// Position may be negative.
+    pub fn get_display_window_from_data_window(&self, data_window_pixels: IntegerBounds) -> IntegerBounds {
+        data_window_pixels.with_origin(self.own_attributes.layer_position)
     }
 
     /// Calculate the pixel index rectangle inside this header. Is not negative. Starts at `0`.
@@ -606,9 +613,9 @@ impl Header {
     }
 
     /// Approximates the maximum number of bytes that the pixels of this header will consume in a file.
-    /// Due to compression, the actual byte size may be smaller.
+    /// Due to compression, the actual file byte size may be smaller.
     pub fn max_pixel_file_bytes(&self) -> usize {
-        assert!(!self.deep);
+        assert!(!self.deep, "deep data not supported yet");
 
         self.chunk_count * 64 // at most 64 bytes overhead for each chunk (header index, tile description, chunk size, and more)
             + self.total_pixel_bytes()
