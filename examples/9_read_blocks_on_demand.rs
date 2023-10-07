@@ -40,7 +40,7 @@ fn main() {
 
     let header_index = 0; // only load pixels from the first header (assumes first layer has rgb channels)
     let mip_level = (0, 0); // only load largest mip map
-    println!("loading header #0 from {:?}", chunk_reader.meta_data());
+    println!("loading header #0 from {:#?}", chunk_reader.meta_data());
 
     // this object can decode packed exr blocks to simple rgb (can be shared or cloned across threads)
     let rgb_from_block_extractor = read_specific_channels()
@@ -86,6 +86,8 @@ fn main() {
         for (position, block) in rgba_blocks {
             my_sparse_texture.insert(position, block);
         }
+
+        println!("\n\nsparse texture now contains {} blocks", my_sparse_texture.len());
     })
 }
 
@@ -93,8 +95,8 @@ fn main() {
 /// (loads a single view once, as this is a stub implementation)
 fn when_new_pixel_section_must_be_loaded(mut load_for_view: impl FnMut(IntegerBounds)){
     let image_sub_section = IntegerBounds::new(
-        (800, 800), // position
-        (600, 600) // size
+        (831, 739), // position
+        (932, 561) // size
     );
 
     load_for_view(image_sub_section);
