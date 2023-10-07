@@ -24,8 +24,6 @@ use exr::prelude::{IntegerBounds, ReadSpecificChannel};
 ///    b. decompress chunks and extract rgba pixels from the packed channel data in the block
 ///    c. write the loaded rgba pixel blocks into the sparse texture
 fn main() {
-    let header_index = 0; // only load pixels from the first header
-    let mip_level = (0, 0); // only load largest mip map
 
     // for this example, we use a hashmap instead of a real sparse texture.
     // it stores blocks of rgba pixels, indexed by the position of the block (usize, usize)
@@ -40,11 +38,15 @@ fn main() {
     let mut chunk_reader = exr::block::read(file, true).unwrap()
         .on_demand_chunks().unwrap();
 
+    let header_index = 0; // only load pixels from the first header (assumes first layer has rgb channels)
+    let mip_level = (0, 0); // only load largest mip map
+    println!("loading header #0 from {:?}", chunk_reader.meta_data());
+
     // this object can decode packed exr blocks to simple rgb (can be shared or cloned across threads)
     let rgb_from_block_extractor = read_specific_channels()
             .required("R").required("G").required("B")
             .optional("A", 1.0)
-            .create_recursive_reader(&chunk_reader.header(header_index).channels).unwrap();
+            .create_recursive_reader(&chunk_reader.header(header_index).channels).unwrap(); // this will fail if the image does not contain rgb channels
 
     // later in your app, maybe when the view changed:
     when_new_pixel_section_must_be_loaded(move |pixel_section| {

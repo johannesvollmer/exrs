@@ -148,7 +148,7 @@ impl<R: Read + Seek> Reader<R> {
         }
 
         Ok(OnDemandChunksReader {
-            offset_tables, 
+            offset_tables,
             seekable_bytes: self.remaining_reader,
             meta_data: self.meta_data,
         })
@@ -572,17 +572,13 @@ impl<R: ChunksReader> Iterator for ParallelBlockDecompressor<R> {
 
 impl<R: Read + Seek> OnDemandChunksReader<R> {
 
+    /// The meta data loaded from this file.
     pub fn meta_data(&self) -> &MetaData { &self.meta_data }
 
+    /// The meta data headers loaded from this file.
     pub fn header(&self, header_index: usize) -> &Header { &self.meta_data().headers[header_index] }
 
-    /*pub fn specific_channels_block_decoder<Read>(&self, header_index: usize, reader: Read)
-        -> Read::RecursivePixelReader
-        where Read: ReadSpecificChannel
-    {
-        reader.create_recursive_reader(&self.header(header_index).channels)
-    }*/
-
+    /// Load all chunks that intersect the specified display-space section (DisplayWindow).
     pub fn load_all_chunks_for_display_space_section(
         &mut self, header_index: usize, level: impl Into<Vec2<usize>>, display_window_section: IntegerBounds
     ) -> impl '_ + Iterator<Item = Result<Chunk>>
@@ -604,6 +600,7 @@ impl<R: Read + Seek> OnDemandChunksReader<R> {
         })
     }
 
+    /// Load all chunks that intersect the specified layer-space section (DataWindow).
     pub fn load_all_chunks_for_layer_space_section(
         &mut self, header_index: usize, level: impl Into<Vec2<usize>>, data_window_section: IntegerBounds
     ) -> impl '_ + Iterator<Item = Result<Chunk>>
