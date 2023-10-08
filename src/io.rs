@@ -243,11 +243,11 @@ impl<T: Write + Seek> Tracking<T> {
     /// If seeking forward, this will write zeroes.
     pub fn seek_write_to(&mut self, target_position: u64) -> std::io::Result<()> {
         if target_position < self.position {
-            self.inner.seek(SeekFrom::Start(u64::try_from(target_position).unwrap()))?;
+            self.inner.seek(SeekFrom::Start(target_position))?;
         }
         else if target_position > self.position {
             std::io::copy(
-                &mut std::io::repeat(0).take(u64::try_from(target_position - self.position).unwrap()),
+                &mut std::io::repeat(0).take(target_position - self.position),
                 self
             )?;
         }

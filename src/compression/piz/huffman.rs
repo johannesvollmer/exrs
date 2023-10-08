@@ -24,7 +24,7 @@ pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
     let bit_count = usize::try_from(u32::read(&mut remaining_compressed)?)?;
     let _skipped = u32::read(&mut remaining_compressed)?; // what is this
 
-    let max_code_index = usize::try_from(max_code_index_32).unwrap();
+    let max_code_index = u32_to_usize(max_code_index_32);
     if min_code_index >= ENCODING_TABLE_SIZE || max_code_index >= ENCODING_TABLE_SIZE {
         return Err(Error::invalid(INVALID_TABLE_SIZE));
     }
@@ -302,7 +302,7 @@ fn read_encoding_table(
 
         if code_len == LONG_ZEROCODE_RUN {
             let zerun_bits = read_bits(8, &mut code_bits, &mut code_bit_count, packed)?;
-            let zerun = usize::try_from(zerun_bits + SHORTEST_LONG_RUN).unwrap();
+            let zerun = u64_to_usize(zerun_bits + SHORTEST_LONG_RUN);
 
             if code_index + zerun > max_code_index + 1 {
                 return Err(Error::invalid(TABLE_TOO_LONG));
@@ -315,7 +315,7 @@ fn read_encoding_table(
             code_index += zerun;
         }
         else if code_len >= SHORT_ZEROCODE_RUN {
-            let duplication_count = usize::try_from(code_len - SHORT_ZEROCODE_RUN + 2).unwrap();
+            let duplication_count = u64_to_usize(code_len - SHORT_ZEROCODE_RUN + 2);
             if code_index + duplication_count > max_code_index + 1 {
                 return Err(Error::invalid(TABLE_TOO_LONG));
             }

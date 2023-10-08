@@ -11,7 +11,7 @@ use smallvec::alloc::sync::Arc;
 use crate::block::{BlockIndex, UncompressedBlock};
 use crate::block::chunk::{Chunk, TileCoordinates};
 use crate::compression::Compression;
-use crate::error::{Error, Result, UnitResult};
+use crate::error::{Error, Result, UnitResult, usize_to_u64};
 use crate::io::{PeekRead, Tracking};
 use crate::math::Vec2;
 use crate::meta::{MetaData, OffsetTables, TileIndices};
@@ -67,8 +67,7 @@ impl<R: Read + Seek> Reader<R> {
                 offset_tables.iter().map(|table| table.len()).sum()
             }
             else {
-                usize::try_from(MetaData::skip_offset_tables(&mut self.remaining_reader, &self.meta_data.headers)?)
-                    .expect("too large chunk count for this machine")
+                MetaData::skip_offset_tables(&mut self.remaining_reader, &self.meta_data.headers)?
             }
         };
 
@@ -158,7 +157,7 @@ impl<R: Read + Seek> Reader<R> {
 
 fn validate_offset_tables(headers: &[Header], offset_tables: &OffsetTables, chunks_start_byte: u64) -> UnitResult {
     let max_pixel_bytes: u64 = headers.iter() // when compressed, chunks are smaller, but never larger than max
-        .map(|header| u64::try_from(header.max_pixel_file_bytes()).expect("failed to cast usize to u64"))
+        .map(|header| usize_to_u64(header.max_pixel_file_bytes()))
         .sum();
 
     // check that each offset is within the bounds
