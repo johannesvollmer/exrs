@@ -38,22 +38,28 @@ fn main() {
     let mut chunk_reader = exr::block::read(file, true).unwrap()
         .on_demand_chunks().unwrap();
 
-    let header_index = 0; // only load pixels from the first header (assumes first layer has rgb channels)
+    let layer_index = 0; // only load pixels from the first "header" (assumes first layer has rgb channels)
     let mip_level = (0, 0); // only load largest mip map
-    println!("loading header #0 from {:#?}", chunk_reader.meta_data());
+
+    let exr_info = &chunk_reader.meta_data().clone();
+    let layer_info = &exr_info.headers[layer_index];
+    let channel_info = &layer_info.channels;
+    println!("loading header #0 from {:#?}", exr_info);
 
     // this object can decode packed exr blocks to simple rgb (can be shared or cloned across threads)
     let rgb_from_block_extractor = read_specific_channels()
             .required("R").required("G").required("B")
             .optional("A", 1.0)
-            .create_recursive_reader(&chunk_reader.header(header_index).channels).unwrap(); // this will fail if the image does not contain rgb channels
+            .create_recursive_reader(channel_info).unwrap(); // this will fail if the image does not contain rgb channels
 
+
+    // ...
     // later in your app, maybe when the view changed:
     when_new_pixel_section_must_be_loaded(move |pixel_section| {
 
         // todo: only load blocks that are not loaded yet. maybe an additional filter? or replace this with a more modular filtering architecture?
         let compressed_chunks = chunk_reader
-            .load_all_chunks_for_display_space_section(header_index, mip_level, pixel_section)
+            .load_all_chunks_for_display_space_section(layer_index, mip_level, pixel_section)
 
             // in this example, we use .flatten(), this simply discards all errors and only continues with the successfully loaded chunks
             // in this example, we collect here due to borrowing meta data
@@ -61,13 +67,13 @@ fn main() {
 
         // this could be done in parallel, e.g. by using rayon par_iter
         let packed_pixel_blocks = compressed_chunks.into_iter()
-            .map(|chunk| UncompressedBlock::decompress_chunk(chunk, chunk_reader.meta_data(), true))
+            .map(|chunk| UncompressedBlock::decompress_chunk(chunk, exr_info, true))
             .flatten();
 
         // the exr blocks may contain arbitrary channels, but we are only interested in rgba.
         // so we convert each exr block to an rgba block (vec of [f32; 4])
         let rgba_blocks = packed_pixel_blocks.map(|block| {
-            let header = &chunk_reader.meta_data().headers[block.index.layer];
+            assert_eq!(block.index.layer, layer_index);
 
             let position = block.index.pixel_position;
             let size = block.index.pixel_size;
@@ -76,7 +82,7 @@ fn main() {
             // decode individual pixels into our f32 buffer
             // automatically converts f16 samples to f32 if required
             // ignores all other channel data
-            rgb_from_block_extractor.read_block_pixels(header, block, |position, (r,g,b,a)|{
+            rgb_from_block_extractor.read_pixels_from_block(channel_info, block, |position, (r,g,b,a)|{
                 rgba_buffer[position.flat_index_for_size(size)] = [r,g,b,a];
             });
 

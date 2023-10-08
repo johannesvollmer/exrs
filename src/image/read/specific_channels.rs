@@ -91,15 +91,15 @@ pub trait RecursivePixelReader {
 
     // TODO dedup with SpecificChannelsReader::read_block(..)?
     /// Note: The (x,y) coordinates are in block space. You will have to add `block.index.pixel_position` for the pixel position in the layer.
-    fn read_block_pixels<Pixel>(
-        &self, header: &Header, block: UncompressedBlock,
-        mut set_pixel: impl FnMut(Vec2<usize>, Pixel)
+    fn read_pixels_from_block<PixelTuple>(
+        &self, channels: &ChannelList, block: UncompressedBlock,
+        mut set_pixel: impl FnMut(Vec2<usize>, PixelTuple)
     )
-        where Self::RecursivePixel: IntoTuple<Pixel>
+        where Self::RecursivePixel: IntoTuple<PixelTuple>
     {
         let mut one_line_of_recursive_pixels = vec![Self::RecursivePixel::default(); block.index.pixel_size.width()];
 
-        let byte_lines = block.data.chunks_exact(header.channels.bytes_per_pixel * block.index.pixel_size.width());
+        let byte_lines = block.data.chunks_exact(channels.bytes_per_pixel * block.index.pixel_size.width());
         debug_assert_eq!(byte_lines.len(), block.index.pixel_size.height(), "invalid block lines split");
 
         for (y_offset, line_bytes) in byte_lines.enumerate() { // TODO sampling
@@ -211,8 +211,8 @@ ChannelsReader for SpecificChannelsReader<PixelStorage, SetPixel, PxReader, Pixe
         let (storage, set_pixel, reader) = (&mut self.pixel_storage, &mut self.set_pixel, &self.pixel_reader);
         let block_position = block.index.pixel_position;
 
-        reader.read_block_pixels(
-            header, block,
+        reader.read_pixels_from_block(
+            &header.channels, block,
             |pos, px| set_pixel(storage, pos + block_position, px)
         );
 

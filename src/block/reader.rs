@@ -659,18 +659,6 @@ impl<R: Read + Seek> OnDemandChunksReader<R> {
             .collect()
     }
 
-    /*pub fn find_seek_position_for_block(&self, layer_index: usize, filter_blocks: impl Fn(TileIndices) -> bool) -> impl Iterator<> {
-        let header = &self.meta_data.headers[layer_index];
-
-        // TODO: directly compute the block index based on mip level and resolution??
-        let increasing_y_block_index_in_header = header.blocks_increasing_y_order()
-            .position(filter_blocks); // todo: this is a vec internally, save it in the reader and look it up at this point
-
-        let offset_table = &self.offset_tables[layer_index];
-        offset_table[increasing_y_block_index_in_header]
-    }*/
-
-
     /// Reads the specified chunks by seeking the file. In the order as they appear in the file, so it might be arbitrary.
     pub fn load_chunks(&mut self, mut chunks: Vec<u64>) -> impl '_ + Iterator<Item = Result<Chunk>> {
         // sorting the file access should improve read performance, especially on HDDs
