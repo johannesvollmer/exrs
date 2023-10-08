@@ -1,13 +1,10 @@
 //! Composable structures to handle reading an image.
 
 
-use std::convert::{TryFrom};
 use std::fmt::Debug;
 use std::io::{Read, Seek};
 use rayon_core::{ThreadPool, ThreadPoolBuildError};
-
 use smallvec::alloc::sync::Arc;
-
 use crate::block::{BlockIndex, UncompressedBlock};
 use crate::block::chunk::{Chunk, TileCoordinates};
 use crate::compression::Compression;
