@@ -1,9 +1,4 @@
 
-extern crate rand;
-extern crate half;
-
-
-// exr imports
 extern crate exr;
 
 use std::collections::HashMap;
@@ -12,7 +7,7 @@ use std::io::BufReader;
 use exr::block::chunk::Chunk;
 use exr::block::UncompressedBlock;
 use exr::image::read::specific_channels::{read_specific_channels, RecursivePixelReader};
-use exr::prelude::{IntegerBounds, ReadSpecificChannel};
+use exr::prelude::{IntegerBounds, ReadSpecificChannel, Vec2};
 
 /// load only some specific pixel sections from the file, just when they are needed.
 /// load blocks of pixels into a sparse texture (illustrated with a hashmap in this example).
@@ -25,9 +20,13 @@ use exr::prelude::{IntegerBounds, ReadSpecificChannel};
 ///    c. write the loaded rgba pixel blocks into the sparse texture
 fn main() {
 
+    // this is where we will store our loaded data.
     // for this example, we use a hashmap instead of a real sparse texture.
-    // it stores blocks of rgba pixels, indexed by the position of the block (usize, usize)
-    let mut my_sparse_texture: HashMap<(usize, usize), Vec<[f32; 4]>> = Default::default();
+    // it stores blocks of rgba pixels, indexed by the position of the block (i32, i32) and its size
+    let mut my_sparse_texture: HashMap<(Pos, Size), Vec<[f32; 4]>> = Default::default();
+    type Pos = (i32, i32);
+    type Size = (usize, usize);
+
 
     let file = BufReader::new(
         File::open("3GB.exr")
@@ -55,7 +54,7 @@ fn main() {
 
     // ...
     // later in your app, maybe when the view changed:
-    when_new_pixel_section_must_be_loaded(move |pixel_section| {
+    when_new_pixel_section_must_be_loaded(|pixel_section| {
 
         // todo: only load blocks that are not loaded yet. maybe an additional filter? or replace this with a more modular filtering architecture?
         let compressed_chunks = chunk_reader
@@ -75,8 +74,8 @@ fn main() {
         let rgba_blocks = packed_pixel_blocks.map(|block| {
             assert_eq!(block.index.layer, layer_index);
 
-            let position = block.index.pixel_position;
             let size = block.index.pixel_size;
+            let position = block.index.pixel_position.to_i32() + layer_info.own_attributes.layer_position;
             let mut rgba_buffer = vec![[0.0; 4]; size.area()]; // rgba = 4 floats
 
             // decode individual pixels into our f32 buffer
@@ -86,23 +85,35 @@ fn main() {
                 rgba_buffer[position.flat_index_for_size(size)] = [r,g,b,a];
             });
 
-            (position.into(), rgba_buffer)
+            (position, size, rgba_buffer)
         });
 
-        for (position, block) in rgba_blocks {
-            my_sparse_texture.insert(position, block);
+        for (position, size, block) in rgba_blocks {
+            my_sparse_texture.insert((position.into(), size.into()), block);
         }
+    });
 
-        println!("\n\nsparse texture now contains {} blocks", my_sparse_texture.len());
-    })
+    // we're done! print something
+    println!("\n\nsparse texture now contains {} blocks", my_sparse_texture.len());
+
+    // write a png for each block
+    for (index, ((_pos, (width, height)), block)) in my_sparse_texture.into_iter().enumerate() {
+        exr::prelude::write_rgba_file(
+            format!("block #{}.png", index), width, height,
+            |x,y| {
+                let [r,g,b,a] = block[Vec2(x,y).flat_index_for_size((width, height))];
+                (r,g,b,a)
+            }
+        ).unwrap();
+    }
 }
 
 /// request to load a specific sub-rect into view
 /// (loads a single view once, as this is a stub implementation)
-fn when_new_pixel_section_must_be_loaded(mut load_for_view: impl FnMut(IntegerBounds)){
+fn when_new_pixel_section_must_be_loaded<'a>(mut load_for_view: impl 'a + FnMut(IntegerBounds)){
     let image_sub_section = IntegerBounds::new(
         (831, 739), // position
-        (932, 561) // size
+        (32, 91) // size
     );
 
     load_for_view(image_sub_section);
