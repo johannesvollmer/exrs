@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::BufReader;
 use exr::block::chunk::Chunk;
 use exr::block::UncompressedBlock;
-use exr::image::{AnyChannel, AnyChannels, FlatSamples};
+use exr::image::{AnyChannel, AnyChannels, FlatSamples, Image};
 use exr::prelude::{IntegerBounds, WritableImage};
 
 /// load only some specific pixel sections from the file, just when they are needed.
@@ -87,7 +87,7 @@ fn main() {
         let path = format!("block #{}.exr", index);
         let channel_names = channel_info.iter().map(|c| c.name.clone());
 
-        let image = exr::image::Image::from_channels((width, height), AnyChannels::sort(
+        let image = Image::from_channels((width, height), AnyChannels::sort(
             channel_names.zip(channel_data)
                 .map(|(chan, channel_data)| AnyChannel::new(chan, channel_data))
                 .collect()

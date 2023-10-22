@@ -698,6 +698,31 @@ impl FlatSamples {
             FlatSamples::U32(vec) => Sample::U32(vec[index]),
         }
     }
+
+    /// Converts all samples in this vector into a new vector with the desired sample type.
+    /// This is uses vectorization and should therefore be rather efficient.
+    pub fn all_values_as<Sample>(&self) -> Vec<Sample> where Sample: FromNativeSample {
+        let mut target = vec![Sample::default(); self.len()];
+        self.all_values_into(&mut target);
+        target
+    }
+
+    /// Converts all samples in this vector into a slice of the desired sample type.
+    /// This is uses vectorization and should therefore be rather efficient.
+    /// The provided slice must have the same length as this vector.
+    pub fn all_values_into<Sample>(&self, out: &mut[Sample]) where Sample: FromNativeSample {
+        match self {
+            FlatSamples::F16(f16s) => Sample::from_f16s(f16s, out),
+            FlatSamples::F32(f32s) => Sample::from_f32s(f32s, out),
+            FlatSamples::U32(u32s) => Sample::from_u32s(u32s, out),
+        }
+    }
+
+    /// Obtain the f32 version of this vector.
+    /// Use `all_values_as::<f32>()` instead if you don't need a `FlatSamples` object.
+    pub fn as_f32(&self) -> FlatSamples {
+        FlatSamples::F32(self.all_values_as())
+    }
 }
 
 
