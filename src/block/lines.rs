@@ -54,7 +54,7 @@ pub struct LineIndex {
     /// Index of the mip or rip level in the image.
     pub level: Vec2<usize>,
 
-    /// Position of the most left pixel of the row.
+    /// Position of the most left pixel of the row, in data window space.
     pub position: Vec2<usize>,
 
     /// The width of the line; the number of samples in this row,
@@ -191,7 +191,7 @@ impl LineRef<'_> {
     pub fn read_samples<T: crate::io::Data>(&self) -> impl Iterator<Item = Result<T>> + '_ {
         debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
 
-        let mut read = self.value.clone(); // FIXME deep data
+        let mut read = self.value; // FIXME deep data
         (0..self.location.sample_count).map(move |_| T::read(&mut read))
     }
 }

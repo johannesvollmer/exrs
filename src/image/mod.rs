@@ -654,6 +654,16 @@ impl<Samples> RipMaps<Samples> {
 
 impl FlatSamples {
 
+    /// Creates FlatSamples based for a channel with the specified number of samples.
+    pub fn new(channel: &ChannelDescription, size: Vec2<usize>) -> Self {
+        let size = (size / channel.sampling).area();
+        match channel.sample_type {
+            SampleType::F16 => FlatSamples::F16(vec![f16::ZERO; size]),
+            SampleType::F32 => FlatSamples::F32(vec![0.0; size]),
+            SampleType::U32 => FlatSamples::U32(vec![0; size]),
+        }
+    }
+
     /// The number of samples in the image. Should be the width times the height.
     /// Might vary when subsampling is used.
     pub fn len(&self) -> usize {
