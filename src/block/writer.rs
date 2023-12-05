@@ -337,8 +337,8 @@ pub struct ParallelBlocksCompressor<'w, W> {
     meta: &'w MetaData,
     sorted_writer: SortedBlocksWriter<'w, W>,
 
-    sender: flume::Sender<Result<(usize, usize, Chunk)>>,
-    receiver: flume::Receiver<Result<(usize, usize, Chunk)>>,
+    sender: loole::Sender<Result<(usize, usize, Chunk)>>,
+    receiver: loole::Receiver<Result<(usize, usize, Chunk)>>,
     pool: rayon_core::ThreadPool,
 
     currently_compressing_count: usize,
@@ -379,7 +379,7 @@ impl<'w, W> ParallelBlocksCompressor<'w, W> where W: 'w + ChunksWriter {
         };
 
         let max_threads = pool.current_num_threads().max(1).min(chunks_writer.total_chunks_count()) + 2; // ca one block for each thread at all times
-        let (send, recv) = flume::unbounded(); // TODO bounded channel simplifies logic?
+        let (send, recv) = loole::unbounded(); // TODO bounded channel simplifies logic?
 
         Some(Self {
             sorted_writer: SortedBlocksWriter::new(meta, chunks_writer),
