@@ -1,6 +1,6 @@
-[![Rust Docs](https://docs.rs/exr/badge.svg)](https://docs.rs/exr) 
+[![Rust Docs](https://docs.rs/exr/badge.svg)](https://docs.rs/exr)
 [![Rust Crate](https://img.shields.io/crates/v/exr.svg)](https://crates.io/crates/exr)
-[![Rust Lang Version](https://img.shields.io/badge/rustc-1.59.0-lightgray.svg)](https://blog.rust-lang.org/2022/02/24/Rust-1.59.0.html)
+[![Rust Lang Version](https://img.shields.io/badge/rustc-1.61.0-lightgray.svg)](https://blog.rust-lang.org/2022/05/19/Rust-1.61.0.html)
 [![Wasm Ready](https://img.shields.io/badge/wasm-supported-%236d0)](https://github.com/johannesvollmer/exrs/actions?query=branch%3Amaster)
 [![downloads](https://img.shields.io/crates/d/exr)](https://crates.io/crates/exr)
 [![Lines of Code](https://tokei.rs/b1/github/johannesvollmer/exrs?category=code)](https://tokei.rs)
@@ -8,7 +8,7 @@
 # EXRS
 
 This library is a 100% Rust and 100% safe code library for
-reading and writing OpenEXR images. 
+reading and writing OpenEXR images.
 
 [OpenEXR](http://www.openexr.com/)
 is the de-facto standard image format in animation, VFX, and
@@ -28,13 +28,18 @@ Features include:
 
 ### Current Status
 
-This library has matured quite a bit, but should still be considered incomplete. 
+> [!TIP]
+> MSRV Note: This crate is now on Rust `1.70.0`. If you want to use the
+> newest version of `exrs` with an older Rust version, you can still do that:
+> By specifying a version `half = "2.1.0"` in your project, the crate will work with Rust `1.59.0`.
+
+This library has matured quite a bit, but should still be considered incomplete.
 For example, deep data and DWA compression algorithms are not supported yet.
 
 If you encounter an exr file that cannot be opened by this crate but should be,
 please leave an issue on this repository, containing the image file.
 
-The focus is set on supporting all feature and correctness; 
+The focus is set on supporting all feature and correctness;
 some performance optimizations are to be done.
 
 __What we can do:__
@@ -44,7 +49,7 @@ __What we can do:__
     - [x] multi-part images (multiple layers, like Photoshop)
     - [x] multi-resolution images (mip maps, rip maps)
     - [x] access meta data and raw pixel blocks independently
-    - [x] automatically crop away transparent pixels of an image (opt-in)   
+    - [x] automatically crop away transparent pixels of an image (opt-in)
     - [ ] channel subsampling
     - [ ] deep data
     - [x] compression methods
@@ -68,14 +73,14 @@ __What we can do:__
     - [x] a full-fledged image data structure that can contain any exr image,
             can open any image with a single function call (`read_all_data_from_file`)
             without knowing anything about the file in advance
-    - [x] decompress and decompress image sections either 
+    - [x] decompress and decompress image sections either
             in parallel or with low memory overhead
     - [x] read and write progress callback
     - [x] write blocks streams, one after another
-    - [x] memory mapping automatically supported 
+    - [x] memory mapping automatically supported
             by using the generic `std::io::Read` and `std::io::Write` traits
 
-    
+
 <!-- detailed internal feature checklist:
 - [x] Inspecting Metadata
     - [x] Singlepart
@@ -97,7 +102,7 @@ __What we can do:__
         - [x] Reading those with known types
         - [x] Reading those with unknown types into a plain byte buffer
     - [x] Nice API for preview attribute extraction
-    
+
 - [ ] Decompressing Pixel Data
     - [x] Any LineOrder
     - [x] Any Pixel Type (`f16`, `f32`, `u32`)
@@ -132,7 +137,7 @@ __What we can do:__
         - [x] PXR24 (lossless for f16 and u32)
         - [x] B44, B44A
         - [ ] DWAA, DWAB
-    
+
 - [x] De/compressing multiple blocks in parallel
 
 - [ ] Profiling and real optimization
@@ -149,12 +154,12 @@ __What we can do:__
     - [x] Enforce minimum length of 1 for arrays
     - [x] [Validate data_window matches data size when writing images] is not required because one is inferred from the other
     - [x] Channel names and layer names must be unique
-    
+
 - [x] Explore different APIs
     - [x] Let user decide how to store data
     - [x] Loading Metadata and specific tiles or blocks separately
 -->
-    
+
 
 ### Usage
 
@@ -163,13 +168,13 @@ Add this to your `Cargo.toml`:
 [dependencies]
 exr = "1.71.0"
 
-# also, optionally add this to your crate for smaller binary size 
+# also, optionally add this to your crate for smaller binary size
 # and better runtime performance
 [profile.release]
 lto = true
 ```
 
-The master branch of this repository always matches the `crates.io` version, 
+The master branch of this repository always matches the `crates.io` version,
 so you could also link the github repository master branch.
 
 ### Example
@@ -216,8 +221,8 @@ Or read [the guide](https://github.com/johannesvollmer/exrs/tree/master/GUIDE.md
 
 ### Goals
 
-`exrs` aims to provide a safe and convenient 
-interface to the OpenEXR file format. It is designed 
+`exrs` aims to provide a safe and convenient
+interface to the OpenEXR file format. It is designed
 to minimize the possibility of invalid files and runtime errors.
 It contains a full-fledged image data structure that can contain any exr image,
 but also grants access a low level block interface.
@@ -234,7 +239,7 @@ This library uses no unsafe code. In fact, this crate is annotated with `#[forbi
 Some dependencies use unsafe code, though this is minimized by selecting dependencies carefully.
 
 All information from a file is handled with caution.
-Allocations have a safe maximum size that will not be exceeded at once, 
+Allocations have a safe maximum size that will not be exceeded at once,
 to reduce memory exhaustion attacks.
 
 ### What I am proud of
@@ -272,7 +277,7 @@ and they offer several advantages over this Rust implementation:
 
 ### Specification
 
-This library is modeled after the 
+This library is modeled after the
 official [`OpenEXRFileLayout.pdf`](http://www.openexr.com/documentation.html)
 document. Unspecified behavior is concluded from the C++ library.
 
