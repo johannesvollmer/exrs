@@ -37,8 +37,11 @@ jobs:
         run: cargo test --verbose
 
   verify-msrv:
-    runs-on: ubuntu-latest
-    name: verify minimum supported rust version (ubuntu)
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    name: verify minimum supported rust version without cache (takes longer, but caching produces unexpected behaviour)
     timeout-minutes: 30
 
     # we are using the `cargo-msrv` app
@@ -47,14 +50,15 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Install foresterre/cargo-msrv without cache (takes longer, but caching produces unexpected behaviour)
+      - name: Install foresterre/cargo-msrv
         run: cargo install cargo-msrv
 
-      - name: Verify the Rustc version declared in `cargo.toml` without cache (takes longer, but caching produces unexpected behaviour)
-        run: |
-          rm -f Cargo.lock
-          cargo update
-          cargo-msrv verify
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Generate Cargo.lock with minimal-version dependencies
+        run: cargo -Zminimal-versions generate-lockfile
+
+      - name: Verify the Rustc version declared in `Cargo.toml` with `minimal-versions`
+        run: cargo-msrv verify
 
   # github actions does not support big endian systems directly, but it does support QEMU.
   # so we use cross-rs, which uses QEMU internally.
@@ -94,16 +98,16 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    
+
     - name: Cache Cargo Dependencies
       uses: Swatinem/rust-cache@v1.3.0
-      
+
     - name: Add wasm32 Target
       run: rustup target add wasm32-unknown-unknown
-      
+
     - name: Build without default features
       run: cargo build --verbose --no-default-features --target wasm32-unknown-unknown
-      
+
     - name: Run tests without default features
       run: cargo test --verbose --no-default-features
 

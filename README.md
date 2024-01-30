@@ -28,11 +28,6 @@ Features include:
 
 ### Current Status
 
-> [!TIP]
-> MSRV Note: This crate is now on Rust `1.70.0`. If you want to use the
-> newest version of `exrs` with an older Rust version, you can still do that:
-> By specifying a version `half = "2.1.0"` in your project, the crate will work with Rust `1.59.0`.
-
 This library has matured quite a bit, but should still be considered incomplete.
 For example, deep data and DWA compression algorithms are not supported yet.
 
@@ -162,6 +157,9 @@ __What we can do:__
 
 
 ### Usage
+
+> [!TIP]
+> If you want to use the newest version of `exrs` with an older Rust version, you can still do that, by forcing Rust to use a an older version of the `half` crate via `cargo update -p half --precise 2.2.1`, or downgrade all dependencies via `cargo +nightly -Zminimal-versions generate-lockfile`.  `half 2.3.0` and higher have an MSRV above 1.61.
 
 Add this to your `Cargo.toml`:
 ```toml
