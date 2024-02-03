@@ -191,7 +191,7 @@ impl LineRef<'_> {
     pub fn read_samples<T: crate::io::Data>(&self) -> impl Iterator<Item = Result<T>> + '_ {
         debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
 
-        let mut read = self.value.clone(); // FIXME deep data
+        let mut read = self.value; // FIXME deep data
         (0..self.location.sample_count).map(move |_| T::read(&mut read))
     }
 }
