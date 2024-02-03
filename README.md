@@ -159,12 +159,12 @@ __What we can do:__
 ### Usage
 
 > [!TIP]
-> If you want to use the newest version of `exrs` with an older Rust version, you can still do that, by forcing Rust to use a an older version of the `half` crate via `cargo update -p half --precise 2.2.1`, or downgrade all dependencies via `cargo +nightly -Zminimal-versions generate-lockfile`.  `half 2.3.0` and higher have an MSRV above 1.61.
+> If you want to use the newest version of `exrs` with an older Rust version, you can still do that, by forcing Rust to use an older version of the `half` crate via `cargo update -p half --precise 2.2.1`, or downgrade all dependencies via `cargo +nightly -Zminimal-versions generate-lockfile`. Version `half 2.3.0` and higher have an MSRV above 1.61.
 
 Add this to your `Cargo.toml`:
 ```toml
 [dependencies]
-exr = "1.71.0"
+exr = "1.72.0"
 
 # also, optionally add this to your crate for smaller binary size
 # and better runtime performance
