@@ -68,7 +68,7 @@ __What we can do:__
     - [x] a full-fledged image data structure that can contain any exr image,
             can open any image with a single function call (`read_all_data_from_file`)
             without knowing anything about the file in advance
-    - [x] decompress and decompress image sections either
+    - [x] compress and decompress image sections either
             in parallel or with low memory overhead
     - [x] read and write progress callback
     - [x] write blocks streams, one after another
