@@ -127,7 +127,10 @@ pub trait FromNativeSample: Sized + Copy + Default + 'static {
 
     /// Convert all values from the slice into this type.
     /// This function exists to allow the compiler to perform a vectorization optimization.
-    /// Note that this default implementation will **not** be vectorized by the compiler automatically.
+    /// All implementations provided by this library are implemented in this efficient way.
+    /// ---
+    /// Note for implementors:
+    /// The default f16 implementations will **not** be vectorized by the compiler automatically.
     /// For maximum performance you will need to override this function and implement it via
     /// an explicit batched conversion such as [`convert_to_f32_slice`](https://docs.rs/half/2.3.1/half/slice/trait.HalfFloatSliceExt.html#tymethod.convert_to_f32_slice)
     #[inline]
@@ -140,7 +143,7 @@ pub trait FromNativeSample: Sized + Copy + Default + 'static {
 
     /// Convert all values from the slice into this type.
     /// This function exists to allow the compiler to perform a vectorization optimization.
-    /// Note that this default implementation will be vectorized by the compiler automatically.
+    /// Note that the default f32 implementation will be vectorized by the compiler automatically.
     #[inline]
     fn from_f32s(from: &[f32], to: &mut [Self]) {
         assert_eq!(from.len(), to.len(), "slices must have the same length");
@@ -151,7 +154,7 @@ pub trait FromNativeSample: Sized + Copy + Default + 'static {
 
     /// Convert all values from the slice into this type.
     /// This function exists to allow the compiler to perform a vectorization optimization.
-    /// Note that this default implementation will be vectorized by the compiler automatically,
+    /// Note that the default u32 implementation will be vectorized by the compiler automatically,
     /// provided that the CPU supports the necessary conversion instructions.
     /// For example, x86_64 lacks the instructions to convert `u32` to floats,
     /// so this will inevitably be slow on x86_64.

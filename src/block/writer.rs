@@ -41,7 +41,7 @@ pub fn write_chunks_with<W: Write + Seek>(
 pub struct ChunkWriter<W> {
     header_count: usize,
     byte_writer: Tracking<W>,
-    chunk_indices_byte_location: std::ops::Range<usize>,
+    chunk_indices_byte_location: std::ops::Range<u64>,
     chunk_indices_increasing_y: OffsetTables,
     chunk_count: usize, // TODO compose?
 }
@@ -142,7 +142,7 @@ impl<W> ChunksWriter for ChunkWriter<W> where W: Write + Seek {
             return Err(Error::invalid(format!("chunk at index {} is already written", index_in_header_increasing_y)));
         }
 
-        *chunk_index_slot = usize_to_u64(self.byte_writer.byte_position());
+        *chunk_index_slot = self.byte_writer.byte_position();
         chunk.write(&mut self.byte_writer, self.header_count)?;
         Ok(())
     }
@@ -166,10 +166,10 @@ impl<W> ChunkWriter<W> where W: Write + Seek {
             }
         }*/
 
-        let offset_table_size: usize = headers.iter().map(|header| header.chunk_count).sum();
+        let offset_table_size = headers.iter().map(|header| header.chunk_count).sum();
 
         let offset_table_start_byte = write.byte_position();
-        let offset_table_end_byte = write.byte_position() + offset_table_size * u64::BYTE_SIZE;
+        let offset_table_end_byte = offset_table_start_byte + usize_to_u64(offset_table_size * u64::BYTE_SIZE);
 
         // skip offset tables, filling with 0, will be updated after the last chunk has been written
         write.seek_write_to(offset_table_end_byte)?;
