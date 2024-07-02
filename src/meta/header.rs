@@ -767,23 +767,31 @@ impl Header {
         // used to type-check local variables. only requried because you cannot do `let i: impl Iterator<> = ...`
         #[inline] fn expect_is_iter<'s, T: Iterator<Item=(&'s TextSlice, AttributeValue)>>(val: T) -> T { val }
 
+        macro_rules! iter_all {
+            ( $( $value:expr ),* ) => {
+                empty() $( .chain( $value ) )*
+            };
+        }
+
+        macro_rules! iter_values {
+            ( $( $value:expr ),* ) => {
+                empty() $( .chain(once( $value )) )*
+            };
+        }
+
         macro_rules! required_attributes {
             ( $($name: ident : $variant: ident = $value: expr),* ) => {
-                expect_is_iter(empty()
-                    $(
-                        .chain(once(required($name, $variant, $value))) // TODO without clone
-                    )*
-                )
+                expect_is_iter(iter_values!(
+                    $( required($name, $variant, $value) ),*
+                ))
             };
         }
 
         macro_rules! optional_attributes {
             ( $($name: ident : $variant: ident = $value: expr),* ) => {
-                expect_is_iter(empty()
-                    $(
-                        .chain(optional($name, $variant, $value)) // TODO without clone
-                    )*
-                )
+                expect_is_iter(iter_all!(
+                    $( optional($name, $variant, $value) ),*
+                ))
             };
         }
 
