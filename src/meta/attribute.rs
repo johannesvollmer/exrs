@@ -1623,7 +1623,7 @@ pub fn byte_size(name: &Text, value: &AttributeValue) -> usize {
 }
 
 /// Without validation, write this attribute to the byte stream.
-pub fn write<W: Write>(name: &[u8], value: &AttributeValue, write: &mut W) -> UnitResult {
+pub fn write<W: Write>(name: &TextSlice, value: &AttributeValue, write: &mut W) -> UnitResult {
     Text::write_null_terminated_bytes(name, write)?;
     Text::write_null_terminated_bytes(value.kind_name(), write)?;
     i32::write(value.byte_size() as i32, write)?;
@@ -1693,7 +1693,7 @@ impl AttributeValue {
     }
 
     /// The exr name string of the type that an attribute can have.
-    pub fn kind_name(&self) -> &[u8] {
+    pub fn kind_name(&self) -> &TextSlice {
         use self::AttributeValue::*;
         use self::type_names as ty;
 
@@ -1721,8 +1721,8 @@ impl AttributeValue {
             Text(_) =>  ty::TEXT,
             TextVector(_) =>  ty::TEXT_VECTOR,
             TileDescription(_) =>  ty::TILES,
-            Custom { ref kind, .. } => &kind.bytes,
             BlockType(_) => super::BlockType::TYPE_NAME,
+            Custom { ref kind, .. } => kind.as_slice(),
         }
     }
 

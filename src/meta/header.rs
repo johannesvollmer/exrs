@@ -737,6 +737,156 @@ impl Header {
         Ok(())
     }
 
+    /// Iterate over all `(name, attribute_value)` pairs in this header that would be written to a file.
+    /// The order of attributes is arbitrary and may change in future versions.
+    /// Will always contain all strictly required attributes, such as channels, compression, data window, and similar.
+    /// Hint: Use `attribute.kind_name()` to obtain the standardized name of the attribute type.
+    /// Does not validate the header or attributes.
+    // This function is used for writing the attributes to files.
+    #[inline]
+    pub fn all_named_attributes(&self) -> impl '_ + Iterator<Item=(&TextSlice, AttributeValue)> {
+        use std::iter::{once, once_with, empty};
+        use crate::meta::header::standard_names::*;
+        use AttributeValue::*;
+
+        #[inline] fn optional<'t, T: Clone>(
+            name: &'t TextSlice,
+            to_attribute: impl Fn(T) -> AttributeValue,
+            value: &'t Option<T>
+        )
+           -> impl Iterator<Item=(&'t TextSlice, AttributeValue)>
+        {
+            value.as_ref().map(move |value| (name, to_attribute(value.clone()))).into_iter()
+        }
+
+        #[inline] fn required<'s, T: Clone>(name: &'s TextSlice, to_attribute: impl Fn(T) -> AttributeValue, value: &'s T)
+            -> (&'s TextSlice, AttributeValue) {
+            (name, to_attribute((*value).clone()))
+        }
+
+        // used to type-check local variables. only requried because you cannot do `let i: impl Iterator<> = ...`
+        #[inline] fn expect_is_iter<'s, T: Iterator<Item=(&'s TextSlice, AttributeValue)>>(val: T) -> T { val }
+
+        macro_rules! required_attributes {
+            ( $($name: ident : $variant: ident = $value: expr),* ) => {
+                expect_is_iter(empty()
+                    $(
+                        .chain(once(required($name, $variant, $value))) // TODO without clone
+                    )*
+                )
+            };
+        }
+
+        macro_rules! optional_attributes {
+            ( $($name: ident : $variant: ident = $value: expr),* ) => {
+                expect_is_iter(empty()
+                    $(
+                        .chain(optional($name, $variant, $value)) // TODO without clone
+                    )*
+                )
+            };
+        }
+
+        #[inline] fn usize_as_i32(value: usize) -> AttributeValue {
+            I32(i32::try_from(value).expect("usize exceeds i32 range"))
+        }
+
+
+        let block_type_and_tiles = expect_is_iter(once_with(move ||{
+            let (block_type, tiles) = match self.blocks {
+                BlockDescription::ScanLines => (attribute::BlockType::ScanLine, None),
+                BlockDescription::Tiles(tiles) => (attribute::BlockType::Tile, Some(tiles))
+            };
+
+            once((BLOCK_TYPE, BlockType(block_type)))
+                .chain(tiles.map(|tiles| (TILES, TileDescription(tiles))))
+        }).flatten());
+
+        let data_window = expect_is_iter(once_with(move ||{
+            (DATA_WINDOW, IntegerBounds(self.data_window()))
+        }));
+
+        // dwa writes compression parameters as attribute.
+        let dwa_compr_level = expect_is_iter(
+            once_with(move ||{
+                match self.compression {
+                    attribute::Compression::DWAA(Some(level)) |
+                    attribute::Compression::DWAB(Some(level)) =>
+                        Some((DWA_COMPRESSION_LEVEL, F32(level))),
+
+                    _ => None
+                }
+            }).flatten()
+        );
+
+        let opt_core_attrs = optional_attributes!(
+            DEEP_DATA_VERSION: I32 = &self.deep_data_version,
+            MAX_SAMPLES: usize_as_i32 = &self.max_samples_per_pixel
+        ).chain(block_type_and_tiles).chain(dwa_compr_level);
+
+        let req_core_attrs = required_attributes!(
+            // chunks is not actually required, but always computed in this library anyways
+            CHUNKS: usize_as_i32 = &self.chunk_count,
+
+            CHANNELS: ChannelList = &self.channels,
+            COMPRESSION: Compression = &self.compression,
+            LINE_ORDER: LineOrder = &self.line_order,
+
+            DISPLAY_WINDOW: IntegerBounds = &self.shared_attributes.display_window,
+            PIXEL_ASPECT: F32 = &self.shared_attributes.pixel_aspect,
+
+            WINDOW_CENTER: FloatVec2 = &self.own_attributes.screen_window_center,
+            WINDOW_WIDTH: F32 = &self.own_attributes.screen_window_width
+        ).chain(data_window);
+
+        let opt_attr = optional_attributes!(
+            NAME: Text = &self.own_attributes.layer_name,
+            WHITE_LUMINANCE: F32 = &self.own_attributes.white_luminance,
+            ADOPTED_NEUTRAL: FloatVec2 = &self.own_attributes.adopted_neutral,
+            RENDERING_TRANSFORM: Text = &self.own_attributes.rendering_transform_name,
+            LOOK_MOD_TRANSFORM: Text = &self.own_attributes.look_modification_transform_name,
+            X_DENSITY: F32 = &self.own_attributes.horizontal_density,
+            OWNER: Text = &self.own_attributes.owner,
+            COMMENTS: Text = &self.own_attributes.comments,
+            CAPTURE_DATE: Text = &self.own_attributes.capture_date,
+            UTC_OFFSET: F32 = &self.own_attributes.utc_offset,
+            LONGITUDE: F32 = &self.own_attributes.longitude,
+            LATITUDE: F32 = &self.own_attributes.latitude,
+            ALTITUDE: F32 = &self.own_attributes.altitude,
+            FOCUS: F32 = &self.own_attributes.focus,
+            EXPOSURE_TIME: F32 = &self.own_attributes.exposure,
+            APERTURE: F32 = &self.own_attributes.aperture,
+            ISO_SPEED: F32 = &self.own_attributes.iso_speed,
+            ENVIRONMENT_MAP: EnvironmentMap = &self.own_attributes.environment_map,
+            KEY_CODE: KeyCode = &self.own_attributes.film_key_code,
+            TIME_CODE: TimeCode = &self.shared_attributes.time_code,
+            WRAP_MODES: Text = &self.own_attributes.wrap_mode_name,
+            FRAMES_PER_SECOND: Rational = &self.own_attributes.frames_per_second,
+            MULTI_VIEW: TextVector = &self.own_attributes.multi_view_names,
+            WORLD_TO_CAMERA: Matrix4x4 = &self.own_attributes.world_to_camera,
+            WORLD_TO_NDC: Matrix4x4 = &self.own_attributes.world_to_normalized_device,
+            DEEP_IMAGE_STATE: Rational = &self.own_attributes.deep_image_state,
+            ORIGINAL_DATA_WINDOW: IntegerBounds = &self.own_attributes.original_data_window,
+            CHROMATICITIES: Chromaticities = &self.shared_attributes.chromaticities,
+            PREVIEW: Preview = &self.own_attributes.preview,
+            VIEW: Text = &self.own_attributes.view_name,
+            NEAR: F32 = &self.own_attributes.near_clip_plane,
+            FAR: F32 = &self.own_attributes.far_clip_plane,
+            FOV_X: F32 = &self.own_attributes.horizontal_field_of_view,
+            FOV_Y: F32 = &self.own_attributes.vertical_field_of_view,
+            SOFTWARE: Text = &self.own_attributes.software_name
+        );
+
+        let other = self.own_attributes.other.iter()
+            .chain(self.shared_attributes.other.iter())
+            .map(|(name, val)| (name.as_slice(), val.clone())); // TODO no clone
+
+        req_core_attrs
+            .chain(opt_core_attrs)
+            .chain(opt_attr)
+            .chain(other)
+    }
+
     /// Read the value without validating.
     pub fn read(read: &mut PeekRead<impl Read>, requirements: &Requirements, pedantic: bool) -> Result<Self> {
         let max_string_len = if requirements.has_long_names { 256 } else { 32 }; // TODO DRY this information
@@ -916,110 +1066,8 @@ impl Header {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write(&self, write: &mut impl Write) -> UnitResult {
-
-        macro_rules! write_attributes {
-            ( $($name: ident : $variant: ident = $value: expr),* ) => { $(
-                attribute::write($name, & $variant ($value .clone()), write)?; // TODO without clone
-            )* };
-        }
-
-        macro_rules! write_optional_attributes {
-            ( $($name: ident : $variant: ident = $value: expr),* ) => { $(
-                if let Some(value) = $value {
-                    attribute::write($name, & $variant (value.clone()), write)?; // TODO without clone
-                };
-            )* };
-        }
-
-        use crate::meta::header::standard_names::*;
-        use AttributeValue::*;
-
-        let (block_type, tiles) = match self.blocks {
-            BlockDescription::ScanLines => (attribute::BlockType::ScanLine, None),
-            BlockDescription::Tiles(tiles) => (attribute::BlockType::Tile, Some(tiles))
-        };
-
-        fn usize_as_i32(value: usize) -> AttributeValue {
-            I32(i32::try_from(value).expect("u32 exceeds i32 range"))
-        }
-
-        write_optional_attributes!(
-            TILES: TileDescription = &tiles,
-            DEEP_DATA_VERSION: I32 = &self.deep_data_version,
-            MAX_SAMPLES: usize_as_i32 = &self.max_samples_per_pixel
-        );
-
-        write_attributes!(
-            // chunks is not actually required, but always computed in this library anyways
-            CHUNKS: usize_as_i32 = &self.chunk_count,
-
-            BLOCK_TYPE: BlockType = &block_type,
-            CHANNELS: ChannelList = &self.channels,
-            COMPRESSION: Compression = &self.compression,
-            LINE_ORDER: LineOrder = &self.line_order,
-            DATA_WINDOW: IntegerBounds = &self.data_window(),
-
-            DISPLAY_WINDOW: IntegerBounds = &self.shared_attributes.display_window,
-            PIXEL_ASPECT: F32 = &self.shared_attributes.pixel_aspect,
-
-            WINDOW_CENTER: FloatVec2 = &self.own_attributes.screen_window_center,
-            WINDOW_WIDTH: F32 = &self.own_attributes.screen_window_width
-        );
-
-        write_optional_attributes!(
-            NAME: Text = &self.own_attributes.layer_name,
-            WHITE_LUMINANCE: F32 = &self.own_attributes.white_luminance,
-            ADOPTED_NEUTRAL: FloatVec2 = &self.own_attributes.adopted_neutral,
-            RENDERING_TRANSFORM: Text = &self.own_attributes.rendering_transform_name,
-            LOOK_MOD_TRANSFORM: Text = &self.own_attributes.look_modification_transform_name,
-            X_DENSITY: F32 = &self.own_attributes.horizontal_density,
-            OWNER: Text = &self.own_attributes.owner,
-            COMMENTS: Text = &self.own_attributes.comments,
-            CAPTURE_DATE: Text = &self.own_attributes.capture_date,
-            UTC_OFFSET: F32 = &self.own_attributes.utc_offset,
-            LONGITUDE: F32 = &self.own_attributes.longitude,
-            LATITUDE: F32 = &self.own_attributes.latitude,
-            ALTITUDE: F32 = &self.own_attributes.altitude,
-            FOCUS: F32 = &self.own_attributes.focus,
-            EXPOSURE_TIME: F32 = &self.own_attributes.exposure,
-            APERTURE: F32 = &self.own_attributes.aperture,
-            ISO_SPEED: F32 = &self.own_attributes.iso_speed,
-            ENVIRONMENT_MAP: EnvironmentMap = &self.own_attributes.environment_map,
-            KEY_CODE: KeyCode = &self.own_attributes.film_key_code,
-            TIME_CODE: TimeCode = &self.shared_attributes.time_code,
-            WRAP_MODES: Text = &self.own_attributes.wrap_mode_name,
-            FRAMES_PER_SECOND: Rational = &self.own_attributes.frames_per_second,
-            MULTI_VIEW: TextVector = &self.own_attributes.multi_view_names,
-            WORLD_TO_CAMERA: Matrix4x4 = &self.own_attributes.world_to_camera,
-            WORLD_TO_NDC: Matrix4x4 = &self.own_attributes.world_to_normalized_device,
-            DEEP_IMAGE_STATE: Rational = &self.own_attributes.deep_image_state,
-            ORIGINAL_DATA_WINDOW: IntegerBounds = &self.own_attributes.original_data_window,
-            CHROMATICITIES: Chromaticities = &self.shared_attributes.chromaticities,
-            PREVIEW: Preview = &self.own_attributes.preview,
-            VIEW: Text = &self.own_attributes.view_name,
-            NEAR: F32 = &self.own_attributes.near_clip_plane,
-            FAR: F32 = &self.own_attributes.far_clip_plane,
-            FOV_X: F32 = &self.own_attributes.horizontal_field_of_view,
-            FOV_Y: F32 = &self.own_attributes.vertical_field_of_view,
-            SOFTWARE: Text = &self.own_attributes.software_name
-        );
-
-        // dwa writes compression parameters as attribute.
-        match self.compression {
-            attribute::Compression::DWAA(Some(level)) |
-            attribute::Compression::DWAB(Some(level)) =>
-                attribute::write(DWA_COMPRESSION_LEVEL, &F32(level), write)?,
-
-            _ => {}
-        };
-
-
-        for (name, value) in &self.shared_attributes.other {
-            attribute::write(name.as_slice(), value, write)?;
-        }
-
-        for (name, value) in &self.own_attributes.other {
-            attribute::write(name.as_slice(), value, write)?;
+        for (name, value) in self.all_named_attributes() {
+            attribute::write(name, &value, write)?;
         }
 
         sequence_end::write(write)?;
