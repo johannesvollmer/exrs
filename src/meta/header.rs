@@ -760,8 +760,9 @@ impl Header {
         }
 
         #[inline] fn required<'s, T: Clone>(name: &'s TextSlice, to_attribute: impl Fn(T) -> AttributeValue, value: &'s T)
-            -> (&'s TextSlice, AttributeValue) {
-            (name, to_attribute((*value).clone()))
+            -> impl Iterator<Item=(&'s TextSlice, AttributeValue)>
+        {
+            once((name, to_attribute((*value).clone())))
         }
 
         // used to type-check local variables. only requried because you cannot do `let i: impl Iterator<> = ...`
@@ -773,15 +774,9 @@ impl Header {
             };
         }
 
-        macro_rules! iter_values {
-            ( $( $value:expr ),* ) => {
-                empty() $( .chain(once( $value )) )*
-            };
-        }
-
         macro_rules! required_attributes {
             ( $($name: ident : $variant: ident = $value: expr),* ) => {
-                expect_is_iter(iter_values!(
+                expect_is_iter(iter_all!(
                     $( required($name, $variant, $value) ),*
                 ))
             };
@@ -910,7 +905,6 @@ impl Header {
         let mut data_window = None;
         let mut display_window = None;
         let mut line_order = None;
-
         let mut dwa_compression_level = None;
 
         let mut layer_attributes = LayerAttributes::default();
