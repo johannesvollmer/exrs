@@ -54,7 +54,7 @@ pub struct LineIndex {
     /// Index of the mip or rip level in the image.
     pub level: Vec2<usize>,
 
-    /// Position of the most left pixel of the row.
+    /// Position of the most left pixel of the row, in data window space.
     pub position: Vec2<usize>,
 
     /// The width of the line; the number of samples in this row,

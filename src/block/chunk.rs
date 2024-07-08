@@ -365,11 +365,11 @@ impl Chunk {
             compressed_block: match header.blocks {
                 // flat data
                 BlockDescription::ScanLines if !header.deep => CompressedBlock::ScanLine(CompressedScanLineBlock::read(read, max_block_byte_size)?),
-                BlockDescription::Tiles(_) if !header.deep     => CompressedBlock::Tile(CompressedTileBlock::read(read, max_block_byte_size)?),
+                BlockDescription::Tiles(_) if !header.deep => CompressedBlock::Tile(CompressedTileBlock::read(read, max_block_byte_size)?),
 
                 // deep data
-                BlockDescription::ScanLines   => CompressedBlock::DeepScanLine(CompressedDeepScanLineBlock::read(read, max_block_byte_size)?),
-                BlockDescription::Tiles(_)    => CompressedBlock::DeepTile(CompressedDeepTileBlock::read(read, max_block_byte_size)?),
+                BlockDescription::ScanLines => CompressedBlock::DeepScanLine(CompressedDeepScanLineBlock::read(read, max_block_byte_size)?),
+                BlockDescription::Tiles(_) => CompressedBlock::DeepTile(CompressedDeepTileBlock::read(read, max_block_byte_size)?),
             },
         };
 
