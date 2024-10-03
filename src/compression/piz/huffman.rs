@@ -201,7 +201,9 @@ fn decode_with_tables(
 
     let count = u64::try_from((8 - input_bit_count) & 7)?;
     code_bits >>= count;
-    code_bit_count -= count;
+
+    code_bit_count = code_bit_count.checked_sub(count)
+        .ok_or_else(|| Error::invalid("code"))?;
 
     while code_bit_count > 0 {
         let index = (code_bits << (DECODE_BITS - code_bit_count)) & DECODE_MASK;
@@ -294,7 +296,7 @@ fn read_encoding_table(
     let mut code_bit_count = 0_u64;
 
     // TODO push() into encoding table instead of index stuff?
-        let mut encoding_table = vec![0_u64; ENCODING_TABLE_SIZE];
+    let mut encoding_table = vec![0_u64; ENCODING_TABLE_SIZE];
     let mut code_index = min_code_index;
     while code_index <= max_code_index {
         let code_len = read_bits(6, &mut code_bits, &mut code_bit_count, packed)?;
