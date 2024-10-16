@@ -5,12 +5,14 @@ use std::fmt::Debug;
 use std::io::Seek;
 use std::iter::Peekable;
 use std::ops::Not;
+#[cfg(feature = "rayon")]
 use rayon_core::{ThreadPool, ThreadPoolBuildError};
 
 use smallvec::alloc::collections::BTreeMap;
 
 use crate::block::UncompressedBlock;
 use crate::block::chunk::{Chunk};
+#[cfg(feature = "rayon")]
 use crate::compression::Compression;
 use crate::error::{Error, Result, UnitResult, usize_to_u64};
 use crate::io::{Data, Tracking, Write};
@@ -79,6 +81,7 @@ pub trait ChunksWriter: Sized {
         SequentialBlocksCompressor::new(meta, self)
     }
 
+    #[cfg(feature = "rayon")]
     /// Obtain a new writer that can compress blocks to chunks on multiple threads, which are then passed to this writer.
     /// Returns none if the sequential compressor should be used instead (thread pool creation failure or too large performance overhead).
     fn parallel_blocks_compressor<'w>(&'w mut self, meta: &'w MetaData) -> Option<ParallelBlocksCompressor<'w, Self>> {
@@ -100,6 +103,7 @@ pub trait ChunksWriter: Sized {
         Ok(())
     }
 
+    #[cfg(feature = "rayon")]
     /// Compresses all blocks to the file.
     /// The index of the block must be in increasing line order within the header.
     /// Obtain iterator with `MetaData::collect_ordered_blocks(...)` or similar methods.
@@ -331,6 +335,7 @@ impl<'w, W> SequentialBlocksCompressor<'w, W> where W: 'w + ChunksWriter {
 }
 
 /// Compress blocks to a chunk writer with multiple threads.
+#[cfg(feature = "rayon")]
 #[derive(Debug)]
 #[must_use]
 pub struct ParallelBlocksCompressor<'w, W> {
@@ -347,6 +352,7 @@ pub struct ParallelBlocksCompressor<'w, W> {
     next_incoming_chunk_index: usize, // used to remember original chunk order
 }
 
+#[cfg(feature = "rayon")]
 impl<'w, W> ParallelBlocksCompressor<'w, W> where W: 'w + ChunksWriter {
 
     /// New blocks writer. Returns none if sequential compression should be used.

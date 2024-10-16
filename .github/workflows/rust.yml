@@ -20,6 +20,10 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+    - name: Build with rayon feature
+      run: cargo build --features rayon --verbose
+    - name: Run tests with rayon feature
+      run: cargo test --features rayon --verbose
 
 
   macos:
@@ -35,6 +39,10 @@ jobs:
         run: cargo build --verbose
       - name: Run tests
         run: cargo test --verbose
+      - name: Build with rayon feature
+        run: cargo build --features rayon --verbose
+      - name: Run tests with rayon feature
+        run: cargo test --features rayon --verbose
 
   verify-msrv:
     strategy:
@@ -90,6 +98,12 @@ jobs:
       # https://github.com/cross-rs/cross#supported-targets
       - name: Cross-Run Tests in powerpc-unknown-linux-gnu using Qemu
         run: cross test --target powerpc-unknown-linux-gnu --verbose
+
+      - name: Cross-Compile project to powerpc-unknown-linux-gnu with rayon feature
+        run: cross build --target powerpc-unknown-linux-gnu --features rayon --verbose
+
+      - name: Cross-Run Tests in powerpc-unknown-linux-gnu with rayon feature using Qemu
+        run: cross test --target powerpc-unknown-linux-gnu --features rayon --verbose
 
   wasm32:
     runs-on: ubuntu-latest
