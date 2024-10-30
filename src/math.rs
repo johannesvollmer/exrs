@@ -60,9 +60,11 @@ impl<T> Vec2<T> {
     /// Convert this two-dimensional coordinate to an index suited for one-dimensional flattened image arrays.
     /// Works for images that store the pixels row by row, one after another, in a single array.
     /// In debug mode, panics for an index out of bounds.
-    #[inline] pub fn flat_index_for_size(self, resolution: Vec2<T>) -> T
+    #[inline] pub fn flat_index_for_size(self, resolution: impl Into<Vec2<T>>) -> T
         where T: Copy + Debug + Ord + Mul<Output=T> + Add<Output=T>
     {
+        let resolution = resolution.into();
+
         debug_assert!(
             self.x() < resolution.width() && self.y() < resolution.height(),
             "Vec2 index {:?} is invalid for resolution {:?}", self, resolution

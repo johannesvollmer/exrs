@@ -5,7 +5,7 @@ use crate::meta::header::{Header};
 use crate::error::{Result, UnitResult};
 use crate::block::lines::LineRef;
 use crate::math::Vec2;
-use crate::meta::attribute::{ChannelDescription, SampleType};
+use crate::meta::attribute::{ChannelDescription};
 use crate::image::read::any_channels::{SamplesReader, ReadSamples};
 use crate::image::read::levels::{ReadSamplesLevel, ReadAllLevels, ReadLargestLevel};
 use crate::block::chunk::TileCoordinates;
@@ -62,11 +62,7 @@ impl ReadSamplesLevel for ReadFlatSamples {
     fn create_samples_level_reader(&self, _header: &Header, channel: &ChannelDescription, level: Vec2<usize>, resolution: Vec2<usize>) -> Result<Self::Reader> {
         Ok(FlatSamplesReader {
             level, resolution, // TODO sampling
-            samples: match channel.sample_type {
-                SampleType::F16 => FlatSamples::F16(vec![f16::ZERO; resolution.area()]),
-                SampleType::F32 => FlatSamples::F32(vec![0.0; resolution.area()]),
-                SampleType::U32 => FlatSamples::U32(vec![0; resolution.area()]),
-            }
+            samples: FlatSamples::new(channel, resolution)
         })
     }
 }

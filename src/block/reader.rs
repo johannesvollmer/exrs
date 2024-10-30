@@ -1,26 +1,26 @@
 //! Composable structures to handle reading an image.
 
 
-use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::io::{Read, Seek};
 use std::sync::mpsc;
 use rayon_core::{ThreadPool, ThreadPoolBuildError};
-
 use smallvec::alloc::sync::Arc;
-
 use crate::block::{BlockIndex, UncompressedBlock};
 use crate::block::chunk::{Chunk, TileCoordinates};
 use crate::compression::Compression;
-use crate::error::{Error, Result, u64_to_usize, UnitResult};
+use crate::error::{Error, Result, UnitResult, usize_to_u64};
 use crate::io::{PeekRead, Tracking};
-use crate::meta::{MetaData, OffsetTables};
+use crate::math::Vec2;
+use crate::meta::{MetaData, OffsetTables, TileIndices};
 use crate::meta::header::Header;
+use crate::prelude::{IntegerBounds};
 
 /// Decode the meta data from a byte source, keeping the source ready for further reading.
 /// Continue decoding the remaining bytes by calling `filtered_chunks` or `all_chunks`.
 #[derive(Debug)]
 pub struct Reader<R> {
+    pedantic: bool,
     meta_data: MetaData,
     remaining_reader: PeekRead<Tracking<R>>, // TODO does R need to be Seek or is Tracking enough?
 }
@@ -33,7 +33,7 @@ impl<R: Read + Seek> Reader<R> {
     pub fn read_from_buffered(read: R, pedantic: bool) -> Result<Self> {
         let mut remaining_reader = PeekRead::new(Tracking::new(read));
         let meta_data = MetaData::read_validated_from_buffered_peekable(&mut remaining_reader, pedantic)?;
-        Ok(Self { meta_data, remaining_reader })
+        Ok(Self { meta_data, remaining_reader, pedantic })
     }
 
     // must not be mutable, as reading the file later on relies on the meta data
@@ -46,19 +46,26 @@ impl<R: Read + Seek> Reader<R> {
     /// Obtain the meta data ownership.
     pub fn into_meta_data(self) -> MetaData { self.meta_data }
 
+    /// Obtain the loaded meta data and the source bytes,
+    /// with the current seek position right after the meta data.
+    pub fn deconstruct(self) -> (MetaData, PeekRead<Tracking<R>>) {
+        let Self { meta_data, remaining_reader, .. } = self;
+        (meta_data, remaining_reader)
+    }
+
     /// Prepare to read all the chunks from the file.
     /// Does not decode the chunks now, but returns a decoder.
     /// Reading all chunks reduces seeking the file, but some chunks might be read without being used.
-    pub fn all_chunks(mut self, pedantic: bool) -> Result<AllChunksReader<R>> {
+    /// This is pedantic, if the reader was constructed with the pedantic flag.
+    pub fn all_chunks(mut self) -> Result<AllChunksReader<R>> {
         let total_chunk_count = {
-            if pedantic {
+            if self.pedantic {
                 let offset_tables = MetaData::read_offset_tables(&mut self.remaining_reader, &self.meta_data.headers)?;
                 validate_offset_tables(self.meta_data.headers.as_slice(), &offset_tables, self.remaining_reader.byte_position())?;
                 offset_tables.iter().map(|table| table.len()).sum()
             }
             else {
-                usize::try_from(MetaData::skip_offset_tables(&mut self.remaining_reader, &self.meta_data.headers)?)
-                    .expect("too large chunk count for this machine")
+                MetaData::skip_offset_tables(&mut self.remaining_reader, &self.meta_data.headers)?
             }
         };
 
@@ -66,19 +73,20 @@ impl<R: Read + Seek> Reader<R> {
             meta_data: self.meta_data,
             remaining_chunks: 0 .. total_chunk_count,
             remaining_bytes: self.remaining_reader,
-            pedantic
+            pedantic: self.pedantic
         })
     }
 
     /// Prepare to read some the chunks from the file.
     /// Does not decode the chunks now, but returns a decoder.
     /// Reading only some chunks may seeking the file, potentially skipping many bytes.
+    /// This is pedantic, if the reader was constructed with the pedantic flag.
     // TODO tile indices add no new information to block index??
-    pub fn filter_chunks(mut self, pedantic: bool, mut filter: impl FnMut(&MetaData, TileCoordinates, BlockIndex) -> bool) -> Result<FilteredChunksReader<R>> {
+    pub fn filter_chunks(mut self, mut filter: impl FnMut(&MetaData, TileCoordinates, BlockIndex) -> bool) -> Result<FilteredChunksReader<R>> {
         let offset_tables = MetaData::read_offset_tables(&mut self.remaining_reader, &self.meta_data.headers)?;
 
         // TODO regardless of pedantic, if invalid, read all chunks instead, and filter after reading each chunk?
-        if pedantic {
+        if self.pedantic {
             validate_offset_tables(
                 self.meta_data.headers.as_slice(), &offset_tables,
                 self.remaining_reader.byte_position()
@@ -110,7 +118,7 @@ impl<R: Read + Seek> Reader<R> {
 
         filtered_offsets.sort_unstable(); // enables reading continuously if possible (already sorted where line order increasing)
 
-        if pedantic {
+        if self.pedantic {
             // table is sorted. if any two neighbours are equal, we have duplicates. this is invalid.
             if filtered_offsets.windows(2).any(|pair| pair[0] == pair[1]) {
                 return Err(Error::invalid("chunk offset table"))
@@ -121,20 +129,38 @@ impl<R: Read + Seek> Reader<R> {
             meta_data: self.meta_data,
             expected_filtered_chunk_count: filtered_offsets.len(),
             remaining_filtered_chunk_indices: filtered_offsets.into_iter(),
-            remaining_bytes: self.remaining_reader
+            remaining_bytes: self.remaining_reader,
+            pedantic: self.pedantic
+        })
+    }
+
+    /// Prepare to load individual chunks only when requested.
+    /// Does not decode any pixels just yet.
+    /// Seeks the file to load specific pixels.
+    pub fn on_demand_chunks(mut self) -> Result<OnDemandChunksReader<R>> {
+        let offset_tables = MetaData::read_offset_tables(&mut self.remaining_reader, &self.meta_data.headers)?;
+
+        if self.pedantic {
+            validate_offset_tables(self.meta_data.headers.as_slice(), &offset_tables, self.remaining_reader.byte_position())?;
+        }
+
+        Ok(OnDemandChunksReader {
+            offset_tables,
+            seekable_bytes: self.remaining_reader,
+            meta_data: self.meta_data,
         })
     }
 }
 
 
-fn validate_offset_tables(headers: &[Header], offset_tables: &OffsetTables, chunks_start_byte: usize) -> UnitResult {
-    let max_pixel_bytes: usize = headers.iter() // when compressed, chunks are smaller, but never larger than max
-        .map(|header| header.max_pixel_file_bytes())
+fn validate_offset_tables(headers: &[Header], offset_tables: &OffsetTables, chunks_start_byte: u64) -> UnitResult {
+    let max_pixel_bytes: u64 = headers.iter() // when compressed, chunks are smaller, but never larger than max
+        .map(|header| usize_to_u64(header.max_pixel_file_bytes()))
         .sum();
 
     // check that each offset is within the bounds
     let end_byte = chunks_start_byte + max_pixel_bytes;
-    let is_invalid = offset_tables.iter().flatten().map(|&u64| u64_to_usize(u64))
+    let is_invalid = offset_tables.iter().flatten().copied()
         .any(|chunk_start| chunk_start < chunks_start_byte || chunk_start > end_byte);
 
     if is_invalid { Err(Error::invalid("offset table")) }
@@ -155,6 +181,7 @@ pub struct FilteredChunksReader<R> {
     expected_filtered_chunk_count: usize,
     remaining_filtered_chunk_indices: std::vec::IntoIter<u64>,
     remaining_bytes: PeekRead<Tracking<R>>,
+    pedantic: bool,
 }
 
 /// Decode all chunks in the file without seeking.
@@ -170,8 +197,17 @@ pub struct AllChunksReader<R> {
     pedantic: bool,
 }
 
-/// Decode chunks in the file without seeking.
-/// Calls the supplied closure for each chunk.
+/// Decode individual chunks only when requested specifically, by seeking within the file.
+/// Also contains the image meta data.
+#[derive(Debug)]
+pub struct OnDemandChunksReader<R> {
+    meta_data: MetaData,
+    offset_tables: OffsetTables,
+    seekable_bytes: PeekRead<Tracking<R>>,
+}
+
+/// While decoding chunks,
+/// calls the supplied closure for each chunk.
 /// The decoded chunks can be decompressed by calling
 /// `decompress_parallel`, `decompress_sequential`, or `sequential_decompressor`.
 /// Also contains the image meta data.
@@ -194,6 +230,9 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
 
     /// The decoded exr headers from the file.
     fn headers(&self) -> &[Header] { &self.meta_data().headers }
+
+    /// Whether to abort the file at the slightest hint of corruption.
+    fn pedantic(&self) -> bool;
 
     /// The number of chunks that this reader will return in total.
     /// Can be less than the total number of chunks in the file, if some chunks are skipped.
@@ -218,12 +257,12 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
     /// Will fallback to sequential processing where threads are not available, or where it would not speed up the process.
     // FIXME try async + futures instead of rayon! Maybe even allows for external async decoding? (-> impl Stream<UncompressedBlock>)
     fn decompress_parallel(
-        self, pedantic: bool,
+        self,
         mut insert_block: impl FnMut(&MetaData, UncompressedBlock) -> UnitResult
     ) -> UnitResult
     {
-        let mut decompressor = match self.parallel_decompressor(pedantic) {
-            Err(old_self) => return old_self.decompress_sequential(pedantic, insert_block),
+        let mut decompressor = match self.parallel_decompressor() {
+            Err(old_self) => return old_self.decompress_sequential(insert_block),
             Ok(decompressor) => decompressor,
         };
 
@@ -240,18 +279,18 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
     /// Use `ParallelBlockDecompressor::new` if you want to use your own thread pool.
     /// By default, this uses as many threads as there are CPUs.
     /// Returns the `self` if there is no need for parallel decompression.
-    fn parallel_decompressor(self, pedantic: bool) -> std::result::Result<ParallelBlockDecompressor<Self>, Self> {
+    fn parallel_decompressor(self) -> std::result::Result<ParallelBlockDecompressor<Self>, Self> {
+        let pedantic = self.pedantic();
         ParallelBlockDecompressor::new(self, pedantic)
     }
 
     /// Return an iterator that decompresses the chunks in this thread.
     /// You can alternatively use `sequential_decompressor` if you prefer an external iterator.
     fn decompress_sequential(
-        self, pedantic: bool,
-        mut insert_block: impl FnMut(&MetaData, UncompressedBlock) -> UnitResult
+        self, mut insert_block: impl FnMut(&MetaData, UncompressedBlock) -> UnitResult
     ) -> UnitResult
     {
-        let mut decompressor = self.sequential_decompressor(pedantic);
+        let mut decompressor = self.sequential_decompressor();
         while let Some(block) = decompressor.next() {
             insert_block(decompressor.meta_data(), block?)?;
         }
@@ -261,13 +300,15 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
     }
 
     /// Prepare reading the chunks sequentially, only a single thread, but with less memory overhead.
-    fn sequential_decompressor(self, pedantic: bool) -> SequentialBlockDecompressor<Self> {
+    fn sequential_decompressor(self) -> SequentialBlockDecompressor<Self> {
+        let pedantic = self.pedantic();
         SequentialBlockDecompressor { remaining_chunks_reader: self, pedantic }
     }
 }
 
 impl<R, F> ChunksReader for OnProgressChunksReader<R, F> where R: ChunksReader, F: FnMut(f64) {
     fn meta_data(&self) -> &MetaData { self.chunks_reader.meta_data() }
+    fn pedantic(&self) -> bool { self.chunks_reader.pedantic() }
     fn expected_chunk_count(&self) -> usize { self.chunks_reader.expected_chunk_count() }
 }
 
@@ -305,6 +346,7 @@ impl<R, F> Iterator for OnProgressChunksReader<R, F> where R: ChunksReader, F: F
 
 impl<R: Read + Seek> ChunksReader for AllChunksReader<R> {
     fn meta_data(&self) -> &MetaData { &self.meta_data }
+    fn pedantic(&self) -> bool { self.pedantic }
     fn expected_chunk_count(&self) -> usize { self.remaining_chunks.end }
 }
 
@@ -332,6 +374,7 @@ impl<R: Read + Seek> Iterator for AllChunksReader<R> {
 
 impl<R: Read + Seek> ChunksReader for FilteredChunksReader<R> {
     fn meta_data(&self) -> &MetaData { &self.meta_data }
+    fn pedantic(&self) -> bool { self.pedantic }
     fn expected_chunk_count(&self) -> usize { self.expected_filtered_chunk_count }
 }
 
@@ -342,9 +385,9 @@ impl<R: Read + Seek> Iterator for FilteredChunksReader<R> {
     fn next(&mut self) -> Option<Self::Item> {
         // read as many chunks as we have desired chunk offsets
         self.remaining_filtered_chunk_indices.next().map(|next_chunk_location|{
-            self.remaining_bytes.skip_to( // no-op for seek at current position, uses skip_bytes for small amounts
-                                          usize::try_from(next_chunk_location)
-                                              .expect("too large chunk position for this machine")
+            self.remaining_bytes.skip_to(
+                // no-op for seek at current position, uses skip_bytes for small amounts
+                next_chunk_location
             )?;
 
             let meta_data = &self.meta_data;
@@ -523,6 +566,111 @@ impl<R: ChunksReader> Iterator for ParallelBlockDecompressor<R> {
 }
 
 
+
+impl<R: Read + Seek> OnDemandChunksReader<R> {
+
+    /// The meta data loaded from this file.
+    pub fn meta_data(&self) -> &MetaData { &self.meta_data }
+
+    /// The meta data headers loaded from this file.
+    pub fn header(&self, header_index: usize) -> &Header { &self.meta_data().headers[header_index] }
+
+    /// Load all chunks that intersect the specified display-space section (DisplayWindow).
+    pub fn load_all_chunks_for_display_space_section(
+        &mut self, header_index: usize, level: impl Into<Vec2<usize>>, display_window_section: IntegerBounds
+    ) -> impl '_ + Iterator<Item = Result<Chunk>>
+    {
+        let level = level.into();
+
+        self.load_chunks_for_blocks(move |meta, tile_index, block_index|{
+            if block_index.layer != header_index || block_index.level != level {
+                return false
+            }
+
+            let header = &meta.headers[block_index.layer];
+            let block_in_display_window = header
+                .get_block_display_window_pixel_coordinates(tile_index.location)
+                .expect("invalid tile index");
+
+            let should_load_block = display_window_section.intersects(block_in_display_window);
+            should_load_block
+        })
+    }
+
+    /// Load all chunks that intersect the specified layer-space section (DataWindow).
+    pub fn load_all_chunks_for_layer_space_section(
+        &mut self, header_index: usize, level: impl Into<Vec2<usize>>, data_window_section: IntegerBounds
+    ) -> impl '_ + Iterator<Item = Result<Chunk>>
+    {
+        let level = level.into();
+
+        self.load_chunks_for_blocks(move |_meta, _tile_index, block_index|{
+            if block_index.layer != header_index || block_index.level != level {
+                return false
+            }
+
+            let block_section = IntegerBounds::new(block_index.pixel_position.to_i32(), block_index.pixel_size);
+            let should_load_block = data_window_section.intersects(block_section);
+            should_load_block
+        })
+    }
+
+    /// Returned order is arbitrary (optimized for speed).
+    pub fn load_chunks_for_blocks(&mut self, filter_blocks: impl Fn(&MetaData, TileIndices, BlockIndex) -> bool) -> impl '_ + Iterator<Item = Result<Chunk>> {
+        let chunks_indices = self.find_seek_positions_for_blocks(filter_blocks);
+        self.load_chunks(chunks_indices)
+    }
+
+    /// Computes which chunks to seek to in the file, based on the specified predicate.
+    /// Iterator returns block indices in increasing-y order.
+    pub fn find_seek_positions_for_blocks(&self, filter_blocks: impl Fn(&MetaData, TileIndices, BlockIndex) -> bool) -> Vec<u64> {
+        debug_assert_eq!(self.meta_data.headers.len(), self.offset_tables.len());
+        let filter_blocks = &filter_blocks;
+
+        self.meta_data.headers.iter().zip(&self.offset_tables).enumerate()
+            .flat_map(move |(header_index, (header, offset_table))| {
+                debug_assert_eq!(header.chunk_count, offset_table.len());
+
+                header.blocks_increasing_y_order().zip(offset_table) // todo: this iter allocates, save it in the reader later
+                    .filter(move |(tile_coordinates, _seek_pos)|{
+
+                        // TODO this algorithm should not now whether we need to make coordinates absolute?
+                        // deduplicate with block::UncompressedBlock::decompress_chunk()?
+                        let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_coordinates.location)
+                            .expect("tile index bug");
+
+                        let absolute_position = absolute_indices.position
+                            .to_usize("coordinate calculation bug").unwrap();
+
+                        filter_blocks(
+                            self.meta_data(), *tile_coordinates,
+                            BlockIndex {
+                                layer: header_index,
+                                pixel_position: absolute_position,
+                                pixel_size: tile_coordinates.size,
+                                level: tile_coordinates.location.level_index,
+                            }
+                        )
+                    })
+                    .map(move |(_, &chunk_byte_position)| chunk_byte_position)
+            })
+            .collect()
+    }
+
+    /// Reads the specified chunks by seeking the file. In the order as they appear in the file, so it might be arbitrary.
+    pub fn load_chunks(&mut self, mut chunks: Vec<u64>) -> impl '_ + Iterator<Item = Result<Chunk>> {
+        // sorting the file access should improve read performance, especially on HDDs
+        // since seeking can be skipped for blocks that are stored right after another in the file
+        chunks.sort_unstable();
+        chunks.into_iter().map(move |seek| self.load_chunk(seek))
+    }
+
+    /// Reads one individual chunk from the byte source by seeking.
+    pub fn load_chunk(&mut self, block_seek_position: u64) -> Result<Chunk> {
+        self.seekable_bytes.skip_to(block_seek_position)?;
+        Chunk::read(&mut self.seekable_bytes, &self.meta_data)
+    }
+}
 
 
 
