@@ -4,6 +4,7 @@
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::io::{Read, Seek};
+use std::sync::mpsc;
 use rayon_core::{ThreadPool, ThreadPoolBuildError};
 
 use smallvec::alloc::sync::Arc;
@@ -387,8 +388,8 @@ impl<R: ChunksReader> SequentialBlockDecompressor<R> {
 #[derive(Debug)]
 pub struct ParallelBlockDecompressor<R: ChunksReader> {
     remaining_chunks: R,
-    sender: flume::Sender<Result<UncompressedBlock>>,
-    receiver: flume::Receiver<Result<UncompressedBlock>>,
+    sender: mpsc::Sender<Result<UncompressedBlock>>,
+    receiver: mpsc::Receiver<Result<UncompressedBlock>>,
     currently_decompressing_count: usize,
     max_threads: usize,
 
@@ -437,7 +438,7 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
 
         let max_threads = pool.current_num_threads().max(1).min(chunks.len()) + 2; // ca one block for each thread at all times
 
-        let (send, recv) = flume::unbounded(); // TODO bounded channel simplifies logic?
+        let (send, recv) = mpsc::channel(); // TODO bounded channel simplifies logic?
 
         Ok(Self {
             shared_meta_data_ref: Arc::new(chunks.meta_data().clone()),
