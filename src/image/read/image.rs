@@ -107,25 +107,25 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
     pub fn from_chunks<Layers>(mut self, chunks_reader: crate::block::reader::Reader<impl Read + Seek>) -> Result<Image<Layers>>
         where for<'s> L: ReadLayers<'s, Layers = Layers>
     {
-        let Self { pedantic, parallel, ref mut on_progress, ref mut read_layers } = self;
+        let Self { parallel, ref mut on_progress, ref mut read_layers, .. } = self;
 
         let layers_reader = read_layers.create_layers_reader(chunks_reader.headers())?;
         let mut image_collector = ImageWithAttributesReader::new(chunks_reader.headers(), layers_reader)?;
 
         let block_reader = chunks_reader
-            .filter_chunks(pedantic, |meta, tile, block| {
+            .filter_chunks(|meta, tile, block| {
                 image_collector.filter_block(meta, tile, block)
             })?
             .on_progress(on_progress);
 
         // TODO propagate send requirement further upwards
         if parallel {
-            block_reader.decompress_parallel(pedantic, |meta_data, block|{
+            block_reader.decompress_parallel(|meta_data, block|{
                 image_collector.read_block(&meta_data.headers, block)
             })?;
         }
         else {
-            block_reader.decompress_sequential(pedantic, |meta_data, block|{
+            block_reader.decompress_sequential(|meta_data, block|{
                 image_collector.read_block(&meta_data.headers, block)
             })?;
         }

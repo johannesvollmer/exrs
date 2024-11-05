@@ -88,6 +88,29 @@ pub trait RecursivePixelReader {
         &self, bytes: &'s[u8], pixels: &mut [FullPixel],
         get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel
     );
+
+    // TODO dedup with SpecificChannelsReader::read_block(..)?
+    /// Note: The (x,y) coordinates are in block space. You will have to add `block.index.pixel_position` for the pixel position in the layer.
+    fn read_pixels_from_block<PixelTuple>(
+        &self, channels: &ChannelList, block: UncompressedBlock,
+        mut set_pixel: impl FnMut(Vec2<usize>, PixelTuple)
+    )
+        where Self::RecursivePixel: IntoTuple<PixelTuple>
+    {
+        let mut one_line_of_recursive_pixels = vec![Self::RecursivePixel::default(); block.index.pixel_size.width()];
+
+        let byte_lines = block.data.chunks_exact(channels.bytes_per_pixel * block.index.pixel_size.width());
+        debug_assert_eq!(byte_lines.len(), block.index.pixel_size.height(), "invalid block lines split");
+
+        for (y_offset, line_bytes) in byte_lines.enumerate() { // TODO sampling
+            // this two-step copy method should be very cache friendly in theory, and also reduce sample_type lookup count
+            self.read_pixels(line_bytes, &mut one_line_of_recursive_pixels, |px| px);
+
+            for (x_offset, recursive_pixel) in one_line_of_recursive_pixels.iter().enumerate() {
+                set_pixel(Vec2(x_offset, y_offset), recursive_pixel.into_tuple());
+            }
+        }
+    }
 }
 
 // does not use the generic `Recursive` struct to reduce the number of angle brackets in the public api
@@ -185,20 +208,13 @@ ChannelsReader for SpecificChannelsReader<PixelStorage, SetPixel, PxReader, Pixe
     fn filter_block(&self, tile: TileCoordinates) -> bool { tile.is_largest_resolution_level() } // TODO all levels
 
     fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult {
-        let mut pixels = vec![PxReader::RecursivePixel::default(); block.index.pixel_size.width()]; // TODO allocate once in self
+        let (storage, set_pixel, reader) = (&mut self.pixel_storage, &mut self.set_pixel, &self.pixel_reader);
+        let block_position = block.index.pixel_position;
 
-        let byte_lines = block.data.chunks_exact(header.channels.bytes_per_pixel * block.index.pixel_size.width());
-        debug_assert_eq!(byte_lines.len(), block.index.pixel_size.height(), "invalid block lines split");
-
-        for (y_offset, line_bytes) in byte_lines.enumerate() { // TODO sampling
-            // this two-step copy method should be very cache friendly in theory, and also reduce sample_type lookup count
-            self.pixel_reader.read_pixels(line_bytes, &mut pixels, |px| px);
-
-            for (x_offset, pixel) in pixels.iter().enumerate() {
-                let set_pixel = &self.set_pixel;
-                set_pixel(&mut self.pixel_storage, block.index.pixel_position + Vec2(x_offset, y_offset), pixel.into_tuple());
-            }
-        }
+        reader.read_pixels_from_block(
+            &header.channels, block,
+            |pos, px| set_pixel(storage, pos + block_position, px)
+        );
 
         Ok(())
     }
@@ -212,6 +228,16 @@ ChannelsReader for SpecificChannelsReader<PixelStorage, SetPixel, PxReader, Pixe
 /// Read zero channels from an image. Call `with_named_channel` on this object
 /// to read as many channels as desired.
 pub type ReadZeroChannels = NoneMore;
+
+/// Read only layers that contain the specified channels, skipping any other channels in the layer.
+/// Further specify which channels should be included by calling `.required("ChannelName")`
+/// or `.optional("ChannelName", default_value)` on the result of this function.
+/// Call `collect_pixels` afterwards to define the pixel container for your set of channels.
+///
+/// Throws an error for images with deep data or subsampling.
+pub fn read_specific_channels() -> ReadZeroChannels {
+    ReadZeroChannels { }
+}
 
 impl ReadSpecificChannel for NoneMore {
     type RecursivePixelReader = NoneMore;
@@ -257,6 +283,7 @@ impl<Sample, ReadChannels> ReadSpecificChannel for ReadRequiredChannel<ReadChann
         Ok(Recursive::new(previous_samples_reader, SampleReader { channel_byte_offset, channel: channel.clone(), px: Default::default() }))
     }
 }
+
 
 /// Reader for a single channel. Generic over the concrete sample type (f16, f32, u32).
 #[derive(Clone, Debug)]

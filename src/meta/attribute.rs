@@ -899,10 +899,21 @@ impl IntegerBounds {
 
     /// Returns whether the specified rectangle is equal to or inside this rectangle.
     pub fn contains(self, subset: Self) -> bool {
-           subset.position.x() >= self.position.x()
-        && subset.position.y() >= self.position.y()
-        && subset.end().x() <= self.end().x()
-        && subset.end().y() <= self.end().y()
+        subset.position.x() >= self.position.x()
+            && subset.position.y() >= self.position.y()
+            && subset.end().x() <= self.end().x()
+            && subset.end().y() <= self.end().y()
+    }
+
+    /// Returns whether the specified rectangle touches this rectangle.
+    /// Empty rectangles are treated as points: They might touch the rectangle.
+    /// Only if both rectangles are empty, they don't intersect.
+    pub fn intersects(self, other: Self) -> bool {
+        // https://stackoverflow.com/a/2752369
+        other.position.x() <= self.max().x()
+            && self.position.x() <= other.max().x()
+            && other.position.y() <= self.max().y()
+            && self.position.y() <= other.max().y()
     }
 }
 
@@ -2223,4 +2234,133 @@ mod test {
         }
     }
 
+    #[test]
+    fn rectangle_intersect_at_edge() {
+        assert_intersects(
+            false,
+            (0, 0), (10, 10),
+            (10, 0), (1, 1)
+        );
+
+        assert_intersects(
+            false,
+            (0, 0), (10, 10),
+            (0, 10), (1, 1)
+        );
+
+        assert_intersects(
+            true,
+            (0, 1), (10, 10),
+            (0, 10), (1, 1)
+        );
+    }
+
+    #[test]
+    fn rectangle_intersect_contained() {
+        assert_intersects(
+            true,
+            (0, 0), (10, 10),
+            (5, 5), (1, 1)
+        );
+
+        assert_intersects(
+            true,
+            (5, 5), (1, 1),
+            (0, 0), (10, 10),
+        );
+
+
+        assert_intersects(
+            true,
+            (5, 5), (1, 1),
+            (5, 5), (1, 1),
+        );
+
+        for (x,y) in [
+            (5,6), (6,5), (5,4), (4,5),
+            (4,4), (6,6), (4,6), (6,4),
+        ] {
+            assert_intersects(
+                false,
+                (5, 5), (1, 1),
+                (x, y), (1, 1),
+            );
+        }
+    }
+
+    #[test]
+    fn rectangle_intersect_zero_sized() {
+        assert_intersects( // point in a rectangle intersects
+            true,
+            (0, 0), (10, 10),
+            (5, 5), (0, 0)
+        );
+
+        assert_intersects( // two different points don't intersect
+            false,
+            (0, 0), (0, 0),
+            (-1, -1), (0, 0)
+        );
+
+        assert_intersects( // two equal points don't intersect
+            false,
+            (1, 1), (0, 0),
+            (1, 1), (0, 0)
+        );
+    }
+
+    fn assert_intersects(intersects: bool, a_pos: (i32,i32), a_size: (usize, usize), b_pos: (i32,i32), b_size: (usize,usize)) {
+        let a = IntegerBounds::new(a_pos, a_size);
+        let b = IntegerBounds::new(b_pos, b_size);
+        assert_eq!(
+            intersects, a.intersects(b),
+            "rectangles should {}: {:?}, {:?}",
+            if intersects { "intersect" } else { "not intersect" },
+            a, b,
+        );
+    }
+
+    #[test]
+    fn rectangle_contains(){
+        assert_contains(
+            true,
+            (10,10), (100,100),
+            (50,50), (10,10),
+        );
+
+        assert_contains(
+            true,
+            (1,1), (2,2),
+            (1,1), (1,1),
+        );
+
+        assert_contains(
+            true,
+            (1,1), (2,2),
+            (1,1), (0,0),
+        );
+
+        assert_contains(
+            false,
+            (1,1), (2,2),
+            (1,1), (2,3),
+        );
+
+        assert_contains(
+            false,
+            (1,1), (2,2),
+            (0,0), (8,8),
+        );
+    }
+
+
+    fn assert_contains(contains: bool, a_pos: (i32, i32), a_size: (usize, usize), b_pos: (i32, i32), b_size: (usize, usize)) {
+        let a = IntegerBounds::new(a_pos, a_size);
+        let b = IntegerBounds::new(b_pos, b_size);
+        assert_eq!(
+            contains, a.contains(b),
+            "{:?} should {} {:?}",
+            a, if contains { "contain" } else { "not contain" }, b,
+        );
+    }
 }

@@ -24,6 +24,7 @@ use crate::compression::ByteVec;
 use crate::block::chunk::{CompressedBlock, CompressedTileBlock, CompressedScanLineBlock, Chunk, TileCoordinates};
 use crate::meta::header::Header;
 use crate::block::lines::{LineIndex, LineRef, LineSlice, LineRefMut};
+use crate::image::FlatSamples;
 use crate::meta::attribute::ChannelList;
 
 
@@ -253,5 +254,40 @@ impl UncompressedBlock {
             index: block_index,
             data: Self::collect_block_data_from_lines(channels, block_index, extract_line)
         }
+    }
+
+    /// Unpack the channel data from the raw block bytes.
+    /// Creates a vector with one entry for each channel.
+    /// Each channel contains the samples for this whole block.
+    /// The samples are typed to either `f32`, `f16`, or `u32`.
+    /// The samples are flattened, in row-major order, according to `Vec2::flat_index_for_size(block_size)`.
+    pub fn unpack_channels(&self, header: &Header) -> Vec<FlatSamples> {
+        let block = self;
+        let layer_info = header;
+        let channel_info = &layer_info.channels;
+        let block_size = block.index.pixel_size;
+
+        // the whole block, but each channel is one entry in this vec
+        let mut channels: Vec<FlatSamples> = layer_info.channels.list.iter()
+            .map(|chan| FlatSamples::new(chan, block.index.pixel_size))
+            .collect();
+
+        for line in block.lines(channel_info) {
+            let all_lines_for_this_channel = &mut channels[line.location.channel];
+
+            // TODO sampling
+            let position_in_block = line.location.position - block.index.pixel_position;
+            let start = position_in_block.flat_index_for_size(block_size);
+            let end = start + block_size.width();
+
+            // read either f16, f32, or u32 samples based on the channels type
+            match all_lines_for_this_channel {
+                FlatSamples::F16(samples) => line.read_samples_into_slice(&mut samples[start..end]),
+                FlatSamples::F32(samples) => line.read_samples_into_slice(&mut samples[start..end]),
+                FlatSamples::U32(samples) => line.read_samples_into_slice(&mut samples[start..end]),
+            }.expect("line indexing bug");
+        }
+
+        channels
     }
 }

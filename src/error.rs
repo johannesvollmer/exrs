@@ -131,6 +131,12 @@ pub(crate) fn usize_to_i32(value: usize) -> i32 {
 
 /// Panic on overflow.
 #[inline]
+pub(crate) fn usize_to_u32(value: usize) -> u32 {
+    u32::try_from(value).expect("(usize as u32) failed")
+}
+
+/// Panic on overflow.
+#[inline]
 pub(crate) fn usize_to_u64(value: usize) -> u64 {
     u64::try_from(value).expect("(usize as u64) overflowed")
 }

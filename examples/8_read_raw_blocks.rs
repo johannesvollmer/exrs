@@ -80,7 +80,7 @@ fn main() {
     let reader = reader
 
         // do not worry about multi-resolution levels or deep data
-        .filter_chunks(true, |meta_data, tile, block| {
+        .filter_chunks(|meta_data, tile, block| {
             let header = &meta_data.headers[block.layer];
             !header.deep && tile.is_largest_resolution_level()
         }).unwrap()
@@ -94,7 +94,7 @@ fn main() {
         });
 
     // read all pixel blocks from the image, decompressing in parallel
-    reader.decompress_parallel(true, |meta_data, block|{
+    reader.decompress_parallel(|meta_data, block|{
         let header = &meta_data.headers[block.index.layer];
 
         // collect all pixel values from the pixel block
