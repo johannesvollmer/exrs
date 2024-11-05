@@ -45,7 +45,7 @@ rand = "0.8.5"            # used for fuzz testing
 rayon = "1.5.3"           # run tests for many files in parallel
 
 [features]
-default = []
+default = ["rayon"]
 
 # rayon is used for parallel compression
 rayon = ["dep:rayon-core"]
@@ -77,10 +77,6 @@ required-features = ["rayon"]
 name = "pixel_format_conversion"
 harness = false
 required-features = ["rayon"]
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
 
 # recommended release settings for max runtime performance
 [profile.release]
