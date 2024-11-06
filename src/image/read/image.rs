@@ -29,7 +29,11 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
     pub fn new(read_layers: L, on_progress: F) -> Self {
         Self {
             on_progress, read_layers,
-            pedantic: false, parallel: true,
+            pedantic: false,
+            #[cfg(not(feature = "rayon"))]
+            parallel: false,
+            #[cfg(feature = "rayon")]
+            parallel: true,
         }
     }
 
@@ -120,6 +124,10 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
 
         // TODO propagate send requirement further upwards
         if parallel {
+            #[cfg(not(feature = "rayon"))]
+            return Err(crate::error::Error::unsupported("parallel decompression requires the rayon feature"));
+
+            #[cfg(feature = "rayon")]
             block_reader.decompress_parallel(pedantic, |meta_data, block|{
                 image_collector.read_block(&meta_data.headers, block)
             })?;

@@ -73,7 +73,13 @@ impl<'img, WritableLayers> WritableImage<'img, WritableLayers> for &'img Image<W
         WriteImageWithOptions {
             image: self,
             check_compatibility: true,
+
+            #[cfg(not(feature = "rayon"))]
+            parallel: false,
+
+            #[cfg(feature = "rayon")]
             parallel: true,
+
             on_progress: ignore_progress
         }
     }
@@ -164,7 +170,13 @@ impl<'img, L, F> WriteImageWithOptions<'img, L, F>
                 );
 
                 let chunk_writer = chunk_writer.on_progress(self.on_progress);
-                if self.parallel { chunk_writer.compress_all_blocks_parallel(&meta, blocks)?; }
+                if self.parallel {
+                    #[cfg(not(feature = "rayon"))]
+                    return Err(crate::error::Error::unsupported("parallel compression requires the rayon feature"));
+
+                    #[cfg(feature = "rayon")]
+                    chunk_writer.compress_all_blocks_parallel(&meta, blocks)?;
+                }
                 else { chunk_writer.compress_all_blocks_sequential(&meta, blocks)?; }
                 /*let blocks_writer = chunk_writer.as_blocks_writer(&meta);
 

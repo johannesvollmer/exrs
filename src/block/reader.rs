@@ -5,6 +5,7 @@ use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::io::{Read, Seek};
 use std::sync::mpsc;
+#[cfg(feature = "rayon")]
 use rayon_core::{ThreadPool, ThreadPoolBuildError};
 
 use smallvec::alloc::sync::Arc;
@@ -212,6 +213,7 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
         OnProgressChunksReader { chunks_reader: self, callback: on_progress, decoded_chunks: 0 }
     }
 
+    #[cfg(feature = "rayon")]
     /// Decompress all blocks in the file, using multiple cpu cores, and call the supplied closure for each block.
     /// The order of the blocks is not deterministic.
     /// You can also use `parallel_decompressor` to obtain an iterator instead.
@@ -235,6 +237,7 @@ pub trait ChunksReader: Sized + Iterator<Item=Result<Chunk>> + ExactSizeIterator
         Ok(())
     }
 
+    #[cfg(feature = "rayon")]
     /// Return an iterator that decompresses the chunks with multiple threads.
     /// The order of the blocks is not deterministic.
     /// Use `ParallelBlockDecompressor::new` if you want to use your own thread pool.
@@ -380,6 +383,7 @@ impl<R: ChunksReader> SequentialBlockDecompressor<R> {
     }
 }
 
+#[cfg(feature = "rayon")]
 /// Decompress the chunks in a file in parallel.
 /// The first call to `next` will fill the thread pool with jobs,
 /// starting to decompress the next few blocks.
@@ -399,6 +403,7 @@ pub struct ParallelBlockDecompressor<R: ChunksReader> {
     pool: ThreadPool,
 }
 
+#[cfg(feature = "rayon")]
 impl<R: ChunksReader> ParallelBlockDecompressor<R> {
 
     /// Create a new decompressor. Does not immediately spawn any tasks.
@@ -512,7 +517,9 @@ impl<R: ChunksReader> Iterator for SequentialBlockDecompressor<R> {
     fn size_hint(&self) -> (usize, Option<usize>) { self.remaining_chunks_reader.size_hint() }
 }
 
+#[cfg(feature = "rayon")]
 impl<R: ChunksReader> ExactSizeIterator for ParallelBlockDecompressor<R> {}
+#[cfg(feature = "rayon")]
 impl<R: ChunksReader> Iterator for ParallelBlockDecompressor<R> {
     type Item = Result<UncompressedBlock>;
     fn next(&mut self) -> Option<Self::Item> { self.decompress_next_block() }
