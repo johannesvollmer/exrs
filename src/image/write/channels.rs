@@ -352,7 +352,7 @@ impl<Inner, InnerPixel, Sample> RecursivePixelWriter<Recursive<InnerPixel, Sampl
 
 
 #[cfg(test)]
-pub mod test {
+mod test {
     use crate::image::write::channels::WritableChannels;
     use crate::image::SpecificChannels;
     use crate::prelude::{f16};

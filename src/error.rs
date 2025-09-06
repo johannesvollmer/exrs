@@ -105,6 +105,12 @@ pub(crate) fn i32_to_usize(value: i32, error_message: &'static str) -> Result<us
     usize::try_from(value).map_err(|_| Error::invalid(error_message))
 }
 
+/// Return error on overflow.
+#[inline]
+pub(crate) fn usize_to_u32(value: usize, error_message: &'static str) -> Result<u32> {
+    u32::try_from(value).map_err(|_| Error::invalid(error_message))
+}
+
 /// Return error on invalid range.
 #[inline]
 pub(crate) fn usize_to_u16(value: usize) -> Result<u16> {
@@ -123,6 +129,7 @@ pub(crate) fn u32_to_usize(value: u32) -> usize {
     usize::try_from(value).expect("(u32 as usize) overflowed")
 }
 
+// TODO make all errors, no panics.
 /// Panic on overflow.
 #[inline]
 pub(crate) fn usize_to_i32(value: usize) -> i32 {
