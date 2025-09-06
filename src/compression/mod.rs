@@ -305,7 +305,7 @@ impl Compression {
 
 #[allow(unused)] // allows the extra parameters to be unused
 fn convert_current_to_little_endian(mut bytes: ByteVec, channels: &ChannelList, rectangle: IntegerBounds) -> ByteVec {
-    #[cfg(target = "big_endian")]
+    #[cfg(target_endian = "big")]
     reverse_block_endianness(&mut byte_vec, channels, rectangle);
 
     bytes
@@ -313,7 +313,7 @@ fn convert_current_to_little_endian(mut bytes: ByteVec, channels: &ChannelList, 
 
 #[allow(unused)] // allows the extra parameters to be unused
 fn convert_little_endian_to_current(mut bytes: ByteVec, channels: &ChannelList, rectangle: IntegerBounds) -> ByteVec {
-    #[cfg(target = "big_endian")]
+    #[cfg(target_endian = "big")]
     reverse_block_endianness(&mut bytes, channels, rectangle);
 
     bytes
