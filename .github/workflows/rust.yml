@@ -71,7 +71,7 @@ jobs:
   # github actions does not support big endian systems directly, but it does support QEMU.
   # so we use cross-rs, which uses QEMU internally.
   big-endian:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     name: test on emulated big endian system
     timeout-minutes: 90 # todo just make tests faster wtf
 
