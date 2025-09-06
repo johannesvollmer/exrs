@@ -512,7 +512,7 @@ impl Text {
     /// Write the length of a string and then the contents with that length.
     pub fn write_i32_sized<W: Write>(&self, write: &mut W) -> UnitResult {
         debug_assert!(self.validate( false, None).is_ok(), "text size bug");
-        i32::write(usize_to_i32(self.bytes.len()), write)?;
+        i32::write(usize_to_i32(self.bytes.len(), "text length")?, write)?;
         Self::write_unsized_bytes(self.bytes.as_slice(), write)
     }
 
@@ -537,7 +537,7 @@ impl Text {
 
     /// Read the length of a string and then the contents with that length.
     pub fn read_u32_sized<R: Read>(read: &mut R, max_size: usize) -> Result<Self> {
-        let size = u32_to_usize(u32::read(read)?);
+        let size = u32_to_usize(u32::read(read)?, "text length")?;
         Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 1024, Some(max_size), "text attribute length")?)))
     }
 
@@ -1068,8 +1068,8 @@ impl ChannelDescription {
         }.write(write)?;
 
         i8::write_slice(write, &[0_i8, 0_i8, 0_i8])?;
-        i32::write(usize_to_i32(self.sampling.x()), write)?;
-        i32::write(usize_to_i32(self.sampling.y()), write)?;
+        i32::write(usize_to_i32(self.sampling.x(), "text length")?, write)?;
+        i32::write(usize_to_i32(self.sampling.y(), "text length")?, write)?;
         Ok(())
     }
 

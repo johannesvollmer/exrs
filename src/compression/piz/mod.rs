@@ -115,7 +115,7 @@ pub fn decompress(
 
     for y in rectangle.position.y() .. rectangle.end().y() {
         for channel in &mut channel_data {
-            if mod_p(y, usize_to_i32(channel.y_sampling)) != 0 {
+            if mod_p(y, usize_to_i32(channel.y_sampling, "sampling factor")?) != 0 {
                 continue;
             }
 
@@ -143,7 +143,7 @@ pub fn decompress(
     // TODO optimize for when all channels are f16!
     //      we should be able to omit endianness conversions in that case
     //      see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
-    Ok(super::convert_little_endian_to_current(out, channels, rectangle))
+    super::convert_little_endian_to_current(out, channels, rectangle)
 }
 
 
@@ -160,7 +160,7 @@ pub fn compress(
 
     // TODO do not convert endianness for f16-only images
     //      see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
-    let uncompressed = super::convert_current_to_little_endian(uncompressed, channels, rectangle);
+    let uncompressed = super::convert_current_to_little_endian(uncompressed, channels, rectangle)?;
     let uncompressed = uncompressed.as_slice();// TODO no alloc
 
     let mut tmp = vec![0_u16; uncompressed.len() / 2 ];
@@ -191,7 +191,7 @@ pub fn compress(
     let mut remaining_uncompressed_bytes = uncompressed;
     for y in rectangle.position.y() .. rectangle.end().y() {
         for channel in &mut channel_data {
-            if mod_p(y, usize_to_i32(channel.y_sampling)) != 0 { continue; }
+            if mod_p(y, usize_to_i32(channel.y_sampling, "sampling")?) != 0 { continue; }
             let u16s_per_line = channel.resolution.x() * channel.samples_per_pixel;
             let next_tmp_end_index = channel.tmp_end_index + u16s_per_line;
             let target = &mut tmp[channel.tmp_end_index .. next_tmp_end_index];
@@ -262,12 +262,12 @@ pub fn forward_lookup_table_from_bitmap(bitmap: &[u8]) -> (u16, Vec<u16>) {
 
     for (index, entry) in table.iter_mut().enumerate() {
         if index == 0 || bitmap[index >> 3] as usize & (1 << (index & 7)) != 0 {
-            *entry = usize_to_u16(count).unwrap();
+            *entry = usize_to_u16(count, "piz entry").unwrap();
             count += 1;
         }
     }
 
-    (usize_to_u16(count - 1).unwrap(), table)
+    (usize_to_u16(count - 1, "piz count").unwrap(), table)
 }
 
 fn reverse_lookup_table_from_bitmap(bitmap: Bytes<'_>) -> (Vec<u16>, u16) {
@@ -275,12 +275,12 @@ fn reverse_lookup_table_from_bitmap(bitmap: Bytes<'_>) -> (Vec<u16>, u16) {
 
     for index in 0 .. U16_RANGE { // cannot use iter because filter removes capacity sizehint
         if index == 0 || ((bitmap[index >> 3] as usize & (1 << (index & 7))) != 0) {
-            table.push(usize_to_u16(index).unwrap());
+            table.push(usize_to_u16(index, "table entry").unwrap());
         }
     }
 
     debug_assert!(!table.is_empty());
-    let max_value = usize_to_u16(table.len() - 1).unwrap();
+    let max_value = usize_to_u16(table.len() - 1, "table size").unwrap();
 
     // fill remaining up to u16 range
     assert!(table.len() <= U16_RANGE);

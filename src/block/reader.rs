@@ -135,8 +135,11 @@ fn validate_offset_tables(headers: &[Header], offset_tables: &OffsetTables, chun
 
     // check that each offset is within the bounds
     let end_byte = chunks_start_byte + max_pixel_bytes;
-    let is_invalid = offset_tables.iter().flatten().map(|&u64| u64_to_usize(u64))
-        .any(|chunk_start| chunk_start < chunks_start_byte || chunk_start > end_byte);
+    let is_invalid = offset_tables.iter().flatten().map(|&u64| u64_to_usize(u64, "chunk start"))
+        .any(|maybe_chunk_start| match maybe_chunk_start {
+            Ok(chunk_start) => chunk_start < chunks_start_byte || chunk_start > end_byte,
+            Err(_) => true
+        });
 
     if is_invalid { Err(Error::invalid("offset table")) }
     else { Ok(()) }

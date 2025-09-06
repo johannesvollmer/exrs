@@ -187,7 +187,7 @@ impl UncompressedBlock {
                     compressed_pixels: compressed_data,
 
                     // FIXME this calculation should not be made here but elsewhere instead (in meta::header?)
-                    y_coordinate: usize_to_i32(index.pixel_position.y()) + header.own_attributes.layer_position.y(), // TODO sampling??
+                    y_coordinate: usize_to_i32(index.pixel_position.y(), "pixel index")? + header.own_attributes.layer_position.y(), // TODO sampling??
                 }),
 
                 BlockDescription::Tiles(_) => CompressedBlock::Tile(CompressedTileBlock {

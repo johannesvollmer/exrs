@@ -50,7 +50,7 @@ pub fn compress(channels: &ChannelList, remaining_bytes: ByteVec, area: IntegerB
     if remaining_bytes.is_empty() { return Ok(Vec::new()); }
 
     // see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
-    let remaining_bytes = super::convert_current_to_little_endian(remaining_bytes, channels, area);
+    let remaining_bytes = convert_current_to_little_endian(remaining_bytes, channels, area)?;
     let mut remaining_bytes = remaining_bytes.as_slice(); // TODO less allocation
 
     let bytes_per_pixel: usize = channels.list.iter()
@@ -64,10 +64,10 @@ pub fn compress(channels: &ChannelList, remaining_bytes: ByteVec, area: IntegerB
     {
         let mut write = raw.as_mut_slice();
 
-        // TODO this loop should be an iterator in the `IntegerBounds` class, as it is used in all compressio methods
+        // TODO this loop should be an iterator in the `IntegerBounds` class, as it is used in all compression methods
         for y in area.position.1..area.end().1 {
             for channel in &channels.list {
-                if mod_p(y, usize_to_i32(channel.sampling.1)) != 0 { continue; }
+                if mod_p(y, usize_to_i32(channel.sampling.1, "sampling factor")?) != 0 { continue; }
 
                 // this apparently can't be a closure in Rust 1.43 due to borrowing ambiguity
                 let sample_count_x = channel.subsampled_resolution(area.size).0;
@@ -155,7 +155,7 @@ pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, e
 
     for y in area.position.1 .. area.end().1 {
         for channel in &channels.list {
-            if mod_p(y, usize_to_i32(channel.sampling.1)) != 0 { continue; }
+            if mod_p(y, usize_to_i32(channel.sampling.1, "sampling")?) != 0 { continue; }
 
             let sample_count_x = channel.subsampled_resolution(area.size).0;
             let mut read_sample_line = ||{
@@ -210,7 +210,7 @@ pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, e
         return Err(Error::invalid("too much data"));
     }
 
-    Ok(super::convert_little_endian_to_current(out, channels, area))
+    convert_little_endian_to_current(out, channels, area)
 }
 
 
