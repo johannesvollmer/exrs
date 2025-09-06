@@ -92,17 +92,17 @@ jobs:
       - name: Start Docker
         run: sudo systemctl start docker
 
+      # https://github.com/cross-rs/cross#supported-targets
       - name: Cross-Compile project to powerpc-unknown-linux-gnu without rayon feature
         run: cross build --target powerpc-unknown-linux-gnu --no-default-features --verbose
 
-      # https://github.com/cross-rs/cross#supported-targets
-      - name: Cross-Run Tests in powerpc-unknown-linux-gnu using Qemu without rayon feature
+      - name: Cross-Run Tests in powerpc-unknown-linux-gnu without rayon feature
         run: cross test --target powerpc-unknown-linux-gnu --no-default-features --verbose
 
       - name: Cross-Compile project to powerpc-unknown-linux-gnu with rayon feature
         run: cross build --target powerpc-unknown-linux-gnu --features rayon --verbose
 
-      - name: Cross-Run Tests in powerpc-unknown-linux-gnu with rayon feature using Qemu
+      - name: Cross-Run Tests in powerpc-unknown-linux-gnu with rayon feature
         run: cross test --target powerpc-unknown-linux-gnu --features rayon --verbose
 
   wasm32:
