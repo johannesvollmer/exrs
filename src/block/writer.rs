@@ -5,16 +5,10 @@ use std::fmt::Debug;
 use std::io::Seek;
 use std::iter::Peekable;
 use std::ops::Not;
-use std::sync::mpsc;
-#[cfg(feature = "rayon")]
-use rayon_core::{ThreadPool, ThreadPoolBuildError};
 
 use smallvec::alloc::collections::BTreeMap;
-
 use crate::block::UncompressedBlock;
 use crate::block::chunk::Chunk;
-#[cfg(feature = "rayon")]
-use crate::compression::Compression;
 use crate::error::{Error, Result, UnitResult, usize_to_u64};
 use crate::io::{Data, Tracking, Write};
 use crate::meta::{Headers, MetaData, OffsetTables};
@@ -335,6 +329,8 @@ impl<'w, W> SequentialBlocksCompressor<'w, W> where W: 'w + ChunksWriter {
     }
 }
 
+
+
 /// Compress blocks to a chunk writer with multiple threads.
 #[cfg(feature = "rayon")]
 #[derive(Debug)]
@@ -343,8 +339,8 @@ pub struct ParallelBlocksCompressor<'w, W> {
     meta: &'w MetaData,
     sorted_writer: SortedBlocksWriter<'w, W>,
 
-    sender: mpsc::Sender<Result<(usize, usize, Chunk)>>,
-    receiver: mpsc::Receiver<Result<(usize, usize, Chunk)>>,
+    sender: std::sync::mpsc::Sender<Result<(usize, usize, Chunk)>>,
+    receiver: std::sync::mpsc::Receiver<Result<(usize, usize, Chunk)>>,
     pool: rayon_core::ThreadPool,
 
     currently_compressing_count: usize,
@@ -370,9 +366,14 @@ impl<'w, W> ParallelBlocksCompressor<'w, W> where W: 'w + ChunksWriter {
     pub fn new_with_thread_pool<CreatePool>(
         meta: &'w MetaData, chunks_writer: &'w mut W, try_create_thread_pool: CreatePool)
         -> Option<Self>
-        where CreatePool: FnOnce() -> std::result::Result<ThreadPool, ThreadPoolBuildError>
+        where CreatePool: FnOnce() -> std::result::Result<rayon_core::ThreadPool, rayon_core::ThreadPoolBuildError>
     {
-        if meta.headers.iter().all(|head|head.compression == Compression::Uncompressed) {
+        use crate::compression::Compression;
+
+        let is_entirely_uncompressed = meta.headers.iter()
+            .all(|head|head.compression == Compression::Uncompressed);
+
+        if is_entirely_uncompressed {
             return None;
         }
 
@@ -386,7 +387,7 @@ impl<'w, W> ParallelBlocksCompressor<'w, W> where W: 'w + ChunksWriter {
         };
 
         let max_threads = pool.current_num_threads().max(1).min(chunks_writer.total_chunks_count()) + 2; // ca one block for each thread at all times
-        let (send, recv) = mpsc::channel(); // TODO bounded channel simplifies logic?
+        let (send, recv) = std::sync::mpsc::channel(); // TODO bounded channel simplifies logic?
 
         Some(Self {
             sorted_writer: SortedBlocksWriter::new(meta, chunks_writer),
