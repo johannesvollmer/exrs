@@ -4,15 +4,8 @@
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::io::{Read, Seek};
-use std::sync::mpsc;
-#[cfg(feature = "rayon")]
-use rayon_core::{ThreadPool, ThreadPoolBuildError};
-
-use smallvec::alloc::sync::Arc;
-
 use crate::block::{BlockIndex, UncompressedBlock};
 use crate::block::chunk::{Chunk, TileCoordinates};
-use crate::compression::Compression;
 use crate::error::{Error, Result, u64_to_usize, UnitResult};
 use crate::io::{PeekRead, Tracking};
 use crate::meta::{MetaData, OffsetTables};
@@ -392,15 +385,15 @@ impl<R: ChunksReader> SequentialBlockDecompressor<R> {
 #[derive(Debug)]
 pub struct ParallelBlockDecompressor<R: ChunksReader> {
     remaining_chunks: R,
-    sender: mpsc::Sender<Result<UncompressedBlock>>,
-    receiver: mpsc::Receiver<Result<UncompressedBlock>>,
+    sender: std::sync::mpsc::Sender<Result<UncompressedBlock>>,
+    receiver: std::sync::mpsc::Receiver<Result<UncompressedBlock>>,
     currently_decompressing_count: usize,
     max_threads: usize,
 
-    shared_meta_data_ref: Arc<MetaData>,
+    shared_meta_data_ref: std::sync::Arc<MetaData>,
     pedantic: bool,
 
-    pool: ThreadPool,
+    pool: rayon_core::ThreadPool,
 }
 
 #[cfg(feature = "rayon")]
@@ -423,12 +416,15 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
     /// Returns the chunks if parallel decompression should not be used.
     pub fn new_with_thread_pool<CreatePool>(chunks: R, pedantic: bool, try_create_thread_pool: CreatePool)
         -> std::result::Result<Self, R>
-        where CreatePool: FnOnce() -> std::result::Result<ThreadPool, ThreadPoolBuildError>
+        where CreatePool: FnOnce() -> std::result::Result<rayon_core::ThreadPool, rayon_core::ThreadPoolBuildError>
     {
+        use crate::compression::Compression;
+
+        let is_entirely_uncompressed = chunks.meta_data().headers.iter()
+            .all(|head|head.compression == Compression::Uncompressed);
+
         // if no compression is used in the file, don't use a threadpool
-        if chunks.meta_data().headers.iter()
-            .all(|head|head.compression == Compression::Uncompressed)
-        {
+        if is_entirely_uncompressed {
             return Err(chunks);
         }
 
@@ -443,10 +439,10 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
 
         let max_threads = pool.current_num_threads().max(1).min(chunks.len()) + 2; // ca one block for each thread at all times
 
-        let (send, recv) = mpsc::channel(); // TODO bounded channel simplifies logic?
+        let (send, recv) = std::sync::mpsc::channel(); // TODO bounded channel simplifies logic?
 
         Ok(Self {
-            shared_meta_data_ref: Arc::new(chunks.meta_data().clone()),
+            shared_meta_data_ref: std::sync::Arc::new(chunks.meta_data().clone()),
             currently_decompressing_count: 0,
             remaining_chunks: chunks,
             sender: send,
