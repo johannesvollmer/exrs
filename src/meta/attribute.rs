@@ -82,20 +82,6 @@ pub enum AttributeValue {
     /// 3D float vector.
     FloatVec3((f32, f32, f32)),
 
-    /// An explicitly untyped attribute for binary application data.
-    /// Also contains the type name of this value.
-    /// The format of the byte contents is explicitly unspecified.
-    /// Used for custom application data.
-    Bytes {
-
-        /// An application-specific type hint of the byte contents.
-        type_hint: Text,
-
-        /// The contents of this byte array are completely unspecified
-        /// and should be treated as untrusted data.
-        bytes: SmallVec<[u8; 16]>
-    },
-
     /// A custom attribute.
     /// Contains the type name of this value.
     Custom {
@@ -105,12 +91,12 @@ pub enum AttributeValue {
 
         /// The value, stored in little-endian byte order, of the value.
         /// Use the `exr::io::Data` trait to extract binary values from this vector.
-        bytes: SmallVec<[u8; 16]>
+        bytes: Vec<u8>
     },
 }
 
 /// A byte array with each byte being a char.
-/// This is not UTF and it must be constructed from a standard string.
+/// This is not UTF an must be constructed from a standard string.
 // TODO is this ascii? use a rust ascii crate?
 #[derive(Clone, PartialEq, Ord, PartialOrd, Default)] // hash implemented manually
 pub struct Text {
@@ -504,22 +490,10 @@ impl Text {
         self.bytes.len() + i32::BYTE_SIZE
     }
 
-    /// The byte count this string would occupy if it were encoded as a size-prefixed string.
-    pub fn u32_sized_byte_size(&self) -> usize {
-        self.bytes.len() + u32::BYTE_SIZE
-    }
-
     /// Write the length of a string and then the contents with that length.
     pub fn write_i32_sized<W: Write>(&self, write: &mut W) -> UnitResult {
         debug_assert!(self.validate( false, None).is_ok(), "text size bug");
         i32::write(usize_to_i32(self.bytes.len()), write)?;
-        Self::write_unsized_bytes(self.bytes.as_slice(), write)
-    }
-
-    /// Write the length of a string and then the contents with that length.
-    pub fn write_u32_sized<W: Write>(&self, write: &mut W) -> UnitResult {
-        debug_assert!(self.validate( false, None).is_ok(), "text size bug");
-        u32::write(usize_to_u32(self.bytes.len(), "text length")?, write)?;
         Self::write_unsized_bytes(self.bytes.as_slice(), write)
     }
 
@@ -532,12 +506,6 @@ impl Text {
     /// Read the length of a string and then the contents with that length.
     pub fn read_i32_sized<R: Read>(read: &mut R, max_size: usize) -> Result<Self> {
         let size = i32_to_usize(i32::read(read)?, "vector size")?;
-        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 1024, Some(max_size), "text attribute length")?)))
-    }
-
-    /// Read the length of a string and then the contents with that length.
-    pub fn read_u32_sized<R: Read>(read: &mut R, max_size: usize) -> Result<Self> {
-        let size = u32_to_usize(u32::read(read)?);
         Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 1024, Some(max_size), "text attribute length")?)))
     }
 
@@ -1720,10 +1688,7 @@ impl AttributeValue {
             TextVector(ref value) => value.iter().map(self::Text::i32_sized_byte_size).sum(),
             TileDescription(_) => self::TileDescription::byte_size(),
             Custom { ref bytes, .. } => bytes.len(),
-            BlockType(ref kind) => kind.byte_size(),
-
-            Bytes { ref bytes, ref type_hint } =>
-                type_hint.u32_sized_byte_size() + bytes.len(),
+            BlockType(ref kind) => kind.byte_size()
         }
     }
 
@@ -1757,7 +1722,6 @@ impl AttributeValue {
             TextVector(_) =>  ty::TEXT_VECTOR,
             TileDescription(_) =>  ty::TILES,
             BlockType(_) => super::BlockType::TYPE_NAME,
-            Bytes{ .. } => ty::BYTES,
             Custom { ref kind, .. } => kind.as_slice(),
         }
     }
@@ -1800,14 +1764,8 @@ impl AttributeValue {
 
             TextVector(ref value) => self::Text::write_vec_of_i32_sized_texts(write, value)?,
             TileDescription(ref value) => value.write(write)?,
-            BlockType(kind) => kind.write(write)?,
-
-            Bytes { ref type_hint, ref bytes } => {
-                type_hint.write_u32_sized(write)?; // no idea why this one is u32, everything else is usually i32...
-                u8::write_slice(write, bytes.as_slice())?
-            }
-
             Custom { ref bytes, .. } => u8::write_slice(write, &bytes)?, // write.write(&bytes).map(|_| ()),
+            BlockType(kind) => kind.write(write)?
         };
 
         Ok(())
@@ -1815,17 +1773,15 @@ impl AttributeValue {
 
     /// Read the value without validating.
     /// Returns `Ok(Ok(attribute))` for valid attributes.
-    /// Returns `Ok(Err(Error))` for malformed attributes from a valid byte source.
+    /// Returns `Ok(Err(Error))` for invalid attributes from a valid byte source.
     /// Returns `Err(Error)` for invalid byte sources, for example for invalid files.
     pub fn read(read: &mut PeekRead<impl Read>, kind: Text, byte_size: usize) -> Result<Result<Self>> {
         use self::AttributeValue::*;
         use self::type_names as ty;
 
-        // always read bytes as to leave the read position at the end of the attribute
-        // even if the attribute contents fails to decode
-        let mut attribute_bytes = SmallVec::<[u8; 64]>::new();
-        u8::read_into_vec(read, &mut attribute_bytes, byte_size, 64, None, "attribute value size")?;
-        // TODO: don't read into an array at all, just read directly from the reader and optionally seek afterwards?
+        // always read bytes
+        let attribute_bytes = u8::read_vec(read, byte_size, 128, None, "attribute value size")?;
+        // TODO no allocation for small attributes // : SmallVec<[u8; 64]> = smallvec![0; byte_size];
 
         let parse_attribute = move || {
             let reader = &mut attribute_bytes.as_slice();
@@ -1903,14 +1859,7 @@ impl AttributeValue {
 
                 ty::TILES       => TileDescription(self::TileDescription::read(reader)?),
 
-                ty::BYTES       => {
-                    // for some reason, they went for unsigned sizes, in this place only
-                    let type_hint = self::Text::read_u32_sized(reader, reader.len())?;
-                    let bytes = SmallVec::from(*reader);
-                    Bytes { type_hint, bytes }
-                }
-
-                _ => Custom { kind: kind.clone(), bytes: SmallVec::from(*reader) }
+                _ => Custom { kind: kind.clone(), bytes: attribute_bytes.clone() } // TODO no clone
             })
         };
 
@@ -2023,8 +1972,7 @@ pub mod type_names {
         PREVIEW:        b"preview",
         TEXT:           b"string",
         TEXT_VECTOR:    b"stringvector",
-        TILES:          b"tiledesc",
-        BYTES:          b"bytes"
+        TILES:          b"tiledesc"
     }
 }
 
@@ -2158,13 +2106,6 @@ mod test {
                     size: Vec2(10, 30),
                     pixel_data: vec![31; 10 * 30 * 4],
                 }),
-            ),
-            (
-                Text::from("custom byte sequence: prime numbers single byte"),
-                AttributeValue::Bytes{
-                    type_hint: Text::from("byte-primes"),
-                    bytes: smallvec![2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73],
-                },
             ),
             (
                 Text::from("leg count, again"),

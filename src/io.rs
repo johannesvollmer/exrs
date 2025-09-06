@@ -13,7 +13,7 @@ use std::io::{Seek, SeekFrom};
 use std::path::Path;
 use std::fs::File;
 use std::convert::TryFrom;
-use smallvec::{Array, SmallVec};
+
 
 /// Skip reading uninteresting bytes without allocating.
 #[inline]
@@ -275,17 +275,9 @@ pub trait Data: Sized + Default + Clone {
     ///
     /// This method will not allocate more memory than `soft_max` at once.
     /// If `hard_max` is specified, it will never read any more than that.
-    /// Returns `Error::Invalid` if the reader does not contain the desired number of elements.
+    /// Returns `Error::Invalid` if reader does not contain the desired number of elements.
     #[inline]
-    fn read_vec(read: &mut impl Read, data_size: usize, soft_max: usize, hard_max: Option<usize>, purpose: &'static str)
-        -> Result<Vec<Self>>
-    {
-        if let Some(max) = hard_max {
-            if data_size > max {
-                return Err(Error::invalid(purpose))
-            }
-        }
-
+    fn read_vec(read: &mut impl Read, data_size: usize, soft_max: usize, hard_max: Option<usize>, purpose: &'static str) -> Result<Vec<Self>> {
         let mut vec = Vec::with_capacity(data_size.min(soft_max));
         Self::read_into_vec(read, &mut vec, data_size, soft_max, hard_max, purpose)?;
         Ok(vec)
@@ -304,12 +296,7 @@ pub trait Data: Sized + Default + Clone {
     /// If `hard_max` is specified, it will never read any more than that.
     /// Returns `Error::Invalid` if reader does not contain the desired number of elements.
     #[inline]
-    fn read_into_vec(
-        read: &mut impl Read,
-        data: &mut impl ResizableVec<Self>,
-        data_size: usize, soft_max: usize, hard_max: Option<usize>,
-        purpose: &'static str
-    ) -> UnitResult {
+    fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, soft_max: usize, hard_max: Option<usize>, purpose: &'static str) -> UnitResult {
         if let Some(max) = hard_max {
             if data_size > max {
                 return Err(Error::invalid(purpose))
@@ -326,7 +313,7 @@ pub trait Data: Sized + Default + Clone {
             let chunk_end = (chunk_start + soft_max).min(data_size);
 
             data.resize(chunk_end, Self::default());
-            Self::read_slice(read, &mut data.as_mut()[chunk_start .. chunk_end])?; // safe because of `min(data_size)`
+            Self::read_slice(read, &mut data[chunk_start .. chunk_end])?; // safe because of `min(data_size)``
         }
 
         Ok(())
@@ -359,32 +346,6 @@ pub trait Data: Sized + Default + Clone {
         }
     }
 }
-
-/// A unifying trait that is implemented for Vec and SmallVec,
-/// focused on resizing capabilities.
-pub trait ResizableVec<T>: AsMut<[T]> {
-    fn resize(&mut self, new_len: usize, value: T);
-    fn len(&self) -> usize;
-}
-
-impl<T: Clone> ResizableVec<T> for Vec<T> {
-    fn resize(&mut self, new_len: usize, value: T) {
-        Vec::resize(self, new_len, value)
-    }
-    fn len(&self) -> usize {
-        Vec::len(self)
-    }
-}
-
-impl<T: Clone, A: Array<Item=T>> ResizableVec<T> for SmallVec<A> {
-    fn resize(&mut self, new_len: usize, value: T) {
-        SmallVec::resize(self, new_len, value)
-    }
-    fn len(&self) -> usize {
-        SmallVec::len(self)
-    }
-}
-
 
 
 macro_rules! implement_data_for_primitive {
