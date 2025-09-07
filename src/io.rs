@@ -264,30 +264,44 @@ pub trait Data: Sized + Default + Clone {
     /// Number of bytes this would consume in an exr file.
     const BYTE_SIZE: usize = ::std::mem::size_of::<Self>();
 
-    /// Read a value of type `Self`.
-    fn read(read: &mut impl Read) -> Result<Self>;
+    /// Read a value of type `Self` from a little-endian source.
+    fn read_le(read: &mut impl Read) -> Result<Self>;
 
-    /// Read as many values of type `Self` as fit into the specified slice.
+    /// Read a value of type `Self` from a **native-endian** source (no conversion).
+    fn read_ne(read: &mut impl Read) -> Result<Self>;
+
+    /// Read as many values of type `Self` as fit into the specified slice, from a little-endian source.
     /// If the slice cannot be filled completely, returns `Error::Invalid`.
-    fn read_slice(read: &mut impl Read, slice: &mut[Self]) -> UnitResult;
+    fn read_slice_le(read: &mut impl Read, slice: &mut[Self]) -> UnitResult;
+
+    /// Read as many values of type `Self` as fit into the specified slice, from a **native-endian** source (no conversion).
+    /// If the slice cannot be filled completely, returns `Error::Invalid`.
+    fn read_slice_ne(read: &mut impl Read, slice: &mut[Self]) -> UnitResult;
 
     /// Read as many values of type `Self` as specified with `data_size`.
     ///
     /// This method will not allocate more memory than `soft_max` at once.
     /// If `hard_max` is specified, it will never read any more than that.
     /// Returns `Error::Invalid` if reader does not contain the desired number of elements.
+    /// Reads from little-endian byte source.
     #[inline]
-    fn read_vec(read: &mut impl Read, data_size: usize, soft_max: usize, hard_max: Option<usize>, purpose: &'static str) -> Result<Vec<Self>> {
+    fn read_vec_le(read: &mut impl Read, data_size: usize, soft_max: usize, hard_max: Option<usize>, purpose: &'static str) -> Result<Vec<Self>> {
         let mut vec = Vec::with_capacity(data_size.min(soft_max));
-        Self::read_into_vec(read, &mut vec, data_size, soft_max, hard_max, purpose)?;
+        Self::read_into_vec_le(read, &mut vec, data_size, soft_max, hard_max, purpose)?;
         Ok(vec)
     }
 
-    /// Write this value to the writer.
-    fn write(self, write: &mut impl Write) -> UnitResult;
+    /// Write this value to the writer, converting to little-endian format.
+    fn write_le(self, write: &mut impl Write) -> UnitResult;
 
-    /// Write all values of that slice to the writer.
-    fn write_slice(write: &mut impl Write, slice: &[Self]) -> UnitResult;
+    /// Write this value to the writer, in **native-endian** format (no conversion).
+    fn write_ne(self, write: &mut impl Write) -> UnitResult;
+
+    /// Write all values of that slice to the writer, converting to little-endian format.
+    fn write_slice_le(write: &mut impl Write, slice: &[Self]) -> UnitResult;
+
+    /// Write all values of that slice to the writer, in **native-endian** format (no conversion).
+    fn write_slice_ne(write: &mut impl Write, slice: &[Self]) -> UnitResult;
 
 
     /// Read as many values of type `Self` as specified with `data_size` into the provided vector.
@@ -296,7 +310,7 @@ pub trait Data: Sized + Default + Clone {
     /// If `hard_max` is specified, it will never read any more than that.
     /// Returns `Error::Invalid` if reader does not contain the desired number of elements.
     #[inline]
-    fn read_into_vec(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, soft_max: usize, hard_max: Option<usize>, purpose: &'static str) -> UnitResult {
+    fn read_into_vec_le(read: &mut impl Read, data: &mut Vec<Self>, data_size: usize, soft_max: usize, hard_max: Option<usize>, purpose: &'static str) -> UnitResult {
         if let Some(max) = hard_max {
             if data_size > max {
                 return Err(Error::invalid(purpose))
@@ -313,17 +327,17 @@ pub trait Data: Sized + Default + Clone {
             let chunk_end = (chunk_start + soft_max).min(data_size);
 
             data.resize(chunk_end, Self::default());
-            Self::read_slice(read, &mut data[chunk_start .. chunk_end])?; // safe because of `min(data_size)``
+            Self::read_slice_le(read, &mut data[chunk_start .. chunk_end])?; // safe because of `min(data_size)``
         }
 
         Ok(())
     }
 
-    /// Write the length of the slice and then its contents.
+    /// Write the length of the slice and then its contents, converting to little-endian format.
     #[inline]
-    fn write_i32_sized_slice<W: Write>(write: &mut W, slice: &[Self]) -> UnitResult {
-        i32::try_from(slice.len())?.write(write)?;
-        Self::write_slice(write, slice)
+    fn write_i32_sized_slice_le<W: Write>(write: &mut W, slice: &[Self]) -> UnitResult {
+        i32::try_from(slice.len())?.write_le(write)?;
+        Self::write_slice_le(write, slice)
     }
 
     /// Read the desired element count and then read that many items into a vector.
@@ -332,9 +346,9 @@ pub trait Data: Sized + Default + Clone {
     /// If `hard_max` is specified, it will never read any more than that.
     /// Returns `Error::Invalid` if reader does not contain the desired number of elements.
     #[inline]
-    fn read_i32_sized_vec(read: &mut impl Read, soft_max: usize, hard_max: Option<usize>, purpose: &'static str) -> Result<Vec<Self>> {
-        let size = usize::try_from(i32::read(read)?)?;
-        Self::read_vec(read, size, soft_max, hard_max, purpose)
+    fn read_i32_sized_vec_le(read: &mut impl Read, soft_max: usize, hard_max: Option<usize>, purpose: &'static str) -> Result<Vec<Self>> {
+        let size = usize::try_from(i32::read_le(read)?)?;
+        Self::read_vec_le(read, size, soft_max, hard_max, purpose)
     }
 
     /// Fill the slice with this value.
@@ -352,25 +366,48 @@ macro_rules! implement_data_for_primitive {
     ($kind: ident) => {
         impl Data for $kind {
             #[inline]
-            fn read(read: &mut impl Read) -> Result<Self> {
+            fn read_le(read: &mut impl Read) -> Result<Self> {
                 Ok(read.read_from_little_endian()?)
             }
 
             #[inline]
-            fn write(self, write: &mut impl Write) -> Result<()> {
+            fn read_ne(read: &mut impl Read) -> Result<Self> {
+                Ok(read.read_from_native_endian()?)
+            }
+
+            #[inline]
+            fn write_le(self, write: &mut impl Write) -> Result<()> {
                 write.write_as_little_endian(&self)?;
                 Ok(())
             }
 
             #[inline]
-            fn read_slice(read: &mut impl Read, slice: &mut [Self]) -> Result<()> {
+            fn write_ne(self, write: &mut impl Write) -> Result<()> {
+                write.write_as_native_endian(&self)?;
+                Ok(())
+            }
+
+            #[inline]
+            fn read_slice_le(read: &mut impl Read, slice: &mut [Self]) -> Result<()> {
                 read.read_from_little_endian_into(slice)?;
                 Ok(())
             }
 
             #[inline]
-            fn write_slice(write: &mut impl Write, slice: &[Self]) -> Result<()> {
+            fn read_slice_ne(read: &mut impl Read, slice: &mut [Self]) -> Result<()> {
+                read.read_from_native_endian_into(slice)?;
+                Ok(())
+            }
+
+            #[inline]
+            fn write_slice_le(write: &mut impl Write, slice: &[Self]) -> Result<()> {
                 write.write_as_little_endian(slice)?;
+                Ok(())
+            }
+
+            #[inline]
+            fn write_slice_ne(write: &mut impl Write, slice: &[Self]) -> Result<()> {
+                write.write_as_native_endian(slice)?;
                 Ok(())
             }
         }
@@ -391,25 +428,47 @@ implement_data_for_primitive!(f64);
 
 impl Data for f16 {
     #[inline]
-    fn read(read: &mut impl Read) -> Result<Self> {
-        u16::read(read).map(f16::from_bits)
+    fn read_le(read: &mut impl Read) -> Result<Self> {
+        u16::read_le(read).map(f16::from_bits)
     }
 
     #[inline]
-    fn read_slice(read: &mut impl Read, slice: &mut [Self]) -> Result<()> {
-        let bits = slice.reinterpret_cast_mut();
-        u16::read_slice(read, bits)
+    fn read_ne(read: &mut impl Read) -> Result<Self> {
+        u16::read_ne(read).map(f16::from_bits)
     }
 
     #[inline]
-    fn write(self, write: &mut impl Write) -> Result<()> {
-        self.to_bits().write(write)
+    fn read_slice_le(read: &mut impl Read, slice: &mut [Self]) -> Result<()> {
+        let bits_mut = slice.reinterpret_cast_mut();
+        u16::read_slice_le(read, bits_mut)
     }
 
     #[inline]
-    fn write_slice(write: &mut impl Write, slice: &[Self]) -> Result<()> {
+    fn read_slice_ne(read: &mut impl Read, slice: &mut [Self]) -> Result<()> {
+        let bits_mut = slice.reinterpret_cast_mut();
+        u16::read_slice_ne(read, bits_mut)
+    }
+
+    #[inline]
+    fn write_le(self, write: &mut impl Write) -> Result<()> {
+        self.to_bits().write_le(write)
+    }
+
+    #[inline]
+    fn write_ne(self, write: &mut impl Write) -> Result<()> {
+        self.to_bits().write_ne(write)
+    }
+
+    #[inline]
+    fn write_slice_le(write: &mut impl Write, slice: &[Self]) -> Result<()> {
         let bits = slice.reinterpret_cast();
-        u16::write_slice(write, bits)
+        u16::write_slice_le(write, bits)
+    }
+
+    #[inline]
+    fn write_slice_ne(write: &mut impl Write, slice: &[Self]) -> Result<()> {
+        let bits = slice.reinterpret_cast();
+        u16::write_slice_ne(write, bits)
     }
 }
 

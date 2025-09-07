@@ -31,7 +31,7 @@ struct ChannelData {
 
 pub fn decompress(
     channels: &ChannelList,
-    compressed: ByteVec,
+    compressed_le: ByteVec,
     rectangle: IntegerBounds,
     expected_byte_size: usize, // TODO remove expected byte size as it can be computed with `rectangle.size.area() * channels.bytes_per_pixel`
     pedantic: bool
@@ -41,7 +41,7 @@ pub fn decompress(
     debug_assert_eq!(expected_byte_size, rectangle.size.area() * channels.bytes_per_pixel);
     debug_assert!(!channels.list.is_empty());
 
-    if compressed.is_empty() {
+    if compressed_le.is_empty() {
         return Ok(Vec::new());
     }
 
@@ -49,29 +49,29 @@ pub fn decompress(
 
     let mut bitmap = vec![0_u8; BITMAP_SIZE]; // FIXME use bit_vec!
 
-    let mut remaining_input = compressed.as_slice();
-    let min_non_zero = u16::read(&mut remaining_input)? as usize;
-    let max_non_zero = u16::read(&mut remaining_input)? as usize;
+    let mut remaining_input_le = compressed_le.as_slice();
+    let min_non_zero = u16::read_le(&mut remaining_input_le)? as usize;
+    let max_non_zero = u16::read_le(&mut remaining_input_le)? as usize;
 
     if max_non_zero >= BITMAP_SIZE || min_non_zero >= BITMAP_SIZE {
         return Err(Error::invalid("compression data"));
     }
 
     if min_non_zero <= max_non_zero {
-        u8::read_slice(&mut remaining_input, &mut bitmap[min_non_zero ..= max_non_zero])?;
+        u8::read_slice_ne(&mut remaining_input_le, &mut bitmap[min_non_zero ..= max_non_zero])?;
     }
 
     let (lookup_table, max_value) = reverse_lookup_table_from_bitmap(&bitmap);
 
     {
-        let length = i32::read(&mut remaining_input)?;
-        if pedantic && length as i64 != remaining_input.len() as i64 {
+        let length = i32::read_le(&mut remaining_input_le)?;
+        if pedantic && length as i64 != remaining_input_le.len() as i64 {
             // TODO length might be smaller than remaining??
             return Err(Error::invalid("compression data"));
         }
     }
 
-    let mut tmp_u16_buffer = huffman::decompress(remaining_input, expected_u16_count)?;
+    let mut tmp_u16_buffer = huffman::decompress(remaining_input_le, expected_u16_count)?;
 
     let mut channel_data: SmallVec<[ChannelData; 6]> = {
         let mut tmp_read_index = 0;
@@ -129,7 +129,7 @@ pub fn decompress(
             // We can support uncompressed data in the machine's native format
             // if all image channels are of type HALF, and if the Xdr and the
             // native representations of a half have the same size.
-            u16::write_slice(&mut out, values).expect("write to in-memory failed");
+            u16::write_slice_le(&mut out, values).expect("write to in-memory failed");
         }
     }
 
@@ -150,20 +150,20 @@ pub fn decompress(
 
 pub fn compress(
     channels: &ChannelList,
-    uncompressed: ByteVec,
+    uncompressed_ne: ByteVec,
     rectangle: IntegerBounds
 ) -> Result<ByteVec>
 {
-    if uncompressed.is_empty() {
+    if uncompressed_ne.is_empty() {
         return Ok(Vec::new());
     }
 
-    // TODO do not convert endianness for f16-only images
+    // TODO do not convert endianness for f16-only images twice
     //      see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
-    let uncompressed = super::convert_current_to_little_endian(uncompressed, channels, rectangle);
-    let uncompressed = uncompressed.as_slice();// TODO no alloc
+    let uncompressed_le = super::convert_current_to_little_endian(uncompressed_ne, channels, rectangle);
+    let uncompressed_le = uncompressed_le.as_slice();// TODO no alloc
 
-    let mut tmp = vec![0_u16; uncompressed.len() / 2 ];
+    let mut tmp = vec![0_u16; uncompressed_le.len() / 2 ];
     let mut channel_data: SmallVec<[ChannelData; 6]> = {
         let mut tmp_end_index = 0;
 
@@ -188,7 +188,7 @@ pub fn compress(
         vec
     };
 
-    let mut remaining_uncompressed_bytes = uncompressed;
+    let mut remaining_uncompressed_bytes_le = uncompressed_le;
     for y in rectangle.position.y() .. rectangle.end().y() {
         for channel in &mut channel_data {
             if mod_p(y, usize_to_i32(channel.y_sampling)) != 0 { continue; }
@@ -202,7 +202,7 @@ pub fn compress(
             // We can support uncompressed data in the machine's native format
             // if all image channels are of type HALF, and if the Xdr and the
             // native representations of a half have the same size.
-            u16::read_slice(&mut remaining_uncompressed_bytes, target).expect("in-memory read failed");
+            u16::read_slice_le(&mut remaining_uncompressed_bytes_le, target).expect("in-memory read failed");
         }
     }
 
@@ -211,9 +211,9 @@ pub fn compress(
     let (max_value, table) = forward_lookup_table_from_bitmap(&bitmap);
     apply_lookup_table(&mut tmp, &table);
 
-    let mut piz_compressed = Vec::with_capacity(uncompressed.len() / 2);
-    u16::try_from(min_non_zero)?.write(&mut piz_compressed)?;
-    u16::try_from(max_non_zero)?.write(&mut piz_compressed)?;
+    let mut piz_compressed = Vec::with_capacity(uncompressed_le.len() / 2);
+    u16::try_from(min_non_zero)?.write_le(&mut piz_compressed)?;
+    u16::try_from(max_non_zero)?.write_le(&mut piz_compressed)?;
 
     if min_non_zero <= max_non_zero {
         piz_compressed.extend_from_slice(&bitmap[min_non_zero ..= max_non_zero]);
@@ -231,7 +231,7 @@ pub fn compress(
     }
 
     let huffman_compressed: Vec<u8> = huffman::compress(&tmp)?;
-    u8::write_i32_sized_slice(&mut piz_compressed, &huffman_compressed).expect("in-memory write failed");
+    u8::write_i32_sized_slice_le(&mut piz_compressed, &huffman_compressed).expect("in-memory write failed");
 
     Ok(piz_compressed)
 }

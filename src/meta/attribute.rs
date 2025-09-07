@@ -491,22 +491,22 @@ impl Text {
     }
 
     /// Write the length of a string and then the contents with that length.
-    pub fn write_i32_sized<W: Write>(&self, write: &mut W) -> UnitResult {
+    pub fn write_i32_sized_le<W: Write>(&self, write: &mut W) -> UnitResult {
         debug_assert!(self.validate( false, None).is_ok(), "text size bug");
-        i32::write(usize_to_i32(self.bytes.len()), write)?;
+        i32::write_le(usize_to_i32(self.bytes.len()), write)?;
         Self::write_unsized_bytes(self.bytes.as_slice(), write)
     }
 
     /// Without validation, write this instance to the byte stream.
     fn write_unsized_bytes<W: Write>(bytes: &[u8], write: &mut W) -> UnitResult {
-        u8::write_slice(write, bytes)?;
+        u8::write_slice_le(write, bytes)?;
         Ok(())
     }
 
     /// Read the length of a string and then the contents with that length.
-    pub fn read_i32_sized<R: Read>(read: &mut R, max_size: usize) -> Result<Self> {
-        let size = i32_to_usize(i32::read(read)?, "vector size")?;
-        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 1024, Some(max_size), "text attribute length")?)))
+    pub fn read_i32_sized_le<R: Read>(read: &mut R, max_size: usize) -> Result<Self> {
+        let size = i32_to_usize(i32::read_le(read)?, "vector size")?;
+        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec_le(read, size, 1024, Some(max_size), "text attribute length")?)))
     }
 
     /// Read the contents with that length.
@@ -524,7 +524,7 @@ impl Text {
 
         // for large strings, read a dynamic vec of arbitrary size
         else {
-            Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 1024, None, "text attribute length")?)))
+            Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec_le(read, size, 1024, None, "text attribute length")?)))
         }
     }
 
@@ -544,10 +544,10 @@ impl Text {
 
     /// Read a string until the null-terminator is found. Then skips the null-terminator.
     pub fn read_null_terminated<R: Read>(read: &mut R, max_len: usize) -> Result<Self> {
-        let mut bytes = smallvec![ u8::read(read)? ]; // null-terminated strings are always at least 1 byte
+        let mut bytes = smallvec![ u8::read_le(read)? ]; // null-terminated strings are always at least 1 byte
 
         loop {
-            match u8::read(read)? {
+            match u8::read_le(read)? {
                 0 => break,
                 non_terminator => bytes.push(non_terminator),
             }
@@ -562,7 +562,7 @@ impl Text {
 
     /// Allows any text length since it is only used for attribute values,
     /// but not attribute names, attribute type names, or channel names.
-    fn read_vec_of_i32_sized(
+    fn read_vec_of_i32_sized_texts_le(
         read: &mut PeekRead<impl Read>,
         total_byte_size: usize
     ) -> Result<Vec<Text>>
@@ -573,7 +573,7 @@ impl Text {
         let mut processed_bytes = 0;
 
         while processed_bytes < total_byte_size {
-            let text = Text::read_i32_sized(read, total_byte_size)?;
+            let text = Text::read_i32_sized_le(read, total_byte_size)?;
             processed_bytes += ::std::mem::size_of::<i32>(); // size i32 of the text
             processed_bytes += text.bytes.len();
             result.push(text);
@@ -589,10 +589,10 @@ impl Text {
 
     /// Allows any text length since it is only used for attribute values,
     /// but not attribute names, attribute type names, or channel names.
-    fn write_vec_of_i32_sized_texts<W: Write>(write: &mut W, texts: &[Text]) -> UnitResult {
+    fn write_vec_of_i32_sized_texts_le<W: Write>(write: &mut W, texts: &[Text]) -> UnitResult {
         // length of the text-vector can be inferred from attribute size
         for text in texts {
-            text.write_i32_sized(write)?;
+            text.write_i32_sized_le(write)?;
         }
 
         Ok(())
@@ -770,7 +770,7 @@ impl BlockType {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write(&self, write: &mut impl Write) -> UnitResult {
-        u8::write_slice(write, self.to_text_bytes())?;
+        u8::write_slice_le(write, self.to_text_bytes())?;
         Ok(())
     }
 
@@ -862,19 +862,19 @@ impl IntegerBounds {
         let Vec2(x_min, y_min) = self.position;
         let Vec2(x_max, y_max) = self.max();
 
-        x_min.write(write)?;
-        y_min.write(write)?;
-        x_max.write(write)?;
-        y_max.write(write)?;
+        x_min.write_le(write)?;
+        y_min.write_le(write)?;
+        x_max.write_le(write)?;
+        y_max.write_le(write)?;
         Ok(())
     }
 
     /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
-        let x_min = i32::read(read)?;
-        let y_min = i32::read(read)?;
-        let x_max = i32::read(read)?;
-        let y_max = i32::read(read)?;
+        let x_min = i32::read_le(read)?;
+        let y_min = i32::read_le(read)?;
+        let x_max = i32::read_le(read)?;
+        let y_max = i32::read_le(read)?;
 
         let min = Vec2(x_min.min(x_max), y_min.min(y_max));
         let max  = Vec2(x_min.max(x_max), y_min.max(y_max));
@@ -916,19 +916,19 @@ impl FloatRect {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
-        self.min.x().write(write)?;
-        self.min.y().write(write)?;
-        self.max.x().write(write)?;
-        self.max.y().write(write)?;
+        self.min.x().write_le(write)?;
+        self.min.y().write_le(write)?;
+        self.max.x().write_le(write)?;
+        self.max.y().write_le(write)?;
         Ok(())
     }
 
     /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
-        let x_min = f32::read(read)?;
-        let y_min = f32::read(read)?;
-        let x_max = f32::read(read)?;
-        let y_max = f32::read(read)?;
+        let x_min = f32::read_le(read)?;
+        let y_min = f32::read_le(read)?;
+        let x_max = f32::read_le(read)?;
+        let y_max = f32::read_le(read)?;
 
         Ok(FloatRect {
             min: Vec2(x_min, y_min),
@@ -959,7 +959,7 @@ impl SampleType {
             SampleType::U32 => 0_i32,
             SampleType::F16 => 1_i32,
             SampleType::F32 => 2_i32,
-        }.write(write)?;
+        }.write_le(write)?;
 
         Ok(())
     }
@@ -967,7 +967,7 @@ impl SampleType {
     /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         // there's definitely going to be more than 255 different pixel types in the future
-        Ok(match i32::read(read)? {
+        Ok(match i32::read_le(read)? {
             0 => SampleType::U32,
             1 => SampleType::F16,
             2 => SampleType::F32,
@@ -1033,11 +1033,11 @@ impl ChannelDescription {
         match self.quantize_linearly {
             false => 0_u8,
             true  => 1_u8,
-        }.write(write)?;
+        }.write_le(write)?;
 
-        i8::write_slice(write, &[0_i8, 0_i8, 0_i8])?;
-        i32::write(usize_to_i32(self.sampling.x()), write)?;
-        i32::write(usize_to_i32(self.sampling.y()), write)?;
+        i8::write_slice_le(write, &[0_i8, 0_i8, 0_i8])?;
+        i32::write_le(usize_to_i32(self.sampling.x()), write)?;
+        i32::write_le(usize_to_i32(self.sampling.y()), write)?;
         Ok(())
     }
 
@@ -1046,17 +1046,17 @@ impl ChannelDescription {
         let name = Text::read_null_terminated(read, 256)?;
         let sample_type = SampleType::read(read)?;
 
-        let is_linear = match u8::read(read)? {
+        let is_linear = match u8::read_le(read)? {
             1 => true,
             0 => false,
             _ => return Err(Error::invalid("channel linearity attribute value")),
         };
 
         let mut reserved = [0_i8; 3];
-        i8::read_slice(read, &mut reserved)?;
+        i8::read_slice_le(read, &mut reserved)?;
 
-        let x_sampling = i32_to_usize(i32::read(read)?, "x channel sampling")?;
-        let y_sampling = i32_to_usize(i32::read(read)?, "y channel sampling")?;
+        let x_sampling = i32_to_usize(i32::read_le(read)?, "x channel sampling")?;
+        let y_sampling = i32_to_usize(i32::read_le(read)?, "y channel sampling")?;
 
         Ok(ChannelDescription {
             name, sample_type,
@@ -1294,15 +1294,15 @@ impl TimeCode {
     /// Write this time code to the byte stream, encoded as TV60 integers.
     /// Returns an `Error::Invalid` if the fields are out of the allowed range.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
-        self.pack_time_as_tv60_u32()?.write(write)?; // will validate
-        self.pack_user_data_as_u32().write(write)?;
+        self.pack_time_as_tv60_u32()?.write_le(write)?; // will validate
+        self.pack_user_data_as_u32().write_le(write)?;
         Ok(())
     }
 
     /// Read the time code, without validating, extracting from TV60 integers.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
-        let time_and_flags = u32::read(read)?;
-        let user_data = u32::read(read)?;
+        let time_and_flags = u32::read_le(read)?;
+        let user_data = u32::read_le(read)?;
         Ok(Self::from_tv60_time(time_and_flags, user_data))
     }
 }
@@ -1316,27 +1316,27 @@ impl Chromaticities {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
-        self.red.x().write(write)?;
-        self.red.y().write(write)?;
+        self.red.x().write_le(write)?;
+        self.red.y().write_le(write)?;
 
-        self.green.x().write(write)?;
-        self.green.y().write(write)?;
+        self.green.x().write_le(write)?;
+        self.green.y().write_le(write)?;
 
-        self.blue.x().write(write)?;
-        self.blue.y().write(write)?;
+        self.blue.x().write_le(write)?;
+        self.blue.y().write_le(write)?;
 
-        self.white.x().write(write)?;
-        self.white.y().write(write)?;
+        self.white.x().write_le(write)?;
+        self.white.y().write_le(write)?;
         Ok(())
     }
 
     /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         Ok(Chromaticities {
-            red: Vec2(f32::read(read)?, f32::read(read)?),
-            green: Vec2(f32::read(read)?, f32::read(read)?),
-            blue: Vec2(f32::read(read)?, f32::read(read)?),
-            white: Vec2(f32::read(read)?, f32::read(read)?),
+            red: Vec2(f32::read_le(read)?, f32::read_le(read)?),
+            green: Vec2(f32::read_le(read)?, f32::read_le(read)?),
+            blue: Vec2(f32::read_le(read)?, f32::read_le(read)?),
+            white: Vec2(f32::read_le(read)?, f32::read_le(read)?),
         })
     }
 }
@@ -1360,14 +1360,14 @@ impl Compression {
             B44A => 7_u8,
             DWAA(_) => 8_u8,
             DWAB(_) => 9_u8,
-        }.write(write)?;
+        }.write_le(write)?;
         Ok(())
     }
 
     /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         use self::Compression::*;
-        Ok(match u8::read(read)? {
+        Ok(match u8::read_le(read)? {
             0 => Uncompressed,
             1 => RLE,
             2 => ZIP1,
@@ -1396,7 +1396,7 @@ impl EnvironmentMap {
         match self {
             LatitudeLongitude => 0_u8,
             Cube => 1_u8
-        }.write(write)?;
+        }.write_le(write)?;
 
         Ok(())
     }
@@ -1404,7 +1404,7 @@ impl EnvironmentMap {
     /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         use self::EnvironmentMap::*;
-        Ok(match u8::read(read)? {
+        Ok(match u8::read_le(read)? {
             0 => LatitudeLongitude,
             1 => Cube,
             _ => return Err(Error::invalid("environment map attribute value")),
@@ -1421,25 +1421,25 @@ impl KeyCode {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
-        self.film_manufacturer_code.write(write)?;
-        self.film_type.write(write)?;
-        self.film_roll_prefix.write(write)?;
-        self.count.write(write)?;
-        self.perforation_offset.write(write)?;
-        self.perforations_per_count.write(write)?;
+        self.film_manufacturer_code.write_le(write)?;
+        self.film_type.write_le(write)?;
+        self.film_roll_prefix.write_le(write)?;
+        self.count.write_le(write)?;
+        self.perforation_offset.write_le(write)?;
+        self.perforations_per_count.write_le(write)?;
         Ok(())
     }
 
     /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         Ok(KeyCode {
-            film_manufacturer_code: i32::read(read)?,
-            film_type: i32::read(read)?,
-            film_roll_prefix: i32::read(read)?,
-            count: i32::read(read)?,
-            perforation_offset: i32::read(read)?,
-            perforations_per_frame: i32::read(read)?,
-            perforations_per_count: i32::read(read)?,
+            film_manufacturer_code: i32::read_le(read)?,
+            film_type: i32::read_le(read)?,
+            film_roll_prefix: i32::read_le(read)?,
+            count: i32::read_le(read)?,
+            perforation_offset: i32::read_le(read)?,
+            perforations_per_frame: i32::read_le(read)?,
+            perforations_per_count: i32::read_le(read)?,
         })
     }
 }
@@ -1458,7 +1458,7 @@ impl LineOrder {
             Increasing => 0_u8,
             Decreasing => 1_u8,
             Unspecified => 2_u8,
-        }.write(write)?;
+        }.write_le(write)?;
 
         Ok(())
     }
@@ -1466,7 +1466,7 @@ impl LineOrder {
     /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         use self::LineOrder::*;
-        Ok(match u8::read(read)? {
+        Ok(match u8::read_le(read)? {
             0 => Increasing,
             1 => Decreasing,
             2 => Unspecified,
@@ -1487,22 +1487,22 @@ impl Preview {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
-        u32::write(self.size.width() as u32, write)?;
-        u32::write(self.size.height() as u32, write)?;
+        u32::write_le(self.size.width() as u32, write)?;
+        u32::write_le(self.size.height() as u32, write)?;
 
-        i8::write_slice(write, &self.pixel_data)?;
+        i8::write_slice_le(write, &self.pixel_data)?;
         Ok(())
     }
 
     /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
-        let width = u32::read(read)? as usize;
-        let height = u32::read(read)? as usize;
+        let width = u32::read_le(read)? as usize;
+        let height = u32::read_le(read)? as usize;
 
         if let Some(pixel_count) = width.checked_mul(height) {
             // Multiply by the number of bytes per pixel.
             if let Some(byte_count) = pixel_count.checked_mul(4) {
-                let pixel_data = i8::read_vec(
+                let pixel_data = i8::read_vec_le(
                     read,
                     byte_count,
                     1024 * 1024 * 4,
@@ -1551,8 +1551,8 @@ impl TileDescription {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
-        u32::write(self.tile_size.width() as u32, write)?;
-        u32::write(self.tile_size.height() as u32, write)?;
+        u32::write_le(self.tile_size.width() as u32, write)?;
+        u32::write_le(self.tile_size.height() as u32, write)?;
 
         let level_mode = match self.level_mode {
             LevelMode::Singular => 0_u8,
@@ -1566,16 +1566,16 @@ impl TileDescription {
         };
 
         let mode: u8 = level_mode + (rounding_mode * 16);
-        mode.write(write)?;
+        mode.write_le(write)?;
         Ok(())
     }
 
     /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
-        let x_size = u32::read(read)? as usize;
-        let y_size = u32::read(read)? as usize;
+        let x_size = u32::read_le(read)? as usize;
+        let y_size = u32::read_le(read)? as usize;
 
-        let mode = u8::read(read)?;
+        let mode = u8::read_le(read)?;
 
         // wow you really saved that one byte here
         // mode = level_mode + (rounding_mode * 16)
@@ -1626,7 +1626,7 @@ pub fn byte_size(name: &Text, value: &AttributeValue) -> usize {
 pub fn write<W: Write>(name: &TextSlice, value: &AttributeValue, write: &mut W) -> UnitResult {
     Text::write_null_terminated_bytes(name, write)?;
     Text::write_null_terminated_bytes(value.kind_name(), write)?;
-    i32::write(value.byte_size() as i32, write)?;
+    i32::write_le(value.byte_size() as i32, write)?;
     value.write(write)
 }
 
@@ -1634,7 +1634,7 @@ pub fn write<W: Write>(name: &TextSlice, value: &AttributeValue, write: &mut W) 
 pub fn read(read: &mut PeekRead<impl Read>, max_size: usize) -> Result<(Text, Result<AttributeValue>)> {
     let name = Text::read_null_terminated(read, max_size)?;
     let kind = Text::read_null_terminated(read, max_size)?;
-    let size = i32_to_usize(i32::read(read)?, "attribute size")?;
+    let size = i32_to_usize(i32::read_le(read)?, "attribute size")?;
     let value = AttributeValue::read(read, kind, size)?;
     Ok((name, value))
 }
@@ -1733,17 +1733,17 @@ impl AttributeValue {
             IntegerBounds(value) => value.write(write)?,
             FloatRect(value) => value.write(write)?,
 
-            I32(value) => value.write(write)?,
-            F32(value) => value.write(write)?,
-            F64(value) => value.write(write)?,
+            I32(value) => value.write_le(write)?,
+            F32(value) => value.write_le(write)?,
+            F64(value) => value.write_le(write)?,
 
-            Rational((a, b)) => { a.write(write)?; b.write(write)?; },
-            TimeCode(codes) => { codes.write(write)?; },
+            Rational((a, b)) => { a.write_le(write)?; b.write_le(write)?; },
+            TimeCode(codes) => codes.write(write)?,
 
-            IntVec2(Vec2(x, y)) => { x.write(write)?; y.write(write)?; },
-            FloatVec2(Vec2(x, y)) => { x.write(write)?; y.write(write)?; },
-            IntVec3((x, y, z)) => { x.write(write)?; y.write(write)?; z.write(write)?; },
-            FloatVec3((x, y, z)) => { x.write(write)?; y.write(write)?; z.write(write)?; },
+            IntVec2(Vec2(x, y)) => { x.write_le(write)?; y.write_le(write)?; },
+            FloatVec2(Vec2(x, y)) => { x.write_le(write)?; y.write_le(write)?; },
+            IntVec3((x, y, z)) => { x.write_le(write)?; y.write_le(write)?; z.write_le(write)?; },
+            FloatVec3((x, y, z)) => { x.write_le(write)?; y.write_le(write)?; z.write_le(write)?; },
 
             ChannelList(ref channels) => channels.write(write)?,
             Chromaticities(ref value) => value.write(write)?,
@@ -1753,18 +1753,18 @@ impl AttributeValue {
             KeyCode(value) => value.write(write)?,
             LineOrder(value) => value.write(write)?,
 
-            Matrix3x3(mut value) => f32::write_slice(write, &mut value)?,
-            Matrix4x4(mut value) => f32::write_slice(write, &mut value)?,
+            Matrix3x3(mut value) => f32::write_slice_le(write, &mut value)?,
+            Matrix4x4(mut value) => f32::write_slice_le(write, &mut value)?,
 
-            Preview(ref value) => { value.write(write)?; },
+            Preview(ref value) => value.write(write)?,
 
             // attribute value texts never have limited size.
             // also, don't serialize size, as it can be inferred from attribute size
-            Text(ref value) => u8::write_slice(write, value.bytes.as_slice())?,
+            Text(ref value) => u8::write_slice_le(write, value.bytes.as_slice())?,
 
-            TextVector(ref value) => self::Text::write_vec_of_i32_sized_texts(write, value)?,
+            TextVector(ref value) => self::Text::write_vec_of_i32_sized_texts_le(write, value)?,
             TileDescription(ref value) => value.write(write)?,
-            Custom { ref bytes, .. } => u8::write_slice(write, &bytes)?, // write.write(&bytes).map(|_| ()),
+            Custom { ref bytes, .. } => u8::write_slice_le(write, &bytes)?, // write.write(&bytes).map(|_| ()),
             BlockType(kind) => kind.write(write)?
         };
 
@@ -1780,7 +1780,7 @@ impl AttributeValue {
         use self::type_names as ty;
 
         // always read bytes
-        let attribute_bytes = u8::read_vec(read, byte_size, 128, None, "attribute value size")?;
+        let attribute_bytes = u8::read_vec_le(read, byte_size, 128, None, "attribute value size")?;
         // TODO no allocation for small attributes // : SmallVec<[u8; 64]> = smallvec![0; byte_size];
 
         let parse_attribute = move || {
@@ -1790,41 +1790,41 @@ impl AttributeValue {
                 ty::I32BOX2 => IntegerBounds(self::IntegerBounds::read(reader)?),
                 ty::F32BOX2 => FloatRect(self::FloatRect::read(reader)?),
 
-                ty::I32 => I32(i32::read(reader)?),
-                ty::F32 => F32(f32::read(reader)?),
-                ty::F64 => F64(f64::read(reader)?),
+                ty::I32 => I32(i32::read_le(reader)?),
+                ty::F32 => F32(f32::read_le(reader)?),
+                ty::F64 => F64(f64::read_le(reader)?),
 
                 ty::RATIONAL => Rational({
-                    let a = i32::read(reader)?;
-                    let b = u32::read(reader)?;
+                    let a = i32::read_le(reader)?;
+                    let b = u32::read_le(reader)?;
                     (a, b)
                 }),
 
                 ty::TIME_CODE => TimeCode(self::TimeCode::read(reader)?),
 
                 ty::I32VEC2 => IntVec2({
-                    let a = i32::read(reader)?;
-                    let b = i32::read(reader)?;
+                    let a = i32::read_le(reader)?;
+                    let b = i32::read_le(reader)?;
                     Vec2(a, b)
                 }),
 
                 ty::F32VEC2 => FloatVec2({
-                    let a = f32::read(reader)?;
-                    let b = f32::read(reader)?;
+                    let a = f32::read_le(reader)?;
+                    let b = f32::read_le(reader)?;
                     Vec2(a, b)
                 }),
 
                 ty::I32VEC3 => IntVec3({
-                    let a = i32::read(reader)?;
-                    let b = i32::read(reader)?;
-                    let c = i32::read(reader)?;
+                    let a = i32::read_le(reader)?;
+                    let b = i32::read_le(reader)?;
+                    let c = i32::read_le(reader)?;
                     (a, b, c)
                 }),
 
                 ty::F32VEC3 => FloatVec3({
-                    let a = f32::read(reader)?;
-                    let b = f32::read(reader)?;
-                    let c = f32::read(reader)?;
+                    let a = f32::read_le(reader)?;
+                    let b = f32::read_le(reader)?;
+                    let c = f32::read_le(reader)?;
                     (a, b, c)
                 }),
 
@@ -1838,13 +1838,13 @@ impl AttributeValue {
 
                 ty::F32MATRIX3X3 => Matrix3x3({
                     let mut result = [0.0_f32; 9];
-                    f32::read_slice(reader, &mut result)?;
+                    f32::read_slice_le(reader, &mut result)?;
                     result
                 }),
 
                 ty::F32MATRIX4X4 => Matrix4x4({
                     let mut result = [0.0_f32; 16];
-                    f32::read_slice(reader, &mut result)?;
+                    f32::read_slice_le(reader, &mut result)?;
                     result
                 }),
 
@@ -1852,7 +1852,7 @@ impl AttributeValue {
                 ty::TEXT        => Text(self::Text::read_sized(reader, byte_size)?),
 
                 // the number of strings can be inferred from the total attribute size
-                ty::TEXT_VECTOR => TextVector(self::Text::read_vec_of_i32_sized(
+                ty::TEXT_VECTOR => TextVector(self::Text::read_vec_of_i32_sized_texts_le(
                     &mut PeekRead::new(attribute_bytes.as_slice()),
                     byte_size
                 )?),

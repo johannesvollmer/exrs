@@ -145,14 +145,14 @@ impl LineIndex {
 impl<'s> LineRefMut<'s> {
 
     /// Writes the samples (f16, f32, u32 values) into this line value reference.
-    /// Use `write_samples` if there is not slice available.
+    /// Use `write_samples` if there is no slice available.
     #[inline]
     #[must_use]
     pub fn write_samples_from_slice<T: crate::io::Data>(self, slice: &[T]) -> UnitResult {
         debug_assert_eq!(slice.len(), self.location.sample_count, "slice size does not match the line width");
         debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
 
-        T::write_slice(&mut Cursor::new(self.value), slice)
+        T::write_slice_ne(&mut Cursor::new(self.value), slice)
     }
 
     /// Iterate over all samples in this line, from left to right.
@@ -168,7 +168,7 @@ impl<'s> LineRefMut<'s> {
         let mut write = Cursor::new(self.value);
 
         for index in 0..self.location.sample_count {
-            T::write(get_sample(index), &mut write)?;
+            T::write_ne(get_sample(index), &mut write)?;
         }
 
         Ok(())
@@ -183,7 +183,7 @@ impl LineRef<'_> {
         debug_assert_eq!(slice.len(), self.location.sample_count, "slice size does not match the line width");
         debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
 
-        T::read_slice(&mut Cursor::new(self.value), slice)
+        T::read_slice_ne(&mut Cursor::new(self.value), slice)
     }
 
     /// Iterate over all samples in this line, from left to right.
@@ -192,6 +192,6 @@ impl LineRef<'_> {
         debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
 
         let mut read = self.value; // FIXME deep data
-        (0..self.location.sample_count).map(move |_| T::read(&mut read))
+        (0..self.location.sample_count).map(move |_| T::read_ne(&mut read))
     }
 }

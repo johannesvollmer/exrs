@@ -33,60 +33,56 @@ use crate::error::Result;
 use lebe::io::ReadPrimitive;
 
 
-// scanline decompression routine, see https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfScanLineInputFile.cpp
+// scanline decompreroussion tine, see https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfScanLineInputFile.cpp
 // 1. Uncompress the data, if necessary (If the line is uncompressed, it's in XDR format, regardless of the compressor's output format.)
 // 3. Convert one scan line's worth of pixel data back from the machine-independent representation
 // 4. Fill the frame buffer with pixel data, respective to sampling and whatnot
 
 
-#[cfg_attr(target_endian = "big", allow(unused, unreachable_code))]
-pub fn compress(channels: &ChannelList, remaining_bytes: ByteVec, area: IntegerBounds) -> Result<ByteVec> {
-    #[cfg(target_endian = "big")] {
-        return Err(Error::unsupported(
-            "PXR24 compression method not supported yet on big endian processor architecture"
-        ))
-    }
+pub fn compress(channels: &ChannelList, bytes_ne: ByteVec, area: IntegerBounds) -> Result<ByteVec> {
+    if bytes_ne.is_empty() { return Ok(Vec::new()); }
 
-    if remaining_bytes.is_empty() { return Ok(Vec::new()); }
-
-    // see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
-    let remaining_bytes = super::convert_current_to_little_endian(remaining_bytes, channels, area);
-    let mut remaining_bytes = remaining_bytes.as_slice(); // TODO less allocation
+    let mut remaining_bytes_ne = bytes_ne.as_slice(); // TODO less allocation
 
     let bytes_per_pixel: usize = channels.list.iter()
         .map(|channel| match channel.sample_type {
-            SampleType::F16 => 2, SampleType::F32 => 3, SampleType::U32 => 4,
+            SampleType::F16 => 2,
+            SampleType::F32 => 3,
+            SampleType::U32 => 4,
         })
         .sum();
 
-    let mut raw = vec![0_u8; bytes_per_pixel * area.size.area()];
+    let mut encoded_be = vec![0_u8; bytes_per_pixel * area.size.area()];
 
     {
-        let mut write = raw.as_mut_slice();
+        let mut write = encoded_be.as_mut_slice();
 
         // TODO this loop should be an iterator in the `IntegerBounds` class, as it is used in all compressio methods
         for y in area.position.1..area.end().1 {
             for channel in &channels.list {
                 if mod_p(y, usize_to_i32(channel.sampling.1)) != 0 { continue; }
 
-                // this apparently can't be a closure in Rust 1.43 due to borrowing ambiguity
                 let sample_count_x = channel.subsampled_resolution(area.size).0;
+
+                // this apparently can't be a closure in Rust 1.43 due to borrowing ambiguity
                 macro_rules! split_off_write_slice { () => {{
                     let (slice, rest) = write.split_at_mut(sample_count_x);
                     write = rest;
                     slice
                 }}; }
 
-                let mut previous_pixel: u32 = 0;
-
                 match channel.sample_type {
                     SampleType::F16 => {
                         let out_byte_tuples = split_off_write_slice!().iter_mut()
                             .zip(split_off_write_slice!());
 
+                        let mut previous_pixel: u32 = 0;
                         for (out_byte_0, out_byte_1) in out_byte_tuples {
-                            let pixel = u16::read_from_native_endian(&mut remaining_bytes).unwrap() as u32;
-                            let [byte_1, byte_0] = (pixel.wrapping_sub(previous_pixel) as u16).to_ne_bytes();
+                            let pixel = u16::read_from_native_endian(&mut remaining_bytes_ne)
+                                .expect("failed to read from in-memory bytes") as u32;
+
+                            let [byte_0, byte_1] = (pixel.wrapping_sub(previous_pixel) as u16)
+                                .to_be_bytes();
 
                             *out_byte_0 = byte_0;
                             *out_byte_1 = byte_1;
@@ -100,9 +96,13 @@ pub fn compress(channels: &ChannelList, remaining_bytes: ByteVec, area: IntegerB
                             .zip(split_off_write_slice!())
                             .zip(split_off_write_slice!());
 
+                        let mut previous_pixel: u32 = 0;
                         for (((out_byte_0, out_byte_1), out_byte_2), out_byte_3) in out_byte_quadruplets {
-                            let pixel = u32::read_from_native_endian(&mut remaining_bytes).unwrap();
-                            let [byte_3, byte_2, byte_1, byte_0] = pixel.wrapping_sub(previous_pixel).to_ne_bytes();
+                            let pixel = u32::read_from_native_endian(&mut remaining_bytes_ne)
+                                .expect("failed to read from in-memory bytes");
+
+                            let [byte_0, byte_1, byte_2, byte_3] = pixel
+                                .wrapping_sub(previous_pixel).to_be_bytes();
 
                             *out_byte_0 = byte_0;
                             *out_byte_1 = byte_1;
@@ -117,14 +117,20 @@ pub fn compress(channels: &ChannelList, remaining_bytes: ByteVec, area: IntegerB
                             .zip(split_off_write_slice!())
                             .zip(split_off_write_slice!());
 
+                        let mut previous_pixel: u32 = 0;
                         for ((out_byte_0, out_byte_1), out_byte_2) in out_byte_triplets {
-                            let pixel = f32_to_f24(f32::read_from_native_endian(&mut remaining_bytes).unwrap());
-                            let [byte_2, byte_1, byte_0, _] = pixel.wrapping_sub(previous_pixel).to_ne_bytes();
-                            previous_pixel = pixel;
+                            let pixel = f32_to_f24(
+                                f32::read_from_native_endian(&mut remaining_bytes_ne)
+                                    .expect("failed to read from in-memory bytes")
+                            );
+
+                            let [_, byte_0, byte_1, byte_2] = pixel
+                                .wrapping_sub(previous_pixel).to_be_bytes();
 
                             *out_byte_0 = byte_0;
                             *out_byte_1 = byte_1;
                             *out_byte_2 = byte_2;
+                            previous_pixel = pixel;
                         }
                     },
                 }
@@ -134,23 +140,17 @@ pub fn compress(channels: &ChannelList, remaining_bytes: ByteVec, area: IntegerB
         debug_assert_eq!(write.len(), 0, "bytes left after compression");
     }
 
-    Ok(miniz_oxide::deflate::compress_to_vec_zlib(raw.as_slice(), 4))
+    Ok(miniz_oxide::deflate::compress_to_vec_zlib(encoded_be.as_slice(), 4))
 }
 
-#[cfg_attr(target_endian = "big", allow(unused, unreachable_code))]
-pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, expected_byte_size: usize, pedantic: bool) -> Result<ByteVec> {
-    #[cfg(target_endian = "big")] {
-        return Err(Error::unsupported(
-            "PXR24 decompression method not supported yet on big endian processor architecture"
-        ))
-    }
-
+pub fn decompress(channels: &ChannelList, bytes_le: ByteVec, area: IntegerBounds, expected_byte_size: usize, pedantic: bool) -> Result<ByteVec> {
     let options = zune_inflate::DeflateOptions::default().set_limit(expected_byte_size).set_size_hint(expected_byte_size);
-    let mut decoder = zune_inflate::DeflateDecoder::new_with_options(&bytes, options);
-    let raw = decoder.decode_zlib()
+    let mut decompressor = zune_inflate::DeflateDecoder::new_with_options(&bytes_le, options);
+
+    let encoded_be = decompressor.decode_zlib()
         .map_err(|_| Error::invalid("zlib-compressed data malformed"))?; // TODO share code with zip?
 
-    let mut read = raw.as_slice();
+    let mut encoded_be = encoded_be.as_slice();
     let mut out = Vec::with_capacity(expected_byte_size.min(2048*4));
 
     for y in area.position.1 .. area.end().1 {
@@ -159,21 +159,21 @@ pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, e
 
             let sample_count_x = channel.subsampled_resolution(area.size).0;
             let mut read_sample_line = ||{
-                if sample_count_x > read.len() { return Err(Error::invalid("not enough data")) }
-                let (samples, rest) = read.split_at(sample_count_x);
-                read = rest;
+                if sample_count_x > encoded_be.len() { return Err(Error::invalid("not enough data")) }
+                let (samples, rest) = encoded_be.split_at(sample_count_x);
+                encoded_be = rest;
                 Ok(samples)
             };
 
-            let mut pixel_accumulation: u32 = 0;
 
             match channel.sample_type {
                 SampleType::F16 => {
                     let sample_byte_pairs = read_sample_line()?.iter()
                         .zip(read_sample_line()?);
 
+                    let mut pixel_accumulation: u32 = 0;
                     for (&in_byte_0, &in_byte_1) in sample_byte_pairs {
-                        let difference = u16::from_ne_bytes([in_byte_1, in_byte_0]) as u32;
+                        let difference = u16::from_be_bytes([in_byte_0, in_byte_1]) as u32;
                         pixel_accumulation = pixel_accumulation.overflowing_add(difference).0;
                         out.extend_from_slice(&(pixel_accumulation as u16).to_ne_bytes());
                     }
@@ -185,8 +185,9 @@ pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, e
                         .zip(read_sample_line()?)
                         .zip(read_sample_line()?);
 
+                    let mut pixel_accumulation: u32 = 0;
                     for (((&in_byte_0, &in_byte_1), &in_byte_2), &in_byte_3) in sample_byte_quads {
-                        let difference = u32::from_ne_bytes([in_byte_3, in_byte_2, in_byte_1, in_byte_0]);
+                        let difference = u32::from_be_bytes([in_byte_0, in_byte_1, in_byte_2, in_byte_3]);
                         pixel_accumulation = pixel_accumulation.overflowing_add(difference).0;
                         out.extend_from_slice(&pixel_accumulation.to_ne_bytes());
                     }
@@ -196,8 +197,9 @@ pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, e
                     let sample_byte_triplets = read_sample_line()?.iter()
                         .zip(read_sample_line()?).zip(read_sample_line()?);
 
+                    let mut pixel_accumulation: u32 = 0;
                     for ((&in_byte_0, &in_byte_1), &in_byte_2) in sample_byte_triplets {
-                        let difference = u32::from_ne_bytes([0, in_byte_2, in_byte_1, in_byte_0]);
+                        let difference = u32::from_be_bytes([in_byte_0, in_byte_1, in_byte_2, 0]);
                         pixel_accumulation = pixel_accumulation.overflowing_add(difference).0;
                         out.extend_from_slice(&pixel_accumulation.to_ne_bytes());
                     }
@@ -206,11 +208,11 @@ pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, e
         }
     }
 
-    if pedantic && !read.is_empty() {
+    if pedantic && !encoded_be.is_empty() {
         return Err(Error::invalid("too much data"));
     }
 
-    Ok(super::convert_little_endian_to_current(out, channels, area))
+    Ok(out)
 }
 
 
