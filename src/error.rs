@@ -108,12 +108,6 @@ pub(crate) fn i32_to_usize(value: i32, error_message: &'static str) -> Result<us
     })
 }
 
-/// Typically used during encoding. Return error on overflow.
-#[inline]
-pub(crate) fn usize_to_u32(value: usize, error_message: &'static str) -> Result<u32> {
-    u32::try_from(value).map_err(|_| Error::invalid(error_message))
-}
-
 /// Typically used during encoding. Return error on invalid range.
 #[inline]
 pub(crate) fn usize_to_u16(value: usize, error_message: &'static str) -> Result<u16> {
