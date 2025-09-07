@@ -227,8 +227,8 @@ impl CompressedScanLineBlock {
     /// Read the value without validating.
     pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let y_coordinate = i32::read_le(read)?;
-        let compressed_pixels = u8::read_i32_sized_vec_le(read, max_block_byte_size, Some(max_block_byte_size), "scan line block sample count")?;
-        Ok(CompressedScanLineBlock { y_coordinate, compressed_pixels_le: compressed_pixels })
+        let compressed_pixels_le = u8::read_i32_sized_vec_le(read, max_block_byte_size, Some(max_block_byte_size), "scan line block sample count")?;
+        Ok(CompressedScanLineBlock { y_coordinate, compressed_pixels_le })
     }
 }
 
@@ -246,8 +246,8 @@ impl CompressedTileBlock {
     /// Read the value without validating.
     pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let coordinates = TileCoordinates::read(read)?;
-        let compressed_pixels = u8::read_i32_sized_vec_le(read, max_block_byte_size, Some(max_block_byte_size), "tile block sample count")?;
-        Ok(CompressedTileBlock { coordinates, compressed_pixels_le: compressed_pixels })
+        let compressed_pixels_le = u8::read_i32_sized_vec_le(read, max_block_byte_size, Some(max_block_byte_size), "tile block sample count")?;
+        Ok(CompressedTileBlock { coordinates, compressed_pixels_le })
     }
 }
 
@@ -280,7 +280,7 @@ impl CompressedDeepScanLineBlock {
             "deep scan line block table size"
         )?;
 
-        let compressed_sample_data = u8::read_vec_le(
+        let compressed_sample_data_le = u8::read_vec_le(
             read, compressed_sample_data_size,
             6 * u16::MAX as usize, Some(max_block_byte_size),
             "deep scan line block sample count"
@@ -290,7 +290,7 @@ impl CompressedDeepScanLineBlock {
             y_coordinate,
             decompressed_sample_data_size,
             compressed_pixel_offset_table,
-            compressed_sample_data_le: compressed_sample_data,
+            compressed_sample_data_le,
         })
     }
 }
@@ -324,7 +324,7 @@ impl CompressedDeepTileBlock {
             "deep tile block table size"
         )?;
 
-        let compressed_sample_data = u8::read_vec_le(
+        let compressed_sample_data_le = u8::read_vec_le(
             read, compressed_sample_data_size,
             6 * u16::MAX as usize, Some(hard_max_block_byte_size),
             "deep tile block sample count"
@@ -334,7 +334,7 @@ impl CompressedDeepTileBlock {
             coordinates,
             decompressed_sample_data_size,
             compressed_pixel_offset_table,
-            compressed_sample_data_le: compressed_sample_data,
+            compressed_sample_data_le,
         })
     }
 }
