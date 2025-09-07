@@ -12,8 +12,6 @@ mod b44;
 
 
 use std::convert::TryInto;
-use std::mem::size_of;
-use half::f16;
 use crate::meta::attribute::{IntegerBounds, SampleType, ChannelList};
 use crate::error::{Result, Error, usize_to_i32};
 use crate::meta::header::Header;
@@ -134,7 +132,7 @@ pub enum Compression {
     // of 256 scanlines. More efficient space
     // wise and faster to decode full frames
     // than DWAA_COMPRESSION.
-    DWAB(Option<f32>), // TODO collapse with B44. default Compression Level setting is 45.0
+    DWAB(Option<f32>), // TODO collapse with DWAA. default Compression Level setting is 45.0
 }
 
 impl std::fmt::Display for Compression {
@@ -331,18 +329,23 @@ fn reverse_block_endianness(bytes: &mut [u8], channels: &ChannelList, rectangle:
             let sample_count = rectangle.size.width() / channel.sampling.x();
 
             match channel.sample_type {
-                SampleType::F16 => remaining_bytes = chomp_convert_n::<f16>(reverse_2_bytes, remaining_bytes, sample_count),
-                SampleType::F32 => remaining_bytes = chomp_convert_n::<f32>(reverse_4_bytes, remaining_bytes, sample_count),
-                SampleType::U32 => remaining_bytes = chomp_convert_n::<u32>(reverse_4_bytes, remaining_bytes, sample_count),
+                SampleType::F16 =>
+                    remaining_bytes = convert_byte_chunks(reverse_2_bytes, 2, remaining_bytes, sample_count),
+
+                SampleType::F32 =>
+                    remaining_bytes = convert_byte_chunks(reverse_4_bytes, 4, remaining_bytes, sample_count),
+
+                SampleType::U32 =>
+                    remaining_bytes = convert_byte_chunks(reverse_4_bytes, 4, remaining_bytes, sample_count),
             }
         }
     }
 
+    // Converts groups of bytes (e.g. 2 bytes), as many groups as specified. Returns a slice of the remaining bytes.
     #[inline]
-    fn chomp_convert_n<T>(convert_single_value: fn(&mut[u8]), mut bytes: &mut [u8], count: usize) -> &mut [u8] {
-        let type_size = size_of::<T>();
-        let (line_bytes, rest) = bytes.split_at_mut(count * type_size);
-        let value_byte_chunks = line_bytes.chunks_exact_mut(type_size);
+    fn convert_byte_chunks(convert_single_value: fn(&mut[u8]), batch_size: usize, bytes: &mut [u8], batch_count: usize) -> &mut [u8] {
+        let (line_bytes, rest) = bytes.split_at_mut(batch_count * batch_size);
+        let value_byte_chunks = line_bytes.chunks_exact_mut(batch_size);
 
         for value_bytes in value_byte_chunks {
             convert_single_value(value_bytes);
