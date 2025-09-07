@@ -51,8 +51,7 @@ impl<R: Read + Seek> Reader<R> {
                 offset_tables.iter().map(|table| table.len()).sum()
             }
             else {
-                usize::try_from(MetaData::skip_offset_tables(&mut self.remaining_reader, &self.meta_data.headers)?)
-                    .expect("too large chunk count for this machine")
+                MetaData::skip_offset_tables(&mut self.remaining_reader, &self.meta_data.headers)?
             }
         };
 
@@ -339,8 +338,7 @@ impl<R: Read + Seek> Iterator for FilteredChunksReader<R> {
         // read as many chunks as we have desired chunk offsets
         self.remaining_filtered_chunk_indices.next().map(|next_chunk_location|{
             self.remaining_bytes.skip_to( // no-op for seek at current position, uses skip_bytes for small amounts
-                                          usize::try_from(next_chunk_location)
-                                              .expect("too large chunk position for this machine")
+                  usize::try_from(next_chunk_location)?
             )?;
 
             let meta_data = &self.meta_data;
