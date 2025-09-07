@@ -189,7 +189,7 @@ impl<W> ChunkWriter<W> where W: Write + Seek {
     }
 
     /// Seek back to the meta data, write offset tables, and flush the byte writer.
-    /// Leaves the writer seeked to the middle of the file.
+    /// Leaves the writer seeked to the middle of the file, therefore we drop it.
     fn complete_meta_data(mut self) -> UnitResult {
         if self.chunk_indices_increasing_y.iter().flatten().any(|&index| index == 0) {
             return Err(Error::invalid("some chunks are not written yet"))
@@ -200,7 +200,7 @@ impl<W> ChunkWriter<W> where W: Write + Seek {
         self.byte_writer.seek_write_to(self.chunk_indices_byte_location.start)?;
 
         for table in self.chunk_indices_increasing_y {
-            u64::write_slice(&mut self.byte_writer, table.as_slice())?;
+            u64::write_slice_le(&mut self.byte_writer, table.as_slice())?;
         }
 
         self.byte_writer.flush()?; // make sure we catch all (possibly delayed) io errors before returning

@@ -344,7 +344,7 @@ fn read_and_convert_all_samples_batched<'t, From, To>(
     // error[E0658]: attributes on expressions are experimental,
     // see issue #15701 <https://github.com/rust-lang/rust/issues/15701> for more information
     let read_n_samples = &mut move |samples: &mut [From]| {
-        Data::read_slice(&mut in_bytes, samples).expect(byte_error_msg);
+        Data::read_slice_ne(&mut in_bytes, samples).expect(byte_error_msg);
     };
 
     // temporary arrays with fixed size, operations should be vectorized within these arrays

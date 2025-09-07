@@ -40,17 +40,18 @@ use lebe::io::ReadPrimitive;
 
 
 #[cfg_attr(target_endian = "big", allow(unused, unreachable_code))]
-pub fn compress(channels: &ChannelList, remaining_bytes: ByteVec, area: IntegerBounds) -> Result<ByteVec> {
+pub fn compress(channels: &ChannelList, bytes_ne: ByteVec, area: IntegerBounds) -> Result<ByteVec> {
     #[cfg(target_endian = "big")] {
         return Err(Error::unsupported(
             "PXR24 compression method not supported yet on big endian processor architecture"
         ))
     }
+    let remaining_bytes_le = bytes_ne;
 
-    if remaining_bytes.is_empty() { return Ok(Vec::new()); }
+    if remaining_bytes_le.is_empty() { return Ok(Vec::new()); }
 
     // see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
-    let remaining_bytes = super::convert_current_to_little_endian(remaining_bytes, channels, area);
+    let remaining_bytes = super::convert_current_to_little_endian(remaining_bytes_le, channels, area);
     let mut remaining_bytes = remaining_bytes.as_slice(); // TODO less allocation
 
     let bytes_per_pixel: usize = channels.list.iter()
@@ -138,7 +139,7 @@ pub fn compress(channels: &ChannelList, remaining_bytes: ByteVec, area: IntegerB
 }
 
 #[cfg_attr(target_endian = "big", allow(unused, unreachable_code))]
-pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, expected_byte_size: usize, pedantic: bool) -> Result<ByteVec> {
+pub fn decompress(channels: &ChannelList, bytes_le: ByteVec, area: IntegerBounds, expected_byte_size: usize, pedantic: bool) -> Result<ByteVec> {
     #[cfg(target_endian = "big")] {
         return Err(Error::unsupported(
             "PXR24 decompression method not supported yet on big endian processor architecture"
@@ -146,11 +147,11 @@ pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, e
     }
 
     let options = zune_inflate::DeflateOptions::default().set_limit(expected_byte_size).set_size_hint(expected_byte_size);
-    let mut decoder = zune_inflate::DeflateDecoder::new_with_options(&bytes, options);
-    let raw = decoder.decode_zlib()
+    let mut decoder = zune_inflate::DeflateDecoder::new_with_options(&bytes_le, options);
+    let raw_le = decoder.decode_zlib()
         .map_err(|_| Error::invalid("zlib-compressed data malformed"))?; // TODO share code with zip?
 
-    let mut read = raw.as_slice();
+    let mut read_le = raw_le.as_slice();
     let mut out = Vec::with_capacity(expected_byte_size.min(2048*4));
 
     for y in area.position.1 .. area.end().1 {
@@ -159,9 +160,9 @@ pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, e
 
             let sample_count_x = channel.subsampled_resolution(area.size).0;
             let mut read_sample_line = ||{
-                if sample_count_x > read.len() { return Err(Error::invalid("not enough data")) }
-                let (samples, rest) = read.split_at(sample_count_x);
-                read = rest;
+                if sample_count_x > read_le.len() { return Err(Error::invalid("not enough data")) }
+                let (samples, rest) = read_le.split_at(sample_count_x);
+                read_le = rest;
                 Ok(samples)
             };
 
@@ -206,7 +207,7 @@ pub fn decompress(channels: &ChannelList, bytes: ByteVec, area: IntegerBounds, e
         }
     }
 
-    if pedantic && !read.is_empty() {
+    if pedantic && !read_le.is_empty() {
         return Err(Error::invalid("too much data"));
     }
 

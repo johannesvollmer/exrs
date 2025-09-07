@@ -158,8 +158,8 @@ impl std::fmt::Display for Compression {
 
 impl Compression {
 
-    /// Compress the image section of bytes.
-    pub fn compress_image_section(self, header: &Header, uncompressed_native_endian: ByteVec, pixel_section: IntegerBounds) -> Result<ByteVec> {
+    /// Compress the image section, converting from native endian into with little-endian format.
+    pub fn compress_image_section_to_le(self, header: &Header, uncompressed_native_endian: ByteVec, pixel_section: IntegerBounds) -> Result<ByteVec> {
         let max_tile_size = header.max_block_pixel_size();
 
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
@@ -198,8 +198,8 @@ impl Compression {
         }
     }
 
-    /// Decompress the image section of bytes.
-    pub fn decompress_image_section(self, header: &Header, compressed: ByteVec, pixel_section: IntegerBounds, pedantic: bool) -> Result<ByteVec> {
+    /// Decompress the image section from bytes of little-endian format, returning native-endian format.
+    pub fn decompress_image_section_from_le(self, header: &Header, compressed_le: ByteVec, pixel_section: IntegerBounds, pedantic: bool) -> Result<ByteVec> {
         let max_tile_size = header.max_block_pixel_size();
 
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
@@ -208,25 +208,25 @@ impl Compression {
         let expected_byte_size = pixel_section.size.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
 
         // note: always true where self == Uncompressed
-        if compressed.len() == expected_byte_size {
+        if compressed_le.len() == expected_byte_size {
             // the compressed data was larger than the raw data, so the small raw data has been written
-            Ok(convert_little_endian_to_current(compressed, &header.channels, pixel_section))
+            Ok(convert_little_endian_to_current(compressed_le, &header.channels, pixel_section))
         }
         else {
             use self::Compression::*;
-            let bytes = match self {
-                Uncompressed => Ok(convert_little_endian_to_current(compressed, &header.channels, pixel_section)),
-                ZIP16 => zip::decompress_bytes(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
-                ZIP1 => zip::decompress_bytes(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
-                RLE => rle::decompress_bytes(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
-                PIZ => piz::decompress(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
-                PXR24 => pxr24::decompress(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
-                B44 | B44A => b44::decompress(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
+            let bytes_ne = match self {
+                Uncompressed => Ok(convert_little_endian_to_current(compressed_le, &header.channels, pixel_section)),
+                ZIP16 => zip::decompress_bytes(&header.channels, compressed_le, pixel_section, expected_byte_size, pedantic),
+                ZIP1 => zip::decompress_bytes(&header.channels, compressed_le, pixel_section, expected_byte_size, pedantic),
+                RLE => rle::decompress_bytes(&header.channels, compressed_le, pixel_section, expected_byte_size, pedantic),
+                PIZ => piz::decompress(&header.channels, compressed_le, pixel_section, expected_byte_size, pedantic),
+                PXR24 => pxr24::decompress(&header.channels, compressed_le, pixel_section, expected_byte_size, pedantic),
+                B44 | B44A => b44::decompress(&header.channels, compressed_le, pixel_section, expected_byte_size, pedantic),
                 _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
             };
 
             // map all errors to compression errors
-            let bytes = bytes
+            let bytes_ne = bytes_ne
                 .map_err(|decompression_error| match decompression_error {
                     Error::NotSupported(message) =>
                         Error::unsupported(format!("yet unimplemented compression special case ({})", message)),
@@ -237,11 +237,11 @@ impl Compression {
                     )),
                 })?;
 
-            if bytes.len() != expected_byte_size {
+            if bytes_ne.len() != expected_byte_size {
                 Err(Error::invalid("decompressed data"))
             }
 
-            else { Ok(bytes) }
+            else { Ok(bytes_ne) }
         }
     }
 
