@@ -519,7 +519,7 @@ impl Text {
     /// Write the length of a string and then the contents with that length.
     pub fn write_u32_sized_le<W: Write>(&self, write: &mut W) -> UnitResult {
         debug_assert!(self.validate( false, None).is_ok(), "text size bug");
-        u32::write(usize_to_u32(self.bytes.len(), "text length")?, write)?;
+        u32::write_le(usize_to_u32(self.bytes.len(), "text length")?, write)?;
         Self::write_unsized_bytes(self.bytes.as_slice(), write)
     }
 
@@ -538,7 +538,7 @@ impl Text {
     /// Read the length of a string and then the contents with that length.
     pub fn read_u32_sized_le<R: Read>(read: &mut R, max_size: usize) -> Result<Self> {
         let size = u32_to_usize(u32::read_le(read)?);
-        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec(read, size, 1024, Some(max_size), "text attribute length")?)))
+        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec_le(read, size, 1024, Some(max_size), "text attribute length")?)))
     }
 
     /// Read the contents with that length.
@@ -1804,10 +1804,10 @@ impl AttributeValue {
 
             Bytes { ref type_hint, ref bytes } => {
                 type_hint.write_u32_sized_le(write)?; // no idea why this one is u32, everything else is usually i32...
-                u8::write_slice(write, bytes.as_slice())?
+                u8::write_slice_le(write, bytes.as_slice())?
             }
 
-            Custom { ref bytes, .. } => u8::write_slice(write, &bytes)?, // write.write(&bytes).map(|_| ()),
+            Custom { ref bytes, .. } => u8::write_slice_le(write, &bytes)?, // write.write(&bytes).map(|_| ()),
         };
 
         Ok(())
@@ -1901,9 +1901,9 @@ impl AttributeValue {
                     byte_size
                 )?),
 
-                ty::TILES       => TileDescription(self::TileDescription::read(reader)?),
+                ty::TILES => TileDescription(self::TileDescription::read(reader)?),
 
-                ty::BYTES       => {
+                ty::BYTES => {
                     // for some reason, they went for unsigned sizes, in this place only
                     let type_hint = self::Text::read_u32_sized_le(reader, reader.len())?;
                     let bytes = SmallVec::from(*reader);
