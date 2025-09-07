@@ -129,6 +129,7 @@ pub fn decompress(
             // We can support uncompressed data in the machine's native format
             // if all image channels are of type HALF, and if the Xdr and the
             // native representations of a half have the same size.
+            // FIXME this converts to little endian??
             u16::write_slice(&mut out, values).expect("write to in-memory failed");
         }
     }

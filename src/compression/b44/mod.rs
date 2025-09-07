@@ -454,7 +454,7 @@ pub fn decompress(
             // if all image channels are of type HALF, and if the Xdr and the
             // native representations of a half have the same size.
 
-            if channel.sample_type == SampleType::F16 {
+            /*if channel.sample_type == SampleType::F16 {
                 // TODO simplify this and make it memcpy on little endian systems
                 // https://github.com/AcademySoftwareFoundation/openexr/blob/a03aca31fa1ce85d3f28627dbb3e5ded9494724a/src/lib/OpenEXR/ImfB44Compressor.cpp#L943
                 for mut f16_bytes in channel_bytes.chunks(std::mem::size_of::<f16>()) {
@@ -462,7 +462,7 @@ pub fn decompress(
                     out.write_as_native_endian(&native_endian_f16_bits).expect("memory write failed");
                 }
             }
-            else {
+            else*/ {
                 u8::write_slice(&mut out, channel_bytes)
                     .expect("write to in-memory failed");
             }

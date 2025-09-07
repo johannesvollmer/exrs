@@ -57,6 +57,7 @@ pub fn compress(uncompressed: &[u16]) -> Result<Vec<u8>> {
     let (min_code_index, max_code_index) = build_encoding_table(&mut frequencies);
 
     let mut result = Cursor::new(Vec::with_capacity(uncompressed.len()));
+    // FIXME this writes little endian, is that correct?
     u32::write_slice(&mut result, &[0; 5])?; // we come back to these later after we know more about the compressed data
 
     let table_start = result.position();
