@@ -289,20 +289,6 @@ fn roundtrip_unusual_7() -> UnitResult {
 }
 
 #[test]
-#[cfg(target_endian = "big")] // TODO big endian pxr24
-fn pxr24_expect_error_on_big_endian(){
-    let image = exr::prelude::read_all_data_from_file(
-        "tests/images/valid/custom/compression_methods/f16/pxr24.exr"
-    );
-
-    match image {
-        Err(Error::NotSupported(_)) => {}
-        _ => panic!("pxr24 should report an error on big endian architecture")
-    }
-}
-
-#[test]
-#[cfg(target_endian = "little")] // TODO big endian pxr24
 fn roundtrip_pxr24() {
     test_mixed_roundtrip_with_compression(Compression::PXR24)
 }

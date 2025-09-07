@@ -306,9 +306,9 @@ impl<Sample> SampleWriter<Sample> where Sample: IntoNativeSample {
         // match outside the loop to avoid matching on every single sample
         match self.target_sample_type {
             // TODO does this boil down to a `memcpy` where the sample type equals the type parameter?
-            SampleType::F16 => for sample in samples { sample.to_f16().write(byte_writer).expect(write_error_msg); },
-            SampleType::F32 => for sample in samples { sample.to_f32().write(byte_writer).expect(write_error_msg); },
-            SampleType::U32 => for sample in samples { sample.to_u32().write(byte_writer).expect(write_error_msg); },
+            SampleType::F16 => for sample in samples { sample.to_f16().write_ne(byte_writer).expect(write_error_msg); },
+            SampleType::F32 => for sample in samples { sample.to_f32().write_ne(byte_writer).expect(write_error_msg); },
+            SampleType::U32 => for sample in samples { sample.to_u32().write_ne(byte_writer).expect(write_error_msg); },
         };
 
         debug_assert!(byte_writer.is_empty(), "all samples are written, but more were expected");

@@ -258,7 +258,7 @@ fn cpy_u8(src: &[u16], src_i: usize, dst: &mut [u8], dst_i: usize, n: usize) {
 
 pub fn decompress(
     channels: &ChannelList,
-    compressed: ByteVec,
+    compressed_le: ByteVec,
     rectangle: IntegerBounds,
     expected_byte_size: usize,
     _pedantic: bool,
@@ -271,7 +271,7 @@ pub fn decompress(
 
     debug_assert!(!channels.list.is_empty(), "no channels found");
 
-    if compressed.is_empty() {
+    if compressed_le.is_empty() {
         return Ok(Vec::new());
     }
 
@@ -304,11 +304,11 @@ pub fn decompress(
     // Index in the compressed buffer.
     let mut in_i = 0usize;
 
-    let mut remaining = compressed.len();
+    let mut remaining_le = compressed_le.len();
 
     for channel in &channel_data {
 
-        debug_assert_eq!(remaining, compressed.len()-in_i);
+        debug_assert_eq!(remaining_le, compressed_le.len() - in_i);
 
         // Compute information for current channel.
         let sample_count = channel.resolution.area() * channel.samples_per_pixel;
@@ -320,14 +320,14 @@ pub fn decompress(
 
             debug_assert_eq!(channel.sample_type.bytes_per_sample(), 4);
 
-            if remaining < byte_count {
+            if remaining_le < byte_count {
                 return Err(Error::invalid("not enough data"));
             }
 
-            tmp.extend_from_slice(&compressed[in_i..(in_i + byte_count)]);
+            tmp.extend_from_slice(&compressed_le[in_i..(in_i + byte_count)]);
 
             in_i += byte_count;
-            remaining -= byte_count;
+            remaining_le -= byte_count;
 
             continue;
         }
@@ -362,29 +362,29 @@ pub fn decompress(
                 // Extract the 4 by 4 block of 16-bit floats from the compressed buffer.
                 let mut s = [0u16; 16];
 
-                if remaining < 3 {
+                if remaining_le < 3 {
                     return Err(Error::invalid("not enough data"));
                 }
 
                 // If shift exponent is 63, call unpack14 (ignoring unused bits)
-                if compressed[in_i + 2] >= (13 << 2) {
-                    if remaining < 3 {
+                if compressed_le[in_i + 2] >= (13 << 2) {
+                    if remaining_le < 3 {
                         return Err(Error::invalid("not enough data"));
                     }
 
-                    unpack3(&compressed[in_i..(in_i + 3)], &mut s);
+                    unpack3(&compressed_le[in_i..(in_i + 3)], &mut s);
 
                     in_i += 3;
-                    remaining -= 3;
+                    remaining_le -= 3;
                 } else {
-                    if remaining < 14 {
+                    if remaining_le < 14 {
                         return Err(Error::invalid("not enough data"));
                     }
 
-                    unpack14(&compressed[in_i..(in_i + 14)], &mut s);
+                    unpack14(&compressed_le[in_i..(in_i + 14)], &mut s);
 
                     in_i += 14;
-                    remaining -= 14;
+                    remaining_le -= 14;
                 }
 
                 if channel.quantize_linearly {
@@ -463,7 +463,7 @@ pub fn decompress(
                 }
             }
             else {
-                u8::write_slice(&mut out, channel_bytes)
+                u8::write_slice_ne(&mut out, channel_bytes)
                     .expect("write to in-memory failed");
             }
         }
@@ -485,18 +485,18 @@ pub fn decompress(
 
 pub fn compress(
     channels: &ChannelList,
-    uncompressed: ByteVec,
+    uncompressed_ne: ByteVec,
     rectangle: IntegerBounds,
     optimize_flat_fields: bool,
 ) -> Result<ByteVec> {
-    if uncompressed.is_empty() {
+    if uncompressed_ne.is_empty() {
         return Ok(Vec::new());
     }
 
     // TODO do not convert endianness for f16-only images
     //      see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
-    let uncompressed = super::convert_current_to_little_endian(uncompressed, channels, rectangle)?;
-    let uncompressed = uncompressed.as_slice(); // TODO no alloc
+    let uncompressed_le = super::convert_current_to_little_endian(uncompressed_ne, channels, rectangle)?;
+    let uncompressed_le = uncompressed_le.as_slice(); // TODO no alloc
 
     let mut channel_data = Vec::new();
 
@@ -521,11 +521,11 @@ pub fn compress(
         channel_data.push(channel);
     }
 
-    let mut tmp = vec![0_u8; uncompressed.len()];
+    let mut tmp = vec![0_u8; uncompressed_le.len()];
 
     debug_assert_eq!(tmp_end_index, tmp.len());
 
-    let mut remaining_uncompressed_bytes = uncompressed;
+    let mut remaining_uncompressed_bytes = uncompressed_le;
 
     for y in rectangle.position.y()..rectangle.end().y() {
         for channel in &mut channel_data {
@@ -557,14 +557,14 @@ pub fn compress(
                 }
             }
             else {
-                u8::read_slice(&mut remaining_uncompressed_bytes, target)
+                u8::read_slice_ne(&mut remaining_uncompressed_bytes, target)
                     .expect("in-memory read failed");
             }
         }
     }
 
     // Generate a whole buffer that we will crop to proper size once compression is done.
-    let mut b44_compressed = vec![0; std::cmp::max(2048, uncompressed.len())];
+    let mut b44_compressed = vec![0; std::cmp::max(2048, uncompressed_le.len())];
     let mut b44_end = 0; // Buffer byte index for storing next compressed values.
 
     for channel in &channel_data {

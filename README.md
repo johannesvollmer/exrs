@@ -301,6 +301,10 @@ use `cargo test --package exr --test fuzz fuzz -- --exact --ignored`.
 To run all fast tests on an emulated system, use one of the following commands.
 Each command requires a running `docker` instance,
 and `cross-rs` to be installed on your machine (`cargo install cross`).
-- Mips (Big Endian) `cross test --target mips-unknown-linux-gnu --verbose`
+- Powerpc (Big Endian) `cross test --target powerpc-unknown-linux-gnu --verbose`
 
+You may also need to install the toolchain beforehand, using 
+`rustup toolchain add stable-x86_64-unknown-linux-gnu --profile minimal --force-non-host` 
+and `rustup target add powerpc-unknown-linux-gnu`.
+ 
 To benchmark the library, simply run `cargo bench`.

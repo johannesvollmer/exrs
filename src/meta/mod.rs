@@ -163,14 +163,14 @@ pub mod magic_number {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write(write: &mut impl Write) -> Result<()> {
-        u8::write_slice(write, &self::BYTES)
+        u8::write_slice_ne(write, &self::BYTES)
     }
 
     /// Consumes four bytes from the reader and returns whether the file may be an exr file.
     // TODO check if exr before allocating BufRead
     pub fn is_exr(read: &mut impl Read) -> Result<bool> {
         let mut magic_num = [0; 4];
-        u8::read_slice(read, &mut magic_num)?;
+        u8::read_slice_ne(read, &mut magic_num)?;
         Ok(magic_num == self::BYTES)
     }
 
@@ -196,7 +196,7 @@ pub mod sequence_end {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(write: &mut W) -> UnitResult {
-        0_u8.write(write)
+        0_u8.write_le(write)
     }
 
     /// Peeks the next byte. If it is zero, consumes the byte and returns true.
@@ -420,7 +420,7 @@ impl MetaData {
     /// Read one offset table from the reader for each header.
     pub fn read_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<OffsetTables> {
         headers.iter()
-            .map(|header| u64::read_vec(read, header.chunk_count, u16::MAX as usize, None, "offset table size"))
+            .map(|header| u64::read_vec_le(read, header.chunk_count, u16::MAX as usize, None, "offset table size"))
             .collect()
     }
 
@@ -559,7 +559,7 @@ impl Requirements {
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
         use ::bit_field::BitField;
 
-        let version_and_flags = u32::read(read)?;
+        let version_and_flags = u32::read_le(read)?;
 
         // take the 8 least significant bits, they contain the file format version number
         let version = (version_and_flags & 0x000F) as u8;
@@ -603,7 +603,7 @@ impl Requirements {
         version_and_flags.set_bit(12, self.has_multiple_layers);
         // all remaining bits except 9, 10, 11 and 12 are reserved and should be 0
 
-        version_and_flags.write(write)?;
+        version_and_flags.write_le(write)?;
         Ok(())
     }
 

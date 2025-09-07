@@ -11,82 +11,82 @@ const MAX_RUN_LENGTH : usize = 127;
 
 pub fn decompress_bytes(
     channels: &ChannelList,
-    compressed: ByteVec,
+    compressed_le: ByteVec,
     rectangle: IntegerBounds,
     expected_byte_size: usize,
     pedantic: bool,
 ) -> Result<ByteVec> {
-    let mut remaining = compressed.as_slice();
-    let mut decompressed = Vec::with_capacity(expected_byte_size.min(8*2048));
+    let mut remaining_le = compressed_le.as_slice();
+    let mut decompressed_le = Vec::with_capacity(expected_byte_size.min(8*2048));
 
-    while !remaining.is_empty() && decompressed.len() != expected_byte_size {
-        let count = take_1(&mut remaining)? as i8 as i32;
+    while !remaining_le.is_empty() && decompressed_le.len() != expected_byte_size {
+        let count = take_1(&mut remaining_le)? as i8 as i32;
 
         if count < 0 {
             // take the next '-count' bytes as-is
-            let values = take_n(&mut remaining, (-count) as usize)?;
-            decompressed.extend_from_slice(values);
+            let values = take_n(&mut remaining_le, (-count) as usize)?;
+            decompressed_le.extend_from_slice(values);
         }
         else {
             // repeat the next value 'count + 1' times
-            let value = take_1(&mut remaining)?;
-            decompressed.resize(decompressed.len() + count as usize + 1, value);
+            let value = take_1(&mut remaining_le)?;
+            decompressed_le.resize(decompressed_le.len() + count as usize + 1, value);
         }
     }
 
-    if pedantic && !remaining.is_empty() {
+    if pedantic && !remaining_le.is_empty() {
         return Err(Error::invalid("data amount"));
     }
 
-    differences_to_samples(&mut decompressed);
-    interleave_byte_blocks(&mut decompressed);
-    convert_little_endian_to_current(decompressed, channels, rectangle) // TODO no alloc
+    differences_to_samples(&mut decompressed_le);
+    interleave_byte_blocks(&mut decompressed_le);
+    super::convert_little_endian_to_current(decompressed_le, channels, rectangle) // TODO no alloc
 }
 
-pub fn compress_bytes(channels: &ChannelList, uncompressed: ByteVec, rectangle: IntegerBounds) -> Result<ByteVec> {
+pub fn compress_bytes(channels: &ChannelList, uncompressed_ne: ByteVec, rectangle: IntegerBounds) -> Result<ByteVec> {
     // see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
-    let mut data = convert_current_to_little_endian(uncompressed, channels, rectangle)?;// TODO no alloc
+    let mut data_le = super::convert_current_to_little_endian(uncompressed_ne, channels, rectangle)?;// TODO no alloc
 
-    separate_bytes_fragments(&mut data);
-    samples_to_differences(&mut data);
+    separate_bytes_fragments(&mut data_le);
+    samples_to_differences(&mut data_le);
 
-    let mut compressed = Vec::with_capacity(data.len());
+    let mut compressed_le = Vec::with_capacity(data_le.len());
     let mut run_start = 0;
     let mut run_end = 1;
 
-    while run_start < data.len() {
+    while run_start < data_le.len() {
         while
-            run_end < data.len()
-                && data[run_start] == data[run_end]
+            run_end < data_le.len()
+                && data_le[run_start] == data_le[run_end]
                 && (run_end - run_start) as i32 - 1 < MAX_RUN_LENGTH as i32
             {
                 run_end += 1;
             }
 
         if run_end - run_start >= MIN_RUN_LENGTH {
-            compressed.push(((run_end - run_start) as i32 - 1) as u8);
-            compressed.push(data[run_start]);
+            compressed_le.push(((run_end - run_start) as i32 - 1) as u8);
+            compressed_le.push(data_le[run_start]);
             run_start = run_end;
 
         } else {
             while
-                run_end < data.len() && (
-                    (run_end + 1 >= data.len() || data[run_end] != data[run_end + 1])
-                        || (run_end + 2 >= data.len() || data[run_end + 1] != data[run_end + 2])
+                run_end < data_le.len() && (
+                    (run_end + 1 >= data_le.len() || data_le[run_end] != data_le[run_end + 1])
+                        || (run_end + 2 >= data_le.len() || data_le[run_end + 1] != data_le[run_end + 2])
                 ) && run_end - run_start < MAX_RUN_LENGTH
                 {
                     run_end += 1;
                 }
 
-            compressed.push((run_start as i32 - run_end as i32) as u8);
-            compressed.extend_from_slice(&data[run_start .. run_end]);
+            compressed_le.push((run_start as i32 - run_end as i32) as u8);
+            compressed_le.extend_from_slice(&data_le[run_start .. run_end]);
 
             run_start = run_end;
             run_end += 1;
         }
     }
 
-    Ok(compressed)
+    Ok(compressed_le)
 }
 
 fn take_1(slice: &mut &[u8]) -> Result<u8> {

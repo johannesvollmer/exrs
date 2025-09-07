@@ -315,6 +315,7 @@ impl<Sample: FromNativeSample> SampleReader<Sample> {
 /// Reads the samples for one line, using the sample type specified in the file,
 /// and then converts those to the desired sample types.
 /// Uses batches to allow vectorization, converting multiple values with one instruction.
+/// Does not convert endianness.
 fn read_and_convert_all_samples_batched<'t, From, To>(
     mut in_bytes: impl Read,
     out_samples: &mut impl ExactSizeIterator<Item=&'t mut To>,
@@ -344,7 +345,7 @@ fn read_and_convert_all_samples_batched<'t, From, To>(
     // error[E0658]: attributes on expressions are experimental,
     // see issue #15701 <https://github.com/rust-lang/rust/issues/15701> for more information
     let read_n_samples = &mut move |samples: &mut [From]| {
-        Data::read_slice(&mut in_bytes, samples).expect(byte_error_msg);
+        Data::read_slice_ne(&mut in_bytes, samples).expect(byte_error_msg);
     };
 
     // temporary arrays with fixed size, operations should be vectorized within these arrays
@@ -377,7 +378,7 @@ mod test {
     fn equals_naive_f32(){
         for total_array_size in [3, 7, 30, 41, 120, 10_423] {
             let input_f32s = (0..total_array_size).map(|_| rand::random::<f32>()).collect::<Vec<f32>>();
-            let in_f32s_bytes = input_f32s.iter().cloned().flat_map(f32::to_le_bytes).collect::<Vec<u8>>();
+            let in_f32s_bytes = input_f32s.iter().cloned().flat_map(f32::to_ne_bytes).collect::<Vec<u8>>();
 
             let mut out_f16_samples_batched = vec![
                 f16::from_f32(rand::random::<f32>());

@@ -18,13 +18,13 @@ use smallvec::SmallVec;
 pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
     let mut remaining_compressed = compressed;
 
-    let min_code_index = usize::try_from(u32::read(&mut remaining_compressed)?)?;
-    let max_code_index_32 = u32::read(&mut remaining_compressed)?;
-    let _table_size = usize::try_from(u32::read(&mut remaining_compressed)?)?; // TODO check this and return Err?
-    let bit_count = usize::try_from(u32::read(&mut remaining_compressed)?)?;
-    let _skipped = u32::read(&mut remaining_compressed)?; // what is this
+    let min_code_index = usize::try_from(u32::read_le(&mut remaining_compressed)?)?;
+    let max_code_index_32 = u32::read_le(&mut remaining_compressed)?;
+    let _table_size = usize::try_from(u32::read_le(&mut remaining_compressed)?)?; // TODO check this and return Err?
+    let bit_count = usize::try_from(u32::read_le(&mut remaining_compressed)?)?;
+    let _skipped = u32::read_le(&mut remaining_compressed)?; // what is this
 
-    let max_code_index = usize::try_from(max_code_index_32).unwrap();
+    let max_code_index = usize::try_from(max_code_index_32)?;
     if min_code_index >= ENCODING_TABLE_SIZE || max_code_index >= ENCODING_TABLE_SIZE {
         return Err(Error::invalid(INVALID_TABLE_SIZE));
     }
@@ -57,7 +57,7 @@ pub fn compress(uncompressed: &[u16]) -> Result<Vec<u8>> {
     let (min_code_index, max_code_index) = build_encoding_table(&mut frequencies)?;
 
     let mut result = Cursor::new(Vec::with_capacity(uncompressed.len()));
-    u32::write_slice(&mut result, &[0; 5])?; // we come back to these later after we know more about the compressed data
+    u32::write_slice_le(&mut result, &[0; 5])?; // we come back to these later after we know more about the compressed data
 
     let table_start = result.position();
     pack_encoding_table(
@@ -79,11 +79,11 @@ pub fn compress(uncompressed: &[u16]) -> Result<Vec<u8>> {
     result.set_position(0);
     let table_length = data_start - table_start;
 
-    u32::try_from(min_code_index)?.write(&mut result)?;
-    u32::try_from(max_code_index)?.write(&mut result)?;
-    u32::try_from(table_length)?.write(&mut result)?;
-    u32::try_from(bit_count)?.write(&mut result)?;
-    0_u32.write(&mut result)?;
+    u32::try_from(min_code_index)?.write_le(&mut result)?;
+    u32::try_from(max_code_index)?.write_le(&mut result)?;
+    u32::try_from(table_length)?.write_le(&mut result)?;
+    u32::try_from(bit_count)?.write_le(&mut result)?;
+    0_u32.write_le(&mut result)?;
 
     Ok(result.into_inner())
 }
@@ -356,7 +356,7 @@ fn read_bits(
 
 #[inline]
 fn read_byte(code_bits: &mut u64, bit_count: &mut u64, input: &mut impl Read) -> UnitResult {
-    *code_bits = (*code_bits << 8) | u8::read(input)? as u64;
+    *code_bits = (*code_bits << 8) | u8::read_ne(input)? as u64;
     *bit_count += 8;
     Ok(())
 }

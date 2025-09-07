@@ -12,8 +12,6 @@ mod b44;
 
 
 use std::convert::TryInto;
-use std::mem::size_of;
-use half::f16;
 use crate::meta::attribute::{IntegerBounds, SampleType, ChannelList};
 use crate::error::{Result, Error, usize_to_i32, UnitResult};
 use crate::meta::header::Header;
@@ -134,7 +132,7 @@ pub enum Compression {
     // of 256 scanlines. More efficient space
     // wise and faster to decode full frames
     // than DWAA_COMPRESSION.
-    DWAB(Option<f32>), // TODO collapse with B44. default Compression Level setting is 45.0
+    DWAB(Option<f32>), // TODO collapse with DWAA. default Compression Level setting is 45.0
 }
 
 impl std::fmt::Display for Compression {
@@ -158,8 +156,8 @@ impl std::fmt::Display for Compression {
 
 impl Compression {
 
-    /// Compress the image section of bytes.
-    pub fn compress_image_section(self, header: &Header, uncompressed_native_endian: ByteVec, pixel_section: IntegerBounds) -> Result<ByteVec> {
+    /// Compress the image section, converting from native endian into with little-endian format.
+    pub fn compress_image_section_to_le(self, header: &Header, uncompressed_native_endian: ByteVec, pixel_section: IntegerBounds) -> Result<ByteVec> {
         let max_tile_size = header.max_block_pixel_size();
 
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
@@ -198,8 +196,8 @@ impl Compression {
         }
     }
 
-    /// Decompress the image section of bytes.
-    pub fn decompress_image_section(self, header: &Header, compressed: ByteVec, pixel_section: IntegerBounds, pedantic: bool) -> Result<ByteVec> {
+    /// Decompress the image section from bytes of little-endian format, returning native-endian format.
+    pub fn decompress_image_section_from_le(self, header: &Header, compressed_le: ByteVec, pixel_section: IntegerBounds, pedantic: bool) -> Result<ByteVec> {
         let max_tile_size = header.max_block_pixel_size();
 
         assert!(pixel_section.validate(Some(max_tile_size)).is_ok(), "decompress tile coordinate bug");
@@ -208,25 +206,25 @@ impl Compression {
         let expected_byte_size = pixel_section.size.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
 
         // note: always true where self == Uncompressed
-        if compressed.len() == expected_byte_size {
+        if compressed_le.len() == expected_byte_size {
             // the compressed data was larger than the raw data, so the small raw data has been written
-            convert_little_endian_to_current(compressed, &header.channels, pixel_section)
+            convert_little_endian_to_current(compressed_le, &header.channels, pixel_section)
         }
         else {
             use self::Compression::*;
-            let bytes = match self {
-                Uncompressed => convert_little_endian_to_current(compressed, &header.channels, pixel_section),
-                ZIP16 => zip::decompress_bytes(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
-                ZIP1 => zip::decompress_bytes(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
-                RLE => rle::decompress_bytes(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
-                PIZ => piz::decompress(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
-                PXR24 => pxr24::decompress(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
-                B44 | B44A => b44::decompress(&header.channels, compressed, pixel_section, expected_byte_size, pedantic),
+            let bytes_ne = match self {
+                Uncompressed => convert_little_endian_to_current(compressed_le, &header.channels, pixel_section),
+                ZIP16 => zip::decompress_bytes(&header.channels, compressed_le, pixel_section, expected_byte_size, pedantic),
+                ZIP1 => zip::decompress_bytes(&header.channels, compressed_le, pixel_section, expected_byte_size, pedantic),
+                RLE => rle::decompress_bytes(&header.channels, compressed_le, pixel_section, expected_byte_size, pedantic),
+                PIZ => piz::decompress(&header.channels, compressed_le, pixel_section, expected_byte_size, pedantic),
+                PXR24 => pxr24::decompress(&header.channels, compressed_le, pixel_section, expected_byte_size, pedantic),
+                B44 | B44A => b44::decompress(&header.channels, compressed_le, pixel_section, expected_byte_size, pedantic),
                 _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
             };
 
             // map all errors to compression errors
-            let bytes = bytes
+            let bytes_ne = bytes_ne
                 .map_err(|decompression_error| match decompression_error {
                     Error::NotSupported(message) =>
                         Error::unsupported(format!("yet unimplemented compression special case ({})", message)),
@@ -237,11 +235,11 @@ impl Compression {
                     )),
                 })?;
 
-            if bytes.len() != expected_byte_size {
+            if bytes_ne.len() != expected_byte_size {
                 Err(Error::invalid("decompressed data"))
             }
 
-            else { Ok(bytes) }
+            else { Ok(bytes_ne) }
         }
     }
 
@@ -306,7 +304,7 @@ impl Compression {
 #[allow(unused)] // allows the extra parameters to be unused
 fn convert_current_to_little_endian(mut bytes: ByteVec, channels: &ChannelList, rectangle: IntegerBounds) -> Result<ByteVec> {
     #[cfg(target_endian = "big")]
-    reverse_block_endianness(&mut byte_vec, channels, rectangle)?;
+    reverse_block_endianness(&mut bytes, channels, rectangle)?;
 
     Ok(bytes)
 }
@@ -331,18 +329,23 @@ fn reverse_block_endianness(bytes: &mut [u8], channels: &ChannelList, rectangle:
             let sample_count = rectangle.size.width() / channel.sampling.x();
 
             match channel.sample_type {
-                SampleType::F16 => remaining_bytes = chomp_convert_n::<f16>(reverse_2_bytes, remaining_bytes, sample_count),
-                SampleType::F32 => remaining_bytes = chomp_convert_n::<f32>(reverse_4_bytes, remaining_bytes, sample_count),
-                SampleType::U32 => remaining_bytes = chomp_convert_n::<u32>(reverse_4_bytes, remaining_bytes, sample_count),
+                SampleType::F16 =>
+                    remaining_bytes = convert_byte_chunks(reverse_2_bytes, 2, remaining_bytes, sample_count),
+
+                SampleType::F32 =>
+                    remaining_bytes = convert_byte_chunks(reverse_4_bytes, 4, remaining_bytes, sample_count),
+
+                SampleType::U32 =>
+                    remaining_bytes = convert_byte_chunks(reverse_4_bytes, 4, remaining_bytes, sample_count),
             }
         }
     }
 
+    // Converts groups of bytes (e.g. 2 bytes), as many groups as specified. Returns a slice of the remaining bytes.
     #[inline]
-    fn chomp_convert_n<T>(convert_single_value: fn(&mut[u8]), mut bytes: &mut [u8], count: usize) -> &mut [u8] {
-        let type_size = size_of::<T>();
-        let (line_bytes, rest) = bytes.split_at_mut(count * type_size);
-        let value_byte_chunks = line_bytes.chunks_exact_mut(type_size);
+    fn convert_byte_chunks(convert_single_value: fn(&mut[u8]), batch_size: usize, bytes: &mut [u8], batch_count: usize) -> &mut [u8] {
+        let (line_bytes, rest) = bytes.split_at_mut(batch_count * batch_size);
+        let value_byte_chunks = line_bytes.chunks_exact_mut(batch_size);
 
         for value_bytes in value_byte_chunks {
             convert_single_value(value_bytes);
@@ -554,42 +557,42 @@ mod optimize_bytes {
         });
     }
 
-/// Separate the bytes such that the second half contains every other byte.
-/// This performs deinterleaving - the inverse of interleaving.
-pub fn separate_bytes_fragments(source: &mut [u8]) {
-    with_reused_buffer(source.len(), |separated| {
+    /// Separate the bytes such that the second half contains every other byte.
+    /// This performs deinterleaving - the inverse of interleaving.
+    pub fn separate_bytes_fragments(source: &mut [u8]) {
+        with_reused_buffer(source.len(), |separated| {
 
-        // Split the two halves that we are going to interleave.
-        let (first_half, second_half) = separated.split_at_mut((source.len() + 1) / 2);
-        // The first half can be 1 byte longer than the second if the length of the input is odd,
-        // but the loop below only processes numbers in pairs.
-        // To handle it, preserve the last element of the input, to be handled after the loop.
-        let last = source.last();
-        let first_half_iter = &mut first_half[..second_half.len()];
+            // Split the two halves that we are going to interleave.
+            let (first_half, second_half) = separated.split_at_mut((source.len() + 1) / 2);
+            // The first half can be 1 byte longer than the second if the length of the input is odd,
+            // but the loop below only processes numbers in pairs.
+            // To handle it, preserve the last element of the input, to be handled after the loop.
+            let last = source.last();
+            let first_half_iter = &mut first_half[..second_half.len()];
 
-        // Main loop that performs the deinterleaving
-        for ((first, second), interleaved) in first_half_iter.iter_mut().zip(second_half.iter_mut())
-            .zip(source.chunks_exact(2)) {
-                // The length of each chunk is known to be 2 at compile time,
-                // and each index is also a constant.
-                // This allows the compiler to remove the bounds checks.
-                *first = interleaved[0];
-                *second = interleaved[1];
-        }
-
-        // If the length of the slice was odd, restore the last element of the input that we saved
-        if source.len() % 2 == 1 {
-            if let Some(value) = last {
-                // we can unwrap() here because we just checked that the lenght is non-zero:
-                // `% 2 == 1` will fail for zero
-                *first_half.last_mut().unwrap() = *value;
+            // Main loop that performs the deinterleaving
+            for ((first, second), interleaved) in first_half_iter.iter_mut().zip(second_half.iter_mut())
+                .zip(source.chunks_exact(2)) {
+                    // The length of each chunk is known to be 2 at compile time,
+                    // and each index is also a constant.
+                    // This allows the compiler to remove the bounds checks.
+                    *first = interleaved[0];
+                    *second = interleaved[1];
             }
-        }
 
-        // write out the results
-        source.copy_from_slice(&separated);
-    });
-}
+            // If the length of the slice was odd, restore the last element of the input that we saved
+            if source.len() % 2 == 1 {
+                if let Some(value) = last {
+                    // we can unwrap() here because we just checked that the lenght is non-zero:
+                    // `% 2 == 1` will fail for zero
+                    *first_half.last_mut().unwrap() = *value;
+                }
+            }
+
+            // write out the results
+            source.copy_from_slice(&separated);
+        });
+    }
 
 
     #[cfg(test)]

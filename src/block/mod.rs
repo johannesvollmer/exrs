@@ -48,6 +48,8 @@ pub struct BlockIndex {
 }
 
 /// Contains a block of pixel data and where that data should be placed in the actual image.
+/// The bytes must be encoded in native-endian format.
+/// The conversion to little-endian format happens when converting to chunks (potentially in parallel).
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct UncompressedBlock {
 
@@ -59,6 +61,7 @@ pub struct UncompressedBlock {
     /// This byte vector contains all pixel rows, one after another.
     /// For each line in the tile, for each channel, the row values are contiguous.
     /// Stores all samples of the first channel, then all samples of the second channel, and so on.
+    /// This data is in native-endian format.
     pub data: ByteVec,
 }
 
@@ -126,10 +129,10 @@ impl UncompressedBlock {
         absolute_indices.validate(Some(header.layer_size))?;
 
         match chunk.compressed_block {
-            CompressedBlock::Tile(CompressedTileBlock { compressed_pixels, .. }) |
-            CompressedBlock::ScanLine(CompressedScanLineBlock { compressed_pixels, .. }) => {
+            CompressedBlock::Tile(CompressedTileBlock { compressed_pixels_le, .. }) |
+            CompressedBlock::ScanLine(CompressedScanLineBlock { compressed_pixels_le, .. }) => {
                 Ok(UncompressedBlock {
-                    data: header.compression.decompress_image_section(header, compressed_pixels, absolute_indices, pedantic)?,
+                    data: header.compression.decompress_image_section_from_le(header, compressed_pixels_le, absolute_indices, pedantic)?,
                     index: BlockIndex {
                         layer: chunk.layer_index,
                         pixel_position: absolute_indices.position.to_usize("data indices start")?,
@@ -168,9 +171,9 @@ impl UncompressedBlock {
         absolute_indices.validate(Some(header.layer_size))?;
 
         if !header.compression.may_loose_data() { debug_assert_eq!(
-            &header.compression.decompress_image_section(
+            &header.compression.decompress_image_section_from_le(
                 header,
-                header.compression.compress_image_section(header, data.clone(), absolute_indices)?,
+                header.compression.compress_image_section_to_le(header, data.clone(), absolute_indices)?,
                 absolute_indices,
                 true
             ).unwrap(),
@@ -178,20 +181,20 @@ impl UncompressedBlock {
             "compression method not round trippin'"
         ); }
 
-        let compressed_data = header.compression.compress_image_section(header, data, absolute_indices)?;
+        let compressed_pixels_le = header.compression.compress_image_section_to_le(header, data, absolute_indices)?;
 
         Ok(Chunk {
             layer_index: index.layer,
             compressed_block : match header.blocks {
                 BlockDescription::ScanLines => CompressedBlock::ScanLine(CompressedScanLineBlock {
-                    compressed_pixels: compressed_data,
+                    compressed_pixels_le,
 
                     // FIXME this calculation should not be made here but elsewhere instead (in meta::header?)
                     y_coordinate: usize_to_i32(index.pixel_position.y(), "pixel index")? + header.own_attributes.layer_position.y(), // TODO sampling??
                 }),
 
                 BlockDescription::Tiles(_) => CompressedBlock::Tile(CompressedTileBlock {
-                    compressed_pixels: compressed_data,
+                    compressed_pixels_le,
                     coordinates: tile_coordinates,
                 }),
             }

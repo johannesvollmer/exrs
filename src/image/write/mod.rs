@@ -164,7 +164,6 @@ impl<'img, L, F> WriteImageWithOptions<'img, L, F>
         crate::block::write(
             write, headers, self.check_compatibility,
             move |meta, chunk_writer|{
-
                 let blocks = meta.collect_ordered_block_data(|block_index|
                      layers.extract_uncompressed_block(&meta.headers, block_index)
                 );
@@ -178,16 +177,6 @@ impl<'img, L, F> WriteImageWithOptions<'img, L, F>
                     chunk_writer.compress_all_blocks_parallel(&meta, blocks)?;
                 }
                 else { chunk_writer.compress_all_blocks_sequential(&meta, blocks)?; }
-                /*let blocks_writer = chunk_writer.as_blocks_writer(&meta);
-
-                // TODO propagate send requirement further upwards
-                if self.parallel {
-                    blocks_writer.compress_all_blocks_parallel(blocks)?;
-                }
-                else {
-                    blocks_writer.compress_all_blocks_sequential(blocks)?;
-                }*/
-
                 Ok(())
             }
         )
