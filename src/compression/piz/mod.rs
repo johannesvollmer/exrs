@@ -71,7 +71,6 @@ pub fn decompress(
         }
     }
 
-    // TODO is this little endian? presumably yes?
     let mut tmp_u16_buffer = huffman::decompress(remaining_input_le, expected_u16_count)?;
 
     let mut channel_data: SmallVec<[ChannelData; 6]> = {
@@ -130,8 +129,7 @@ pub fn decompress(
             // We can support uncompressed data in the machine's native format
             // if all image channels are of type HALF, and if the Xdr and the
             // native representations of a half have the same size.
-            // FIXME this converts to little endian??
-            u16::write_slice_ne(&mut out, values).expect("write to in-memory failed");
+            u16::write_slice_le(&mut out, values).expect("write to in-memory failed");
         }
     }
 
@@ -160,7 +158,7 @@ pub fn compress(
         return Ok(Vec::new());
     }
 
-    // TODO do not convert endianness for f16-only images
+    // TODO do not convert endianness for f16-only images twice
     //      see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
     let uncompressed_le = super::convert_current_to_little_endian(uncompressed_ne, channels, rectangle);
     let uncompressed_le = uncompressed_le.as_slice();// TODO no alloc
@@ -190,7 +188,7 @@ pub fn compress(
         vec
     };
 
-    let mut remaining_uncompressed_bytes = uncompressed_le;
+    let mut remaining_uncompressed_bytes_le = uncompressed_le;
     for y in rectangle.position.y() .. rectangle.end().y() {
         for channel in &mut channel_data {
             if mod_p(y, usize_to_i32(channel.y_sampling)) != 0 { continue; }
@@ -204,7 +202,7 @@ pub fn compress(
             // We can support uncompressed data in the machine's native format
             // if all image channels are of type HALF, and if the Xdr and the
             // native representations of a half have the same size.
-            u16::read_slice_ne(&mut remaining_uncompressed_bytes, target).expect("in-memory read failed");
+            u16::read_slice_le(&mut remaining_uncompressed_bytes_le, target).expect("in-memory read failed");
         }
     }
 

@@ -24,7 +24,7 @@ pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
     let bit_count = usize::try_from(u32::read_le(&mut remaining_compressed)?)?;
     let _skipped = u32::read_le(&mut remaining_compressed)?; // what is this
 
-    let max_code_index = usize::try_from(max_code_index_32).unwrap();
+    let max_code_index = usize::try_from(max_code_index_32)?;
     if min_code_index >= ENCODING_TABLE_SIZE || max_code_index >= ENCODING_TABLE_SIZE {
         return Err(Error::invalid(INVALID_TABLE_SIZE));
     }
@@ -57,7 +57,6 @@ pub fn compress(uncompressed: &[u16]) -> Result<Vec<u8>> {
     let (min_code_index, max_code_index) = build_encoding_table(&mut frequencies);
 
     let mut result = Cursor::new(Vec::with_capacity(uncompressed.len()));
-    // FIXME this writes little endian, is that correct?
     u32::write_slice_le(&mut result, &[0; 5])?; // we come back to these later after we know more about the compressed data
 
     let table_start = result.position();
