@@ -173,13 +173,11 @@ fn compare_compression_contents_rle_f16() {
 
 
 #[test]
-#[cfg(target_endian = "little")] // TODO make it work on big endian
 fn compare_compression_contents_pxr24_f16() {
     expect_eq_other("f16", "pxr24.exr", "decompressed_pxr24.exr");
 }
 
 #[test]
-#[cfg(target_endian = "little")] // TODO make it work on big endian
 fn compare_compression_contents_pxr24_f32() {
     expect_eq_other("f32", "pxr24.exr", "decompressed_pxr24.exr");
 }
@@ -225,7 +223,6 @@ fn compare_png_to_b44a_f16() {
 }
 
 #[test]
-#[cfg(target_endian = "little")] // TODO make it work on big endian
 fn compare_png_to_pxr24_f16() {
     expect_eq_png("f16_pxr24.exr");
 }
@@ -257,7 +254,6 @@ fn compare_png_to_dwaa_f32() {
 }
 
 #[test]
-#[cfg(target_endian = "little")] // TODO make it work on big endian
 fn compare_png_to_pxr24_f32() {
     expect_eq_png("f32_pxr24.exr");
 }
