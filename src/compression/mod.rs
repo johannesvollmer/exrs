@@ -553,42 +553,42 @@ mod optimize_bytes {
         });
     }
 
-/// Separate the bytes such that the second half contains every other byte.
-/// This performs deinterleaving - the inverse of interleaving.
-pub fn separate_bytes_fragments(source: &mut [u8]) {
-    with_reused_buffer(source.len(), |separated| {
+    /// Separate the bytes such that the second half contains every other byte.
+    /// This performs deinterleaving - the inverse of interleaving.
+    pub fn separate_bytes_fragments(source: &mut [u8]) {
+        with_reused_buffer(source.len(), |separated| {
 
-        // Split the two halves that we are going to interleave.
-        let (first_half, second_half) = separated.split_at_mut((source.len() + 1) / 2);
-        // The first half can be 1 byte longer than the second if the length of the input is odd,
-        // but the loop below only processes numbers in pairs.
-        // To handle it, preserve the last element of the input, to be handled after the loop.
-        let last = source.last();
-        let first_half_iter = &mut first_half[..second_half.len()];
+            // Split the two halves that we are going to interleave.
+            let (first_half, second_half) = separated.split_at_mut((source.len() + 1) / 2);
+            // The first half can be 1 byte longer than the second if the length of the input is odd,
+            // but the loop below only processes numbers in pairs.
+            // To handle it, preserve the last element of the input, to be handled after the loop.
+            let last = source.last();
+            let first_half_iter = &mut first_half[..second_half.len()];
 
-        // Main loop that performs the deinterleaving
-        for ((first, second), interleaved) in first_half_iter.iter_mut().zip(second_half.iter_mut())
-            .zip(source.chunks_exact(2)) {
-                // The length of each chunk is known to be 2 at compile time,
-                // and each index is also a constant.
-                // This allows the compiler to remove the bounds checks.
-                *first = interleaved[0];
-                *second = interleaved[1];
-        }
-
-        // If the length of the slice was odd, restore the last element of the input that we saved
-        if source.len() % 2 == 1 {
-            if let Some(value) = last {
-                // we can unwrap() here because we just checked that the lenght is non-zero:
-                // `% 2 == 1` will fail for zero
-                *first_half.last_mut().unwrap() = *value;
+            // Main loop that performs the deinterleaving
+            for ((first, second), interleaved) in first_half_iter.iter_mut().zip(second_half.iter_mut())
+                .zip(source.chunks_exact(2)) {
+                    // The length of each chunk is known to be 2 at compile time,
+                    // and each index is also a constant.
+                    // This allows the compiler to remove the bounds checks.
+                    *first = interleaved[0];
+                    *second = interleaved[1];
             }
-        }
 
-        // write out the results
-        source.copy_from_slice(&separated);
-    });
-}
+            // If the length of the slice was odd, restore the last element of the input that we saved
+            if source.len() % 2 == 1 {
+                if let Some(value) = last {
+                    // we can unwrap() here because we just checked that the lenght is non-zero:
+                    // `% 2 == 1` will fail for zero
+                    *first_half.last_mut().unwrap() = *value;
+                }
+            }
+
+            // write out the results
+            source.copy_from_slice(&separated);
+        });
+    }
 
 
     #[cfg(test)]
