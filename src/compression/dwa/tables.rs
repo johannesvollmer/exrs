@@ -2,6 +2,7 @@
 //! Placeholder structures to prepare for porting OpenEXR's actual tables.
 
 use crate::error::{Error, Result};
+use super::helpers::BitReader;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, Default)]
@@ -73,4 +74,38 @@ pub(crate) fn build_canonical(table: &HuffTable) -> CanonicalHuff {
         max_bits,
         symbols: table.symbols.clone(),
     }
+}
+
+
+#[allow(dead_code)]
+pub(crate) fn decode_symbol(br: &mut BitReader, canon: &CanonicalHuff) -> Result<u8> {
+    if canon.max_bits == 0 { return Err(Error::unsupported("empty huffman table")); }
+
+    let mut code: u16 = 0;
+    for len in 1..=canon.max_bits {
+        let bit = br.read_bit().ok_or_else(|| Error::invalid("bitstream truncated (huff)"))? as u16;
+        code = (code << 1) | bit;
+
+        let first = canon.first_code[len as usize];
+        let idx0 = canon.first_symbol_index[len as usize];
+        let count = if len < 16 {
+            canon.first_symbol_index[(len + 1) as usize].saturating_sub(idx0)
+        } else {
+            // last length: compute count from symbols length
+            (canon.symbols.len() as u16).saturating_sub(idx0)
+        };
+
+        if count == 0 { continue; }
+        if code >= first {
+            let offset = code - first;
+            if offset < count {
+                let idx = (idx0 + offset) as usize;
+                return canon.symbols.get(idx)
+                    .copied()
+                    .ok_or_else(|| Error::invalid("huffman index OOB"));
+            }
+        }
+    }
+
+    Err(Error::invalid("no huffman code matched"))
 }
