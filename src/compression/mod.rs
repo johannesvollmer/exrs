@@ -12,6 +12,7 @@ mod b44;
 
 
 use std::convert::TryInto;
+use crate::compression::Compression::{B44, B44A};
 use crate::meta::attribute::{IntegerBounds, SampleType, ChannelList};
 use crate::error::{Result, Error, usize_to_i32};
 use crate::meta::header::Header;
@@ -286,8 +287,8 @@ impl Compression {
         match self {
             PXR24 => sample_type != SampleType::F32, // pxr reduces f32 to f24
             B44 | B44A => sample_type != SampleType::F16, // b44 only compresses f16 values, others are left uncompressed
-            Uncompressed | RLE | ZIP1 | ZIP16 | PIZ => true,
-            DWAB(_) | DWAA(_) | HTJ2K32 | HTJ2K256 => false,
+            Uncompressed | RLE | ZIP1 | ZIP16 | PIZ | HTJ2K32 | HTJ2K256 => true,
+            DWAB(_) | DWAA(_) => false,
         }
     }
 
@@ -296,18 +297,31 @@ impl Compression {
     pub fn may_loose_data(self) -> bool {
         use self::Compression::*;
         match self {
-            Uncompressed | RLE | ZIP1 | ZIP16 | PIZ => false,
-            PXR24 | B44 | B44A | DWAB(_) | DWAA(_) | HTJ2K32 | HTJ2K256  => true,
+            Uncompressed | RLE | ZIP1 | ZIP16 | PIZ | HTJ2K32 | HTJ2K256 => false,
+            PXR24 | B44 | B44A | DWAB(_) | DWAA(_) => true,
         }
     }
 
     /// Most compression methods will reconstruct the exact pixel bytes,
     /// but some might replace NaN with zeroes.
+    /// This might also depend on the sample type of the pixels.
+    /// Even a compression method that supports NaN might change the bit patterns of those NaNs.
     pub fn supports_nan(self) -> bool {
         use self::Compression::*;
         match self {
-            B44 | B44A | DWAB(_) | DWAA(_) => false, // TODO dwa might support it?
-            _ => true // TODO make sure the tests fail if this is wrong
+            B44A | DWAB(_) | DWAA(_) => false,
+            Uncompressed | PXR24 | RLE | ZIP1 | ZIP16 | PIZ | B44 | HTJ2K32 | HTJ2K256 => true,
+        }
+    }
+
+    /// Most compression methods will reconstruct the exact pixel and NaN bits,
+    /// but some might replace NaN bits with other NaN bits.
+    /// This might also depend on the sample type of the pixels.
+    pub fn preserves_nan_bits(self) -> bool {
+        use self::Compression::*;
+        match self {
+            B44A | PXR24 | DWAB(_) | DWAA(_) => false,
+            B44 | Uncompressed | RLE | ZIP1 | ZIP16 | PIZ | HTJ2K32 | HTJ2K256 => true
         }
     }
 
