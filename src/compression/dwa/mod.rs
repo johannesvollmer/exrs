@@ -10,6 +10,7 @@
 mod helpers;
 mod channeldata;
 mod classifier;
+mod tables;
 mod decoder;
 
 use crate::compression::ByteVec;
