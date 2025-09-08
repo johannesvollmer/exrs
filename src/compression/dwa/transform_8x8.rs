@@ -8,7 +8,6 @@ pub mod test {
     use std::convert::TryInto;
     use half::slice::{HalfBitsSliceExt, HalfFloatSliceExt};
     use rand::random;
-    use crate::image::validate_results::ValidateResult;
     use super::*;
 
     #[test]
@@ -28,7 +27,7 @@ pub mod test {
             dct_inverse_8x8(&mut result, 0);
         }
 
-        input.as_slice().assert_equals_result(&result.as_slice());
+        assert_approx_eq(&input, &result, 1e-3);
     }
 
     #[test]
@@ -46,9 +45,9 @@ pub mod test {
             csc709_inverse(&mut result_a, &mut result_b, &mut result_c);
         }
 
-        input_a.as_slice().assert_equals_result(&result_a.as_slice());
-        input_b.as_slice().assert_equals_result(&result_b.as_slice());
-        input_c.as_slice().assert_equals_result(&result_c.as_slice());
+        assert_approx_eq(&input_a, &result_a, 2.0e-2);
+        assert_approx_eq(&input_b, &result_b, 2.0e-2);
+        assert_approx_eq(&input_c, &result_c, 2.0e-2);
     }
 
     #[test]
@@ -61,7 +60,16 @@ pub mod test {
         let mut un_zigzagged = [1.0_f32; 8*8];
         f32_from_zig_zag_f16(&tmp_zigzag_u16, &mut un_zigzagged);
 
-        input.as_slice().assert_equals_result(&un_zigzagged.as_slice());
+        assert_approx_eq(&input, &un_zigzagged, 1e-3);
+    }
+
+    fn assert_approx_eq(a: &[f32; 64], b: &[f32; 64], eps: f32) {
+        for (i, (&x, &y)) in a.iter().zip(b.iter()).enumerate() {
+            let diff = (x - y).abs();
+            let rel = 0.001 * (x.abs() + y.abs());
+            let tol = eps.max(rel);
+            assert!(diff <= tol, " element [{}] of 64: expected ~{}, found {} (diff {}, tol {})", i, x, y, diff, tol);
+        }
     }
 
     fn rand_8x8_f32() -> [f32; 64] {
