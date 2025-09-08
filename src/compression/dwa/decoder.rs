@@ -12,32 +12,44 @@ use super::helpers::BitReader;
 /// multiple tables and chunked data; this struct will expand as we port more.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct DwaHeader {
-    /// Placeholder: number of bytes in the first segment (e.g., AC table)
-    pub first_segment_len: u32,
-    /// Placeholder flags/version if present
-    pub version_or_flags: u16,
+    /// Total payload length following the header (placeholder; used for bounds)
+    pub payload_len: u32,
+    /// Version if present (placeholder)
+    pub version: u16,
+    /// Flags if present (placeholder)
+    pub flags: u16,
 }
 
 /// Attempt to parse a minimal header from the start of `data`.
 /// Returns (header, bytes_consumed) on success.
 fn parse_header(data: &[u8]) -> Result<(DwaHeader, usize)> {
-    // For now, perform basic length checks and read a couple of bytes so we
-    // can hook up future parsing while keeping tests green.
+    // Expect at least 4 bytes for payload length; optionally 4 more for version/flags.
     if data.len() < 4 {
         return Err(Error::unsupported("DWA bitstream too short for header"));
     }
 
-    // Read a couple of bytes directly (little-endian ordering is expected for EXR blocks)
-    let first_segment_len = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let payload_len = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
 
     let mut consumed = 4usize;
-    let mut version_or_flags: u16 = 0;
+    let mut version: u16 = 0;
+    let mut flags: u16 = 0;
+
     if data.len() >= consumed + 2 {
-        version_or_flags = u16::from_le_bytes([data[consumed], data[consumed + 1]]);
+        version = u16::from_le_bytes([data[consumed], data[consumed + 1]]);
+        consumed += 2;
+    }
+    if data.len() >= consumed + 2 {
+        flags = u16::from_le_bytes([data[consumed], data[consumed + 1]]);
         consumed += 2;
     }
 
-    Ok((DwaHeader { first_segment_len, version_or_flags }, consumed))
+    // Basic bounds sanity: payload_len cannot exceed available bytes after header
+    if (payload_len as usize) > data.len().saturating_sub(consumed) {
+        // Not invalid, just unsupported until full implementation; include details
+        return Err(Error::unsupported("DWA header payload length exceeds available data"));
+    }
+
+    Ok((DwaHeader { payload_len, version, flags }, consumed))
 }
 
 /// Types of DWA tables we expect to parse (scaffold only)
@@ -49,14 +61,37 @@ pub(crate) enum DwaTableKind {
     HuffmanCodes,
 }
 
-/// Placeholder for codebook/table parsing. Consumes some bytes and returns context.
+/// Placeholder for codebook/table parsing.
+/// Format (stub): [u8 kind][u32 le length][length bytes of table data]
 fn parse_codebooks(payload: &[u8]) -> Result<(/*bytes_consumed*/usize, DwaTableKind)> {
     if payload.is_empty() {
         return Err(Error::unsupported("DWA: no payload for codebooks"));
     }
-    // For now, pretend we found an AC LUT and consumed min(2, payload.len()) bytes
-    let consumed = core::cmp::min(2, payload.len());
-    Ok((consumed, DwaTableKind::AcLut))
+
+    let mut offset = 0usize;
+    let kind = match payload.get(offset) {
+        Some(0) => DwaTableKind::DcLut,
+        Some(1) => DwaTableKind::AcLut,
+        Some(2) => DwaTableKind::HuffmanCodes,
+        Some(_) => DwaTableKind::AcLut, // default to AC for unknown tag
+        None => return Err(Error::unsupported("DWA: truncated codebook kind")),
+    };
+    offset += 1;
+
+    if payload.len() < offset + 4 {
+        return Err(Error::unsupported("DWA: truncated codebook length"));
+    }
+
+    let len_bytes = [payload[offset], payload[offset + 1], payload[offset + 2], payload[offset + 3]];
+    let table_len = u32::from_le_bytes(len_bytes) as usize;
+    offset += 4;
+
+    // Consume table bytes, but clamp to available to stay safe in WIP
+    let available = payload.len().saturating_sub(offset);
+    let take = core::cmp::min(table_len, available);
+    offset += take;
+
+    Ok((offset, kind))
 }
 
 pub(crate) fn decompress(
@@ -79,17 +114,23 @@ pub(crate) fn decompress(
         return Err(Error::invalid("DWA stream has no payload after header"));
     }
 
-    // Parse (stub) codebooks next
-    let (cb_consumed, which) = parse_codebooks(&compressed_le[consumed..])?;
+    // Parse (stub) codebooks next (within the declared payload if present)
+    let payload_end = consumed + (hdr.payload_len as usize);
+    let payload_end = core::cmp::min(payload_end, compressed_le.len());
+    let payload = &compressed_le[consumed..payload_end];
+
+    let (cb_consumed, which) = parse_codebooks(payload)?;
     let total_consumed = consumed + cb_consumed;
 
     // For now, still not decoding image data. Provide detailed NotSupported message.
     Err(Error::unsupported(format!(
-        "DWA header parsed (first_segment_len={}, flags={}); parsed {:?} ({} bytes); remaining payload={}",
-        hdr.first_segment_len,
-        hdr.version_or_flags,
+        "DWA header parsed (payload_len={}, version={}, flags={}); parsed {:?} ({} bytes); remaining payload={} of {}",
+        hdr.payload_len,
+        hdr.version,
+        hdr.flags,
         which,
         cb_consumed,
-        compressed_le.len().saturating_sub(total_consumed)
+        compressed_le.len().saturating_sub(total_consumed),
+        compressed_le.len().saturating_sub(consumed)
     )))
 }
