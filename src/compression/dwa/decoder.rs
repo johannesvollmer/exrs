@@ -119,17 +119,34 @@ pub(crate) fn decompress(
     let payload_end = core::cmp::min(payload_end, compressed_le.len());
     let payload = &compressed_le[consumed..payload_end];
 
-    let (cb_consumed, which) = parse_codebooks(payload)?;
-    let total_consumed = consumed + cb_consumed;
+    // Iterate across payload parsing multiple codebook segments
+    let mut offset = 0usize;
+    let mut kinds: Vec<DwaTableKind> = Vec::new();
+    while offset < payload.len() {
+        match parse_codebooks(&payload[offset..]) {
+            Ok((cb_used, kind)) => {
+                if cb_used == 0 { break; } // safety: avoid infinite loop on malformed data
+                kinds.push(kind);
+                offset = offset.saturating_add(cb_used);
+            }
+            Err(err) => {
+                // Surface the detailed unsupported/invalid reason
+                return Err(err);
+            }
+        }
+    }
+
+    let total_consumed = consumed + offset;
 
     // For now, still not decoding image data. Provide detailed NotSupported message.
     Err(Error::unsupported(format!(
-        "DWA header parsed (payload_len={}, version={}, flags={}); parsed {:?} ({} bytes); remaining payload={} of {}",
+        "DWA header parsed (payload_len={}, version={}, flags={}); parsed {} table(s) {:?} ({} bytes total); remaining payload={} of {}",
         hdr.payload_len,
         hdr.version,
         hdr.flags,
-        which,
-        cb_consumed,
+        kinds.len(),
+        kinds,
+        offset,
         compressed_le.len().saturating_sub(total_consumed),
         compressed_le.len().saturating_sub(consumed)
     )))
