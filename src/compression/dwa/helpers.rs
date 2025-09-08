@@ -288,3 +288,83 @@ mod uleb_tests {
         assert_eq!(parse_uleb128(&[0x80]), None);
     }
 }
+
+
+/// Read unary code: count zeros until a '1' stop bit. Returns Some(count) or None on truncation.
+#[allow(dead_code)]
+pub(crate) fn read_unary(br: &mut BitReader<'_>) -> Option<u32> {
+    let mut count: u32 = 0;
+    loop {
+        let b = br.read_bit()?;
+        if b != 0 { return Some(count); }
+        count = count.saturating_add(1);
+    }
+}
+
+/// JPEG-like signed value from category bits: for N bits, values < 2^(N-1) map to negatives via v - (2^N - 1)
+#[allow(dead_code)]
+pub(crate) fn signed_from_category(magnitude: u32, bits: u8) -> i32 {
+    if bits == 0 { return 0; }
+    let half = 1u32 << (bits - 1);
+    if magnitude < half { (magnitude as i32) - ((1i32 << bits) - 1) } else { magnitude as i32 }
+}
+
+/// Read N bits and convert using signed_from_category.
+#[allow(dead_code)]
+pub(crate) fn read_category_value_signed(br: &mut BitReader<'_>, bits: u8) -> Option<i32> {
+    if bits == 0 { return Some(0); }
+    let mag = br.read_bits(bits)?;
+    Some(signed_from_category(mag, bits))
+}
+
+#[cfg(test)]
+mod vlc_tests {
+    use super::*;
+
+    // Local packer for this test module
+    fn pack_bits_msb_first(bits: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut cur: u8 = 0;
+        let mut n: u8 = 0;
+        for &b in bits {
+            cur = (cur << 1) | (b & 1);
+            n += 1;
+            if n == 8 { out.push(cur); cur = 0; n = 0; }
+        }
+        if n != 0 { out.push(cur << (8 - n)); }
+        out
+    }
+
+    #[test]
+    fn unary_read_basic() {
+        // Bits: 0001 01 => returns 3 then 1; remaining padding bits are allowed.
+        let bits = [0,0,0,1, 0,1];
+        let bytes = pack_bits_msb_first(&bits);
+        let mut br = BitReader::new(&bytes);
+        assert_eq!(read_unary(&mut br), Some(3));
+        assert_eq!(read_unary(&mut br), Some(1));
+        // The packer pads to a full byte; we don't require exact exhaustion.
+    }
+
+    #[test]
+    fn signed_category_mapping() {
+        // For 3 bits, threshold is 4. Magnitudes 0..3 map to -7..-4; 4..7 map to 4..7
+        assert_eq!(signed_from_category(0, 3), -7);
+        assert_eq!(signed_from_category(3, 3), -4);
+        assert_eq!(signed_from_category(4, 3), 4);
+        assert_eq!(signed_from_category(7, 3), 7);
+        assert_eq!(signed_from_category(0, 0), 0);
+    }
+
+    #[test]
+    fn read_category_value_signed_bits() {
+        // Encode two values with 3-bit categories: mag=3 (-> -4), mag=6 (-> 6)
+        let bits = [0,1,1, 1,1,0]; // 3 then 6
+        let bytes = pack_bits_msb_first(&bits);
+        let mut br = BitReader::new(&bytes);
+        let a = read_category_value_signed(&mut br, 3).unwrap();
+        let b = read_category_value_signed(&mut br, 3).unwrap();
+        assert_eq!(a, -4);
+        assert_eq!(b, 6);
+    }
+}

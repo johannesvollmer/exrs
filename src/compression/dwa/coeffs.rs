@@ -2,7 +2,7 @@
 //! This module will contain coefficient unpacking and 8x8 block reconstruction.
 
 use crate::error::{Error, Result};
-use super::helpers::ZIGZAG_8X8;
+use super::helpers::{ZIGZAG_8X8, BitReader};
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
