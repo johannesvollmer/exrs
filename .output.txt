@@ -1,0 +1,630 @@
+warning: unused manifest key: lib.plugin
+warning: unreachable pattern
+   --> src\compression\mod.rs:185:13
+    |
+185 | ...   _ => return Err(Error::unsupported(format!("yet unimplemented co...
+    |       ^ no value can reach this
+    |
+note: multiple earlier patterns match some of the same values
+   --> src\compression\mod.rs:185:13
+    |
+169 | ...   Uncompressed => {
+    |       ------------ matches some of the same values
+...
+176 | ...   ZIP16 => zip::compress_bytes(&header.channels, uncompressed_nati...
+    |       ----- matches some of the same values
+177 | ...   ZIP1 => zip::compress_bytes(&header.channels, uncompressed_nativ...
+    |       ---- matches some of the same values
+178 | ...   RLE => rle::compress_bytes(&header.channels, uncompressed_native...
+    |       --- matches some of the same values
+...
+185 | ...   _ => return Err(Error::unsupported(format!("yet unimplemented co...
+    |       ^ ...and 6 other patterns collectively make this unreachable
+note: the lint level is defined here
+   --> src\lib.rs:14:5
+    |
+14  |     unused,
+    |     ^^^^^^
+    = note: `#[warn(unreachable_patterns)]` implied by `#[warn(unused)]`
+warning: unreachable pattern
+   --> src\compression\mod.rs:227:17
+    |
+227 | ...   _ => return Err(Error::unsupported(format!("yet unimplemented co...
+    |       ^ no value can reach this
+    |
+note: multiple earlier patterns match some of the same values
+   --> src\compression\mod.rs:227:17
+    |
+219 | ...   Uncompressed => Ok(convert_little_endian_to_current(compressed_l...
+    |       ------------ matches some of the same values
+220 | ...   ZIP16 => zip::decompress_bytes(&header.channels, compressed_le, ...
+    |       ----- matches some of the same values
+221 | ...   ZIP1 => zip::decompress_bytes(&header.channels, compressed_le, p...
+    |       ---- matches some of the same values
+222 | ...   RLE => rle::decompress_bytes(&header.channels, compressed_le, pi...
+    |       --- matches some of the same values
+...
+227 | ...   _ => return Err(Error::unsupported(format!("yet unimplemented co...
+    |       ^ ...and 4 other patterns collectively make this unreachable
+warning: `exr` (lib) generated 2 warnings
+   Compiling exr v1.73.0 (C:\Users\JohannesVollmer\Documents\Github\exrs)
+warning: function `expect_eq_other_required` is never used
+  --> tests\across_compression.rs:34:4
+   |
+34 | fn expect_eq_other_required(sub_dir: &str, image_name: &str, expected: ...
+   |    ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+warning: `exr` (test "across_compression") generated 1 warning
+warning: `exr` (lib test) generated 2 warnings (2 duplicates)
+    Finished `test` profile [optimized + debuginfo] target(s) in 1m 54s
+     Running unittests src\lib.rs (target\debug\deps\exr-d5d208edb39128c0.exe)
+running 46 tests
+test compression::b44::test::roundtrip_noise_f16_tiny ... ok
+test compression::b44::test::roundtrip_noise_mix_f32_f16_u32_tiny ... ok
+test compression::b44::test::roundtrip_noise_u32_tiny ... ok
+test compression::b44::test::test_convert_from_to_linear ... ok
+test compression::optimize_bytes::test::roundtrip_derive ... ok
+test compression::b44::test::roundtrip_noise_f32_tiny ... ok
+test compression::optimize_bytes::test::roundtrip_interleave ... ok
+test compression::piz::wavelet::test::roundtrip_14_bit_values ... ok
+test compression::piz::wavelet::test::roundtrip_14bit_image ... ok
+test compression::piz::wavelet::test::roundtrip_16_bit_values ... ok
+test compression::piz::huffman::test::compression_comparation ... ok
+test compression::piz::wavelet::test::roundtrip_16bit_image ... ok
+test compression::test::roundtrip_endianness_mixed_channels ... ok
+test image::crop::test::find_bounds ... ok
+test image::crop::test::find_no_bounds ... ok
+test compression::piz::huffman::test::repetitions_special ... ok
+message:  element [2] of 3: expected exactly NaN, found 0
+test image::read::specific_channels::test::equals_naive_f32 ... ok
+message: : expected ~2, found 1 (adaptive tolerance 0.17999999)
+message: : expected exactly 2, found 1
+test image::validate_results::test_value_result::test_compiles ... ok
+message:  > f32 samples element [1] of 2: expected exactly 0.1, found 0.2
+test image::validate_results::test_value_result::test_f32 ... ok
+message: : samples type mismatch. expected U32, found F32
+test compression::piz::huffman::test::test_zeroes ... ok
+test image::validate_results::test_value_result::test_nan ... ok
+test image::write::channels::test::compiles ... ok
+test image::validate_results::test_value_result::test_uncompressed ... ok
+test io::test::peek ... ok
+test meta::attribute::test::attribute_write_read_roundtrip_and_byte_size ... ok
+test meta::attribute::test::rounding_down ... ok
+test meta::attribute::test::rounding_up ... ok
+test meta::attribute::test::tile_description_write_read_roundtrip ... ok
+test meta::attribute::test::text_ord ... ok
+test meta::attribute::test::time_code_pack ... ok
+test meta::test::infer_high_requirements ... ok
+test meta::test::infer_low_requirements ... ok
+test meta::test::round_trip_requirements ... ok
+test meta::test::round_trip ... ok
+test compression::piz::huffman::test::round_trip ... ok
+test compression::b44::test::roundtrip_noise_f32 ... ok
+test compression::b44::test::roundtrip_noise_u32 ... ok
+test compression::b44::test::roundtrip_noise_f16 ... ok
+test compression::b44::test::roundtrip_noise_mix_f32_f16_u32 ... ok
+message: | image > layer data element [0] of 1 (layer `None`) > channel `B` > sample_data > levels element [0] of 121 > f16 samples element [100] of 436254: expected exactly 1.4423828, found 1.3613281
+test image::validate_results::test_value_result::test_error ... ok
+test compression::piz::test::roundtrip_seven_channels ... ok
+test compression::piz::test::roundtrip_two_channels ... ok
+test compression::b44::test::border_on_multiview ... ok
+test compression::piz::wavelet::test::ground_truth ... ok
+test compression::piz::test::roundtrip_any_sample_type ... ok
+test compression::piz::huffman::test::round_trip100 ... ok
+test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.29s
+     Running tests\across_compression.rs (target\debug\deps\across_compression-8512ed972881f5ff.exe)
+running 33 tests
+skipping (yet unimplemented compression special case (DWA: truncated codebook length))
+skipping (yet unimplemented compression special case (DWA: truncated codebook length))
+skipping (yet unimplemented compression special case (DWA: truncated codebook length))
+skipping (yet unimplemented compression special case (DWA: truncated codebook length))
+test compare_compression_contents_dwaa_f32 ... ok
+test compare_compression_contents_b44a_f16 ... ok
+test compare_compression_contents_dwaa_f16 ... ok
+test compare_compression_contents_dwab_f32 ... ok
+test compare_compression_contents_dwab_f16 ... ok
+test compare_compression_contents_b44_f16 ... ok
+test compare_compression_contents_pxr24_f32 ... ok
+test compare_compression_contents_zip_f16 ... ok
+test compare_compression_contents_b44a_f32 ... ok
+test compare_compression_contents_piz_f16 ... ok
+test compare_compression_contents_b44_f32 ... ok
+test compare_compression_contents_rle_f32 ... ok
+test compare_compression_contents_pxr24_f16 ... ok
+test compare_compression_contents_piz_f32 ... ok
+test compare_compression_contents_rle_f16 ... ok
+skipping (yet unimplemented compression special case (DWA: truncated codebook length))
+test compare_compression_contents_zip_f32 ... ok
+test compare_png_to_dwaa_f32 ... ok
+skipping (yet unimplemented compression special case (DWA: truncated codebook length))
+test compare_compression_contents_zips_f16 ... ok
+test compare_compression_contents_zips_f32 ... ok
+test compare_png_to_dwaa_f16 ... ok
+test compare_png_to_b44a_f16 ... ok
+test compare_png_to_uncompressed_f16 ... ok
+test compare_png_to_b44_f16 ... ok
+test compare_png_to_uncompressed_f32 ... ok
+test compare_png_to_rle_f16 ... ok
+test compare_png_to_pxr24_f32 ... ok
+test compare_png_to_pxr24_f16 ... ok
+test compare_png_to_rle_f32 ... ok
+test compare_png_to_zip_f16 ... ok
+test compare_png_to_zip_f32 ... ok
+test compare_png_to_piz_f32 ... ok
+test compare_png_to_piz_f16 ... ok
+test compare_png_to_zips_f16 ... ok
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running tests\dev.rs (target\debug\deps\dev-3eb336c9c2d14081.exe)
+running 3 tests
+test print_meta_of_all_files ... ignored
+test search_previews_of_all_files ... ignored
+test test_roundtrip ... ignored
+test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests\fuzz.rs (target\debug\deps\fuzz-9d01581ca22bf138.exe)
+running 3 tests
+test fuzz ... ignored
+✓ Recognized as invalid (file identifier missing): "tests/images/invalid\\openexr\\COPYING"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_4cb169_255_cc7ac9cde4b8634b31cb41c8fe89b92d_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_4cb169_380_4572f174dd4e48b879ca6d516486f30e_exr"
+✓ Recognized as invalid (no layer in the image matched your specified requirements): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_4cb169_978_5f00ce89c3847e739b256efc49f312cf_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_504235_131_78b0e15388401193e1ee2ce20fb7f3b0_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7efd58fcbf3d_356_668b128c27c62e0d8314c503831fde88_exr"
+✓ Recognized as invalid (chunk count not matching data size): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7efd9bd346a5_639_9e0b30ed499cdf9e8802dd64e16a9508_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f09128c0ec1_358_ecaca7fb3f230d9d842074e1dd88f29b_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f0faa6bb393_900_7d9ed0a6eaa68f8308a042d725119ad2_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f11c0330393_935_240e7cacd61711daf4285366fea95e0c_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f11ece681f1_785_a570a0a25ada4752dabb554ad6b1eb6b_exr"
+✓ Recognized as invalid (compressed PIZ data (invalid: unexpected end of code table data)): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f171b7ab3a2_937_b4e2415c399c2ab39548de911223769d_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f178ac80539_109_519f88e9ededfff61f535d6c9eb25a85_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f1fd65113ac_935_8fd55930e544dc3fb88659a6a8509c14_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f35311a1426_780_4871d40882e0fe7fae1427a82319e144_exr"
+✓ Recognized as invalid (missing or invalid display window attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f479f9536bd_391_5953693841a7931caf3d4592f8b9c90b_exr"
+✓ Recognized as invalid (invalid size): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f4aaebde389_918_a40f029a8121e5e26fe338b1fb91846e_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f4d5072b39d_561_5f5e4ef49a581edaf7bf0858fbfcfdd1_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f4f5558d00e_414_ec6445a8638a21c93ce8feb5a2e71981_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f54ed80df53_321_19490ab1841d3854eec557f3c23d0db0_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f5860f8d1f4_188_2e62008f8ecb3bb2ed67c09fa0939da7_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f58e8d75e8b_186_4bb7b1de93e9e44ea921c301b29a8026_exr"
+✓ Recognized as invalid (text too long): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f5a5030cdca_702_045a76649e773c9c18b706c9853f18d9_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f5c18182f27_369_1fb4dae7654c77cd79646d3aa049d5dd_exr"
+✓ Recognized as invalid (no layer in the image matched your specified requirements): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f5cd523238e_878_03c277ec5021331fb301c7c1caa7dfd8_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f5cdab9a3a7_415_c33b838f08aafc976d3c24139936e122_exr"
+✓ Recognized as invalid (no layer in the image matched your specified requirements): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f6798416389_229_18bd946a4fde157b9974d16a51a4851d_exr"
+✓ Recognized as invalid (missing or invalid display window attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f6a78657cbf_916_10cc35387b54fdc7744f91b5bb424009_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f6e5e983398_203_ff7c0c73c79483db1fee001d77463c37_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f6efa7c53a7_991_4f9bd6fda4f5ae991775244b4945a7fb_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f6f881fa398_561_20ecb7f5a431d03a1502c28cab1214ad_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f730474b07c_543_fb506af38c88894d92ba0d433cf41abc_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f76b2c2cefb_196_ea4f8db8b4f2c11e02428c08e9bbbbb8_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f7a75f9abf5_577_a2b8668cc6069643543cb80fedca3ee4_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f8170c1abfa_115_8c6e33969541bf432ef7e68cc369728c_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f8a69d8339d_829_381ccc69dc6bd21c43a1deb0965bf5ab_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f8dd48421cd_321_7bae35650e908b12dbee1cf01e3d357f_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f8ed39ceed3_955_c6bb655a1bbfab9c5b511bd2b767e023_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f9acb068ee5_177_ec645ad270202d39ba5e80c826bbf13d_exr"
+✓ Recognized as invalid (missing or invalid display window attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7f9cc08a96a5_942_e708072e479264a7808c055094a0fed9_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7fa0e1f48cbf_760_be9901248390240a24449d4e8a97f6f2_exr"
+✓ Recognized as invalid (missing or invalid display window attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7fa34eacd389_820_476a8109ebb3f7d02252e773b7bca45d_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7faf9aba03ac_414_75af58c21b9b9e994747f9d6a5fc46d4_exr"
+✓ Recognized as invalid (missing or invalid display window attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7fb3a7c6fc99_871_52d1f03c515bc91cc894515beea56a4f_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7fb97d097381_293_78e73b6494a955e87faabcb16b35faa0_exr"
+✓ Recognized as invalid (scan line block sample count): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7fbe2d8e838e_932_9e9d2b0a870c0ad516189d274c2f98e4_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7fc6b05f1eaf_255_e967badfa747d1bb0eda71a1883b419e_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7fca10855564_529_6d418eae3e33a819185a8b09c40fd123_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7fcdcb0a9f65_100_70d0d5b98567a5174d512dba7a603377_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7fce901e7498_737_927b67c9a1ecd5f997d3a2620fdbf639_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7fd328d0d206_535_9cc3d65c368fb138cb6a4bdd4da8070f_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7fd921b41f11_369_da245dc772c0a5a60ce7b759b2132c51_exr"
+✓ Recognized as invalid (scan line block sample count): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7fdb9de0b38e_829_636ff2831c664e14a73282a3299781dd_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7fe4c4caa975_277_153f78ec07237d01e8902143da28c7ec_exr"
+✓ Recognized as invalid (compressed PIZ data (invalid: decoded data are shorter than expected)): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7fe667eb33a2_999_31f64961e47968656f00573f7db5c67d_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7fe814d1ce9d_617_e00af1c4c76b988122b68d43b073dd47_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\asan_heap-oob_7ff4b88b21df_560_e119e0ba5bf9345e7daa85cc2fff6684_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\asan_stack-oob_433d4f_157_4c56ecca982bc10e976527cd314bbcfa_exr"
+✓ Recognized as invalid (scan line block sample count): "tests/images/invalid\\openexr\\Damaged\\asan_stack-oob_433d4f_436_bb29e6f88ad5f5b2f5f9b68a3655b1d8_exr"
+✓ Recognized as invalid (missing or invalid data window attribute): "tests/images/invalid\\openexr\\Damaged\\asan_stack-oob_433d4f_510_f8d3ef49bd6e5f7ca4fb7e0f9c0af139_exr"
+✓ Recognized as invalid (invalid size): "tests/images/invalid\\openexr\\Damaged\\openexr_2.2.0_heap_buffer_overflow_exr"
+✓ Recognized as invalid (attribute size): "tests/images/invalid\\openexr\\Damaged\\openexr_2.2.0_memory_allocation_error_1_exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\openexr_2.2.0_memory_allocation_error_2_exr"
+✓ Recognized as invalid (missing or invalid display window attribute): "tests/images/invalid\\openexr\\Damaged\\openexr_2.2.0_memory_allocation_error_3_exr"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\poc-099125d15685ef30feae813ddae15406b3f539d7cc4aa399176a50dcfe9be95c"
+✓ Recognized as invalid (attribute size): "tests/images/invalid\\openexr\\Damaged\\poc-2b68475a090117f033df54c2de31546f7a1927ecadd9d0aa9b6bb8daad8ea971_min"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\poc-3e54bd90fc0e2a0b348ecd80d96738ed8324de388b3e88fd6c5fc666c2f01d83_min"
+- Unsupported (channel subsampling not supported yet): "tests/images/invalid\\openexr\\Damaged\\poc-4d912f49ddc13ff49f95543880d47c85a8918e563fb723c340264f1719057613.mini"
+✓ Recognized as invalid (no layer in the image matched your specified requirements): "tests/images/invalid\\openexr\\Damaged\\poc-66e4d1f68a3112b9aaa93831afbf8e283fd39be5e4591708bad917e6886c0ebb.mini"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\poc-89f7735a7cc9dcee59bfce4da70ad12e35a8809945b01b975d1a52ec15dbeccc"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\poc-9651abd6ee953b9f669db5927f8832f1b1eab028fa6ae7b4176a701aeea0ec90"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\poc-a905d63836959293bed720ab7d242bd07b7b7ec81ee3ee1e14e89853344dafbf_min"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\poc-af451a11e18ad9ca6ddc098bfd8b42f803bec2be8fafa6e648b8a7adcfdd0c06_min"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\poc-bd9579c640a6ee867d140c2a4d3bbd6f0452d4726f3f25ed53bf666f558ed245_min"
+✓ Recognized as invalid (attribute size): "tests/images/invalid\\openexr\\Damaged\\poc-c9457552c1c04ea0f98154bc433a5f5d0421a7e705e6f396aba4339568473435_min"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\poc-cbc6ff03d6bc31f0c61476525641852b0220278e6576a651029c50e86f7f0c77"
+✓ Recognized as invalid (missing or invalid compression attribute): "tests/images/invalid\\openexr\\Damaged\\poc-d545cd0db4595a1c05504ab53d83cc8c6fce02387545aa49e979ee087c1ddf8f_min"
+✓ Recognized as invalid (missing or invalid display window attribute): "tests/images/invalid\\openexr\\Damaged\\poc-df1fefc5fb459cb12183eae34dc696cd0e77b0b8deb4cd1ef3dc25279b7a6bde_min"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\Damaged\\poc-e2106eebb303e685cee66860c931fe1a4eb9af1a7f5bef5b3b95f90c3e8ae0e0_min"
+✓ Recognized as invalid (file feature flags): "tests/images/invalid\\openexr\\Damaged\\poc-fb9238840f4d9d93ab3ac989b70000f9795ab6ad399bff00093b944e6a893403_min"
+✓ Recognized as invalid (file identifier missing): "tests/images/invalid\\openexr\\Damaged\\README.md"
+✓ Recognized as invalid (chunk count not matching data size): "tests/images/invalid\\openexr\\Damaged\\signal_sigsegv_7ffff7b21e8a_389_bf048bf41ca71b4e00d2b0edd0a39e27_exr"
+- Unsupported (channel subsampling not supported yet): "tests/images/invalid\\openexr\\IlmlfmlflmTest\\comp_b44.exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\IlmlfmlflmTest\\comp_bad_bounds_piz.exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\IlmlfmlflmTest\\comp_bad_neg_bounds_pxr24.exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\IlmlfmlflmTest\\comp_bad_pos_bounds_piz.exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\IlmlfmlflmTest\\comp_bad_pos_bounds_pxr24.exr"
+✓ Recognized as invalid (attribute size): "tests/images/invalid\\openexr\\IlmlfmlflmTest\\comp_early_eof_piz.exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\IlmlfmlflmTest\\comp_invalid_unknown.exr"
+✓ Recognized as invalid (reference to missing bytes): "tests/images/invalid\\openexr\\IlmlfmlflmTest\\comp_short_decode_piz.exr"
+✓ Recognized as invalid (at least one channel is required): "tests/images/invalid\\openexr\\IlmlfmlflmTest\\invalid_shared_attrs_multipart.exr"
+- Unsupported (deep data not supported yet): "tests/images/invalid\\openexr\\IlmlfmlflmTest\\scanline_with_deepscanline_type.exr"
+✓ Recognized as invalid (block type attribute value): "tests/images/invalid\\openexr\\IlmlfmlflmTest\\scanline_with_deeptiled_type.exr"
+✓ Recognized as invalid (missing or invalid tiles attribute): "tests/images/invalid\\openexr\\IlmlfmlflmTest\\scanline_with_tiledimage_type.exr"
+✓ Recognized as invalid (level index exceeding integer maximum): "tests/images/invalid\\openexr\\IlmlfmlflmTest\\tiled.exr"
+- Unsupported (deep data not supported yet): "tests/images/invalid\\openexr\\IlmlfmlflmTest\\tiled_with_deepscanline_type.exr"
+✓ Recognized as invalid (block type attribute value): "tests/images/invalid\\openexr\\IlmlfmlflmTest\\tiled_with_deeptile_type.exr"
+✓ Recognized as invalid (compressed ZIP16 data (invalid: zlib-compressed data malformed)): "tests/images/invalid\\openexr\\IlmlfmlflmTest\\tiled_with_scanlineimage_type.exr"
+✓ Recognized as invalid (no layer in the image matched your specified requirements): "tests/images/invalid\\openexr\\IlmlfmlflmTest\\v1.7.test.interleaved.exr"
+✓ Recognized as invalid (no layer in the image matched your specified requirements): "tests/images/invalid\\openexr\\IlmlfmlflmTest\\v1.7.test.tiled.exr"
+✓ Recognized as invalid (file identifier missing): "tests/images/invalid\\openexr\\LICENSE"
+✓ Recognized as invalid (file identifier missing): "tests/images/invalid\\openexr\\README.md"
+test damaged ... ok
+test fuzzed ... ok
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.07s
+     Running tests\roundtrip.rs (target\debug\deps\roundtrip-70589985e238bed1.exe)
+running 11 tests
+test roundtrip_unusual_2 ... ok
+test roundtrip_uncompressed ... ok
+test roundtrip_unusual_7 ... ok
+test roundtrip_rle ... ok
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\dwab.exr"
+test roundtrip_zip16 ... ok
+test roundtrip_pxr24 ... ok
+test roundtrip_b44 ... ok
+test roundtrip_zip1 ... ok
+test roundtrip_b44a ... ok
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwaa_v2.exr"
+test roundtrip_piz ... ok
+✓ No error when processing "tests/images/valid\\openexr\\Chromaticities\\XYZ_YC.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\decompressed_dwab.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\decompressed_pxr24.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\b44.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\dwaa.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\dwab.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwab_v1.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwab_v2.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\pxr24.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\b44a.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\decompressed_b44.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\rle.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\decompressed_b44a.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f32_zip.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\uncompressed.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\decompressed_dwaa.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\b44.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\zip.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\b44a.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\decompressed_dwaa.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\decompressed_dwab.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\decompressed_pxr24.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\dwaa.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\GrayRampsHorizontal.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_none.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f32_zips.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\zips.exr"
+✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_dwa.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\piz.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\piz.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwaa_v1.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\pxr24.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\rle.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\uncompressed.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\zip.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_piz.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_pxr24.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_rle.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_uncompressed.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\zips.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_zip.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_b44.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t01.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t11.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_zips.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t16.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f32_dwaa.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_b44.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_b44a.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_dwaa.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\RgbRampsDiagonal.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f32_piz.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\WavyLinesCube.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\test_native1.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f32_pxr24.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t12.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t02.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f32_rle.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f32_uncompressed.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t05.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t13.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\MirrorPattern.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t03.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t06.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_piz.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\SquaresSwirls.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwab_piz.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t14.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\WavyLinesLatLong.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_b44_piz.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwaa_piz.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_rle.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t04.exr"
+✓ No error when processing "tests/images/valid\\openexr\\LuminanceChroma\\CrissyField.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t07.exr"
+✓ No error when processing "tests/images/valid\\openexr\\LuminanceChroma\\Flowers.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\Bonita.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t15.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t08.exr"
+✓ No error when processing "tests/images/valid\\openexr\\LuminanceChroma\\MtTamNorth.exr"
+✓ No error when processing "tests/images/valid\\openexr\\LuminanceChroma\\StarField.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t09.exr"
+✓ No error when processing "tests/images/valid\\openexr\\v2\\LeftView\\Trunks.exr"
+✓ No error when processing "tests/images/valid\\openexr\\v2\\LowResLeftView\\Balls.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\WideColorGamut.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\test_native2.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\ColorCodedLevels.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\v1.7.test.1.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\WideFloatRange.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\WavyLinesSphere.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\v1.7.test.planar.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t10.exr"
+✓ No error when processing "tests/images/valid\\openexr\\v2\\LeftView\\Balls.exr"
+✓ No error when processing "tests/images/valid\\openexr\\v2\\LeftView\\Ground.exr"
+✓ No error when processing "tests/images/valid\\openexr\\v2\\LeftView\\Leaves.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\PeriodicPattern.exr"
+✓ No error when processing "tests/images/valid\\openexr\\LuminanceChroma\\Garden.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\v1.7.test.tiled.exr"
+✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_zip_half.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_zip.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\OrientationLatLong.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiView\\Adjuster.exr"
+✓ No error when processing "tests/images/valid\\openexr\\v2\\LowResLeftView\\composited.exr"
+✓ No error when processing "tests/images/valid\\openexr\\v2\\LowResLeftView\\Ground.exr"
+✓ No error when processing "tests/images/valid\\openexr\\v2\\LowResLeftView\\Leaves.exr"
+✓ No error when processing "tests/images/valid\\openexr\\v2\\LowResLeftView\\Trunks.exr"
+✓ No error when processing "tests/images/valid\\openexr\\v2\\Stereo\\Balls.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\StageEnvCube.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\OrientationCube.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0007.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\Kapaa.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0002.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_zips.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\lineOrder_decreasing.exr"
+✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_uncompressed.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\lineOrder_increasing.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\StageEnvLatLong.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\KernerEnvCube.exr"
+✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_uncompressed_half.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Tiles\\GoldenGate.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0004.exr"
+✓ No error when processing "tests/images/valid\\custom\\oh crop.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\KernerEnvLatLong.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiView\\Balls.exr"
+✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_pxr24.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0007.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiView\\Fog.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0003.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Tiles\\Spirals.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Tiles\\Ocean.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0001.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0008.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0004.exr"
+✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\Cannon.exr"
+✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_rle.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Chromaticities\\Rec709.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Chromaticities\\Rec709_YC.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Chromaticities\\XYZ.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0005.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiView\\Impact.exr"
+✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\Desk.exr"
+✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\Tree.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\AllHalfValues.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiView\\LosPadres.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0001.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\BrightRings.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\BrightRingsNanInf.exr"
+✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\CandleGlass.exr"
+✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\MtTamWest.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\GammaChart.exr"
+✓ No error when processing "tests/images/valid\\openexr\\v2\\Stereo\\Leaves.exr"
+✓ No error when processing "tests/images/valid\\openexr\\v2\\Stereo\\Trunks.exr"
+✓ No error when processing "tests/images/valid\\openexr\\v2\\Stereo\\Ground.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\GrayRampsDiagonal.exr"
+✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\Blobbies.exr"
+✓ No error when processing "tests/images/valid\\openexr\\v2\\Stereo\\composited.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0005.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0006.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0006.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0008.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0002.exr"
+✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_zips.exr"
+✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\StillLife.exr"
+✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\PrismsLenses.exr"
+✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_piz.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0003.exr"
+✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_piz_noisy_rgb.exr"
+[
+    "Ok: tests/images/valid\\custom\\compression_methods\\f16\\b44.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f16\\b44a.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f16\\decompressed_b44.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f16\\decompressed_b44a.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f16\\decompressed_dwaa.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f16\\decompressed_dwab.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f16\\decompressed_pxr24.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f16\\piz.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f16\\pxr24.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f16\\rle.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f16\\uncompressed.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f16\\zip.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f16\\zips.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f32\\b44.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f32\\b44a.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f32\\decompressed_dwaa.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f32\\decompressed_dwab.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f32\\decompressed_pxr24.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f32\\piz.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f32\\pxr24.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f32\\rle.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f32\\uncompressed.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f32\\zip.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\f32\\zips.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\u16\\f16_b44.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\u16\\f16_b44a.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\u16\\f16_piz.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\u16\\f16_pxr24.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\u16\\f16_rle.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\u16\\f16_uncompressed.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\u16\\f16_zip.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\u16\\f16_zips.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\u16\\f32_piz.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\u16\\f32_pxr24.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\u16\\f32_rle.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\u16\\f32_uncompressed.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\u16\\f32_zip.exr",
+    "Ok: tests/images/valid\\custom\\compression_methods\\u16\\f32_zips.exr",
+    "Ok: tests/images/valid\\custom\\crowskull\\crow_piz.exr",
+    "Ok: tests/images/valid\\custom\\crowskull\\crow_piz_noisy_rgb.exr",
+    "Ok: tests/images/valid\\custom\\crowskull\\crow_pxr24.exr",
+    "Ok: tests/images/valid\\custom\\crowskull\\crow_rle.exr",
+    "Ok: tests/images/valid\\custom\\crowskull\\crow_uncompressed.exr",
+    "Ok: tests/images/valid\\custom\\crowskull\\crow_uncompressed_half.exr",
+    "Ok: tests/images/valid\\custom\\crowskull\\crow_zips.exr",
+    "Ok: tests/images/valid\\custom\\crowskull\\crow_zip_half.exr",
+    "Ok: tests/images/valid\\custom\\oh crop.exr",
+    "Ok: tests/images/valid\\openexr\\Beachball\\multipart.0001.exr",
+    "Ok: tests/images/valid\\openexr\\Beachball\\multipart.0002.exr",
+    "Ok: tests/images/valid\\openexr\\Beachball\\multipart.0003.exr",
+    "Ok: tests/images/valid\\openexr\\Beachball\\multipart.0004.exr",
+    "Ok: tests/images/valid\\openexr\\Beachball\\multipart.0005.exr",
+    "Ok: tests/images/valid\\openexr\\Beachball\\multipart.0006.exr",
+    "Ok: tests/images/valid\\openexr\\Beachball\\multipart.0007.exr",
+    "Ok: tests/images/valid\\openexr\\Beachball\\multipart.0008.exr",
+    "Ok: tests/images/valid\\openexr\\Beachball\\singlepart.0001.exr",
+    "Ok: tests/images/valid\\openexr\\Beachball\\singlepart.0002.exr",
+    "Ok: tests/images/valid\\openexr\\Beachball\\singlepart.0003.exr",
+    "Ok: tests/images/valid\\openexr\\Beachball\\singlepart.0004.exr",
+    "Ok: tests/images/valid\\openexr\\Beachball\\singlepart.0005.exr",
+    "Ok: tests/images/valid\\openexr\\Beachball\\singlepart.0006.exr",
+    "Ok: tests/images/valid\\openexr\\Beachball\\singlepart.0007.exr",
+    "Ok: tests/images/valid\\openexr\\Beachball\\singlepart.0008.exr",
+    "Ok: tests/images/valid\\openexr\\Chromaticities\\Rec709.exr",
+    "Ok: tests/images/valid\\openexr\\Chromaticities\\XYZ.exr",
+    "Ok: tests/images/valid\\openexr\\DisplayWindow\\t01.exr",
+    "Ok: tests/images/valid\\openexr\\DisplayWindow\\t02.exr",
+    "Ok: tests/images/valid\\openexr\\DisplayWindow\\t03.exr",
+    "Ok: tests/images/valid\\openexr\\DisplayWindow\\t04.exr",
+    "Ok: tests/images/valid\\openexr\\DisplayWindow\\t05.exr",
+    "Ok: tests/images/valid\\openexr\\DisplayWindow\\t06.exr",
+    "Ok: tests/images/valid\\openexr\\DisplayWindow\\t07.exr",
+    "Ok: tests/images/valid\\openexr\\DisplayWindow\\t08.exr",
+    "Ok: tests/images/valid\\openexr\\DisplayWindow\\t09.exr",
+    "Ok: tests/images/valid\\openexr\\DisplayWindow\\t10.exr",
+    "Ok: tests/images/valid\\openexr\\DisplayWindow\\t11.exr",
+    "Ok: tests/images/valid\\openexr\\DisplayWindow\\t12.exr",
+    "Ok: tests/images/valid\\openexr\\DisplayWindow\\t13.exr",
+    "Ok: tests/images/valid\\openexr\\DisplayWindow\\t14.exr",
+    "Ok: tests/images/valid\\openexr\\DisplayWindow\\t15.exr",
+    "Ok: tests/images/valid\\openexr\\DisplayWindow\\t16.exr",
+    "Ok: tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_b44_piz.exr",
+    "Ok: tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwaa_piz.exr",
+    "Ok: tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwab_piz.exr",
+    "Ok: tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_none.exr",
+    "Ok: tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_piz.exr",
+    "Ok: tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_rle.exr",
+    "Ok: tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_zip.exr",
+    "Ok: tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_zips.exr",
+    "Ok: tests/images/valid\\openexr\\IlmfmlmflmTest\\lineOrder_decreasing.exr",
+    "Ok: tests/images/valid\\openexr\\IlmfmlmflmTest\\lineOrder_increasing.exr",
+    "Ok: tests/images/valid\\openexr\\IlmfmlmflmTest\\test_native1.exr",
+    "Ok: tests/images/valid\\openexr\\IlmfmlmflmTest\\test_native2.exr",
+    "Ok: tests/images/valid\\openexr\\IlmfmlmflmTest\\v1.7.test.1.exr",
+    "Ok: tests/images/valid\\openexr\\IlmfmlmflmTest\\v1.7.test.planar.exr",
+    "Ok: tests/images/valid\\openexr\\IlmfmlmflmTest\\v1.7.test.tiled.exr",
+    "Ok: tests/images/valid\\openexr\\LuminanceChroma\\Garden.exr",
+    "Ok: tests/images/valid\\openexr\\MultiResolution\\Bonita.exr",
+    "Ok: tests/images/valid\\openexr\\MultiResolution\\ColorCodedLevels.exr",
+    "Ok: tests/images/valid\\openexr\\MultiResolution\\Kapaa.exr",
+    "Ok: tests/images/valid\\openexr\\MultiResolution\\KernerEnvCube.exr",
+    "Ok: tests/images/valid\\openexr\\MultiResolution\\KernerEnvLatLong.exr",
+    "Ok: tests/images/valid\\openexr\\MultiResolution\\MirrorPattern.exr",
+    "Ok: tests/images/valid\\openexr\\MultiResolution\\OrientationCube.exr",
+    "Ok: tests/images/valid\\openexr\\MultiResolution\\OrientationLatLong.exr",
+    "Ok: tests/images/valid\\openexr\\MultiResolution\\PeriodicPattern.exr",
+    "Ok: tests/images/valid\\openexr\\MultiResolution\\StageEnvCube.exr",
+    "Ok: tests/images/valid\\openexr\\MultiResolution\\StageEnvLatLong.exr",
+    "Ok: tests/images/valid\\openexr\\MultiResolution\\WavyLinesCube.exr",
+    "Ok: tests/images/valid\\openexr\\MultiResolution\\WavyLinesLatLong.exr",
+    "Ok: tests/images/valid\\openexr\\MultiResolution\\WavyLinesSphere.exr",
+    "Ok: tests/images/valid\\openexr\\MultiView\\Adjuster.exr",
+    "Ok: tests/images/valid\\openexr\\MultiView\\Balls.exr",
+    "Ok: tests/images/valid\\openexr\\MultiView\\Fog.exr",
+    "Ok: tests/images/valid\\openexr\\MultiView\\Impact.exr",
+    "Ok: tests/images/valid\\openexr\\MultiView\\LosPadres.exr",
+    "Ok: tests/images/valid\\openexr\\ScanLines\\Blobbies.exr",
+    "Ok: tests/images/valid\\openexr\\ScanLines\\CandleGlass.exr",
+    "Ok: tests/images/valid\\openexr\\ScanLines\\Cannon.exr",
+    "Ok: tests/images/valid\\openexr\\ScanLines\\Desk.exr",
+    "Ok: tests/images/valid\\openexr\\ScanLines\\MtTamWest.exr",
+    "Ok: tests/images/valid\\openexr\\ScanLines\\PrismsLenses.exr",
+    "Ok: tests/images/valid\\openexr\\ScanLines\\StillLife.exr",
+    "Ok: tests/images/valid\\openexr\\ScanLines\\Tree.exr",
+    "Ok: tests/images/valid\\openexr\\TestImages\\AllHalfValues.exr",
+    "Ok: tests/images/valid\\openexr\\TestImages\\BrightRings.exr",
+    "Ok: tests/images/valid\\openexr\\TestImages\\BrightRingsNanInf.exr",
+    "Ok: tests/images/valid\\openexr\\TestImages\\GammaChart.exr",
+    "Ok: tests/images/valid\\openexr\\TestImages\\GrayRampsDiagonal.exr",
+    "Ok: tests/images/valid\\openexr\\TestImages\\GrayRampsHorizontal.exr",
+    "Ok: tests/images/valid\\openexr\\TestImages\\RgbRampsDiagonal.exr",
+    "Ok: tests/images/valid\\openexr\\TestImages\\SquaresSwirls.exr",
+    "Ok: tests/images/valid\\openexr\\TestImages\\WideColorGamut.exr",
+    "Ok: tests/images/valid\\openexr\\TestImages\\WideFloatRange.exr",
+    "Ok: tests/images/valid\\openexr\\Tiles\\GoldenGate.exr",
+    "Ok: tests/images/valid\\openexr\\Tiles\\Ocean.exr",
+    "Ok: tests/images/valid\\openexr\\Tiles\\Spirals.exr",
+    "Ok: tests/images/valid\\openexr\\v2\\LowResLeftView\\composited.exr",
+    "Ok: tests/images/valid\\openexr\\v2\\Stereo\\composited.exr",
+    "Unsupported(\"channel subsampling not supported yet\"): tests/images/valid\\openexr\\Chromaticities\\Rec709_YC.exr",
+    "Unsupported(\"channel subsampling not supported yet\"): tests/images/valid\\openexr\\Chromaticities\\XYZ_YC.exr",
+    "Unsupported(\"channel subsampling not supported yet\"): tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_b44.exr",
+    "Unsupported(\"channel subsampling not supported yet\"): tests/images/valid\\openexr\\LuminanceChroma\\CrissyField.exr",
+    "Unsupported(\"channel subsampling not supported yet\"): tests/images/valid\\openexr\\LuminanceChroma\\Flowers.exr",
+    "Unsupported(\"channel subsampling not supported yet\"): tests/images/valid\\openexr\\LuminanceChroma\\MtTamNorth.exr",
+    "Unsupported(\"channel subsampling not supported yet\"): tests/images/valid\\openexr\\LuminanceChroma\\StarField.exr",
+    "Unsupported(\"deep data not supported yet\"): tests/images/valid\\openexr\\v2\\LeftView\\Balls.exr",
+    "Unsupported(\"deep data not supported yet\"): tests/images/valid\\openexr\\v2\\LeftView\\Ground.exr",
+    "Unsupported(\"deep data not supported yet\"): tests/images/valid\\openexr\\v2\\LeftView\\Leaves.exr",
+    "Unsupported(\"deep data not supported yet\"): tests/images/valid\\openexr\\v2\\LeftView\\Trunks.exr",
+    "Unsupported(\"deep data not supported yet\"): tests/images/valid\\openexr\\v2\\LowResLeftView\\Balls.exr",
+    "Unsupported(\"deep data not supported yet\"): tests/images/valid\\openexr\\v2\\LowResLeftView\\Ground.exr",
+    "Unsupported(\"deep data not supported yet\"): tests/images/valid\\openexr\\v2\\LowResLeftView\\Leaves.exr",
+    "Unsupported(\"deep data not supported yet\"): tests/images/valid\\openexr\\v2\\LowResLeftView\\Trunks.exr",
+    "Unsupported(\"deep data not supported yet\"): tests/images/valid\\openexr\\v2\\Stereo\\Balls.exr",
+    "Unsupported(\"deep data not supported yet\"): tests/images/valid\\openexr\\v2\\Stereo\\Ground.exr",
+    "Unsupported(\"deep data not supported yet\"): tests/images/valid\\openexr\\v2\\Stereo\\Leaves.exr",
+    "Unsupported(\"deep data not supported yet\"): tests/images/valid\\openexr\\v2\\Stereo\\Trunks.exr",
+    "Unsupported(\"yet unimplemented compression special case (DWA: truncated codebook length)\"): tests/images/valid\\custom\\compression_methods\\f16\\dwaa.exr",
+    "Unsupported(\"yet unimplemented compression special case (DWA: truncated codebook length)\"): tests/images/valid\\custom\\compression_methods\\f16\\dwab.exr",
+    "Unsupported(\"yet unimplemented compression special case (DWA: truncated codebook length)\"): tests/images/valid\\custom\\compression_methods\\f32\\dwaa.exr",
+    "Unsupported(\"yet unimplemented compression special case (DWA: truncated codebook length)\"): tests/images/valid\\custom\\compression_methods\\f32\\dwab.exr",
+    "Unsupported(\"yet unimplemented compression special case (DWA: truncated codebook length)\"): tests/images/valid\\custom\\compression_methods\\u16\\f16_dwaa.exr",
+    "Unsupported(\"yet unimplemented compression special case (DWA: truncated codebook length)\"): tests/images/valid\\custom\\compression_methods\\u16\\f32_dwaa.exr",
+    "Unsupported(\"yet unimplemented compression special case (DWA: truncated codebook length)\"): tests/images/valid\\custom\\crowskull\\crow_dwa.exr",
+    "Unsupported(\"yet unimplemented compression special case (DWA: truncated codebook length)\"): tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwaa_v1.exr",
+    "Unsupported(\"yet unimplemented compression special case (DWA: truncated codebook length)\"): tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwaa_v2.exr",
+    "Unsupported(\"yet unimplemented compression special case (DWA: truncated codebook length)\"): tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwab_v1.exr",
+    "Unsupported(\"yet unimplemented compression special case (DWA: truncated codebook length)\"): tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwab_v2.exr",
+]
+test roundtrip_all_files_in_repository_x4 ... ok
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.48s
+   Doc-tests exr
+running 2 tests
+test src\image\read\mod.rs - image::read::read (line 170) - compile ... ok
+test src\image\write\mod.rs - image::write (line 5) - compile ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
