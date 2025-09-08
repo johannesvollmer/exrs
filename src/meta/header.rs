@@ -515,7 +515,7 @@ impl Header {
             )?;
 
             Ok(IntegerBounds {
-                position: Vec2(0, usize_to_i32(y)),
+                position: Vec2(0, usize_to_i32(y, "tile y")?),
                 size: Vec2(self.layer_size.width(), height)
             })
         }

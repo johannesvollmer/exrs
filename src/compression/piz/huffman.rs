@@ -54,7 +54,7 @@ pub fn compress(uncompressed: &[u16]) -> Result<Vec<u8>> {
     if uncompressed.is_empty() { return Ok(vec![]); }
 
     let mut frequencies = count_frequencies(uncompressed);
-    let (min_code_index, max_code_index) = build_encoding_table(&mut frequencies);
+    let (min_code_index, max_code_index) = build_encoding_table(&mut frequencies)?;
 
     let mut result = Cursor::new(Vec::with_capacity(uncompressed.len()));
     u32::write_slice_le(&mut result, &[0; 5])?; // we come back to these later after we know more about the compressed data
@@ -139,7 +139,7 @@ fn decode_with_tables(
         // Access decoding table
         while code_bit_count >= DECODE_BITS {
             let code_index = (code_bits >> (code_bit_count - DECODE_BITS)) & DECODE_MASK;
-            let code = &decoding_table[u64_to_usize(code_index)];
+            let code = &decoding_table[u64_to_usize(code_index, "huffman code index")?];
 
             // Get short code
             if let Code::Short(code) = code {
@@ -160,7 +160,7 @@ fn decode_with_tables(
 
                 let long_code = long_codes.iter()
                     .filter_map(|&long_code|{
-                        let encoded_long_code = encoding_table[u32_to_usize(long_code)];
+                        let encoded_long_code = encoding_table[u32_to_usize(long_code, "huffman long code").ok()?];
                         let length = length(encoded_long_code);
 
                         while code_bit_count < length && input.len() > 0 {
@@ -207,7 +207,7 @@ fn decode_with_tables(
 
     while code_bit_count > 0 {
         let index = (code_bits << (DECODE_BITS - code_bit_count)) & DECODE_MASK;
-        let code = &decoding_table[u64_to_usize(index)];
+        let code = &decoding_table[u64_to_usize(index, "huffman code index")?];
 
         if let Code::Short(short_code) = code {
             if short_code.len() > code_bit_count { return Err(Error::invalid("code")) }; // FIXME why does this happen??
@@ -259,7 +259,7 @@ fn build_decoding_table(
         }
 
         if length > DECODE_BITS {
-            let long_code = &mut decoding_table[u64_to_usize(code >> (length - DECODE_BITS))];
+            let long_code = &mut decoding_table[u64_to_usize(code >> (length - DECODE_BITS), "long code index")?];
 
             match long_code {
                 Code::Empty => *long_code = Code::Long(smallvec![code_index]),
@@ -273,8 +273,8 @@ fn build_decoding_table(
                 len: length as u8,
             });
 
-            let start_index = u64_to_usize(code << (DECODE_BITS - length));
-            let count = u64_to_usize(1 << (DECODE_BITS - length));
+            let start_index = u64_to_usize(code << (DECODE_BITS - length), "huffman start index")?;
+            let count = u64_to_usize(1 << (DECODE_BITS - length), "huffman count")?;
 
             for value in &mut decoding_table[start_index .. start_index + count] {
                 *value = default_value.clone();
@@ -333,7 +333,7 @@ fn read_encoding_table(
         }
     }
 
-    build_canonical_table(&mut encoding_table);
+    build_canonical_table(&mut encoding_table)?;
     Ok(encoding_table)
 }
 
@@ -602,13 +602,13 @@ fn pack_encoding_table(
 ///	  symbol lengths alone, the code table can be transmitted
 ///	  without sending the actual code values
 ///	- see http://www.compressconsult.com/huffman/
-fn build_canonical_table(code_table: &mut [u64]) {
+fn build_canonical_table(code_table: &mut [u64]) -> UnitResult {
     debug_assert_eq!(code_table.len(), ENCODING_TABLE_SIZE);
 
     let mut count_per_code = [0_u64; 59];
 
     for &code in code_table.iter() {
-        count_per_code[u64_to_usize(code)] += 1;
+        count_per_code[u64_to_usize(code, "table entry")?] += 1;
     }
 
     // For each i from 58 through 1, compute the
@@ -629,12 +629,14 @@ fn build_canonical_table(code_table: &mut [u64]) {
     // l and the code in code[i]. // TODO iter + filter ?
     for symbol_length in code_table.iter_mut() {
         let current_length = *symbol_length;
-        let code_index = u64_to_usize(current_length);
+        let code_index = u64_to_usize(current_length, "huffman code index")?;
         if current_length > 0 {
             *symbol_length = current_length | (count_per_code[code_index] << 6);
             count_per_code[code_index] += 1;
         }
     }
+
+    Ok(())
 }
 
 
@@ -651,7 +653,7 @@ fn build_canonical_table(code_table: &mut [u64]) {
 ///     produced a resultant sorted heap that is identical across OSes.
 fn build_encoding_table(
     frequencies: &mut [u64], // input frequencies, output encoding table
-) -> (usize, usize) // return frequency max min range
+) -> Result<(usize, usize)> // return frequency max min range
 {
     debug_assert_eq!(frequencies.len(), ENCODING_TABLE_SIZE);
 
@@ -818,10 +820,10 @@ fn build_encoding_table(
     // Build a canonical Huffman code table, replacing the code
     // lengths in scode with (code, code length) pairs.  Copy the
     // code table from scode into frq.
-    build_canonical_table(&mut s_code);
+    build_canonical_table(&mut s_code)?;
     frequencies.copy_from_slice(&s_code);
 
-    (min_frequency_index, max_frequency_index)
+    Ok((min_frequency_index, max_frequency_index))
 }
 
 

@@ -149,10 +149,10 @@ impl TileCoordinates {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
-        i32::write_le(usize_to_i32(self.tile_index.x()), write)?;
-        i32::write_le(usize_to_i32(self.tile_index.y()), write)?;
-        i32::write_le(usize_to_i32(self.level_index.x()), write)?;
-        i32::write_le(usize_to_i32(self.level_index.y()), write)?;
+        i32::write_le(usize_to_i32(self.tile_index.x(), "tile x")?, write)?;
+        i32::write_le(usize_to_i32(self.tile_index.y(), "tile y")?, write)?;
+        i32::write_le(usize_to_i32(self.level_index.x(), "level x")?, write)?;
+        i32::write_le(usize_to_i32(self.level_index.y(), "level y")?, write)?;
         Ok(())
     }
 
@@ -188,7 +188,7 @@ impl TileCoordinates {
         }
         else {
             Ok(IntegerBounds {
-                position: Vec2(usize_to_i32(x), usize_to_i32(y)),
+                position: Vec2(usize_to_i32(x, "tile x")?, usize_to_i32(y, "tile y")?),
                 size: Vec2(
                     calculate_block_size(max.x(), tile_size.width(), x)?,
                     calculate_block_size(max.y(), tile_size.height(), y)?,
@@ -269,9 +269,9 @@ impl CompressedDeepScanLineBlock {
     /// Read the value without validating.
     pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let y_coordinate = i32::read_le(read)?;
-        let compressed_pixel_offset_table_size = u64_to_usize(u64::read_le(read)?);
-        let compressed_sample_data_size = u64_to_usize(u64::read_le(read)?);
-        let decompressed_sample_data_size = u64_to_usize(u64::read_le(read)?);
+        let compressed_pixel_offset_table_size = u64_to_usize(u64::read_le(read)?, "deep table size")?;
+        let compressed_sample_data_size = u64_to_usize(u64::read_le(read)?, "deep size")?;
+        let decompressed_sample_data_size = u64_to_usize(u64::read_le(read)?, "raw deep size")?;
 
         // doc said i32, try u8
         let compressed_pixel_offset_table = i8::read_vec_le(
@@ -314,9 +314,9 @@ impl CompressedDeepTileBlock {
     /// Read the value without validating.
     pub fn read(read: &mut impl Read, hard_max_block_byte_size: usize) -> Result<Self> {
         let coordinates = TileCoordinates::read(read)?;
-        let compressed_pixel_offset_table_size = u64_to_usize(u64::read_le(read)?);
-        let compressed_sample_data_size = u64_to_usize(u64::read_le(read)?); // TODO u64 just guessed
-        let decompressed_sample_data_size = u64_to_usize(u64::read_le(read)?);
+        let compressed_pixel_offset_table_size = u64_to_usize(u64::read_le(read)?,"deep table size")?;
+        let compressed_sample_data_size = u64_to_usize(u64::read_le(read)?, "deep size")?; // TODO u64 just guessed
+        let decompressed_sample_data_size = u64_to_usize(u64::read_le(read)?, "raw deep size")?;
 
         let compressed_pixel_offset_table = i8::read_vec_le(
             read, compressed_pixel_offset_table_size,
@@ -349,7 +349,7 @@ impl Chunk {
     pub fn write(&self, write: &mut impl Write, header_count: usize) -> UnitResult {
         debug_assert!(self.layer_index < header_count, "layer index bug"); // validation is done in full_image or simple_image
 
-        if header_count != 1 {  usize_to_i32(self.layer_index).write_le(write)?; }
+        if header_count != 1 {  usize_to_i32(self.layer_index, "layer index")?.write_le(write)?; }
         else { assert_eq!(self.layer_index, 0, "invalid header index for single layer file"); }
 
         match self.compressed_block {

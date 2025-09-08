@@ -436,7 +436,7 @@ pub fn decompress(
 
     for y in rectangle.position.y()..rectangle.end().y() {
         for channel in &mut channel_data {
-            if mod_p(y, usize_to_i32(channel.y_sampling)) != 0 {
+            if mod_p(y, usize_to_i32(channel.y_sampling, "sampling")?) != 0 {
                 continue;
             }
 
@@ -480,7 +480,7 @@ pub fn decompress(
 
     // TODO do not convert endianness for f16-only images
     //      see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
-    Ok(super::convert_little_endian_to_current(out, channels, rectangle))
+    super::convert_little_endian_to_current(out, channels, rectangle)
 }
 
 pub fn compress(
@@ -495,7 +495,7 @@ pub fn compress(
 
     // TODO do not convert endianness for f16-only images
     //      see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
-    let uncompressed_le = super::convert_current_to_little_endian(uncompressed_ne, channels, rectangle);
+    let uncompressed_le = super::convert_current_to_little_endian(uncompressed_ne, channels, rectangle)?;
     let uncompressed_le = uncompressed_le.as_slice(); // TODO no alloc
 
     let mut channel_data = Vec::new();
@@ -529,7 +529,7 @@ pub fn compress(
 
     for y in rectangle.position.y()..rectangle.end().y() {
         for channel in &mut channel_data {
-            if mod_p(y, usize_to_i32(channel.y_sampling)) != 0 {
+            if mod_p(y, usize_to_i32(channel.y_sampling, "sampling")?) != 0 {
                 continue;
             }
 

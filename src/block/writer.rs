@@ -141,7 +141,7 @@ impl<W> ChunksWriter for ChunkWriter<W> where W: Write + Seek {
             return Err(Error::invalid(format!("chunk at index {} is already written", index_in_header_increasing_y)));
         }
 
-        *chunk_index_slot = usize_to_u64(self.byte_writer.byte_position());
+        *chunk_index_slot = usize_to_u64(self.byte_writer.byte_position(), "seek position")?;
         chunk.write(&mut self.byte_writer, self.header_count)?;
         Ok(())
     }

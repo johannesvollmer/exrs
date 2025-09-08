@@ -14,7 +14,7 @@ mod b44;
 use std::convert::TryInto;
 use crate::compression::Compression::{B44, B44A};
 use crate::meta::attribute::{IntegerBounds, SampleType, ChannelList};
-use crate::error::{Result, Error, usize_to_i32};
+use crate::error::{Result, Error, usize_to_i32, UnitResult};
 use crate::meta::header::Header;
 
 
@@ -177,9 +177,9 @@ impl Compression {
         use self::Compression::*;
         let compressed_little_endian = match self {
             Uncompressed => {
-                return Ok(convert_current_to_little_endian(
+                return convert_current_to_little_endian(
                     uncompressed_native_endian, &header.channels, pixel_section
-                ))
+                )
             },
 
             // we need to clone here, because we might have to fallback to the uncompressed data later (when compressed data is larger than raw data)
@@ -203,7 +203,7 @@ impl Compression {
         }
         else {
             // if we do not use compression, manually convert uncompressed data
-            Ok(convert_current_to_little_endian(uncompressed_native_endian, &header.channels, pixel_section))
+            convert_current_to_little_endian(uncompressed_native_endian, &header.channels, pixel_section)
         }
     }
 
@@ -219,12 +219,12 @@ impl Compression {
         // note: always true where self == Uncompressed
         if compressed_le.len() == expected_byte_size {
             // the compressed data was larger than the raw data, so the small raw data has been written
-            Ok(convert_little_endian_to_current(compressed_le, &header.channels, pixel_section))
+            convert_little_endian_to_current(compressed_le, &header.channels, pixel_section)
         }
         else {
             use self::Compression::*;
             let bytes_ne = match self {
-                Uncompressed => Ok(convert_little_endian_to_current(compressed_le, &header.channels, pixel_section)),
+                Uncompressed => convert_little_endian_to_current(compressed_le, &header.channels, pixel_section),
                 ZIP16 => zip::decompress_bytes(&header.channels, compressed_le, pixel_section, expected_byte_size, pedantic),
                 ZIP1 => zip::decompress_bytes(&header.channels, compressed_le, pixel_section, expected_byte_size, pedantic),
                 RLE => rle::decompress_bytes(&header.channels, compressed_le, pixel_section, expected_byte_size, pedantic),
@@ -330,28 +330,28 @@ impl Compression {
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/6a9f8af6e89547bcd370ae3cec2b12849eee0b54/OpenEXR/IlmImf/ImfMisc.cpp#L1456-L1541
 
 #[allow(unused)] // allows the extra parameters to be unused
-fn convert_current_to_little_endian(mut bytes: ByteVec, channels: &ChannelList, rectangle: IntegerBounds) -> ByteVec {
+fn convert_current_to_little_endian(mut bytes: ByteVec, channels: &ChannelList, rectangle: IntegerBounds) -> Result<ByteVec> {
     #[cfg(target_endian = "big")]
-    reverse_block_endianness(&mut bytes, channels, rectangle);
+    reverse_block_endianness(&mut bytes, channels, rectangle)?;
 
-    bytes
+    Ok(bytes)
 }
 
 #[allow(unused)] // allows the extra parameters to be unused
-fn convert_little_endian_to_current(mut bytes: ByteVec, channels: &ChannelList, rectangle: IntegerBounds) -> ByteVec {
+fn convert_little_endian_to_current(mut bytes: ByteVec, channels: &ChannelList, rectangle: IntegerBounds) -> Result<ByteVec> {
     #[cfg(target_endian = "big")]
-    reverse_block_endianness(&mut bytes, channels, rectangle);
+    reverse_block_endianness(&mut bytes, channels, rectangle)?;
 
-    bytes
+    Ok(bytes)
 }
 
 #[allow(unused)] // unused when on little endian system
-fn reverse_block_endianness(bytes: &mut [u8], channels: &ChannelList, rectangle: IntegerBounds){
+fn reverse_block_endianness(bytes: &mut [u8], channels: &ChannelList, rectangle: IntegerBounds) -> UnitResult {
     let mut remaining_bytes: &mut [u8] = bytes;
 
     for y in rectangle.position.y() .. rectangle.end().y() {
         for channel in &channels.list {
-            let line_is_subsampled = mod_p(y, usize_to_i32(channel.sampling.y())) != 0;
+            let line_is_subsampled = mod_p(y, usize_to_i32(channel.sampling.y(), "sampling")?) != 0;
             if line_is_subsampled { continue; }
 
             let sample_count = rectangle.size.width() / channel.sampling.x();
@@ -383,6 +383,7 @@ fn reverse_block_endianness(bytes: &mut [u8], channels: &ChannelList, rectangle:
     }
 
     debug_assert!(remaining_bytes.is_empty(), "not all bytes were converted to little endian");
+    Ok(())
 }
 
 #[inline]
@@ -686,11 +687,11 @@ mod test {
     ){
         let little_endian = convert_current_to_little_endian(
             current_endian.clone(), channels, rectangle
-        );
+        ).unwrap();
 
         let current_endian_decoded = convert_little_endian_to_current(
             little_endian.clone(), channels, rectangle
-        );
+        ).unwrap();
 
         assert_eq!(current_endian, current_endian_decoded, "endianness conversion failed");
     }
