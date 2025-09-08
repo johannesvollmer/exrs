@@ -57,21 +57,21 @@ warning: function `expect_eq_other_required` is never used
    = note: `#[warn(dead_code)]` on by default
 warning: `exr` (test "across_compression") generated 1 warning
 warning: `exr` (lib test) generated 2 warnings (2 duplicates)
-    Finished `test` profile [optimized + debuginfo] target(s) in 2m 05s
+    Finished `test` profile [optimized + debuginfo] target(s) in 1m 58s
      Running unittests src\lib.rs (target\debug\deps\exr-d5d208edb39128c0.exe)
 running 59 tests
 skipping DWA roundtrip (compression not supported yet): DWA compression not yet implemented
 skipping DWA roundtrip (compression not supported yet): DWA compression not yet implemented
 skipping DWA roundtrip (compression not supported yet): DWA compression not yet implemented
 test compression::b44::test::roundtrip_noise_f16_tiny ... ok
-test compression::b44::test::roundtrip_noise_u32_tiny ... ok
+test compression::b44::test::roundtrip_noise_mix_f32_f16_u32_tiny ... ok
 test compression::b44::test::roundtrip_noise_f32_tiny ... ok
 skipping DWA roundtrip (compression not supported yet): DWA compression not yet implemented
-test compression::b44::test::test_convert_from_to_linear ... ok
+test compression::b44::test::roundtrip_noise_u32_tiny ... ok
 test compression::dwa::test::roundtrip_noise_f32_tiny ... ok
-test compression::b44::test::roundtrip_noise_mix_f32_f16_u32_tiny ... ok
 test compression::dwa::test::roundtrip_noise_f16_tiny ... ok
 test compression::dwa::test::roundtrip_noise_mix_f32_f16_u32_tiny ... ok
+test compression::b44::test::test_convert_from_to_linear ... ok
 test compression::dwa::test::roundtrip_noise_u32_tiny ... ok
 test compression::dwa::test::test_1 ... ok
 test compression::dwa::transform_8x8::test::interleave ... ok
@@ -81,47 +81,48 @@ test compression::dwa::transform_8x8::test::roundtrip_zigzag ... ok
 test compression::optimize_bytes::test::roundtrip_derive ... ok
 test compression::optimize_bytes::test::roundtrip_interleave ... ok
 test compression::piz::huffman::test::compression_comparation ... ok
-test compression::piz::huffman::test::test_zeroes ... ok
 test compression::piz::huffman::test::repetitions_special ... ok
 skipping DWA roundtrip (compression not supported yet): DWA compression not yet implemented
-test compression::piz::wavelet::test::roundtrip_14_bit_values ... ok
+test compression::piz::huffman::test::test_zeroes ... ok
 test compression::dwa::test::roundtrip_noise_f16 ... ok
 test compression::piz::wavelet::test::roundtrip_14bit_image ... ok
 test compression::piz::wavelet::test::roundtrip_16_bit_values ... ok
 test compression::piz::wavelet::test::roundtrip_16bit_image ... ok
+test compression::piz::wavelet::test::roundtrip_14_bit_values ... ok
 test compression::test::roundtrip_endianness_mixed_channels ... ok
-test image::crop::test::find_bounds ... skipping DWA roundtrip (compression not supported yet): DWA compression not yet implemented
-ok
+test image::crop::test::find_bounds ... ok
 test image::crop::test::find_no_bounds ... ok
-test compression::dwa::test::roundtrip_noise_f32 ... ok
-skipping DWA roundtrip (compression not supported yet): DWA compression not yet implemented
+test image::read::specific_channels::test::equals_naive_f32 ... ok
 test image::validate_results::test_value_result::test_compiles ... ok
 message:  element [2] of 3: expected exactly NaN, found 0
+test image::validate_results::test_value_result::test_f32 ... ok
 message: : expected ~2, found 1 (adaptive tolerance 0.17999999)
-test image::read::specific_channels::test::equals_naive_f32 ... okmessage: : expected exactly 2, found 1
+message: : expected exactly 2, found 1
 message:  > f32 samples element [1] of 2: expected exactly 0.1, found 0.2
 message: : samples type mismatch. expected U32, found F32
-test compression::dwa::test::roundtrip_noise_u32 ... ok
 skipping DWA roundtrip (compression not supported yet): DWA compression not yet implemented
-test image::validate_results::test_value_result::test_f32 ... ok
+test compression::dwa::test::roundtrip_noise_f32 ... ok
 test image::validate_results::test_value_result::test_nan ... ok
+skipping DWA roundtrip (compression not supported yet): DWA compression not yet implemented
+skipping DWA roundtrip (compression not supported yet): DWA compression not yet implemented
 test image::validate_results::test_value_result::test_uncompressed ... ok
-test compression::dwa::test::roundtrip_noise_mix_f32_f16_u32 ... ok
 test image::write::channels::test::compiles ... ok
+test compression::dwa::test::roundtrip_noise_u32 ... ok
+test compression::dwa::test::roundtrip_noise_mix_f32_f16_u32 ... ok
 test io::test::peek ... ok
 test meta::attribute::test::attribute_write_read_roundtrip_and_byte_size ... ok
 test meta::attribute::test::rounding_down ... ok
 test meta::attribute::test::rounding_up ... ok
-test meta::attribute::test::text_ord ... ok
 test meta::attribute::test::tile_description_write_read_roundtrip ... ok
+test meta::attribute::test::text_ord ... ok
 test meta::attribute::test::time_code_pack ... ok
 test meta::test::infer_high_requirements ... ok
 test meta::test::infer_low_requirements ... ok
 test meta::test::round_trip_requirements ... ok
 test meta::test::round_trip ... ok
 test compression::b44::test::roundtrip_noise_u32 ... ok
-test compression::b44::test::roundtrip_noise_f32 ... ok
 test compression::piz::huffman::test::round_trip ... ok
+test compression::b44::test::roundtrip_noise_f32 ... ok
 test compression::b44::test::roundtrip_noise_f16 ... ok
 test compression::b44::test::roundtrip_noise_mix_f32_f16_u32 ... ok
 message: | image > layer data element [0] of 1 (layer `None`) > channel `B` > sample_data > levels element [0] of 121 > f16 samples element [100] of 436254: expected exactly 1.4423828, found 1.3613281
@@ -130,51 +131,51 @@ test compression::piz::test::roundtrip_two_channels ... ok
 test compression::piz::test::roundtrip_seven_channels ... ok
 test compression::b44::test::border_on_multiview ... ok
 test compression::piz::wavelet::test::ground_truth ... ok
-test compression::piz::test::roundtrip_any_sample_type ... ok
 test compression::piz::huffman::test::round_trip100 ... ok
-test result: ok. 59 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+test compression::piz::test::roundtrip_any_sample_type ... ok
+test result: ok. 59 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
      Running tests\across_compression.rs (target\debug\deps\across_compression-8512ed972881f5ff.exe)
 running 33 tests
 skipping (yet unimplemented compression special case (DWA: truncated codebook length))
 skipping (yet unimplemented compression special case (DWA: truncated codebook length))
 skipping (yet unimplemented compression special case (DWA: truncated codebook length))
 skipping (yet unimplemented compression special case (DWA: truncated codebook length))
-test compare_compression_contents_dwaa_f32 ... ok
 test compare_compression_contents_dwab_f32 ... ok
-test compare_compression_contents_dwaa_f16 ... ok
 test compare_compression_contents_dwab_f16 ... ok
+test compare_compression_contents_dwaa_f32 ... ok
+test compare_compression_contents_dwaa_f16 ... ok
 test compare_compression_contents_b44a_f32 ... ok
-test compare_compression_contents_b44a_f16 ... ok
-test compare_compression_contents_b44_f32 ... ok
-test compare_compression_contents_zip_f16 ... ok
-test compare_compression_contents_b44_f16 ... ok
-test compare_compression_contents_rle_f16 ... ok
-test compare_compression_contents_piz_f16 ... ok
-skipping (yet unimplemented compression special case (DWA: truncated codebook length))
-test compare_compression_contents_zip_f32 ... ok
 test compare_compression_contents_pxr24_f16 ... ok
 test compare_compression_contents_rle_f32 ... ok
+test compare_compression_contents_b44_f32 ... ok
 skipping (yet unimplemented compression special case (DWA: truncated codebook length))
+test compare_compression_contents_b44_f16 ... ok
+test compare_compression_contents_zip_f32 ... ok
+test compare_compression_contents_zip_f16 ... ok
+test compare_compression_contents_b44a_f16 ... ok
 test compare_compression_contents_pxr24_f32 ... ok
+test compare_compression_contents_piz_f16 ... ok
 test compare_compression_contents_piz_f32 ... ok
+test compare_compression_contents_rle_f16 ... ok
 test compare_png_to_dwaa_f16 ... ok
-test compare_compression_contents_zips_f16 ... ok
-test compare_compression_contents_zips_f32 ... ok
+test compare_png_to_piz_f16 ... ok
+skipping (yet unimplemented compression special case (DWA: truncated codebook length))
+test compare_png_to_pxr24_f16 ... ok
+test compare_png_to_rle_f32 ... ok
 test compare_png_to_dwaa_f32 ... ok
+test compare_png_to_uncompressed_f16 ... ok
+test compare_png_to_uncompressed_f32 ... ok
+test compare_compression_contents_zips_f32 ... ok
 test compare_png_to_b44_f16 ... ok
 test compare_png_to_b44a_f16 ... ok
-test compare_png_to_zip_f16 ... ok
-test compare_png_to_piz_f32 ... ok
-test compare_png_to_uncompressed_f16 ... ok
-test compare_png_to_piz_f16 ... ok
+test compare_compression_contents_zips_f16 ... ok
 test compare_png_to_rle_f16 ... ok
-test compare_png_to_rle_f32 ... ok
-test compare_png_to_pxr24_f16 ... ok
-test compare_png_to_zip_f32 ... ok
 test compare_png_to_pxr24_f32 ... ok
-test compare_png_to_uncompressed_f32 ... ok
+test compare_png_to_zip_f32 ... ok
+test compare_png_to_zip_f16 ... ok
 test compare_png_to_zips_f16 ... ok
-test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+test compare_png_to_piz_f32 ... ok
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
      Running tests\dev.rs (target\debug\deps\dev-3eb336c9c2d14081.exe)
 running 3 tests
 test print_meta_of_all_files ... ignored
@@ -294,181 +295,181 @@ running 11 tests
 test roundtrip_uncompressed ... ok
 test roundtrip_unusual_2 ... ok
 test roundtrip_unusual_7 ... ok
-test roundtrip_b44 ... ok
 test roundtrip_b44a ... ok
+test roundtrip_b44 ... ok
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\dwab.exr"
 test roundtrip_rle ... ok
 ✓ No error when processing "tests/images/valid\\openexr\\Chromaticities\\XYZ_YC.exr"
-test roundtrip_zip16 ... ok
-test roundtrip_zip1 ... ok
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\dwab.exr"
-test roundtrip_pxr24 ... ok
 ✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwaa_v2.exr"
-✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwab_v1.exr"
+test roundtrip_zip1 ... ok
+test roundtrip_pxr24 ... ok
+test roundtrip_zip16 ... ok
 test roundtrip_piz ... ok
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\uncompressed.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\decompressed_dwab.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\b44.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\decompressed_pxr24.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\dwaa.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\b44.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\dwab.exr"
-✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwab_v2.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\b44.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\pxr24.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\b44a.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\decompressed_b44.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\decompressed_b44a.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\rle.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f32_zip.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\decompressed_dwaa.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\uncompressed.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\zip.exr"
-✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_none.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f32_zips.exr"
-✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_dwa.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\piz.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\zips.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\piz.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\b44.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\b44a.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\decompressed_b44.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\decompressed_dwaa.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\pxr24.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\decompressed_dwab.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\decompressed_b44a.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f32_zip.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\zip.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\rle.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\decompressed_dwaa.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\decompressed_pxr24.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\dwaa.exr"
-✓ No error when processing "tests/images/valid\\openexr\\LuminanceChroma\\CrissyField.exr"
-✓ No error when processing "tests/images/valid\\openexr\\LuminanceChroma\\Flowers.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\zips.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f16\\piz.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_piz.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f32_zips.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\piz.exr"
+✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_dwa.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_pxr24.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\pxr24.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_rle.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_uncompressed.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\rle.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\uncompressed.exr"
-✓ No error when processing "tests/images/valid\\openexr\\TestImages\\GrayRampsHorizontal.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_zip.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\zip.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_zips.exr"
+✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f32_dwaa.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\f32\\zips.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_b44.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_b44a.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_dwaa.exr"
-✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t13.exr"
-✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t16.exr"
-✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_b44.exr"
-✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t11.exr"
-✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t01.exr"
-✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t12.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_piz.exr"
-✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\v1.7.test.1.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_zips.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f32_dwaa.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_pxr24.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_rle.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_uncompressed.exr"
-✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\v1.7.test.planar.exr"
-✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\WavyLinesCube.exr"
-✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f16_zip.exr"
-✓ No error when processing "tests/images/valid\\openexr\\LuminanceChroma\\MtTamNorth.exr"
-✓ No error when processing "tests/images/valid\\openexr\\LuminanceChroma\\StarField.exr"
-✓ No error when processing "tests/images/valid\\openexr\\TestImages\\RgbRampsDiagonal.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f32_piz.exr"
-✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\test_native1.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f32_pxr24.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f32_rle.exr"
 ✓ No error when processing "tests/images/valid\\custom\\compression_methods\\u16\\f32_uncompressed.exr"
-✓ No error when processing "tests/images/valid\\openexr\\v2\\LeftView\\Trunks.exr"
-✓ No error when processing "tests/images/valid\\openexr\\v2\\LowResLeftView\\Balls.exr"
-✓ No error when processing "tests/images/valid\\openexr\\LuminanceChroma\\Garden.exr"
-✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\v1.7.test.tiled.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t16.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t11.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t01.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_b44.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t13.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t05.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\WavyLinesCube.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\test_native1.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t08.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t10.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t09.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t02.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t14.exr"
-✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t15.exr"
-✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\MirrorPattern.exr"
-✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t03.exr"
-✓ No error when processing "tests/images/valid\\openexr\\TestImages\\SquaresSwirls.exr"
-✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\WavyLinesLatLong.exr"
-✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_piz.exr"
-✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwab_piz.exr"
-✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t05.exr"
-✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\Bonita.exr"
-✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t04.exr"
-✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_rle.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t12.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t06.exr"
-✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\ColorCodedLevels.exr"
-✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_b44_piz.exr"
-✓ No error when processing "tests/images/valid\\openexr\\TestImages\\WideColorGamut.exr"
-✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\WavyLinesSphere.exr"
-✓ No error when processing "tests/images/valid\\openexr\\TestImages\\WideFloatRange.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\GrayRampsHorizontal.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t15.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t03.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t07.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\RgbRampsDiagonal.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\WavyLinesLatLong.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwab_piz.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwab_v1.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwab_v2.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_b44_piz.exr"
+✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t04.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_none.exr"
+✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\Cannon.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\SquaresSwirls.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\test_native2.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\WavyLinesSphere.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\v1.7.test.1.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\Bonita.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\v1.7.test.planar.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Chromaticities\\Rec709.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Chromaticities\\Rec709_YC.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\ColorCodedLevels.exr"
+✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_zip_half.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiView\\Fog.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\v1.7.test.tiled.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\WideColorGamut.exr"
+✓ No error when processing "tests/images/valid\\openexr\\LuminanceChroma\\CrissyField.exr"
+✓ No error when processing "tests/images/valid\\openexr\\LuminanceChroma\\Flowers.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_piz.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\WideFloatRange.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwaa_piz.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwaa_v1.exr"
-✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t08.exr"
-✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\lineOrder_decreasing.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_rle.exr"
+✓ No error when processing "tests/images/valid\\openexr\\LuminanceChroma\\Garden.exr"
+✓ No error when processing "tests/images/valid\\openexr\\LuminanceChroma\\MtTamNorth.exr"
+✓ No error when processing "tests/images/valid\\openexr\\LuminanceChroma\\StarField.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiView\\Adjuster.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Chromaticities\\XYZ.exr"
+✓ No error when processing "tests/images/valid\\openexr\\v2\\LeftView\\Trunks.exr"
+✓ No error when processing "tests/images/valid\\openexr\\v2\\LowResLeftView\\Balls.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0007.exr"
+✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\Desk.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0002.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0004.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_zip.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_zips.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0005.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\v2\\LowResLeftView\\composited.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\v2\\LowResLeftView\\Ground.exr"
-✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\PeriodicPattern.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\v2\\LowResLeftView\\Leaves.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\v2\\LowResLeftView\\Trunks.exr"
+✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\lineOrder_decreasing.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\v2\\Stereo\\Balls.exr"
-✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t09.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\lineOrder_increasing.exr"
-✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\Cannon.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiView\\Impact.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\Kapaa.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\v2\\Stereo\\Ground.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\v2\\Stereo\\Leaves.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\v2\\Stereo\\Trunks.exr"
-✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_zips.exr"
-✓ No error when processing "tests/images/valid\\openexr\\DisplayWindow\\t10.exr"
+✓ No error when processing "tests/images/valid\\custom\\oh crop.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0004.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Tiles\\GoldenGate.exr"
+✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\MtTamWest.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\KernerEnvCube.exr"
+✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_pxr24.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiView\\LosPadres.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiView\\Balls.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0008.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0003.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\v2\\LeftView\\Balls.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\v2\\LeftView\\Ground.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\v2\\LeftView\\Leaves.exr"
-✓ No error when processing "tests/images/valid\\openexr\\MultiView\\Adjuster.exr"
-✓ No error when processing "tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_zip.exr"
-✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\OrientationCube.exr"
-✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\OrientationLatLong.exr"
-✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\StageEnvCube.exr"
-✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0007.exr"
-✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0002.exr"
-✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\Kapaa.exr"
-✓ No error when processing "tests/images/valid\\openexr\\Chromaticities\\Rec709.exr"
-✓ No error when processing "tests/images/valid\\openexr\\Chromaticities\\Rec709_YC.exr"
-✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\Desk.exr"
-✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0004.exr"
-✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\StageEnvLatLong.exr"
-✓ No error when processing "tests/images/valid\\openexr\\Tiles\\GoldenGate.exr"
-✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\MtTamWest.exr"
-✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0005.exr"
-✓ No error when processing "tests/images/valid\\openexr\\Chromaticities\\XYZ.exr"
-✓ No error when processing "tests/images/valid\\openexr\\MultiView\\Fog.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\Tree.exr"
-✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\KernerEnvCube.exr"
-✓ No error when processing "tests/images/valid\\openexr\\TestImages\\AllHalfValues.exr"
-✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_uncompressed.exr"
-✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_zip_half.exr"
-✓ No error when processing "tests/images/valid\\openexr\\TestImages\\BrightRings.exr"
-✓ No error when processing "tests/images/valid\\openexr\\MultiView\\Balls.exr"
-✓ No error when processing "tests/images/valid\\openexr\\Tiles\\Ocean.exr"
-✓ No error when processing "tests/images/valid\\openexr\\TestImages\\GammaChart.exr"
-✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_uncompressed_half.exr"
-✓ No error when processing "tests/images/valid\\openexr\\TestImages\\GrayRampsDiagonal.exr"
-✓ No error when processing "tests/images/valid\\openexr\\TestImages\\BrightRingsNanInf.exr"
-✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0008.exr"
-✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0003.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\KernerEnvLatLong.exr"
-✓ No error when processing "tests/images/valid\\openexr\\MultiView\\Impact.exr"
-✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_pxr24.exr"
-✓ No error when processing "tests/images/valid\\openexr\\MultiView\\LosPadres.exr"
-✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\PrismsLenses.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\AllHalfValues.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0006.exr"
-✓ No error when processing "tests/images/valid\\openexr\\Tiles\\Spirals.exr"
-✓ No error when processing "tests/images/valid\\custom\\oh crop.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\BrightRings.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\MirrorPattern.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\PeriodicPattern.exr"
 ✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_rle.exr"
-✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\StillLife.exr"
-✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\Blobbies.exr"
-✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0004.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\BrightRingsNanInf.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Tiles\\Ocean.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\CandleGlass.exr"
-✓ No error when processing "tests/images/valid\\openexr\\v2\\Stereo\\composited.exr"
-✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0001.exr"
+✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\PrismsLenses.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\GrayRampsDiagonal.exr"
+✓ No error when processing "tests/images/valid\\openexr\\TestImages\\GammaChart.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\StageEnvCube.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0007.exr"
-✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0008.exr"
-✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0005.exr"
-✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_piz.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Tiles\\Spirals.exr"
+✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\Blobbies.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\OrientationLatLong.exr"
+✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_uncompressed.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\StageEnvLatLong.exr"
+✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_uncompressed_half.exr"
+✓ No error when processing "tests/images/valid\\openexr\\MultiResolution\\OrientationCube.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0001.exr"
-✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0006.exr"
-✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_zips.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0002.exr"
+✓ No error when processing "tests/images/valid\\openexr\\ScanLines\\StillLife.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0005.exr"
+✓ No error when processing "tests/images/valid\\openexr\\v2\\Stereo\\composited.exr"
+✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_piz.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\singlepart.0001.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0006.exr"
 ✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0003.exr"
+✓ No error when processing "tests/images/valid\\openexr\\Beachball\\multipart.0008.exr"
+✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_zips.exr"
 ✓ No error when processing "tests/images/valid\\custom\\crowskull\\crow_piz_noisy_rgb.exr"
 [
     "Ok: tests/images/valid\\custom\\compression_methods\\f16\\b44.exr",
@@ -642,9 +643,9 @@ test roundtrip_piz ... ok
     "Unsupported(\"yet unimplemented compression special case (DWA: truncated codebook length)\"): tests/images/valid\\openexr\\IlmfmlmflmTest\\comp_dwab_v2.exr",
 ]
 test roundtrip_all_files_in_repository_x4 ... ok
-test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 27.11s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.92s
    Doc-tests exr
 running 2 tests
-test src\image\write\mod.rs - image::write (line 5) - compile ... ok
 test src\image\read\mod.rs - image::read::read (line 170) - compile ... ok
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+test src\image\write\mod.rs - image::write (line 5) - compile ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
