@@ -249,3 +249,42 @@ pub(crate) fn inverse_zigzag_index(idx: usize) -> (usize, usize) {
     let lin = ZIGZAG_8X8[idx];
     (lin / 8, lin % 8)
 }
+
+
+/// Parse unsigned LEB128 from a byte slice; returns (value, bytes_consumed) or None on overflow/truncation.
+pub(crate) fn parse_uleb128(mut input: &[u8]) -> Option<(u64, usize)> {
+    let mut result: u64 = 0;
+    let mut shift: u32 = 0;
+    let mut used = 0usize;
+    while !input.is_empty() {
+        let byte = input[0] as u64;
+        input = &input[1..];
+        used += 1;
+        let low = byte & 0x7F;
+        if shift >= 64 || (low << shift) >> shift != low { return None; }
+        result |= low << shift;
+        if (byte & 0x80) == 0 { return Some((result, used)); }
+        shift += 7;
+        if shift >= 64 { return None; }
+    }
+    None
+}
+
+#[cfg(test)]
+mod uleb_tests {
+    use super::parse_uleb128;
+
+    #[test]
+    fn parse_small_values() {
+        assert_eq!(parse_uleb128(&[0x00]), Some((0,1)));
+        assert_eq!(parse_uleb128(&[0x7f]), Some((127,1)));
+        assert_eq!(parse_uleb128(&[0x80, 0x01]), Some((128,2)));
+        assert_eq!(parse_uleb128(&[0xE5, 0x8E, 0x26]), Some((624485,3)));
+    }
+
+    #[test]
+    fn parse_truncated() {
+        // Continuation bit set but missing next byte
+        assert_eq!(parse_uleb128(&[0x80]), None);
+    }
+}

@@ -41,6 +41,34 @@ pub(crate) fn place_coefficients_izigzag_i32(dst: &mut [i32; 64], src: &[i32]) {
     }
 }
 
+/// Scalar dequantization: multiply all dst coefficients by q.
+#[allow(dead_code)]
+pub(crate) fn dequant_apply_scalar(dst: &mut [i32; 64], q: i32) {
+    for v in dst.iter_mut() { *v *= q; }
+}
+
+/// AC run-length pair used in JPEG-like streams: `run` zeros followed by `value`.
+#[allow(dead_code)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AcPair { pub run: u8, pub value: i32 }
+
+/// Apply AC run-length/value pairs into a destination block in zig-zag order (starting at index `start_idx`).
+/// Returns the next zig-zag index after writing. Zeros are inserted for runs; remaining entries are unchanged.
+#[allow(dead_code)]
+pub(crate) fn apply_ac_pairs(dst: &mut [i32; 64], start_idx: usize, pairs: &[AcPair]) -> usize {
+    let mut idx = start_idx.min(64);
+    for &AcPair { run, value } in pairs {
+        let advance = run as usize;
+        if idx.saturating_add(advance) >= 64 { return 64; }
+        idx += advance;
+        let nat = ZIGZAG_8X8[idx];
+        dst[nat] = value;
+        idx += 1;
+        if idx >= 64 { break; }
+    }
+    idx
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
