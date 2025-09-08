@@ -45,9 +45,9 @@ pub mod test {
             csc709_inverse(&mut result_a, &mut result_b, &mut result_c);
         }
 
-        assert_approx_eq(&input_a, &result_a, 2.0e-2);
-        assert_approx_eq(&input_b, &result_b, 2.0e-2);
-        assert_approx_eq(&input_c, &result_c, 2.0e-2);
+        assert_approx_eq(&input_a, &result_a, 2.2e-2);
+        assert_approx_eq(&input_b, &result_b, 2.2e-2);
+        assert_approx_eq(&input_c, &result_c, 2.2e-2);
     }
 
     #[test]

@@ -21,9 +21,25 @@ pub(crate) enum TableClass {
 }
 
 #[allow(dead_code)]
-pub(crate) fn parse_huffman_table(_data: &[u8], _class: TableClass) -> Result<HuffTable> {
-    // Will be implemented when porting OpenEXR's table format.
-    Err(Error::unsupported("DWA Huffman table parsing not yet implemented"))
+pub(crate) fn parse_huffman_table(data: &[u8], _class: TableClass) -> Result<HuffTable> {
+    // Expect 16 bytes of code counts per length (1..=16), followed by that many symbols.
+    if data.len() < 16 {
+        return Err(Error::invalid("huffman table too short (counts)"));
+    }
+
+    let mut counts_per_len = [0u8; 16];
+    counts_per_len.copy_from_slice(&data[0..16]);
+
+    let total_symbols: usize = counts_per_len.iter().map(|&c| c as usize).sum();
+    let symbols_start = 16usize;
+    let symbols_end = symbols_start.saturating_add(total_symbols);
+    if data.len() < symbols_end {
+        return Err(Error::invalid("huffman table too short (symbols)"));
+    }
+
+    let symbols = data[symbols_start..symbols_end].to_vec();
+
+    Ok(HuffTable { counts_per_len, symbols })
 }
 
 /// Canonical Huffman decode scaffolding derived from a HuffTable.
@@ -152,5 +168,38 @@ mod tests {
         let b = decode_symbol(&mut br, &canon).unwrap();
         let c = decode_symbol(&mut br, &canon).unwrap();
         assert_eq!((a,b,c), (0,1,2));
+    }
+}
+
+
+#[cfg(test)]
+mod parse_tests {
+    use super::*;
+
+    #[test]
+    fn parse_simple_huff_table() {
+        // counts: 1 code of length 1, 2 codes of length 2, rest zero.
+        let mut buf = vec![0u8; 16];
+        buf[0] = 1; // len 1
+        buf[1] = 2; // len 2
+        // symbols follow: 3 symbols total
+        buf.extend_from_slice(&[10u8, 20u8, 30u8]);
+
+        let ht = parse_huffman_table(&buf, TableClass::Ac).expect("parse ok");
+        assert_eq!(ht.counts_per_len[0], 1);
+        assert_eq!(ht.counts_per_len[1], 2);
+        assert_eq!(ht.symbols, vec![10u8, 20u8, 30u8]);
+
+        let canon = build_canonical(&ht);
+        assert!(canon.max_bits >= 2);
+        assert_eq!(canon.symbols.len(), 3);
+    }
+
+    #[test]
+    fn parse_short_errors() {
+        assert!(parse_huffman_table(&[], TableClass::Dc).is_err());
+        let mut buf = vec![0u8; 16];
+        buf[0] = 1; // needs 1 symbol, but provide none
+        assert!(parse_huffman_table(&buf, TableClass::Dc).is_err());
     }
 }
