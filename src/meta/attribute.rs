@@ -537,7 +537,7 @@ impl Text {
 
     /// Read the length of a string and then the contents with that length.
     pub fn read_u32_sized_le<R: Read>(read: &mut R, max_size: usize) -> Result<Self> {
-        let size = u32_to_usize(u32::read_le(read)?);
+        let size = u32_to_usize(u32::read_le(read)?, "text length")?;
         Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec_le(read, size, 1024, Some(max_size), "text attribute length")?)))
     }
 
