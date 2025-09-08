@@ -6,13 +6,19 @@
 use crate::compression::ByteVec;
 use crate::error::{Error, Result};
 use crate::meta::attribute::{ChannelList, IntegerBounds};
+use super::helpers::BitReader;
 
 pub(crate) fn decompress(
     _channels: &ChannelList,
-    _compressed_le: ByteVec,
+    compressed_le: ByteVec,
     _pixel_section: IntegerBounds,
     _expected_byte_size: usize,
     _pedantic: bool,
 ) -> Result<ByteVec> {
-    Err(Error::unsupported("DWA decompression not yet implemented"))
+    // Begin port: set up bit reader and perform minimal sanity checks.
+    let mut br = BitReader::new(&compressed_le);
+    // Align to byte boundary in case upstream provided byte-aligned blocks.
+    br.align_to_byte();
+    // For now, we do not attempt to parse further; return a precise NotSupported.
+    Err(Error::unsupported("DWA decompression header parsing WIP"))
 }

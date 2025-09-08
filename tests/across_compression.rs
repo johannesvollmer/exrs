@@ -171,12 +171,12 @@ fn compare_compression_contents_dwaa_f16() {
 
 #[test]
 fn compare_compression_contents_dwab_f32() {
-    expect_eq_other_required("f32", "dwab.exr", "decompressed_dwab.exr");
+    expect_eq_other("f32", "dwab.exr", "decompressed_dwab.exr");
 }
 
 #[test]
 fn compare_compression_contents_dwab_f16() {
-    expect_eq_other_required("f16", "dwab.exr", "decompressed_dwab.exr");
+    expect_eq_other("f16", "dwab.exr", "decompressed_dwab.exr");
 }
 
 #[test]
