@@ -68,6 +68,14 @@ impl<'a> BitReader<'a> {
         Some(value)
     }
 
+    /// Read a signed value of `bits` width and return as i32, using two's complement sign extension.
+    pub(crate) fn read_signed(&mut self, bits: u8) -> Option<i32> {
+        if bits == 0 { return Some(0); }
+        if bits > 31 { return None; }
+        let raw = self.read_bits(bits)?;
+        Some(sign_extend(raw, bits))
+    }
+
     /// Peek up to 32 bits without advancing. Returns None if not enough bits.
     pub(crate) fn peek_bits(&self, n: u8) -> Option<u32> {
         debug_assert!(n <= 32);
@@ -193,5 +201,51 @@ mod tests {
         assert_eq!(clamp_i32(10, 0, 5), 5);
         assert_eq!(clamp_i32(-3, 0, 5), 0);
     }
+
+    // Pack bits MSB-first into a Vec<u8> (testing helper)
+    fn pack_bits_msb_first(bits: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut cur: u8 = 0;
+        let mut n: u8 = 0;
+        for &b in bits {
+            cur = (cur << 1) | (b & 1);
+            n += 1;
+            if n == 8 { out.push(cur); cur = 0; n = 0; }
+        }
+        if n != 0 { out.push(cur << (8 - n)); }
+        out
+    }
+
+    #[test]
+    fn bitreader_read_signed_basic() {
+        // Encode two 5-bit signed values: -1 (11111) and +10 (01010)
+        let bits = [1,1,1,1,1, 0,1,0,1,0];
+        let data = pack_bits_msb_first(&bits);
+        let mut br = BitReader::new(&data);
+        let a = br.read_signed(5).unwrap();
+        let b = br.read_signed(5).unwrap();
+        assert_eq!(a, -1);
+        assert_eq!(b, 10);
+    }
 }
 
+
+
+/// Zig-zag scan order for an 8x8 block (maps zig-zag index -> natural linear index 0..63).
+pub(crate) static ZIGZAG_8X8: [usize; 64] = [
+     0,  1,  8, 16,  9,  2,  3, 10,
+    17, 24, 32, 25, 18, 11,  4,  5,
+    12, 19, 26, 33, 40, 48, 41, 34,
+    27, 20, 13,  6,  7, 14, 21, 28,
+    35, 42, 49, 56, 57, 50, 43, 36,
+    29, 22, 15, 23, 30, 37, 44, 51,
+    58, 59, 52, 45, 38, 31, 39, 46,
+    53, 60, 61, 54, 47, 55, 62, 63,
+];
+
+/// Inverse zig-zag: returns (row, col) from zig-zag index
+#[inline]
+pub(crate) fn inverse_zigzag_index(idx: usize) -> (usize, usize) {
+    let lin = ZIGZAG_8X8[idx];
+    (lin / 8, lin % 8)
+}

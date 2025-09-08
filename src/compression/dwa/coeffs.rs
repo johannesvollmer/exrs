@@ -2,6 +2,7 @@
 //! This module will contain coefficient unpacking and 8x8 block reconstruction.
 
 use crate::error::{Error, Result};
+use super::helpers::ZIGZAG_8X8;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -27,9 +28,23 @@ pub(crate) fn decompress_blocks(_data: &[u8]) -> Result<()> {
     Err(Error::unsupported("DWA coefficient decoding not yet implemented"))
 }
 
+/// Place coefficients given in zig-zag order into a destination 8x8 i32 block in natural order.
+/// Any missing coefficients (if src shorter than 64) are filled with 0; extra coefficients are ignored.
+#[allow(dead_code)]
+pub(crate) fn place_coefficients_izigzag_i32(dst: &mut [i32; 64], src: &[i32]) {
+    // zero-initialize
+    for v in dst.iter_mut() { *v = 0; }
+    let n = core::cmp::min(64, src.len());
+    for i in 0..n {
+        let natural_idx = ZIGZAG_8X8[i];
+        dst[natural_idx] = src[i];
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compression::dwa::helpers::ZIGZAG_8X8;
 
     #[test]
     fn parse_block_header_ok() {
@@ -43,5 +58,28 @@ mod tests {
     fn parse_block_header_short() {
         assert!(parse_block_header_le(&[0u8; 0]).is_none());
         assert!(parse_block_header_le(&[1,2,3,4,5]).is_none());
+    }
+
+    #[test]
+    fn izigzag_places_natural_order() {
+        // natural block is 0..63
+        let natural: [i32; 64] = core::array::from_fn(|i| i as i32);
+        // create zig-zag ordered src
+        let mut src = vec![0i32; 64];
+        for i in 0..64 { src[i] = natural[ZIGZAG_8X8[i]]; }
+        let mut dst = [0i32; 64];
+        place_coefficients_izigzag_i32(&mut dst, &src);
+        assert_eq!(dst, natural);
+    }
+
+    #[test]
+    fn izigzag_truncates_and_zero_fills() {
+        let mut dst = [-1i32; 64];
+        let src = [5i32; 10]; // shorter than 64
+        place_coefficients_izigzag_i32(&mut dst, &src);
+        // First 10 placed at zig positions
+        for i in 0..10 { assert_eq!(dst[ZIGZAG_8X8[i]], 5); }
+        // Others must be zero
+        for i in 10..64 { assert_eq!(dst[ZIGZAG_8X8[i]], 0); }
     }
 }
