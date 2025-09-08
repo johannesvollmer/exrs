@@ -133,6 +133,14 @@ pub enum Compression {
     // wise and faster to decode full frames
     // than DWAA_COMPRESSION.
     DWAB(Option<f32>), // TODO collapse with DWAA. default Compression Level setting is 45.0
+
+    /// __This lossy compression is not yet supported by this implementation.__
+    // High-Throughput JPEG 2000 (32 lines)
+    HTJ2K32,
+
+    /// __This lossy compression is not yet supported by this implementation.__
+    // High-Throughput JPEG 2000 (256 lines)
+    HTJ2K256,
 }
 
 impl std::fmt::Display for Compression {
@@ -148,6 +156,8 @@ impl std::fmt::Display for Compression {
             Compression::DWAB(_) => "dwab",
             Compression::PIZ => "piz",
             Compression::PXR24 => "pxr24",
+            Compression::HTJ2K32 => "ht j2k 32",
+            Compression::HTJ2K256 => "ht j2k 256",
         })
     }
 }
@@ -249,10 +259,10 @@ impl Compression {
     pub fn scan_lines_per_block(self) -> usize {
         use self::Compression::*;
         match self {
-            Uncompressed | RLE   | ZIP1    => 1,
-            ZIP16 | PXR24                  => 16,
-            PIZ   | B44   | B44A | DWAA(_) => 32,
-            DWAB(_)                        => 256,
+            Uncompressed | RLE     | ZIP1              => 1,
+            ZIP16   | PXR24                            => 16,
+            PIZ     | B44   | B44A | DWAA(_) | HTJ2K32 => 32,
+            DWAB(_) | HTJ2K256                         => 256,
         }
     }
 
@@ -273,7 +283,7 @@ impl Compression {
             PXR24 => sample_type != SampleType::F32, // pxr reduces f32 to f24
             B44 | B44A => sample_type != SampleType::F16, // b44 only compresses f16 values, others are left uncompressed
             Uncompressed | RLE | ZIP1 | ZIP16 | PIZ => true,
-            DWAB(_) | DWAA(_) => false,
+            DWAB(_) | DWAA(_) | HTJ2K32 | HTJ2K256 => false,
         }
     }
 
@@ -283,7 +293,7 @@ impl Compression {
         use self::Compression::*;
         match self {
             Uncompressed | RLE | ZIP1 | ZIP16 | PIZ => false,
-            PXR24 | B44 | B44A | DWAB(_) | DWAA(_)  => true,
+            PXR24 | B44 | B44A | DWAB(_) | DWAA(_) | HTJ2K32 | HTJ2K256  => true,
         }
     }
 
@@ -293,7 +303,7 @@ impl Compression {
         use self::Compression::*;
         match self {
             B44 | B44A | DWAB(_) | DWAA(_) => false, // TODO dwa might support it?
-            _ => true
+            _ => true // TODO make sure the tests fail if this is wrong
         }
     }
 
