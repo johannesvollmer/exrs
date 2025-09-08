@@ -63,7 +63,7 @@ pub(crate) enum DwaTableKind {
 
 /// Placeholder for codebook/table parsing.
 /// Format (stub): [u8 kind][u32 le length][length bytes of table data]
-fn parse_codebooks(payload: &[u8]) -> Result<(/*bytes_consumed*/usize, DwaTableKind)> {
+fn parse_codebooks(payload: &[u8]) -> Result<(/*bytes_consumed*/usize, DwaTableKind, usize)> {
     if payload.is_empty() {
         return Err(Error::unsupported("DWA: no payload for codebooks"));
     }
@@ -91,7 +91,7 @@ fn parse_codebooks(payload: &[u8]) -> Result<(/*bytes_consumed*/usize, DwaTableK
     let take = core::cmp::min(table_len, available);
     offset += take;
 
-    Ok((offset, kind))
+    Ok((offset, kind, table_len))
 }
 
 pub(crate) fn decompress(
@@ -122,11 +122,13 @@ pub(crate) fn decompress(
     // Iterate across payload parsing multiple codebook segments
     let mut offset = 0usize;
     let mut kinds: Vec<DwaTableKind> = Vec::new();
+    let mut lengths: Vec<usize> = Vec::new();
     while offset < payload.len() {
         match parse_codebooks(&payload[offset..]) {
-            Ok((cb_used, kind)) => {
+            Ok((cb_used, kind, table_len)) => {
                 if cb_used == 0 { break; } // safety: avoid infinite loop on malformed data
                 kinds.push(kind);
+                lengths.push(table_len);
                 offset = offset.saturating_add(cb_used);
             }
             Err(err) => {
@@ -140,12 +142,13 @@ pub(crate) fn decompress(
 
     // For now, still not decoding image data. Provide detailed NotSupported message.
     Err(Error::unsupported(format!(
-        "DWA header parsed (payload_len={}, version={}, flags={}); parsed {} table(s) {:?} ({} bytes total); remaining payload={} of {}",
+        "DWA header parsed (payload_len={}, version={}, flags={}); parsed {} table(s) {:?} with lengths {:?} ({} bytes total); remaining payload={} of {}",
         hdr.payload_len,
         hdr.version,
         hdr.flags,
         kinds.len(),
         kinds,
+        lengths,
         offset,
         compressed_le.len().saturating_sub(total_consumed),
         compressed_le.len().saturating_sub(consumed)
