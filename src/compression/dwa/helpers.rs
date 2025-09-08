@@ -27,6 +27,12 @@ impl<'a> BitReader<'a> {
     /// Remaining bits
     pub(crate) fn remaining_bits(&self) -> usize { self.bit_len().saturating_sub(self.bit_pos) }
 
+    /// Is the current position on a byte boundary?
+    pub(crate) fn is_byte_aligned(&self) -> bool { (self.bit_pos & 7) == 0 }
+
+    /// Remaining whole bytes from the current position (rounded down)
+    pub(crate) fn remaining_bytes(&self) -> usize { self.remaining_bits() / 8 }
+
     /// Align to next byte boundary
     pub(crate) fn align_to_byte(&mut self) {
         let rem = self.bit_pos & 7;
@@ -62,6 +68,44 @@ impl<'a> BitReader<'a> {
         Some(value)
     }
 
+    /// Peek up to 32 bits without advancing. Returns None if not enough bits.
+    pub(crate) fn peek_bits(&self, n: u8) -> Option<u32> {
+        debug_assert!(n <= 32);
+        if n == 0 { return Some(0); }
+        if self.remaining_bits() < n as usize { return None; }
+        let mut pos = self.bit_pos;
+        let mut bits_left = n as usize;
+        let mut value: u32 = 0;
+        while bits_left > 0 {
+            let byte_index = pos >> 3;
+            let bit_index_in_byte = pos & 7;
+            let available_in_byte = 8 - bit_index_in_byte;
+            let take = core::cmp::min(bits_left, available_in_byte);
+            let byte = self.data[byte_index];
+            let shift = (available_in_byte - take) as u32;
+            let mask = (!0u8 >> (8 - take)) as u8;
+            let part = ((byte >> shift) & mask) as u32;
+            value = (value << take) | part;
+            pos += take;
+            bits_left -= take;
+        }
+        Some(value)
+    }
+
+    /// Skip n bits; returns false if not enough bits to skip all, true if skipped fully.
+    pub(crate) fn skip_bits(&mut self, n: usize) -> bool {
+        if self.remaining_bits() < n { return false; }
+        self.bit_pos += n;
+        true
+    }
+
+    /// Skip whole bytes; only works on byte boundary.
+    pub(crate) fn skip_bytes(&mut self, n: usize) -> bool {
+        if !self.is_byte_aligned() { return false; }
+        let bits = n.checked_mul(8).unwrap_or(usize::MAX);
+        self.skip_bits(bits)
+    }
+
     /// Read a single bit
     pub(crate) fn read_bit(&mut self) -> Option<u32> { self.read_bits(1) }
 
@@ -74,6 +118,13 @@ impl<'a> BitReader<'a> {
         out.copy_from_slice(&self.data[start..end]);
         self.bit_pos += out.len() * 8;
         Some(())
+    }
+
+    /// Get a slice from the current position (must be byte-aligned)
+    pub(crate) fn as_slice_from_byte(&self) -> Option<&'a [u8]> {
+        if !self.is_byte_aligned() { return None; }
+        let start = self.bit_pos >> 3;
+        Some(&self.data[start..])
     }
 }
 
@@ -93,4 +144,54 @@ pub(crate) fn sign_extend(value: u32, bits: u8) -> i32 {
 /// Apply dequantization scale (placeholder for now)
 #[inline]
 pub(crate) fn dequant(coef: i32, q: i32) -> i32 { coef * q }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bitreader_read_and_peek() {
+        // bytes: 0b1010_1010, 0b1100_0000
+        let data = [0b1010_1010u8, 0b1100_0000u8];
+        let mut br = BitReader::new(&data);
+        assert_eq!(br.peek_bits(4), Some(0b1010));
+        assert_eq!(br.read_bits(4), Some(0b1010));
+        assert_eq!(br.read_bits(4), Some(0b1010));
+        // Next two bits span into next byte: expect 11
+        assert_eq!(br.peek_bits(2), Some(0b11));
+        assert_eq!(br.read_bits(2), Some(0b11));
+        // Skip the remaining bits and ensure we are at the end
+        let rem = br.remaining_bits();
+        assert!(br.skip_bits(rem));
+        assert_eq!(br.remaining_bits(), 0);
+    }
+
+    #[test]
+    fn bitreader_align_and_bytes() {
+        let data = [0x12u8, 0x34u8, 0x56u8];
+        let mut br = BitReader::new(&data);
+        assert!(br.is_byte_aligned());
+        // Read 3 bits (value depends on MSB ordering; we don't validate it here)
+        assert!(br.read_bits(3).is_some());
+        // The key is alignment behavior
+        assert!(!br.is_byte_aligned());
+        br.align_to_byte();
+        assert!(br.is_byte_aligned());
+        // Now we should be at the second byte (since 3 bits then aligned to 8)
+        let mut out = [0u8; 2];
+        assert!(br.read_bytes(&mut out).is_some());
+        assert_eq!(out, [0x34, 0x56]);
+        assert_eq!(br.remaining_bits(), 0);
+    }
+
+    #[test]
+    fn sign_extend_and_clamp() {
+        // For 5 bits, 0b11111 should be -1
+        assert_eq!(sign_extend(0b1_1111, 5), -1);
+        // For 5 bits, 0b01010 should be 10
+        assert_eq!(sign_extend(0b0_1010, 5), 10);
+        assert_eq!(clamp_i32(10, 0, 5), 5);
+        assert_eq!(clamp_i32(-3, 0, 5), 0);
+    }
+}
 

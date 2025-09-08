@@ -109,3 +109,48 @@ pub(crate) fn decode_symbol(br: &mut BitReader, canon: &CanonicalHuff) -> Result
 
     Err(Error::invalid("no huffman code matched"))
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_toy_table() -> CanonicalHuff {
+        // One code of length 1: symbol 0 ("A"), and two codes of length 2: symbols 1 ("B"), 2 ("C").
+        let mut ht = HuffTable::default();
+        ht.counts_per_len = [0;16];
+        ht.counts_per_len[0] = 1; // length 1
+        ht.counts_per_len[1] = 2; // length 2
+        ht.symbols = vec![0u8, 1u8, 2u8];
+        build_canonical(&ht)
+    }
+
+    // Pack bits MSB-first into a Vec<u8>
+    fn pack_bits_msb_first(bits: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut cur: u8 = 0;
+        let mut n: u8 = 0;
+        for &b in bits {
+            cur = (cur << 1) | (b & 1);
+            n += 1;
+            if n == 8 { out.push(cur); cur = 0; n = 0; }
+        }
+        if n != 0 { out.push(cur << (8 - n)); }
+        out
+    }
+
+    #[test]
+    fn canonical_decode_toy_table() {
+        let canon = make_toy_table();
+        // Canonical codes derived:
+        // len1: first_code=0 => code '0' => sym 0
+        // len2: first_code=(0+1)<<1 = 2 => codes '10' => sym 1, '11' => sym 2
+        let bits = [0, 1,0, 1,1]; // 0, 10, 11
+        let bytes = pack_bits_msb_first(&bits);
+        let mut br = BitReader::new(&bytes);
+        let a = decode_symbol(&mut br, &canon).unwrap();
+        let b = decode_symbol(&mut br, &canon).unwrap();
+        let c = decode_symbol(&mut br, &canon).unwrap();
+        assert_eq!((a,b,c), (0,1,2));
+    }
+}
