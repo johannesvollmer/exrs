@@ -78,7 +78,7 @@ pub(crate) fn build_canonical(table: &HuffTable) -> CanonicalHuff {
 
 
 #[allow(dead_code)]
-pub(crate) fn decode_symbol(br: &mut BitReader, canon: &CanonicalHuff) -> Result<u8> {
+pub(crate) fn decode_symbol(br: &mut BitReader<'_>, canon: &CanonicalHuff) -> Result<u8> {
     if canon.max_bits == 0 { return Err(Error::unsupported("empty huffman table")); }
 
     let mut code: u16 = 0;
