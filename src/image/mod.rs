@@ -881,7 +881,6 @@ pub mod validate_results {
     use std::ops::Not;
     use crate::block::samples::IntoNativeSample;
 
-
     /// Compare two objects, but with a few special quirks.
     /// Intended mainly for unit testing.
     pub trait ValidateResult {
@@ -1319,6 +1318,81 @@ pub mod validate_results {
 
             let object: Image<Layer<AnyChannels<Levels<FlatSamples>>>> = Image::from_layer(layer);
             object.assert_equals_result(&object);
+        }
+    }
+
+
+    #[test]
+    fn test_nan_compression_attribute(){
+        use crate::prelude::*;
+        use crate::prelude::Compression::*;
+        use std::io::Cursor;
+        use crate::image::pixel_vec::PixelVec;
+        use crate::prelude::LineOrder::Increasing;
+
+        let all_compression_methods = [
+            Uncompressed, RLE, ZIP1, ZIP16, PXR24, PIZ, B44, B44A,
+        ];
+
+        let original_pixels: [(f32,f32,f16); 4] = [
+            (f32::NAN, f32::from_bits(0x7fc01234), f16::from_bits(0x7E01)),
+            (f32::NAN, f32::from_bits(0xffcabcde), f16::from_bits(0x7FFF)),
+            (f32::NAN, f32::from_bits(0x7f800001), f16::from_bits(0xFE01)),
+            (f32::NAN, f32::NAN, f16::NAN),
+        ];
+
+        assert!(
+            original_pixels.iter()
+                .all(|&(a,b,c)| a.is_nan() && b.is_nan() && c.is_nan()),
+            "test case has a bug"
+        );
+
+        for compression in all_compression_methods {
+            let mut file_bytes = Vec::new();
+
+            let original_image = Image::from_encoded_channels(
+                (2, 2),
+                Encoding {
+                    compression,
+                    line_order: Increasing,
+                    ..Encoding::default()
+                },
+                SpecificChannels::rgb(PixelVec::new((2, 2), original_pixels.to_vec()))
+            );
+
+            let result = original_image.write().to_buffered(Cursor::new(&mut file_bytes));
+            if let Err(Error::NotSupported(_)) = result { continue; }
+
+            let reconstructed_image =
+                read().no_deep_data().largest_resolution_level()
+                    .rgb_channels(PixelVec::<(f32, f32, f16)>::constructor, PixelVec::set_pixel)
+                    .first_valid_layer().all_attributes().from_buffered(Cursor::new(&file_bytes)).unwrap();
+
+            assert_eq!(
+                original_image.layer_data.channel_data.pixels.pixels.len(),
+                reconstructed_image.layer_data.channel_data.pixels.pixels.len()
+            );
+
+            let was_nanness_preserved = reconstructed_image.layer_data.channel_data.pixels.pixels
+                .iter().all(|(r,g,b)| r.is_nan() && g.is_nan() && b.is_nan());
+
+            assert_eq!(
+                was_nanness_preserved, compression.supports_nan(),
+                "{} nanness claims do not match real output", compression
+            );
+
+            let was_nan_pattern_preserved = reconstructed_image.layer_data.channel_data.pixels.pixels
+                .iter().zip(original_pixels.iter())
+                .all(|((r2, g2, b2), (r1, g1, b1))|
+                    r2.to_bits() == r1.to_bits() &&
+                    g2.to_bits() == g1.to_bits() &&
+                    b2.to_bits() == b1.to_bits()
+                );
+
+            assert_eq!(
+                was_nan_pattern_preserved, compression.preserves_nan_bits(),
+                "{} nan bit claims do not match real output", compression
+            );
         }
     }
 }
