@@ -29,6 +29,34 @@ fn expect_eq_other(sub_dir: &str, image_name: &str, expected: &str) {
     }
 }
 
+// Like expect_eq_other, but requires the compression method to be supported.
+// Panics if the file cannot be decoded due to NotSupported.
+fn expect_eq_other_required(sub_dir: &str, image_name: &str, expected: &str) {
+    let path = dir().join(sub_dir).join(image_name);
+
+    match read_first_flat_layer_from_file(path) {
+        Err(Error::NotSupported(message)) => panic!(
+            "required compression support missing for {}: {}",
+            image_name, message
+        ),
+        Err(error) => panic!("unexpected error: {}", error),
+        Ok(mut decompressed) => {
+            let decompressed_path = dir().join(sub_dir).join(expected);
+            let mut expected_decompressed = read_first_flat_layer_from_file(decompressed_path)
+                .expect("uncompressed image could not be loaded");
+
+            // HACK: make metadata match artificially
+            expected_decompressed.layer_data.encoding.compression = Compression::Uncompressed;
+            decompressed.layer_data.encoding.compression = Compression::Uncompressed;
+
+            debug_assert_eq!(expected_decompressed.layer_data.attributes, decompressed.layer_data.attributes, "attributes should not be affected by compression");
+            debug_assert_eq!(expected_decompressed.layer_data.size, decompressed.layer_data.size, "size should not be affected by compression");
+
+            expected_decompressed.assert_equals_result(&decompressed);
+        }
+    }
+}
+
 // comparing to a different format, png,
 // is the only real way to check that
 // little endian data is unpacked correctly on big endian systems
@@ -143,12 +171,12 @@ fn compare_compression_contents_dwaa_f16() {
 
 #[test]
 fn compare_compression_contents_dwab_f32() {
-    expect_eq_other("f32", "dwab.exr", "decompressed_dwab.exr");
+    expect_eq_other_required("f32", "dwab.exr", "decompressed_dwab.exr");
 }
 
 #[test]
 fn compare_compression_contents_dwab_f16() {
-    expect_eq_other("f16", "dwab.exr", "decompressed_dwab.exr");
+    expect_eq_other_required("f16", "dwab.exr", "decompressed_dwab.exr");
 }
 
 #[test]
