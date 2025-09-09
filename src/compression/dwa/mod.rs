@@ -17,7 +17,7 @@ mod tables;
 mod coeffs;
 mod decoder;
 mod transform_8x8;
-
+mod all;
 
 use crate::compression::ByteVec;
 use crate::error::{Error, Result};
@@ -34,18 +34,18 @@ pub(crate) fn decompress(
     expected_byte_size: usize,
     pedantic: bool,
 ) -> Result<ByteVec> {
-    decoder::decompress(channels, compressed_le, pixel_section, expected_byte_size, pedantic)
+    all::decompress(channels, compressed_le, pixel_section, expected_byte_size, pedantic)
 }
 
 /// Compress a native-endian pixel block into DWA (DWAA/DWAB) encoded little-endian bytes.
 pub(crate) fn compress(
-    _channels: &ChannelList,
-    _uncompressed_ne: ByteVec,
-    _pixel_section: IntegerBounds,
-    _is_dwab: bool,
-    _level: Option<f32>,
+    channels: &ChannelList,
+    uncompressed_ne: ByteVec,
+    pixel_section: IntegerBounds,
+    is_dwab: bool,
+    level: Option<f32>,
 ) -> Result<ByteVec> {
-    Err(Error::unsupported("DWA compression not yet implemented"))
+    all::compress(channels, uncompressed_ne, pixel_section, is_dwab, level)
 }
 
 

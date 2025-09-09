@@ -182,7 +182,6 @@ impl Compression {
             B44A => b44::compress(&header.channels, uncompressed_native_endian.clone(), pixel_section, true),
             DWAA(level) => dwa::compress(&header.channels, uncompressed_native_endian.clone(), pixel_section, false, level),
             DWAB(level) => dwa::compress(&header.channels, uncompressed_native_endian.clone(), pixel_section, true, level),
-            _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
         };
 
         let compressed_little_endian = compressed_little_endian.map_err(|_|
@@ -224,7 +223,6 @@ impl Compression {
                 PXR24 => pxr24::decompress(&header.channels, compressed_le, pixel_section, expected_byte_size, pedantic),
                 B44 | B44A => b44::decompress(&header.channels, compressed_le, pixel_section, expected_byte_size, pedantic),
                 DWAA(_) | DWAB(_) => dwa::decompress(&header.channels, compressed_le, pixel_section, expected_byte_size, pedantic),
-                _ => return Err(Error::unsupported(format!("yet unimplemented compression method: {}", self)))
             };
 
             // map all errors to compression errors
