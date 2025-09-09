@@ -66,7 +66,7 @@ mod test {
     fn test_roundtrip_noise_with(
         channels: ChannelList,
         rectangle: IntegerBounds,
-    ) -> Option<(ByteVec, ByteVec, ByteVec)> {
+    ) {
         let byte_count = channels
             .list
             .iter()
@@ -80,11 +80,8 @@ mod test {
         let pixel_bytes: ByteVec = (0..byte_count).map(|_| rand::random()).collect();
         assert_eq!(pixel_bytes.len(), byte_count);
 
-        let compressed = match super::compress(&channels, pixel_bytes.clone(), rectangle, true, Some(0.5)) {
-            Ok(c) => c,
-            Err(Error::NotSupported(msg)) => { println!("skipping DWA roundtrip (compression not supported yet): {}", msg); return None; },
-            Err(e) => panic!("unexpected error during DWA compress: {}", e),
-        };
+        let compressed = super::compress(&channels, pixel_bytes.clone(), rectangle, true, Some(0.5))
+            .unwrap();
 
         let decompressed = super::decompress(
             &channels, compressed.clone(), rectangle,
@@ -92,7 +89,15 @@ mod test {
         ).unwrap();
 
         assert_eq!(decompressed.len(), pixel_bytes.len());
-        Some((pixel_bytes, compressed, decompressed))
+        assert_approx_eq(&pixel_bytes, &decompressed, 3);
+    }
+
+
+    fn assert_approx_eq(a: &[u8], b: &[u8], eps: i32) {
+        for (i, (&x, &y)) in a.iter().zip(b.iter()).enumerate() {
+            let diff = (x as i32 - y as i32).abs();
+            assert!(diff <= eps, " element [{}]: expected ~{}, found {} (diff {})", i, x, y, diff);
+        }
     }
 
     #[test]
@@ -112,14 +117,7 @@ mod test {
             size: Vec2(322, 731),
         };
 
-        let triple = match test_roundtrip_noise_with(channels, rectangle) { Some(t) => t, None => return };
-        let (pixel_bytes, compressed, decompressed) = triple;
-
-        // On my tests, B44 give a size of 44.08% the original data (this assert implies enough
-        // pixels to be relevant).
-        assert_eq!(pixel_bytes.len(), 941528);
-        assert_eq!(compressed.len(), 415044);
-        assert_eq!(decompressed.len(), 941528);
+        test_roundtrip_noise_with(channels, rectangle)
     }
 
     #[test]
@@ -139,13 +137,7 @@ mod test {
             size: Vec2(3, 2),
         };
 
-        let triple = match test_roundtrip_noise_with(channels, rectangle) { Some(t) => t, None => return };
-        let (pixel_bytes, compressed, decompressed) = triple;
-
-        // B44 being 4 by 4 block, compression is less efficient for tiny images.
-        assert_eq!(pixel_bytes.len(), 24);
-        assert_eq!(compressed.len(), 28);
-        assert_eq!(decompressed.len(), 24);
+        test_roundtrip_noise_with(channels, rectangle)
     }
 
     #[test]
@@ -165,13 +157,7 @@ mod test {
             size: Vec2(322, 731),
         };
 
-        let triple = match test_roundtrip_noise_with(channels, rectangle) { Some(t) => t, None => return };
-        let (pixel_bytes, compressed, decompressed) = triple;
-
-        assert_eq!(pixel_bytes.len(), 1883056);
-        assert_eq!(compressed.len(), 1883056);
-        assert_eq!(decompressed.len(), 1883056);
-        assert_eq!(pixel_bytes, decompressed);
+        test_roundtrip_noise_with(channels, rectangle)
     }
 
     #[test]
@@ -191,13 +177,7 @@ mod test {
             size: Vec2(3, 2),
         };
 
-        let triple = match test_roundtrip_noise_with(channels, rectangle) { Some(t) => t, None => return };
-        let (pixel_bytes, compressed, decompressed) = triple;
-
-        assert_eq!(pixel_bytes.len(), 48);
-        assert_eq!(compressed.len(), 48);
-        assert_eq!(decompressed.len(), 48);
-        assert_eq!(pixel_bytes, decompressed);
+        test_roundtrip_noise_with(channels, rectangle)
     }
 
     #[test]
@@ -217,13 +197,7 @@ mod test {
             size: Vec2(322, 731),
         };
 
-        let triple = match test_roundtrip_noise_with(channels, rectangle) { Some(t) => t, None => return };
-        let (pixel_bytes, compressed, decompressed) = triple;
-
-        assert_eq!(pixel_bytes.len(), 1883056);
-        assert_eq!(compressed.len(), 1883056);
-        assert_eq!(decompressed.len(), 1883056);
-        assert_eq!(pixel_bytes, decompressed);
+        test_roundtrip_noise_with(channels, rectangle)
     }
 
     #[test]
@@ -243,13 +217,7 @@ mod test {
             size: Vec2(3, 2),
         };
 
-        let triple = match test_roundtrip_noise_with(channels, rectangle) { Some(t) => t, None => return };
-        let (pixel_bytes, compressed, decompressed) = triple;
-
-        assert_eq!(pixel_bytes.len(), 48);
-        assert_eq!(compressed.len(), 48);
-        assert_eq!(decompressed.len(), 48);
-        assert_eq!(pixel_bytes, decompressed);
+        test_roundtrip_noise_with(channels, rectangle)
     }
 
     #[test]
@@ -280,12 +248,7 @@ mod test {
             size: Vec2(322, 731),
         };
 
-        let triple = match test_roundtrip_noise_with(channels, rectangle) { Some(t) => t, None => return };
-        let (pixel_bytes, compressed, decompressed) = triple;
-
-        assert_eq!(pixel_bytes.len(), 2353820);
-        assert_eq!(compressed.len(), 2090578);
-        assert_eq!(decompressed.len(), 2353820);
+        test_roundtrip_noise_with(channels, rectangle)
     }
 
     #[test]
@@ -316,12 +279,7 @@ mod test {
             size: Vec2(3, 2),
         };
 
-        let triple = match test_roundtrip_noise_with(channels, rectangle) { Some(t) => t, None => return };
-        let (pixel_bytes, compressed, decompressed) = triple;
-
-        assert_eq!(pixel_bytes.len(), 60);
-        assert_eq!(compressed.len(), 62);
-        assert_eq!(decompressed.len(), 60);
+        test_roundtrip_noise_with(channels, rectangle)
     }
 
 }

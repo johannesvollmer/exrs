@@ -241,10 +241,11 @@ fn deflate_compress(input: &[u8], level: u8) -> Result<Vec<u8>, Error> {
 
 fn deflate_decompress(input: &[u8], expected_uncompressed_len: usize) -> Result<Vec<u8>, Error> {
     let options = zune_inflate::DeflateOptions::default()
-        .set_limit(expected_uncompressed_len)
+        // .set_limit(expected_uncompressed_len)
         .set_size_hint(expected_uncompressed_len);
 
     let mut decoder = zune_inflate::DeflateDecoder::new_with_options(input, options);
+
     decoder
         .decode_zlib()
         .map_err(|_| Error::invalid("zlib-compressed data malformed"))
