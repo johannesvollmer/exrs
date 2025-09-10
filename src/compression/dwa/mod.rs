@@ -13,14 +13,9 @@
 mod helpers;
 mod channeldata;
 mod classifier;
-mod tables;
-mod coeffs;
 mod decoder;
-mod transform_8x8;
-mod all;
 mod dwa;
 mod compressor;
-mod decompressor;
 mod encoder;
 
 use crate::compression::ByteVec;
