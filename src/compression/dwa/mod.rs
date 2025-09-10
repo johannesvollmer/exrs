@@ -18,6 +18,10 @@ mod coeffs;
 mod decoder;
 mod transform_8x8;
 mod all;
+mod dwa;
+mod compressor;
+mod decompressor;
+mod encoder;
 
 use crate::compression::ByteVec;
 use crate::error::{Error, Result};
@@ -34,7 +38,7 @@ pub(crate) fn decompress(
     expected_byte_size: usize,
     pedantic: bool,
 ) -> Result<ByteVec> {
-    all::decompress(channels, compressed_le, pixel_section, expected_byte_size, pedantic)
+    todo!()
 }
 
 /// Compress a native-endian pixel block into DWA (DWAA/DWAB) encoded little-endian bytes.
@@ -45,9 +49,8 @@ pub(crate) fn compress(
     is_dwab: bool,
     level: Option<f32>,
 ) -> Result<ByteVec> {
-    all::compress(channels, uncompressed_ne, pixel_section, is_dwab, level)
+    todo!()
 }
-
 
 
 #[cfg(test)]
