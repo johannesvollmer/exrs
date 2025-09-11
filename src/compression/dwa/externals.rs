@@ -1,10 +1,10 @@
 use crate::prelude::ChannelDescription;
-use libc::{free, malloc};
 use std::alloc::alloc;
-use std::ffi::{c_char, c_void};
-use std::mem::{size_of, zeroed};
-use std::os::raw::c_int;
-use std::ptr;
+pub use libc::{free, malloc};
+pub use std::ffi::{c_char, c_void};
+pub use std::mem::{size_of, zeroed};
+pub use std::os::raw::c_int;
+pub use std::ptr;
 
 // --- Placeholder external types from OpenEXR ---
 #[repr(C)]
@@ -14,19 +14,7 @@ pub enum exr_pixel_type_t {
     HALF = 1,
     FLOAT = 2,
 }
-#[repr(C)]
-pub enum exr_pixel_type_t_2 {
-    EXR_PIXEL_UINT = 0,
-    EXR_PIXEL_HALF = 1,
-    EXR_PIXEL_FLOAT = 2,
-}
 
-// #[repr(C)]
-// #[derive(Copy, Clone)]
-// pub enum exr_result_t {
-//     EXR_ERR_SUCCESS = 0,
-//     EXR_ERR_OUT_OF_MEMORY = 1,
-// }
 pub type exr_result_t = i32;
 pub const EXR_ERR_SUCCESS: exr_result_t = 0;
 
@@ -47,8 +35,6 @@ pub enum CompressionScheme {
 pub type c_size_t = usize;
 
 // Minimal external constants/types assumed from surrounding code
-pub const DWA_CLASSIFIER_FALSE: u16 = 0;
-pub const DWA_CLASSIFIER_TRUE: u16 = 1;
 
 
 pub const DWA_CLASSIFIER_TRUE: i32 = 1;
@@ -115,18 +101,7 @@ pub type intptr_t = isize;
 
 const _SSE_ALIGNMENT: usize = 16;
 
-
-/// Minimal stubs for things referenced from previous ports (fill in real definitions elsewhere).
-#[repr(C)]
-pub struct DctCoderChannelData {
-    pub _dctData: *mut f32,
-    pub _halfZigData: *mut uint16_t,
-    pub _dc_comp: *mut uint16_t,
-    pub _rows: *mut *mut uint8_t,
-    pub _row_alloc_count: size_t,
-    pub _size: size_t,
-    pub _type: c_int,
-}
+pub use super::dwa::*;
 
 pub type exr_memory_allocation_func_t = unsafe extern "C" fn(size: usize) -> *mut c_void;
 pub type exr_memory_free_func_t = unsafe extern "C" fn(ptr: *mut c_void);
@@ -187,10 +162,6 @@ pub struct exr_encode_pipeline_t {
     // other fields omitted
 }
 
-#[repr(C)]
-pub struct CscChannelSet {
-    pub idx: [c_int; 3],
-}
 
 pub type exr_memory_allocation_func_t =
 unsafe extern "C" fn(size: size_t) -> *mut std::os::raw::c_void;
@@ -221,10 +192,6 @@ pub struct DwaCompressor {
     pub free_fn: exr_memory_free_func_t,
 }
 
-#[repr(C)]
-pub struct CscChannelSet {
-    pub idx: [c_int; 3],
-}
 
 // externs for rule tables
 pub static mut sLegacyChannelRules: [Classifier; 1];
@@ -232,13 +199,6 @@ pub static mut sDefaultChannelRules: [Classifier; 1];
 
 pub type exr_coding_channel_info_t = ChannelDescription;
 
-#[repr(C)]
-pub struct CscPrefixMapItem {
-    pub name: *const c_char,
-    pub prefix_len: size_t,
-    pub idx: [c_int; 3],
-    pub pad: [u8; 4],
-}
 
 
 

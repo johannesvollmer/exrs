@@ -22,6 +22,8 @@ pub struct Classifier {
     pub _caseInsensitive: u16,
     pub _stringStatic: u16,
 }
+pub const DWA_CLASSIFIER_FALSE: u16 = 0;
+pub const DWA_CLASSIFIER_TRUE: u16 = 1;
 
 impl Default for Classifier {
     fn default() -> Self {
@@ -157,7 +159,7 @@ pub unsafe fn Classifier_read(
 
     Ok(())
 }
-
+//######
 pub unsafe fn Classifier_match(me: *const Classifier, suffix: *const c_char, r#type: exr_pixel_type_t) -> i32 {
     if me.is_null() { return DWA_CLASSIFIER_FALSE as i32; }
     let me_ref = &*me;
@@ -179,13 +181,13 @@ pub unsafe fn Classifier_match(me: *const Classifier, suffix: *const c_char, r#t
     if libc::strcmp(suffix, me_ref._suffix) == 0 { return DWA_CLASSIFIER_TRUE as i32; }
     DWA_CLASSIFIER_FALSE as i32
 }
-
+//######
 pub unsafe fn Classifier_size(me: *const Classifier) -> usize {
     if me.is_null() { return 0; }
     let s = libc::strlen((*me)._suffix);
     s + 1 + 2 * std::mem::size_of::<u8>()
 }
-
+//###### write
 pub unsafe fn Classifier_write(me: *const Classifier, ptr: &mut *mut u8) -> usize {
     if me.is_null() { return 0; }
     let outptr = *ptr;
@@ -204,6 +206,8 @@ pub unsafe fn Classifier_write(me: *const Classifier, ptr: &mut *mut u8) -> usiz
     size_bytes + 2
 }
 
+
+//##### find
 pub unsafe fn Classifier_find_suffix(channel_name: *const c_char) -> *const c_char {
     if channel_name.is_null() { return ptr::null(); }
     let s = libc::strrchr(channel_name, b'.' as i32);

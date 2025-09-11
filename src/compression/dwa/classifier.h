@@ -70,6 +70,8 @@ static Classifier sLegacyChannelRules[] = {
 
 // clang-format on
 
+// Functions
+
 static inline void
 Classifier_destroy (void (*free_fn) (void*), Classifier* p)
 {
@@ -140,7 +142,7 @@ Classifier_read (
     out->_type = (exr_pixel_type_t) type;
     return EXR_ERR_SUCCESS;
 }
-
+//######
 static inline int
 Classifier_match (
     const Classifier* me, const char* suffix, const exr_pixel_type_t type)
@@ -154,13 +156,13 @@ Classifier_match (
 
     return strcmp (suffix, me->_suffix) == 0;
 }
-
+//######
 static inline uint64_t
 Classifier_size (const Classifier* me)
 {
     return strlen (me->_suffix) + 1 + 2 * sizeof (uint8_t);
 }
-
+//###### write
 static inline uint64_t
 Classifier_write (const Classifier* me, uint8_t** ptr)
 {
@@ -181,6 +183,8 @@ Classifier_write (const Classifier* me, uint8_t** ptr)
     *ptr = outptr;
     return sizeBytes + 2;
 }
+
+//##### find
 
 static inline const char*
 Classifier_find_suffix (const char* channel_name)
