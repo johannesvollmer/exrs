@@ -101,8 +101,6 @@ const _SSE_ALIGNMENT: usize = 16;
 
 pub use super::dwa::*;
 
-pub type exr_memory_allocation_func_t = unsafe extern "C" fn(size: usize) -> *mut c_void;
-pub type exr_memory_free_func_t = unsafe extern "C" fn(ptr: *mut c_void);
 
 #[repr(C)]
 pub struct exr_chunk_t {
@@ -136,6 +134,7 @@ pub struct exr_decode_pipeline_t {
     pub channels: *mut exr_coding_channel_info_t,
     pub chunk: exr_chunk_t,
     pub bytes_decompressed: usize,
+    context: (),
     // ... placeholder
 }
 
@@ -143,29 +142,6 @@ pub type exr_memory_allocation_func_t =
     unsafe extern "C" fn(size: size_t) -> *mut std::os::raw::c_void;
 pub type exr_memory_free_func_t = unsafe extern "C" fn(ptr: *mut std::os::raw::c_void);
 
-#[repr(C)]
-pub struct DwaCompressor {
-    pub _decode: *mut exr_decode_pipeline_t,
-    pub _packedAcBuffer: *mut uint8_t,
-    pub _packedAcBufferSize: uint64_t,
-    pub _packedDcBuffer: *mut uint8_t,
-    pub _packedDcBufferSize: uint64_t,
-    pub _rleBuffer: *mut uint8_t,
-    pub _rleBufferSize: uint64_t,
-    pub _planarUncBuffer: [*mut uint8_t; NUM_COMPRESSOR_SCHEMES],
-    pub _planarUncBufferSize: [uint64_t; NUM_COMPRESSOR_SCHEMES],
-    pub _channelData: *mut ChannelData,
-    pub _numChannels: c_int,
-    pub _cscChannelSets: *mut CscChannelSet,
-    pub _numCscChannelSets: c_int,
-    pub _channelRules: *mut Classifier,
-    pub _channelRuleCount: size_t,
-    pub _min: [c_int; 2],
-    pub _max: [c_int; 2],
-    pub _numScanLines: c_int,
-    pub alloc_fn: exr_memory_allocation_func_t,
-    pub free_fn: exr_memory_free_func_t,
-}
 
 pub type exr_coding_channel_info_t = ChannelDescription;
 
@@ -252,6 +228,6 @@ pub fn dctInverse8x8DcOnly(dst: *mut f32) {
     dct_inverse_8x8_dc_only(todo!())
 }
 pub fn dctInverse8x8(dst: *mut f32) {
-    dct_inverse_8x8(todo!())
+    dct_inverse_8x8(todo!(), 0)
 }
 pub fn one_from_native_float(f: f32) -> f32;

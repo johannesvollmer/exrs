@@ -1,12 +1,10 @@
 // Port of dwa.c (from OpenEXR) to Rust
 // SPDX-License-Identifier: BSD-3-Clause
 
+use super::externals::*;
 use std::ffi::CString;
 use std::ptr;
 use std::slice;
-use super::externals::*;
-
-
 
 #[repr(C, align(16))] // _SSE_ALIGNMENT assumed 16
 pub struct DctCoderChannelData {
@@ -50,7 +48,11 @@ impl DctCoderChannelData {
         r: *mut u8,
     ) -> exr_result_t {
         if self.size == self.row_alloc_count {
-            let nsize = if self.size == 0 { 16 } else { (self.size * 3) / 2 };
+            let nsize = if self.size == 0 {
+                16
+            } else {
+                (self.size * 3) / 2
+            };
             let n = alloc_fn(nsize * size_of::<*mut u8>()) as *mut *mut u8;
             if !n.is_null() {
                 unsafe {
@@ -104,31 +106,28 @@ pub struct CscPrefixMapItem {
     pub pad: [u8; 4],
 }
 
-impl CscPrefixMapItem {
-    pub unsafe fn find(
-        mapl: *mut CscPrefixMapItem,
-        max_size: i32,
-        cname: *const i8,
-        prefixlen: usize,
-    ) -> *mut CscPrefixMapItem {
-        let mut idx = 0;
-        while idx < max_size {
-            let item = mapl.add(idx as usize);
-            if (*item).name.is_null() {
-                (*item).name = cname;
-                (*item).prefix_len = prefixlen;
-                (*item).idx = [-1, -1, -1];
-                break;
-            }
-
-            let matches = (*item).prefix_len == prefixlen
-                && libc::strncmp(cname, (*item).name, prefixlen) == 0;
-            if matches {
-                break;
-            }
-            idx += 1;
+pub unsafe fn CscPrefixMap_find(
+    mapl: *mut CscPrefixMapItem,
+    max_size: i32,
+    cname: *const i8,
+    prefixlen: usize,
+) -> *mut CscPrefixMapItem {
+    let mut idx = 0;
+    while idx < max_size {
+        let item = mapl.add(idx as usize);
+        if (*item).name.is_null() {
+            (*item).name = cname;
+            (*item).prefix_len = prefixlen;
+            (*item).idx = [-1, -1, -1];
+            break;
         }
-        mapl.add(idx as usize)
-    }
-}
 
+        let matches =
+            (*item).prefix_len == prefixlen && libc::strncmp(cname, (*item).name, prefixlen) == 0;
+        if matches {
+            break;
+        }
+        idx += 1;
+    }
+    mapl.add(idx as usize)
+}

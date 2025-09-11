@@ -1,5 +1,5 @@
 use crate::compression::dwa::classifier::DWA_CLASSIFIER_FALSE;
-use crate::compression::dwa::transform_8x8::dct_inverse_8x8;
+use crate::compression::dwa::transform_8x8::{csc709_inverse, dct_inverse_8x8};
 // LossyDctDecoder port (decoder.h) -> Rust (unsafe, near line-for-line translation).
 // Integrate into the single-file port; relies on many extern helpers provided elsewhere.
 use super::externals::*;
@@ -298,7 +298,7 @@ pub unsafe extern "C" fn LossyDctDecoder_execute(
                     return EXR_ERR_CORRUPT_CHUNK;
                 }
                 let halfZigData_ptr = (*chan)._halfZigData;
-                let dctData_ptr = (*chan)._dctData;
+                let dctData_ptr = (*chan).dct_data;
 
                 // DC component
                 // zero halfZigData and set [0] = *currDcComp
@@ -396,16 +396,16 @@ pub unsafe extern "C" fn LossyDctDecoder_execute(
             //
             if numComp == 3 {
                 if blockIsConstant == 0 {
-                    csc709Inverse64(
-                        (*chanData[0])._dctData,
-                        (*chanData[1])._dctData,
-                        (*chanData[2])._dctData,
+                    csc709_inverse_64(
+                        (*chanData[0]).dct_data,
+                        (*chanData[1]).dct_data,
+                        (*chanData[2]).dct_data,
                     );
                 } else {
-                    csc709Inverse(
-                        (*chanData[0])._dctData,
-                        (*chanData[1])._dctData,
-                        (*chanData[2])._dctData,
+                    csc709_inverse(
+                        (*chanData[0]).dct_data,
+                        (*chanData[1]).dct_data,
+                        (*chanData[2]).dct_data,
                     );
                 }
             }
@@ -419,11 +419,11 @@ pub unsafe extern "C" fn LossyDctDecoder_execute(
                 if blockIsConstant == 0 {
                     convertFloatToHalf64(
                         rowBlock[comp].add(blockx * 64),
-                        (*chanData[comp])._dctData,
+                        (*chanData[comp]).dct_data,
                     );
                 } else {
                     // constant block
-                    let val = float_to_half((*(*chanData[comp])._dctData));
+                    let val = float_to_half((*(*chanData[comp]).dct_data));
                     let dst = rowBlock[comp].add(blockx * 64);
                     for i in 0..64 {
                         ptr::write(dst.add(i), val);
@@ -454,7 +454,7 @@ pub unsafe extern "C" fn LossyDctDecoder_execute(
             //
             if (*d)._toLinear != ptr::null() {
                 for y in (8 * blocky)..(8 * blocky + maxY) {
-                    let dst_row = (*chanData[comp])._rows.add(y as usize);
+                    let dst_row = (*chanData[comp]).rows.add(y as usize);
                     let dst = *dst_row as *mut uint16_t;
                     for blockx in 0..numFullBlocksX {
                         let src = rowBlock[comp].add(blockx * 64 + ((y & 0x7) * 8));
@@ -468,7 +468,7 @@ pub unsafe extern "C" fn LossyDctDecoder_execute(
                 }
             } else {
                 for y in (8 * blocky)..(8 * blocky + maxY) {
-                    let dst_row = (*chanData[comp])._rows.add(y as usize);
+                    let dst_row = (*chanData[comp]).rows.add(y as usize);
                     let dst = *dst_row as *mut uint16_t;
                     for blockx in 0..numFullBlocksX {
                         let src = rowBlock[comp].add(blockx * 64 + ((y & 0x7) * 8));
@@ -489,7 +489,7 @@ pub unsafe extern "C" fn LossyDctDecoder_execute(
             if numFullBlocksX != numBlocksX {
                 for y in (8 * blocky)..(8 * blocky + maxY) {
                     let src = rowBlock[comp].add(numFullBlocksX * 64 + ((y & 0x7) * 8));
-                    let dst_row = (*chanData[comp])._rows.add(y as usize);
+                    let dst_row = (*chanData[comp]).rows.add(y as usize);
                     let dst = *dst_row as *mut uint16_t;
                     let mut dst_ptr = dst.add(8 * numFullBlocksX);
                     for x in 0..maxX {
@@ -518,7 +518,7 @@ pub unsafe extern "C" fn LossyDctDecoder_execute(
             continue;
         }
         for y in 0..(*d)._height {
-            let float_ptr = (*chanData[chan])._rows.add(y as usize) as *mut f32;
+            let float_ptr = (*chanData[chan]).rows.add(y as usize) as *mut f32;
             let half_ptr = float_ptr as *mut uint16_t;
             // process in reverse
             let mut x = (*d)._width - 1;

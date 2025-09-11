@@ -1,5 +1,6 @@
-use libc::{memcpy, memset};
-use crate::compression::dwa::classifier::{Classifier, Classifier_destroy, Classifier_find_suffix, Classifier_match, Classifier_read, Classifier_size, Classifier_write};
+use libc::{memcpy, memset, uintptr_t};
+use crate::compression::dwa::channeldata::{DctCoderChannelData_construct, DctCoderChannelData_destroy, DctCoderChannelData_push_row};
+use crate::compression::dwa::classifier::{sDefaultChannelRules, sLegacyChannelRules, Classifier, Classifier_destroy, Classifier_find_suffix, Classifier_match, Classifier_read, Classifier_size, Classifier_write};
 use crate::compression::dwa::decoder::{LossyDctDecoder, LossyDctDecoderCsc_construct, LossyDctDecoder_construct, LossyDctDecoder_execute};
 use crate::compression::dwa::encoder::{LossyDctEncoder, LossyDctEncoderCsc_construct, LossyDctEncoder_construct, LossyDctEncoder_execute};
 use crate::compression::dwa::helpers::AcCompression;
@@ -37,8 +38,8 @@ pub struct DwaCompressor {
     pub _packedDcBufferSize: u64,
     pub _rleBuffer: *mut u8,
     pub _rleBufferSize: u64,
-    pub _planarUncBuffer: [*mut u8; NUM_COMPRESSOR_SCHEMES],
-    pub _planarUncBufferSize: [u64; NUM_COMPRESSOR_SCHEMES],
+    pub _planar_unc_buffer: [*mut u8; NUM_COMPRESSOR_SCHEMES],
+    pub _planar_unc_bufferSize: [u64; NUM_COMPRESSOR_SCHEMES],
 
     pub alloc_fn: exr_memory_allocation_func_t,
     pub free_fn: exr_memory_free_func_t,
@@ -48,6 +49,7 @@ pub struct DwaCompressor {
 
 }
 // end of compressor
+
 
 /**************************************/
 #[no_mangle]
@@ -76,23 +78,23 @@ pub unsafe extern "C" fn DwaCompressor_construct(
 
         // me->alloc_fn = pctxt ? pctxt->alloc_fn : internal_exr_alloc;
         // me->free_fn  = pctxt ? pctxt->free_fn : internal_exr_free;
-        if !pctxt.is_null() {
-            // safe to unwrap because context contains Option in our mapping
-            let c = &*pctxt;
-            if let Some(af) = c.alloc_fn {
-                (*me).alloc_fn = af;
-            } else {
-                (*me).alloc_fn = internal_exr_alloc;
-            }
-            if let Some(ff) = c.free_fn {
-                (*me).free_fn = ff;
-            } else {
-                (*me).free_fn = internal_exr_free;
-            }
-        } else {
-            (*me).alloc_fn = internal_exr_alloc;
-            (*me).free_fn = internal_exr_free;
-        }
+        // if !pctxt.is_null() {
+        //     // safe to unwrap because context contains Option in our mapping
+        //     let c = &*pctxt;
+        //     if let Some(af) = c.alloc_fn {
+        //         (*me).alloc_fn = af;
+        //     } else {
+        //         (*me).alloc_fn = internal_exr_alloc;
+        //     }
+        //     if let Some(ff) = c.free_fn {
+        //         (*me).free_fn = ff;
+        //     } else {
+        //         (*me).free_fn = internal_exr_free;
+        //     }
+        // } else {
+        //     (*me).alloc_fn = internal_exr_alloc;
+        //     (*me).free_fn = internal_exr_free;
+        // }
 
         // me->_channelData = internal_exr_alloc_aligned (
         //     me->alloc_fn,
@@ -130,9 +132,9 @@ pub unsafe extern "C" fn DwaCompressor_construct(
             // me->_channelData[c].compression = UNKNOWN;
             (*cd).compression = CompressorScheme::UNKNOWN;
 
-            // DctCoderChannelData_construct(&(me->_channelData[c]._dctData),
+            // DctCoderChannelData_construct(&(me->_channelData[c].dct_data),
             //                                me->_channelData[c].chan->data_type);
-            DctCoderChannelData_construct(&mut (*cd)._dctData as *mut DctCoderChannelData, (*(*cd).chan).data_type);
+            DctCoderChannelData_construct(&mut (*cd).dct_data as *mut DctCoderChannelData, (*(*cd).chan).data_type);
         }
 
         // me->_numScanLines = encode->chunk.height;
@@ -165,22 +167,22 @@ pub unsafe extern "C" fn DwaCompressor_construct(
 
         // me->alloc_fn = pctxt ? pctxt->alloc_fn : internal_exr_alloc;
         // me->free_fn  = pctxt ? pctxt->free_fn : internal_exr_free;
-        if !pctxt.is_null() {
-            let c = &*pctxt;
-            if let Some(af) = c.alloc_fn {
-                (*me).alloc_fn = af;
-            } else {
-                (*me).alloc_fn = internal_exr_alloc;
-            }
-            if let Some(ff) = c.free_fn {
-                (*me).free_fn = ff;
-            } else {
-                (*me).free_fn = internal_exr_free;
-            }
-        } else {
-            (*me).alloc_fn = internal_exr_alloc;
-            (*me).free_fn = internal_exr_free;
-        }
+        // if !pctxt.is_null() {
+        //     let c = &*pctxt;
+        //     if let Some(af) = c.alloc_fn {
+        //         (*me).alloc_fn = af;
+        //     } else {
+        //         (*me).alloc_fn = internal_exr_alloc;
+        //     }
+        //     if let Some(ff) = c.free_fn {
+        //         (*me).free_fn = ff;
+        //     } else {
+        //         (*me).free_fn = internal_exr_free;
+        //     }
+        // } else {
+        //     (*me).alloc_fn = internal_exr_alloc;
+        //     (*me).free_fn = internal_exr_free;
+        // }
 
         // me->_channelData = internal_exr_alloc_aligned ( me->alloc_fn, &(me->_channel_mem),
         //     sizeof (ChannelData) * (size_t) decode->channel_count, _SSE_ALIGNMENT);
@@ -244,11 +246,11 @@ pub unsafe extern "C" fn DwaCompressor_destroy(me: *mut DwaCompressor) {
     // if (me->_channel_mem) { ... }
     if !(*me)._channel_mem.is_null() {
         for c in 0..(*me)._numChannels {
-            // DctCoderChannelData_destroy (me->free_fn, &(me->_channelData[c]._dctData));
+            // DctCoderChannelData_destroy (me->free_fn, &(me->_channelData[c].dct_data));
             let cd = (*me)._channelData.add(c as usize);
             DctCoderChannelData_destroy(
                 (*me).free_fn,
-                &mut (*cd)._dctData as *mut DctCoderChannelData as *mut c_void,
+                &mut (*cd).dct_data as *mut DctCoderChannelData as *mut c_void,
             );
         }
 
@@ -270,8 +272,8 @@ pub unsafe extern "C" fn DwaCompressor_destroy(me: *mut DwaCompressor) {
     }
 
     for i in 0..(NUM_COMPRESSOR_SCHEMES as c_int) {
-        if !(*me)._planarUncBuffer[i as usize].is_null() {
-            ((*me).free_fn)((*me)._planarUncBuffer[i as usize] as *mut c_void);
+        if !(*me)._planar_unc_buffer[i as usize].is_null() {
+            ((*me).free_fn)((*me)._planar_unc_buffer[i as usize] as *mut c_void);
         }
     }
 }
@@ -422,21 +424,21 @@ pub unsafe extern "C" fn DwaCompressor_compress(me: *mut DwaCompressor) -> c_int
             let cd = &mut *(*me)._channelData.add(c as usize);
             let chan = (*cd).chan;
             if chan.is_null() { continue; }
-            if (y % (*chan).y_samples) != 0 {
+            if (y % (*chan).sampling.y()) != 0 {
                 continue;
             }
 
             rv = DctCoderChannelData_push_row(
                 (*me).alloc_fn,
                 (*me).free_fn,
-                &mut (*cd)._dctData,
+                &mut (*cd).dct_data,
                 inDataPtr,
             );
             if rv != EXR_ERR_SUCCESS {
                 return rv;
             }
 
-            inDataPtr = inDataPtr.add(((*chan).width * (*chan).bytes_per_element) as usize);
+            inDataPtr = inDataPtr.add(((*chan).width * (*chan).sample_type.bytes_per_sample()) as usize);
         }
         y += 1;
     }
@@ -449,9 +451,9 @@ pub unsafe extern "C" fn DwaCompressor_compress(me: *mut DwaCompressor) -> c_int
         rv = LossyDctEncoderCsc_construct(
             &mut enc,
             (*me)._dwaCompressionLevel / 100000.0_f32,
-            &mut (*(*me)._channelData.add(cset.idx[0] as usize))._dctData,
-            &mut (*(*me)._channelData.add(cset.idx[1] as usize))._dctData,
-            &mut (*(*me)._channelData.add(cset.idx[2] as usize))._dctData,
+            &mut (*(*me)._channelData.add(cset.idx[0] as usize)).dct_data,
+            &mut (*(*me)._channelData.add(cset.idx[1] as usize)).dct_data,
+            &mut (*(*me)._channelData.add(cset.idx[2] as usize)).dct_data,
             packedAcEnd,
             packedDcEnd,
             ptr::null(),
@@ -506,7 +508,7 @@ pub unsafe extern "C" fn DwaCompressor_compress(me: *mut DwaCompressor) -> c_int
                 rv = LossyDctEncoder_construct(
                     &mut enc,
                     (*me)._dwaCompressionLevel / 100000.0_f32,
-                    &mut cd._dctData,
+                    &mut cd.dct_data,
                     packedAcEnd,
                     packedDcEnd,
                     nonlinearLut,
@@ -539,14 +541,14 @@ pub unsafe extern "C" fn DwaCompressor_compress(me: *mut DwaCompressor) -> c_int
                 //
 
                 // For RLE, bash bytes
-                let dcd = &mut cd._dctData;
+                let dcd = &mut cd.dct_data;
                 let mut yy: usize = 0;
                 while yy < dcd._size {
                     let row = *dcd._rows.add(yy);
                     let mut xidx = 0;
                     while xidx < (*pchan).width as usize {
                         let mut byte = 0;
-                        while byte < (*pchan).bytes_per_element as usize {
+                        while byte < (*pchan).sample_type.bytes_per_sample() as usize {
                             // *cd->planar_unc_rle_end[byte]++ = *row++;
                             let dest = cd.planar_unc_rle_end[byte];
                             *dest = *row;
@@ -557,9 +559,9 @@ pub unsafe extern "C" fn DwaCompressor_compress(me: *mut DwaCompressor) -> c_int
                         }
                         xidx += 1;
                     }
-                    // *rleRawSize += width * bytes_per_element
+                    // *rleRawSize += width * sample_type.bytes_per_sample()
                     if !rleRawSize.is_null() {
-                        *rleRawSize = *rleRawSize + ((*pchan).width as uint64_t * (*pchan).bytes_per_element as uint64_t);
+                        *rleRawSize = *rleRawSize + ((*pchan).width as uint64_t * (*pchan).sample_type.bytes_per_sample() as uint64_t);
                     }
                     yy += 1;
                 }
@@ -569,8 +571,8 @@ pub unsafe extern "C" fn DwaCompressor_compress(me: *mut DwaCompressor) -> c_int
                 //
                 // Otherwise, just copy data over verbatim
                 //
-                let scanlineSize = ((*pchan).width as usize) * ((*pchan).bytes_per_element as usize);
-                let dcd = &mut cd._dctData;
+                let scanlineSize = ((*pchan).width as usize) * ((*pchan).sample_type.bytes_per_sample() as usize);
+                let dcd = &mut cd.dct_data;
                 let mut yy: usize = 0;
                 while yy < dcd._size {
                     let src = *dcd._rows.add(yy) as *const c_void;
@@ -598,7 +600,7 @@ pub unsafe extern "C" fn DwaCompressor_compress(me: *mut DwaCompressor) -> c_int
         rv = exr_compress_buffer(
             (*me)._encode.context(),
             9,
-            (*me)._planarUncBuffer[UNKNOWN as usize],
+            (*me)._planar_unc_buffer[UNKNOWN as usize],
             *unknownUncompressedSize as usize,
             outDataPtr,
             exr_compress_max_buffer_size(*unknownUncompressedSize as usize),
@@ -718,7 +720,7 @@ pub unsafe extern "C" fn DwaCompressor_compress(me: *mut DwaCompressor) -> c_int
             *rleUncompressedSize = internal_rle_compress(
                 (*me)._rleBuffer,
                 (*me)._rleBufferSize as usize,
-                (*me)._planarUncBuffer[CompressorScheme::RLE as usize],
+                (*me)._planar_unc_buffer[CompressorScheme::RLE as usize],
                 *rleRawSize as usize,
             ) as uint64_t;
         }
@@ -925,14 +927,14 @@ pub unsafe extern "C" fn DwaCompressor_uncompress(
 
     // Uncompress UNKNOWN
     if unknownCompressedSize > 0 {
-        if unknownUncompressedSize > (*me)._planarUncBufferSize[UNKNOWN] {
+        if unknownUncompressedSize > (*me)._planar_unc_bufferSize[UNKNOWN] {
             return EXR_ERR_CORRUPT_CHUNK;
         }
         if exr_uncompress_buffer(
             (*me)._decode.as_ref().map_or(ptr::null(), |d| d.context),
             compressedUnknownBuf,
             unknownCompressedSize as usize,
-            (*me)._planarUncBuffer[UNKNOWN],
+            (*me)._planar_unc_buffer[UNKNOWN],
             unknownUncompressedSize as usize,
             ptr::null_mut(),
         ) != EXR_ERR_SUCCESS
@@ -1026,7 +1028,7 @@ pub unsafe extern "C" fn DwaCompressor_uncompress(
     // RLE block
     if rleRawSize > 0 {
         let mut dst_len: size_t = 0;
-        if rleUncompressedSize > (*me)._rleBufferSize as u64 || rleRawSize > (*me)._planarUncBufferSize[RLE] {
+        if rleUncompressedSize > (*me)._rleBufferSize as u64 || rleRawSize > (*me)._planar_unc_bufferSize[RLE] {
             return EXR_ERR_CORRUPT_CHUNK;
         }
 
@@ -1047,7 +1049,7 @@ pub unsafe extern "C" fn DwaCompressor_uncompress(
         }
 
         if internal_rle_decompress(
-            (*me)._planarUncBuffer[RLE],
+            (*me)._planar_unc_buffer[RLE],
             rleRawSize as usize,
             (*me)._rleBuffer as *const uint8_t,
             rleUncompressedSize as usize,
@@ -1070,17 +1072,17 @@ pub unsafe extern "C" fn DwaCompressor_uncompress(
             if chan.is_null() {
                 continue;
             }
-            if (y % (*chan).y_samples) != 0 {
+            if (y % (*chan).sampling.y()) != 0 {
                 continue;
             }
 
-            rv = DctCoderChannelData_push_row((*me).alloc_fn, (*me).free_fn, &mut cd._dctData, outBufferEnd);
+            rv = DctCoderChannelData_push_row((*me).alloc_fn, (*me).free_fn, &mut cd.dct_data, outBufferEnd);
             if rv != EXR_ERR_SUCCESS {
                 return rv;
             }
 
-            cd._dctData._type = (*chan).data_type;
-            outBufferEnd = outBufferEnd.add(((*chan).width * (*chan).bytes_per_element) as usize);
+            cd.dct_data._type = (*chan).data_type;
+            outBufferEnd = outBufferEnd.add(((*chan).width * (*chan).sample_type.bytes_per_sample()) as usize);
         }
         y += 1;
     }
@@ -1103,9 +1105,9 @@ pub unsafe extern "C" fn DwaCompressor_uncompress(
 
         rv = LossyDctDecoderCsc_construct(
             &mut decoder,
-            &mut (*(*me)._channelData.add(r_chan as usize))._dctData,
-            &mut (*(*me)._channelData.add(g_chan as usize))._dctData,
-            &mut (*(*me)._channelData.add(b_chan as usize))._dctData,
+            &mut (*(*me)._channelData.add(r_chan as usize)).dct_data,
+            &mut (*(*me)._channelData.add(g_chan as usize)).dct_data,
+            &mut (*(*me)._channelData.add(b_chan as usize)).dct_data,
             packedAcBufferEnd,
             packedAcBufferEnd.add((totalAcUncompressedCount as usize) * size_of::<uint16_t>()),
             packedDcBufferEnd,
@@ -1137,8 +1139,8 @@ pub unsafe extern "C" fn DwaCompressor_uncompress(
     for c in 0..(*me)._numChannels {
         let cd = &mut *(*me)._channelData.add(c as usize);
         let chan = cd.chan;
-        let dcddata = &mut cd._dctData;
-        let pixel_size = if !chan.is_null() { (*chan).bytes_per_element } else { 0 };
+        let dcddata = &mut cd.dct_data;
+        let pixel_size = if !chan.is_null() { (*chan).sample_type.bytes_per_sample() } else { 0 };
 
         if cd.processed != 0 {
             continue;
@@ -1182,7 +1184,7 @@ pub unsafe extern "C" fn DwaCompressor_uncompress(
             CompressorScheme::RLE => {
                 let mut row_i: c_int = 0;
                 for y in (*me)._min[1]..=(*me)._max[1] {
-                    if (y % (*chan).y_samples) != 0 {
+                    if (y % (*chan).sampling.y()) != 0 {
                         continue;
                     }
                     let dst = *dcddata._rows.add(row_i as usize);
@@ -1208,10 +1210,10 @@ pub unsafe extern "C" fn DwaCompressor_uncompress(
                 let mut row = 0;
                 let dst_scanline_size = ((*chan).width as usize) * (pixel_size as usize);
                 for y in (*me)._min[1]..=*me._max[1] {
-                    if (y % (*chan).y_samples) != 0 {
+                    if (y % (*chan).sampling.y()) != 0 {
                         continue;
                     }
-                    if cd.planar_unc_buffer_end.add(dst_scanline_size) > (*me)._planarUncBuffer[UNKNOWN].add((*me)._planarUncBufferSize[UNKNOWN] as usize) {
+                    if cd.planar_unc_buffer_end.add(dst_scanline_size) > (*me)._planar_unc_buffer[UNKNOWN].add((*me)._planar_unc_bufferSize[UNKNOWN] as usize) {
                         return EXR_ERR_CORRUPT_CHUNK;
                     }
                     memcpy(
@@ -1265,7 +1267,7 @@ pub unsafe extern "C" fn DwaCompressor_initializeBuffers(
     let pixelCount: uint64_t = ((*me)._numScanLines as uint64_t)
         .wrapping_mul(((*me)._max[0] - (*me)._min[0] + 1) as uint64_t);
 
-    let mut planarUncBufferSize: [uint64_t; NUM_COMPRESSOR_SCHEMES] = [0; NUM_COMPRESSOR_SCHEMES];
+    let mut planar_unc_bufferSize: [uint64_t; NUM_COMPRESSOR_SCHEMES] = [0; NUM_COMPRESSOR_SCHEMES];
 
     // Sum sizes for channel rules
     for i in 0..(*me)._channelRuleCount {
@@ -1294,19 +1296,19 @@ pub unsafe extern "C" fn DwaCompressor_initializeBuffers(
 
             x if x == (RLE as c_int) => {
                 rleBufferSize = rleBufferSize.wrapping_add(
-                    2u64.wrapping_mul(pixelCount).wrapping_mul((*curc).bytes_per_element as uint64_t),
+                    2u64.wrapping_mul(pixelCount).wrapping_mul((*curc).sample_type.bytes_per_sample() as uint64_t),
                 );
-                planarUncBufferSize[RLE] = planarUncBufferSize[RLE].wrapping_add(
-                    2u64.wrapping_mul(pixelCount).wrapping_mul((*curc).bytes_per_element as uint64_t),
+                planar_unc_bufferSize[RLE] = planar_unc_bufferSize[RLE].wrapping_add(
+                    2u64.wrapping_mul(pixelCount).wrapping_mul((*curc).sample_type.bytes_per_sample() as uint64_t),
                 );
             }
 
             x if x == (UNKNOWN as c_int) => {
                 unknownBufferSize = unknownBufferSize.wrapping_add(
-                    pixelCount.wrapping_mul((*curc).bytes_per_element as uint64_t),
+                    pixelCount.wrapping_mul((*curc).sample_type.bytes_per_sample() as uint64_t),
                 );
-                planarUncBufferSize[UNKNOWN] = planarUncBufferSize[UNKNOWN].wrapping_add(
-                    pixelCount.wrapping_mul((*curc).bytes_per_element as uint64_t),
+                planar_unc_bufferSize[UNKNOWN] = planar_unc_bufferSize[UNKNOWN].wrapping_add(
+                    pixelCount.wrapping_mul((*curc).sample_type.bytes_per_sample() as uint64_t),
                 );
             }
 
@@ -1364,23 +1366,23 @@ pub unsafe extern "C" fn DwaCompressor_initializeBuffers(
     }
 
     // UNKNOWN needs extra headroom for zlib
-    if planarUncBufferSize[UNKNOWN] > 0 {
-        planarUncBufferSize[UNKNOWN] = exr_compress_max_buffer_size(planarUncBufferSize[UNKNOWN] as usize) as uint64_t;
+    if planar_unc_bufferSize[UNKNOWN] > 0 {
+        planar_unc_bufferSize[UNKNOWN] = exr_compress_max_buffer_size(planar_unc_bufferSize[UNKNOWN] as usize) as uint64_t;
     }
 
     for i in 0..NUM_COMPRESSOR_SCHEMES {
-        if planarUncBufferSize[i] > (*me)._planarUncBufferSize[i] {
-            (*me)._planarUncBufferSize[i] = planarUncBufferSize[i];
-            if !(*me)._planarUncBuffer[i].is_null() {
-                ((*me).free_fn)((*me)._planarUncBuffer[i] as *mut c_void);
+        if planar_unc_bufferSize[i] > (*me)._planar_unc_bufferSize[i] {
+            (*me)._planar_unc_bufferSize[i] = planar_unc_bufferSize[i];
+            if !(*me)._planar_unc_buffer[i].is_null() {
+                ((*me).free_fn)((*me)._planar_unc_buffer[i] as *mut c_void);
             }
 
-            if planarUncBufferSize[i] > (usize::MAX as uint64_t) {
+            if planar_unc_bufferSize[i] > (usize::MAX as uint64_t) {
                 return EXR_ERR_OUT_OF_MEMORY;
             }
 
-            (*me)._planarUncBuffer[i] = ((*me).alloc_fn)(planarUncBufferSize[i] as size_t) as *mut uint8_t;
-            if (*me)._planarUncBuffer[i].is_null() {
+            (*me)._planar_unc_buffer[i] = ((*me).alloc_fn)(planar_unc_bufferSize[i] as size_t) as *mut uint8_t;
+            if (*me)._planar_unc_buffer[i].is_null() {
                 return EXR_ERR_OUT_OF_MEMORY;
             }
         }
@@ -1582,12 +1584,12 @@ pub unsafe extern "C" fn DwaCompressor_classifyChannels(me: *mut DwaCompressor) 
         let grnc = (*(*me)._channelData.add(grn as usize)).chan;
         let bluc = (*(*me)._channelData.add(blu as usize)).chan;
 
-        if (*redc).x_samples != (*grnc).x_samples
-            || (*redc).x_samples != (*bluc).x_samples
-            || (*grnc).x_samples != (*bluc).x_samples
-            || (*redc).y_samples != (*grnc).y_samples
-            || (*redc).y_samples != (*bluc).y_samples
-            || (*grnc).y_samples != (*bluc).y_samples
+        if (*redc).sampling.x() != (*grnc).sampling.x()
+            || (*redc).sampling.x() != (*bluc).sampling.x()
+            || (*grnc).sampling.x() != (*bluc).sampling.x()
+            || (*redc).sampling.y() != (*grnc).sampling.y()
+            || (*redc).sampling.y() != (*bluc).sampling.y()
+            || (*grnc).sampling.y() != (*bluc).sampling.y()
         {
             continue;
         }
@@ -1610,12 +1612,12 @@ pub unsafe extern "C" fn DwaCompressor_setupChannelData(me: *mut DwaCompressor) 
         return EXR_ERR_INVALID_ARGUMENT;
     }
 
-    let mut planarUncBuffer: [*mut uint8_t; NUM_COMPRESSOR_SCHEMES] = [ptr::null_mut(); NUM_COMPRESSOR_SCHEMES];
+    let mut planar_unc_buffer: [*mut uint8_t; NUM_COMPRESSOR_SCHEMES] = [ptr::null_mut(); NUM_COMPRESSOR_SCHEMES];
 
     for i in 0..NUM_COMPRESSOR_SCHEMES {
-        planarUncBuffer[i] = ptr::null_mut();
-        if !(*me)._planarUncBuffer[i].is_null() {
-            planarUncBuffer[i] = (*me)._planarUncBuffer[i];
+        planar_unc_buffer[i] = ptr::null_mut();
+        if !(*me)._planar_unc_buffer[i].is_null() {
+            planar_unc_buffer[i] = (*me)._planar_unc_buffer[i];
         }
     }
 
@@ -1624,33 +1626,33 @@ pub unsafe extern "C" fn DwaCompressor_setupChannelData(me: *mut DwaCompressor) 
         let curc = cd.chan;
         let uncSize = ( (*curc).width as usize )
             .wrapping_mul((*curc).height as usize)
-            .wrapping_mul((*curc).bytes_per_element as usize);
+            .wrapping_mul((*curc).sample_type.bytes_per_sample() as usize);
 
         cd.planar_unc_size = uncSize as size_t;
 
-        cd.planar_unc_buffer = planarUncBuffer[cd.compression as usize];
-        cd.planar_unc_buffer_end = cd.planarUncBuffer;
+        cd.planar_unc_buffer = planar_unc_buffer[cd.compression as usize];
+        cd.planar_unc_buffer_end = cd.planar_unc_buffer;
 
-        cd.planarUncRle[0] = cd.planarUncBuffer;
-        cd.planar_unc_rle_end[0] = cd.planarUncRle[0];
+        cd.planar_unc_rle[0] = cd.planar_unc_buffer;
+        cd.planar_unc_rle_end[0] = cd.planar_unc_rle[0];
 
-        if cd.planarUncBuffer.is_null() {
-            for byte in 1..(*curc).bytes_per_element as usize {
-                cd.planarUncRle[byte] = ptr::null_mut();
+        if cd.planar_unc_buffer.is_null() {
+            for byte in 1..(*curc).sample_type.bytes_per_sample()  {
+                cd.planar_unc_rle[byte] = ptr::null_mut();
                 cd.planar_unc_rle_end[byte] = ptr::null_mut();
             }
         } else {
-            for byte in 1..(*curc).bytes_per_element as usize {
-                cd.planarUncRle[byte] = cd.planarUncRle[byte - 1].add(((*curc).width * (*curc).height) as usize);
-                cd.planar_unc_rle_end[byte] = cd.planarUncRle[byte];
+            for byte in 1..(*curc).sample_type.bytes_per_sample()  {
+                cd.planar_unc_rle[byte] = cd.planar_unc_rle[byte - 1].add(((*curc).width * (*curc).height) as usize);
+                cd.planar_unc_rle_end[byte] = cd.planar_unc_rle[byte];
             }
         }
 
-        cd.planarUncType = (*curc).data_type;
+        cd.planar_unc_type = (*curc).data_type;
         if cd.compression == LOSSY_DCT {
-            cd.planarUncType = exr_pixel_type_t::FLOAT;
+            cd.planar_unc_type = exr_pixel_type_t::FLOAT;
         } else {
-            planarUncBuffer[cd.compression as usize] = planarUncBuffer[cd.compression as usize].add(uncSize);
+            planar_unc_buffer[cd.compression as usize] = planar_unc_buffer[cd.compression as usize].add(uncSize);
         }
     }
 

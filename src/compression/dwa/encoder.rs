@@ -1,6 +1,7 @@
 use std::os::raw::{c_int, c_void};
 use std::ptr;
 use std::mem::size_of;
+use crate::compression::dwa::transform_8x8::{csc709_forward, dct_forward_8x8};
 use super::externals::*;
 
 /// LossyDctEncoder struct mirroring the C layout
@@ -851,7 +852,7 @@ pub unsafe extern "C" fn LossyDctEncoder_execute(
 
             // color space conversion if 3 comps
             if numComp == 3 {
-                csc709Forward64(
+                csc709_forward(
                     (*chanData[0]).dct_data,
                     (*chanData[1]).dct_data,
                     (*chanData[2]).dct_data,
@@ -863,7 +864,7 @@ pub unsafe extern "C" fn LossyDctEncoder_execute(
             hquantTable = (*e)._hquantTableY.as_ptr();
             for chan in 0..numComp {
                 if chanData[chan].is_null() { continue; }
-                dctForward8x8((*chanData[chan]).dct_data);
+                dct_forward_8x8((*chanData[chan]).dct_data);
                 quantizeCoeffAndZigXDR(
                     halfZigCoef.as_mut_ptr(),
                     (*chanData[chan]).dct_data,
