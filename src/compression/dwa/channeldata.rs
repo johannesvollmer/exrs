@@ -4,7 +4,7 @@
 
 use std::ffi::c_char;
 use std::ffi::c_void;
-use std::os::raw::{c_int, c_size_t};
+use std::os::raw::{c_int};
 use std::ptr;
 
 // Placeholder definitions for external types
@@ -68,13 +68,17 @@ impl DctCoderChannelData {
         EXR_ERR_SUCCESS
     }
 }
-
+/**************************************/
 #[repr(C)]
 pub struct ChannelData {
     pub _dctData: DctCoderChannelData,
 
     pub chan: *mut exr_coding_channel_info_t,
 
+    // Incoming and outgoing data is scanline interleaved, and it's much
+    // easier to operate on contiguous data.  Assuming the planare unc
+    // buffer is to hold RLE data, we need to rearrange to make bytes
+    // adjacent.
     pub planarUncBuffer: *mut u8,
     pub planarUncBufferEnd: *mut u8,
 
@@ -87,7 +91,7 @@ pub struct ChannelData {
     pub planarUncType: ExrPixelType,
     pub _pad: [u8; 20],
 }
-
+/**************************************/
 #[repr(C)]
 pub struct CscChannelSet {
     pub idx: [c_int; 3],
