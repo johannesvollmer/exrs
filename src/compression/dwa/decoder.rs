@@ -1,42 +1,40 @@
+use crate::compression::dwa::classifier::DWA_CLASSIFIER_FALSE;
+use crate::compression::dwa::transform_8x8::dct_inverse_8x8;
 // LossyDctDecoder port (decoder.h) -> Rust (unsafe, near line-for-line translation).
 // Integrate into the single-file port; relies on many extern helpers provided elsewhere.
-
-use std::os::raw::{c_int, c_void, c_char};
-use std::ptr;
-use std::mem::size_of;
-
-type uint8_t = u8;
-type uint16_t = u16;
-type uint64_t = u64;
-type size_t = usize;
-pub type exr_result_t = c_int;
-
-pub const EXR_ERR_SUCCESS: exr_result_t = 0;
-pub const EXR_ERR_OUT_OF_MEMORY: exr_result_t = -1;
-pub const EXR_ERR_CORRUPT_CHUNK: exr_result_t = -2;
-
-pub const DWA_CLASSIFIER_TRUE: uint8_t = 1;
-
-#[repr(C)]
-pub struct DctCoderChannelData {
-    pub _dctData: *mut f32,
-    pub _halfZigData: *mut uint16_t,
-    pub _dc_comp: *mut uint16_t,
-    pub _rows: *mut *mut uint8_t,
-    pub _row_alloc_count: size_t,
-    pub _size: size_t,
-    pub _type: c_int,
-}
+use super::externals::*;
+use super::dwa::*;
 
 #[repr(C)]
 pub struct LossyDctDecoder {
+    //
+    // if NATIVE and XDR are really the same values, we can
+    // skip some processing and speed things along
+    //
+
+    //
+    // Counts of how many items have been packed into the
+    // AC and DC buffers
+    //
     pub _packedAcCount: uint64_t,
     pub _packedDcCount: uint64_t,
+
+    //
+    // AC and DC buffers to pack
+    //
     pub _packedAc: *mut uint8_t,
     pub _packedAcEnd: *mut uint8_t,
     pub _packedDc: *mut uint8_t,
     pub _remDcCount: uint64_t,
+
+    //
+    // half -> half LUT to transform from nonlinear to linear
+    //
     pub _toLinear: *const uint16_t,
+
+    //
+    // image dimensions
+    //
     pub _width: c_int,
     pub _height: c_int,
     pub _channel_decode_data: [*mut DctCoderChannelData; 3],
@@ -44,36 +42,23 @@ pub struct LossyDctDecoder {
     pub _pad: [u8; 4],
 }
 
-extern "C" {
-    // helpers used by decoder - must be provided elsewhere in the port.
-    fn priv_to_native16(data: *mut uint16_t, n: usize);
-    fn simd_align_pointer(p: *mut uint8_t) -> *mut uint8_t;
-    fn half_to_float(h: uint16_t) -> f32;
-    fn fromHalfZigZag(src: *const uint16_t, dst: *mut f32);
-    fn dctInverse8x8DcOnly(dst: *mut f32);
-    fn dctInverse8x8_7(dst: *mut f32);
-    fn dctInverse8x8_6(dst: *mut f32);
-    fn dctInverse8x8_5(dst: *mut f32);
-    fn dctInverse8x8_4(dst: *mut f32);
-    fn dctInverse8x8_3(dst: *mut f32);
-    fn dctInverse8x8_2(dst: *mut f32);
-    fn dctInverse8x8_1(dst: *mut f32);
-    fn dctInverse8x8_0(dst: *mut f32);
 
-    fn csc709Inverse64(a: *mut f32, b: *mut f32, c: *mut f32);
-    fn csc709Inverse(a: *mut f32, b: *mut f32, c: *mut f32);
-
-    fn convertFloatToHalf64(dst: *mut uint16_t, src: *const f32);
-    fn float_to_half(f: f32) -> uint16_t;
-
-    fn one_from_native_float(f: f32) -> f32;
-    fn one_to_native16(v: uint16_t) -> uint16_t;
-
-    // memory helpers (provided earlier)
-    // alloc_fn: extern "C" fn(size_t) -> *mut c_void
-    // free_fn: extern "C" fn(*mut c_void)
-}
-
+//
+// Un-RLE the packed AC components into
+// a half buffer. The half block should
+// be the full 8x8 block (in zig-zag order
+// still), not the first AC component.
+//
+// currAcComp is advanced as bytes are decoded.
+//
+// This returns the index of the last non-zero
+// value in the buffer - with the index into zig zag
+// order data. If we return 0, we have DC only data.
+//
+//
+// This is assuminging that halfZigBlock is zero'ed
+// prior to calling
+//
 #[no_mangle]
 pub unsafe extern "C" fn LossyDctDecoder_unRleAc(
     d: *mut LossyDctDecoder,
@@ -82,6 +67,13 @@ pub unsafe extern "C" fn LossyDctDecoder_unRleAc(
     packedAcEnd: *mut uint16_t,
     halfZigBlock: *mut uint16_t,
 ) -> exr_result_t {
+    //
+    // Un-RLE the RLE'd blocks. If we find an item whose
+    // high byte is 0xff, then insert the number of 0's
+    // as indicated by the low byte.
+    //
+    // Otherwise, just copy the number verbatim.
+    //
     if d.is_null() || lastNonZero.is_null() || currAcComp.is_null() || halfZigBlock.is_null() {
         return EXR_ERR_CORRUPT_CHUNK;
     }
@@ -91,6 +83,11 @@ pub unsafe extern "C" fn LossyDctDecoder_unRleAc(
     let mut lnz: c_int = 0;
     let mut ac_count: uint64_t = 0;
 
+    //
+    // Start with a zero'ed block, so we don't have to
+    // write when we hit a run symbol
+    //
+
     while dctComp < 64 {
         if acComp >= packedAcEnd {
             return EXR_ERR_CORRUPT_CHUNK;
@@ -98,8 +95,13 @@ pub unsafe extern "C" fn LossyDctDecoder_unRleAc(
         let val: uint16_t = ptr::read(acComp);
         if (val & 0xff00) == 0xff00 {
             let count = (val & 0xff) as c_int;
+            // run, insert 0s - since block pre-zeroed, nothing to do
+            // just increment dctComp but test for end of block...
             dctComp += if count == 0 { 64 } else { count };
         } else {
+            //
+            // Not a run, just copy over the value
+            //
             lnz = dctComp;
             // halfZigBlock[dctComp] = val;
             ptr::write(halfZigBlock.add(dctComp as usize), val);
@@ -115,6 +117,9 @@ pub unsafe extern "C" fn LossyDctDecoder_unRleAc(
     EXR_ERR_SUCCESS
 }
 
+//
+// Used to decode a single channel of LOSSY_DCT data.
+//
 #[no_mangle]
 pub unsafe extern "C" fn LossyDctDecoder_construct(
     d: *mut LossyDctDecoder,
@@ -127,6 +132,11 @@ pub unsafe extern "C" fn LossyDctDecoder_construct(
     width: c_int,
     height: c_int,
 ) -> exr_result_t {
+    //
+    // toLinear is a half-float LUT to convert the encoded values
+    // back to linear light. If you want to skip this step, pass
+    // in NULL here.
+    //
     if d.is_null() {
         return EXR_ERR_CORRUPT_CHUNK;
     }
@@ -139,6 +149,15 @@ pub unsafe extern "C" fn LossyDctDecoder_construct(
     rv
 }
 
+//
+// Used to decode 3 channels of LOSSY_DCT data that
+// are grouped together and color space converted.
+//
+//
+// toLinear is a half-float LUT to convert the encoded values
+// back to linear light. If you want to skip this step, pass
+// in NULL here.
+//
 #[no_mangle]
 pub unsafe extern "C" fn LossyDctDecoderCsc_construct(
     d: *mut LossyDctDecoder,
@@ -167,6 +186,7 @@ pub unsafe extern "C" fn LossyDctDecoderCsc_construct(
     rv
 }
 
+/**************************************/
 #[no_mangle]
 pub unsafe extern "C" fn LossyDctDecoder_base_construct(
     d: *mut LossyDctDecoder,
@@ -197,6 +217,7 @@ pub unsafe extern "C" fn LossyDctDecoder_base_construct(
     EXR_ERR_SUCCESS
 }
 
+/**************************************/
 #[no_mangle]
 pub unsafe extern "C" fn LossyDctDecoder_execute(
     alloc_fn: extern "C" fn(size_t) -> *mut c_void,
@@ -229,6 +250,10 @@ pub unsafe extern "C" fn LossyDctDecoder_execute(
     }
 
     // allocate temp aligned buffer
+    //
+    // Allocate a temp aligned buffer to hold a rows worth of full
+    // 8x8 half-float blocks
+    //
     let row_block_bytes = (numComp * numBlocksX * 64 * size_of::<uint16_t>()) + _SSE_ALIGNMENT;
     let rowBlockHandle = alloc_fn(row_block_bytes);
     if rowBlockHandle.is_null() {
@@ -257,6 +282,15 @@ pub unsafe extern "C" fn LossyDctDecoder_execute(
             let mut blockIsConstant: uint8_t = DWA_CLASSIFIER_TRUE;
             if blockx == numBlocksX - 1 { maxX = leftoverX; }
 
+            //
+            // If we can detect that the block is constant values
+            // (all components only have DC values, and all AC is 0),
+            // we can do everything only on 1 value, instead of all
+            // 64.
+            //
+            // This won't really help for regular images, but it is
+            // meant more for layers with large swaths of black
+            //
             for comp in 0..numComp {
                 let chan = chanData[comp];
                 if chan.is_null() {
@@ -276,7 +310,10 @@ pub unsafe extern "C" fn LossyDctDecoder_execute(
                 currDcComp[comp] = currDcComp[comp].add(1);
                 (*d)._packedDcCount = (*d)._packedDcCount.wrapping_add(1);
 
-                // UnRLE AC
+
+                //
+                // UnRLE the AC. This will modify currAcComp
+                //
                 let mut last_nz: c_int = 0;
                 let mut curr_ac_local = currAcComp;
                 let rv_unrle = LossyDctDecoder_unRleAc(
@@ -292,30 +329,71 @@ pub unsafe extern "C" fn LossyDctDecoder_execute(
                 }
                 currAcComp = curr_ac_local;
 
-                // convert XDR -> native
+                //
+                // Convert from XDR to NATIVE
+                //
                 priv_to_native16(halfZigData_ptr, 64);
 
                 if last_nz == 0 {
-                    // DC only
+                    //
+                    // DC only case - AC components are all 0
+                    //
                     let f = half_to_float(ptr::read(halfZigData_ptr));
                     ptr::write(dctData_ptr, f);
                     dctInverse8x8DcOnly(dctData_ptr);
                 } else {
-                    blockIsConstant = 0;
+                    //
+                    // We have some AC components that are non-zero.
+                    // Can't use the 'constant block' optimization
+                    //
+                    blockIsConstant = DWA_CLASSIFIER_FALSE;
+
+                    //
+                    // Un-Zig zag
+                    //
                     fromHalfZigZag(halfZigData_ptr as *const uint16_t, dctData_ptr);
 
-                    if last_nz < 2 { dctInverse8x8_7(dctData_ptr); }
-                    else if last_nz < 3 { dctInverse8x8_6(dctData_ptr); }
-                    else if last_nz < 9 { dctInverse8x8_5(dctData_ptr); }
-                    else if last_nz < 10 { dctInverse8x8_4(dctData_ptr); }
-                    else if last_nz < 20 { dctInverse8x8_3(dctData_ptr); }
-                    else if last_nz < 21 { dctInverse8x8_2(dctData_ptr); }
-                    else if last_nz < 35 { dctInverse8x8_1(dctData_ptr); }
-                    else { dctInverse8x8_0(dctData_ptr); }
+                    //
+                    // Zig-Zag indices in normal layout are as follows:
+                    //
+                    // 0   1   5   6   14  15  27  28
+                    // 2   4   7   13  16  26  29  42
+                    // 3   8   12  17  25  30  41  43
+                    // 9   11  18  24  31  40  44  53
+                    // 10  19  23  32  39  45  52  54
+                    // 20  22  33  38  46  51  55  60
+                    // 21  34  37  47  50  56  59  61
+                    // 35  36  48  49  57  58  62  63
+                    //
+                    // If lastNonZero is less than the first item on
+                    // each row, we know that the whole row is zero and
+                    // can be skipped in the row-oriented part of the
+                    // iDCT.
+                    //
+                    // The unrolled logic here is:
+                    //
+                    //    if lastNonZero < rowStartIdx[i],
+                    //    zeroedRows = rowsEmpty[i]
+                    //
+                    // where:
+                    //
+                    //    const int rowStartIdx[] = {2, 3, 9, 10, 20, 21, 35};
+                    //    const int rowsEmpty[]   = {7, 6, 5,  4,  3,  2,  1};
+                    //
+                    if last_nz < 2 { dct_inverse_8x8(dctData_ptr, 7); }
+                    else if last_nz < 3 { dct_inverse_8x8(dctData_ptr, 6); }
+                    else if last_nz < 9 { dct_inverse_8x8(dctData_ptr, 5); }
+                    else if last_nz < 10 { dct_inverse_8x8(dctData_ptr, 4); }
+                    else if last_nz < 20 { dct_inverse_8x8(dctData_ptr, 3); }
+                    else if last_nz < 21 { dct_inverse_8x8(dctData_ptr, 2); }
+                    else if last_nz < 35 { dct_inverse_8x8(dctData_ptr, 1); }
+                    else { dct_inverse_8x8(dctData_ptr, 0); }
                 }
             } // comp
 
-            // CSC
+            //
+            // Perform the CSC
+            //
             if numComp == 3 {
                 if blockIsConstant == 0 {
                     csc709Inverse64(
@@ -332,7 +410,11 @@ pub unsafe extern "C" fn LossyDctDecoder_execute(
                 }
             }
 
-            // Float -> Half conversion into rowBlock
+            //
+            // Float -> Half conversion.
+            //
+            // If the block has a constant value, just convert the first pixel.
+            //
             for comp in 0..numComp {
                 if blockIsConstant == 0 {
                     convertFloatToHalf64(
@@ -349,10 +431,27 @@ pub unsafe extern "C" fn LossyDctDecoder_execute(
                 }
             }
         } // blockx
-
+        //
+        // At this point, we have half-float nonlinear value blocked
+        // in rowBlock[][]. We need to unblock the data, transfer
+        // back to linear, and write the results in the _rowPtrs[].
+        //
+        // There is a fast-path for aligned rows, which helps
+        // things a little. Since this fast path is only valid
+        // for full 8-element wide blocks, the partial x blocks
+        // are broken into a separate loop below.
+        //
+        // At the moment, the fast path requires:
+        //   * sse support
+        //   * aligned row pointers
+        //   * full 8-element wide blocks
+        //
         // Unblock rowBlock into channel row pointers
         for comp in 0..numComp {
             // full-blocks fast path (non-SSE scalar implementation)
+            //
+            // Basic scalar kinda slow path for handling the full X blocks
+            //
             if (*d)._toLinear != ptr::null() {
                 for y in (8 * blocky)..(8 * blocky + maxY) {
                     let dst_row = (*chanData[comp])._rows.add(y as usize);
@@ -382,7 +481,11 @@ pub unsafe extern "C" fn LossyDctDecoder_execute(
                 }
             }
 
-            // partial X blocks
+            //
+            // If we have partial X blocks, deal with all those now
+            // Since this should be minimal work, there currently
+            // is only one path that should work for everyone.
+            //
             if numFullBlocksX != numBlocksX {
                 for y in (8 * blocky)..(8 * blocky + maxY) {
                     let src = rowBlock[comp].add(numFullBlocksX * 64 + ((y & 0x7) * 8));
@@ -404,7 +507,11 @@ pub unsafe extern "C" fn LossyDctDecoder_execute(
         } // comp
     } // blocky
 
-    // Convert half->float for channels with EXR_PIXEL_FLOAT
+    //
+    // Walk over all the channels that are of type FLOAT.
+    // Convert from HALF XDR back to FLOAT XDR.
+    //
+
     for chan in 0..numComp {
         // chanData[chan]._type check - using _type field from channel struct
         if (*chanData[chan])._type as c_int != (2 as c_int) {
@@ -431,5 +538,3 @@ pub unsafe extern "C" fn LossyDctDecoder_execute(
     EXR_ERR_SUCCESS
 }
 
-// helper constant defined elsewhere
-const _SSE_ALIGNMENT: usize = 16;

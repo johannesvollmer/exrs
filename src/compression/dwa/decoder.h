@@ -54,43 +54,6 @@ typedef struct _LossyDctDecoder
     uint8_t              _pad[4];
 } LossyDctDecoder;
 
-static exr_result_t LossyDctDecoder_base_construct (
-    LossyDctDecoder* d,
-    uint8_t*         packedAc,
-    uint8_t*         packedAcEnd,
-    uint8_t*         packedDc,
-    uint64_t         remDcCount,
-    const uint16_t*  toLinear,
-    int              width,
-    int              height);
-
-static exr_result_t LossyDctDecoder_construct (
-    LossyDctDecoder*     d,
-    DctCoderChannelData* rowPtrs,
-    uint8_t*             packedAc,
-    uint8_t*             packedAcEnd,
-    uint8_t*             packedDc,
-    uint64_t             remDcCount,
-    const uint16_t*      toLinear,
-    int                  width,
-    int                  height);
-
-static exr_result_t LossyDctDecoderCsc_construct (
-    LossyDctDecoder*     d,
-    DctCoderChannelData* rowPtrsR,
-    DctCoderChannelData* rowPtrsG,
-    DctCoderChannelData* rowPtrsB,
-    uint8_t*             packedAc,
-    uint8_t*             packedAcEnd,
-    uint8_t*             packedDc,
-    uint64_t             remDcCount,
-    const uint16_t*      toLinear,
-    int                  width,
-    int                  height);
-
-static exr_result_t LossyDctDecoder_execute (
-    void* (*alloc_fn) (size_t), void (*free_fn) (void*), LossyDctDecoder* d);
-
 //
 // Un-RLE the packed AC components into
 // a half buffer. The half block should

@@ -18,6 +18,7 @@ mod dwa;
 mod compressor;
 mod encoder;
 mod externals;
+mod transform_8x8;
 
 use crate::compression::ByteVec;
 use crate::error::{Error, Result};

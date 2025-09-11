@@ -1,6 +1,10 @@
+use crate::compression::dwa::classifier::Classifier;
+use crate::compression::dwa::transform_8x8::{
+    dct_inverse_8x8, dct_inverse_8x8_dc_only, f32_from_zig_zag_f16,
+};
 use crate::prelude::ChannelDescription;
-use std::alloc::alloc;
 pub use libc::{free, malloc};
+use std::alloc::alloc;
 pub use std::ffi::{c_char, c_void};
 pub use std::mem::{size_of, zeroed};
 pub use std::os::raw::c_int;
@@ -14,6 +18,7 @@ pub enum exr_pixel_type_t {
     HALF = 1,
     FLOAT = 2,
 }
+pub const EXR_PIXEL_LAST_TYPE: u8 = 3;
 
 pub type exr_result_t = i32;
 pub const EXR_ERR_SUCCESS: exr_result_t = 0;
@@ -34,14 +39,10 @@ pub enum CompressionScheme {
 
 pub type c_size_t = usize;
 
-// Minimal external constants/types assumed from surrounding code
-
-
 pub const DWA_CLASSIFIER_TRUE: i32 = 1;
 pub const NUM_COMPRESSOR_SCHEMES: usize = 4;
 pub const UNKNOWN: i32 = -1;
 
-// Size-table related constants (placeholders; keep names used in C)
 pub const NUM_SIZES_SINGLE: usize = 64;
 pub const VERSION: usize = 0;
 pub const UNKNOWN_UNCOMPRESSED_SIZE: usize = 1;
@@ -55,7 +56,6 @@ pub const AC_UNCOMPRESSED_COUNT: usize = 8;
 pub const DC_UNCOMPRESSED_COUNT: usize = 9;
 pub const AC_COMPRESSION: usize = 10;
 
-// constants used
 pub const NUM_COMPRESSOR_SCHEMES: usize = 4;
 pub const UNKNOWN: usize = 0;
 pub const RLE: usize = 1;
@@ -87,8 +87,6 @@ pub enum CompressorScheme {
     NUM_COMPRESSOR_SCHEMES = 4,
 }
 
-pub const EXR_PIXEL_LAST_TYPE: u8 = 3;
-
 pub type uint8_t = u8;
 pub type uint16_t = u16;
 pub type uint32_t = u32;
@@ -105,13 +103,6 @@ pub use super::dwa::*;
 
 pub type exr_memory_allocation_func_t = unsafe extern "C" fn(size: usize) -> *mut c_void;
 pub type exr_memory_free_func_t = unsafe extern "C" fn(ptr: *mut c_void);
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub enum AcCompression {
-    STATIC_HUFFMAN = 0,
-    DEFLATE = 1,
-}
 
 #[repr(C)]
 pub struct exr_chunk_t {
@@ -148,25 +139,9 @@ pub struct exr_decode_pipeline_t {
     // ... placeholder
 }
 
-// Minimal placeholder types used in the function body
-#[repr(C)]
-pub struct exr_encode_pipeline_t {
-    pub compressed_alloc_size: uint64_t,
-    pub compressed_buffer: *mut uint8_t,
-    pub packed_buffer: *mut uint8_t,
-    pub packed_alloc_size: size_t,
-    pub packed_bytes: size_t,
-    pub scratch_buffer_1: *mut uint8_t,
-    pub scratch_alloc_size_1: size_t,
-    pub context: *const exr_const_context_t,
-    // other fields omitted
-}
-
-
 pub type exr_memory_allocation_func_t =
-unsafe extern "C" fn(size: size_t) -> *mut std::os::raw::c_void;
+    unsafe extern "C" fn(size: size_t) -> *mut std::os::raw::c_void;
 pub type exr_memory_free_func_t = unsafe extern "C" fn(ptr: *mut std::os::raw::c_void);
-
 
 #[repr(C)]
 pub struct DwaCompressor {
@@ -192,15 +167,7 @@ pub struct DwaCompressor {
     pub free_fn: exr_memory_free_func_t,
 }
 
-
-// externs for rule tables
-pub static mut sLegacyChannelRules: [Classifier; 1];
-pub static mut sDefaultChannelRules: [Classifier; 1];
-
 pub type exr_coding_channel_info_t = ChannelDescription;
-
-
-
 
 /// External helpers expected elsewhere in the port:
 pub fn float_to_half(f: f32) -> uint16_t {}
@@ -208,96 +175,9 @@ pub fn half_to_float(h: uint16_t) -> f32 {}
 pub fn one_from_native16(v: uint16_t) -> uint16_t {}
 pub fn one_to_native16(v: uint16_t) -> uint16_t {}
 pub fn one_to_native_float(f: f32) -> f32 {}
-pub fn dctForward8x8(data: *mut f32) {}
-pub fn csc709Forward64(r: *mut f32, g: *mut f32, b: *mut f32) {}
 pub fn convertFloatToHalf64(dst: *mut uint16_t, src: *const f32) {}
 
-// memory helpers
-// alloc_fn: extern "C" fn(size_t) -> *mut c_void
-// free_fn: extern "C" fn(*mut c_void)
-const alloc_fn: fn(size_t) -> *mut c_void = malloc;
-const free_fn: fn(*mut c_void) = free;
-
-fn internal_exr_alloc_aligned(
-    alloc_fn: exr_memory_allocation_func_t,
-    out_mem: *mut *mut std::os::raw::c_void,
-    size: usize,
-    align: usize,
-) -> *mut ChannelData;
-fn exr_get_zip_compression_level(
-    context: *const exr_const_context_t,
-    part_index: i32,
-    out_level: *mut i32,
-) -> exr_result_t;
-fn exr_get_dwa_compression_level(
-    context: *const exr_const_context_t,
-    part_index: i32,
-    out_level: *mut f32,
-) -> exr_result_t;
-
-pub fn CscPrefixMap_find(
-    mapl: *mut CscPrefixMapItem,
-    maxSize: c_int,
-    cname: *const c_char,
-    prefixlen: size_t,
-) -> *mut CscPrefixMapItem;
-
-fn DctCoderChannelData_construct(d: *mut DctCoderChannelData, t: exr_pixel_type_t);
-
-fn DctCoderChannelData_destroy(
-    free_fn: unsafe extern "C" fn(*mut std::os::raw::c_void),
-    d: *mut std::os::raw::c_void,
-);
-fn DwaCompressor_initializeBuffers(me: *mut DwaCompressor, out: *mut size_t) -> c_int;
-fn internal_encode_alloc_buffer(
-    encode: *mut exr_encode_pipeline_t,
-    which: c_int,
-    out_ptr: *mut *mut uint8_t,
-    out_size: *mut uint64_t,
-    needed: size_t,
-) -> c_int;
-fn DwaCompressor_writeRelevantChannelRules(
-    me: *mut DwaCompressor,
-    out_ptr: *mut *mut uint8_t,
-    nAvail: uint64_t,
-    nWritten: *mut uint64_t,
-) -> c_int;
-fn DwaCompressor_setupChannelData(me: *mut DwaCompressor) -> c_int;
-fn DctCoderChannelData_push_row(
-    alloc_fn: exr_memory_allocation_func_t,
-    free_fn: exr_memory_free_func_t,
-    d: *mut DctCoderChannelData,
-    r: *mut uint8_t,
-) -> c_int;
-fn LossyDctEncoderCsc_construct(
-    enc: *mut LossyDctEncoder,
-    level: f32,
-    a: *mut DctCoderChannelData,
-    b: *mut DctCoderChannelData,
-    c: *mut DctCoderChannelData,
-    packedAcEnd: *mut uint8_t,
-    packedDcEnd: *mut uint8_t,
-    lut: *const uint16_t,
-    width: c_int,
-    height: c_int,
-) -> c_int;
-fn LossyDctEncoder_construct(
-    enc: *mut LossyDctEncoder,
-    level: f32,
-    dct: *mut DctCoderChannelData,
-    packedAcEnd: *mut uint8_t,
-    packedDcEnd: *mut uint8_t,
-    nonlinearLut: *const uint16_t,
-    width: c_int,
-    height: c_int,
-) -> c_int;
-fn LossyDctEncoder_execute(
-    alloc_fn: exr_memory_allocation_func_t,
-    free_fn: exr_memory_free_func_t,
-    enc: *mut LossyDctEncoder,
-) -> c_int;
-
-fn internal_huf_compress(
+pub fn internal_huf_compress(
     outCompressedSizePtr: *mut uint64_t,
     outDataPtr: *mut uint8_t,
     outDataSize: size_t,
@@ -307,8 +187,7 @@ fn internal_huf_compress(
     scratch_size: size_t,
 ) -> c_int;
 
-fn exr_compress_buffer(
-    context: *const exr_const_context_t,
+pub fn exr_compress_buffer(
     level: c_int,
     src: *const uint8_t,
     src_len: size_t,
@@ -317,27 +196,21 @@ fn exr_compress_buffer(
     out_written: *mut size_t,
 ) -> c_int;
 
-fn exr_compress_max_buffer_size(n: size_t) -> size_t;
+pub fn exr_compress_max_buffer_size(n: size_t) -> size_t;
 
-fn internal_zip_deconstruct_bytes(dst: *mut uint8_t, src: *const uint8_t, n: size_t);
+pub fn internal_zip_deconstruct_bytes(dst: *mut uint8_t, src: *const uint8_t, n: size_t);
 
-fn internal_rle_compress(
+pub fn internal_rle_compress(
     dst: *mut uint8_t,
     dst_size: size_t,
     src: *const uint8_t,
     src_len: size_t,
 ) -> size_t;
 
-fn priv_from_native64(sizes: *mut uint64_t, n: usize);
-
-
-// exr_const globals referenced in code
-pub static mut sDefaultChannelRules: [Classifier; 1]; // actual size elsewhere
-pub static mut sLegacyChannelRules: [Classifier; 1];
+pub fn priv_from_native64(sizes: *mut uint64_t, n: usize);
 
 pub fn priv_to_native64(s: *mut uint64_t, n: usize);
 pub fn exr_uncompress_buffer(
-    context: *const exr_const_context_t,
     src: *const uint8_t,
     src_len: size_t,
     dst: *mut uint8_t,
@@ -367,73 +240,18 @@ pub fn internal_rle_decompress(
     src: *const uint8_t,
     src_len: size_t,
 ) -> size_t;
-pub fn DwaCompressor_readChannelRules(
-    me: *mut DwaCompressor,
-    inptr: *mut *const uint8_t,
-    nAvail: *mut uint64_t,
-    outRuleSize: *mut uint64_t,
-) -> exr_result_t;
-pub fn DwaCompressor_initializeBuffers(me: *mut DwaCompressor, out: *mut size_t) -> exr_result_t;
-pub fn DwaCompressor_setupChannelData(me: *mut DwaCompressor) -> exr_result_t;
-pub fn DctCoderChannelData_push_row(
-    alloc_fn: exr_memory_allocation_func_t,
-    free_fn: exr_memory_free_func_t,
-    d: *mut DctCoderChannelData,
-    r: *mut uint8_t,
-) -> exr_result_t;
-pub fn LossyDctDecoderCsc_construct(
-    decoder: *mut LossyDctDecoder,
-    a: *mut DctCoderChannelData,
-    b: *mut DctCoderChannelData,
-    c: *mut DctCoderChannelData,
-    packedAcBegin: *mut uint8_t,
-    packedAcEnd: *mut uint8_t,
-    packedDcBegin: *mut uint8_t,
-    totalDcUncompressedCount: uint64_t,
-    lut: *const uint16_t,
-    width: c_int,
-    height: c_int,
-) -> exr_result_t;
-pub fn LossyDctDecoder_construct(
-    decoder: *mut LossyDctDecoder,
-    dct: *mut DctCoderChannelData,
-    packedAcBegin: *mut uint8_t,
-    packedAcEnd: *mut uint8_t,
-    packedDcBegin: *mut uint8_t,
-    totalDcUncompressedCount: uint64_t,
-    lut: *const uint16_t,
-    width: c_int,
-    height: c_int,
-) -> exr_result_t;
-pub fn LossyDctDecoder_execute(
-    alloc_fn: exr_memory_allocation_func_t,
-    free_fn: exr_memory_free_func_t,
-    decoder: *mut LossyDctDecoder,
-) -> exr_result_t;
-pub fn dwaCompressorToLinear() -> *const uint16_t;
-pub fn dwaCompressorToNonlinear() -> *const uint16_t;
+
 pub fn interleaveByte2(dst: *mut uint8_t, src0: *mut uint8_t, src1: *mut uint8_t, width: c_int);
 
-pub type exr_memory_allocation_func_t =
-    unsafe extern "C" fn(size: size_t) -> *mut std::os::raw::c_void;
-pub type exr_memory_free_func_t = unsafe extern "C" fn(ptr: *mut std::os::raw::c_void);
-
-
-
-// helpers used above or earlier in the translation
-pub fn exr_compress_max_buffer_size(n: size_t) -> size_t;
-pub fn one_from_native16(v: uint16_t) -> uint16_t;
-pub fn one_to_native16(v: uint16_t) -> uint16_t;
-pub fn Classifier_size(me: *const Classifier) -> uint64_t;
-pub fn Classifier_write(me: *const Classifier, ptr: *mut *mut uint8_t) -> uint64_t;
-pub fn Classifier_find_suffix(channel_name: *const c_char) -> *const c_char;
-pub fn Classifier_match(me: *const Classifier, suffix: *const c_char, t: exr_pixel_type_t)
-                        -> c_int;
-pub fn Classifier_read(
-    alloc_fn: exr_memory_allocation_func_t,
-    out: *mut Classifier,
-    ptr: *mut *const uint8_t,
-    size: *mut uint64_t,
-) -> exr_result_t;
-pub fn Classifier_destroy(free_fn: exr_memory_free_func_t, c: *mut Classifier);
-
+pub fn priv_to_native16(data: *mut uint16_t, n: usize);
+pub fn simd_align_pointer(p: *mut uint8_t) -> *mut uint8_t;
+pub fn fromHalfZigZag(src: *const uint16_t, dst: *mut f32) {
+    f32_from_zig_zag_f16(todo!())
+}
+pub fn dctInverse8x8DcOnly(dst: *mut f32) {
+    dct_inverse_8x8_dc_only(todo!())
+}
+pub fn dctInverse8x8(dst: *mut f32) {
+    dct_inverse_8x8(todo!())
+}
+pub fn one_from_native_float(f: f32) -> f32;

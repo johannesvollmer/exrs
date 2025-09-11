@@ -794,25 +794,25 @@ pub unsafe extern "C" fn LossyDctEncoder_execute(
         if chanData[chan].is_null() { continue; }
         if (*chanData[chan])._type != 2 { continue; } // EXR_PIXEL_FLOAT
         for y in 0..(*e)._height {
-            let srcXdr = (*chanData[chan])._rows.add(y as usize);
+            let srcXdr = (*chanData[chan]).rows.add(y as usize);
             let src = *srcXdr as *const f32;
             for x in 0..(*e)._width {
                 let val = one_to_native_float(*src.add(x as usize));
                 let clamped = if val > 65504.0 { 65504.0 } else if val < -65504.0 { -65504.0 } else { val };
                 ptr::write(tmpHalfBufferPtr.add(x as usize), one_from_native16(float_to_half(clamped)));
             }
-            (*chanData[chan])._rows.add(y as usize).write(tmpHalfBufferPtr as *mut u8);
+            (*chanData[chan]).rows.add(y as usize).write(tmpHalfBufferPtr as *mut u8);
             tmpHalfBufferPtr = tmpHalfBufferPtr.add((*e)._width as usize);
         }
     }
 
     // pack DC components pointers (per plane)
     if !chanData[0].is_null() {
-        (*chanData[0])._dc_comp = (*e)._packedDc as *mut u16;
+        (*chanData[0]).dc_comp = (*e)._packedDc as *mut u16;
     }
     for chan in 1..numComp {
         if chanData[chan].is_null() || chanData[chan - 1].is_null() { continue; }
-        (*chanData[chan])._dc_comp = (*chanData[chan - 1])._dc_comp.add((numBlocksX * numBlocksY) as usize);
+        (*chanData[chan]).dc_comp = (*chanData[chan - 1]).dc_comp.add((numBlocksX * numBlocksY) as usize);
     }
 
     // iterate blocks
@@ -837,14 +837,14 @@ pub unsafe extern "C" fn LossyDctEncoder_execute(
                         }
                         if vy < 0 { vy = (*e)._height - 1; }
 
-                        let row_ptr = (*chanData[chan])._rows.add(vy as usize);
+                        let row_ptr = (*chanData[chan]).rows.add(vy as usize);
                         let h = *((*row_ptr) as *const u16).add(vx as usize);
                         let h_mapped = if !(*e)._toNonlinear.is_null() {
                             *(*e)._toNonlinear.add(h as usize)
                         } else {
                             one_to_native16(h)
                         };
-                        *(*chanData[chan])._dctData.add((y * 8 + x) as usize) = half_to_float(h_mapped);
+                        *(*chanData[chan]).dct_data.add((y * 8 + x) as usize) = half_to_float(h_mapped);
                     }
                 }
             }
@@ -852,9 +852,9 @@ pub unsafe extern "C" fn LossyDctEncoder_execute(
             // color space conversion if 3 comps
             if numComp == 3 {
                 csc709Forward64(
-                    (*chanData[0])._dctData,
-                    (*chanData[1])._dctData,
-                    (*chanData[2])._dctData,
+                    (*chanData[0]).dct_data,
+                    (*chanData[1]).dct_data,
+                    (*chanData[2]).dct_data,
                 );
             }
 
@@ -863,17 +863,17 @@ pub unsafe extern "C" fn LossyDctEncoder_execute(
             hquantTable = (*e)._hquantTableY.as_ptr();
             for chan in 0..numComp {
                 if chanData[chan].is_null() { continue; }
-                dctForward8x8((*chanData[chan])._dctData);
+                dctForward8x8((*chanData[chan]).dct_data);
                 quantizeCoeffAndZigXDR(
                     halfZigCoef.as_mut_ptr(),
-                    (*chanData[chan])._dctData,
+                    (*chanData[chan]).dct_data,
                     quantTable,
                     hquantTable,
                 );
 
                 // DC component write and increment
-                *((*chanData[chan])._dc_comp) = halfZigCoef[0];
-                (*chanData[chan])._dc_comp = (*chanData[chan])._dc_comp.add(1);
+                *((*chanData[chan]).dc_comp) = halfZigCoef[0];
+                (*chanData[chan]).dc_comp = (*chanData[chan]).dc_comp.add(1);
                 (*e)._numDcComp += 1;
 
                 // RLE AC into currAcComp

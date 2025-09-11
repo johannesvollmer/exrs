@@ -7,6 +7,7 @@ use std::slice;
 use super::externals::*;
 
 
+
 #[repr(C, align(16))] // _SSE_ALIGNMENT assumed 16
 pub struct DctCoderChannelData {
     pub dct_data: [f32; 64],
@@ -35,14 +36,14 @@ impl DctCoderChannelData {
         }
     }
 
-    pub fn destroy<F: FnMut(*mut std::ffi::c_void)>(&mut self, mut free_fn: F) {
+    pub fn destroy<F: FnMut(*mut c_void)>(&mut self, mut free_fn: F) {
         if !self.rows.is_null() {
             free_fn(self.rows as *mut _);
             self.rows = ptr::null_mut();
         }
     }
 
-    pub fn push_row<A: FnMut(usize) -> *mut u8, F: FnMut(*mut std::ffi::c_void)>(
+    pub fn push_row<A: FnMut(usize) -> *mut u8, F: FnMut(*mut c_void)>(
         &mut self,
         mut alloc_fn: A,
         mut free_fn: F,
@@ -50,11 +51,11 @@ impl DctCoderChannelData {
     ) -> exr_result_t {
         if self.size == self.row_alloc_count {
             let nsize = if self.size == 0 { 16 } else { (self.size * 3) / 2 };
-            let n = alloc_fn(nsize * std::mem::size_of::<*mut u8>()) as *mut *mut u8;
+            let n = alloc_fn(nsize * size_of::<*mut u8>()) as *mut *mut u8;
             if !n.is_null() {
                 unsafe {
                     if !self.rows.is_null() {
-                        std::ptr::copy_nonoverlapping(self.rows, n, self.size);
+                        ptr::copy_nonoverlapping(self.rows, n, self.size);
                         free_fn(self.rows as *mut _);
                     }
                 }

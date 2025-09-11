@@ -43,50 +43,8 @@ typedef struct _DwaCompressor
     int   _zipLevel;
     float _dwaCompressionLevel;
 } DwaCompressor;
+// end of compressor
 
-static exr_result_t DwaCompressor_construct (
-    DwaCompressor*         me,
-    AcCompression          acCompression,
-    exr_encode_pipeline_t* encode,
-    exr_decode_pipeline_t* decode);
-
-static void DwaCompressor_destroy (DwaCompressor* me);
-
-static exr_result_t DwaCompressor_compress (DwaCompressor* me);
-
-static exr_result_t DwaCompressor_uncompress (
-    DwaCompressor* me,
-    const uint8_t* inPtr,
-    uint64_t       iSize,
-    void*          uncompressed_data,
-    uint64_t       uncompressed_size);
-
-static exr_result_t
-DwaCompressor_initializeBuffers (DwaCompressor* me, size_t*);
-
-static exr_result_t DwaCompressor_writeRelevantChannelRules (
-    DwaCompressor* me, uint8_t** outPtr, uint64_t nAvail, uint64_t* nWritten);
-static exr_result_t DwaCompressor_readChannelRules (
-    DwaCompressor*  me,
-    const uint8_t** inPtr,
-    uint64_t*       nAvail,
-    uint64_t*       outRuleSize);
-
-//
-// Populate our cached version of the channel data with
-// data from the real channel list. We want to
-// copy over attributes, determine compression schemes
-// relevant for the channel type, and find sets of
-// channels to be compressed from Y'CbCr data instead
-// of R'G'B'.
-//
-static exr_result_t DwaCompressor_classifyChannels (DwaCompressor* me);
-
-//
-// Compute various buffer pointers for each channel
-//
-
-static exr_result_t DwaCompressor_setupChannelData (DwaCompressor* me);
 
 /**************************************/
 
@@ -99,7 +57,7 @@ DwaCompressor_construct (
 {
     exr_result_t rv = EXR_ERR_SUCCESS;
 
-    initializeFuncs ();
+    // initializeFuncs ();
 
     memset (me, 0, sizeof (DwaCompressor));
 
@@ -190,6 +148,7 @@ DwaCompressor_construct (
 
 /**************************************/
 
+// --- DwaCompressor_destroy ---
 static void
 DwaCompressor_destroy (DwaCompressor* me)
 {
@@ -223,6 +182,7 @@ DwaCompressor_destroy (DwaCompressor* me)
 
 /**************************************/
 
+// --- DwaCompressor_compress ---
 exr_result_t
 DwaCompressor_compress (DwaCompressor* me)
 {
@@ -686,7 +646,7 @@ DwaCompressor_compress (DwaCompressor* me)
 }
 
 /**************************************/
-
+// uncompress
 exr_result_t
 DwaCompressor_uncompress (
     DwaCompressor* me,

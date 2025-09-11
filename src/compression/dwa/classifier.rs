@@ -1,17 +1,14 @@
-// src/compression/dwa_classifier.rs
-// Rust translation of classifier.c from OpenEXRCore (internal DWA)
-// SPDX-License-Identifier: BSD-3-Clause
 
-#![allow(non_camel_case_types)]
-#![allow(dead_code)]
-#![allow(non_snake_case)]
+// SPDX-License-Identifier: BSD-3-Clause
 
 use std::ffi::{c_void, CStr, CString};
 use std::os::raw::{c_char, c_int, c_uchar, c_uint};
 use std::ptr;
 use std::slice;
 use super::externals::*;
+use super::dwa::*;
 
+/**************************************/
 
 #[repr(C)]
 pub struct Classifier {
@@ -22,6 +19,7 @@ pub struct Classifier {
     pub _caseInsensitive: u16,
     pub _stringStatic: u16,
 }
+
 pub const DWA_CLASSIFIER_FALSE: u16 = 0;
 pub const DWA_CLASSIFIER_TRUE: u16 = 1;
 
@@ -39,7 +37,7 @@ impl Default for Classifier {
 }
 
 // clang-format off equivalent: static tables
-static mut sDefaultChannelRules: [Classifier; 15] = [
+pub const sDefaultChannelRules: [Classifier; 15] = [
     Classifier { _suffix: b"R\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: 0, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
     Classifier { _suffix: b"R\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::FLOAT, _cscIdx: 0, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
     Classifier { _suffix: b"G\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: 1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
@@ -57,7 +55,7 @@ static mut sDefaultChannelRules: [Classifier; 15] = [
     Classifier { _suffix: b"A\0".as_ptr() as *const c_char, _scheme: CompressorScheme::RLE, _type: exr_pixel_type_t::FLOAT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
 ];
 
-static mut sLegacyChannelRules: [Classifier; 25] = [
+pub const sLegacyChannelRules: [Classifier; 25] = [
     Classifier { _suffix: b"r\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: 0, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
     Classifier { _suffix: b"r\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::FLOAT, _cscIdx: 0, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
     Classifier { _suffix: b"red\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: 0, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
