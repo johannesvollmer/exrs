@@ -10,32 +10,8 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_uchar, c_uint};
 use std::ptr;
 use std::slice;
+use super::externals::*;
 
-// Minimal external constants/types assumed from surrounding code
-pub const DWA_CLASSIFIER_FALSE: u16 = 0;
-pub const DWA_CLASSIFIER_TRUE: u16 = 1;
-
-// CompressorScheme enum (partial)
-#[repr(C)]
-#[derive(Copy, Clone, Debug)]
-pub enum CompressorScheme {
-    LOSSY_DCT = 0,
-    RLE = 1,
-    // other schemes omitted
-}
-
-pub const NUM_COMPRESSOR_SCHEMES: usize = 4; // placeholder
-
-// pixel types (partial)
-#[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum exr_pixel_type_t {
-    EXR_PIXEL_UINT = 0,
-    EXR_PIXEL_HALF = 1,
-    EXR_PIXEL_FLOAT = 2,
-}
-
-pub const EXR_PIXEL_LAST_TYPE: u8 = 3;
 
 #[repr(C)]
 pub struct Classifier {

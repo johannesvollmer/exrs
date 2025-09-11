@@ -4,6 +4,8 @@
 use std::ffi::CString;
 use std::ptr;
 use std::slice;
+use super::externals::*;
+
 
 #[repr(C, align(16))] // _SSE_ALIGNMENT assumed 16
 pub struct DctCoderChannelData {
@@ -129,31 +131,3 @@ impl CscPrefixMapItem {
     }
 }
 
-// --- Placeholder external types from OpenEXR ---
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub enum exr_pixel_type_t {
-    UINT,
-    HALF,
-    FLOAT,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub enum exr_result_t {
-    EXR_ERR_SUCCESS = 0,
-    EXR_ERR_OUT_OF_MEMORY = 1,
-}
-
-#[repr(C)]
-pub enum CompressorScheme {
-    ZIP,
-    PIZ,
-    DWAA,
-    DWAB,
-}
-
-#[repr(C)]
-pub struct exr_coding_channel_info_t {
-    pub dummy: i32,
-}

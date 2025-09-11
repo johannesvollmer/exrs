@@ -1,4 +1,4 @@
-// Partial, line-for-line translation of the C function DwaCompressor_construct
+// Line-for-line translation of the C function DwaCompressor_construct
 // into unsafe Rust. This file declares the minimal types and extern helpers
 // needed by the function and implements the construct function with near
 // one-to-one correspondence to the original C source you provided.

@@ -1,55 +1,15 @@
 use std::os::raw::{c_int, c_void};
 use std::ptr;
 use std::mem::size_of;
-
-type uint8_t = u8;
-type uint16_t = u16;
-type uint32_t = u32;
-type uint64_t = u64;
-type size_t = usize;
-pub type exr_result_t = c_int;
-
-pub const EXR_ERR_SUCCESS: exr_result_t = 0;
-pub const EXR_ERR_OUT_OF_MEMORY: exr_result_t = -1;
-
-const _SSE_ALIGNMENT: usize = 16;
-
-/// External helpers expected elsewhere in the port:
-extern "C" {
-    fn float_to_half(f: f32) -> uint16_t;
-    fn half_to_float(h: uint16_t) -> f32;
-    fn one_from_native16(v: uint16_t) -> uint16_t;
-    fn one_to_native16(v: uint16_t) -> uint16_t;
-    fn one_to_native_float(f: f32) -> f32;
-
-    fn dctForward8x8(data: *mut f32);
-    fn csc709Forward64(r: *mut f32, g: *mut f32, b: *mut f32);
-    fn convertFloatToHalf64(dst: *mut uint16_t, src: *const f32);
-
-    // memory helpers
-    // alloc_fn: extern "C" fn(size_t) -> *mut c_void
-    // free_fn: extern "C" fn(*mut c_void)
-}
-
-/// Minimal stubs for things referenced from previous ports (fill in real definitions elsewhere).
-#[repr(C)]
-pub struct DctCoderChannelData {
-    pub _dctData: *mut f32,
-    pub _halfZigData: *mut uint16_t,
-    pub _dc_comp: *mut uint16_t,
-    pub _rows: *mut *mut uint8_t,
-    pub _row_alloc_count: size_t,
-    pub _size: size_t,
-    pub _type: c_int,
-}
+use super::externals::*;
 
 /// LossyDctEncoder struct mirroring the C layout
 #[repr(C)]
 pub struct LossyDctEncoder {
-    pub _toNonlinear: *const uint16_t,
+    pub _toNonlinear: *const u16,
 
-    pub _numAcComp: uint64_t,
-    pub _numDcComp: uint64_t,
+    pub _numAcComp: u64,
+    pub _numDcComp: u64,
 
     pub _channel_encode_data: [*mut DctCoderChannelData; 3],
     pub _channel_encode_data_count: c_int,
@@ -58,14 +18,14 @@ pub struct LossyDctEncoder {
     pub _height: c_int,
     pub _quantBaseError: f32,
 
-    pub _packedAc: *mut uint8_t,
-    pub _packedDc: *mut uint8_t,
+    pub _packedAc: *mut u8,
+    pub _packedDc: *mut u8,
 
     pub _quantTableY: [f32; 64],
-    pub _hquantTableY: [uint16_t; 64],
+    pub _hquantTableY: [u16; 64],
 
     pub _quantTableCbCr: [f32; 64],
-    pub _hquantTableCbCr: [uint16_t; 64],
+    pub _hquantTableCbCr: [u16; 64],
 }
 
 impl Default for LossyDctEncoder {
@@ -94,9 +54,9 @@ impl Default for LossyDctEncoder {
 pub unsafe extern "C" fn LossyDctEncoder_base_construct(
     e: *mut LossyDctEncoder,
     quantBaseError: f32,
-    packedAc: *mut uint8_t,
-    packedDc: *mut uint8_t,
-    toNonlinear: *const uint16_t,
+    packedAc: *mut u8,
+    packedDc: *mut u8,
+    toNonlinear: *const u16,
     width: c_int,
     height: c_int,
 ) -> exr_result_t {
@@ -155,9 +115,9 @@ pub unsafe extern "C" fn LossyDctEncoder_construct(
     e: *mut LossyDctEncoder,
     quantBaseError: f32,
     rowPtrs: *mut DctCoderChannelData,
-    packedAc: *mut uint8_t,
-    packedDc: *mut uint8_t,
-    toNonlinear: *const uint16_t,
+    packedAc: *mut u8,
+    packedDc: *mut u8,
+    toNonlinear: *const u16,
     width: c_int,
     height: c_int,
 ) -> exr_result_t {
@@ -177,9 +137,9 @@ pub unsafe extern "C" fn LossyDctEncoderCsc_construct(
     rowPtrsR: *mut DctCoderChannelData,
     rowPtrsG: *mut DctCoderChannelData,
     rowPtrsB: *mut DctCoderChannelData,
-    packedAc: *mut uint8_t,
-    packedDc: *mut uint8_t,
-    toNonlinear: *const uint16_t,
+    packedAc: *mut u8,
+    packedDc: *mut u8,
+    toNonlinear: *const u16,
     width: c_int,
     height: c_int,
 ) -> exr_result_t {
@@ -196,7 +156,7 @@ pub unsafe extern "C" fn LossyDctEncoderCsc_construct(
 
 /// Bit utility functions translated from C
 #[inline]
-fn count_set_bits_u32(x: uint32_t) -> i32 {
+fn count_set_bits_u32(x: u32) -> i32 {
     // Hacker's delight method used in C fallback
     let mut y = (x as u64).wrapping_mul(0x0002000400080010u64);
     y &= 0x1111111111111111u64;
@@ -205,12 +165,12 @@ fn count_set_bits_u32(x: uint32_t) -> i32 {
 }
 
 #[inline]
-fn count_set_bits_u16(src: uint16_t) -> i32 {
-    count_set_bits_u32(src as uint32_t)
+fn count_set_bits_u16(src: u16) -> i32 {
+    count_set_bits_u32(src as u32)
 }
 
 #[inline]
-fn count_leading_zeros_u32(mut x: uint32_t) -> i32 {
+fn count_leading_zeros_u32(mut x: u32) -> i32 {
     // fallback implementation
     x |= x >> 1;
     x |= x >> 2;
@@ -221,17 +181,17 @@ fn count_leading_zeros_u32(mut x: uint32_t) -> i32 {
 }
 
 #[inline]
-fn count_leading_zeros_u16(src: uint16_t) -> i32 {
-    count_leading_zeros_u32(src as uint32_t)
+fn count_leading_zeros_u16(src: u16) -> i32 {
+    count_leading_zeros_u32(src as u32)
 }
 
 /// The various helper quantize routines translated from C
 unsafe fn handle_quantize_denorm_tol(
-    abssrc: uint32_t,
-    tolSig: uint32_t,
+    abssrc: u32,
+    tolSig: u32,
     errTol: f32,
     srcFloat: f32,
-) -> uint32_t {
+) -> u32 {
     let tsigshift = 32 - count_leading_zeros_u32(tolSig);
     let npow2 = 1u32 << tsigshift;
     let lowermask = npow2 - 1;
@@ -242,17 +202,17 @@ unsafe fn handle_quantize_denorm_tol(
     let mut smallbits = count_set_bits_u32(abssrc);
     let mut smalldelta = errTol;
 
-    let mut test = |alt: uint32_t| {
+    let mut test = |alt: u32| {
         let bits = count_set_bits_u32(alt);
         if bits < smallbits {
-            let delta = half_to_float(alt as uint16_t) - srcFloat;
+            let delta = half_to_float(alt as u16) - srcFloat;
             if delta < errTol {
                 smallbits = bits;
                 smalldelta = delta;
                 smallest = alt;
             }
         } else if bits == smallbits {
-            let delta = half_to_float(alt as uint16_t) - srcFloat;
+            let delta = half_to_float(alt as u16) - srcFloat;
             if delta < smalldelta {
                 smallest = alt;
                 smalldelta = delta;
@@ -270,11 +230,11 @@ unsafe fn handle_quantize_denorm_tol(
 }
 
 unsafe fn handle_quantize_generic(
-    abssrc: uint32_t,
-    tolSig: uint32_t,
+    abssrc: u32,
+    tolSig: u32,
     errTol: f32,
     srcFloat: f32,
-) -> uint32_t {
+) -> u32 {
     let tsigshift = 32 - count_leading_zeros_u32(tolSig);
     let npow2 = 1u32 << tsigshift;
     let lowermask = npow2 - 1;
@@ -289,18 +249,18 @@ unsafe fn handle_quantize_generic(
     let mut smallbits = count_set_bits_u32(abssrc);
     let mut smalldelta = errTol;
 
-    let mut test_small = |x: uint32_t| {
+    let mut test_small = |x: u32| {
         let alt = x;
         let bits = count_set_bits_u32(alt);
         if bits < smallbits {
-            let delta = srcFloat - half_to_float(alt as uint16_t);
+            let delta = srcFloat - half_to_float(alt as u16);
             if delta < errTol {
                 smallbits = bits;
                 smalldelta = delta;
                 smallest = alt;
             }
         } else if bits == smallbits {
-            let delta = srcFloat - half_to_float(alt as uint16_t);
+            let delta = srcFloat - half_to_float(alt as u16);
             if delta < smalldelta {
                 smallest = alt;
                 smalldelta = delta;
@@ -324,18 +284,18 @@ unsafe fn handle_quantize_generic(
     }
 
     // large-side tests
-    let mut test_large = |x: uint32_t| {
+    let mut test_large = |x: u32| {
         let alt = x;
         let bits = count_set_bits_u32(alt);
         if bits < smallbits {
-            let delta = half_to_float(alt as uint16_t) - srcFloat;
+            let delta = half_to_float(alt as u16) - srcFloat;
             if delta < errTol {
                 smallbits = bits;
                 smalldelta = delta;
                 smallest = alt;
             }
         } else if bits == smallbits {
-            let delta = half_to_float(alt as uint16_t) - srcFloat;
+            let delta = half_to_float(alt as u16) - srcFloat;
             if delta < smalldelta {
                 smallest = alt;
                 smalldelta = delta;
@@ -349,11 +309,11 @@ unsafe fn handle_quantize_generic(
 }
 
 unsafe fn handle_quantize_equal_exp(
-    abssrc: uint32_t,
-    _tolSig: uint32_t,
+    abssrc: u32,
+    _tolSig: u32,
     errTol: f32,
     srcFloat: f32,
-) -> uint32_t {
+) -> u32 {
     let npow2 = 0x0800u32;
     let lowermask = npow2 - 1;
     let mask = !lowermask;
@@ -373,14 +333,14 @@ unsafe fn handle_quantize_equal_exp(
         let alt = abssrc & mask3;
         let bits = count_set_bits_u32(alt);
         if bits < smallbits {
-            let delta = srcFloat - half_to_float(alt as uint16_t);
+            let delta = srcFloat - half_to_float(alt as u16);
             if delta < errTol {
                 smallbits = bits;
                 smalldelta = delta;
                 smallest = alt;
             }
         } else if bits == smallbits {
-            let delta = srcFloat - half_to_float(alt as uint16_t);
+            let delta = srcFloat - half_to_float(alt as u16);
             if delta < smalldelta {
                 smallest = alt;
                 smalldelta = delta;
@@ -396,14 +356,14 @@ unsafe fn handle_quantize_equal_exp(
         // test alt0
         let bits0 = count_set_bits_u32(alt0);
         if bits0 < smallbits {
-            let delta = srcFloat - half_to_float(alt0 as uint16_t);
+            let delta = srcFloat - half_to_float(alt0 as u16);
             if delta < errTol {
                 smallbits = bits0;
                 smalldelta = delta;
                 smallest = alt0;
             }
         } else if bits0 == smallbits {
-            let delta = srcFloat - half_to_float(alt0 as uint16_t);
+            let delta = srcFloat - half_to_float(alt0 as u16);
             if delta < smalldelta {
                 smallest = alt0;
                 smalldelta = delta;
@@ -413,14 +373,14 @@ unsafe fn handle_quantize_equal_exp(
         // test alt1
         let bits1 = count_set_bits_u32(alt1);
         if bits1 < smallbits {
-            let delta = srcFloat - half_to_float(alt1 as uint16_t);
+            let delta = srcFloat - half_to_float(alt1 as u16);
             if delta < errTol {
                 smallbits = bits1;
                 smalldelta = delta;
                 smallest = alt1;
             }
         } else if bits1 == smallbits {
-            let delta = srcFloat - half_to_float(alt1 as uint16_t);
+            let delta = srcFloat - half_to_float(alt1 as u16);
             if delta < smalldelta {
                 smallest = alt1;
                 smalldelta = delta;
@@ -433,14 +393,14 @@ unsafe fn handle_quantize_equal_exp(
     let alt = (abssrc + npow2) & mask;
     let bits = count_set_bits_u32(alt);
     if bits < smallbits {
-        let delta = half_to_float(alt as uint16_t) - srcFloat;
+        let delta = half_to_float(alt as u16) - srcFloat;
         if delta < errTol {
             smallbits = bits;
             smalldelta = delta;
             smallest = alt;
         }
     } else if bits == smallbits {
-        let delta = half_to_float(alt as uint16_t) - srcFloat;
+        let delta = half_to_float(alt as u16) - srcFloat;
         if delta < smalldelta {
             smallest = alt;
             smalldelta = delta;
@@ -452,11 +412,11 @@ unsafe fn handle_quantize_equal_exp(
 }
 
 unsafe fn handle_quantize_close_exp(
-    abssrc: uint32_t,
-    _tolSig: uint32_t,
+    abssrc: u32,
+    _tolSig: u32,
     errTol: f32,
     srcFloat: f32,
-) -> uint32_t {
+) -> u32 {
     let npow2 = 0x0400u32;
     let lowermask = npow2 - 1;
     let mask = !lowermask;
@@ -467,7 +427,7 @@ unsafe fn handle_quantize_close_exp(
 
     let mask3 = mask2 ^ (((npow2 << 1) * (extrabit)) | ((npow2 >> 1) * ((!extrabit) as u32)));
 
-    let mut alternates: [uint32_t; 3] = [0; 3];
+    let mut alternates: [u32; 3] = [0; 3];
 
     if (abssrc & npow2) == 0 {
         if extrabit != 0 {
@@ -481,14 +441,14 @@ unsafe fn handle_quantize_close_exp(
         if extrabit != 0 {
             alternates[0] = abssrc & mask3;
             alternates[1] = abssrc & mask2;
-            let alt1delta = srcFloat - half_to_float(alternates[1] as uint16_t);
+            let alt1delta = srcFloat - half_to_float(alternates[1] as u16);
             if alt1delta >= errTol {
                 alternates[1] = abssrc & mask;
             }
         } else {
             alternates[0] = abssrc & mask2;
             alternates[1] = abssrc & mask3;
-            let alt0delta = srcFloat - half_to_float(alternates[0] as uint16_t);
+            let alt0delta = srcFloat - half_to_float(alternates[0] as u16);
             if alt0delta >= errTol {
                 alternates[0] = abssrc & mask;
             }
@@ -503,14 +463,14 @@ unsafe fn handle_quantize_close_exp(
     for &alt in &alternates {
         let bits = count_set_bits_u32(alt);
         if bits < smallbits {
-            let delta = srcFloat - half_to_float(alt as uint16_t);
+            let delta = srcFloat - half_to_float(alt as u16);
             if delta < errTol {
                 smallbits = bits;
                 smalldelta = delta;
                 smallest = alt;
             }
         } else if bits == smallbits {
-            let delta = srcFloat - half_to_float(alt as uint16_t);
+            let delta = srcFloat - half_to_float(alt as u16);
             if delta < smalldelta {
                 smallest = alt;
                 smalldelta = delta;
@@ -523,12 +483,12 @@ unsafe fn handle_quantize_close_exp(
 }
 
 unsafe fn handle_quantize_larger_sig(
-    abssrc: uint32_t,
-    npow2: uint32_t,
-    mask: uint32_t,
+    abssrc: u32,
+    npow2: u32,
+    mask: u32,
     errTol: f32,
     srcFloat: f32,
-) -> uint32_t {
+) -> u32 {
     let mask2 = mask ^ (npow2 | (npow2 >> 1));
     let alt0 = abssrc & mask2;
     let alt1 = (abssrc + npow2) & mask;
@@ -537,17 +497,17 @@ unsafe fn handle_quantize_larger_sig(
     let bits1 = count_set_bits_u32(alt1);
 
     if bits1 < bits0 {
-        let delta = half_to_float(alt1 as uint16_t) - srcFloat;
+        let delta = half_to_float(alt1 as u16) - srcFloat;
         if delta < errTol {
             return alt1;
         }
-        let delta2 = srcFloat - half_to_float(alt0 as uint16_t);
+        let delta2 = srcFloat - half_to_float(alt0 as u16);
         if delta2 < errTol {
             return alt0;
         }
     } else if bits1 == bits0 {
-        let delta = srcFloat - half_to_float(alt0 as uint16_t);
-        let delta1 = half_to_float(alt1 as uint16_t) - srcFloat;
+        let delta = srcFloat - half_to_float(alt0 as u16);
+        let delta1 = half_to_float(alt1 as u16) - srcFloat;
         if delta < errTol {
             return if delta1 < delta { alt1 } else { alt0 };
         }
@@ -555,13 +515,13 @@ unsafe fn handle_quantize_larger_sig(
             return alt1;
         }
     } else {
-        let delta = srcFloat - half_to_float(alt0 as uint16_t);
+        let delta = srcFloat - half_to_float(alt0 as u16);
         if delta < errTol {
             return alt0;
         }
         let srcbits = count_set_bits_u32(abssrc);
         if bits1 < srcbits {
-            let delta = half_to_float(alt1 as uint16_t) - srcFloat;
+            let delta = half_to_float(alt1 as u16) - srcFloat;
             if delta < errTol {
                 return alt1;
             }
@@ -571,12 +531,12 @@ unsafe fn handle_quantize_larger_sig(
 }
 
 unsafe fn handle_quantize_smaller_sig(
-    abssrc: uint32_t,
-    npow2: uint32_t,
-    mask: uint32_t,
+    abssrc: u32,
+    npow2: u32,
+    mask: u32,
     errTol: f32,
     srcFloat: f32,
-) -> uint32_t {
+) -> u32 {
     let alt0 = abssrc & mask;
     let alt1 = (abssrc + npow2) & mask;
 
@@ -584,17 +544,17 @@ unsafe fn handle_quantize_smaller_sig(
     let bits1 = count_set_bits_u32(alt1);
 
     if bits1 < bits0 {
-        let delta = half_to_float(alt1 as uint16_t) - srcFloat;
+        let delta = half_to_float(alt1 as u16) - srcFloat;
         if delta < errTol {
             return alt1;
         }
-        let delta2 = srcFloat - half_to_float(alt0 as uint16_t);
+        let delta2 = srcFloat - half_to_float(alt0 as u16);
         if delta2 < errTol {
             return alt0;
         }
     } else if bits1 == bits0 {
-        let delta = srcFloat - half_to_float(alt0 as uint16_t);
-        let delta1 = half_to_float(alt1 as uint16_t) - srcFloat;
+        let delta = srcFloat - half_to_float(alt0 as u16);
+        let delta1 = half_to_float(alt1 as u16) - srcFloat;
         if delta < errTol {
             return if delta1 < delta { alt1 } else { alt0 };
         }
@@ -602,13 +562,13 @@ unsafe fn handle_quantize_smaller_sig(
             return alt1;
         }
     } else {
-        let delta = srcFloat - half_to_float(alt0 as uint16_t);
+        let delta = srcFloat - half_to_float(alt0 as u16);
         if delta < errTol {
             return alt0;
         }
         let srcbits = count_set_bits_u32(abssrc);
         if bits1 < srcbits {
-            let delta = half_to_float(alt1 as uint16_t) - srcFloat;
+            let delta = half_to_float(alt1 as u16) - srcFloat;
             if delta < errTol {
                 return alt1;
             }
@@ -618,22 +578,22 @@ unsafe fn handle_quantize_smaller_sig(
 }
 
 unsafe fn handle_quantize_equal_sig(
-    abssrc: uint32_t,
-    npow2: uint32_t,
-    mask: uint32_t,
+    abssrc: u32,
+    npow2: u32,
+    mask: u32,
     errTol: f32,
     srcFloat: f32,
-) -> uint32_t {
+) -> u32 {
     let alt0 = abssrc & mask;
     let alt1 = (abssrc + npow2) & mask;
 
-    let delta0 = srcFloat - half_to_float(alt0 as uint16_t);
+    let delta0 = srcFloat - half_to_float(alt0 as u16);
     if delta0 >= errTol {
         let mask2 = mask ^ (npow2 | (npow2 >> 1));
         let alt0_new = abssrc & mask2;
-        let delta0_new = srcFloat - half_to_float(alt0_new as uint16_t);
+        let delta0_new = srcFloat - half_to_float(alt0_new as u16);
         if delta0_new >= errTol {
-            let delta1 = half_to_float(alt1 as uint16_t) - srcFloat;
+            let delta1 = half_to_float(alt1 as u16) - srcFloat;
             if delta1 < errTol {
                 let bits1 = count_set_bits_u32(alt1);
                 let srcbits = count_set_bits_u32(abssrc);
@@ -649,12 +609,12 @@ unsafe fn handle_quantize_equal_sig(
     let bits1 = count_set_bits_u32(alt1);
 
     if bits1 < bits0 {
-        let delta1 = half_to_float(alt1 as uint16_t) - srcFloat;
+        let delta1 = half_to_float(alt1 as u16) - srcFloat;
         if delta1 < errTol {
             return alt1;
         }
     } else if bits1 == bits0 {
-        let delta1 = half_to_float(alt1 as uint16_t) - srcFloat;
+        let delta1 = half_to_float(alt1 as u16) - srcFloat;
         if delta1 < delta0 {
             return alt1;
         }
@@ -664,11 +624,11 @@ unsafe fn handle_quantize_equal_sig(
 }
 
 unsafe fn handle_quantize_default(
-    abssrc: uint32_t,
-    tolSig: uint32_t,
+    abssrc: u32,
+    tolSig: u32,
     errTol: f32,
     srcFloat: f32,
-) -> uint32_t {
+) -> u32 {
     let tsigshift = 32 - count_leading_zeros_u32(tolSig);
     let npow2 = 1u32 << tsigshift;
     let lowermask = npow2 - 1;
@@ -684,7 +644,7 @@ unsafe fn handle_quantize_default(
     }
 }
 
-unsafe fn algo_quantize(src: uint32_t, herrTol: uint32_t, errTol: f32, mut srcFloat: f32) -> uint16_t {
+unsafe fn algo_quantize(src: u32, herrTol: u32, errTol: f32, mut srcFloat: f32) -> u16 {
     let sign = src & 0x8000;
     let abssrc = src & 0x7FFF;
 
@@ -694,7 +654,7 @@ unsafe fn algo_quantize(src: uint32_t, herrTol: uint32_t, errTol: f32, mut srcFl
     let tolExpBiased = herrTol & 0x7C00;
 
     if srcExpBiased == 0x7C00 {
-        return src as uint16_t; // NaN/inf, bail
+        return src as u16; // NaN/inf, bail
     }
 
     if srcFloat < errTol {
@@ -702,51 +662,51 @@ unsafe fn algo_quantize(src: uint32_t, herrTol: uint32_t, errTol: f32, mut srcFl
     }
 
     let expDiff = ((srcExpBiased as i32 - tolExpBiased as i32) >> 10) as i32;
-    let mut tolSig = ((herrTol & 0x3FF) | (1 << 10)) as uint32_t;
+    let mut tolSig = ((herrTol & 0x3FF) | (1 << 10)) as u32;
     if expDiff != 0 {
         tolSig = tolSig >> (expDiff as u32);
     }
 
     if tolExpBiased == 0 {
         if expDiff == 0 || expDiff == 1 {
-            tolSig = (herrTol & 0x3FF) as uint32_t;
+            tolSig = (herrTol & 0x3FF) as u32;
             if tolSig == 0 {
-                return src as uint16_t;
+                return src as u16;
             }
-            return (sign | handle_quantize_generic(abssrc, tolSig, errTol, srcFloat)) as uint16_t;
+            return (sign | handle_quantize_generic(abssrc, tolSig, errTol, srcFloat)) as u16;
         }
 
-        tolSig = (herrTol & 0x3FF) as uint32_t;
+        tolSig = (herrTol & 0x3FF) as u32;
         if tolSig == 0 {
-            return src as uint16_t;
+            return src as u16;
         }
         tolSig >>= expDiff as u32;
         if tolSig == 0 {
             tolSig = 1;
         }
-        return (sign | handle_quantize_denorm_tol(abssrc, tolSig, errTol, srcFloat)) as uint16_t;
+        return (sign | handle_quantize_denorm_tol(abssrc, tolSig, errTol, srcFloat)) as u16;
     }
 
     if tolSig == 0 {
-        return src as uint16_t;
+        return src as u16;
     }
 
     if expDiff > 1 || srcExpBiased == 0 {
-        (sign | handle_quantize_default(abssrc, tolSig, errTol, srcFloat)) as uint16_t
+        (sign | handle_quantize_default(abssrc, tolSig, errTol, srcFloat)) as u16
     } else if expDiff == 0 {
-        (sign | handle_quantize_equal_exp(abssrc, tolSig, errTol, srcFloat)) as uint16_t
+        (sign | handle_quantize_equal_exp(abssrc, tolSig, errTol, srcFloat)) as u16
     } else {
-        (sign | handle_quantize_close_exp(abssrc, tolSig, errTol, srcFloat)) as uint16_t
+        (sign | handle_quantize_close_exp(abssrc, tolSig, errTol, srcFloat)) as u16
     }
 }
 
 /// Quantize and zigzag into halfZigCoeff (XDR/native conversion handled by one_from_native16)
 #[no_mangle]
 pub unsafe extern "C" fn quantizeCoeffAndZigXDR(
-    halfZigCoeff: *mut uint16_t,
+    halfZigCoeff: *mut u16,
     dctvals: *const f32,
     tolerances: *const f32,
-    halftols: *const uint16_t,
+    halftols: *const u16,
 ) {
     // inv_remap as in C
     const INV_REMAP: [usize; 64] = [
@@ -773,10 +733,10 @@ pub unsafe extern "C" fn quantizeCoeffAndZigXDR(
         let herrTol2 = *halftols.add(i + 2);
         let herrTol3 = *halftols.add(i + 3);
 
-        let a0 = algo_quantize(src0 as uint32_t, herrTol0 as uint32_t, errTol0, half_to_float(src0));
-        let a1 = algo_quantize(src1 as uint32_t, herrTol1 as uint32_t, errTol1, half_to_float(src1));
-        let a2 = algo_quantize(src2 as uint32_t, herrTol2 as uint32_t, errTol2, half_to_float(src2));
-        let a3 = algo_quantize(src3 as uint32_t, herrTol3 as uint32_t, errTol3, half_to_float(src3));
+        let a0 = algo_quantize(src0 as u32, herrTol0 as u32, errTol0, half_to_float(src0));
+        let a1 = algo_quantize(src1 as u32, herrTol1 as u32, errTol1, half_to_float(src1));
+        let a2 = algo_quantize(src2 as u32, herrTol2 as u32, errTol2, half_to_float(src2));
+        let a3 = algo_quantize(src3 as u32, herrTol3 as u32, errTol3, half_to_float(src3));
 
         ptr::write(halfZigCoeff.add(INV_REMAP[i + 0]), one_from_native16(a0));
         ptr::write(halfZigCoeff.add(INV_REMAP[i + 1]), one_from_native16(a1));
@@ -803,12 +763,12 @@ pub unsafe extern "C" fn LossyDctEncoder_execute(
     let numBlocksX = (( (*e)._width as f32 / 8.0).ceil()) as i32;
     let numBlocksY = (( (*e)._height as f32 / 8.0).ceil()) as i32;
 
-    let mut halfZigCoef: [uint16_t; 64] = [0u16; 64];
+    let mut halfZigCoef: [u16; 64] = [0u16; 64];
 
-    let mut currAcComp = (*e)._packedAc as *mut uint16_t;
+    let mut currAcComp = (*e)._packedAc as *mut u16;
     let mut tmpHalfBufferElements = 0usize;
-    let mut tmpHalfBuffer: *mut uint16_t = ptr::null_mut();
-    let mut tmpHalfBufferPtr: *mut uint16_t = ptr::null_mut();
+    let mut tmpHalfBuffer: *mut u16 = ptr::null_mut();
+    let mut tmpHalfBufferPtr: *mut u16 = ptr::null_mut();
 
     (*e)._numAcComp = 0;
     (*e)._numDcComp = 0;
@@ -822,7 +782,7 @@ pub unsafe extern "C" fn LossyDctEncoder_execute(
     }
 
     if tmpHalfBufferElements > 0 {
-        tmpHalfBuffer = alloc_fn(tmpHalfBufferElements * size_of::<uint16_t>()) as *mut uint16_t;
+        tmpHalfBuffer = alloc_fn(tmpHalfBufferElements * size_of::<u16>()) as *mut u16;
         if tmpHalfBuffer.is_null() {
             return EXR_ERR_OUT_OF_MEMORY;
         }
@@ -841,14 +801,14 @@ pub unsafe extern "C" fn LossyDctEncoder_execute(
                 let clamped = if val > 65504.0 { 65504.0 } else if val < -65504.0 { -65504.0 } else { val };
                 ptr::write(tmpHalfBufferPtr.add(x as usize), one_from_native16(float_to_half(clamped)));
             }
-            (*chanData[chan])._rows.add(y as usize).write(tmpHalfBufferPtr as *mut uint8_t);
+            (*chanData[chan])._rows.add(y as usize).write(tmpHalfBufferPtr as *mut u8);
             tmpHalfBufferPtr = tmpHalfBufferPtr.add((*e)._width as usize);
         }
     }
 
     // pack DC components pointers (per plane)
     if !chanData[0].is_null() {
-        (*chanData[0])._dc_comp = (*e)._packedDc as *mut uint16_t;
+        (*chanData[0])._dc_comp = (*e)._packedDc as *mut u16;
     }
     for chan in 1..numComp {
         if chanData[chan].is_null() || chanData[chan - 1].is_null() { continue; }
@@ -859,7 +819,7 @@ pub unsafe extern "C" fn LossyDctEncoder_execute(
     for blocky in 0..numBlocksY {
         for blockx in 0..numBlocksX {
             let mut quantTable: *const f32 = (*e)._quantTableY.as_ptr();
-            let mut hquantTable: *const uint16_t = (*e)._hquantTableY.as_ptr();
+            let mut hquantTable: *const u16 = (*e)._hquantTableY.as_ptr();
 
             for chan in 0..numComp {
                 if chanData[chan].is_null() { continue; }
@@ -878,7 +838,7 @@ pub unsafe extern "C" fn LossyDctEncoder_execute(
                         if vy < 0 { vy = (*e)._height - 1; }
 
                         let row_ptr = (*chanData[chan])._rows.add(vy as usize);
-                        let h = *((*row_ptr) as *const uint16_t).add(vx as usize);
+                        let h = *((*row_ptr) as *const u16).add(vx as usize);
                         let h_mapped = if !(*e)._toNonlinear.is_null() {
                             *(*e)._toNonlinear.add(h as usize)
                         } else {
@@ -937,12 +897,12 @@ pub unsafe extern "C" fn LossyDctEncoder_execute(
 #[no_mangle]
 pub unsafe extern "C" fn LossyDctEncoder_rleAc(
     e: *mut LossyDctEncoder,
-    block: *mut uint16_t,
-    acPtr: *mut *mut uint16_t,
+    block: *mut u16,
+    acPtr: *mut *mut u16,
 ) {
     if e.is_null() || block.is_null() || acPtr.is_null() { return; }
     let mut dctComp = 1usize;
-    let rleSymbol: uint16_t = 0x0;
+    let rleSymbol: u16 = 0x0;
     let mut curAC = *acPtr;
 
     while dctComp < 64 {
@@ -970,7 +930,7 @@ pub unsafe extern "C" fn LossyDctEncoder_rleAc(
             curAC = curAC.add(1);
             (*e)._numAcComp += 1;
         } else {
-            ptr::write(curAC, (0xff00u16) | (runLen as uint16_t));
+            ptr::write(curAC, (0xff00u16) | (runLen as u16));
             curAC = curAC.add(1);
             (*e)._numAcComp += 1;
         }

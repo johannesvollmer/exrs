@@ -2,20 +2,11 @@
 // Rust port of channeldata.c from OpenEXRCore
 // Low-level translation with unsafe pointers preserved where necessary
 
-use std::ffi::c_char;
+use std::ffi::{c_char};
 use std::ffi::c_void;
 use std::os::raw::{c_int};
 use std::ptr;
-
-// Placeholder definitions for external types
-type ExrPixelType = i32;
-type ExrResult = i32;
-const EXR_ERR_SUCCESS: ExrResult = 0;
-const EXR_ERR_OUT_OF_MEMORY: ExrResult = -1;
-
-type CompressorScheme = i32;
-#[allow(non_camel_case_types)]
-pub struct exr_coding_channel_info_t;
+use crate::compression::dwa::externals::{c_size_t, exr_coding_channel_info_t, CompressorScheme, ExrPixelType, ExrResult, EXR_ERR_OUT_OF_MEMORY, EXR_ERR_SUCCESS};
 
 #[repr(C, align(16))] // _SSE_ALIGNMENT assumed 16
 pub struct DctCoderChannelData {

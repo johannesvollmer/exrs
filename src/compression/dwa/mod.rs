@@ -17,6 +17,7 @@ mod decoder;
 mod dwa;
 mod compressor;
 mod encoder;
+mod externals;
 
 use crate::compression::ByteVec;
 use crate::error::{Error, Result};
