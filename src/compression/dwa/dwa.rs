@@ -61,14 +61,14 @@ impl DctCoderChannelData {
                 self.rows = n;
                 self.row_alloc_count = nsize;
             } else {
-                return exr_result_t::EXR_ERR_OUT_OF_MEMORY;
+                return EXR_ERR_OUT_OF_MEMORY;
             }
         }
         unsafe {
             *self.rows.add(self.size) = r;
         }
         self.size += 1;
-        exr_result_t::EXR_ERR_SUCCESS
+        EXR_ERR_OUT_OF_MEMORY
     }
 }
 

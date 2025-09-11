@@ -1,23 +1,29 @@
+use std::alloc::alloc;
+use std::ffi::c_void;
 use std::os::raw::c_int;
+use libc::{free, malloc};
 
 // --- Placeholder external types from OpenEXR ---
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum exr_pixel_type_t {
-    UINT,
-    HALF,
-    FLOAT,
+    UINT = 0,
+    HALF = 1,
+    FLOAT = 2,
 }
 
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub enum exr_result_t {
-    EXR_ERR_SUCCESS = 0,
-    EXR_ERR_OUT_OF_MEMORY = 1,
-}
+// #[repr(C)]
+// #[derive(Copy, Clone)]
+// pub enum exr_result_t {
+//     EXR_ERR_SUCCESS = 0,
+//     EXR_ERR_OUT_OF_MEMORY = 1,
+// }
+pub type exr_result_t = i32;
+pub const EXR_ERR_OUT_OF_MEMORY: exr_result_t = -1;
+pub const EXR_ERR_SUCCESS: exr_result_t = 0;
 
 #[repr(C)]
-pub enum CompressorScheme {
+pub enum CompressionScheme {
     ZIP,
     PIZ,
     DWAA,
@@ -31,16 +37,7 @@ pub struct exr_coding_channel_info_t {
 
 pub type c_size_t = usize;
 
-// Placeholder definitions for external types
-pub type ExrPixelType = i32;
-pub type ExrResult = i32;
-pub const EXR_ERR_SUCCESS: ExrResult = 0;
-pub const EXR_ERR_OUT_OF_MEMORY: ExrResult = -1;
 
-pub type CompressorScheme = i32;
-
-#[allow(non_camel_case_types)]
-pub struct exr_coding_channel_info_t;
 
 // Minimal external constants/types assumed from surrounding code
 pub const DWA_CLASSIFIER_FALSE: u16 = 0;
@@ -57,14 +54,6 @@ pub enum CompressorScheme {
 
 pub const NUM_COMPRESSOR_SCHEMES: usize = 4; // placeholder
 
-// pixel types (partial)
-#[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum exr_pixel_type_t {
-    EXR_PIXEL_UINT = 0,
-    EXR_PIXEL_HALF = 1,
-    EXR_PIXEL_FLOAT = 2,
-}
 
 pub const EXR_PIXEL_LAST_TYPE: u8 = 3;
 
@@ -73,27 +62,25 @@ pub type uint16_t = u16;
 pub type uint32_t = u32;
 pub type uint64_t = u64;
 pub type size_t = usize;
-pub type exr_result_t = c_int;
 
-pub const EXR_ERR_SUCCESS: exr_result_t = 0;
-pub const EXR_ERR_OUT_OF_MEMORY: exr_result_t = -1;
 
 const _SSE_ALIGNMENT: usize = 16;
 
 /// External helpers expected elsewhere in the port:
-pub fn float_to_half(f: f32) -> uint16_t;
-pub fn half_to_float(h: uint16_t) -> f32;
-pub fn one_from_native16(v: uint16_t) -> uint16_t;
-pub fn one_to_native16(v: uint16_t) -> uint16_t;
-pub fn one_to_native_float(f: f32) -> f32;
-pub 
-pub fn dctForward8x8(data: *mut f32);
-pub fn csc709Forward64(r: *mut f32, g: *mut f32, b: *mut f32);
-pub fn convertFloatToHalf64(dst: *mut uint16_t, src: *const f32);
+pub fn float_to_half(f: f32) -> uint16_t {}
+pub fn half_to_float(h: uint16_t) -> f32 {}
+pub fn one_from_native16(v: uint16_t) -> uint16_t {}
+pub fn one_to_native16(v: uint16_t) -> uint16_t {}
+pub fn one_to_native_float(f: f32) -> f32 {}
+pub fn dctForward8x8(data: *mut f32) {}
+pub fn csc709Forward64(r: *mut f32, g: *mut f32, b: *mut f32) {}
+pub fn convertFloatToHalf64(dst: *mut uint16_t, src: *const f32) {}
 
 // memory helpers
 // alloc_fn: extern "C" fn(size_t) -> *mut c_void
 // free_fn: extern "C" fn(*mut c_void)
+const alloc_fn: fn(size_t) -> *mut c_void = malloc;
+const free_fn: fn(*mut c_void) = free;
 
 /// Minimal stubs for things referenced from previous ports (fill in real definitions elsewhere).
 #[repr(C)]

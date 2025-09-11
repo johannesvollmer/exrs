@@ -6,7 +6,7 @@ use std::ffi::{c_char};
 use std::ffi::c_void;
 use std::os::raw::{c_int};
 use std::ptr;
-use crate::compression::dwa::externals::{c_size_t, exr_coding_channel_info_t, CompressorScheme, ExrPixelType, ExrResult, EXR_ERR_OUT_OF_MEMORY, EXR_ERR_SUCCESS};
+use crate::compression::dwa::externals::{c_size_t, exr_coding_channel_info_t, CompressorScheme, exr_pixel_type_t, exr_result_t, EXR_ERR_OUT_OF_MEMORY, EXR_ERR_SUCCESS};
 
 #[repr(C, align(16))] // _SSE_ALIGNMENT assumed 16
 pub struct DctCoderChannelData {
@@ -17,13 +17,13 @@ pub struct DctCoderChannelData {
     pub _rows: *mut *mut u8,
     pub _row_alloc_count: usize,
     pub _size: usize,
-    pub _type: ExrPixelType,
+    pub _type: exr_pixel_type_t,
 
     pub _pad: [u8; 28],
 }
 
 impl DctCoderChannelData {
-    pub unsafe fn construct(&mut self, t: ExrPixelType) {
+    pub unsafe fn construct(&mut self, t: exr_pixel_type_t) {
         ptr::write_bytes(self as *mut _ as *mut u8, 0, std::mem::size_of::<DctCoderChannelData>());
         self._type = t;
     }
@@ -39,7 +39,7 @@ impl DctCoderChannelData {
         alloc_fn: unsafe extern "C" fn(c_size_t) -> *mut c_void,
         free_fn: unsafe extern "C" fn(*mut c_void),
         r: *mut u8,
-    ) -> ExrResult {
+    ) -> exr_result_t {
         if self._size == self._row_alloc_count {
             let nsize = if self._size == 0 { 16 } else { (self._size * 3) / 2 };
             let n = alloc_fn(nsize * std::mem::size_of::<*mut u8>()) as *mut *mut u8;
@@ -79,7 +79,7 @@ pub struct ChannelData {
     pub planarUncSize: usize,
     pub processed: c_int,
     pub compression: CompressorScheme,
-    pub planarUncType: ExrPixelType,
+    pub planarUncType: exr_pixel_type_t,
     pub _pad: [u8; 20],
 }
 /**************************************/

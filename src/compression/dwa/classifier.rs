@@ -6,7 +6,7 @@
 #![allow(dead_code)]
 #![allow(non_snake_case)]
 
-use std::ffi::{CStr, CString};
+use std::ffi::{c_void, CStr, CString};
 use std::os::raw::{c_char, c_int, c_uchar, c_uint};
 use std::ptr;
 use std::slice;
@@ -28,7 +28,7 @@ impl Default for Classifier {
         Self {
             _suffix: ptr::null(),
             _scheme: CompressorScheme::LOSSY_DCT,
-            _type: exr_pixel_type_t::EXR_PIXEL_HALF,
+            _type: exr_pixel_type_t::HALF,
             _cscIdx: -1,
             _caseInsensitive: DWA_CLASSIFIER_FALSE,
             _stringStatic: DWA_CLASSIFIER_FALSE,
@@ -38,49 +38,49 @@ impl Default for Classifier {
 
 // clang-format off equivalent: static tables
 static mut sDefaultChannelRules: [Classifier; 15] = [
-    Classifier { _suffix: b"R\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_HALF, _cscIdx: 0, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"R\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_FLOAT, _cscIdx: 0, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"G\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_HALF, _cscIdx: 1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"G\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_FLOAT, _cscIdx: 1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"B\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_HALF, _cscIdx: 2, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"B\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_FLOAT, _cscIdx: 2, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"Y\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_HALF, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"Y\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_FLOAT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"BY\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_HALF, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"BY\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_FLOAT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"RY\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_HALF, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"RY\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_FLOAT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"A\0".as_ptr() as *const c_char, _scheme: CompressorScheme::RLE, _type: exr_pixel_type_t::EXR_PIXEL_UINT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"A\0".as_ptr() as *const c_char, _scheme: CompressorScheme::RLE, _type: exr_pixel_type_t::EXR_PIXEL_HALF, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"A\0".as_ptr() as *const c_char, _scheme: CompressorScheme::RLE, _type: exr_pixel_type_t::EXR_PIXEL_FLOAT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"R\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: 0, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"R\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::FLOAT, _cscIdx: 0, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"G\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: 1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"G\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::FLOAT, _cscIdx: 1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"B\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: 2, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"B\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::FLOAT, _cscIdx: 2, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"Y\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"Y\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::FLOAT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"BY\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"BY\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::FLOAT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"RY\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"RY\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::FLOAT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"A\0".as_ptr() as *const c_char, _scheme: CompressorScheme::RLE, _type: exr_pixel_type_t::UINT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"A\0".as_ptr() as *const c_char, _scheme: CompressorScheme::RLE, _type: exr_pixel_type_t::HALF, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"A\0".as_ptr() as *const c_char, _scheme: CompressorScheme::RLE, _type: exr_pixel_type_t::FLOAT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_FALSE, _stringStatic: DWA_CLASSIFIER_TRUE },
 ];
 
 static mut sLegacyChannelRules: [Classifier; 25] = [
-    Classifier { _suffix: b"r\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_HALF, _cscIdx: 0, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"r\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_FLOAT, _cscIdx: 0, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"red\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_HALF, _cscIdx: 0, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"red\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_FLOAT, _cscIdx: 0, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"g\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_HALF, _cscIdx: 1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"g\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_FLOAT, _cscIdx: 1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"grn\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_HALF, _cscIdx: 1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"grn\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_FLOAT, _cscIdx: 1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"green\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_HALF, _cscIdx: 1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"green\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_FLOAT, _cscIdx: 1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"b\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_HALF, _cscIdx: 2, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"b\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_FLOAT, _cscIdx: 2, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"blu\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_HALF, _cscIdx: 2, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"blu\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_FLOAT, _cscIdx: 2, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"blue\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_HALF, _cscIdx: 2, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"blue\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_FLOAT, _cscIdx: 2, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"y\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_HALF, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"y\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_FLOAT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"by\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_HALF, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"by\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_FLOAT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"ry\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_HALF, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"ry\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::EXR_PIXEL_FLOAT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"a\0".as_ptr() as *const c_char, _scheme: CompressorScheme::RLE, _type: exr_pixel_type_t::EXR_PIXEL_UINT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"a\0".as_ptr() as *const c_char, _scheme: CompressorScheme::RLE, _type: exr_pixel_type_t::EXR_PIXEL_HALF, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
-    Classifier { _suffix: b"a\0".as_ptr() as *const c_char, _scheme: CompressorScheme::RLE, _type: exr_pixel_type_t::EXR_PIXEL_FLOAT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"r\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: 0, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"r\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::FLOAT, _cscIdx: 0, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"red\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: 0, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"red\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::FLOAT, _cscIdx: 0, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"g\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: 1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"g\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::FLOAT, _cscIdx: 1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"grn\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: 1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"grn\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::FLOAT, _cscIdx: 1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"green\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: 1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"green\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::FLOAT, _cscIdx: 1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"b\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: 2, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"b\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::FLOAT, _cscIdx: 2, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"blu\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: 2, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"blu\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::FLOAT, _cscIdx: 2, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"blue\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: 2, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"blue\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::FLOAT, _cscIdx: 2, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"y\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"y\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::FLOAT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"by\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"by\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::FLOAT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"ry\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::HALF, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"ry\0".as_ptr() as *const c_char, _scheme: CompressorScheme::LOSSY_DCT, _type: exr_pixel_type_t::FLOAT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"a\0".as_ptr() as *const c_char, _scheme: CompressorScheme::RLE, _type: exr_pixel_type_t::UINT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"a\0".as_ptr() as *const c_char, _scheme: CompressorScheme::RLE, _type: exr_pixel_type_t::HALF, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
+    Classifier { _suffix: b"a\0".as_ptr() as *const c_char, _scheme: CompressorScheme::RLE, _type: exr_pixel_type_t::FLOAT, _cscIdx: -1, _caseInsensitive: DWA_CLASSIFIER_TRUE, _stringStatic: DWA_CLASSIFIER_TRUE },
 ];
 
 // clang-format on
@@ -147,11 +147,11 @@ pub unsafe fn Classifier_read(
 
     outc._caseInsensitive = if (value & 1) != 0 { DWA_CLASSIFIER_TRUE } else { DWA_CLASSIFIER_FALSE };
 
-    if (type_byte as u8) >= EXR_PIXEL_LAST_TYPE { return Err(-2); }
-    outc._type = match type_byte as u8 {
-        0 => exr_pixel_type_t::EXR_PIXEL_UINT,
-        1 => exr_pixel_type_t::EXR_PIXEL_HALF,
-        2 => exr_pixel_type_t::EXR_PIXEL_FLOAT,
+    if type_byte  >= EXR_PIXEL_LAST_TYPE { return Err(-2); }
+    outc._type = match type_byte {
+        0 => exr_pixel_type_t::UINT,
+        1 => exr_pixel_type_t::HALF,
+        2 => exr_pixel_type_t::FLOAT,
         _ => return Err(-2),
     };
 
@@ -189,7 +189,7 @@ pub unsafe fn Classifier_size(me: *const Classifier) -> usize {
 pub unsafe fn Classifier_write(me: *const Classifier, ptr: &mut *mut u8) -> usize {
     if me.is_null() { return 0; }
     let outptr = *ptr;
-    let size_bytes = libc::strlen((*me)._suffix) as usize + 1;
+    let size_bytes = libc::strlen((*me)._suffix) + 1;
     ptr::copy_nonoverlapping((*me)._suffix as *const u8, outptr, size_bytes);
     let mut out = outptr.add(size_bytes);
 

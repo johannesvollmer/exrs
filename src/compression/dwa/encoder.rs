@@ -243,7 +243,7 @@ unsafe fn handle_quantize_generic(
     let srcMaskedVal = abssrc & lowermask;
     let extrabit = if tolSig > srcMaskedVal { 1 } else { 0 };
 
-    let mask3 = mask2 ^ (((npow2 << 1) * (extrabit)) | ((npow2 >> 1) * ((!extrabit) as u32)));
+    let mask3 = mask2 ^ (((npow2 << 1) * (extrabit)) | ((npow2 >> 1) * ((!extrabit))));
 
     let mut smallest = abssrc;
     let mut smallbits = count_set_bits_u32(abssrc);
@@ -322,7 +322,7 @@ unsafe fn handle_quantize_equal_exp(
     let srcMaskedVal = abssrc & lowermask;
     let extrabit = if _tolSig > srcMaskedVal { 1 } else { 0 };
 
-    let mask3 = mask2 ^ (((npow2 << 1) * (extrabit)) | ((npow2 >> 1) * ((!extrabit) as u32)));
+    let mask3 = mask2 ^ (((npow2 << 1) * (extrabit)) | ((npow2 >> 1) * ((!extrabit))));
 
     let mut smallest = abssrc;
     let mut smallbits = count_set_bits_u32(abssrc);
@@ -425,7 +425,7 @@ unsafe fn handle_quantize_close_exp(
     let srcMaskedVal = abssrc & lowermask;
     let extrabit = if _tolSig > srcMaskedVal { 1 } else { 0 };
 
-    let mask3 = mask2 ^ (((npow2 << 1) * (extrabit)) | ((npow2 >> 1) * ((!extrabit) as u32)));
+    let mask3 = mask2 ^ (((npow2 << 1) * (extrabit)) | ((npow2 >> 1) * ((!extrabit))));
 
     let mut alternates: [u32; 3] = [0; 3];
 
@@ -661,22 +661,22 @@ unsafe fn algo_quantize(src: u32, herrTol: u32, errTol: f32, mut srcFloat: f32) 
         return 0u16;
     }
 
-    let expDiff = ((srcExpBiased as i32 - tolExpBiased as i32) >> 10) as i32;
-    let mut tolSig = ((herrTol & 0x3FF) | (1 << 10)) as u32;
+    let expDiff = ((srcExpBiased as i32 - tolExpBiased as i32) >> 10);
+    let mut tolSig = ((herrTol & 0x3FF) | (1 << 10));
     if expDiff != 0 {
         tolSig = tolSig >> (expDiff as u32);
     }
 
     if tolExpBiased == 0 {
         if expDiff == 0 || expDiff == 1 {
-            tolSig = (herrTol & 0x3FF) as u32;
+            tolSig = (herrTol & 0x3FF);
             if tolSig == 0 {
                 return src as u16;
             }
             return (sign | handle_quantize_generic(abssrc, tolSig, errTol, srcFloat)) as u16;
         }
 
-        tolSig = (herrTol & 0x3FF) as u32;
+        tolSig = (herrTol & 0x3FF);
         if tolSig == 0 {
             return src as u16;
         }
