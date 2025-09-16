@@ -597,7 +597,7 @@ pub unsafe extern "C" fn DwaCompressor_compress(me: *mut DwaCompressor) -> c_int
     // Pack unknown data
     if !unknownUncompressedSize.is_null() && *unknownUncompressedSize > 0 {
         let mut outSize: size_t = 0;
-        rv = exr_compress_buffer(
+        rv = exr_zip_compress_buffer(
             (*me)._encode.context(),
             9,
             (*me)._planar_unc_buffer[UNKNOWN as usize],
@@ -650,7 +650,7 @@ pub unsafe extern "C" fn DwaCompressor_compress(me: *mut DwaCompressor) -> c_int
                 // compute sourceLen
                 let sourceLen = (*totalAcUncompressedCount as usize) * size_of::<uint16_t>();
                 let mut destLen: size_t = 0;
-                rv = exr_compress_buffer(
+                rv = exr_zip_compress_buffer(
                     (*me)._encode.context(),
                     9,
                     (*me)._packedAcBuffer,
@@ -694,7 +694,7 @@ pub unsafe extern "C" fn DwaCompressor_compress(me: *mut DwaCompressor) -> c_int
         internal_zip_deconstruct_bytes((*(*me)._encode).scratch_buffer_1, (*me)._packedDcBuffer, uncompBytes);
 
         let mut compBytes: size_t = 0;
-        rv = exr_compress_buffer(
+        rv = exr_zip_compress_buffer(
             (*me)._encode.context(),
             (*me)._zipLevel,
             (*(*me)._encode).scratch_buffer_1,
@@ -725,7 +725,7 @@ pub unsafe extern "C" fn DwaCompressor_compress(me: *mut DwaCompressor) -> c_int
             ) as uint64_t;
         }
 
-        rv = exr_compress_buffer(
+        rv = exr_zip_compress_buffer(
             (*me)._encode.context(),
             9,
             (*me)._rleBuffer,
@@ -930,7 +930,7 @@ pub unsafe extern "C" fn DwaCompressor_uncompress(
         if unknownUncompressedSize > (*me)._planar_unc_bufferSize[UNKNOWN] {
             return EXR_ERR_CORRUPT_CHUNK;
         }
-        if exr_uncompress_buffer(
+        if exr_zip_uncompress_buffer(
             (*me)._decode.as_ref().map_or(ptr::null(), |d| d.context),
             compressedUnknownBuf,
             unknownCompressedSize as usize,
@@ -968,7 +968,7 @@ pub unsafe extern "C" fn DwaCompressor_uncompress(
             }
             x if x == DEFLATE as c_int => {
                 let mut dest_len: size_t = 0;
-                rv = exr_uncompress_buffer(
+                rv = exr_zip_uncompress_buffer(
                     (*me)._decode.as_ref().map_or(ptr::null(), |d| d.context),
                     compressedAcBuf,
                     acCompressedSize as usize,
@@ -1006,7 +1006,7 @@ pub unsafe extern "C" fn DwaCompressor_uncompress(
         }
 
         let mut dest_len: size_t = 0;
-        rv = exr_uncompress_buffer(
+        rv = exr_zip_uncompress_buffer(
             (*me)._decode.as_ref().map_or(ptr::null(), |d| d.context),
             compressedDcBuf,
             dcCompressedSize as usize,
@@ -1032,7 +1032,7 @@ pub unsafe extern "C" fn DwaCompressor_uncompress(
             return EXR_ERR_CORRUPT_CHUNK;
         }
 
-        if exr_uncompress_buffer(
+        if exr_zip_uncompress_buffer(
             (*me)._decode.as_ref().map_or(ptr::null(), |d| d.context),
             compressedRleBuf,
             rleCompressedSize as usize,
@@ -1153,6 +1153,10 @@ pub unsafe extern "C" fn DwaCompressor_uncompress(
 
         match cd.compression {
             CompressorScheme::LOSSY_DCT => {
+                //
+                // Setup a single-channel lossy DCT decoder pointing
+                // at the output buffer
+                //
                 let mut decoder: LossyDctDecoder = zeroed();
                 let mut linear_lut: *const uint16_t = ptr::null();
                 if !chan.is_null() && (*chan).p_linear == 0 {
@@ -1182,6 +1186,12 @@ pub unsafe extern "C" fn DwaCompressor_uncompress(
             }
 
             CompressorScheme::RLE => {
+                //
+                // For the RLE case, the data has been un-RLE'd into
+                // planarUncRleEnd[], but is still split out by bytes.
+                // We need to rearrange the bytes back into the correct
+                // order in the output buffer;
+                //
                 let mut row_i: c_int = 0;
                 for y in (*me)._min[1]..=(*me)._max[1] {
                     if (y % (*chan).sampling.y()) != 0 {
@@ -1207,6 +1217,10 @@ pub unsafe extern "C" fn DwaCompressor_uncompress(
             }
 
             CompressorScheme::UNKNOWN => {
+                //
+                // In the UNKNOWN case, data is already in planarUncBufferEnd
+                // and just needs to copied over to the output buffer
+                //
                 let mut row = 0;
                 let dst_scanline_size = ((*chan).width as usize) * (pixel_size as usize);
                 for y in (*me)._min[1]..=*me._max[1] {

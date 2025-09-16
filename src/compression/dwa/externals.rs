@@ -1,3 +1,5 @@
+// all contents of this file will eventually be replaced by the existing types in the exrs library.
+
 use crate::compression::dwa::classifier::Classifier;
 use crate::compression::dwa::transform_8x8::{
     dct_inverse_8x8, dct_inverse_8x8_dc_only, f32_from_zig_zag_f16,
@@ -9,6 +11,9 @@ pub use std::ffi::{c_char, c_void};
 pub use std::mem::{size_of, zeroed};
 pub use std::os::raw::c_int;
 pub use std::ptr;
+use half::f16;
+use lebe::Endian;
+use crate::block::samples::IntoNativeSample;
 
 // --- Placeholder external types from OpenEXR ---
 #[repr(C)]
@@ -145,14 +150,48 @@ pub type exr_memory_free_func_t = unsafe extern "C" fn(ptr: *mut std::os::raw::c
 
 pub type exr_coding_channel_info_t = ChannelDescription;
 
-/// External helpers expected elsewhere in the port:
-pub fn float_to_half(f: f32) -> uint16_t {}
-pub fn half_to_float(h: uint16_t) -> f32 {}
-pub fn one_from_native16(v: uint16_t) -> uint16_t {}
-pub fn one_to_native16(v: uint16_t) -> uint16_t {}
-pub fn one_to_native_float(f: f32) -> f32 {}
-pub fn convertFloatToHalf64(dst: *mut uint16_t, src: *const f32) {}
+pub fn float_to_half(f: f32) -> uint16_t { f16::from_f32(f).to_bits() }
+pub fn half_to_float(h: uint16_t) -> f32 { f16::from_bits(h).to_f32() }
+pub fn one_from_native16(mut v: uint16_t) -> uint16_t { v.convert_current_to_little_endian(); v }
+pub fn one_to_native16(mut v: uint16_t) -> uint16_t { v.convert_little_endian_to_current(); v }
+pub fn one_from_native_float(mut f: f32) -> f32 { f.convert_current_to_little_endian(); f }
+pub fn one_to_native_float(mut f: f32) -> f32 { f.convert_little_endian_to_current(); f }
 
+
+pub fn exr_zip_compress_buffer(
+    level: c_int,
+    src: *const uint8_t,
+    src_len: size_t,
+    dst: *mut uint8_t,
+    dst_len: size_t,
+    out_written: *mut size_t,
+) -> c_int {
+    todo!()
+}
+
+pub fn exr_compress_max_buffer_size(n: size_t) -> size_t { todo!() }
+
+pub fn internal_zip_deconstruct_bytes(dst: *mut uint8_t, src: *const uint8_t, n: size_t) { todo!() }
+
+pub fn internal_rle_compress(
+    dst: *mut uint8_t,
+    dst_size: size_t,
+    src: *const uint8_t,
+    src_len: size_t,
+) -> size_t { todo!() }
+
+pub fn priv_from_native64(sizes: *mut uint64_t, n: usize) { todo!() }
+
+pub fn priv_to_native64(s: *mut uint64_t, n: usize) { todo!() }
+pub fn exr_zip_uncompress_buffer(
+    src: *const uint8_t,
+    src_len: size_t,
+    dst: *mut uint8_t,
+    dst_len: size_t,
+    out_written: *mut size_t,
+) -> exr_result_t {
+    todo!()
+}
 pub fn internal_huf_compress(
     outCompressedSizePtr: *mut uint64_t,
     outDataPtr: *mut uint8_t,
@@ -161,38 +200,11 @@ pub fn internal_huf_compress(
     srcCount: uint64_t,
     scratch: *mut uint8_t,
     scratch_size: size_t,
-) -> c_int;
+) -> c_int {
+    // todo: call piz/huffman
+    todo!()
+}
 
-pub fn exr_compress_buffer(
-    level: c_int,
-    src: *const uint8_t,
-    src_len: size_t,
-    dst: *mut uint8_t,
-    dst_len: size_t,
-    out_written: *mut size_t,
-) -> c_int;
-
-pub fn exr_compress_max_buffer_size(n: size_t) -> size_t;
-
-pub fn internal_zip_deconstruct_bytes(dst: *mut uint8_t, src: *const uint8_t, n: size_t);
-
-pub fn internal_rle_compress(
-    dst: *mut uint8_t,
-    dst_size: size_t,
-    src: *const uint8_t,
-    src_len: size_t,
-) -> size_t;
-
-pub fn priv_from_native64(sizes: *mut uint64_t, n: usize);
-
-pub fn priv_to_native64(s: *mut uint64_t, n: usize);
-pub fn exr_uncompress_buffer(
-    src: *const uint8_t,
-    src_len: size_t,
-    dst: *mut uint8_t,
-    dst_len: size_t,
-    out_written: *mut size_t,
-) -> exr_result_t;
 pub fn internal_huf_decompress(
     decode: *mut exr_decode_pipeline_t,
     src: *const uint8_t,
@@ -201,33 +213,68 @@ pub fn internal_huf_decompress(
     dst_count: uint64_t,
     scratch: *mut uint8_t,
     scratch_size: size_t,
-) -> exr_result_t;
+) -> exr_result_t {
+    // todo: call piz/huffman
+    todo!()
+}
+
 pub fn internal_decode_alloc_buffer(
     decode: *mut exr_decode_pipeline_t,
     which: c_int,
     out_ptr: *mut *mut uint8_t,
     out_size: *mut uint64_t,
     needed: size_t,
-) -> exr_result_t;
-pub fn internal_zip_reconstruct_bytes(dst: *mut uint8_t, src: *const uint8_t, n: size_t);
+) -> exr_result_t {
+    todo!()
+}
+
+/// Called after exr_zip_uncompress_buffer
+pub fn internal_zip_reconstruct_bytes(dst: *mut uint8_t, src: *const uint8_t, n: size_t) {
+    // todo: do the same operation that the zip compression does (interleave bytes)
+    todo!()
+}
+
 pub fn internal_rle_decompress(
     dst: *mut uint8_t,
     dst_len: size_t,
     src: *const uint8_t,
     src_len: size_t,
-) -> size_t;
-
-pub fn interleaveByte2(dst: *mut uint8_t, src0: *mut uint8_t, src1: *mut uint8_t, width: c_int);
-
-pub fn priv_to_native16(data: *mut uint16_t, n: usize);
-pub fn simd_align_pointer(p: *mut uint8_t) -> *mut uint8_t;
-pub fn fromHalfZigZag(src: *const uint16_t, dst: *mut f32) {
-    f32_from_zig_zag_f16(todo!())
+) -> size_t {
+    todo!()
 }
+
+// Byte interleaving of 2 byte arrays:
+//    src0 = AAAA
+//    src1 = BBBB
+//    dst  = ABABABAB
+// numBytes is the size of each of the source buffers
+// this looks like it is the same as crate::compression::optimize_bytes::interleave_byte_blocks, but from two sources..?
+// todo: is there no "undo" function of this?
+pub fn interleaveByte2(dst: *mut uint8_t, src0: *mut uint8_t, src1: *mut uint8_t, width: c_int) {
+    // for (int x = 0; x < numBytes; ++x)
+    // {
+    //     dst[2 * x]     = src0[x];
+    //     dst[2 * x + 1] = src1[x];
+    // }
+}
+
+pub fn priv_to_native16(data: *mut uint16_t, n: usize) {
+    // todo: for each, call one_to_native (optimize later)
+}
+
+pub fn simd_align_pointer(p: *mut uint8_t) -> *mut uint8_t {
+    // we do nothing because we don't want to support SIMD explicitly
+    p
+}
+
+pub fn fromHalfZigZag(src: *const uint16_t, dst: *mut f32) {
+    f32_from_zig_zag_f16(todo!(), todo!())
+}
+
 pub fn dctInverse8x8DcOnly(dst: *mut f32) {
     dct_inverse_8x8_dc_only(todo!())
 }
+
 pub fn dctInverse8x8(dst: *mut f32) {
     dct_inverse_8x8(todo!(), 0)
 }
-pub fn one_from_native_float(f: f32) -> f32;

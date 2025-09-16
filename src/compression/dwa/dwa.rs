@@ -15,7 +15,7 @@ pub struct DctCoderChannelData {
     pub rows: *mut *mut u8,
     pub row_alloc_count: usize,
     pub size: usize,
-    pub pixel_type: exr_pixel_type_t,
+    pub _type: exr_pixel_type_t,
 
     pub pad: [u8; 28],
 }
@@ -29,7 +29,7 @@ impl DctCoderChannelData {
             rows: ptr::null_mut(),
             row_alloc_count: 0,
             size: 0,
-            pixel_type,
+            _type: pixel_type,
             pad: [0; 28],
         }
     }

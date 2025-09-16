@@ -1,4 +1,5 @@
 #![allow(unused)] // TODO only while developing. remove later.
+#![allow(non_camel_case_types)] // TODO only while developing. remove later.
 
 //! DWAa/DWAb compression (Industrial Light & Magic / OpenEXR)
 //!

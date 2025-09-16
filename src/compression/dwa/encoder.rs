@@ -777,7 +777,7 @@ pub unsafe extern "C" fn LossyDctEncoder_execute(
     // count float elements
     for chan in 0..numComp {
         chanData[chan] = (*e)._channel_encode_data[chan];
-        if !chanData[chan].is_null() && (*chanData[chan])._type == 2 /* EXR_PIXEL_FLOAT */ {
+        if !chanData[chan].is_null() && (*chanData[chan])._type == exr_pixel_type_t::FLOAT {
             tmpHalfBufferElements += ((*e)._width as usize) * ((*e)._height as usize);
         }
     }
@@ -793,7 +793,7 @@ pub unsafe extern "C" fn LossyDctEncoder_execute(
     // convert float channels to half in temp buffer and reassign rows
     for chan in 0..numComp {
         if chanData[chan].is_null() { continue; }
-        if (*chanData[chan])._type != 2 { continue; } // EXR_PIXEL_FLOAT
+        if (*chanData[chan])._type != exr_pixel_type_t::FLOAT { continue; }
         for y in 0..(*e)._height {
             let srcXdr = (*chanData[chan]).rows.add(y as usize);
             let src = *srcXdr as *const f32;
@@ -853,9 +853,9 @@ pub unsafe extern "C" fn LossyDctEncoder_execute(
             // color space conversion if 3 comps
             if numComp == 3 {
                 csc709_forward(
-                    (*chanData[0]).dct_data,
-                    (*chanData[1]).dct_data,
-                    (*chanData[2]).dct_data,
+                    &mut (*chanData[0]).dct_data,
+                    &mut (*chanData[1]).dct_data,
+                    &mut (*chanData[2]).dct_data,
                 );
             }
 
@@ -864,10 +864,10 @@ pub unsafe extern "C" fn LossyDctEncoder_execute(
             hquantTable = (*e)._hquantTableY.as_ptr();
             for chan in 0..numComp {
                 if chanData[chan].is_null() { continue; }
-                dct_forward_8x8((*chanData[chan]).dct_data);
+                dct_forward_8x8(&mut (*chanData[chan]).dct_data);
                 quantizeCoeffAndZigXDR(
                     halfZigCoef.as_mut_ptr(),
-                    (*chanData[chan]).dct_data,
+                    &(*chanData[chan]).dct_data,
                     quantTable,
                     hquantTable,
                 );

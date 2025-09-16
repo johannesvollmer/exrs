@@ -417,7 +417,7 @@ pub unsafe extern "C" fn LossyDctDecoder_execute(
             //
             for comp in 0..numComp {
                 if blockIsConstant == 0 {
-                    convertFloatToHalf64(
+                    float_to_half(
                         rowBlock[comp].add(blockx * 64),
                         (*chanData[comp]).dct_data,
                     );
