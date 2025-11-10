@@ -12,7 +12,6 @@ mod b44;
 
 
 use std::convert::TryInto;
-use crate::compression::Compression::{B44, B44A};
 use crate::meta::attribute::{IntegerBounds, SampleType, ChannelList};
 use crate::error::{Result, Error, usize_to_i32, UnitResult};
 use crate::meta::header::Header;
