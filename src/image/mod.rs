@@ -596,8 +596,10 @@ impl<LevelSamples> Levels<LevelSamples> {
 
             Levels::Mip { level_data, .. } => {
                 debug_assert_eq!(level.x(), level.y(), "mip map levels must be equal on x and y bug");
-                level_data.get_mut(level.x()).ok_or_else(||
-                    Error::invalid(format!("mip level index {} out of range (max: {})", level.x(), level_data.len().saturating_sub(1)))
+                let max_level = level_data.len().saturating_sub(1);
+                let level_index = level.x();
+                level_data.get_mut(level_index).ok_or_else(||
+                    Error::invalid(format!("mip level index {} out of range (max: {})", level_index, max_level))
                 )
             },
 

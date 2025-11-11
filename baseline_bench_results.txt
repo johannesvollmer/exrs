@@ -1,0 +1,62 @@
+warning: unused manifest key: lib.plugin
+   Compiling exr v1.74.0 (/home/user/exrs)
+warning: use of deprecated method `meta::header::Header::get_absolute_block_pixel_coordinates`: Renamed to `absolute_block_pixel_coordinates` to comply with Rust API guidelines
+   --> src/block/mod.rs:101:39
+    |
+101 |             let data_indices = header.get_absolute_block_pixel_coordinates(tile.location).expect("tile coordinate bug");
+    |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated method `image::Levels::<LevelSamples>::get_level_mut`: Renamed to `level_mut` to comply with Rust API guidelines
+   --> src/image/read/levels.rs:200:21
+    |
+200 |         self.levels.get_level_mut(line.location.level)?.read_line(line)
+    |                     ^^^^^^^^^^^^^
+
+warning: use of deprecated method `image::Levels::<LevelSamples>::get_level`: Renamed to `level` to comply with Rust API guidelines
+   --> src/image/write/samples.rs:202:21
+    |
+202 |         self.levels.get_level(line.location.level).expect("invalid level index") // TODO compute level size from line index??
+    |                     ^^^^^^^^^
+
+warning: use of deprecated method `meta::header::Header::get_absolute_block_pixel_coordinates`: Renamed to `absolute_block_pixel_coordinates` to comply with Rust API guidelines
+  --> src/block/reader.rs:89:43
+   |
+89 |                 let data_indices = header.get_absolute_block_pixel_coordinates(tile.location)?;
+   |                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated method `meta::header::Header::get_block_data_indices`: Renamed to `block_data_indices` to comply with Rust API guidelines
+   --> src/block/mod.rs:126:40
+    |
+126 |         let tile_data_indices = header.get_block_data_indices(&chunk.compressed_block)?;
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated method `meta::header::Header::get_absolute_block_pixel_coordinates`: Renamed to `absolute_block_pixel_coordinates` to comply with Rust API guidelines
+   --> src/block/mod.rs:127:39
+    |
+127 |         let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_data_indices)?;
+    |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated method `meta::header::Header::get_absolute_block_pixel_coordinates`: Renamed to `absolute_block_pixel_coordinates` to comply with Rust API guidelines
+   --> src/block/mod.rs:173:39
+    |
+173 |         let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_coordinates)?;
+    |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `exr` (lib) generated 7 warnings
+    Finished `bench` profile [optimized + debuginfo] target(s) in 20.81s
+     Running benches/read.rs (target/release/deps/read-f1001eb52262ace7)
+
+running 8 tests
+test read_single_image_rle_all_channels               ... bench:  44,067,957 ns/iter (+/- 5,857,827)
+test read_single_image_rle_non_parallel_all_channels  ... bench:  52,052,545 ns/iter (+/- 4,557,372)
+test read_single_image_rle_non_parallel_rgba          ... bench:  31,912,418 ns/iter (+/- 4,619,266)
+test read_single_image_rle_rgba                       ... bench:  23,416,158 ns/iter (+/- 5,841,945)
+test read_single_image_uncompressed_non_parallel_rgba ... bench:  14,010,145 ns/iter (+/- 3,546,058)
+test read_single_image_uncompressed_rgba              ... bench:  15,126,672 ns/iter (+/- 2,108,727)
+test read_single_image_zips_non_parallel_rgba         ... bench:  97,602,738 ns/iter (+/- 5,428,546)
+test read_single_image_zips_rgba                      ... bench:  20,591,972 ns/iter (+/- 3,895,032)
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 8 measured
+
