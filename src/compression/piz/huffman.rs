@@ -179,7 +179,7 @@ fn decode_with_tables(
                         None
                     })
                     .next()
-                    .ok_or(Error::invalid(INVALID_CODE))?;
+                    .ok_or_else(|| Error::invalid(INVALID_CODE))?;
 
                 read_code_into_vec(
                     long_code?,
@@ -421,7 +421,7 @@ fn write_bits(
 
     while *code_bit_count >= 8 {
         *code_bit_count -= 8;
-        out.write(&[
+        out.write_all(&[
             (*code_bits >> *code_bit_count) as u8, // TODO make sure never or always wraps?
         ])?;
     }
@@ -518,7 +518,7 @@ fn encode_with_frequencies(
     let data_length = out.position() - start_position; // we shouldn't count the last byte write
 
     if code_bit_count != 0 {
-        out.write(&[(code_bits << (8 - code_bit_count) & 0xff) as u8])?;
+        out.write_all(&[(code_bits << (8 - code_bit_count) & 0xff) as u8])?;
     }
 
     Ok(data_length * 8 + code_bit_count)
@@ -606,7 +606,7 @@ fn pack_encoding_table(
     }
 
     if code_bit_count > 0 {
-        out.write(&[(code_bits << (8 - code_bit_count)) as u8])?;
+        out.write_all(&[(code_bits << (8 - code_bit_count)) as u8])?;
     }
 
     Ok(())

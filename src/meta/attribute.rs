@@ -1220,7 +1220,7 @@ impl ChannelList {
         });
         let mut previous = iter
             .next()
-            .ok_or(Error::invalid("at least one channel is required"))??;
+            .ok_or_else(|| Error::invalid("at least one channel is required"))??;
 
         for result in iter {
             let value = result?;

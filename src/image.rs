@@ -792,6 +792,12 @@ impl FlatSamples {
         }
     }
 
+    /// Returns `true` if there are no samples in this storage.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Views all samples in this storage as f32.
     /// Matches the underlying sample type again for every sample,
     /// match yourself if performance is critical! Does not allocate.
@@ -1707,7 +1713,7 @@ pub mod validate_results {
                     .first_mut()
                     .unwrap()
                     .sample_data
-                    .levels_as_slice_mut()
+                    .levels_as_mut_slice()
                     .first_mut()
                     .unwrap();
 

@@ -107,7 +107,7 @@ impl<R: Read + Seek> Reader<R> {
             // offset tables are stored same order as headers
             for (block_index, tile) in header.blocks_increasing_y_order().enumerate() {
                 // in increasing_y order
-                let data_indices = header.get_absolute_block_pixel_coordinates(tile.location)?;
+                let data_indices = header.absolute_block_pixel_coordinates(tile.location)?;
 
                 let block = BlockIndex {
                     layer: header_index,

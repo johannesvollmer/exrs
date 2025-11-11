@@ -106,7 +106,7 @@ pub fn enumerate_ordered_header_block_indices(
                 .enumerate_ordered_blocks()
                 .map(move |(index_in_header, tile)| {
                     let data_indices = header
-                        .get_absolute_block_pixel_coordinates(tile.location)
+                        .absolute_block_pixel_coordinates(tile.location)
                         .expect("tile coordinate bug");
 
                     let block = BlockIndex {
@@ -133,10 +133,10 @@ impl UncompressedBlock {
         let header: &Header = meta_data
             .headers
             .get(chunk.layer_index)
-            .ok_or(Error::invalid("chunk layer index"))?;
+            .ok_or_else(|| Error::invalid("chunk layer index"))?;
 
-        let tile_data_indices = header.get_block_data_indices(&chunk.compressed_block)?;
-        let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_data_indices)?;
+        let tile_data_indices = header.block_data_indices(&chunk.compressed_block)?;
+        let absolute_indices = header.absolute_block_pixel_coordinates(tile_data_indices)?;
 
         absolute_indices.validate(Some(header.layer_size))?;
 
@@ -191,7 +191,7 @@ impl UncompressedBlock {
             level_index: index.level,
         };
 
-        let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_coordinates)?;
+        let absolute_indices = header.absolute_block_pixel_coordinates(tile_coordinates)?;
         absolute_indices.validate(Some(header.layer_size))?;
 
         if !header.compression.may_loose_data() {

@@ -177,7 +177,7 @@ impl Compression {
             "decompress tile coordinate bug"
         );
         if header.deep {
-            assert!(self.supports_deep_data())
+            assert!(self.supports_deep_data());
         }
 
         use self::Compression::{Uncompressed, B44, B44A, PIZ, PXR24, RLE, ZIP1, ZIP16};
@@ -267,7 +267,7 @@ impl Compression {
             "decompress tile coordinate bug"
         );
         if header.deep {
-            assert!(self.supports_deep_data())
+            assert!(self.supports_deep_data());
         }
 
         let expected_byte_size = pixel_section.size.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
@@ -481,17 +481,17 @@ fn reverse_block_endianness(
             match channel.sample_type {
                 SampleType::F16 => {
                     remaining_bytes =
-                        convert_byte_chunks(reverse_2_bytes, 2, remaining_bytes, sample_count)
+                        convert_byte_chunks(reverse_2_bytes, 2, remaining_bytes, sample_count);
                 }
 
                 SampleType::F32 => {
                     remaining_bytes =
-                        convert_byte_chunks(reverse_4_bytes, 4, remaining_bytes, sample_count)
+                        convert_byte_chunks(reverse_4_bytes, 4, remaining_bytes, sample_count);
                 }
 
                 SampleType::U32 => {
                     remaining_bytes =
-                        convert_byte_chunks(reverse_4_bytes, 4, remaining_bytes, sample_count)
+                        convert_byte_chunks(reverse_4_bytes, 4, remaining_bytes, sample_count);
                 }
             }
         }

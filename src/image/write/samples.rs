@@ -252,7 +252,7 @@ where
 {
     fn extract_line(&self, line: LineRefMut<'_>) {
         self.levels
-            .get_level(line.location.level)
+            .level(line.location.level)
             .expect("invalid level index") // TODO compute level size from line index??
             .extract_line(line);
     }

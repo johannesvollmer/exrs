@@ -396,6 +396,9 @@ pub trait Data: Sized + Default + Clone {
 pub trait ResizableVec<T>: AsMut<[T]> {
     fn resize(&mut self, new_len: usize, value: T);
     fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl<T: Clone> ResizableVec<T> for Vec<T> {

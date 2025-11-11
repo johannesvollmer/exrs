@@ -505,7 +505,7 @@ impl Header {
     /// The block indices of this header, ordered as they would appear in the file.
     pub fn ordered_block_indices<'s>(&'s self, layer_index: usize) -> impl 's + Iterator<Item=BlockIndex> {
         self.enumerate_ordered_blocks().map(|(chunk_index, tile)|{
-            let data_indices = self.get_absolute_block_pixel_coordinates(tile.location).expect("tile coordinate bug");
+            let data_indices = self.absolute_block_pixel_coordinates(tile.location).expect("tile coordinate bug");
 
             BlockIndex {
                 layer: layer_index,
@@ -612,10 +612,10 @@ impl Header {
                 let diff = block
                     .y_coordinate
                     .checked_sub(self.own_attributes.layer_position.y())
-                    .ok_or(Error::invalid("invalid header"))?;
+                    .ok_or_else(|| Error::invalid("invalid header"))?;
                 let y = diff
                     .checked_div(size)
-                    .ok_or(Error::invalid("invalid header"))?;
+                    .ok_or_else(|| Error::invalid("invalid header"))?;
 
                 if y < 0 {
                     return Err(Error::invalid("scan block y coordinate"));
@@ -649,10 +649,10 @@ impl Header {
 
         let diff = block_y_coordinate
             .checked_sub(self.own_attributes.layer_position.1)
-            .ok_or(Error::invalid("invalid header"))?;
+            .ok_or_else(|| Error::invalid("invalid header"))?;
         let y = diff
             .checked_div(size)
-            .ok_or(Error::invalid("invalid header"))?;
+            .ok_or_else(|| Error::invalid("invalid header"))?;
 
         if y < 0 {
             return Err(Error::invalid("scan block y coordinate"));
@@ -1111,54 +1111,54 @@ impl Header {
                     // the following attributes will only be set if the type matches the commonly used type for that attribute
                     match (attribute_name.as_slice(), value) {
                         (name::BLOCK_TYPE, Text(value)) => {
-                            block_type = Some(attribute::BlockType::parse(value)?)
+                            block_type = Some(attribute::BlockType::parse(value)?);
                         }
                         (name::TILES, TileDescription(value)) => tiles = Some(value),
                         (name::CHANNELS, ChannelList(value)) => channels = Some(value),
                         (name::COMPRESSION, Compression(value)) => compression = Some(value),
                         (name::DATA_WINDOW, IntegerBounds(value)) => data_window = Some(value),
                         (name::DISPLAY_WINDOW, IntegerBounds(value)) => {
-                            display_window = Some(value)
+                            display_window = Some(value);
                         }
                         (name::LINE_ORDER, LineOrder(value)) => line_order = Some(value),
                         (name::DEEP_DATA_VERSION, I32(value)) => version = Some(value),
 
                         (name::MAX_SAMPLES, I32(value)) => {
-                            max_samples_per_pixel = Some(i32_to_usize(value, "max sample count")?)
+                            max_samples_per_pixel = Some(i32_to_usize(value, "max sample count")?);
                         }
 
                         (name::CHUNKS, I32(value)) => {
-                            chunk_count = Some(i32_to_usize(value, "chunk count")?)
+                            chunk_count = Some(i32_to_usize(value, "chunk count")?);
                         }
 
                         (name::NAME, Text(value)) => layer_attributes.layer_name = Some(value),
                         (name::WINDOW_CENTER, FloatVec2(value)) => {
-                            layer_attributes.screen_window_center = value
+                            layer_attributes.screen_window_center = value;
                         }
                         (name::WINDOW_WIDTH, F32(value)) => {
-                            layer_attributes.screen_window_width = value
+                            layer_attributes.screen_window_width = value;
                         }
 
                         (name::WHITE_LUMINANCE, F32(value)) => {
-                            layer_attributes.white_luminance = Some(value)
+                            layer_attributes.white_luminance = Some(value);
                         }
                         (name::ADOPTED_NEUTRAL, FloatVec2(value)) => {
-                            layer_attributes.adopted_neutral = Some(value)
+                            layer_attributes.adopted_neutral = Some(value);
                         }
                         (name::RENDERING_TRANSFORM, Text(value)) => {
-                            layer_attributes.rendering_transform_name = Some(value)
+                            layer_attributes.rendering_transform_name = Some(value);
                         }
                         (name::LOOK_MOD_TRANSFORM, Text(value)) => {
-                            layer_attributes.look_modification_transform_name = Some(value)
+                            layer_attributes.look_modification_transform_name = Some(value);
                         }
                         (name::X_DENSITY, F32(value)) => {
-                            layer_attributes.horizontal_density = Some(value)
+                            layer_attributes.horizontal_density = Some(value);
                         }
 
                         (name::OWNER, Text(value)) => layer_attributes.owner = Some(value),
                         (name::COMMENTS, Text(value)) => layer_attributes.comments = Some(value),
                         (name::CAPTURE_DATE, Text(value)) => {
-                            layer_attributes.capture_date = Some(value)
+                            layer_attributes.capture_date = Some(value);
                         }
                         (name::UTC_OFFSET, F32(value)) => layer_attributes.utc_offset = Some(value),
                         (name::LONGITUDE, F32(value)) => layer_attributes.longitude = Some(value),
@@ -1166,39 +1166,39 @@ impl Header {
                         (name::ALTITUDE, F32(value)) => layer_attributes.altitude = Some(value),
                         (name::FOCUS, F32(value)) => layer_attributes.focus = Some(value),
                         (name::EXPOSURE_TIME, F32(value)) => {
-                            layer_attributes.exposure = Some(value)
+                            layer_attributes.exposure = Some(value);
                         }
                         (name::APERTURE, F32(value)) => layer_attributes.aperture = Some(value),
                         (name::ISO_SPEED, F32(value)) => layer_attributes.iso_speed = Some(value),
                         (name::ENVIRONMENT_MAP, EnvironmentMap(value)) => {
-                            layer_attributes.environment_map = Some(value)
+                            layer_attributes.environment_map = Some(value);
                         }
                         (name::KEY_CODE, KeyCode(value)) => {
-                            layer_attributes.film_key_code = Some(value)
+                            layer_attributes.film_key_code = Some(value);
                         }
                         (name::WRAP_MODES, Text(value)) => {
-                            layer_attributes.wrap_mode_name = Some(value)
+                            layer_attributes.wrap_mode_name = Some(value);
                         }
                         (name::FRAMES_PER_SECOND, Rational(value)) => {
-                            layer_attributes.frames_per_second = Some(value)
+                            layer_attributes.frames_per_second = Some(value);
                         }
                         (name::MULTI_VIEW, TextVector(value)) => {
-                            layer_attributes.multi_view_names = Some(value)
+                            layer_attributes.multi_view_names = Some(value);
                         }
                         (name::WORLD_TO_CAMERA, Matrix4x4(value)) => {
-                            layer_attributes.world_to_camera = Some(value)
+                            layer_attributes.world_to_camera = Some(value);
                         }
                         (name::WORLD_TO_NDC, Matrix4x4(value)) => {
-                            layer_attributes.world_to_normalized_device = Some(value)
+                            layer_attributes.world_to_normalized_device = Some(value);
                         }
                         (name::DEEP_IMAGE_STATE, Rational(value)) => {
-                            layer_attributes.deep_image_state = Some(value)
+                            layer_attributes.deep_image_state = Some(value);
                         }
                         (name::ORIGINAL_DATA_WINDOW, IntegerBounds(value)) => {
-                            layer_attributes.original_data_window = Some(value)
+                            layer_attributes.original_data_window = Some(value);
                         }
                         (name::DWA_COMPRESSION_LEVEL, F32(value)) => {
-                            dwa_compression_level = Some(value)
+                            dwa_compression_level = Some(value);
                         }
                         (name::PREVIEW, Preview(value)) => layer_attributes.preview = Some(value),
                         (name::VIEW, Text(value)) => layer_attributes.view_name = Some(value),
@@ -1206,21 +1206,21 @@ impl Header {
                         (name::NEAR, F32(value)) => layer_attributes.near_clip_plane = Some(value),
                         (name::FAR, F32(value)) => layer_attributes.far_clip_plane = Some(value),
                         (name::FOV_X, F32(value)) => {
-                            layer_attributes.horizontal_field_of_view = Some(value)
+                            layer_attributes.horizontal_field_of_view = Some(value);
                         }
                         (name::FOV_Y, F32(value)) => {
-                            layer_attributes.vertical_field_of_view = Some(value)
+                            layer_attributes.vertical_field_of_view = Some(value);
                         }
                         (name::SOFTWARE, Text(value)) => {
-                            layer_attributes.software_name = Some(value)
+                            layer_attributes.software_name = Some(value);
                         }
 
                         (name::PIXEL_ASPECT, F32(value)) => image_attributes.pixel_aspect = value,
                         (name::TIME_CODE, TimeCode(value)) => {
-                            image_attributes.time_code = Some(value)
+                            image_attributes.time_code = Some(value);
                         }
                         (name::CHROMATICITIES, Chromaticities(value)) => {
-                            image_attributes.chromaticities = Some(value)
+                            image_attributes.chromaticities = Some(value);
                         }
 
                         // insert unknown attributes of these types into image attributes,
@@ -1254,11 +1254,11 @@ impl Header {
             // FIXME dwa compression level gets lost if any other compression is used later in the process
         };
 
-        let compression = compression.ok_or(missing_attribute("compression"))?;
+        let compression = compression.ok_or_else(|| missing_attribute("compression"))?;
         image_attributes.display_window =
-            display_window.ok_or(missing_attribute("display window"))?;
+            display_window.ok_or_else(|| missing_attribute("display window"))?;
 
-        let data_window = data_window.ok_or(missing_attribute("data window"))?;
+        let data_window = data_window.ok_or_else(|| missing_attribute("data window"))?;
         data_window.validate(None)?; // validate now to avoid errors when computing the chunk_count
         layer_attributes.layer_position = data_window.position;
 
@@ -1268,10 +1268,10 @@ impl Header {
         }
         let blocks = match block_type {
             None if requirements.is_single_layer_and_tiled => {
-                BlockDescription::Tiles(tiles.ok_or(missing_attribute("tiles"))?)
+                BlockDescription::Tiles(tiles.ok_or_else(|| missing_attribute("tiles"))?)
             }
             Some(BlockType::Tile | BlockType::DeepTile) => {
-                BlockDescription::Tiles(tiles.ok_or(missing_attribute("tiles"))?)
+                BlockDescription::Tiles(tiles.ok_or_else(|| missing_attribute("tiles"))?)
             }
 
             _ => BlockDescription::ScanLines,
@@ -1293,7 +1293,7 @@ impl Header {
             shared_attributes: image_attributes,
             own_attributes: layer_attributes,
 
-            channels: channels.ok_or(missing_attribute("channels"))?,
+            channels: channels.ok_or_else(|| missing_attribute("channels"))?,
             line_order: line_order.unwrap_or(LineOrder::Unspecified),
 
             blocks,

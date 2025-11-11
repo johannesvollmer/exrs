@@ -210,9 +210,9 @@ where
                     .ok()
             })
             .next()
-            .ok_or(Error::invalid(
-                "no layer in the image matched your specified requirements",
-            ))
+            .ok_or_else(|| {
+                Error::invalid("no layer in the image matched your specified requirements")
+            })
     }
 }
 

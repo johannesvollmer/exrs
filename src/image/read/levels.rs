@@ -251,9 +251,7 @@ impl<S: SamplesReader> SamplesReader for AllLevelsReader<S> {
     }
 
     fn read_line(&mut self, line: LineRef<'_>) -> UnitResult {
-        self.levels
-            .get_level_mut(line.location.level)?
-            .read_line(line)
+        self.levels.level_mut(line.location.level)?.read_line(line)
     }
 
     fn into_samples(self) -> Self::Samples {
