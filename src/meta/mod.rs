@@ -234,7 +234,9 @@ pub fn calculate_block_position_and_size(total_size: usize, block_size: usize, b
 #[inline]
 pub fn calculate_block_size(total_size: usize, block_size: usize, block_position: usize) -> Result<usize> {
     if block_position >= total_size {
-        return Err(Error::invalid("block index"))
+        return Err(Error::invalid(format!(
+            "block position {} exceeds total size {}", block_position, total_size
+        )))
     }
 
     if block_position + block_size <= total_size {

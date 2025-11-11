@@ -566,11 +566,15 @@ impl<LevelSamples> Levels<LevelSamples> {
 
             Levels::Mip { level_data, .. } => {
                 debug_assert_eq!(level.x(), level.y(), "mip map levels must be equal on x and y bug");
-                level_data.get(level.x()).ok_or(Error::invalid("block mip level index"))
+                level_data.get(level.x()).ok_or_else(||
+                    Error::invalid(format!("mip level index {} out of range (max: {})", level.x(), level_data.len().saturating_sub(1)))
+                )
             },
 
             Levels::Rip { level_data, .. } => {
-                level_data.by_level(level).ok_or(Error::invalid("block rip level index"))
+                level_data.by_level(level).ok_or_else(||
+                    Error::invalid(format!("rip level index {:?} not found", level))
+                )
             }
         }
     }
@@ -592,11 +596,15 @@ impl<LevelSamples> Levels<LevelSamples> {
 
             Levels::Mip { level_data, .. } => {
                 debug_assert_eq!(level.x(), level.y(), "mip map levels must be equal on x and y bug");
-                level_data.get_mut(level.x()).ok_or(Error::invalid("block mip level index"))
+                level_data.get_mut(level.x()).ok_or_else(||
+                    Error::invalid(format!("mip level index {} out of range (max: {})", level.x(), level_data.len().saturating_sub(1)))
+                )
             },
 
             Levels::Rip { level_data, .. } => {
-                level_data.by_level_mut(level).ok_or(Error::invalid("block rip level index"))
+                level_data.by_level_mut(level).ok_or_else(||
+                    Error::invalid(format!("rip level index {:?} not found", level))
+                )
             }
         }
     }
