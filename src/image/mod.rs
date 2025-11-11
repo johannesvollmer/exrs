@@ -557,7 +557,7 @@ impl<SampleData> AnyChannels<SampleData>{
 impl<LevelSamples> Levels<LevelSamples> {
 
     /// Get a resolution level by index, sorted by size, decreasing.
-    pub fn get_level(&self, level: Vec2<usize>) -> Result<&LevelSamples> {
+    pub fn level(&self, level: Vec2<usize>) -> Result<&LevelSamples> {
         match self {
             Levels::Singular(block) => {
                 debug_assert_eq!(level, Vec2(0,0), "singular image cannot write leveled blocks bug");
@@ -570,14 +570,20 @@ impl<LevelSamples> Levels<LevelSamples> {
             },
 
             Levels::Rip { level_data, .. } => {
-                level_data.get_by_level(level).ok_or(Error::invalid("block rip level index"))
+                level_data.by_level(level).ok_or(Error::invalid("block rip level index"))
             }
         }
     }
 
+    /// Deprecated: Use `level()` instead.
+    #[deprecated(since = "1.75.0", note = "Renamed to `level` to comply with Rust API guidelines")]
+    pub fn get_level(&self, level: Vec2<usize>) -> Result<&LevelSamples> {
+        self.level(level)
+    }
+
     /// Get a resolution level by index, sorted by size, decreasing.
     // TODO storage order for RIP maps?
-    pub fn get_level_mut(&mut self, level: Vec2<usize>) -> Result<&mut LevelSamples> {
+    pub fn level_mut(&mut self, level: Vec2<usize>) -> Result<&mut LevelSamples> {
         match self {
             Levels::Singular(ref mut block) => {
                 debug_assert_eq!(level, Vec2(0,0), "singular image cannot write leveled blocks bug");
@@ -590,9 +596,15 @@ impl<LevelSamples> Levels<LevelSamples> {
             },
 
             Levels::Rip { level_data, .. } => {
-                level_data.get_by_level_mut(level).ok_or(Error::invalid("block rip level index"))
+                level_data.by_level_mut(level).ok_or(Error::invalid("block rip level index"))
             }
         }
+    }
+
+    /// Deprecated: Use `level_mut()` instead.
+    #[deprecated(since = "1.75.0", note = "Renamed to `level_mut` to comply with Rust API guidelines")]
+    pub fn get_level_mut(&mut self, level: Vec2<usize>) -> Result<&mut LevelSamples> {
+        self.level_mut(level)
     }
 
     /// Get a slice of all resolution levels, sorted by size, decreasing.
@@ -605,12 +617,18 @@ impl<LevelSamples> Levels<LevelSamples> {
     }
 
     /// Get a mutable slice of all resolution levels, sorted by size, decreasing.
-    pub fn levels_as_slice_mut(&mut self) -> &mut [LevelSamples] {
+    pub fn levels_as_mut_slice(&mut self) -> &mut [LevelSamples] {
         match self {
             Levels::Singular(data) => std::slice::from_mut(data),
             Levels::Mip { level_data, .. } => level_data,
             Levels::Rip { level_data, .. } => &mut level_data.map_data,
         }
+    }
+
+    /// Deprecated: Use `levels_as_mut_slice()` instead.
+    #[deprecated(since = "1.75.0", note = "Renamed to `levels_as_mut_slice` to comply with Rust API guidelines (C-CONV)")]
+    pub fn levels_as_slice_mut(&mut self) -> &mut [LevelSamples] {
+        self.levels_as_mut_slice()
     }
 
     // TODO simplify working with levels in general! like level_size_by_index and such
@@ -636,19 +654,37 @@ impl<LevelSamples> Levels<LevelSamples> {
 impl<Samples> RipMaps<Samples> {
 
     /// Flatten the 2D level index to a one dimensional index.
-    pub fn get_level_index(&self, level: Vec2<usize>) -> usize {
+    pub fn level_index(&self, level: Vec2<usize>) -> usize {
         level.flat_index_for_size(self.level_count)
     }
 
+    /// Deprecated: Use `level_index()` instead.
+    #[deprecated(since = "1.75.0", note = "Renamed to `level_index` to comply with Rust API guidelines")]
+    pub fn get_level_index(&self, level: Vec2<usize>) -> usize {
+        self.level_index(level)
+    }
+
     /// Return a level by level index. Level `0` has the largest resolution.
+    pub fn by_level(&self, level: Vec2<usize>) -> Option<&Samples> {
+        self.map_data.get(self.level_index(level))
+    }
+
+    /// Deprecated: Use `by_level()` instead.
+    #[deprecated(since = "1.75.0", note = "Renamed to `by_level` to comply with Rust API guidelines")]
     pub fn get_by_level(&self, level: Vec2<usize>) -> Option<&Samples> {
-        self.map_data.get(self.get_level_index(level))
+        self.by_level(level)
     }
 
     /// Return a mutable level reference by level index. Level `0` has the largest resolution.
-    pub fn get_by_level_mut(&mut self, level: Vec2<usize>) -> Option<&mut Samples> {
-        let index = self.get_level_index(level);
+    pub fn by_level_mut(&mut self, level: Vec2<usize>) -> Option<&mut Samples> {
+        let index = self.level_index(level);
         self.map_data.get_mut(index)
+    }
+
+    /// Deprecated: Use `by_level_mut()` instead.
+    #[deprecated(since = "1.75.0", note = "Renamed to `by_level_mut` to comply with Rust API guidelines")]
+    pub fn get_by_level_mut(&mut self, level: Vec2<usize>) -> Option<&mut Samples> {
+        self.by_level_mut(level)
     }
 }
 

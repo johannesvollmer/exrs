@@ -48,12 +48,18 @@ pub trait GetPixel: Sync {
     /// Will be called exactly once for each pixel in the image.
     /// The position will not exceed the image dimensions.
     /// Might be called from multiple threads at the same time.
-    fn get_pixel(&self, position: Vec2<usize>) -> Self::Pixel;
+    fn pixel(&self, position: Vec2<usize>) -> Self::Pixel;
+
+    /// Deprecated: Use `pixel()` instead.
+    #[deprecated(since = "1.75.0", note = "Renamed to `pixel` to comply with Rust API guidelines")]
+    fn get_pixel(&self, position: Vec2<usize>) -> Self::Pixel {
+        self.pixel(position)
+    }
 }
 
 impl<F, P> GetPixel for F where F: Sync + Fn(Vec2<usize>) -> P {
     type Pixel = P;
-    fn get_pixel(&self, position: Vec2<usize>) -> P { self(position) }
+    fn pixel(&self, position: Vec2<usize>) -> P { self(position) }
 }
 
 impl<'samples, Samples> WritableChannels<'samples> for AnyChannels<Samples>
@@ -184,7 +190,7 @@ for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
         for (y, line_bytes) in byte_lines.enumerate() {
             pixel_line.clear();
             pixel_line.extend((0 .. width).map(|x|
-                self.channels.pixels.get_pixel(block_index.pixel_position + Vec2(x, y)).into_recursive()
+                self.channels.pixels.pixel(block_index.pixel_position + Vec2(x, y)).into_recursive()
             ));
 
             self.recursive_channel_writer.write_pixels(line_bytes, pixel_line.as_slice(), |px| px);

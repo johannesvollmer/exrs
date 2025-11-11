@@ -201,7 +201,7 @@ impl<'c, Channels> ChannelsWriter for CroppedWriter<Channels> where Channels: Ch
 impl<Samples, Channels> InspectSample for Layer<SpecificChannels<Samples, Channels>> where Samples: GetPixel {
     type Sample = Samples::Pixel;
     fn inspect_sample(&self, local_index: Vec2<usize>) -> Samples::Pixel {
-        self.channel_data.pixels.get_pixel(local_index)
+        self.channel_data.pixels.pixel(local_index)
     }
 }
 

@@ -43,8 +43,15 @@ impl<Pixel> PixelVec<Pixel> {
     /// Examine a pixel of a `PixelVec<T>` image.
     /// Can usually be used as a function reference instead of calling it directly.
     #[inline]
-    pub fn get_pixel(&self, position: Vec2<usize>) -> &Pixel where Pixel: Sync {
+    pub fn pixel(&self, position: Vec2<usize>) -> &Pixel where Pixel: Sync {
         &self.pixels[self.compute_pixel_index(position)]
+    }
+
+    /// Deprecated: Use `pixel()` instead.
+    #[deprecated(since = "1.75.0", note = "Renamed to `pixel` to comply with Rust API guidelines")]
+    #[inline]
+    pub fn get_pixel(&self, position: Vec2<usize>) -> &Pixel where Pixel: Sync {
+        self.pixel(position)
     }
 
     /// Update a pixel of a `PixelVec<T>` image.
@@ -82,8 +89,8 @@ impl<Px> ValidateResult for PixelVec<Px> where Px: ValidateResult {
 
 impl<Px> GetPixel for PixelVec<Px> where Px: Clone + Sync {
     type Pixel = Px;
-    fn get_pixel(&self, position: Vec2<usize>) -> Self::Pixel {
-        self.get_pixel(position).clone()
+    fn pixel(&self, position: Vec2<usize>) -> Self::Pixel {
+        self.pixel(position).clone()
     }
 }
 

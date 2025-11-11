@@ -148,11 +148,35 @@ According to `releasing.md:15`, only "unreachable `unwrap()`, `expect("")` and `
 
 ## 2. Rust API Guidelines Compliance
 
-### 2.1 ❌ Naming Violations (RFC 430)
+### 2.1 ❌ Naming Violations
 
-#### Getter Functions with `get_` Prefix
-**Severity:** High (API Guidelines Violation)
-**Instances:** 10+ functions
+A comprehensive audit against all [Rust API Guidelines - Naming](https://rust-lang.github.io/api-guidelines/naming.html) conventions was performed.
+
+#### C-CASE: Casing Conventions
+**Status:** ✅ **Compliant**
+- All modules use `snake_case`
+- All types/traits use `UpperCamelCase`
+- All enum variants use `UpperCamelCase`
+- All functions/methods use `snake_case`
+- All constants use `SCREAMING_SNAKE_CASE`
+- Acronyms properly treated as single words (no violations found)
+
+#### C-CONV: Conversion Method Naming
+**Status:** ⚠️ **1 Violation Found**
+
+**Violation:** `levels_as_slice_mut()` should be `levels_as_mut_slice()`
+- **Location:** src/image/mod.rs:620
+- **Rule:** When `mut` qualifies the return type, position it as it appears in the type signature
+- **Return type:** `&mut [LevelSamples]` → name should be `as_mut_slice` not `as_slice_mut`
+- **Fixed:** ✅ Renamed with deprecation
+
+All other conversion methods correctly follow the pattern:
+- `as_` prefix for free borrowed views (e.g., `as_slice()`)
+- `to_` prefix for expensive conversions (e.g., `to_i32()`, `to_f32()`)
+- `into_` prefix for owned conversions (e.g., `into_inner()`, `into_layers()`)
+
+#### C-GETTER: Getter Naming
+**Status:** ⚠️ **10+ Violations Found**
 
 According to [Rust API Guidelines C-GETTER](https://rust-lang.github.io/api-guidelines/naming.html#getter-names-follow-rust-convention-c-getter), getters should not use the `get_` prefix.
 
@@ -175,11 +199,28 @@ According to [Rust API Guidelines C-GETTER](https://rust-lang.github.io/api-guid
 - `src/image/read/specific_channels.rs:81` - `get_descriptions()` trait method
 - `src/image/write/channels.rs:51` - `get_pixel()` trait method
 
-**Action Required:** Rename all getter functions to remove `get_` prefix.
+**Action Required:** ✅ **FIXED** - All renamed with backward-compatible deprecation
 
-#### Uppercase Enum Variants
-**Status:** ✅ Good
-No uppercase enum variants found. All enums follow proper `PascalCase` convention.
+#### C-ITER: Iterator Method Naming
+**Status:** ✅ **Compliant**
+- No collection types provide `iter()`, `iter_mut()`, or `into_iter()` methods
+- This is appropriate as the library deals with image data, not general collections
+
+#### C-ITER-TY: Iterator Type Naming
+**Status:** ✅ **Compliant**
+- Only one iterator type found: `FlatSampleIterator` (internal use)
+- Naming is appropriate and follows conventions
+
+#### C-FEATURE: Feature Naming
+**Status:** ✅ **Compliant**
+- Feature named `rayon` (not "use-rayon" or "with-rayon")
+- Correctly uses positive naming (not "no-rayon")
+
+#### C-WORD-ORDER: Consistent Word Order
+**Status:** ✅ **Compliant**
+- Error type follows standard pattern: `Error` enum with clear variants
+- Method names maintain consistent word ordering across the API
+- No inconsistencies found (e.g., no mix of `parse_int_error` vs `int_parse_error`)
 
 ---
 
@@ -656,7 +697,9 @@ Current design is synchronous - async would require significant refactoring
 ## 10. Recommendations Summary
 
 ### Critical (Do Immediately)
-1. ✅ **Fix naming violations** - Remove `get_` prefixes from all getters
+1. ✅ **COMPLETED: Fix naming violations** - Removed `get_` prefixes and fixed `mut` positioning
+   - All 11 violations fixed with backward-compatible deprecation warnings
+   - Users will receive clear migration guidance
 2. ⚠️ **Replace panics** - Convert 4 panic calls to proper error handling
 3. ⚠️ **Audit unwraps** - Verify all unwraps are truly unreachable
 
@@ -692,7 +735,7 @@ The `exrs` library demonstrates **excellent security practices** with zero unsaf
 - ✅ Clean architecture and type safety
 
 **Key Weaknesses:**
-- ❌ API naming convention violations (get_ prefixes)
+- ✅ ~~API naming convention violations~~ **FIXED** (11 violations corrected)
 - ⚠️ 4 panic calls in production code
 - ⚠️ 200+ TODO comments indicating technical debt
 - ⚠️ Missing features (deep data, DWAA/DWAB, subsampling)
@@ -701,7 +744,7 @@ The `exrs` library demonstrates **excellent security practices** with zero unsaf
 This is a **well-maintained, secure library** suitable for production use. The main issues are **non-critical API improvements** and **performance optimizations**. No critical security vulnerabilities were found.
 
 **Recommended Actions:**
-1. Fix naming conventions (this audit)
+1. ✅ ~~Fix naming conventions~~ **COMPLETED**
 2. Address panic calls
 3. Prioritize and track TODOs
 4. Implement optimization opportunities
