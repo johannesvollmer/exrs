@@ -17,8 +17,13 @@ pub fn main() {
 
     // load the exr file from disk with multi-core decompression
     let image = read()
-        .no_deep_data().largest_resolution_level().all_channels().all_layers().all_attributes()
-        .from_file(path).expect("run example `5a_write_multiple_layers` to generate this image file");
+        .no_deep_data()
+        .largest_resolution_level()
+        .all_channels()
+        .all_layers()
+        .all_attributes()
+        .from_file(path)
+        .expect("run example `5a_write_multiple_layers` to generate this image file");
 
     // warning: highly unscientific benchmarks ahead!
     println!("\nloaded file in {:?}s", now.elapsed().as_secs_f32());
@@ -26,16 +31,26 @@ pub fn main() {
     println!("writing images...");
 
     for (layer_index, layer) in image.layer_data.iter().enumerate() {
-        let layer_name = layer.attributes.layer_name.as_ref()
+        let layer_name = layer
+            .attributes
+            .layer_name
+            .as_ref()
             .map_or(String::from("main_layer"), Text::to_string);
 
         for channel in &layer.channel_data.list {
-            let data : Vec<f32> = channel.sample_data.values_as_f32().collect();
-            save_f32_image_as_png(&data, layer.size, format!(
-                "pngs/{} ({}) {}_{}x{}.png",
-                layer_index, layer_name, channel.name,
-                layer.size.width(), layer.size.height(),
-            ))
+            let data: Vec<f32> = channel.sample_data.values_as_f32().collect();
+            save_f32_image_as_png(
+                &data,
+                layer.size,
+                format!(
+                    "pngs/{} ({}) {}_{}x{}.png",
+                    layer_index,
+                    layer_name,
+                    channel.name,
+                    layer.size.width(),
+                    layer.size.height(),
+                ),
+            )
         }
     }
 
@@ -47,7 +62,7 @@ pub fn main() {
 
         // percentile normalization
         let max = sorted[7 * sorted.len() / 8];
-        let min = sorted[1 * sorted.len() / 8];
+        let min = sorted[sorted.len() / 8];
 
         // primitive tone mapping
         let tone = |v: f32| (v - 0.5).tanh() * 0.5 + 0.5;
@@ -71,4 +86,3 @@ pub fn main() {
 
     println!("extracted all layers to folder `./pngs/*.png`");
 }
-

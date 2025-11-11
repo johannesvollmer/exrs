@@ -1,16 +1,16 @@
 //! The last wrapper of image readers, finally containing the [`from_file(path)`] method.
 //! This completes the builder and reads a complete image.
 
-use crate::image::*;
-use crate::meta::header::{Header, ImageAttributes};
-use crate::error::{Result, UnitResult};
-use crate::block::{UncompressedBlock, BlockIndex};
 use crate::block::chunk::TileCoordinates;
-use std::path::Path;
-use std::io::{Read, BufReader};
-use std::io::Seek;
-use crate::meta::MetaData;
 use crate::block::reader::ChunksReader;
+use crate::block::{BlockIndex, UncompressedBlock};
+use crate::error::{Result, UnitResult};
+use crate::image::{ignore_progress, Image};
+use crate::meta::header::{Header, ImageAttributes};
+use crate::meta::MetaData;
+use std::io::Seek;
+use std::io::{BufReader, Read};
+use std::path::Path;
 
 /// Specify whether to read the image in parallel,
 /// whether to use pedantic error handling,
@@ -23,12 +23,15 @@ pub struct ReadImage<OnProgress, ReadLayers> {
     parallel: bool,
 }
 
-impl<F, L> ReadImage<F, L> where F: FnMut(f64)
+impl<F, L> ReadImage<F, L>
+where
+    F: FnMut(f64),
 {
     /// Uses relaxed error handling and parallel decompression.
-    pub fn new(read_layers: L, on_progress: F) -> Self {
+    pub const fn new(read_layers: L, on_progress: F) -> Self {
         Self {
-            on_progress, read_layers,
+            on_progress,
+            read_layers,
             pedantic: false,
             #[cfg(not(feature = "rayon"))]
             parallel: false,
@@ -49,32 +52,43 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
     /// an error is thrown, because this should not happen and something might be wrong with the file.
     /// Or if your application is a target of attacks, or if you want to emulate the original C++ library,
     /// you might want to switch to pedantic reading.
-    pub fn pedantic(self) -> Self { Self { pedantic: true, ..self } }
+    pub fn pedantic(self) -> Self {
+        Self {
+            pedantic: true,
+            ..self
+        }
+    }
 
     /// Specify that multiple pixel blocks should never be decompressed using multiple threads at once.
     /// This might be slower but uses less memory and less synchronization.
-    pub fn non_parallel(self) -> Self { Self { parallel: false, ..self } }
+    pub fn non_parallel(self) -> Self {
+        Self {
+            parallel: false,
+            ..self
+        }
+    }
 
     /// Specify a function to be called regularly throughout the loading process.
     /// Replaces all previously specified progress functions in this reader.
     pub fn on_progress<OnProgress>(self, on_progress: OnProgress) -> ReadImage<OnProgress, L>
-        where OnProgress: FnMut(f64)
+    where
+        OnProgress: FnMut(f64),
     {
         ReadImage {
             on_progress,
             read_layers: self.read_layers,
             pedantic: self.pedantic,
-            parallel: self.parallel
+            parallel: self.parallel,
         }
     }
-
 
     /// Read the exr image from a file.
     /// Use [`ReadImage::read_from_unbuffered`] instead, if you do not have a file.
     #[inline]
     #[must_use]
     pub fn from_file<Layers>(self, path: impl AsRef<Path>) -> Result<Image<Layers>>
-        where for<'s> L: ReadLayers<'s, Layers = Layers>
+    where
+        for<'s> L: ReadLayers<'s, Layers = Layers>,
     {
         self.from_unbuffered(std::fs::File::open(path)?)
     }
@@ -85,7 +99,8 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
     #[inline]
     #[must_use]
     pub fn from_unbuffered<Layers>(self, unbuffered: impl Read + Seek) -> Result<Image<Layers>>
-        where for<'s> L: ReadLayers<'s, Layers = Layers>
+    where
+        for<'s> L: ReadLayers<'s, Layers = Layers>,
     {
         self.from_buffered(BufReader::new(unbuffered))
     }
@@ -96,7 +111,8 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
     // TODO Use Parallel<> Wrapper to only require sendable byte source where parallel decompression is required
     #[must_use]
     pub fn from_buffered<Layers>(self, buffered: impl Read + Seek) -> Result<Image<Layers>>
-        where for<'s> L: ReadLayers<'s, Layers = Layers>
+    where
+        for<'s> L: ReadLayers<'s, Layers = Layers>,
     {
         let chunks = crate::block::read(buffered, self.pedantic)?;
         self.from_chunks(chunks)
@@ -108,13 +124,23 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
     /// Use [`ReadImage::read_from_buffered`] instead, if this is an in-memory reader.
     // TODO Use Parallel<> Wrapper to only require sendable byte source where parallel decompression is required
     #[must_use]
-    pub fn from_chunks<Layers>(mut self, chunks_reader: crate::block::reader::Reader<impl Read + Seek>) -> Result<Image<Layers>>
-        where for<'s> L: ReadLayers<'s, Layers = Layers>
+    pub fn from_chunks<Layers>(
+        mut self,
+        chunks_reader: crate::block::reader::Reader<impl Read + Seek>,
+    ) -> Result<Image<Layers>>
+    where
+        for<'s> L: ReadLayers<'s, Layers = Layers>,
     {
-        let Self { pedantic, parallel, ref mut on_progress, ref mut read_layers } = self;
+        let Self {
+            pedantic,
+            parallel,
+            ref mut on_progress,
+            ref mut read_layers,
+        } = self;
 
         let layers_reader = read_layers.create_layers_reader(chunks_reader.headers())?;
-        let mut image_collector = ImageWithAttributesReader::new(chunks_reader.headers(), layers_reader)?;
+        let mut image_collector =
+            ImageWithAttributesReader::new(chunks_reader.headers(), layers_reader)?;
 
         let block_reader = chunks_reader
             .filter_chunks(pedantic, |meta, tile, block| {
@@ -125,15 +151,16 @@ impl<F, L> ReadImage<F, L> where F: FnMut(f64)
         // TODO propagate send requirement further upwards
         if parallel {
             #[cfg(not(feature = "rayon"))]
-            return Err(crate::error::Error::unsupported("parallel decompression requires the rayon feature"));
+            return Err(crate::error::Error::unsupported(
+                "parallel decompression requires the rayon feature",
+            ));
 
             #[cfg(feature = "rayon")]
-            block_reader.decompress_parallel(pedantic, |meta_data, block|{
+            block_reader.decompress_parallel(pedantic, |meta_data, block| {
                 image_collector.read_block(&meta_data.headers, block)
             })?;
-        }
-        else {
-            block_reader.decompress_sequential(pedantic, |meta_data, block|{
+        } else {
+            block_reader.decompress_sequential(pedantic, |meta_data, block| {
                 image_collector.read_block(&meta_data.headers, block)
             })?;
         }
@@ -149,13 +176,19 @@ pub struct ImageWithAttributesReader<L> {
     layers_reader: L,
 }
 
-impl<L> ImageWithAttributesReader<L> where L: LayersReader {
-
+impl<L> ImageWithAttributesReader<L>
+where
+    L: LayersReader,
+{
     /// A new image reader with image attributes.
-    pub fn new(headers: &[Header], layers_reader: L) -> Result<Self>
-    {
-        Ok(ImageWithAttributesReader {
-            image_attributes: headers.first().as_ref().expect("invalid headers").shared_attributes.clone(),
+    pub fn new(headers: &[Header], layers_reader: L) -> Result<Self> {
+        Ok(Self {
+            image_attributes: headers
+                .first()
+                .as_ref()
+                .expect("invalid headers")
+                .shared_attributes
+                .clone(),
             layers_reader,
         })
     }
@@ -174,15 +207,13 @@ impl<L> ImageWithAttributesReader<L> where L: LayersReader {
     fn into_image(self) -> Image<L::Layers> {
         Image {
             attributes: self.image_attributes,
-            layer_data: self.layers_reader.into_layers()
+            layer_data: self.layers_reader.into_layers(),
         }
     }
 }
 
-
 /// A template that creates a `LayerReader` for each layer in the file.
 pub trait ReadLayers<'s> {
-
     /// The type of the resulting Layers
     type Layers;
 
@@ -194,14 +225,16 @@ pub trait ReadLayers<'s> {
 
     /// Specify that all attributes should be read from an image.
     /// Use `from_file(path)` on the return value of this method to actually decode an image.
-    fn all_attributes(self) -> ReadImage<fn(f64), Self> where Self: Sized {
+    fn all_attributes(self) -> ReadImage<fn(f64), Self>
+    where
+        Self: Sized,
+    {
         ReadImage::new(self, ignore_progress)
     }
 }
 
 /// Processes pixel blocks from a file and accumulates them into a single image layer.
 pub trait LayersReader {
-
     /// The type of resulting layers
     type Layers;
 
@@ -214,4 +247,3 @@ pub trait LayersReader {
     /// Deliver the final accumulated layers for the image
     fn into_layers(self) -> Self::Layers;
 }
-

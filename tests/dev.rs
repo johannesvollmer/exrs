@@ -5,16 +5,18 @@ extern crate smallvec;
 
 use exr::prelude::*;
 
-use std::path::{PathBuf};
-use std::ffi::OsStr;
-use std::io::{Cursor};
-use exr::meta::header::Header;
 use exr::image::validate_results::ValidateResult;
-use rayon::prelude::IntoParallelIterator;
+use exr::meta::header::Header;
 use rayon::iter::ParallelIterator;
+use rayon::prelude::IntoParallelIterator;
+use std::ffi::OsStr;
+use std::io::Cursor;
+use std::path::PathBuf;
 
-fn exr_files() -> impl Iterator<Item=PathBuf> {
-    walkdir::WalkDir::new("tests/images/valid").into_iter().map(std::result::Result::unwrap)
+fn exr_files() -> impl Iterator<Item = PathBuf> {
+    walkdir::WalkDir::new("tests/images/valid")
+        .into_iter()
+        .map(std::result::Result::unwrap)
         .filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
         .map(walkdir::DirEntry::into_path)
 }
@@ -26,7 +28,11 @@ fn print_meta_of_all_files() {
 
     files.into_par_iter().for_each(|path| {
         let meta = MetaData::read_from_file(&path, false);
-        println!("{:?}: \t\t\t {:?}", path.file_name().unwrap(), meta.unwrap());
+        println!(
+            "{:?}: \t\t\t {:?}",
+            path.file_name().unwrap(),
+            meta.unwrap()
+        );
     });
 }
 
@@ -37,10 +43,17 @@ fn search_previews_of_all_files() {
 
     files.into_par_iter().for_each(|path| {
         let meta = MetaData::read_from_file(&path, false).unwrap();
-        let has_preview = meta.headers.iter().any(|header: &Header|
-            header.own_attributes.preview.is_some() || header.own_attributes.other.values()
-                .any(|value| match value { AttributeValue::Preview(_) => true, _ => false })
-        );
+        let has_preview = meta.headers.iter().any(|header: &Header| {
+            header.own_attributes.preview.is_some()
+                || header
+                    .own_attributes
+                    .other
+                    .values()
+                    .any(|value| match value {
+                        AttributeValue::Preview(_) => true,
+                        _ => false,
+                    })
+        });
 
         if has_preview {
             println!("Found preview attribute in {:?}", path.file_name().unwrap());
@@ -54,8 +67,8 @@ fn search_previews_of_all_files() {
 #[ignore]
 pub fn test_roundtrip() {
     // works
-     //let path = "tests/images/fuzzed/b44_overly_restrictive_assert.exr";
-     let path = "tests/images/valid/custom/compression_methods/f32/pxr24.exr";
+    //let path = "tests/images/fuzzed/b44_overly_restrictive_assert.exr";
+    let path = "tests/images/valid/custom/compression_methods/f32/pxr24.exr";
 
     // worksn't
     // let path = "tests/images/valid/openexr/Chromaticities/Rec709_YC.exr"; // subsampling
@@ -71,13 +84,20 @@ pub fn test_roundtrip() {
     println!("{:?}", exr::meta::MetaData::read_from_file(path, true));
 
     let read_image = read()
-        .no_deep_data().all_resolution_levels().all_channels().all_layers().all_attributes()
+        .no_deep_data()
+        .all_resolution_levels()
+        .all_channels()
+        .all_layers()
+        .all_attributes()
         .non_parallel();
 
     let image = read_image.clone().from_file(path).unwrap();
 
     let mut tmp_bytes = Vec::new();
-    image.write().to_buffered(Cursor::new(&mut tmp_bytes)).unwrap();
+    image
+        .write()
+        .to_buffered(Cursor::new(&mut tmp_bytes))
+        .unwrap();
     image.write().to_file("debug_pxr24.exr").unwrap();
 
     let image2 = read_image.from_buffered(Cursor::new(tmp_bytes)).unwrap();

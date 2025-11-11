@@ -6,6 +6,7 @@
 pub struct NoneMore;
 
 /// A recursive type-level linked list of `Value` entries.
+///
 /// Mainly used to represent an arbitrary number of channels.
 /// The recursive architecture removes the need to implement traits for many different tuples.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
@@ -20,7 +21,9 @@ pub struct Recursive<Inner, Value> {
 
 impl<Inner, Value> Recursive<Inner, Value> {
     /// Create a new recursive type. Equivalent to the manual constructor, but less verbose.
-    pub fn new(inner: Inner, value: Value) -> Self { Self { inner, value } }
+    pub const fn new(inner: Inner, value: Value) -> Self {
+        Self { inner, value }
+    }
 }
 
 /// Convert this recursive type into a tuple.
@@ -53,12 +56,16 @@ pub trait IntoRecursive {
 
 impl IntoRecursive for NoneMore {
     type Recursive = Self;
-    fn into_recursive(self) -> Self::Recursive { self }
+    fn into_recursive(self) -> Self::Recursive {
+        self
+    }
 }
 
 impl<Inner: IntoRecursive, Value> IntoRecursive for Recursive<Inner, Value> {
     type Recursive = Recursive<Inner::Recursive, Value>;
-    fn into_recursive(self) -> Self::Recursive { Recursive::new(self.inner.into_recursive(), self.value) }
+    fn into_recursive(self) -> Self::Recursive {
+        Recursive::new(self.inner.into_recursive(), self.value)
+    }
 }
 
 // Automatically implement IntoTuple so we have to generate less code in the macros
@@ -71,14 +78,16 @@ impl<I: IntoNonRecursive> IntoTuple<I::NonRecursive> for I {
 //Implement traits for the empty tuple, the macro doesn't handle that
 impl IntoRecursive for () {
     type Recursive = NoneMore;
-    fn into_recursive(self) -> Self::Recursive { NoneMore }
+    fn into_recursive(self) -> Self::Recursive {
+        NoneMore
+    }
 }
 
 impl IntoNonRecursive for NoneMore {
     type NonRecursive = ();
 
     fn into_non_recursive(self) -> Self::NonRecursive {
-        ()
+        ();
     }
 }
 
@@ -106,7 +115,7 @@ macro_rules! gen_recursive_value {
     };
 }
 
-/// Generates the into_tuple value corresponding to the given type names:
+/// Generates the `into_tuple` value corresponding to the given type names:
 /// ```nocheck
 /// gen_tuple_value(self; A, B, C)
 /// => (self.inner.inner.value, self.inner.value, self.value)
