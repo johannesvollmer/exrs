@@ -153,13 +153,37 @@ According to `releasing.md:15`, only "unreachable `unwrap()`, `expect("")` and `
 A comprehensive audit against all [Rust API Guidelines - Naming](https://rust-lang.github.io/api-guidelines/naming.html) conventions was performed.
 
 #### C-CASE: Casing Conventions
-**Status:** ✅ **Compliant**
-- All modules use `snake_case`
-- All types/traits use `UpperCamelCase`
-- All enum variants use `UpperCamelCase`
-- All functions/methods use `snake_case`
-- All constants use `SCREAMING_SNAKE_CASE`
-- Acronyms properly treated as single words (no violations found)
+**Status:** ⚠️ **Violations Found**
+- All modules use `snake_case` ✅
+- All types/traits use `UpperCamelCase` ✅
+- All enum variants use `UpperCamelCase` ❌ **VIOLATIONS**
+- All functions/methods use `snake_case` ✅
+- All constants use `SCREAMING_SNAKE_CASE` ✅
+
+**Violations in src/compression/mod.rs - Compression enum:**
+
+According to C-CASE guidelines, acronyms should be treated as single words, not all uppercase.
+
+| Current (Incorrect) | Should Be |
+|---------------------|-----------|
+| `RLE` | `Rle` |
+| `ZIP1` | `Zip1` |
+| `ZIP16` | `Zip16` |
+| `PIZ` | `Piz` |
+| `PXR24` | `Pxr24` |
+| `B44A` | `B44a` |
+| `DWAA` | `Dwaa` |
+| `DWAB` | `Dwab` |
+| `HTJ2K32` | `Htj2k32` |
+| `HTJ2K256` | `Htj2k256` |
+
+**Status:** ❌ **NOT FIXED** - This is a complex breaking change affecting:
+- Serialization/deserialization code
+- 50+ match statements throughout the codebase
+- External API surface
+- Needs careful coordination with deprecated aliases
+
+**Recommendation:** Address in a dedicated PR with comprehensive deprecation strategy and migration guide.
 
 #### C-CONV: Conversion Method Naming
 **Status:** ⚠️ **1 Violation Found**
