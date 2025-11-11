@@ -8,7 +8,6 @@ use bencher::Bencher;
 use std::fs;
 use std::io::Cursor;
 use exr::image::pixel_vec::PixelVec;
-use exr::io::Data;
 use exr::block::samples::FromNativeSample;
 
 const F32_ZIPS_PATH: &'static str = "tests/images/valid/custom/crowskull/crow_zips.exr";
