@@ -165,8 +165,12 @@ impl<'slf, InnerLayers, Channels> WritableLayers<'slf> for Recursive<InnerLayers
 type RecursiveLayersWriter<InnerLayersWriter, ChannelsWriter> = Recursive<InnerLayersWriter, (usize, LayerWriter<ChannelsWriter>)>;
 
 impl LayersWriter for NoneMore {
+    /// # Panics
+    /// Panics if called, as this indicates a recursive length mismatch bug where
+    /// a block is being extracted for a layer index that doesn't exist in the
+    /// recursive layer structure.
     fn extract_uncompressed_block(&self, _: &[Header], _: BlockIndex) -> Vec<u8> {
-        panic!("recursive length mismatch bug");
+        unreachable!("recursive length mismatch bug: attempted to extract block for non-existent layer")
     }
 }
 
