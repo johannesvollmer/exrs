@@ -158,7 +158,10 @@ impl UncompressedBlock {
 
         let expected_byte_size = header.channels.bytes_per_pixel * self.index.pixel_size.area(); // TODO sampling??
         if expected_byte_size != data.len() {
-            panic!("get_line byte size should be {} but was {}", expected_byte_size, data.len());
+            return Err(Error::invalid(format!(
+                "decompressed block byte size mismatch: expected {} bytes but got {} bytes",
+                expected_byte_size, data.len()
+            )));
         }
 
         let tile_coordinates = TileCoordinates {
