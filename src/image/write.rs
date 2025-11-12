@@ -15,6 +15,9 @@ pub mod channels;
 pub mod layers;
 pub mod samples;
 
+#[cfg(feature = "deep-data")]
+pub mod deep;
+
 use crate::block::writer::ChunksWriter;
 use crate::error::UnitResult;
 use crate::image::write::layers::{LayersWriter, WritableLayers};
