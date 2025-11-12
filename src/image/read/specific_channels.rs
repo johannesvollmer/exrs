@@ -478,6 +478,7 @@ fn read_and_convert_all_samples_batched<'t, From, To>(
 #[cfg(test)]
 mod test {
     use super::*;
+    use half::f16;
 
     #[test]
     fn equals_naive_f32() {
