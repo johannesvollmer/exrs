@@ -84,9 +84,6 @@ pub fn decompress(
                 // Use PIZ Huffman decompressor - AC coefficients are u16 values
                 let decompressed_u16 = super::piz::huffman::decompress(&compressed, header.ac_uncompressed_size)?;
 
-                eprintln!("Huffman decompressed {} u16 values, first 20: {:?}",
-                          decompressed_u16.len(), &decompressed_u16[..20.min(decompressed_u16.len())]);
-
                 // Convert u16 to bytes (little-endian)
                 let mut bytes = vec![0u8; decompressed_u16.len() * 2];
                 for (i, &value) in decompressed_u16.iter().enumerate() {
@@ -135,11 +132,6 @@ pub fn decompress(
         let channel_class = &classification.channel_classifications[ch_idx];
         let channel_resolution = channel.subsampled_resolution(rectangle.size);
 
-        let channel_name: String = channel.name.clone().into();
-        eprintln!("Channel {}: {:?}, scheme: {:?}, resolution: {}x{}",
-                  ch_idx, channel_name, channel_class.scheme,
-                  channel_resolution.x(), channel_resolution.y());
-
         if channel_class.scheme == CompressionScheme::LossyDct {
             // Decode this lossy DCT channel
             let spatial_data = decode_lossy_dct_channel(
@@ -148,7 +140,6 @@ pub fn decompress(
                 &classification.csc_groups,
                 &mut ac_reader,
                 &mut dc_reader,
-                header.version,
             )?;
 
             spatial_buffers[ch_idx] = Some(spatial_data);
@@ -233,7 +224,6 @@ fn decode_lossy_dct_channel(
     _csc_groups: &[classifier::CscGroup],
     ac_reader: &mut std::io::Cursor<&[u8]>,
     dc_reader: &mut std::io::Cursor<&[u8]>,
-    version: u64,
 ) -> Result<Vec<f32>> {
     use constants::{BLOCK_SIZE, INVERSE_ZIGZAG_ORDER};
     use dct::inverse_dct_8x8_optimized;
@@ -245,10 +235,6 @@ fn decode_lossy_dct_channel(
     // Calculate number of blocks
     let blocks_x = (width + BLOCK_SIZE - 1) / BLOCK_SIZE;
     let blocks_y = (height + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    let total_blocks = blocks_x * blocks_y;
-
-    eprintln!("Decoding channel: {}x{} pixels = {} blocks ({}x{})",
-              width, height, total_blocks, blocks_x, blocks_y);
 
     // Allocate spatial buffer
     let mut spatial_data = vec![0.0f32; pixel_count];
@@ -273,9 +259,8 @@ fn decode_lossy_dct_channel(
             // Read DC coefficient (u16, little-endian)
             let dc_coeff = read_u16_le(dc_reader)?;
 
-            // Read AC coefficients (RLE encoded)
-            let ac_encoded = read_rle_ac_block(ac_reader, version)?;
-            let ac_coeffs = rle::decode_ac_coefficients(&ac_encoded)?;
+            // Read AC coefficients from continuous RLE stream
+            let ac_coeffs = read_ac_coefficients_for_block(ac_reader)?;
 
             // Find last non-zero coefficient for optimization
             let last_non_zero = rle::find_last_non_zero(&ac_coeffs);
@@ -338,46 +323,42 @@ fn read_u16_le(reader: &mut std::io::Cursor<&[u8]>) -> Result<u16> {
     Ok(u16::from_le_bytes(bytes))
 }
 
-/// Read RLE-encoded AC coefficients for one block
-fn read_rle_ac_block(reader: &mut std::io::Cursor<&[u8]>, version: u64) -> Result<Vec<u16>> {
-    use constants::rle_markers;
+/// Read AC coefficients for one 8x8 block from continuous RLE stream
+/// Based on OpenEXR LossyDctDecoder_unRleAc
+fn read_ac_coefficients_for_block(reader: &mut std::io::Cursor<&[u8]>) -> Result<[u16; 63]> {
+    let mut ac_coeffs = [0u16; 63];
+    let mut dct_comp = 1; // Start at 1 (DC is 0, we're reading AC)
 
-    let mut encoded = Vec::new();
-
-    if version >= 1 {
-        // Version 1+ uses end-of-block markers
-        loop {
-            if reader.position() as usize >= reader.get_ref().len() {
-                return Err(Error::invalid("Unexpected end of AC stream"));
-            }
-
-            let value = read_u16_le(reader)?;
-            encoded.push(value);
-
-            if rle_markers::is_end_of_block(value) {
-                break;
-            }
-
-            // Prevent infinite loops on malformed data
-            // AC coefficients are 63 values max, but with RLE markers could be more
-            if encoded.len() > 1000 {
-                eprintln!("RLE block getting too long: {} values, last few: {:?}",
-                          encoded.len(), &encoded[encoded.len().saturating_sub(5)..]);
-                return Err(Error::invalid("RLE AC block too long"));
-            }
+    while dct_comp < 64 {
+        if reader.position() as usize >= reader.get_ref().len() {
+            return Err(Error::invalid("Unexpected end of AC stream"));
         }
-    } else {
-        // Version 0: read exactly 63 AC coefficients
-        for _ in 0..63 {
-            if reader.position() as usize >= reader.get_ref().len() {
-                return Err(Error::invalid("Unexpected end of AC stream"));
+
+        let val = read_u16_le(reader)?;
+
+        if (val & 0xff00) == 0xff00 {
+            // RLE marker: 0xffXX
+            let count = (val & 0xff) as usize;
+
+            if count == 0 {
+                // End of block - remaining coefficients are zero
+                break;
+            } else {
+                // Run of zeros - since array is pre-zeroed, just advance
+                dct_comp += count;
             }
-            let value = read_u16_le(reader)?;
-            encoded.push(value);
+        } else {
+            // Regular coefficient value
+            if dct_comp >= 64 {
+                return Err(Error::invalid("AC coefficient index out of range"));
+            }
+            // Store in zigzag order (dct_comp-1 because AC starts at index 1)
+            ac_coeffs[dct_comp - 1] = val;
+            dct_comp += 1;
         }
     }
 
-    Ok(encoded)
+    Ok(ac_coeffs)
 }
 
 /// Apply inverse CSC to convert Y'CbCr spatial data to RGB
