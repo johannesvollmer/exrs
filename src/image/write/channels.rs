@@ -84,7 +84,7 @@ impl<'samples, Samples> WritableChannels<'samples> for AnyChannels<Samples>
     type Writer = AnyChannelsWriter<Samples::Writer>;
     fn create_writer(&'samples self, header: &Header) -> Self::Writer {
         let channels = self.list.iter()
-            .map(|chan| chan.sample_data.create_samples_writer(header))
+            .map(|chan| chan.sample_data.create_samples_writer(header, chan.sampling))
             .collect();
 
         AnyChannelsWriter { channels }
