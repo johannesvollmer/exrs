@@ -70,3 +70,15 @@ pub fn decompress_raw(
     // Deep data offset tables are just arrays of i32 values
     Ok(decompressed)
 }
+
+/// Compress raw byte data without channel-specific processing.
+/// Used for deep data offset tables and other raw byte arrays.
+#[cfg(feature = "deep-data")]
+pub fn compress_raw(uncompressed_le: ByteVec) -> Result<ByteVec> {
+    // Note: No samples_to_differences or separate_bytes_fragments for raw data
+    // Deep data offset tables are just arrays of i32 values
+    Ok(miniz_oxide::deflate::compress_to_vec_zlib(
+        uncompressed_le.as_slice(),
+        4,
+    ))
+}

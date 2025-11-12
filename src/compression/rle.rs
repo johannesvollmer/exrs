@@ -142,3 +142,48 @@ pub fn decompress_raw(
     // Deep data offset tables are just arrays of i32 values
     Ok(decompressed_le)
 }
+
+/// Compress raw byte data without channel-specific processing.
+/// Used for deep data offset tables and other raw byte arrays.
+#[cfg(feature = "deep-data")]
+pub fn compress_raw(uncompressed_le: ByteVec) -> Result<ByteVec> {
+    // Note: No samples_to_differences or separate_bytes_fragments for raw data
+    // Deep data offset tables are just arrays of i32 values
+
+    let mut compressed_le = Vec::with_capacity(uncompressed_le.len());
+    let mut run_start = 0;
+    let mut run_end = 1;
+
+    while run_start < uncompressed_le.len() {
+        while run_end < uncompressed_le.len()
+            && uncompressed_le[run_start] == uncompressed_le[run_end]
+            && (run_end - run_start) as i32 - 1 < MAX_RUN_LENGTH as i32
+        {
+            run_end += 1;
+        }
+
+        if run_end - run_start >= MIN_RUN_LENGTH {
+            compressed_le.push(((run_end - run_start) as i32 - 1) as u8);
+            compressed_le.push(uncompressed_le[run_start]);
+            run_start = run_end;
+        } else {
+            while run_end < uncompressed_le.len()
+                && ((run_end + 1 >= uncompressed_le.len()
+                    || uncompressed_le[run_end] != uncompressed_le[run_end + 1])
+                    || (run_end + 2 >= uncompressed_le.len()
+                        || uncompressed_le[run_end + 1] != uncompressed_le[run_end + 2]))
+                && run_end - run_start < MAX_RUN_LENGTH
+            {
+                run_end += 1;
+            }
+
+            compressed_le.push((run_start as i32 - run_end as i32) as u8);
+            compressed_le.extend_from_slice(&uncompressed_le[run_start..run_end]);
+
+            run_start = run_end;
+            run_end += 1;
+        }
+    }
+
+    Ok(compressed_le)
+}

@@ -412,4 +412,76 @@ impl UncompressedDeepBlock {
             )),
         }
     }
+
+    /// Consume this deep block by compressing it, returning a `Chunk`.
+    #[inline]
+    #[must_use]
+    pub fn compress_to_chunk(self, headers: &[Header]) -> Result<Chunk> {
+        use crate::block::chunk::{CompressedDeepScanLineBlock, CompressedDeepTileBlock};
+
+        let Self {
+            pixel_offset_table,
+            sample_data,
+            index,
+        } = self;
+
+        let header: &Header = headers.get(index.layer).expect("block layer index bug");
+
+        // Verify the compression method supports deep data
+        if !header.compression.supports_deep_data() {
+            return Err(Error::unsupported(format!(
+                "compression method {:?} does not support deep data",
+                header.compression
+            )));
+        }
+
+        let num_pixels = index.pixel_size.area();
+
+        // Verify offset table size
+        if pixel_offset_table.len() != num_pixels {
+            return Err(Error::invalid(format!(
+                "pixel offset table size mismatch: expected {} entries, got {}",
+                num_pixels,
+                pixel_offset_table.len()
+            )));
+        }
+
+        let tile_coordinates = TileCoordinates {
+            tile_index: index.pixel_position / header.max_block_pixel_size(),
+            level_index: index.level,
+        };
+
+        let absolute_indices = header.absolute_block_pixel_coordinates(tile_coordinates)?;
+        absolute_indices.validate(Some(header.layer_size))?;
+
+        // Compress the pixel offset table and sample data
+        let decompressed_sample_data_size = sample_data.len();
+        let (compressed_pixel_offset_table, compressed_sample_data_le) = header
+            .compression
+            .compress_deep_block(header, pixel_offset_table, sample_data)?;
+
+        Ok(Chunk {
+            layer_index: index.layer,
+            compressed_block: match header.blocks {
+                BlockDescription::ScanLines => {
+                    CompressedBlock::DeepScanLine(CompressedDeepScanLineBlock {
+                        y_coordinate: usize_to_i32(index.pixel_position.y(), "pixel index")?
+                            + header.own_attributes.layer_position.y(),
+                        decompressed_sample_data_size,
+                        compressed_pixel_offset_table,
+                        compressed_sample_data_le,
+                    })
+                }
+
+                BlockDescription::Tiles(_) => {
+                    CompressedBlock::DeepTile(CompressedDeepTileBlock {
+                        coordinates: tile_coordinates,
+                        decompressed_sample_data_size,
+                        compressed_pixel_offset_table,
+                        compressed_sample_data_le,
+                    })
+                }
+            },
+        })
+    }
 }
