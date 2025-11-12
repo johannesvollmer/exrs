@@ -5,10 +5,10 @@ use crate::error::usize_to_i32;
 use crate::io::Data;
 use crate::meta::attribute::ChannelList;
 use crate::prelude::*;
+use lebe::io::{ReadPrimitive, WriteEndian};
 use std::cmp::min;
 use std::mem::size_of;
 use table::{EXP_TABLE, LOG_TABLE};
-use lebe::io::{ReadPrimitive, WriteEndian};
 
 const BLOCK_SAMPLE_COUNT: usize = 4;
 
@@ -30,7 +30,7 @@ fn convert_to_linear(s: &mut [u16; 16]) {
 }
 
 #[inline]
-fn shift_and_round(x: i32, shift: i32) -> i32 {
+const fn shift_and_round(x: i32, shift: i32) -> i32 {
     let x = x << 1;
     let a = (1 << shift) - 1;
     let shift = shift + 1;
@@ -40,7 +40,6 @@ fn shift_and_round(x: i32, shift: i32) -> i32 {
 
 /// Pack a block of 4 by 4 16-bit pixels (32 bytes, the array `s`) into either 14 or 3 bytes.
 fn pack(s: [u16; 16], b: &mut [u8], optimize_flat_fields: bool, exact_max: bool) -> usize {
-
     let mut t = [0u16; 16];
 
     for i in 0..16 {
@@ -155,7 +154,7 @@ fn pack(s: [u16; 16], b: &mut [u8], optimize_flat_fields: bool, exact_max: bool)
     b[12] = ((r[12] << 4) | (r[13] >> 2)) as u8;
     b[13] = ((r[13] << 6) | r[14]) as u8;
 
-    return 14;
+    14
 }
 
 // Tiny macro to simply get block array value as a u32.
@@ -178,24 +177,32 @@ fn unpack14(b: &[u8], s: &mut [u16; 16]) {
     let shift = b32!(b, 2) >> 2;
     let bias = 0x20 << shift;
 
-    s[4] = (s[0] as u32 + ((((b32!(b, 2) << 4) | (b32!(b, 3) >> 4)) & SIX_BITS) << shift) - bias) as u16;
-    s[8] = (s[4] as u32 + ((((b32!(b, 3) << 2) | (b32!(b, 4) >> 6)) & SIX_BITS) << shift) - bias) as u16;
-    s[12] = (s[8] as u32 + ((b32!(b, 4) & SIX_BITS) << shift) - bias) as u16;
+    s[4] = (u32::from(s[0]) + ((((b32!(b, 2) << 4) | (b32!(b, 3) >> 4)) & SIX_BITS) << shift)
+        - bias) as u16;
+    s[8] = (u32::from(s[4]) + ((((b32!(b, 3) << 2) | (b32!(b, 4) >> 6)) & SIX_BITS) << shift)
+        - bias) as u16;
+    s[12] = (u32::from(s[8]) + ((b32!(b, 4) & SIX_BITS) << shift) - bias) as u16;
 
-    s[1] = (s[0] as u32 + ((b32!(b, 5) >> 2) << shift) - bias) as u16;
-    s[5] = (s[4] as u32 + ((((b32!(b, 5) << 4) | (b32!(b, 6) >> 4)) & SIX_BITS) << shift) - bias) as u16;
-    s[9] = (s[8] as u32 + ((((b32!(b, 6) << 2) | (b32!(b, 7) >> 6)) & SIX_BITS) << shift) - bias) as u16;
-    s[13] = (s[12] as u32 + ((b32!(b, 7) & SIX_BITS) << shift) - bias) as u16;
+    s[1] = (u32::from(s[0]) + ((b32!(b, 5) >> 2) << shift) - bias) as u16;
+    s[5] = (u32::from(s[4]) + ((((b32!(b, 5) << 4) | (b32!(b, 6) >> 4)) & SIX_BITS) << shift)
+        - bias) as u16;
+    s[9] = (u32::from(s[8]) + ((((b32!(b, 6) << 2) | (b32!(b, 7) >> 6)) & SIX_BITS) << shift)
+        - bias) as u16;
+    s[13] = (u32::from(s[12]) + ((b32!(b, 7) & SIX_BITS) << shift) - bias) as u16;
 
-    s[2] = (s[1] as u32 + ((b32!(b, 8) >> 2) << shift) - bias) as u16;
-    s[6] = (s[5] as u32 + ((((b32!(b, 8) << 4) | (b32!(b, 9) >> 4)) & SIX_BITS) << shift)  - bias) as u16;
-    s[10] = (s[9] as u32 + ((((b32!(b, 9) << 2) | (b32!(b, 10) >> 6)) & SIX_BITS) << shift) - bias) as u16;
-    s[14] = (s[13] as u32 + ((b32!(b, 10) & SIX_BITS) << shift) - bias) as u16;
+    s[2] = (u32::from(s[1]) + ((b32!(b, 8) >> 2) << shift) - bias) as u16;
+    s[6] = (u32::from(s[5]) + ((((b32!(b, 8) << 4) | (b32!(b, 9) >> 4)) & SIX_BITS) << shift)
+        - bias) as u16;
+    s[10] = (u32::from(s[9]) + ((((b32!(b, 9) << 2) | (b32!(b, 10) >> 6)) & SIX_BITS) << shift)
+        - bias) as u16;
+    s[14] = (u32::from(s[13]) + ((b32!(b, 10) & SIX_BITS) << shift) - bias) as u16;
 
-    s[3] = (s[2] as u32 + ((b32!(b, 11) >> 2) << shift) - bias) as u16;
-    s[7] = (s[6] as u32 + ((((b32!(b, 11) << 4) | (b32!(b, 12) >> 4)) & SIX_BITS) << shift) - bias) as u16;
-    s[11] = (s[10] as u32 + ((((b32!(b, 12) << 2) | (b32!(b, 13) >> 6)) & SIX_BITS) << shift) - bias) as u16;
-    s[15] = (s[14] as u32 + ((b32!(b, 13) & SIX_BITS) << shift) - bias) as u16;
+    s[3] = (u32::from(s[2]) + ((b32!(b, 11) >> 2) << shift) - bias) as u16;
+    s[7] = (u32::from(s[6]) + ((((b32!(b, 11) << 4) | (b32!(b, 12) >> 4)) & SIX_BITS) << shift)
+        - bias) as u16;
+    s[11] = (u32::from(s[10]) + ((((b32!(b, 12) << 2) | (b32!(b, 13) >> 6)) & SIX_BITS) << shift)
+        - bias) as u16;
+    s[15] = (u32::from(s[14]) + ((b32!(b, 13) & SIX_BITS) << shift) - bias) as u16;
 
     for i in 0..16 {
         if (s[i] & 0x8000) != 0 {
@@ -248,7 +255,8 @@ fn memcpy_u16_to_u8(src: &[u16], mut dst: &mut [u8]) {
 #[inline]
 fn memcpy_u8_to_u16(mut src: &[u8], dst: &mut [u16]) {
     use lebe::prelude::*;
-    src.read_from_native_endian_into(dst).expect("byte copy error");
+    src.read_from_native_endian_into(dst)
+        .expect("byte copy error");
 }
 
 #[inline]
@@ -279,7 +287,7 @@ pub fn decompress(
     let mut channel_data: Vec<ChannelData> = Vec::with_capacity(channels.list.len());
     let mut tmp_read_index = 0;
 
-    for channel in channels.list.iter() {
+    for channel in &channels.list {
         let channel = ChannelData {
             tmp_start_index: tmp_read_index,
             tmp_end_index: tmp_read_index,
@@ -307,7 +315,6 @@ pub fn decompress(
     let mut remaining_le = compressed_le.len();
 
     for channel in &channel_data {
-
         debug_assert_eq!(remaining_le, compressed_le.len() - in_i);
 
         // Compute information for current channel.
@@ -317,7 +324,6 @@ pub fn decompress(
         // Sample types that does not support B44 compression (u32 and f32) are raw copied.
         // In this branch, "compressed" array is actually raw, uncompressed data.
         if channel.sample_type != SampleType::F16 {
-
             debug_assert_eq!(channel.sample_type.bytes_per_sample(), 4);
 
             if remaining_le < byte_count {
@@ -358,7 +364,6 @@ pub fn decompress(
 
             // Move in pixel x line, 4 by 4.
             for x in (0..x_sample_count).step_by(BLOCK_SAMPLE_COUNT) {
-
                 // Extract the 4 by 4 block of 16-bit floats from the compressed buffer.
                 let mut s = [0u16; 16];
 
@@ -392,9 +397,10 @@ pub fn decompress(
                 }
 
                 // Get resting samples from the line to copy in temp buffer (without going outside channel).
-                let x_resting_sample_count = match x + 3 < x_sample_count {
-                    true => BLOCK_SAMPLE_COUNT,
-                    false => x_sample_count - x,
+                let x_resting_sample_count = if x + 3 < x_sample_count {
+                    BLOCK_SAMPLE_COUNT
+                } else {
+                    x_sample_count - x
                 };
 
                 debug_assert!(x_resting_sample_count > 0);
@@ -458,13 +464,13 @@ pub fn decompress(
                 // TODO simplify this and make it memcpy on little endian systems
                 // https://github.com/AcademySoftwareFoundation/openexr/blob/a03aca31fa1ce85d3f28627dbb3e5ded9494724a/src/lib/OpenEXR/ImfB44Compressor.cpp#L943
                 for mut f16_bytes in channel_bytes.chunks(std::mem::size_of::<f16>()) {
-                    let native_endian_f16_bits = u16::read_from_little_endian(&mut f16_bytes).expect("memory read failed");
-                    out.write_as_native_endian(&native_endian_f16_bits).expect("memory write failed");
+                    let native_endian_f16_bits =
+                        u16::read_from_little_endian(&mut f16_bytes).expect("memory read failed");
+                    out.write_as_native_endian(&native_endian_f16_bits)
+                        .expect("memory write failed");
                 }
-            }
-            else {
-                u8::write_slice_ne(&mut out, channel_bytes)
-                    .expect("write to in-memory failed");
+            } else {
+                u8::write_slice_ne(&mut out, channel_bytes).expect("write to in-memory failed");
             }
         }
     }
@@ -495,7 +501,8 @@ pub fn compress(
 
     // TODO do not convert endianness for f16-only images
     //      see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
-    let uncompressed_le = super::convert_current_to_little_endian(uncompressed_ne, channels, rectangle)?;
+    let uncompressed_le =
+        super::convert_current_to_little_endian(uncompressed_ne, channels, rectangle)?;
     let uncompressed_le = uncompressed_le.as_slice(); // TODO no alloc
 
     let mut channel_data = Vec::new();
@@ -547,16 +554,18 @@ pub fn compress(
             // native representations of a half have the same size.
 
             if channel.sample_type == SampleType::F16 {
-
                 // TODO simplify this and make it memcpy on little endian systems
                 // https://github.com/AcademySoftwareFoundation/openexr/blob/a03aca31fa1ce85d3f28627dbb3e5ded9494724a/src/lib/OpenEXR/ImfB44Compressor.cpp#L640
 
                 for mut out_f16_bytes in target.chunks_mut(2) {
-                    let native_endian_f16_bits = u16::read_from_native_endian(&mut remaining_uncompressed_bytes).expect("memory read failed");
-                    out_f16_bytes.write_as_little_endian(&native_endian_f16_bits).expect("memory write failed");
+                    let native_endian_f16_bits =
+                        u16::read_from_native_endian(&mut remaining_uncompressed_bytes)
+                            .expect("memory read failed");
+                    out_f16_bytes
+                        .write_as_little_endian(&native_endian_f16_bits)
+                        .expect("memory write failed");
                 }
-            }
-            else {
+            } else {
                 u8::read_slice_ne(&mut remaining_uncompressed_bytes, target)
                     .expect("in-memory read failed");
             }
@@ -570,7 +579,6 @@ pub fn compress(
     for channel in &channel_data {
         // U32 and F32 channels are raw copied.
         if channel.sample_type != SampleType::F16 {
-
             debug_assert_eq!(channel.sample_type.bytes_per_sample(), 4);
 
             // Raw byte copy.
@@ -630,7 +638,7 @@ pub fn compress(
                         let j = min(i, n - 1) * 2;
 
                         // TODO: Make [u8; 2] to u16 fast.
-                        s[i + 0] = u16::from_ne_bytes([tmp[row0 + j], tmp[row0 + j + 1]]);
+                        s[i] = u16::from_ne_bytes([tmp[row0 + j], tmp[row0 + j + 1]]);
                         s[i + 4] = u16::from_ne_bytes([tmp[row1 + j], tmp[row1 + j + 1]]);
                         s[i + 8] = u16::from_ne_bytes([tmp[row2 + j], tmp[row2 + j + 1]]);
                         s[i + 12] = u16::from_ne_bytes([tmp[row3 + j], tmp[row3 + j + 1]]);
@@ -687,7 +695,7 @@ mod test {
             s1[i] = f16::from_f32(rand::random::<f32>()).to_bits();
         }
 
-        let s2 = s1.clone();
+        let s2 = s1;
 
         // Apply two reversible conversion.
         convert_from_linear(&mut s1);
@@ -721,8 +729,14 @@ mod test {
 
         let compressed = b44::compress(&channels, pixel_bytes.clone(), rectangle, true).unwrap();
 
-        let decompressed =
-            b44::decompress(&channels, compressed.clone(), rectangle, pixel_bytes.len(), true).unwrap();
+        let decompressed = b44::decompress(
+            &channels,
+            compressed.clone(),
+            rectangle,
+            pixel_bytes.len(),
+            true,
+        )
+        .unwrap();
 
         assert_eq!(decompressed.len(), pixel_bytes.len());
 

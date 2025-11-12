@@ -1,4 +1,3 @@
-
 //! Read an exr image.
 //!
 //! For great flexibility and customization, use the `read()` function.
@@ -42,25 +41,27 @@
 // 3. `Image` - The clean image. The accumulated data from the Reader
 //    is converted to the clean image structure, without temporary data.
 
+pub mod any_channels;
 pub mod image;
 pub mod layers;
-pub mod any_channels;
 pub mod levels;
 pub mod samples;
 pub mod specific_channels;
 
-use crate::error::{Result};
-use crate::image::read::samples::{ReadFlatSamples};
-use std::path::Path;
-use crate::image::{AnyImage, AnyChannels, FlatSamples, Image, Layer, FlatImage, PixelLayersImage, RgbaChannels};
+use crate::block::samples::FromNativeSample;
+use crate::error::Result;
 use crate::image::read::image::ReadLayers;
 use crate::image::read::layers::ReadChannels;
+use crate::image::read::samples::ReadFlatSamples;
+use crate::image::{
+    AnyChannels, AnyImage, FlatImage, FlatSamples, Image, Layer, PixelLayersImage, RgbaChannels,
+};
 use crate::math::Vec2;
-use crate::prelude::{PixelImage};
-use crate::block::samples::FromNativeSample;
-
+use crate::prelude::PixelImage;
+use std::path::Path;
 
 /// All resolution levels, all channels, all layers.
+///
 /// Does not support deep data yet. Uses parallel decompression and relaxed error handling.
 /// Inspect the source code of this function if you need customization.
 pub fn read_all_data_from_file(path: impl AsRef<Path>) -> Result<AnyImage> {
@@ -90,7 +91,9 @@ pub fn read_all_flat_layers_from_file(path: impl AsRef<Path>) -> Result<FlatImag
 /// No deep data, no resolution levels, all channels, first layer.
 /// Uses parallel decompression and relaxed error handling.
 /// Inspect the source code of this function if you need customization.
-pub fn read_first_flat_layer_from_file(path: impl AsRef<Path>) -> Result<Image<Layer<AnyChannels<FlatSamples>>>> {
+pub fn read_first_flat_layer_from_file(
+    path: impl AsRef<Path>,
+) -> Result<Image<Layer<AnyChannels<FlatSamples>>>> {
     read()
         .no_deep_data()
         .largest_resolution_level()
@@ -101,6 +104,7 @@ pub fn read_first_flat_layer_from_file(path: impl AsRef<Path>) -> Result<Image<L
 }
 
 /// No deep data, no resolution levels, rgba channels, all layers.
+///
 /// If a single layer does not contain rgba data, this method returns an error.
 /// Uses parallel decompression and relaxed error handling.
 /// `Create` and `Set` can be closures, see the examples for more information.
@@ -112,14 +116,18 @@ pub fn read_first_flat_layer_from_file(path: impl AsRef<Path>) -> Result<Image<L
 /// The type of the pixel can be defined by the second closure;
 /// it must be a tuple containing four values, each being either `f16`, `f32`, `u32` or `Sample`.
 // FIXME Set and Create should not need to be static
-pub fn read_all_rgba_layers_from_file<R,G,B,A, Set:'static, Create:'static, Pixels: 'static>(
-    path: impl AsRef<Path>, create: Create, set_pixel: Set
-)
-    -> Result<PixelLayersImage<Pixels, RgbaChannels>>
-    where
-        R: FromNativeSample, G: FromNativeSample, B: FromNativeSample, A: FromNativeSample,
-        Create: Fn(Vec2<usize>, &RgbaChannels) -> Pixels, // TODO type alias? CreateRgbaPixels<Pixels=Pixels>,
-        Set: Fn(&mut Pixels, Vec2<usize>, (R,G,B,A)),
+pub fn read_all_rgba_layers_from_file<R, G, B, A, Set: 'static, Create: 'static, Pixels: 'static>(
+    path: impl AsRef<Path>,
+    create: Create,
+    set_pixel: Set,
+) -> Result<PixelLayersImage<Pixels, RgbaChannels>>
+where
+    R: FromNativeSample,
+    G: FromNativeSample,
+    B: FromNativeSample,
+    A: FromNativeSample,
+    Create: Fn(Vec2<usize>, &RgbaChannels) -> Pixels, // TODO type alias? CreateRgbaPixels<Pixels=Pixels>,
+    Set: Fn(&mut Pixels, Vec2<usize>, (R, G, B, A)),
 {
     read()
         .no_deep_data()
@@ -131,6 +139,7 @@ pub fn read_all_rgba_layers_from_file<R,G,B,A, Set:'static, Create:'static, Pixe
 }
 
 /// No deep data, no resolution levels, rgba channels, choosing the first layer with rgba channels.
+///
 /// Uses parallel decompression and relaxed error handling.
 /// `Create` and `Set` can be closures, see the examples for more information.
 /// Inspect the source code of this function if you need customization.
@@ -141,14 +150,18 @@ pub fn read_all_rgba_layers_from_file<R,G,B,A, Set:'static, Create:'static, Pixe
 /// The type of the pixel can be defined by the second closure;
 /// it must be a tuple containing four values, each being either `f16`, `f32`, `u32` or `Sample`.
 // FIXME Set and Create should not need to be static
-pub fn read_first_rgba_layer_from_file<R,G,B,A, Set:'static, Create:'static, Pixels: 'static>(
-    path: impl AsRef<Path>, create: Create, set_pixel: Set
-)
-    -> Result<PixelImage<Pixels, RgbaChannels>>
-    where
-        R: FromNativeSample, G: FromNativeSample, B: FromNativeSample, A: FromNativeSample,
-        Create: Fn(Vec2<usize>, &RgbaChannels) -> Pixels, // TODO type alias? CreateRgbaPixels<Pixels=Pixels>,
-        Set: Fn(&mut Pixels, Vec2<usize>, (R,G,B,A)),
+pub fn read_first_rgba_layer_from_file<R, G, B, A, Set: 'static, Create: 'static, Pixels: 'static>(
+    path: impl AsRef<Path>,
+    create: Create,
+    set_pixel: Set,
+) -> Result<PixelImage<Pixels, RgbaChannels>>
+where
+    R: FromNativeSample,
+    G: FromNativeSample,
+    B: FromNativeSample,
+    A: FromNativeSample,
+    Create: Fn(Vec2<usize>, &RgbaChannels) -> Pixels, // TODO type alias? CreateRgbaPixels<Pixels=Pixels>,
+    Set: Fn(&mut Pixels, Vec2<usize>, (R, G, B, A)),
 {
     read()
         .no_deep_data()
@@ -158,7 +171,6 @@ pub fn read_first_rgba_layer_from_file<R,G,B,A, Set:'static, Create:'static, Pix
         .all_attributes()
         .from_file(path)
 }
-
 
 /// Utilizes the builder pattern to configure an image reader. This is the initial struct.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -188,13 +200,18 @@ pub struct ReadBuilder;
 /// 1. `read_all_data_from_file`
 ///
 // TODO not panic but skip deep layers!
-pub fn read() -> ReadBuilder { ReadBuilder }
+#[must_use]
+pub const fn read() -> ReadBuilder {
+    ReadBuilder
+}
 
 impl ReadBuilder {
-
     /// Specify to handle only one sample per channel, disabling "deep data".
     // TODO not panic but skip deep layers!
-    pub fn no_deep_data(self) -> ReadFlatSamples { ReadFlatSamples }
+    #[must_use]
+    pub const fn no_deep_data(self) -> ReadFlatSamples {
+        ReadFlatSamples
+    }
 
     // pub fn any_resolution_levels() -> ReadBuilder<> {}
 

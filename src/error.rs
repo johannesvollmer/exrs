@@ -73,9 +73,12 @@ impl From<IoError> for Error {
 }
 
 // TODO use `usize::try_from(x)?` everywhere
+// Note: This provides a generic error message for integer conversion failures.
+// For better error messages, prefer using `.map_err(|_| Error::invalid(format!("specific context")))
+// instead of relying on this From impl.
 impl From<TryFromIntError> for Error {
     fn from(_: TryFromIntError) -> Self {
-        Error::invalid("invalid size")
+        Error::invalid("integer conversion failed: value out of range")
     }
 }
 
