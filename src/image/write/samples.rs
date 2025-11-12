@@ -23,7 +23,7 @@ pub trait WritableSamples<'slf> {
     type Writer: SamplesWriter;
 
     /// Create a temporary writer for this sample storage
-    fn create_samples_writer(&'slf self, header: &Header) -> Self::Writer;
+    fn create_samples_writer(&'slf self, header: &Header, sampling: Vec2<usize>) -> Self::Writer;
 }
 
 /// Enable an image with this single level sample grid to be written to a file.
@@ -37,7 +37,7 @@ pub trait WritableLevel<'slf> {
     type Writer: SamplesWriter;
 
     /// Create a temporary writer for this single level of samples
-    fn create_level_writer(&'slf self, size: Vec2<usize>) -> Self::Writer;
+    fn create_level_writer(&'slf self, size: Vec2<usize>, sampling: Vec2<usize>) -> Self::Writer;
 }
 
 /// A temporary writer for one or more resolution levels containing samples
@@ -50,8 +50,11 @@ pub trait SamplesWriter: Sync {
 /// A temporary writer for a predefined non-deep sample storage
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct FlatSamplesWriter<'samples> {
-    resolution: Vec2<usize>, // respects resolution level
-    samples: &'samples FlatSamples
+    resolution: Vec2<usize>, // Full resolution (for coordinate mapping)
+    subsampled_resolution: Vec2<usize>, // Actual sample buffer resolution
+    samples: &'samples FlatSamples,
+    x_sampling: usize,
+    y_sampling: usize,
 }
 
 
@@ -69,10 +72,19 @@ impl<'samples> WritableSamples<'samples> for FlatSamples {
     fn infer_level_modes(&self) -> (LevelMode, RoundingMode) { (LevelMode::Singular, RoundingMode::Down) }
 
     type Writer = FlatSamplesWriter<'samples>; //&'s FlatSamples;
-    fn create_samples_writer(&'samples self, header: &Header) -> Self::Writer {
+    fn create_samples_writer(&'samples self, header: &Header, sampling: Vec2<usize>) -> Self::Writer {
+        let resolution = header.layer_size;
+        let subsampled_resolution = Vec2(
+            resolution.x() / sampling.x(),
+            resolution.y() / sampling.y(),
+        );
+
         FlatSamplesWriter {
-            resolution: header.layer_size,
-            samples: self
+            resolution,
+            subsampled_resolution,
+            samples: self,
+            x_sampling: sampling.x(),
+            y_sampling: sampling.y(),
         }
     }
 }
@@ -88,26 +100,41 @@ impl<'samples> WritableLevel<'samples> for FlatSamples {
     }
 
     type Writer = FlatSamplesWriter<'samples>;
-    fn create_level_writer(&'samples self, size: Vec2<usize>) -> Self::Writer {
+    fn create_level_writer(&'samples self, size: Vec2<usize>, sampling: Vec2<usize>) -> Self::Writer {
+        let subsampled_resolution = Vec2(
+            size.x() / sampling.x(),
+            size.y() / sampling.y(),
+        );
+
         FlatSamplesWriter {
             resolution: size,
-            samples: self
+            subsampled_resolution,
+            samples: self,
+            x_sampling: sampling.x(),
+            y_sampling: sampling.y(),
         }
     }
 }
 
 impl<'samples> SamplesWriter for FlatSamplesWriter<'samples> {
     fn extract_line(&self, line: LineRefMut<'_>) {
-        let image_width = self.resolution.width(); // header.layer_size.width();
-        debug_assert_ne!(image_width, 0, "image width calculation bug");
+        use crate::math::div_p;
 
-        let start_index = line.location.position.y() * image_width + line.location.position.x();
+        debug_assert_ne!(self.subsampled_resolution.width(), 0, "sample buffer width calculation bug");
+
+        // Convert full-resolution coordinates to subsampled coordinates
+        // For a channel with sampling (2, 2), pixel position (4, 6) maps to sample position (2, 3)
+        let subsampled_x = div_p(line.location.position.x() as i32, self.x_sampling) as usize;
+        let subsampled_y = div_p(line.location.position.y() as i32, self.y_sampling) as usize;
+
+        // Calculate the index into the subsampled buffer
+        let start_index = subsampled_y * self.subsampled_resolution.width() + subsampled_x;
         let end_index = start_index + line.location.sample_count;
 
         debug_assert!(
             start_index < end_index && end_index <= self.samples.len(),
-            "for resolution {:?}, this is an invalid line: {:?}",
-            self.resolution, line.location
+            "for subsampled resolution {:?}, this is an invalid line: {:?}",
+            self.subsampled_resolution, line.location
         );
 
         match self.samples {
@@ -142,7 +169,7 @@ impl<'samples, LevelSamples> WritableSamples<'samples> for Levels<LevelSamples>
     }
 
     type Writer = LevelsWriter<LevelSamples::Writer>;
-    fn create_samples_writer(&'samples self, header: &Header) -> Self::Writer {
+    fn create_samples_writer(&'samples self, header: &Header, sampling: Vec2<usize>) -> Self::Writer {
         let rounding = match header.blocks {
             BlockDescription::Tiles(TileDescription { rounding_mode, .. }) => Some(rounding_mode),
             BlockDescription::ScanLines => None,
@@ -150,7 +177,7 @@ impl<'samples, LevelSamples> WritableSamples<'samples> for Levels<LevelSamples>
 
         LevelsWriter {
             levels: match self {
-                Levels::Singular(level) => Levels::Singular(level.create_level_writer(header.layer_size)),
+                Levels::Singular(level) => Levels::Singular(level.create_level_writer(header.layer_size, sampling)),
                 Levels::Mip { level_data, rounding_mode } => {
                     debug_assert_eq!(
                         level_data.len(),
@@ -163,7 +190,7 @@ impl<'samples, LevelSamples> WritableSamples<'samples> for Levels<LevelSamples>
                         level_data: level_data.iter()
                             .zip(mip_map_levels(rounding.expect("mip maps only with tiles"), header.layer_size))
                             // .map(|level| level.create_samples_writer(header))
-                            .map(|(level, (_level_index, level_size))| level.create_level_writer(level_size))
+                            .map(|(level, (_level_index, level_size))| level.create_level_writer(level_size, sampling))
                             .collect()
                     }
                 },
@@ -181,7 +208,7 @@ impl<'samples, LevelSamples> WritableSamples<'samples> for Levels<LevelSamples>
                             level_count: level_data.level_count,
                             map_data: level_data.map_data.iter()
                                 .zip(rip_map_levels(rounding.expect("rip maps only with tiles"), header.layer_size))
-                                .map(|(level, (_level_index, level_size))| level.create_level_writer(level_size))
+                                .map(|(level, (_level_index, level_size))| level.create_level_writer(level_size, sampling))
                                 .collect(),
                         }
                     }
