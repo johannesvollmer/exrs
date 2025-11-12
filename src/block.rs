@@ -485,3 +485,130 @@ impl UncompressedDeepBlock {
         })
     }
 }
+
+#[cfg(all(test, feature = "deep-data"))]
+mod deep_tests {
+    use super::*;
+    use crate::meta::{BlockDescription, Requirements};
+    use crate::compression::Compression;
+    use crate::meta::attribute::{ChannelDescription, ChannelList, SampleType};
+    use crate::meta::header::Header;
+    use smallvec::smallvec;
+
+    #[test]
+    fn test_deep_block_round_trip_uncompressed() {
+        test_deep_block_round_trip(Compression::Uncompressed);
+    }
+
+    #[test]
+    fn test_deep_block_round_trip_rle() {
+        test_deep_block_round_trip(Compression::RLE);
+    }
+
+    #[test]
+    fn test_deep_block_round_trip_zip1() {
+        test_deep_block_round_trip(Compression::ZIP1);
+    }
+
+    #[test]
+    fn test_deep_block_round_trip_zip16() {
+        test_deep_block_round_trip(Compression::ZIP16);
+    }
+
+    fn test_deep_block_round_trip(compression: Compression) {
+        // Create a simple test header with deep data
+        let channels = ChannelList::new(smallvec![
+            ChannelDescription {
+                name: "Z".into(),
+                sample_type: SampleType::F32,
+                quantize_linearly: false,
+                sampling: Vec2(1, 1),
+            },
+            ChannelDescription {
+                name: "ZBack".into(),
+                sample_type: SampleType::F32,
+                quantize_linearly: false,
+                sampling: Vec2(1, 1),
+            },
+        ]);
+
+        let header = Header {
+            channels,
+            compression,
+            blocks: BlockDescription::ScanLines,
+            deep: true,
+            ..Header::default()
+        };
+
+        let headers = smallvec![header];
+
+        // Create test data: 4x4 block with varying sample counts
+        let block_size = Vec2(4, 4);
+        let num_pixels = block_size.area();
+
+        // Sample counts: [1, 2, 1, 0, 3, 1, 1, 2, 0, 1, 2, 1, 1, 1, 0, 1]
+        let sample_counts = vec![1, 2, 1, 0, 3, 1, 1, 2, 0, 1, 2, 1, 1, 1, 0, 1];
+
+        // Convert to cumulative offsets
+        let mut pixel_offset_table = Vec::with_capacity(num_pixels);
+        let mut cumulative = 0i32;
+        for &count in &sample_counts {
+            cumulative += count;
+            pixel_offset_table.push(cumulative);
+        }
+
+        let total_samples = cumulative as usize;
+
+        // Create sample data: each sample has 2 channels (Z and ZBack), each F32 (4 bytes)
+        let bytes_per_sample = 8; // 2 channels * 4 bytes
+        let mut sample_data = vec![0u8; total_samples * bytes_per_sample];
+
+        // Fill with test pattern
+        for i in 0..total_samples * 2 {
+            let value = (i as f32 + 0.5).to_ne_bytes();
+            let offset = i * 4;
+            sample_data[offset..offset + 4].copy_from_slice(&value);
+        }
+
+        // Create the uncompressed deep block
+        let original_block = UncompressedDeepBlock {
+            index: BlockIndex {
+                layer: 0,
+                pixel_position: Vec2(0, 0),
+                level: Vec2(0, 0),
+                pixel_size: block_size,
+            },
+            pixel_offset_table: pixel_offset_table.clone(),
+            sample_data: sample_data.clone(),
+        };
+
+        // Compress to chunk
+        let chunk = original_block
+            .compress_to_chunk(&headers)
+            .expect("compression should succeed");
+
+        // Create metadata for decompression
+        let meta_data = MetaData {
+            requirements: Requirements { file_format_version: 2, is_single_layer_and_tiled: false },
+            headers,
+        };
+
+        // Decompress back
+        let decompressed_block = UncompressedDeepBlock::decompress_chunk(chunk, &meta_data, true)
+            .expect("decompression should succeed");
+
+        // Verify the data matches
+        assert_eq!(
+            decompressed_block.pixel_offset_table, pixel_offset_table,
+            "pixel offset table should match after round-trip"
+        );
+        assert_eq!(
+            decompressed_block.sample_data, sample_data,
+            "sample data should match after round-trip"
+        );
+        assert_eq!(
+            decompressed_block.index.pixel_size, block_size,
+            "block size should match"
+        );
+    }
+}
