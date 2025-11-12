@@ -71,7 +71,15 @@ fn round_trip_rgba_file(path: &Path, file: &[u8]) -> Result<()> {
         Path::new("tests/images/valid/openexr/TestImages/GrayRampsDiagonal.exr"),
         Path::new("tests/images/valid/openexr/TestImages/GrayRampsHorizontal.exr"),
         Path::new("tests/images/valid/openexr/TestImages/WideFloatRange.exr"),
-        Path::new("tests/images/valid/openexr/IlmfmlmflmTest/v1.7.test.tiled.exr")
+        Path::new("tests/images/valid/openexr/IlmfmlmflmTest/v1.7.test.tiled.exr"),
+        // Subsampled YC/luminance-chroma files - don't have RGB channels
+        Path::new("tests/images/valid/openexr/Chromaticities/Rec709_YC.exr"),
+        Path::new("tests/images/valid/openexr/Chromaticities/XYZ_YC.exr"),
+        Path::new("tests/images/valid/openexr/LuminanceChroma/CrissyField.exr"),
+        Path::new("tests/images/valid/openexr/LuminanceChroma/Flowers.exr"),
+        Path::new("tests/images/valid/openexr/LuminanceChroma/MtTamNorth.exr"),
+        Path::new("tests/images/valid/openexr/LuminanceChroma/StarField.exr"),
+        Path::new("tests/images/valid/openexr/IlmfmlmflmTest/comp_b44.exr"),
     ];
 
     if blacklist.contains(&path) { return Ok(()) }

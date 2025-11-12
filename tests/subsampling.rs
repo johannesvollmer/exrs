@@ -1,9 +1,8 @@
 //! Test for channel subsampling support
 
-use exr::prelude::*;
 use exr::math::Vec2;
 use exr::meta::attribute::{ChannelDescription, ChannelList, SampleType, Text, IntegerBounds};
-use smallvec;
+use smallvec::SmallVec;
 
 #[test]
 fn test_channel_byte_calculations() {
