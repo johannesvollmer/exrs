@@ -27,6 +27,10 @@ pub mod pixel_vec;
 pub mod read;
 pub mod recursive;
 pub mod write;
+
+#[cfg(feature = "deep-data")]
+pub mod deep_samples;
+
 // pub mod channel_groups;
 
 use crate::compression::Compression;
