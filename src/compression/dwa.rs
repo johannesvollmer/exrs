@@ -430,6 +430,32 @@ enum AcCompression {
     Deflate,
 }
 
+/// Read and skip channel classification rules (version 2+)
+fn read_channel_rules(reader: &mut Cursor<&[u8]>, _num_channels: usize) -> Result<usize> {
+    // Channel rules format (from OpenEXR readChannelRules):
+    // - u16: total size of rules block in bytes (including this u16)
+    // - Series of Classifier structures (variable length)
+
+    // Read total size as u16
+    let pos = reader.position() as usize;
+    let data = reader.get_ref();
+
+    if pos + 2 > data.len() {
+        return Err(Error::invalid("Not enough data to read channel rules size"));
+    }
+
+    let rule_size = u16::from_le_bytes([data[pos], data[pos + 1]]) as usize;
+
+    if rule_size < 2 {
+        return Err(Error::invalid("Invalid channel rules size"));
+    }
+
+    // Skip the entire rules block
+    reader.set_position((pos + rule_size) as u64);
+
+    Ok(rule_size)
+}
+
 /// Read a u64 from the cursor in little-endian format
 fn read_u64_le(reader: &mut Cursor<&[u8]>) -> Result<u64> {
     let mut buf = [0u8; 8];
@@ -456,27 +482,30 @@ fn parse_header(reader: &mut Cursor<&[u8]>, _num_channels: usize) -> Result<Head
         return Err(Error::invalid(format!("Unsupported DWA version: {}", version)));
     }
 
-    let unknown_compressed_size = read_u64_le(reader)
-        .map_err(|_| Error::invalid("Failed to read unknown compressed size"))? as usize;
+    // Header fields in order (from OpenEXR internal_dwa_helpers.h DataSizesSingle enum):
+    // 0: VERSION
+    // 1: UNKNOWN_UNCOMPRESSED_SIZE
+    // 2: UNKNOWN_COMPRESSED_SIZE
+    // 3: AC_COMPRESSED_SIZE
+    // 4: DC_COMPRESSED_SIZE
+    // 5: RLE_COMPRESSED_SIZE
+    // 6: RLE_UNCOMPRESSED_SIZE
+    // 7: RLE_RAW_SIZE
+    // 8: AC_UNCOMPRESSED_COUNT
+    // 9: DC_UNCOMPRESSED_COUNT
+    // 10: AC_COMPRESSION
 
     let unknown_uncompressed_size = read_u64_le(reader)
         .map_err(|_| Error::invalid("Failed to read unknown uncompressed size"))? as usize;
 
+    let unknown_compressed_size = read_u64_le(reader)
+        .map_err(|_| Error::invalid("Failed to read unknown compressed size"))? as usize;
+
     let ac_compressed_size = read_u64_le(reader)
         .map_err(|_| Error::invalid("Failed to read AC compressed size"))? as usize;
 
-    let ac_uncompressed_size = read_u64_le(reader)
-        .map_err(|_| Error::invalid("Failed to read AC uncompressed size"))? as usize;
-
-    // AC compression
-    let ac_compression_value = read_u64_le(reader)
-        .map_err(|_| Error::invalid("Failed to read AC compression method"))?;
-
     let dc_compressed_size = read_u64_le(reader)
         .map_err(|_| Error::invalid("Failed to read DC compressed size"))? as usize;
-
-    let dc_uncompressed_size = read_u64_le(reader)
-        .map_err(|_| Error::invalid("Failed to read DC uncompressed size"))? as usize;
 
     let rle_compressed_size = read_u64_le(reader)
         .map_err(|_| Error::invalid("Failed to read RLE compressed size"))? as usize;
@@ -487,22 +516,30 @@ fn parse_header(reader: &mut Cursor<&[u8]>, _num_channels: usize) -> Result<Head
     let rle_raw_size = read_u64_le(reader)
         .map_err(|_| Error::invalid("Failed to read RLE raw size"))? as usize;
 
-    // NOTE: Version 2 is supposed to have additional fields (totalAcUncompressedCount,
-    // totalDcUncompressedCount, acCompression again, and channel rules), but in practice
-    // many files with version=2 don't seem to include these fields, or the header format
-    // is different than documented. The data streams appear to start immediately after
-    // the 11 standard header fields.
-    // TODO: Investigate the actual version 2 header format from real files
+    let ac_uncompressed_size = read_u64_le(reader)
+        .map_err(|_| Error::invalid("Failed to read AC uncompressed count"))? as usize;
+
+    let dc_uncompressed_size = read_u64_le(reader)
+        .map_err(|_| Error::invalid("Failed to read DC uncompressed count"))? as usize;
+
+    let ac_compression_value = read_u64_le(reader)
+        .map_err(|_| Error::invalid("Failed to read AC compression method"))?;
 
     // Parse AC compression method
-    // Note: In practice, files seem to have unexpected values at this position.
-    // We default to Deflate which is the most common compression method.
     let ac_compression = match ac_compression_value {
         0 => AcCompression::StaticHuffman,
         1 => AcCompression::Deflate,
-        // Version 2 files seem to have unexpected values here - default to Deflate
-        _ => AcCompression::Deflate,
+        _ => return Err(Error::invalid(format!(
+            "Invalid AC compression method: {}",
+            ac_compression_value
+        ))),
     };
+
+    // Version 2+ files include channel classification rules after the header
+    if version >= 2 {
+        // Read and skip channel rules - we recompute them from channel names
+        let _rule_size = read_channel_rules(reader, _num_channels)?;
+    }
 
     Ok(Header {
         version,
