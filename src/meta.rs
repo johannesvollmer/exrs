@@ -9,7 +9,7 @@ use self::attribute::{BlockType, Compression, TileDescription};
 use crate::block::chunk::{CompressedBlock, TileCoordinates};
 use crate::block::{BlockIndex, UncompressedBlock};
 use crate::error::{i32_to_usize, usize_to_i32, Error, Result, UnitResult};
-use crate::io::{Data, PeekRead, Read, ResizableVec, Write};
+use crate::io::{Data, PeekRead, Read, Write};
 use crate::math::{RoundingMode, Vec2};
 use crate::meta::header::Header;
 use ::smallvec::SmallVec;

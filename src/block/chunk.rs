@@ -136,7 +136,7 @@ pub struct CompressedDeepTileBlock {
     pub compressed_sample_data_le: Vec<u8>,
 }
 
-use crate::io::{Data, Read, ResizableVec, Write};
+use crate::io::{Data, Read, Write};
 
 impl TileCoordinates {
     /// Without validation, write this instance to the byte stream.

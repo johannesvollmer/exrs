@@ -403,7 +403,7 @@ pub type TextSlice = [u8];
 use crate::error::{
     i32_to_usize, u32_to_usize, usize_to_i32, usize_to_u32, Error, Result, UnitResult,
 };
-use crate::io::{Data, PeekRead, Read, ResizableVec, Write};
+use crate::io::{Data, PeekRead, Read, Write};
 use crate::math::{RoundingMode, Vec2};
 use crate::meta::sequence_end;
 use bit_field::BitField;

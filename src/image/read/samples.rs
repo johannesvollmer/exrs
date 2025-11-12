@@ -5,7 +5,7 @@ use crate::block::lines::LineRef;
 use crate::error::{Result, UnitResult};
 use crate::image::read::any_channels::{ReadSamples, SamplesReader};
 use crate::image::read::levels::{ReadAllLevels, ReadLargestLevel, ReadSamplesLevel};
-use crate::image::{f16, FlatSamples, WritableSamples};
+use crate::image::{f16, FlatSamples};
 use crate::math::Vec2;
 use crate::meta::attribute::{ChannelDescription, SampleType};
 use crate::meta::header::Header;

@@ -138,7 +138,7 @@ where
     }
 }
 
-use std::fmt::{Debug, Formatter, Write};
+use std::fmt::{Debug, Formatter};
 
 impl<T> Debug for PixelVec<T> {
     #[inline]
