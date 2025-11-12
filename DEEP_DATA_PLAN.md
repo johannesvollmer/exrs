@@ -6,11 +6,34 @@
 
 ## Implementation Strategy
 
-### Feature Flag
-All deep data functionality will be behind a `deep-data` feature flag:
+### Feature Flags
+Deep data functionality will be split across two feature flags:
 ```toml
 [features]
-deep-data = []
+deep-data = []           # Core read/write functionality
+deep-utilities = ["deep-data"]  # Compositing and utility functions
+```
+
+**Rationale:**
+- `deep-data`: Essential I/O operations, minimal dependency overhead
+  - Reading deep images from disk
+  - Writing deep images to disk
+  - Basic deep sample storage and access
+- `deep-utilities`: Advanced operations (compositing, flattening) for users who need them
+  - Compositing deep samples to flat images
+  - Making images "tidy" (sorted and non-overlapping)
+  - Sample merging and splitting operations
+- `deep-utilities` automatically enables `deep-data` (depends on it)
+
+**Usage examples:**
+```toml
+# Just reading/writing deep data
+[dependencies]
+exrs = { version = "...", features = ["deep-data"] }
+
+# Reading/writing + compositing utilities
+[dependencies]
+exrs = { version = "...", features = ["deep-utilities"] }
 ```
 
 ### Implementation Phases
@@ -101,11 +124,14 @@ fn compress_deep_block(
 **Files to modify:**
 - `src/image/read/mod.rs` - Add deep reading entry points
 
-**API Design:**
+**API Design (both available at runtime):**
 
-**Single-phase (simple):**
+Both APIs are available under the `deep-data` feature flag. Users choose which to use based on their needs:
+
+**Single-phase API (simple, automatic allocation):**
 ```rust
 #[cfg(feature = "deep-data")]
+// Simplest: reads everything automatically
 let image: DeepImage = read()
     .deep_data()
     .all_channels()
@@ -113,20 +139,28 @@ let image: DeepImage = read()
     .from_file(path)?;
 ```
 
-**Two-phase (advanced):**
+**Two-phase API (advanced, manual memory control):**
 ```rust
 #[cfg(feature = "deep-data")]
-let mut reader = read().deep_data().from_file(path)?;
+// More control over memory allocation
+let mut reader = DeepImageReader::new(path)?;
 
-// Phase 1: Read sample counts
+// Phase 1: Read only sample counts (small memory footprint)
 let counts = reader.read_sample_counts()?;
 
-// Inspect and allocate
-let mut image = DeepImage::allocate_from_counts(&counts);
+// User can inspect counts, implement custom allocation strategy, etc.
+for y in 0..counts.height() {
+    for x in 0..counts.width() {
+        println!("Pixel ({}, {}) has {} samples", x, y, counts.get(x, y));
+    }
+}
 
-// Phase 2: Read sample data
+// Phase 2: Allocate and read actual sample data
+let mut image = DeepImage::allocate_from_counts(&counts);
 reader.read_samples_into(&mut image)?;
 ```
+
+**Runtime choice**: Users select the appropriate API based on their use case. No compile-time flags needed.
 
 **Reading process:**
 1. Verify `header.deep == true` and `header.blocks` type
@@ -172,21 +206,27 @@ DeepImage::new(layers)
 ---
 
 #### Phase 5: Compositing Utilities (Week 6)
+**Feature flag**: `deep-utilities` (separate from core `deep-data`)
+
 **Files to create:**
 - `src/image/deep/compositing.rs` - Deep compositing operations
 - `src/image/deep/mod.rs` - Deep utilities module
 
 **Key operations:**
 ```rust
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep-utilities")]
 pub fn flatten(deep: &DeepImage) -> Result<Image> {
     // Composite deep samples to flat image
+    // Produces a regular flat Image from deep data
 }
 
+#[cfg(feature = "deep-utilities")]
 pub fn make_tidy(deep: &mut DeepImage) -> Result<()> {
     // Sort and remove overlaps
+    // Transitions DeepImageState to TIDY
 }
 
+#[cfg(feature = "deep-utilities")]
 pub fn composite_pixel(
     samples: &[(f32, f32, Color)],  // (Z, ZBack, Color+Alpha)
 ) -> Color {
@@ -269,15 +309,25 @@ Separate types for deep vs flat:
 - `DeepImage<Layers>` - Deep images
 - Conversion via `flatten()`
 
-### 4. Feature Flag
-All deep code gated with:
+### 4. Feature Flags
+Two separate feature flags for different functionality levels:
+
+**Core I/O** (`deep-data`):
 ```rust
 #[cfg(feature = "deep-data")]
+// Reading and writing deep images
+```
+
+**Utilities** (`deep-utilities`):
+```rust
+#[cfg(feature = "deep-utilities")]
+// Compositing, flattening, tidying operations
 ```
 
 This allows:
-- Zero overhead when feature disabled
-- Clear opt-in for users
+- Zero overhead when features disabled
+- Users can opt into just reading/writing without compositing overhead
+- Clear separation of concerns
 - Incremental testing during development
 
 ### 5. Compression Subset
@@ -304,7 +354,9 @@ OpenEXR spec doesn't define deep mipmaps, so:
 ### Week 1: Foundation
 - Create `deep_samples.rs` with storage and indexing
 - Add `DeepImageState` attribute type
-- Add feature flag to `Cargo.toml`
+- Add feature flags to `Cargo.toml`:
+  - `deep-data = []`
+  - `deep-utilities = ["deep-data"]`
 - Unit tests for sample storage
 
 ### Week 2: Block Reading
@@ -364,8 +416,9 @@ OpenEXR spec doesn't define deep mipmaps, so:
 ✅ Round-trip preserves all data exactly
 ✅ All supported compression types work
 ✅ Compositing produces correct results
-✅ Feature flag properly gates all code
-✅ Zero overhead when feature disabled
+✅ Feature flags properly gate all code
+✅ `deep-data` enables core I/O, `deep-utilities` enables compositing
+✅ Zero overhead when features disabled
 ✅ Comprehensive test coverage (>90%)
 ✅ Clear documentation with examples
 
