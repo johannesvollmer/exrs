@@ -48,6 +48,9 @@ pub mod levels;
 pub mod samples;
 pub mod specific_channels;
 
+#[cfg(feature = "deep-data")]
+pub mod deep;
+
 use crate::block::samples::FromNativeSample;
 use crate::error::Result;
 use crate::image::read::image::ReadLayers;
