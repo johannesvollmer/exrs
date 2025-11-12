@@ -74,6 +74,26 @@ pub fn read_all_data_from_file(path: impl AsRef<Path>) -> Result<AnyImage> {
         .from_file(path)
 }
 
+// Note: Deep data reading support is available at the block level via UncompressedDeepBlock.
+// High-level reading API (Phase 3) requires additional implementation:
+// - ReadDeepSamples builder type
+// - Integration with ReadBuilder.deep_data() method
+// - Channel-aware deep sample reading
+// - Conversion from blocks to DeepSamples storage
+//
+// For now, deep data can be read at the block level using:
+// - block::read() to get a ChunksReader
+// - UncompressedDeepBlock::decompress_chunk() for each chunk
+//
+// Example stub for future implementation:
+// #[cfg(feature = "deep-data")]
+// pub fn read_first_deep_layer_from_file(
+//     path: impl AsRef<Path>,
+// ) -> Result<crate::image::DeepImage> {
+//     // TODO: Implement deep data high-level reading
+//     unimplemented!("Deep data high-level reading API not yet implemented. Use block-level API.")
+// }
+
 // FIXME do not throw error on deep data but just skip it!
 /// No deep data, no resolution levels, all channels, all layers.
 /// Uses parallel decompression and relaxed error handling.
@@ -211,6 +231,36 @@ impl ReadBuilder {
     #[must_use]
     pub const fn no_deep_data(self) -> ReadFlatSamples {
         ReadFlatSamples
+    }
+
+    /// Specify to read deep data samples (multiple samples per pixel at different depths).
+    /// Requires the `deep-data` feature to be enabled.
+    ///
+    /// Note: Deep data high-level reading is not yet fully implemented.
+    /// For now, use the block-level API with `block::read()` and
+    /// `UncompressedDeepBlock::decompress_chunk()`.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use exr::prelude::*;
+    /// use exr::block::{self, UncompressedDeepBlock};
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut reader = block::read(std::fs::File::open("deep.exr")?, false)?;
+    /// let meta = reader.meta_data().clone();
+    ///
+    /// for chunk_result in reader {
+    ///     let chunk = chunk_result?;
+    ///     let deep_block = UncompressedDeepBlock::decompress_chunk(&chunk, &meta, false)?;
+    ///     // Process deep_block.pixel_offset_table and deep_block.sample_data
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "deep-data")]
+    #[must_use]
+    pub const fn deep_data(self) -> samples::ReadDeepSamples {
+        samples::ReadDeepSamples
     }
 
     // pub fn any_resolution_levels() -> ReadBuilder<> {}

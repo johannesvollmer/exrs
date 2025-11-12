@@ -174,20 +174,117 @@ Block-level compression and decompression infrastructure for deep data.
 
 ---
 
-## 📋 Phase 3: High-Level Reading API (NOT STARTED)
+## 🔄 Phase 3: High-Level Reading API (PARTIAL - Builder API Complete)
 
 ### Scope
 User-facing API for reading deep images from files.
 
-### Planned Work
-- `src/image/read/deep.rs` - New module
-- Single-phase API: `DeepImage::from_file()`
-- Two-phase API: `DeepImageReader::read_sample_counts()` + `read_samples_into()`
-- Integration with existing `read()` builder pattern
+### Completed Work
 
-### Estimated Effort
-- **Time**: 1 week
-- **Lines of code**: ~300-400 lines
+#### 1. Type Aliases (✅ COMPLETE)
+**File**: `src/image.rs` (lines 55-77)
+- ✅ `DeepImage` type alias - single layer deep data
+- ✅ `DeepLayersImage` type alias - multiple layers deep data
+- ✅ Properly feature-gated with `#[cfg(feature = "deep-data")]`
+- ✅ Documented with usage notes
+- **Lines of code**: ~12 lines
+- **Status**: Production ready
+
+#### 2. Block-Level Reading Infrastructure (✅ COMPLETE via Phase 2)
+- ✅ `UncompressedDeepBlock::decompress_chunk()` - reads compressed chunks
+- ✅ `block::read()` - provides ChunksReader for file reading
+- ✅ Full decompression support for UNCOMPRESSED, RLE, ZIP1, ZIP16
+- **Status**: Functional for advanced users
+
+#### 3. ReadDeepSamples Builder Type (✅ COMPLETE)
+**File**: `src/image/read/samples.rs` (lines 20-67)
+- ✅ Created `ReadDeepSamples` struct
+- ✅ Implemented `largest_resolution_level()` method
+- ✅ Implemented `all_resolution_levels()` method
+- ✅ Comprehensive documentation with block-level API example
+- ✅ Properly feature-gated with `#[cfg(feature = "deep-data")]`
+- **Lines of code**: ~28 lines
+- **Status**: API defined, awaiting backend implementation
+
+#### 4. Builder Integration (✅ COMPLETE)
+**File**: `src/image/read.rs` (lines 236-264)
+- ✅ Added `.deep_data()` method to `ReadBuilder`
+- ✅ Returns `ReadDeepSamples` type
+- ✅ Integrates with existing builder chain
+- ✅ Documented with block-level API example
+- ✅ Properly feature-gated with `#[cfg(feature = "deep-data")]`
+- **Lines of code**: ~29 lines
+- **Status**: API defined, awaiting backend implementation
+
+### Remaining Work
+
+#### 1. Deep Data Block Processing Integration
+**Files**: `src/block/reader.rs`, `src/image/read/image.rs`
+- Current system only handles `UncompressedBlock` (flat data)
+- Need to extend decompression pipeline to handle `UncompressedDeepBlock`
+- Options:
+  - Create unified enum for both block types
+  - Separate parallel processing path for deep data
+  - Extend `LayersReader` trait with `read_deep_block()` method
+- **Complexity**: High (architectural change)
+
+#### 2. Deep Data Samples Reader
+**File**: `src/image/read/deep.rs` (new module needed)
+- Implement `ReadSamples` trait for `ReadDeepSamples`
+- Create `DeepSamplesReader` struct (similar to `FlatSamplesReader`)
+- Implement `SamplesReader` trait for `DeepSamplesReader`
+- Handle conversion from `UncompressedDeepBlock` to `DeepSamples`
+- Accumulate samples from all blocks into single structure
+- **Complexity**: High (requires architectural changes to block processing)
+- **Status**: Not yet implemented
+
+#### 3. Convenience Functions
+**File**: `src/image/read.rs`
+- `read_first_deep_layer_from_file()` - single layer
+- `read_all_deep_layers_from_file()` - multiple layers
+- Follow pattern of existing `read_first_flat_layer_from_file()`
+- **Depends on**: Items 1 and 2 above
+- **Status**: Not yet implemented
+
+### Current Status
+
+The builder API is now available and documented:
+```rust
+// Builder API (not yet functional - directs to block-level API)
+let reader = read()
+    .deep_data()  // ✅ Available!
+    .largest_resolution_level()
+    .all_channels();
+```
+
+Deep data can currently be read using the **block-level API**:
+```rust
+use exr::prelude::*;
+use exr::block::{self, UncompressedDeepBlock};
+
+let mut reader = block::read(file, false)?;
+let meta = reader.meta_data().clone();
+
+// Read each chunk
+for chunk_result in reader {
+    let chunk = chunk_result?;
+    let deep_block = UncompressedDeepBlock::decompress_chunk(&chunk, &meta, false)?;
+    // Process deep_block.pixel_offset_table and deep_block.sample_data
+}
+```
+
+This provides full functionality but requires manual block assembly.
+
+### Phase 3 Statistics (So Far)
+- **Total new code**: ~69 lines
+- **Modules modified**: 2 (samples.rs, read.rs)
+- **API surface**: Builder methods defined and documented
+- **Backend integration**: Still requires implementation
+
+### Estimated Remaining Effort
+- **Time**: 4-6 days
+- **Lines of code**: ~400-600 lines
+- **Complexity**: High (requires architectural changes to block decompression pipeline)
 
 ---
 
@@ -280,8 +377,10 @@ User documentation and examples.
   - Raw compression functions
   - Unit tests
 
+### In Progress
+- 🔄 **Phase 3**: High-Level Reading API (Builder API complete, backend integration pending)
+
 ### Not Started
-- ⏳ **Phase 3**: High-Level Reading API
 - ⏳ **Phase 4**: High-Level Writing API
 - ⏳ **Phase 5**: Compositing Utilities
 - ⏳ **Phase 6**: Testing & Validation
@@ -289,22 +388,42 @@ User documentation and examples.
 
 ### Overall Progress
 - **Phases complete**: 2 of 7 (29%)
-- **Estimated total effort**: 9 weeks
-- **Time spent**: ~2 weeks (Phases 1-2)
-- **Remaining**: ~7 weeks (Phases 3-7)
+- **Phase 3 progress**: Builder API complete (~30% of phase)
+- **Estimated total effort**: 9-10 weeks
+- **Time spent**: ~2.5 weeks (Phases 1-2 + Phase 3 partial)
+- **Remaining**: ~7 weeks (Phase 3 completion + Phases 4-7)
 
 ---
 
 ## Next Steps
 
-To continue with Phase 2 (Block-Level I/O):
+To continue with Phase 3 (High-Level Reading API):
 
-1. Create `UncompressedDeepBlock` type in `src/block.rs`
-2. Add `Compression::supports_deep_data()` method
-3. Implement deep block decompression in `UncompressedBlock::decompress_chunk()`
-4. Implement deep block compression in `UncompressedBlock::compress_to_chunk()`
-5. Add unit tests for block-level round-trip
-6. Test with UNCOMPRESSED, RLE, and ZIP compression
+### Option A: Complete High-Level Reading Backend
+1. Extend block decompression pipeline to handle `UncompressedDeepBlock`
+   - Modify `decompress_sequential()`/`decompress_parallel()` signatures
+   - Create enum or trait to handle both flat and deep blocks
+   - Update `LayersReader` trait with deep block support
+2. Create `src/image/read/deep.rs` module
+   - Implement `ReadSamples` for `ReadDeepSamples`
+   - Create `DeepSamplesReader` struct
+   - Implement block-to-samples accumulation
+3. Add convenience functions (`read_first_deep_layer_from_file()`, etc.)
+4. Test with deep EXR files (Balls.exr, Leaves.exr, etc.)
+
+**Estimated effort**: 4-6 days, ~400-600 lines
+
+### Option B: Move to Phase 4 (High-Level Writing API)
+- Writing API may be simpler as it doesn't require the complex block accumulation
+- Could provide immediate value for users who want to create deep EXR files
+- Reading via block-level API is already functional
+
+### Option C: Move to Phase 5 (Compositing Utilities)
+- Compositing operations (flatten, make_tidy) are valuable standalone features
+- Don't depend on high-level reading API
+- Can be tested with block-level reading
+
+**Recommended**: Option A to complete Phase 3, as the builder API is already defined
 
 ---
 

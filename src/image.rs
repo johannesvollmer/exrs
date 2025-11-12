@@ -52,6 +52,18 @@ pub type AnyImage = Image<Layers<AnyChannels<Levels<FlatSamples>>>>;
 /// Does not contain resolution levels. Does not support deep data.
 pub type FlatImage = Image<Layers<AnyChannels<FlatSamples>>>;
 
+/// This image type contains a single layer of deep data with arbitrary channels.
+/// Deep data allows multiple samples per pixel at different depths.
+/// Requires the `deep-data` feature to be enabled.
+#[cfg(feature = "deep-data")]
+pub type DeepImage = Image<Layer<AnyChannels<crate::image::deep_samples::DeepSamples>>>;
+
+/// This image type contains multiple layers of deep data with arbitrary channels.
+/// Deep data allows multiple samples per pixel at different depths.
+/// Requires the `deep-data` feature to be enabled.
+#[cfg(feature = "deep-data")]
+pub type DeepLayersImage = Image<Layers<AnyChannels<crate::image::deep_samples::DeepSamples>>>;
+
 /// This image type contains multiple layers, with each layer containing a user-defined type of pixels.
 pub type PixelLayersImage<Storage, Channels> = Image<Layers<SpecificChannels<Storage, Channels>>>;
 

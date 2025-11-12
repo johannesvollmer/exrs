@@ -17,6 +17,55 @@ use crate::meta::header::Header;
 pub struct ReadFlatSamples;
 // pub struct ReadAnySamples;
 
+/// Specify to read deep data samples (multiple samples per pixel at different depths).
+/// Requires the `deep-data` feature to be enabled.
+///
+/// Note: Currently, deep data must be read using the block-level API.
+/// Use `block::read()` to get a `ChunksReader`, then call
+/// `UncompressedDeepBlock::decompress_chunk()` for each chunk.
+///
+/// Example:
+/// ```no_run
+/// use exr::prelude::*;
+/// use exr::block::{self, UncompressedDeepBlock};
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let mut reader = block::read(std::fs::File::open("deep.exr")?, false)?;
+/// let meta = reader.meta_data().clone();
+///
+/// for chunk_result in reader {
+///     let chunk = chunk_result?;
+///     let deep_block = UncompressedDeepBlock::decompress_chunk(&chunk, &meta, false)?;
+///     // Process deep_block.pixel_offset_table and deep_block.sample_data
+/// }
+/// # Ok(())
+/// # }
+/// ```
+#[cfg(feature = "deep-data")]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct ReadDeepSamples;
+
+#[cfg(feature = "deep-data")]
+impl ReadDeepSamples {
+    /// Specify to read only the highest resolution level, skipping all smaller variations.
+    ///
+    /// Note: Deep data high-level reading is not yet fully implemented.
+    /// Use the block-level API with `block::read()` and `UncompressedDeepBlock::decompress_chunk()`.
+    #[must_use]
+    pub const fn largest_resolution_level(self) -> ReadLargestLevel<Self> {
+        ReadLargestLevel { read_samples: self }
+    }
+
+    /// Specify to read all contained resolution levels from the image, if any.
+    ///
+    /// Note: Deep data high-level reading is not yet fully implemented.
+    /// Use the block-level API with `block::read()` and `UncompressedDeepBlock::decompress_chunk()`.
+    #[must_use]
+    pub const fn all_resolution_levels(self) -> ReadAllLevels<Self> {
+        ReadAllLevels { read_samples: self }
+    }
+}
+
 impl ReadFlatSamples {
     // TODO
     // e. g. `let sum = reader.any_channels_with(|sample, sum| sum += sample)`
