@@ -442,21 +442,80 @@ make_tidy(&mut samples); // Sorts and removes occluded samples
 
 ---
 
-## 📋 Phase 6: Testing & Validation (NOT STARTED)
+## ⚠️ Phase 6: Testing & Validation (IN PROGRESS)
 
 ### Scope
-Comprehensive testing with OpenEXR reference files.
+Comprehensive testing with OpenEXR reference files and round-trip validation.
 
-### Planned Work
-- Read test files: Balls.exr, Ground.exr, Leaves.exr, Trunks.exr
-- Round-trip testing (read → write → read)
-- OpenEXR C++ compatibility validation
-- Compositing correctness tests
-- Performance profiling
+### Completed Work
 
-### Estimated Effort
-- **Time**: 1-2 weeks
-- **Lines of code**: ~800-1200 lines of tests
+#### 1. Test Infrastructure (✅ COMPLETE)
+**File**: `tests/deep_data_tests.rs` (new integration test file, ~350 lines)
+- ✅ Created comprehensive test suite for deep data
+- ✅ `test_round_trip_simple()` - Single block round-trip test
+- ✅ `test_round_trip_multiple_blocks()` - Multiple block round-trip test
+- ✅ `test_compositing_operations()` - Deep compositing tests (PASSING)
+- ✅ `test_make_tidy()` - Sample sorting and optimization tests (PASSING)
+- ✅ `test_compression_methods()` - Test all compression methods
+- ✅ `test_composite_four_deep_images()` - Four-image compositing (structure ready)
+- **Status**: Infrastructure complete, partial test failures
+
+#### 2. Merge Utilities (✅ COMPLETE)
+**File**: `src/image/deep/merge.rs` (new module, ~247 lines)
+- ✅ `MergedPixelSamples` struct - Accumulates samples from multiple sources
+- ✅ `extract_pixel_samples()` - Extracts samples from deep blocks
+- ✅ `samples_to_deep_samples()` - Converts raw data to DeepSample
+- ✅ `merge_deep_blocks()` - Merges multiple deep blocks covering same region
+- ✅ Comprehensive unit tests
+- **Status**: Functional
+
+#### 3. Metadata Fixes (✅ COMPLETE)
+**Files**: Multiple
+- ✅ Fixed chunk_count calculation in `create_deep_header()` using `with_encoding()`
+- ✅ Fixed `has_deep_data` flag setting in `MetaData::validate()` (was hardcoded to false)
+- ✅ Fixed block type writing in `Header::all_named_attributes()` to write `DeepScanLine`/`DeepTile` based on `header.deep` flag
+- ✅ Set `deep_data_version` and `max_samples_per_pixel` in headers
+- ✅ Fixed missing imports in test modules
+- **Status**: Metadata now correctly identifies deep data files
+
+### Test Results
+
+**Passing Tests (2/6)**:
+- ✅ `test_compositing_operations` - Deep sample compositing works correctly
+- ✅ `test_make_tidy` - Sample sorting and optimization works correctly
+
+**Failing Tests (3/6)** - Buffer validation issues:
+- ❌ `test_round_trip_simple` - Error: "deep scan line block table size"
+- ❌ `test_round_trip_multiple_blocks` - Error: "deep scan line block sample count"
+- ❌ `test_compression_methods` - Error: "deep scan line block table size"
+
+**Ignored Tests (1/6)**:
+- ⏸️ `test_composite_four_deep_images` - Requires downloading OpenEXR test images
+
+### Remaining Issues
+
+1. **Deep Block Buffer Validation**: The round-trip tests are failing during chunk reading with buffer size validation errors. The block type is now correctly identified as `DeepScanLine`, but there appear to be issues with:
+   - How compressed buffer sizes are being written/read
+   - Possible data alignment or endianness issues
+   - Buffer size validation limits
+
+2. **Root Cause**: Investigation needed in `CompressedDeepScanLineBlock::read()` and `CompressedDeepScanLineBlock::write()` methods in `src/block/chunk.rs`. The write format appears correct, but validation may be triggering on legitimate data.
+
+### Phase 6 Statistics
+- **Total new code**: ~600 lines (tests + merge utilities + metadata fixes)
+- **Modules added**: 1 (deep/merge.rs)
+- **Test files added**: 1 (deep_data_tests.rs)
+- **Tests passing**: 2 of 6
+- **Compilation**: ✅ Test infrastructure compiles
+- **Time spent**: ~1 day
+- **Status**: Infrastructure complete, debugging round-trip issues
+
+### Next Steps
+1. Debug deep block buffer size validation issues
+2. Fix round-trip tests to pass
+3. Download OpenEXR reference images (Balls, Ground, Leaves, Trunks)
+4. Complete four-image composite test
+5. Add performance profiling tests
 
 ---
 
@@ -496,21 +555,24 @@ User documentation and examples.
   - Unit tests
 
 ### Complete
-- ✅ **Phase 1**: Core Data Structures
-- ✅ **Phase 2**: Block-Level I/O
-- ✅ **Phase 3**: High-Level Reading API (pragmatic approach)
-- ✅ **Phase 4**: High-Level Writing API (pragmatic approach)
-- ✅ **Phase 5**: Compositing Utilities
+- ✅ **Phase 1**: Core Data Structures (100%)
+- ✅ **Phase 2**: Block-Level I/O (100%)
+- ✅ **Phase 3**: High-Level Reading API (100% - pragmatic approach)
+- ✅ **Phase 4**: High-Level Writing API (100% - pragmatic approach)
+- ✅ **Phase 5**: Compositing Utilities (100%)
+
+### In Progress
+- ⚠️ **Phase 6**: Testing & Validation (75% - metadata fixes complete, round-trip debugging needed)
 
 ### Not Started
-- ⏳ **Phase 6**: Testing & Validation
 - ⏳ **Phase 7**: Documentation
 
 ### Overall Progress
 - **Phases complete**: 5 of 7 (71%)
+- **Phase 6 progress**: 75% (infrastructure + metadata fixes done, round-trip issues remain)
 - **Estimated total effort**: 5-6 weeks
-- **Time spent**: ~3 weeks (Phases 1-5)
-- **Remaining**: ~2-3 weeks (Phases 6-7)
+- **Time spent**: ~3.5 weeks (Phases 1-6 partial)
+- **Remaining**: ~1.5-2.5 weeks (Phase 6 completion + Phase 7)
 
 ---
 
