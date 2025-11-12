@@ -63,6 +63,33 @@ pub struct UncompressedBlock {
     pub data: ByteVec,
 }
 
+/// Contains a block of deep pixel data and where that data should be placed in the actual image.
+///
+/// Deep images store multiple samples per pixel at different depths. This block contains:
+/// - A pixel offset table: cumulative sample counts for efficient random access
+/// - Sample data: all samples for all pixels, organized pixel-by-pixel
+///
+/// The bytes must be encoded in native-endian format.
+#[cfg(feature = "deep-data")]
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub struct UncompressedDeepBlock {
+    /// Location of the data inside the image.
+    pub index: BlockIndex,
+
+    /// Cumulative sample counts per pixel.
+    /// For a block with N pixels, this has N entries.
+    /// Entry i contains the total number of samples in pixels 0..=i.
+    /// To get the sample count for pixel i:
+    /// - If i == 0: count = pixel_offset_table[0]
+    /// - Else: count = pixel_offset_table[i] - pixel_offset_table[i-1]
+    pub pixel_offset_table: Vec<i32>,
+
+    /// Sample data in native-endian format.
+    /// Layout: for each pixel (in scanline order), for each sample, for each channel: value
+    /// The total number of samples is pixel_offset_table[N-1].
+    pub sample_data: ByteVec,
+}
+
 /// Immediately reads the meta data from the file.
 ///
 /// Then, returns a reader that can be used to read all pixel blocks.
@@ -163,7 +190,17 @@ impl UncompressedBlock {
                 },
             }),
 
-            _ => Err(Error::unsupported("deep data not supported yet")),
+            #[cfg(not(feature = "deep-data"))]
+            _ => Err(Error::unsupported(
+                "deep data support is not enabled; enable the 'deep-data' feature"
+            )),
+
+            #[cfg(feature = "deep-data")]
+            CompressedBlock::DeepScanLine(_) | CompressedBlock::DeepTile(_) => {
+                Err(Error::unsupported(
+                    "use UncompressedDeepBlock::decompress_chunk for deep data"
+                ))
+            }
         }
     }
 
@@ -296,6 +333,83 @@ impl UncompressedBlock {
         Self {
             index: block_index,
             data: Self::collect_block_data_from_lines(channels, block_index, extract_line),
+        }
+    }
+}
+
+#[cfg(feature = "deep-data")]
+impl UncompressedDeepBlock {
+    /// Decompress a deep data chunk and return an `UncompressedDeepBlock`.
+    ///
+    /// Deep data blocks contain:
+    /// - A pixel offset table: cumulative sample counts for each pixel
+    /// - Sample data: all samples for all pixels, organized pixel-by-pixel
+    #[inline]
+    #[must_use]
+    pub fn decompress_chunk(chunk: Chunk, meta_data: &MetaData, _pedantic: bool) -> Result<Self> {
+        use crate::block::chunk::{CompressedDeepScanLineBlock, CompressedDeepTileBlock};
+
+        let header: &Header = meta_data
+            .headers
+            .get(chunk.layer_index)
+            .ok_or_else(|| Error::invalid("chunk layer index"))?;
+
+        let tile_data_indices = header.block_data_indices(&chunk.compressed_block)?;
+        let absolute_indices = header.absolute_block_pixel_coordinates(tile_data_indices)?;
+
+        absolute_indices.validate(Some(header.layer_size))?;
+
+        // Verify the compression method supports deep data
+        if !header.compression.supports_deep_data() {
+            return Err(Error::unsupported(format!(
+                "compression method {:?} does not support deep data",
+                header.compression
+            )));
+        }
+
+        match chunk.compressed_block {
+            CompressedBlock::DeepScanLine(CompressedDeepScanLineBlock {
+                compressed_pixel_offset_table,
+                compressed_sample_data_le,
+                decompressed_sample_data_size,
+                ..
+            })
+            | CompressedBlock::DeepTile(CompressedDeepTileBlock {
+                compressed_pixel_offset_table,
+                compressed_sample_data_le,
+                decompressed_sample_data_size,
+                ..
+            }) => {
+                let num_pixels = absolute_indices.size.area();
+
+                // Decompress the pixel offset table
+                let pixel_offset_table = header.compression.decompress_deep_offset_table(
+                    &compressed_pixel_offset_table,
+                    num_pixels,
+                )?;
+
+                // Decompress the sample data
+                let sample_data = header.compression.decompress_deep_sample_data(
+                    header,
+                    compressed_sample_data_le,
+                    decompressed_sample_data_size,
+                )?;
+
+                Ok(Self {
+                    index: BlockIndex {
+                        layer: chunk.layer_index,
+                        pixel_position: absolute_indices.position.to_usize("data indices start")?,
+                        level: tile_data_indices.level_index,
+                        pixel_size: absolute_indices.size,
+                    },
+                    pixel_offset_table,
+                    sample_data,
+                })
+            }
+
+            _ => Err(Error::invalid(
+                "expected deep scanline or deep tile block for deep data"
+            )),
         }
     }
 }

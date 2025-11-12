@@ -113,3 +113,32 @@ fn take_n<'s>(slice: &mut &'s [u8], n: usize) -> Result<&'s [u8]> {
         Err(Error::invalid("compressed data"))
     }
 }
+
+/// Decompress raw byte data without channel-specific processing.
+/// Used for deep data offset tables and other raw byte arrays.
+#[cfg(feature = "deep-data")]
+pub fn decompress_raw(
+    compressed_le: ByteVec,
+    expected_byte_size: usize,
+) -> Result<ByteVec> {
+    let mut remaining_le = compressed_le.as_slice();
+    let mut decompressed_le = Vec::with_capacity(expected_byte_size.min(8 * 2048));
+
+    while !remaining_le.is_empty() && decompressed_le.len() != expected_byte_size {
+        let count = i32::from(take_1(&mut remaining_le)? as i8);
+
+        if count < 0 {
+            // take the next '-count' bytes as-is
+            let values = take_n(&mut remaining_le, (-count) as usize)?;
+            decompressed_le.extend_from_slice(values);
+        } else {
+            // repeat the next value 'count + 1' times
+            let value = take_1(&mut remaining_le)?;
+            decompressed_le.resize(decompressed_le.len() + count as usize + 1, value);
+        }
+    }
+
+    // Note: No differences_to_samples or interleave_byte_blocks for raw data
+    // Deep data offset tables are just arrays of i32 values
+    Ok(decompressed_le)
+}

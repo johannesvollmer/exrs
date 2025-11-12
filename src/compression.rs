@@ -464,6 +464,131 @@ impl Compression {
         }
     }
 
+    /// Decompress a deep pixel offset table.
+    ///
+    /// The offset table contains cumulative sample counts stored as i32 values.
+    /// Each entry indicates the total number of samples in all pixels up to and including that pixel.
+    ///
+    /// # Arguments
+    /// * `compressed_table` - Compressed offset table bytes (in little-endian format)
+    /// * `num_pixels` - Expected number of pixels in the block
+    ///
+    /// # Returns
+    /// A vector of i32 values in native-endian format with `num_pixels` entries.
+    #[cfg(feature = "deep-data")]
+    pub fn decompress_deep_offset_table(
+        &self,
+        compressed_table: &[i8],
+        num_pixels: usize,
+    ) -> Result<Vec<i32>> {
+        use self::Compression::{Uncompressed, RLE, ZIP1, ZIP16};
+
+        let expected_byte_size = num_pixels * std::mem::size_of::<i32>();
+
+        // Convert i8 slice to u8 slice safely (same bytes, different signedness)
+        let compressed_u8: Vec<u8> = compressed_table.iter().map(|&b| b as u8).collect();
+
+        let decompressed_le: ByteVec = match self {
+            Uncompressed => {
+                // For uncompressed data, just use the bytes as-is
+                compressed_u8.to_vec()
+            }
+
+            ZIP1 | ZIP16 => {
+                // Decompress using ZIP
+                zip::decompress_raw(compressed_u8.to_vec(), expected_byte_size)?
+            }
+
+            RLE => {
+                // Decompress using RLE
+                rle::decompress_raw(compressed_u8.to_vec(), expected_byte_size)?
+            }
+
+            _ => {
+                return Err(Error::unsupported(format!(
+                    "compression method {self} does not support deep data"
+                )))
+            }
+        };
+
+        // Verify size
+        if decompressed_le.len() != expected_byte_size {
+            return Err(Error::invalid(format!(
+                "decompressed offset table size mismatch: expected {} bytes, got {}",
+                expected_byte_size,
+                decompressed_le.len()
+            )));
+        }
+
+        // Convert from little-endian i32 array to native-endian
+        let mut offset_table = Vec::with_capacity(num_pixels);
+        for chunk in decompressed_le.chunks_exact(4) {
+            let value = i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+            offset_table.push(value);
+        }
+
+        Ok(offset_table)
+    }
+
+    /// Decompress deep sample data.
+    ///
+    /// Sample data contains all samples for all pixels in the block.
+    /// Layout: for each pixel, for each sample, for each channel: value
+    ///
+    /// # Arguments
+    /// * `header` - Header containing channel information
+    /// * `compressed_data_le` - Compressed sample data in little-endian format
+    /// * `expected_byte_size` - Expected size of decompressed data in bytes
+    ///
+    /// # Returns
+    /// Decompressed sample data in native-endian format.
+    #[cfg(feature = "deep-data")]
+    pub fn decompress_deep_sample_data(
+        &self,
+        header: &Header,
+        compressed_data_le: ByteVec,
+        expected_byte_size: usize,
+    ) -> Result<ByteVec> {
+        use self::Compression::{Uncompressed, RLE, ZIP1, ZIP16};
+
+        let decompressed_le: ByteVec = match self {
+            Uncompressed => {
+                // For uncompressed data, just use the bytes as-is
+                compressed_data_le
+            }
+
+            ZIP1 | ZIP16 => {
+                // Decompress using ZIP
+                zip::decompress_raw(compressed_data_le, expected_byte_size)?
+            }
+
+            RLE => {
+                // Decompress using RLE
+                rle::decompress_raw(compressed_data_le, expected_byte_size)?
+            }
+
+            _ => {
+                return Err(Error::unsupported(format!(
+                    "compression method {self} does not support deep data"
+                )))
+            }
+        };
+
+        // Verify size
+        if decompressed_le.len() != expected_byte_size {
+            return Err(Error::invalid(format!(
+                "decompressed sample data size mismatch: expected {} bytes, got {}",
+                expected_byte_size,
+                decompressed_le.len()
+            )));
+        }
+
+        // Convert from little-endian to native-endian based on channel types
+        // For deep data, samples are stored pixel-by-pixel, not scanline-by-scanline
+        // We need to convert each sample value based on its type
+        convert_deep_samples_to_native_endian(decompressed_le, &header.channels)
+    }
+
 }
 
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/6a9f8af6e89547bcd370ae3cec2b12849eee0b54/OpenEXR/IlmImf/ImfMisc.cpp#L1456-L1541
@@ -489,6 +614,57 @@ const fn convert_little_endian_to_current(
     #[cfg(target_endian = "big")]
     reverse_block_endianness(&mut bytes, channels, rectangle)?;
 
+    Ok(bytes)
+}
+
+/// Convert deep sample data from little-endian to native-endian.
+///
+/// Deep samples are stored pixel-by-pixel:
+/// For each pixel, for each sample, for each channel: value
+///
+/// This function converts the byte order of all sample values based on their types.
+#[cfg(feature = "deep-data")]
+#[allow(unused)] // allows the extra parameters to be unused on little-endian systems
+fn convert_deep_samples_to_native_endian(
+    bytes: ByteVec,
+    channels: &ChannelList,
+) -> Result<ByteVec> {
+    #[cfg(target_endian = "big")]
+    {
+        let mut bytes = bytes;
+        let bytes_per_sample = channels.bytes_per_pixel;
+        let num_samples = bytes.len() / bytes_per_sample;
+
+        let mut remaining_bytes: &mut [u8] = &mut bytes;
+
+        for _ in 0..num_samples {
+            for channel in &channels.list {
+                let sample_size = channel.sample_type.bytes_per_sample();
+
+                let (sample_bytes, rest) = remaining_bytes.split_at_mut(sample_size);
+
+                match channel.sample_type {
+                    SampleType::F16 => {
+                        reverse_2_bytes(sample_bytes);
+                    }
+                    SampleType::F32 | SampleType::U32 => {
+                        reverse_4_bytes(sample_bytes);
+                    }
+                }
+
+                remaining_bytes = rest;
+            }
+        }
+
+        debug_assert!(
+            remaining_bytes.is_empty(),
+            "not all bytes were converted to native endian"
+        );
+
+        Ok(bytes)
+    }
+
+    #[cfg(target_endian = "little")]
     Ok(bytes)
 }
 

@@ -50,3 +50,23 @@ pub fn compress_bytes(
         4,
     ))
 }
+
+/// Decompress raw byte data without channel-specific processing.
+/// Used for deep data offset tables and other raw byte arrays.
+#[cfg(feature = "deep-data")]
+pub fn decompress_raw(
+    compressed_le: ByteVec,
+    expected_byte_size: usize,
+) -> Result<ByteVec> {
+    let options = zune_inflate::DeflateOptions::default()
+        .set_limit(expected_byte_size)
+        .set_size_hint(expected_byte_size);
+    let mut decoder = zune_inflate::DeflateDecoder::new_with_options(&compressed_le, options);
+    let decompressed = decoder
+        .decode_zlib()
+        .map_err(|_| Error::invalid("zlib-compressed data malformed"))?;
+
+    // Note: No differences_to_samples or interleave_byte_blocks for raw data
+    // Deep data offset tables are just arrays of i32 values
+    Ok(decompressed)
+}

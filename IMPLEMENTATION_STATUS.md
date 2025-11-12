@@ -74,12 +74,25 @@ This document tracks the progress of adding OpenEXR deep data support to the exr
 
 ---
 
-## 🔄 Phase 2: Block-Level I/O (NOT STARTED)
+## 🔄 Phase 2: Block-Level I/O (IN PROGRESS - 20% Complete)
 
 ### Scope
 Block-level compression and decompression infrastructure for deep data.
 
-### Planned Work
+### Completed Work
+
+#### 1. Compression Method Support (✅ COMPLETE)
+**File**: `src/compression.rs`
+- ✅ `Compression::supports_deep_data()` method implemented
+- ✅ Supports: UNCOMPRESSED, RLE, ZIP1, ZIP16
+- ✅ Added ZIP16 support (was previously excluded)
+- ✅ Not supported: B44, B44A, PIZ, PXR24, DWAA, DWAB, HTJ2K
+- ✅ Feature-gated validation in `compress_image_section_to_le()`
+- ✅ Feature-gated validation in `decompress_image_section_from_le()`
+- ✅ Helpful error messages when feature disabled
+- **Status**: Production ready
+
+### Remaining Work
 
 #### 1. Deep Block Types (Existing Stubs)
 **Files**: `src/block/chunk.rs`
