@@ -31,6 +31,9 @@ pub mod write;
 #[cfg(feature = "deep-data")]
 pub mod deep_samples;
 
+#[cfg(feature = "deep-data")]
+pub mod deep;
+
 // pub mod channel_groups;
 
 use crate::compression::Compression;
