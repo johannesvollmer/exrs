@@ -38,7 +38,7 @@ pub fn decompress(
 ) -> Result<ByteVec>
 {
     let expected_u16_count = expected_byte_size / 2;
-    debug_assert_eq!(expected_byte_size, rectangle.size.area() * channels.bytes_per_pixel);
+    debug_assert_eq!(expected_byte_size, channels.bytes_per_pixel_section(rectangle));
     debug_assert!(!channels.list.is_empty());
 
     if compressed_le.is_empty() {
