@@ -627,7 +627,30 @@ impl Header {
                 }
             }
 
-            _ => return Err(Error::unsupported("deep data not supported yet")),
+            #[cfg(feature = "deep-data")]
+            CompressedBlock::DeepTile(ref tile) => tile.coordinates,
+
+            #[cfg(feature = "deep-data")]
+            CompressedBlock::DeepScanLine(ref block) => {
+                let size = self.compression.scan_lines_per_block() as i32;
+
+                let diff = block
+                    .y_coordinate
+                    .checked_sub(self.own_attributes.layer_position.y())
+                    .ok_or_else(|| Error::invalid("invalid header"))?;
+                let y = diff
+                    .checked_div(size)
+                    .ok_or_else(|| Error::invalid("invalid header"))?;
+
+                if y < 0 {
+                    return Err(Error::invalid("scan block y coordinate"));
+                }
+
+                TileCoordinates {
+                    tile_index: Vec2(0, y as usize),
+                    level_index: Vec2(0, 0),
+                }
+            }
         })
     }
 
@@ -965,9 +988,11 @@ impl Header {
 
         let block_type_and_tiles = expect_is_iter(
             once_with(move || {
-                let (block_type, tiles) = match self.blocks {
-                    BlockDescription::ScanLines => (attribute::BlockType::ScanLine, None),
-                    BlockDescription::Tiles(tiles) => (attribute::BlockType::Tile, Some(tiles)),
+                let (block_type, tiles) = match (self.blocks, self.deep) {
+                    (BlockDescription::ScanLines, false) => (attribute::BlockType::ScanLine, None),
+                    (BlockDescription::ScanLines, true) => (attribute::BlockType::DeepScanLine, None),
+                    (BlockDescription::Tiles(tiles), false) => (attribute::BlockType::Tile, Some(tiles)),
+                    (BlockDescription::Tiles(tiles), true) => (attribute::BlockType::DeepTile, Some(tiles)),
                 };
 
                 once((BLOCK_TYPE, BlockType(block_type)))

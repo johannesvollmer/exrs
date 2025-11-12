@@ -70,10 +70,17 @@ pub fn create_deep_header(
         )));
     }
 
-    let mut header = Header::new(name.into(), (width, height), channels.list);
+    let mut header = Header::new(name.into(), (width, height), channels.list)
+        .with_encoding(
+            compression,
+            BlockDescription::ScanLines,
+            crate::meta::attribute::LineOrder::Increasing,
+        );
     header.deep = true;
-    header.compression = compression;
-    header.blocks = BlockDescription::ScanLines;
+    header.deep_data_version = Some(1);
+    // Set a reasonable default for max samples per pixel
+    // This can be updated later if needed
+    header.max_samples_per_pixel = Some(100);
 
     Ok(header)
 }

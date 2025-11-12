@@ -509,7 +509,7 @@ impl MetaData {
             return Err(Error::invalid("at least one layer is required"));
         }
 
-        let deep = false; // TODO deep data
+        let deep = headers.iter().any(|header| header.deep);
         let is_multilayer = headers.len() > 1;
         let first_header_has_tiles = headers
             .iter()
@@ -530,9 +530,9 @@ impl MetaData {
         };
 
         for header in headers {
+            #[cfg(not(feature = "deep-data"))]
             if header.deep {
-                // TODO deep data (and then remove this check)
-                return Err(Error::unsupported("deep data not supported yet"));
+                return Err(Error::unsupported("deep data requires the 'deep-data' feature"));
             }
 
             header.validate(
@@ -708,6 +708,7 @@ impl Requirements {
 mod test {
     use super::*;
     use crate::meta::header::{ImageAttributes, LayerAttributes};
+    use crate::meta::attribute::{AttributeValue, ChannelDescription, ChannelList, IntegerBounds, LineOrder, SampleType, Text};
 
     #[test]
     fn round_trip_requirements() {

@@ -10,8 +10,6 @@ use crate::image::FlatSamples;
 #[cfg(feature = "deep-data")]
 use crate::math::Vec2;
 #[cfg(feature = "deep-data")]
-use half::f16;
-#[cfg(feature = "deep-data")]
 use std::convert::TryFrom;
 
 /// Storage for deep samples with variable sample counts per pixel.
