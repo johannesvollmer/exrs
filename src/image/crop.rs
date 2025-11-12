@@ -7,6 +7,7 @@ use crate::image::{Layer, FlatSamples, SpecificChannels, AnyChannels, FlatSample
 use crate::image::write::channels::{GetPixel, WritableChannels, ChannelsWriter};
 use crate::meta::header::{LayerAttributes, Header};
 use crate::block::BlockIndex;
+use crate::error::Result;
 
 /// Something that has a two-dimensional rectangular shape
 pub trait GetBounds {
@@ -166,7 +167,7 @@ impl<'slf, Channels:'slf> WritableChannels<'slf> for CroppedChannels<Channels> w
         self.full_channels.infer_channel_list() // no need for adjustments, as the layer content already reflects the changes
     }
 
-    fn infer_level_modes(&self) -> (LevelMode, RoundingMode) {
+    fn infer_level_modes(&self) -> Result<(LevelMode, RoundingMode)> {
         self.full_channels.infer_level_modes()
     }
 
@@ -176,7 +177,10 @@ impl<'slf, Channels:'slf> WritableChannels<'slf> for CroppedChannels<Channels> w
         let offset = (self.cropped_bounds.position - self.full_bounds.position)
             .to_usize("invalid cropping bounds for cropped view").unwrap();
 
-        CroppedWriter { channels: self.full_channels.create_writer(header), offset }
+        CroppedWriter {
+            channels: self.full_channels.create_writer(header),
+            offset
+        }
     }
 }
 
@@ -188,7 +192,7 @@ pub struct CroppedWriter<ChannelsWriter> {
 }
 
 impl<'c, Channels> ChannelsWriter for CroppedWriter<Channels> where Channels: ChannelsWriter {
-    fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex) -> Vec<u8> {
+    fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex) -> Result<Vec<u8>> {
         let block = BlockIndex {
             pixel_position: block.pixel_position + self.offset,
             .. block

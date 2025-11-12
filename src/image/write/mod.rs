@@ -159,14 +159,14 @@ impl<'img, L, F> WriteImageWithOptions<'img, L, F>
     #[must_use]
     pub fn to_buffered(self, write: impl Write + Seek) -> UnitResult {
         let headers = self.infer_meta_data();
-        let layers = self.image.layer_data.create_writer(&headers);
+        let layers = self.image.layer_data.create_writer(&headers)?;
 
         crate::block::write(
             write, headers, self.check_compatibility,
             move |meta, chunk_writer|{
                 let blocks = meta.collect_ordered_block_data(|block_index|
                      layers.extract_uncompressed_block(&meta.headers, block_index)
-                );
+                )?;
 
                 let chunk_writer = chunk_writer.on_progress(self.on_progress);
                 if self.parallel {

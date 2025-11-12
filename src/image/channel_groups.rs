@@ -177,13 +177,16 @@ struct GroupChannelsWriter<'c, ChannelGroupWriter> {
 }
 
 impl<'c, Channels> ChannelsWriter for GroupChannelsWriter<'c, Channels> where Channels: ChannelsWriter {
-    fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex) -> Vec<u8> {
+    fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex) -> Result<Vec<u8>> {
         let mut blocks_per_channel: Vec<Cursor<Vec<u8>>> = self
             .channels_list.iter()
-            .map(|channels| Cursor::new(channels.extract_uncompressed_block(header, block)))
+            .map(|channels| channels.extract_uncompressed_block(header, block))
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .map(Cursor::new)
             .collect();
 
-        UncompressedBlock::uncompressed_block_from_lines(header, block, |line|{
+        Ok(UncompressedBlock::uncompressed_block_from_lines(header, block, |line|{
             let channel_reader = &mut blocks_per_channel[line.location.channel]; // TODO subsampling
 
             // read from specific channel into total byte block
@@ -191,7 +194,7 @@ impl<'c, Channels> ChannelsWriter for GroupChannelsWriter<'c, Channels> where Ch
             // because each channel reader is consumed
             channel_reader.read_exact(line.value)
                 .expect("collecting grouped channel byte block failed");
-        })
+        }))
     }
 }
 
