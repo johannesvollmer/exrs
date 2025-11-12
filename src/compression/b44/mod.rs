@@ -265,7 +265,7 @@ pub fn decompress(
 ) -> Result<ByteVec> {
     debug_assert_eq!(
         expected_byte_size,
-        rectangle.size.area() * channels.bytes_per_pixel,
+        channels.bytes_per_pixel_section(rectangle),
         "expected byte size does not match header" // TODO compute instead of passing argument?
     );
 
@@ -287,7 +287,9 @@ pub fn decompress(
             y_sampling: channel.sampling.y(),
             sample_type: channel.sample_type,
             quantize_linearly: channel.quantize_linearly,
-            samples_per_pixel: channel.sampling.area(),
+            // For B44, samples_per_pixel should always be 1 since each channel
+            // is processed independently and resolution already accounts for subsampling
+            samples_per_pixel: 1,
         };
 
         tmp_read_index += channel.resolution.area()
@@ -514,7 +516,9 @@ pub fn compress(
             resolution: number_samples,
             sample_type: channel.sample_type,
             quantize_linearly: channel.quantize_linearly,
-            samples_per_pixel: channel.sampling.area(),
+            // For B44, samples_per_pixel should always be 1 since each channel
+            // is processed independently and resolution already accounts for subsampling
+            samples_per_pixel: 1,
         };
 
         tmp_end_index += byte_count;

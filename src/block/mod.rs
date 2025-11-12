@@ -24,7 +24,7 @@ use crate::compression::ByteVec;
 use crate::block::chunk::{CompressedBlock, CompressedTileBlock, CompressedScanLineBlock, Chunk, TileCoordinates};
 use crate::meta::header::Header;
 use crate::block::lines::{LineIndex, LineRef, LineSlice, LineRefMut};
-use crate::meta::attribute::ChannelList;
+use crate::meta::attribute::{ChannelList, IntegerBounds};
 
 
 /// Specifies where a block of pixel data should be placed in the actual image.
@@ -156,19 +156,20 @@ impl UncompressedBlock {
         let header: &Header = headers.get(index.layer)
             .expect("block layer index bug");
 
-        let expected_byte_size = header.channels.bytes_per_pixel * self.index.pixel_size.area(); // TODO sampling??
-        if expected_byte_size != data.len() {
-            panic!("get_line byte size should be {} but was {}", expected_byte_size, data.len());
-        }
-
         let tile_coordinates = TileCoordinates {
             // FIXME this calculation should not be made here but elsewhere instead (in meta::header?)
-            tile_index: index.pixel_position / header.max_block_pixel_size(), // TODO sampling??
+            tile_index: index.pixel_position / header.max_block_pixel_size(),
             level_index: index.level,
         };
 
         let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_coordinates)?;
         absolute_indices.validate(Some(header.layer_size))?;
+
+        // Calculate expected byte size accounting for channel subsampling
+        let expected_byte_size = header.channels.bytes_per_pixel_section(absolute_indices);
+        if expected_byte_size != data.len() {
+            panic!("get_line byte size should be {} but was {}", expected_byte_size, data.len());
+        }
 
         if !header.compression.may_loose_data() { debug_assert_eq!(
             &header.compression.decompress_image_section_from_le(
@@ -234,11 +235,16 @@ impl UncompressedBlock {
         mut extract_line: impl FnMut(LineRefMut<'_>)
     ) -> Vec<u8>
     {
-        let byte_count = block_index.pixel_size.area() * channels.bytes_per_pixel;
+        // Calculate byte count accounting for channel subsampling
+        let pixel_bounds = IntegerBounds {
+            position: block_index.pixel_position.to_i32(),
+            size: block_index.pixel_size,
+        };
+        let byte_count = channels.bytes_per_pixel_section(pixel_bounds);
         let mut block_bytes = vec![0_u8; byte_count];
 
         for (byte_range, line_index) in LineIndex::lines_in_block(block_index, channels) {
-            extract_line(LineRefMut { // TODO subsampling
+            extract_line(LineRefMut {
                 value: &mut block_bytes[byte_range],
                 location: line_index,
             });
