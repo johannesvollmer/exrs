@@ -5,6 +5,9 @@
 pub mod attribute;
 pub mod header;
 
+#[cfg(feature = "deep-data")]
+pub mod deep_state;
+
 use self::attribute::{BlockType, Compression, TileDescription};
 use crate::block::chunk::{CompressedBlock, TileCoordinates};
 use crate::block::{BlockIndex, UncompressedBlock};

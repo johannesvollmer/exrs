@@ -49,6 +49,14 @@ default = ["rayon"]
 # rayon is used for parallel compression
 rayon = ["dep:rayon-core"]
 
+# deep-data enables reading and writing of OpenEXR deep images
+# (images with multiple samples per pixel at different depths)
+deep-data = []
+
+# deep-utilities provides compositing and utility functions for deep data
+# (flattening, tidying, merging operations)
+deep-utilities = ["deep-data"]
+
 [[example]]
 name = "7_write_raw_blocks"
 required-features = ["rayon"]

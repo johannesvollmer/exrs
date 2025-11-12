@@ -79,6 +79,11 @@ pub enum AttributeValue {
     /// 3D float vector.
     FloatVec3((f32, f32, f32)),
 
+    /// Deep image state (sorted, non-overlapping, etc.).
+    /// Only available when the `deep-data` feature is enabled.
+    #[cfg(feature = "deep-data")]
+    DeepImageState(crate::meta::deep_state::DeepImageState),
+
     /// An explicitly untyped attribute for binary application data.
     /// Also contains the type name of this value.
     /// The format of the byte contents is explicitly unspecified.
@@ -1802,6 +1807,8 @@ impl AttributeValue {
             Matrix3x3, Matrix4x4, Preview, Rational, Text, TextVector, TileDescription, TimeCode,
             F32, F64, I32,
         };
+        #[cfg(feature = "deep-data")]
+        use self::AttributeValue::DeepImageState;
 
         match *self {
             IntegerBounds(_) => self::IntegerBounds::byte_size(),
@@ -1841,6 +1848,9 @@ impl AttributeValue {
             Custom { ref bytes, .. } => bytes.len(),
             BlockType(ref kind) => kind.byte_size(),
 
+            #[cfg(feature = "deep-data")]
+            DeepImageState(_) => i32::BYTE_SIZE,
+
             Bytes {
                 ref bytes,
                 ref type_hint,
@@ -1858,6 +1868,8 @@ impl AttributeValue {
             Matrix3x3, Matrix4x4, Preview, Rational, Text, TextVector, TileDescription, TimeCode,
             F32, F64, I32,
         };
+        #[cfg(feature = "deep-data")]
+        use self::AttributeValue::DeepImageState;
 
         match *self {
             IntegerBounds(_) => ty::I32BOX2,
@@ -1884,6 +1896,10 @@ impl AttributeValue {
             TextVector(_) => ty::TEXT_VECTOR,
             TileDescription(_) => ty::TILES,
             BlockType(_) => super::BlockType::TYPE_NAME,
+
+            #[cfg(feature = "deep-data")]
+            DeepImageState(_) => ty::DEEP_IMAGE_STATE,
+
             Bytes { .. } => ty::BYTES,
             Custom { ref kind, .. } => kind.as_slice(),
         }
@@ -1897,6 +1913,8 @@ impl AttributeValue {
             Matrix3x3, Matrix4x4, Preview, Rational, Text, TextVector, TileDescription, TimeCode,
             F32, F64, I32,
         };
+        #[cfg(feature = "deep-data")]
+        use self::AttributeValue::DeepImageState;
         match *self {
             IntegerBounds(value) => value.write(write)?,
             FloatRect(value) => value.write(write)?,
@@ -1950,6 +1968,9 @@ impl AttributeValue {
             TextVector(ref value) => self::Text::write_vec_of_i32_sized_texts_le(write, value)?,
             TileDescription(ref value) => value.write(write)?,
             BlockType(kind) => kind.write(write)?,
+
+            #[cfg(feature = "deep-data")]
+            DeepImageState(state) => state.to_i32().write_le(write)?,
 
             Bytes {
                 ref type_hint,
@@ -2080,6 +2101,12 @@ impl AttributeValue {
                     Bytes { type_hint, bytes }
                 }
 
+                #[cfg(feature = "deep-data")]
+                ty::DEEP_IMAGE_STATE => {
+                    use crate::meta::deep_state::DeepImageState as DIS;
+                    AttributeValue::DeepImageState(DIS::from_i32(i32::read_le(reader)?)?)
+                }
+
                 _ => Custom {
                     kind: kind.clone(),
                     bytes: SmallVec::from(*reader),
@@ -2201,7 +2228,8 @@ pub mod type_names {
         TEXT:           b"string",
         TEXT_VECTOR:    b"stringvector",
         TILES:          b"tiledesc",
-        BYTES:          b"bytes"
+        BYTES:          b"bytes",
+        DEEP_IMAGE_STATE: b"deepImageState"
     }
 }
 
