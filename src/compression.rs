@@ -176,8 +176,20 @@ impl Compression {
             pixel_section.validate(Some(max_tile_size)).is_ok(),
             "decompress tile coordinate bug"
         );
+
+        #[cfg(feature = "deep-data")]
         if header.deep {
-            assert!(self.supports_deep_data());
+            assert!(
+                self.supports_deep_data(),
+                "compression method {:?} does not support deep data", self
+            );
+        }
+
+        #[cfg(not(feature = "deep-data"))]
+        if header.deep {
+            return Err(Error::unsupported(
+                "deep data support is not enabled; enable the 'deep-data' feature"
+            ));
         }
 
         use self::Compression::{Uncompressed, B44, B44A, PIZ, PXR24, RLE, ZIP1, ZIP16};
@@ -266,8 +278,20 @@ impl Compression {
             pixel_section.validate(Some(max_tile_size)).is_ok(),
             "decompress tile coordinate bug"
         );
+
+        #[cfg(feature = "deep-data")]
         if header.deep {
-            assert!(self.supports_deep_data());
+            assert!(
+                self.supports_deep_data(),
+                "compression method {:?} does not support deep data", self
+            );
+        }
+
+        #[cfg(not(feature = "deep-data"))]
+        if header.deep {
+            return Err(Error::unsupported(
+                "deep data support is not enabled; enable the 'deep-data' feature"
+            ));
         }
 
         let expected_byte_size = pixel_section.size.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
@@ -364,16 +388,22 @@ impl Compression {
         }
     }
 
-    /// Deep data can only be compressed using RLE or ZIP compression.
+    /// Deep data can be compressed using RLE or ZIP compression.
+    /// Returns whether this compression method supports deep data.
+    ///
+    /// Deep data stores multiple samples per pixel at different depths.
+    /// Not all compression methods support the deep data format.
     #[must_use]
     pub const fn supports_deep_data(self) -> bool {
         use self::Compression::{
             Uncompressed, B44, B44A, DWAA, DWAB, HTJ2K256, HTJ2K32, PIZ, PXR24, RLE, ZIP1, ZIP16,
         };
         match self {
-            Uncompressed | RLE | ZIP1 => true,
+            // Supported: uncompressed and ZIP-based compression
+            Uncompressed | RLE | ZIP1 | ZIP16 => true,
 
-            ZIP16 | PXR24 | PIZ | B44 | B44A | DWAA(_) | DWAB(_) | HTJ2K256 | HTJ2K32 => false,
+            // Not supported: wavelet and block-based compression methods
+            PXR24 | PIZ | B44 | B44A | DWAA(_) | DWAB(_) | HTJ2K256 | HTJ2K32 => false,
         }
     }
 
@@ -433,6 +463,7 @@ impl Compression {
             B44 | Uncompressed | RLE | ZIP1 | ZIP16 | PIZ | HTJ2K32 | HTJ2K256 => true,
         }
     }
+
 }
 
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/6a9f8af6e89547bcd370ae3cec2b12849eee0b54/OpenEXR/IlmImf/ImfMisc.cpp#L1456-L1541
