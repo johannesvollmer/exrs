@@ -50,8 +50,8 @@ impl InverseNonlinearLut {
     pub fn new() -> Self {
         let mut table = Vec::with_capacity(65536);
 
-        // Generate lookup table for all possible f16 values
-        for bits in 0..65536u16 {
+        // Generate lookup table for all possible f16 values (0 to 65535)
+        for bits in 0..=65535u16 {
             let half = f16::from_bits(bits);
             let float_value = half.to_f32();
 

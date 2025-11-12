@@ -240,6 +240,20 @@ impl Compression {
                 pixel_section,
                 true,
             ),
+            DWAA(level) => dwa::compress(
+                &header.channels,
+                uncompressed_native_endian.clone(),
+                pixel_section,
+                32,
+                level.unwrap_or(45.0),
+            ),
+            DWAB(level) => dwa::compress(
+                &header.channels,
+                uncompressed_native_endian.clone(),
+                pixel_section,
+                256,
+                level.unwrap_or(45.0),
+            ),
             _ => {
                 return Err(Error::unsupported(format!(
                     "yet unimplemented compression method: {}",
@@ -338,6 +352,22 @@ impl Compression {
                     pixel_section,
                     expected_byte_size,
                     pedantic,
+                ),
+                DWAA(_) => dwa::decompress(
+                    &header.channels,
+                    compressed_le,
+                    pixel_section,
+                    expected_byte_size,
+                    pedantic,
+                    32,
+                ),
+                DWAB(_) => dwa::decompress(
+                    &header.channels,
+                    compressed_le,
+                    pixel_section,
+                    expected_byte_size,
+                    pedantic,
+                    256,
                 ),
                 _ => {
                     return Err(Error::unsupported(format!(

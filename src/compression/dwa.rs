@@ -10,6 +10,9 @@
 //! Based on the OpenEXR reference implementation:
 //! https://github.com/AcademySoftwareFoundation/openexr
 
+// Allow dead code for now since the implementation is incomplete
+#![allow(dead_code)]
+
 mod classifier;
 mod constants;
 mod csc;
@@ -21,7 +24,6 @@ use crate::compression::ByteVec;
 use crate::error::{Error, Result};
 use crate::meta::attribute::{ChannelList, IntegerBounds};
 
-use lebe::io::ReadPrimitive;
 use std::io::Cursor;
 
 use classifier::{classify_channels, CompressionScheme};
@@ -45,7 +47,7 @@ pub fn decompress(
     rectangle: IntegerBounds,
     expected_byte_size: usize,
     _pedantic: bool,
-    num_scan_lines: usize,
+    _num_scan_lines: usize,
 ) -> Result<ByteVec> {
     debug_assert_eq!(
         expected_byte_size,
@@ -60,7 +62,7 @@ pub fn decompress(
     let classification = classify_channels(channels);
 
     // Parse compressed data header
-    let mut reader = Cursor::new(&compressed_le);
+    let mut reader = Cursor::new(compressed_le.as_slice());
     let header = parse_header(&mut reader)?;
 
     // Decompress data streams
@@ -78,7 +80,7 @@ pub fn decompress(
                 decompress_zip(&compressed, header.ac_uncompressed_size)?
             }
             AcCompression::StaticHuffman => {
-                return Err(Error::not_supported(
+                return Err(Error::unsupported(
                     "Static Huffman AC compression not yet implemented"
                 ));
             }
@@ -195,7 +197,7 @@ fn decompress_lossy_dct_channel(
     //    g. Convert to output format (HALF/FLOAT)
     // 3. Write to output buffer
 
-    Err(Error::not_supported(
+    Err(Error::unsupported(
         "Lossy DCT decompression not fully implemented yet"
     ))
 }
@@ -223,29 +225,44 @@ enum AcCompression {
     Deflate,
 }
 
+/// Read a u64 from the cursor in little-endian format
+fn read_u64_le(reader: &mut Cursor<&[u8]>) -> Result<u64> {
+    let mut buf = [0u8; 8];
+    let pos = reader.position() as usize;
+    let data = reader.get_ref();
+
+    if pos + 8 > data.len() {
+        return Err(Error::invalid("Not enough data to read u64"));
+    }
+
+    buf.copy_from_slice(&data[pos..pos + 8]);
+    reader.set_position((pos + 8) as u64);
+    Ok(u64::from_le_bytes(buf))
+}
+
 /// Parse the compressed data header
 fn parse_header(reader: &mut Cursor<&[u8]>) -> Result<Header> {
     // Read header values (all u64 in little-endian)
-    let version = reader.read_as_native_endian::<u64>()
+    let version = read_u64_le(reader)
         .map_err(|_| Error::invalid("Failed to read DWA version"))?;
 
     if version > 2 {
         return Err(Error::invalid("Unsupported DWA version"));
     }
 
-    let unknown_compressed_size = reader.read_as_native_endian::<u64>()
+    let unknown_compressed_size = read_u64_le(reader)
         .map_err(|_| Error::invalid("Failed to read unknown compressed size"))? as usize;
 
-    let unknown_uncompressed_size = reader.read_as_native_endian::<u64>()
+    let unknown_uncompressed_size = read_u64_le(reader)
         .map_err(|_| Error::invalid("Failed to read unknown uncompressed size"))? as usize;
 
-    let ac_compressed_size = reader.read_as_native_endian::<u64>()
+    let ac_compressed_size = read_u64_le(reader)
         .map_err(|_| Error::invalid("Failed to read AC compressed size"))? as usize;
 
-    let ac_uncompressed_size = reader.read_as_native_endian::<u64>()
+    let ac_uncompressed_size = read_u64_le(reader)
         .map_err(|_| Error::invalid("Failed to read AC uncompressed size"))? as usize;
 
-    let ac_compression_value = reader.read_as_native_endian::<u64>()
+    let ac_compression_value = read_u64_le(reader)
         .map_err(|_| Error::invalid("Failed to read AC compression method"))?;
 
     let ac_compression = match ac_compression_value {
@@ -254,19 +271,19 @@ fn parse_header(reader: &mut Cursor<&[u8]>) -> Result<Header> {
         _ => return Err(Error::invalid("Invalid AC compression method")),
     };
 
-    let dc_compressed_size = reader.read_as_native_endian::<u64>()
+    let dc_compressed_size = read_u64_le(reader)
         .map_err(|_| Error::invalid("Failed to read DC compressed size"))? as usize;
 
-    let dc_uncompressed_size = reader.read_as_native_endian::<u64>()
+    let dc_uncompressed_size = read_u64_le(reader)
         .map_err(|_| Error::invalid("Failed to read DC uncompressed size"))? as usize;
 
-    let rle_compressed_size = reader.read_as_native_endian::<u64>()
+    let rle_compressed_size = read_u64_le(reader)
         .map_err(|_| Error::invalid("Failed to read RLE compressed size"))? as usize;
 
-    let rle_uncompressed_size = reader.read_as_native_endian::<u64>()
+    let rle_uncompressed_size = read_u64_le(reader)
         .map_err(|_| Error::invalid("Failed to read RLE uncompressed size"))? as usize;
 
-    let rle_raw_size = reader.read_as_native_endian::<u64>()
+    let rle_raw_size = read_u64_le(reader)
         .map_err(|_| Error::invalid("Failed to read RLE raw size"))? as usize;
 
     // Version 2 includes channel classification rules, which we skip for now
@@ -378,7 +395,7 @@ pub fn compress(
     _num_scan_lines: usize,
     _compression_level: f32,
 ) -> Result<ByteVec> {
-    Err(Error::not_supported(
+    Err(Error::unsupported(
         "DWAA/DWAB compression not yet implemented"
     ))
 }

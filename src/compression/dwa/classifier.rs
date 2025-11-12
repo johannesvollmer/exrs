@@ -76,8 +76,9 @@ pub fn classify_channels(channels: &ChannelList) -> ClassificationResult {
 
         let channel = &channels.list[i];
 
-        // Check if this is an R channel
-        if is_r_channel(&String::from(channel.name.clone())) && is_float_type(channel.sample_type) {
+        // Check if this is an R channel (convert Text to String for comparison)
+        let channel_name: String = channel.name.clone().into();
+        if is_r_channel(&channel_name) && is_float_type(channel.sample_type) {
             // Look for matching G and B channels
             if let Some((g_idx, b_idx)) = find_matching_gb(channels, i, &used_in_csc) {
                 // Found a complete RGB triplet
@@ -96,6 +97,7 @@ pub fn classify_channels(channels: &ChannelList) -> ClassificationResult {
 
     // Second pass: classify each channel
     for (i, channel) in channels.list.iter().enumerate() {
+        let channel_name: String = channel.name.clone().into();
         let classification = if let Some((group_idx, role)) = find_csc_membership(i, &csc_groups) {
             // Part of an RGB triplet - use lossy DCT with CSC
             ChannelClassification {
@@ -103,14 +105,14 @@ pub fn classify_channels(channels: &ChannelList) -> ClassificationResult {
                 csc_group_index: Some(group_idx),
                 csc_channel_role: Some(role),
             }
-        } else if is_lossy_dct_channel(&String::from(channel.name.clone())) && is_float_type(channel.sample_type) {
+        } else if is_lossy_dct_channel(&channel_name) && is_float_type(channel.sample_type) {
             // Standalone Y, BY, or RY channel - use lossy DCT without CSC
             ChannelClassification {
                 scheme: CompressionScheme::LossyDct,
                 csc_group_index: None,
                 csc_channel_role: None,
             }
-        } else if is_alpha_channel(&String::from(channel.name.clone())) {
+        } else if is_alpha_channel(&channel_name) {
             // Alpha channel - use RLE
             ChannelClassification {
                 scheme: CompressionScheme::Rle,
@@ -182,7 +184,7 @@ fn find_matching_gb(
     let r_name = &channels.list[r_index].name;
 
     // Derive expected G and B names from R name
-    let (g_name, b_name) = if r_name == "R" {
+    let (g_name, b_name) = if *r_name == *"R" {
         ("G".to_string(), "B".to_string())
     } else {
         // Convert to String to use strip_suffix
@@ -199,14 +201,14 @@ fn find_matching_gb(
         .list
         .iter()
         .enumerate()
-        .position(|(idx, ch)| ch.name == g_name.as_str() && is_float_type(ch.sample_type) && !used[idx])?;
+        .position(|(idx, ch)| ch.name == *g_name.as_str() && is_float_type(ch.sample_type) && !used[idx])?;
 
     // Find B channel
     let b_idx = channels
         .list
         .iter()
         .enumerate()
-        .position(|(idx, ch)| ch.name == b_name.as_str() && is_float_type(ch.sample_type) && !used[idx])?;
+        .position(|(idx, ch)| ch.name == *b_name.as_str() && is_float_type(ch.sample_type) && !used[idx])?;
 
     Some((g_idx, b_idx))
 }

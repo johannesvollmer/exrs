@@ -2,13 +2,16 @@
 //!
 //! Uses 8x8 DCT-II for frequency decomposition.
 
-use rustdct::DctPlanner;
-use std::sync::OnceLock;
+use rustdct::{DctPlanner, Dct2};
+use std::sync::{Arc, OnceLock};
 
-/// Get a cached DCT-II planner for 8x8 transforms
-fn get_dct_planner() -> &'static DctPlanner<f32> {
-    static PLANNER: OnceLock<DctPlanner<f32>> = OnceLock::new();
-    PLANNER.get_or_init(DctPlanner::new)
+/// Get a cached DCT-II transform for 8x8 blocks
+fn get_dct8() -> &'static Arc<dyn Dct2<f32>> {
+    static DCT8: OnceLock<Arc<dyn Dct2<f32>>> = OnceLock::new();
+    DCT8.get_or_init(|| {
+        let mut planner = DctPlanner::new();
+        planner.plan_dct2(8)
+    })
 }
 
 /// Perform inverse 8x8 DCT on a block of coefficients
@@ -22,8 +25,7 @@ fn get_dct_planner() -> &'static DctPlanner<f32> {
 /// # Returns
 /// Spatial domain values (8x8 block)
 pub fn inverse_dct_8x8(coeffs: &[f32; 64]) -> [f32; 64] {
-    let mut planner = get_dct_planner();
-    let dct = planner.plan_dct2(8);
+    let dct = get_dct8();
 
     let mut result = [0.0f32; 64];
     let mut temp = [0.0f32; 64];
@@ -98,8 +100,7 @@ mod tests {
 
     // Forward DCT for testing (not used in actual decompression)
     fn forward_dct_8x8(spatial: &[f32; 64]) -> [f32; 64] {
-        let mut planner = get_dct_planner();
-        let dct = planner.plan_dct2(8);
+        let dct = get_dct8();
 
         let mut temp = [0.0f32; 64];
         let mut result = [0.0f32; 64];
@@ -210,12 +211,12 @@ mod tests {
     }
 
     #[test]
-    fn test_dct_planner_reuse() {
-        // Verify that the planner is properly cached
-        let planner1 = get_dct_planner();
-        let planner2 = get_dct_planner();
+    fn test_dct_cached() {
+        // Verify that the DCT is properly cached
+        let dct1 = get_dct8();
+        let dct2 = get_dct8();
 
-        // Should be the same instance
-        assert!(std::ptr::eq(planner1, planner2));
+        // Should be the same Arc instance
+        assert!(Arc::ptr_eq(dct1, dct2));
     }
 }
