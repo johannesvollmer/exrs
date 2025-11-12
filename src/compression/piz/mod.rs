@@ -2,7 +2,7 @@
 //! based on the PIZ image format, customized for OpenEXR.
 // inspired by  https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfPizCompressor.cpp
 
-mod huffman;
+pub(crate) mod huffman; // crate-visible for use by DWA compressor
 mod wavelet;
 
 use crate::{
