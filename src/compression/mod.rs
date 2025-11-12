@@ -3,6 +3,7 @@
 
 // private modules make non-breaking changes easier
 mod b44;
+mod dwa;
 mod piz;
 mod pxr24;
 mod rle;
