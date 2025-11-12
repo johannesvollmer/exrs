@@ -4,18 +4,18 @@ This directory contains reference deep data images from the OpenEXR project for 
 
 ## Test Files
 
+All four files are part of a single compositable scene from the OpenEXR test image set.
+
 ### Balls.exr
 - **Source**: https://raw.githubusercontent.com/AcademySoftwareFoundation/openexr-images/main/v2/LowResLeftView/Balls.exr
 - **Type**: Deep scanline image
 - **Size**: 1.6 MB
 - **Resolution**: 764×406 pixels (data window: 131,170 to 894,575)
 - **Display window**: 1024×576 (0,0 to 1023,575)
-- **Channels**:
-  - R, G, B, A (HALF - 16-bit float)
-  - Z (FLOAT - 32-bit float depth)
+- **Channels**: R, G, B, A (HALF) + Z (FLOAT)
 - **Chunks**: 406 (one per scanline)
-- **Compression**: ZIPS (ZIP compression of single scanline)
-- **Purpose**: Primary test file for deep data with multiple semi-transparent spheres at different depths
+- **Compression**: ZIPS
+- **Purpose**: Semi-transparent spheres at different depths
 
 ### Ground.exr
 - **Source**: https://raw.githubusercontent.com/AcademySoftwareFoundation/openexr-images/main/v2/LowResLeftView/Ground.exr
@@ -23,12 +23,32 @@ This directory contains reference deep data images from the OpenEXR project for 
 - **Size**: 4.8 MB
 - **Resolution**: 1024×396 pixels (data window: 0,180 to 1023,575)
 - **Display window**: 1024×576 (0,0 to 1023,575)
-- **Channels**:
-  - R, G, B, A (HALF - 16-bit float)
-  - Z (FLOAT - 32-bit float depth)
+- **Channels**: R, G, B, A (HALF) + Z (FLOAT)
 - **Chunks**: 396 (one per scanline)
 - **Compression**: ZIPS
-- **Purpose**: Background/ground plane for testing deep compositing utilities
+- **Purpose**: Background ground plane
+
+### Leaves.exr
+- **Source**: https://raw.githubusercontent.com/AcademySoftwareFoundation/openexr-images/main/v2/LowResLeftView/Leaves.exr
+- **Type**: Deep scanline image
+- **Size**: 2.6 MB
+- **Resolution**: 1024×576 pixels (full display window)
+- **Display window**: 1024×576 (0,0 to 1023,575)
+- **Channels**: R, G, B, A (HALF) + Z (FLOAT)
+- **Chunks**: 576 (one per scanline)
+- **Compression**: ZIPS
+- **Purpose**: Foliage layer with transparency
+
+### Trunks.exr
+- **Source**: https://raw.githubusercontent.com/AcademySoftwareFoundation/openexr-images/main/v2/LowResLeftView/Trunks.exr
+- **Type**: Deep scanline image
+- **Size**: 574 KB
+- **Resolution**: 1024×435 pixels (data window varies)
+- **Display window**: 1024×576 (0,0 to 1023,575)
+- **Channels**: R, G, B, A (HALF) + Z (FLOAT)
+- **Chunks**: 435 (one per scanline)
+- **Compression**: ZIPS
+- **Purpose**: Tree trunk geometry
 
 ## File Format Notes
 
@@ -54,9 +74,10 @@ These files will be used to validate:
    - Read → Write → Read should preserve all data exactly
 
 3. **Deep compositing** (Phase 5)
-   - Flatten Balls.exr to a regular image
-   - Composite Balls.exr over Ground.exr as background
-   - Verify correct depth-based compositing
+   - Flatten individual deep images to regular images
+   - Composite all four layers: Ground.exr (back) → Trunks.exr → Balls.exr → Leaves.exr (front)
+   - Verify correct depth-based compositing with multiple layers
+   - Test partial overlap and transparency handling
 
 4. **Compatibility testing** (Phase 6)
    - Verify files written by exrs can be read by OpenEXR C++ tools
