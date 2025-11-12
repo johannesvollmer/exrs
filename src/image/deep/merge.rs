@@ -204,7 +204,7 @@ mod tests {
         assert_eq!(pixel.samples[0].depth, 1.0);
         assert_eq!(pixel.samples[1].depth, 2.0);
 
-        let (color, alpha) = pixel.composite();
+        let (_color, alpha) = pixel.composite();
         assert!(alpha > 0.0);
         assert!(alpha <= 1.0);
     }
