@@ -1,7 +1,9 @@
+
 #[macro_use]
 extern crate smallvec;
-extern crate half;
 extern crate rand;
+extern crate half;
+
 
 // exr imports
 extern crate exr;
@@ -23,8 +25,12 @@ fn main() {
     let create_channel = |name: &str| -> AnyChannel<FlatSamples> {
         let color: f16 = f16::from_bits(rand::random::<u16>());
 
-        AnyChannel::new(name, FlatSamples::F16(vec![color; size.area()]))
+        AnyChannel::new(
+            name,
+            FlatSamples::F16(vec![color; size.area() ])
+        )
     };
+
 
     // The channels have the following structure:
     //
@@ -52,15 +58,9 @@ fn main() {
         size,
         LayerAttributes::named("test-image"),
         Encoding::FAST_LOSSLESS,
-        AnyChannels::sort(smallvec![
-            // the order does not actually matter
-            foreground_r,
-            foreground_g,
-            foreground_b,
-            foreground_a,
-            background_r,
-            background_g,
-            background_b
+        AnyChannels::sort(smallvec![ // the order does not actually matter
+            foreground_r, foreground_g, foreground_b, foreground_a,
+            background_r, background_g, background_b
         ]),
     );
 

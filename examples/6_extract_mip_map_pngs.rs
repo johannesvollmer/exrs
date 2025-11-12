@@ -1,3 +1,4 @@
+
 extern crate image as png;
 use std::cmp::Ordering;
 
@@ -22,28 +23,18 @@ pub fn main() {
     println!("writing images...");
 
     for (layer_index, layer) in image.layer_data.iter().enumerate() {
-        let layer_name = layer
-            .attributes
-            .layer_name
-            .as_ref()
+        let layer_name = layer.attributes.layer_name.as_ref()
             .map_or(String::from("1"), Text::to_string);
 
         for channel in &layer.channel_data.list {
             for (level, level_size) in layer.levels_with_resolution(&channel.sample_data) {
-                let data: Vec<f32> = level.values_as_f32().collect();
+                let data : Vec<f32> = level.values_as_f32().collect();
 
-                save_f32_image_as_png(
-                    &data,
-                    level_size,
-                    format!(
-                        "pngs/{} ({}) {}.{}x{}.png",
-                        layer_index,
-                        layer_name,
-                        channel.name,
-                        level_size.width(),
-                        level_size.height(),
-                    ),
-                )
+                save_f32_image_as_png(&data, level_size, format!(
+                    "pngs/{} ({}) {}.{}x{}.png",
+                    layer_index, layer_name, channel.name,
+                    level_size.width(), level_size.height(),
+                ))
             }
         }
     }
@@ -56,7 +47,7 @@ pub fn main() {
 
         // percentile normalization
         let max = sorted[7 * sorted.len() / 8];
-        let min = sorted[sorted.len() / 8];
+        let min = sorted[1 * sorted.len() / 8];
 
         // primitive tone mapping
         let tone = |v: f32| (v - 0.5).tanh() * 0.5 + 0.5;
@@ -80,3 +71,4 @@ pub fn main() {
 
     println!("extracted all layers to folder `./pngs/*.png`");
 }
+

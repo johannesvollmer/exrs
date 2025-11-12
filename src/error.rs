@@ -1,13 +1,15 @@
+
 //! Error type definitions.
 
 use std::borrow::Cow;
+use std::io::ErrorKind;
+pub use std::io::Error as IoError;
+pub use std::io::Result as IoResult;
 use std::convert::TryFrom;
 use std::error;
 use std::fmt;
-pub use std::io::Error as IoError;
-use std::io::ErrorKind;
-pub use std::io::Result as IoResult;
 use std::num::TryFromIntError;
+
 
 // Export types
 
@@ -17,11 +19,13 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// A result that, if ok, contains nothing, and otherwise contains an exr error.
 pub type UnitResult = Result<()>;
 
+
 /// An error that may happen while reading or writing an exr file.
 /// Distinguishes between three types of errors:
 /// unsupported features, invalid data, and file system errors.
 #[derive(Debug)]
 pub enum Error {
+
     /// Reading or Writing the file has been aborted by the caller.
     /// This error will never be triggered by this crate itself,
     /// only by users of this library.
@@ -42,15 +46,17 @@ pub enum Error {
     Io(IoError),
 }
 
+
 impl Error {
+
     /// Create an error of the variant `Invalid`.
     pub(crate) fn invalid(message: impl Into<Cow<'static, str>>) -> Self {
-        Self::Invalid(message.into())
+        Error::Invalid(message.into())
     }
 
     /// Create an error of the variant `NotSupported`.
     pub(crate) fn unsupported(message: impl Into<Cow<'static, str>>) -> Self {
-        Self::NotSupported(message.into())
+        Error::NotSupported(message.into())
     }
 }
 
@@ -58,9 +64,10 @@ impl Error {
 impl From<IoError> for Error {
     fn from(error: IoError) -> Self {
         if error.kind() == ErrorKind::UnexpectedEof {
-            Self::invalid("reference to missing bytes")
-        } else {
-            Self::Io(error)
+            Error::invalid("reference to missing bytes")
+        }
+        else {
+            Error::Io(error)
         }
     }
 }
@@ -71,14 +78,14 @@ impl From<IoError> for Error {
 // instead of relying on this From impl.
 impl From<TryFromIntError> for Error {
     fn from(_: TryFromIntError) -> Self {
-        Self::invalid("integer conversion failed: value out of range")
+        Error::invalid("integer conversion failed: value out of range")
     }
 }
 
 impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match *self {
-            Self::Io(ref err) => Some(err),
+            Error::Io(ref err) => Some(err),
             _ => None,
         }
     }
@@ -87,10 +94,10 @@ impl error::Error for Error {
 impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io(err) => err.fmt(formatter),
-            Self::NotSupported(message) => write!(formatter, "not supported: {message}"),
-            Self::Invalid(message) => write!(formatter, "invalid: {message}"),
-            Self::Aborted => write!(formatter, "cancelled"),
+            Error::Io(err) => err.fmt(formatter),
+            Error::NotSupported(message) => write!(formatter, "not supported: {}", message),
+            Error::Invalid(message) => write!(formatter, "invalid: {}", message),
+            Error::Aborted => write!(formatter, "cancelled"),
         }
     }
 }
@@ -99,11 +106,8 @@ impl fmt::Display for Error {
 #[inline]
 pub(crate) fn i32_to_usize(value: i32, error_message: &'static str) -> Result<usize> {
     usize::try_from(value).map_err(|_| {
-        if value < 0 {
-            Error::invalid(error_message)
-        } else {
-            Error::unsupported(error_message)
-        }
+        if value < 0 { Error::invalid(error_message) }
+        else { Error::unsupported(error_message) }
     })
 }
 

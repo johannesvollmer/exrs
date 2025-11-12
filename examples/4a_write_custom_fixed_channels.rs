@@ -1,3 +1,4 @@
+
 // exr imports
 extern crate exr;
 
@@ -12,25 +13,12 @@ fn main() {
         .with_channel("*?!")
         .with_channel("`--\"")
         .with_channel("\r\r\r\n\n")
-        .with_pixel_fn(|position| {
+        .with_pixel_fn(|position|{
             if position.0 < 1000 {
-                (
-                    f16::from_f32(0.2),
-                    0.666_f32,
-                    4_u32,
-                    1532434.0213_f32,
-                    0.99999_f32,
-                    3.142594_f32 / 4.0,
-                )
-            } else {
-                (
-                    f16::from_f32(0.4),
-                    0.777_f32,
-                    8_u32,
-                    102154.3_f32,
-                    0.00001_f32,
-                    3.142594_f32 / 4.0,
-                )
+                (f16::from_f32(0.2), 0.666_f32, 4_u32, 1532434.0213_f32, 0.99999_f32, 3.142594_f32/4.0)
+            }
+            else {
+                (f16::from_f32(0.4), 0.777_f32, 8_u32, 102154.3_f32, 0.00001_f32, 3.142594_f32/4.0)
             }
         });
 
@@ -39,8 +27,7 @@ fn main() {
     // print progress only if it advances more than 1%
     let mut current_progress_percentage = 0;
 
-    image
-        .write()
+    image.write()
         .on_progress(|progress| {
             let new_progress = (progress * 100.0) as usize;
             if new_progress != current_progress_percentage {
@@ -48,8 +35,7 @@ fn main() {
                 println!("progress: {}%", current_progress_percentage)
             }
         })
-        .to_file("custom_channels.exr")
-        .unwrap();
+        .to_file("custom_channels.exr").unwrap();
 
     println!("created file custom_channels.exr");
 }
