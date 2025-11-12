@@ -1117,14 +1117,46 @@ impl ChannelDescription {
             return Err(Error::invalid("channel sampling factor not dividing data window size"));
         }
 
-        if self.sampling != Vec2(1,1) {
-            // TODO this must only be implemented in the crate::image module and child modules,
-            //      should not be too difficult
-
-            return Err(Error::unsupported("channel subsampling not supported yet"));
-        }
-
         Ok(())
+    }
+
+    /// Calculate the number of pixels in this channel within the given bounds,
+    /// accounting for subsampling. Uses the precise OpenEXR `numSamples` algorithm.
+    ///
+    /// This is different from `subsampled_pixels` in that it works with `IntegerBounds`
+    /// and handles arbitrary pixel positions correctly (including negative coordinates).
+    pub fn subsampled_pixel_count_for_bounds(&self, bounds: IntegerBounds) -> usize {
+        use crate::math::num_samples;
+
+        let end_x = bounds.position.x() + bounds.size.x() as i32 - 1;
+        let end_y = bounds.position.y() + bounds.size.y() as i32 - 1;
+
+        let samples_x = num_samples(self.sampling.x(), bounds.position.x(), end_x);
+        let samples_y = num_samples(self.sampling.y(), bounds.position.y(), end_y);
+
+        samples_x * samples_y
+    }
+
+    /// Calculate the byte size for this channel's data within the given pixel bounds,
+    /// accounting for subsampling.
+    pub fn byte_size_for_pixel_section(&self, bounds: IntegerBounds) -> usize {
+        self.subsampled_pixel_count_for_bounds(bounds) * self.sample_type.bytes_per_sample()
+    }
+
+    /// Check if a pixel at the given Y coordinate has a sample in this channel.
+    /// A pixel has a sample if `y % ySampling == 0`.
+    #[inline]
+    pub fn has_samples_at_y(&self, y: i32) -> bool {
+        use crate::math::mod_p;
+        mod_p(y, self.sampling.y()) == 0
+    }
+
+    /// Check if a pixel at the given X coordinate has a sample in this channel.
+    /// A pixel has a sample if `x % xSampling == 0`.
+    #[inline]
+    pub fn has_samples_at_x(&self, x: i32) -> bool {
+        use crate::math::mod_p;
+        mod_p(x, self.sampling.x()) == 0
     }
 }
 
@@ -1169,6 +1201,20 @@ impl ChannelList {
         }
 
         Ok(())
+    }
+
+    /// Calculate the total byte size for all channels within the given pixel bounds,
+    /// accounting for subsampling.
+    ///
+    /// This is the number of bytes needed to store all channel data for the specified
+    /// pixel section. Each channel may have a different number of samples due to subsampling.
+    ///
+    /// This matches OpenEXR's approach of calculating bytes per scanline/block.
+    pub fn bytes_per_pixel_section(&self, bounds: IntegerBounds) -> usize {
+        self.list
+            .iter()
+            .map(|channel| channel.byte_size_for_pixel_section(bounds))
+            .sum()
     }
 }
 

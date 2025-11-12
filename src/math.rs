@@ -211,3 +211,155 @@ impl RoundingMode {
 }
 
 // TODO log2 tests
+
+/// Division with positive floor, matching OpenEXR's `divp()`.
+/// Handles negative numbers correctly by ensuring the result
+/// rounds toward negative infinity.
+///
+/// This is used for subsampling calculations where we need to
+/// map pixel coordinates to sample indices.
+///
+/// # Examples
+/// ```
+/// # use exrs::math::div_p;
+/// assert_eq!(div_p(5, 2), 2);    // 5 / 2 = 2.5 -> 2
+/// assert_eq!(div_p(-3, 2), -2);  // -3 / 2 = -1.5 -> -2
+/// assert_eq!(div_p(4, 2), 2);    // 4 / 2 = 2 -> 2
+/// assert_eq!(div_p(-4, 2), -2);  // -4 / 2 = -2 -> -2
+/// ```
+#[inline]
+pub fn div_p(x: i32, s: usize) -> i32 {
+    let s = s as i32;
+    if x >= 0 {
+        x / s
+    } else {
+        -((-x + s - 1) / s)
+    }
+}
+
+/// Modulo that always returns non-negative result, matching OpenEXR's `modp()`.
+/// This is the complement of `div_p()` such that: `x == div_p(x, s) * s + modp(x, s)`
+///
+/// Used to check if a pixel coordinate has a sample in a subsampled channel.
+/// A pixel at coordinate x has a sample if `modp(x, xSampling) == 0`.
+///
+/// # Examples
+/// ```
+/// # use exrs::math::mod_p;
+/// assert_eq!(mod_p(5, 2), 1);   // 5 % 2 = 1
+/// assert_eq!(mod_p(-3, 2), 1);  // -3 % 2 = 1 (not -1!)
+/// assert_eq!(mod_p(4, 2), 0);   // 4 % 2 = 0
+/// assert_eq!(mod_p(-4, 2), 0);  // -4 % 2 = 0
+/// ```
+#[inline]
+pub fn mod_p(x: i32, s: usize) -> usize {
+    let s = s as i32;
+    let m = x % s;
+    if m < 0 {
+        (m + s) as usize
+    } else {
+        m as usize
+    }
+}
+
+/// Calculate the number of samples in the interval [a, b] for a given sampling rate.
+/// Matches OpenEXR's `numSamples()` function.
+///
+/// For a channel with subsampling rate `s`, samples exist at coordinates
+/// that are multiples of `s`. This function counts how many such multiples
+/// exist in the inclusive range [a, b].
+///
+/// # Examples
+/// ```
+/// # use exrs::math::num_samples;
+/// // Sampling rate 2, interval [1, 5] -> samples at [2, 4]
+/// assert_eq!(num_samples(2, 1, 5), 2);
+/// // Sampling rate 2, interval [2, 6] -> samples at [2, 4, 6]
+/// assert_eq!(num_samples(2, 2, 6), 3);
+/// // Sampling rate 1, interval [0, 3] -> samples at [0, 1, 2, 3]
+/// assert_eq!(num_samples(1, 0, 3), 4);
+/// ```
+#[inline]
+pub fn num_samples(s: usize, a: i32, b: i32) -> usize {
+    let a1 = div_p(a, s);
+    let b1 = div_p(b, s);
+    let count = b1 - a1 + if a1 * (s as i32) < a { 0 } else { 1 };
+    count.max(0) as usize
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_div_p() {
+        // Positive numbers
+        assert_eq!(div_p(5, 2), 2);
+        assert_eq!(div_p(4, 2), 2);
+        assert_eq!(div_p(3, 2), 1);
+        assert_eq!(div_p(2, 2), 1);
+        assert_eq!(div_p(1, 2), 0);
+        assert_eq!(div_p(0, 2), 0);
+
+        // Negative numbers
+        assert_eq!(div_p(-1, 2), -1);
+        assert_eq!(div_p(-2, 2), -1);
+        assert_eq!(div_p(-3, 2), -2);
+        assert_eq!(div_p(-4, 2), -2);
+        assert_eq!(div_p(-5, 2), -3);
+
+        // Different divisors
+        assert_eq!(div_p(10, 3), 3);
+        assert_eq!(div_p(-10, 3), -4);
+    }
+
+    #[test]
+    fn test_mod_p() {
+        // Positive numbers
+        assert_eq!(mod_p(5, 2), 1);
+        assert_eq!(mod_p(4, 2), 0);
+        assert_eq!(mod_p(3, 2), 1);
+        assert_eq!(mod_p(2, 2), 0);
+        assert_eq!(mod_p(1, 2), 1);
+        assert_eq!(mod_p(0, 2), 0);
+
+        // Negative numbers - always return non-negative
+        assert_eq!(mod_p(-1, 2), 1);
+        assert_eq!(mod_p(-2, 2), 0);
+        assert_eq!(mod_p(-3, 2), 1);
+        assert_eq!(mod_p(-4, 2), 0);
+        assert_eq!(mod_p(-5, 2), 1);
+
+        // Verify divp and modp relationship: x == divp(x, s) * s + modp(x, s)
+        for x in -10..10 {
+            for s in 1..5 {
+                let d = div_p(x, s);
+                let m = mod_p(x, s) as i32;
+                assert_eq!(x, d * (s as i32) + m, "x={}, s={}", x, s);
+            }
+        }
+    }
+
+    #[test]
+    fn test_num_samples() {
+        // Basic cases
+        assert_eq!(num_samples(1, 0, 3), 4);  // [0, 1, 2, 3]
+        assert_eq!(num_samples(2, 0, 3), 2);  // [0, 2]
+        assert_eq!(num_samples(2, 1, 5), 2);  // [2, 4]
+        assert_eq!(num_samples(2, 2, 6), 3);  // [2, 4, 6]
+
+        // Edge cases
+        assert_eq!(num_samples(2, 0, 0), 1);  // [0]
+        assert_eq!(num_samples(2, 1, 1), 0);  // []
+        assert_eq!(num_samples(3, 0, 8), 3);  // [0, 3, 6]
+
+        // Negative coordinates
+        assert_eq!(num_samples(2, -4, 4), 5); // [-4, -2, 0, 2, 4]
+        assert_eq!(num_samples(2, -3, 3), 3); // [-2, 0, 2]
+
+        // Full image width example: 4x4 image with 2x subsampling
+        let width = 4;
+        assert_eq!(num_samples(2, 0, width - 1), 2);  // [0, 2]
+        assert_eq!(num_samples(1, 0, width - 1), 4);  // [0, 1, 2, 3]
+    }
+}

@@ -66,76 +66,114 @@ pub struct LineIndex {
 impl LineIndex {
 
     /// Iterates the lines of this block index in interleaved fashion:
-    /// For each line in this block, this iterator steps once through each channel.
+    /// For each line in this block, this iterator steps once through each channel that has samples on that line.
     /// This is how lines are stored in a pixel data block.
     ///
-    /// Does not check whether `self.layer_index`, `self.level`, `self.size` and `self.position` are valid indices.__
+    /// Properly handles channel subsampling: channels with ySampling > 1 may not have samples
+    /// on every scanline, and channels with xSampling > 1 have fewer samples per line.
+    ///
+    /// Does not check whether `self.layer_index`, `self.level`, `self.size` and `self.position` are valid indices.
     // TODO be sure this cannot produce incorrect data, as this is not further checked but only handled with panics
     #[inline]
     #[must_use]
     pub fn lines_in_block(block: BlockIndex, channels: &ChannelList) -> impl Iterator<Item=(Range<usize>, LineIndex)> {
+        use crate::math::num_samples;
+
         struct LineIter {
-            layer: usize, level: Vec2<usize>, width: usize,
-            end_y: usize, x: usize, channel_sizes: SmallVec<[usize; 8]>,
-            byte: usize, channel: usize, y: usize,
+            channels: SmallVec<[ChannelInfo; 8]>,
+            layer: usize,
+            level: Vec2<usize>,
+            x_min: i32,
+            x_max: i32,
+            y: i32,
+            end_y: i32,
+            byte: usize,
+            channel: usize,
         }
 
-        // FIXME what about sub sampling??
+        #[derive(Clone, Copy)]
+        struct ChannelInfo {
+            x_sampling: usize,
+            y_sampling: usize,
+            bytes_per_sample: usize,
+        }
 
         impl Iterator for LineIter {
             type Item = (Range<usize>, LineIndex);
-            // TODO size hint?
 
             fn next(&mut self) -> Option<Self::Item> {
-                if self.y < self.end_y {
-
-                    // compute return value before incrementing
-                    let byte_len = self.channel_sizes[self.channel];
-                    let return_value = (
-                        (self.byte .. self.byte + byte_len),
-                        LineIndex {
-                            channel: self.channel,
-                            layer: self.layer,
-                            level: self.level,
-                            position: Vec2(self.x, self.y),
-                            sample_count: self.width,
-                        }
-                    );
-
-                    { // increment indices
-                        self.byte += byte_len;
-                        self.channel += 1;
-
-                        if self.channel == self.channel_sizes.len() {
-                            self.channel = 0;
-                            self.y += 1;
-                        }
+                loop {
+                    // If we've processed all Y coordinates, we're done
+                    if self.y >= self.end_y {
+                        return None;
                     }
 
-                    Some(return_value)
-                }
+                    // Find the next channel that has samples at the current Y coordinate
+                    while self.channel < self.channels.len() {
+                        let channel_info = self.channels[self.channel];
 
-                else {
-                    None
+                        // Check if this channel has samples at this Y coordinate
+                        use crate::math::mod_p;
+                        if mod_p(self.y, channel_info.y_sampling) == 0 {
+                            // Calculate the number of samples in this scanline for this channel
+                            let sample_count = num_samples(
+                                channel_info.x_sampling,
+                                self.x_min,
+                                self.x_max
+                            );
+
+                            let byte_len = sample_count * channel_info.bytes_per_sample;
+
+                            let return_value = (
+                                (self.byte..self.byte + byte_len),
+                                LineIndex {
+                                    channel: self.channel,
+                                    layer: self.layer,
+                                    level: self.level,
+                                    position: Vec2(self.x_min as usize, self.y as usize),
+                                    sample_count,
+                                }
+                            );
+
+                            // Increment indices
+                            self.byte += byte_len;
+                            self.channel += 1;
+
+                            return Some(return_value);
+                        }
+
+                        // This channel doesn't have samples at this Y, try next channel
+                        self.channel += 1;
+                    }
+
+                    // We've processed all channels for this Y coordinate, move to next Y
+                    self.channel = 0;
+                    self.y += 1;
                 }
             }
         }
 
-        let channel_line_sizes: SmallVec<[usize; 8]> = channels.list.iter()
-            .map(move |channel| block.pixel_size.0 * channel.sample_type.bytes_per_sample()) // FIXME is it fewer samples per tile or just fewer tiles for sampled images???
+        let channel_infos: SmallVec<[ChannelInfo; 8]> = channels.list.iter()
+            .map(|channel| ChannelInfo {
+                x_sampling: channel.sampling.x(),
+                y_sampling: channel.sampling.y(),
+                bytes_per_sample: channel.sample_type.bytes_per_sample(),
+            })
             .collect();
 
+        let x_min = block.pixel_position.x() as i32;
+        let x_max = x_min + block.pixel_size.width() as i32 - 1;
+
         LineIter {
+            channels: channel_infos,
             layer: block.layer,
             level: block.level,
-            width: block.pixel_size.0,
-            x: block.pixel_position.0,
-            end_y: block.pixel_position.y() + block.pixel_size.height(),
-            channel_sizes: channel_line_sizes,
-
+            x_min,
+            x_max,
+            y: block.pixel_position.y() as i32,
+            end_y: (block.pixel_position.y() + block.pixel_size.height()) as i32,
             byte: 0,
             channel: 0,
-            y: block.pixel_position.y()
         }
     }
 }
