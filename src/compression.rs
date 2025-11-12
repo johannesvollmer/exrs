@@ -438,7 +438,7 @@ impl Compression {
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/6a9f8af6e89547bcd370ae3cec2b12849eee0b54/OpenEXR/IlmImf/ImfMisc.cpp#L1456-L1541
 
 #[allow(unused)] // allows the extra parameters to be unused
-const fn convert_current_to_little_endian(
+fn convert_current_to_little_endian(
     mut bytes: ByteVec,
     channels: &ChannelList,
     rectangle: IntegerBounds,
@@ -450,7 +450,7 @@ const fn convert_current_to_little_endian(
 }
 
 #[allow(unused)] // allows the extra parameters to be unused
-const fn convert_little_endian_to_current(
+fn convert_little_endian_to_current(
     mut bytes: ByteVec,
     channels: &ChannelList,
     rectangle: IntegerBounds,
