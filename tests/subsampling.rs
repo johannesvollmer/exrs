@@ -1,7 +1,7 @@
 //! Test for channel subsampling support
 
 use exr::math::Vec2;
-use exr::meta::attribute::{ChannelDescription, ChannelList, SampleType, Text, IntegerBounds};
+use exr::meta::attribute::{ChannelDescription, ChannelList, IntegerBounds, SampleType, Text};
 use smallvec::SmallVec;
 
 #[test]
@@ -71,7 +71,11 @@ fn test_422_subsampling_validation() {
 
     // Should not return an error (subsampling is now supported)
     let result = channel_list.validate(true, data_window, true);
-    assert!(result.is_ok(), "4:2:2 subsampling should be valid: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "4:2:2 subsampling should be valid: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -91,7 +95,10 @@ fn test_subsampling_requires_aligned_data_window() {
     };
 
     let result = channel.validate(true, bad_data_window, true);
-    assert!(result.is_err(), "Misaligned data window should fail validation");
+    assert!(
+        result.is_err(),
+        "Misaligned data window should fail validation"
+    );
 
     // Data window properly aligned
     let good_data_window = IntegerBounds {

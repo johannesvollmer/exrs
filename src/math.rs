@@ -1,71 +1,96 @@
-
 // calculations inspired by
 // https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
 
 //! Simple math utilities.
 
-use std::convert::TryFrom;
-use crate::error::{i32_to_usize};
+use crate::error::i32_to_usize;
 use crate::error::Result;
-use std::ops::{Add, Sub, Div, Mul};
+use std::convert::TryFrom;
 use std::fmt::Debug;
+use std::ops::{Add, Div, Mul, Sub};
 
 /// Simple two-dimensional vector of any numerical type.
 /// Supports only few mathematical operations
 /// as this is used mainly as data struct.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
-pub struct Vec2<T> (pub T, pub T);
+pub struct Vec2<T>(pub T, pub T);
 
 impl<T> Vec2<T> {
-
     /// Returns the vector with the maximum of either coordinates.
-    pub fn max(self, other: Self) -> Self where T: Ord {
+    pub fn max(self, other: Self) -> Self
+    where
+        T: Ord,
+    {
         Vec2(self.0.max(other.0), self.1.max(other.1))
     }
 
     /// Returns the vector with the minimum of either coordinates.
-    pub fn min(self, other: Self) -> Self where T: Ord {
+    pub fn min(self, other: Self) -> Self
+    where
+        T: Ord,
+    {
         Vec2(self.0.min(other.0), self.1.min(other.1))
     }
 
     /// Try to convert all components of this vector to a new type,
     /// yielding either a vector of that new type, or an error.
-    pub fn try_from<S>(value: Vec2<S>) -> std::result::Result<Self, T::Error> where T: TryFrom<S> {
+    pub fn try_from<S>(value: Vec2<S>) -> std::result::Result<Self, T::Error>
+    where
+        T: TryFrom<S>,
+    {
         let x = T::try_from(value.0)?;
         let y = T::try_from(value.1)?;
         Ok(Vec2(x, y))
     }
 
-
-
     /// Seeing this vector as a dimension or size (width and height),
     /// this returns the area that this dimensions contains (`width * height`).
-    #[inline] pub fn area(self) -> T where T: std::ops::Mul<T, Output = T> {
+    #[inline]
+    pub fn area(self) -> T
+    where
+        T: std::ops::Mul<T, Output = T>,
+    {
         self.0 * self.1
     }
 
     /// The first component of this 2D vector.
-    #[inline] pub fn x(self) -> T { self.0 }
+    #[inline]
+    pub fn x(self) -> T {
+        self.0
+    }
 
     /// The second component of this 2D vector.
-    #[inline] pub fn y(self) -> T { self.1 }
+    #[inline]
+    pub fn y(self) -> T {
+        self.1
+    }
 
     /// The first component of this 2D vector.
-    #[inline] pub fn width(self) -> T { self.0 }
+    #[inline]
+    pub fn width(self) -> T {
+        self.0
+    }
 
     /// The second component of this 2D vector.
-    #[inline] pub fn height(self) -> T { self.1 }
+    #[inline]
+    pub fn height(self) -> T {
+        self.1
+    }
 
     // TODO use this!
     /// Convert this two-dimensional coordinate to an index suited for one-dimensional flattened image arrays.
     /// Works for images that store the pixels row by row, one after another, in a single array.
     /// In debug mode, panics for an index out of bounds.
-    #[inline] pub fn flat_index_for_size(self, resolution: Vec2<T>) -> T
-        where T: Copy + Debug + Ord + Mul<Output=T> + Add<Output=T>
+    #[inline]
+    pub fn flat_index_for_size(self, resolution: Vec2<T>) -> T
+    where
+        T: Copy + Debug + Ord + Mul<Output = T> + Add<Output = T>,
     {
         debug_assert!(
             self.x() < resolution.width() && self.y() < resolution.height(),
-            "Vec2 index {:?} is invalid for resolution {:?}", self, resolution
+            "Vec2 index {:?} is invalid for resolution {:?}",
+            self,
+            resolution
         );
 
         let Vec2(x, y) = self;
@@ -73,30 +98,23 @@ impl<T> Vec2<T> {
     }
 }
 
-
-
 impl Vec2<i32> {
-
     /// Try to convert to [`Vec2<usize>`], returning an error on negative numbers.
     pub fn to_usize(self, error_message: &'static str) -> Result<Vec2<usize>> {
         let x = i32_to_usize(self.0, error_message)?;
         let y = i32_to_usize(self.1, error_message)?;
         Ok(Vec2(x, y))
     }
-
 }
 
 impl Vec2<usize> {
-
     /// Panics for too large values
     pub fn to_i32(self) -> Vec2<i32> {
         let x = i32::try_from(self.0).expect("vector x coordinate too large");
         let y = i32::try_from(self.1).expect("vector y coordinate too large");
         Vec2(x, y)
     }
-
 }
-
 
 impl<T: std::ops::Add<T>> std::ops::Add<Vec2<T>> for Vec2<T> {
     type Output = Vec2<T::Output>;
@@ -126,17 +144,26 @@ impl<T: std::ops::Mul<T>> std::ops::Mul<Vec2<T>> for Vec2<T> {
     }
 }
 
-impl<T> std::ops::Neg for Vec2<T> where T: std::ops::Neg<Output=T> {
+impl<T> std::ops::Neg for Vec2<T>
+where
+    T: std::ops::Neg<Output = T>,
+{
     type Output = Vec2<T>;
-    fn neg(self) -> Self::Output { Vec2(-self.0, -self.1) }
+    fn neg(self) -> Self::Output {
+        Vec2(-self.0, -self.1)
+    }
 }
 
 impl<T> From<(T, T)> for Vec2<T> {
-    fn from((x, y): (T, T)) -> Self { Vec2(x, y) }
+    fn from((x, y): (T, T)) -> Self {
+        Vec2(x, y)
+    }
 }
 
 impl<T> From<Vec2<T>> for (T, T) {
-    fn from(vec2: Vec2<T>) -> Self { (vec2.0, vec2.1) }
+    fn from(vec2: Vec2<T>) -> Self {
+        (vec2.0, vec2.1)
+    }
 }
 
 /// Computes `floor(log(x)/log(2))`. Returns 0 where argument is 0.
@@ -153,7 +180,6 @@ pub(crate) fn floor_log_2(mut number: u32) -> u32 {
     log
 }
 
-
 /// Computes `ceil(log(x)/log(2))`. Returns 0 where argument is 0.
 // taken from https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
 // TODO does rust std not provide this?
@@ -167,18 +193,16 @@ pub(crate) fn ceil_log_2(mut number: u32) -> u32 {
             round_up = 1;
         }
 
-        log +=  1;
+        log += 1;
         number >>= 1;
     }
 
     log + round_up
 }
 
-
 /// Round up or down in specific calculations.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum RoundingMode {
-
     /// Round down.
     Down,
 
@@ -196,7 +220,13 @@ impl RoundingMode {
 
     /// Only works for positive numbers.
     pub(crate) fn divide<T>(self, dividend: T, divisor: T) -> T
-        where T: Copy + Add<Output = T> + Sub<Output = T> + Div<Output = T> + From<u8> + std::cmp::PartialOrd
+    where
+        T: Copy
+            + Add<Output = T>
+            + Sub<Output = T>
+            + Div<Output = T>
+            + From<u8>
+            + std::cmp::PartialOrd,
     {
         assert!(
             dividend >= T::from(0) && divisor >= T::from(1),
@@ -343,15 +373,15 @@ mod test {
     #[test]
     fn test_num_samples() {
         // Basic cases
-        assert_eq!(num_samples(1, 0, 3), 4);  // [0, 1, 2, 3]
-        assert_eq!(num_samples(2, 0, 3), 2);  // [0, 2]
-        assert_eq!(num_samples(2, 1, 5), 2);  // [2, 4]
-        assert_eq!(num_samples(2, 2, 6), 3);  // [2, 4, 6]
+        assert_eq!(num_samples(1, 0, 3), 4); // [0, 1, 2, 3]
+        assert_eq!(num_samples(2, 0, 3), 2); // [0, 2]
+        assert_eq!(num_samples(2, 1, 5), 2); // [2, 4]
+        assert_eq!(num_samples(2, 2, 6), 3); // [2, 4, 6]
 
         // Edge cases
-        assert_eq!(num_samples(2, 0, 0), 1);  // [0]
-        assert_eq!(num_samples(2, 1, 1), 0);  // []
-        assert_eq!(num_samples(3, 0, 8), 3);  // [0, 3, 6]
+        assert_eq!(num_samples(2, 0, 0), 1); // [0]
+        assert_eq!(num_samples(2, 1, 1), 0); // []
+        assert_eq!(num_samples(3, 0, 8), 3); // [0, 3, 6]
 
         // Negative coordinates
         assert_eq!(num_samples(2, -4, 4), 5); // [-4, -2, 0, 2, 4]
@@ -359,7 +389,7 @@ mod test {
 
         // Full image width example: 4x4 image with 2x subsampling
         let width = 4;
-        assert_eq!(num_samples(2, 0, width - 1), 2);  // [0, 2]
-        assert_eq!(num_samples(1, 0, width - 1), 4);  // [0, 1, 2, 3]
+        assert_eq!(num_samples(2, 0, width - 1), 2); // [0, 2]
+        assert_eq!(num_samples(1, 0, width - 1), 4); // [0, 1, 2, 3]
     }
 }

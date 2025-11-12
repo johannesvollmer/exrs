@@ -1,21 +1,18 @@
 //! Extract lines from a block of pixel bytes.
 
-use crate::math::*;
-use std::io::{Cursor};
+use crate::block::BlockIndex;
 use crate::error::{Result, UnitResult};
-use smallvec::SmallVec;
-use std::ops::Range;
-use crate::block::{BlockIndex};
+use crate::math::*;
 use crate::meta::attribute::ChannelList;
-
+use smallvec::SmallVec;
+use std::io::Cursor;
+use std::ops::Range;
 
 /// A single line of pixels.
 /// Use [LineRef] or [LineRefMut] for easier type names.
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub struct LineSlice<T> {
-
     // TODO also store enum SampleType, as it would always be matched in every place it is used
-
     /// Where this line is located inside the image.
     pub location: LineIndex,
 
@@ -24,7 +21,6 @@ pub struct LineSlice<T> {
     /// according to the channel data type.
     pub value: T,
 }
-
 
 /// An reference to a single line of pixels.
 /// May go across the whole image or just a tile section of it.
@@ -38,13 +34,11 @@ pub type LineRef<'s> = LineSlice<&'s [u8]>;
 /// This line contains a mutable slice that all samples will be written to.
 pub type LineRefMut<'s> = LineSlice<&'s mut [u8]>;
 
-
 /// Specifies where a row of pixels lies inside an image.
 /// This is a globally unique identifier which includes
 /// the layer, channel index, and pixel location.
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Hash)]
 pub struct LineIndex {
-
     /// Index of the layer.
     pub layer: usize,
 
@@ -62,9 +56,7 @@ pub struct LineIndex {
     pub sample_count: usize,
 }
 
-
 impl LineIndex {
-
     /// Iterates the lines of this block index in interleaved fashion:
     /// For each line in this block, this iterator steps once through each channel that has samples on that line.
     /// This is how lines are stored in a pixel data block.
@@ -76,7 +68,10 @@ impl LineIndex {
     // TODO be sure this cannot produce incorrect data, as this is not further checked but only handled with panics
     #[inline]
     #[must_use]
-    pub fn lines_in_block(block: BlockIndex, channels: &ChannelList) -> impl Iterator<Item=(Range<usize>, LineIndex)> {
+    pub fn lines_in_block(
+        block: BlockIndex,
+        channels: &ChannelList,
+    ) -> impl Iterator<Item = (Range<usize>, LineIndex)> {
         use crate::math::num_samples;
 
         struct LineIter {
@@ -116,11 +111,8 @@ impl LineIndex {
                         use crate::math::mod_p;
                         if mod_p(self.y, channel_info.y_sampling) == 0 {
                             // Calculate the number of samples in this scanline for this channel
-                            let sample_count = num_samples(
-                                channel_info.x_sampling,
-                                self.x_min,
-                                self.x_max
-                            );
+                            let sample_count =
+                                num_samples(channel_info.x_sampling, self.x_min, self.x_max);
 
                             let byte_len = sample_count * channel_info.bytes_per_sample;
 
@@ -132,7 +124,7 @@ impl LineIndex {
                                     level: self.level,
                                     position: Vec2(self.x_min as usize, self.y as usize),
                                     sample_count,
-                                }
+                                },
                             );
 
                             // Increment indices
@@ -153,7 +145,9 @@ impl LineIndex {
             }
         }
 
-        let channel_infos: SmallVec<[ChannelInfo; 8]> = channels.list.iter()
+        let channel_infos: SmallVec<[ChannelInfo; 8]> = channels
+            .list
+            .iter()
             .map(|channel| ChannelInfo {
                 x_sampling: channel.sampling.x(),
                 y_sampling: channel.sampling.y(),
@@ -178,17 +172,22 @@ impl LineIndex {
     }
 }
 
-
-
 impl<'s> LineRefMut<'s> {
-
     /// Writes the samples (f16, f32, u32 values) into this line value reference.
     /// Use `write_samples` if there is no slice available.
     #[inline]
     #[must_use]
     pub fn write_samples_from_slice<T: crate::io::Data>(self, slice: &[T]) -> UnitResult {
-        debug_assert_eq!(slice.len(), self.location.sample_count, "slice size does not match the line width");
-        debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
+        debug_assert_eq!(
+            slice.len(),
+            self.location.sample_count,
+            "slice size does not match the line width"
+        );
+        debug_assert_eq!(
+            self.value.len(),
+            self.location.sample_count * T::BYTE_SIZE,
+            "sample type size does not match line byte size"
+        );
 
         T::write_slice_ne(&mut Cursor::new(self.value), slice)
     }
@@ -200,8 +199,15 @@ impl<'s> LineRefMut<'s> {
     /// Use `write_samples_from_slice` if you already have a slice of samples.
     #[inline]
     #[must_use]
-    pub fn write_samples<T: crate::io::Data>(self, mut get_sample: impl FnMut(usize) -> T) -> UnitResult {
-        debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
+    pub fn write_samples<T: crate::io::Data>(
+        self,
+        mut get_sample: impl FnMut(usize) -> T,
+    ) -> UnitResult {
+        debug_assert_eq!(
+            self.value.len(),
+            self.location.sample_count * T::BYTE_SIZE,
+            "sample type size does not match line byte size"
+        );
 
         let mut write = Cursor::new(self.value);
 
@@ -214,12 +220,19 @@ impl<'s> LineRefMut<'s> {
 }
 
 impl LineRef<'_> {
-
     /// Read the samples (f16, f32, u32 values) from this line value reference.
     /// Use `read_samples` if there is not slice available.
     pub fn read_samples_into_slice<T: crate::io::Data>(self, slice: &mut [T]) -> UnitResult {
-        debug_assert_eq!(slice.len(), self.location.sample_count, "slice size does not match the line width");
-        debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
+        debug_assert_eq!(
+            slice.len(),
+            self.location.sample_count,
+            "slice size does not match the line width"
+        );
+        debug_assert_eq!(
+            self.value.len(),
+            self.location.sample_count * T::BYTE_SIZE,
+            "sample type size does not match line byte size"
+        );
 
         T::read_slice_ne(&mut Cursor::new(self.value), slice)
     }
@@ -227,7 +240,11 @@ impl LineRef<'_> {
     /// Iterate over all samples in this line, from left to right.
     /// Use `read_sample_into_slice` if you already have a slice of samples.
     pub fn read_samples<T: crate::io::Data>(&self) -> impl Iterator<Item = Result<T>> + '_ {
-        debug_assert_eq!(self.value.len(), self.location.sample_count * T::BYTE_SIZE, "sample type size does not match line byte size");
+        debug_assert_eq!(
+            self.value.len(),
+            self.location.sample_count * T::BYTE_SIZE,
+            "sample type size does not match line byte size"
+        );
 
         let mut read = self.value; // FIXME deep data
         (0..self.location.sample_count).map(move |_| T::read_ne(&mut read))
