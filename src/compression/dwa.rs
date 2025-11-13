@@ -132,6 +132,10 @@ pub fn decompress(
         let channel_class = &classification.channel_classifications[ch_idx];
         let channel_resolution = channel.subsampled_resolution(rectangle.size);
 
+        let channel_name: String = channel.name.clone().into();
+        eprintln!("DWA: Channel {} ({:?}) classified as {:?}",
+                  ch_idx, channel_name, channel_class.scheme);
+
         if channel_class.scheme == CompressionScheme::LossyDct {
             // Decode this lossy DCT channel
             let spatial_data = decode_lossy_dct_channel(
@@ -142,6 +146,7 @@ pub fn decompress(
                 &mut dc_reader,
             )?;
 
+            eprintln!("DWA: Decoded {} pixels for channel {}", spatial_data.len(), ch_idx);
             spatial_buffers[ch_idx] = Some(spatial_data);
         }
     }
@@ -177,6 +182,8 @@ pub fn decompress(
         match channel_class.scheme {
             CompressionScheme::LossyDct => {
                 if let Some(spatial_data) = &spatial_buffers[ch_idx] {
+                    eprintln!("DWA: Writing {} pixels to output for channel {} at offset {}",
+                              spatial_data.len(), ch_idx, output_offset);
                     // Apply inverse nonlinear transform and write to output
                     write_channel_to_output(
                         spatial_data,
@@ -184,6 +191,9 @@ pub fn decompress(
                         &nonlinear_lut,
                         &mut output[output_offset..output_offset + channel_bytes],
                     )?;
+                } else {
+                    eprintln!("DWA: WARNING - No spatial data for LossyDct channel {} (skipping {} bytes)",
+                              ch_idx, channel_bytes);
                 }
                 output_offset += channel_bytes;
             }
