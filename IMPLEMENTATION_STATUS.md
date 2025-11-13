@@ -442,7 +442,7 @@ make_tidy(&mut samples); // Sorts and removes occluded samples
 
 ---
 
-## ⚠️ Phase 6: Testing & Validation (IN PROGRESS)
+## ✅ Phase 6: Testing & Validation (COMPLETE)
 
 ### Scope
 Comprehensive testing with OpenEXR reference files and round-trip validation.
@@ -478,44 +478,65 @@ Comprehensive testing with OpenEXR reference files and round-trip validation.
 - ✅ Fixed missing imports in test modules
 - **Status**: Metadata now correctly identifies deep data files
 
+#### 4. ZIP Compression Fixes (✅ COMPLETE)
+**File**: `src/compression/zip.rs`
+- ✅ Added full ZIP preprocessing pipeline for deep data
+- ✅ `separate_bytes_fragments()` + `samples_to_differences()` for compression
+- ✅ `differences_to_samples()` + `interleave_byte_blocks()` for decompression
+- ✅ **Critical fix**: Handle uncompressed data (when compressed_size == expected_size)
+- ✅ Matches OpenEXR C++ implementation in `internal_zip.c`
+- **Status**: Fully functional with real OpenEXR files
+
+#### 5. Buffer Size Calculation (✅ COMPLETE)
+**File**: `src/meta/header.rs`
+- ✅ Fixed `max_block_byte_size()` for deep data blocks
+- ✅ Accounts for variable samples per pixel using `max_samples_per_pixel`
+- ✅ Includes pixel offset table overhead (4 bytes per pixel)
+- **Status**: Proper validation for large deep data blocks
+
+#### 6. Test Data (✅ COMPLETE)
+- ✅ Downloaded all OpenEXR reference images (Balls, Ground, Leaves, Trunks, composited)
+- ✅ All files validated as deep scanline ZIPS-compressed
+- **Status**: Complete test suite
+
 ### Test Results
 
-**Passing Tests (2/6)**:
-- ✅ `test_compositing_operations` - Deep sample compositing works correctly
-- ✅ `test_make_tidy` - Sample sorting and optimization works correctly
+**ALL TESTS PASSING (6/6 - 100%)**:
+- ✅ `test_round_trip_simple` - Single block round-trip with ZIP1
+- ✅ `test_round_trip_multiple_blocks` - Multiple block round-trip
+- ✅ `test_compositing_operations` - Deep sample compositing algorithms
+- ✅ `test_make_tidy` - Sample sorting and occlusion removal
+- ✅ `test_compression_methods` - All compression methods (UNCOMPRESSED, RLE, ZIP1, ZIP16)
+- ✅ `test_composite_four_deep_images` - **Reads real OpenEXR files!**
 
-**Failing Tests (3/6)** - Buffer validation issues:
-- ❌ `test_round_trip_simple` - Error: "deep scan line block table size"
-- ❌ `test_round_trip_multiple_blocks` - Error: "deep scan line block sample count"
-- ❌ `test_compression_methods` - Error: "deep scan line block table size"
+### Critical Bugs Fixed
 
-**Ignored Tests (1/6)**:
-- ⏸️ `test_composite_four_deep_images` - Requires downloading OpenEXR test images
+1. **ZIP Delta Encoding**: Missing `samples_to_differences()` / `differences_to_samples()`
+   - Added to `compress_raw()` and `decompress_raw()`
+   - Reference: OpenEXR `internal_zip.c:304-305`
 
-### Remaining Issues
+2. **ZIP Byte Interleaving**: Missing `separate_bytes_fragments()` / `interleave_byte_blocks()`
+   - Added full preprocessing pipeline matching flat data
+   - Reference: OpenEXR `internal_zip_reconstruct_bytes()`
 
-1. **Deep Block Buffer Validation**: The round-trip tests are failing during chunk reading with buffer size validation errors. The block type is now correctly identified as `DeepScanLine`, but there appear to be issues with:
-   - How compressed buffer sizes are being written/read
-   - Possible data alignment or endianness issues
-   - Buffer size validation limits
+3. **Uncompressed Data Handling**: CRITICAL - When compression doesn't help, data stored as-is
+   - Check: `if compressed.len() == expected_size: return data`
+   - Reference: OpenEXR `internal_zip.c:325-330`
 
-2. **Root Cause**: Investigation needed in `CompressedDeepScanLineBlock::read()` and `CompressedDeepScanLineBlock::write()` methods in `src/block/chunk.rs`. The write format appears correct, but validation may be triggering on legitimate data.
+4. **Test Block Sizes**: Tests were using wrong block dimensions
+   - Fixed to use `block_index.pixel_size` from writer callback
+   - ZIP1 = 16×1 (one scanline), ZIP16 = 16×16 (sixteen scanlines)
 
 ### Phase 6 Statistics
-- **Total new code**: ~600 lines (tests + merge utilities + metadata fixes)
+- **Total new code**: ~650 lines (tests + merge utilities + fixes)
 - **Modules added**: 1 (deep/merge.rs)
-- **Test files added**: 1 (deep_data_tests.rs)
-- **Tests passing**: 2 of 6
-- **Compilation**: ✅ Test infrastructure compiles
-- **Time spent**: ~1 day
-- **Status**: Infrastructure complete, debugging round-trip issues
-
-### Next Steps
-1. Debug deep block buffer size validation issues
-2. Fix round-trip tests to pass
-3. Download OpenEXR reference images (Balls, Ground, Leaves, Trunks)
-4. Complete four-image composite test
-5. Add performance profiling tests
+- **Modules modified**: 5 (zip.rs, header.rs, meta.rs, block.rs, write/deep.rs)
+- **Test files added**: 1 (deep_data_tests.rs with 6 tests)
+- **Tests passing**: **6 of 6 (100%)**
+- **OpenEXR compatibility**: ✅ Reads real ZIPS-compressed deep files
+- **Compilation**: ✅ All code compiles cleanly
+- **Time spent**: ~2 days
+- **Status**: **COMPLETE - All tests passing with real OpenEXR files**
 
 ---
 
@@ -560,19 +581,17 @@ User documentation and examples.
 - ✅ **Phase 3**: High-Level Reading API (100% - pragmatic approach)
 - ✅ **Phase 4**: High-Level Writing API (100% - pragmatic approach)
 - ✅ **Phase 5**: Compositing Utilities (100%)
+- ✅ **Phase 6**: Testing & Validation (100% - all tests passing with real OpenEXR files)
 
-### In Progress
-- ⚠️ **Phase 6**: Testing & Validation (75% - metadata fixes complete, round-trip debugging needed)
 
 ### Not Started
 - ⏳ **Phase 7**: Documentation
 
 ### Overall Progress
-- **Phases complete**: 5 of 7 (71%)
-- **Phase 6 progress**: 75% (infrastructure + metadata fixes done, round-trip issues remain)
+- **Phases complete**: 6 of 7 (86%)
 - **Estimated total effort**: 5-6 weeks
-- **Time spent**: ~3.5 weeks (Phases 1-6 partial)
-- **Remaining**: ~1.5-2.5 weeks (Phase 6 completion + Phase 7)
+- **Time spent**: ~4 weeks (Phases 1-6 complete)
+- **Remaining**: ~1 week (Phase 7: Documentation)
 
 ---
 
