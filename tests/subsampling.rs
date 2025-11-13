@@ -2,7 +2,6 @@
 
 use exr::math::Vec2;
 use exr::meta::attribute::{ChannelDescription, ChannelList, IntegerBounds, SampleType, Text};
-use smallvec::SmallVec;
 
 #[test]
 fn test_channel_byte_calculations() {

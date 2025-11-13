@@ -23,7 +23,6 @@ test = true
 doctest = true
 bench = true
 doc = true
-plugin = false
 proc-macro = false
 
 [dependencies]
