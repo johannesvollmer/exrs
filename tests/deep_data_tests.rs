@@ -265,11 +265,9 @@ mod deep_tests {
         }
     }
 
-    /// Helper to download test images if not present
+    /// Helper to locate test images
     fn ensure_test_image(name: &str) -> Option<PathBuf> {
-        let test_data_dir = PathBuf::from("tests/data");
-        std::fs::create_dir_all(&test_data_dir).ok()?;
-
+        let test_data_dir = PathBuf::from("test_data");
         let image_path = test_data_dir.join(name);
 
         // If file doesn't exist, try to download it
@@ -284,7 +282,6 @@ mod deep_tests {
     }
 
     #[test]
-    #[ignore] // Requires test images to be downloaded
     fn test_composite_four_deep_images() {
         // This test composites the four deep images from OpenEXR test suite
         // and validates against the reference composited.exr
