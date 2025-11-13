@@ -51,9 +51,9 @@ pub fn compress_bytes(
     ))
 }
 
-/// Decompress raw byte data WITH delta reconstruction.
+/// Decompress raw byte data with full ZIP preprocessing pipeline.
 /// Used for deep data offset tables and sample data.
-/// ZIP compression includes delta encoding even for deep data.
+/// ZIP compression includes byte interleaving AND delta encoding for deep data.
 #[cfg(feature = "deep-data")]
 pub fn decompress_raw(
     compressed_le: ByteVec,
@@ -67,18 +67,26 @@ pub fn decompress_raw(
         .decode_zlib()
         .map_err(|_| Error::invalid("zlib-compressed data malformed"))?;
 
-    // Apply delta reconstruction - ZIP includes this step even for deep data
+    // Full ZIP reconstruction pipeline (same as used for regular image data):
+    // 1. Delta reconstruction
     differences_to_samples(&mut decompressed);
+
+    // 2. Byte interleaving (recombine even/odd bytes)
+    interleave_byte_blocks(&mut decompressed);
 
     Ok(decompressed)
 }
 
-/// Compress raw byte data WITH delta encoding.
+/// Compress raw byte data with full ZIP preprocessing pipeline.
 /// Used for deep data offset tables and sample data.
-/// ZIP compression includes delta encoding even for deep data.
+/// ZIP compression includes byte separation AND delta encoding for deep data.
 #[cfg(feature = "deep-data")]
 pub fn compress_raw(mut uncompressed_le: ByteVec) -> Result<ByteVec> {
-    // Apply delta encoding - ZIP includes this step even for deep data
+    // Full ZIP compression pipeline (same as used for regular image data):
+    // 1. Byte separation (split into even/odd bytes for better compression)
+    separate_bytes_fragments(&mut uncompressed_le);
+
+    // 2. Delta encoding
     samples_to_differences(&mut uncompressed_le);
 
     Ok(miniz_oxide::deflate::compress_to_vec_zlib(
