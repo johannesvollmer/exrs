@@ -13,7 +13,7 @@ use crate::image::recursive::{Recursive, NoneMore};
 pub trait WritableLayers<'slf> {
 
     /// Generate the file meta data for this list of layers
-    fn infer_headers(&self, image_attributes: &ImageAttributes) -> Headers;
+    fn infer_headers(&self, image_attributes: &ImageAttributes) -> Result<Headers>;
 
     /// The type of temporary writer
     type Writer: LayersWriter;
@@ -43,7 +43,7 @@ pub struct LayerWriter<ChannelsWriter> {
 
 // impl for smallvec
 impl<'slf, Channels: 'slf> WritableLayers<'slf> for Layers<Channels> where Channels: WritableChannels<'slf> {
-    fn infer_headers(&self, image_attributes: &ImageAttributes) -> Headers {
+    fn infer_headers(&self, image_attributes: &ImageAttributes) -> Result<Headers> {
         slice_infer_headers(self.as_slice(), image_attributes)
     }
 
@@ -55,9 +55,11 @@ impl<'slf, Channels: 'slf> WritableLayers<'slf> for Layers<Channels> where Chann
 
 fn slice_infer_headers<'slf, Channels:'slf + WritableChannels<'slf>>(
     slice: &[Layer<Channels>], image_attributes: &ImageAttributes
-) -> Headers
+) -> Result<Headers>
 {
-    slice.iter().map(|layer| layer.infer_headers(image_attributes).remove(0)).collect() // TODO no array-vs-first
+    slice.iter()
+        .map(|layer| layer.infer_headers(image_attributes).map(|mut h| h.remove(0)))
+        .collect()
 }
 
 fn slice_create_writer<'slf, Channels:'slf + WritableChannels<'slf>>(
@@ -73,12 +75,11 @@ fn slice_create_writer<'slf, Channels:'slf + WritableChannels<'slf>>(
 
 
 impl<'slf, Channels: WritableChannels<'slf>> WritableLayers<'slf> for Layer<Channels> {
-    fn infer_headers(&self, image_attributes: &ImageAttributes) -> Headers {
+    fn infer_headers(&self, image_attributes: &ImageAttributes) -> Result<Headers> {
         let blocks = match self.encoding.blocks {
             crate::image::Blocks::ScanLines => crate::meta::BlockDescription::ScanLines,
             crate::image::Blocks::Tiles(tile_size) => {
-                let (level_mode, rounding_mode) = self.channel_data.infer_level_modes()
-                    .expect("failed to infer level modes for layer headers");
+                let (level_mode, rounding_mode) = self.channel_data.infer_level_modes()?;
                 crate::meta::BlockDescription::Tiles(TileDescription { level_mode, rounding_mode, tile_size, })
             },
         };
@@ -105,14 +106,14 @@ impl<'slf, Channels: WritableChannels<'slf>> WritableLayers<'slf> for Layer<Chan
             max_samples_per_pixel: None,
         };
 
-        smallvec![ header ]// TODO no array-vs-first
+        Ok(smallvec![ header ])// TODO no array-vs-first
     }
 
     type Writer = LayerWriter</*'l,*/ Channels::Writer>;
     fn create_writer(&'slf self, headers: &[Header]) -> Result<Self::Writer> {
         let header = headers.first()
             .ok_or_else(|| Error::invalid("cannot create layer writer: no header provided"))?;
-        let channels = self.channel_data.create_writer(header);
+        let channels = self.channel_data.create_writer(header)?;
 
         Ok(LayerWriter { channels })
     }
@@ -137,7 +138,7 @@ impl<C> LayersWriter for LayerWriter<C> where C: ChannelsWriter {
 
 
 impl<'slf> WritableLayers<'slf> for NoneMore {
-    fn infer_headers(&self, _: &ImageAttributes) -> Headers { SmallVec::new() }
+    fn infer_headers(&self, _: &ImageAttributes) -> Result<Headers> { Ok(SmallVec::new()) }
 
     type Writer = NoneMore;
     fn create_writer(&'slf self, _: &[Header]) -> Result<Self::Writer> { Ok(NoneMore) }
@@ -146,10 +147,10 @@ impl<'slf> WritableLayers<'slf> for NoneMore {
 impl<'slf, InnerLayers, Channels> WritableLayers<'slf> for Recursive<InnerLayers, Layer<Channels>>
     where InnerLayers: WritableLayers<'slf>, Channels: WritableChannels<'slf>
 {
-    fn infer_headers(&self, image_attributes: &ImageAttributes) -> Headers {
-        let mut headers = self.inner.infer_headers(image_attributes);
-        headers.push(self.value.infer_headers(image_attributes).remove(0)); // TODO no unwrap
-        headers
+    fn infer_headers(&self, image_attributes: &ImageAttributes) -> Result<Headers> {
+        let mut headers = self.inner.infer_headers(image_attributes)?;
+        headers.push(self.value.infer_headers(image_attributes)?.remove(0)); // TODO no unwrap
+        Ok(headers)
     }
 
     type Writer = RecursiveLayersWriter<InnerLayers::Writer, Channels::Writer>;

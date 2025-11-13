@@ -234,8 +234,8 @@ impl UncompressedBlock {
     /// Create an uncompressed block byte vector by requesting one line of samples after another.
     pub fn collect_block_data_from_lines(
         channels: &ChannelList, block_index: BlockIndex,
-        mut extract_line: impl FnMut(LineRefMut<'_>)
-    ) -> Vec<u8>
+        mut extract_line: impl FnMut(LineRefMut<'_>) -> Result<()>
+    ) -> Result<Vec<u8>>
     {
         let byte_count = block_index.pixel_size.area() * channels.bytes_per_pixel;
         let mut block_bytes = vec![0_u8; byte_count];
@@ -244,20 +244,20 @@ impl UncompressedBlock {
             extract_line(LineRefMut { // TODO subsampling
                 value: &mut block_bytes[byte_range],
                 location: line_index,
-            });
+            })?;
         }
 
-        block_bytes
+        Ok(block_bytes)
     }
 
     /// Create an uncompressed block by requesting one line of samples after another.
     pub fn from_lines(
         channels: &ChannelList, block_index: BlockIndex,
-        extract_line: impl FnMut(LineRefMut<'_>)
-    ) -> Self {
-        Self {
+        extract_line: impl FnMut(LineRefMut<'_>) -> Result<()>
+    ) -> Result<Self> {
+        Ok(Self {
             index: block_index,
-            data: Self::collect_block_data_from_lines(channels, block_index, extract_line)
-        }
+            data: Self::collect_block_data_from_lines(channels, block_index, extract_line)?
+        })
     }
 }

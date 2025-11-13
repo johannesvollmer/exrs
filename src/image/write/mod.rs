@@ -19,7 +19,7 @@ pub mod channels;
 
 
 use crate::meta::Headers;
-use crate::error::UnitResult;
+use crate::error::{UnitResult, Result};
 use std::io::{Seek, BufWriter};
 use crate::io::Write;
 use crate::image::{Image, ignore_progress, SpecificChannels, IntoSample};
@@ -100,7 +100,7 @@ impl<'img, L, F> WriteImageWithOptions<'img, L, F>
     where L: WritableLayers<'img>, F: FnMut(f64)
 {
     /// Generate file meta data for this image. The meta data structure is close to the data in the file.
-    pub fn infer_meta_data(&self) -> Headers { // TODO this should perform all validity checks? and none after that?
+    pub fn infer_meta_data(&self) -> Result<Headers> { // TODO this should perform all validity checks? and none after that?
         self.image.layer_data.infer_headers(&self.image.attributes)
     }
 
@@ -158,7 +158,7 @@ impl<'img, L, F> WriteImageWithOptions<'img, L, F>
     /// If your writer cannot seek, you can write to an in-memory vector of bytes first.
     #[must_use]
     pub fn to_buffered(self, write: impl Write + Seek) -> UnitResult {
-        let headers = self.infer_meta_data();
+        let headers = self.infer_meta_data()?;
         let layers = self.image.layer_data.create_writer(&headers)?;
 
         crate::block::write(

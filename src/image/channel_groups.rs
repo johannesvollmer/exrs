@@ -157,8 +157,8 @@ impl<'slf, ChannelGroup> WritableChannels<'slf> for ChannelGroups<ChannelGroup>
 
     type Writer = GroupChannelsWriter<'slf, ChannelGroup>;
 
-    fn create_writer(&'slf self, header: &Header) -> Self::Writer {
-        let channels = header.channels.list.iter()
+    fn create_writer(&'slf self, header: &Header) -> Result<Self::Writer> {
+        let channels: Result<Vec<_>> = header.channels.list.iter()
             .map(|channel_info|{
                 // hashmap order is not guaranteed? so look up each channel group manually instead of generating new
                 let channels = self.lookup_group(channel_info.name.as_slice())
@@ -168,7 +168,7 @@ impl<'slf, ChannelGroup> WritableChannels<'slf> for ChannelGroups<ChannelGroup>
             })
             .collect();
 
-        GroupChannelsWriter { channels_list: channels }
+        Ok(GroupChannelsWriter { channels_list: channels? })
     }
 }
 

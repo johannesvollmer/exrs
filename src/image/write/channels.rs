@@ -25,7 +25,7 @@ pub trait WritableChannels<'slf> {
     type Writer: ChannelsWriter;
 
     /// Create a temporary writer for this list of channels
-    fn create_writer(&'slf self, header: &Header) -> Self::Writer;
+    fn create_writer(&'slf self, header: &Header) -> Result<Self::Writer>;
 }
 
 /// A temporary writer for a list of channels
@@ -89,13 +89,12 @@ impl<'samples, Samples> WritableChannels<'samples> for AnyChannels<Samples>
     }
 
     type Writer = AnyChannelsWriter<Samples::Writer>;
-    fn create_writer(&'samples self, header: &Header) -> Self::Writer {
-        let channels = self.list.iter()
-            .map(|chan| chan.sample_data.create_samples_writer(header)
-                .expect("failed to create samples writer for channel"))
+    fn create_writer(&'samples self, header: &Header) -> Result<Self::Writer> {
+        let channels: Result<SmallVec<_>> = self.list.iter()
+            .map(|chan| chan.sample_data.create_samples_writer(header))
             .collect();
 
-        AnyChannelsWriter { channels }
+        Ok(AnyChannelsWriter { channels: channels? })
     }
 }
 
@@ -107,10 +106,9 @@ pub struct AnyChannelsWriter<SamplesWriter> {
 
 impl<Samples> ChannelsWriter for AnyChannelsWriter<Samples> where Samples: SamplesWriter {
     fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Result<Vec<u8>> {
-        Ok(UncompressedBlock::collect_block_data_from_lines(&header.channels, block_index, |line_ref| {
+        UncompressedBlock::collect_block_data_from_lines(&header.channels, block_index, |line_ref| {
             self.channels[line_ref.location.channel].extract_line(line_ref)
-                .expect("failed to extract line for channel")
-        }))
+        })
     }
 }
 
@@ -151,12 +149,11 @@ where
         Channels
     >;
 
-    fn create_writer(&'c self, header: &Header) -> Self::Writer {
-        SpecificChannelsWriter {
+    fn create_writer(&'c self, header: &Header) -> Result<Self::Writer> {
+        Ok(SpecificChannelsWriter {
             channels: self,
-            recursive_channel_writer: self.channels.clone().into_recursive().create_recursive_writer(&header.channels)
-                .expect("failed to create recursive channel writer"),
-        }
+            recursive_channel_writer: self.channels.clone().into_recursive().create_recursive_writer(&header.channels)?,
+        })
     }
 }
 

@@ -7,7 +7,7 @@ use crate::image::{Layer, FlatSamples, SpecificChannels, AnyChannels, FlatSample
 use crate::image::write::channels::{GetPixel, WritableChannels, ChannelsWriter};
 use crate::meta::header::{LayerAttributes, Header};
 use crate::block::BlockIndex;
-use crate::error::Result;
+use crate::error::{Result, Error};
 
 /// Something that has a two-dimensional rectangular shape
 pub trait GetBounds {
@@ -173,14 +173,14 @@ impl<'slf, Channels:'slf> WritableChannels<'slf> for CroppedChannels<Channels> w
 
     type Writer = CroppedWriter<Channels::Writer>;
 
-    fn create_writer(&'slf self, header: &Header) -> Self::Writer {
+    fn create_writer(&'slf self, header: &Header) -> Result<Self::Writer> {
         let offset = (self.cropped_bounds.position - self.full_bounds.position)
             .to_usize("invalid cropping bounds for cropped view").unwrap();
 
-        CroppedWriter {
-            channels: self.full_channels.create_writer(header),
+        Ok(CroppedWriter {
+            channels: self.full_channels.create_writer(header)?,
             offset
-        }
+        })
     }
 }
 
@@ -379,18 +379,19 @@ impl<Cropped, Original> CropResult<Cropped, Original> {
     /// If the image was fully empty, crop to one single pixel of all the transparent pixels instead,
     /// leaving the layer intact while reducing memory usage.
     ///
-    /// # Panics
-    /// Panics if the layer has zero width and height (which indicates an invalid layer state).
+    /// # Errors
+    /// Returns an error if the layer has zero width and height (which indicates an invalid layer state).
     /// This should never happen with properly constructed images.
-    pub fn or_crop_to_1x1_if_empty(self) -> Cropped where Original: Crop<Cropped=Cropped> + GetBounds {
+    pub fn or_crop_to_1x1_if_empty(self) -> Result<Cropped> where Original: Crop<Cropped=Cropped> + GetBounds {
         match self {
-            CropResult::Cropped (cropped) => cropped,
+            CropResult::Cropped (cropped) => Ok(cropped),
             CropResult::Empty { original } => {
                 let bounds = original.bounds();
                 if bounds.size == Vec2(0,0) {
-                    unreachable!("layer has zero width and height - this indicates an invalid layer state that should have been caught during construction")
+                    Err(Error::invalid("layer has zero width and height - this indicates an invalid layer state"))
+                } else {
+                    Ok(original.crop(IntegerBounds::new(bounds.position, Vec2(1,1))))
                 }
-                original.crop(IntegerBounds::new(bounds.position, Vec2(1,1)))
             },
         }
     }
