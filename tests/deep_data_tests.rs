@@ -81,7 +81,8 @@ mod deep_tests {
         ).unwrap();
 
         // Write test data
-        let block_size = Vec2(16, 16);
+        // Use block_index.pixel_size to get the correct block dimensions
+        // (ZIP1 uses 1 scanline per block, so 16x1 for a 16-wide image)
         write_deep_blocks_to_file(
             &test_file,
             header,
@@ -89,7 +90,7 @@ mod deep_tests {
                 Ok(create_test_deep_block(
                     block_index.layer,
                     block_index.pixel_position,
-                    block_size,
+                    block_index.pixel_size,
                 ))
             },
         ).unwrap();
@@ -98,11 +99,13 @@ mod deep_tests {
         let blocks = read_deep_from_file(&test_file, false).unwrap();
 
         // Validate
-        assert!(!blocks.is_empty(), "Should have read at least one block");
+        // For ZIP1, we should have 16 blocks (one per scanline)
+        assert_eq!(blocks.len(), 16, "Should have 16 blocks (one per scanline)");
 
         let block = &blocks[0];
-        assert_eq!(block.index.pixel_size, block_size);
-        assert_eq!(block.pixel_offset_table.len(), block_size.area());
+        // Each block should be 16x1 (one scanline)
+        assert_eq!(block.index.pixel_size, Vec2(16, 1));
+        assert_eq!(block.pixel_offset_table.len(), 16);
 
         // Clean up
         let _ = std::fs::remove_file(test_file);
@@ -243,7 +246,7 @@ mod deep_tests {
                 compression,
             ).unwrap();
 
-            // Write
+            // Write - use actual block size from block_index
             write_deep_blocks_to_file(
                 &test_file,
                 header,
@@ -251,7 +254,7 @@ mod deep_tests {
                     Ok(create_test_deep_block(
                         block_index.layer,
                         block_index.pixel_position,
-                        Vec2(16, 16),
+                        block_index.pixel_size,
                     ))
                 },
             ).unwrap();
