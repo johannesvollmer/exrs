@@ -517,7 +517,7 @@ mod deep_tests {
 
     fn test_deep_block_round_trip(compression: Compression) {
         // Create a simple test header with deep data
-        let channels = ChannelList::new(smallvec![
+        let channels = smallvec![
             ChannelDescription {
                 name: "Z".into(),
                 sample_type: SampleType::F32,
@@ -530,15 +530,14 @@ mod deep_tests {
                 quantize_linearly: false,
                 sampling: Vec2(1, 1),
             },
-        ]);
+        ];
 
-        let header = Header {
-            channels,
-            compression,
-            blocks: BlockDescription::ScanLines,
-            deep: true,
-            ..Header::default()
-        };
+        let mut header = Header::new("deep_test".into(), Vec2(4, 4), channels);
+        header.compression = compression;
+        header.blocks = BlockDescription::ScanLines;
+        header.deep = true;
+        header.deep_data_version = Some(1);
+        header.max_samples_per_pixel = Some(3);
 
         let headers = smallvec![header];
 
@@ -589,7 +588,13 @@ mod deep_tests {
 
         // Create metadata for decompression
         let meta_data = MetaData {
-            requirements: Requirements { file_format_version: 2, is_single_layer_and_tiled: false },
+            requirements: Requirements {
+                file_format_version: 2,
+                is_single_layer_and_tiled: false,
+                has_long_names: false,
+                has_deep_data: true,
+                has_multiple_layers: false,
+            },
             headers,
         };
 

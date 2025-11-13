@@ -188,6 +188,7 @@ pub fn merge_deep_blocks(
 mod tests {
     use super::*;
     use crate::block::BlockIndex;
+    use crate::math::Vec2;
 
     #[test]
     fn test_merged_pixel_samples() {

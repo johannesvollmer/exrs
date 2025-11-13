@@ -172,7 +172,7 @@ mod deep_tests {
             DeepSample::new_unpremultiplied(3.0, [0.0, 0.0, 1.0], 0.5),
         ];
 
-        let (color, alpha) = composite_samples_front_to_back(&samples);
+        let (_color, alpha) = composite_samples_front_to_back(&samples);
 
         // Alpha should approach full opacity with three 0.5 alpha samples
         assert!(alpha > 0.8, "Alpha should be high with three samples");
@@ -478,8 +478,8 @@ mod deep_tests {
 
     #[test]
     fn test_composite_four_deep_to_flat() {
-        // Composite the four deep images to flat and compare dimensions/structure
-        // with the reference composited.exr
+        // Composite the four deep images to flat and compare pixel-by-pixel with reference
+        // This must match 100% (within floating point epsilon)
 
         let balls_path = ensure_test_image("Balls.exr");
         let ground_path = ensure_test_image("Ground.exr");
@@ -495,28 +495,19 @@ mod deep_tests {
         }
 
         use exr::image::deep::flatten::*;
-        use exr::meta::attribute::IntegerBounds;
 
-        // Read all four deep images with their headers
+        // Helper to get data window from file using the proper header method
+        let get_data_window = |path: &std::path::PathBuf| {
+            let file = std::fs::File::open(path).unwrap();
+            let reader = exr::block::read(file, false).unwrap();
+            reader.meta_data().headers[0].data_window()
+        };
+
+        // Read all four deep images with their data windows
         let balls_blocks = read_deep_from_file(balls_path.as_ref().unwrap(), false).unwrap();
         let ground_blocks = read_deep_from_file(ground_path.as_ref().unwrap(), false).unwrap();
         let leaves_blocks = read_deep_from_file(leaves_path.as_ref().unwrap(), false).unwrap();
         let trunks_blocks = read_deep_from_file(trunks_path.as_ref().unwrap(), false).unwrap();
-
-        // Get data windows from headers
-        let get_data_window = |path: &std::path::PathBuf| -> IntegerBounds {
-            let file = std::fs::File::open(path).unwrap();
-            let reader = exr::block::read(file, false).unwrap();
-            let header = &reader.meta_data().headers[0];
-
-            // layer_size is the size, we need to construct IntegerBounds
-            // For now, assume data window starts at (0, 0)
-            // TODO: Get actual data window from header attributes
-            IntegerBounds {
-                position: Vec2(0, 0),
-                size: header.layer_size,
-            }
-        };
 
         let sources = vec![
             DeepImageSource {
@@ -542,32 +533,125 @@ mod deep_tests {
         ];
 
         println!("\nCompositing four deep images to flat...");
-        let (flat_pixels, union_window) = composite_deep_to_flat(&sources);
+        println!("  Balls data window: {}x{} at ({}, {})",
+                 sources[0].data_window.size.x(), sources[0].data_window.size.y(),
+                 sources[0].data_window.position.x(), sources[0].data_window.position.y());
+        println!("  Ground data window: {}x{} at ({}, {})",
+                 sources[1].data_window.size.x(), sources[1].data_window.size.y(),
+                 sources[1].data_window.position.x(), sources[1].data_window.position.y());
+        println!("  Leaves data window: {}x{} at ({}, {})",
+                 sources[2].data_window.size.x(), sources[2].data_window.size.y(),
+                 sources[2].data_window.position.x(), sources[2].data_window.position.y());
+        println!("  Trunks data window: {}x{} at ({}, {})",
+                 sources[3].data_window.size.x(), sources[3].data_window.size.y(),
+                 sources[3].data_window.position.x(), sources[3].data_window.position.y());
 
-        println!("  Composite window: {}x{} at ({}, {})",
+        // Get the reference image's data window first - we'll composite to match it
+        let ref_check_file = std::fs::File::open(reference_path.as_ref().unwrap()).unwrap();
+        let ref_check_reader = exr::block::read(ref_check_file, false).unwrap();
+        let ref_data_win = ref_check_reader.meta_data().headers[0].data_window();
+        println!("  Reference data window: {}x{} at ({}, {})",
+                 ref_data_win.size.x(), ref_data_win.size.y(),
+                 ref_data_win.position.x(), ref_data_win.position.y());
+
+        let (our_pixels, union_window) = composite_deep_to_flat(&sources);
+
+        println!("  Our composite union: {}x{} at ({}, {})",
                  union_window.size.x(),
                  union_window.size.y(),
                  union_window.position.x(),
                  union_window.position.y());
-        println!("  Total flat pixels: {}", flat_pixels.len());
 
-        // Read reference image dimensions for comparison
-        let ref_file = std::fs::File::open(reference_path.unwrap()).unwrap();
-        let ref_reader = exr::block::read(ref_file, false).unwrap();
-        let ref_header = &ref_reader.meta_data().headers[0];
+        // Read reference flat image - use specific channels API for simplicity
+        use exr::prelude::pixel_vec::PixelVec;
 
-        println!("  Reference image: {}x{} (deep={})",
-                 ref_header.layer_size.width(),
-                 ref_header.layer_size.height(),
-                 ref_header.deep);
+        let ref_image = read()
+            .no_deep_data()
+            .largest_resolution_level()
+            .specific_channels()
+            .required("R")
+            .required("G")
+            .required("B")
+            .required("A")
+            .collect_pixels(PixelVec::<(f32, f32, f32, f32)>::constructor, PixelVec::set_pixel)
+            .first_valid_layer()
+            .all_attributes()
+            .from_file(reference_path.unwrap())
+            .unwrap();
 
-        // Note: We can't do pixel-by-pixel comparison because:
-        // 1. The reference is flat (already composited)
-        // 2. Different compression/precision may cause minor differences
-        // But we can verify basic properties
+        let ref_size = ref_image.layer_data.size;
+        println!("  Reference: {}x{} ({} pixels)",
+                 ref_size.width(),
+                 ref_size.height(),
+                 ref_size.width() * ref_size.height());
 
-        assert!(flat_pixels.len() > 0, "Should have composited some pixels");
-        println!("\n✓ Deep-to-flat compositing completed successfully!");
+        // The reference has a different data window (1,1) vs our union (0,0)
+        // We need to extract the corresponding region from our composite
+        let ref_width = ref_size.width();
+        let ref_height = ref_size.height();
+        let our_width = union_window.size.x();
+        let our_height = union_window.size.y();
+
+        // Calculate offset: where the reference window starts in our coordinate system
+        let offset_x = (ref_data_win.position.x() - union_window.position.x()) as usize;
+        let offset_y = (ref_data_win.position.y() - union_window.position.y()) as usize;
+
+        println!("  Comparing region: {}x{} pixels, offset ({}, {}) in our composite",
+                 ref_width, ref_height, offset_x, offset_y);
+
+        // Get reference pixels (R, G, B, A as f32 tuples)
+        let ref_rgba_pixels = &ref_image.layer_data.channel_data.pixels.pixels;
+
+        // Compare pixel-by-pixel - 100% exact match required
+        let mut max_diff = 0.0f32;
+        let mut mismatch_count = 0;
+
+        for y in 0..ref_height {
+            for x in 0..ref_width {
+                // Reference pixel at (x, y)
+                let ref_idx = y * ref_width + x;
+                let (ref_r, ref_g, ref_b, ref_a) = ref_rgba_pixels[ref_idx];
+
+                // Our pixel at (x + offset_x, y + offset_y) in our coordinate system
+                let our_x = x + offset_x;
+                let our_y = y + offset_y;
+                let our_idx = our_y * our_width + our_x;
+                let our_pixel = &our_pixels[our_idx];
+
+                // Calculate differences
+                let diff_r = (our_pixel.r - ref_r).abs();
+                let diff_g = (our_pixel.g - ref_g).abs();
+                let diff_b = (our_pixel.b - ref_b).abs();
+                let diff_a = (our_pixel.a - ref_a).abs();
+
+                max_diff = max_diff.max(diff_r).max(diff_g).max(diff_b).max(diff_a);
+
+                // User requested: NO epsilon - 100% exact match!
+                let epsilon = 0.0;
+                if diff_r > epsilon || diff_g > epsilon || diff_b > epsilon || diff_a > epsilon {
+                    if mismatch_count < 10 {
+                        println!("  Pixel ({}, {}) [ref] / ({}, {}) [ours] mismatch:",
+                                 x, y, our_x, our_y);
+                        println!("    Ours: R={:.6} G={:.6} B={:.6} A={:.6}",
+                                 our_pixel.r, our_pixel.g, our_pixel.b, our_pixel.a);
+                        println!("    Ref:  R={:.6} G={:.6} B={:.6} A={:.6}",
+                                 ref_r, ref_g, ref_b, ref_a);
+                        println!("    Diff: R={:.6} G={:.6} B={:.6} A={:.6}",
+                                 diff_r, diff_g, diff_b, diff_a);
+                    }
+                    mismatch_count += 1;
+                }
+            }
+        }
+
+        println!("  Max difference: {}", max_diff);
+        println!("  Pixels compared: {}", ref_width * ref_height);
+        println!("  Mismatches: {}", mismatch_count);
+
+        assert_eq!(mismatch_count, 0,
+            "Pixel mismatch: {} pixels differ from reference (max diff: {})",
+            mismatch_count, max_diff);
+
+        println!("\n✓ Deep-to-flat compositing: 100% pixel match with OpenEXR reference!");
     }
 }
-
