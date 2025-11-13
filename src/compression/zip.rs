@@ -51,8 +51,9 @@ pub fn compress_bytes(
     ))
 }
 
-/// Decompress raw byte data without channel-specific processing.
-/// Used for deep data offset tables and other raw byte arrays.
+/// Decompress raw byte data WITH delta reconstruction.
+/// Used for deep data offset tables and sample data.
+/// ZIP compression includes delta encoding even for deep data.
 #[cfg(feature = "deep-data")]
 pub fn decompress_raw(
     compressed_le: ByteVec,
@@ -62,21 +63,24 @@ pub fn decompress_raw(
         .set_limit(expected_byte_size)
         .set_size_hint(expected_byte_size);
     let mut decoder = zune_inflate::DeflateDecoder::new_with_options(&compressed_le, options);
-    let decompressed = decoder
+    let mut decompressed = decoder
         .decode_zlib()
         .map_err(|_| Error::invalid("zlib-compressed data malformed"))?;
 
-    // Note: No differences_to_samples or interleave_byte_blocks for raw data
-    // Deep data offset tables are just arrays of i32 values
+    // Apply delta reconstruction - ZIP includes this step even for deep data
+    differences_to_samples(&mut decompressed);
+
     Ok(decompressed)
 }
 
-/// Compress raw byte data without channel-specific processing.
-/// Used for deep data offset tables and other raw byte arrays.
+/// Compress raw byte data WITH delta encoding.
+/// Used for deep data offset tables and sample data.
+/// ZIP compression includes delta encoding even for deep data.
 #[cfg(feature = "deep-data")]
-pub fn compress_raw(uncompressed_le: ByteVec) -> Result<ByteVec> {
-    // Note: No samples_to_differences or separate_bytes_fragments for raw data
-    // Deep data offset tables are just arrays of i32 values
+pub fn compress_raw(mut uncompressed_le: ByteVec) -> Result<ByteVec> {
+    // Apply delta encoding - ZIP includes this step even for deep data
+    samples_to_differences(&mut uncompressed_le);
+
     Ok(miniz_oxide::deflate::compress_to_vec_zlib(
         uncompressed_le.as_slice(),
         4,
