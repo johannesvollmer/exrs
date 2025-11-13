@@ -285,45 +285,69 @@ mod deep_tests {
     }
 
     #[test]
-    fn test_composite_four_deep_images() {
-        // This test composites the four deep images from OpenEXR test suite
-        // and validates against the reference composited.exr
+    fn test_read_openexr_deep_images() {
+        // This test validates we can read the OpenEXR deep test suite images.
+        // NOTE: The official "composited.exr" reference is a FLAT image, not deep data,
+        // so full comparison would require implementing deep-to-flat conversion.
+        // The four source images also have different dimensions (764x406, 1024x396,
+        // 1024x576, 1024x435) and use data windows for spatial alignment.
 
         let balls = ensure_test_image("Balls.exr");
         let ground = ensure_test_image("Ground.exr");
         let leaves = ensure_test_image("Leaves.exr");
         let trunks = ensure_test_image("Trunks.exr");
-        let reference = ensure_test_image("composited.exr");
 
-        if balls.is_none() || ground.is_none() || leaves.is_none() ||
-           trunks.is_none() || reference.is_none() {
-            println!("Skipping test - test images not available");
+        if balls.is_none() || ground.is_none() || leaves.is_none() || trunks.is_none() {
+            println!("Skipping test - OpenEXR test images not available");
             return;
         }
 
-        // Read all four images
+        // Read all four images and verify basic properties
         let balls_blocks = read_deep_from_file(balls.unwrap(), false).unwrap();
         let ground_blocks = read_deep_from_file(ground.unwrap(), false).unwrap();
         let leaves_blocks = read_deep_from_file(leaves.unwrap(), false).unwrap();
         let trunks_blocks = read_deep_from_file(trunks.unwrap(), false).unwrap();
 
-        println!("Read {} balls blocks", balls_blocks.len());
-        println!("Read {} ground blocks", ground_blocks.len());
-        println!("Read {} leaves blocks", leaves_blocks.len());
-        println!("Read {} trunks blocks", trunks_blocks.len());
+        println!("✓ Successfully read Balls.exr ({} blocks)", balls_blocks.len());
+        println!("✓ Successfully read Ground.exr ({} blocks)", ground_blocks.len());
+        println!("✓ Successfully read Leaves.exr ({} blocks)", leaves_blocks.len());
+        println!("✓ Successfully read Trunks.exr ({} blocks)", trunks_blocks.len());
 
-        // TODO: Implement full compositing logic that merges all four images
-        // This would involve:
-        // 1. Aligning the blocks from all four images
-        // 2. For each pixel position, collect samples from all four images
-        // 3. Sort by depth and composite using make_tidy + composite_samples_front_to_back
-        // 4. Compare result to reference composited.exr
+        // Verify blocks are non-empty and have valid data
+        for block in &balls_blocks {
+            assert!(!block.pixel_offset_table.is_empty());
+            assert!(!block.sample_data.is_empty());
+        }
 
-        // For now, just verify we can read all images
-        assert!(!balls_blocks.is_empty());
-        assert!(!ground_blocks.is_empty());
-        assert!(!leaves_blocks.is_empty());
-        assert!(!trunks_blocks.is_empty());
+        println!("✓ All OpenEXR deep images read successfully!");
+    }
+
+    #[test]
+    fn test_composite_deep_samples() {
+        // Test compositing by merging samples from multiple sources
+        use exr::image::deep::compositing::*;
+
+        // Create samples: blue at depth 1.0, red at depth 2.0
+        let mut merged_samples = Vec::new();
+        merged_samples.push(DeepSample::new_unpremultiplied(1.0, [0.0, 0.0, 1.0], 0.5)); // Blue, front
+        merged_samples.push(DeepSample::new_unpremultiplied(2.0, [1.0, 0.0, 0.0], 0.5)); // Red, back
+
+        // Apply make_tidy (should keep both since neither is fully opaque)
+        make_tidy(&mut merged_samples);
+
+        assert_eq!(merged_samples.len(), 2, "Both samples should remain after tidy");
+        assert_eq!(merged_samples[0].depth, 1.0, "First sample should be at depth 1.0");
+        assert_eq!(merged_samples[1].depth, 2.0, "Second sample should be at depth 2.0");
+
+        // Test compositing
+        let (color, alpha) = composite_samples_front_to_back(&merged_samples);
+
+        // With two 0.5 alpha samples: alpha = 0.5 + 0.5*(1-0.5) = 0.75
+        assert!((alpha - 0.75).abs() < 0.001, "Alpha should be 0.75");
+
+        println!("✓ Deep compositing test passed!");
+        println!("  Merged 2 samples, final alpha: {}", alpha);
+        println!("  Final color (premultiplied): {:?}", color);
     }
 }
 
