@@ -572,9 +572,26 @@ mod deep_tests {
         // Debug: Extract and print samples for first pixel to verify data extraction
         use exr::image::deep::merge::extract_pixel_samples_typed;
         if let Some(first_block) = sources[2].blocks.get(0) {  // Leaves image at (0,0)
+            println!("\n  Debug: First block pixel_offset_table[0] = {}", first_block.pixel_offset_table[0]);
+            println!("  Debug: Channel types: {:?}", channel_types);
+
+            // Print raw bytes for first pixel
+            let bytes_per_sample: usize = channel_types.iter().map(|t| match t {
+                SampleType::F16 => 2,
+                SampleType::F32 => 4,
+                SampleType::U32 => 4,
+            }).sum();
+            println!("  Debug: Bytes per sample = {}", bytes_per_sample);
+
+            let num_samples = first_block.pixel_offset_table[0] as usize;
+            println!("  Debug: First pixel has {} samples", num_samples);
+            println!("  Debug: First {} bytes (1 sample): {:02x?}",
+                     bytes_per_sample.min(20),
+                     &first_block.sample_data[0..bytes_per_sample.min(first_block.sample_data.len())]);
+
             let pixel_0_samples = extract_pixel_samples_typed(first_block, 0, &channel_types);
             if !pixel_0_samples.is_empty() {
-                println!("\n  Debug: First pixel (0,0) in Leaves image has {} samples:", pixel_0_samples.len());
+                println!("  Debug: Extracted {} samples from pixel (0,0):", pixel_0_samples.len());
                 for (i, sample) in pixel_0_samples.iter().take(3).enumerate() {
                     if sample.len() >= 5 {
                         println!("    Sample {}: A={:.6} B={:.6} G={:.6} R={:.6} Z={:.6}",

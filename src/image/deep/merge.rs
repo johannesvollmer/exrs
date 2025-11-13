@@ -121,9 +121,15 @@ pub fn extract_pixel_samples(
 
 /// Extract deep samples with proper type handling for mixed F16/F32 channels.
 ///
-/// **CRITICAL**: OpenEXR deep data uses **channel-by-channel** layout, not interleaved:
-/// - Layout: [all samples of chan0][all samples of chan1][all samples of chan2]...
-/// - NOT: [sample0 all chans][sample1 all chans]...
+/// **CRITICAL LAYOUT** (from block.rs:88):
+/// "Layout: for each pixel (in scanline order), for each sample, for each channel: value"
+///
+/// This means INTERLEAVED per-sample, not channel-by-channel:
+/// ```text
+/// [Sample0: Chan0_bytes, Chan1_bytes, Chan2_bytes, ...]
+/// [Sample1: Chan0_bytes, Chan1_bytes, Chan2_bytes, ...]
+/// ...
+/// ```
 ///
 /// ## Arguments
 ///
@@ -160,70 +166,74 @@ pub fn extract_pixel_samples_typed(
         return Vec::new();
     }
 
-    // Deep data is stored channel-by-channel
-    // Calculate byte size for each channel
-    let channel_byte_sizes: Vec<usize> = channel_types.iter().map(|t| match t {
+    // Calculate bytes per sample (sum of all channel sizes)
+    let bytes_per_sample: usize = channel_types.iter().map(|t| match t {
         SampleType::F16 => 2,
         SampleType::F32 => 4,
         SampleType::U32 => 4,
-    }).collect();
+    }).sum();
 
-    let bytes_per_sample_all_channels: usize = channel_byte_sizes.iter().sum();
+    // Find byte position for this pixel's samples
+    let start_byte = start_sample * bytes_per_sample;
+    let end_byte = end_sample * bytes_per_sample;
 
-    // Read each channel's samples
-    let mut channel_arrays: Vec<Vec<f32>> = Vec::with_capacity(channel_types.len());
-    let mut byte_offset = start_sample * bytes_per_sample_all_channels;
-
-    for (ch_idx, &ch_type) in channel_types.iter().enumerate() {
-        let mut channel_samples = Vec::with_capacity(sample_count);
-        let bytes_per_value = channel_byte_sizes[ch_idx];
-
-        for _ in 0..sample_count {
-            if byte_offset + bytes_per_value > block.sample_data.len() {
-                break;
-            }
-
-            let value = match ch_type {
-                SampleType::F16 => {
-                    let bytes = [block.sample_data[byte_offset], block.sample_data[byte_offset + 1]];
-                    f16::from_ne_bytes(bytes).to_f32()
-                }
-                SampleType::F32 => {
-                    let bytes = [
-                        block.sample_data[byte_offset],
-                        block.sample_data[byte_offset + 1],
-                        block.sample_data[byte_offset + 2],
-                        block.sample_data[byte_offset + 3],
-                    ];
-                    f32::from_ne_bytes(bytes)
-                }
-                SampleType::U32 => {
-                    let bytes = [
-                        block.sample_data[byte_offset],
-                        block.sample_data[byte_offset + 1],
-                        block.sample_data[byte_offset + 2],
-                        block.sample_data[byte_offset + 3],
-                    ];
-                    u32::from_ne_bytes(bytes) as f32
-                }
-            };
-
-            channel_samples.push(value);
-            byte_offset += bytes_per_value;
-        }
-
-        channel_arrays.push(channel_samples);
+    if end_byte > block.sample_data.len() {
+        return Vec::new();
     }
 
-    // Transpose: convert from channel-by-channel to sample-by-sample
-    let mut samples = Vec::with_capacity(sample_count);
+    let sample_bytes = &block.sample_data[start_byte..end_byte];
+
+    // Parse samples - INTERLEAVED layout
+    let mut samples = Vec::new();
     for sample_idx in 0..sample_count {
-        let mut sample = Vec::with_capacity(channel_types.len());
-        for channel_array in &channel_arrays {
-            if sample_idx < channel_array.len() {
-                sample.push(channel_array[sample_idx]);
-            }
+        let mut sample = Vec::new();
+        let mut byte_offset = sample_idx * bytes_per_sample;
+
+        // Read each channel for this sample
+        for channel_type in channel_types {
+            let value = match channel_type {
+                SampleType::F16 => {
+                    if byte_offset + 2 <= sample_bytes.len() {
+                        let bytes = [sample_bytes[byte_offset], sample_bytes[byte_offset + 1]];
+                        let f16_val = f16::from_ne_bytes(bytes);
+                        byte_offset += 2;
+                        f16_val.to_f32()
+                    } else {
+                        break;
+                    }
+                }
+                SampleType::F32 => {
+                    if byte_offset + 4 <= sample_bytes.len() {
+                        let bytes = [
+                            sample_bytes[byte_offset],
+                            sample_bytes[byte_offset + 1],
+                            sample_bytes[byte_offset + 2],
+                            sample_bytes[byte_offset + 3],
+                        ];
+                        byte_offset += 4;
+                        f32::from_ne_bytes(bytes)
+                    } else {
+                        break;
+                    }
+                }
+                SampleType::U32 => {
+                    if byte_offset + 4 <= sample_bytes.len() {
+                        let bytes = [
+                            sample_bytes[byte_offset],
+                            sample_bytes[byte_offset + 1],
+                            sample_bytes[byte_offset + 2],
+                            sample_bytes[byte_offset + 3],
+                        ];
+                        byte_offset += 4;
+                        u32::from_ne_bytes(bytes) as f32
+                    } else {
+                        break;
+                    }
+                }
+            };
+            sample.push(value);
         }
+
         if sample.len() == channel_types.len() {
             samples.push(sample);
         }
