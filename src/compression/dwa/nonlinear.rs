@@ -28,15 +28,22 @@ pub fn to_nonlinear(linear: f32) -> f32 {
 ///
 /// - For values <= 1.0: Uses power function (inverse of gamma 2.2)
 /// - For values > 1.0: Uses exponential function
+/// - Preserves sign for negative values
 #[inline]
 pub fn from_nonlinear(nonlinear: f32) -> f32 {
-    if nonlinear <= 1.0 {
+    let sign = if nonlinear < 0.0 { -1.0 } else { 1.0 };
+    let abs_val = nonlinear.abs();
+
+    let result = if abs_val <= 1.0 {
         // Inverse gamma 2.2
-        nonlinear.powf(2.2)
+        abs_val.powf(2.2)
     } else {
         // Exponential (inverse of log)
-        (2.2f32.ln() * (nonlinear - 1.0)).exp()
-    }
+        let log_base = 2.718281828f32.powf(2.2); // e^2.2
+        log_base.powf(abs_val - 1.0)
+    };
+
+    sign * result
 }
 
 /// Lookup table for fast inverse nonlinear transform
@@ -56,8 +63,8 @@ impl InverseNonlinearLut {
             let float_value = half.to_f32();
 
             // Apply inverse nonlinear transform
-            let linear_value = if float_value.is_nan() || float_value < 0.0 {
-                // Handle NaN and negative values
+            // Map NaN and inf to 0, but handle negative values properly
+            let linear_value = if float_value.is_nan() || float_value.is_infinite() {
                 0.0
             } else {
                 from_nonlinear(float_value)

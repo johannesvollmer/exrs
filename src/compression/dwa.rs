@@ -230,13 +230,14 @@ pub fn decompress(
 /// Decode a lossy DCT channel into spatial domain
 fn decode_lossy_dct_channel(
     resolution: crate::prelude::Vec2<usize>,
-    classification: &classifier::ChannelClassification,
+    _classification: &classifier::ChannelClassification,
     _csc_groups: &[classifier::CscGroup],
     ac_reader: &mut std::io::Cursor<&[u8]>,
     dc_reader: &mut std::io::Cursor<&[u8]>,
 ) -> Result<Vec<f32>> {
     use constants::{BLOCK_SIZE, INVERSE_ZIGZAG_ORDER};
     use dct::inverse_dct_8x8_optimized;
+    use half::f16;
 
     let width = resolution.x();
     let height = resolution.y();
@@ -249,51 +250,41 @@ fn decode_lossy_dct_channel(
     // Allocate spatial buffer
     let mut spatial_data = vec![0.0f32; pixel_count];
 
-    // Determine which quantization table to use
-    let quant_table = if classification.csc_group_index.is_some() {
-        // Part of CSC group - use appropriate table based on role
-        match classification.csc_channel_role {
-            Some(0) => &constants::QUANT_TABLE_Y,      // Y' (stored in R)
-            Some(1) => &constants::QUANT_TABLE_CBCR,   // Cb (stored in G)
-            Some(2) => &constants::QUANT_TABLE_CBCR,   // Cr (stored in B)
-            _ => &constants::QUANT_TABLE_Y,
-        }
-    } else {
-        // Standalone channel (Y, BY, RY, etc.) - use Y table
-        &constants::QUANT_TABLE_Y
-    };
-
     // Process each 8x8 block
     for block_y in 0..blocks_y {
         for block_x in 0..blocks_x {
-            // Read DC coefficient (u16, little-endian)
-            let dc_coeff = read_u16_le(dc_reader)?;
+            // Read DC coefficient (u16, little-endian) - stored as f16
+            let dc_coeff_bits = read_u16_le(dc_reader)?;
 
-            // Read AC coefficients from continuous RLE stream
-            let ac_coeffs = read_ac_coefficients_for_block(ac_reader)?;
+            // Read AC coefficients from continuous RLE stream - stored as f16
+            let ac_coeffs_bits = read_ac_coefficients_for_block(ac_reader)?;
 
             // Find last non-zero coefficient for optimization
-            let last_non_zero = rle::find_last_non_zero(&ac_coeffs);
+            let last_non_zero = rle::find_last_non_zero(&ac_coeffs_bits);
 
             // Construct full DCT coefficient block (DC + AC)
+            // DC and AC are stored as f16 values, convert to f32 for inverse DCT
             let mut dct_coeffs = [0.0f32; 64];
 
-            // DC coefficient (index 0)
-            let dc_quant = quant_table[0];
-            dct_coeffs[0] = (dc_coeff as f32) * dc_quant;
+            // DC coefficient (index 0) - convert f16 bits to f32
+            dct_coeffs[0] = f16::from_bits(dc_coeff_bits).to_f32();
 
-            // AC coefficients (indices 1-63, in zigzag order)
+            // AC coefficients (indices 1-63, in zigzag order) - convert f16 bits to f32
             for i in 0..63 {
-                if ac_coeffs[i] != 0 {
-                    // Un-zigzag: ac_coeffs[i] is in zigzag position i+1
+                if ac_coeffs_bits[i] != 0 {
+                    // Un-zigzag: ac_coeffs_bits[i] is in zigzag position i+1
                     let normal_idx = INVERSE_ZIGZAG_ORDER[i + 1];
-                    let ac_quant = quant_table[normal_idx];
-                    dct_coeffs[normal_idx] = (ac_coeffs[i] as f32) * ac_quant;
+                    dct_coeffs[normal_idx] = f16::from_bits(ac_coeffs_bits[i]).to_f32();
                 }
             }
 
             // Apply inverse DCT
             let spatial_block = inverse_dct_8x8_optimized(&dct_coeffs, last_non_zero);
+
+            if block_y == 0 && block_x == 0 {
+                eprintln!("DWA DEBUG: First block DC={:.6}, first spatial values: {:.6}, {:.6}, {:.6}",
+                          dct_coeffs[0], spatial_block[0], spatial_block[1], spatial_block[2]);
+            }
 
             // Copy block to output, handling edge cases
             for by in 0..BLOCK_SIZE {
@@ -408,10 +399,18 @@ fn write_channel_to_output(
             }
 
             for (i, &value) in spatial_data.iter().enumerate() {
-                // Apply inverse nonlinear transform
-                let linear = nonlinear_lut.lookup_bits(f16::from_f32(value).to_bits());
+                // Spatial data from inverse DCT is in quantized (nonlinear) space as f32
+                // We need to convert to f16, then apply inverse nonlinear (toLinear) lookup
+                // to get back to linear light values
+                let quantized_f16 = f16::from_f32(value);
+                let linear = nonlinear_lut.lookup(quantized_f16);
 
-                // Convert to f16 and write as little-endian bytes
+                if i < 3 {
+                    eprintln!("DWA DEBUG write[{}]: spatial_f32={:.6}, spatial_f16={:04x} ({:.6}), linear={:.6}",
+                              i, value, quantized_f16.to_bits(), quantized_f16.to_f32(), linear);
+                }
+
+                // Convert linear value to f16 and write as little-endian bytes
                 let half = f16::from_f32(linear);
                 let bytes = half.to_le_bytes();
                 output[i * 2] = bytes[0];
