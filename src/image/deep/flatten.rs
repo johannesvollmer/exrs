@@ -112,13 +112,19 @@ pub fn composite_deep_to_flat(
                     && (local_y as usize) < source.data_window.size.y()
                 {
                     // Find the block for this scanline
-                    if let Some(block) = source
-                        .blocks
-                        .iter()
-                        .find(|b| b.index.pixel_position.y() == local_y as usize)
-                    {
-                        // Extract samples for this pixel within the block using typed extraction
-                        let pixel_idx = local_x as usize;
+                    // CRITICAL: block.index.pixel_position is ABSOLUTE position, not relative!
+                    // Blocks can cover multiple scanlines, so check if global_y is within range
+                    if let Some(block) = source.blocks.iter().find(|b| {
+                        let block_y_start = b.index.pixel_position.y();
+                        let block_y_end = block_y_start + b.index.pixel_size.y();
+                        global_y as usize >= block_y_start && (global_y as usize) < block_y_end
+                    }) {
+                        // Calculate the pixel index within the block
+                        // The block starts at pixel_position, so we need the offset
+                        let block_y_offset = (global_y as usize) - block.index.pixel_position.y();
+                        let block_width = block.index.pixel_size.x();
+                        let pixel_idx = block_y_offset * block_width + (local_x as usize);
+
                         let raw_samples =
                             extract_pixel_samples_typed(block, pixel_idx, &source.channel_types);
 
@@ -147,17 +153,13 @@ pub fn composite_deep_to_flat(
             make_tidy(&mut all_samples);
             let (color, alpha) = composite_samples_front_to_back(&all_samples);
 
-            // Unpremultiply for output
+            // OpenEXR outputs PREMULTIPLIED values - do NOT unpremultiply!
             let flat_idx = y * width + x;
-            flat_pixels[flat_idx] = if alpha > 0.0001 {
-                FlatPixel {
-                    r: color[0] / alpha,
-                    g: color[1] / alpha,
-                    b: color[2] / alpha,
-                    a: alpha,
-                }
-            } else {
-                FlatPixel::default()
+            flat_pixels[flat_idx] = FlatPixel {
+                r: color[0],
+                g: color[1],
+                b: color[2],
+                a: alpha,
             };
         }
     }
