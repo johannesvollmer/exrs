@@ -5,7 +5,7 @@
 
 use crate::block::UncompressedDeepBlock;
 use crate::image::deep::compositing::*;
-use crate::image::deep::merge::*;
+use crate::image::deep::merge::{extract_pixel_samples_typed, *};
 use crate::math::Vec2;
 use crate::meta::attribute::IntegerBounds;
 use std::collections::HashMap;
@@ -36,8 +36,8 @@ pub struct DeepImageSource {
     pub blocks: Vec<UncompressedDeepBlock>,
     /// Data window (spatial extent) for this image
     pub data_window: IntegerBounds,
-    /// Number of channels per sample (usually 5: A, B, G, R, Z)
-    pub num_channels: usize,
+    /// Channel types for proper data extraction
+    pub channel_types: Vec<crate::meta::attribute::SampleType>,
 }
 
 /// Compute the union of multiple data windows
@@ -117,12 +117,13 @@ pub fn composite_deep_to_flat(
                         .iter()
                         .find(|b| b.index.pixel_position.y() == local_y as usize)
                     {
-                        // Extract samples for this pixel within the block
+                        // Extract samples for this pixel within the block using typed extraction
                         let pixel_idx = local_x as usize;
                         let raw_samples =
-                            extract_pixel_samples(block, pixel_idx, source.num_channels);
+                            extract_pixel_samples_typed(block, pixel_idx, &source.channel_types);
 
                         // Convert to DeepSample format (assuming A, B, G, R, Z channel order)
+                        // OpenEXR deep data stores RGB as premultiplied by alpha
                         for sample in raw_samples {
                             if sample.len() >= 5 {
                                 let alpha = sample[0];
@@ -131,7 +132,7 @@ pub fn composite_deep_to_flat(
                                 let r = sample[3];
                                 let depth = sample[4];
 
-                                all_samples.push(DeepSample::new_unpremultiplied(
+                                all_samples.push(DeepSample::new_premultiplied(
                                     depth,
                                     [r, g, b],
                                     alpha,

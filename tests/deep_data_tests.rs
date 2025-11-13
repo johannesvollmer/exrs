@@ -509,26 +509,41 @@ mod deep_tests {
         let leaves_blocks = read_deep_from_file(leaves_path.as_ref().unwrap(), false).unwrap();
         let trunks_blocks = read_deep_from_file(trunks_path.as_ref().unwrap(), false).unwrap();
 
+        // Debug: Check channel order in the first image
+        let balls_file = std::fs::File::open(balls_path.as_ref().unwrap()).unwrap();
+        let balls_reader = exr::block::read(balls_file, false).unwrap();
+        let balls_header = &balls_reader.meta_data().headers[0];
+        println!("\nChannel order in Balls.exr:");
+        for (idx, channel) in balls_header.channels.list.iter().enumerate() {
+            println!("  [{}] {} ({:?})", idx, channel.name, channel.sample_type);
+        }
+
+
+        // Get channel types from header (all sources have same channel structure)
+        let channel_types: Vec<SampleType> = balls_header.channels.list.iter()
+            .map(|c| c.sample_type)
+            .collect();
+
         let sources = vec![
             DeepImageSource {
                 blocks: balls_blocks,
                 data_window: get_data_window(balls_path.as_ref().unwrap()),
-                num_channels: 5, // A, B, G, R, Z
+                channel_types: channel_types.clone(),
             },
             DeepImageSource {
                 blocks: ground_blocks,
                 data_window: get_data_window(ground_path.as_ref().unwrap()),
-                num_channels: 5,
+                channel_types: channel_types.clone(),
             },
             DeepImageSource {
                 blocks: leaves_blocks,
                 data_window: get_data_window(leaves_path.as_ref().unwrap()),
-                num_channels: 5,
+                channel_types: channel_types.clone(),
             },
             DeepImageSource {
                 blocks: trunks_blocks,
                 data_window: get_data_window(trunks_path.as_ref().unwrap()),
-                num_channels: 5,
+                channel_types: channel_types.clone(),
             },
         ];
 
@@ -553,6 +568,21 @@ mod deep_tests {
         println!("  Reference data window: {}x{} at ({}, {})",
                  ref_data_win.size.x(), ref_data_win.size.y(),
                  ref_data_win.position.x(), ref_data_win.position.y());
+
+        // Debug: Extract and print samples for first pixel to verify data extraction
+        use exr::image::deep::merge::extract_pixel_samples_typed;
+        if let Some(first_block) = sources[2].blocks.get(0) {  // Leaves image at (0,0)
+            let pixel_0_samples = extract_pixel_samples_typed(first_block, 0, &channel_types);
+            if !pixel_0_samples.is_empty() {
+                println!("\n  Debug: First pixel (0,0) in Leaves image has {} samples:", pixel_0_samples.len());
+                for (i, sample) in pixel_0_samples.iter().take(3).enumerate() {
+                    if sample.len() >= 5 {
+                        println!("    Sample {}: A={:.6} B={:.6} G={:.6} R={:.6} Z={:.6}",
+                                 i, sample[0], sample[1], sample[2], sample[3], sample[4]);
+                    }
+                }
+            }
+        }
 
         let (our_pixels, union_window) = composite_deep_to_flat(&sources);
 
