@@ -59,6 +59,12 @@ pub fn decompress_raw(
     compressed_le: ByteVec,
     expected_byte_size: usize,
 ) -> Result<ByteVec> {
+    // If compressed size equals expected size, data is stored uncompressed
+    // (compression didn't help, so it was left as-is)
+    if compressed_le.len() == expected_byte_size {
+        return Ok(compressed_le);
+    }
+
     let options = zune_inflate::DeflateOptions::default()
         .set_limit(expected_byte_size)
         .set_size_hint(expected_byte_size);
