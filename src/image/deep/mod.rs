@@ -6,4 +6,5 @@
 //! or depth-dependent information.
 
 pub mod compositing;
+pub mod flatten;
 pub mod merge;
