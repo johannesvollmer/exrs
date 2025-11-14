@@ -10,6 +10,7 @@ use crate::math::*;
 use crate::meta::{attribute::*, header::*};
 use crate::prelude::*;
 
+use std::convert::TryFrom;
 use std::io::Cursor;
 use std::marker::PhantomData;
 
@@ -403,7 +404,7 @@ where
 
         let x_sampling = self.sampling.x();
         let mut byte_writer = Cursor::new(line.value);
-        let mut positions = sample_x_positions(
+        let positions = sample_x_positions(
             x_sampling,
             block_x_min,
             block_x_max,
@@ -415,9 +416,8 @@ where
         match self.target_sample_type {
             SampleType::F16 => {
                 for x in positions {
-                    let sample_index = (x - block_x_min)
-                        .try_into()
-                        .expect("invalid sample position");
+                    let sample_index =
+                        usize::try_from(x - block_x_min).expect("invalid sample position");
                     get_sample(&pixels[sample_index])
                         .to_f16()
                         .write_ne(&mut byte_writer)
@@ -426,9 +426,8 @@ where
             }
             SampleType::F32 => {
                 for x in positions {
-                    let sample_index = (x - block_x_min)
-                        .try_into()
-                        .expect("invalid sample position");
+                    let sample_index =
+                        usize::try_from(x - block_x_min).expect("invalid sample position");
                     get_sample(&pixels[sample_index])
                         .to_f32()
                         .write_ne(&mut byte_writer)
@@ -437,9 +436,8 @@ where
             }
             SampleType::U32 => {
                 for x in positions {
-                    let sample_index = (x - block_x_min)
-                        .try_into()
-                        .expect("invalid sample position");
+                    let sample_index =
+                        usize::try_from(x - block_x_min).expect("invalid sample position");
                     get_sample(&pixels[sample_index])
                         .to_u32()
                         .write_ne(&mut byte_writer)

@@ -11,6 +11,7 @@ use crate::image::recursive::*;
 use crate::image::*;
 use crate::math::*;
 use crate::meta::header::*;
+use std::convert::TryFrom;
 
 use crate::io::Read;
 use std::marker::PhantomData;
