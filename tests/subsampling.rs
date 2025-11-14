@@ -4,7 +4,7 @@ use exr::math::Vec2;
 use exr::meta::attribute::{ChannelDescription, ChannelList, IntegerBounds, SampleType, Text};
 
 #[test]
-fn test_channel_byte_calculations() {
+fn channel_byte_calculations() {
     // Test that byte size calculations work correctly for subsampled channels
     let channel_full_res = ChannelDescription {
         name: Text::from("Y"),
@@ -36,7 +36,7 @@ fn test_channel_byte_calculations() {
 }
 
 #[test]
-fn test_422_subsampling_validation() {
+fn subsampling_422_validation() {
     // Test that 4:2:2 subsampling metadata is accepted
     // Channels must be sorted alphabetically: U, V, Y
     let channels = vec![
@@ -78,7 +78,7 @@ fn test_422_subsampling_validation() {
 }
 
 #[test]
-fn test_subsampling_requires_aligned_data_window() {
+fn subsampling_requires_aligned_data_window() {
     // Test that data window must be properly aligned
     let channel = ChannelDescription {
         name: Text::from("C"),
@@ -110,7 +110,7 @@ fn test_subsampling_requires_aligned_data_window() {
 }
 
 #[test]
-fn test_channel_list_bytes_per_pixel_section() {
+fn channel_list_bytes_per_pixel_section() {
     // Test ChannelList byte calculation with mixed subsampling
     let channels = vec![
         ChannelDescription {
