@@ -2,9 +2,11 @@
 
 use exr::math::Vec2;
 use exr::meta::attribute::{ChannelDescription, ChannelList, IntegerBounds, SampleType, Text};
+use exr::prelude::*;
+use std::io::Cursor;
 
 #[test]
-fn test_channel_byte_calculations() {
+fn channel_byte_calculations() {
     // Test that byte size calculations work correctly for subsampled channels
     let channel_full_res = ChannelDescription {
         name: Text::from("Y"),
@@ -36,7 +38,7 @@ fn test_channel_byte_calculations() {
 }
 
 #[test]
-fn test_422_subsampling_validation() {
+fn subsampling_422_validation() {
     // Test that 4:2:2 subsampling metadata is accepted
     // Channels must be sorted alphabetically: U, V, Y
     let channels = vec![
@@ -78,7 +80,7 @@ fn test_422_subsampling_validation() {
 }
 
 #[test]
-fn test_subsampling_requires_aligned_data_window() {
+fn subsampling_requires_aligned_data_window() {
     // Test that data window must be properly aligned
     let channel = ChannelDescription {
         name: Text::from("C"),
@@ -110,7 +112,7 @@ fn test_subsampling_requires_aligned_data_window() {
 }
 
 #[test]
-fn test_channel_list_bytes_per_pixel_section() {
+fn channel_list_bytes_per_pixel_section() {
     // Test ChannelList byte calculation with mixed subsampling
     let channels = vec![
         ChannelDescription {
@@ -147,4 +149,187 @@ fn test_channel_list_bytes_per_pixel_section() {
     // Total: 48 bytes
     let total_bytes = channel_list.bytes_per_pixel_section(bounds);
     assert_eq!(total_bytes, 48);
+}
+
+#[test]
+fn write_read_422_subsampled_image() {
+    // Test writing and reading a 4:2:2 subsampled image (Y=full, Cb/Cr=half horizontal)
+    // This matches typical video chroma subsampling
+
+    let width = 64;
+    let height = 48;
+
+    // Create three channels: Y (full resolution), Cb and Cr (horizontally subsampled)
+    let y_channel = AnyChannel {
+        name: Text::from("Y"),
+        sample_data: FlatSamples::F32(vec![0.5_f32; width * height]),
+        quantize_linearly: false,
+        sampling: Vec2(1, 1),
+    };
+
+    let cb_channel = AnyChannel {
+        name: Text::from("Cb"),
+        sample_data: FlatSamples::F32(vec![0.3_f32; (width / 2) * height]),
+        quantize_linearly: false,
+        sampling: Vec2(2, 1), // Horizontally subsampled
+    };
+
+    let cr_channel = AnyChannel {
+        name: Text::from("Cr"),
+        sample_data: FlatSamples::F32(vec![0.7_f32; (width / 2) * height]),
+        quantize_linearly: false,
+        sampling: Vec2(2, 1), // Horizontally subsampled
+    };
+
+    let channels = AnyChannels::sort(smallvec::smallvec![y_channel, cb_channel, cr_channel]);
+
+    let layer = Layer::new(
+        (width, height),
+        LayerAttributes::named(""),
+        Encoding {
+            compression: Compression::Uncompressed,
+            blocks: Blocks::ScanLines,
+            line_order: LineOrder::Increasing,
+        },
+        channels,
+    );
+
+    let image = Image::from_layer(layer);
+
+    // Write to memory
+    let mut buffer = Vec::new();
+    image
+        .write()
+        .to_buffered(Cursor::new(&mut buffer))
+        .expect("Failed to write subsampled image");
+
+    // Read it back
+    let read_image = read()
+        .no_deep_data()
+        .all_resolution_levels()
+        .all_channels()
+        .all_layers()
+        .all_attributes()
+        .from_buffered(Cursor::new(&buffer))
+        .expect("Failed to read subsampled image");
+
+    // Verify the image was read correctly
+    assert_eq!(read_image.layer_data.len(), 1);
+    let layer = &read_image.layer_data[0];
+    assert_eq!(layer.channel_data.list.len(), 3);
+
+    // Check each channel
+    for channel in &layer.channel_data.list {
+        let channel_name = channel.name.to_string();
+        match channel_name.as_str() {
+            "Y" => {
+                assert_eq!(channel.sampling, Vec2(1, 1));
+                if let Levels::Singular(FlatSamples::F32(samples)) = &channel.sample_data {
+                    assert_eq!(samples.len(), width * height);
+                } else {
+                    panic!("Y channel should be F32");
+                }
+            }
+            "Cb" | "Cr" => {
+                assert_eq!(channel.sampling, Vec2(2, 1));
+                if let Levels::Singular(FlatSamples::F32(samples)) = &channel.sample_data {
+                    assert_eq!(samples.len(), (width / 2) * height);
+                } else {
+                    panic!("Cb/Cr channels should be F32");
+                }
+            }
+            _ => panic!("Unexpected channel: {}", channel.name),
+        }
+    }
+}
+
+#[test]
+fn write_read_420_subsampled_image() {
+    // Test writing and reading a 4:2:0 subsampled image (chroma half in both dimensions)
+
+    let width = 64;
+    let height = 48;
+
+    // Create three channels with 4:2:0 subsampling
+    let y_channel = AnyChannel {
+        name: Text::from("Y"),
+        sample_data: FlatSamples::F16(vec![f16::from_f32(0.5); width * height]),
+        quantize_linearly: false,
+        sampling: Vec2(1, 1),
+    };
+
+    let ry_channel = AnyChannel {
+        name: Text::from("RY"),
+        sample_data: FlatSamples::F16(vec![f16::from_f32(0.3); (width / 2) * (height / 2)]),
+        quantize_linearly: true,
+        sampling: Vec2(2, 2), // Both horizontally and vertically subsampled
+    };
+
+    let by_channel = AnyChannel {
+        name: Text::from("BY"),
+        sample_data: FlatSamples::F16(vec![f16::from_f32(0.7); (width / 2) * (height / 2)]),
+        quantize_linearly: true,
+        sampling: Vec2(2, 2), // Both horizontally and vertically subsampled
+    };
+
+    let channels = AnyChannels::sort(smallvec::smallvec![y_channel, ry_channel, by_channel]);
+
+    let layer = Layer::new(
+        (width, height),
+        LayerAttributes::named(""),
+        Encoding {
+            compression: Compression::Uncompressed,
+            blocks: Blocks::ScanLines,
+            line_order: LineOrder::Increasing,
+        },
+        channels,
+    );
+
+    let image = Image::from_layer(layer);
+
+    // Write to memory
+    let mut buffer = Vec::new();
+    image
+        .write()
+        .to_buffered(Cursor::new(&mut buffer))
+        .expect("Failed to write 4:2:0 subsampled image");
+
+    // Read it back
+    let read_image = read()
+        .no_deep_data()
+        .all_resolution_levels()
+        .all_channels()
+        .all_layers()
+        .all_attributes()
+        .from_buffered(Cursor::new(&buffer))
+        .expect("Failed to read 4:2:0 subsampled image");
+
+    // Verify the image was read correctly
+    assert_eq!(read_image.layer_data.len(), 1);
+    let layer = &read_image.layer_data[0];
+    assert_eq!(layer.channel_data.list.len(), 3);
+
+    // Check each channel
+    for channel in &layer.channel_data.list {
+        let channel_name = channel.name.to_string();
+        match channel_name.as_str() {
+            "Y" => {
+                assert_eq!(channel.sampling, Vec2(1, 1));
+                if let Levels::Singular(FlatSamples::F16(samples)) = &channel.sample_data {
+                    assert_eq!(samples.len(), width * height);
+                } else {
+                    panic!("Y channel should be F16");
+                }
+            }
+            "BY" | "RY" => {
+                assert_eq!(channel.sampling, Vec2(2, 2));
+                if let Levels::Singular(FlatSamples::F16(samples)) = &channel.sample_data {
+                    assert_eq!(samples.len(), (width / 2) * (height / 2));
+                } else {
+                    panic!("BY/RY channels should be F16");
+                }
+            }
+            _ => panic!("Unexpected channel: {}", channel.name),
+        }
+    }
 }
