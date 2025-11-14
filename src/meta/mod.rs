@@ -234,7 +234,9 @@ pub fn calculate_block_position_and_size(total_size: usize, block_size: usize, b
 #[inline]
 pub fn calculate_block_size(total_size: usize, block_size: usize, block_position: usize) -> Result<usize> {
     if block_position >= total_size {
-        return Err(Error::invalid("block index"))
+        return Err(Error::invalid(format!(
+            "block position {} exceeds total size {}", block_position, total_size
+        )))
     }
 
     if block_position + block_size <= total_size {
@@ -456,12 +458,16 @@ impl MetaData {
     /// Go through all the block indices in the correct order and call the specified closure for each of these blocks.
     /// That way, the blocks indices are filled with real block data and returned as an iterator.
     /// The closure returns the byte data for each block index.
-    pub fn collect_ordered_block_data<'s>(&'s self, mut get_block_data: impl 's + FnMut(BlockIndex) -> Vec<u8>)
-        -> impl 's + Iterator<Item=(usize, UncompressedBlock)>
+    pub fn collect_ordered_block_data<'s>(&'s self, mut get_block_data: impl 's + FnMut(BlockIndex) -> Result<Vec<u8>>)
+        -> Result<impl 's + Iterator<Item=(usize, UncompressedBlock)>>
     {
-        self.collect_ordered_blocks(move |block_index|
-            UncompressedBlock { index: block_index, data: get_block_data(block_index) }
-        )
+        // Collect all blocks into a Vec to handle errors properly
+        let mut blocks = Vec::new();
+        for (index_in_header, block_index) in self.enumerate_ordered_header_block_indices() {
+            let data = get_block_data(block_index)?;
+            blocks.push((index_in_header, UncompressedBlock { index: block_index, data }));
+        }
+        Ok(blocks.into_iter())
     }
 
     /// Validates this meta data. Returns the minimal possible requirements.

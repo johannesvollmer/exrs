@@ -7,6 +7,7 @@ use crate::image::{Layer, FlatSamples, SpecificChannels, AnyChannels, FlatSample
 use crate::image::write::channels::{GetPixel, WritableChannels, ChannelsWriter};
 use crate::meta::header::{LayerAttributes, Header};
 use crate::block::BlockIndex;
+use crate::error::{Result, Error};
 
 /// Something that has a two-dimensional rectangular shape
 pub trait GetBounds {
@@ -166,17 +167,20 @@ impl<'slf, Channels:'slf> WritableChannels<'slf> for CroppedChannels<Channels> w
         self.full_channels.infer_channel_list() // no need for adjustments, as the layer content already reflects the changes
     }
 
-    fn infer_level_modes(&self) -> (LevelMode, RoundingMode) {
+    fn infer_level_modes(&self) -> Result<(LevelMode, RoundingMode)> {
         self.full_channels.infer_level_modes()
     }
 
     type Writer = CroppedWriter<Channels::Writer>;
 
-    fn create_writer(&'slf self, header: &Header) -> Self::Writer {
+    fn create_writer(&'slf self, header: &Header) -> Result<Self::Writer> {
         let offset = (self.cropped_bounds.position - self.full_bounds.position)
             .to_usize("invalid cropping bounds for cropped view").unwrap();
 
-        CroppedWriter { channels: self.full_channels.create_writer(header), offset }
+        Ok(CroppedWriter {
+            channels: self.full_channels.create_writer(header)?,
+            offset
+        })
     }
 }
 
@@ -188,7 +192,7 @@ pub struct CroppedWriter<ChannelsWriter> {
 }
 
 impl<'c, Channels> ChannelsWriter for CroppedWriter<Channels> where Channels: ChannelsWriter {
-    fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex) -> Vec<u8> {
+    fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex) -> Result<Vec<u8>> {
         let block = BlockIndex {
             pixel_position: block.pixel_position + self.offset,
             .. block
@@ -201,7 +205,7 @@ impl<'c, Channels> ChannelsWriter for CroppedWriter<Channels> where Channels: Ch
 impl<Samples, Channels> InspectSample for Layer<SpecificChannels<Samples, Channels>> where Samples: GetPixel {
     type Sample = Samples::Pixel;
     fn inspect_sample(&self, local_index: Vec2<usize>) -> Samples::Pixel {
-        self.channel_data.pixels.get_pixel(local_index)
+        self.channel_data.pixels.pixel(local_index)
     }
 }
 
@@ -374,13 +378,20 @@ impl<Cropped, Original> CropResult<Cropped, Original> {
 
     /// If the image was fully empty, crop to one single pixel of all the transparent pixels instead,
     /// leaving the layer intact while reducing memory usage.
-    pub fn or_crop_to_1x1_if_empty(self) -> Cropped where Original: Crop<Cropped=Cropped> + GetBounds {
+    ///
+    /// # Errors
+    /// Returns an error if the layer has zero width and height (which indicates an invalid layer state).
+    /// This should never happen with properly constructed images.
+    pub fn or_crop_to_1x1_if_empty(self) -> Result<Cropped> where Original: Crop<Cropped=Cropped> + GetBounds {
         match self {
-            CropResult::Cropped (cropped) => cropped,
+            CropResult::Cropped (cropped) => Ok(cropped),
             CropResult::Empty { original } => {
                 let bounds = original.bounds();
-                if bounds.size == Vec2(0,0) { panic!("layer has width and height of zero") }
-                original.crop(IntegerBounds::new(bounds.position, Vec2(1,1)))
+                if bounds.size == Vec2(0,0) {
+                    Err(Error::invalid("layer has zero width and height - this indicates an invalid layer state"))
+                } else {
+                    Ok(original.crop(IntegerBounds::new(bounds.position, Vec2(1,1))))
+                }
             },
         }
     }

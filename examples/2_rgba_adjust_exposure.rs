@@ -66,7 +66,7 @@ fn main() {
     // FIXME this should be passed as a closure to the `write_with(|x| y)` call
     impl GetPixel for CustomPixels {
         type Pixel = RgbaF32Pixel;
-        fn get_pixel(&self, position: Vec2<usize>) -> Self::Pixel {
+        fn pixel(&self, position: Vec2<usize>) -> Self::Pixel {
             self.lines[position.y()][position.x()]
         }
     }

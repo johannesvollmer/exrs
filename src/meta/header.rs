@@ -485,13 +485,19 @@ impl Header {
     }
 
     /// Calculate the position of a block in the global infinite 2D space of a file. May be negative.
-    pub fn get_block_data_window_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntegerBounds> {
-        let data = self.get_absolute_block_pixel_coordinates(tile)?;
+    pub fn block_data_window_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntegerBounds> {
+        let data = self.absolute_block_pixel_coordinates(tile)?;
         Ok(data.with_origin(self.own_attributes.layer_position))
     }
 
+    /// Deprecated: Use `block_data_window_pixel_coordinates()` instead.
+    #[deprecated(since = "1.75.0", note = "Renamed to `block_data_window_pixel_coordinates` to comply with Rust API guidelines")]
+    pub fn get_block_data_window_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntegerBounds> {
+        self.block_data_window_pixel_coordinates(tile)
+    }
+
     /// Calculate the pixel index rectangle inside this header. Is not negative. Starts at `0`.
-    pub fn get_absolute_block_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntegerBounds> {
+    pub fn absolute_block_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntegerBounds> {
         if let BlockDescription::Tiles(tiles) = self.blocks {
             let Vec2(data_width, data_height) = self.layer_size;
 
@@ -523,9 +529,15 @@ impl Header {
         // TODO deep data?
     }
 
+    /// Deprecated: Use `absolute_block_pixel_coordinates()` instead.
+    #[deprecated(since = "1.75.0", note = "Renamed to `absolute_block_pixel_coordinates` to comply with Rust API guidelines")]
+    pub fn get_absolute_block_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntegerBounds> {
+        self.absolute_block_pixel_coordinates(tile)
+    }
+
     /// Return the tile index, converting scan line block coordinates to tile indices.
     /// Starts at `0` and is not negative.
-    pub fn get_block_data_indices(&self, block: &CompressedBlock) -> Result<TileCoordinates> {
+    pub fn block_data_indices(&self, block: &CompressedBlock) -> Result<TileCoordinates> {
         Ok(match block {
             CompressedBlock::Tile(ref tile) => {
                 tile.coordinates
@@ -551,8 +563,14 @@ impl Header {
         })
     }
 
+    /// Deprecated: Use `block_data_indices()` instead.
+    #[deprecated(since = "1.75.0", note = "Renamed to `block_data_indices` to comply with Rust API guidelines")]
+    pub fn get_block_data_indices(&self, block: &CompressedBlock) -> Result<TileCoordinates> {
+        self.block_data_indices(block)
+    }
+
     /// Computes the absolute tile coordinate data indices, which start at `0`.
-    pub fn get_scan_line_block_tile_coordinates(&self, block_y_coordinate: i32) -> Result<TileCoordinates> {
+    pub fn scan_line_block_tile_coordinates(&self, block_y_coordinate: i32) -> Result<TileCoordinates> {
         let size = self.compression.scan_lines_per_block() as i32;
 
         let diff = block_y_coordinate.checked_sub(self.own_attributes.layer_position.1).ok_or(Error::invalid("invalid header"))?;
@@ -566,6 +584,12 @@ impl Header {
             tile_index: Vec2(0, y as usize),
             level_index: Vec2(0, 0)
         })
+    }
+
+    /// Deprecated: Use `scan_line_block_tile_coordinates()` instead.
+    #[deprecated(since = "1.75.0", note = "Renamed to `scan_line_block_tile_coordinates` to comply with Rust API guidelines")]
+    pub fn get_scan_line_block_tile_coordinates(&self, block_y_coordinate: i32) -> Result<TileCoordinates> {
+        self.scan_line_block_tile_coordinates(block_y_coordinate)
     }
 
     /// Maximum byte length of an uncompressed or compressed block, used for validation.

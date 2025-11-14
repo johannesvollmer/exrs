@@ -81,16 +81,15 @@ fn main() {
                     let chan = line_mut.location.channel;
 
                     if chan == 3 { // write time as depth (could also check for _meta.channels[chan].name == "Z")
-                        line_mut.write_samples(|_| start_time.elapsed().as_secs_f32())
-                            .expect("write to line bug");
+                        line_mut.write_samples(|_| start_time.elapsed().as_secs_f32())?;
                     }
 
                     else { // write rgba color
                         line_mut
-                            .write_samples(|sample_index| random_values[(sample_index + chan) % random_values.len()])
-                            .expect("write to line bug");
+                            .write_samples(|sample_index| random_values[(sample_index + chan) % random_values.len()])?;
                     }
-                })
+                    Ok(())
+                }).expect("failed to create uncompressed block")
             });
 
             // print progress only if it advances more than 1%
