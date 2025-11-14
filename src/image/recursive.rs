@@ -20,7 +20,9 @@ pub struct Recursive<Inner, Value> {
 
 impl<Inner, Value> Recursive<Inner, Value> {
     /// Create a new recursive type. Equivalent to the manual constructor, but less verbose.
-    pub fn new(inner: Inner, value: Value) -> Self { Self { inner, value } }
+    pub fn new(inner: Inner, value: Value) -> Self {
+        Self { inner, value }
+    }
 }
 
 /// Convert this recursive type into a tuple.
@@ -53,12 +55,16 @@ pub trait IntoRecursive {
 
 impl IntoRecursive for NoneMore {
     type Recursive = Self;
-    fn into_recursive(self) -> Self::Recursive { self }
+    fn into_recursive(self) -> Self::Recursive {
+        self
+    }
 }
 
 impl<Inner: IntoRecursive, Value> IntoRecursive for Recursive<Inner, Value> {
     type Recursive = Recursive<Inner::Recursive, Value>;
-    fn into_recursive(self) -> Self::Recursive { Recursive::new(self.inner.into_recursive(), self.value) }
+    fn into_recursive(self) -> Self::Recursive {
+        Recursive::new(self.inner.into_recursive(), self.value)
+    }
 }
 
 // Automatically implement IntoTuple so we have to generate less code in the macros
@@ -71,7 +77,9 @@ impl<I: IntoNonRecursive> IntoTuple<I::NonRecursive> for I {
 //Implement traits for the empty tuple, the macro doesn't handle that
 impl IntoRecursive for () {
     type Recursive = NoneMore;
-    fn into_recursive(self) -> Self::Recursive { NoneMore }
+    fn into_recursive(self) -> Self::Recursive {
+        NoneMore
+    }
 }
 
 impl IntoNonRecursive for NoneMore {

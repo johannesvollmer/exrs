@@ -1,40 +1,41 @@
 //! How to read arbitrary channels.
 
-use crate::image::*;
-use crate::meta::header::{Header};
-use crate::error::{Result, UnitResult};
-use crate::block::UncompressedBlock;
-use crate::block::lines::{LineRef};
-use crate::math::Vec2;
-use crate::meta::attribute::{Text, ChannelDescription};
-use crate::image::read::layers::{ReadChannels, ChannelsReader};
 use crate::block::chunk::TileCoordinates;
+use crate::block::lines::LineRef;
+use crate::block::UncompressedBlock;
+use crate::error::{Result, UnitResult};
+use crate::image::read::layers::{ChannelsReader, ReadChannels};
+use crate::image::*;
+use crate::math::Vec2;
+use crate::meta::attribute::{ChannelDescription, Text};
+use crate::meta::header::Header;
 
 /// A template that creates an [AnyChannelsReader] for each layer in the image.
 /// This loads all channels for each layer.
 /// The `ReadSamples` can, for example, be [ReadFlatSamples] or [ReadAllLevels<ReadFlatSamples>].
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReadAnyChannels<ReadSamples> {
-
     /// The sample reading specification
-    pub read_samples: ReadSamples
+    pub read_samples: ReadSamples,
 }
 
 /// A template that creates a new [`SampleReader`] for each channel in each layer.
 pub trait ReadSamples {
-
     /// The type of the temporary samples reader
     type Reader: SamplesReader;
 
     /// Create a single reader for a single channel of a layer
-    fn create_sample_reader(&self, header: &Header, channel: &ChannelDescription) -> Result<Self::Reader>;
+    fn create_sample_reader(
+        &self,
+        header: &Header,
+        channel: &ChannelDescription,
+    ) -> Result<Self::Reader>;
 }
 
 /// Processes pixel blocks from a file and accumulates them into a collection of arbitrary channels.
 /// Loads all channels for each layer.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AnyChannelsReader<SamplesReader> {
-
     /// Stores a separate sample reader per channel in the layer
     sample_channels_reader: SmallVec<[AnyChannelReader<SamplesReader>; 4]>,
 }
@@ -42,7 +43,6 @@ pub struct AnyChannelsReader<SamplesReader> {
 /// Processes pixel blocks from a file and accumulates them into a single arbitrary channel.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AnyChannelReader<SamplesReader> {
-
     /// The custom reader that accumulates the pixel data for a single channel
     samples: SamplesReader,
 
@@ -59,7 +59,6 @@ pub struct AnyChannelReader<SamplesReader> {
 /// Processes pixel blocks from a file and accumulates them into a single pixel channel.
 /// For example, stores thousands of "Red" pixel values for a single layer.
 pub trait SamplesReader {
-
     /// The type of resulting sample storage
     type Samples;
 
@@ -73,21 +72,27 @@ pub trait SamplesReader {
     fn into_samples(self) -> Self::Samples;
 }
 
-
 impl<'s, S: 's + ReadSamples> ReadChannels<'s> for ReadAnyChannels<S> {
     type Reader = AnyChannelsReader<S::Reader>;
 
     fn create_channels_reader(&self, header: &Header) -> Result<Self::Reader> {
-        let samples: Result<_> = header.channels.list.iter()
-            .map(|channel: &ChannelDescription| Ok(AnyChannelReader {
-                samples: self.read_samples.create_sample_reader(header, channel)?,
-                name: channel.name.clone(),
-                sampling_rate: channel.sampling,
-                quantize_linearly: channel.quantize_linearly
-            }))
+        let samples: Result<_> = header
+            .channels
+            .list
+            .iter()
+            .map(|channel: &ChannelDescription| {
+                Ok(AnyChannelReader {
+                    samples: self.read_samples.create_sample_reader(header, channel)?,
+                    name: channel.name.clone(),
+                    sampling_rate: channel.sampling,
+                    quantize_linearly: channel.quantize_linearly,
+                })
+            })
             .collect();
 
-        Ok(AnyChannelsReader { sample_channels_reader: samples? })
+        Ok(AnyChannelsReader {
+            sample_channels_reader: samples?,
+        })
     }
 }
 
@@ -95,7 +100,9 @@ impl<S: SamplesReader> ChannelsReader for AnyChannelsReader<S> {
     type Channels = AnyChannels<S::Samples>;
 
     fn filter_block(&self, tile: TileCoordinates) -> bool {
-        self.sample_channels_reader.iter().any(|channel| channel.samples.filter_block(tile))
+        self.sample_channels_reader
+            .iter()
+            .any(|channel| channel.samples.filter_block(tile))
     }
 
     fn read_block(&mut self, header: &Header, decompressed: UncompressedBlock) -> UnitResult {
@@ -106,23 +113,28 @@ impl<S: SamplesReader> ChannelsReader for AnyChannelsReader<S> {
 
         Ok(())*/
         for line in decompressed.lines(&header.channels) {
-            self.sample_channels_reader[line.location.channel].samples.read_line(line)?;
+            self.sample_channels_reader[line.location.channel]
+                .samples
+                .read_line(line)?;
         }
 
         Ok(())
     }
 
     fn into_channels(self) -> Self::Channels {
-        AnyChannels { // not using `new()` as the channels are already sorted
-            list: self.sample_channels_reader.into_iter()
+        AnyChannels {
+            // not using `new()` as the channels are already sorted
+            list: self
+                .sample_channels_reader
+                .into_iter()
                 .map(|channel| AnyChannel {
                     sample_data: channel.samples.into_samples(),
 
                     name: channel.name,
                     quantize_linearly: channel.quantize_linearly,
-                    sampling: channel.sampling_rate
+                    sampling: channel.sampling_rate,
                 })
-                .collect()
+                .collect(),
         }
     }
 }

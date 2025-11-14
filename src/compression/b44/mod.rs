@@ -5,10 +5,11 @@ use crate::error::usize_to_i32;
 use crate::io::Data;
 use crate::meta::attribute::ChannelList;
 use crate::prelude::*;
+use lebe::io::{ReadPrimitive, WriteEndian};
+use smallvec::SmallVec;
 use std::cmp::min;
 use std::mem::size_of;
 use table::{EXP_TABLE, LOG_TABLE};
-use lebe::io::{ReadPrimitive, WriteEndian};
 
 const BLOCK_SAMPLE_COUNT: usize = 4;
 
@@ -40,7 +41,6 @@ fn shift_and_round(x: i32, shift: i32) -> i32 {
 
 /// Pack a block of 4 by 4 16-bit pixels (32 bytes, the array `s`) into either 14 or 3 bytes.
 fn pack(s: [u16; 16], b: &mut [u8], optimize_flat_fields: bool, exact_max: bool) -> usize {
-
     let mut t = [0u16; 16];
 
     for i in 0..16 {
@@ -178,23 +178,31 @@ fn unpack14(b: &[u8], s: &mut [u16; 16]) {
     let shift = b32!(b, 2) >> 2;
     let bias = 0x20 << shift;
 
-    s[4] = (s[0] as u32 + ((((b32!(b, 2) << 4) | (b32!(b, 3) >> 4)) & SIX_BITS) << shift) - bias) as u16;
-    s[8] = (s[4] as u32 + ((((b32!(b, 3) << 2) | (b32!(b, 4) >> 6)) & SIX_BITS) << shift) - bias) as u16;
+    s[4] = (s[0] as u32 + ((((b32!(b, 2) << 4) | (b32!(b, 3) >> 4)) & SIX_BITS) << shift) - bias)
+        as u16;
+    s[8] = (s[4] as u32 + ((((b32!(b, 3) << 2) | (b32!(b, 4) >> 6)) & SIX_BITS) << shift) - bias)
+        as u16;
     s[12] = (s[8] as u32 + ((b32!(b, 4) & SIX_BITS) << shift) - bias) as u16;
 
     s[1] = (s[0] as u32 + ((b32!(b, 5) >> 2) << shift) - bias) as u16;
-    s[5] = (s[4] as u32 + ((((b32!(b, 5) << 4) | (b32!(b, 6) >> 4)) & SIX_BITS) << shift) - bias) as u16;
-    s[9] = (s[8] as u32 + ((((b32!(b, 6) << 2) | (b32!(b, 7) >> 6)) & SIX_BITS) << shift) - bias) as u16;
+    s[5] = (s[4] as u32 + ((((b32!(b, 5) << 4) | (b32!(b, 6) >> 4)) & SIX_BITS) << shift) - bias)
+        as u16;
+    s[9] = (s[8] as u32 + ((((b32!(b, 6) << 2) | (b32!(b, 7) >> 6)) & SIX_BITS) << shift) - bias)
+        as u16;
     s[13] = (s[12] as u32 + ((b32!(b, 7) & SIX_BITS) << shift) - bias) as u16;
 
     s[2] = (s[1] as u32 + ((b32!(b, 8) >> 2) << shift) - bias) as u16;
-    s[6] = (s[5] as u32 + ((((b32!(b, 8) << 4) | (b32!(b, 9) >> 4)) & SIX_BITS) << shift)  - bias) as u16;
-    s[10] = (s[9] as u32 + ((((b32!(b, 9) << 2) | (b32!(b, 10) >> 6)) & SIX_BITS) << shift) - bias) as u16;
+    s[6] = (s[5] as u32 + ((((b32!(b, 8) << 4) | (b32!(b, 9) >> 4)) & SIX_BITS) << shift) - bias)
+        as u16;
+    s[10] = (s[9] as u32 + ((((b32!(b, 9) << 2) | (b32!(b, 10) >> 6)) & SIX_BITS) << shift) - bias)
+        as u16;
     s[14] = (s[13] as u32 + ((b32!(b, 10) & SIX_BITS) << shift) - bias) as u16;
 
     s[3] = (s[2] as u32 + ((b32!(b, 11) >> 2) << shift) - bias) as u16;
-    s[7] = (s[6] as u32 + ((((b32!(b, 11) << 4) | (b32!(b, 12) >> 4)) & SIX_BITS) << shift) - bias) as u16;
-    s[11] = (s[10] as u32 + ((((b32!(b, 12) << 2) | (b32!(b, 13) >> 6)) & SIX_BITS) << shift) - bias) as u16;
+    s[7] = (s[6] as u32 + ((((b32!(b, 11) << 4) | (b32!(b, 12) >> 4)) & SIX_BITS) << shift) - bias)
+        as u16;
+    s[11] = (s[10] as u32 + ((((b32!(b, 12) << 2) | (b32!(b, 13) >> 6)) & SIX_BITS) << shift)
+        - bias) as u16;
     s[15] = (s[14] as u32 + ((b32!(b, 13) & SIX_BITS) << shift) - bias) as u16;
 
     for i in 0..16 {
@@ -248,7 +256,8 @@ fn memcpy_u16_to_u8(src: &[u16], mut dst: &mut [u8]) {
 #[inline]
 fn memcpy_u8_to_u16(mut src: &[u8], dst: &mut [u16]) {
     use lebe::prelude::*;
-    src.read_from_native_endian_into(dst).expect("byte copy error");
+    src.read_from_native_endian_into(dst)
+        .expect("byte copy error");
 }
 
 #[inline]
@@ -265,7 +274,7 @@ pub fn decompress(
 ) -> Result<ByteVec> {
     debug_assert_eq!(
         expected_byte_size,
-        rectangle.size.area() * channels.bytes_per_pixel,
+        channels.bytes_per_pixel_section(rectangle),
         "expected byte size does not match header" // TODO compute instead of passing argument?
     );
 
@@ -276,26 +285,29 @@ pub fn decompress(
     }
 
     // Extract channel information needed for decompression.
-    let mut channel_data: Vec<ChannelData> = Vec::with_capacity(channels.list.len());
-    let mut tmp_read_index = 0;
+    let mut channel_data: SmallVec<[ChannelData; 6]> = channels
+        .list
+        .iter()
+        .scan(0, |tmp_read_index, channel| {
+            let channel_data = ChannelData {
+                tmp_start_index: *tmp_read_index,
+                tmp_end_index: *tmp_read_index,
+                resolution: channel.subsampled_resolution(rectangle.size),
+                y_sampling: channel.sampling.y(),
+                sample_type: channel.sample_type,
+                quantize_linearly: channel.quantize_linearly,
+                // For B44, samples_per_pixel should always be 1 since each channel
+                // is processed independently and resolution already accounts for subsampling
+                samples_per_pixel: 1,
+            };
 
-    for channel in channels.list.iter() {
-        let channel = ChannelData {
-            tmp_start_index: tmp_read_index,
-            tmp_end_index: tmp_read_index,
-            resolution: channel.subsampled_resolution(rectangle.size),
-            y_sampling: channel.sampling.y(),
-            sample_type: channel.sample_type,
-            quantize_linearly: channel.quantize_linearly,
-            samples_per_pixel: channel.sampling.area(),
-        };
+            *tmp_read_index += channel_data.resolution.area()
+                * channel_data.samples_per_pixel
+                * channel_data.sample_type.bytes_per_sample();
 
-        tmp_read_index += channel.resolution.area()
-            * channel.samples_per_pixel
-            * channel.sample_type.bytes_per_sample();
-
-        channel_data.push(channel);
-    }
+            Some(channel_data)
+        })
+        .collect();
 
     // Temporary buffer is used to decompress B44 datas the way they are stored in the compressed
     // buffer (channel by channel). We interleave the final result later.
@@ -307,7 +319,6 @@ pub fn decompress(
     let mut remaining_le = compressed_le.len();
 
     for channel in &channel_data {
-
         debug_assert_eq!(remaining_le, compressed_le.len() - in_i);
 
         // Compute information for current channel.
@@ -317,7 +328,6 @@ pub fn decompress(
         // Sample types that does not support B44 compression (u32 and f32) are raw copied.
         // In this branch, "compressed" array is actually raw, uncompressed data.
         if channel.sample_type != SampleType::F16 {
-
             debug_assert_eq!(channel.sample_type.bytes_per_sample(), 4);
 
             if remaining_le < byte_count {
@@ -358,7 +368,6 @@ pub fn decompress(
 
             // Move in pixel x line, 4 by 4.
             for x in (0..x_sample_count).step_by(BLOCK_SAMPLE_COUNT) {
-
                 // Extract the 4 by 4 block of 16-bit floats from the compressed buffer.
                 let mut s = [0u16; 16];
 
@@ -458,13 +467,13 @@ pub fn decompress(
                 // TODO simplify this and make it memcpy on little endian systems
                 // https://github.com/AcademySoftwareFoundation/openexr/blob/a03aca31fa1ce85d3f28627dbb3e5ded9494724a/src/lib/OpenEXR/ImfB44Compressor.cpp#L943
                 for mut f16_bytes in channel_bytes.chunks(std::mem::size_of::<f16>()) {
-                    let native_endian_f16_bits = u16::read_from_little_endian(&mut f16_bytes).expect("memory read failed");
-                    out.write_as_native_endian(&native_endian_f16_bits).expect("memory write failed");
+                    let native_endian_f16_bits =
+                        u16::read_from_little_endian(&mut f16_bytes).expect("memory read failed");
+                    out.write_as_native_endian(&native_endian_f16_bits)
+                        .expect("memory write failed");
                 }
-            }
-            else {
-                u8::write_slice_ne(&mut out, channel_bytes)
-                    .expect("write to in-memory failed");
+            } else {
+                u8::write_slice_ne(&mut out, channel_bytes).expect("write to in-memory failed");
             }
         }
     }
@@ -495,35 +504,44 @@ pub fn compress(
 
     // TODO do not convert endianness for f16-only images
     //      see https://github.com/AcademySoftwareFoundation/openexr/blob/3bd93f85bcb74c77255f28cdbb913fdbfbb39dfe/OpenEXR/IlmImf/ImfTiledOutputFile.cpp#L750-L842
-    let uncompressed_le = super::convert_current_to_little_endian(uncompressed_ne, channels, rectangle)?;
+    let uncompressed_le =
+        super::convert_current_to_little_endian(uncompressed_ne, channels, rectangle)?;
     let uncompressed_le = uncompressed_le.as_slice(); // TODO no alloc
 
-    let mut channel_data = Vec::new();
+    let mut channel_data: SmallVec<[ChannelData; 6]> = channels
+        .list
+        .iter()
+        .scan(0, |tmp_end_index, channel| {
+            let number_samples = channel.subsampled_resolution(rectangle.size);
+            let sample_count = channel.subsampled_resolution(rectangle.size).area();
+            let byte_count = sample_count * channel.sample_type.bytes_per_sample();
 
-    let mut tmp_end_index = 0;
-    for channel in &channels.list {
-        let number_samples = channel.subsampled_resolution(rectangle.size);
+            let channel_data = ChannelData {
+                tmp_start_index: *tmp_end_index,
+                tmp_end_index: *tmp_end_index,
+                y_sampling: channel.sampling.y(),
+                resolution: number_samples,
+                sample_type: channel.sample_type,
+                quantize_linearly: channel.quantize_linearly,
+                // For B44, samples_per_pixel should always be 1 since each channel
+                // is processed independently and resolution already accounts for subsampling
+                samples_per_pixel: 1,
+            };
 
-        let sample_count = channel.subsampled_resolution(rectangle.size).area();
-        let byte_count = sample_count * channel.sample_type.bytes_per_sample();
-
-        let channel = ChannelData {
-            tmp_start_index: tmp_end_index,
-            tmp_end_index,
-            y_sampling: channel.sampling.y(),
-            resolution: number_samples,
-            sample_type: channel.sample_type,
-            quantize_linearly: channel.quantize_linearly,
-            samples_per_pixel: channel.sampling.area(),
-        };
-
-        tmp_end_index += byte_count;
-        channel_data.push(channel);
-    }
+            *tmp_end_index += byte_count;
+            Some(channel_data)
+        })
+        .collect();
 
     let mut tmp = vec![0_u8; uncompressed_le.len()];
 
-    debug_assert_eq!(tmp_end_index, tmp.len());
+    debug_assert_eq!(
+        channel_data
+            .iter()
+            .map(|cd| cd.resolution.area() * cd.sample_type.bytes_per_sample())
+            .sum::<usize>(),
+        tmp.len()
+    );
 
     let mut remaining_uncompressed_bytes = uncompressed_le;
 
@@ -547,16 +565,18 @@ pub fn compress(
             // native representations of a half have the same size.
 
             if channel.sample_type == SampleType::F16 {
-
                 // TODO simplify this and make it memcpy on little endian systems
                 // https://github.com/AcademySoftwareFoundation/openexr/blob/a03aca31fa1ce85d3f28627dbb3e5ded9494724a/src/lib/OpenEXR/ImfB44Compressor.cpp#L640
 
                 for mut out_f16_bytes in target.chunks_mut(2) {
-                    let native_endian_f16_bits = u16::read_from_native_endian(&mut remaining_uncompressed_bytes).expect("memory read failed");
-                    out_f16_bytes.write_as_little_endian(&native_endian_f16_bits).expect("memory write failed");
+                    let native_endian_f16_bits =
+                        u16::read_from_native_endian(&mut remaining_uncompressed_bytes)
+                            .expect("memory read failed");
+                    out_f16_bytes
+                        .write_as_little_endian(&native_endian_f16_bits)
+                        .expect("memory write failed");
                 }
-            }
-            else {
+            } else {
                 u8::read_slice_ne(&mut remaining_uncompressed_bytes, target)
                     .expect("in-memory read failed");
             }
@@ -570,7 +590,6 @@ pub fn compress(
     for channel in &channel_data {
         // U32 and F32 channels are raw copied.
         if channel.sample_type != SampleType::F16 {
-
             debug_assert_eq!(channel.sample_type.bytes_per_sample(), 4);
 
             // Raw byte copy.
@@ -721,8 +740,14 @@ mod test {
 
         let compressed = b44::compress(&channels, pixel_bytes.clone(), rectangle, true).unwrap();
 
-        let decompressed =
-            b44::decompress(&channels, compressed.clone(), rectangle, pixel_bytes.len(), true).unwrap();
+        let decompressed = b44::decompress(
+            &channels,
+            compressed.clone(),
+            rectangle,
+            pixel_bytes.len(),
+            true,
+        )
+        .unwrap();
 
         assert_eq!(decompressed.len(), pixel_bytes.len());
 

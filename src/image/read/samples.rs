@@ -1,14 +1,14 @@
 //! How to read samples (a grid of `f32`, `f16` or `u32` values).
 
-use crate::image::*;
-use crate::meta::header::{Header};
-use crate::error::{Result, UnitResult};
+use crate::block::chunk::TileCoordinates;
 use crate::block::lines::LineRef;
+use crate::error::{Result, UnitResult};
+use crate::image::read::any_channels::{ReadSamples, SamplesReader};
+use crate::image::read::levels::{ReadAllLevels, ReadLargestLevel, ReadSamplesLevel};
+use crate::image::*;
 use crate::math::Vec2;
 use crate::meta::attribute::{ChannelDescription, SampleType};
-use crate::image::read::any_channels::{SamplesReader, ReadSamples};
-use crate::image::read::levels::{ReadSamplesLevel, ReadAllLevels, ReadLargestLevel};
-use crate::block::chunk::TileCoordinates;
+use crate::meta::header::Header;
 // use crate::image::read::layers::ReadChannels;
 
 /// Specify to read only flat samples and no "deep data"
@@ -18,20 +18,22 @@ pub struct ReadFlatSamples;
 // pub struct ReadAnySamples;
 
 impl ReadFlatSamples {
-
     // TODO
     // e. g. `let sum = reader.any_channels_with(|sample, sum| sum += sample)`
     // pub fn any_channels_with <S> (self, storage: S) -> {  }
 
     /// Specify to read only the highest resolution level, skipping all smaller variations.
-    pub fn largest_resolution_level(self) -> ReadLargestLevel<Self> { ReadLargestLevel { read_samples: self } }
+    pub fn largest_resolution_level(self) -> ReadLargestLevel<Self> {
+        ReadLargestLevel { read_samples: self }
+    }
 
     /// Specify to read all contained resolution levels from the image, if any.
-    pub fn all_resolution_levels(self) -> ReadAllLevels<Self> { ReadAllLevels { read_samples: self } }
+    pub fn all_resolution_levels(self) -> ReadAllLevels<Self> {
+        ReadAllLevels { read_samples: self }
+    }
 
     // TODO pub fn specific_resolution_level<F: Fn(&[Vec2<usize>])->usize >(self, select_level: F) -> ReadLevelBy<Self> { ReadAllLevels { read_samples: self } }
 }
-
 
 /*pub struct AnySamplesReader { TODO
     resolution: Vec2<usize>,
@@ -42,16 +44,22 @@ impl ReadFlatSamples {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FlatSamplesReader {
     level: Vec2<usize>,
-    resolution: Vec2<usize>,
-    samples: FlatSamples
+    resolution: Vec2<usize>, // Full resolution (for coordinate mapping)
+    subsampled_resolution: Vec2<usize>, // Actual sample buffer size
+    samples: FlatSamples,
+    x_sampling: usize,
+    y_sampling: usize,
 }
-
 
 // only used when samples is directly inside a channel, without levels
 impl ReadSamples for ReadFlatSamples {
     type Reader = FlatSamplesReader;
 
-    fn create_sample_reader(&self, header: &Header, channel: &ChannelDescription) -> Result<Self::Reader> {
+    fn create_sample_reader(
+        &self,
+        header: &Header,
+        channel: &ChannelDescription,
+    ) -> Result<Self::Reader> {
         self.create_samples_level_reader(header, channel, Vec2(0, 0), header.layer_size)
     }
 }
@@ -59,18 +67,30 @@ impl ReadSamples for ReadFlatSamples {
 impl ReadSamplesLevel for ReadFlatSamples {
     type Reader = FlatSamplesReader;
 
-    fn create_samples_level_reader(&self, _header: &Header, channel: &ChannelDescription, level: Vec2<usize>, resolution: Vec2<usize>) -> Result<Self::Reader> {
+    fn create_samples_level_reader(
+        &self,
+        _header: &Header,
+        channel: &ChannelDescription,
+        level: Vec2<usize>,
+        resolution: Vec2<usize>,
+    ) -> Result<Self::Reader> {
+        // Calculate the actual resolution for this channel, accounting for subsampling
+        let subsampled_resolution = channel.subsampled_resolution(resolution);
+
         Ok(FlatSamplesReader {
-            level, resolution, // TODO sampling
+            level,
+            resolution,            // Full resolution (for coordinate calculations)
+            subsampled_resolution, // Actual buffer size
             samples: match channel.sample_type {
-                SampleType::F16 => FlatSamples::F16(vec![f16::ZERO; resolution.area()]),
-                SampleType::F32 => FlatSamples::F32(vec![0.0; resolution.area()]),
-                SampleType::U32 => FlatSamples::U32(vec![0; resolution.area()]),
-            }
+                SampleType::F16 => FlatSamples::F16(vec![f16::ZERO; subsampled_resolution.area()]),
+                SampleType::F32 => FlatSamples::F32(vec![0.0; subsampled_resolution.area()]),
+                SampleType::U32 => FlatSamples::U32(vec![0; subsampled_resolution.area()]),
+            },
+            x_sampling: channel.sampling.x(),
+            y_sampling: channel.sampling.y(),
         })
     }
 }
-
 
 impl SamplesReader for FlatSamplesReader {
     type Samples = FlatSamples;
@@ -80,36 +100,42 @@ impl SamplesReader for FlatSamplesReader {
     }
 
     fn read_line(&mut self, line: LineRef<'_>) -> UnitResult {
+        use crate::math::div_p;
+
         let index = line.location;
-        let resolution = self.resolution;
 
         // the index is generated by ourselves and must always be correct
         debug_assert_eq!(index.level, self.level, "line should have been filtered");
-        debug_assert!(index.position.x() + index.sample_count <= resolution.width(), "line index calculation bug");
-        debug_assert!(index.position.y() < resolution.height(), "line index calculation bug");
-        debug_assert_ne!(resolution.0, 0, "sample size bug");
+        debug_assert_ne!(self.subsampled_resolution.0, 0, "sample size bug");
 
-        let start_index = index.position.y() * resolution.width() + index.position.x();
+        // Convert full-resolution coordinates to subsampled coordinates
+        // For a channel with sampling (2, 2), pixel position (4, 6) maps to sample position (2, 3)
+        let subsampled_x = div_p(index.position.x() as i32, self.x_sampling) as usize;
+        let subsampled_y = div_p(index.position.y() as i32, self.y_sampling) as usize;
+
+        // Calculate the index into the subsampled buffer
+        let start_index = subsampled_y * self.subsampled_resolution.width() + subsampled_x;
         let end_index = start_index + index.sample_count;
 
         debug_assert!(
             start_index < end_index && end_index <= self.samples.len(),
-            "for resolution {:?}, this is an invalid line: {:?}",
-            self.resolution, line.location
+            "for subsampled resolution {:?}, this is an invalid line: {:?}",
+            self.subsampled_resolution,
+            line.location
         );
 
         match &mut self.samples {
-            FlatSamples::F16(samples) =>
-                line.read_samples_into_slice(&mut samples[start_index .. end_index])
-                    .expect("writing line bytes failed"),
+            FlatSamples::F16(samples) => line
+                .read_samples_into_slice(&mut samples[start_index..end_index])
+                .expect("writing line bytes failed"),
 
-            FlatSamples::F32(samples) =>
-                line.read_samples_into_slice(&mut samples[start_index .. end_index])
-                    .expect("writing line bytes failed"),
+            FlatSamples::F32(samples) => line
+                .read_samples_into_slice(&mut samples[start_index..end_index])
+                .expect("writing line bytes failed"),
 
-            FlatSamples::U32(samples) =>
-                line.read_samples_into_slice(&mut samples[start_index .. end_index])
-                    .expect("writing line bytes failed"),
+            FlatSamples::U32(samples) => line
+                .read_samples_into_slice(&mut samples[start_index..end_index])
+                .expect("writing line bytes failed"),
         }
 
         Ok(())
@@ -119,4 +145,3 @@ impl SamplesReader for FlatSamplesReader {
         self.samples
     }
 }
-
