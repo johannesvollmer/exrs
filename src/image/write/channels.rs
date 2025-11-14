@@ -209,11 +209,19 @@ where
         }
 
         // Original implementation - works correctly for non-subsampled images
-        let block_bytes = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
-        let mut block_bytes = vec![0_u8; block_bytes];
+        let pixel_bounds = IntegerBounds {
+            position: block_index.pixel_position.to_i32(),
+            size: block_index.pixel_size,
+        };
+        let block_byte_count = header.channels.bytes_per_pixel_section(pixel_bounds);
+        let mut block_bytes = vec![0_u8; block_byte_count];
 
         let width = block_index.pixel_size.0;
-        let line_bytes = width * header.channels.bytes_per_pixel;
+        let line_bounds = IntegerBounds {
+            position: Vec2(block_index.pixel_position.x() as i32, 0),
+            size: Vec2(width, 1),
+        };
+        let line_bytes = header.channels.bytes_per_pixel_section(line_bounds);
         let byte_lines = block_bytes.chunks_exact_mut(line_bytes);
         assert_eq!(
             byte_lines.len(),

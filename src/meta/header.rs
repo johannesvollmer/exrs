@@ -617,13 +617,21 @@ impl Header {
 
     /// Maximum byte length of an uncompressed or compressed block, used for validation.
     pub fn max_block_byte_size(&self) -> usize {
-        self.channels.bytes_per_pixel
-            * match self.blocks {
-                BlockDescription::Tiles(tiles) => tiles.tile_size.area(),
-                BlockDescription::ScanLines => {
-                    self.compression.scan_lines_per_block() * self.layer_size.width()
-                } // TODO What about deep data???
+        // Calculate the maximum block size accounting for channel subsampling
+        let block_size = match self.blocks {
+            BlockDescription::Tiles(tiles) => tiles.tile_size,
+            BlockDescription::ScanLines => {
+                Vec2(self.layer_size.width(), self.compression.scan_lines_per_block())
             }
+        };
+
+        // Use bytes_per_pixel_section to account for subsampling
+        let bounds = IntegerBounds {
+            position: Vec2(0, 0), // Position doesn't affect size calculation
+            size: block_size,
+        };
+
+        self.channels.bytes_per_pixel_section(bounds) // TODO What about deep data???
     }
 
     /// Returns the number of bytes that the pixels of this header will require
