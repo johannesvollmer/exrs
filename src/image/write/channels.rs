@@ -195,6 +195,20 @@ where
     PxWriter: Sync + RecursivePixelWriter<<Storage::Pixel as IntoRecursive>::Recursive>,
 {
     fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Vec<u8> {
+        // For now, assert that all channels have no subsampling (sampling = 1,1)
+        // TODO: Implement full subsampling support for SpecificChannels
+        for channel in &header.channels.list {
+            assert_eq!(
+                channel.sampling,
+                Vec2(1, 1),
+                "SpecificChannels does not yet support channel subsampling. \
+                 Channel '{}' has sampling {:?}. Use AnyChannels for subsampled images.",
+                channel.name,
+                channel.sampling
+            );
+        }
+
+        // Original implementation - works correctly for non-subsampled images
         let block_bytes = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
         let mut block_bytes = vec![0_u8; block_bytes];
 
@@ -206,8 +220,6 @@ where
             block_index.pixel_size.height(),
             "invalid block line splits"
         );
-
-        //dbg!(width, line_bytes, header.channels.bytes_per_pixel, byte_lines.len());
 
         let mut pixel_line = Vec::with_capacity(width);
 

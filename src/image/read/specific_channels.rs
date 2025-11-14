@@ -214,6 +214,19 @@ where
     } // TODO all levels
 
     fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult {
+        // For now, assert that all channels have no subsampling (sampling = 1,1)
+        // TODO: Implement full subsampling support for SpecificChannels
+        for channel in &header.channels.list {
+            debug_assert_eq!(
+                channel.sampling,
+                crate::math::Vec2(1, 1),
+                "SpecificChannels does not yet support channel subsampling. \
+                 Channel '{}' has sampling {:?}. Use AnyChannels for subsampled images.",
+                channel.name,
+                channel.sampling
+            );
+        }
+
         let mut pixels = vec![PxReader::RecursivePixel::default(); block.index.pixel_size.width()]; // TODO allocate once in self
 
         let byte_lines = block
@@ -226,7 +239,6 @@ where
         );
 
         for (y_offset, line_bytes) in byte_lines.enumerate() {
-            // TODO sampling
             // this two-step copy method should be very cache friendly in theory, and also reduce sample_type lookup count
             self.pixel_reader
                 .read_pixels(line_bytes, &mut pixels, |px| px);
