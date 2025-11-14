@@ -581,19 +581,28 @@ mod deep_tests {
                      block.index.pixel_size.y());
         }
 
-        // Debug: Check multiple pixels from Leaves.exr to see the pattern
-        println!("\n  Debug: Checking first 20 pixels of Leaves Y=1:");
-        if let Some(block_1) = sources[2].blocks.get(1) {
-            for pixel_idx in 0..20.min(block_1.pixel_offset_table.len()) {
-                let pixel_samples = extract_pixel_samples_typed(block_1, pixel_idx, &channel_types);
-                if !pixel_samples.is_empty() {
-                    let sample = &pixel_samples[0];
-                    if sample.len() >= 5 {
-                        println!("    X={}: A={:.3} B={:.3} G={:.3} R={:.3} Z={:.3}",
-                                 pixel_idx, sample[0], sample[1], sample[2], sample[3], sample[4]);
-                    }
+        // Debug: Check block decompression - print first 100 bytes of sample_data
+        println!("\n  Debug: First 100 bytes of Leaves block 0 sample_data (after decompression):");
+        if let Some(block_0) = sources[2].blocks.get(0) {
+            print!("    ");
+            for (i, byte) in block_0.sample_data.iter().take(100).enumerate() {
+                if i > 0 && i % 20 == 0 {
+                    println!();
+                    print!("    ");
                 }
+                print!("{:02x} ", byte);
             }
+            println!("\n    Total sample_data length: {} bytes", block_0.sample_data.len());
+            println!("    Pixel offset table length: {} pixels", block_0.pixel_offset_table.len());
+
+            // Check first 20 pixels sample counts
+            println!("    First 20 pixels sample counts:");
+            for i in 0..20.min(block_0.pixel_offset_table.len()) {
+                let prev = if i == 0 { 0 } else { block_0.pixel_offset_table[i-1] };
+                let curr = block_0.pixel_offset_table[i];
+                println!("      Pixel {}: {} samples (cumulative offset {})", i, curr - prev, curr);
+            }
+            println!("    Last pixel offset: {}", block_0.pixel_offset_table.last().unwrap_or(&0));
         }
 
         // Also check what ALL source images contribute at multiple reference pixels

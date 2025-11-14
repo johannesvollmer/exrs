@@ -73,12 +73,43 @@ pub fn decompress_raw(
         .decode_zlib()
         .map_err(|_| Error::invalid("zlib-compressed data malformed"))?;
 
+    // DEBUG: Print first 40 bytes at each stage
+    if decompressed.len() >= 100 {
+        eprintln!("DEBUG zip decompress: After zlib (first 40 bytes):");
+        eprint!("  ");
+        for (i, b) in decompressed[..40].iter().enumerate() {
+            if i > 0 && i % 20 == 0 { eprint!("\n  "); }
+            eprint!("{:02x} ", b);
+        }
+        eprintln!();
+    }
+
     // Full ZIP reconstruction pipeline (same as used for regular image data):
     // 1. Delta reconstruction
     differences_to_samples(&mut decompressed);
 
+    if decompressed.len() >= 100 {
+        eprintln!("DEBUG zip decompress: After delta reconstruction (first 40 bytes):");
+        eprint!("  ");
+        for (i, b) in decompressed[..40].iter().enumerate() {
+            if i > 0 && i % 20 == 0 { eprint!("\n  "); }
+            eprint!("{:02x} ", b);
+        }
+        eprintln!();
+    }
+
     // 2. Byte interleaving (recombine even/odd bytes)
     interleave_byte_blocks(&mut decompressed);
+
+    if decompressed.len() >= 100 {
+        eprintln!("DEBUG zip decompress: After byte interleaving (first 40 bytes):");
+        eprint!("  ");
+        for (i, b) in decompressed[..40].iter().enumerate() {
+            if i > 0 && i % 20 == 0 { eprint!("\n  "); }
+            eprint!("{:02x} ", b);
+        }
+        eprintln!();
+    }
 
     Ok(decompressed)
 }

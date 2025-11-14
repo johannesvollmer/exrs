@@ -483,6 +483,8 @@ impl Compression {
     ) -> Result<Vec<i32>> {
         use self::Compression::{Uncompressed, RLE, ZIP1, ZIP16};
 
+        eprintln!("DEBUG: decompress_deep_offset_table called, num_pixels: {}", num_pixels);
+
         let expected_byte_size = num_pixels * std::mem::size_of::<i32>();
 
         // Convert i8 slice to u8 slice safely (same bytes, different signedness)
@@ -496,6 +498,7 @@ impl Compression {
 
             ZIP1 | ZIP16 => {
                 // Decompress using ZIP
+                eprintln!("DEBUG: Calling zip::decompress_raw for OFFSET TABLE");
                 zip::decompress_raw(compressed_u8.to_vec(), expected_byte_size)?
             }
 
@@ -551,6 +554,8 @@ impl Compression {
     ) -> Result<ByteVec> {
         use self::Compression::{Uncompressed, RLE, ZIP1, ZIP16};
 
+        eprintln!("DEBUG: decompress_deep_sample_data called, expected size: {}", expected_byte_size);
+
         let decompressed_le: ByteVec = match self {
             Uncompressed => {
                 // For uncompressed data, just use the bytes as-is
@@ -559,6 +564,7 @@ impl Compression {
 
             ZIP1 | ZIP16 => {
                 // Decompress using ZIP
+                eprintln!("DEBUG: Calling zip::decompress_raw for SAMPLE DATA");
                 zip::decompress_raw(compressed_data_le, expected_byte_size)?
             }
 
