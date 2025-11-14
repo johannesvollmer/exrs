@@ -571,33 +571,74 @@ mod deep_tests {
 
         // Debug: Extract and print samples for first pixel to verify data extraction
         use exr::image::deep::merge::extract_pixel_samples_typed;
-        if let Some(first_block) = sources[2].blocks.get(0) {  // Leaves image at (0,0)
-            println!("\n  Debug: First block pixel_offset_table[0] = {}", first_block.pixel_offset_table[0]);
-            println!("  Debug: Channel types: {:?}", channel_types);
+        println!("\n  Debug: Leaves blocks info:");
+        for (i, block) in sources[2].blocks.iter().take(3).enumerate() {
+            println!("    Block {}: pos=({}, {}) size=({}, {})",
+                     i,
+                     block.index.pixel_position.x(),
+                     block.index.pixel_position.y(),
+                     block.index.pixel_size.x(),
+                     block.index.pixel_size.y());
+        }
 
-            // Print raw bytes for first pixel
-            let bytes_per_sample: usize = channel_types.iter().map(|t| match t {
-                SampleType::F16 => 2,
-                SampleType::F32 => 4,
-                SampleType::U32 => 4,
-            }).sum();
-            println!("  Debug: Bytes per sample = {}", bytes_per_sample);
-
-            let num_samples = first_block.pixel_offset_table[0] as usize;
-            println!("  Debug: First pixel has {} samples", num_samples);
-            println!("  Debug: First {} bytes (1 sample): {:02x?}",
-                     bytes_per_sample.min(20),
-                     &first_block.sample_data[0..bytes_per_sample.min(first_block.sample_data.len())]);
-
-            let pixel_0_samples = extract_pixel_samples_typed(first_block, 0, &channel_types);
-            if !pixel_0_samples.is_empty() {
-                println!("  Debug: Extracted {} samples from pixel (0,0):", pixel_0_samples.len());
-                for (i, sample) in pixel_0_samples.iter().take(3).enumerate() {
+        // Debug: Check multiple pixels from Leaves.exr to see the pattern
+        println!("\n  Debug: Checking first 20 pixels of Leaves Y=1:");
+        if let Some(block_1) = sources[2].blocks.get(1) {
+            for pixel_idx in 0..20.min(block_1.pixel_offset_table.len()) {
+                let pixel_samples = extract_pixel_samples_typed(block_1, pixel_idx, &channel_types);
+                if !pixel_samples.is_empty() {
+                    let sample = &pixel_samples[0];
                     if sample.len() >= 5 {
-                        println!("    Sample {}: A={:.6} B={:.6} G={:.6} R={:.6} Z={:.6}",
-                                 i, sample[0], sample[1], sample[2], sample[3], sample[4]);
+                        println!("    X={}: A={:.3} B={:.3} G={:.3} R={:.3} Z={:.3}",
+                                 pixel_idx, sample[0], sample[1], sample[2], sample[3], sample[4]);
                     }
                 }
+            }
+        }
+
+        // Also check what ALL source images contribute at multiple reference pixels
+        for check_x in [1, 13] {
+            println!("\n  Debug: Checking all sources at pixel ({},1):", check_x);
+            for (src_idx, source) in sources.iter().enumerate() {
+                let src_name = ["Balls", "Ground", "Leaves", "Trunks"][src_idx];
+                let global_x = check_x;
+                let global_y = 1;
+
+            // Check if this pixel is within this source's data window
+            let local_x = global_x - source.data_window.position.x();
+            let local_y = global_y - source.data_window.position.y();
+
+            if local_x >= 0 && local_y >= 0
+                && (local_x as usize) < source.data_window.size.x()
+                && (local_y as usize) < source.data_window.size.y()
+            {
+                if let Some(block) = source.blocks.iter().find(|b| {
+                    let block_y_start = b.index.pixel_position.y();
+                    let block_y_end = block_y_start + b.index.pixel_size.y();
+                    global_y as usize >= block_y_start && (global_y as usize) < block_y_end
+                }) {
+                    let block_y_offset = (global_y as usize) - block.index.pixel_position.y();
+                    let block_width = block.index.pixel_size.x();
+                    let pixel_idx = block_y_offset * block_width + (local_x as usize);
+
+                    let pixel_samples = extract_pixel_samples_typed(block, pixel_idx, &channel_types);
+                    if !pixel_samples.is_empty() {
+                        println!("    {}: {} samples", src_name, pixel_samples.len());
+                        for sample in pixel_samples.iter().take(1) {
+                            if sample.len() >= 5 {
+                                println!("      A={:.3} B={:.3} G={:.3} R={:.3} Z={:.3}",
+                                         sample[0], sample[1], sample[2], sample[3], sample[4]);
+                            }
+                        }
+                    } else {
+                        println!("    {}: 0 samples (empty pixel)", src_name);
+                    }
+                } else {
+                    println!("    {}: no block found for Y={}", src_name, global_y);
+                }
+            } else {
+                println!("    {}: outside data window", src_name);
+            }
             }
         }
 

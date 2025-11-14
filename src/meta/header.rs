@@ -627,10 +627,8 @@ impl Header {
                 }
             }
 
-            #[cfg(feature = "deep-data")]
             CompressedBlock::DeepTile(ref tile) => tile.coordinates,
 
-            #[cfg(feature = "deep-data")]
             CompressedBlock::DeepScanLine(ref block) => {
                 let size = self.compression.scan_lines_per_block() as i32;
 
