@@ -229,9 +229,13 @@ where
 
         let mut pixels = vec![PxReader::RecursivePixel::default(); block.index.pixel_size.width()]; // TODO allocate once in self
 
-        let byte_lines = block
-            .data
-            .chunks_exact(header.channels.bytes_per_pixel * block.index.pixel_size.width());
+        let line_bounds = IntegerBounds {
+            position: Vec2(block.index.pixel_position.x() as i32, 0),
+            size: Vec2(block.index.pixel_size.width(), 1),
+        };
+        let line_bytes = header.channels.bytes_per_pixel_section(line_bounds);
+
+        let byte_lines = block.data.chunks_exact(line_bytes);
         debug_assert_eq!(
             byte_lines.len(),
             block.index.pixel_size.height(),

@@ -326,12 +326,13 @@ mod test {
     use crate::prelude::*;
 
     fn test_roundtrip_noise_with(channels: ChannelList, rectangle: IntegerBounds) {
+        let expected_byte_count = channels.bytes_per_pixel_section(rectangle);
         let pixel_bytes: ByteVec = (0..37)
             .map(|_| rand::random())
             .collect::<Vec<u8>>()
             .into_iter()
             .cycle()
-            .take(channels.bytes_per_pixel * rectangle.size.area())
+            .take(expected_byte_count)
             .collect();
 
         let compressed = piz::compress(&channels, pixel_bytes.clone(), rectangle).unwrap();
