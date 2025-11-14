@@ -28,7 +28,7 @@
 use super::*;
 
 use crate::error::Result;
-use crate::math::num_samples;
+use crate::math::sample_count;
 use lebe::io::ReadPrimitive;
 
 // scanline decompreroussion tine, see https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfScanLineInputFile.cpp
@@ -72,7 +72,7 @@ pub fn compress(channels: &ChannelList, bytes_ne: ByteVec, area: IntegerBounds) 
                     continue;
                 }
 
-                let sample_count_x = num_samples(channel.sampling.x(), x_min, x_max);
+                let sample_count_x = sample_count(channel.sampling.x(), x_min, x_max);
                 if sample_count_x == 0 {
                     continue;
                 }
@@ -195,7 +195,7 @@ pub fn decompress(
                 continue;
             }
 
-            let sample_count_x = num_samples(channel.sampling.x(), x_min, x_max);
+            let sample_count_x = sample_count(channel.sampling.x(), x_min, x_max);
             if sample_count_x == 0 {
                 continue;
             }
