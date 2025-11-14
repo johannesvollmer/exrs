@@ -95,28 +95,34 @@ pub fn extract_pixel_samples(
 
     let sample_bytes = &block.sample_data[start_byte..end_byte];
 
-    // Parse samples
-    let mut samples = Vec::new();
-    for sample_idx in 0..sample_count {
-        let mut sample = Vec::new();
-        for chan in 0..channels {
-            let offset = (sample_idx * channels + chan) * std::mem::size_of::<f32>();
-            if offset + 4 <= sample_bytes.len() {
-                let bytes = [
-                    sample_bytes[offset],
-                    sample_bytes[offset + 1],
-                    sample_bytes[offset + 2],
-                    sample_bytes[offset + 3],
-                ];
-                sample.push(f32::from_ne_bytes(bytes));
-            }
-        }
-        if sample.len() == channels {
-            samples.push(sample);
-        }
-    }
+    // Parse samples using functional style
+    (0..sample_count)
+        .filter_map(|sample_idx| {
+            let sample: Vec<f32> = (0..channels)
+                .filter_map(|chan| {
+                    let offset = (sample_idx * channels + chan) * std::mem::size_of::<f32>();
+                    if offset + 4 <= sample_bytes.len() {
+                        let bytes = [
+                            sample_bytes[offset],
+                            sample_bytes[offset + 1],
+                            sample_bytes[offset + 2],
+                            sample_bytes[offset + 3],
+                        ];
+                        Some(f32::from_ne_bytes(bytes))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
 
-    samples
+            // Only include complete samples with all channels
+            if sample.len() == channels {
+                Some(sample)
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// Extract deep samples with proper type handling for mixed F16/F32 channels.

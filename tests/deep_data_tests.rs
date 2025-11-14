@@ -678,7 +678,6 @@ mod deep_tests {
         let ref_width = ref_size.width();
         let ref_height = ref_size.height();
         let our_width = union_window.size.x();
-        let our_height = union_window.size.y();
 
         // Calculate offset: where the reference window starts in our coordinate system
         let offset_x = (ref_data_win.position.x() - union_window.position.x()) as usize;

@@ -49,17 +49,22 @@ pub fn union_of_windows(windows: &[IntegerBounds]) -> IntegerBounds {
         };
     }
 
-    let mut min_x = windows[0].position.x();
-    let mut min_y = windows[0].position.y();
-    let mut max_x = windows[0].position.x() + windows[0].size.x() as i32;
-    let mut max_y = windows[0].position.y() + windows[0].size.y() as i32;
-
-    for window in &windows[1..] {
-        min_x = min_x.min(window.position.x());
-        min_y = min_y.min(window.position.y());
-        max_x = max_x.max(window.position.x() + window.size.x() as i32);
-        max_y = max_y.max(window.position.y() + window.size.y() as i32);
-    }
+    let (min_x, min_y, max_x, max_y) = windows[1..].iter().fold(
+        (
+            windows[0].position.x(),
+            windows[0].position.y(),
+            windows[0].position.x() + windows[0].size.x() as i32,
+            windows[0].position.y() + windows[0].size.y() as i32,
+        ),
+        |(min_x, min_y, max_x, max_y), window| {
+            (
+                min_x.min(window.position.x()),
+                min_y.min(window.position.y()),
+                max_x.max(window.position.x() + window.size.x() as i32),
+                max_y.max(window.position.y() + window.size.y() as i32),
+            )
+        },
+    );
 
     IntegerBounds {
         position: Vec2(min_x, min_y),
