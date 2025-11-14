@@ -1,6 +1,7 @@
 //! Test for channel subsampling support
 
 use exr::image::pixel_vec::PixelVec;
+use exr::image::{Blocks, Encoding, Image, SpecificChannels};
 use exr::math::Vec2;
 use exr::meta::attribute::{ChannelDescription, ChannelList, IntegerBounds, SampleType, Text};
 use exr::prelude::*;
@@ -419,6 +420,316 @@ fn specific_channels_handles_subsampling() {
                     reconstructed.1, 0.0,
                     "even when no subsampled data, default should remain at {:?}",
                     pos
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn specific_channels_roundtrip_422_subsampling() {
+    let width = 8;
+    let height = 4;
+    let size = Vec2(width, height);
+
+    let subsampled_pixels = PixelVec::new(
+        size,
+        (0..size.area())
+            .map(|index| {
+                let x = index % width;
+                let y = index / width;
+                let y_value = (x as f32) + (y as f32) * 10.0;
+                let cb_value = if x % 2 == 0 { 100.0 + y_value } else { 0.0 };
+                (y_value, cb_value)
+            })
+            .collect(),
+    );
+
+    fn channel(name: &str, sampling: Vec2<usize>, quantize_linearly: bool) -> ChannelDescription {
+        ChannelDescription {
+            name: Text::from(name),
+            sample_type: SampleType::F32,
+            quantize_linearly,
+            sampling,
+        }
+    }
+
+    let channels = SpecificChannels::build()
+        .with_channel_details::<f32>(channel("Y", Vec2(1, 1), false))
+        .with_channel_details::<f32>(channel("Cb", Vec2(2, 1), true))
+        .with_pixels(subsampled_pixels.clone());
+
+    let image = Image::from_encoded_channels(
+        size,
+        Encoding {
+            compression: Compression::Uncompressed,
+            blocks: Blocks::ScanLines,
+            line_order: LineOrder::Increasing,
+        },
+        channels,
+    );
+
+    let mut buffer = Vec::new();
+    image
+        .write()
+        .non_parallel()
+        .to_buffered(Cursor::new(&mut buffer))
+        .expect("failed to write specific channels with 4:2:2 subsampling");
+
+    let parsed = read()
+        .no_deep_data()
+        .largest_resolution_level()
+        .specific_channels()
+        .required("Y")
+        .required("Cb")
+        .collect_pixels(PixelVec::<(f32, f32)>::constructor, PixelVec::set_pixel)
+        .first_valid_layer()
+        .all_attributes()
+        .non_parallel()
+        .from_buffered(Cursor::new(&buffer))
+        .expect("failed to read 4:2:2 subsampled specific channels");
+
+    let read_pixels = &parsed.layer_data.channel_data.pixels;
+
+    for y in 0..height {
+        for x in 0..width {
+            let position = Vec2(x, y);
+            let reference = subsampled_pixels.get_pixel(position);
+            let result = read_pixels.get_pixel(position);
+
+            assert_eq!(reference.0, result.0, "luma mismatch at {:?}", position);
+
+            if x % 2 == 0 {
+                assert_eq!(reference.1, result.1, "chroma mismatch at {:?}", position);
+            } else {
+                assert_eq!(
+                    result.1, 0.0,
+                    "non-sampled chroma pixel should keep default at {:?}",
+                    position
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn specific_channels_roundtrip_420_subsampling() {
+    let width = 6;
+    let height = 6;
+    let size = Vec2(width, height);
+
+    let subsampled_pixels = PixelVec::new(
+        size,
+        (0..size.area())
+            .map(|index| {
+                let x = index % width;
+                let y = index / width;
+                let y_value = (x as f32) + (y as f32) * 5.0;
+                let chroma = if x % 2 == 0 && y % 2 == 0 {
+                    200.0 + y_value
+                } else {
+                    0.0
+                };
+                (y_value, chroma)
+            })
+            .collect(),
+    );
+
+    fn channel(name: &str, sampling: Vec2<usize>) -> ChannelDescription {
+        ChannelDescription {
+            name: Text::from(name),
+            sample_type: SampleType::F32,
+            quantize_linearly: false,
+            sampling,
+        }
+    }
+
+    let channels = SpecificChannels::build()
+        .with_channel_details::<f32>(channel("Y", Vec2(1, 1)))
+        .with_channel_details::<f32>(channel("Chroma", Vec2(2, 2)))
+        .with_pixels(subsampled_pixels.clone());
+
+    let image = Image::from_encoded_channels(
+        size,
+        Encoding {
+            compression: Compression::Uncompressed,
+            blocks: Blocks::ScanLines,
+            line_order: LineOrder::Increasing,
+        },
+        channels,
+    );
+
+    let mut buffer = Vec::new();
+    image
+        .write()
+        .non_parallel()
+        .to_buffered(Cursor::new(&mut buffer))
+        .expect("failed to write 4:2:0 specific channels");
+
+    let parsed = read()
+        .no_deep_data()
+        .largest_resolution_level()
+        .specific_channels()
+        .required("Y")
+        .required("Chroma")
+        .collect_pixels(PixelVec::<(f32, f32)>::constructor, PixelVec::set_pixel)
+        .first_valid_layer()
+        .all_attributes()
+        .non_parallel()
+        .from_buffered(Cursor::new(&buffer))
+        .expect("failed to read 4:2:0 specific channels");
+
+    let read_pixels = &parsed.layer_data.channel_data.pixels;
+
+    for y in 0..height {
+        for x in 0..width {
+            let position = Vec2(x, y);
+            let reference = subsampled_pixels.get_pixel(position);
+            let result = read_pixels.get_pixel(position);
+
+            assert_eq!(reference.0, result.0, "luma mismatch at {:?}", position);
+
+            if x % 2 == 0 && y % 2 == 0 {
+                assert_eq!(reference.1, result.1, "chroma mismatch at {:?}", position);
+            } else {
+                assert_eq!(result.1, 0.0, "default chroma expected at {:?}", position);
+            }
+        }
+    }
+}
+
+#[test]
+fn specific_channels_read_modify_rewrite_roundtrip() {
+    let width = 10;
+    let height = 6;
+    let size = Vec2(width, height);
+
+    fn channel(name: &str, sampling: Vec2<usize>) -> ChannelDescription {
+        ChannelDescription {
+            name: Text::from(name),
+            sample_type: SampleType::F32,
+            quantize_linearly: false,
+            sampling,
+        }
+    }
+
+    let original_pixels = PixelVec::new(
+        size,
+        (0..size.area())
+            .map(|index| {
+                let x = index % width;
+                let y = index / width;
+                let y_value = (x as f32) + (y as f32) * 3.0;
+                let u = if x % 2 == 0 { 50.0 + y_value } else { 0.0 };
+                let v = if y % 2 == 0 { 75.0 + y_value } else { 0.0 };
+                (y_value, u, v)
+            })
+            .collect(),
+    );
+
+    let channels = SpecificChannels::build()
+        .with_channel_details::<f32>(channel("Y", Vec2(1, 1)))
+        .with_channel_details::<f32>(channel("U", Vec2(2, 1)))
+        .with_channel_details::<f32>(channel("V", Vec2(1, 2)))
+        .with_pixels(original_pixels.clone());
+
+    let encoding = Encoding {
+        compression: Compression::Uncompressed,
+        blocks: Blocks::ScanLines,
+        line_order: LineOrder::Increasing,
+    };
+
+    let image = Image::from_encoded_channels(size, encoding, channels);
+
+    let mut buffer = Vec::new();
+    image
+        .write()
+        .to_buffered(Cursor::new(&mut buffer))
+        .expect("failed to write original subsampled image");
+
+    let first_roundtrip = read()
+        .no_deep_data()
+        .largest_resolution_level()
+        .specific_channels()
+        .required("Y")
+        .required("U")
+        .required("V")
+        .collect_pixels(
+            PixelVec::<(f32, f32, f32)>::constructor,
+            PixelVec::set_pixel,
+        )
+        .first_valid_layer()
+        .all_attributes()
+        .non_parallel()
+        .from_buffered(Cursor::new(&buffer))
+        .expect("failed to read original subsampled image");
+
+    let mut second_buffer = Vec::new();
+    let rewrite_specific = SpecificChannels::new(
+        first_roundtrip.layer_data.channel_data.channels.clone(),
+        first_roundtrip.layer_data.channel_data.pixels.clone(),
+    );
+    Image::from_encoded_channels(size, encoding, rewrite_specific)
+        .write()
+        .to_buffered(Cursor::new(&mut second_buffer))
+        .expect("failed to rewrite subsampled image");
+
+    let second_roundtrip = read()
+        .no_deep_data()
+        .largest_resolution_level()
+        .specific_channels()
+        .required("Y")
+        .required("U")
+        .required("V")
+        .collect_pixels(
+            PixelVec::<(f32, f32, f32)>::constructor,
+            PixelVec::set_pixel,
+        )
+        .first_valid_layer()
+        .all_attributes()
+        .non_parallel()
+        .from_buffered(Cursor::new(&second_buffer))
+        .expect("failed to read rewritten subsampled image");
+
+    let rewritten_pixels = &second_roundtrip.layer_data.channel_data.pixels;
+
+    for y in 0..height {
+        for x in 0..width {
+            let position = Vec2(x, y);
+            let reference = original_pixels.get_pixel(position);
+            let result = rewritten_pixels.get_pixel(position);
+
+            assert_eq!(
+                reference.0, result.0,
+                "luma mismatch after rewrite at {:?}",
+                position
+            );
+
+            if x % 2 == 0 {
+                assert_eq!(
+                    reference.1, result.1,
+                    "U mismatch after rewrite at {:?}",
+                    position
+                );
+            } else {
+                assert_eq!(
+                    result.1, 0.0,
+                    "non-sampled U should remain default at {:?}",
+                    position
+                );
+            }
+
+            if y % 2 == 0 {
+                assert_eq!(
+                    reference.2, result.2,
+                    "V mismatch after rewrite at {:?}",
+                    position
+                );
+            } else {
+                assert_eq!(
+                    result.2, 0.0,
+                    "non-sampled V should remain default at {:?}",
+                    position
                 );
             }
         }

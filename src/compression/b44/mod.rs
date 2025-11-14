@@ -6,6 +6,7 @@ use crate::io::Data;
 use crate::meta::attribute::ChannelList;
 use crate::prelude::*;
 use lebe::io::{ReadPrimitive, WriteEndian};
+use smallvec::SmallVec;
 use std::cmp::min;
 use std::mem::size_of;
 use table::{EXP_TABLE, LOG_TABLE};
@@ -284,28 +285,29 @@ pub fn decompress(
     }
 
     // Extract channel information needed for decompression.
-    let mut channel_data: Vec<ChannelData> = Vec::with_capacity(channels.list.len());
-    let mut tmp_read_index = 0;
+    let mut channel_data: SmallVec<[ChannelData; 6]> = channels
+        .list
+        .iter()
+        .scan(0, |tmp_read_index, channel| {
+            let channel_data = ChannelData {
+                tmp_start_index: *tmp_read_index,
+                tmp_end_index: *tmp_read_index,
+                resolution: channel.subsampled_resolution(rectangle.size),
+                y_sampling: channel.sampling.y(),
+                sample_type: channel.sample_type,
+                quantize_linearly: channel.quantize_linearly,
+                // For B44, samples_per_pixel should always be 1 since each channel
+                // is processed independently and resolution already accounts for subsampling
+                samples_per_pixel: 1,
+            };
 
-    for channel in channels.list.iter() {
-        let channel = ChannelData {
-            tmp_start_index: tmp_read_index,
-            tmp_end_index: tmp_read_index,
-            resolution: channel.subsampled_resolution(rectangle.size),
-            y_sampling: channel.sampling.y(),
-            sample_type: channel.sample_type,
-            quantize_linearly: channel.quantize_linearly,
-            // For B44, samples_per_pixel should always be 1 since each channel
-            // is processed independently and resolution already accounts for subsampling
-            samples_per_pixel: 1,
-        };
+            *tmp_read_index += channel_data.resolution.area()
+                * channel_data.samples_per_pixel
+                * channel_data.sample_type.bytes_per_sample();
 
-        tmp_read_index += channel.resolution.area()
-            * channel.samples_per_pixel
-            * channel.sample_type.bytes_per_sample();
-
-        channel_data.push(channel);
-    }
+            Some(channel_data)
+        })
+        .collect();
 
     // Temporary buffer is used to decompress B44 datas the way they are stored in the compressed
     // buffer (channel by channel). We interleave the final result later.
@@ -506,34 +508,40 @@ pub fn compress(
         super::convert_current_to_little_endian(uncompressed_ne, channels, rectangle)?;
     let uncompressed_le = uncompressed_le.as_slice(); // TODO no alloc
 
-    let mut channel_data = Vec::new();
+    let mut channel_data: SmallVec<[ChannelData; 6]> = channels
+        .list
+        .iter()
+        .scan(0, |tmp_end_index, channel| {
+            let number_samples = channel.subsampled_resolution(rectangle.size);
+            let sample_count = channel.subsampled_resolution(rectangle.size).area();
+            let byte_count = sample_count * channel.sample_type.bytes_per_sample();
 
-    let mut tmp_end_index = 0;
-    for channel in &channels.list {
-        let number_samples = channel.subsampled_resolution(rectangle.size);
+            let channel_data = ChannelData {
+                tmp_start_index: *tmp_end_index,
+                tmp_end_index: *tmp_end_index,
+                y_sampling: channel.sampling.y(),
+                resolution: number_samples,
+                sample_type: channel.sample_type,
+                quantize_linearly: channel.quantize_linearly,
+                // For B44, samples_per_pixel should always be 1 since each channel
+                // is processed independently and resolution already accounts for subsampling
+                samples_per_pixel: 1,
+            };
 
-        let sample_count = channel.subsampled_resolution(rectangle.size).area();
-        let byte_count = sample_count * channel.sample_type.bytes_per_sample();
-
-        let channel = ChannelData {
-            tmp_start_index: tmp_end_index,
-            tmp_end_index,
-            y_sampling: channel.sampling.y(),
-            resolution: number_samples,
-            sample_type: channel.sample_type,
-            quantize_linearly: channel.quantize_linearly,
-            // For B44, samples_per_pixel should always be 1 since each channel
-            // is processed independently and resolution already accounts for subsampling
-            samples_per_pixel: 1,
-        };
-
-        tmp_end_index += byte_count;
-        channel_data.push(channel);
-    }
+            *tmp_end_index += byte_count;
+            Some(channel_data)
+        })
+        .collect();
 
     let mut tmp = vec![0_u8; uncompressed_le.len()];
 
-    debug_assert_eq!(tmp_end_index, tmp.len());
+    debug_assert_eq!(
+        channel_data
+            .iter()
+            .map(|cd| cd.resolution.area() * cd.sample_type.bytes_per_sample())
+            .sum::<usize>(),
+        tmp.len()
+    );
 
     let mut remaining_uncompressed_bytes = uncompressed_le;
 
