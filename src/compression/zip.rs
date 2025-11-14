@@ -73,11 +73,19 @@ pub fn decompress_raw(
         .decode_zlib()
         .map_err(|_| Error::invalid("zlib-compressed data malformed"))?;
 
-    // DEBUG: Print first 40 bytes at each stage
+    // DEBUG: Print first and last 40 bytes at each stage
     if decompressed.len() >= 100 {
         eprintln!("DEBUG zip decompress: After zlib (first 40 bytes):");
         eprint!("  ");
         for (i, b) in decompressed[..40].iter().enumerate() {
+            if i > 0 && i % 20 == 0 { eprint!("\n  "); }
+            eprint!("{:02x} ", b);
+        }
+        eprintln!();
+        eprintln!("DEBUG zip decompress: After zlib (last 40 bytes):");
+        eprint!("  ");
+        let start = decompressed.len().saturating_sub(40);
+        for (i, b) in decompressed[start..].iter().enumerate() {
             if i > 0 && i % 20 == 0 { eprint!("\n  "); }
             eprint!("{:02x} ", b);
         }
@@ -96,6 +104,14 @@ pub fn decompress_raw(
             eprint!("{:02x} ", b);
         }
         eprintln!();
+        eprintln!("DEBUG zip decompress: After delta reconstruction (last 40 bytes):");
+        eprint!("  ");
+        let start = decompressed.len().saturating_sub(40);
+        for (i, b) in decompressed[start..].iter().enumerate() {
+            if i > 0 && i % 20 == 0 { eprint!("\n  "); }
+            eprint!("{:02x} ", b);
+        }
+        eprintln!();
     }
 
     // 2. Byte interleaving (recombine even/odd bytes)
@@ -105,6 +121,14 @@ pub fn decompress_raw(
         eprintln!("DEBUG zip decompress: After byte interleaving (first 40 bytes):");
         eprint!("  ");
         for (i, b) in decompressed[..40].iter().enumerate() {
+            if i > 0 && i % 20 == 0 { eprint!("\n  "); }
+            eprint!("{:02x} ", b);
+        }
+        eprintln!();
+        eprintln!("DEBUG zip decompress: After byte interleaving (last 40 bytes):");
+        eprint!("  ");
+        let start = decompressed.len().saturating_sub(40);
+        for (i, b) in decompressed[start..].iter().enumerate() {
             if i > 0 && i % 20 == 0 { eprint!("\n  "); }
             eprint!("{:02x} ", b);
         }

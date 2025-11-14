@@ -530,6 +530,13 @@ impl Compression {
             offset_table.push(value);
         }
 
+        // DEBUG: Print first and last 10 offset table values
+        if offset_table.len() >= 20 {
+            eprintln!("DEBUG offset table: First 10 values: {:?}", &offset_table[..10]);
+            eprintln!("DEBUG offset table: Last 10 values: {:?}", &offset_table[offset_table.len()-10..]);
+            eprintln!("DEBUG offset table: Total pixels: {}, Max value: {:?}", offset_table.len(), offset_table.iter().max());
+        }
+
         Ok(offset_table)
     }
 
