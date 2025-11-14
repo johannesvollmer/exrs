@@ -72,7 +72,7 @@ impl LineIndex {
         block: BlockIndex,
         channels: &ChannelList,
     ) -> impl Iterator<Item = (Range<usize>, LineIndex)> {
-        use crate::math::num_samples;
+        use crate::math::sample_count;
 
         struct LineIter {
             channels: SmallVec<[ChannelInfo; 8]>,
@@ -112,7 +112,7 @@ impl LineIndex {
                         if mod_p(self.y, channel_info.y_sampling) == 0 {
                             // Calculate the number of samples in this scanline for this channel
                             let sample_count =
-                                num_samples(channel_info.x_sampling, self.x_min, self.x_max);
+                                sample_count(channel_info.x_sampling, self.x_min, self.x_max);
 
                             let byte_len = sample_count * channel_info.bytes_per_sample;
 

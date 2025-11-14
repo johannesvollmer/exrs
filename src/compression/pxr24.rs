@@ -28,6 +28,7 @@
 use super::*;
 
 use crate::error::Result;
+use crate::math::num_samples;
 use lebe::io::ReadPrimitive;
 
 // scanline decompreroussion tine, see https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfScanLineInputFile.cpp
@@ -42,29 +43,39 @@ pub fn compress(channels: &ChannelList, bytes_ne: ByteVec, area: IntegerBounds) 
 
     let mut remaining_bytes_ne = bytes_ne.as_slice(); // TODO less allocation
 
-    let bytes_per_pixel: usize = channels
+    let encoded_byte_count: usize = channels
         .list
         .iter()
-        .map(|channel| match channel.sample_type {
-            SampleType::F16 => 2,
-            SampleType::F32 => 3,
-            SampleType::U32 => 4,
+        .map(|channel| {
+            let sample_count =
+                channel.byte_size_for_pixel_section(area) / channel.sample_type.bytes_per_sample();
+            let encoded_per_sample = match channel.sample_type {
+                SampleType::F16 => 2,
+                SampleType::F32 => 3,
+                SampleType::U32 => 4,
+            };
+            sample_count * encoded_per_sample
         })
         .sum();
 
-    let mut encoded_be = vec![0_u8; bytes_per_pixel * area.size.area()];
+    let mut encoded_be = vec![0_u8; encoded_byte_count];
 
     {
         let mut write = encoded_be.as_mut_slice();
+        let x_min = area.position.x();
+        let x_max = area.max().x();
 
         // TODO this loop should be an iterator in the `IntegerBounds` class, as it is used in all compression methods
-        for y in area.position.1..area.end().1 {
+        for y in area.position.y()..area.end().y() {
             for channel in &channels.list {
-                if mod_p(y, usize_to_i32(channel.sampling.1, "sampling factor")?) != 0 {
+                if !channel.has_samples_at_y(y) {
                     continue;
                 }
 
-                let sample_count_x = channel.subsampled_resolution(area.size).0;
+                let sample_count_x = num_samples(channel.sampling.x(), x_min, x_max);
+                if sample_count_x == 0 {
+                    continue;
+                }
 
                 // this apparently can't be a closure in Rust 1.43 due to borrowing ambiguity
                 macro_rules! split_off_write_slice {
@@ -175,13 +186,19 @@ pub fn decompress(
     let mut encoded_be = encoded_be.as_slice();
     let mut out = Vec::with_capacity(expected_byte_size.min(2048 * 4));
 
-    for y in area.position.1..area.end().1 {
+    let x_min = area.position.x();
+    let x_max = area.max().x();
+
+    for y in area.position.y()..area.end().y() {
         for channel in &channels.list {
-            if mod_p(y, usize_to_i32(channel.sampling.1, "sampling")?) != 0 {
+            if !channel.has_samples_at_y(y) {
                 continue;
             }
 
-            let sample_count_x = channel.subsampled_resolution(area.size).0;
+            let sample_count_x = num_samples(channel.sampling.x(), x_min, x_max);
+            if sample_count_x == 0 {
+                continue;
+            }
             let mut read_sample_line = || {
                 if sample_count_x > encoded_be.len() {
                     return Err(Error::invalid("not enough data"));

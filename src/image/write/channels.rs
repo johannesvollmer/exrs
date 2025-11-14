@@ -1,5 +1,6 @@
 //! How to read arbitrary channels and rgb channels.
 
+use crate::block::lines::LineRefMut;
 use crate::block::samples::*;
 use crate::block::*;
 use crate::image::recursive::*;
@@ -9,6 +10,7 @@ use crate::math::*;
 use crate::meta::{attribute::*, header::*};
 use crate::prelude::*;
 
+use std::io::Cursor;
 use std::marker::PhantomData;
 
 /// Enables an image containing this list of channels to be written to a file.
@@ -195,56 +197,37 @@ where
     PxWriter: Sync + RecursivePixelWriter<<Storage::Pixel as IntoRecursive>::Recursive>,
 {
     fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Vec<u8> {
-        // For now, assert that all channels have no subsampling (sampling = 1,1)
-        // TODO: Implement full subsampling support for SpecificChannels
-        for channel in &header.channels.list {
-            assert_eq!(
-                channel.sampling,
-                Vec2(1, 1),
-                "SpecificChannels does not yet support channel subsampling. \
-                 Channel '{}' has sampling {:?}. Use AnyChannels for subsampled images.",
-                channel.name,
-                channel.sampling
-            );
-        }
-
-        // Original implementation - works correctly for non-subsampled images
-        let pixel_bounds = IntegerBounds {
-            position: block_index.pixel_position.to_i32(),
-            size: block_index.pixel_size,
-        };
-        let block_byte_count = header.channels.bytes_per_pixel_section(pixel_bounds);
-        let mut block_bytes = vec![0_u8; block_byte_count];
-
-        let width = block_index.pixel_size.0;
-        let line_bounds = IntegerBounds {
-            position: Vec2(block_index.pixel_position.x() as i32, 0),
-            size: Vec2(width, 1),
-        };
-        let line_bytes = header.channels.bytes_per_pixel_section(line_bounds);
-        let byte_lines = block_bytes.chunks_exact_mut(line_bytes);
-        assert_eq!(
-            byte_lines.len(),
-            block_index.pixel_size.height(),
-            "invalid block line splits"
-        );
-
+        let width = block_index.pixel_size.width();
+        let x_min = block_index.pixel_position.x() as i32;
+        let x_max = x_min + width as i32 - 1;
+        let mut current_line_y: Option<usize> = None;
         let mut pixel_line = Vec::with_capacity(width);
 
-        for (y, line_bytes) in byte_lines.enumerate() {
-            pixel_line.clear();
-            pixel_line.extend((0..width).map(|x| {
-                self.channels
-                    .pixels
-                    .get_pixel(block_index.pixel_position + Vec2(x, y))
-                    .into_recursive()
-            }));
+        UncompressedBlock::collect_block_data_from_lines(
+            &header.channels,
+            block_index,
+            |line_ref| {
+                let line_y = line_ref.location.position.y();
+                if current_line_y != Some(line_y) {
+                    pixel_line.clear();
+                    pixel_line.extend((0..width).map(|x| {
+                        self.channels
+                            .pixels
+                            .get_pixel(Vec2(block_index.pixel_position.x() + x, line_y))
+                            .into_recursive()
+                    }));
+                    current_line_y = Some(line_y);
+                }
 
-            self.recursive_channel_writer
-                .write_pixels(line_bytes, pixel_line.as_slice(), |px| px);
-        }
-
-        block_bytes
+                self.recursive_channel_writer.write_line(
+                    line_ref,
+                    x_min,
+                    x_max,
+                    pixel_line.as_slice(),
+                    |px| px,
+                );
+            },
+        )
     }
 }
 
@@ -283,17 +266,19 @@ where
 
     fn create_recursive_writer(&self, channels: &ChannelList) -> Self::RecursiveWriter {
         // this linear lookup is required because the order of the channels changed, due to alphabetical sorting
-        let (start_byte_offset, target_sample_type) = channels
-            .channels_with_byte_offset()
-            .find(|(_offset, channel)| channel.name == self.value.name)
-            .map(|(offset, channel)| (offset, channel.sample_type))
+        let (channel_index, target_channel) = channels
+            .list
+            .iter()
+            .enumerate()
+            .find(|(_, channel)| channel.name == self.value.name)
             .expect("a channel has not been put into channel list");
 
         Recursive::new(
             self.inner.create_recursive_writer(channels),
             SampleWriter {
-                start_byte_offset,
-                target_sample_type,
+                channel_index,
+                target_sample_type: target_channel.sample_type,
+                sampling: target_channel.sampling,
                 px: PhantomData::default(),
             },
         )
@@ -319,19 +304,24 @@ where
 
         let channel = self.value.as_ref().map(|required_channel| {
             channels
-                .channels_with_byte_offset()
-                .find(|(_offset, channel)| channel == &required_channel)
-                .map(|(offset, channel)| (offset, channel.sample_type))
+                .list
+                .iter()
+                .enumerate()
+                .find(|(_, channel)| channel == &required_channel)
+                .map(|(index, channel)| (index, channel.sample_type, channel.sampling))
                 .expect("a channel has not been put into channel list")
         });
 
         Recursive::new(
             self.inner.create_recursive_writer(channels),
-            channel.map(|(start_byte_offset, target_sample_type)| SampleWriter {
-                start_byte_offset,
-                target_sample_type,
-                px: PhantomData::default(),
-            }),
+            channel.map(
+                |(channel_index, target_sample_type, sampling)| SampleWriter {
+                    channel_index,
+                    target_sample_type,
+                    sampling,
+                    px: PhantomData::default(),
+                },
+            ),
         )
     }
 
@@ -348,9 +338,11 @@ where
 /// the most inner channel is `NoneMore`.
 pub trait RecursivePixelWriter<Pixel>: Sync {
     /// Write pixels to a slice of bytes. Recursively do this for all channels.
-    fn write_pixels<FullPixel>(
+    fn write_line<FullPixel>(
         &self,
-        bytes: &mut [u8],
+        line: LineRefMut<'_>,
+        block_x_min: i32,
+        block_x_max: i32,
         pixels: &[FullPixel],
         get_pixel: impl Fn(&FullPixel) -> &Pixel,
     );
@@ -363,7 +355,8 @@ type OptionalRecursiveWriter<Inner, Sample> = Recursive<Inner, Option<SampleWrit
 #[derive(Debug, Clone)]
 pub struct SampleWriter<Sample> {
     target_sample_type: SampleType,
-    start_byte_offset: usize,
+    channel_index: usize,
+    sampling: Vec2<usize>,
     px: PhantomData<Sample>,
 }
 
@@ -371,53 +364,160 @@ impl<Sample> SampleWriter<Sample>
 where
     Sample: IntoNativeSample,
 {
-    fn write_own_samples(&self, bytes: &mut [u8], samples: impl ExactSizeIterator<Item = Sample>) {
-        let byte_start_index = samples.len() * self.start_byte_offset;
-        let byte_count = samples.len() * self.target_sample_type.bytes_per_sample();
-        let ref mut byte_writer = &mut bytes[byte_start_index..byte_start_index + byte_count];
+    fn write_line<FullPixel>(
+        &self,
+        line: LineRefMut<'_>,
+        block_x_min: i32,
+        block_x_max: i32,
+        pixels: &[FullPixel],
+        get_sample: impl Fn(&FullPixel) -> Sample,
+    ) {
+        if line.location.sample_count == 0 {
+            debug_assert!(
+                line.value.is_empty(),
+                "line slice should be empty when sample count is zero"
+            );
+            return;
+        }
+
+        debug_assert_eq!(
+            line.location.channel, self.channel_index,
+            "line dispatched to wrong channel writer"
+        );
+
+        let bytes_per_sample = self.target_sample_type.bytes_per_sample();
+        debug_assert_eq!(
+            line.value.len(),
+            line.location.sample_count * bytes_per_sample,
+            "line byte count mismatch"
+        );
+
+        let y = line.location.position.y() as i32;
+        debug_assert_eq!(
+            mod_p(y, self.sampling.y()),
+            0,
+            "line for channel {} at invalid y {}",
+            self.channel_index,
+            y
+        );
+
+        let x_sampling = self.sampling.x();
+        let mut byte_writer = Cursor::new(line.value);
+        let mut positions = sample_x_positions(
+            x_sampling,
+            block_x_min,
+            block_x_max,
+            line.location.sample_count,
+        );
 
         let write_error_msg = "invalid memory buffer length when writing";
 
-        // match outside the loop to avoid matching on every single sample
         match self.target_sample_type {
-            // TODO does this boil down to a `memcpy` where the sample type equals the type parameter?
             SampleType::F16 => {
-                for sample in samples {
-                    sample
+                for x in positions {
+                    let sample_index = (x - block_x_min)
+                        .try_into()
+                        .expect("invalid sample position");
+                    get_sample(&pixels[sample_index])
                         .to_f16()
-                        .write_ne(byte_writer)
+                        .write_ne(&mut byte_writer)
                         .expect(write_error_msg);
                 }
             }
             SampleType::F32 => {
-                for sample in samples {
-                    sample
+                for x in positions {
+                    let sample_index = (x - block_x_min)
+                        .try_into()
+                        .expect("invalid sample position");
+                    get_sample(&pixels[sample_index])
                         .to_f32()
-                        .write_ne(byte_writer)
+                        .write_ne(&mut byte_writer)
                         .expect(write_error_msg);
                 }
             }
             SampleType::U32 => {
-                for sample in samples {
-                    sample
+                for x in positions {
+                    let sample_index = (x - block_x_min)
+                        .try_into()
+                        .expect("invalid sample position");
+                    get_sample(&pixels[sample_index])
                         .to_u32()
-                        .write_ne(byte_writer)
+                        .write_ne(&mut byte_writer)
                         .expect(write_error_msg);
                 }
             }
-        };
+        }
+    }
+}
 
+fn sample_x_positions(
+    x_sampling: usize,
+    block_x_min: i32,
+    block_x_max: i32,
+    count: usize,
+) -> SamplePositionIter {
+    if count == 0 {
+        return SamplePositionIter {
+            current: 0,
+            remaining: 0,
+            step: x_sampling as i32,
+            max: block_x_max,
+        };
+    }
+
+    let first = first_sample_coordinate(x_sampling, block_x_min);
+
+    SamplePositionIter {
+        current: first,
+        remaining: count,
+        step: x_sampling as i32,
+        max: block_x_max,
+    }
+}
+
+fn first_sample_coordinate(x_sampling: usize, block_x_min: i32) -> i32 {
+    let mut current = div_p(block_x_min, x_sampling) * x_sampling as i32;
+    if mod_p(block_x_min, x_sampling) != 0 {
+        current += x_sampling as i32;
+    }
+    current
+}
+
+struct SamplePositionIter {
+    current: i32,
+    remaining: usize,
+    step: i32,
+    max: i32,
+}
+
+impl Iterator for SamplePositionIter {
+    type Item = i32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+
+        let value = self.current;
         debug_assert!(
-            byte_writer.is_empty(),
-            "all samples are written, but more were expected"
+            value <= self.max,
+            "sample position {} exceeds block max {}",
+            value,
+            self.max
         );
+
+        self.remaining -= 1;
+        self.current = self.current.saturating_add(self.step);
+        Some(value)
     }
 }
 
 impl RecursivePixelWriter<NoneMore> for NoneMore {
-    fn write_pixels<FullPixel>(
+    fn write_line<FullPixel>(
         &self,
-        _: &mut [u8],
+        _: LineRefMut<'_>,
+        _: i32,
+        _: i32,
         _: &[FullPixel],
         _: impl Fn(&FullPixel) -> &NoneMore,
     ) {
@@ -429,17 +529,25 @@ impl<Inner, InnerPixel, Sample: IntoNativeSample>
 where
     Inner: RecursivePixelWriter<InnerPixel>,
 {
-    // TODO impl exact size iterator <item = Self::Pixel>
-    fn write_pixels<FullPixel>(
+    fn write_line<FullPixel>(
         &self,
-        bytes: &mut [u8],
+        line: LineRefMut<'_>,
+        block_x_min: i32,
+        block_x_max: i32,
         pixels: &[FullPixel],
         get_pixel: impl Fn(&FullPixel) -> &Recursive<InnerPixel, Sample>,
     ) {
-        self.value
-            .write_own_samples(bytes, pixels.iter().map(|px| get_pixel(px).value));
-        self.inner
-            .write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
+        if line.location.channel == self.value.channel_index {
+            self.value
+                .write_line(line, block_x_min, block_x_max, pixels, |px| {
+                    get_pixel(px).value
+                });
+        } else {
+            self.inner
+                .write_line(line, block_x_min, block_x_max, pixels, |px| {
+                    &get_pixel(px).inner
+                });
+        }
     }
 }
 
@@ -449,18 +557,27 @@ where
     Inner: RecursivePixelWriter<InnerPixel>,
     Sample: IntoNativeSample,
 {
-    fn write_pixels<FullPixel>(
+    fn write_line<FullPixel>(
         &self,
-        bytes: &mut [u8],
+        line: LineRefMut<'_>,
+        block_x_min: i32,
+        block_x_max: i32,
         pixels: &[FullPixel],
         get_pixel: impl Fn(&FullPixel) -> &Recursive<InnerPixel, Sample>,
     ) {
         if let Some(writer) = &self.value {
-            writer.write_own_samples(bytes, pixels.iter().map(|px| get_pixel(px).value));
+            if line.location.channel == writer.channel_index {
+                writer.write_line(line, block_x_min, block_x_max, pixels, |px| {
+                    get_pixel(px).value
+                });
+                return;
+            }
         }
 
         self.inner
-            .write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
+            .write_line(line, block_x_min, block_x_max, pixels, |px| {
+                &get_pixel(px).inner
+            });
     }
 }
 

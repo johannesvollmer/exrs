@@ -620,9 +620,10 @@ impl Header {
         // Calculate the maximum block size accounting for channel subsampling
         let block_size = match self.blocks {
             BlockDescription::Tiles(tiles) => tiles.tile_size,
-            BlockDescription::ScanLines => {
-                Vec2(self.layer_size.width(), self.compression.scan_lines_per_block())
-            }
+            BlockDescription::ScanLines => Vec2(
+                self.layer_size.width(),
+                self.compression.scan_lines_per_block(),
+            ),
         };
 
         // Use bytes_per_pixel_section to account for subsampling

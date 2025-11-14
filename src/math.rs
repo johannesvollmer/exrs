@@ -301,20 +301,27 @@ pub fn mod_p(x: i32, s: usize) -> usize {
 ///
 /// # Examples
 /// ```
-/// # use exrs::math::num_samples;
+/// # use exrs::math::sample_count;
 /// // Sampling rate 2, interval [1, 5] -> samples at [2, 4]
-/// assert_eq!(num_samples(2, 1, 5), 2);
+/// assert_eq!(sample_count(2, 1, 5), 2);
 /// // Sampling rate 2, interval [2, 6] -> samples at [2, 4, 6]
-/// assert_eq!(num_samples(2, 2, 6), 3);
+/// assert_eq!(sample_count(2, 2, 6), 3);
 /// // Sampling rate 1, interval [0, 3] -> samples at [0, 1, 2, 3]
-/// assert_eq!(num_samples(1, 0, 3), 4);
+/// assert_eq!(sample_count(1, 0, 3), 4);
 /// ```
 #[inline]
-pub fn num_samples(s: usize, a: i32, b: i32) -> usize {
+pub fn sample_count(s: usize, a: i32, b: i32) -> usize {
     let a1 = div_p(a, s);
     let b1 = div_p(b, s);
     let count = b1 - a1 + if a1 * (s as i32) < a { 0 } else { 1 };
     count.max(0) as usize
+}
+
+/// Calculate the number of samples in the interval [a, b] for a given sampling rate.
+#[deprecated(since = "1.8.0", note = "Use `sample_count` instead")]
+#[inline]
+pub fn num_samples(s: usize, a: i32, b: i32) -> usize {
+    sample_count(s, a, b)
 }
 
 #[cfg(test)]
@@ -371,25 +378,25 @@ mod test {
     }
 
     #[test]
-    fn test_num_samples() {
+    fn sample_count_calculation() {
         // Basic cases
-        assert_eq!(num_samples(1, 0, 3), 4); // [0, 1, 2, 3]
-        assert_eq!(num_samples(2, 0, 3), 2); // [0, 2]
-        assert_eq!(num_samples(2, 1, 5), 2); // [2, 4]
-        assert_eq!(num_samples(2, 2, 6), 3); // [2, 4, 6]
+        assert_eq!(sample_count(1, 0, 3), 4); // [0, 1, 2, 3]
+        assert_eq!(sample_count(2, 0, 3), 2); // [0, 2]
+        assert_eq!(sample_count(2, 1, 5), 2); // [2, 4]
+        assert_eq!(sample_count(2, 2, 6), 3); // [2, 4, 6]
 
         // Edge cases
-        assert_eq!(num_samples(2, 0, 0), 1); // [0]
-        assert_eq!(num_samples(2, 1, 1), 0); // []
-        assert_eq!(num_samples(3, 0, 8), 3); // [0, 3, 6]
+        assert_eq!(sample_count(2, 0, 0), 1); // [0]
+        assert_eq!(sample_count(2, 1, 1), 0); // []
+        assert_eq!(sample_count(3, 0, 8), 3); // [0, 3, 6]
 
         // Negative coordinates
-        assert_eq!(num_samples(2, -4, 4), 5); // [-4, -2, 0, 2, 4]
-        assert_eq!(num_samples(2, -3, 3), 3); // [-2, 0, 2]
+        assert_eq!(sample_count(2, -4, 4), 5); // [-4, -2, 0, 2, 4]
+        assert_eq!(sample_count(2, -3, 3), 3); // [-2, 0, 2]
 
         // Full image width example: 4x4 image with 2x subsampling
         let width = 4;
-        assert_eq!(num_samples(2, 0, width - 1), 2); // [0, 2]
-        assert_eq!(num_samples(1, 0, width - 1), 4); // [0, 1, 2, 3]
+        assert_eq!(sample_count(2, 0, width - 1), 2); // [0, 2]
+        assert_eq!(sample_count(1, 0, width - 1), 4); // [0, 1, 2, 3]
     }
 }

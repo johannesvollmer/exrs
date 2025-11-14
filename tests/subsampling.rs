@@ -1,5 +1,7 @@
 //! Test for channel subsampling support
 
+use exr::image::pixel_vec::PixelVec;
+use exr::image::SpecificChannels;
 use exr::math::Vec2;
 use exr::meta::attribute::{ChannelDescription, ChannelList, IntegerBounds, SampleType, Text};
 use exr::prelude::*;
@@ -330,6 +332,97 @@ fn write_read_420_subsampled_image() {
                 }
             }
             _ => panic!("Unexpected channel: {}", channel.name),
+        }
+    }
+}
+
+#[test]
+fn specific_channels_handles_subsampling() {
+    let width = 6;
+    let height = 4;
+    let size = Vec2(width, height);
+
+    let y_desc = ChannelDescription {
+        name: Text::from("Y"),
+        sample_type: SampleType::F32,
+        quantize_linearly: false,
+        sampling: Vec2(1, 1),
+    };
+
+    let cb_desc = ChannelDescription {
+        name: Text::from("Cb"),
+        sample_type: SampleType::F32,
+        quantize_linearly: true,
+        sampling: Vec2(2, 1),
+    };
+
+    let pixels: Vec<(f32, f32)> = (0..size.area())
+        .map(|index| {
+            let x = index % width;
+            let y = index / width;
+            let y_value = (x as f32) + (y as f32) * 10.0;
+            let cb_value = 100.0 + y_value;
+            (y_value, cb_value)
+        })
+        .collect();
+
+    let pixel_storage = PixelVec::new(size, pixels.clone());
+
+    let channels = SpecificChannels::build()
+        .with_channel_details::<f32>(y_desc.clone())
+        .with_channel_details::<f32>(cb_desc.clone())
+        .with_pixels(pixel_storage.clone());
+
+    let image = Image::from_channels(size, channels);
+
+    let mut buffer = Vec::new();
+    image
+        .write()
+        .to_buffered(Cursor::new(&mut buffer))
+        .expect("failed to write specific channels image");
+
+    let reader = read()
+        .no_deep_data()
+        .largest_resolution_level()
+        .specific_channels()
+        .required("Y")
+        .required("Cb")
+        .collect_pixels(PixelVec::<(f32, f32)>::constructor, PixelVec::set_pixel)
+        .first_valid_layer()
+        .all_attributes()
+        .non_parallel();
+
+    let parsed = reader
+        .from_buffered(Cursor::new(&buffer))
+        .expect("failed to read specific channels image");
+
+    let read_pixels = &parsed.layer_data.channel_data.pixels;
+
+    for y in 0..height {
+        for x in 0..width {
+            let pos = Vec2(x, y);
+            let original = pixel_storage.get_pixel(pos);
+            let reconstructed = read_pixels.get_pixel(pos);
+
+            assert_eq!(
+                original.0, reconstructed.0,
+                "full-resolution channel mismatch at {:?}",
+                pos
+            );
+
+            if x % cb_desc.sampling.x() == 0 && y % cb_desc.sampling.y() == 0 {
+                assert_eq!(
+                    original.1, reconstructed.1,
+                    "subsampled channel mismatch at {:?}",
+                    pos
+                );
+            } else {
+                assert_eq!(
+                    reconstructed.1, 0.0,
+                    "subsampled pixel should retain default at {:?}",
+                    pos
+                );
+            }
         }
     }
 }

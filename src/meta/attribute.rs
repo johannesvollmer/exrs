@@ -230,10 +230,6 @@ pub struct ChannelList {
     /// The channels in this list.
     pub list: SmallVec<[ChannelDescription; 5]>,
 
-    /// The number of bytes that one pixel in this image needs.
-    // FIXME this needs to account for subsampling anywhere?
-    pub bytes_per_pixel: usize, // FIXME only makes sense for flat images!
-
     /// The sample type of all channels, if all channels have the same type.
     pub uniform_sample_type: Option<SampleType>,
 }
@@ -738,10 +734,6 @@ impl ChannelList {
         };
 
         ChannelList {
-            bytes_per_pixel: channels
-                .iter()
-                .map(|channel| channel.sample_type.bytes_per_sample())
-                .sum(),
             list: channels,
             uniform_sample_type,
         }
@@ -1151,13 +1143,13 @@ impl ChannelDescription {
     /// This is different from `subsampled_pixels` in that it works with `IntegerBounds`
     /// and handles arbitrary pixel positions correctly (including negative coordinates).
     pub fn subsampled_pixel_count_for_bounds(&self, bounds: IntegerBounds) -> usize {
-        use crate::math::num_samples;
+        use crate::math::sample_count;
 
         let end_x = bounds.position.x() + bounds.size.x() as i32 - 1;
         let end_y = bounds.position.y() + bounds.size.y() as i32 - 1;
 
-        let samples_x = num_samples(self.sampling.x(), bounds.position.x(), end_x);
-        let samples_y = num_samples(self.sampling.y(), bounds.position.y(), end_y);
+        let samples_x = sample_count(self.sampling.x(), bounds.position.x(), end_x);
+        let samples_y = sample_count(self.sampling.y(), bounds.position.y(), end_y);
 
         samples_x * samples_y
     }
