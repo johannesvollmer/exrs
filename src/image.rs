@@ -28,10 +28,10 @@ pub mod read;
 pub mod recursive;
 pub mod write;
 
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 pub mod deep_samples;
 
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 pub mod deep;
 
 // pub mod channel_groups;
@@ -57,14 +57,14 @@ pub type FlatImage = Image<Layers<AnyChannels<FlatSamples>>>;
 
 /// This image type contains a single layer of deep data with arbitrary channels.
 /// Deep data allows multiple samples per pixel at different depths.
-/// Requires the `deep-data` feature to be enabled.
-#[cfg(feature = "deep-data")]
+/// Requires the `deep` feature to be enabled.
+#[cfg(feature = "deep")]
 pub type DeepImage = Image<Layer<AnyChannels<crate::image::deep_samples::DeepSamples>>>;
 
 /// This image type contains multiple layers of deep data with arbitrary channels.
 /// Deep data allows multiple samples per pixel at different depths.
-/// Requires the `deep-data` feature to be enabled.
-#[cfg(feature = "deep-data")]
+/// Requires the `deep` feature to be enabled.
+#[cfg(feature = "deep")]
 pub type DeepLayersImage = Image<Layers<AnyChannels<crate::image::deep_samples::DeepSamples>>>;
 
 /// This image type contains multiple layers, with each layer containing a user-defined type of pixels.

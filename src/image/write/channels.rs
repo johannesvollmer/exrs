@@ -3,8 +3,8 @@
 use crate::block::samples::IntoNativeSample;
 use crate::block::{BlockIndex, UncompressedBlock};
 use crate::image::recursive::{IntoRecursive, NoneMore, Recursive};
-use crate::image::write::samples::{SamplesWriter, WritableLevel, WritableSamples};
-use crate::io::{Data, ResizableVec};
+use crate::image::write::samples::{SamplesWriter, WritableSamples};
+use crate::io::Data;
 use crate::math::{RoundingMode, Vec2};
 use crate::meta::{
     attribute::{ChannelDescription, ChannelList, LevelMode, SampleType},

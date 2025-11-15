@@ -15,7 +15,7 @@ pub mod channels;
 pub mod layers;
 pub mod samples;
 
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 pub mod deep;
 
 use crate::block::writer::ChunksWriter;

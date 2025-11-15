@@ -5,7 +5,7 @@
 //! - Compositing operations
 //! - Compatibility with OpenEXR reference images
 
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 mod deep_tests {
     use exr::prelude::*;
     use exr::block::{BlockIndex, UncompressedDeepBlock};
@@ -496,55 +496,59 @@ mod deep_tests {
 
         use exr::image::deep::flatten::*;
 
-        // Helper to get data window from file using the proper header method
-        let get_data_window = |path: &std::path::PathBuf| {
+        // Helper to load deep source metadata
+        let load_source = |path: &std::path::PathBuf| -> DeepImageSource {
+            let blocks = read_deep_from_file(path, false).unwrap();
             let file = std::fs::File::open(path).unwrap();
             let reader = exr::block::read(file, false).unwrap();
-            reader.meta_data().headers[0].data_window()
+            let header = &reader.meta_data().headers[0];
+            let channel_types: Vec<SampleType> = header
+                .channels
+                .list
+                .iter()
+                .map(|c| c.sample_type)
+                .collect();
+            let channel_names: Vec<String> = header
+                .channels
+                .list
+                .iter()
+                .map(|c| c.name.to_string())
+                .collect();
+            DeepImageSource {
+                blocks,
+                data_window: header.data_window(),
+                label: path
+                    .file_stem()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("source")
+                    .to_string(),
+                channel_names,
+                channel_types,
+            }
         };
 
         // Read all four deep images with their data windows
-        let balls_blocks = read_deep_from_file(balls_path.as_ref().unwrap(), false).unwrap();
-        let ground_blocks = read_deep_from_file(ground_path.as_ref().unwrap(), false).unwrap();
-        let leaves_blocks = read_deep_from_file(leaves_path.as_ref().unwrap(), false).unwrap();
-        let trunks_blocks = read_deep_from_file(trunks_path.as_ref().unwrap(), false).unwrap();
+        let balls_source = load_source(balls_path.as_ref().unwrap());
+        let ground_source = load_source(ground_path.as_ref().unwrap());
+        let leaves_source = load_source(leaves_path.as_ref().unwrap());
+        let trunks_source = load_source(trunks_path.as_ref().unwrap());
 
         // Debug: Check channel order in the first image
-        let balls_file = std::fs::File::open(balls_path.as_ref().unwrap()).unwrap();
-        let balls_reader = exr::block::read(balls_file, false).unwrap();
-        let balls_header = &balls_reader.meta_data().headers[0];
+        let balls_header = {
+            let file = std::fs::File::open(balls_path.as_ref().unwrap()).unwrap();
+            let reader = exr::block::read(file, false).unwrap();
+            reader.meta_data().headers[0].clone()
+        };
         println!("\nChannel order in Balls.exr:");
         for (idx, channel) in balls_header.channels.list.iter().enumerate() {
             println!("  [{}] {} ({:?})", idx, channel.name, channel.sample_type);
         }
 
-
-        // Get channel types from header (all sources have same channel structure)
-        let channel_types: Vec<SampleType> = balls_header.channels.list.iter()
-            .map(|c| c.sample_type)
-            .collect();
-
         let sources = vec![
-            DeepImageSource {
-                blocks: balls_blocks,
-                data_window: get_data_window(balls_path.as_ref().unwrap()),
-                channel_types: channel_types.clone(),
-            },
-            DeepImageSource {
-                blocks: ground_blocks,
-                data_window: get_data_window(ground_path.as_ref().unwrap()),
-                channel_types: channel_types.clone(),
-            },
-            DeepImageSource {
-                blocks: leaves_blocks,
-                data_window: get_data_window(leaves_path.as_ref().unwrap()),
-                channel_types: channel_types.clone(),
-            },
-            DeepImageSource {
-                blocks: trunks_blocks,
-                data_window: get_data_window(trunks_path.as_ref().unwrap()),
-                channel_types: channel_types.clone(),
-            },
+            balls_source,
+            ground_source,
+            leaves_source,
+            trunks_source,
         ];
 
         println!("\nCompositing four deep images to flat...");
@@ -605,13 +609,37 @@ mod deep_tests {
             println!("    Last pixel offset: {}", block_0.pixel_offset_table.last().unwrap_or(&0));
         }
 
+        // Quick parity check for the first source's sample counts
+        if let Some(first_source) = sources.get(0) {
+            let mut odd_sample_pixels = 0usize;
+            let mut total_pixels = 0usize;
+            for block in &first_source.blocks {
+                let mut prev = 0;
+                for &entry in &block.pixel_offset_table {
+                    let count = entry - prev;
+                    if count % 2 != 0 {
+                        odd_sample_pixels += 1;
+                    }
+                    total_pixels += 1;
+                    prev = entry;
+                }
+            }
+            println!(
+                "  Debug: {} pixels with odd sample counts out of {} in {}",
+                odd_sample_pixels,
+                total_pixels,
+                ["Balls", "Ground", "Leaves", "Trunks"][0]
+            );
+        }
+
         // Also check what ALL source images contribute at multiple reference pixels
-        for check_x in [1, 13] {
-            println!("\n  Debug: Checking all sources at pixel ({},1):", check_x);
+        let debug_pixels = [(1, 1), (13, 1), (716, 262)];
+        for &(check_x, check_y) in &debug_pixels {
+            println!("\n  Debug: Checking all sources at pixel ({},{}):", check_x, check_y);
             for (src_idx, source) in sources.iter().enumerate() {
                 let src_name = ["Balls", "Ground", "Leaves", "Trunks"][src_idx];
                 let global_x = check_x;
-                let global_y = 1;
+                let global_y = check_y;
 
             // Check if this pixel is within this source's data window
             let local_x = global_x - source.data_window.position.x();
@@ -630,20 +658,27 @@ mod deep_tests {
                     let block_width = block.index.pixel_size.x();
                     let pixel_idx = block_y_offset * block_width + (local_x as usize);
 
-                    let pixel_samples = extract_pixel_samples_typed(block, pixel_idx, &channel_types);
+                    let pixel_samples = extract_pixel_samples_typed(
+                        block,
+                        pixel_idx,
+                        &source.channel_types,
+                    );
                     if !pixel_samples.is_empty() {
                         println!("    {}: {} samples", src_name, pixel_samples.len());
-                        for sample in pixel_samples.iter().take(1) {
+                        for (sample_idx, sample) in pixel_samples.iter().enumerate() {
                             if sample.len() >= 5 {
-                                println!("      A={:.3} B={:.3} G={:.3} R={:.3} Z={:.3}",
-                                         sample[0], sample[1], sample[2], sample[3], sample[4]);
+                                println!("      Sample {}: A={:.3} B={:.3} G={:.3} R={:.3} Z={:.3}",
+                                         sample_idx, sample[0], sample[1], sample[2], sample[3], sample[4]);
+                            }
+                            if sample_idx >= 3 {
+                                break;
                             }
                         }
                     } else {
                         println!("    {}: 0 samples (empty pixel)", src_name);
                     }
                 } else {
-                    println!("    {}: no block found for Y={}", src_name, global_y);
+                    println!("    {}: no block found covering ({}, {})", src_name, global_x, global_y);
                 }
             } else {
                 println!("    {}: outside data window", src_name);
@@ -651,9 +686,27 @@ mod deep_tests {
             }
         }
 
-        let (our_pixels, union_window) = composite_deep_to_flat(&sources);
+        let reference_window = ref_data_win;
+        let (our_pixels, union_window) =
+            composite_deep_to_flat(&sources, Some(reference_window));
 
-        println!("  Our composite union: {}x{} at ({}, {})",
+        if std::env::var("WRITE_DEBUG_COMPOSITE").is_ok() {
+            let out_path = std::env::var("WRITE_DEBUG_COMPOSITE").unwrap_or_else(|_| "target/our_composite.exr".into());
+            let _ = std::fs::create_dir_all("target");
+            exr::image::write::write_rgba_file(
+                out_path,
+                union_window.size.x(),
+                union_window.size.y(),
+                |x, y| {
+                    let idx = y * union_window.size.x() + x;
+                    let px = our_pixels[idx];
+                    (px.r, px.g, px.b, px.a)
+                },
+            )
+            .unwrap();
+        }
+
+        println!("  Our composite data window: {}x{} at ({}, {})",
                  union_window.size.x(),
                  union_window.size.y(),
                  union_window.position.x(),
@@ -698,8 +751,48 @@ mod deep_tests {
         // Get reference pixels (R, G, B, A as f32 tuples)
         let ref_rgba_pixels = &ref_image.layer_data.channel_data.pixels.pixels;
 
+        if let Ok(flat_path_string) = std::env::var("DEBUG_READ_FLAT") {
+            let flat_path = std::path::Path::new(&flat_path_string);
+            use exr::prelude::pixel_vec::PixelVec;
+            let flat_image = read()
+                .no_deep_data()
+                .largest_resolution_level()
+                .specific_channels()
+                .required("R")
+                .required("G")
+                .required("B")
+                .required("A")
+                .collect_pixels(PixelVec::<(f32, f32, f32, f32)>::constructor, PixelVec::set_pixel)
+                .first_valid_layer()
+                .all_attributes()
+                .from_file(flat_path)
+                .unwrap();
+            let flat_origin = flat_image.layer_data.attributes.layer_position;
+            let flat_width = flat_image.layer_data.size.width();
+            let flat_height = flat_image.layer_data.size.height();
+            for &(check_x, check_y) in &debug_pixels {
+                let fx = (check_x - flat_origin.x()) as usize;
+                let fy = (check_y - flat_origin.y()) as usize;
+                if fx < flat_width && fy < flat_height {
+                    let idx = fy * flat_width + fx;
+                    let (r, g, b, a) = flat_image.layer_data.channel_data.pixels.pixels[idx];
+                    println!(
+                        "  Debug flat {} ({},{}): R={:.6} G={:.6} B={:.6} A={:.6}",
+                        flat_path.display(),
+                        check_x,
+                        check_y,
+                        r,
+                        g,
+                        b,
+                        a
+                    );
+                }
+            }
+        }
+
         // Compare pixel-by-pixel - 100% exact match required
         let mut max_diff = 0.0f32;
+        let mut max_diff_info = None;
         let mut mismatch_count = 0;
 
         for y in 0..ref_height {
@@ -720,7 +813,28 @@ mod deep_tests {
                 let diff_b = (our_pixel.b - ref_b).abs();
                 let diff_a = (our_pixel.a - ref_a).abs();
 
-                max_diff = max_diff.max(diff_r).max(diff_g).max(diff_b).max(diff_a);
+                let pixel_max = diff_r.max(diff_g).max(diff_b).max(diff_a);
+                if pixel_max > max_diff {
+                    max_diff = pixel_max;
+                    max_diff_info = Some((
+                        x,
+                        y,
+                        our_x,
+                        our_y,
+                        diff_r,
+                        diff_g,
+                        diff_b,
+                        diff_a,
+                    ));
+                }
+
+                if x == 715 && y == 261 {
+                    println!(
+                        "  Debug: Pixel (715,261) values -> ours R={:.6} G={:.6} B={:.6} A={:.6}, ref R={:.6} G={:.6} B={:.6} A={:.6}",
+                        our_pixel.r, our_pixel.g, our_pixel.b, our_pixel.a,
+                        ref_r, ref_g, ref_b, ref_a
+                    );
+                }
 
                 // User requested: NO epsilon - 100% exact match!
                 let epsilon = 0.0;
@@ -741,6 +855,19 @@ mod deep_tests {
         }
 
         println!("  Max difference: {}", max_diff);
+        if let Some((ref_x, ref_y, our_x, our_y, d_r, d_g, d_b, d_a)) = max_diff_info {
+                    println!(
+                        "  Max diff location: ref ({}, {}) / ours ({}, {}), diff RGBA = ({:.6}, {:.6}, {:.6}, {:.6})",
+                        ref_x, ref_y, our_x, our_y, d_r, d_g, d_b, d_a
+                    );
+                    println!(
+                        "    Debug: our pixel RGBA = ({:.6}, {:.6}, {:.6}, {:.6})",
+                        our_pixels[our_y * our_width + our_x].r,
+                        our_pixels[our_y * our_width + our_x].g,
+                        our_pixels[our_y * our_width + our_x].b,
+                        our_pixels[our_y * our_width + our_x].a,
+                    );
+        }
         println!("  Pixels compared: {}", ref_width * ref_height);
         println!("  Mismatches: {}", mismatch_count);
 

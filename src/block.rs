@@ -70,7 +70,7 @@ pub struct UncompressedBlock {
 /// - Sample data: all samples for all pixels, organized pixel-by-pixel
 ///
 /// The bytes must be encoded in native-endian format.
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct UncompressedDeepBlock {
     /// Location of the data inside the image.
@@ -85,8 +85,8 @@ pub struct UncompressedDeepBlock {
     pub pixel_offset_table: Vec<i32>,
 
     /// Sample data in native-endian format.
-    /// Layout: for each pixel (in scanline order), for each sample, for each channel: value
-    /// The total number of samples is pixel_offset_table[N-1].
+    /// Layout (matching the file format): for each channel, for each pixel (scanline order),
+    /// for each sample: value. The total number of samples is pixel_offset_table[N-1].
     pub sample_data: ByteVec,
 }
 
@@ -190,12 +190,12 @@ impl UncompressedBlock {
                 },
             }),
 
-            #[cfg(not(feature = "deep-data"))]
+            #[cfg(not(feature = "deep"))]
             _ => Err(Error::unsupported(
-                "deep data support is not enabled; enable the 'deep-data' feature"
+                "deep data support is not enabled; enable the 'deep' feature"
             )),
 
-            #[cfg(feature = "deep-data")]
+            #[cfg(feature = "deep")]
             CompressedBlock::DeepScanLine(_) | CompressedBlock::DeepTile(_) => {
                 Err(Error::unsupported(
                     "use UncompressedDeepBlock::decompress_chunk for deep data"
@@ -337,7 +337,7 @@ impl UncompressedBlock {
     }
 }
 
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 impl UncompressedDeepBlock {
     /// Decompress a deep data chunk and return an `UncompressedDeepBlock`.
     ///
@@ -486,12 +486,12 @@ impl UncompressedDeepBlock {
     }
 }
 
-#[cfg(all(test, feature = "deep-data"))]
+#[cfg(all(test, feature = "deep"))]
 mod deep_tests {
     use super::*;
     use crate::meta::{BlockDescription, Requirements};
     use crate::compression::Compression;
-    use crate::meta::attribute::{ChannelDescription, ChannelList, SampleType};
+    use crate::meta::attribute::{ChannelDescription, SampleType};
     use crate::meta::header::Header;
     use smallvec::smallvec;
 

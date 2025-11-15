@@ -9,7 +9,7 @@ use crate::image::read::layers::{ChannelsReader, ReadChannels};
 use crate::image::recursive::{IntoNonRecursive, IntoTuple, NoneMore, Recursive};
 use crate::image::{
     ChannelDescription, ChannelList, CheckDuplicates, Data, Not, SampleType, SpecificChannels,
-    Text, WritableSamples,
+    Text,
 };
 use crate::math::Vec2;
 use crate::meta::header::Header;

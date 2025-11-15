@@ -5,14 +5,14 @@
 pub mod attribute;
 pub mod header;
 
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 pub mod deep_state;
 
 use self::attribute::{BlockType, Compression, TileDescription};
 use crate::block::chunk::{CompressedBlock, TileCoordinates};
 use crate::block::{BlockIndex, UncompressedBlock};
 use crate::error::{i32_to_usize, usize_to_i32, Error, Result, UnitResult};
-use crate::io::{Data, PeekRead, Read, ResizableVec, Write};
+use crate::io::{Data, PeekRead, Read, Write};
 use crate::math::{RoundingMode, Vec2};
 use crate::meta::header::Header;
 use ::smallvec::SmallVec;
@@ -530,9 +530,9 @@ impl MetaData {
         };
 
         for header in headers {
-            #[cfg(not(feature = "deep-data"))]
+            #[cfg(not(feature = "deep"))]
             if header.deep {
-                return Err(Error::unsupported("deep data requires the 'deep-data' feature"));
+                return Err(Error::unsupported("deep data requires the 'deep' feature"));
             }
 
             header.validate(

@@ -1,6 +1,5 @@
 //! Inspect deep image metadata to understand structure
 
-use exr::prelude::*;
 use std::path::PathBuf;
 
 fn inspect_image(name: &str) {
@@ -27,11 +26,12 @@ fn inspect_image(name: &str) {
                  header.compression,
                  header.channels.list.len());
 
+        let data_window = header.data_window();
         println!("  Data Window: min=({},{}), size={}x{}",
-                 header.layer_size.position.x(),
-                 header.layer_size.position.y(),
-                 header.layer_size.size.x(),
-                 header.layer_size.size.y());
+                 data_window.position.x(),
+                 data_window.position.y(),
+                 data_window.size.x(),
+                 data_window.size.y());
     }
 
     // Count actual blocks (only for deep images)

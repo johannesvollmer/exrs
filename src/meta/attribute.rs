@@ -80,8 +80,8 @@ pub enum AttributeValue {
     FloatVec3((f32, f32, f32)),
 
     /// Deep image state (sorted, non-overlapping, etc.).
-    /// Only available when the `deep-data` feature is enabled.
-    #[cfg(feature = "deep-data")]
+    /// Only available when the `deep` feature is enabled.
+    #[cfg(feature = "deep")]
     DeepImageState(crate::meta::deep_state::DeepImageState),
 
     /// An explicitly untyped attribute for binary application data.
@@ -408,7 +408,7 @@ pub type TextSlice = [u8];
 use crate::error::{
     i32_to_usize, u32_to_usize, usize_to_i32, usize_to_u32, Error, Result, UnitResult,
 };
-use crate::io::{Data, PeekRead, Read, ResizableVec, Write};
+use crate::io::{Data, PeekRead, Read, Write};
 use crate::math::{RoundingMode, Vec2};
 use crate::meta::sequence_end;
 use bit_field::BitField;
@@ -1807,7 +1807,7 @@ impl AttributeValue {
             Matrix3x3, Matrix4x4, Preview, Rational, Text, TextVector, TileDescription, TimeCode,
             F32, F64, I32,
         };
-        #[cfg(feature = "deep-data")]
+        #[cfg(feature = "deep")]
         use self::AttributeValue::DeepImageState;
 
         match *self {
@@ -1848,7 +1848,7 @@ impl AttributeValue {
             Custom { ref bytes, .. } => bytes.len(),
             BlockType(ref kind) => kind.byte_size(),
 
-            #[cfg(feature = "deep-data")]
+            #[cfg(feature = "deep")]
             DeepImageState(_) => i32::BYTE_SIZE,
 
             Bytes {
@@ -1868,7 +1868,7 @@ impl AttributeValue {
             Matrix3x3, Matrix4x4, Preview, Rational, Text, TextVector, TileDescription, TimeCode,
             F32, F64, I32,
         };
-        #[cfg(feature = "deep-data")]
+        #[cfg(feature = "deep")]
         use self::AttributeValue::DeepImageState;
 
         match *self {
@@ -1897,7 +1897,7 @@ impl AttributeValue {
             TileDescription(_) => ty::TILES,
             BlockType(_) => super::BlockType::TYPE_NAME,
 
-            #[cfg(feature = "deep-data")]
+            #[cfg(feature = "deep")]
             DeepImageState(_) => ty::DEEP_IMAGE_STATE,
 
             Bytes { .. } => ty::BYTES,
@@ -1913,7 +1913,7 @@ impl AttributeValue {
             Matrix3x3, Matrix4x4, Preview, Rational, Text, TextVector, TileDescription, TimeCode,
             F32, F64, I32,
         };
-        #[cfg(feature = "deep-data")]
+        #[cfg(feature = "deep")]
         use self::AttributeValue::DeepImageState;
         match *self {
             IntegerBounds(value) => value.write(write)?,
@@ -1969,7 +1969,7 @@ impl AttributeValue {
             TileDescription(ref value) => value.write(write)?,
             BlockType(kind) => kind.write(write)?,
 
-            #[cfg(feature = "deep-data")]
+            #[cfg(feature = "deep")]
             DeepImageState(state) => state.to_i32().write_le(write)?,
 
             Bytes {
@@ -2101,7 +2101,7 @@ impl AttributeValue {
                     Bytes { type_hint, bytes }
                 }
 
-                #[cfg(feature = "deep-data")]
+                #[cfg(feature = "deep")]
                 ty::DEEP_IMAGE_STATE => {
                     use crate::meta::deep_state::DeepImageState as DIS;
                     AttributeValue::DeepImageState(DIS::from_i32(i32::read_le(reader)?)?)
@@ -2237,7 +2237,7 @@ pub mod type_names {
 mod test {
     use super::*;
     use ::std::io::Cursor;
-    use rand::{random, thread_rng, Rng};
+    use rand::{random, rng, Rng};
 
     #[test]
     fn text_ord() {
@@ -2451,18 +2451,18 @@ mod test {
 
     #[test]
     fn time_code_pack() {
-        let mut rng = thread_rng();
+        let mut rng = rng();
 
         let codes = std::iter::repeat_with(|| TimeCode {
-            hours: rng.gen_range(0..24),
-            minutes: rng.gen_range(0..60),
-            seconds: rng.gen_range(0..60),
-            frame: rng.gen_range(0..29),
+            hours: rng.random_range(0..24),
+            minutes: rng.random_range(0..60),
+            seconds: rng.random_range(0..60),
+            frame: rng.random_range(0..29),
             drop_frame: random(),
             color_frame: random(),
             field_phase: random(),
             binary_group_flags: [random(), random(), random()],
-            binary_groups: std::iter::repeat_with(|| rng.gen_range(0..16))
+            binary_groups: std::iter::repeat_with(|| rng.random_range(0..16))
                 .take(8)
                 .collect::<SmallVec<[u8; 8]>>()
                 .into_inner()

@@ -116,7 +116,7 @@ fn take_n<'s>(slice: &mut &'s [u8], n: usize) -> Result<&'s [u8]> {
 
 /// Decompress raw byte data without channel-specific processing.
 /// Used for deep data offset tables and other raw byte arrays.
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 pub fn decompress_raw(
     compressed_le: ByteVec,
     expected_byte_size: usize,
@@ -145,7 +145,7 @@ pub fn decompress_raw(
 
 /// Compress raw byte data without channel-specific processing.
 /// Used for deep data offset tables and other raw byte arrays.
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 pub fn compress_raw(uncompressed_le: ByteVec) -> Result<ByteVec> {
     // Note: No samples_to_differences or separate_bytes_fragments for raw data
     // Deep data offset tables are just arrays of i32 values

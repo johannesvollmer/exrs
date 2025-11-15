@@ -13,6 +13,18 @@ use crate::meta::attribute::{ChannelList, IntegerBounds, SampleType};
 use crate::meta::header::Header;
 use std::convert::TryInto;
 
+pub(crate) fn deep_debug_enabled() -> bool {
+    #[cfg(feature = "deep")]
+    {
+        return std::env::var("EXR_DEEP_DEBUG").is_ok();
+    }
+
+    #[cfg(not(feature = "deep"))]
+    {
+        false
+    }
+}
+
 /// A byte vector.
 pub type ByteVec = Vec<u8>;
 
@@ -177,7 +189,7 @@ impl Compression {
             "decompress tile coordinate bug"
         );
 
-        #[cfg(feature = "deep-data")]
+        #[cfg(feature = "deep")]
         if header.deep {
             assert!(
                 self.supports_deep_data(),
@@ -185,10 +197,10 @@ impl Compression {
             );
         }
 
-        #[cfg(not(feature = "deep-data"))]
+        #[cfg(not(feature = "deep"))]
         if header.deep {
             return Err(Error::unsupported(
-                "deep data support is not enabled; enable the 'deep-data' feature"
+                "deep data support is not enabled; enable the 'deep' feature"
             ));
         }
 
@@ -279,7 +291,7 @@ impl Compression {
             "decompress tile coordinate bug"
         );
 
-        #[cfg(feature = "deep-data")]
+        #[cfg(feature = "deep")]
         if header.deep {
             assert!(
                 self.supports_deep_data(),
@@ -287,10 +299,10 @@ impl Compression {
             );
         }
 
-        #[cfg(not(feature = "deep-data"))]
+        #[cfg(not(feature = "deep"))]
         if header.deep {
             return Err(Error::unsupported(
-                "deep data support is not enabled; enable the 'deep-data' feature"
+                "deep data support is not enabled; enable the 'deep' feature"
             ));
         }
 
@@ -475,7 +487,7 @@ impl Compression {
     ///
     /// # Returns
     /// A vector of i32 values in native-endian format with `num_pixels` entries.
-    #[cfg(feature = "deep-data")]
+    #[cfg(feature = "deep")]
     pub fn decompress_deep_offset_table(
         &self,
         compressed_table: &[i8],
@@ -483,7 +495,12 @@ impl Compression {
     ) -> Result<Vec<i32>> {
         use self::Compression::{Uncompressed, RLE, ZIP1, ZIP16};
 
-        eprintln!("DEBUG: decompress_deep_offset_table called, num_pixels: {}", num_pixels);
+        if deep_debug_enabled() {
+            eprintln!(
+                "DEBUG: decompress_deep_offset_table called, num_pixels: {}",
+                num_pixels
+            );
+        }
 
         let expected_byte_size = num_pixels * std::mem::size_of::<i32>();
 
@@ -498,7 +515,9 @@ impl Compression {
 
             ZIP1 | ZIP16 => {
                 // Decompress using ZIP
-                eprintln!("DEBUG: Calling zip::decompress_raw for OFFSET TABLE");
+                if deep_debug_enabled() {
+                    eprintln!("DEBUG: Calling zip::decompress_raw for OFFSET TABLE");
+                }
                 zip::decompress_raw(compressed_u8.to_vec(), expected_byte_size)?
             }
 
@@ -531,10 +550,17 @@ impl Compression {
         }
 
         // DEBUG: Print first and last 10 offset table values
-        if offset_table.len() >= 20 {
+        if deep_debug_enabled() && offset_table.len() >= 20 {
             eprintln!("DEBUG offset table: First 10 values: {:?}", &offset_table[..10]);
-            eprintln!("DEBUG offset table: Last 10 values: {:?}", &offset_table[offset_table.len()-10..]);
-            eprintln!("DEBUG offset table: Total pixels: {}, Max value: {:?}", offset_table.len(), offset_table.iter().max());
+            eprintln!(
+                "DEBUG offset table: Last 10 values: {:?}",
+                &offset_table[offset_table.len() - 10..]
+            );
+            eprintln!(
+                "DEBUG offset table: Total pixels: {}, Max value: {:?}",
+                offset_table.len(),
+                offset_table.iter().max()
+            );
         }
 
         Ok(offset_table)
@@ -543,7 +569,8 @@ impl Compression {
     /// Decompress deep sample data.
     ///
     /// Sample data contains all samples for all pixels in the block.
-    /// Layout: for each pixel, for each sample, for each channel: value
+    /// Layout matches the on-disk representation: for each channel, for each pixel,
+    /// for each sample: value
     ///
     /// # Arguments
     /// * `header` - Header containing channel information
@@ -552,7 +579,7 @@ impl Compression {
     ///
     /// # Returns
     /// Decompressed sample data in native-endian format.
-    #[cfg(feature = "deep-data")]
+    #[cfg(feature = "deep")]
     pub fn decompress_deep_sample_data(
         &self,
         header: &Header,
@@ -561,7 +588,12 @@ impl Compression {
     ) -> Result<ByteVec> {
         use self::Compression::{Uncompressed, RLE, ZIP1, ZIP16};
 
-        eprintln!("DEBUG: decompress_deep_sample_data called, expected size: {}", expected_byte_size);
+        if deep_debug_enabled() {
+            eprintln!(
+                "DEBUG: decompress_deep_sample_data called, expected size: {}",
+                expected_byte_size
+            );
+        }
 
         let decompressed_le: ByteVec = match self {
             Uncompressed => {
@@ -571,7 +603,9 @@ impl Compression {
 
             ZIP1 | ZIP16 => {
                 // Decompress using ZIP
-                eprintln!("DEBUG: Calling zip::decompress_raw for SAMPLE DATA");
+                if deep_debug_enabled() {
+                    eprintln!("DEBUG: Calling zip::decompress_raw for SAMPLE DATA");
+                }
                 zip::decompress_raw(compressed_data_le, expected_byte_size)?
             }
 
@@ -611,7 +645,7 @@ impl Compression {
     ///
     /// # Returns
     /// A tuple of (compressed_offset_table, compressed_sample_data) in little-endian format.
-    #[cfg(feature = "deep-data")]
+    #[cfg(feature = "deep")]
     pub fn compress_deep_block(
         &self,
         header: &Header,
@@ -718,7 +752,7 @@ const fn convert_little_endian_to_current(
 /// For each pixel, for each sample, for each channel: value
 ///
 /// This function converts the byte order of all sample values based on their types.
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 #[allow(unused)] // allows the extra parameters to be unused on little-endian systems
 fn convert_deep_samples_to_native_endian(
     bytes: ByteVec,
@@ -769,7 +803,7 @@ fn convert_deep_samples_to_native_endian(
 /// For each pixel, for each sample, for each channel: value
 ///
 /// This function converts the byte order of all sample values based on their types.
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 #[allow(unused)] // allows the extra parameters to be unused on little-endian systems
 fn convert_deep_samples_to_little_endian(
     bytes: ByteVec,

@@ -54,7 +54,7 @@ pub fn compress_bytes(
 /// Decompress raw byte data with full ZIP preprocessing pipeline.
 /// Used for deep data offset tables and sample data.
 /// ZIP compression includes byte interleaving AND delta encoding for deep data.
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 pub fn decompress_raw(
     compressed_le: ByteVec,
     expected_byte_size: usize,
@@ -74,7 +74,7 @@ pub fn decompress_raw(
         .map_err(|_| Error::invalid("zlib-compressed data malformed"))?;
 
     // DEBUG: Print first and last 40 bytes at each stage
-    if decompressed.len() >= 100 {
+    if super::deep_debug_enabled() && decompressed.len() >= 100 {
         eprintln!("DEBUG zip decompress: After zlib (first 40 bytes):");
         eprint!("  ");
         for (i, b) in decompressed[..40].iter().enumerate() {
@@ -96,7 +96,7 @@ pub fn decompress_raw(
     // 1. Delta reconstruction
     differences_to_samples(&mut decompressed);
 
-    if decompressed.len() >= 100 {
+    if super::deep_debug_enabled() && decompressed.len() >= 100 {
         eprintln!("DEBUG zip decompress: After delta reconstruction (first 40 bytes):");
         eprint!("  ");
         for (i, b) in decompressed[..40].iter().enumerate() {
@@ -117,7 +117,7 @@ pub fn decompress_raw(
     // 2. Byte interleaving (recombine even/odd bytes)
     interleave_byte_blocks(&mut decompressed);
 
-    if decompressed.len() >= 100 {
+    if super::deep_debug_enabled() && decompressed.len() >= 100 {
         eprintln!("DEBUG zip decompress: After byte interleaving (first 40 bytes):");
         eprint!("  ");
         for (i, b) in decompressed[..40].iter().enumerate() {
@@ -141,7 +141,7 @@ pub fn decompress_raw(
 /// Compress raw byte data with full ZIP preprocessing pipeline.
 /// Used for deep data offset tables and sample data.
 /// ZIP compression includes byte separation AND delta encoding for deep data.
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 pub fn compress_raw(mut uncompressed_le: ByteVec) -> Result<ByteVec> {
     // Full ZIP compression pipeline (same as used for regular image data):
     // 1. Byte separation (split into even/odd bytes for better compression)

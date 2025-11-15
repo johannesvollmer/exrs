@@ -5,7 +5,7 @@ use crate::block::lines::LineRef;
 use crate::error::{Result, UnitResult};
 use crate::image::read::any_channels::{ReadSamples, SamplesReader};
 use crate::image::read::levels::{ReadAllLevels, ReadLargestLevel, ReadSamplesLevel};
-use crate::image::{f16, FlatSamples, WritableSamples};
+use crate::image::{f16, FlatSamples};
 use crate::math::Vec2;
 use crate::meta::attribute::{ChannelDescription, SampleType};
 use crate::meta::header::Header;
@@ -18,7 +18,7 @@ pub struct ReadFlatSamples;
 // pub struct ReadAnySamples;
 
 /// Specify to read deep data samples (multiple samples per pixel at different depths).
-/// Requires the `deep-data` feature to be enabled.
+/// Requires the `deep` feature to be enabled.
 ///
 /// Note: Currently, deep data must be read using the block-level API.
 /// Use `block::read()` to get a `ChunksReader`, then call
@@ -41,11 +41,11 @@ pub struct ReadFlatSamples;
 /// # Ok(())
 /// # }
 /// ```
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct ReadDeepSamples;
 
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 impl ReadDeepSamples {
     /// Specify to read only the highest resolution level, skipping all smaller variations.
     ///

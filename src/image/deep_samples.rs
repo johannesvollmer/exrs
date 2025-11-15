@@ -3,13 +3,13 @@
 //! This module provides data structures for storing and accessing deep samples,
 //! where each pixel can have a variable number of samples at different depths.
 
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 use crate::error::{Error, Result, UnitResult};
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 use crate::image::FlatSamples;
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 use crate::math::Vec2;
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 use std::convert::TryFrom;
 
 /// Storage for deep samples with variable sample counts per pixel.
@@ -34,7 +34,7 @@ use std::convert::TryFrom;
 /// # Examples
 ///
 /// ```
-/// # #[cfg(feature = "deep-data")]
+/// # #[cfg(feature = "deep")]
 /// # {
 /// use exr::image::deep_samples::DeepSamples;
 /// use exr::image::FlatSamples;
@@ -48,7 +48,7 @@ use std::convert::TryFrom;
 /// let deep_samples = DeepSamples::new(resolution, sample_counts, samples);
 /// # }
 /// ```
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeepSamples {
     /// Number of samples for each pixel (row-major: width × height).
@@ -68,7 +68,7 @@ pub struct DeepSamples {
     cumulative_offsets: Vec<usize>,
 }
 
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 impl DeepSamples {
     /// Creates new deep sample storage from sample counts and sample data.
     ///
@@ -87,7 +87,7 @@ impl DeepSamples {
     /// # Examples
     ///
     /// ```
-    /// # #[cfg(feature = "deep-data")]
+    /// # #[cfg(feature = "deep")]
     /// # {
     /// use exr::image::deep_samples::DeepSamples;
     /// use exr::image::FlatSamples;
@@ -156,7 +156,7 @@ impl DeepSamples {
     /// # Examples
     ///
     /// ```
-    /// # #[cfg(feature = "deep-data")]
+    /// # #[cfg(feature = "deep")]
     /// # {
     /// use exr::image::deep_samples::DeepSamples;
     /// use exr::meta::attribute::SampleType;
@@ -232,7 +232,7 @@ impl DeepSamples {
     /// # Examples
     ///
     /// ```
-    /// # #[cfg(feature = "deep-data")]
+    /// # #[cfg(feature = "deep")]
     /// # {
     /// # use exr::image::deep_samples::DeepSamples;
     /// # use exr::image::FlatSamples;
@@ -289,7 +289,7 @@ impl DeepSamples {
     /// # Examples
     ///
     /// ```
-    /// # #[cfg(feature = "deep-data")]
+    /// # #[cfg(feature = "deep")]
     /// # {
     /// # use exr::image::deep_samples::DeepSamples;
     /// # use exr::image::FlatSamples;
@@ -410,7 +410,7 @@ impl DeepSamples {
 }
 
 /// Statistics about deep sample distribution.
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DeepSampleStatistics {
     /// Total number of pixels in the image.
@@ -432,7 +432,7 @@ pub struct DeepSampleStatistics {
     pub pixels_with_samples: usize,
 }
 
-#[cfg(all(test, feature = "deep-data"))]
+#[cfg(all(test, feature = "deep"))]
 mod tests {
     use super::*;
 

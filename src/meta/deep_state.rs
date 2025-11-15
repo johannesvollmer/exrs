@@ -4,7 +4,7 @@
 //! are organized within a deep image. This affects what operations can be performed
 //! efficiently on the image.
 
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 use crate::error::{Result, Error, UnitResult};
 
 /// Describes the organization state of samples in a deep image.
@@ -32,7 +32,7 @@ use crate::error::{Result, Error, UnitResult};
 /// # Examples
 ///
 /// ```
-/// # #[cfg(feature = "deep-data")]
+/// # #[cfg(feature = "deep")]
 /// # {
 /// use exr::meta::deep_state::DeepImageState;
 ///
@@ -49,7 +49,7 @@ use crate::error::{Result, Error, UnitResult};
 /// let state = DeepImageState::Tidy;
 /// # }
 /// ```
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 #[repr(u8)]
 pub enum DeepImageState {
@@ -70,7 +70,7 @@ pub enum DeepImageState {
     Tidy = 3,
 }
 
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 impl DeepImageState {
     /// Returns `true` if samples are sorted by depth.
     #[inline]
@@ -147,7 +147,7 @@ impl DeepImageState {
     }
 }
 
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 impl Default for DeepImageState {
     /// Returns `Messy` as the default state for newly created deep images.
     fn default() -> Self {
@@ -155,7 +155,7 @@ impl Default for DeepImageState {
     }
 }
 
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 impl std::fmt::Display for DeepImageState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -167,7 +167,7 @@ impl std::fmt::Display for DeepImageState {
     }
 }
 
-#[cfg(all(test, feature = "deep-data"))]
+#[cfg(all(test, feature = "deep"))]
 mod tests {
     use super::*;
 

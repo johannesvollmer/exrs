@@ -136,7 +136,7 @@ pub struct CompressedDeepTileBlock {
     pub compressed_sample_data_le: Vec<u8>,
 }
 
-use crate::io::{Data, Read, ResizableVec, Write};
+use crate::io::{Data, Read, Write};
 
 impl TileCoordinates {
     /// Without validation, write this instance to the byte stream.
@@ -297,8 +297,15 @@ impl CompressedDeepScanLineBlock {
         let compressed_sample_data_size = u64_to_usize(u64::read_le(read)?, "deep size")?;
         let decompressed_sample_data_size = u64_to_usize(u64::read_le(read)?, "raw deep size")?;
 
-        eprintln!("DEBUG read deep block: y={}, offset_table_size={}, sample_data_size={}, decompressed_size={}",
-            y_coordinate, compressed_pixel_offset_table_size, compressed_sample_data_size, decompressed_sample_data_size);
+        if crate::compression::deep_debug_enabled() {
+            eprintln!(
+                "DEBUG read deep block: y={}, offset_table_size={}, sample_data_size={}, decompressed_size={}",
+                y_coordinate,
+                compressed_pixel_offset_table_size,
+                compressed_sample_data_size,
+                decompressed_sample_data_size
+            );
+        }
 
         // doc said i32, try u8
         let compressed_pixel_offset_table = i8::read_vec_le(

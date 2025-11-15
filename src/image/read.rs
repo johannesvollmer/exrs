@@ -48,7 +48,7 @@ pub mod levels;
 pub mod samples;
 pub mod specific_channels;
 
-#[cfg(feature = "deep-data")]
+#[cfg(feature = "deep")]
 pub mod deep;
 
 use crate::block::samples::FromNativeSample;
@@ -89,7 +89,7 @@ pub fn read_all_data_from_file(path: impl AsRef<Path>) -> Result<AnyImage> {
 // - UncompressedDeepBlock::decompress_chunk() for each chunk
 //
 // Example stub for future implementation:
-// #[cfg(feature = "deep-data")]
+// #[cfg(feature = "deep")]
 // pub fn read_first_deep_layer_from_file(
 //     path: impl AsRef<Path>,
 // ) -> Result<crate::image::DeepImage> {
@@ -237,7 +237,7 @@ impl ReadBuilder {
     }
 
     /// Specify to read deep data samples (multiple samples per pixel at different depths).
-    /// Requires the `deep-data` feature to be enabled.
+    /// Requires the `deep` feature to be enabled.
     ///
     /// Note: Deep data high-level reading is not yet fully implemented.
     /// For now, use the block-level API with `block::read()` and
@@ -260,7 +260,7 @@ impl ReadBuilder {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(feature = "deep-data")]
+    #[cfg(feature = "deep")]
     #[must_use]
     pub const fn deep_data(self) -> samples::ReadDeepSamples {
         samples::ReadDeepSamples
