@@ -526,8 +526,25 @@ fn decode_block_row(
                     dct_coeffs[normal_idx] = f16::from_bits(bits).to_f32();
                 });
 
+            // Debug first block of first row
+            if block_y == 0 && block_x == 0 {
+                eprintln!("DWA DEBUG ch {} block (0,0):", ch_idx);
+                eprintln!("  DC: bits=0x{:04x}, f16={}, f32={}",
+                          dc_coeff_bits, f16::from_bits(dc_coeff_bits), dct_coeffs[0]);
+                eprintln!("  AC non-zero count: {}", ac_coeffs_bits.iter().filter(|&&b| b != 0).count());
+                eprintln!("  First 4 AC bits (zigzag): {:04x?}", &ac_coeffs_bits[..4.min(ac_coeffs_bits.len())]);
+                eprintln!("  First 4 AC f32 (normal order): [{:.6}, {:.6}, {:.6}, {:.6}]",
+                          dct_coeffs[1], dct_coeffs[2], dct_coeffs[3], dct_coeffs[4]);
+            }
+
             // Apply inverse DCT
             let spatial_block = inverse_dct_8x8_optimized(&dct_coeffs, last_non_zero);
+
+            // Debug first block spatial values
+            if block_y == 0 && block_x == 0 {
+                eprintln!("  After IDCT: first 4 spatial (linear f32): [{:.6}, {:.6}, {:.6}, {:.6}]",
+                          spatial_block[0], spatial_block[1], spatial_block[2], spatial_block[3]);
+            }
 
             // Convert spatial block from linear f32 to nonlinear f16 bits
             // The spatial values are in linear space, but we need to store them as nonlinear
@@ -540,6 +557,11 @@ fn decode_block_row(
                 let nonlinear_f16 = to_nonlinear.lookup_f16(linear_f16);
                 row_block[offset + i] = nonlinear_f16.to_bits();
             });
+
+            if block_y == 0 && block_x == 0 {
+                eprintln!("  After toNonlinear: first 4 bits: [{:04x}, {:04x}, {:04x}, {:04x}]",
+                          row_block[offset], row_block[offset + 1], row_block[offset + 2], row_block[offset + 3]);
+            }
 
             lossy_channel_idx += 1;
         }
@@ -569,6 +591,12 @@ fn decode_block_row(
         }
 
         if let (Some(r_idx), Some(g_idx), Some(b_idx)) = (r_lossy_idx, g_lossy_idx, b_lossy_idx) {
+            if block_y == 0 {
+                eprintln!("DWA DEBUG: Applying CSC - r_idx={}, g_idx={}, b_idx={} (lossy indices)", r_idx, g_idx, b_idx);
+                eprintln!("           CSC group: R ch={}, G ch={}, B ch={}",
+                          csc_group.r_index, csc_group.g_index, csc_group.b_index);
+            }
+
             // Apply CSC for each block in this row
             // CSC must be done in LINEAR space, so we need to:
             // 1. Convert nonlinear f16 -> linear f32
@@ -587,18 +615,28 @@ fn decode_block_row(
 
                 for i in 0..64 {
                     // Read nonlinear f16 bits and convert to linear f32
+                    // OpenEXR Y'CbCr encoding: Y in R, Cb in B, Cr in G
                     let y_nonlinear = row_blocks[r_idx][offset + i];
-                    let cb_nonlinear = row_blocks[g_idx][offset + i];
-                    let cr_nonlinear = row_blocks[b_idx][offset + i];
+                    let cb_nonlinear = row_blocks[b_idx][offset + i];  // Cb from B channel
+                    let cr_nonlinear = row_blocks[g_idx][offset + i];  // Cr from G channel
 
                     y_block[i] = f16::from_bits(to_linear.lookup(y_nonlinear)).to_f32();
                     cb_block[i] = f16::from_bits(to_linear.lookup(cb_nonlinear)).to_f32();
                     cr_block[i] = f16::from_bits(to_linear.lookup(cr_nonlinear)).to_f32();
                 }
 
+                if block_y == 0 && block_x == 0 {
+                    eprintln!("  Before CSC (linear): Y={:.6}, Cb={:.6}, Cr={:.6}",
+                              y_block[0], cb_block[0], cr_block[0]);
+                }
+
                 // Convert Y'CbCr to RGB (in linear space)
                 for i in 0..64 {
                     let (r, g, b) = csc::ycbcr_to_rgb(y_block[i], cb_block[i], cr_block[i]);
+
+                    if block_y == 0 && block_x == 0 && i == 0 {
+                        eprintln!("  After CSC (linear): R={:.6}, G={:.6}, B={:.6}", r, g, b);
+                    }
 
                     // Convert linear RGB back to nonlinear and store
                     let r_linear_f16 = f16::from_f32(r);
