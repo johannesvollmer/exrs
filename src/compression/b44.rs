@@ -1,5 +1,3 @@
-mod table;
-
 use crate::compression::{mod_p, ByteVec};
 use crate::error::usize_to_i32;
 use crate::io::Data;
@@ -8,24 +6,103 @@ use crate::prelude::*;
 use lebe::io::{ReadPrimitive, WriteEndian};
 use std::cmp::min;
 use std::mem::size_of;
-use table::{EXP_TABLE, LOG_TABLE};
+use std::sync::OnceLock;
 
 const BLOCK_SAMPLE_COUNT: usize = 4;
 
 // As B44 compression is only use on f16 channels, we can have a conste for this value.
 const BLOCK_X_BYTE_COUNT: usize = BLOCK_SAMPLE_COUNT * size_of::<u16>();
 
+/// B44 logarithm and exponential tables, generated on first use.
+/// These tables are used to convert between linear and logarithmic representations
+/// for B44 compression, matching the OpenEXR specification.
+struct B44Tables {
+    exp_table: Box<[u16; 65536]>,
+    log_table: Box<[u16; 65536]>,
+}
+
+static B44_TABLES: OnceLock<B44Tables> = OnceLock::new();
+
+/// Convert a 16-bit half-float from linear to logarithmic representation for B44 compression.
+/// This matches the OpenEXR C++ implementation's b44_convertFromLinear function.
+#[inline]
+fn convert_half_from_linear(x: u16) -> u16 {
+    // Handle infinity/NaN
+    if (x & 0x7c00) == 0x7c00 {
+        return 0;
+    }
+
+    // Handle values >= 8 * log(HALF_MAX)
+    if x >= 0x558c && x < 0x8000 {
+        return 0x7bff; // HALF_MAX
+    }
+
+    // Convert to f32, apply exp(x/8), convert back to f16
+    let f = f16::from_bits(x).to_f32();
+    let result = (f / 8.0).exp();
+    f16::from_f32(result).to_bits()
+}
+
+/// Convert a 16-bit half-float from logarithmic to linear representation for B44 decompression.
+/// This matches the OpenEXR C++ implementation's b44_convertToLinear function.
+#[inline]
+fn convert_half_to_linear(x: u16) -> u16 {
+    // Handle infinity/NaN
+    if (x & 0x7c00) == 0x7c00 {
+        return 0;
+    }
+
+    // Handle negative values (excluding -0.0)
+    if x > 0x8000 {
+        return 0;
+    }
+
+    // Convert to f32, apply 8*log(x), convert back to f16
+    let f = f16::from_bits(x).to_f32();
+    if f <= 0.0 {
+        return 0;
+    }
+    let result = 8.0 * f.ln();
+    f16::from_f32(result).to_bits()
+}
+
+/// Initialize the B44 lookup tables on first use.
+/// This generates 128KB of lookup tables (2 tables × 64K entries × 2 bytes).
+fn init_b44_tables() -> B44Tables {
+    let mut exp_table = Box::new([0u16; 65536]);
+    let mut log_table = Box::new([0u16; 65536]);
+
+    for i in 0..65536 {
+        exp_table[i] = convert_half_from_linear(i as u16);
+        log_table[i] = convert_half_to_linear(i as u16);
+    }
+
+    B44Tables {
+        exp_table,
+        log_table,
+    }
+}
+
+/// Get the B44 tables, initializing them on first access.
+/// Thread-safe through OnceLock.
+#[inline]
+fn get_b44_tables() -> &'static B44Tables {
+    B44_TABLES.get_or_init(init_b44_tables)
+}
+
 #[inline]
 fn convert_from_linear(s: &mut [u16; 16]) {
+    let tables = get_b44_tables();
     for v in s {
-        *v = EXP_TABLE[*v as usize];
+        *v = tables.exp_table[*v as usize];
     }
 }
 
 #[inline]
 fn convert_to_linear(s: &mut [u16; 16]) {
+    let tables = get_b44_tables();
     for v in s {
-        *v = LOG_TABLE[*v as usize];
+        *v = tables.log_table[*v as usize];
     }
 }
 
@@ -154,7 +231,7 @@ fn pack(s: [u16; 16], b: &mut [u8], optimize_flat_fields: bool, exact_max: bool)
     b[12] = ((r[12] << 4) | (r[13] >> 2)) as u8;
     b[13] = ((r[13] << 6) | r[14]) as u8;
 
-    14
+    return 14;
 }
 
 // Tiny macro to simply get block array value as a u32.
@@ -177,32 +254,32 @@ fn unpack14(b: &[u8], s: &mut [u16; 16]) {
     let shift = b32!(b, 2) >> 2;
     let bias = 0x20 << shift;
 
-    s[4] = (u32::from(s[0]) + ((((b32!(b, 2) << 4) | (b32!(b, 3) >> 4)) & SIX_BITS) << shift)
-        - bias) as u16;
-    s[8] = (u32::from(s[4]) + ((((b32!(b, 3) << 2) | (b32!(b, 4) >> 6)) & SIX_BITS) << shift)
-        - bias) as u16;
-    s[12] = (u32::from(s[8]) + ((b32!(b, 4) & SIX_BITS) << shift) - bias) as u16;
+    s[4] = (s[0] as u32 + ((((b32!(b, 2) << 4) | (b32!(b, 3) >> 4)) & SIX_BITS) << shift) - bias)
+        as u16;
+    s[8] = (s[4] as u32 + ((((b32!(b, 3) << 2) | (b32!(b, 4) >> 6)) & SIX_BITS) << shift) - bias)
+        as u16;
+    s[12] = (s[8] as u32 + ((b32!(b, 4) & SIX_BITS) << shift) - bias) as u16;
 
-    s[1] = (u32::from(s[0]) + ((b32!(b, 5) >> 2) << shift) - bias) as u16;
-    s[5] = (u32::from(s[4]) + ((((b32!(b, 5) << 4) | (b32!(b, 6) >> 4)) & SIX_BITS) << shift)
-        - bias) as u16;
-    s[9] = (u32::from(s[8]) + ((((b32!(b, 6) << 2) | (b32!(b, 7) >> 6)) & SIX_BITS) << shift)
-        - bias) as u16;
-    s[13] = (u32::from(s[12]) + ((b32!(b, 7) & SIX_BITS) << shift) - bias) as u16;
+    s[1] = (s[0] as u32 + ((b32!(b, 5) >> 2) << shift) - bias) as u16;
+    s[5] = (s[4] as u32 + ((((b32!(b, 5) << 4) | (b32!(b, 6) >> 4)) & SIX_BITS) << shift) - bias)
+        as u16;
+    s[9] = (s[8] as u32 + ((((b32!(b, 6) << 2) | (b32!(b, 7) >> 6)) & SIX_BITS) << shift) - bias)
+        as u16;
+    s[13] = (s[12] as u32 + ((b32!(b, 7) & SIX_BITS) << shift) - bias) as u16;
 
-    s[2] = (u32::from(s[1]) + ((b32!(b, 8) >> 2) << shift) - bias) as u16;
-    s[6] = (u32::from(s[5]) + ((((b32!(b, 8) << 4) | (b32!(b, 9) >> 4)) & SIX_BITS) << shift)
-        - bias) as u16;
-    s[10] = (u32::from(s[9]) + ((((b32!(b, 9) << 2) | (b32!(b, 10) >> 6)) & SIX_BITS) << shift)
-        - bias) as u16;
-    s[14] = (u32::from(s[13]) + ((b32!(b, 10) & SIX_BITS) << shift) - bias) as u16;
+    s[2] = (s[1] as u32 + ((b32!(b, 8) >> 2) << shift) - bias) as u16;
+    s[6] = (s[5] as u32 + ((((b32!(b, 8) << 4) | (b32!(b, 9) >> 4)) & SIX_BITS) << shift) - bias)
+        as u16;
+    s[10] = (s[9] as u32 + ((((b32!(b, 9) << 2) | (b32!(b, 10) >> 6)) & SIX_BITS) << shift) - bias)
+        as u16;
+    s[14] = (s[13] as u32 + ((b32!(b, 10) & SIX_BITS) << shift) - bias) as u16;
 
-    s[3] = (u32::from(s[2]) + ((b32!(b, 11) >> 2) << shift) - bias) as u16;
-    s[7] = (u32::from(s[6]) + ((((b32!(b, 11) << 4) | (b32!(b, 12) >> 4)) & SIX_BITS) << shift)
+    s[3] = (s[2] as u32 + ((b32!(b, 11) >> 2) << shift) - bias) as u16;
+    s[7] = (s[6] as u32 + ((((b32!(b, 11) << 4) | (b32!(b, 12) >> 4)) & SIX_BITS) << shift) - bias)
+        as u16;
+    s[11] = (s[10] as u32 + ((((b32!(b, 12) << 2) | (b32!(b, 13) >> 6)) & SIX_BITS) << shift)
         - bias) as u16;
-    s[11] = (u32::from(s[10]) + ((((b32!(b, 12) << 2) | (b32!(b, 13) >> 6)) & SIX_BITS) << shift)
-        - bias) as u16;
-    s[15] = (u32::from(s[14]) + ((b32!(b, 13) & SIX_BITS) << shift) - bias) as u16;
+    s[15] = (s[14] as u32 + ((b32!(b, 13) & SIX_BITS) << shift) - bias) as u16;
 
     for i in 0..16 {
         if (s[i] & 0x8000) != 0 {
@@ -287,7 +364,7 @@ pub fn decompress(
     let mut channel_data: Vec<ChannelData> = Vec::with_capacity(channels.list.len());
     let mut tmp_read_index = 0;
 
-    for channel in &channels.list {
+    for channel in channels.list.iter() {
         let channel = ChannelData {
             tmp_start_index: tmp_read_index,
             tmp_end_index: tmp_read_index,
@@ -295,7 +372,9 @@ pub fn decompress(
             y_sampling: channel.sampling.y(),
             sample_type: channel.sample_type,
             quantize_linearly: channel.quantize_linearly,
-            samples_per_pixel: channel.sampling.area(),
+            // For B44, samples_per_pixel should always be 1 since each channel
+            // is processed independently and resolution already accounts for subsampling
+            samples_per_pixel: 1,
         };
 
         tmp_read_index += channel.resolution.area()
@@ -397,10 +476,9 @@ pub fn decompress(
                 }
 
                 // Get resting samples from the line to copy in temp buffer (without going outside channel).
-                let x_resting_sample_count = if x + 3 < x_sample_count {
-                    BLOCK_SAMPLE_COUNT
-                } else {
-                    x_sample_count - x
+                let x_resting_sample_count = match x + 3 < x_sample_count {
+                    true => BLOCK_SAMPLE_COUNT,
+                    false => x_sample_count - x,
                 };
 
                 debug_assert!(x_resting_sample_count > 0);
@@ -521,7 +599,9 @@ pub fn compress(
             resolution: number_samples,
             sample_type: channel.sample_type,
             quantize_linearly: channel.quantize_linearly,
-            samples_per_pixel: channel.sampling.area(),
+            // For B44, samples_per_pixel should always be 1 since each channel
+            // is processed independently and resolution already accounts for subsampling
+            samples_per_pixel: 1,
         };
 
         tmp_end_index += byte_count;
@@ -638,7 +718,7 @@ pub fn compress(
                         let j = min(i, n - 1) * 2;
 
                         // TODO: Make [u8; 2] to u16 fast.
-                        s[i] = u16::from_ne_bytes([tmp[row0 + j], tmp[row0 + j + 1]]);
+                        s[i + 0] = u16::from_ne_bytes([tmp[row0 + j], tmp[row0 + j + 1]]);
                         s[i + 4] = u16::from_ne_bytes([tmp[row1 + j], tmp[row1 + j + 1]]);
                         s[i + 8] = u16::from_ne_bytes([tmp[row2 + j], tmp[row2 + j + 1]]);
                         s[i + 12] = u16::from_ne_bytes([tmp[row3 + j], tmp[row3 + j + 1]]);
@@ -695,7 +775,7 @@ mod test {
             s1[i] = f16::from_f32(rand::random::<f32>()).to_bits();
         }
 
-        let s2 = s1;
+        let s2 = s1.clone();
 
         // Apply two reversible conversion.
         convert_from_linear(&mut s1);
