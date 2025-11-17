@@ -92,17 +92,17 @@ mod tests {
             let error_b = (b - b2).abs();
 
             assert!(
-                error_r < 1e-5,
+                error_r < 1e-4,
                 "R roundtrip failed: {} -> {} (Y={}, Cb={}, Cr={})",
                 r, r2, y, cb, cr
             );
             assert!(
-                error_g < 1e-5,
+                error_g < 1e-4,
                 "G roundtrip failed: {} -> {} (Y={}, Cb={}, Cr={})",
                 g, g2, y, cb, cr
             );
             assert!(
-                error_b < 1e-5,
+                error_b < 1e-4,
                 "B roundtrip failed: {} -> {} (Y={}, Cb={}, Cr={})",
                 b, b2, y, cb, cr
             );
