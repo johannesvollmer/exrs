@@ -25,9 +25,70 @@ use crate::error::{Error, Result};
 use crate::meta::attribute::{ChannelList, IntegerBounds};
 
 use std::io::Cursor;
+use smallvec::SmallVec;
 
 use classifier::{classify_channels, CompressionScheme};
 use nonlinear::ToLinearLut;
+
+/// Per-channel decode state tracking
+struct ChannelDecodeState {
+    scheme: CompressionScheme,
+    sample_type: crate::meta::attribute::SampleType,
+    width: usize,
+    height: usize,
+    x_sampling: usize,
+    y_sampling: usize,
+    bytes_per_sample: usize,
+
+    /// Starting offset in the output buffer for this channel
+    channel_start_offset: usize,
+
+    /// Offset to each row in the output buffer (accounting for subsampling)
+    row_offsets: Vec<usize>,
+
+    /// Cursor for RLE data (if scheme is Rle)
+    rle_cursor: usize,
+
+    /// Cursor for Unknown data (if scheme is Unknown)
+    unknown_cursor: usize,
+}
+
+impl ChannelDecodeState {
+    fn new(
+        scheme: CompressionScheme,
+        channel: &crate::meta::attribute::ChannelDescription,
+        rectangle: IntegerBounds,
+        channel_start_offset: usize,
+    ) -> Self {
+        let channel_resolution = channel.subsampled_resolution(rectangle.size);
+        let width = channel_resolution.x();
+        let height = channel_resolution.y();
+        let bytes_per_sample = channel.sample_type.bytes_per_sample();
+
+        // Calculate row offsets accounting for subsampling (functional style)
+        let row_offsets: Vec<usize> = (0..height)
+            .scan(channel_start_offset, |offset, _| {
+                let current = *offset;
+                *offset += width * bytes_per_sample;
+                Some(current)
+            })
+            .collect();
+
+        Self {
+            scheme,
+            sample_type: channel.sample_type,
+            width,
+            height,
+            x_sampling: channel.sampling.x(),
+            y_sampling: channel.sampling.y(),
+            bytes_per_sample,
+            channel_start_offset,
+            row_offsets,
+            rle_cursor: 0,
+            unknown_cursor: 0,
+        }
+    }
+}
 
 /// Decompress DWAA/DWAB compressed data
 ///
@@ -110,9 +171,15 @@ pub fn decompress(
 
     let rle_data = if header.rle_compressed_size > 0 {
         let compressed = read_bytes(&mut reader, header.rle_compressed_size)?;
+        eprintln!("DWA: RLE compressed_size={}, uncompressed_size={}, raw_size={}",
+                  header.rle_compressed_size, header.rle_uncompressed_size, header.rle_raw_size);
         let uncompressed = decompress_zip(&compressed, header.rle_uncompressed_size)?;
-        decompress_rle(&uncompressed, header.rle_raw_size)?
+        eprintln!("DWA: RLE after ZIP decompression: {} bytes", uncompressed.len());
+        let rle_decompressed = decompress_rle(&uncompressed, header.rle_raw_size)?;
+        eprintln!("DWA: RLE after RLE decompression: {} bytes", rle_decompressed.len());
+        rle_decompressed
     } else {
+        eprintln!("DWA: No RLE data (rle_compressed_size=0)");
         Vec::new()
     };
 
@@ -122,109 +189,370 @@ pub fn decompress(
     // Allocate output buffer
     let mut output = vec![0u8; expected_byte_size];
 
-    // Decode all lossy DCT channels into intermediate spatial buffers
-    let mut spatial_buffers: Vec<Option<Vec<f32>>> = vec![None; channels.list.len()];
+    // Initialize channel decode states with row offsets (functional style)
+    let channel_states: SmallVec<[ChannelDecodeState; 4]> = channels.list.iter()
+        .enumerate()
+        .scan(0usize, |channel_offset, (ch_idx, channel)| {
+            let channel_class = &classification.channel_classifications[ch_idx];
+            let channel_resolution = channel.subsampled_resolution(rectangle.size);
+            let bytes_per_sample = channel.sample_type.bytes_per_sample();
+            let channel_bytes = channel_resolution.area() * bytes_per_sample;
 
-    let mut ac_reader = std::io::Cursor::new(&ac_data[..]);
-    let mut dc_reader = std::io::Cursor::new(&dc_data[..]);
+            let state = ChannelDecodeState::new(
+                channel_class.scheme,
+                channel,
+                rectangle,
+                *channel_offset,
+            );
 
-    for (ch_idx, channel) in channels.list.iter().enumerate() {
-        let channel_class = &classification.channel_classifications[ch_idx];
-        let channel_resolution = channel.subsampled_resolution(rectangle.size);
+            *channel_offset += channel_bytes;
+            Some(state)
+        })
+        .collect();
 
-        let channel_name: String = channel.name.clone().into();
-        eprintln!("DWA: Channel {} ({:?}) classified as {:?}",
-                  ch_idx, channel_name, channel_class.scheme);
+    // NEW PIPELINE: Block-row processing matching OpenEXR
+    decode_block_rows(
+        &channel_states,
+        &classification,
+        &dc_data,
+        &ac_data,
+        &rle_data,
+        &unknown_data,
+        &to_linear_lut,
+        &mut output,
+    )?;
 
-        if channel_class.scheme == CompressionScheme::LossyDct {
-            // Decode this lossy DCT channel
-            let spatial_data = decode_lossy_dct_channel(
-                channel_resolution,
-                channel_class,
-                &classification.csc_groups,
-                &mut ac_reader,
-                &mut dc_reader,
+    Ok(output)
+}
+
+/// Decode all channels using block-row processing (matching OpenEXR pipeline)
+fn decode_block_rows(
+    channel_states: &SmallVec<[ChannelDecodeState; 4]>,
+    classification: &classifier::ClassificationResult,
+    dc_data: &[u8],
+    ac_data: &[u8],
+    rle_data: &[u8],
+    unknown_data: &[u8],
+    to_linear_lut: &ToLinearLut,
+    output: &mut [u8],
+) -> Result<()> {
+    use constants::BLOCK_SIZE;
+
+    // Find the first lossy DCT channel to get dimensions
+    let lossy_channel = channel_states.iter()
+        .find(|s| s.scheme == CompressionScheme::LossyDct)
+        .ok_or_else(|| Error::invalid("No lossy DCT channels found"))?;
+
+    let width = lossy_channel.width;
+    let height = lossy_channel.height;
+
+    let num_blocks_x = (width + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    let num_blocks_y = (height + BLOCK_SIZE - 1) / BLOCK_SIZE;
+
+    eprintln!("DWA decode_block_rows: {}x{} pixels, {} x {} blocks",
+              width, height, num_blocks_x, num_blocks_y);
+
+    // Organize DC data into per-channel planes (functional style)
+    if dc_data.len() % 2 != 0 {
+        return Err(Error::invalid("DC data length must be even"));
+    }
+
+    let dc_as_u16: Vec<u16> = dc_data
+        .chunks_exact(2)
+        .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]))
+        .collect();
+
+    let dc_planes: SmallVec<[Vec<u16>; 4]> = channel_states.iter()
+        .scan(0usize, |dc_offset, state| {
+            if state.scheme == CompressionScheme::LossyDct {
+                let channel_blocks = num_blocks_x * num_blocks_y;
+                if *dc_offset + channel_blocks > dc_as_u16.len() {
+                    return Some(Err(Error::invalid("DC data buffer too small")));
+                }
+                let plane = dc_as_u16[*dc_offset..*dc_offset + channel_blocks].to_vec();
+                *dc_offset += channel_blocks;
+                Some(Ok(plane))
+            } else {
+                Some(Ok(Vec::new()))
+            }
+        })
+        .collect::<Result<SmallVec<[Vec<u16>; 4]>>>()?;
+
+    // AC stream cursor (shared across all channels)
+    let mut ac_cursor = std::io::Cursor::new(ac_data);
+
+    // RLE and Unknown cursors (per channel, mutable) - use smallvec for cache-friendly access
+    let mut rle_cursors: SmallVec<[usize; 4]> = (0..channel_states.len()).map(|_| 0).collect();
+    let mut unknown_cursors: SmallVec<[usize; 4]> = (0..channel_states.len()).map(|_| 0).collect();
+
+    // Allocate rowBlock buffer: stores one row of 8x8 blocks as f16 (nonlinear)
+    let lossy_channel_count = channel_states.iter()
+        .filter(|s| s.scheme == CompressionScheme::LossyDct)
+        .count();
+    let mut row_blocks: SmallVec<[Vec<u16>; 4]> = (0..lossy_channel_count)
+        .map(|_| vec![0u16; num_blocks_x * 64])
+        .collect();
+
+    // Process each block row
+    for block_y in 0..num_blocks_y {
+        let max_y = if block_y == num_blocks_y - 1 {
+            height - block_y * BLOCK_SIZE
+        } else {
+            BLOCK_SIZE
+        };
+
+        // Decode all blocks in this row
+        decode_block_row(
+            block_y,
+            num_blocks_x,
+            channel_states,
+            &dc_planes,
+            &mut ac_cursor,
+            classification,
+            &mut row_blocks,
+        )?;
+
+        // Write scanlines for this block row
+        for by in 0..max_y {
+            let y = block_y * BLOCK_SIZE + by;
+
+            write_scanline(
+                y,
+                by,
+                num_blocks_x,
+                channel_states,
+                &row_blocks,
+                rle_data,
+                unknown_data,
+                &mut rle_cursors,
+                &mut unknown_cursors,
+                to_linear_lut,
+                output,
             )?;
+        }
+    }
 
-            eprintln!("DWA: Decoded {} pixels for channel {}", spatial_data.len(), ch_idx);
-            spatial_buffers[ch_idx] = Some(spatial_data);
+    Ok(())
+}
+
+/// Decode one row of 8x8 blocks for all lossy DCT channels
+fn decode_block_row(
+    block_y: usize,
+    num_blocks_x: usize,
+    channel_states: &SmallVec<[ChannelDecodeState; 4]>,
+    dc_planes: &SmallVec<[Vec<u16>; 4]>,
+    ac_cursor: &mut std::io::Cursor<&[u8]>,
+    classification: &classifier::ClassificationResult,
+    row_blocks: &mut SmallVec<[Vec<u16>; 4]>,
+) -> Result<()> {
+    use constants::INVERSE_ZIGZAG_ORDER;
+    use dct::inverse_dct_8x8_optimized;
+    use half::f16;
+
+
+    // Decode each block in this row
+    for block_x in 0..num_blocks_x {
+        let mut lossy_channel_idx = 0;
+
+        for (ch_idx, state) in channel_states.iter().enumerate() {
+            if state.scheme != CompressionScheme::LossyDct {
+                continue;
+            }
+
+            let dc_plane = &dc_planes[ch_idx];
+            let block_idx = block_y * num_blocks_x + block_x;
+
+            if block_idx >= dc_plane.len() {
+                return Err(Error::invalid("DC plane index out of bounds"));
+            }
+
+            // Read DC coefficient (already in native endian from zip_reconstruct_bytes)
+            let dc_coeff_bits = dc_plane[block_idx];
+
+            // Read AC coefficients from continuous RLE stream
+            let ac_coeffs_bits = read_ac_coefficients_for_block(ac_cursor)?;
+
+            // Find last non-zero coefficient for optimization
+            let last_non_zero = rle::find_last_non_zero(&ac_coeffs_bits);
+
+            // Construct full DCT coefficient block (DC + AC) - functional style
+            let mut dct_coeffs = [0.0f32; 64];
+            dct_coeffs[0] = f16::from_bits(dc_coeff_bits).to_f32();
+
+            // Apply AC coefficients in zigzag order
+            ac_coeffs_bits.iter().enumerate()
+                .filter(|(_, &bits)| bits != 0)
+                .for_each(|(i, &bits)| {
+                    let normal_idx = INVERSE_ZIGZAG_ORDER[i + 1];
+                    dct_coeffs[normal_idx] = f16::from_bits(bits).to_f32();
+                });
+
+            // Apply inverse DCT
+            let spatial_block = inverse_dct_8x8_optimized(&dct_coeffs, last_non_zero);
+
+            // Convert spatial block to f16 and store in rowBlock (functional style)
+            let row_block = &mut row_blocks[lossy_channel_idx];
+            let offset = block_x * 64;
+            spatial_block.iter().enumerate().for_each(|(i, &val)| {
+                row_block[offset + i] = f16::from_f32(val).to_bits();
+            });
+
+            lossy_channel_idx += 1;
         }
     }
 
     // Apply inverse CSC for RGB triplets
     for csc_group in &classification.csc_groups {
-        if let (Some(y_data), Some(cb_data), Some(cr_data)) = (
-            &spatial_buffers[csc_group.r_index],
-            &spatial_buffers[csc_group.g_index],
-            &spatial_buffers[csc_group.b_index],
-        ) {
-            // Convert Y'CbCr to RGB
-            let (r_data, g_data, b_data) = apply_inverse_csc(y_data, cb_data, cr_data);
+        // Find which lossy channel indices correspond to R, G, B
+        let mut r_lossy_idx = None;
+        let mut g_lossy_idx = None;
+        let mut b_lossy_idx = None;
 
-            spatial_buffers[csc_group.r_index] = Some(r_data);
-            spatial_buffers[csc_group.g_index] = Some(g_data);
-            spatial_buffers[csc_group.b_index] = Some(b_data);
+        let mut lossy_idx = 0;
+        for (ch_idx, state) in channel_states.iter().enumerate() {
+            if state.scheme == CompressionScheme::LossyDct {
+                if ch_idx == csc_group.r_index {
+                    r_lossy_idx = Some(lossy_idx);
+                }
+                if ch_idx == csc_group.g_index {
+                    g_lossy_idx = Some(lossy_idx);
+                }
+                if ch_idx == csc_group.b_index {
+                    b_lossy_idx = Some(lossy_idx);
+                }
+                lossy_idx += 1;
+            }
+        }
+
+        if let (Some(r_idx), Some(g_idx), Some(b_idx)) = (r_lossy_idx, g_lossy_idx, b_lossy_idx) {
+            // Apply CSC for each block in this row
+            for block_x in 0..num_blocks_x {
+                let offset = block_x * 64;
+
+                // Extract Y'CbCr values for this block
+                let mut y_block = [0.0f32; 64];
+                let mut cb_block = [0.0f32; 64];
+                let mut cr_block = [0.0f32; 64];
+
+                for i in 0..64 {
+                    y_block[i] = f16::from_bits(row_blocks[r_idx][offset + i]).to_f32();
+                    cb_block[i] = f16::from_bits(row_blocks[g_idx][offset + i]).to_f32();
+                    cr_block[i] = f16::from_bits(row_blocks[b_idx][offset + i]).to_f32();
+                }
+
+                // Convert Y'CbCr to RGB
+                for i in 0..64 {
+                    let (r, g, b) = csc::ycbcr_to_rgb(y_block[i], cb_block[i], cr_block[i]);
+                    row_blocks[r_idx][offset + i] = f16::from_f32(r).to_bits();
+                    row_blocks[g_idx][offset + i] = f16::from_f32(g).to_bits();
+                    row_blocks[b_idx][offset + i] = f16::from_f32(b).to_bits();
+                }
+            }
         }
     }
 
-    // Write all channels to output
-    let mut output_offset = 0;
-    let mut unknown_offset = 0;
-    let mut rle_offset = 0;
+    Ok(())
+}
 
-    for (ch_idx, channel) in channels.list.iter().enumerate() {
-        let channel_class = &classification.channel_classifications[ch_idx];
-        let channel_resolution = channel.subsampled_resolution(rectangle.size);
-        let channel_pixel_count = channel_resolution.area();
-        let bytes_per_sample = channel.sample_type.bytes_per_sample();
-        let channel_bytes = channel_pixel_count * bytes_per_sample;
+/// Write one scanline for all channels
+fn write_scanline(
+    y: usize,
+    by: usize,  // row within 8x8 block (0-7)
+    _num_blocks_x: usize,
+    channel_states: &SmallVec<[ChannelDecodeState; 4]>,
+    row_blocks: &SmallVec<[Vec<u16>; 4]>,
+    rle_data: &[u8],
+    unknown_data: &[u8],
+    rle_cursors: &mut SmallVec<[usize; 4]>,
+    unknown_cursors: &mut SmallVec<[usize; 4]>,
+    to_linear_lut: &ToLinearLut,
+    output: &mut [u8],
+) -> Result<()> {
+    use constants::BLOCK_SIZE;
 
-        match channel_class.scheme {
+    let mut lossy_channel_idx = 0;
+
+    for (ch_idx, state) in channel_states.iter().enumerate() {
+        // Skip if this row doesn't apply to this channel (due to subsampling)
+        if y >= state.height {
+            continue;
+        }
+
+        let row_offset = state.row_offsets[y];
+        let row_bytes = state.width * state.bytes_per_sample;
+
+        match state.scheme {
             CompressionScheme::LossyDct => {
-                if let Some(spatial_data) = &spatial_buffers[ch_idx] {
-                    eprintln!("DWA: Writing {} pixels to output for channel {} at offset {}",
-                              spatial_data.len(), ch_idx, output_offset);
-                    // Apply inverse nonlinear transform and write to output
-                    write_channel_to_output(
-                        spatial_data,
-                        channel.sample_type,
-                        &to_linear_lut,
-                        &mut output[output_offset..output_offset + channel_bytes],
-                    )?;
-                } else {
-                    eprintln!("DWA: WARNING - No spatial data for LossyDct channel {} (skipping {} bytes)",
-                              ch_idx, channel_bytes);
+                // Write from rowBlock with toLinear LUT
+                let row_block = &row_blocks[lossy_channel_idx];
+
+                for x in 0..state.width {
+                    let block_x = x / BLOCK_SIZE;
+                    let bx = x % BLOCK_SIZE;
+                    let block_offset = block_x * 64 + by * BLOCK_SIZE + bx;
+
+                    if block_offset >= row_block.len() {
+                        return Err(Error::invalid("Block offset out of bounds"));
+                    }
+
+                    let nonlinear_bits = row_block[block_offset];
+                    let linear_bits = to_linear_lut.lookup(nonlinear_bits);
+
+                    let out_offset = row_offset + x * state.bytes_per_sample;
+
+                    if state.sample_type == crate::meta::attribute::SampleType::F16 {
+                        // Write as F16
+                        let bytes = linear_bits.to_le_bytes();
+                        output[out_offset] = bytes[0];
+                        output[out_offset + 1] = bytes[1];
+                    } else if state.sample_type == crate::meta::attribute::SampleType::F32 {
+                        // Convert to F32
+                        let linear_f32 = half::f16::from_bits(linear_bits).to_f32();
+                        let bytes = linear_f32.to_le_bytes();
+                        output[out_offset..out_offset + 4].copy_from_slice(&bytes);
+                    }
                 }
-                output_offset += channel_bytes;
+
+                lossy_channel_idx += 1;
             }
             CompressionScheme::Rle => {
-                // RLE compressed channel
-                if rle_offset + channel_bytes > rle_data.len() {
-                    return Err(Error::invalid("RLE data buffer too small"));
+                // Copy row from RLE data
+                let cursor = rle_cursors[ch_idx];
+                if cursor + row_bytes > rle_data.len() {
+                    eprintln!("DWA RLE ERROR: ch {} y {} cursor {} + row_bytes {} > rle_data.len() {}",
+                              ch_idx, y, cursor, row_bytes, rle_data.len());
+                    return Err(Error::invalid("RLE data buffer overrun"));
                 }
 
-                output[output_offset..output_offset + channel_bytes]
-                    .copy_from_slice(&rle_data[rle_offset..rle_offset + channel_bytes]);
+                if y < 3 {
+                    eprintln!("DWA RLE: ch {} y {} copying {} bytes from rle[{}..{}] to out[{}..{}]",
+                              ch_idx, y, row_bytes, cursor, cursor + row_bytes, row_offset, row_offset + row_bytes);
+                    if cursor + 8 <= rle_data.len() {
+                        eprintln!("  First 8 bytes: {:02x?}", &rle_data[cursor..cursor.min(cursor+8)]);
+                    }
+                }
 
-                rle_offset += channel_bytes;
-                output_offset += channel_bytes;
+                output[row_offset..row_offset + row_bytes]
+                    .copy_from_slice(&rle_data[cursor..cursor + row_bytes]);
+
+                rle_cursors[ch_idx] = cursor + row_bytes;
             }
             CompressionScheme::Unknown => {
-                // ZIP compressed channel
-                if unknown_offset + channel_bytes > unknown_data.len() {
-                    return Err(Error::invalid("Unknown data buffer too small"));
+                // Copy row from Unknown data
+                let cursor = unknown_cursors[ch_idx];
+                if cursor + row_bytes > unknown_data.len() {
+                    return Err(Error::invalid("Unknown data buffer overrun"));
                 }
 
-                output[output_offset..output_offset + channel_bytes]
-                    .copy_from_slice(&unknown_data[unknown_offset..unknown_offset + channel_bytes]);
+                output[row_offset..row_offset + row_bytes]
+                    .copy_from_slice(&unknown_data[cursor..cursor + row_bytes]);
 
-                unknown_offset += channel_bytes;
-                output_offset += channel_bytes;
+                unknown_cursors[ch_idx] = cursor + row_bytes;
             }
         }
     }
 
-    Ok(output)
+    Ok(())
 }
 
 /// Decode a lossy DCT channel into spatial domain
