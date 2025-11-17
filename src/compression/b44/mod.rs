@@ -1,3 +1,4 @@
+#[rustfmt::skip]
 mod table;
 
 use crate::compression::{mod_p, ByteVec};
