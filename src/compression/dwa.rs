@@ -27,7 +27,7 @@ use crate::meta::attribute::{ChannelList, IntegerBounds};
 use std::io::Cursor;
 
 use classifier::{classify_channels, CompressionScheme};
-use nonlinear::InverseNonlinearLut;
+use nonlinear::ToLinearLut;
 
 /// Decompress DWAA/DWAB compressed data
 ///
@@ -102,8 +102,8 @@ pub fn decompress(
         let compressed = read_bytes(&mut reader, header.dc_compressed_size)?;
         // DC coefficients are u16 values, decompress and apply byte-delta decoding
         let decompressed = decompress_zip(&compressed, header.dc_uncompressed_size * 2)?;
-        // TODO: Apply byte-delta decoding (zip_reconstruct_bytes from OpenEXR)
-        decompressed
+        // Apply byte-delta decoding and interleaving (zip_reconstruct_bytes from OpenEXR)
+        zip_reconstruct_bytes(&decompressed)
     } else {
         Vec::new()
     };
@@ -116,8 +116,8 @@ pub fn decompress(
         Vec::new()
     };
 
-    // Create lookup table for inverse nonlinear transform
-    let nonlinear_lut = InverseNonlinearLut::new();
+    // Create lookup table for inverse nonlinear transform (nonlinear -> linear)
+    let to_linear_lut = ToLinearLut::new();
 
     // Allocate output buffer
     let mut output = vec![0u8; expected_byte_size];
@@ -188,7 +188,7 @@ pub fn decompress(
                     write_channel_to_output(
                         spatial_data,
                         channel.sample_type,
-                        &nonlinear_lut,
+                        &to_linear_lut,
                         &mut output[output_offset..output_offset + channel_bytes],
                     )?;
                 } else {
@@ -382,10 +382,13 @@ fn apply_inverse_csc(y_data: &[f32], cb_data: &[f32], cr_data: &[f32]) -> (Vec<f
 }
 
 /// Apply inverse nonlinear transform and write channel to output
+///
+/// The spatial data from inverse DCT is in nonlinear (quantized) space.
+/// We need to apply the toLinear LUT to convert back to linear light.
 fn write_channel_to_output(
     spatial_data: &[f32],
     sample_type: crate::meta::attribute::SampleType,
-    nonlinear_lut: &InverseNonlinearLut,
+    to_linear_lut: &ToLinearLut,
     output: &mut [u8],
 ) -> Result<()> {
     use crate::meta::attribute::SampleType;
@@ -400,35 +403,40 @@ fn write_channel_to_output(
 
             for (i, &value) in spatial_data.iter().enumerate() {
                 // Spatial data from inverse DCT is in quantized (nonlinear) space as f32
-                // We need to convert to f16, then apply inverse nonlinear (toLinear) lookup
-                // to get back to linear light values
-                let quantized_f16 = f16::from_f32(value);
-                let linear = nonlinear_lut.lookup(quantized_f16);
+                // Convert to f16 nonlinear bits, then apply toLinear LUT (u16->u16)
+                let nonlinear_f16 = f16::from_f32(value);
+                let nonlinear_bits = nonlinear_f16.to_bits();
+
+                // Apply the exact u16->u16 LUT from OpenEXR
+                let linear_bits = to_linear_lut.lookup(nonlinear_bits);
 
                 if i < 3 {
-                    eprintln!("DWA DEBUG write[{}]: spatial_f32={:.6}, spatial_f16={:04x} ({:.6}), linear={:.6}",
-                              i, value, quantized_f16.to_bits(), quantized_f16.to_f32(), linear);
+                    eprintln!("DWA DEBUG write[{}]: spatial_f32={:.6}, nonlinear_bits={:04x}, linear_bits={:04x} ({:.6})",
+                              i, value, nonlinear_bits, linear_bits, f16::from_bits(linear_bits).to_f32());
                 }
 
-                // Convert linear value to f16 and write as little-endian bytes
-                let half = f16::from_f32(linear);
-                let bytes = half.to_le_bytes();
+                // Write linear half as little-endian bytes
+                let bytes = linear_bits.to_le_bytes();
                 output[i * 2] = bytes[0];
                 output[i * 2 + 1] = bytes[1];
             }
         }
         SampleType::F32 => {
-            // Convert to f32 with inverse nonlinear transform
+            // For F32, convert nonlinear half to linear half, then expand to f32
+            // This matches OpenEXR: toLinear first, then half_to_float
             if output.len() != spatial_data.len() * 4 {
                 return Err(Error::invalid("Output buffer size mismatch for F32"));
             }
 
             for (i, &value) in spatial_data.iter().enumerate() {
-                // Apply inverse nonlinear transform
-                let linear = nonlinear::from_nonlinear(value);
+                // Convert to nonlinear half, apply toLinear LUT, then expand to f32
+                let nonlinear_f16 = f16::from_f32(value);
+                let nonlinear_bits = nonlinear_f16.to_bits();
+                let linear_bits = to_linear_lut.lookup(nonlinear_bits);
+                let linear_f32 = f16::from_bits(linear_bits).to_f32();
 
                 // Write as little-endian bytes
-                let bytes = linear.to_le_bytes();
+                let bytes = linear_f32.to_le_bytes();
                 output[i * 4..i * 4 + 4].copy_from_slice(&bytes);
             }
         }
@@ -625,6 +633,53 @@ fn decompress_zip(compressed: &[u8], expected_size: usize) -> Result<Vec<u8>> {
     Ok(decompressed)
 }
 
+/// ZIP reconstruct bytes - performs byte-delta decoding and interleaving
+/// for DWA DC data decompression.
+///
+/// This implements the `internal_zip_reconstruct_bytes` function from OpenEXR:
+/// 1. reconstruct() - byte-delta decoding
+/// 2. interleave() - de-interleaves the data
+fn zip_reconstruct_bytes(source: &[u8]) -> Vec<u8> {
+    if source.is_empty() {
+        return Vec::new();
+    }
+
+    // Step 1: reconstruct() - byte-delta decoding
+    // For each byte starting at index 1, set buf[i] = (buf[i-1] + buf[i] - 128) as u8
+    let mut reconstructed = source.to_vec();
+    for i in 1..reconstructed.len() {
+        reconstructed[i] = reconstructed[i - 1]
+            .wrapping_add(reconstructed[i])
+            .wrapping_sub(128);
+    }
+
+    // Step 2: interleave() - de-interleave the data
+    // Split buffer into two halves at (count+1)/2, then interleave:
+    // out[0]=half1[0], out[1]=half2[0], out[2]=half1[1], out[3]=half2[1], etc.
+    let count = reconstructed.len();
+    let split_point = (count + 1) / 2;
+
+    let mut output = Vec::with_capacity(count);
+    let half1 = &reconstructed[..split_point];
+    let half2 = &reconstructed[split_point..];
+
+    let mut i1 = 0;
+    let mut i2 = 0;
+
+    while output.len() < count {
+        if i1 < half1.len() {
+            output.push(half1[i1]);
+            i1 += 1;
+        }
+        if output.len() < count && i2 < half2.len() {
+            output.push(half2[i2]);
+            i2 += 1;
+        }
+    }
+
+    output
+}
+
 /// Decompress RLE data (simple RLE, not the same as the main RLE compression)
 /// This is a basic RLE format used for DWAA/DWAB metadata
 fn decompress_rle(compressed: &[u8], expected_size: usize) -> Result<Vec<u8>> {
@@ -696,6 +751,61 @@ mod tests {
         // Verify AC compression enum values match spec
         assert!(matches!(AcCompression::StaticHuffman, AcCompression::StaticHuffman));
         assert!(matches!(AcCompression::Deflate, AcCompression::Deflate));
+    }
+
+    #[test]
+    fn test_zip_reconstruct_bytes_empty() {
+        let result = zip_reconstruct_bytes(&[]);
+        assert_eq!(result, Vec::<u8>::new());
+    }
+
+    #[test]
+    fn test_zip_reconstruct_bytes_single() {
+        let result = zip_reconstruct_bytes(&[42]);
+        assert_eq!(result, vec![42]);
+    }
+
+    #[test]
+    fn test_zip_reconstruct_bytes_basic() {
+        // Test with a simple sequence
+        // First, let's understand what happens:
+        // Input: [128, 1, 2, 3]
+        // After reconstruct (byte-delta decoding):
+        //   buf[0] = 128 (unchanged)
+        //   buf[1] = (128 + 1 - 128) = 1
+        //   buf[2] = (1 + 2 - 128) = wrapping_sub gives 131
+        //   buf[3] = (131 + 3 - 128) = 6
+        // Split at (4+1)/2 = 2
+        // half1 = [128, 1], half2 = [131, 6]
+        // Interleave: [128, 131, 1, 6]
+
+        let input = vec![128, 1, 2, 3];
+        let result = zip_reconstruct_bytes(&input);
+
+        // Verify the length is preserved
+        assert_eq!(result.len(), input.len());
+    }
+
+    #[test]
+    fn test_zip_reconstruct_bytes_even_length() {
+        // Test with even-length input
+        let input = vec![128, 0, 0, 0, 0, 0];
+        let result = zip_reconstruct_bytes(&input);
+
+        // After reconstruct: [128, 0, 128, 0, 128, 0] (wrapping arithmetic)
+        // Split at (6+1)/2 = 3: half1=[128, 0, 128], half2=[0, 128, 0]
+        // Interleave: [128, 0, 0, 128, 128, 0]
+        assert_eq!(result.len(), 6);
+    }
+
+    #[test]
+    fn test_zip_reconstruct_bytes_odd_length() {
+        // Test with odd-length input
+        let input = vec![100, 28, 28, 28, 28];
+        let result = zip_reconstruct_bytes(&input);
+
+        // Verify the length is preserved
+        assert_eq!(result.len(), 5);
     }
 
     // More tests will be added as implementation progresses

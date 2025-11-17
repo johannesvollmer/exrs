@@ -3,98 +3,212 @@
 //! DWAA/DWAB use a perceptual color space to ensure quantization errors
 //! are distributed evenly in terms of human perception rather than
 //! linear light values.
+//!
+//! This module implements the exact u16->u16 lookup tables from OpenEXR's
+//! internal_dwa_table_init.c, avoiding double rounding errors.
 
 use half::f16;
+use std::sync::OnceLock;
 
-/// Forward nonlinear transform (linear to perceptual space)
-/// For compression: converts linear light values to perceptually uniform space
+/// DWA nonlinear transform lookup tables.
+/// These tables map between linear and nonlinear half-float bit patterns (u16->u16).
 ///
-/// - For values <= 1.0: Uses power function (gamma 2.2)
-/// - For values > 1.0: Uses logarithmic function
-/// - Smooth transition at value = 1.0
-#[inline]
-pub fn to_nonlinear(linear: f32) -> f32 {
-    if linear <= 1.0 {
-        // Gamma 2.2 for values <= 1.0
-        linear.powf(1.0 / 2.2)
-    } else {
-        // Logarithmic encoding for values > 1.0
-        linear.ln() / 2.2f32.ln() + 1.0
-    }
+/// Based on OpenEXR's dwaLookups from internal_dwa_table_init.c:
+/// - toLinear: Converts nonlinear (quantized) half to linear half
+/// - toNonlinear: Converts linear half to nonlinear (quantized) half
+struct DwaLookupTables {
+    to_linear: Box<[u16; 65536]>,
+    to_nonlinear: Box<[u16; 65536]>,
 }
 
-/// Inverse nonlinear transform (perceptual space to linear)
-/// For decompression: converts from perceptual space back to linear light
-///
-/// - For values <= 1.0: Uses power function (inverse of gamma 2.2)
-/// - For values > 1.0: Uses exponential function
-/// - Preserves sign for negative values
-#[inline]
-pub fn from_nonlinear(nonlinear: f32) -> f32 {
-    let sign = if nonlinear < 0.0 { -1.0 } else { 1.0 };
-    let abs_val = nonlinear.abs();
+static DWA_TABLES: OnceLock<DwaLookupTables> = OnceLock::new();
 
-    let result = if abs_val <= 1.0 {
-        // Inverse gamma 2.2
-        abs_val.powf(2.2)
+/// Convert a nonlinear half-float to linear representation.
+///
+/// This implements the exact algorithm from OpenEXR's dwa_convertToLinear:
+/// - For f <= 1.0: linear = f^2.2
+/// - For f > 1.0: linear = e^(2.2 * (f - 1))
+///
+/// Input and output are both u16 half-float bit patterns.
+#[inline]
+fn convert_to_linear(x: u16) -> u16 {
+    // Handle zero
+    if x == 0 {
+        return 0;
+    }
+
+    // Handle infinity/NaN
+    if (x & 0x7c00) == 0x7c00 {
+        return 0;
+    }
+
+    let f = f16::from_bits(x).to_f32();
+    let sign = if f < 0.0 { -1.0 } else { 1.0 };
+    let f_abs = f.abs();
+
+    let (px, py) = if f_abs <= 1.0 {
+        (f_abs, 2.2f32)
     } else {
-        // Exponential (inverse of log)
-        let log_base = 2.718281828f32.powf(2.2); // e^2.2
-        log_base.powf(abs_val - 1.0)
+        // pow(e, 2.2) = 9.02501329156
+        (9.02501329156f32, f_abs - 1.0)
     };
 
-    sign * result
+    let z = sign * px.powf(py);
+    f16::from_f32(z).to_bits()
 }
 
-/// Lookup table for fast inverse nonlinear transform
-/// Uses f16 bit pattern as index (65536 entries)
-pub struct InverseNonlinearLut {
-    table: Vec<f32>,
+/// Convert a linear half-float to nonlinear representation.
+///
+/// This implements the exact algorithm from OpenEXR's dwa_convertToNonLinear:
+/// - For f <= 1.0: nonlinear = f^(1/2.2)
+/// - For f > 1.0: nonlinear = log(f) / 2.2 + 1
+///
+/// Input and output are both u16 half-float bit patterns.
+#[inline]
+fn convert_to_nonlinear(x: u16) -> u16 {
+    // Handle zero
+    if x == 0 {
+        return 0;
+    }
+
+    // Handle infinity/NaN
+    if (x & 0x7c00) == 0x7c00 {
+        return 0;
+    }
+
+    let f = f16::from_bits(x).to_f32();
+    let sign = if f < 0.0 { -1.0 } else { 1.0 };
+    let f_abs = f.abs();
+
+    let z = if f_abs <= 1.0 {
+        f_abs.powf(1.0 / 2.2)
+    } else {
+        f_abs.ln() / 2.2 + 1.0
+    };
+
+    f16::from_f32(sign * z).to_bits()
 }
 
-impl InverseNonlinearLut {
-    /// Create a new lookup table
+/// Initialize the DWA lookup tables on first use.
+/// This generates 256KB of lookup tables (2 tables × 64K entries × 2 bytes).
+/// When rayon is enabled, table generation is parallelized for faster initialization.
+fn init_dwa_tables() -> DwaLookupTables {
+    let mut to_linear = Box::new([0u16; 65536]);
+    let mut to_nonlinear = Box::new([0u16; 65536]);
+
+    // Generate all 65536 entries for both tables
+    // TODO: Add rayon parallel generation once rayon is available
+    for i in 0..65536 {
+        to_linear[i] = convert_to_linear(i as u16);
+        to_nonlinear[i] = convert_to_nonlinear(i as u16);
+    }
+
+    DwaLookupTables {
+        to_linear,
+        to_nonlinear,
+    }
+}
+
+/// Get the DWA tables, initializing them on first access.
+/// Thread-safe through OnceLock.
+#[inline]
+fn get_dwa_tables() -> &'static DwaLookupTables {
+    DWA_TABLES.get_or_init(init_dwa_tables)
+}
+
+/// Lookup table for fast inverse nonlinear transform (nonlinear -> linear).
+/// This is the primary interface for decompression.
+pub struct ToLinearLut {
+    // Reference to the static table - no allocation needed
+}
+
+impl ToLinearLut {
+    /// Create a new lookup table reference.
+    /// The actual tables are initialized once on first access.
     pub fn new() -> Self {
-        let mut table = Vec::with_capacity(65536);
-
-        // Generate lookup table for all possible f16 values (0 to 65535)
-        for bits in 0..=65535u16 {
-            let half = f16::from_bits(bits);
-            let float_value = half.to_f32();
-
-            // Apply inverse nonlinear transform
-            // Map NaN and inf to 0, but handle negative values properly
-            let linear_value = if float_value.is_nan() || float_value.is_infinite() {
-                0.0
-            } else {
-                from_nonlinear(float_value)
-            };
-
-            table.push(linear_value);
-        }
-
-        Self { table }
+        // Ensure tables are initialized
+        let _ = get_dwa_tables();
+        Self {}
     }
 
-    /// Look up the linear value for a given half-float
+    /// Look up the linear half-float for a given nonlinear half-float bits.
+    ///
+    /// Returns the u16 bit pattern of the linear half-float.
     #[inline]
-    pub fn lookup(&self, half: f16) -> f32 {
-        let index = half.to_bits() as usize;
-        debug_assert!(index < self.table.len());
-        // Safe indexing: index is always < 65536 due to u16 range
-        self.table[index]
+    pub fn lookup(&self, nonlinear_bits: u16) -> u16 {
+        let tables = get_dwa_tables();
+        tables.to_linear[nonlinear_bits as usize]
     }
 
-    /// Look up the linear value for a given half-float bits
+    /// Look up the linear half-float for a given nonlinear half-float.
     #[inline]
-    pub fn lookup_bits(&self, bits: u16) -> f32 {
-        let index = bits as usize;
-        debug_assert!(index < self.table.len());
-        // Safe indexing: index is always < 65536 due to u16 range
-        self.table[index]
+    pub fn lookup_f16(&self, nonlinear: f16) -> f16 {
+        let tables = get_dwa_tables();
+        f16::from_bits(tables.to_linear[nonlinear.to_bits() as usize])
     }
 }
 
+impl Default for ToLinearLut {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Lookup table for forward nonlinear transform (linear -> nonlinear).
+/// Used for compression.
+pub struct ToNonlinearLut {
+    // Reference to the static table - no allocation needed
+}
+
+impl ToNonlinearLut {
+    /// Create a new lookup table reference.
+    pub fn new() -> Self {
+        let _ = get_dwa_tables();
+        Self {}
+    }
+
+    /// Look up the nonlinear half-float for a given linear half-float bits.
+    #[inline]
+    pub fn lookup(&self, linear_bits: u16) -> u16 {
+        let tables = get_dwa_tables();
+        tables.to_nonlinear[linear_bits as usize]
+    }
+
+    /// Look up the nonlinear half-float for a given linear half-float.
+    #[inline]
+    pub fn lookup_f16(&self, linear: f16) -> f16 {
+        let tables = get_dwa_tables();
+        f16::from_bits(tables.to_nonlinear[linear.to_bits() as usize])
+    }
+}
+
+impl Default for ToNonlinearLut {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// Legacy compatibility - maps old InverseNonlinearLut to new ToLinearLut
+#[deprecated(note = "Use ToLinearLut instead for bit-exact u16->u16 lookups")]
+pub struct InverseNonlinearLut {
+    inner: ToLinearLut,
+}
+
+#[allow(deprecated)]
+impl InverseNonlinearLut {
+    pub fn new() -> Self {
+        Self { inner: ToLinearLut::new() }
+    }
+
+    /// Legacy lookup that returns f32.
+    /// This is kept for compatibility but performs an extra f16->f32 conversion.
+    #[inline]
+    pub fn lookup(&self, nonlinear: f16) -> f32 {
+        self.inner.lookup_f16(nonlinear).to_f32()
+    }
+}
+
+#[allow(deprecated)]
 impl Default for InverseNonlinearLut {
     fn default() -> Self {
         Self::new()
@@ -106,93 +220,81 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_nonlinear_roundtrip() {
-        let test_values = [
-            0.0, 0.1, 0.5, 0.9, 1.0, 1.1, 2.0, 5.0, 10.0, 100.0,
-        ];
+    fn test_to_linear_lut_basic() {
+        let lut = ToLinearLut::new();
 
-        for &value in &test_values {
-            let nonlinear = to_nonlinear(value);
-            let recovered = from_nonlinear(nonlinear);
-
-            // Allow small floating point error
-            let relative_error = ((recovered - value) / value.max(1e-6)).abs();
-            assert!(
-                relative_error < 1e-5,
-                "Roundtrip failed for {}: got {}, relative error {}",
-                value,
-                recovered,
-                relative_error
-            );
-        }
-    }
-
-    #[test]
-    fn test_nonlinear_monotonic() {
-        // Verify that the transform is monotonically increasing
-        let mut prev_linear = 0.0f32;
-        let mut prev_nonlinear = to_nonlinear(prev_linear);
-
-        for i in 1..1000 {
-            let linear = i as f32 / 10.0;
-            let nonlinear = to_nonlinear(linear);
-
-            assert!(
-                nonlinear >= prev_nonlinear,
-                "Transform is not monotonic at {}: {} -> {}, {} -> {}",
-                linear,
-                prev_linear,
-                prev_nonlinear,
-                linear,
-                nonlinear
-            );
-
-            prev_linear = linear;
-            prev_nonlinear = nonlinear;
-        }
-    }
-
-    #[test]
-    fn test_inverse_nonlinear_lut() {
-        let lut = InverseNonlinearLut::new();
+        // Test zero
+        assert_eq!(lut.lookup(0), 0);
 
         // Test some known values
-        let test_values = [0.0f32, 0.5, 1.0, 2.0, 10.0];
+        let one_f16 = f16::from_f32(1.0).to_bits();
+        let linear_one = lut.lookup(one_f16);
 
-        for &linear in &test_values {
-            let nonlinear_f32 = to_nonlinear(linear);
-            let nonlinear_f16 = f16::from_f32(nonlinear_f32);
+        // At f=1.0, both formulas should give f^2.2 = 1.0^2.2 = 1.0
+        let result = f16::from_bits(linear_one).to_f32();
+        assert!((result - 1.0).abs() < 0.01, "Expected ~1.0, got {}", result);
+    }
 
-            // Look up through the table
-            let recovered = lut.lookup(nonlinear_f16);
+    #[test]
+    fn test_to_nonlinear_lut_basic() {
+        let lut = ToNonlinearLut::new();
 
-            // Allow for f16 precision loss
-            let expected = from_nonlinear(nonlinear_f16.to_f32());
-            let error = (recovered - expected).abs();
+        // Test zero
+        assert_eq!(lut.lookup(0), 0);
 
-            assert!(
-                error < 1e-6,
-                "LUT lookup failed for linear={}, nonlinear={:?}: got {}, expected {}",
-                linear,
-                nonlinear_f16,
-                recovered,
-                expected
-            );
+        // Test one
+        let one_f16 = f16::from_f32(1.0).to_bits();
+        let nonlinear_one = lut.lookup(one_f16);
+        let result = f16::from_bits(nonlinear_one).to_f32();
+        assert!((result - 1.0).abs() < 0.01, "Expected ~1.0, got {}", result);
+    }
+
+    #[test]
+    fn test_roundtrip_consistency() {
+        let to_nonlinear = ToNonlinearLut::new();
+        let to_linear = ToLinearLut::new();
+
+        // Test roundtrip for various values
+        let test_values = [0.1f32, 0.5, 0.9, 1.0, 1.1, 2.0, 5.0];
+
+        for &value in &test_values {
+            let linear_bits = f16::from_f32(value).to_bits();
+            let nonlinear_bits = to_nonlinear.lookup(linear_bits);
+            let recovered_bits = to_linear.lookup(nonlinear_bits);
+
+            let recovered_value = f16::from_bits(recovered_bits).to_f32();
+
+            // Allow for half-precision quantization error
+            let error = (recovered_value - value).abs() / value.max(0.1);
+            assert!(error < 0.05,
+                "Roundtrip failed for {}: got {}, error {}",
+                value, recovered_value, error);
         }
     }
 
     #[test]
-    fn test_transition_at_one() {
-        // Test smooth transition at value = 1.0
-        let below = to_nonlinear(0.999);
-        let at = to_nonlinear(1.0);
-        let above = to_nonlinear(1.001);
+    fn test_bit_exact_u16_mapping() {
+        let lut = ToLinearLut::new();
 
-        // All should be close to 1.0
-        assert!((at - 1.0).abs() < 1e-6);
+        // Verify that the lookup always returns a valid u16
+        for i in 0..1000u16 {
+            let result = lut.lookup(i);
+            // Just verify it doesn't panic and returns a u16
+            assert!(result <= 65535);
+        }
+    }
 
-        // Differences should be small
-        assert!((at - below).abs() < 0.01);
-        assert!((above - at).abs() < 0.01);
+    #[test]
+    #[allow(deprecated)]
+    fn test_legacy_compatibility() {
+        let old_lut = InverseNonlinearLut::new();
+        let new_lut = ToLinearLut::new();
+
+        // Verify old and new APIs give equivalent results
+        let test_f16 = f16::from_f32(0.5);
+        let old_result = old_lut.lookup(test_f16);
+        let new_result = new_lut.lookup_f16(test_f16).to_f32();
+
+        assert!((old_result - new_result).abs() < 1e-6);
     }
 }

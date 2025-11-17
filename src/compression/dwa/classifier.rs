@@ -244,7 +244,7 @@ mod tests {
     }
 
     fn make_channel_list(channels: Vec<ChannelDescription>) -> ChannelList {
-        ChannelList::new(channels)
+        ChannelList::new(channels.into())
     }
 
     #[test]
