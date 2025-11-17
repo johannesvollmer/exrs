@@ -58,21 +58,57 @@ impl ChannelDecodeState {
         scheme: CompressionScheme,
         channel: &crate::meta::attribute::ChannelDescription,
         rectangle: IntegerBounds,
-        channel_start_offset: usize,
+        channel_index: usize,
+        channels: &crate::meta::attribute::ChannelList,
     ) -> Self {
         let channel_resolution = channel.subsampled_resolution(rectangle.size);
         let width = channel_resolution.x();
         let height = channel_resolution.y();
         let bytes_per_sample = channel.sample_type.bytes_per_sample();
+        let y_sampling = channel.sampling.y();
 
-        // Calculate row offsets accounting for subsampling (functional style)
-        let row_offsets: Vec<usize> = (0..height)
-            .scan(channel_start_offset, |offset, _| {
-                let current = *offset;
-                *offset += width * bytes_per_sample;
-                Some(current)
-            })
-            .collect();
+        // Calculate row offsets for SCANLINE-PLANAR layout:
+        // Y=0: [ch0 samples][ch1 samples][ch2 samples][ch3 samples]
+        // Y=1: [ch0 samples][ch1 samples][ch2 samples][ch3 samples]
+        // This matches how convert_little_endian_to_current expects data (mod.rs:508-533)
+
+        let mut row_offsets = Vec::with_capacity(height);
+
+        for subsampled_row in 0..height {
+            let full_y = subsampled_row * y_sampling;
+
+            // Calculate offset for this scanline
+            // First, find the start of this scanline's data
+            let mut scanline_offset = 0usize;
+
+            // Add bytes for all previous scanlines
+            for y in 0..full_y {
+                // For each channel, add its contribution to this scanline
+                for ch in &channels.list {
+                    let ch_y_sampling = ch.sampling.y();
+                    if y % ch_y_sampling == 0 {
+                        let ch_resolution = ch.subsampled_resolution(rectangle.size);
+                        let ch_width = ch_resolution.x();
+                        let ch_bytes_per_sample = ch.sample_type.bytes_per_sample();
+                        scanline_offset += ch_width * ch_bytes_per_sample;
+                    }
+                }
+            }
+
+            // Now add bytes for previous channels in this scanline
+            for ch_idx in 0..channel_index {
+                let ch = &channels.list[ch_idx];
+                let ch_y_sampling = ch.sampling.y();
+                if full_y % ch_y_sampling == 0 {
+                    let ch_resolution = ch.subsampled_resolution(rectangle.size);
+                    let ch_width = ch_resolution.x();
+                    let ch_bytes_per_sample = ch.sample_type.bytes_per_sample();
+                    scanline_offset += ch_width * ch_bytes_per_sample;
+                }
+            }
+
+            row_offsets.push(scanline_offset);
+        }
 
         Self {
             scheme,
@@ -80,9 +116,9 @@ impl ChannelDecodeState {
             width,
             height,
             x_sampling: channel.sampling.x(),
-            y_sampling: channel.sampling.y(),
+            y_sampling,
             bytes_per_sample,
-            channel_start_offset,
+            channel_start_offset: row_offsets[0],
             row_offsets,
             rle_cursor: 0,
             unknown_cursor: 0,
@@ -203,10 +239,18 @@ pub fn decompress(
     // Allocate output buffer
     let mut output = vec![0u8; expected_byte_size];
 
-    // Initialize channel decode states with row offsets (functional style)
+    static DECOMPRESS_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let count = DECOMPRESS_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    eprintln!("DWA decompress #{}: rectangle={}x{} at ({},{}), expected_byte_size={}, channels.bytes_per_pixel={}",
+              count, rectangle.size.width(), rectangle.size.height(),
+              rectangle.position.x(), rectangle.position.y(),
+              expected_byte_size, channels.bytes_per_pixel);
+
+    // Initialize channel decode states with row offsets
+    // Note: Output uses SCANLINE-PLANAR layout (Y=0: ch0,ch1,ch2,ch3; Y=1: ch0,ch1,ch2,ch3; ...)
     let channel_states: SmallVec<[ChannelDecodeState; 4]> = channels.list.iter()
         .enumerate()
-        .scan(0usize, |channel_offset, (ch_idx, channel)| {
+        .map(|(ch_idx, channel)| {
             let channel_class = &classification.channel_classifications[ch_idx];
             let channel_resolution = channel.subsampled_resolution(rectangle.size);
             let bytes_per_sample = channel.sample_type.bytes_per_sample();
@@ -217,15 +261,13 @@ pub fn decompress(
                       ch_idx, channel_name, channel_class.scheme,
                       channel_resolution.width(), channel_resolution.height(), channel_bytes);
 
-            let state = ChannelDecodeState::new(
+            ChannelDecodeState::new(
                 channel_class.scheme,
                 channel,
                 rectangle,
-                *channel_offset,
-            );
-
-            *channel_offset += channel_bytes;
-            Some(state)
+                ch_idx,
+                channels,
+            )
         })
         .collect();
 
@@ -300,45 +342,81 @@ fn decode_block_rows(
     // AC stream cursor (shared across all channels)
     let mut ac_cursor = std::io::Cursor::new(ac_data);
 
-    // Split RLE and Unknown data into per-channel slices (like DC planes)
+    // Validate total RLE/Unknown sizes before slicing
+    let total_rle_bytes: usize = channel_states.iter()
+        .filter(|s| s.scheme == CompressionScheme::Rle)
+        .map(|s| s.height * s.width * s.bytes_per_sample)
+        .sum();
+    let total_unknown_bytes: usize = channel_states.iter()
+        .filter(|s| s.scheme == CompressionScheme::Unknown)
+        .map(|s| s.height * s.width * s.bytes_per_sample)
+        .sum();
+
+    if total_rle_bytes != rle_data.len() {
+        return Err(Error::invalid(format!(
+            "RLE size mismatch: expected {} bytes from channels, got {} bytes from header",
+            total_rle_bytes, rle_data.len()
+        )));
+    }
+    if total_unknown_bytes != unknown_data.len() {
+        return Err(Error::invalid(format!(
+            "Unknown size mismatch: expected {} bytes from channels, got {} bytes from header",
+            total_unknown_bytes, unknown_data.len()
+        )));
+    }
+
+    // Split RLE and Unknown data into per-channel slices (with strict bounds checking)
     let rle_slices: SmallVec<[&[u8]; 4]> = channel_states.iter()
         .enumerate()
         .scan(0usize, |rle_offset, (ch_idx, state)| {
             if state.scheme == CompressionScheme::Rle {
                 let channel_bytes = state.height * state.width * state.bytes_per_sample;
-                if *rle_offset + channel_bytes > rle_data.len() {
-                    eprintln!("DWA WARNING: RLE slice overflow for channel {} (expected {} bytes, have {})",
-                              ch_idx, channel_bytes, rle_data.len() - *rle_offset);
-                    return Some(&rle_data[*rle_offset..rle_data.len()]);
+                let start = *rle_offset;
+                let end = start + channel_bytes;
+
+                if end > rle_data.len() {
+                    return Some(Err(Error::invalid(format!(
+                        "RLE slice overflow for channel {}: need {} bytes at offset {}, have {} total",
+                        ch_idx, channel_bytes, start, rle_data.len()
+                    ))));
                 }
-                let slice = &rle_data[*rle_offset..*rle_offset + channel_bytes];
+
+                let slice = &rle_data[start..end];
                 eprintln!("DWA: RLE slice for ch {}: offset {}..{}, first 16: {:02x?}, last 16: {:02x?}",
-                          ch_idx, *rle_offset, *rle_offset + channel_bytes,
+                          ch_idx, start, end,
                           &slice[..16.min(slice.len())],
                           &slice[slice.len().saturating_sub(16)..]);
-                *rle_offset += channel_bytes;
-                Some(slice)
+                *rle_offset = end;
+                Some(Ok(slice))
             } else {
-                Some(&rle_data[0..0])  // Empty slice
+                Some(Ok(&rle_data[0..0]))  // Empty slice for non-RLE channels
             }
         })
-        .collect();
+        .collect::<Result<SmallVec<[&[u8]; 4]>>>()?;
 
     let unknown_slices: SmallVec<[&[u8]; 4]> = channel_states.iter()
-        .scan(0usize, |unknown_offset, state| {
+        .enumerate()
+        .scan(0usize, |unknown_offset, (ch_idx, state)| {
             if state.scheme == CompressionScheme::Unknown {
                 let channel_bytes = state.height * state.width * state.bytes_per_sample;
-                if *unknown_offset + channel_bytes > unknown_data.len() {
-                    return Some(&unknown_data[*unknown_offset..unknown_data.len()]);
+                let start = *unknown_offset;
+                let end = start + channel_bytes;
+
+                if end > unknown_data.len() {
+                    return Some(Err(Error::invalid(format!(
+                        "Unknown slice overflow for channel {}: need {} bytes at offset {}, have {} total",
+                        ch_idx, channel_bytes, start, unknown_data.len()
+                    ))));
                 }
-                let slice = &unknown_data[*unknown_offset..*unknown_offset + channel_bytes];
-                *unknown_offset += channel_bytes;
-                Some(slice)
+
+                let slice = &unknown_data[start..end];
+                *unknown_offset = end;
+                Some(Ok(slice))
             } else {
-                Some(&unknown_data[0..0])  // Empty slice
+                Some(Ok(&unknown_data[0..0]))  // Empty slice for non-Unknown channels
             }
         })
-        .collect();
+        .collect::<Result<SmallVec<[&[u8]; 4]>>>()?;
 
     // Cursors track position within each channel's slice
     let mut rle_cursors: SmallVec<[usize; 4]> = (0..channel_states.len()).map(|_| 0).collect();
@@ -534,22 +612,28 @@ fn write_scanline(
     let mut lossy_channel_idx = 0;
 
     for (ch_idx, state) in channel_states.iter().enumerate() {
-        // Skip if this row doesn't apply to this channel (due to subsampling)
-        if y >= state.height {
-            continue;
-        }
-
         // CRITICAL: Honor y_sampling - skip rows where y is not aligned
-        // This matches OpenEXR internal_dwa_compressor.h:1033
-        // Calculate the base Y coordinate in the full rectangle
-        let base_y = y;  // y is already in the correct coordinate space
-
-        if base_y % state.y_sampling != 0 {
+        // This matches OpenEXR internal_dwa_compressor.h:1160-1188
+        if y % state.y_sampling != 0 {
             continue;
         }
 
-        let row_offset = state.row_offsets[y];
+        // Compute subsampled row index for indexing into row_offsets
+        // state.height is already subsampled, row_offsets has state.height entries
+        let subsampled_y = y / state.y_sampling;
+
+        // Skip if subsampled row is beyond this channel's height
+        if subsampled_y >= state.height {
+            continue;
+        }
+
+        let row_offset = state.row_offsets[subsampled_y];
         let row_bytes = state.width * state.bytes_per_sample;
+
+        if y < 3 {
+            eprintln!("DWA ch {} y {} (subsampled_y {}): row_offset={}, row_bytes={}, scheme={:?}",
+                      ch_idx, y, subsampled_y, row_offset, row_bytes, state.scheme);
+        }
 
         match state.scheme {
             CompressionScheme::LossyDct => {
@@ -576,6 +660,7 @@ fn write_scanline(
                     let nonlinear_bits = row_block[block_offset];
                     let linear_bits = to_linear_lut.lookup(nonlinear_bits);
 
+                    // Planar layout: samples for this channel are contiguous
                     let out_offset = row_offset + x * state.bytes_per_sample;
 
                     if state.sample_type == crate::meta::attribute::SampleType::F16 {
@@ -615,12 +700,22 @@ fn write_scanline(
                 // Reconstruct pixels from byte planes
                 for x in 0..pixels_per_row {
                     let pixel_idx = pixel_cursor + x;
+                    // Planar layout: samples for this channel are contiguous
                     let out_pos = row_offset + x * state.bytes_per_sample;
 
-                    // Read each byte from its respective plane
+                    // Read each byte from its respective plane with bounds checking
                     for byte_idx in 0..state.bytes_per_sample {
                         let plane_offset = byte_idx * total_pixels;
-                        let byte_val = rle_slice[plane_offset + pixel_idx];
+                        let read_pos = plane_offset + pixel_idx;
+
+                        if read_pos >= rle_slice.len() {
+                            return Err(Error::invalid(format!(
+                                "RLE planar read out of bounds: ch {} byte_plane {} pixel {} (offset {} >= slice len {})",
+                                ch_idx, byte_idx, pixel_idx, read_pos, rle_slice.len()
+                            )));
+                        }
+
+                        let byte_val = rle_slice[read_pos];
                         output[out_pos + byte_idx] = byte_val;
                     }
                 }
@@ -645,6 +740,7 @@ fn write_scanline(
                     return Err(Error::invalid("Unknown data buffer overrun"));
                 }
 
+                // Write pixels to planar layout (samples for this channel are contiguous)
                 output[row_offset..row_offset + row_bytes]
                     .copy_from_slice(&unknown_slice[cursor..cursor + row_bytes]);
 
@@ -1248,6 +1344,112 @@ mod tests {
 
         // Verify the length is preserved
         assert_eq!(result.len(), 5);
+    }
+
+    #[test]
+    fn test_dwaa_decode_channels_are_distinct() {
+        use crate::prelude::*;
+
+        // Load the reference (decompressed) image first to see expected values
+        let ref_image = read()
+            .no_deep_data()
+            .largest_resolution_level()
+            .all_channels()
+            .all_layers()
+            .all_attributes()
+            .from_file("./tests/images/valid/custom/compression_methods/f16/decompressed_dwaa.exr")
+            .expect("Failed to load reference image");
+
+        // Load a DWA-compressed test image
+        let image = read()
+            .no_deep_data()
+            .largest_resolution_level()
+            .all_channels()
+            .all_layers()
+            .all_attributes()
+            .from_file("./tests/images/valid/custom/compression_methods/f16/dwaa.exr")
+            .expect("Failed to load DWAA test image");
+
+        // Get the first layer
+        let ref_layer = &ref_image.layer_data[0];
+        let layer = &image.layer_data[0];
+        let (width, height) = (layer.size.width(), layer.size.height());
+
+        println!("Loaded DWAA image: {}x{}", width, height);
+        println!("Number of channels: {}", layer.channel_data.list.len());
+
+        // Get RGBA channels (assuming standard RGBA order)
+        assert!(layer.channel_data.list.len() >= 4, "Expected at least 4 channels");
+
+        let ref_ch0 = &ref_layer.channel_data.list[0];
+        let ref_ch1 = &ref_layer.channel_data.list[1];
+        let ref_ch2 = &ref_layer.channel_data.list[2];
+        let ref_ch3 = &ref_layer.channel_data.list[3];
+
+        let ch0 = &layer.channel_data.list[0];
+        let ch1 = &layer.channel_data.list[1];
+        let ch2 = &layer.channel_data.list[2];
+        let ch3 = &layer.channel_data.list[3];
+
+        println!("Channel names: {}, {}, {}, {}",
+                 Into::<String>::into(ch0.name.clone()),
+                 Into::<String>::into(ch1.name.clone()),
+                 Into::<String>::into(ch2.name.clone()),
+                 Into::<String>::into(ch3.name.clone()));
+
+        // Check first few pixels
+        if let (
+            FlatSamples::F16(ref_samples0),
+            FlatSamples::F16(ref_samples1),
+            FlatSamples::F16(ref_samples2),
+            FlatSamples::F16(ref_samples3),
+            FlatSamples::F16(samples0),
+            FlatSamples::F16(samples1),
+            FlatSamples::F16(samples2),
+            FlatSamples::F16(samples3),
+        ) = (
+            &ref_ch0.sample_data, &ref_ch1.sample_data, &ref_ch2.sample_data, &ref_ch3.sample_data,
+            &ch0.sample_data, &ch1.sample_data, &ch2.sample_data, &ch3.sample_data
+        ) {
+
+            // Sample first few pixels
+            for y in 0..3.min(height) {
+                for x in 0..4.min(width) {
+                    let idx = y * width + x;
+                    let ref_v0 = ref_samples0[idx];
+                    let ref_v1 = ref_samples1[idx];
+                    let ref_v2 = ref_samples2[idx];
+                    let ref_v3 = ref_samples3[idx];
+
+                    let v0 = samples0[idx];
+                    let v1 = samples1[idx];
+                    let v2 = samples2[idx];
+                    let v3 = samples3[idx];
+
+                    println!("Pixel ({}, {}):", x, y);
+                    println!("  Reference: ch0={:.4}, ch1={:.4}, ch2={:.4}, ch3={:.4}", ref_v0, ref_v1, ref_v2, ref_v3);
+                    println!("  Decoded:   ch0={:.4}, ch1={:.4}, ch2={:.4}, ch3={:.4}", v0, v1, v2, v3);
+
+                    // Check if decoded values match the pattern of reference values
+                    // (allowing for lossy compression differences)
+                    if idx == 0 {
+                        // Check if all decoded channels are identical (bug symptom)
+                        let all_same = v0 == v1 && v1 == v2 && v2 == v3;
+
+                        // Check if reference channels are NOT all the same
+                        let ref_all_same = ref_v0 == ref_v1 && ref_v1 == ref_v2 && ref_v2 == ref_v3;
+
+                        if all_same && !ref_all_same {
+                            panic!("BUG: All decoded channels at pixel (0,0) are identical ({:.4}), but reference shows different values! This suggests planar/interleaved layout confusion.", v0);
+                        }
+                    }
+                }
+            }
+
+            println!("SUCCESS: Channel layout appears correct");
+        } else {
+            panic!("Expected F16 samples");
+        }
     }
 
     // More tests will be added as implementation progresses
