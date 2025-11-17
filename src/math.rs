@@ -10,7 +10,7 @@ use std::fmt::Debug;
 use std::ops::{Add, Div, Mul, Sub};
 
 /// Simple two-dimensional vector of any numerical type.
-/// Supports only few mathematical operations
+/// Supports only few mathematical operations,
 /// as this is used mainly as data struct.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct Vec2<T>(pub T, pub T);

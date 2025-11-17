@@ -66,8 +66,8 @@ pub struct UncompressedBlock {
 /// Contains a block of deep pixel data and where that data should be placed in the actual image.
 ///
 /// Deep images store multiple samples per pixel at different depths. This block contains:
-/// - A pixel offset table: cumulative sample counts for efficient random access
-/// - Sample data: all samples for all pixels, organized pixel-by-pixel
+/// - A pixel offset table: cumulative sample counts for efficient random access.
+/// - Sample data: all samples for all pixels, organized pixel-by-pixel.
 ///
 /// The bytes must be encoded in native-endian format.
 #[cfg(feature = "deep")]

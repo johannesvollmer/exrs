@@ -10,13 +10,13 @@ use crate::math::{RoundingMode, Vec2};
 use crate::meta::attribute::{ChannelList, IntegerBounds, LevelMode};
 use crate::meta::header::{Header, LayerAttributes};
 
-/// Something that has a two-dimensional rectangular shape
+/// Something that has a two-dimensional rectangular shape.
 pub trait GetBounds {
     /// The bounding rectangle of this pixel grid.
     fn bounds(&self) -> IntegerBounds;
 }
 
-/// Inspect the pixels in this image to determine where to crop some away
+/// Inspect the pixels in this image to determine where to crop some away.
 pub trait InspectSample: GetBounds {
     /// The type of pixel in this pixel grid.
     type Sample;
@@ -26,7 +26,7 @@ pub trait InspectSample: GetBounds {
     fn inspect_sample(&self, local_index: Vec2<usize>) -> Self::Sample;
 }
 
-/// Crop some pixels ways when specifying a smaller rectangle
+/// Crop some pixels ways when specifying a smaller rectangle.
 pub trait Crop: Sized {
     /// The type of  this image after cropping (probably the same as before)
     type Cropped;
@@ -124,7 +124,7 @@ where
     }
 }
 
-/// A smaller window into an existing pixel storage
+/// A smaller window into an existing pixel storage.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct CroppedChannels<Channels> {
     /// The uncropped pixel storage
