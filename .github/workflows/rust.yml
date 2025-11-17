@@ -20,6 +20,19 @@ jobs:
       - name: Verify formatting
         run: cargo fmt --all -- --check
 
+  lint:
+    runs-on: ubuntu-latest
+    name: check linter
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install linter component
+        run: rustup component add clippy
+      - name: Verify formatting
+        run: cargo clippy --all
+
   ubuntu:
     runs-on: ubuntu-latest
     name: test on ubuntu
