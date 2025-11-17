@@ -51,7 +51,7 @@ pub trait Crop: Sized {
 }
 
 /// Cropping an image fails if the image is fully transparent.
-/// Use [`or_crop_to_1x1_if_empty`] or [`or_none_if_empty`] to obtain a normal image again.
+/// Use [`or_crop_to_1x1_if_empty()`](CropResult::or_crop_to_1x1_if_empty) or [`or_none_if_empty()`](CropResult::or_none_if_empty) to obtain a normal image again.
 #[must_use]
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum CropResult<Cropped, Old> {

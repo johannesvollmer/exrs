@@ -18,7 +18,7 @@ use crate::meta::{compute_level_count, mip_map_levels, rip_map_levels};
 // Note: In the resulting image, the `FlatSamples` are placed
 // directly inside the channels, without `LargestLevel<>` indirection
 /// Specify to read only the highest resolution level, skipping all smaller variations.
-/// The sample storage can be [`ReadFlatSamples`].
+/// The sample storage can be [`ReadFlatSamples`](samples::ReadFlatSamples).
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReadLargestLevel<DeepOrFlatSamples> {
     /// The sample reading specification

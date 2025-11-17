@@ -80,8 +80,8 @@ pub struct UncompressedDeepBlock {
     /// For a block with N pixels, this has N entries.
     /// Entry i contains the total number of samples in pixels 0..=i.
     /// To get the sample count for pixel i:
-    /// - If i == 0: count = pixel_offset_table[0]
-    /// - Else: count = pixel_offset_table[i] - pixel_offset_table[i-1]
+    /// - If i == 0: count = `pixel_offset_table[0]`
+    /// - Else: count = `pixel_offset_table[i] - pixel_offset_table[i-1]`
     pub pixel_offset_table: Vec<i32>,
 
     /// Sample data in native-endian format.

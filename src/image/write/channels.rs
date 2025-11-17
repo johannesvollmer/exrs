@@ -36,7 +36,7 @@ pub trait ChannelsWriter: Sync {
 }
 
 /// Define how to get a pixel from your custom pixel storage.
-/// Can be a closure of type [`Sync + Fn(Vec2<usize>) -> YourPixel`].
+/// Can be a closure of type `Sync + Fn(Vec2<usize>) -> YourPixel`.
 pub trait GetPixel: Sync {
     /// The pixel tuple containing `f32`, `f16`, `u32` and `Sample` values.
     /// The length of the tuple must match the number of channels in the image.

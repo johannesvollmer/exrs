@@ -1,4 +1,4 @@
-//! The last wrapper of image readers, finally containing the [`from_file(path)`] method.
+//! The last wrapper of image readers, finally containing the [`from_file()`](ReadImage::from_file) method.
 //! This completes the builder and reads a complete image.
 
 use crate::block::chunk::TileCoordinates;
@@ -83,7 +83,7 @@ where
     }
 
     /// Read the exr image from a file.
-    /// Use [`ReadImage::read_from_unbuffered`] instead, if you do not have a file.
+    /// Use [`from_unbuffered()`](ReadImage::from_unbuffered) instead, if you do not have a file.
     #[inline]
     #[must_use]
     pub fn from_file<Layers>(self, path: impl AsRef<Path>) -> Result<Image<Layers>>
@@ -94,8 +94,8 @@ where
     }
 
     /// Buffer the reader and then read the exr image from it.
-    /// Use [`ReadImage::read_from_buffered`] instead, if your reader is an in-memory reader.
-    /// Use [`ReadImage::read_from_file`] instead, if you have a file path.
+    /// Use [`from_buffered()`](ReadImage::from_buffered) instead, if your reader is an in-memory reader.
+    /// Use [`from_file()`](ReadImage::from_file) instead, if you have a file path.
     #[inline]
     #[must_use]
     pub fn from_unbuffered<Layers>(self, unbuffered: impl Read + Seek) -> Result<Image<Layers>>
@@ -106,8 +106,8 @@ where
     }
 
     /// Read the exr image from a buffered reader.
-    /// Use [`ReadImage::read_from_file`] instead, if you have a file path.
-    /// Use [`ReadImage::read_from_unbuffered`] instead, if this is not an in-memory reader.
+    /// Use [`from_file()`](ReadImage::from_file) instead, if you have a file path.
+    /// Use [`from_unbuffered()`](ReadImage::from_unbuffered) instead, if this is not an in-memory reader.
     // TODO Use Parallel<> Wrapper to only require sendable byte source where parallel decompression is required
     #[must_use]
     pub fn from_buffered<Layers>(self, buffered: impl Read + Seek) -> Result<Image<Layers>>
@@ -120,8 +120,8 @@ where
 
     /// Read the exr image from an initialized chunks reader
     /// that has already extracted the meta data from the file.
-    /// Use [`ReadImage::read_from_file`] instead, if you have a file path.
-    /// Use [`ReadImage::read_from_buffered`] instead, if this is an in-memory reader.
+    /// Use [`from_file()`](ReadImage::from_file) instead, if you have a file path.
+    /// Use [`from_buffered()`](ReadImage::from_buffered) instead, if this is an in-memory reader.
     // TODO Use Parallel<> Wrapper to only require sendable byte source where parallel decompression is required
     #[must_use]
     pub fn from_chunks<Layers>(

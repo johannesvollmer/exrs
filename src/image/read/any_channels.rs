@@ -13,14 +13,14 @@ use crate::meta::header::Header;
 /// A template that creates an [`AnyChannelsReader`] for each layer in the image.
 ///
 /// This loads all channels for each layer.
-/// The `ReadSamples` can, for example, be [`ReadFlatSamples`] or [`ReadAllLevels`<ReadFlatSamples>].
+/// The `ReadSamples` can, for example, be [`ReadFlatSamples`](samples::ReadFlatSamples) or [`ReadAllLevels`](levels::ReadAllLevels).
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReadAnyChannels<ReadSamples> {
     /// The sample reading specification
     pub read_samples: ReadSamples,
 }
 
-/// A template that creates a new [`SampleReader`] for each channel in each layer.
+/// A template that creates a new [`SamplesReader`] for each channel in each layer.
 pub trait ReadSamples {
     /// The type of the temporary samples reader
     type Reader: SamplesReader;

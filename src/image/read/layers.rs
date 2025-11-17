@@ -10,7 +10,7 @@ use crate::meta::header::{Header, LayerAttributes};
 use crate::meta::MetaData;
 
 /// Specify to read all channels, aborting if any one is invalid.
-/// [`ReadRgbaChannels`] or [`ReadAnyChannels<ReadFlatSamples>`].
+/// For example, can be used with [`ReadAnyChannels`](any_channels::ReadAnyChannels) or [`ReadRequiredChannel`](specific_channels::ReadRequiredChannel).
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReadAllLayers<ReadChannels> {
     /// The channel reading specification
@@ -64,7 +64,7 @@ pub trait ReadChannels<'s> {
 
 /// Processes pixel blocks from a file and accumulates them into a list of layers.
 /// For example, `ChannelsReader` can be
-/// [`SpecificChannelsReader`] or [`AnyChannelsReader<FlatSamplesReader>`].
+/// [`SpecificChannelsReader`](specific_channels::SpecificChannelsReader) or [`AnyChannelsReader`](any_channels::AnyChannelsReader).
 #[derive(Debug, Clone, PartialEq)]
 pub struct AllLayersReader<ChannelsReader> {
     layer_readers: SmallVec<[LayerReader<ChannelsReader>; 2]>, // TODO unpack struct?

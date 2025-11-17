@@ -1,5 +1,5 @@
 //! Contains all meta data attributes.
-//! Each layer can have any number of [`Attribute`]s, including custom attributes.
+//! Each layer can have any number of [`AttributeValue`]s, including custom attributes.
 
 use smallvec::SmallVec;
 
