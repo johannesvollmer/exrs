@@ -193,14 +193,15 @@ impl Compression {
         if header.deep {
             assert!(
                 self.supports_deep_data(),
-                "compression method {:?} does not support deep data", self
+                "compression method {:?} does not support deep data",
+                self
             );
         }
 
         #[cfg(not(feature = "deep"))]
         if header.deep {
             return Err(Error::unsupported(
-                "deep data support is not enabled; enable the 'deep' feature"
+                "deep data support is not enabled; enable the 'deep' feature",
             ));
         }
 
@@ -295,14 +296,15 @@ impl Compression {
         if header.deep {
             assert!(
                 self.supports_deep_data(),
-                "compression method {:?} does not support deep data", self
+                "compression method {:?} does not support deep data",
+                self
             );
         }
 
         #[cfg(not(feature = "deep"))]
         if header.deep {
             return Err(Error::unsupported(
-                "deep data support is not enabled; enable the 'deep' feature"
+                "deep data support is not enabled; enable the 'deep' feature",
             ));
         }
 
@@ -551,7 +553,10 @@ impl Compression {
 
         // DEBUG: Print first and last 10 offset table values
         if deep_debug_enabled() && offset_table.len() >= 20 {
-            eprintln!("DEBUG offset table: First 10 values: {:?}", &offset_table[..10]);
+            eprintln!(
+                "DEBUG offset table: First 10 values: {:?}",
+                &offset_table[..10]
+            );
             eprintln!(
                 "DEBUG offset table: Last 10 values: {:?}",
                 &offset_table[offset_table.len() - 10..]
@@ -717,7 +722,6 @@ impl Compression {
 
         Ok((compressed_offset_table_i8, compressed_sample_data_le))
     }
-
 }
 
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/6a9f8af6e89547bcd370ae3cec2b12849eee0b54/OpenEXR/IlmImf/ImfMisc.cpp#L1456-L1541

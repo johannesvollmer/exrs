@@ -165,7 +165,8 @@ pub fn read_deep_from_file(
 
     for chunk_result in chunks {
         let chunk = chunk_result?;
-        let deep_block = crate::block::UncompressedDeepBlock::decompress_chunk(chunk, &meta, pedantic)?;
+        let deep_block =
+            crate::block::UncompressedDeepBlock::decompress_chunk(chunk, &meta, pedantic)?;
         blocks.push(deep_block);
     }
 

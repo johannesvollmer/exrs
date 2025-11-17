@@ -192,15 +192,13 @@ impl UncompressedBlock {
 
             #[cfg(not(feature = "deep"))]
             _ => Err(Error::unsupported(
-                "deep data support is not enabled; enable the 'deep' feature"
+                "deep data support is not enabled; enable the 'deep' feature",
             )),
 
             #[cfg(feature = "deep")]
-            CompressedBlock::DeepScanLine(_) | CompressedBlock::DeepTile(_) => {
-                Err(Error::unsupported(
-                    "use UncompressedDeepBlock::decompress_chunk for deep data"
-                ))
-            }
+            CompressedBlock::DeepScanLine(_) | CompressedBlock::DeepTile(_) => Err(
+                Error::unsupported("use UncompressedDeepBlock::decompress_chunk for deep data"),
+            ),
         }
     }
 
@@ -383,10 +381,9 @@ impl UncompressedDeepBlock {
                 let num_pixels = absolute_indices.size.area();
 
                 // Decompress the pixel offset table
-                let pixel_offset_table = header.compression.decompress_deep_offset_table(
-                    &compressed_pixel_offset_table,
-                    num_pixels,
-                )?;
+                let pixel_offset_table = header
+                    .compression
+                    .decompress_deep_offset_table(&compressed_pixel_offset_table, num_pixels)?;
 
                 // Decompress the sample data
                 let sample_data = header.compression.decompress_deep_sample_data(
@@ -408,7 +405,7 @@ impl UncompressedDeepBlock {
             }
 
             _ => Err(Error::invalid(
-                "expected deep scanline or deep tile block for deep data"
+                "expected deep scanline or deep tile block for deep data",
             )),
         }
     }
@@ -473,14 +470,12 @@ impl UncompressedDeepBlock {
                     })
                 }
 
-                BlockDescription::Tiles(_) => {
-                    CompressedBlock::DeepTile(CompressedDeepTileBlock {
-                        coordinates: tile_coordinates,
-                        decompressed_sample_data_size,
-                        compressed_pixel_offset_table,
-                        compressed_sample_data_le,
-                    })
-                }
+                BlockDescription::Tiles(_) => CompressedBlock::DeepTile(CompressedDeepTileBlock {
+                    coordinates: tile_coordinates,
+                    decompressed_sample_data_size,
+                    compressed_pixel_offset_table,
+                    compressed_sample_data_le,
+                }),
             },
         })
     }
@@ -489,10 +484,10 @@ impl UncompressedDeepBlock {
 #[cfg(all(test, feature = "deep"))]
 mod deep_tests {
     use super::*;
-    use crate::meta::{BlockDescription, Requirements};
     use crate::compression::Compression;
     use crate::meta::attribute::{ChannelDescription, SampleType};
     use crate::meta::header::Header;
+    use crate::meta::{BlockDescription, Requirements};
     use smallvec::smallvec;
 
     #[test]

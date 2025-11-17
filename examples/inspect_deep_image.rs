@@ -18,37 +18,46 @@ fn inspect_image(name: &str) {
 
     println!("\n=== {} ===", name);
     for (idx, header) in meta.headers.iter().enumerate() {
-        println!("Header {}: {}x{}, {} deep, {:?} compression, {} channels",
-                 idx,
-                 header.layer_size.width(),
-                 header.layer_size.height(),
-                 if header.deep { "IS" } else { "NOT" },
-                 header.compression,
-                 header.channels.list.len());
+        println!(
+            "Header {}: {}x{}, {} deep, {:?} compression, {} channels",
+            idx,
+            header.layer_size.width(),
+            header.layer_size.height(),
+            if header.deep { "IS" } else { "NOT" },
+            header.compression,
+            header.channels.list.len()
+        );
 
         let data_window = header.data_window();
-        println!("  Data Window: min=({},{}), size={}x{}",
-                 data_window.position.x(),
-                 data_window.position.y(),
-                 data_window.size.x(),
-                 data_window.size.y());
+        println!(
+            "  Data Window: min=({},{}), size={}x{}",
+            data_window.position.x(),
+            data_window.position.y(),
+            data_window.size.x(),
+            data_window.size.y()
+        );
     }
 
     // Count actual blocks (only for deep images)
     if meta.headers[0].deep {
-        let blocks = exr::image::read::deep::read_deep_from_file(&path, false).expect("Failed to read blocks");
+        let blocks = exr::image::read::deep::read_deep_from_file(&path, false)
+            .expect("Failed to read blocks");
         println!("Actual blocks: {}", blocks.len());
 
         // Check block positions
         if !blocks.is_empty() {
-            println!("First block: y={} size={}x{}",
-                     blocks[0].index.pixel_position.y(),
-                     blocks[0].index.pixel_size.x(),
-                     blocks[0].index.pixel_size.y());
-            println!("Last block: y={} size={}x{}",
-                     blocks.last().unwrap().index.pixel_position.y(),
-                     blocks.last().unwrap().index.pixel_size.x(),
-                     blocks.last().unwrap().index.pixel_size.y());
+            println!(
+                "First block: y={} size={}x{}",
+                blocks[0].index.pixel_position.y(),
+                blocks[0].index.pixel_size.x(),
+                blocks[0].index.pixel_size.y()
+            );
+            println!(
+                "Last block: y={} size={}x{}",
+                blocks.last().unwrap().index.pixel_position.y(),
+                blocks.last().unwrap().index.pixel_size.x(),
+                blocks.last().unwrap().index.pixel_size.y()
+            );
         }
     }
 }

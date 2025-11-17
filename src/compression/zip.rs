@@ -55,10 +55,7 @@ pub fn compress_bytes(
 /// Used for deep data offset tables and sample data.
 /// ZIP compression includes byte interleaving AND delta encoding for deep data.
 #[cfg(feature = "deep")]
-pub fn decompress_raw(
-    compressed_le: ByteVec,
-    expected_byte_size: usize,
-) -> Result<ByteVec> {
+pub fn decompress_raw(compressed_le: ByteVec, expected_byte_size: usize) -> Result<ByteVec> {
     // If compressed size equals expected size, data is stored uncompressed
     // (compression didn't help, so it was left as-is)
     if compressed_le.len() == expected_byte_size {
@@ -78,7 +75,9 @@ pub fn decompress_raw(
         eprintln!("DEBUG zip decompress: After zlib (first 40 bytes):");
         eprint!("  ");
         for (i, b) in decompressed[..40].iter().enumerate() {
-            if i > 0 && i % 20 == 0 { eprint!("\n  "); }
+            if i > 0 && i % 20 == 0 {
+                eprint!("\n  ");
+            }
             eprint!("{:02x} ", b);
         }
         eprintln!();
@@ -86,7 +85,9 @@ pub fn decompress_raw(
         eprint!("  ");
         let start = decompressed.len().saturating_sub(40);
         for (i, b) in decompressed[start..].iter().enumerate() {
-            if i > 0 && i % 20 == 0 { eprint!("\n  "); }
+            if i > 0 && i % 20 == 0 {
+                eprint!("\n  ");
+            }
             eprint!("{:02x} ", b);
         }
         eprintln!();
@@ -100,7 +101,9 @@ pub fn decompress_raw(
         eprintln!("DEBUG zip decompress: After delta reconstruction (first 40 bytes):");
         eprint!("  ");
         for (i, b) in decompressed[..40].iter().enumerate() {
-            if i > 0 && i % 20 == 0 { eprint!("\n  "); }
+            if i > 0 && i % 20 == 0 {
+                eprint!("\n  ");
+            }
             eprint!("{:02x} ", b);
         }
         eprintln!();
@@ -108,7 +111,9 @@ pub fn decompress_raw(
         eprint!("  ");
         let start = decompressed.len().saturating_sub(40);
         for (i, b) in decompressed[start..].iter().enumerate() {
-            if i > 0 && i % 20 == 0 { eprint!("\n  "); }
+            if i > 0 && i % 20 == 0 {
+                eprint!("\n  ");
+            }
             eprint!("{:02x} ", b);
         }
         eprintln!();
@@ -121,7 +126,9 @@ pub fn decompress_raw(
         eprintln!("DEBUG zip decompress: After byte interleaving (first 40 bytes):");
         eprint!("  ");
         for (i, b) in decompressed[..40].iter().enumerate() {
-            if i > 0 && i % 20 == 0 { eprint!("\n  "); }
+            if i > 0 && i % 20 == 0 {
+                eprint!("\n  ");
+            }
             eprint!("{:02x} ", b);
         }
         eprintln!();
@@ -129,7 +136,9 @@ pub fn decompress_raw(
         eprint!("  ");
         let start = decompressed.len().saturating_sub(40);
         for (i, b) in decompressed[start..].iter().enumerate() {
-            if i > 0 && i % 20 == 0 { eprint!("\n  "); }
+            if i > 0 && i % 20 == 0 {
+                eprint!("\n  ");
+            }
             eprint!("{:02x} ", b);
         }
         eprintln!();

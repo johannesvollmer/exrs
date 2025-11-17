@@ -122,7 +122,10 @@ impl DeepSamples {
         // Calculate total samples and validate against samples array
         let total_samples: u64 = sample_counts.iter().map(|&c| c as u64).sum();
         let total_samples = usize::try_from(total_samples).map_err(|_| {
-            Error::invalid(format!("total sample count {} exceeds usize::MAX", total_samples))
+            Error::invalid(format!(
+                "total sample count {} exceeds usize::MAX",
+                total_samples
+            ))
         })?;
 
         let samples_len = samples.len();
@@ -277,8 +280,18 @@ impl DeepSamples {
     /// Converts pixel coordinates to a flat pixel index.
     #[inline]
     fn pixel_index(&self, x: usize, y: usize) -> usize {
-        assert!(x < self.resolution.0, "x coordinate {} out of bounds (width: {})", x, self.resolution.0);
-        assert!(y < self.resolution.1, "y coordinate {} out of bounds (height: {})", y, self.resolution.1);
+        assert!(
+            x < self.resolution.0,
+            "x coordinate {} out of bounds (width: {})",
+            x,
+            self.resolution.0
+        );
+        assert!(
+            y < self.resolution.1,
+            "y coordinate {} out of bounds (height: {})",
+            y,
+            self.resolution.1
+        );
         y * self.resolution.0 + x
     }
 

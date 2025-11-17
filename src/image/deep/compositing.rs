@@ -55,7 +55,11 @@ impl DeepSample {
 
     /// Create a new deep sample with already premultiplied color.
     pub fn new_premultiplied(depth: f32, color: [f32; 3], alpha: f32) -> Self {
-        Self { depth, color, alpha }
+        Self {
+            depth,
+            color,
+            alpha,
+        }
     }
 }
 
@@ -145,7 +149,11 @@ pub fn composite_samples_front_to_back(samples: &[DeepSample]) -> ([f32; 3], f32
 /// ```
 pub fn make_tidy(samples: &mut Vec<DeepSample>) {
     // Sort by depth (front to back)
-    samples.sort_by(|a, b| a.depth.partial_cmp(&b.depth).unwrap_or(std::cmp::Ordering::Equal));
+    samples.sort_by(|a, b| {
+        a.depth
+            .partial_cmp(&b.depth)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // Remove samples that are fully occluded
     let mut accumulated_alpha = 0.0;
@@ -191,16 +199,17 @@ pub fn flatten_to_rgba(samples: &[DeepSample]) -> [f32; 4] {
 
     // Unpremultiply the color for output
     let unpremultiplied = if alpha > 0.0001 {
-        [
-            color[0] / alpha,
-            color[1] / alpha,
-            color[2] / alpha,
-        ]
+        [color[0] / alpha, color[1] / alpha, color[2] / alpha]
     } else {
         [0.0, 0.0, 0.0]
     };
 
-    [unpremultiplied[0], unpremultiplied[1], unpremultiplied[2], alpha]
+    [
+        unpremultiplied[0],
+        unpremultiplied[1],
+        unpremultiplied[2],
+        alpha,
+    ]
 }
 
 #[cfg(test)]
@@ -209,9 +218,7 @@ mod tests {
 
     #[test]
     fn test_single_sample_compositing() {
-        let samples = vec![
-            DeepSample::new_unpremultiplied(1.0, [1.0, 0.0, 0.0], 0.5),
-        ];
+        let samples = vec![DeepSample::new_unpremultiplied(1.0, [1.0, 0.0, 0.0], 0.5)];
 
         let (color, alpha) = composite_samples_front_to_back(&samples);
         assert_eq!(alpha, 0.5);
@@ -265,9 +272,7 @@ mod tests {
 
     #[test]
     fn test_flatten_to_rgba() {
-        let samples = vec![
-            DeepSample::new_unpremultiplied(1.0, [1.0, 0.0, 0.0], 0.5),
-        ];
+        let samples = vec![DeepSample::new_unpremultiplied(1.0, [1.0, 0.0, 0.0], 0.5)];
 
         let rgba = flatten_to_rgba(&samples);
         assert_eq!(rgba[0], 1.0); // Unpremultiplied red

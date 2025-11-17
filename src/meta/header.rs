@@ -1004,9 +1004,15 @@ impl Header {
             once_with(move || {
                 let (block_type, tiles) = match (self.blocks, self.deep) {
                     (BlockDescription::ScanLines, false) => (attribute::BlockType::ScanLine, None),
-                    (BlockDescription::ScanLines, true) => (attribute::BlockType::DeepScanLine, None),
-                    (BlockDescription::Tiles(tiles), false) => (attribute::BlockType::Tile, Some(tiles)),
-                    (BlockDescription::Tiles(tiles), true) => (attribute::BlockType::DeepTile, Some(tiles)),
+                    (BlockDescription::ScanLines, true) => {
+                        (attribute::BlockType::DeepScanLine, None)
+                    }
+                    (BlockDescription::Tiles(tiles), false) => {
+                        (attribute::BlockType::Tile, Some(tiles))
+                    }
+                    (BlockDescription::Tiles(tiles), true) => {
+                        (attribute::BlockType::DeepTile, Some(tiles))
+                    }
                 };
 
                 once((BLOCK_TYPE, BlockType(block_type)))

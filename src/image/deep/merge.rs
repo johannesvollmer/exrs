@@ -4,7 +4,7 @@
 //! (e.g., from multiple layers or separate images) into a single composited image.
 
 use crate::block::UncompressedDeepBlock;
-use crate::image::deep::compositing::{composite_samples_front_to_back, DeepSample, make_tidy};
+use crate::image::deep::compositing::{composite_samples_front_to_back, make_tidy, DeepSample};
 use std::collections::HashMap;
 
 /// A pixel's worth of deep samples from potentially multiple sources.
@@ -184,7 +184,10 @@ pub fn extract_pixel_samples_typed(
 
             let value = match info.sample_type {
                 SampleType::F16 => {
-                    let bytes = [block.sample_data[byte_index], block.sample_data[byte_index + 1]];
+                    let bytes = [
+                        block.sample_data[byte_index],
+                        block.sample_data[byte_index + 1],
+                    ];
                     f16::from_ne_bytes(bytes).to_f32()
                 }
                 SampleType::F32 => {

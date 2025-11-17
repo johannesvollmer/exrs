@@ -1801,14 +1801,14 @@ pub fn validate(
 impl AttributeValue {
     /// Number of bytes this would consume in an exr file.
     pub fn byte_size(&self) -> usize {
+        #[cfg(feature = "deep")]
+        use self::AttributeValue::DeepImageState;
         use self::AttributeValue::{
             BlockType, Bytes, ChannelList, Chromaticities, Compression, Custom, EnvironmentMap,
             FloatRect, FloatVec2, FloatVec3, IntVec2, IntVec3, IntegerBounds, KeyCode, LineOrder,
             Matrix3x3, Matrix4x4, Preview, Rational, Text, TextVector, TileDescription, TimeCode,
             F32, F64, I32,
         };
-        #[cfg(feature = "deep")]
-        use self::AttributeValue::DeepImageState;
 
         match *self {
             IntegerBounds(_) => self::IntegerBounds::byte_size(),
@@ -1862,14 +1862,14 @@ impl AttributeValue {
     #[must_use]
     pub fn kind_name(&self) -> &TextSlice {
         use self::type_names as ty;
+        #[cfg(feature = "deep")]
+        use self::AttributeValue::DeepImageState;
         use self::AttributeValue::{
             BlockType, Bytes, ChannelList, Chromaticities, Compression, Custom, EnvironmentMap,
             FloatRect, FloatVec2, FloatVec3, IntVec2, IntVec3, IntegerBounds, KeyCode, LineOrder,
             Matrix3x3, Matrix4x4, Preview, Rational, Text, TextVector, TileDescription, TimeCode,
             F32, F64, I32,
         };
-        #[cfg(feature = "deep")]
-        use self::AttributeValue::DeepImageState;
 
         match *self {
             IntegerBounds(_) => ty::I32BOX2,
@@ -1907,14 +1907,14 @@ impl AttributeValue {
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
+        #[cfg(feature = "deep")]
+        use self::AttributeValue::DeepImageState;
         use self::AttributeValue::{
             BlockType, Bytes, ChannelList, Chromaticities, Compression, Custom, EnvironmentMap,
             FloatRect, FloatVec2, FloatVec3, IntVec2, IntVec3, IntegerBounds, KeyCode, LineOrder,
             Matrix3x3, Matrix4x4, Preview, Rational, Text, TextVector, TileDescription, TimeCode,
             F32, F64, I32,
         };
-        #[cfg(feature = "deep")]
-        use self::AttributeValue::DeepImageState;
         match *self {
             IntegerBounds(value) => value.write(write)?,
             FloatRect(value) => value.write(write)?,

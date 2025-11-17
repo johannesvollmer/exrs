@@ -117,10 +117,7 @@ fn take_n<'s>(slice: &mut &'s [u8], n: usize) -> Result<&'s [u8]> {
 /// Decompress raw byte data without channel-specific processing.
 /// Used for deep data offset tables and other raw byte arrays.
 #[cfg(feature = "deep")]
-pub fn decompress_raw(
-    compressed_le: ByteVec,
-    expected_byte_size: usize,
-) -> Result<ByteVec> {
+pub fn decompress_raw(compressed_le: ByteVec, expected_byte_size: usize) -> Result<ByteVec> {
     let mut remaining_le = compressed_le.as_slice();
     let mut decompressed_le = Vec::with_capacity(expected_byte_size.min(8 * 2048));
 

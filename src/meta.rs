@@ -707,8 +707,10 @@ impl Requirements {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::meta::attribute::{
+        AttributeValue, ChannelDescription, ChannelList, IntegerBounds, LineOrder, SampleType, Text,
+    };
     use crate::meta::header::{ImageAttributes, LayerAttributes};
-    use crate::meta::attribute::{AttributeValue, ChannelDescription, ChannelList, IntegerBounds, LineOrder, SampleType, Text};
 
     #[test]
     fn round_trip_requirements() {

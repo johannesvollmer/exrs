@@ -5,10 +5,10 @@
 
 use crate::block::UncompressedDeepBlock;
 use crate::image::deep::merge::extract_pixel_samples_typed;
-use std::cmp::Ordering;
 use crate::math::Vec2;
 use crate::meta::attribute::IntegerBounds;
 use smallvec::SmallVec;
+use std::cmp::Ordering;
 
 /// Represents a flat RGBA pixel
 #[derive(Debug, Clone, Copy)]
@@ -111,21 +111,22 @@ pub fn composite_deep_to_flat(
 
     impl ChannelLookup {
         fn from_names(names: &[String]) -> Self {
-            let mut lookup = names.iter().enumerate().fold(
-                ChannelLookup::default(),
-                |mut acc, (idx, name)| {
-                    match name.as_str() {
-                        "Z" => acc.z = Some(idx),
-                        "ZBack" => acc.z_back = Some(idx),
-                        "A" => acc.alpha = Some(idx),
-                        "R" => acc.r = Some(idx),
-                        "G" => acc.g = Some(idx),
-                        "B" => acc.b = Some(idx),
-                        _ => {}
-                    }
-                    acc
-                },
-            );
+            let mut lookup =
+                names
+                    .iter()
+                    .enumerate()
+                    .fold(ChannelLookup::default(), |mut acc, (idx, name)| {
+                        match name.as_str() {
+                            "Z" => acc.z = Some(idx),
+                            "ZBack" => acc.z_back = Some(idx),
+                            "A" => acc.alpha = Some(idx),
+                            "R" => acc.r = Some(idx),
+                            "G" => acc.g = Some(idx),
+                            "B" => acc.b = Some(idx),
+                            _ => {}
+                        }
+                        acc
+                    });
 
             if lookup.z_back.is_none() {
                 lookup.z_back = lookup.z;
@@ -210,10 +211,14 @@ pub fn composite_deep_to_flat(
         let sort_required = samples.contributing_sources > 1;
         if sort_required {
             sort_order.sort_by(|&a, &b| {
-                samples.samples[a].z.partial_cmp(&samples.samples[b].z)
+                samples.samples[a]
+                    .z
+                    .partial_cmp(&samples.samples[b].z)
                     .unwrap_or(Ordering::Equal)
                     .then_with(|| {
-                        samples.samples[a].z_back.partial_cmp(&samples.samples[b].z_back)
+                        samples.samples[a]
+                            .z_back
+                            .partial_cmp(&samples.samples[b].z_back)
                             .unwrap_or(Ordering::Equal)
                     })
                     .then_with(|| a.cmp(&b))
@@ -273,14 +278,12 @@ pub fn composite_deep_to_flat(
         .map(|src| ChannelLookup::from_names(&src.channel_names))
         .collect();
 
-    let debug_pixel = std::env::var("DEBUG_PIXEL")
-        .ok()
-        .and_then(|value| {
-            let mut parts = value.split(',');
-            let x = parts.next()?.trim().parse::<i32>().ok()?;
-            let y = parts.next()?.trim().parse::<i32>().ok()?;
-            Some((x, y))
-        });
+    let debug_pixel = std::env::var("DEBUG_PIXEL").ok().and_then(|value| {
+        let mut parts = value.split(',');
+        let x = parts.next()?.trim().parse::<i32>().ok()?;
+        let y = parts.next()?.trim().parse::<i32>().ok()?;
+        Some((x, y))
+    });
 
     let process_pixel = |global_x: i32, global_y: i32| -> FlatPixel {
         let mut gathered = GatheredSamples::new();

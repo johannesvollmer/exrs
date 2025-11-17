@@ -5,7 +5,7 @@
 //! efficiently on the image.
 
 #[cfg(feature = "deep")]
-use crate::error::{Result, Error, UnitResult};
+use crate::error::{Error, Result, UnitResult};
 
 /// Describes the organization state of samples in a deep image.
 ///
@@ -224,7 +224,10 @@ mod tests {
         // Test from_i32
         assert_eq!(DeepImageState::from_i32(0).unwrap(), DeepImageState::Messy);
         assert_eq!(DeepImageState::from_i32(1).unwrap(), DeepImageState::Sorted);
-        assert_eq!(DeepImageState::from_i32(2).unwrap(), DeepImageState::NonOverlapping);
+        assert_eq!(
+            DeepImageState::from_i32(2).unwrap(),
+            DeepImageState::NonOverlapping
+        );
         assert_eq!(DeepImageState::from_i32(3).unwrap(), DeepImageState::Tidy);
 
         // Test invalid values
@@ -256,7 +259,10 @@ mod tests {
     fn test_display() {
         assert_eq!(format!("{}", DeepImageState::Messy), "messy");
         assert_eq!(format!("{}", DeepImageState::Sorted), "sorted");
-        assert_eq!(format!("{}", DeepImageState::NonOverlapping), "non-overlapping");
+        assert_eq!(
+            format!("{}", DeepImageState::NonOverlapping),
+            "non-overlapping"
+        );
         assert_eq!(format!("{}", DeepImageState::Tidy), "tidy");
     }
 

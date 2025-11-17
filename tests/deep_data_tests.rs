@@ -7,13 +7,13 @@
 
 #[cfg(feature = "deep")]
 mod deep_tests {
-    use exr::prelude::*;
     use exr::block::{BlockIndex, UncompressedDeepBlock};
     use exr::image::deep::compositing::*;
     use exr::image::read::deep::read_deep_from_file;
     use exr::image::write::deep::{create_deep_header, write_deep_blocks_to_file};
     use exr::math::Vec2;
     use exr::meta::attribute::{ChannelDescription, ChannelList, SampleType};
+    use exr::prelude::*;
     use std::path::PathBuf;
 
     /// Create a simple test deep block with known data
@@ -61,39 +61,34 @@ mod deep_tests {
         let test_file = temp_dir.join("test_deep_round_trip.exr");
 
         // Create a simple channel list with one depth channel
-        let channels = ChannelList::new(
-            smallvec::smallvec![
-                ChannelDescription {
-                    name: "Z".into(),
-                    sample_type: SampleType::F32,
-                    quantize_linearly: false,
-                    sampling: Vec2(1, 1),
-                },
-            ],
-        );
+        let channels = ChannelList::new(smallvec::smallvec![ChannelDescription {
+            name: "Z".into(),
+            sample_type: SampleType::F32,
+            quantize_linearly: false,
+            sampling: Vec2(1, 1),
+        },]);
 
         // Create header
         let header = create_deep_header(
             "test_layer",
-            16, 16,
+            16,
+            16,
             channels,
             exr::compression::Compression::ZIP1,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Write test data
         // Use block_index.pixel_size to get the correct block dimensions
         // (ZIP1 uses 1 scanline per block, so 16x1 for a 16-wide image)
-        write_deep_blocks_to_file(
-            &test_file,
-            header,
-            |block_index| {
-                Ok(create_test_deep_block(
-                    block_index.layer,
-                    block_index.pixel_position,
-                    block_index.pixel_size,
-                ))
-            },
-        ).unwrap();
+        write_deep_blocks_to_file(&test_file, header, |block_index| {
+            Ok(create_test_deep_block(
+                block_index.layer,
+                block_index.pixel_position,
+                block_index.pixel_size,
+            ))
+        })
+        .unwrap();
 
         // Read back
         let blocks = read_deep_from_file(&test_file, false).unwrap();
@@ -116,36 +111,31 @@ mod deep_tests {
         let temp_dir = std::env::temp_dir();
         let test_file = temp_dir.join("test_deep_multi_blocks.exr");
 
-        let channels = ChannelList::new(
-            smallvec::smallvec![
-                ChannelDescription {
-                    name: "Z".into(),
-                    sample_type: SampleType::F32,
-                    quantize_linearly: false,
-                    sampling: Vec2(1, 1),
-                },
-            ],
-        );
+        let channels = ChannelList::new(smallvec::smallvec![ChannelDescription {
+            name: "Z".into(),
+            sample_type: SampleType::F32,
+            quantize_linearly: false,
+            sampling: Vec2(1, 1),
+        },]);
 
         let header = create_deep_header(
             "test_layer",
-            32, 32,
+            32,
+            32,
             channels,
             exr::compression::Compression::RLE,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Write with multiple scan line blocks
-        write_deep_blocks_to_file(
-            &test_file,
-            header,
-            |block_index| {
-                Ok(create_test_deep_block(
-                    block_index.layer,
-                    block_index.pixel_position,
-                    block_index.pixel_size,
-                ))
-            },
-        ).unwrap();
+        write_deep_blocks_to_file(&test_file, header, |block_index| {
+            Ok(create_test_deep_block(
+                block_index.layer,
+                block_index.pixel_position,
+                block_index.pixel_size,
+            ))
+        })
+        .unwrap();
 
         // Read back
         let blocks = read_deep_from_file(&test_file, false).unwrap();
@@ -228,40 +218,32 @@ mod deep_tests {
         for (name, compression) in compressions {
             let test_file = temp_dir.join(format!("test_deep_{}.exr", name));
 
-            let channels = ChannelList::new(
-                smallvec::smallvec![
-                    ChannelDescription {
-                        name: "Z".into(),
-                        sample_type: SampleType::F32,
-                        quantize_linearly: false,
-                        sampling: Vec2(1, 1),
-                    },
-                ],
-            );
+            let channels = ChannelList::new(smallvec::smallvec![ChannelDescription {
+                name: "Z".into(),
+                sample_type: SampleType::F32,
+                quantize_linearly: false,
+                sampling: Vec2(1, 1),
+            },]);
 
-            let header = create_deep_header(
-                "test_layer",
-                16, 16,
-                channels,
-                compression,
-            ).unwrap();
+            let header = create_deep_header("test_layer", 16, 16, channels, compression).unwrap();
 
             // Write - use actual block size from block_index
-            write_deep_blocks_to_file(
-                &test_file,
-                header,
-                |block_index| {
-                    Ok(create_test_deep_block(
-                        block_index.layer,
-                        block_index.pixel_position,
-                        block_index.pixel_size,
-                    ))
-                },
-            ).unwrap();
+            write_deep_blocks_to_file(&test_file, header, |block_index| {
+                Ok(create_test_deep_block(
+                    block_index.layer,
+                    block_index.pixel_position,
+                    block_index.pixel_size,
+                ))
+            })
+            .unwrap();
 
             // Read back
             let blocks = read_deep_from_file(&test_file, false).unwrap();
-            assert!(!blocks.is_empty(), "Failed to read {} compressed file", name);
+            assert!(
+                !blocks.is_empty(),
+                "Failed to read {} compressed file",
+                name
+            );
 
             // Clean up
             let _ = std::fs::remove_file(test_file);
@@ -308,10 +290,22 @@ mod deep_tests {
         let leaves_blocks = read_deep_from_file(leaves.unwrap(), false).unwrap();
         let trunks_blocks = read_deep_from_file(trunks.unwrap(), false).unwrap();
 
-        println!("✓ Successfully read Balls.exr ({} blocks)", balls_blocks.len());
-        println!("✓ Successfully read Ground.exr ({} blocks)", ground_blocks.len());
-        println!("✓ Successfully read Leaves.exr ({} blocks)", leaves_blocks.len());
-        println!("✓ Successfully read Trunks.exr ({} blocks)", trunks_blocks.len());
+        println!(
+            "✓ Successfully read Balls.exr ({} blocks)",
+            balls_blocks.len()
+        );
+        println!(
+            "✓ Successfully read Ground.exr ({} blocks)",
+            ground_blocks.len()
+        );
+        println!(
+            "✓ Successfully read Leaves.exr ({} blocks)",
+            leaves_blocks.len()
+        );
+        println!(
+            "✓ Successfully read Trunks.exr ({} blocks)",
+            trunks_blocks.len()
+        );
 
         // Verify blocks are non-empty and have valid data
         for block in &balls_blocks {
@@ -335,9 +329,19 @@ mod deep_tests {
         // Apply make_tidy (should keep both since neither is fully opaque)
         make_tidy(&mut merged_samples);
 
-        assert_eq!(merged_samples.len(), 2, "Both samples should remain after tidy");
-        assert_eq!(merged_samples[0].depth, 1.0, "First sample should be at depth 1.0");
-        assert_eq!(merged_samples[1].depth, 2.0, "Second sample should be at depth 2.0");
+        assert_eq!(
+            merged_samples.len(),
+            2,
+            "Both samples should remain after tidy"
+        );
+        assert_eq!(
+            merged_samples[0].depth, 1.0,
+            "First sample should be at depth 1.0"
+        );
+        assert_eq!(
+            merged_samples[1].depth, 2.0,
+            "Second sample should be at depth 2.0"
+        );
 
         // Test compositing
         let (color, alpha) = composite_samples_front_to_back(&merged_samples);
@@ -360,7 +364,11 @@ mod deep_tests {
         }
 
         // Compare offset tables
-        for (o1, o2) in block1.pixel_offset_table.iter().zip(&block2.pixel_offset_table) {
+        for (o1, o2) in block1
+            .pixel_offset_table
+            .iter()
+            .zip(&block2.pixel_offset_table)
+        {
             if o1 != o2 {
                 return false;
             }
@@ -400,7 +408,11 @@ mod deep_tests {
 
             // Read original
             let original_blocks = read_deep_from_file(&input_path, false).unwrap();
-            println!("\nTesting round-trip for {} ({} blocks)", input_name, original_blocks.len());
+            println!(
+                "\nTesting round-trip for {} ({} blocks)",
+                input_name,
+                original_blocks.len()
+            );
 
             // Get header from original and ensure max_samples_per_pixel is set
             let input_file = std::fs::File::open(&input_path).unwrap();
@@ -416,7 +428,8 @@ mod deep_tests {
                         let sample_count = if pixel_idx == 0 {
                             block.pixel_offset_table[0]
                         } else {
-                            block.pixel_offset_table[pixel_idx] - block.pixel_offset_table[pixel_idx - 1]
+                            block.pixel_offset_table[pixel_idx]
+                                - block.pixel_offset_table[pixel_idx - 1]
                         };
                         max_samples = max_samples.max(sample_count as usize);
                     }
@@ -427,15 +440,12 @@ mod deep_tests {
             // Write to new file
             let output_path = temp_dir.join(output_name);
             let mut block_iter = original_blocks.iter().cloned();
-            write_deep_blocks_to_file(
-                &output_path,
-                header,
-                |_block_index| {
-                    block_iter.next().ok_or_else(|| {
-                        exr::error::Error::Invalid("Not enough blocks".into())
-                    })
-                },
-            ).unwrap();
+            write_deep_blocks_to_file(&output_path, header, |_block_index| {
+                block_iter
+                    .next()
+                    .ok_or_else(|| exr::error::Error::Invalid("Not enough blocks".into()))
+            })
+            .unwrap();
 
             // Read it back
             let roundtrip_blocks = read_deep_from_file(&output_path, false).unwrap();
@@ -487,8 +497,11 @@ mod deep_tests {
         let trunks_path = ensure_test_image("Trunks.exr");
         let reference_path = ensure_test_image("composited.exr");
 
-        if balls_path.is_none() || ground_path.is_none() || leaves_path.is_none()
-            || trunks_path.is_none() || reference_path.is_none()
+        if balls_path.is_none()
+            || ground_path.is_none()
+            || leaves_path.is_none()
+            || trunks_path.is_none()
+            || reference_path.is_none()
         {
             println!("Skipping test - OpenEXR test images not available");
             return;
@@ -502,12 +515,8 @@ mod deep_tests {
             let file = std::fs::File::open(path).unwrap();
             let reader = exr::block::read(file, false).unwrap();
             let header = &reader.meta_data().headers[0];
-            let channel_types: Vec<SampleType> = header
-                .channels
-                .list
-                .iter()
-                .map(|c| c.sample_type)
-                .collect();
+            let channel_types: Vec<SampleType> =
+                header.channels.list.iter().map(|c| c.sample_type).collect();
             let channel_names: Vec<String> = header
                 .channels
                 .list
@@ -544,45 +553,62 @@ mod deep_tests {
             println!("  [{}] {} ({:?})", idx, channel.name, channel.sample_type);
         }
 
-        let sources = vec![
-            balls_source,
-            ground_source,
-            leaves_source,
-            trunks_source,
-        ];
+        let sources = vec![balls_source, ground_source, leaves_source, trunks_source];
 
         println!("\nCompositing four deep images to flat...");
-        println!("  Balls data window: {}x{} at ({}, {})",
-                 sources[0].data_window.size.x(), sources[0].data_window.size.y(),
-                 sources[0].data_window.position.x(), sources[0].data_window.position.y());
-        println!("  Ground data window: {}x{} at ({}, {})",
-                 sources[1].data_window.size.x(), sources[1].data_window.size.y(),
-                 sources[1].data_window.position.x(), sources[1].data_window.position.y());
-        println!("  Leaves data window: {}x{} at ({}, {})",
-                 sources[2].data_window.size.x(), sources[2].data_window.size.y(),
-                 sources[2].data_window.position.x(), sources[2].data_window.position.y());
-        println!("  Trunks data window: {}x{} at ({}, {})",
-                 sources[3].data_window.size.x(), sources[3].data_window.size.y(),
-                 sources[3].data_window.position.x(), sources[3].data_window.position.y());
+        println!(
+            "  Balls data window: {}x{} at ({}, {})",
+            sources[0].data_window.size.x(),
+            sources[0].data_window.size.y(),
+            sources[0].data_window.position.x(),
+            sources[0].data_window.position.y()
+        );
+        println!(
+            "  Ground data window: {}x{} at ({}, {})",
+            sources[1].data_window.size.x(),
+            sources[1].data_window.size.y(),
+            sources[1].data_window.position.x(),
+            sources[1].data_window.position.y()
+        );
+        println!(
+            "  Leaves data window: {}x{} at ({}, {})",
+            sources[2].data_window.size.x(),
+            sources[2].data_window.size.y(),
+            sources[2].data_window.position.x(),
+            sources[2].data_window.position.y()
+        );
+        println!(
+            "  Trunks data window: {}x{} at ({}, {})",
+            sources[3].data_window.size.x(),
+            sources[3].data_window.size.y(),
+            sources[3].data_window.position.x(),
+            sources[3].data_window.position.y()
+        );
 
         // Get the reference image's data window first - we'll composite to match it
         let ref_check_file = std::fs::File::open(reference_path.as_ref().unwrap()).unwrap();
         let ref_check_reader = exr::block::read(ref_check_file, false).unwrap();
         let ref_data_win = ref_check_reader.meta_data().headers[0].data_window();
-        println!("  Reference data window: {}x{} at ({}, {})",
-                 ref_data_win.size.x(), ref_data_win.size.y(),
-                 ref_data_win.position.x(), ref_data_win.position.y());
+        println!(
+            "  Reference data window: {}x{} at ({}, {})",
+            ref_data_win.size.x(),
+            ref_data_win.size.y(),
+            ref_data_win.position.x(),
+            ref_data_win.position.y()
+        );
 
         // Debug: Extract and print samples for first pixel to verify data extraction
         use exr::image::deep::merge::extract_pixel_samples_typed;
         println!("\n  Debug: Leaves blocks info:");
         for (i, block) in sources[2].blocks.iter().take(3).enumerate() {
-            println!("    Block {}: pos=({}, {}) size=({}, {})",
-                     i,
-                     block.index.pixel_position.x(),
-                     block.index.pixel_position.y(),
-                     block.index.pixel_size.x(),
-                     block.index.pixel_size.y());
+            println!(
+                "    Block {}: pos=({}, {}) size=({}, {})",
+                i,
+                block.index.pixel_position.x(),
+                block.index.pixel_position.y(),
+                block.index.pixel_size.x(),
+                block.index.pixel_size.y()
+            );
         }
 
         // Debug: Check block decompression - print first 100 bytes of sample_data
@@ -596,17 +622,35 @@ mod deep_tests {
                 }
                 print!("{:02x} ", byte);
             }
-            println!("\n    Total sample_data length: {} bytes", block_0.sample_data.len());
-            println!("    Pixel offset table length: {} pixels", block_0.pixel_offset_table.len());
+            println!(
+                "\n    Total sample_data length: {} bytes",
+                block_0.sample_data.len()
+            );
+            println!(
+                "    Pixel offset table length: {} pixels",
+                block_0.pixel_offset_table.len()
+            );
 
             // Check first 20 pixels sample counts
             println!("    First 20 pixels sample counts:");
             for i in 0..20.min(block_0.pixel_offset_table.len()) {
-                let prev = if i == 0 { 0 } else { block_0.pixel_offset_table[i-1] };
+                let prev = if i == 0 {
+                    0
+                } else {
+                    block_0.pixel_offset_table[i - 1]
+                };
                 let curr = block_0.pixel_offset_table[i];
-                println!("      Pixel {}: {} samples (cumulative offset {})", i, curr - prev, curr);
+                println!(
+                    "      Pixel {}: {} samples (cumulative offset {})",
+                    i,
+                    curr - prev,
+                    curr
+                );
             }
-            println!("    Last pixel offset: {}", block_0.pixel_offset_table.last().unwrap_or(&0));
+            println!(
+                "    Last pixel offset: {}",
+                block_0.pixel_offset_table.last().unwrap_or(&0)
+            );
         }
 
         // Quick parity check for the first source's sample counts
@@ -635,63 +679,74 @@ mod deep_tests {
         // Also check what ALL source images contribute at multiple reference pixels
         let debug_pixels = [(1, 1), (13, 1), (716, 262)];
         for &(check_x, check_y) in &debug_pixels {
-            println!("\n  Debug: Checking all sources at pixel ({},{}):", check_x, check_y);
+            println!(
+                "\n  Debug: Checking all sources at pixel ({},{}):",
+                check_x, check_y
+            );
             for (src_idx, source) in sources.iter().enumerate() {
                 let src_name = ["Balls", "Ground", "Leaves", "Trunks"][src_idx];
                 let global_x = check_x;
                 let global_y = check_y;
 
-            // Check if this pixel is within this source's data window
-            let local_x = global_x - source.data_window.position.x();
-            let local_y = global_y - source.data_window.position.y();
+                // Check if this pixel is within this source's data window
+                let local_x = global_x - source.data_window.position.x();
+                let local_y = global_y - source.data_window.position.y();
 
-            if local_x >= 0 && local_y >= 0
-                && (local_x as usize) < source.data_window.size.x()
-                && (local_y as usize) < source.data_window.size.y()
-            {
-                if let Some(block) = source.blocks.iter().find(|b| {
-                    let block_y_start = b.index.pixel_position.y();
-                    let block_y_end = block_y_start + b.index.pixel_size.y();
-                    global_y as usize >= block_y_start && (global_y as usize) < block_y_end
-                }) {
-                    let block_y_offset = (global_y as usize) - block.index.pixel_position.y();
-                    let block_width = block.index.pixel_size.x();
-                    let pixel_idx = block_y_offset * block_width + (local_x as usize);
+                if local_x >= 0
+                    && local_y >= 0
+                    && (local_x as usize) < source.data_window.size.x()
+                    && (local_y as usize) < source.data_window.size.y()
+                {
+                    if let Some(block) = source.blocks.iter().find(|b| {
+                        let block_y_start = b.index.pixel_position.y();
+                        let block_y_end = block_y_start + b.index.pixel_size.y();
+                        global_y as usize >= block_y_start && (global_y as usize) < block_y_end
+                    }) {
+                        let block_y_offset = (global_y as usize) - block.index.pixel_position.y();
+                        let block_width = block.index.pixel_size.x();
+                        let pixel_idx = block_y_offset * block_width + (local_x as usize);
 
-                    let pixel_samples = extract_pixel_samples_typed(
-                        block,
-                        pixel_idx,
-                        &source.channel_types,
-                    );
-                    if !pixel_samples.is_empty() {
-                        println!("    {}: {} samples", src_name, pixel_samples.len());
-                        for (sample_idx, sample) in pixel_samples.iter().enumerate() {
-                            if sample.len() >= 5 {
-                                println!("      Sample {}: A={:.3} B={:.3} G={:.3} R={:.3} Z={:.3}",
-                                         sample_idx, sample[0], sample[1], sample[2], sample[3], sample[4]);
+                        let pixel_samples =
+                            extract_pixel_samples_typed(block, pixel_idx, &source.channel_types);
+                        if !pixel_samples.is_empty() {
+                            println!("    {}: {} samples", src_name, pixel_samples.len());
+                            for (sample_idx, sample) in pixel_samples.iter().enumerate() {
+                                if sample.len() >= 5 {
+                                    println!(
+                                        "      Sample {}: A={:.3} B={:.3} G={:.3} R={:.3} Z={:.3}",
+                                        sample_idx,
+                                        sample[0],
+                                        sample[1],
+                                        sample[2],
+                                        sample[3],
+                                        sample[4]
+                                    );
+                                }
+                                if sample_idx >= 3 {
+                                    break;
+                                }
                             }
-                            if sample_idx >= 3 {
-                                break;
-                            }
+                        } else {
+                            println!("    {}: 0 samples (empty pixel)", src_name);
                         }
                     } else {
-                        println!("    {}: 0 samples (empty pixel)", src_name);
+                        println!(
+                            "    {}: no block found covering ({}, {})",
+                            src_name, global_x, global_y
+                        );
                     }
                 } else {
-                    println!("    {}: no block found covering ({}, {})", src_name, global_x, global_y);
+                    println!("    {}: outside data window", src_name);
                 }
-            } else {
-                println!("    {}: outside data window", src_name);
-            }
             }
         }
 
         let reference_window = ref_data_win;
-        let (our_pixels, union_window) =
-            composite_deep_to_flat(&sources, Some(reference_window));
+        let (our_pixels, union_window) = composite_deep_to_flat(&sources, Some(reference_window));
 
         if std::env::var("WRITE_DEBUG_COMPOSITE").is_ok() {
-            let out_path = std::env::var("WRITE_DEBUG_COMPOSITE").unwrap_or_else(|_| "target/our_composite.exr".into());
+            let out_path = std::env::var("WRITE_DEBUG_COMPOSITE")
+                .unwrap_or_else(|_| "target/our_composite.exr".into());
             let _ = std::fs::create_dir_all("target");
             exr::image::write::write_rgba_file(
                 out_path,
@@ -706,11 +761,13 @@ mod deep_tests {
             .unwrap();
         }
 
-        println!("  Our composite data window: {}x{} at ({}, {})",
-                 union_window.size.x(),
-                 union_window.size.y(),
-                 union_window.position.x(),
-                 union_window.position.y());
+        println!(
+            "  Our composite data window: {}x{} at ({}, {})",
+            union_window.size.x(),
+            union_window.size.y(),
+            union_window.position.x(),
+            union_window.position.y()
+        );
 
         // Read reference flat image - use specific channels API for simplicity
         use exr::prelude::pixel_vec::PixelVec;
@@ -723,17 +780,22 @@ mod deep_tests {
             .required("G")
             .required("B")
             .required("A")
-            .collect_pixels(PixelVec::<(f32, f32, f32, f32)>::constructor, PixelVec::set_pixel)
+            .collect_pixels(
+                PixelVec::<(f32, f32, f32, f32)>::constructor,
+                PixelVec::set_pixel,
+            )
             .first_valid_layer()
             .all_attributes()
             .from_file(reference_path.unwrap())
             .unwrap();
 
         let ref_size = ref_image.layer_data.size;
-        println!("  Reference: {}x{} ({} pixels)",
-                 ref_size.width(),
-                 ref_size.height(),
-                 ref_size.width() * ref_size.height());
+        println!(
+            "  Reference: {}x{} ({} pixels)",
+            ref_size.width(),
+            ref_size.height(),
+            ref_size.width() * ref_size.height()
+        );
 
         // The reference has a different data window (1,1) vs our union (0,0)
         // We need to extract the corresponding region from our composite
@@ -745,8 +807,10 @@ mod deep_tests {
         let offset_x = (ref_data_win.position.x() - union_window.position.x()) as usize;
         let offset_y = (ref_data_win.position.y() - union_window.position.y()) as usize;
 
-        println!("  Comparing region: {}x{} pixels, offset ({}, {}) in our composite",
-                 ref_width, ref_height, offset_x, offset_y);
+        println!(
+            "  Comparing region: {}x{} pixels, offset ({}, {}) in our composite",
+            ref_width, ref_height, offset_x, offset_y
+        );
 
         // Get reference pixels (R, G, B, A as f32 tuples)
         let ref_rgba_pixels = &ref_image.layer_data.channel_data.pixels.pixels;
@@ -762,7 +826,10 @@ mod deep_tests {
                 .required("G")
                 .required("B")
                 .required("A")
-                .collect_pixels(PixelVec::<(f32, f32, f32, f32)>::constructor, PixelVec::set_pixel)
+                .collect_pixels(
+                    PixelVec::<(f32, f32, f32, f32)>::constructor,
+                    PixelVec::set_pixel,
+                )
                 .first_valid_layer()
                 .all_attributes()
                 .from_file(flat_path)
@@ -816,16 +883,7 @@ mod deep_tests {
                 let pixel_max = diff_r.max(diff_g).max(diff_b).max(diff_a);
                 if pixel_max > max_diff {
                     max_diff = pixel_max;
-                    max_diff_info = Some((
-                        x,
-                        y,
-                        our_x,
-                        our_y,
-                        diff_r,
-                        diff_g,
-                        diff_b,
-                        diff_a,
-                    ));
+                    max_diff_info = Some((x, y, our_x, our_y, diff_r, diff_g, diff_b, diff_a));
                 }
 
                 if x == 715 && y == 261 {
@@ -840,14 +898,22 @@ mod deep_tests {
                 let epsilon = 0.0;
                 if diff_r > epsilon || diff_g > epsilon || diff_b > epsilon || diff_a > epsilon {
                     if mismatch_count < 10 {
-                        println!("  Pixel ({}, {}) [ref] / ({}, {}) [ours] mismatch:",
-                                 x, y, our_x, our_y);
-                        println!("    Ours: R={:.6} G={:.6} B={:.6} A={:.6}",
-                                 our_pixel.r, our_pixel.g, our_pixel.b, our_pixel.a);
-                        println!("    Ref:  R={:.6} G={:.6} B={:.6} A={:.6}",
-                                 ref_r, ref_g, ref_b, ref_a);
-                        println!("    Diff: R={:.6} G={:.6} B={:.6} A={:.6}",
-                                 diff_r, diff_g, diff_b, diff_a);
+                        println!(
+                            "  Pixel ({}, {}) [ref] / ({}, {}) [ours] mismatch:",
+                            x, y, our_x, our_y
+                        );
+                        println!(
+                            "    Ours: R={:.6} G={:.6} B={:.6} A={:.6}",
+                            our_pixel.r, our_pixel.g, our_pixel.b, our_pixel.a
+                        );
+                        println!(
+                            "    Ref:  R={:.6} G={:.6} B={:.6} A={:.6}",
+                            ref_r, ref_g, ref_b, ref_a
+                        );
+                        println!(
+                            "    Diff: R={:.6} G={:.6} B={:.6} A={:.6}",
+                            diff_r, diff_g, diff_b, diff_a
+                        );
                     }
                     mismatch_count += 1;
                 }
@@ -856,24 +922,26 @@ mod deep_tests {
 
         println!("  Max difference: {}", max_diff);
         if let Some((ref_x, ref_y, our_x, our_y, d_r, d_g, d_b, d_a)) = max_diff_info {
-                    println!(
+            println!(
                         "  Max diff location: ref ({}, {}) / ours ({}, {}), diff RGBA = ({:.6}, {:.6}, {:.6}, {:.6})",
                         ref_x, ref_y, our_x, our_y, d_r, d_g, d_b, d_a
                     );
-                    println!(
-                        "    Debug: our pixel RGBA = ({:.6}, {:.6}, {:.6}, {:.6})",
-                        our_pixels[our_y * our_width + our_x].r,
-                        our_pixels[our_y * our_width + our_x].g,
-                        our_pixels[our_y * our_width + our_x].b,
-                        our_pixels[our_y * our_width + our_x].a,
-                    );
+            println!(
+                "    Debug: our pixel RGBA = ({:.6}, {:.6}, {:.6}, {:.6})",
+                our_pixels[our_y * our_width + our_x].r,
+                our_pixels[our_y * our_width + our_x].g,
+                our_pixels[our_y * our_width + our_x].b,
+                our_pixels[our_y * our_width + our_x].a,
+            );
         }
         println!("  Pixels compared: {}", ref_width * ref_height);
         println!("  Mismatches: {}", mismatch_count);
 
-        assert_eq!(mismatch_count, 0,
+        assert_eq!(
+            mismatch_count, 0,
             "Pixel mismatch: {} pixels differ from reference (max diff: {})",
-            mismatch_count, max_diff);
+            mismatch_count, max_diff
+        );
 
         println!("\n✓ Deep-to-flat compositing: 100% pixel match with OpenEXR reference!");
     }
