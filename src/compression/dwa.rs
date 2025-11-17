@@ -529,11 +529,16 @@ fn decode_block_row(
             // Apply inverse DCT
             let spatial_block = inverse_dct_8x8_optimized(&dct_coeffs, last_non_zero);
 
-            // Convert spatial block to f16 and store in rowBlock (functional style)
+            // Convert spatial block from linear f32 to nonlinear f16 bits
+            // The spatial values are in linear space, but we need to store them as nonlinear
+            // so that write_scanline can use ToLinearLut to convert back to linear for output
+            let to_nonlinear = nonlinear::ToNonlinearLut::new();
             let row_block = &mut row_blocks[lossy_channel_idx];
             let offset = block_x * 64;
             spatial_block.iter().enumerate().for_each(|(i, &val)| {
-                row_block[offset + i] = f16::from_f32(val).to_bits();
+                let linear_f16 = f16::from_f32(val);
+                let nonlinear_f16 = to_nonlinear.lookup_f16(linear_f16);
+                row_block[offset + i] = nonlinear_f16.to_bits();
             });
 
             lossy_channel_idx += 1;
@@ -565,26 +570,44 @@ fn decode_block_row(
 
         if let (Some(r_idx), Some(g_idx), Some(b_idx)) = (r_lossy_idx, g_lossy_idx, b_lossy_idx) {
             // Apply CSC for each block in this row
+            // CSC must be done in LINEAR space, so we need to:
+            // 1. Convert nonlinear f16 -> linear f32
+            // 2. Apply Y'CbCr to RGB conversion
+            // 3. Convert linear f32 -> nonlinear f16
+            let to_linear = nonlinear::ToLinearLut::new();
+            let to_nonlinear = nonlinear::ToNonlinearLut::new();
+
             for block_x in 0..num_blocks_x {
                 let offset = block_x * 64;
 
-                // Extract Y'CbCr values for this block
+                // Extract Y'CbCr values for this block (convert nonlinear -> linear)
                 let mut y_block = [0.0f32; 64];
                 let mut cb_block = [0.0f32; 64];
                 let mut cr_block = [0.0f32; 64];
 
                 for i in 0..64 {
-                    y_block[i] = f16::from_bits(row_blocks[r_idx][offset + i]).to_f32();
-                    cb_block[i] = f16::from_bits(row_blocks[g_idx][offset + i]).to_f32();
-                    cr_block[i] = f16::from_bits(row_blocks[b_idx][offset + i]).to_f32();
+                    // Read nonlinear f16 bits and convert to linear f32
+                    let y_nonlinear = row_blocks[r_idx][offset + i];
+                    let cb_nonlinear = row_blocks[g_idx][offset + i];
+                    let cr_nonlinear = row_blocks[b_idx][offset + i];
+
+                    y_block[i] = f16::from_bits(to_linear.lookup(y_nonlinear)).to_f32();
+                    cb_block[i] = f16::from_bits(to_linear.lookup(cb_nonlinear)).to_f32();
+                    cr_block[i] = f16::from_bits(to_linear.lookup(cr_nonlinear)).to_f32();
                 }
 
-                // Convert Y'CbCr to RGB
+                // Convert Y'CbCr to RGB (in linear space)
                 for i in 0..64 {
                     let (r, g, b) = csc::ycbcr_to_rgb(y_block[i], cb_block[i], cr_block[i]);
-                    row_blocks[r_idx][offset + i] = f16::from_f32(r).to_bits();
-                    row_blocks[g_idx][offset + i] = f16::from_f32(g).to_bits();
-                    row_blocks[b_idx][offset + i] = f16::from_f32(b).to_bits();
+
+                    // Convert linear RGB back to nonlinear and store
+                    let r_linear_f16 = f16::from_f32(r);
+                    let g_linear_f16 = f16::from_f32(g);
+                    let b_linear_f16 = f16::from_f32(b);
+
+                    row_blocks[r_idx][offset + i] = to_nonlinear.lookup_f16(r_linear_f16).to_bits();
+                    row_blocks[g_idx][offset + i] = to_nonlinear.lookup_f16(g_linear_f16).to_bits();
+                    row_blocks[b_idx][offset + i] = to_nonlinear.lookup_f16(b_linear_f16).to_bits();
                 }
             }
         }
