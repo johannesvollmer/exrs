@@ -161,10 +161,16 @@ pub fn decompress(
 
     let dc_data = if header.dc_compressed_size > 0 {
         let compressed = read_bytes(&mut reader, header.dc_compressed_size)?;
+        eprintln!("DWA DC: compressed_size={}, uncompressed_count={} (expect {} bytes)",
+                  header.dc_compressed_size, header.dc_uncompressed_size, header.dc_uncompressed_size * 2);
         // DC coefficients are u16 values, decompress and apply byte-delta decoding
         let decompressed = decompress_zip(&compressed, header.dc_uncompressed_size * 2)?;
+        eprintln!("DWA DC: after ZIP decompression: {} bytes", decompressed.len());
         // Apply byte-delta decoding and interleaving (zip_reconstruct_bytes from OpenEXR)
-        zip_reconstruct_bytes(&decompressed)
+        let reconstructed = zip_reconstruct_bytes(&decompressed);
+        eprintln!("DWA DC: after zip_reconstruct: {} bytes ({} u16 values)",
+                  reconstructed.len(), reconstructed.len() / 2);
+        reconstructed
     } else {
         Vec::new()
     };
@@ -173,10 +179,18 @@ pub fn decompress(
         let compressed = read_bytes(&mut reader, header.rle_compressed_size)?;
         eprintln!("DWA: RLE compressed_size={}, uncompressed_size={}, raw_size={}",
                   header.rle_compressed_size, header.rle_uncompressed_size, header.rle_raw_size);
+        eprintln!("DWA: RLE compressed (first 16): {:02x?}", &compressed[..compressed.len().min(16)]);
+
         let uncompressed = decompress_zip(&compressed, header.rle_uncompressed_size)?;
         eprintln!("DWA: RLE after ZIP decompression: {} bytes", uncompressed.len());
+        eprintln!("DWA: RLE uncompressed (first 16): {:02x?}", &uncompressed[..uncompressed.len().min(16)]);
+
         let rle_decompressed = decompress_rle(&uncompressed, header.rle_raw_size)?;
         eprintln!("DWA: RLE after RLE decompression: {} bytes", rle_decompressed.len());
+        eprintln!("DWA: RLE decompressed (first 16): {:02x?}", &rle_decompressed[..rle_decompressed.len().min(16)]);
+
+        // RLE data is already in byte-plane format (low bytes, then high bytes)
+        // No need for zip_reconstruct_bytes - that's only for DC data
         rle_decompressed
     } else {
         eprintln!("DWA: No RLE data (rle_compressed_size=0)");
@@ -197,6 +211,11 @@ pub fn decompress(
             let channel_resolution = channel.subsampled_resolution(rectangle.size);
             let bytes_per_sample = channel.sample_type.bytes_per_sample();
             let channel_bytes = channel_resolution.area() * bytes_per_sample;
+
+            let channel_name: String = channel.name.clone().into();
+            eprintln!("DWA channel {} '{}': scheme={:?}, resolution={}x{}, bytes={}",
+                      ch_idx, channel_name, channel_class.scheme,
+                      channel_resolution.width(), channel_resolution.height(), channel_bytes);
 
             let state = ChannelDecodeState::new(
                 channel_class.scheme,
@@ -281,7 +300,47 @@ fn decode_block_rows(
     // AC stream cursor (shared across all channels)
     let mut ac_cursor = std::io::Cursor::new(ac_data);
 
-    // RLE and Unknown cursors (per channel, mutable) - use smallvec for cache-friendly access
+    // Split RLE and Unknown data into per-channel slices (like DC planes)
+    let rle_slices: SmallVec<[&[u8]; 4]> = channel_states.iter()
+        .enumerate()
+        .scan(0usize, |rle_offset, (ch_idx, state)| {
+            if state.scheme == CompressionScheme::Rle {
+                let channel_bytes = state.height * state.width * state.bytes_per_sample;
+                if *rle_offset + channel_bytes > rle_data.len() {
+                    eprintln!("DWA WARNING: RLE slice overflow for channel {} (expected {} bytes, have {})",
+                              ch_idx, channel_bytes, rle_data.len() - *rle_offset);
+                    return Some(&rle_data[*rle_offset..rle_data.len()]);
+                }
+                let slice = &rle_data[*rle_offset..*rle_offset + channel_bytes];
+                eprintln!("DWA: RLE slice for ch {}: offset {}..{}, first 16: {:02x?}, last 16: {:02x?}",
+                          ch_idx, *rle_offset, *rle_offset + channel_bytes,
+                          &slice[..16.min(slice.len())],
+                          &slice[slice.len().saturating_sub(16)..]);
+                *rle_offset += channel_bytes;
+                Some(slice)
+            } else {
+                Some(&rle_data[0..0])  // Empty slice
+            }
+        })
+        .collect();
+
+    let unknown_slices: SmallVec<[&[u8]; 4]> = channel_states.iter()
+        .scan(0usize, |unknown_offset, state| {
+            if state.scheme == CompressionScheme::Unknown {
+                let channel_bytes = state.height * state.width * state.bytes_per_sample;
+                if *unknown_offset + channel_bytes > unknown_data.len() {
+                    return Some(&unknown_data[*unknown_offset..unknown_data.len()]);
+                }
+                let slice = &unknown_data[*unknown_offset..*unknown_offset + channel_bytes];
+                *unknown_offset += channel_bytes;
+                Some(slice)
+            } else {
+                Some(&unknown_data[0..0])  // Empty slice
+            }
+        })
+        .collect();
+
+    // Cursors track position within each channel's slice
     let mut rle_cursors: SmallVec<[usize; 4]> = (0..channel_states.len()).map(|_| 0).collect();
     let mut unknown_cursors: SmallVec<[usize; 4]> = (0..channel_states.len()).map(|_| 0).collect();
 
@@ -289,6 +348,8 @@ fn decode_block_rows(
     let lossy_channel_count = channel_states.iter()
         .filter(|s| s.scheme == CompressionScheme::LossyDct)
         .count();
+    eprintln!("DWA decode_block_rows: lossy_channel_count={}, dc_data.len={} (u16s), ac_data.len={} bytes",
+              lossy_channel_count, dc_data.len(), ac_data.len());
     let mut row_blocks: SmallVec<[Vec<u16>; 4]> = (0..lossy_channel_count)
         .map(|_| vec![0u16; num_blocks_x * 64])
         .collect();
@@ -322,8 +383,8 @@ fn decode_block_rows(
                 num_blocks_x,
                 channel_states,
                 &row_blocks,
-                rle_data,
-                unknown_data,
+                &rle_slices,
+                &unknown_slices,
                 &mut rle_cursors,
                 &mut unknown_cursors,
                 to_linear_lut,
@@ -461,8 +522,8 @@ fn write_scanline(
     _num_blocks_x: usize,
     channel_states: &SmallVec<[ChannelDecodeState; 4]>,
     row_blocks: &SmallVec<[Vec<u16>; 4]>,
-    rle_data: &[u8],
-    unknown_data: &[u8],
+    rle_slices: &SmallVec<[&[u8]; 4]>,
+    unknown_slices: &SmallVec<[&[u8]; 4]>,
     rle_cursors: &mut SmallVec<[usize; 4]>,
     unknown_cursors: &mut SmallVec<[usize; 4]>,
     to_linear_lut: &ToLinearLut,
@@ -478,6 +539,15 @@ fn write_scanline(
             continue;
         }
 
+        // CRITICAL: Honor y_sampling - skip rows where y is not aligned
+        // This matches OpenEXR internal_dwa_compressor.h:1033
+        // Calculate the base Y coordinate in the full rectangle
+        let base_y = y;  // y is already in the correct coordinate space
+
+        if base_y % state.y_sampling != 0 {
+            continue;
+        }
+
         let row_offset = state.row_offsets[y];
         let row_bytes = state.width * state.bytes_per_sample;
 
@@ -485,6 +555,14 @@ fn write_scanline(
             CompressionScheme::LossyDct => {
                 // Write from rowBlock with toLinear LUT
                 let row_block = &row_blocks[lossy_channel_idx];
+
+                if y == 0 && ch_idx == 1 {
+                    eprintln!("DWA LossyDct ch {} y {}: row_block.len={}, first 4 values: {:04x?}",
+                              ch_idx, y, row_block.len(),
+                              &row_block[..4.min(row_block.len())].iter()
+                                  .map(|&b| b)
+                                  .collect::<Vec<_>>());
+                }
 
                 for x in 0..state.width {
                     let block_x = x / BLOCK_SIZE;
@@ -505,6 +583,12 @@ fn write_scanline(
                         let bytes = linear_bits.to_le_bytes();
                         output[out_offset] = bytes[0];
                         output[out_offset + 1] = bytes[1];
+
+                        if y == 0 && ch_idx == 1 && x < 4 {
+                            let f_val = half::f16::from_bits(linear_bits);
+                            eprintln!("  x={}: nonlinear=0x{:04x}, linear=0x{:04x}, f={}",
+                                      x, nonlinear_bits, linear_bits, f_val);
+                        }
                     } else if state.sample_type == crate::meta::attribute::SampleType::F32 {
                         // Convert to F32
                         let linear_f32 = half::f16::from_bits(linear_bits).to_f32();
@@ -516,36 +600,53 @@ fn write_scanline(
                 lossy_channel_idx += 1;
             }
             CompressionScheme::Rle => {
-                // Copy row from RLE data
-                let cursor = rle_cursors[ch_idx];
-                if cursor + row_bytes > rle_data.len() {
-                    eprintln!("DWA RLE ERROR: ch {} y {} cursor {} + row_bytes {} > rle_data.len() {}",
-                              ch_idx, y, cursor, row_bytes, rle_data.len());
-                    return Err(Error::invalid("RLE data buffer overrun"));
+                // RLE data is in byte-plane format: all first bytes, then all second bytes, etc.
+                // For F16: [low_byte_0, low_byte_1, ..., low_byte_N, high_byte_0, high_byte_1, ..., high_byte_N]
+                let rle_slice = rle_slices[ch_idx];
+                let pixel_cursor = rle_cursors[ch_idx];  // cursor tracks pixel count, not byte offset
+
+                let total_pixels = state.width * state.height;
+                let pixels_per_row = state.width;
+
+                if pixel_cursor + pixels_per_row > total_pixels {
+                    return Err(Error::invalid("RLE pixel cursor out of bounds"));
                 }
 
-                if y < 3 {
-                    eprintln!("DWA RLE: ch {} y {} copying {} bytes from rle[{}..{}] to out[{}..{}]",
-                              ch_idx, y, row_bytes, cursor, cursor + row_bytes, row_offset, row_offset + row_bytes);
-                    if cursor + 8 <= rle_data.len() {
-                        eprintln!("  First 8 bytes: {:02x?}", &rle_data[cursor..cursor.min(cursor+8)]);
+                // Reconstruct pixels from byte planes
+                for x in 0..pixels_per_row {
+                    let pixel_idx = pixel_cursor + x;
+                    let out_pos = row_offset + x * state.bytes_per_sample;
+
+                    // Read each byte from its respective plane
+                    for byte_idx in 0..state.bytes_per_sample {
+                        let plane_offset = byte_idx * total_pixels;
+                        let byte_val = rle_slice[plane_offset + pixel_idx];
+                        output[out_pos + byte_idx] = byte_val;
                     }
                 }
 
-                output[row_offset..row_offset + row_bytes]
-                    .copy_from_slice(&rle_data[cursor..cursor + row_bytes]);
+                if y == 7 || y == 8 || y == 9 {
+                    let first_pixel_u16 = u16::from_le_bytes([output[row_offset], output[row_offset + 1]]);
+                    let first_pixel_f16 = half::f16::from_bits(first_pixel_u16);
+                    eprintln!("DWA RLE ch {} y {}: pixel_cursor {} -> {}, row_offset {}, first pixel bytes: {:02x?} = 0x{:04x} = {}",
+                              ch_idx, y, pixel_cursor, pixel_cursor + pixels_per_row, row_offset,
+                              &output[row_offset..row_offset + state.bytes_per_sample.min(2)],
+                              first_pixel_u16, first_pixel_f16);
+                }
 
-                rle_cursors[ch_idx] = cursor + row_bytes;
+                rle_cursors[ch_idx] = pixel_cursor + pixels_per_row;
             }
             CompressionScheme::Unknown => {
-                // Copy row from Unknown data
+                // Copy row from this channel's Unknown slice
+                let unknown_slice = unknown_slices[ch_idx];
                 let cursor = unknown_cursors[ch_idx];
-                if cursor + row_bytes > unknown_data.len() {
+
+                if cursor + row_bytes > unknown_slice.len() {
                     return Err(Error::invalid("Unknown data buffer overrun"));
                 }
 
                 output[row_offset..row_offset + row_bytes]
-                    .copy_from_slice(&unknown_data[cursor..cursor + row_bytes]);
+                    .copy_from_slice(&unknown_slice[cursor..cursor + row_bytes]);
 
                 unknown_cursors[ch_idx] = cursor + row_bytes;
             }
@@ -1014,6 +1115,8 @@ fn decompress_rle(compressed: &[u8], expected_size: usize) -> Result<Vec<u8>> {
     let mut decompressed = Vec::with_capacity(expected_size);
     let mut remaining = compressed;
 
+    eprintln!("decompress_rle: input {:02x?}, expected_size {}", compressed, expected_size);
+
     while !remaining.is_empty() && decompressed.len() < expected_size {
         if remaining.is_empty() {
             return Err(Error::invalid("Unexpected end of RLE data"));
@@ -1022,6 +1125,8 @@ fn decompress_rle(compressed: &[u8], expected_size: usize) -> Result<Vec<u8>> {
         let count = remaining[0] as i8;
         remaining = &remaining[1..];
 
+        eprintln!("  RLE count={} (0x{:02x}), current len={}", count, count as u8, decompressed.len());
+
         if count < 0 {
             // Take the next '-count' bytes as-is
             let n = (-count) as usize;
@@ -1029,6 +1134,7 @@ fn decompress_rle(compressed: &[u8], expected_size: usize) -> Result<Vec<u8>> {
                 return Err(Error::invalid("RLE data truncated"));
             }
 
+            eprintln!("  Literal: copying {} bytes", n);
             decompressed.extend_from_slice(&remaining[..n]);
             remaining = &remaining[n..];
         } else {
@@ -1040,7 +1146,10 @@ fn decompress_rle(compressed: &[u8], expected_size: usize) -> Result<Vec<u8>> {
             let value = remaining[0];
             remaining = &remaining[1..];
 
-            for _ in 0..=(count as usize) {
+            let repeat_count = (count as usize) + 1;
+            eprintln!("  Run: repeating value 0x{:02x} {} times", value, repeat_count);
+
+            for _ in 0..repeat_count {
                 decompressed.push(value);
             }
         }
@@ -1053,6 +1162,11 @@ fn decompress_rle(compressed: &[u8], expected_size: usize) -> Result<Vec<u8>> {
             decompressed.len()
         )));
     }
+
+    eprintln!("decompress_rle done: {} bytes, first 16: {:02x?}, last 16: {:02x?}",
+              decompressed.len(),
+              &decompressed[..16.min(decompressed.len())],
+              &decompressed[decompressed.len().saturating_sub(16)..]);
 
     Ok(decompressed)
 }
