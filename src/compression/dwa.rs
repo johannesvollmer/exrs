@@ -514,7 +514,8 @@ fn decode_block_row(
             // Find last non-zero coefficient for optimization
             let last_non_zero = rle::find_last_non_zero(&ac_coeffs_bits);
 
-            // Construct full DCT coefficient block (DC + AC) - functional style
+            // Construct full DCT coefficient block (DC + AC)
+            // DC/AC are stored as nonlinear f16, convert to f32 for IDCT
             let mut dct_coeffs = [0.0f32; 64];
             dct_coeffs[0] = f16::from_bits(dc_coeff_bits).to_f32();
 
@@ -542,24 +543,23 @@ fn decode_block_row(
 
             // Debug first block spatial values
             if block_y == 0 && block_x == 0 {
-                eprintln!("  After IDCT: first 4 spatial (linear f32): [{:.6}, {:.6}, {:.6}, {:.6}]",
+                eprintln!("  After IDCT: first 4 spatial (perceptual f32): [{:.6}, {:.6}, {:.6}, {:.6}]",
                           spatial_block[0], spatial_block[1], spatial_block[2], spatial_block[3]);
             }
 
-            // Convert spatial block from linear f32 to nonlinear f16 bits
-            // The spatial values are in linear space, but we need to store them as nonlinear
-            // so that write_scanline can use ToLinearLut to convert back to linear for output
-            let to_nonlinear = nonlinear::ToNonlinearLut::new();
+            // Store spatial block as nonlinear f16 bits
+            // IMPORTANT: The IDCT output is ALREADY in perceptual (nonlinear) space!
+            // We just convert f32→f16 without any nonlinear encoding.
+            // The toLinear LUT will later convert these to linear for CSC/output.
             let row_block = &mut row_blocks[lossy_channel_idx];
             let offset = block_x * 64;
             spatial_block.iter().enumerate().for_each(|(i, &val)| {
-                let linear_f16 = f16::from_f32(val);
-                let nonlinear_f16 = to_nonlinear.lookup_f16(linear_f16);
+                let nonlinear_f16 = f16::from_f32(val);
                 row_block[offset + i] = nonlinear_f16.to_bits();
             });
 
             if block_y == 0 && block_x == 0 {
-                eprintln!("  After toNonlinear: first 4 bits: [{:04x}, {:04x}, {:04x}, {:04x}]",
+                eprintln!("  After f32→f16: first 4 bits: [{:04x}, {:04x}, {:04x}, {:04x}]",
                           row_block[offset], row_block[offset + 1], row_block[offset + 2], row_block[offset + 3]);
             }
 
@@ -598,54 +598,48 @@ fn decode_block_row(
             }
 
             // Apply CSC for each block in this row
-            // CSC must be done in LINEAR space, so we need to:
-            // 1. Convert nonlinear f16 -> linear f32
-            // 2. Apply Y'CbCr to RGB conversion
-            // 3. Convert linear f32 -> nonlinear f16
-            let to_linear = nonlinear::ToLinearLut::new();
-            let to_nonlinear = nonlinear::ToNonlinearLut::new();
+            // IMPORTANT: CSC operates in PERCEPTUAL (nonlinear) space!
+            // Y'CbCr (with prime) → R'G'B' (with prime) are both perceptual.
+            // We just convert f16→f32, apply CSC, then f32→f16.
+            // NO toLinear/toNonlinear transforms!
 
             for block_x in 0..num_blocks_x {
                 let offset = block_x * 64;
 
-                // Extract Y'CbCr values for this block (convert nonlinear -> linear)
+                // Extract Y'CbCr values for this block (perceptual space)
                 let mut y_block = [0.0f32; 64];
                 let mut cb_block = [0.0f32; 64];
                 let mut cr_block = [0.0f32; 64];
 
                 for i in 0..64 {
-                    // Read nonlinear f16 bits and convert to linear f32
+                    // Read perceptual f16 bits and convert to f32
                     // OpenEXR Y'CbCr encoding: Y in R, Cb in B, Cr in G
                     let y_nonlinear = row_blocks[r_idx][offset + i];
                     let cb_nonlinear = row_blocks[b_idx][offset + i];  // Cb from B channel
                     let cr_nonlinear = row_blocks[g_idx][offset + i];  // Cr from G channel
 
-                    y_block[i] = f16::from_bits(to_linear.lookup(y_nonlinear)).to_f32();
-                    cb_block[i] = f16::from_bits(to_linear.lookup(cb_nonlinear)).to_f32();
-                    cr_block[i] = f16::from_bits(to_linear.lookup(cr_nonlinear)).to_f32();
+                    y_block[i] = f16::from_bits(y_nonlinear).to_f32();
+                    cb_block[i] = f16::from_bits(cb_nonlinear).to_f32();
+                    cr_block[i] = f16::from_bits(cr_nonlinear).to_f32();
                 }
 
                 if block_y == 0 && block_x == 0 {
-                    eprintln!("  Before CSC (linear): Y={:.6}, Cb={:.6}, Cr={:.6}",
+                    eprintln!("  Before CSC (perceptual): Y'={:.6}, Cb={:.6}, Cr={:.6}",
                               y_block[0], cb_block[0], cr_block[0]);
                 }
 
-                // Convert Y'CbCr to RGB (in linear space)
+                // Convert Y'CbCr to R'G'B' (in perceptual space)
                 for i in 0..64 {
                     let (r, g, b) = csc::ycbcr_to_rgb(y_block[i], cb_block[i], cr_block[i]);
 
                     if block_y == 0 && block_x == 0 && i == 0 {
-                        eprintln!("  After CSC (linear): R={:.6}, G={:.6}, B={:.6}", r, g, b);
+                        eprintln!("  After CSC (perceptual): R'={:.6}, G'={:.6}, B'={:.6}", r, g, b);
                     }
 
-                    // Convert linear RGB back to nonlinear and store
-                    let r_linear_f16 = f16::from_f32(r);
-                    let g_linear_f16 = f16::from_f32(g);
-                    let b_linear_f16 = f16::from_f32(b);
-
-                    row_blocks[r_idx][offset + i] = to_nonlinear.lookup_f16(r_linear_f16).to_bits();
-                    row_blocks[g_idx][offset + i] = to_nonlinear.lookup_f16(g_linear_f16).to_bits();
-                    row_blocks[b_idx][offset + i] = to_nonlinear.lookup_f16(b_linear_f16).to_bits();
+                    // Store R'G'B' as perceptual f16
+                    row_blocks[r_idx][offset + i] = f16::from_f32(r).to_bits();
+                    row_blocks[g_idx][offset + i] = f16::from_f32(g).to_bits();
+                    row_blocks[b_idx][offset + i] = f16::from_f32(b).to_bits();
                 }
             }
         }
