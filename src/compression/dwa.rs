@@ -271,14 +271,49 @@ pub fn decompress(
         })
         .collect();
 
-    // NEW PIPELINE: Block-row processing matching OpenEXR
-    decode_block_rows(
-        &channel_states,
+    // Determine lossy channel dimensions (all lossy channels share same resolution)
+    let lossy_channel = channel_states.iter()
+        .find(|s| s.scheme == CompressionScheme::LossyDct)
+        .ok_or_else(|| Error::invalid("No lossy DCT channels found"))?;
+    let num_blocks_x = (lossy_channel.width + constants::BLOCK_SIZE - 1) / constants::BLOCK_SIZE;
+    let num_blocks_y = (lossy_channel.height + constants::BLOCK_SIZE - 1) / constants::BLOCK_SIZE;
+
+    // Prepare per-channel DC, RLE, and Unknown data
+    let dc_planes = prepare_dc_planes(&channel_states, num_blocks_x, num_blocks_y, &dc_data)?;
+    let (rle_slices, unknown_slices) = split_auxiliary_streams(&channel_states, &rle_data, &unknown_data)?;
+    let mut rle_cursors: SmallVec<[usize; 4]> = (0..channel_states.len()).map(|_| 0).collect();
+    let mut unknown_cursors: SmallVec<[usize; 4]> = (0..channel_states.len()).map(|_| 0).collect();
+
+    // Decode each lossy channel sequentially
+    let (mut lossy_buffers, ac_bytes_consumed) = decode_lossy_channels(
         &classification,
-        &dc_data,
+        &channel_states,
+        &dc_planes,
         &ac_data,
-        &rle_data,
-        &unknown_data,
+        num_blocks_x,
+        num_blocks_y,
+    )?;
+
+    if ac_bytes_consumed != ac_data.len() {
+        eprintln!(
+            "DWA WARNING: AC data not fully consumed (used {}, total {})",
+            ac_bytes_consumed,
+            ac_data.len()
+        );
+    }
+
+    // Apply CSC (Y'CbCr -> R'G'B') in perceptual space
+    apply_csc_groups(&classification, &mut lossy_buffers)?;
+
+    // Write final scanlines to output
+    write_scanlines(
+        rectangle.size.height(),
+        &channel_states,
+        &lossy_buffers,
+        &rle_slices,
+        &unknown_slices,
+        &mut rle_cursors,
+        &mut unknown_cursors,
         &to_linear_lut,
         &mut output,
     )?;
@@ -286,34 +321,12 @@ pub fn decompress(
     Ok(output)
 }
 
-/// Decode all channels using block-row processing (matching OpenEXR pipeline)
-fn decode_block_rows(
+fn prepare_dc_planes(
     channel_states: &SmallVec<[ChannelDecodeState; 4]>,
-    classification: &classifier::ClassificationResult,
+    num_blocks_x: usize,
+    num_blocks_y: usize,
     dc_data: &[u8],
-    ac_data: &[u8],
-    rle_data: &[u8],
-    unknown_data: &[u8],
-    to_linear_lut: &ToLinearLut,
-    output: &mut [u8],
-) -> Result<()> {
-    use constants::BLOCK_SIZE;
-
-    // Find the first lossy DCT channel to get dimensions
-    let lossy_channel = channel_states.iter()
-        .find(|s| s.scheme == CompressionScheme::LossyDct)
-        .ok_or_else(|| Error::invalid("No lossy DCT channels found"))?;
-
-    let width = lossy_channel.width;
-    let height = lossy_channel.height;
-
-    let num_blocks_x = (width + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    let num_blocks_y = (height + BLOCK_SIZE - 1) / BLOCK_SIZE;
-
-    eprintln!("DWA decode_block_rows: {}x{} pixels, {} x {} blocks",
-              width, height, num_blocks_x, num_blocks_y);
-
-    // Organize DC data into per-channel planes (functional style)
+) -> Result<SmallVec<[Vec<u16>; 4]>> {
     if dc_data.len() % 2 != 0 {
         return Err(Error::invalid("DC data length must be even"));
     }
@@ -323,7 +336,7 @@ fn decode_block_rows(
         .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]))
         .collect();
 
-    let dc_planes: SmallVec<[Vec<u16>; 4]> = channel_states.iter()
+    channel_states.iter()
         .scan(0usize, |dc_offset, state| {
             if state.scheme == CompressionScheme::LossyDct {
                 let channel_blocks = num_blocks_x * num_blocks_y;
@@ -337,137 +350,396 @@ fn decode_block_rows(
                 Some(Ok(Vec::new()))
             }
         })
-        .collect::<Result<SmallVec<[Vec<u16>; 4]>>>()?;
+        .collect::<Result<SmallVec<[Vec<u16>; 4]>>>()
+}
 
-    // AC stream cursor (shared across all channels)
-    let mut ac_cursor = std::io::Cursor::new(ac_data);
-
-    // Validate total RLE/Unknown sizes before slicing
-    let total_rle_bytes: usize = channel_states.iter()
-        .filter(|s| s.scheme == CompressionScheme::Rle)
-        .map(|s| s.height * s.width * s.bytes_per_sample)
-        .sum();
-    let total_unknown_bytes: usize = channel_states.iter()
-        .filter(|s| s.scheme == CompressionScheme::Unknown)
-        .map(|s| s.height * s.width * s.bytes_per_sample)
-        .sum();
-
-    if total_rle_bytes != rle_data.len() {
-        return Err(Error::invalid(format!(
-            "RLE size mismatch: expected {} bytes from channels, got {} bytes from header",
-            total_rle_bytes, rle_data.len()
-        )));
-    }
-    if total_unknown_bytes != unknown_data.len() {
-        return Err(Error::invalid(format!(
-            "Unknown size mismatch: expected {} bytes from channels, got {} bytes from header",
-            total_unknown_bytes, unknown_data.len()
-        )));
-    }
-
-    // Split RLE and Unknown data into per-channel slices (with strict bounds checking)
+fn split_auxiliary_streams<'a>(
+    channel_states: &'a SmallVec<[ChannelDecodeState; 4]>,
+    rle_data: &'a [u8],
+    unknown_data: &'a [u8],
+) -> Result<(SmallVec<[&'a [u8]; 4]>, SmallVec<[&'a [u8]; 4]>)> {
+    let mut rle_offset = 0usize;
     let rle_slices: SmallVec<[&[u8]; 4]> = channel_states.iter()
         .enumerate()
-        .scan(0usize, |rle_offset, (ch_idx, state)| {
+        .map(|(ch_idx, state)| {
             if state.scheme == CompressionScheme::Rle {
-                let channel_bytes = state.height * state.width * state.bytes_per_sample;
-                let start = *rle_offset;
-                let end = start + channel_bytes;
-
+                let bytes = state.height * state.width * state.bytes_per_sample;
+                let start = rle_offset;
+                let end = start + bytes;
                 if end > rle_data.len() {
-                    return Some(Err(Error::invalid(format!(
+                    return Err(Error::invalid(format!(
                         "RLE slice overflow for channel {}: need {} bytes at offset {}, have {} total",
-                        ch_idx, channel_bytes, start, rle_data.len()
-                    ))));
+                        ch_idx, bytes, start, rle_data.len()
+                    )));
                 }
-
-                let slice = &rle_data[start..end];
-                eprintln!("DWA: RLE slice for ch {}: offset {}..{}, first 16: {:02x?}, last 16: {:02x?}",
-                          ch_idx, start, end,
-                          &slice[..16.min(slice.len())],
-                          &slice[slice.len().saturating_sub(16)..]);
-                *rle_offset = end;
-                Some(Ok(slice))
+                rle_offset = end;
+                Ok(&rle_data[start..end])
             } else {
-                Some(Ok(&rle_data[0..0]))  // Empty slice for non-RLE channels
+                Ok(&rle_data[0..0])
             }
         })
         .collect::<Result<SmallVec<[&[u8]; 4]>>>()?;
 
+    let mut unknown_offset = 0usize;
     let unknown_slices: SmallVec<[&[u8]; 4]> = channel_states.iter()
         .enumerate()
-        .scan(0usize, |unknown_offset, (ch_idx, state)| {
+        .map(|(ch_idx, state)| {
             if state.scheme == CompressionScheme::Unknown {
-                let channel_bytes = state.height * state.width * state.bytes_per_sample;
-                let start = *unknown_offset;
-                let end = start + channel_bytes;
-
+                let bytes = state.height * state.width * state.bytes_per_sample;
+                let start = unknown_offset;
+                let end = start + bytes;
                 if end > unknown_data.len() {
-                    return Some(Err(Error::invalid(format!(
+                    return Err(Error::invalid(format!(
                         "Unknown slice overflow for channel {}: need {} bytes at offset {}, have {} total",
-                        ch_idx, channel_bytes, start, unknown_data.len()
-                    ))));
+                        ch_idx, bytes, start, unknown_data.len()
+                    )));
                 }
-
-                let slice = &unknown_data[start..end];
-                *unknown_offset = end;
-                Some(Ok(slice))
+                unknown_offset = end;
+                Ok(&unknown_data[start..end])
             } else {
-                Some(Ok(&unknown_data[0..0]))  // Empty slice for non-Unknown channels
+                Ok(&unknown_data[0..0])
             }
         })
         .collect::<Result<SmallVec<[&[u8]; 4]>>>()?;
 
-    // Cursors track position within each channel's slice
-    let mut rle_cursors: SmallVec<[usize; 4]> = (0..channel_states.len()).map(|_| 0).collect();
-    let mut unknown_cursors: SmallVec<[usize; 4]> = (0..channel_states.len()).map(|_| 0).collect();
+    Ok((rle_slices, unknown_slices))
+}
 
-    // Allocate rowBlock buffer: stores one row of 8x8 blocks as f16 (nonlinear)
-    let lossy_channel_count = channel_states.iter()
-        .filter(|s| s.scheme == CompressionScheme::LossyDct)
-        .count();
-    eprintln!("DWA decode_block_rows: lossy_channel_count={}, dc_data.len={} (u16s), ac_data.len={} bytes",
-              lossy_channel_count, dc_data.len(), ac_data.len());
-    let mut row_blocks: SmallVec<[Vec<u16>; 4]> = (0..lossy_channel_count)
-        .map(|_| vec![0u16; num_blocks_x * 64])
+fn decode_lossy_channels(
+    classification: &classifier::ClassificationResult,
+    channel_states: &SmallVec<[ChannelDecodeState; 4]>,
+    dc_planes: &SmallVec<[Vec<u16>; 4]>,
+    ac_data: &[u8],
+    num_blocks_x: usize,
+    num_blocks_y: usize,
+) -> Result<(SmallVec<[Option<Vec<u16>>; 4]>, usize)> {
+    let mut buffers: SmallVec<[Option<Vec<u16>>; 4]> = (0..channel_states.len())
+        .map(|_| None)
         .collect();
+    let mut processed = vec![false; channel_states.len()];
+    let mut ac_cursor = std::io::Cursor::new(ac_data);
 
-    // Process each block row
-    for block_y in 0..num_blocks_y {
-        let max_y = if block_y == num_blocks_y - 1 {
-            height - block_y * BLOCK_SIZE
-        } else {
-            BLOCK_SIZE
-        };
-
-        // Decode all blocks in this row
-        decode_block_row(
-            block_y,
-            num_blocks_x,
+    for group in &classification.csc_groups {
+        decode_lossy_group(
+            &[group.r_index, group.g_index, group.b_index],
             channel_states,
-            &dc_planes,
+            dc_planes,
             &mut ac_cursor,
-            classification,
-            &mut row_blocks,
+            num_blocks_x,
+            num_blocks_y,
+            &mut buffers,
         )?;
+        processed[group.r_index] = true;
+        processed[group.g_index] = true;
+        processed[group.b_index] = true;
+    }
 
-        // Write scanlines for this block row
-        for by in 0..max_y {
-            let y = block_y * BLOCK_SIZE + by;
+    for (ch_idx, state) in channel_states.iter().enumerate() {
+        if state.scheme != CompressionScheme::LossyDct || processed[ch_idx] {
+            continue;
+        }
+        decode_lossy_group(
+            &[ch_idx],
+            channel_states,
+            dc_planes,
+            &mut ac_cursor,
+            num_blocks_x,
+            num_blocks_y,
+            &mut buffers,
+        )?;
+        processed[ch_idx] = true;
+    }
 
-            write_scanline(
-                y,
-                by,
-                num_blocks_x,
-                channel_states,
-                &row_blocks,
-                &rle_slices,
-                &unknown_slices,
-                &mut rle_cursors,
-                &mut unknown_cursors,
-                to_linear_lut,
-                output,
-            )?;
+    Ok((buffers, ac_cursor.position() as usize))
+}
+
+fn decode_lossy_group(
+    indices: &[usize],
+    channel_states: &SmallVec<[ChannelDecodeState; 4]>,
+    dc_planes: &SmallVec<[Vec<u16>; 4]>,
+    ac_cursor: &mut std::io::Cursor<&[u8]>,
+    num_blocks_x: usize,
+    num_blocks_y: usize,
+    buffers: &mut SmallVec<[Option<Vec<u16>>; 4]>,
+) -> Result<()> {
+    use half::f16;
+
+    for &idx in indices {
+        let state = &channel_states[idx];
+        if state.scheme != CompressionScheme::LossyDct {
+            return Err(Error::invalid("CSC group contains non-lossy channel"));
+        }
+        if buffers[idx].is_none() {
+            buffers[idx] = Some(vec![0u16; state.width * state.height]);
+        }
+    }
+
+    for block_y in 0..num_blocks_y {
+        for block_x in 0..num_blocks_x {
+            for &idx in indices {
+                let state = &channel_states[idx];
+                let buffer = buffers[idx]
+                    .as_mut()
+                    .ok_or_else(|| Error::invalid("Missing buffer for lossy channel"))?;
+                let dc_plane = &dc_planes[idx];
+                let block_idx = block_y * num_blocks_x + block_x;
+
+                if block_idx >= dc_plane.len() {
+                    return Err(Error::invalid("DC plane index out of bounds"));
+                }
+
+                let dc_bits = dc_plane[block_idx];
+                let ac_coeffs_bits = read_ac_coefficients_for_block(ac_cursor)?;
+                let last_non_zero = rle::find_last_non_zero(&ac_coeffs_bits);
+
+                let mut coeffs = [0.0f32; 64];
+                coeffs[0] = f16::from_bits(dc_bits).to_f32();
+                ac_coeffs_bits.iter().enumerate().for_each(|(i, &bits)| {
+                    if bits != 0 {
+                        let normal_idx = constants::INVERSE_ZIGZAG_ORDER[i + 1];
+                        coeffs[normal_idx] = f16::from_bits(bits).to_f32();
+                    }
+                });
+
+                if block_x == 0 && block_y == 0 {
+                    eprintln!("DWA DEBUG ch {} block (0,0):", idx);
+                    eprintln!(
+                        "  DC: bits=0x{:04x}, f16={}, f32={}",
+                        dc_bits,
+                        f16::from_bits(dc_bits),
+                        coeffs[0]
+                    );
+                }
+
+                let spatial_block = dct::inverse_dct_8x8_optimized(&coeffs, last_non_zero);
+
+                for by in 0..constants::BLOCK_SIZE {
+                    let y = block_y * constants::BLOCK_SIZE + by;
+                    if y >= state.height {
+                        break;
+                    }
+                    for bx in 0..constants::BLOCK_SIZE {
+                        let x = block_x * constants::BLOCK_SIZE + bx;
+                        if x >= state.width {
+                            break;
+                        }
+                        let idx_out = y * state.width + x;
+                        buffer[idx_out] = f16::from_f32(
+                            spatial_block[by * constants::BLOCK_SIZE + bx],
+                        )
+                        .to_bits();
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn apply_csc_groups(
+    classification: &classifier::ClassificationResult,
+    lossy_buffers: &mut SmallVec<[Option<Vec<u16>>; 4]>,
+) -> Result<()> {
+    use half::f16;
+
+    for group in &classification.csc_groups {
+        let (r_index, g_index, b_index) = (group.r_index, group.g_index, group.b_index);
+
+        let (r_buf_opt, g_buf_opt, b_buf_opt) = borrow_three_mut(
+            lossy_buffers.as_mut_slice(),
+            r_index,
+            g_index,
+            b_index,
+        )
+        .ok_or_else(|| Error::invalid("CSC group indices must be distinct and in range"))?;
+
+        let r_buf = r_buf_opt
+            .as_mut()
+            .ok_or_else(|| Error::invalid("Missing lossy buffer for R/Y channel"))?;
+        let g_buf = g_buf_opt
+            .as_mut()
+            .ok_or_else(|| Error::invalid("Missing lossy buffer for G/Cb channel"))?;
+        let b_buf = b_buf_opt
+            .as_mut()
+            .ok_or_else(|| Error::invalid("Missing lossy buffer for B/Cr channel"))?;
+
+        if r_buf.len() != g_buf.len() || r_buf.len() != b_buf.len() {
+            return Err(Error::invalid("CSC buffers have mismatched sizes"));
+        }
+
+        // CSC groups operate entirely in perceptual (nonlinear) space. Convert the stored
+        // f16 bits to f32, run the Y'CbCr→R'G'B' matrix, and store the updated perceptual f16.
+        for i in 0..r_buf.len() {
+            let y = f16::from_bits(r_buf[i]).to_f32();
+            let cb = f16::from_bits(g_buf[i]).to_f32();
+            let cr = f16::from_bits(b_buf[i]).to_f32();
+
+            let (r, g, b) = csc::ycbcr_to_rgb(y, cb, cr);
+            r_buf[i] = f16::from_f32(r).to_bits();
+            g_buf[i] = f16::from_f32(g).to_bits();
+            b_buf[i] = f16::from_f32(b).to_bits();
+        }
+    }
+
+    Ok(())
+}
+
+fn borrow_three_mut<T>(
+    slice: &mut [T],
+    a: usize,
+    b: usize,
+    c: usize,
+) -> Option<(&mut T, &mut T, &mut T)> {
+    if a == b || a == c || b == c {
+        return None;
+    }
+    if a >= slice.len() || b >= slice.len() || c >= slice.len() {
+        return None;
+    }
+
+    let mut entries = [(0usize, a), (1usize, b), (2usize, c)];
+    entries.sort_by_key(|&(_, idx)| idx);
+
+    if entries[0].1 == entries[1].1 || entries[1].1 == entries[2].1 {
+        return None;
+    }
+
+    let (slot0, idx0) = entries[0];
+    let (slot1, idx1) = entries[1];
+    let (slot2, idx2) = entries[2];
+
+    let (_, tail0) = slice.split_at_mut(idx0);
+    let (first_slice, tail0) = tail0.split_at_mut(1);
+    let first_ref = &mut first_slice[0];
+
+    let offset1 = idx1 - (idx0 + 1);
+    let (_, tail1) = tail0.split_at_mut(offset1);
+    let (second_slice, tail1) = tail1.split_at_mut(1);
+    let second_ref = &mut second_slice[0];
+
+    let offset2 = idx2 - (idx1 + 1);
+    let (_, tail2) = tail1.split_at_mut(offset2);
+    let (third_slice, _) = tail2.split_at_mut(1);
+    let third_ref = &mut third_slice[0];
+
+    let mut out = [None, None, None];
+    out[slot0] = Some(first_ref);
+    out[slot1] = Some(second_ref);
+    out[slot2] = Some(third_ref);
+
+    match (out[0].take(), out[1].take(), out[2].take()) {
+        (Some(r), Some(g), Some(b)) => Some((r, g, b)),
+        _ => None,
+    }
+}
+
+fn write_scanlines(
+    full_height: usize,
+    channel_states: &SmallVec<[ChannelDecodeState; 4]>,
+    lossy_buffers: &SmallVec<[Option<Vec<u16>>; 4]>,
+    rle_slices: &SmallVec<[&[u8]; 4]>,
+    unknown_slices: &SmallVec<[&[u8]; 4]>,
+    rle_cursors: &mut SmallVec<[usize; 4]>,
+    unknown_cursors: &mut SmallVec<[usize; 4]>,
+    to_linear_lut: &ToLinearLut,
+    output: &mut [u8],
+) -> Result<()> {
+    for y in 0..full_height {
+        write_single_scanline(
+            y,
+            channel_states,
+            lossy_buffers,
+            rle_slices,
+            unknown_slices,
+            rle_cursors,
+            unknown_cursors,
+            to_linear_lut,
+            output,
+        )?;
+    }
+    Ok(())
+}
+
+fn write_single_scanline(
+    y: usize,
+    channel_states: &SmallVec<[ChannelDecodeState; 4]>,
+    lossy_buffers: &SmallVec<[Option<Vec<u16>>; 4]>,
+    rle_slices: &SmallVec<[&[u8]; 4]>,
+    unknown_slices: &SmallVec<[&[u8]; 4]>,
+    rle_cursors: &mut SmallVec<[usize; 4]>,
+    unknown_cursors: &mut SmallVec<[usize; 4]>,
+    to_linear_lut: &ToLinearLut,
+    output: &mut [u8],
+) -> Result<()> {
+    for (ch_idx, state) in channel_states.iter().enumerate() {
+        if y % state.y_sampling != 0 {
+            continue;
+        }
+        let subsampled_y = y / state.y_sampling;
+        if subsampled_y >= state.height {
+            continue;
+        }
+
+        let row_offset = state.row_offsets[subsampled_y];
+        let row_bytes = state.width * state.bytes_per_sample;
+
+        match state.scheme {
+            CompressionScheme::LossyDct => {
+                let buffer = lossy_buffers[ch_idx]
+                    .as_ref()
+                    .ok_or_else(|| Error::invalid("Missing lossy buffer"))?;
+                let row_start = subsampled_y * state.width;
+
+                for x in 0..state.width {
+                    let nonlinear_bits = buffer[row_start + x];
+                    let linear_bits = to_linear_lut.lookup(nonlinear_bits);
+                    let out_offset = row_offset + x * state.bytes_per_sample;
+
+                    if state.sample_type == crate::meta::attribute::SampleType::F16 {
+                        let bytes = linear_bits.to_le_bytes();
+                        output[out_offset] = bytes[0];
+                        output[out_offset + 1] = bytes[1];
+                    } else {
+                        let f32_val = half::f16::from_bits(linear_bits).to_f32();
+                        output[out_offset..out_offset + 4].copy_from_slice(&f32_val.to_le_bytes());
+                    }
+                }
+            }
+            CompressionScheme::Rle => {
+                let slice = rle_slices[ch_idx];
+                let cursor = rle_cursors[ch_idx];
+                let total_pixels = state.width * state.height;
+                let pixels_per_row = state.width;
+                if cursor + pixels_per_row > total_pixels {
+                    return Err(Error::invalid("RLE pixel cursor out of bounds"));
+                }
+
+                for x in 0..pixels_per_row {
+                    let pixel_idx = cursor + x;
+                    let out_pos = row_offset + x * state.bytes_per_sample;
+                    for byte_idx in 0..state.bytes_per_sample {
+                        let plane_offset = byte_idx * total_pixels;
+                        let read_pos = plane_offset + pixel_idx;
+                        if read_pos >= slice.len() {
+                            return Err(Error::invalid("RLE planar read out of bounds"));
+                        }
+                        output[out_pos + byte_idx] = slice[read_pos];
+                    }
+                }
+
+                rle_cursors[ch_idx] = cursor + pixels_per_row;
+            }
+            CompressionScheme::Unknown => {
+                let slice = unknown_slices[ch_idx];
+                let cursor = unknown_cursors[ch_idx];
+                if cursor + row_bytes > slice.len() {
+                    return Err(Error::invalid("Unknown data buffer overrun"));
+                }
+                output[row_offset..row_offset + row_bytes]
+                    .copy_from_slice(&slice[cursor..cursor + row_bytes]);
+                unknown_cursors[ch_idx] = cursor + row_bytes;
+            }
         }
     }
 
@@ -612,11 +884,12 @@ fn decode_block_row(
                 let mut cr_block = [0.0f32; 64];
 
                 for i in 0..64 {
-                    // Read perceptual f16 bits and convert to f32
-                    // OpenEXR Y'CbCr encoding: Y in R, Cb in B, Cr in G
+                    // Read perceptual f16 bits and convert to f32.
+                    // OpenEXR encoding stores Y in the R channel slot,
+                    // Cb in the G slot, and Cr in the B slot.
                     let y_nonlinear = row_blocks[r_idx][offset + i];
-                    let cb_nonlinear = row_blocks[b_idx][offset + i];  // Cb from B channel
-                    let cr_nonlinear = row_blocks[g_idx][offset + i];  // Cr from G channel
+                    let cb_nonlinear = row_blocks[g_idx][offset + i];  // Cb from G channel
+                    let cr_nonlinear = row_blocks[b_idx][offset + i];  // Cr from B channel
 
                     y_block[i] = f16::from_bits(y_nonlinear).to_f32();
                     cb_block[i] = f16::from_bits(cb_nonlinear).to_f32();
@@ -921,12 +1194,14 @@ fn read_ac_coefficients_for_block(reader: &mut std::io::Cursor<&[u8]>) -> Result
             // RLE marker: 0xffXX
             let count = (val & 0xff) as usize;
 
+            // Count == 0 means "rest of block is zero" (OpenEXR uses 64)
+            let advance = if count == 0 { 64 } else { count };
+            dct_comp += advance;
+            if dct_comp > 64 {
+                return Err(Error::invalid("AC zero-run exceeds block length"));
+            }
             if count == 0 {
-                // End of block - remaining coefficients are zero
                 break;
-            } else {
-                // Run of zeros - since array is pre-zeroed, just advance
-                dct_comp += count;
             }
         } else {
             // Regular coefficient value

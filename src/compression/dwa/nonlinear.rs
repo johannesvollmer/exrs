@@ -279,8 +279,14 @@ mod tests {
         // Verify that the lookup always returns a valid u16
         for i in 0..1000u16 {
             let result = lut.lookup(i);
-            // Just verify it doesn't panic and returns a u16
-            assert!(result <= 65535);
+            // Ensure the produced half maps to a finite value.
+            let value = f16::from_bits(result).to_f32();
+            assert!(
+                value.is_finite(),
+                "Expected finite value for nonlinear {:04x}, got {}",
+                i,
+                value
+            );
         }
     }
 
