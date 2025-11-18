@@ -67,7 +67,7 @@ pub fn inverse_dct_8x8(coeffs: &[f32; 64]) -> [f32; 64] {
         idct.process_dct3(&mut col_buffer);
 
         // Copy result to final output with normalization (row-major order)
-        // rustdct's 2D DCT-III needs /2 normalization to match OpenEXR's DC/8 behavior
+        // rustdct's 2D DCT-III needs /2 to match OpenEXR's DC-only behavior
         for row in 0..8 {
             result[row * 8 + col] = col_buffer[row] / 2.0;
         }
@@ -161,7 +161,7 @@ fn inverse_dct_8x8_partial(coeffs: &[f32; 64], zeroed_rows: usize) -> [f32; 64] 
         idct.process_dct3(&mut col_buffer);
 
         // Copy result to final output with normalization (row-major order)
-        // rustdct's 2D DCT-III needs /2 normalization to match OpenEXR's DC/8 behavior
+        // rustdct's 2D DCT-III needs /2 to match OpenEXR's DC-only behavior
         for row in 0..8 {
             result[row * 8 + col] = col_buffer[row] / 2.0;
         }
@@ -207,6 +207,7 @@ mod tests {
             dct.process_dct2(&mut col_buffer);
 
             // Copy result to final output with normalization (row-major order)
+            // Divide by 8 to match inverse: constant x → DC = 8x
             for row in 0..8 {
                 result[row * 8 + col] = col_buffer[row] / 8.0;
             }
