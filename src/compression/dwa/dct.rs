@@ -4,7 +4,15 @@
 //! This uses a custom butterfly algorithm with specific cosine-based scaling,
 //! not a standard DCT-III.
 
-use std::f32::consts::PI;
+const PI_APPROX: f32 = 3.14159;
+const COS_A: f32 = f32::from_bits(0x3eb504fb); // 0.3535536230
+const COS_B: f32 = f32::from_bits(0x3efb14bf); // 0.4903926551
+const COS_C: f32 = f32::from_bits(0x3eec8361); // 0.4619398415
+const COS_D: f32 = f32::from_bits(0x3ed4db36); // 0.4157349467
+const COS_E: f32 = f32::from_bits(0x3e8e39e5); // 0.2777854502
+const COS_F: f32 = f32::from_bits(0x3e43ef33); // 0.1913421601
+const COS_G: f32 = f32::from_bits(0x3dc7c60b); // 0.0975457057
+const DC_SCALE: f32 = f32::from_bits(0x3eb504fa); // 0.3535536
 
 /// Perform inverse 8x8 DCT on a block of coefficients.
 ///
@@ -29,15 +37,6 @@ pub fn inverse_dct_8x8(coeffs: &[f32; 64]) -> [f32; 64] {
 /// # Returns
 /// Spatial domain values (8x8 block)
 fn inverse_dct_8x8_impl(coeffs: &[f32; 64], zeroed_rows: usize) -> [f32; 64] {
-    // Constants from OpenEXR's dctInverse8x8_scalar
-    let a = 0.5 * (PI / 4.0).cos();
-    let b = 0.5 * (PI / 16.0).cos();
-    let c = 0.5 * (PI / 8.0).cos();
-    let d = 0.5 * (3.0 * PI / 16.0).cos();
-    let e = 0.5 * (5.0 * PI / 16.0).cos();
-    let f = 0.5 * (3.0 * PI / 8.0).cos();
-    let g = 0.5 * (7.0 * PI / 16.0).cos();
-
     let mut data = *coeffs;
 
     // First pass - row wise
@@ -46,24 +45,24 @@ fn inverse_dct_8x8_impl(coeffs: &[f32; 64], zeroed_rows: usize) -> [f32; 64] {
         let row_ptr = &mut data[row_start..row_start + 8];
 
         let alpha = [
-            c * row_ptr[2],
-            f * row_ptr[2],
-            c * row_ptr[6],
-            f * row_ptr[6],
+            COS_C * row_ptr[2],
+            COS_F * row_ptr[2],
+            COS_C * row_ptr[6],
+            COS_F * row_ptr[6],
         ];
 
         let beta = [
-            b * row_ptr[1] + d * row_ptr[3] + e * row_ptr[5] + g * row_ptr[7],
-            d * row_ptr[1] - g * row_ptr[3] - b * row_ptr[5] - e * row_ptr[7],
-            e * row_ptr[1] - b * row_ptr[3] + g * row_ptr[5] + d * row_ptr[7],
-            g * row_ptr[1] - e * row_ptr[3] + d * row_ptr[5] - b * row_ptr[7],
+            COS_B * row_ptr[1] + COS_D * row_ptr[3] + COS_E * row_ptr[5] + COS_G * row_ptr[7],
+            COS_D * row_ptr[1] - COS_G * row_ptr[3] - COS_B * row_ptr[5] - COS_E * row_ptr[7],
+            COS_E * row_ptr[1] - COS_B * row_ptr[3] + COS_G * row_ptr[5] + COS_D * row_ptr[7],
+            COS_G * row_ptr[1] - COS_E * row_ptr[3] + COS_D * row_ptr[5] - COS_B * row_ptr[7],
         ];
 
         let theta = [
-            a * (row_ptr[0] + row_ptr[4]),
+            COS_A * (row_ptr[0] + row_ptr[4]),
             alpha[0] + alpha[3],
             alpha[1] - alpha[2],
-            a * (row_ptr[0] - row_ptr[4]),
+            COS_A * (row_ptr[0] - row_ptr[4]),
         ];
 
         let gamma = [
@@ -86,24 +85,24 @@ fn inverse_dct_8x8_impl(coeffs: &[f32; 64], zeroed_rows: usize) -> [f32; 64] {
     // Second pass - column wise
     for column in 0..8 {
         let alpha = [
-            c * data[16 + column],
-            f * data[16 + column],
-            c * data[48 + column],
-            f * data[48 + column],
+            COS_C * data[16 + column],
+            COS_F * data[16 + column],
+            COS_C * data[48 + column],
+            COS_F * data[48 + column],
         ];
 
         let beta = [
-            b * data[8 + column] + d * data[24 + column] + e * data[40 + column] + g * data[56 + column],
-            d * data[8 + column] - g * data[24 + column] - b * data[40 + column] - e * data[56 + column],
-            e * data[8 + column] - b * data[24 + column] + g * data[40 + column] + d * data[56 + column],
-            g * data[8 + column] - e * data[24 + column] + d * data[40 + column] - b * data[56 + column],
+            COS_B * data[8 + column] + COS_D * data[24 + column] + COS_E * data[40 + column] + COS_G * data[56 + column],
+            COS_D * data[8 + column] - COS_G * data[24 + column] - COS_B * data[40 + column] - COS_E * data[56 + column],
+            COS_E * data[8 + column] - COS_B * data[24 + column] + COS_G * data[40 + column] + COS_D * data[56 + column],
+            COS_G * data[8 + column] - COS_E * data[24 + column] + COS_D * data[40 + column] - COS_B * data[56 + column],
         ];
 
         let theta = [
-            a * (data[column] + data[32 + column]),
+            COS_A * (data[column] + data[32 + column]),
             alpha[0] + alpha[3],
             alpha[1] - alpha[2],
-            a * (data[column] - data[32 + column]),
+            COS_A * (data[column] - data[32 + column]),
         ];
 
         let gamma = [
@@ -126,18 +125,6 @@ fn inverse_dct_8x8_impl(coeffs: &[f32; 64], zeroed_rows: usize) -> [f32; 64] {
     data
 }
 
-/// Zigzag scan order for 8x8 DCT blocks
-const ZIGZAG: [usize; 64] = [
-     0,  1,  8, 16,  9,  2,  3, 10,
-    17, 24, 32, 25, 18, 11,  4,  5,
-    12, 19, 26, 33, 40, 48, 41, 34,
-    27, 20, 13,  6,  7, 14, 21, 28,
-    35, 42, 49, 56, 57, 50, 43, 36,
-    29, 22, 15, 23, 30, 37, 44, 51,
-    58, 59, 52, 45, 38, 31, 39, 46,
-    53, 60, 61, 54, 47, 55, 62, 63,
-];
-
 /// Optimized inverse DCT that can skip work based on last non-zero coefficient.
 ///
 /// Direct port of OpenEXR's optimization strategy.
@@ -151,25 +138,30 @@ const ZIGZAG: [usize; 64] = [
 pub fn inverse_dct_8x8_optimized(coeffs: &[f32; 64], last_non_zero: usize) -> [f32; 64] {
     if last_non_zero == 0 {
         // DC-only block - OpenEXR's dctInverse8x8DcOnly
-        // data[0] * 3.535536e-01f * 3.535536e-01f
-        // 3.535536e-01 = 1/sqrt(8) ≈ 0.35355339
-        // 0.35355339² = 0.125 = 1/8
-        let dc_value = coeffs[0] * 0.35355339 * 0.35355339;
+        let dc_value = coeffs[0] * DC_SCALE * DC_SCALE;
         return [dc_value; 64];
     }
 
     // Determine how many rows we can skip based on the last non-zero coefficient
-    let last_pos = ZIGZAG[last_non_zero];
-    let last_row = last_pos / 8;
-    let rows_to_process = (last_row + 1).min(8);
-
-    // If we can skip 3+ rows, use the optimized path
-    let zeroed_rows = 8 - rows_to_process;
-    if zeroed_rows >= 3 {
-        inverse_dct_8x8_impl(coeffs, zeroed_rows)
+    let zeroed_rows = if last_non_zero < 2 {
+        7
+    } else if last_non_zero < 3 {
+        6
+    } else if last_non_zero < 9 {
+        5
+    } else if last_non_zero < 10 {
+        4
+    } else if last_non_zero < 20 {
+        3
+    } else if last_non_zero < 21 {
+        2
+    } else if last_non_zero < 35 {
+        1
     } else {
-        inverse_dct_8x8(coeffs)
-    }
+        0
+    };
+
+    inverse_dct_8x8_impl(coeffs, zeroed_rows)
 }
 
 #[cfg(test)]

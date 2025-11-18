@@ -70,7 +70,7 @@ pub fn decode_ac_coefficients(encoded: &[u16]) -> Result<[u16; AC_COUNT]> {
 pub fn find_last_non_zero(coeffs: &[u16; AC_COUNT]) -> usize {
     for i in (0..AC_COUNT).rev() {
         if coeffs[i] != 0 {
-            return i + 1; // +1 because we're looking at AC coefficients (DC is index 0)
+            return i + 1; // +1 because AC index starts at 1
         }
     }
     0

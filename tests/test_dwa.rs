@@ -1,4 +1,5 @@
 use exr::prelude::*;
+use half::f16;
 
 #[test]
 fn debug_dwaa_pixel_values() {
@@ -49,6 +50,69 @@ fn debug_dwaa_pixel_values() {
                 println!("  {}: {} pixels, first 10: {:?}", name, samples.len(), &samples[..10.min(samples.len())]);
             }
             _ => {}
+        }
+    }
+}
+
+#[test]
+#[ignore]
+fn debug_dwaa_exact_match() {
+    use std::collections::BTreeMap;
+
+    let compressed = read()
+        .no_deep_data()
+        .largest_resolution_level()
+        .all_channels()
+        .all_layers()
+        .all_attributes()
+        .from_file("tests/images/valid/custom/compression_methods/f16/dwaa.exr")
+        .expect("Failed to read DWAA F16 compressed image");
+
+    let reference = read()
+        .no_deep_data()
+        .largest_resolution_level()
+        .all_channels()
+        .all_layers()
+        .all_attributes()
+        .from_file("tests/images/valid/custom/compression_methods/f16/decompressed_dwaa.exr")
+        .expect("Failed to read DWAA F16 reference image");
+
+    let mut mismatches = BTreeMap::new();
+
+    let layer_width = compressed.layer_data.first().map(|layer| layer.size.width()).unwrap_or(0);
+
+    if let (Some(layer_c), Some(layer_r)) = (compressed.layer_data.first(), reference.layer_data.first()) {
+        for (chan_c, chan_r) in layer_c.channel_data.list.iter().zip(layer_r.channel_data.list.iter()) {
+            let name: String = chan_c.name.clone().into();
+            match (&chan_c.sample_data, &chan_r.sample_data) {
+                (FlatSamples::F16(c_samples), FlatSamples::F16(r_samples)) => {
+                    for (idx, (&c, &r)) in c_samples.iter().zip(r_samples.iter()).enumerate() {
+                        if c != r {
+                    mismatches.entry(name.clone()).or_insert_with(Vec::new).push((idx, c.to_bits(), r.to_bits()));
+                            break;
+                        }
+                    }
+                }
+                (FlatSamples::F32(_), FlatSamples::F32(_)) => {}
+                _ => (),
+            }
+        }
+    }
+
+    if mismatches.is_empty() {
+        println!("All channels match bit-exactly.");
+    } else {
+        for (chan, entries) in mismatches {
+            for (idx, found_bits, expected_bits) in entries {
+                let found = f16::from_bits(found_bits);
+                let expected = f16::from_bits(expected_bits);
+                let x = idx % layer_width;
+                let y = idx / layer_width;
+                println!(
+                    "Mismatch channel {} idx {} (x={}, y={}): got {:04x} ({:.8}), expected {:04x} ({:.8})",
+                    chan, idx, x, y, found_bits, found.to_f32(), expected_bits, expected.to_f32()
+                );
+            }
         }
     }
 }
