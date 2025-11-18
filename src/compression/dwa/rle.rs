@@ -68,12 +68,10 @@ pub fn decode_ac_coefficients(encoded: &[u16]) -> Result<[u16; AC_COUNT]> {
 /// Index of the last non-zero coefficient (0-62), or 0 if all are zero
 #[inline]
 pub fn find_last_non_zero(coeffs: &[u16; AC_COUNT]) -> usize {
-    for i in (0..AC_COUNT).rev() {
-        if coeffs[i] != 0 {
-            return i + 1; // +1 because AC index starts at 1
-        }
-    }
-    0
+    coeffs.iter()
+        .rposition(|&coeff| coeff != 0)
+        .map(|i| i + 1)  // +1 because AC index starts at 1
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

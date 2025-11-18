@@ -616,17 +616,11 @@ fn decode_block_row(
                 let offset = block_x * 64;
 
                 // Extract Y'CbCr values for this block (perceptual space)
-                let mut y_block = [0.0f32; 64];
-                let mut cb_block = [0.0f32; 64];
-                let mut cr_block = [0.0f32; 64];
-
-                for i in 0..64 {
-                    // OpenEXR encoding stores Y in the R channel slot,
-                    // Cb in the G slot, and Cr in the B slot.
-                    y_block[i] = row_blocks[r_idx][offset + i];
-                    cb_block[i] = row_blocks[g_idx][offset + i];  // Cb from G channel
-                    cr_block[i] = row_blocks[b_idx][offset + i];  // Cr from B channel
-                }
+                // OpenEXR encoding stores Y in the R channel slot,
+                // Cb in the G slot, and Cr in the B slot.
+                let y_block: [f32; 64] = std::array::from_fn(|i| row_blocks[r_idx][offset + i]);
+                let cb_block: [f32; 64] = std::array::from_fn(|i| row_blocks[g_idx][offset + i]);
+                let cr_block: [f32; 64] = std::array::from_fn(|i| row_blocks[b_idx][offset + i]);
 
                 if VERBOSE_DWA_LOG && block_y == 0 && block_x == 0 {
                     eprintln!("  Before CSC (perceptual): Y'={:.6}, Cb={:.6}, Cr={:.6}",
@@ -634,18 +628,22 @@ fn decode_block_row(
                 }
 
                 // Convert Y'CbCr to R'G'B' (in perceptual space)
-                for i in 0..64 {
-                    let (r, g, b) = csc::ycbcr_to_rgb(y_block[i], cb_block[i], cr_block[i]);
+                y_block.iter()
+                    .zip(cb_block.iter())
+                    .zip(cr_block.iter())
+                    .enumerate()
+                    .for_each(|(i, ((&y, &cb), &cr))| {
+                        let (r, g, b) = csc::ycbcr_to_rgb(y, cb, cr);
 
-                    if VERBOSE_DWA_LOG && block_y == 0 && block_x == 0 && i == 0 {
-                        eprintln!("  After CSC (perceptual): R'={:.6}, G'={:.6}, B'={:.6}", r, g, b);
-                    }
+                        if VERBOSE_DWA_LOG && block_y == 0 && block_x == 0 && i == 0 {
+                            eprintln!("  After CSC (perceptual): R'={:.6}, G'={:.6}, B'={:.6}", r, g, b);
+                        }
 
-                    // Store R'G'B' as perceptual f32
-                    row_blocks[r_idx][offset + i] = r;
-                    row_blocks[g_idx][offset + i] = g;
-                    row_blocks[b_idx][offset + i] = b;
-                }
+                        // Store R'G'B' as perceptual f32
+                        row_blocks[r_idx][offset + i] = r;
+                        row_blocks[g_idx][offset + i] = g;
+                        row_blocks[b_idx][offset + i] = b;
+                    });
             }
         }
 
@@ -656,15 +654,19 @@ fn quantize_row_blocks(
     row_blocks_f32: &SmallVec<[Vec<f32>; 4]>,
     row_blocks_bits: &mut SmallVec<[Vec<u16>; 4]>,
 ) -> Result<()> {
-    for (src, dst) in row_blocks_f32.iter().zip(row_blocks_bits.iter_mut()) {
-        if src.len() != dst.len() {
-            return Err(Error::invalid("Row block buffer size mismatch"));
-        }
-        for (i, &val) in src.iter().enumerate() {
-            dst[i] = float_to_half_bits(val);
-        }
-    }
-    Ok(())
+    row_blocks_f32.iter()
+        .zip(row_blocks_bits.iter_mut())
+        .try_for_each(|(src, dst)| {
+            if src.len() != dst.len() {
+                return Err(Error::invalid("Row block buffer size mismatch"));
+            }
+            src.iter()
+                .zip(dst.iter_mut())
+                .for_each(|(&val, dst_elem)| {
+                    *dst_elem = float_to_half_bits(val);
+                });
+            Ok(())
+        })
 }
 
 fn float_to_half_bits(value: f32) -> u16 {
@@ -950,11 +952,10 @@ fn read_u16_le(reader: &mut std::io::Cursor<&[u8]>) -> Result<u16> {
     let pos = reader.position() as usize;
     let data = reader.get_ref();
 
-    if pos + 2 > data.len() {
-        return Err(Error::invalid("Not enough data to read u16"));
-    }
+    let bytes: [u8; 2] = data.get(pos..pos + 2)
+        .and_then(|slice| std::convert::TryFrom::try_from(slice).ok())
+        .ok_or_else(|| Error::invalid("Not enough data to read u16"))?;
 
-    let bytes = [data[pos], data[pos + 1]];
     reader.set_position((pos + 2) as u64);
     Ok(u16::from_le_bytes(bytes))
 }

@@ -64,7 +64,6 @@ pub struct ClassificationResult {
 /// # Returns
 /// Classification results including compression schemes and CSC groups
 pub fn classify_channels(channels: &ChannelList) -> ClassificationResult {
-    let mut classifications = Vec::new();
     let mut csc_groups = Vec::new();
     let mut used_in_csc = vec![false; channels.list.len()];
 
@@ -96,40 +95,41 @@ pub fn classify_channels(channels: &ChannelList) -> ClassificationResult {
     }
 
     // Second pass: classify each channel
-    for (i, channel) in channels.list.iter().enumerate() {
-        let channel_name: String = channel.name.clone().into();
-        let classification = if let Some((group_idx, role)) = find_csc_membership(i, &csc_groups) {
-            // Part of an RGB triplet - use lossy DCT with CSC
-            ChannelClassification {
-                scheme: CompressionScheme::LossyDct,
-                csc_group_index: Some(group_idx),
-                csc_channel_role: Some(role),
+    let classifications = channels.list.iter()
+        .enumerate()
+        .map(|(i, channel)| {
+            let channel_name: String = channel.name.clone().into();
+            if let Some((group_idx, role)) = find_csc_membership(i, &csc_groups) {
+                // Part of an RGB triplet - use lossy DCT with CSC
+                ChannelClassification {
+                    scheme: CompressionScheme::LossyDct,
+                    csc_group_index: Some(group_idx),
+                    csc_channel_role: Some(role),
+                }
+            } else if is_lossy_dct_channel(&channel_name) && is_float_type(channel.sample_type) {
+                // Standalone Y, BY, or RY channel - use lossy DCT without CSC
+                ChannelClassification {
+                    scheme: CompressionScheme::LossyDct,
+                    csc_group_index: None,
+                    csc_channel_role: None,
+                }
+            } else if is_alpha_channel(&channel_name) {
+                // Alpha channel - use RLE
+                ChannelClassification {
+                    scheme: CompressionScheme::Rle,
+                    csc_group_index: None,
+                    csc_channel_role: None,
+                }
+            } else {
+                // Everything else - use ZIP
+                ChannelClassification {
+                    scheme: CompressionScheme::Unknown,
+                    csc_group_index: None,
+                    csc_channel_role: None,
+                }
             }
-        } else if is_lossy_dct_channel(&channel_name) && is_float_type(channel.sample_type) {
-            // Standalone Y, BY, or RY channel - use lossy DCT without CSC
-            ChannelClassification {
-                scheme: CompressionScheme::LossyDct,
-                csc_group_index: None,
-                csc_channel_role: None,
-            }
-        } else if is_alpha_channel(&channel_name) {
-            // Alpha channel - use RLE
-            ChannelClassification {
-                scheme: CompressionScheme::Rle,
-                csc_group_index: None,
-                csc_channel_role: None,
-            }
-        } else {
-            // Everything else - use ZIP
-            ChannelClassification {
-                scheme: CompressionScheme::Unknown,
-                csc_group_index: None,
-                csc_channel_role: None,
-            }
-        };
-
-        classifications.push(classification);
-    }
+        })
+        .collect();
 
     ClassificationResult {
         channel_classifications: classifications,
