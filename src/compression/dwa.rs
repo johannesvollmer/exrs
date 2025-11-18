@@ -26,9 +26,13 @@ use crate::meta::attribute::{ChannelList, IntegerBounds};
 
 use std::io::Cursor;
 use smallvec::SmallVec;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use classifier::{classify_channels, CompressionScheme};
+use constants::INVERSE_ZIGZAG_ORDER;
 use nonlinear::ToLinearLut;
+
+const VERBOSE_DWA_LOG: bool = false;
 
 /// Per-channel decode state tracking
 struct ChannelDecodeState {
@@ -197,15 +201,21 @@ pub fn decompress(
 
     let dc_data = if header.dc_compressed_size > 0 {
         let compressed = read_bytes(&mut reader, header.dc_compressed_size)?;
-        eprintln!("DWA DC: compressed_size={}, uncompressed_count={} (expect {} bytes)",
-                  header.dc_compressed_size, header.dc_uncompressed_size, header.dc_uncompressed_size * 2);
+        if VERBOSE_DWA_LOG {
+            eprintln!("DWA DC: compressed_size={}, uncompressed_count={} (expect {} bytes)",
+                      header.dc_compressed_size, header.dc_uncompressed_size, header.dc_uncompressed_size * 2);
+        }
         // DC coefficients are u16 values, decompress and apply byte-delta decoding
         let decompressed = decompress_zip(&compressed, header.dc_uncompressed_size * 2)?;
-        eprintln!("DWA DC: after ZIP decompression: {} bytes", decompressed.len());
+        if VERBOSE_DWA_LOG {
+            eprintln!("DWA DC: after ZIP decompression: {} bytes", decompressed.len());
+        }
         // Apply byte-delta decoding and interleaving (zip_reconstruct_bytes from OpenEXR)
         let reconstructed = zip_reconstruct_bytes(&decompressed);
-        eprintln!("DWA DC: after zip_reconstruct: {} bytes ({} u16 values)",
-                  reconstructed.len(), reconstructed.len() / 2);
+        if VERBOSE_DWA_LOG {
+            eprintln!("DWA DC: after zip_reconstruct: {} bytes ({} u16 values)",
+                      reconstructed.len(), reconstructed.len() / 2);
+        }
         reconstructed
     } else {
         Vec::new()
@@ -213,23 +223,31 @@ pub fn decompress(
 
     let rle_data = if header.rle_compressed_size > 0 {
         let compressed = read_bytes(&mut reader, header.rle_compressed_size)?;
-        eprintln!("DWA: RLE compressed_size={}, uncompressed_size={}, raw_size={}",
-                  header.rle_compressed_size, header.rle_uncompressed_size, header.rle_raw_size);
-        eprintln!("DWA: RLE compressed (first 16): {:02x?}", &compressed[..compressed.len().min(16)]);
+        if VERBOSE_DWA_LOG {
+            eprintln!("DWA: RLE compressed_size={}, uncompressed_size={}, raw_size={}",
+                      header.rle_compressed_size, header.rle_uncompressed_size, header.rle_raw_size);
+            eprintln!("DWA: RLE compressed (first 16): {:02x?}", &compressed[..compressed.len().min(16)]);
+        }
 
         let uncompressed = decompress_zip(&compressed, header.rle_uncompressed_size)?;
-        eprintln!("DWA: RLE after ZIP decompression: {} bytes", uncompressed.len());
-        eprintln!("DWA: RLE uncompressed (first 16): {:02x?}", &uncompressed[..uncompressed.len().min(16)]);
+        if VERBOSE_DWA_LOG {
+            eprintln!("DWA: RLE after ZIP decompression: {} bytes", uncompressed.len());
+            eprintln!("DWA: RLE uncompressed (first 16): {:02x?}", &uncompressed[..uncompressed.len().min(16)]);
+        }
 
         let rle_decompressed = decompress_rle(&uncompressed, header.rle_raw_size)?;
-        eprintln!("DWA: RLE after RLE decompression: {} bytes", rle_decompressed.len());
-        eprintln!("DWA: RLE decompressed (first 16): {:02x?}", &rle_decompressed[..rle_decompressed.len().min(16)]);
+        if VERBOSE_DWA_LOG {
+            eprintln!("DWA: RLE after RLE decompression: {} bytes", rle_decompressed.len());
+            eprintln!("DWA: RLE decompressed (first 16): {:02x?}", &rle_decompressed[..rle_decompressed.len().min(16)]);
+        }
 
         // RLE data is already in byte-plane format (low bytes, then high bytes)
         // No need for zip_reconstruct_bytes - that's only for DC data
         rle_decompressed
     } else {
-        eprintln!("DWA: No RLE data (rle_compressed_size=0)");
+        if VERBOSE_DWA_LOG {
+            eprintln!("DWA: No RLE data (rle_compressed_size=0)");
+        }
         Vec::new()
     };
 
@@ -241,10 +259,12 @@ pub fn decompress(
 
     static DECOMPRESS_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let count = DECOMPRESS_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    eprintln!("DWA decompress #{}: rectangle={}x{} at ({},{}), expected_byte_size={}, channels.bytes_per_pixel={}",
-              count, rectangle.size.width(), rectangle.size.height(),
-              rectangle.position.x(), rectangle.position.y(),
-              expected_byte_size, channels.bytes_per_pixel);
+    if VERBOSE_DWA_LOG {
+        eprintln!("DWA decompress #{}: rectangle={}x{} at ({},{}), expected_byte_size={}, channels.bytes_per_pixel={}",
+                  count, rectangle.size.width(), rectangle.size.height(),
+                  rectangle.position.x(), rectangle.position.y(),
+                  expected_byte_size, channels.bytes_per_pixel);
+    }
 
     // Initialize channel decode states with row offsets
     // Note: Output uses SCANLINE-PLANAR layout (Y=0: ch0,ch1,ch2,ch3; Y=1: ch0,ch1,ch2,ch3; ...)
@@ -256,10 +276,12 @@ pub fn decompress(
             let bytes_per_sample = channel.sample_type.bytes_per_sample();
             let channel_bytes = channel_resolution.area() * bytes_per_sample;
 
-            let channel_name: String = channel.name.clone().into();
-            eprintln!("DWA channel {} '{}': scheme={:?}, resolution={}x{}, bytes={}",
-                      ch_idx, channel_name, channel_class.scheme,
-                      channel_resolution.width(), channel_resolution.height(), channel_bytes);
+            if VERBOSE_DWA_LOG {
+                let channel_name: String = channel.name.clone().into();
+                eprintln!("DWA channel {} '{}': scheme={:?}, resolution={}x{}, bytes={}",
+                          ch_idx, channel_name, channel_class.scheme,
+                          channel_resolution.width(), channel_resolution.height(), channel_bytes);
+            }
 
             ChannelDecodeState::new(
                 channel_class.scheme,
@@ -286,7 +308,6 @@ pub fn decompress(
 
     // Decode each lossy channel sequentially
     let (mut lossy_buffers, ac_bytes_consumed) = decode_lossy_channels(
-        &classification,
         &channel_states,
         &dc_planes,
         &ac_data,
@@ -294,7 +315,7 @@ pub fn decompress(
         num_blocks_y,
     )?;
 
-    if ac_bytes_consumed != ac_data.len() {
+    if ac_bytes_consumed != ac_data.len() && VERBOSE_DWA_LOG {
         eprintln!(
             "DWA WARNING: AC data not fully consumed (used {}, total {})",
             ac_bytes_consumed,
@@ -406,7 +427,6 @@ fn split_auxiliary_streams<'a>(
 }
 
 fn decode_lossy_channels(
-    classification: &classifier::ClassificationResult,
     channel_states: &SmallVec<[ChannelDecodeState; 4]>,
     dc_planes: &SmallVec<[Vec<u16>; 4]>,
     ac_data: &[u8],
@@ -416,93 +436,67 @@ fn decode_lossy_channels(
     let mut buffers: SmallVec<[Option<Vec<u16>>; 4]> = (0..channel_states.len())
         .map(|_| None)
         .collect();
-    let mut processed = vec![false; channel_states.len()];
-    let mut ac_cursor = std::io::Cursor::new(ac_data);
-
-    for group in &classification.csc_groups {
-        decode_lossy_group(
-            &[group.r_index, group.g_index, group.b_index],
-            channel_states,
-            dc_planes,
-            &mut ac_cursor,
-            num_blocks_x,
-            num_blocks_y,
-            &mut buffers,
-        )?;
-        processed[group.r_index] = true;
-        processed[group.g_index] = true;
-        processed[group.b_index] = true;
-    }
+    let mut ac_offset = 0usize;
 
     for (ch_idx, state) in channel_states.iter().enumerate() {
-        if state.scheme != CompressionScheme::LossyDct || processed[ch_idx] {
+        if state.scheme != CompressionScheme::LossyDct {
             continue;
         }
-        decode_lossy_group(
-            &[ch_idx],
-            channel_states,
-            dc_planes,
-            &mut ac_cursor,
+
+        let dc_plane = &dc_planes[ch_idx];
+        let ac_slice = &ac_data[ac_offset..];
+        let (pixels, consumed) = decode_single_lossy_channel(
+            state,
+            dc_plane,
+            ac_slice,
             num_blocks_x,
             num_blocks_y,
-            &mut buffers,
+            ch_idx,
         )?;
-        processed[ch_idx] = true;
+        ac_offset += consumed;
+        buffers[ch_idx] = Some(pixels);
     }
 
-    Ok((buffers, ac_cursor.position() as usize))
+    Ok((buffers, ac_offset))
 }
 
-fn decode_lossy_group(
-    indices: &[usize],
-    channel_states: &SmallVec<[ChannelDecodeState; 4]>,
-    dc_planes: &SmallVec<[Vec<u16>; 4]>,
-    ac_cursor: &mut std::io::Cursor<&[u8]>,
+fn decode_single_lossy_channel(
+    state: &ChannelDecodeState,
+    dc_plane: &[u16],
+    ac_slice: &[u8],
     num_blocks_x: usize,
     num_blocks_y: usize,
-    buffers: &mut SmallVec<[Option<Vec<u16>>; 4]>,
-) -> Result<()> {
+    ch_idx: usize,
+) -> Result<(Vec<u16>, usize)> {
+    use dct::inverse_dct_8x8_optimized;
     use half::f16;
+    static LOGGED_DECODE_BLOCK: AtomicBool = AtomicBool::new(false);
 
-    for &idx in indices {
-        let state = &channel_states[idx];
-        if state.scheme != CompressionScheme::LossyDct {
-            return Err(Error::invalid("CSC group contains non-lossy channel"));
-        }
-        if buffers[idx].is_none() {
-            buffers[idx] = Some(vec![0u16; state.width * state.height]);
-        }
-    }
+    let mut cursor = std::io::Cursor::new(ac_slice);
+    let mut pixels = vec![0u16; state.width * state.height];
 
     for block_y in 0..num_blocks_y {
         for block_x in 0..num_blocks_x {
-            for &idx in indices {
-                let state = &channel_states[idx];
-                let buffer = buffers[idx]
-                    .as_mut()
-                    .ok_or_else(|| Error::invalid("Missing buffer for lossy channel"))?;
-                let dc_plane = &dc_planes[idx];
-                let block_idx = block_y * num_blocks_x + block_x;
+            let block_idx = block_y * num_blocks_x + block_x;
+            if block_idx >= dc_plane.len() {
+                return Err(Error::invalid("DC plane index out of bounds"));
+            }
 
-                if block_idx >= dc_plane.len() {
-                    return Err(Error::invalid("DC plane index out of bounds"));
+            let dc_bits = dc_plane[block_idx];
+            let ac_coeffs_bits = read_ac_coefficients_for_block(&mut cursor)?;
+            let last_non_zero = rle::find_last_non_zero(&ac_coeffs_bits);
+
+            let mut coeffs = [0.0f32; 64];
+            coeffs[0] = f16::from_bits(dc_bits).to_f32();
+            ac_coeffs_bits.iter().enumerate().for_each(|(i, &bits)| {
+                if bits != 0 {
+                    let normal_idx = constants::INVERSE_ZIGZAG_ORDER[i + 1];
+                    coeffs[normal_idx] = f16::from_bits(bits).to_f32();
                 }
+            });
 
-                let dc_bits = dc_plane[block_idx];
-                let ac_coeffs_bits = read_ac_coefficients_for_block(ac_cursor)?;
-                let last_non_zero = rle::find_last_non_zero(&ac_coeffs_bits);
-
-                let mut coeffs = [0.0f32; 64];
-                coeffs[0] = f16::from_bits(dc_bits).to_f32();
-                ac_coeffs_bits.iter().enumerate().for_each(|(i, &bits)| {
-                    if bits != 0 {
-                        let normal_idx = constants::INVERSE_ZIGZAG_ORDER[i + 1];
-                        coeffs[normal_idx] = f16::from_bits(bits).to_f32();
-                    }
-                });
-
-                if block_x == 0 && block_y == 0 {
-                    eprintln!("DWA DEBUG ch {} block (0,0):", idx);
+                if VERBOSE_DWA_LOG && block_x == 0 && block_y == 0 {
+                    eprintln!("DWA DEBUG ch {} block (0,0):", ch_idx);
                     eprintln!(
                         "  DC: bits=0x{:04x}, f16={}, f32={}",
                         dc_bits,
@@ -511,30 +505,39 @@ fn decode_lossy_group(
                     );
                 }
 
-                let spatial_block = dct::inverse_dct_8x8_optimized(&coeffs, last_non_zero);
+                let spatial_block = inverse_dct_8x8_optimized(&coeffs, last_non_zero);
 
-                for by in 0..constants::BLOCK_SIZE {
-                    let y = block_y * constants::BLOCK_SIZE + by;
-                    if y >= state.height {
+            if !LOGGED_DECODE_BLOCK.load(Ordering::Relaxed) && block_x == 0 && block_y == 0 {
+                let sample_vals: Vec<f32> = spatial_block[..4].to_vec();
+                eprintln!(
+                    "DWA DECODE ch {} spatial first4: {:?}",
+                    ch_idx, sample_vals
+                );
+            }
+
+            for by in 0..constants::BLOCK_SIZE {
+                let y = block_y * constants::BLOCK_SIZE + by;
+                if y >= state.height {
+                    break;
+                }
+                for bx in 0..constants::BLOCK_SIZE {
+                    let x = block_x * constants::BLOCK_SIZE + bx;
+                    if x >= state.width {
                         break;
                     }
-                    for bx in 0..constants::BLOCK_SIZE {
-                        let x = block_x * constants::BLOCK_SIZE + bx;
-                        if x >= state.width {
-                            break;
-                        }
-                        let idx_out = y * state.width + x;
-                        buffer[idx_out] = f16::from_f32(
-                            spatial_block[by * constants::BLOCK_SIZE + bx],
-                        )
-                        .to_bits();
-                    }
+                    let idx = y * state.width + x;
+                    pixels[idx] =
+                        f16::from_f32(spatial_block[by * constants::BLOCK_SIZE + bx]).to_bits();
                 }
+            }
+
+            if !LOGGED_DECODE_BLOCK.swap(true, Ordering::Relaxed) {
+                eprintln!("DWA DECODE: logged first spatial block");
             }
         }
     }
 
-    Ok(())
+    Ok((pixels, cursor.position() as usize))
 }
 
 fn apply_csc_groups(
@@ -542,41 +545,71 @@ fn apply_csc_groups(
     lossy_buffers: &mut SmallVec<[Option<Vec<u16>>; 4]>,
 ) -> Result<()> {
     use half::f16;
+    static LOGGED_CSC: AtomicBool = AtomicBool::new(false);
 
     for group in &classification.csc_groups {
-        let (r_index, g_index, b_index) = (group.r_index, group.g_index, group.b_index);
+        // Validate that buffers exist
+        if lossy_buffers.get(group.r_index).and_then(|b| b.as_ref()).is_none()
+            || lossy_buffers.get(group.g_index).and_then(|b| b.as_ref()).is_none()
+            || lossy_buffers.get(group.b_index).and_then(|b| b.as_ref()).is_none()
+        {
+            return Err(Error::invalid("Missing lossy buffer for CSC group"));
+        }
 
-        let (r_buf_opt, g_buf_opt, b_buf_opt) = borrow_three_mut(
-            lossy_buffers.as_mut_slice(),
-            r_index,
-            g_index,
-            b_index,
-        )
-        .ok_or_else(|| Error::invalid("CSC group indices must be distinct and in range"))?;
+        // Get three mutable references safely using split_at_mut
+        // Sort indices to use split_at_mut
+        let mut indices = [(group.r_index, 0), (group.g_index, 1), (group.b_index, 2)];
+        indices.sort_by_key(|&(idx, _)| idx);
 
-        let r_buf = r_buf_opt
-            .as_mut()
-            .ok_or_else(|| Error::invalid("Missing lossy buffer for R/Y channel"))?;
-        let g_buf = g_buf_opt
-            .as_mut()
-            .ok_or_else(|| Error::invalid("Missing lossy buffer for G/Cb channel"))?;
-        let b_buf = b_buf_opt
-            .as_mut()
-            .ok_or_else(|| Error::invalid("Missing lossy buffer for B/Cr channel"))?;
+        let (idx0, tag0) = indices[0];
+        let (idx1, tag1) = indices[1];
+        let (idx2, tag2) = indices[2];
 
-        if r_buf.len() != g_buf.len() || r_buf.len() != b_buf.len() {
+        let (buf0, buf1, buf2);
+        {
+            let (left, right) = lossy_buffers.split_at_mut(idx1);
+            let temp0 = left[idx0].as_mut().unwrap();
+            let (middle, right) = right.split_at_mut(idx2 - idx1);
+            let temp1 = middle[0].as_mut().unwrap();
+            let temp2 = right[0].as_mut().unwrap();
+
+            // Assign based on original tags
+            match (tag0, tag1, tag2) {
+                (0, 1, 2) => { buf0 = temp0; buf1 = temp1; buf2 = temp2; }
+                (0, 2, 1) => { buf0 = temp0; buf1 = temp2; buf2 = temp1; }
+                (1, 0, 2) => { buf0 = temp1; buf1 = temp0; buf2 = temp2; }
+                (1, 2, 0) => { buf0 = temp2; buf1 = temp0; buf2 = temp1; }
+                (2, 0, 1) => { buf0 = temp1; buf1 = temp2; buf2 = temp0; }
+                (2, 1, 0) => { buf0 = temp2; buf1 = temp1; buf2 = temp0; }
+                _ => unreachable!()
+            }
+        }
+
+        let y_buf = buf0;
+        let g_buf = buf1;
+        let b_buf = buf2;
+
+        if y_buf.len() != g_buf.len() || y_buf.len() != b_buf.len() {
             return Err(Error::invalid("CSC buffers have mismatched sizes"));
         }
 
-        // CSC groups operate entirely in perceptual (nonlinear) space. Convert the stored
-        // f16 bits to f32, run the Y'CbCr→R'G'B' matrix, and store the updated perceptual f16.
-        for i in 0..r_buf.len() {
-            let y = f16::from_bits(r_buf[i]).to_f32();
-            let cb = f16::from_bits(g_buf[i]).to_f32();
-            let cr = f16::from_bits(b_buf[i]).to_f32();
+        for i in 0..y_buf.len() {
+            let y = f16::from_bits(y_buf[i]).to_f32();
+            let cb = f16::from_bits(b_buf[i]).to_f32(); // Cb stored in B channel
+            let cr = f16::from_bits(g_buf[i]).to_f32(); // Cr stored in G channel
+
+            if !LOGGED_CSC.load(Ordering::Relaxed) && i == 0 {
+                eprintln!("DWA CSC pre: idx={} Y'={} Cb={} Cr={}", i, y, cb, cr);
+            }
 
             let (r, g, b) = csc::ycbcr_to_rgb(y, cb, cr);
-            r_buf[i] = f16::from_f32(r).to_bits();
+
+            if !LOGGED_CSC.load(Ordering::Relaxed) && i == 0 {
+                eprintln!("DWA CSC post: R'={} G'={} B'={}", r, g, b);
+                LOGGED_CSC.store(true, Ordering::Relaxed);
+            }
+
+            y_buf[i] = f16::from_f32(r).to_bits();
             g_buf[i] = f16::from_f32(g).to_bits();
             b_buf[i] = f16::from_f32(b).to_bits();
         }
@@ -672,6 +705,8 @@ fn write_single_scanline(
     to_linear_lut: &ToLinearLut,
     output: &mut [u8],
 ) -> Result<()> {
+    static LOGGED_WRITE_SAMPLE: AtomicBool = AtomicBool::new(false);
+
     for (ch_idx, state) in channel_states.iter().enumerate() {
         if y % state.y_sampling != 0 {
             continue;
@@ -696,6 +731,18 @@ fn write_single_scanline(
                     let linear_bits = to_linear_lut.lookup(nonlinear_bits);
                     let out_offset = row_offset + x * state.bytes_per_sample;
 
+                    if !LOGGED_WRITE_SAMPLE.load(Ordering::Relaxed)
+                        && y == 0
+                        && x < 4
+                    {
+                        let nonlinear_f = half::f16::from_bits(nonlinear_bits).to_f32();
+                        let linear_f = half::f16::from_bits(linear_bits).to_f32();
+                        eprintln!(
+                            "DWA WRITE ch {} x {}: nonlinear bits=0x{:04x} ({}), toLinear bits=0x{:04x} ({})",
+                            ch_idx, x, nonlinear_bits, nonlinear_f, linear_bits, linear_f
+                        );
+                    }
+
                     if state.sample_type == crate::meta::attribute::SampleType::F16 {
                         let bytes = linear_bits.to_le_bytes();
                         output[out_offset] = bytes[0];
@@ -704,6 +751,10 @@ fn write_single_scanline(
                         let f32_val = half::f16::from_bits(linear_bits).to_f32();
                         output[out_offset..out_offset + 4].copy_from_slice(&f32_val.to_le_bytes());
                     }
+                }
+
+                if !LOGGED_WRITE_SAMPLE.swap(true, Ordering::Relaxed) {
+                    eprintln!("DWA WRITE: logged first few F16 samples");
                 }
             }
             CompressionScheme::Rle => {
@@ -800,7 +851,7 @@ fn decode_block_row(
                 });
 
             // Debug first block of first row
-            if block_y == 0 && block_x == 0 {
+            if VERBOSE_DWA_LOG && block_y == 0 && block_x == 0 {
                 eprintln!("DWA DEBUG ch {} block (0,0):", ch_idx);
                 eprintln!("  DC: bits=0x{:04x}, f16={}, f32={}",
                           dc_coeff_bits, f16::from_bits(dc_coeff_bits), dct_coeffs[0]);
@@ -814,7 +865,7 @@ fn decode_block_row(
             let spatial_block = inverse_dct_8x8_optimized(&dct_coeffs, last_non_zero);
 
             // Debug first block spatial values
-            if block_y == 0 && block_x == 0 {
+            if VERBOSE_DWA_LOG && block_y == 0 && block_x == 0 {
                 eprintln!("  After IDCT: first 4 spatial (perceptual f32): [{:.6}, {:.6}, {:.6}, {:.6}]",
                           spatial_block[0], spatial_block[1], spatial_block[2], spatial_block[3]);
             }
@@ -830,7 +881,7 @@ fn decode_block_row(
                 row_block[offset + i] = nonlinear_f16.to_bits();
             });
 
-            if block_y == 0 && block_x == 0 {
+            if VERBOSE_DWA_LOG && block_y == 0 && block_x == 0 {
                 eprintln!("  After f32→f16: first 4 bits: [{:04x}, {:04x}, {:04x}, {:04x}]",
                           row_block[offset], row_block[offset + 1], row_block[offset + 2], row_block[offset + 3]);
             }
@@ -863,7 +914,7 @@ fn decode_block_row(
         }
 
         if let (Some(r_idx), Some(g_idx), Some(b_idx)) = (r_lossy_idx, g_lossy_idx, b_lossy_idx) {
-            if block_y == 0 {
+            if VERBOSE_DWA_LOG && block_y == 0 {
                 eprintln!("DWA DEBUG: Applying CSC - r_idx={}, g_idx={}, b_idx={} (lossy indices)", r_idx, g_idx, b_idx);
                 eprintln!("           CSC group: R ch={}, G ch={}, B ch={}",
                           csc_group.r_index, csc_group.g_index, csc_group.b_index);
@@ -896,7 +947,7 @@ fn decode_block_row(
                     cr_block[i] = f16::from_bits(cr_nonlinear).to_f32();
                 }
 
-                if block_y == 0 && block_x == 0 {
+                if VERBOSE_DWA_LOG && block_y == 0 && block_x == 0 {
                     eprintln!("  Before CSC (perceptual): Y'={:.6}, Cb={:.6}, Cr={:.6}",
                               y_block[0], cb_block[0], cr_block[0]);
                 }
@@ -905,7 +956,7 @@ fn decode_block_row(
                 for i in 0..64 {
                     let (r, g, b) = csc::ycbcr_to_rgb(y_block[i], cb_block[i], cr_block[i]);
 
-                    if block_y == 0 && block_x == 0 && i == 0 {
+                    if VERBOSE_DWA_LOG && block_y == 0 && block_x == 0 && i == 0 {
                         eprintln!("  After CSC (perceptual): R'={:.6}, G'={:.6}, B'={:.6}", r, g, b);
                     }
 
@@ -958,7 +1009,7 @@ fn write_scanline(
         let row_offset = state.row_offsets[subsampled_y];
         let row_bytes = state.width * state.bytes_per_sample;
 
-        if y < 3 {
+        if VERBOSE_DWA_LOG && y < 3 {
             eprintln!("DWA ch {} y {} (subsampled_y {}): row_offset={}, row_bytes={}, scheme={:?}",
                       ch_idx, y, subsampled_y, row_offset, row_bytes, state.scheme);
         }
@@ -968,7 +1019,7 @@ fn write_scanline(
                 // Write from rowBlock with toLinear LUT
                 let row_block = &row_blocks[lossy_channel_idx];
 
-                if y == 0 && ch_idx == 1 {
+                if VERBOSE_DWA_LOG && y == 0 && ch_idx == 1 {
                     eprintln!("DWA LossyDct ch {} y {}: row_block.len={}, first 4 values: {:04x?}",
                               ch_idx, y, row_block.len(),
                               &row_block[..4.min(row_block.len())].iter()
@@ -997,7 +1048,7 @@ fn write_scanline(
                         output[out_offset] = bytes[0];
                         output[out_offset + 1] = bytes[1];
 
-                        if y == 0 && ch_idx == 1 && x < 4 {
+                        if VERBOSE_DWA_LOG && y == 0 && ch_idx == 1 && x < 4 {
                             let f_val = half::f16::from_bits(linear_bits);
                             eprintln!("  x={}: nonlinear=0x{:04x}, linear=0x{:04x}, f={}",
                                       x, nonlinear_bits, linear_bits, f_val);
@@ -1048,7 +1099,7 @@ fn write_scanline(
                     }
                 }
 
-                if y == 7 || y == 8 || y == 9 {
+                if VERBOSE_DWA_LOG && (y == 7 || y == 8 || y == 9) {
                     let first_pixel_u16 = u16::from_le_bytes([output[row_offset], output[row_offset + 1]]);
                     let first_pixel_f16 = half::f16::from_bits(first_pixel_u16);
                     eprintln!("DWA RLE ch {} y {}: pixel_cursor {} -> {}, row_offset {}, first pixel bytes: {:02x?} = 0x{:04x} = {}",
@@ -1088,7 +1139,7 @@ fn decode_lossy_dct_channel(
     ac_reader: &mut std::io::Cursor<&[u8]>,
     dc_reader: &mut std::io::Cursor<&[u8]>,
 ) -> Result<Vec<f32>> {
-    use constants::{BLOCK_SIZE, INVERSE_ZIGZAG_ORDER};
+    use constants::BLOCK_SIZE;
     use dct::inverse_dct_8x8_optimized;
     use half::f16;
 
@@ -1197,7 +1248,7 @@ fn read_ac_coefficients_for_block(reader: &mut std::io::Cursor<&[u8]>) -> Result
             // Count == 0 means "rest of block is zero" (OpenEXR uses 64)
             let advance = if count == 0 { 64 } else { count };
             dct_comp += advance;
-            if dct_comp > 64 {
+            if count != 0 && dct_comp > 64 {
                 return Err(Error::invalid("AC zero-run exceeds block length"));
             }
             if count == 0 {
@@ -1541,7 +1592,9 @@ fn decompress_rle(compressed: &[u8], expected_size: usize) -> Result<Vec<u8>> {
     let mut decompressed = Vec::with_capacity(expected_size);
     let mut remaining = compressed;
 
-    eprintln!("decompress_rle: input {:02x?}, expected_size {}", compressed, expected_size);
+    if VERBOSE_DWA_LOG {
+        eprintln!("decompress_rle: input {:02x?}, expected_size {}", compressed, expected_size);
+    }
 
     while !remaining.is_empty() && decompressed.len() < expected_size {
         if remaining.is_empty() {
@@ -1551,7 +1604,9 @@ fn decompress_rle(compressed: &[u8], expected_size: usize) -> Result<Vec<u8>> {
         let count = remaining[0] as i8;
         remaining = &remaining[1..];
 
-        eprintln!("  RLE count={} (0x{:02x}), current len={}", count, count as u8, decompressed.len());
+        if VERBOSE_DWA_LOG {
+            eprintln!("  RLE count={} (0x{:02x}), current len={}", count, count as u8, decompressed.len());
+        }
 
         if count < 0 {
             // Take the next '-count' bytes as-is
@@ -1560,7 +1615,9 @@ fn decompress_rle(compressed: &[u8], expected_size: usize) -> Result<Vec<u8>> {
                 return Err(Error::invalid("RLE data truncated"));
             }
 
-            eprintln!("  Literal: copying {} bytes", n);
+            if VERBOSE_DWA_LOG {
+                eprintln!("  Literal: copying {} bytes", n);
+            }
             decompressed.extend_from_slice(&remaining[..n]);
             remaining = &remaining[n..];
         } else {
@@ -1573,7 +1630,9 @@ fn decompress_rle(compressed: &[u8], expected_size: usize) -> Result<Vec<u8>> {
             remaining = &remaining[1..];
 
             let repeat_count = (count as usize) + 1;
-            eprintln!("  Run: repeating value 0x{:02x} {} times", value, repeat_count);
+            if VERBOSE_DWA_LOG {
+                eprintln!("  Run: repeating value 0x{:02x} {} times", value, repeat_count);
+            }
 
             for _ in 0..repeat_count {
                 decompressed.push(value);
@@ -1589,10 +1648,12 @@ fn decompress_rle(compressed: &[u8], expected_size: usize) -> Result<Vec<u8>> {
         )));
     }
 
-    eprintln!("decompress_rle done: {} bytes, first 16: {:02x?}, last 16: {:02x?}",
-              decompressed.len(),
-              &decompressed[..16.min(decompressed.len())],
-              &decompressed[decompressed.len().saturating_sub(16)..]);
+    if VERBOSE_DWA_LOG {
+        eprintln!("decompress_rle done: {} bytes, first 16: {:02x?}, last 16: {:02x?}",
+                  decompressed.len(),
+                  &decompressed[..16.min(decompressed.len())],
+                  &decompressed[decompressed.len().saturating_sub(16)..]);
+    }
 
     Ok(decompressed)
 }
