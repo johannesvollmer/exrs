@@ -33,6 +33,7 @@ bit_field = "^0.10.1"          # exr file version bit flags
 miniz_oxide = "^0.8.0"         # zip compression for pxr24
 smallvec = "^1.7.0"            # make cache-friendly allocations        TODO profile if smallvec is really an improvement!
 rayon-core = { version = "^1.11.0", optional = true }         # threading for parallel compression
+rayon = { version = "^1.5.3", optional = true }               # parallel iterators for DWA compression
 zune-inflate = { version = "^0.2.3", default-features = false, features = ["zlib"] }  # zip decompression, faster than miniz_oxide
 rustdct = "^0.7.1"             # DCT (Discrete Cosine Transform) for DWAA/DWAB compression
 
@@ -48,7 +49,7 @@ rayon = "1.5.3"           # run tests for many files in parallel
 default = ["rayon"]
 
 # rayon is used for parallel compression
-rayon = ["dep:rayon-core"]
+rayon = ["dep:rayon-core", "dep:rayon"]
 
 [[example]]
 name = "7_write_raw_blocks"

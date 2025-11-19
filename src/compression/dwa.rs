@@ -1651,16 +1651,41 @@ fn build_planar_rle(state: &ChannelEncodeState) -> Result<Vec<u8>> {
     let pixel_count = width * height;
     let mut output = vec![0u8; pixel_count * bytes_per_sample];
 
-    (0..height).for_each(|y| {
-        let row_base = y * width * bytes_per_sample;
-        (0..width).for_each(|x| {
-            let sample_base = row_base + x * bytes_per_sample;
-            (0..bytes_per_sample).for_each(|byte| {
-                let dst_idx = byte * pixel_count + y * width + x;
-                output[dst_idx] = state.data[sample_base + byte];
+    #[cfg(feature = "rayon")]
+    {
+        use rayon::iter::{IndexedParallelIterator, ParallelIterator};
+        use rayon::slice::ParallelSliceMut;
+
+        // Parallelize over byte planes - each byte plane is independent
+        // Split output into mutable chunks (one per byte plane)
+        output
+            .par_chunks_mut(pixel_count)
+            .enumerate()
+            .for_each(|(byte, plane)| {
+                for y in 0..height {
+                    let row_base = y * width * bytes_per_sample;
+                    for x in 0..width {
+                        let sample_base = row_base + x * bytes_per_sample;
+                        let dst_idx = y * width + x;
+                        plane[dst_idx] = state.data[sample_base + byte];
+                    }
+                }
+            });
+    }
+
+    #[cfg(not(feature = "rayon"))]
+    {
+        (0..height).for_each(|y| {
+            let row_base = y * width * bytes_per_sample;
+            (0..width).for_each(|x| {
+                let sample_base = row_base + x * bytes_per_sample;
+                (0..bytes_per_sample).for_each(|byte| {
+                    let dst_idx = byte * pixel_count + y * width + x;
+                    output[dst_idx] = state.data[sample_base + byte];
+                });
             });
         });
-    });
+    }
 
     Ok(output)
 }
@@ -1938,6 +1963,68 @@ fn decompress_rle(compressed: &[u8], expected_size: usize) -> Result<Vec<u8>> {
     Ok(decompressed)
 }
 
+/// Encode a single 8x8 block for all lossy channels
+#[cfg(feature = "rayon")]
+fn encode_single_block(
+    block_x: usize,
+    block_y: usize,
+    encode_states: &[ChannelEncodeState],
+    lossy_channel_order: &[usize],
+    lossy_channel_map: &[Option<usize>],
+    classification: &classifier::ClassificationResult,
+    quant_table_y: &[f32; constants::BLOCK_AREA],
+    quant_table_cbcr: &[f32; constants::BLOCK_AREA],
+    quant_table_y_half: &[u16; constants::BLOCK_AREA],
+    quant_table_cbcr_half: &[u16; constants::BLOCK_AREA],
+    to_nonlinear: &ToNonlinearLut,
+) -> Result<(Vec<Vec<u16>>, Vec<u16>)> {
+    let mut block_buffers = vec![[0.0f32; constants::BLOCK_AREA]; lossy_channel_order.len()];
+
+    // Gather blocks for all lossy channels
+    for (lossy_idx, &ch_idx) in lossy_channel_order.iter().enumerate() {
+        gather_block(
+            &encode_states[ch_idx],
+            block_x,
+            block_y,
+            to_nonlinear,
+            &mut block_buffers[lossy_idx],
+        )?;
+    }
+
+    // Apply CSC forward transform
+    apply_csc_forward(classification, lossy_channel_map, &mut block_buffers);
+
+    // Process each channel: DCT, quantize, encode
+    let mut block_ac_coeffs = Vec::with_capacity(lossy_channel_order.len());
+    let mut dc_values = vec![0u16; encode_states.len()];
+
+    for (lossy_idx, &ch_idx) in lossy_channel_order.iter().enumerate() {
+        let mut block = block_buffers[lossy_idx];
+        forward_dct_8x8(&mut block);
+
+        let (quant_table, quant_half_table) = select_quant_table(
+            classification,
+            ch_idx,
+            quant_table_y,
+            quant_table_cbcr,
+            quant_table_y_half,
+            quant_table_cbcr_half,
+        );
+
+        let mut half_block = [0u16; constants::BLOCK_AREA];
+        quantize_to_half_zigzag(&block, quant_table, quant_half_table, &mut half_block);
+
+        // Store DC coefficient
+        dc_values[ch_idx] = half_block[0];
+
+        // Encode AC coefficients
+        let encoded_ac = rle::encode_ac_coefficients(&half_block);
+        block_ac_coeffs.push(encoded_ac);
+    }
+
+    Ok((block_ac_coeffs, dc_values))
+}
+
 /// Compress function (stub for now, will be implemented later)
 pub fn compress(
     channels: &ChannelList,
@@ -2007,48 +2094,114 @@ pub fn compress(
         })
         .collect();
 
-    let mut ac_coeffs: Vec<u16> = Vec::new();
-    let mut block_buffers = vec![[0.0f32; constants::BLOCK_AREA]; lossy_channel_order.len()];
     let to_nonlinear = ToNonlinearLut::new();
 
-    for block_y in 0..num_blocks_y {
-        for block_x in 0..num_blocks_x {
-            for (lossy_idx, &ch_idx) in lossy_channel_order.iter().enumerate() {
-                gather_block(
-                    &encode_states[ch_idx],
+    // Encode all blocks
+    #[cfg(feature = "rayon")]
+    let ac_coeffs = {
+        use rayon::iter::{IntoParallelIterator, ParallelIterator};
+
+        // Process blocks in parallel
+        let results: Vec<Result<(Vec<Vec<u16>>, Vec<u16>)>> = (0..num_blocks_y)
+            .into_par_iter()
+            .flat_map(|block_y| {
+                (0..num_blocks_x)
+                    .into_par_iter()
+                    .map(move |block_x| (block_y, block_x))
+            })
+            .map(|(block_y, block_x)| {
+                encode_single_block(
                     block_x,
                     block_y,
-                    &to_nonlinear,
-                    &mut block_buffers[lossy_idx],
-                )?;
-            }
-
-            apply_csc_forward(&classification, &lossy_channel_map, &mut block_buffers);
-
-            for (lossy_idx, &ch_idx) in lossy_channel_order.iter().enumerate() {
-                let mut block = block_buffers[lossy_idx];
-                forward_dct_8x8(&mut block);
-
-                let (quant_table, quant_half_table) = select_quant_table(
+                    &encode_states,
+                    &lossy_channel_order,
+                    &lossy_channel_map,
                     &classification,
-                    ch_idx,
                     &quant_table_y,
                     &quant_table_cbcr,
                     &quant_table_y_half,
                     &quant_table_cbcr_half,
-                );
+                    &to_nonlinear,
+                )
+            })
+            .collect();
 
-                let mut half_block = [0u16; constants::BLOCK_AREA];
-                quantize_to_half_zigzag(&block, quant_table, quant_half_table, &mut half_block);
+        // Collect results and check for errors
+        let mut all_ac_coeffs = Vec::new();
+        let mut all_dc_values: Vec<Vec<u16>> =
+            vec![Vec::with_capacity(total_blocks); encode_states.len()];
 
-                let block_index = block_y * num_blocks_x + block_x;
-                dc_planes[ch_idx][block_index] = half_block[0];
-
-                let encoded_ac = rle::encode_ac_coefficients(&half_block);
-                ac_coeffs.extend_from_slice(&encoded_ac);
+        for result in results {
+            let (block_ac_coeffs, dc_values) = result?;
+            // Append AC coefficients in order
+            for channel_ac in block_ac_coeffs {
+                all_ac_coeffs.extend_from_slice(&channel_ac);
+            }
+            // Store DC values
+            for (ch_idx, dc_value) in dc_values.iter().enumerate() {
+                if *dc_value != 0 || !all_dc_values[ch_idx].is_empty() {
+                    all_dc_values[ch_idx].push(*dc_value);
+                }
             }
         }
-    }
+
+        // Update DC planes with collected values
+        for (ch_idx, values) in all_dc_values.iter().enumerate() {
+            if !values.is_empty() && dc_planes[ch_idx].len() == total_blocks {
+                dc_planes[ch_idx].copy_from_slice(values);
+            }
+        }
+
+        all_ac_coeffs
+    };
+
+    #[cfg(not(feature = "rayon"))]
+    let ac_coeffs = {
+        let mut ac_coeffs: Vec<u16> = Vec::new();
+        let mut block_buffers =
+            vec![[0.0f32; constants::BLOCK_AREA]; lossy_channel_order.len()];
+
+        for block_y in 0..num_blocks_y {
+            for block_x in 0..num_blocks_x {
+                for (lossy_idx, &ch_idx) in lossy_channel_order.iter().enumerate() {
+                    gather_block(
+                        &encode_states[ch_idx],
+                        block_x,
+                        block_y,
+                        &to_nonlinear,
+                        &mut block_buffers[lossy_idx],
+                    )?;
+                }
+
+                apply_csc_forward(&classification, &lossy_channel_map, &mut block_buffers);
+
+                for (lossy_idx, &ch_idx) in lossy_channel_order.iter().enumerate() {
+                    let mut block = block_buffers[lossy_idx];
+                    forward_dct_8x8(&mut block);
+
+                    let (quant_table, quant_half_table) = select_quant_table(
+                        &classification,
+                        ch_idx,
+                        &quant_table_y,
+                        &quant_table_cbcr,
+                        &quant_table_y_half,
+                        &quant_table_cbcr_half,
+                    );
+
+                    let mut half_block = [0u16; constants::BLOCK_AREA];
+                    quantize_to_half_zigzag(&block, quant_table, quant_half_table, &mut half_block);
+
+                    let block_index = block_y * num_blocks_x + block_x;
+                    dc_planes[ch_idx][block_index] = half_block[0];
+
+                    let encoded_ac = rle::encode_ac_coefficients(&half_block);
+                    ac_coeffs.extend_from_slice(&encoded_ac);
+                }
+            }
+        }
+
+        ac_coeffs
+    };
 
     let dc_bytes = pack_dc_planes(&dc_planes, &lossy_channel_order)?;
     let dc_reordered = zip_deconstruct_bytes(&dc_bytes);
