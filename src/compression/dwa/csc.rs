@@ -70,16 +70,21 @@ pub fn rgb_block_to_ycbcr(
     g_block: &[f32; 64],
     b_block: &[f32; 64],
 ) -> ([f32; 64], [f32; 64], [f32; 64]) {
-    let mut y_block = [0.0f32; 64];
-    let mut cb_block = [0.0f32; 64];
-    let mut cr_block = [0.0f32; 64];
-
-    for i in 0..64 {
-        let (y, cb, cr) = rgb_to_ycbcr(r_block[i], g_block[i], b_block[i]);
-        y_block[i] = y;
-        cb_block[i] = cb;
-        cr_block[i] = cr;
-    }
+    let y_block = std::array::from_fn(|i| {
+        csc_forward::Y_R * r_block[i]
+            + csc_forward::Y_G * g_block[i]
+            + csc_forward::Y_B * b_block[i]
+    });
+    let cb_block = std::array::from_fn(|i| {
+        csc_forward::CB_R * r_block[i]
+            + csc_forward::CB_G * g_block[i]
+            + csc_forward::CB_B * b_block[i]
+    });
+    let cr_block = std::array::from_fn(|i| {
+        csc_forward::CR_R * r_block[i]
+            + csc_forward::CR_G * g_block[i]
+            + csc_forward::CR_B * b_block[i]
+    });
 
     (y_block, cb_block, cr_block)
 }

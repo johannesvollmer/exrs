@@ -1401,33 +1401,27 @@ fn zip_deconstruct_bytes(source: &[u8]) -> Vec<u8> {
     let split_point = (count + 1) / 2;
     let mut scratch = vec![0u8; count];
 
-    let mut t1 = 0;
-    let mut t2 = split_point;
-    let mut idx = 0;
-
-    while idx < count {
-        scratch[t1] = source[idx];
-        t1 += 1;
-        idx += 1;
-
-        if idx < count {
-            scratch[t2] = source[idx];
-            t2 += 1;
-            idx += 1;
+    // Interleave bytes: even indices go to first half, odd indices to second half
+    source.iter().enumerate().for_each(|(idx, &byte)| {
+        if idx % 2 == 0 {
+            scratch[idx / 2] = byte;
+        } else {
+            scratch[split_point + idx / 2] = byte;
         }
-    }
+    });
 
-    let mut result = scratch;
+    // Apply delta encoding
     if count > 1 {
-        let mut prev = result[0] as i32;
-        for i in 1..count {
-            let d = result[i] as i32 - prev + (128 + 256);
-            prev = result[i] as i32;
-            result[i] = (d & 0xff) as u8;
-        }
+        let first = scratch[0];
+        scratch[1..].iter_mut().fold(first as i32, |prev, elem| {
+            let d = *elem as i32 - prev + (128 + 256);
+            let current = *elem as i32;
+            *elem = (d & 0xff) as u8;
+            current
+        });
     }
 
-    result
+    scratch
 }
 
 fn populate_channel_buffers(
@@ -1504,8 +1498,9 @@ fn gather_block(
     let width = state.state.width.max(1);
     let height = state.state.height.max(1);
 
-    for by in 0..constants::BLOCK_SIZE {
-        for bx in 0..constants::BLOCK_SIZE {
+    (0..constants::BLOCK_SIZE)
+        .flat_map(|by| (0..constants::BLOCK_SIZE).map(move |bx| (by, bx)))
+        .try_for_each(|(by, bx)| -> Result<()> {
             let sample_x = mirror_coord(block_x * constants::BLOCK_SIZE + bx, width);
             let sample_y = mirror_coord(block_y * constants::BLOCK_SIZE + by, height);
             let offset = (sample_y * width + sample_x) * state.state.bytes_per_sample;
@@ -1548,10 +1543,8 @@ fn gather_block(
             };
 
             block[by * constants::BLOCK_SIZE + bx] = value;
-        }
-    }
-
-    Ok(())
+            Ok(())
+        })
 }
 
 fn mirror_coord(value: usize, max: usize) -> usize {
@@ -1625,16 +1618,17 @@ fn select_quant_table<'a>(
 }
 
 fn pack_dc_planes(dc_planes: &[Vec<u16>], lossy_order: &[usize]) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    for &ch_idx in lossy_order {
-        let plane = dc_planes
-            .get(ch_idx)
-            .ok_or_else(|| Error::invalid("missing DC plane"))?;
-        for &value in plane {
-            bytes.extend_from_slice(&value.to_le_bytes());
-        }
-    }
-    Ok(bytes)
+    Ok(lossy_order
+        .iter()
+        .map(|&ch_idx| {
+            dc_planes
+                .get(ch_idx)
+                .ok_or_else(|| Error::invalid("missing DC plane"))
+        })
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flat_map(|plane| plane.iter().flat_map(|&value| value.to_le_bytes()))
+        .collect())
 }
 
 fn deflate_with_level(data: &[u8], level: u8) -> Vec<u8> {
@@ -1657,16 +1651,16 @@ fn build_planar_rle(state: &ChannelEncodeState) -> Result<Vec<u8>> {
     let pixel_count = width * height;
     let mut output = vec![0u8; pixel_count * bytes_per_sample];
 
-    for y in 0..height {
+    (0..height).for_each(|y| {
         let row_base = y * width * bytes_per_sample;
-        for x in 0..width {
+        (0..width).for_each(|x| {
             let sample_base = row_base + x * bytes_per_sample;
-            for byte in 0..bytes_per_sample {
+            (0..bytes_per_sample).for_each(|byte| {
                 let dst_idx = byte * pixel_count + y * width + x;
                 output[dst_idx] = state.data[sample_base + byte];
-            }
-        }
-    }
+            });
+        });
+    });
 
     Ok(output)
 }
@@ -1725,23 +1719,22 @@ fn build_dwa_header(
     dc_uncompressed_count: usize,
     ac_compression: AcCompression,
 ) -> Vec<u8> {
-    let mut header = Vec::with_capacity(DWA_HEADER_FIELD_COUNT * 8);
-    append_u64_le(&mut header, 2); // version
-    append_u64_le(&mut header, unknown_uncompressed as u64);
-    append_u64_le(&mut header, unknown_compressed as u64);
-    append_u64_le(&mut header, ac_compressed as u64);
-    append_u64_le(&mut header, dc_compressed as u64);
-    append_u64_le(&mut header, rle_compressed as u64);
-    append_u64_le(&mut header, rle_uncompressed as u64);
-    append_u64_le(&mut header, rle_raw as u64);
-    append_u64_le(&mut header, ac_uncompressed_count as u64);
-    append_u64_le(&mut header, dc_uncompressed_count as u64);
-    append_u64_le(&mut header, ac_compression as u64);
-    header
-}
-
-fn append_u64_le(buffer: &mut Vec<u8>, value: u64) {
-    buffer.extend_from_slice(&value.to_le_bytes());
+    [
+        2u64, // version
+        unknown_uncompressed as u64,
+        unknown_compressed as u64,
+        ac_compressed as u64,
+        dc_compressed as u64,
+        rle_compressed as u64,
+        rle_uncompressed as u64,
+        rle_raw as u64,
+        ac_uncompressed_count as u64,
+        dc_uncompressed_count as u64,
+        ac_compression as u64,
+    ]
+    .iter()
+    .flat_map(|&value| value.to_le_bytes())
+    .collect()
 }
 
 fn default_channel_rules_block() -> Vec<u8> {

@@ -347,13 +347,15 @@ pub fn quantize_to_half_zigzag(
     half_quant_table: &[u16; 64],
     dst: &mut [u16; 64],
 ) {
-    for i in 0..64 {
-        let zig_idx = constants::ZIGZAG_ORDER[i];
-        let tol = quant_table[i];
-        let half_tol = half_quant_table[i];
-        let coeff = coeffs[i];
-        dst[zig_idx] = quantize_coeff(coeff, half_tol, tol);
-    }
+    coeffs
+        .iter()
+        .zip(quant_table.iter())
+        .zip(half_quant_table.iter())
+        .enumerate()
+        .for_each(|(i, ((&coeff, &tol), &half_tol))| {
+            let zig_idx = constants::ZIGZAG_ORDER[i];
+            dst[zig_idx] = quantize_coeff(coeff, half_tol, tol);
+        });
 }
 
 fn quantize_coeff(value: f32, half_tol_bits: u16, tolerance: f32) -> u16 {
