@@ -29,8 +29,10 @@ use smallvec::SmallVec;
 use std::sync::atomic::Ordering;
 
 use classifier::{classify_channels, CompressionScheme};
-use constants::INVERSE_ZIGZAG_ORDER;
+use constants::AC_COUNT;
 use nonlinear::ToLinearLut;
+use half::f16;
+use dct::{inverse_dct_8x8_optimized, from_half_zigzag};
 
 const VERBOSE_DWA_LOG: bool = false;
 
@@ -76,43 +78,42 @@ impl ChannelDecodeState {
         // Y=1: [ch0 samples][ch1 samples][ch2 samples][ch3 samples]
         // This matches how convert_little_endian_to_current expects data (mod.rs:508-533)
 
-        let mut row_offsets = Vec::with_capacity(height);
+        let row_offsets: Vec<usize> = (0..height)
+            .map(|subsampled_row| {
+                let full_y = subsampled_row * y_sampling;
 
-        for subsampled_row in 0..height {
-            let full_y = subsampled_row * y_sampling;
+                // Calculate offset for this scanline
+                let mut scanline_offset = 0usize;
 
-            // Calculate offset for this scanline
-            // First, find the start of this scanline's data
-            let mut scanline_offset = 0usize;
+                // Add bytes for all previous scanlines
+                for y in 0..full_y {
+                    // For each channel, add its contribution to this scanline
+                    for ch in &channels.list {
+                        let ch_y_sampling = ch.sampling.y();
+                        if y % ch_y_sampling == 0 {
+                            let ch_resolution = ch.subsampled_resolution(rectangle.size);
+                            let ch_width = ch_resolution.x();
+                            let ch_bytes_per_sample = ch.sample_type.bytes_per_sample();
+                            scanline_offset += ch_width * ch_bytes_per_sample;
+                        }
+                    }
+                }
 
-            // Add bytes for all previous scanlines
-            for y in 0..full_y {
-                // For each channel, add its contribution to this scanline
-                for ch in &channels.list {
+                // Now add bytes for previous channels in this scanline
+                for ch_idx in 0..channel_index {
+                    let ch = &channels.list[ch_idx];
                     let ch_y_sampling = ch.sampling.y();
-                    if y % ch_y_sampling == 0 {
+                    if full_y % ch_y_sampling == 0 {
                         let ch_resolution = ch.subsampled_resolution(rectangle.size);
                         let ch_width = ch_resolution.x();
                         let ch_bytes_per_sample = ch.sample_type.bytes_per_sample();
                         scanline_offset += ch_width * ch_bytes_per_sample;
                     }
                 }
-            }
 
-            // Now add bytes for previous channels in this scanline
-            for ch_idx in 0..channel_index {
-                let ch = &channels.list[ch_idx];
-                let ch_y_sampling = ch.sampling.y();
-                if full_y % ch_y_sampling == 0 {
-                    let ch_resolution = ch.subsampled_resolution(rectangle.size);
-                    let ch_width = ch_resolution.x();
-                    let ch_bytes_per_sample = ch.sample_type.bytes_per_sample();
-                    scanline_offset += ch_width * ch_bytes_per_sample;
-                }
-            }
-
-            row_offsets.push(scanline_offset);
-        }
+                scanline_offset
+            })
+            .collect();
 
         Self {
             scheme,
@@ -512,9 +513,6 @@ fn decode_block_row(
     lossy_channel_map: &[Option<usize>],
     row_blocks: &mut SmallVec<[Vec<f32>; 4]>,
 ) -> Result<()> {
-    use constants::INVERSE_ZIGZAG_ORDER;
-    use dct::inverse_dct_8x8_optimized;
-    use half::f16;
 
 
     // Decode each block in this row
@@ -541,18 +539,12 @@ fn decode_block_row(
             // Find last non-zero coefficient for optimization
             let last_non_zero = rle::find_last_non_zero(&ac_coeffs_bits);
 
-            // Construct full DCT coefficient block (DC + AC)
-            // DC/AC are stored as nonlinear f16, convert to f32 for IDCT
+            // Construct full DCT coefficient block
+            let mut half_block = [0u16; 64];
+            half_block[0] = dc_coeff_bits;
+            half_block[1..=AC_COUNT].copy_from_slice(&ac_coeffs_bits[..AC_COUNT]);
             let mut dct_coeffs = [0.0f32; 64];
-            dct_coeffs[0] = f16::from_bits(dc_coeff_bits).to_f32();
-
-            // Apply AC coefficients in zigzag order
-            ac_coeffs_bits.iter().enumerate()
-                .filter(|(_, &bits)| bits != 0)
-                .for_each(|(i, &bits)| {
-                    let normal_idx = INVERSE_ZIGZAG_ORDER[i + 1];
-                    dct_coeffs[normal_idx] = f16::from_bits(bits).to_f32();
-                });
+            from_half_zigzag(&half_block, &mut dct_coeffs);
 
             // Debug first block of first row
             if VERBOSE_DWA_LOG && block_y == 0 && block_x == 0 {
@@ -784,13 +776,13 @@ fn write_scanline_from_blocks(
                         output[out_offset + 1] = bytes[1];
 
                         if VERBOSE_DWA_LOG && y == 0 && ch_idx == 1 && x < 4 {
-                            let f_val = half::f16::from_bits(linear_bits);
+                            let f_val = f16::from_bits(linear_bits);
                             eprintln!("  x={}: nonlinear=0x{:04x}, linear=0x{:04x}, f={}",
                                       x, nonlinear_bits, linear_bits, f_val);
                         }
                     } else if state.sample_type == crate::meta::attribute::SampleType::F32 {
                         // Convert to F32
-                        let linear_f32 = half::f16::from_bits(linear_bits).to_f32();
+                        let linear_f32 = f16::from_bits(linear_bits).to_f32();
                         let bytes = linear_f32.to_le_bytes();
                         output[out_offset..out_offset + 4].copy_from_slice(&bytes);
                     }
@@ -834,7 +826,7 @@ fn write_scanline_from_blocks(
 
                 if VERBOSE_DWA_LOG && (y == 7 || y == 8 || y == 9) {
                     let first_pixel_u16 = u16::from_le_bytes([output[row_offset], output[row_offset + 1]]);
-                    let first_pixel_f16 = half::f16::from_bits(first_pixel_u16);
+                    let first_pixel_f16 = f16::from_bits(first_pixel_u16);
                     eprintln!("DWA RLE ch {} y {}: pixel_cursor {} -> {}, row_offset {}, first pixel bytes: {:02x?} = 0x{:04x} = {}",
                               ch_idx, y, pixel_cursor, pixel_cursor + pixels_per_row, row_offset,
                               &output[row_offset..row_offset + state.bytes_per_sample.min(2)],
@@ -873,8 +865,6 @@ fn decode_lossy_dct_channel(
     dc_reader: &mut std::io::Cursor<&[u8]>,
 ) -> Result<Vec<f32>> {
     use constants::BLOCK_SIZE;
-    use dct::inverse_dct_8x8_optimized;
-    use half::f16;
 
     let width = resolution.x();
     let height = resolution.y();
@@ -900,20 +890,11 @@ fn decode_lossy_dct_channel(
             let last_non_zero = rle::find_last_non_zero(&ac_coeffs_bits);
 
             // Construct full DCT coefficient block (DC + AC)
-            // DC and AC are stored as f16 values, convert to f32 for inverse DCT
+            let mut half_block = [0u16; 64];
+            half_block[0] = dc_coeff_bits;
+            half_block[1..=AC_COUNT].copy_from_slice(&ac_coeffs_bits[..AC_COUNT]);
             let mut dct_coeffs = [0.0f32; 64];
-
-            // DC coefficient (index 0) - convert f16 bits to f32
-            dct_coeffs[0] = f16::from_bits(dc_coeff_bits).to_f32();
-
-            // AC coefficients (indices 1-63, in zigzag order) - convert f16 bits to f32
-            for i in 0..63 {
-                if ac_coeffs_bits[i] != 0 {
-                    // Un-zigzag: ac_coeffs_bits[i] is in zigzag position i+1
-                    let normal_idx = INVERSE_ZIGZAG_ORDER[i + 1];
-                    dct_coeffs[normal_idx] = f16::from_bits(ac_coeffs_bits[i]).to_f32();
-                }
-            }
+            from_half_zigzag(&half_block, &mut dct_coeffs);
 
             // Apply inverse DCT
             let spatial_block = inverse_dct_8x8_optimized(&dct_coeffs, last_non_zero);
@@ -1009,12 +990,16 @@ fn apply_inverse_csc(y_data: &[f32], cb_data: &[f32], cr_data: &[f32]) -> (Vec<f
     let mut g_data = vec![0.0f32; pixel_count];
     let mut b_data = vec![0.0f32; pixel_count];
 
-    for i in 0..pixel_count {
-        let (r, g, b) = ycbcr_to_rgb(y_data[i], cb_data[i], cr_data[i]);
-        r_data[i] = r;
-        g_data[i] = g;
-        b_data[i] = b;
-    }
+    y_data.iter()
+        .zip(cb_data.iter())
+        .zip(cr_data.iter())
+        .zip(r_data.iter_mut().zip(g_data.iter_mut()).zip(b_data.iter_mut()))
+        .for_each(|(((&y, &cb), &cr), ((r, g), b))| {
+            let (r_val, g_val, b_val) = ycbcr_to_rgb(y, cb, cr);
+            *r = r_val;
+            *g = g_val;
+            *b = b_val;
+        });
 
     (r_data, g_data, b_data)
 }
@@ -1030,7 +1015,6 @@ fn write_channel_to_output(
     output: &mut [u8],
 ) -> Result<()> {
     use crate::meta::attribute::SampleType;
-    use half::f16;
 
     match sample_type {
         SampleType::F16 => {
@@ -1366,9 +1350,7 @@ fn decompress_rle(compressed: &[u8], expected_size: usize) -> Result<Vec<u8>> {
                 eprintln!("  Run: repeating value 0x{:02x} {} times", value, repeat_count);
             }
 
-            for _ in 0..repeat_count {
-                decompressed.push(value);
-            }
+            decompressed.extend(std::iter::repeat(value).take(repeat_count));
         }
     }
 

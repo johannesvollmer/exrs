@@ -4,6 +4,8 @@
 //! This uses a custom butterfly algorithm with specific cosine-based scaling,
 //! not a standard DCT-III.
 
+use half::f16;
+
 const PI_APPROX: f32 = 3.14159;
 const COS_A: f32 = f32::from_bits(0x3eb504fb); // 0.3535536230
 const COS_B: f32 = f32::from_bits(0x3efb14bf); // 0.4903926551
@@ -162,6 +164,75 @@ pub fn inverse_dct_8x8_optimized(coeffs: &[f32; 64], last_non_zero: usize) -> [f
     };
 
     inverse_dct_8x8_impl(coeffs, zeroed_rows)
+}
+
+/// Convert zigzag-ordered half bits into row-major f32 coefficients.
+pub fn from_half_zigzag(src: &[u16; 64], dst: &mut [f32; 64]) {
+    let to_f32 = |bits: u16| f16::from_bits(bits).to_f32();
+    dst[0] = to_f32(src[0]);
+    dst[1] = to_f32(src[1]);
+    dst[2] = to_f32(src[5]);
+    dst[3] = to_f32(src[6]);
+    dst[4] = to_f32(src[14]);
+    dst[5] = to_f32(src[15]);
+    dst[6] = to_f32(src[27]);
+    dst[7] = to_f32(src[28]);
+    dst[8] = to_f32(src[2]);
+    dst[9] = to_f32(src[4]);
+    dst[10] = to_f32(src[7]);
+    dst[11] = to_f32(src[13]);
+    dst[12] = to_f32(src[16]);
+    dst[13] = to_f32(src[26]);
+    dst[14] = to_f32(src[29]);
+    dst[15] = to_f32(src[42]);
+    dst[16] = to_f32(src[3]);
+    dst[17] = to_f32(src[8]);
+    dst[18] = to_f32(src[12]);
+    dst[19] = to_f32(src[17]);
+    dst[20] = to_f32(src[25]);
+    dst[21] = to_f32(src[30]);
+    dst[22] = to_f32(src[41]);
+    dst[23] = to_f32(src[43]);
+    dst[24] = to_f32(src[9]);
+    dst[25] = to_f32(src[11]);
+    dst[26] = to_f32(src[18]);
+    dst[27] = to_f32(src[24]);
+    dst[28] = to_f32(src[31]);
+    dst[29] = to_f32(src[40]);
+    dst[30] = to_f32(src[44]);
+    dst[31] = to_f32(src[53]);
+    dst[32] = to_f32(src[10]);
+    dst[33] = to_f32(src[19]);
+    dst[34] = to_f32(src[23]);
+    dst[35] = to_f32(src[32]);
+    dst[36] = to_f32(src[39]);
+    dst[37] = to_f32(src[45]);
+    dst[38] = to_f32(src[52]);
+    dst[39] = to_f32(src[54]);
+    dst[40] = to_f32(src[20]);
+    dst[41] = to_f32(src[22]);
+    dst[42] = to_f32(src[33]);
+    dst[43] = to_f32(src[38]);
+    dst[44] = to_f32(src[46]);
+    dst[45] = to_f32(src[51]);
+    dst[46] = to_f32(src[55]);
+    dst[47] = to_f32(src[60]);
+    dst[48] = to_f32(src[21]);
+    dst[49] = to_f32(src[34]);
+    dst[50] = to_f32(src[37]);
+    dst[51] = to_f32(src[47]);
+    dst[52] = to_f32(src[50]);
+    dst[53] = to_f32(src[56]);
+    dst[54] = to_f32(src[59]);
+    dst[55] = to_f32(src[61]);
+    dst[56] = to_f32(src[35]);
+    dst[57] = to_f32(src[36]);
+    dst[58] = to_f32(src[48]);
+    dst[59] = to_f32(src[49]);
+    dst[60] = to_f32(src[57]);
+    dst[61] = to_f32(src[58]);
+    dst[62] = to_f32(src[62]);
+    dst[63] = to_f32(src[63]);
 }
 
 #[cfg(test)]
