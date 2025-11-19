@@ -75,6 +75,42 @@ pub fn find_last_non_zero(coeffs: &[u16; AC_COUNT]) -> usize {
         .unwrap_or(0)
 }
 
+/// Encode AC coefficients into DWAA/DWAB RLE stream.
+pub fn encode_ac_coefficients(coeffs: &[u16; 64]) -> Vec<u16> {
+    let mut encoded = Vec::with_capacity(AC_COUNT);
+    let mut idx = 1; // skip DC
+
+    while idx < coeffs.len() {
+        if coeffs[idx] == 0 {
+            let mut run_len = 1;
+            while idx + run_len < coeffs.len() && coeffs[idx + run_len] == 0 {
+                run_len += 1;
+            }
+
+            if idx + run_len >= coeffs.len() {
+                encoded.push(rle_markers::END_OF_BLOCK);
+                break;
+            } else if run_len == 1 {
+                encoded.push(0);
+                idx += 1;
+            } else {
+                let mut remaining = run_len;
+                while remaining > 0 {
+                    let chunk = remaining.min(0xff);
+                    encoded.push(rle_markers::make_zero_run(chunk));
+                    remaining -= chunk;
+                }
+                idx += run_len;
+            }
+        } else {
+            encoded.push(coeffs[idx]);
+            idx += 1;
+        }
+    }
+
+    encoded
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

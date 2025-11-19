@@ -1,5 +1,6 @@
 use exr::prelude::*;
 use half::f16;
+use std::io::Cursor;
 
 #[test]
 fn debug_dwaa_pixel_values() {
@@ -441,4 +442,38 @@ fn test_dwaa_f32_vs_uncompressed() {
 
     // Compare pixel data with lossy tolerance
     assert_pixels_match_lossy(&uncompressed, &compressed, "DWAA F32 vs Uncompressed");
+}
+
+#[test]
+fn test_zip_roundtrip_via_dwaa_encoding() {
+    let source = read()
+        .no_deep_data()
+        .largest_resolution_level()
+        .all_channels()
+        .all_layers()
+        .all_attributes()
+        .from_file("tests/images/valid/custom/compression_methods/f16/zip.exr")
+        .expect("Failed to read ZIP-compressed F16 reference");
+
+    let mut dwa_image = source.clone();
+    for layer in dwa_image.layer_data.iter_mut() {
+        layer.encoding.compression = Compression::DWAA(None);
+    }
+
+    let mut dwa_bytes = Vec::new();
+    dwa_image
+        .write()
+        .to_buffered(Cursor::new(&mut dwa_bytes))
+        .expect("Failed to write DWAA-compressed image");
+
+    let roundtrip = read()
+        .no_deep_data()
+        .largest_resolution_level()
+        .all_channels()
+        .all_layers()
+        .all_attributes()
+        .from_buffered(Cursor::new(&dwa_bytes))
+        .expect("Failed to read DWAA roundtrip image");
+
+    assert_pixels_match_lossy(&source, &roundtrip, "ZIP -> DWAA roundtrip");
 }

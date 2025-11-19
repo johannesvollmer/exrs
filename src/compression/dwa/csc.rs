@@ -4,7 +4,7 @@
 //! The zero point is shifted so that Cb=Cr=0 for black (R=G=B=0),
 //! rather than the traditional Cb=Cr=0.5.
 
-use super::constants::csc_inverse;
+use super::constants::{csc_forward, csc_inverse};
 
 /// Convert Y'CbCr to RGB (inverse transform)
 /// Used during decompression.
@@ -54,19 +54,39 @@ pub fn ycbcr_block_to_rgb(
     (r_block, g_block, b_block)
 }
 
+/// Convert RGB to Y'CbCr (forward transform).
+#[inline]
+pub fn rgb_to_ycbcr(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
+    let y = csc_forward::Y_R * r + csc_forward::Y_G * g + csc_forward::Y_B * b;
+    let cb = csc_forward::CB_R * r + csc_forward::CB_G * g + csc_forward::CB_B * b;
+    let cr = csc_forward::CR_R * r + csc_forward::CR_G * g + csc_forward::CR_B * b;
+
+    (y, cb, cr)
+}
+
+/// Convert an RGB block into Y'CbCr.
+pub fn rgb_block_to_ycbcr(
+    r_block: &[f32; 64],
+    g_block: &[f32; 64],
+    b_block: &[f32; 64],
+) -> ([f32; 64], [f32; 64], [f32; 64]) {
+    let mut y_block = [0.0f32; 64];
+    let mut cb_block = [0.0f32; 64];
+    let mut cr_block = [0.0f32; 64];
+
+    for i in 0..64 {
+        let (y, cb, cr) = rgb_to_ycbcr(r_block[i], g_block[i], b_block[i]);
+        y_block[i] = y;
+        cb_block[i] = cb;
+        cr_block[i] = cr;
+    }
+
+    (y_block, cb_block, cr_block)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{super::constants::csc_forward, *};
-
-    /// Forward transform (RGB to Y'CbCr) - for testing only
-    #[inline]
-    fn rgb_to_ycbcr(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
-        let y = csc_forward::Y_R * r + csc_forward::Y_G * g + csc_forward::Y_B * b;
-        let cb = csc_forward::CB_R * r + csc_forward::CB_G * g + csc_forward::CB_B * b;
-        let cr = csc_forward::CR_R * r + csc_forward::CR_G * g + csc_forward::CR_B * b;
-
-        (y, cb, cr)
-    }
 
     #[test]
     fn test_csc_roundtrip() {

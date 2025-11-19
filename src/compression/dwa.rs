@@ -24,19 +24,25 @@ mod rle;
 use crate::{
     compression::ByteVec,
     error::{Error, Result},
-    meta::attribute::{ChannelList, IntegerBounds},
+    meta::attribute::{ChannelList, IntegerBounds, SampleType},
 };
 
 use smallvec::SmallVec;
-use std::{io::Cursor, sync::atomic::Ordering};
+use std::{convert::TryInto, io::Cursor, sync::atomic::Ordering};
 
 use classifier::{classify_channels, CompressionScheme};
 use constants::AC_COUNT;
-use dct::{from_half_zigzag, inverse_dct_8x8_optimized};
+use dct::{
+    float_to_half_bits, forward_dct_8x8, from_half_zigzag, inverse_dct_8x8_optimized,
+    quantize_to_half_zigzag,
+};
 use half::f16;
-use nonlinear::ToLinearLut;
+use miniz_oxide::deflate::compress_to_vec_zlib;
+use nonlinear::{ToLinearLut, ToNonlinearLut};
+use std::array;
 
 const VERBOSE_DWA_LOG: bool = false;
+const DWA_HEADER_FIELD_COUNT: usize = 11;
 
 /// Per-channel decode state tracking
 struct ChannelDecodeState {
@@ -131,6 +137,30 @@ impl ChannelDecodeState {
             row_offsets,
             rle_cursor: 0,
             unknown_cursor: 0,
+        }
+    }
+}
+
+struct ChannelEncodeState {
+    state: ChannelDecodeState,
+    quantize_linearly: bool,
+    data: Vec<u8>,
+}
+
+impl ChannelEncodeState {
+    fn new(
+        scheme: CompressionScheme,
+        channel: &crate::meta::attribute::ChannelDescription,
+        rectangle: IntegerBounds,
+        channel_index: usize,
+        channels: &crate::meta::attribute::ChannelList,
+    ) -> Self {
+        let state = ChannelDecodeState::new(scheme, channel, rectangle, channel_index, channels);
+        let buffer_size = state.width * state.height * state.bytes_per_sample;
+        Self {
+            state,
+            quantize_linearly: channel.quantize_linearly,
+            data: vec![0u8; buffer_size],
         }
     }
 }
@@ -332,8 +362,10 @@ pub fn decompress(
         .collect();
 
     // Determine lossy channel dimensions (all lossy channels share same resolution)
+    let channel_schemes: Vec<CompressionScheme> =
+        channel_states.iter().map(|state| state.scheme).collect();
     let (lossy_channel_order, lossy_channel_map) =
-        build_lossy_channel_order(&channel_states, &classification);
+        build_lossy_channel_order(&channel_schemes, &classification);
     let first_lossy_idx = *lossy_channel_order
         .first()
         .ok_or_else(|| Error::invalid("No lossy DCT channels found"))?;
@@ -510,11 +542,11 @@ fn split_auxiliary_streams<'a>(
 }
 
 fn build_lossy_channel_order(
-    channel_states: &SmallVec<[ChannelDecodeState; 4]>,
+    channel_schemes: &[CompressionScheme],
     classification: &classifier::ClassificationResult,
 ) -> (Vec<usize>, Vec<Option<usize>>) {
     let mut order = Vec::new();
-    let mut map = vec![None; channel_states.len()];
+    let mut map = vec![None; channel_schemes.len()];
 
     for group in &classification.csc_groups {
         push_lossy_channel(&mut order, &mut map, group.r_index);
@@ -522,8 +554,8 @@ fn build_lossy_channel_order(
         push_lossy_channel(&mut order, &mut map, group.b_index);
     }
 
-    for (idx, state) in channel_states.iter().enumerate() {
-        if state.scheme == CompressionScheme::LossyDct {
+    for (idx, scheme) in channel_schemes.iter().enumerate() {
+        if *scheme == CompressionScheme::LossyDct {
             push_lossy_channel(&mut order, &mut map, idx);
         }
     }
@@ -725,46 +757,6 @@ fn quantize_row_blocks(
             });
             Ok(())
         })
-}
-
-fn float_to_half_bits(value: f32) -> u16 {
-    let ui = value.to_bits();
-    let sign = ((ui >> 16) & 0x8000) as u16;
-    let mut ret = sign;
-    let mut abs = ui & 0x7fff_ffff;
-
-    if abs >= 0x3880_0000 {
-        if abs >= 0x7f80_0000 {
-            ret |= 0x7c00;
-            if abs == 0x7f80_0000 {
-                return ret;
-            }
-            let m = (abs & 0x007f_ffff) >> 13;
-            return ret | (m as u16) | if m == 0 { 1 } else { 0 };
-        }
-
-        if abs > 0x477f_efff {
-            return ret | 0x7c00;
-        }
-
-        abs -= 0x3800_0000;
-        abs = (abs + 0x0000_0fff + ((abs >> 13) & 1)) >> 13;
-        return ret | (abs as u16);
-    }
-
-    if abs < 0x3300_0001 {
-        return ret;
-    }
-
-    let e = abs >> 23;
-    let shift = 0x7e - e;
-    let m = 0x0080_0000 | (abs & 0x007f_ffff);
-    let r = (m as u64) << (32 - shift);
-    ret |= (m >> shift) as u16;
-    if r > 0x8000_0000 || (r == 0x8000_0000 && (ret & 0x1) != 0) {
-        ret = ret.wrapping_add(1);
-    }
-    ret
 }
 
 /// Write one scanline for all channels using decoded row blocks
@@ -1400,6 +1392,476 @@ fn zip_reconstruct_bytes(source: &[u8]) -> Vec<u8> {
     output
 }
 
+fn zip_deconstruct_bytes(source: &[u8]) -> Vec<u8> {
+    if source.is_empty() {
+        return Vec::new();
+    }
+
+    let count = source.len();
+    let split_point = (count + 1) / 2;
+    let mut scratch = vec![0u8; count];
+
+    let mut t1 = 0;
+    let mut t2 = split_point;
+    let mut idx = 0;
+
+    while idx < count {
+        scratch[t1] = source[idx];
+        t1 += 1;
+        idx += 1;
+
+        if idx < count {
+            scratch[t2] = source[idx];
+            t2 += 1;
+            idx += 1;
+        }
+    }
+
+    let mut result = scratch;
+    if count > 1 {
+        let mut prev = result[0] as i32;
+        for i in 1..count {
+            let d = result[i] as i32 - prev + (128 + 256);
+            prev = result[i] as i32;
+            result[i] = (d & 0xff) as u8;
+        }
+    }
+
+    result
+}
+
+fn populate_channel_buffers(
+    states: &mut [ChannelEncodeState],
+    packed_le: &[u8],
+    full_height: usize,
+) -> Result<()> {
+    let mut src_offset: usize = 0;
+    let mut dst_offsets: Vec<usize> = vec![0; states.len()];
+
+    for y in 0..full_height {
+        for (idx, state) in states.iter_mut().enumerate() {
+            if y % state.state.y_sampling != 0 {
+                continue;
+            }
+            let subsampled_y = y / state.state.y_sampling;
+            if subsampled_y >= state.state.height {
+                continue;
+            }
+
+            let row_bytes = state.state.width * state.state.bytes_per_sample;
+            let end = src_offset
+                .checked_add(row_bytes)
+                .ok_or_else(|| Error::invalid("channel buffer overflow"))?;
+            if end > packed_le.len() {
+                return Err(Error::invalid(
+                    "unexpected end of input while populating channel buffers",
+                ));
+            }
+
+            let dst_offset = dst_offsets[idx];
+            if dst_offset + row_bytes > state.data.len() {
+                return Err(Error::invalid(
+                    "channel destination buffer overflow during preparation",
+                ));
+            }
+
+            state.data[dst_offset..dst_offset + row_bytes]
+                .copy_from_slice(&packed_le[src_offset..end]);
+            dst_offsets[idx] += row_bytes;
+            src_offset = end;
+        }
+    }
+
+    if src_offset != packed_le.len() {
+        return Err(Error::invalid(
+            "did not consume entire input buffer when populating DWA channels",
+        ));
+    }
+
+    for (idx, state) in states.iter().enumerate() {
+        if dst_offsets[idx] != state.data.len() {
+            return Err(Error::invalid(
+                "channel gather did not fill entire destination buffer",
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn gather_block(
+    state: &ChannelEncodeState,
+    block_x: usize,
+    block_y: usize,
+    to_nonlinear: &ToNonlinearLut,
+    block: &mut [f32; constants::BLOCK_AREA],
+) -> Result<()> {
+    if state.state.scheme != CompressionScheme::LossyDct {
+        block.fill(0.0);
+        return Ok(());
+    }
+
+    let width = state.state.width.max(1);
+    let height = state.state.height.max(1);
+
+    for by in 0..constants::BLOCK_SIZE {
+        for bx in 0..constants::BLOCK_SIZE {
+            let sample_x = mirror_coord(block_x * constants::BLOCK_SIZE + bx, width);
+            let sample_y = mirror_coord(block_y * constants::BLOCK_SIZE + by, height);
+            let offset = (sample_y * width + sample_x) * state.state.bytes_per_sample;
+
+            let value = match state.state.sample_type {
+                SampleType::F16 => {
+                    let bits = u16::from_le_bytes([state.data[offset], state.data[offset + 1]]);
+                    let bits = if state.quantize_linearly {
+                        bits
+                    } else {
+                        to_nonlinear.lookup(bits)
+                    };
+                    f16::from_bits(bits).to_f32()
+                }
+                SampleType::F32 => {
+                    let sample = f32::from_le_bytes(
+                        state.data[offset..offset + 4]
+                            .try_into()
+                            .map_err(|_| Error::invalid("invalid f32 sample length"))?,
+                    );
+                    let clamped = sample.clamp(-65504.0, 65504.0);
+                    let mut bits = float_to_half_bits(clamped);
+                    if !state.quantize_linearly {
+                        bits = to_nonlinear.lookup(bits);
+                    }
+                    f16::from_bits(bits).to_f32()
+                }
+                SampleType::U32 => {
+                    let raw = u32::from_le_bytes(
+                        state.data[offset..offset + 4]
+                            .try_into()
+                            .map_err(|_| Error::invalid("invalid u32 sample length"))?,
+                    ) as f32;
+                    let mut bits = float_to_half_bits(raw);
+                    if !state.quantize_linearly {
+                        bits = to_nonlinear.lookup(bits);
+                    }
+                    f16::from_bits(bits).to_f32()
+                }
+            };
+
+            block[by * constants::BLOCK_SIZE + bx] = value;
+        }
+    }
+
+    Ok(())
+}
+
+fn mirror_coord(value: usize, max: usize) -> usize {
+    if max == 0 {
+        return 0;
+    }
+
+    if value < max {
+        return value;
+    }
+
+    if max == 1 {
+        return 0;
+    }
+
+    let mirror_point = max - 1;
+    let mut mirrored = value;
+    if mirrored > mirror_point {
+        mirrored = mirror_point.saturating_sub(mirrored - mirror_point);
+    }
+    mirrored.min(mirror_point)
+}
+
+fn apply_csc_forward(
+    classification: &classifier::ClassificationResult,
+    lossy_map: &[Option<usize>],
+    block_buffers: &mut [[f32; constants::BLOCK_AREA]],
+) {
+    for group in &classification.csc_groups {
+        let Some(r_idx) = lossy_map[group.r_index] else {
+            continue;
+        };
+        let Some(g_idx) = lossy_map[group.g_index] else {
+            continue;
+        };
+        let Some(b_idx) = lossy_map[group.b_index] else {
+            continue;
+        };
+
+        let (y_block, cb_block, cr_block) = csc::rgb_block_to_ycbcr(
+            &block_buffers[r_idx],
+            &block_buffers[g_idx],
+            &block_buffers[b_idx],
+        );
+        block_buffers[r_idx] = y_block;
+        block_buffers[g_idx] = cb_block;
+        block_buffers[b_idx] = cr_block;
+    }
+}
+
+fn select_quant_table<'a>(
+    classification: &classifier::ClassificationResult,
+    channel_index: usize,
+    quant_y: &'a [f32; constants::BLOCK_AREA],
+    quant_cbcr: &'a [f32; constants::BLOCK_AREA],
+    quant_y_half: &'a [u16; constants::BLOCK_AREA],
+    quant_cbcr_half: &'a [u16; constants::BLOCK_AREA],
+) -> (
+    &'a [f32; constants::BLOCK_AREA],
+    &'a [u16; constants::BLOCK_AREA],
+) {
+    if let Some(role) = classification.channel_classifications[channel_index].csc_channel_role {
+        if role == 0 {
+            (quant_y, quant_y_half)
+        } else {
+            (quant_cbcr, quant_cbcr_half)
+        }
+    } else {
+        (quant_y, quant_y_half)
+    }
+}
+
+fn pack_dc_planes(dc_planes: &[Vec<u16>], lossy_order: &[usize]) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    for &ch_idx in lossy_order {
+        let plane = dc_planes
+            .get(ch_idx)
+            .ok_or_else(|| Error::invalid("missing DC plane"))?;
+        for &value in plane {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+    }
+    Ok(bytes)
+}
+
+fn deflate_with_level(data: &[u8], level: u8) -> Vec<u8> {
+    if data.is_empty() {
+        Vec::new()
+    } else {
+        compress_to_vec_zlib(data, level)
+    }
+}
+
+fn build_planar_rle(state: &ChannelEncodeState) -> Result<Vec<u8>> {
+    let width = state.state.width;
+    let height = state.state.height;
+    let bytes_per_sample = state.state.bytes_per_sample;
+
+    if width == 0 || height == 0 || bytes_per_sample == 0 {
+        return Ok(Vec::new());
+    }
+
+    let pixel_count = width * height;
+    let mut output = vec![0u8; pixel_count * bytes_per_sample];
+
+    for y in 0..height {
+        let row_base = y * width * bytes_per_sample;
+        for x in 0..width {
+            let sample_base = row_base + x * bytes_per_sample;
+            for byte in 0..bytes_per_sample {
+                let dst_idx = byte * pixel_count + y * width + x;
+                output[dst_idx] = state.data[sample_base + byte];
+            }
+        }
+    }
+
+    Ok(output)
+}
+
+fn dwa_rle_compress(src: &[u8]) -> Vec<u8> {
+    const MIN_RUN_LENGTH: usize = 3;
+    const MAX_RUN_LENGTH: usize = 127;
+
+    let mut out = Vec::new();
+    let mut runs = 0usize;
+
+    while runs < src.len() {
+        let mut rune = runs + 1;
+        let mut curcount = 0usize;
+
+        while rune < src.len() && src[runs] == src[rune] && curcount < MAX_RUN_LENGTH {
+            rune += 1;
+            curcount += 1;
+        }
+
+        if curcount >= (MIN_RUN_LENGTH - 1) {
+            out.push(curcount as u8);
+            out.push(src[runs]);
+            runs = rune;
+        } else {
+            let mut count = curcount + 1;
+            while rune < src.len()
+                && ((rune + 1 >= src.len() || src[rune] != src[rune + 1])
+                    || (rune + 2 >= src.len() || src[rune + 1] != src[rune + 2]))
+                && count < MAX_RUN_LENGTH
+            {
+                rune += 1;
+                count += 1;
+            }
+            out.push((-(count as isize) as i8) as u8);
+            while runs < rune {
+                out.push(src[runs]);
+                runs += 1;
+            }
+            runs = rune;
+        }
+    }
+
+    out
+}
+
+fn build_dwa_header(
+    unknown_uncompressed: usize,
+    unknown_compressed: usize,
+    ac_compressed: usize,
+    dc_compressed: usize,
+    rle_compressed: usize,
+    rle_uncompressed: usize,
+    rle_raw: usize,
+    ac_uncompressed_count: usize,
+    dc_uncompressed_count: usize,
+    ac_compression: AcCompression,
+) -> Vec<u8> {
+    let mut header = Vec::with_capacity(DWA_HEADER_FIELD_COUNT * 8);
+    append_u64_le(&mut header, 2); // version
+    append_u64_le(&mut header, unknown_uncompressed as u64);
+    append_u64_le(&mut header, unknown_compressed as u64);
+    append_u64_le(&mut header, ac_compressed as u64);
+    append_u64_le(&mut header, dc_compressed as u64);
+    append_u64_le(&mut header, rle_compressed as u64);
+    append_u64_le(&mut header, rle_uncompressed as u64);
+    append_u64_le(&mut header, rle_raw as u64);
+    append_u64_le(&mut header, ac_uncompressed_count as u64);
+    append_u64_le(&mut header, dc_uncompressed_count as u64);
+    append_u64_le(&mut header, ac_compression as u64);
+    header
+}
+
+fn append_u64_le(buffer: &mut Vec<u8>, value: u64) {
+    buffer.extend_from_slice(&value.to_le_bytes());
+}
+
+fn default_channel_rules_block() -> Vec<u8> {
+    #[derive(Clone, Copy)]
+    struct Rule {
+        suffix: &'static str,
+        scheme: CompressionScheme,
+        sample_type: SampleType,
+        csc_idx: i8,
+    }
+
+    const RULES: &[Rule] = &[
+        Rule {
+            suffix: "R",
+            scheme: CompressionScheme::LossyDct,
+            sample_type: SampleType::F16,
+            csc_idx: 0,
+        },
+        Rule {
+            suffix: "R",
+            scheme: CompressionScheme::LossyDct,
+            sample_type: SampleType::F32,
+            csc_idx: 0,
+        },
+        Rule {
+            suffix: "G",
+            scheme: CompressionScheme::LossyDct,
+            sample_type: SampleType::F16,
+            csc_idx: 1,
+        },
+        Rule {
+            suffix: "G",
+            scheme: CompressionScheme::LossyDct,
+            sample_type: SampleType::F32,
+            csc_idx: 1,
+        },
+        Rule {
+            suffix: "B",
+            scheme: CompressionScheme::LossyDct,
+            sample_type: SampleType::F16,
+            csc_idx: 2,
+        },
+        Rule {
+            suffix: "B",
+            scheme: CompressionScheme::LossyDct,
+            sample_type: SampleType::F32,
+            csc_idx: 2,
+        },
+        Rule {
+            suffix: "Y",
+            scheme: CompressionScheme::LossyDct,
+            sample_type: SampleType::F16,
+            csc_idx: -1,
+        },
+        Rule {
+            suffix: "Y",
+            scheme: CompressionScheme::LossyDct,
+            sample_type: SampleType::F32,
+            csc_idx: -1,
+        },
+        Rule {
+            suffix: "BY",
+            scheme: CompressionScheme::LossyDct,
+            sample_type: SampleType::F16,
+            csc_idx: -1,
+        },
+        Rule {
+            suffix: "BY",
+            scheme: CompressionScheme::LossyDct,
+            sample_type: SampleType::F32,
+            csc_idx: -1,
+        },
+        Rule {
+            suffix: "RY",
+            scheme: CompressionScheme::LossyDct,
+            sample_type: SampleType::F16,
+            csc_idx: -1,
+        },
+        Rule {
+            suffix: "RY",
+            scheme: CompressionScheme::LossyDct,
+            sample_type: SampleType::F32,
+            csc_idx: -1,
+        },
+        Rule {
+            suffix: "A",
+            scheme: CompressionScheme::Rle,
+            sample_type: SampleType::U32,
+            csc_idx: -1,
+        },
+        Rule {
+            suffix: "A",
+            scheme: CompressionScheme::Rle,
+            sample_type: SampleType::F16,
+            csc_idx: -1,
+        },
+        Rule {
+            suffix: "A",
+            scheme: CompressionScheme::Rle,
+            sample_type: SampleType::F32,
+            csc_idx: -1,
+        },
+    ];
+
+    let mut data = Vec::new();
+    for rule in RULES {
+        data.extend_from_slice(rule.suffix.as_bytes());
+        data.push(0);
+        let mut value = (((rule.csc_idx + 1) as u8) & 0x0f) << 4;
+        value |= (u8::from(rule.scheme) & 0x03) << 2;
+        data.push(value);
+        data.push(u8::from(rule.sample_type));
+    }
+
+    let total_size = (data.len() + 2) as u16;
+    let mut block = Vec::with_capacity(total_size as usize);
+    block.extend_from_slice(&total_size.to_le_bytes());
+    block.extend_from_slice(&data);
+    block
+}
 /// Decompress RLE data (simple RLE, not the same as the main RLE compression)
 /// This is a basic RLE format used for DWAA/DWAB metadata
 fn decompress_rle(compressed: &[u8], expected_size: usize) -> Result<Vec<u8>> {
@@ -1485,15 +1947,185 @@ fn decompress_rle(compressed: &[u8], expected_size: usize) -> Result<Vec<u8>> {
 
 /// Compress function (stub for now, will be implemented later)
 pub fn compress(
-    _channels: &ChannelList,
-    _uncompressed_ne: ByteVec,
-    _rectangle: IntegerBounds,
+    channels: &ChannelList,
+    uncompressed_ne: ByteVec,
+    rectangle: IntegerBounds,
     _num_scan_lines: usize,
-    _compression_level: f32,
+    compression_level: f32,
 ) -> Result<ByteVec> {
-    Err(Error::unsupported(
-        "DWAA/DWAB compression not yet implemented",
-    ))
+    let expected_byte_size = rectangle.size.area() * channels.bytes_per_pixel;
+    if uncompressed_ne.len() != expected_byte_size {
+        return Err(Error::invalid(format!(
+            "Unexpected uncompressed buffer size: got {}, expected {}",
+            uncompressed_ne.len(),
+            expected_byte_size
+        )));
+    }
+
+    let packed_le = super::convert_current_to_little_endian(uncompressed_ne, channels, rectangle)?;
+
+    let classification = classify_channels(channels);
+    let mut encode_states: Vec<ChannelEncodeState> = channels
+        .list
+        .iter()
+        .enumerate()
+        .map(|(idx, channel)| {
+            let class = &classification.channel_classifications[idx];
+            ChannelEncodeState::new(class.scheme, channel, rectangle, idx, channels)
+        })
+        .collect();
+
+    populate_channel_buffers(&mut encode_states, &packed_le, rectangle.size.height())?;
+
+    let channel_schemes: Vec<CompressionScheme> =
+        encode_states.iter().map(|s| s.state.scheme).collect();
+    let (lossy_channel_order, lossy_channel_map) =
+        build_lossy_channel_order(&channel_schemes, &classification);
+
+    if lossy_channel_order.is_empty() {
+        return Err(Error::unsupported(
+            "DWA compression requires at least one lossy channel",
+        ));
+    }
+
+    let lossy_state = &encode_states[lossy_channel_order[0]].state;
+    let num_blocks_x = (lossy_state.width + constants::BLOCK_SIZE - 1) / constants::BLOCK_SIZE;
+    let num_blocks_y = (lossy_state.height + constants::BLOCK_SIZE - 1) / constants::BLOCK_SIZE;
+    let total_blocks = num_blocks_x * num_blocks_y;
+
+    let quant_base_error = compression_level.max(0.0) / 100000.0;
+    let quant_table_y: [f32; constants::BLOCK_AREA] =
+        array::from_fn(|i| constants::QUANT_TABLE_Y[i] * quant_base_error);
+    let quant_table_cbcr: [f32; constants::BLOCK_AREA] =
+        array::from_fn(|i| constants::QUANT_TABLE_CBCR[i] * quant_base_error);
+    let quant_table_y_half: [u16; constants::BLOCK_AREA] =
+        array::from_fn(|i| float_to_half_bits(quant_table_y[i]));
+    let quant_table_cbcr_half: [u16; constants::BLOCK_AREA] =
+        array::from_fn(|i| float_to_half_bits(quant_table_cbcr[i]));
+
+    let mut dc_planes: Vec<Vec<u16>> = encode_states
+        .iter()
+        .map(|state| {
+            if state.state.scheme == CompressionScheme::LossyDct {
+                vec![0u16; total_blocks]
+            } else {
+                Vec::new()
+            }
+        })
+        .collect();
+
+    let mut ac_coeffs: Vec<u16> = Vec::new();
+    let mut block_buffers = vec![[0.0f32; constants::BLOCK_AREA]; lossy_channel_order.len()];
+    let to_nonlinear = ToNonlinearLut::new();
+
+    for block_y in 0..num_blocks_y {
+        for block_x in 0..num_blocks_x {
+            for (lossy_idx, &ch_idx) in lossy_channel_order.iter().enumerate() {
+                gather_block(
+                    &encode_states[ch_idx],
+                    block_x,
+                    block_y,
+                    &to_nonlinear,
+                    &mut block_buffers[lossy_idx],
+                )?;
+            }
+
+            apply_csc_forward(&classification, &lossy_channel_map, &mut block_buffers);
+
+            for (lossy_idx, &ch_idx) in lossy_channel_order.iter().enumerate() {
+                let mut block = block_buffers[lossy_idx];
+                forward_dct_8x8(&mut block);
+
+                let (quant_table, quant_half_table) = select_quant_table(
+                    &classification,
+                    ch_idx,
+                    &quant_table_y,
+                    &quant_table_cbcr,
+                    &quant_table_y_half,
+                    &quant_table_cbcr_half,
+                );
+
+                let mut half_block = [0u16; constants::BLOCK_AREA];
+                quantize_to_half_zigzag(&block, quant_table, quant_half_table, &mut half_block);
+
+                let block_index = block_y * num_blocks_x + block_x;
+                dc_planes[ch_idx][block_index] = half_block[0];
+
+                let encoded_ac = rle::encode_ac_coefficients(&half_block);
+                ac_coeffs.extend_from_slice(&encoded_ac);
+            }
+        }
+    }
+
+    let dc_bytes = pack_dc_planes(&dc_planes, &lossy_channel_order)?;
+    let dc_reordered = zip_deconstruct_bytes(&dc_bytes);
+    let dc_compressed = if dc_reordered.is_empty() {
+        Vec::new()
+    } else {
+        deflate_with_level(&dc_reordered, 4)
+    };
+
+    let ac_compressed = if ac_coeffs.is_empty() {
+        Vec::new()
+    } else {
+        super::piz::huffman::compress(&ac_coeffs)?
+    };
+
+    let mut unknown_raw = Vec::new();
+    let mut rle_planar = Vec::new();
+    let mut rle_raw_size = 0usize;
+
+    for state in &encode_states {
+        match state.state.scheme {
+            CompressionScheme::Unknown => unknown_raw.extend_from_slice(&state.data),
+            CompressionScheme::Rle => {
+                let planar = build_planar_rle(state)?;
+                rle_raw_size += planar.len();
+                rle_planar.extend_from_slice(&planar);
+            }
+            CompressionScheme::LossyDct => {}
+        }
+    }
+
+    let unknown_compressed = if unknown_raw.is_empty() {
+        Vec::new()
+    } else {
+        deflate_with_level(&unknown_raw, 9)
+    };
+
+    let rle_encoded = if rle_planar.is_empty() {
+        Vec::new()
+    } else {
+        dwa_rle_compress(&rle_planar)
+    };
+    let rle_uncompressed_size = rle_encoded.len();
+    let rle_compressed = if rle_encoded.is_empty() {
+        Vec::new()
+    } else {
+        deflate_with_level(&rle_encoded, 9)
+    };
+
+    let header = build_dwa_header(
+        unknown_raw.len(),
+        unknown_compressed.len(),
+        ac_compressed.len(),
+        dc_compressed.len(),
+        rle_compressed.len(),
+        rle_uncompressed_size,
+        rle_raw_size,
+        ac_coeffs.len(),
+        total_blocks * lossy_channel_order.len(),
+        AcCompression::StaticHuffman,
+    );
+
+    let mut output = Vec::new();
+    output.extend_from_slice(&header);
+    output.extend_from_slice(&default_channel_rules_block());
+    output.extend_from_slice(&unknown_compressed);
+    output.extend_from_slice(&ac_compressed);
+    output.extend_from_slice(&dc_compressed);
+    output.extend_from_slice(&rle_compressed);
+    Ok(output)
 }
 
 #[cfg(test)]
@@ -1688,4 +2320,23 @@ mod tests {
     }
 
     // More tests will be added as implementation progresses
+}
+impl From<CompressionScheme> for u8 {
+    fn from(scheme: CompressionScheme) -> Self {
+        match scheme {
+            CompressionScheme::Unknown => 0,
+            CompressionScheme::LossyDct => 1,
+            CompressionScheme::Rle => 2,
+        }
+    }
+}
+
+impl From<SampleType> for u8 {
+    fn from(sample_type: SampleType) -> Self {
+        match sample_type {
+            SampleType::U32 => 0,
+            SampleType::F16 => 1,
+            SampleType::F32 => 2,
+        }
+    }
 }

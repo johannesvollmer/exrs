@@ -4,9 +4,9 @@
 //! internal_dwa_simd.h. This uses a custom butterfly algorithm with specific
 //! cosine-based scaling, not a standard DCT-III.
 
+use super::constants;
 use half::f16;
 
-const PI_APPROX: f32 = 3.14159;
 const COS_A: f32 = f32::from_bits(0x3eb504fb); // 0.3535536230
 const COS_B: f32 = f32::from_bits(0x3efb14bf); // 0.4903926551
 const COS_C: f32 = f32::from_bits(0x3eec8361); // 0.4619398415
@@ -28,6 +28,102 @@ const DC_SCALE: f32 = f32::from_bits(0x3eb504fa); // 0.3535536
 /// Spatial domain values (8x8 block)
 pub fn inverse_dct_8x8(coeffs: &[f32; 64]) -> [f32; 64] {
     inverse_dct_8x8_impl(coeffs, 0)
+}
+
+/// Forward 8x8 DCT (matches OpenEXR's scalar implementation).
+pub fn forward_dct_8x8(data: &mut [f32; 64]) {
+    const C1: f32 = 0.980_785_25;
+    const C2: f32 = 0.923_879_5;
+    const C3: f32 = 0.831_469_6;
+    const C4: f32 = 0.707_106_77;
+    const C5: f32 = 0.555_570_24;
+    const C6: f32 = 0.382_683_43;
+    const C7: f32 = 0.195_090_32;
+
+    const HALF: f32 = 0.5;
+
+    let mut row_tmp = [0.0f32; 64];
+
+    for row in 0..8 {
+        let src = &data[row * 8..row * 8 + 8];
+        let dst = &mut row_tmp[row * 8..row * 8 + 8];
+
+        let a0 = src[0] + src[7];
+        let a1 = src[1] + src[2];
+        let a2 = src[1] - src[2];
+        let a3 = src[3] + src[4];
+        let a4 = src[3] - src[4];
+        let a5 = src[5] + src[6];
+        let a6 = src[5] - src[6];
+        let a7 = src[0] - src[7];
+
+        let mut k0 = C4 * (a0 + a3);
+        let mut k1 = C4 * (a1 + a5);
+
+        dst[0] = HALF * (k0 + k1);
+        dst[4] = HALF * (k0 - k1);
+
+        let rot_x = a2 - a6;
+        let rot_y = a0 - a3;
+
+        dst[2] = HALF * (C6 * rot_x + C2 * rot_y);
+        dst[6] = HALF * (C6 * rot_y - C2 * rot_x);
+
+        k0 = C4 * (a1 - a5);
+        k1 = -C4 * (a2 + a6);
+
+        let rot_x = a7 - k0;
+        let rot_y = a4 + k1;
+
+        dst[3] = HALF * (C3 * rot_x - C5 * rot_y);
+        dst[5] = HALF * (C5 * rot_x + C3 * rot_y);
+
+        let rot_x = a7 + k0;
+        let rot_y = k1 - a4;
+
+        dst[1] = HALF * (C1 * rot_x - C7 * rot_y);
+        dst[7] = HALF * (C7 * rot_x + C1 * rot_y);
+    }
+
+    for column in 0..8 {
+        let idx = column;
+
+        let a0 = row_tmp[idx] + row_tmp[56 + idx];
+        let a7 = row_tmp[idx] - row_tmp[56 + idx];
+        let a1 = row_tmp[8 + idx] + row_tmp[16 + idx];
+        let a2 = row_tmp[8 + idx] - row_tmp[16 + idx];
+        let a3 = row_tmp[24 + idx] + row_tmp[32 + idx];
+        let a4 = row_tmp[24 + idx] - row_tmp[32 + idx];
+        let a5 = row_tmp[40 + idx] + row_tmp[48 + idx];
+        let a6 = row_tmp[40 + idx] - row_tmp[48 + idx];
+
+        let mut k0 = C4 * (a0 + a3);
+        let mut k1 = C4 * (a1 + a5);
+
+        data[idx] = HALF * (k0 + k1);
+        data[32 + idx] = HALF * (k0 - k1);
+
+        let rot_x = a2 - a6;
+        let rot_y = a0 - a3;
+
+        data[16 + idx] = HALF * (C6 * rot_x + C2 * rot_y);
+        data[48 + idx] = HALF * (C6 * rot_y - C2 * rot_x);
+
+        k0 = C4 * (a1 - a5);
+        k1 = -C4 * (a2 + a6);
+
+        let rot_x = a7 - k0;
+        let rot_y = a4 + k1;
+
+        data[24 + idx] = HALF * (C3 * rot_x - C5 * rot_y);
+        data[40 + idx] = HALF * (C5 * rot_x + C3 * rot_y);
+
+        let rot_x = a7 + k0;
+        let rot_y = k1 - a4;
+
+        data[8 + idx] = HALF * (C1 * rot_x - C7 * rot_y);
+        data[56 + idx] = HALF * (C7 * rot_x + C1 * rot_y);
+    }
 }
 
 /// OpenEXR's dctInverse8x8 implementation with optional row skipping.
@@ -242,6 +338,175 @@ pub fn from_half_zigzag(src: &[u16; 64], dst: &mut [f32; 64]) {
     dst[61] = to_f32(src[58]);
     dst[62] = to_f32(src[62]);
     dst[63] = to_f32(src[63]);
+}
+
+/// Convert row-major coefficients into zigzag half bits with quantization.
+pub fn quantize_to_half_zigzag(
+    coeffs: &[f32; 64],
+    quant_table: &[f32; 64],
+    half_quant_table: &[u16; 64],
+    dst: &mut [u16; 64],
+) {
+    for i in 0..64 {
+        let zig_idx = constants::ZIGZAG_ORDER[i];
+        let tol = quant_table[i];
+        let half_tol = half_quant_table[i];
+        let coeff = coeffs[i];
+        dst[zig_idx] = quantize_coeff(coeff, half_tol, tol);
+    }
+}
+
+fn quantize_coeff(value: f32, half_tol_bits: u16, tolerance: f32) -> u16 {
+    let src_bits = float_to_half_bits(value);
+    let src_float = value;
+    algo_quantize(src_bits, half_tol_bits, tolerance, src_float)
+}
+
+fn algo_quantize(src: u16, tol_bits: u16, tolerance: f32, src_float: f32) -> u16 {
+    // Port of OpenEXR's algoQuantize. See internal_dwa_encoder.h.
+    fn count_bits(v: u32) -> u32 {
+        v.count_ones()
+    }
+
+    fn leading_zeros(v: u32) -> u32 {
+        v.leading_zeros()
+    }
+
+    fn float_from_half_bits(bits: u16) -> f32 {
+        f16::from_bits(bits).to_f32()
+    }
+
+    fn quantize_with_mask(
+        abs_src: u32,
+        npow2: u32,
+        mask: u32,
+        err_tol: f32,
+        src_float: f32,
+        sign: u32,
+        prefer_smaller: bool,
+    ) -> u16 {
+        let mut best = abs_src;
+        let mut best_bits = count_bits(best);
+        let mut best_delta = err_tol;
+
+        let candidates = if prefer_smaller {
+            [
+                abs_src & mask,
+                (abs_src & mask).saturating_sub(npow2),
+                (abs_src & mask).saturating_add(npow2),
+                abs_src & !mask,
+            ]
+        } else {
+            [
+                abs_src & mask,
+                (abs_src & mask) | npow2,
+                (abs_src + npow2) & mask,
+                (abs_src + (npow2 << 1)) & mask,
+            ]
+        };
+
+        for &cand in &candidates {
+            let bits = count_bits(cand);
+            let cand_float = float_from_half_bits((sign | cand) as u16);
+            let delta = (cand_float - src_float).abs();
+            if delta < err_tol && (bits < best_bits || (bits == best_bits && delta < best_delta)) {
+                best = cand;
+                best_bits = bits;
+                best_delta = delta;
+            }
+        }
+
+        (sign | best) as u16
+    }
+
+    fn quantize_generic(
+        abs_src: u32,
+        tol_sig: u32,
+        err_tol: f32,
+        src_float: f32,
+        sign: u32,
+    ) -> u16 {
+        let tsigshift = 32 - leading_zeros(tol_sig);
+        let npow2 = 1 << tsigshift;
+        let lowermask = npow2 - 1;
+        let mask = !lowermask;
+        let src_masked_val = abs_src & lowermask;
+
+        if src_masked_val > tol_sig {
+            quantize_with_mask(abs_src, npow2, mask, err_tol, src_float, sign, true)
+        } else if src_masked_val < tol_sig {
+            quantize_with_mask(abs_src, npow2, mask, err_tol, src_float, sign, false)
+        } else {
+            quantize_with_mask(abs_src, npow2, mask, err_tol, src_float, sign, true)
+        }
+    }
+
+    let sign = (src as u32) & 0x8000;
+    let mut abs_src = (src as u32) & 0x7fff;
+
+    let src_float = src_float.abs();
+
+    let src_exp = src & 0x7c00;
+    let tol_exp = tol_bits & 0x7c00;
+
+    if src_exp == 0x7c00 {
+        return src;
+    }
+
+    if src_float < tolerance {
+        return sign as u16;
+    }
+
+    let exp_diff = (src_exp as u32).saturating_sub(tol_exp as u32) >> 10;
+    let tol_sig = (((tol_bits as u32 & 0x03ff) | (1 << 10)) >> exp_diff).max(1);
+
+    if tol_exp == 0 {
+        let mask = !(tol_sig - 1);
+        abs_src &= mask;
+        return (sign | abs_src) as u16;
+    }
+
+    quantize_generic(abs_src, tol_sig, tolerance, src_float, sign)
+}
+
+pub(crate) fn float_to_half_bits(value: f32) -> u16 {
+    let ui = value.to_bits();
+    let sign = ((ui >> 16) & 0x8000) as u16;
+    let mut ret = sign;
+    let mut abs = ui & 0x7fff_ffff;
+
+    if abs >= 0x3880_0000 {
+        if abs >= 0x7f80_0000 {
+            ret |= 0x7c00;
+            if abs == 0x7f80_0000 {
+                return ret;
+            }
+            let m = (abs & 0x007f_ffff) >> 13;
+            return ret | (m as u16) | if m == 0 { 1 } else { 0 };
+        }
+
+        if abs > 0x477f_efff {
+            return ret | 0x7c00;
+        }
+
+        abs -= 0x3800_0000;
+        abs = (abs + 0x0000_0fff + ((abs >> 13) & 1)) >> 13;
+        return ret | (abs as u16);
+    }
+
+    if abs < 0x3300_0001 {
+        return ret;
+    }
+
+    let e = abs >> 23;
+    let shift = 0x7e - e;
+    let m = 0x0080_0000 | (abs & 0x007f_ffff);
+    let r = (m as u64) << (32 - shift);
+    ret |= (m >> shift) as u16;
+    if r > 0x8000_0000 || (r == 0x8000_0000 && (ret & 0x1) != 0) {
+        ret = ret.wrapping_add(1);
+    }
+    ret
 }
 
 #[cfg(test)]
