@@ -100,16 +100,15 @@ impl ChannelDecodeState {
                 }
 
                 // Now add bytes for previous channels in this scanline
-                for ch_idx in 0..channel_index {
-                    let ch = &channels.list[ch_idx];
-                    let ch_y_sampling = ch.sampling.y();
-                    if full_y % ch_y_sampling == 0 {
+                channels.list.iter()
+                    .take(channel_index)
+                    .filter(|ch| full_y % ch.sampling.y() == 0)
+                    .for_each(|ch| {
                         let ch_resolution = ch.subsampled_resolution(rectangle.size);
                         let ch_width = ch_resolution.x();
                         let ch_bytes_per_sample = ch.sample_type.bytes_per_sample();
                         scanline_offset += ch_width * ch_bytes_per_sample;
-                    }
-                }
+                    });
 
                 scanline_offset
             })
