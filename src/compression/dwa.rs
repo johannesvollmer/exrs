@@ -904,23 +904,19 @@ fn decode_lossy_dct_channel(
             }
 
             // Copy block to output, handling edge cases
-            for by in 0..BLOCK_SIZE {
-                let y = block_y * BLOCK_SIZE + by;
-                if y >= height {
-                    break;
-                }
-
-                for bx in 0..BLOCK_SIZE {
-                    let x = block_x * BLOCK_SIZE + bx;
-                    if x >= width {
-                        break;
-                    }
-
-                    let block_idx = by * BLOCK_SIZE + bx;
-                    let output_idx = y * width + x;
-                    spatial_data[output_idx] = spatial_block[block_idx];
-                }
-            }
+            (0..BLOCK_SIZE)
+                .take_while(|&by| block_y * BLOCK_SIZE + by < height)
+                .for_each(|by| {
+                    let y = block_y * BLOCK_SIZE + by;
+                    (0..BLOCK_SIZE)
+                        .take_while(|&bx| block_x * BLOCK_SIZE + bx < width)
+                        .for_each(|bx| {
+                            let x = block_x * BLOCK_SIZE + bx;
+                            let block_idx = by * BLOCK_SIZE + bx;
+                            let output_idx = y * width + x;
+                            spatial_data[output_idx] = spatial_block[block_idx];
+                        });
+                });
         }
     }
 
