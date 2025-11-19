@@ -11,7 +11,8 @@ use half::f16;
 use std::sync::OnceLock;
 
 /// DWA nonlinear transform lookup tables.
-/// These tables map between linear and nonlinear half-float bit patterns (u16->u16).
+/// These tables map between linear and nonlinear half-float bit patterns
+/// (u16->u16).
 ///
 /// Based on OpenEXR's dwaLookups from internal_dwa_table_init.c:
 /// - toLinear: Converts nonlinear (quantized) half to linear half
@@ -91,7 +92,8 @@ fn convert_to_nonlinear(x: u16) -> u16 {
 
 /// Initialize the DWA lookup tables on first use.
 /// This generates 256KB of lookup tables (2 tables × 64K entries × 2 bytes).
-/// When rayon is enabled, table generation is parallelized for faster initialization.
+/// When rayon is enabled, table generation is parallelized for faster
+/// initialization.
 fn init_dwa_tables() -> DwaLookupTables {
     let mut to_linear = Box::new([0u16; 65536]);
     let mut to_nonlinear = Box::new([0u16; 65536]);
@@ -197,11 +199,14 @@ pub struct InverseNonlinearLut {
 #[allow(deprecated)]
 impl InverseNonlinearLut {
     pub fn new() -> Self {
-        Self { inner: ToLinearLut::new() }
+        Self {
+            inner: ToLinearLut::new(),
+        }
     }
 
     /// Legacy lookup that returns f32.
-    /// This is kept for compatibility but performs an extra f16->f32 conversion.
+    /// This is kept for compatibility but performs an extra f16->f32
+    /// conversion.
     #[inline]
     pub fn lookup(&self, nonlinear: f16) -> f32 {
         self.inner.lookup_f16(nonlinear).to_f32()
@@ -266,9 +271,13 @@ mod tests {
 
             // Allow for half-precision quantization error
             let error = (recovered_value - value).abs() / value.max(0.1);
-            assert!(error < 0.05,
+            assert!(
+                error < 0.05,
                 "Roundtrip failed for {}: got {}, error {}",
-                value, recovered_value, error);
+                value,
+                recovered_value,
+                error
+            );
         }
     }
 

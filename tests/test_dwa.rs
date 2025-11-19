@@ -28,11 +28,24 @@ fn debug_dwaa_pixel_values() {
         let name: String = chan.name.clone().into();
         match &chan.sample_data {
             FlatSamples::F16(samples) => {
-                let first_10: Vec<f32> = samples[..10.min(samples.len())].iter().map(|s| s.to_f32()).collect();
-                println!("  {}: {} pixels, first 10: {:?}", name, samples.len(), first_10);
+                let first_10: Vec<f32> = samples[..10.min(samples.len())]
+                    .iter()
+                    .map(|s| s.to_f32())
+                    .collect();
+                println!(
+                    "  {}: {} pixels, first 10: {:?}",
+                    name,
+                    samples.len(),
+                    first_10
+                );
             }
             FlatSamples::F32(samples) => {
-                println!("  {}: {} pixels, first 10: {:?}", name, samples.len(), &samples[..10.min(samples.len())]);
+                println!(
+                    "  {}: {} pixels, first 10: {:?}",
+                    name,
+                    samples.len(),
+                    &samples[..10.min(samples.len())]
+                );
             }
             _ => {}
         }
@@ -43,11 +56,24 @@ fn debug_dwaa_pixel_values() {
         let name: String = chan.name.clone().into();
         match &chan.sample_data {
             FlatSamples::F16(samples) => {
-                let first_10: Vec<f32> = samples[..10.min(samples.len())].iter().map(|s| s.to_f32()).collect();
-                println!("  {}: {} pixels, first 10: {:?}", name, samples.len(), first_10);
+                let first_10: Vec<f32> = samples[..10.min(samples.len())]
+                    .iter()
+                    .map(|s| s.to_f32())
+                    .collect();
+                println!(
+                    "  {}: {} pixels, first 10: {:?}",
+                    name,
+                    samples.len(),
+                    first_10
+                );
             }
             FlatSamples::F32(samples) => {
-                println!("  {}: {} pixels, first 10: {:?}", name, samples.len(), &samples[..10.min(samples.len())]);
+                println!(
+                    "  {}: {} pixels, first 10: {:?}",
+                    name,
+                    samples.len(),
+                    &samples[..10.min(samples.len())]
+                );
             }
             _ => {}
         }
@@ -79,16 +105,30 @@ fn debug_dwaa_exact_match() {
 
     let mut mismatches = BTreeMap::new();
 
-    let layer_width = compressed.layer_data.first().map(|layer| layer.size.width()).unwrap_or(0);
+    let layer_width = compressed
+        .layer_data
+        .first()
+        .map(|layer| layer.size.width())
+        .unwrap_or(0);
 
-    if let (Some(layer_c), Some(layer_r)) = (compressed.layer_data.first(), reference.layer_data.first()) {
-        for (chan_c, chan_r) in layer_c.channel_data.list.iter().zip(layer_r.channel_data.list.iter()) {
+    if let (Some(layer_c), Some(layer_r)) =
+        (compressed.layer_data.first(), reference.layer_data.first())
+    {
+        for (chan_c, chan_r) in layer_c
+            .channel_data
+            .list
+            .iter()
+            .zip(layer_r.channel_data.list.iter())
+        {
             let name: String = chan_c.name.clone().into();
             match (&chan_c.sample_data, &chan_r.sample_data) {
                 (FlatSamples::F16(c_samples), FlatSamples::F16(r_samples)) => {
                     for (idx, (&c, &r)) in c_samples.iter().zip(r_samples.iter()).enumerate() {
                         if c != r {
-                    mismatches.entry(name.clone()).or_insert_with(Vec::new).push((idx, c.to_bits(), r.to_bits()));
+                            mismatches
+                                .entry(name.clone())
+                                .or_insert_with(Vec::new)
+                                .push((idx, c.to_bits(), r.to_bits()));
                             break;
                         }
                     }
@@ -119,7 +159,8 @@ fn debug_dwaa_exact_match() {
 
 /// Compare pixel data between two images with lossy tolerance.
 /// This only compares the actual pixel values, not metadata/encoding.
-/// DWAA/DWAB uses epsilon=0.06 and max_diff=0.1 (same as exr's lossy validation).
+/// DWAA/DWAB uses epsilon=0.06 and max_diff=0.1 (same as exr's lossy
+/// validation).
 fn assert_pixels_match_lossy<L>(image1: &Image<L>, image2: &Image<L>, test_name: &str)
 where
     L: std::ops::Deref<Target = [Layer<AnyChannels<FlatSamples>>]>,

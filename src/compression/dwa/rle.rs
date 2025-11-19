@@ -34,7 +34,7 @@ pub fn decode_ac_coefficients(encoded: &[u16]) -> Result<[u16; AC_COUNT]> {
             // Bounds check
             if output_idx + run_length > AC_COUNT {
                 return Err(crate::error::Error::invalid(
-                    "RLE decode: zero run exceeds block size"
+                    "RLE decode: zero run exceeds block size",
                 ));
             }
 
@@ -44,7 +44,7 @@ pub fn decode_ac_coefficients(encoded: &[u16]) -> Result<[u16; AC_COUNT]> {
             // Regular value
             if output_idx >= AC_COUNT {
                 return Err(crate::error::Error::invalid(
-                    "RLE decode: output index exceeds block size"
+                    "RLE decode: output index exceeds block size",
                 ));
             }
 
@@ -68,9 +68,10 @@ pub fn decode_ac_coefficients(encoded: &[u16]) -> Result<[u16; AC_COUNT]> {
 /// Index of the last non-zero coefficient (0-62), or 0 if all are zero
 #[inline]
 pub fn find_last_non_zero(coeffs: &[u16; AC_COUNT]) -> usize {
-    coeffs.iter()
+    coeffs
+        .iter()
         .rposition(|&coeff| coeff != 0)
-        .map(|i| i + 1)  // +1 because AC index starts at 1
+        .map(|i| i + 1) // +1 because AC index starts at 1
         .unwrap_or(0)
 }
 

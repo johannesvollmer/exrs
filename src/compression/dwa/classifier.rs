@@ -1,6 +1,7 @@
 //! Channel classification for DWAA/DWAB compression.
 //!
-//! Determines the compression scheme for each channel based on its name and type.
+//! Determines the compression scheme for each channel based on its name and
+//! type.
 
 use crate::meta::attribute::{ChannelList, SampleType};
 
@@ -95,7 +96,9 @@ pub fn classify_channels(channels: &ChannelList) -> ClassificationResult {
     }
 
     // Second pass: classify each channel
-    let classifications = channels.list.iter()
+    let classifications = channels
+        .list
+        .iter()
         .enumerate()
         .map(|(i, channel)| {
             let channel_name: String = channel.name.clone().into();
@@ -155,12 +158,18 @@ fn is_b_channel(name: &str) -> bool {
 /// Check if a channel should use lossy DCT compression
 /// (R, G, B, Y, BY, RY channels)
 fn is_lossy_dct_channel(name: &str) -> bool {
-    name.ends_with(".R") || name == "R" ||
-    name.ends_with(".G") || name == "G" ||
-    name.ends_with(".B") || name == "B" ||
-    name.ends_with(".Y") || name == "Y" ||
-    name.ends_with(".BY") || name == "BY" ||
-    name.ends_with(".RY") || name == "RY"
+    name.ends_with(".R")
+        || name == "R"
+        || name.ends_with(".G")
+        || name == "G"
+        || name.ends_with(".B")
+        || name == "B"
+        || name.ends_with(".Y")
+        || name == "Y"
+        || name.ends_with(".BY")
+        || name == "BY"
+        || name.ends_with(".RY")
+        || name == "RY"
 }
 
 /// Check if a channel is an alpha channel
@@ -197,18 +206,14 @@ fn find_matching_gb(
     };
 
     // Find G channel
-    let g_idx = channels
-        .list
-        .iter()
-        .enumerate()
-        .position(|(idx, ch)| ch.name == *g_name.as_str() && is_float_type(ch.sample_type) && !used[idx])?;
+    let g_idx = channels.list.iter().enumerate().position(|(idx, ch)| {
+        ch.name == *g_name.as_str() && is_float_type(ch.sample_type) && !used[idx]
+    })?;
 
     // Find B channel
-    let b_idx = channels
-        .list
-        .iter()
-        .enumerate()
-        .position(|(idx, ch)| ch.name == *b_name.as_str() && is_float_type(ch.sample_type) && !used[idx])?;
+    let b_idx = channels.list.iter().enumerate().position(|(idx, ch)| {
+        ch.name == *b_name.as_str() && is_float_type(ch.sample_type) && !used[idx]
+    })?;
 
     Some((g_idx, b_idx))
 }
@@ -288,27 +293,29 @@ mod tests {
 
     #[test]
     fn test_classify_alpha_channel() {
-        let channels = make_channel_list(vec![
-            make_channel("A", SampleType::F16),
-        ]);
+        let channels = make_channel_list(vec![make_channel("A", SampleType::F16)]);
 
         let result = classify_channels(&channels);
 
-        assert_eq!(result.channel_classifications[0].scheme, CompressionScheme::Rle);
+        assert_eq!(
+            result.channel_classifications[0].scheme,
+            CompressionScheme::Rle
+        );
         assert!(result.channel_classifications[0].csc_group_index.is_none());
         assert_eq!(result.csc_groups.len(), 0);
     }
 
     #[test]
     fn test_classify_y_channel() {
-        let channels = make_channel_list(vec![
-            make_channel("Y", SampleType::F16),
-        ]);
+        let channels = make_channel_list(vec![make_channel("Y", SampleType::F16)]);
 
         let result = classify_channels(&channels);
 
         // Y channel uses lossy DCT without CSC
-        assert_eq!(result.channel_classifications[0].scheme, CompressionScheme::LossyDct);
+        assert_eq!(
+            result.channel_classifications[0].scheme,
+            CompressionScheme::LossyDct
+        );
         assert!(result.channel_classifications[0].csc_group_index.is_none());
         assert_eq!(result.csc_groups.len(), 0);
     }
@@ -329,11 +336,26 @@ mod tests {
         assert_eq!(result.csc_groups.len(), 1);
 
         // Check individual classifications
-        assert_eq!(result.channel_classifications[0].scheme, CompressionScheme::LossyDct);
-        assert_eq!(result.channel_classifications[1].scheme, CompressionScheme::LossyDct);
-        assert_eq!(result.channel_classifications[2].scheme, CompressionScheme::LossyDct);
-        assert_eq!(result.channel_classifications[3].scheme, CompressionScheme::Rle);
-        assert_eq!(result.channel_classifications[4].scheme, CompressionScheme::Unknown);
+        assert_eq!(
+            result.channel_classifications[0].scheme,
+            CompressionScheme::LossyDct
+        );
+        assert_eq!(
+            result.channel_classifications[1].scheme,
+            CompressionScheme::LossyDct
+        );
+        assert_eq!(
+            result.channel_classifications[2].scheme,
+            CompressionScheme::LossyDct
+        );
+        assert_eq!(
+            result.channel_classifications[3].scheme,
+            CompressionScheme::Rle
+        );
+        assert_eq!(
+            result.channel_classifications[4].scheme,
+            CompressionScheme::Unknown
+        );
     }
 
     #[test]
@@ -370,7 +392,13 @@ mod tests {
         assert_eq!(result.csc_groups.len(), 0);
 
         // Channels should still use lossy DCT (standalone)
-        assert_eq!(result.channel_classifications[0].scheme, CompressionScheme::LossyDct);
-        assert_eq!(result.channel_classifications[1].scheme, CompressionScheme::LossyDct);
+        assert_eq!(
+            result.channel_classifications[0].scheme,
+            CompressionScheme::LossyDct
+        );
+        assert_eq!(
+            result.channel_classifications[1].scheme,
+            CompressionScheme::LossyDct
+        );
     }
 }

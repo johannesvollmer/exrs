@@ -56,8 +56,7 @@ pub fn ycbcr_block_to_rgb(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::super::constants::csc_forward;
+    use super::{super::constants::csc_forward, *};
 
     /// Forward transform (RGB to Y'CbCr) - for testing only
     #[inline]
@@ -94,17 +93,29 @@ mod tests {
             assert!(
                 error_r < 1e-4,
                 "R roundtrip failed: {} -> {} (Y={}, Cb={}, Cr={})",
-                r, r2, y, cb, cr
+                r,
+                r2,
+                y,
+                cb,
+                cr
             );
             assert!(
                 error_g < 1e-4,
                 "G roundtrip failed: {} -> {} (Y={}, Cb={}, Cr={})",
-                g, g2, y, cb, cr
+                g,
+                g2,
+                y,
+                cb,
+                cr
             );
             assert!(
                 error_b < 1e-4,
                 "B roundtrip failed: {} -> {} (Y={}, Cb={}, Cr={})",
-                b, b2, y, cb, cr
+                b,
+                b2,
+                y,
+                cb,
+                cr
             );
         }
     }

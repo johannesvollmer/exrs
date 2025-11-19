@@ -1,8 +1,8 @@
 //! DCT (Discrete Cosine Transform) for DWAA/DWAB compression.
 //!
-//! Direct port of OpenEXR's dctInverse8x8 implementation from internal_dwa_simd.h.
-//! This uses a custom butterfly algorithm with specific cosine-based scaling,
-//! not a standard DCT-III.
+//! Direct port of OpenEXR's dctInverse8x8 implementation from
+//! internal_dwa_simd.h. This uses a custom butterfly algorithm with specific
+//! cosine-based scaling, not a standard DCT-III.
 
 use half::f16;
 
@@ -94,10 +94,19 @@ fn inverse_dct_8x8_impl(coeffs: &[f32; 64], zeroed_rows: usize) -> [f32; 64] {
         ];
 
         let beta = [
-            COS_B * data[8 + column] + COS_D * data[24 + column] + COS_E * data[40 + column] + COS_G * data[56 + column],
-            COS_D * data[8 + column] - COS_G * data[24 + column] - COS_B * data[40 + column] - COS_E * data[56 + column],
-            COS_E * data[8 + column] - COS_B * data[24 + column] + COS_G * data[40 + column] + COS_D * data[56 + column],
-            COS_G * data[8 + column] - COS_E * data[24 + column] + COS_D * data[40 + column] - COS_B * data[56 + column],
+            COS_B * data[8 + column]
+                + COS_D * data[24 + column]
+                + COS_E * data[40 + column]
+                + COS_G * data[56 + column],
+            COS_D * data[8 + column]
+                - COS_G * data[24 + column]
+                - COS_B * data[40 + column]
+                - COS_E * data[56 + column],
+            COS_E * data[8 + column] - COS_B * data[24 + column]
+                + COS_G * data[40 + column]
+                + COS_D * data[56 + column],
+            COS_G * data[8 + column] - COS_E * data[24 + column] + COS_D * data[40 + column]
+                - COS_B * data[56 + column],
         ];
 
         let theta = [
@@ -242,7 +251,8 @@ mod tests {
     #[test]
     fn test_dc_only_block() {
         // Test OpenEXR's DC-only optimization
-        // For a DC-only block with DC = 336.0, all spatial values should be DC * 0.35355339²
+        // For a DC-only block with DC = 336.0, all spatial values should be DC *
+        // 0.35355339²
         let mut coeffs = [0.0f32; 64];
         coeffs[0] = 336.0;
 
