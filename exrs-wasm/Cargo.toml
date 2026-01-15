@@ -1,0 +1,32 @@
+[package]
+name = "exrs-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "WebAssembly bindings for the exr crate - write EXR files from the browser"
+license = "BSD-3-Clause"
+repository = "https://github.com/johannesvollmer/exrs"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Core EXR library without rayon (required for WASM)
+exr = { path = "..", default-features = false }
+
+# WASM bindings (pinned to match wasm-bindgen-cli)
+wasm-bindgen = "=0.2.100"
+js-sys = "0.3"
+
+# Re-export dependencies from exr for consistency
+smallvec = "1.7"
+half = "2.1"
+
+# Better panic messages in browser console
+console_error_panic_hook = "0.1"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[profile.release]
+opt-level = "s"      # Optimize for size
+lto = true           # Link-time optimization
