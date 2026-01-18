@@ -243,8 +243,8 @@ impl RoundingMode {
 
         match self {
             RoundingMode::Up => (dividend + divisor - T::from(1_u8)) / divisor, /* only works
-                                                                                  * for positive
-                                                                                  * numbers */
+            * for positive
+             * numbers */
             RoundingMode::Down => dividend / divisor,
         }
     }

@@ -399,7 +399,7 @@ impl Compression {
         match self {
             PXR24 => sample_type != SampleType::F32, // pxr reduces f32 to f24
             B44 | B44A => sample_type != SampleType::F16, /* b44 only compresses f16 values, others
-                                                       * are left uncompressed */
+            * are left uncompressed */
             Uncompressed | RLE | ZIP1 | ZIP16 | PIZ | HTJ2K32 | HTJ2K256 => true,
             DWAB(_) | DWAA(_) => false,
         }
