@@ -31,6 +31,10 @@ jobs:
         run: wasm-pack build --target web
         working-directory: exrs-wasm
 
+      - name: Run JavaScript tests
+        run: wasm-pack test --node
+        working-directory: exrs-wasm
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:

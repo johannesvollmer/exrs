@@ -288,7 +288,6 @@
     <div class="section">
       <div class="actions">
         <button class="primary" id="btn-generate" onclick="generateExr()">Generate &amp; Download EXR</button>
-        <button class="secondary" id="btn-sequence" onclick="generateSequence()">Generate 3-Frame Sequence</button>
       </div>
       <div id="generate-status" class="status" style="display: none;"></div>
     </div>
@@ -317,26 +316,37 @@
 
     <h2>Code Example</h2>
     <div class="section">
+      <h3 style="color: #999; font-size: 0.9em; margin: 0 0 10px;">Simple API (no .free() needed)</h3>
       <div class="code-example">
-        <pre><span class="keyword">import</span> init, { ExrImage, CompressionMethod, SamplePrecision } <span class="keyword">from</span> <span class="string">'exrs-wasm'</span>;
+        <pre><span class="keyword">import</span> init, { writeExrRgba, readExr, SamplePrecision, CompressionMethod } <span class="keyword">from</span> <span class="string">'exrs-wasm'</span>;
 
-<span class="comment">// Initialize WASM module</span>
 <span class="keyword">await</span> <span class="function">init</span>();
 
-<span class="comment">// Create a 1920x1080 EXR with RLE compression</span>
-<span class="keyword">const</span> exr = <span class="keyword">new</span> <span class="function">ExrImage</span>(1920, 1080, CompressionMethod.Rle);
-
-<span class="comment">// Add layers with pixel data (Float32Array)</span>
-exr.<span class="function">addRgbaLayer</span>(<span class="string">'beauty'</span>, beautyPixels, SamplePrecision.F32);
-exr.<span class="function">addDepthLayer</span>(<span class="string">'depth'</span>, depthPixels);
-exr.<span class="function">addRgbLayer</span>(<span class="string">'normals'</span>, normalPixels);
-
-<span class="comment">// Encode to bytes and download</span>
-<span class="keyword">const</span> bytes = exr.<span class="function">toBytes</span>();
+<span class="comment">// Write single-layer EXR in one call</span>
+<span class="keyword">const</span> bytes = <span class="function">writeExrRgba</span>(1920, 1080, <span class="string">'beauty'</span>, beautyPixels,
+                          SamplePrecision.F32, CompressionMethod.Piz);
 <span class="function">downloadBlob</span>(bytes, <span class="string">'render.exr'</span>);
 
-<span class="comment">// Clean up (optional, uses FinalizationRegistry)</span>
-exr.<span class="function">free</span>();</pre>
+<span class="comment">// Read back</span>
+<span class="keyword">const</span> result = <span class="function">readExr</span>(bytes);
+console.<span class="function">log</span>(<span class="string">'Dimensions:'</span>, result.width, <span class="string">'x'</span>, result.height);</pre>
+      </div>
+
+      <h3 style="color: #999; font-size: 0.9em; margin: 20px 0 10px;">Builder API (for multi-layer EXRs)</h3>
+      <div class="code-example">
+        <pre><span class="keyword">import</span> init, { ExrImage, SamplePrecision, CompressionMethod } <span class="keyword">from</span> <span class="string">'exrs-wasm'</span>;
+
+<span class="keyword">await</span> <span class="function">init</span>();
+
+<span class="keyword">const</span> exr = <span class="keyword">new</span> <span class="function">ExrImage</span>(1920, 1080);
+
+<span class="comment">// Add multiple layers with per-layer settings</span>
+exr.<span class="function">addRgbaLayer</span>(<span class="string">'beauty'</span>, beautyPixels, SamplePrecision.F32, CompressionMethod.Piz);
+exr.<span class="function">addSingleChannelLayer</span>(<span class="string">'depth'</span>, <span class="string">'Z'</span>, depthPixels, SamplePrecision.F32, CompressionMethod.Pxr24);
+exr.<span class="function">addRgbLayer</span>(<span class="string">'normals'</span>, normalPixels, SamplePrecision.F16, CompressionMethod.Zip16);
+
+<span class="keyword">const</span> bytes = exr.<span class="function">toBytes</span>();
+<span class="comment">// No .free() needed - automatic cleanup via FinalizationRegistry</span></pre>
       </div>
     </div>
   </div>
@@ -345,18 +355,16 @@ exr.<span class="function">free</span>();</pre>
     // Import from the pkg directory (relative to examples/)
     import init, {
       ExrImage,
-      ExrSequenceWriter,
+      readExr,
       CompressionMethod,
-      SamplePrecision,
-      init_panic_hook
+      SamplePrecision
     } from '../pkg/exrs_wasm.js';
 
     let wasmReady = false;
 
     async function initWasm() {
       try {
-        await init();
-        init_panic_hook();
+        await init(); // Panic hook is set up automatically
         wasmReady = true;
 
         document.getElementById('loading-status').style.display = 'none';
@@ -558,26 +566,28 @@ exr.<span class="function">free</span>();</pre>
       try {
         const startTime = performance.now();
 
-        const exr = new ExrImage(width, height, compression);
+        // Create image (compression is now per-layer)
+        const exr = new ExrImage(width, height);
 
         if (includeBeauty) {
           const beauty = generateBeautyData(width, height);
-          exr.addRgbaLayer('beauty', beauty, precision);
+          exr.addRgbaLayer('beauty', beauty, precision, compression);
         }
 
         if (includeDepth) {
           const depth = generateDepthData(width, height);
-          exr.addDepthLayer('depth', depth, precision);
+          // Use addSingleChannelLayer with "Z" channel name (addDepthLayer was removed)
+          exr.addSingleChannelLayer('depth', 'Z', depth, precision, compression);
         }
 
         if (includeNormals) {
           const normals = generateNormalsData(width, height);
-          exr.addRgbLayer('normals', normals, precision);
+          exr.addRgbLayer('normals', normals, precision, compression);
         }
 
         if (includeAO) {
           const ao = generateAOData(width, height);
-          exr.addSingleChannelLayer('ao', 'Y', ao, precision);
+          exr.addSingleChannelLayer('ao', 'Y', ao, precision, compression);
         }
 
         const bytes = exr.toBytes();
@@ -585,7 +595,7 @@ exr.<span class="function">free</span>();</pre>
 
         updateStats(bytes.length, exr.layerCount, endTime - startTime, width, height);
         downloadBlob(bytes, 'render.exr');
-        exr.free();
+        // No .free() needed - FinalizationRegistry handles cleanup automatically
 
         showStatus('EXR generated successfully!', 'success');
       } catch (error) {
@@ -594,67 +604,9 @@ exr.<span class="function">free</span>();</pre>
       }
     }
 
-    function generateSequence() {
-      if (!wasmReady) return;
-
-      const settings = getSettings();
-      const { width, height, compression } = settings;
-
-      showStatus('Generating 3-frame sequence...', 'loading');
-
-      try {
-        const startTime = performance.now();
-        const writer = new ExrSequenceWriter(width, height, compression);
-
-        let totalSize = 0;
-
-        for (let frame = 0; frame < 3; frame++) {
-          // Generate animated data (offset based on frame)
-          const beauty = generateAnimatedBeauty(width, height, frame);
-          const depth = generateDepthData(width, height);
-          const normals = generateNormalsData(width, height);
-
-          const bytes = writer.writeFrame(beauty, depth, normals);
-          totalSize += bytes.length;
-          downloadBlob(bytes, `render_${String(frame).padStart(4, '0')}.exr`);
-        }
-
-        const endTime = performance.now();
-        updateStats(totalSize / 3, 3, (endTime - startTime) / 3, width, height);
-
-        writer.free();
-
-        showStatus('Sequence generated successfully! (3 files downloaded)', 'success');
-      } catch (error) {
-        showStatus(`Error: ${error.message || error}`, 'error');
-        console.error('Sequence generation error:', error);
-      }
-    }
-
-    function generateAnimatedBeauty(width, height, frame) {
-      const data = new Float32Array(width * height * 4);
-      const offset = frame * 0.1;
-
-      for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-          const i = (y * width + x) * 4;
-          const u = x / width;
-          const v = y / height;
-
-          // Animated wave pattern
-          data[i + 0] = Math.sin((u + offset) * Math.PI * 2) * 0.5 + 0.5;
-          data[i + 1] = Math.cos((v + offset) * Math.PI * 2) * 0.5 + 0.5;
-          data[i + 2] = Math.sin((u + v + offset * 2) * Math.PI) * 0.5 + 0.5;
-          data[i + 3] = 1.0;
-        }
-      }
-      return data;
-    }
-
     // Expose functions to window for onclick handlers
     window.updatePreviews = updatePreviews;
     window.generateExr = generateExr;
-    window.generateSequence = generateSequence;
 
     // Initialize on load
     initWasm();
