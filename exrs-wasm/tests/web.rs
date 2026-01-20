@@ -17,7 +17,7 @@ fn test_js_rgba_roundtrip() {
     // Create test RGBA data
     let mut pixels = Vec::with_capacity(pixel_count * 4);
     for i in 0..pixel_count {
-        pixels.push(i as f32 / pixel_count as f32); // R
+        pixels.push(i as f64 / pixel_count as f64); // R
         pixels.push(0.5); // G
         pixels.push(0.25); // B
         pixels.push(1.0); // A
@@ -66,8 +66,8 @@ fn test_js_rgb_roundtrip() {
     let height = 8u32;
     let pixel_count = (width * height) as usize;
 
-    let pixels: Vec<f32> = (0..pixel_count * 3)
-        .map(|i| (i as f32) / 100.0)
+    let pixels: Vec<f64> = (0..pixel_count * 3)
+        .map(|i| (i as f64) / 100.0)
         .collect();
 
     let bytes = write_exr_rgb(
@@ -99,8 +99,8 @@ fn test_js_depth_roundtrip() {
     let height = 16u32;
     let pixel_count = (width * height) as usize;
 
-    let pixels: Vec<f32> = (0..pixel_count)
-        .map(|i| i as f32)
+    let pixels: Vec<f64> = (0..pixel_count)
+        .map(|i| i as f64)
         .collect();
 
     let bytes = write_exr_single_channel(
@@ -130,11 +130,11 @@ fn test_js_multi_layer() {
     let height = 4u32;
     let pixel_count = (width * height) as usize;
 
-    let rgba_pixels = vec![0.8f32; pixel_count * 4];
-    let rgb_pixels = vec![0.5f32; pixel_count * 3];
-    let depth_pixels = vec![1.0f32; pixel_count];
+    let rgba_pixels = vec![0.8f64; pixel_count * 4];
+    let rgb_pixels = vec![0.5f64; pixel_count * 3];
+    let depth_pixels = vec![1.0f64; pixel_count];
 
-    let mut exr = ExrImage::new(width, height);
+    let mut exr = ExrEncoder::new(width, height);
 
     exr.add_rgba_layer("beauty", &rgba_pixels, SamplePrecision::F32, None)
         .expect("Failed to add RGBA layer");
@@ -171,7 +171,7 @@ fn test_js_f16_precision() {
     let height = 4u32;
     let pixel_count = (width * height) as usize;
 
-    let pixels = vec![0.5f32; pixel_count * 4];
+    let pixels = vec![0.5f64; pixel_count * 4];
 
     let bytes = write_exr_rgba(
         width,
@@ -199,7 +199,7 @@ fn test_js_compression_methods() {
     let height = 8u32;
     let pixel_count = (width * height) as usize;
 
-    let pixels = vec![0.5f32; pixel_count * 4];
+    let pixels = vec![0.5f64; pixel_count * 4];
 
     let compressions = [
         CompressionMethod::None,
@@ -232,7 +232,7 @@ fn test_js_invalid_data_size() {
     let result = write_exr_rgba(
         4, 4,
         "test",
-        &[0.0f32; 10], // Wrong size - should be 64 (4*4*4)
+        &[0.0f64; 10], // Wrong size - should be 64 (4*4*4)
         SamplePrecision::F32,
         CompressionMethod::None,
     );
@@ -246,9 +246,9 @@ fn test_js_layer_names() {
     let width = 2u32;
     let height = 2u32;
 
-    let mut exr = ExrImage::new(width, height);
-    exr.add_rgba_layer("my_beauty", &vec![0.5f32; 16], SamplePrecision::F32, None).unwrap();
-    exr.add_rgb_layer("my_normals", &vec![0.5f32; 12], SamplePrecision::F32, None).unwrap();
+    let mut exr = ExrEncoder::new(width, height);
+    exr.add_rgba_layer("my_beauty", &vec![0.5f64; 16], SamplePrecision::F32, None).unwrap();
+    exr.add_rgb_layer("my_normals", &vec![0.5f64; 12], SamplePrecision::F32, None).unwrap();
 
     let bytes = exr.to_bytes().unwrap();
     let result = read_exr(&bytes).unwrap();
@@ -267,7 +267,7 @@ fn test_js_channel_names() {
     let bytes = write_exr_rgba(
         width, height,
         "test",
-        &vec![0.5f32; 16],
+        &vec![0.5f64; 16],
         SamplePrecision::F32,
         CompressionMethod::None,
     ).unwrap();

@@ -334,11 +334,11 @@ console.<span class="function">log</span>(<span class="string">'Dimensions:'</sp
 
       <h3 style="color: #999; font-size: 0.9em; margin: 20px 0 10px;">Builder API (for multi-layer EXRs)</h3>
       <div class="code-example">
-        <pre><span class="keyword">import</span> init, { ExrImage, SamplePrecision, CompressionMethod } <span class="keyword">from</span> <span class="string">'exrs-wasm'</span>;
+        <pre><span class="keyword">import</span> init, { ExrEncoder, SamplePrecision, CompressionMethod } <span class="keyword">from</span> <span class="string">'exrs-wasm'</span>;
 
 <span class="keyword">await</span> <span class="function">init</span>();
 
-<span class="keyword">const</span> exr = <span class="keyword">new</span> <span class="function">ExrImage</span>(1920, 1080);
+<span class="keyword">const</span> exr = <span class="keyword">new</span> <span class="function">ExrEncoder</span>(1920, 1080);
 
 <span class="comment">// Add multiple layers with per-layer settings</span>
 exr.<span class="function">addRgbaLayer</span>(<span class="string">'beauty'</span>, beautyPixels, SamplePrecision.F32, CompressionMethod.Piz);
@@ -354,7 +354,7 @@ exr.<span class="function">addRgbLayer</span>(<span class="string">'normals'</sp
   <script type="module">
     // Import from the pkg directory (relative to examples/)
     import init, {
-      ExrImage,
+      ExrEncoder,
       readExr,
       CompressionMethod,
       SamplePrecision
@@ -380,7 +380,7 @@ exr.<span class="function">addRgbLayer</span>(<span class="string">'normals'</sp
     }
 
     function generateBeautyData(width, height) {
-      const data = new Float32Array(width * height * 4);
+      const data = new Float64Array(width * height * 4);
       for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
           const i = (y * width + x) * 4;
@@ -397,7 +397,7 @@ exr.<span class="function">addRgbLayer</span>(<span class="string">'normals'</sp
     }
 
     function generateDepthData(width, height) {
-      const data = new Float32Array(width * height);
+      const data = new Float64Array(width * height);
       const cx = width / 2;
       const cy = height / 2;
       const maxDist = Math.sqrt(cx * cx + cy * cy);
@@ -415,7 +415,7 @@ exr.<span class="function">addRgbLayer</span>(<span class="string">'normals'</sp
     }
 
     function generateNormalsData(width, height) {
-      const data = new Float32Array(width * height * 3);
+      const data = new Float64Array(width * height * 3);
       const cx = width / 2;
       const cy = height / 2;
       const radius = Math.min(width, height) / 2;
@@ -445,7 +445,7 @@ exr.<span class="function">addRgbLayer</span>(<span class="string">'normals'</sp
     }
 
     function generateAOData(width, height) {
-      const data = new Float32Array(width * height);
+      const data = new Float64Array(width * height);
       // Simple noise pattern
       for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
@@ -567,7 +567,7 @@ exr.<span class="function">addRgbLayer</span>(<span class="string">'normals'</sp
         const startTime = performance.now();
 
         // Create image (compression is now per-layer)
-        const exr = new ExrImage(width, height);
+        const exr = new ExrEncoder(width, height);
 
         if (includeBeauty) {
           const beauty = generateBeautyData(width, height);
