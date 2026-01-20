@@ -65,24 +65,11 @@ pub fn init_panic_hook() {
     console_error_panic_hook::set_once();
 }
 
-/// Represents pixel data for a single layer.
+/// Represents a pre-built layer ready for encoding.
 struct LayerData {
     name: String,
-    channel_type: ChannelType,
-    pixels: Vec<f64>,
-    sample_type: exr::meta::attribute::SampleType,
+    channels: AnyChannels<FlatSamples>,
     compression: Compression,
-}
-
-/// The type of channels in a layer.
-#[derive(Clone)]
-enum ChannelType {
-    /// RGBA - 4 channels (R, G, B, A)
-    Rgba,
-    /// RGB - 3 channels (R, G, B)
-    Rgb,
-    /// Single channel with custom name (e.g., "Z" for depth)
-    Single(String),
 }
 
 /// Sample precision for pixel data.
@@ -182,7 +169,8 @@ impl ExrEncoder {
         precision: SamplePrecision,
         compression: Option<CompressionMethod>,
     ) -> std::result::Result<(), JsValue> {
-        let expected_len = self.width * self.height * 4;
+        let pixel_count = self.width * self.height;
+        let expected_len = pixel_count * 4;
         if data.len() != expected_len {
             return Err(JsValue::from_str(&format!(
                 "RGBA layer '{}' expects {} floats ({}x{}x4), got {}",
@@ -190,11 +178,30 @@ impl ExrEncoder {
             )));
         }
 
+        // Deinterleave and build channels
+        let mut r = Vec::with_capacity(pixel_count);
+        let mut g = Vec::with_capacity(pixel_count);
+        let mut b = Vec::with_capacity(pixel_count);
+        let mut a = Vec::with_capacity(pixel_count);
+
+        for i in 0..pixel_count {
+            r.push(data[i * 4]);
+            g.push(data[i * 4 + 1]);
+            b.push(data[i * 4 + 2]);
+            a.push(data[i * 4 + 3]);
+        }
+
+        let sample_type: exr::meta::attribute::SampleType = precision.into();
+        let channels = AnyChannels::sort(smallvec::smallvec![
+            Self::make_channel("A", a, sample_type),
+            Self::make_channel("B", b, sample_type),
+            Self::make_channel("G", g, sample_type),
+            Self::make_channel("R", r, sample_type),
+        ]);
+
         self.layers.push(LayerData {
             name: name.to_string(),
-            channel_type: ChannelType::Rgba,
-            pixels: data.to_vec(),
-            sample_type: precision.into(),
+            channels,
             compression: compression.unwrap_or_default().into(),
         });
 
@@ -216,7 +223,8 @@ impl ExrEncoder {
         precision: SamplePrecision,
         compression: Option<CompressionMethod>,
     ) -> std::result::Result<(), JsValue> {
-        let expected_len = self.width * self.height * 3;
+        let pixel_count = self.width * self.height;
+        let expected_len = pixel_count * 3;
         if data.len() != expected_len {
             return Err(JsValue::from_str(&format!(
                 "RGB layer '{}' expects {} floats ({}x{}x3), got {}",
@@ -224,11 +232,27 @@ impl ExrEncoder {
             )));
         }
 
+        // Deinterleave and build channels
+        let mut r = Vec::with_capacity(pixel_count);
+        let mut g = Vec::with_capacity(pixel_count);
+        let mut b = Vec::with_capacity(pixel_count);
+
+        for i in 0..pixel_count {
+            r.push(data[i * 3]);
+            g.push(data[i * 3 + 1]);
+            b.push(data[i * 3 + 2]);
+        }
+
+        let sample_type: exr::meta::attribute::SampleType = precision.into();
+        let channels = AnyChannels::sort(smallvec::smallvec![
+            Self::make_channel("B", b, sample_type),
+            Self::make_channel("G", g, sample_type),
+            Self::make_channel("R", r, sample_type),
+        ]);
+
         self.layers.push(LayerData {
             name: name.to_string(),
-            channel_type: ChannelType::Rgb,
-            pixels: data.to_vec(),
-            sample_type: precision.into(),
+            channels,
             compression: compression.unwrap_or_default().into(),
         });
 
@@ -260,11 +284,14 @@ impl ExrEncoder {
             )));
         }
 
+        let sample_type: exr::meta::attribute::SampleType = precision.into();
+        let channels = AnyChannels::sort(smallvec::smallvec![
+            Self::make_channel(channel_name, data.to_vec(), sample_type),
+        ]);
+
         self.layers.push(LayerData {
             name: name.to_string(),
-            channel_type: ChannelType::Single(channel_name.to_string()),
-            pixels: data.to_vec(),
-            sample_type: precision.into(),
+            channels,
             compression: compression.unwrap_or_default().into(),
         });
 
@@ -301,11 +328,24 @@ impl ExrEncoder {
     fn build_and_encode(&self) -> std::result::Result<Vec<u8>, exr::error::Error> {
         let size = Vec2(self.width, self.height);
 
-        // Build layers (each layer has its own compression)
+        // Assemble layers from pre-built channel data
         let layers: smallvec::SmallVec<[Layer<AnyChannels<FlatSamples>>; 2]> = self
             .layers
             .iter()
-            .map(|layer_data| self.build_layer(layer_data, size))
+            .map(|layer_data| {
+                let encoding = Encoding {
+                    compression: layer_data.compression,
+                    blocks: Blocks::ScanLines,
+                    line_order: LineOrder::Increasing,
+                };
+
+                Layer::new(
+                    size,
+                    LayerAttributes::named(layer_data.name.as_str()),
+                    encoding,
+                    layer_data.channels.clone(),
+                )
+            })
             .collect();
 
         // Create image with all layers
@@ -325,94 +365,7 @@ impl ExrEncoder {
         Ok(buffer)
     }
 
-    fn build_layer(
-        &self,
-        layer_data: &LayerData,
-        size: Vec2<usize>,
-    ) -> Layer<AnyChannels<FlatSamples>> {
-        let channels = match &layer_data.channel_type {
-            ChannelType::Rgba => self.build_rgba_channels(layer_data, size),
-            ChannelType::Rgb => self.build_rgb_channels(layer_data, size),
-            ChannelType::Single(channel_name) => {
-                self.build_single_channel(layer_data, channel_name, size)
-            }
-        };
-
-        let encoding = Encoding {
-            compression: layer_data.compression,
-            blocks: Blocks::ScanLines,
-            line_order: LineOrder::Increasing,
-        };
-
-        Layer::new(
-            size,
-            LayerAttributes::named(layer_data.name.as_str()),
-            encoding,
-            channels,
-        )
-    }
-
-    fn build_rgba_channels(&self, layer_data: &LayerData, size: Vec2<usize>) -> AnyChannels<FlatSamples> {
-        let pixel_count = size.0 * size.1;
-        let mut r = Vec::with_capacity(pixel_count);
-        let mut g = Vec::with_capacity(pixel_count);
-        let mut b = Vec::with_capacity(pixel_count);
-        let mut a = Vec::with_capacity(pixel_count);
-
-        // Deinterleave RGBA data
-        for i in 0..pixel_count {
-            r.push(layer_data.pixels[i * 4]);
-            g.push(layer_data.pixels[i * 4 + 1]);
-            b.push(layer_data.pixels[i * 4 + 2]);
-            a.push(layer_data.pixels[i * 4 + 3]);
-        }
-
-        let sample_type = layer_data.sample_type;
-        AnyChannels::sort(smallvec::smallvec![
-            self.make_channel("A", a, sample_type),
-            self.make_channel("B", b, sample_type),
-            self.make_channel("G", g, sample_type),
-            self.make_channel("R", r, sample_type),
-        ])
-    }
-
-    fn build_rgb_channels(&self, layer_data: &LayerData, size: Vec2<usize>) -> AnyChannels<FlatSamples> {
-        let pixel_count = size.0 * size.1;
-        let mut r = Vec::with_capacity(pixel_count);
-        let mut g = Vec::with_capacity(pixel_count);
-        let mut b = Vec::with_capacity(pixel_count);
-
-        // Deinterleave RGB data
-        for i in 0..pixel_count {
-            r.push(layer_data.pixels[i * 3]);
-            g.push(layer_data.pixels[i * 3 + 1]);
-            b.push(layer_data.pixels[i * 3 + 2]);
-        }
-
-        let sample_type = layer_data.sample_type;
-        AnyChannels::sort(smallvec::smallvec![
-            self.make_channel("B", b, sample_type),
-            self.make_channel("G", g, sample_type),
-            self.make_channel("R", r, sample_type),
-        ])
-    }
-
-    fn build_single_channel(
-        &self,
-        layer_data: &LayerData,
-        channel_name: &str,
-        _size: Vec2<usize>,
-    ) -> AnyChannels<FlatSamples> {
-        let sample_type = layer_data.sample_type;
-        AnyChannels::sort(smallvec::smallvec![self.make_channel(
-            channel_name,
-            layer_data.pixels.clone(),
-            sample_type
-        )])
-    }
-
     fn make_channel(
-        &self,
         name: &str,
         data: Vec<f64>,
         sample_type: exr::meta::attribute::SampleType,
@@ -865,20 +818,9 @@ mod tests {
     /// Test that we can create and encode a simple RGBA image
     #[test]
     fn test_create_simple_rgba() {
-        let mut image = ExrEncoder {
-            width: 4,
-            height: 4,
-            layers: Vec::new(),
-        };
-
+        let mut image = ExrEncoder::new(4, 4);
         let pixels = vec![0.5f64; 4 * 4 * 4];
-        image.layers.push(LayerData {
-            name: "test".to_string(),
-            channel_type: ChannelType::Rgba,
-            pixels,
-            sample_type: exr::meta::attribute::SampleType::F32,
-            compression: Compression::Uncompressed,
-        });
+        image.add_rgba_layer("test", &pixels, SamplePrecision::F32, Some(CompressionMethod::None)).unwrap();
 
         let bytes = image.build_and_encode().unwrap();
         assert!(!bytes.is_empty());
@@ -889,40 +831,18 @@ mod tests {
     /// Test multi-layer EXR creation
     #[test]
     fn test_multi_layer() {
-        let mut image = ExrEncoder {
-            width: 8,
-            height: 8,
-            layers: Vec::new(),
-        };
+        let mut image = ExrEncoder::new(8, 8);
 
         // Add beauty layer (RGBA)
-        image.layers.push(LayerData {
-            name: "beauty".to_string(),
-            channel_type: ChannelType::Rgba,
-            pixels: vec![1.0f64; 8 * 8 * 4],
-            sample_type: exr::meta::attribute::SampleType::F32,
-            compression: Compression::Uncompressed,
-        });
+        image.add_rgba_layer("beauty", &vec![1.0f64; 8 * 8 * 4], SamplePrecision::F32, Some(CompressionMethod::None)).unwrap();
 
         // Add normals layer (RGB)
-        image.layers.push(LayerData {
-            name: "normals".to_string(),
-            channel_type: ChannelType::Rgb,
-            pixels: vec![0.5f64; 8 * 8 * 3],
-            sample_type: exr::meta::attribute::SampleType::F32,
-            compression: Compression::Uncompressed,
-        });
+        image.add_rgb_layer("normals", &vec![0.5f64; 8 * 8 * 3], SamplePrecision::F32, Some(CompressionMethod::None)).unwrap();
 
         // Add depth layer (single channel)
-        image.layers.push(LayerData {
-            name: "depth".to_string(),
-            channel_type: ChannelType::Single("Z".to_string()),
-            pixels: vec![0.0f64; 8 * 8],
-            sample_type: exr::meta::attribute::SampleType::F32,
-            compression: Compression::Uncompressed,
-        });
+        image.add_single_channel_layer("depth", "Z", &vec![0.0f64; 8 * 8], SamplePrecision::F32, Some(CompressionMethod::None)).unwrap();
 
-        assert_eq!(image.layers.len(), 3);
+        assert_eq!(image.layer_count(), 3);
 
         let bytes = image.build_and_encode().unwrap();
         assert!(!bytes.is_empty());
@@ -931,26 +851,18 @@ mod tests {
     /// Test compression methods
     #[test]
     fn test_compression_methods() {
-        for compression in [
-            Compression::Uncompressed,
-            Compression::RLE,
-            Compression::ZIP1,
-            Compression::ZIP16,
-            Compression::PIZ,
-        ] {
-            let mut image = ExrEncoder {
-                width: 16,
-                height: 16,
-                layers: Vec::new(),
-            };
+        let compressions = [
+            CompressionMethod::None,
+            CompressionMethod::Rle,
+            CompressionMethod::Zip,
+            CompressionMethod::Zip16,
+            CompressionMethod::Piz,
+        ];
 
-            image.layers.push(LayerData {
-                name: "test".to_string(),
-                channel_type: ChannelType::Rgba,
-                pixels: vec![0.5f64; 16 * 16 * 4],
-                sample_type: exr::meta::attribute::SampleType::F32,
-                compression,
-            });
+        for compression in compressions {
+            let mut image = ExrEncoder::new(16, 16);
+            let pixels = vec![0.5f64; 16 * 16 * 4];
+            image.add_rgba_layer("test", &pixels, SamplePrecision::F32, Some(compression)).unwrap();
 
             let bytes = image.build_and_encode().unwrap();
             assert!(!bytes.is_empty(), "Compression {:?} failed", compression);
@@ -960,19 +872,9 @@ mod tests {
     /// Test F16 sample type
     #[test]
     fn test_f16_samples() {
-        let mut image = ExrEncoder {
-            width: 4,
-            height: 4,
-            layers: Vec::new(),
-        };
-
-        image.layers.push(LayerData {
-            name: "test_f16".to_string(),
-            channel_type: ChannelType::Rgba,
-            pixels: vec![0.5f64; 4 * 4 * 4],
-            sample_type: exr::meta::attribute::SampleType::F16,
-            compression: Compression::Uncompressed,
-        });
+        let mut image = ExrEncoder::new(4, 4);
+        let pixels = vec![0.5f64; 4 * 4 * 4];
+        image.add_rgba_layer("test_f16", &pixels, SamplePrecision::F16, Some(CompressionMethod::None)).unwrap();
 
         let bytes = image.build_and_encode().unwrap();
         assert!(!bytes.is_empty());
@@ -981,8 +883,8 @@ mod tests {
     /// Test roundtrip: write RGBA then read back
     #[test]
     fn test_roundtrip_rgba() {
-        let width = 4;
-        let height = 4;
+        let width = 4usize;
+        let height = 4usize;
         let pixel_count = width * height;
 
         // Create test data with distinct values
@@ -994,19 +896,8 @@ mod tests {
             pixels.push(1.0); // A
         }
 
-        let mut image = ExrEncoder {
-            width,
-            height,
-            layers: Vec::new(),
-        };
-
-        image.layers.push(LayerData {
-            name: "test".to_string(),
-            channel_type: ChannelType::Rgba,
-            pixels: pixels.clone(),
-            sample_type: exr::meta::attribute::SampleType::F32,
-            compression: Compression::Uncompressed,
-        });
+        let mut image = ExrEncoder::new(width as u32, height as u32);
+        image.add_rgba_layer("test", &pixels, SamplePrecision::F32, Some(CompressionMethod::None)).unwrap();
 
         // Write
         let bytes = image.build_and_encode().unwrap();
@@ -1040,25 +931,14 @@ mod tests {
     /// Test roundtrip: write RGB then read back
     #[test]
     fn test_roundtrip_rgb() {
-        let width = 4;
-        let height = 4;
+        let width = 4usize;
+        let height = 4usize;
         let pixel_count = width * height;
 
         let pixels: Vec<f64> = (0..pixel_count * 3).map(|i| i as f64 / 100.0).collect();
 
-        let mut image = ExrEncoder {
-            width,
-            height,
-            layers: Vec::new(),
-        };
-
-        image.layers.push(LayerData {
-            name: "normals".to_string(),
-            channel_type: ChannelType::Rgb,
-            pixels: pixels.clone(),
-            sample_type: exr::meta::attribute::SampleType::F32,
-            compression: Compression::Uncompressed,
-        });
+        let mut image = ExrEncoder::new(width as u32, height as u32);
+        image.add_rgb_layer("normals", &pixels, SamplePrecision::F32, Some(CompressionMethod::None)).unwrap();
 
         let bytes = image.build_and_encode().unwrap();
         let read_result = read_exr_internal(&bytes).unwrap();
@@ -1074,25 +954,14 @@ mod tests {
     /// Test roundtrip: write single channel then read back
     #[test]
     fn test_roundtrip_single_channel() {
-        let width = 4;
-        let height = 4;
+        let width = 4usize;
+        let height = 4usize;
         let pixel_count = width * height;
 
         let pixels: Vec<f64> = (0..pixel_count).map(|i| i as f64).collect();
 
-        let mut image = ExrEncoder {
-            width,
-            height,
-            layers: Vec::new(),
-        };
-
-        image.layers.push(LayerData {
-            name: "depth".to_string(),
-            channel_type: ChannelType::Single("Z".to_string()),
-            pixels: pixels.clone(),
-            sample_type: exr::meta::attribute::SampleType::F32,
-            compression: Compression::Uncompressed,
-        });
+        let mut image = ExrEncoder::new(width as u32, height as u32);
+        image.add_single_channel_layer("depth", "Z", &pixels, SamplePrecision::F32, Some(CompressionMethod::None)).unwrap();
 
         let bytes = image.build_and_encode().unwrap();
         let read_result = read_exr_internal(&bytes).unwrap();
@@ -1110,42 +979,17 @@ mod tests {
     /// Test roundtrip with multiple layers
     #[test]
     fn test_roundtrip_multi_layer() {
-        let width = 4;
-        let height = 4;
+        let width = 4usize;
+        let height = 4usize;
 
         let rgba_pixels = vec![0.8f64; width * height * 4];
         let rgb_pixels = vec![0.5f64; width * height * 3];
         let depth_pixels = vec![1.0f64; width * height];
 
-        let mut image = ExrEncoder {
-            width,
-            height,
-            layers: Vec::new(),
-        };
-
-        image.layers.push(LayerData {
-            name: "beauty".to_string(),
-            channel_type: ChannelType::Rgba,
-            pixels: rgba_pixels.clone(),
-            sample_type: exr::meta::attribute::SampleType::F32,
-            compression: Compression::Uncompressed,
-        });
-
-        image.layers.push(LayerData {
-            name: "normals".to_string(),
-            channel_type: ChannelType::Rgb,
-            pixels: rgb_pixels.clone(),
-            sample_type: exr::meta::attribute::SampleType::F32,
-            compression: Compression::Uncompressed,
-        });
-
-        image.layers.push(LayerData {
-            name: "depth".to_string(),
-            channel_type: ChannelType::Single("Z".to_string()),
-            pixels: depth_pixels.clone(),
-            sample_type: exr::meta::attribute::SampleType::F32,
-            compression: Compression::Uncompressed,
-        });
+        let mut image = ExrEncoder::new(width as u32, height as u32);
+        image.add_rgba_layer("beauty", &rgba_pixels, SamplePrecision::F32, Some(CompressionMethod::None)).unwrap();
+        image.add_rgb_layer("normals", &rgb_pixels, SamplePrecision::F32, Some(CompressionMethod::None)).unwrap();
+        image.add_single_channel_layer("depth", "Z", &depth_pixels, SamplePrecision::F32, Some(CompressionMethod::None)).unwrap();
 
         let bytes = image.build_and_encode().unwrap();
         let read_result = read_exr_internal(&bytes).unwrap();
