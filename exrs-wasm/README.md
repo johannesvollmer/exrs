@@ -191,3 +191,10 @@ ctx.putImageData(imageData, 0, 0);
 ## License
 
 BSD-3-Clause
+
+## Contributing
+
+### Building
+
+1. `cd exrs-wasm`
+2. `wasm-pack build --target web`
