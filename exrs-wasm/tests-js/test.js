@@ -4,7 +4,7 @@
  * Run with: npm test (after building with wasm-pack build --target web)
  */
 
-import { encodeExr, decodeExr, decodeExrRgba, decodeExrRgb, init } from 'exrs-wasm';
+import { init, encodeExr, decodeExr, decodeExrRgba, decodeExrRgb } from 'exrs-wasm';
 
 // Simple assertion helper
 function assert(condition, message) {
@@ -23,9 +23,9 @@ function assertClose(a, b, epsilon = 0.001, message = '') {
 let passed = 0;
 let failed = 0;
 
-async function runTest(name, fn) {
+function runTest(name, fn) {
   try {
-    await fn();
+    fn();
     console.log(`  PASS: ${name}`);
     passed++;
   } catch (e) {
@@ -36,7 +36,7 @@ async function runTest(name, fn) {
 }
 
 // Tests
-async function testBasicRgbaRoundtrip() {
+function testBasicRgbaRoundtrip() {
   const width = 4;
   const height = 4;
   const pixelCount = width * height;
@@ -51,7 +51,7 @@ async function testBasicRgbaRoundtrip() {
   }
 
   // Encode
-  const bytes = await encodeExr({
+  const bytes = encodeExr({
     width,
     height,
     layers: [{ name: 'test', channels: 'rgba', data, compression: 'none' }],
@@ -61,13 +61,13 @@ async function testBasicRgbaRoundtrip() {
   assert(bytes[0] === 0x76 && bytes[1] === 0x2f, 'Should have EXR magic number');
 
   // Decode
-  const image = await decodeExr(bytes);
+  const image = decodeExr(bytes);
   assert(image.width === width, `Width should be ${width}`);
   assert(image.height === height, `Height should be ${height}`);
   assert(image.layers.length === 1, 'Should have 1 layer');
 
-  // Get RGBA data
-  const rgbaData = image.layers[0].getData('rgba');
+  // Get RGBA data (auto-detected)
+  const rgbaData = image.layers[0].getData();
   assert(rgbaData.length === pixelCount * 4, 'RGBA data length mismatch');
 
   // Verify values
@@ -76,7 +76,7 @@ async function testBasicRgbaRoundtrip() {
   }
 }
 
-async function testRgbRoundtrip() {
+function testRgbRoundtrip() {
   const width = 8;
   const height = 8;
   const pixelCount = width * height;
@@ -86,16 +86,17 @@ async function testRgbRoundtrip() {
     data[i] = i / 100;
   }
 
-  const bytes = await encodeExr({
+  const bytes = encodeExr({
     width,
     height,
     layers: [{ name: 'normals', channels: 'rgb', data, compression: 'rle' }],
   });
 
-  const image = await decodeExr(bytes);
+  const image = decodeExr(bytes);
   assert(image.layers.length === 1, 'Should have 1 layer');
 
-  const rgbData = image.layers[0].getData('rgb');
+  // getData() auto-detects RGB
+  const rgbData = image.layers[0].getData();
   assert(rgbData.length === pixelCount * 3, 'RGB data length mismatch');
 
   for (let i = 0; i < pixelCount * 3; i++) {
@@ -103,7 +104,7 @@ async function testRgbRoundtrip() {
   }
 }
 
-async function testSingleChannelRoundtrip() {
+function testSingleChannelRoundtrip() {
   const width = 16;
   const height = 16;
   const pixelCount = width * height;
@@ -113,14 +114,15 @@ async function testSingleChannelRoundtrip() {
     data[i] = i;
   }
 
-  const bytes = await encodeExr({
+  const bytes = encodeExr({
     width,
     height,
     layers: [{ name: 'depth', channels: ['Z'], data, compression: 'piz' }],
   });
 
-  const image = await decodeExr(bytes);
-  const zData = image.layers[0].getData('Z');
+  const image = decodeExr(bytes);
+  // getData() auto-detects single channel
+  const zData = image.layers[0].getData();
   assert(zData.length === pixelCount, 'Z data length mismatch');
 
   for (let i = 0; i < pixelCount; i++) {
@@ -128,7 +130,7 @@ async function testSingleChannelRoundtrip() {
   }
 }
 
-async function testMultiLayer() {
+function testMultiLayer() {
   const width = 4;
   const height = 4;
   const pixelCount = width * height;
@@ -137,7 +139,7 @@ async function testMultiLayer() {
   const rgbData = new Float64Array(pixelCount * 3).fill(0.5);
   const depthData = new Float64Array(pixelCount).fill(1.0);
 
-  const bytes = await encodeExr({
+  const bytes = encodeExr({
     width,
     height,
     layers: [
@@ -147,23 +149,57 @@ async function testMultiLayer() {
     ],
   });
 
-  const image = await decodeExr(bytes);
+  const image = decodeExr(bytes);
   assert(image.layers.length === 3, 'Should have 3 layers');
 
-  // Verify beauty layer
-  const beautyRgba = image.layers[0].getData('rgba');
+  // Verify beauty layer (auto-detect RGBA)
+  const beautyRgba = image.layers[0].getData();
   assert(beautyRgba.length === pixelCount * 4, 'Beauty RGBA length mismatch');
 
-  // Verify normals layer
-  const normalsRgb = image.layers[1].getData('rgb');
+  // Verify normals layer (auto-detect RGB)
+  const normalsRgb = image.layers[1].getData();
   assert(normalsRgb.length === pixelCount * 3, 'Normals RGB length mismatch');
 
-  // Verify depth layer
-  const depthZ = image.layers[2].getData('Z');
+  // Verify depth layer (auto-detect single channel)
+  const depthZ = image.layers[2].getData();
   assert(depthZ.length === pixelCount, 'Depth Z length mismatch');
 }
 
-async function testOptimizedRgbaRead() {
+function testGetChannel() {
+  const width = 4;
+  const height = 4;
+  const pixelCount = width * height;
+
+  const data = new Float64Array(pixelCount * 4);
+  for (let i = 0; i < pixelCount; i++) {
+    data[i * 4] = 0.1; // R
+    data[i * 4 + 1] = 0.2; // G
+    data[i * 4 + 2] = 0.3; // B
+    data[i * 4 + 3] = 0.4; // A
+  }
+
+  const bytes = encodeExr({
+    width,
+    height,
+    layers: [{ name: 'test', channels: 'rgba', data }],
+  });
+
+  const image = decodeExr(bytes);
+
+  // Use getChannel to get individual channels
+  const rData = image.layers[0].getChannel('R');
+  const gData = image.layers[0].getChannel('G');
+  const bData = image.layers[0].getChannel('B');
+  const aData = image.layers[0].getChannel('A');
+
+  assert(rData.length === pixelCount, 'R channel length mismatch');
+  assertClose(rData[0], 0.1, 0.001, 'R value');
+  assertClose(gData[0], 0.2, 0.001, 'G value');
+  assertClose(bData[0], 0.3, 0.001, 'B value');
+  assertClose(aData[0], 0.4, 0.001, 'A value');
+}
+
+function testOptimizedRgbaRead() {
   const width = 4;
   const height = 4;
   const pixelCount = width * height;
@@ -176,14 +212,14 @@ async function testOptimizedRgbaRead() {
     data[i * 4 + 3] = 1.0;
   }
 
-  const bytes = await encodeExr({
+  const bytes = encodeExr({
     width,
     height,
     layers: [{ name: 'test', channels: 'rgba', data }],
   });
 
   // Use optimized RGBA reader
-  const result = await decodeExrRgba(bytes);
+  const result = decodeExrRgba(bytes);
   assert(result.width === width, 'Width mismatch');
   assert(result.height === height, 'Height mismatch');
   assert(result.data.length === pixelCount * 4, 'Data length mismatch');
@@ -193,7 +229,7 @@ async function testOptimizedRgbaRead() {
   }
 }
 
-async function testOptimizedRgbRead() {
+function testOptimizedRgbRead() {
   const width = 4;
   const height = 4;
   const pixelCount = width * height;
@@ -203,14 +239,14 @@ async function testOptimizedRgbRead() {
     data[i] = i / 100;
   }
 
-  const bytes = await encodeExr({
+  const bytes = encodeExr({
     width,
     height,
     layers: [{ name: 'normals', channels: 'rgb', data }],
   });
 
   // Use optimized RGB reader
-  const result = await decodeExrRgb(bytes);
+  const result = decodeExrRgb(bytes);
   assert(result.width === width, 'Width mismatch');
   assert(result.height === height, 'Height mismatch');
   assert(result.data.length === pixelCount * 3, 'Data length mismatch');
@@ -220,7 +256,7 @@ async function testOptimizedRgbRead() {
   }
 }
 
-async function testCompressionMethods() {
+function testCompressionMethods() {
   const width = 8;
   const height = 8;
   const pixelCount = width * height;
@@ -229,7 +265,7 @@ async function testCompressionMethods() {
   const compressions = ['none', 'rle', 'zip', 'zip16', 'piz', 'pxr24'];
 
   for (const compression of compressions) {
-    const bytes = await encodeExr({
+    const bytes = encodeExr({
       width,
       height,
       layers: [{ name: 'test', channels: 'rgba', data, compression }],
@@ -237,26 +273,26 @@ async function testCompressionMethods() {
 
     assert(bytes.length > 0, `${compression} should produce bytes`);
 
-    const image = await decodeExr(bytes);
+    const image = decodeExr(bytes);
     assert(image.width === width, `${compression}: width mismatch`);
     assert(image.height === height, `${compression}: height mismatch`);
   }
 }
 
-async function testF16Precision() {
+function testF16Precision() {
   const width = 4;
   const height = 4;
   const pixelCount = width * height;
   const data = new Float64Array(pixelCount * 4).fill(0.5);
 
-  const bytes = await encodeExr({
+  const bytes = encodeExr({
     width,
     height,
     layers: [{ name: 'test', channels: 'rgba', data, precision: 'f16' }],
   });
 
-  const image = await decodeExr(bytes);
-  const rgbaData = image.layers[0].getData('rgba');
+  const image = decodeExr(bytes);
+  const rgbaData = image.layers[0].getData();
 
   // F16 has lower precision, allow larger epsilon
   for (let i = 0; i < pixelCount * 4; i++) {
@@ -264,12 +300,12 @@ async function testF16Precision() {
   }
 }
 
-async function testLayerNames() {
+function testLayerNames() {
   const width = 2;
   const height = 2;
   const pixelCount = width * height;
 
-  const bytes = await encodeExr({
+  const bytes = encodeExr({
     width,
     height,
     layers: [
@@ -278,23 +314,23 @@ async function testLayerNames() {
     ],
   });
 
-  const image = await decodeExr(bytes);
+  const image = decodeExr(bytes);
   assert(image.layers[0].name === 'my_beauty', 'First layer name mismatch');
   assert(image.layers[1].name === 'my_normals', 'Second layer name mismatch');
 }
 
-async function testChannelNames() {
+function testChannelNames() {
   const width = 2;
   const height = 2;
   const pixelCount = width * height;
 
-  const bytes = await encodeExr({
+  const bytes = encodeExr({
     width,
     height,
     layers: [{ name: 'test', channels: 'rgba', data: new Float64Array(pixelCount * 4) }],
   });
 
-  const image = await decodeExr(bytes);
+  const image = decodeExr(bytes);
   const channels = image.layers[0].channels;
 
   assert(channels.includes('R'), 'Should have R channel');
@@ -307,21 +343,22 @@ async function testChannelNames() {
 async function main() {
   console.log('exrs-wasm JS Integration Tests\n');
 
-  // Initialize WASM module
+  // Initialize WASM module (required before using other functions)
   await init();
 
   console.log('Running tests...\n');
 
-  await runTest('Basic RGBA roundtrip', testBasicRgbaRoundtrip);
-  await runTest('RGB roundtrip', testRgbRoundtrip);
-  await runTest('Single channel roundtrip', testSingleChannelRoundtrip);
-  await runTest('Multi-layer EXR', testMultiLayer);
-  await runTest('Optimized RGBA read', testOptimizedRgbaRead);
-  await runTest('Optimized RGB read', testOptimizedRgbRead);
-  await runTest('Compression methods', testCompressionMethods);
-  await runTest('F16 precision', testF16Precision);
-  await runTest('Layer names', testLayerNames);
-  await runTest('Channel names', testChannelNames);
+  runTest('Basic RGBA roundtrip', testBasicRgbaRoundtrip);
+  runTest('RGB roundtrip', testRgbRoundtrip);
+  runTest('Single channel roundtrip', testSingleChannelRoundtrip);
+  runTest('Multi-layer EXR', testMultiLayer);
+  runTest('getChannel() for specific channels', testGetChannel);
+  runTest('Optimized RGBA read', testOptimizedRgbaRead);
+  runTest('Optimized RGB read', testOptimizedRgbRead);
+  runTest('Compression methods', testCompressionMethods);
+  runTest('F16 precision', testF16Precision);
+  runTest('Layer names', testLayerNames);
+  runTest('Channel names', testChannelNames);
 
   console.log(`\nResults: ${passed} passed, ${failed} failed`);
 

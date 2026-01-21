@@ -13,7 +13,10 @@ npm install exrs-wasm
 ## Quick Start
 
 ```javascript
-import { encodeExr, decodeExr } from 'exrs-wasm';
+import { init, encodeExr, decodeExr } from 'exrs-wasm';
+
+// Initialize WASM module (required once before using other functions)
+await init();
 
 // Create RGBA pixel data
 const width = 1920;
@@ -22,7 +25,7 @@ const rgbaData = new Float64Array(width * height * 4);
 // ... fill with pixel values ...
 
 // Encode to EXR
-const bytes = await encodeExr({
+const bytes = encodeExr({
   width,
   height,
   layers: [
@@ -36,12 +39,20 @@ const blob = new Blob([bytes], { type: 'image/x-exr' });
 
 ## API
 
+### `init()`
+
+Initialize the WASM module. Must be called once before using other functions.
+
+```typescript
+await init();
+```
+
 ### `encodeExr(options)`
 
 Encode pixel data into an EXR file.
 
 ```typescript
-const bytes = await encodeExr({
+const bytes = encodeExr({
   width: number,
   height: number,
   layers: [{
@@ -59,16 +70,16 @@ const bytes = await encodeExr({
 Decode an EXR file into pixel data.
 
 ```typescript
-const image = await decodeExr(bytes);
+const image = decodeExr(bytes);
 
 console.log(image.width, image.height);
 console.log(image.layers.length);
 
-// Get RGBA data for first layer
-const rgbaData = image.layers[0].getData('rgba');
+// Get pixel data (auto-detects RGBA/RGB/single channel based on layer contents)
+const pixelData = image.layers[0].getData();
 
-// Get individual channel
-const depthData = image.layers[1].getData('Z');
+// Get individual channel by name
+const depthData = image.layers[1].getChannel('Z');
 ```
 
 ### `decodeExrRgba(data)` / `decodeExrRgb(data)`
@@ -76,7 +87,7 @@ const depthData = image.layers[1].getData('Z');
 Optimized decoders for when you know the channel layout:
 
 ```typescript
-const { width, height, data } = await decodeExrRgba(bytes);
+const { width, height, data } = decodeExrRgba(bytes);
 // data is interleaved RGBA Float64Array
 ```
 
@@ -85,9 +96,11 @@ const { width, height, data } = await decodeExrRgba(bytes);
 ### Multi-layer EXR (AOVs)
 
 ```javascript
-import { encodeExr } from 'exrs-wasm';
+import { init, encodeExr } from 'exrs-wasm';
 
-const bytes = await encodeExr({
+await init();
+
+const bytes = encodeExr({
   width: 1920,
   height: 1080,
   layers: [
@@ -102,7 +115,9 @@ const bytes = await encodeExr({
 ### WebGL Render Buffer Export
 
 ```javascript
-import { encodeExr } from 'exrs-wasm';
+import { init, encodeExr } from 'exrs-wasm';
+
+await init();
 
 // Read pixels from WebGL framebuffer
 const gl = canvas.getContext('webgl2');
@@ -112,7 +127,7 @@ gl.readPixels(0, 0, width, height, gl.RGBA, gl.FLOAT, pixels);
 // Convert to Float64Array (required by API)
 const data = new Float64Array(pixels);
 
-const bytes = await encodeExr({
+const bytes = encodeExr({
   width,
   height,
   layers: [{ name: 'render', channels: 'rgba', data, compression: 'piz' }]
@@ -122,12 +137,14 @@ const bytes = await encodeExr({
 ### Load and Display EXR
 
 ```javascript
-import { decodeExrRgba } from 'exrs-wasm';
+import { init, decodeExrRgba } from 'exrs-wasm';
+
+await init();
 
 const response = await fetch('image.exr');
 const bytes = new Uint8Array(await response.arrayBuffer());
 
-const { width, height, data } = await decodeExrRgba(bytes);
+const { width, height, data } = decodeExrRgba(bytes);
 
 // Display on canvas (tone mapping required for HDR)
 const canvas = document.createElement('canvas');

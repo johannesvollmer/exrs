@@ -43,10 +43,16 @@ export interface DecodedLayer {
   channels: string[];
   /**
    * Get interleaved pixel data for this layer.
-   * @param type - 'rgba', 'rgb', or a channel name like 'Z'
+   * Auto-detects format based on channel names (RGBA, RGB, or single channel).
    * @returns Pixel data as Float64Array, or null if channels don't exist
    */
-  getData(type: 'rgba' | 'rgb' | string): Float64Array | null;
+  getData(): Float64Array | null;
+  /**
+   * Get data for a specific channel by name.
+   * @param channelName - Channel name like 'R', 'G', 'B', 'A', 'Z', etc.
+   * @returns Pixel data as Float64Array, or null if channel doesn't exist
+   */
+  getChannel(channelName: string): Float64Array | null;
 }
 
 /** Result of decoding an EXR file */
@@ -80,13 +86,25 @@ export interface ExrRgbDecodeResult {
 }
 
 /**
+ * Initialize the WASM module. Must be called before using other functions.
+ *
+ * @example
+ * import { init, encodeExr, decodeExr } from 'exrs-wasm';
+ * await init();
+ * // Now use encodeExr/decodeExr synchronously
+ */
+export function init(): Promise<void>;
+
+/**
  * Encode pixel data into an EXR file.
+ * Call init() before using this function.
  *
  * @param options - Encoding options including width, height, and layers
  * @returns EXR file bytes
  *
  * @example
- * const bytes = await encodeExr({
+ * await init();
+ * const bytes = encodeExr({
  *   width: 1920,
  *   height: 1080,
  *   layers: [
@@ -95,40 +113,38 @@ export interface ExrRgbDecodeResult {
  *   ]
  * });
  */
-export function encodeExr(options: ExrEncodeOptions): Promise<Uint8Array>;
+export function encodeExr(options: ExrEncodeOptions): Uint8Array;
 
 /**
  * Decode an EXR file into pixel data.
+ * Call init() before using this function.
  *
  * @param data - EXR file bytes
  * @returns Decoded image data with layer information
  *
  * @example
- * const image = await decodeExr(bytes);
- * const rgbaData = image.layers[0].getData('rgba');
+ * await init();
+ * const image = decodeExr(bytes);
+ * const pixelData = image.layers[0].getData();
  */
-export function decodeExr(data: Uint8Array): Promise<ExrDecodeResult>;
+export function decodeExr(data: Uint8Array): ExrDecodeResult;
 
 /**
  * Decode an EXR file expecting RGBA channels (optimized path).
  * This is faster than decodeExr() when you know the image has RGBA channels.
+ * Call init() before using this function.
  *
  * @param data - EXR file bytes
  * @returns Decoded RGBA image data
  */
-export function decodeExrRgba(data: Uint8Array): Promise<ExrRgbaDecodeResult>;
+export function decodeExrRgba(data: Uint8Array): ExrRgbaDecodeResult;
 
 /**
  * Decode an EXR file expecting RGB channels (optimized path).
  * This is faster than decodeExr() when you know the image has RGB channels.
+ * Call init() before using this function.
  *
  * @param data - EXR file bytes
  * @returns Decoded RGB image data
  */
-export function decodeExrRgb(data: Uint8Array): Promise<ExrRgbDecodeResult>;
-
-/**
- * Initialize the WASM module (called automatically on first use).
- * You only need to call this if you want to pre-initialize before first use.
- */
-export function init(): Promise<void>;
+export function decodeExrRgb(data: Uint8Array): ExrRgbDecodeResult;

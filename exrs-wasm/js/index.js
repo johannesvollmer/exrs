@@ -1,31 +1,34 @@
 /**
  * exrs-wasm - JavaScript wrapper for writing and reading EXR files in the browser.
  *
- * This module provides a clean, easy-to-use API that handles WASM initialization
- * automatically.
+ * This module provides a clean, easy-to-use API for EXR files.
+ * Call init() once before using other functions.
  */
 
-// Lazy-loaded WASM module
+// WASM module reference (set by init())
 let wasmModule = null;
-let initPromise = null;
 
 /**
- * Initialize the WASM module (called automatically on first use).
+ * Initialize the WASM module. Must be called before using other functions.
  * @returns {Promise<void>}
+ *
+ * @example
+ * import { init, encodeExr, decodeExr } from 'exrs-wasm';
+ * await init();
+ * // Now use encodeExr/decodeExr synchronously
  */
-async function ensureInitialized() {
+export async function init() {
   if (wasmModule) return;
 
-  if (!initPromise) {
-    // Dynamic import of the wasm-bindgen generated module
-    initPromise = (async () => {
-      const wasm = await import('../pkg/exrs_wasm.js');
-      await wasm.default();
-      wasmModule = wasm;
-    })();
-  }
+  const wasm = await import('../pkg/exrs_wasm.js');
+  await wasm.default();
+  wasmModule = wasm;
+}
 
-  await initPromise;
+function ensureInitialized() {
+  if (!wasmModule) {
+    throw new Error('WASM module not initialized. Call init() first.');
+  }
 }
 
 /**
@@ -40,10 +43,11 @@ async function ensureInitialized() {
  * @param {Float64Array} options.layers[].data - Pixel data as Float64Array
  * @param {'f16'|'f32'|'u32'} [options.layers[].precision='f32'] - Sample precision
  * @param {'none'|'rle'|'zip'|'zip16'|'piz'|'pxr24'} [options.layers[].compression='rle'] - Compression method
- * @returns {Promise<Uint8Array>} EXR file bytes
+ * @returns {Uint8Array} EXR file bytes
  *
  * @example
- * const bytes = await encodeExr({
+ * await init();
+ * const bytes = encodeExr({
  *   width: 1920,
  *   height: 1080,
  *   layers: [
@@ -52,8 +56,8 @@ async function ensureInitialized() {
  *   ]
  * });
  */
-export async function encodeExr(options) {
-  await ensureInitialized();
+export function encodeExr(options) {
+  ensureInitialized();
 
   const { width, height, layers } = options;
 
@@ -120,26 +124,28 @@ export async function encodeExr(options) {
  * Decode an EXR file into pixel data.
  *
  * @param {Uint8Array} data - EXR file bytes
- * @returns {Promise<Object>} Decoded image data
+ * @returns {Object} Decoded image data
  * @returns {number} return.width - Image width in pixels
  * @returns {number} return.height - Image height in pixels
  * @returns {Array<Object>} return.layers - Array of decoded layers
  * @returns {string|null} return.layers[].name - Layer name (null for default layer)
  * @returns {string[]} return.layers[].channels - Channel names in this layer
- * @returns {Function} return.layers[].getData - Function to get interleaved data: getData('rgba'|'rgb'|channelName)
+ * @returns {Function} return.layers[].getData - Get interleaved data (auto-detects RGBA/RGB/single channel)
+ * @returns {Function} return.layers[].getChannel - Get data for a specific channel by name
  *
  * @example
- * const image = await decodeExr(bytes);
+ * await init();
+ * const image = decodeExr(bytes);
  * console.log(image.width, image.height);
  *
- * // Get RGBA data for first layer
- * const rgbaData = image.layers[0].getData('rgba');
+ * // Get pixel data (auto-detects format based on channels)
+ * const pixelData = image.layers[0].getData();
  *
- * // Get depth channel from second layer
- * const depthData = image.layers[1].getData('Z');
+ * // Get a specific channel by name
+ * const depthData = image.layers[1].getChannel('Z');
  */
-export async function decodeExr(data) {
-  await ensureInitialized();
+export function decodeExr(data) {
+  ensureInitialized();
 
   const decoder = wasmModule.readExr(data);
 
@@ -153,18 +159,32 @@ export async function decodeExr(data) {
       const name = decoder.getLayerName(i);
       const channels = decoder.getChannelNames(i);
 
+      // Determine channel type from actual channel names
+      const hasR = channels.includes('R');
+      const hasG = channels.includes('G');
+      const hasB = channels.includes('B');
+      const hasA = channels.includes('A');
+      const isRgba = hasR && hasG && hasB && hasA;
+      const isRgb = hasR && hasG && hasB && !hasA;
+
       layers.push({
         name,
         channels,
-        getData: (type) => {
-          if (type === 'rgba') {
+        // Auto-detect format based on channel names
+        getData: () => {
+          if (isRgba) {
             return decoder.getRgbaData(i);
-          } else if (type === 'rgb') {
+          } else if (isRgb) {
             return decoder.getRgbData(i);
+          } else if (channels.length === 1) {
+            return decoder.getChannelData(i, channels[0]);
           } else {
-            return decoder.getChannelData(i, type);
+            // Multiple non-RGB channels - return first channel
+            return decoder.getChannelData(i, channels[0]);
           }
         },
+        // Get specific channel by name
+        getChannel: (channelName) => decoder.getChannelData(i, channelName),
       });
     }
 
@@ -180,16 +200,17 @@ export async function decodeExr(data) {
  * This is faster than decodeExr() when you know the image has RGBA channels.
  *
  * @param {Uint8Array} data - EXR file bytes
- * @returns {Promise<Object>} Decoded image data
+ * @returns {Object} Decoded image data
  * @returns {number} return.width - Image width in pixels
  * @returns {number} return.height - Image height in pixels
  * @returns {Float64Array} return.data - Interleaved RGBA pixel data
  *
  * @example
- * const { width, height, data } = await decodeExrRgba(bytes);
+ * await init();
+ * const { width, height, data } = decodeExrRgba(bytes);
  */
-export async function decodeExrRgba(data) {
-  await ensureInitialized();
+export function decodeExrRgba(data) {
+  ensureInitialized();
 
   const result = wasmModule.readExrRgba(data);
   try {
@@ -209,16 +230,17 @@ export async function decodeExrRgba(data) {
  * This is faster than decodeExr() when you know the image has RGB channels.
  *
  * @param {Uint8Array} data - EXR file bytes
- * @returns {Promise<Object>} Decoded image data
+ * @returns {Object} Decoded image data
  * @returns {number} return.width - Image width in pixels
  * @returns {number} return.height - Image height in pixels
  * @returns {Float64Array} return.data - Interleaved RGB pixel data
  *
  * @example
- * const { width, height, data } = await decodeExrRgb(bytes);
+ * await init();
+ * const { width, height, data } = decodeExrRgb(bytes);
  */
-export async function decodeExrRgb(data) {
-  await ensureInitialized();
+export function decodeExrRgb(data) {
+  ensureInitialized();
 
   const result = wasmModule.readExrRgb(data);
   try {
@@ -231,6 +253,3 @@ export async function decodeExrRgb(data) {
     result.free();
   }
 }
-
-// Re-export enums for advanced usage
-export { ensureInitialized as init };
