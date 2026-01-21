@@ -80,7 +80,7 @@ let wasmModule: any = null;
  * @returns {Promise<void>}
  *
  * @example
- * import { init, encodeExr, decodeExr } from 'exrs-wasm';
+ * import { init, encodeExr, decodeExr } from 'exrs';
  * await init();
  * // Now use encodeExr/decodeExr synchronously
  */
@@ -99,12 +99,12 @@ export async function init(): Promise<void> {
       const path = await import('path');
       const { createRequire } = await import('module');
       const require = createRequire(import.meta.url);
-      
+
       // Resolve the package path
       const packagePath = path.dirname(require.resolve('exrs-raw-wasm-bindgen/package.json'));
       const wasmPath = path.resolve(packagePath, 'exrs_raw_wasm_bindgen_bg.wasm');
       const wasmBuffer = fs.readFileSync(wasmPath);
-      
+
       wasm = await import('exrs-raw-wasm-bindgen');
       wasm.initSync({ module: wasmBuffer });
     } catch (nodeErr) {
@@ -264,7 +264,7 @@ export function decodeExr(data: Uint8Array): ExrDecodeImage {
       },
 
       getChannelPixels: (channelName: string) =>
-          decoder.getChannelData(i, channelName),
+        decoder.getChannelData(i, channelName),
     });
   }
 

@@ -8,7 +8,7 @@
 //! For simple single-layer images, use the functional API (no `.free()` needed):
 //!
 //! ```javascript
-//! import init, { writeExrRgba, SamplePrecision, CompressionMethod } from 'exrs-wasm';
+//! import init, { writeExrRgba, SamplePrecision, CompressionMethod } from 'exrs';
 //!
 //! await init();
 //!
@@ -22,7 +22,7 @@
 //! For multi-layer images, use the builder API:
 //!
 //! ```javascript
-//! import init, { ExrEncoder, CompressionMethod, SamplePrecision } from 'exrs-wasm';
+//! import init, { ExrEncoder, CompressionMethod, SamplePrecision } from 'exrs';
 //!
 //! await init();
 //!
@@ -38,7 +38,7 @@
 //! # Reading Example (JavaScript)
 //!
 //! ```javascript
-//! import init, { readExr } from 'exrs-wasm';
+//! import init, { readExr } from 'exrs';
 //!
 //! await init();
 //!

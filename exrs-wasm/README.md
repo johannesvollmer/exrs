@@ -1,4 +1,4 @@
-# exrs-wasm
+# exrs
 
 WebAssembly bindings for reading and writing [OpenEXR](https://www.openexr.com/) files in the browser.
 
@@ -7,13 +7,13 @@ Built on top of the [`exr`](https://crates.io/crates/exr) Rust crate.
 ## Installation
 
 ```bash
-npm install exrs-wasm
+npm install exrs
 ```
 
 ## Quick Start
 
 ```javascript
-import { init, encodeExr, decodeExr } from 'exrs-wasm';
+import { init, encodeExr, decodeExr } from 'exrs';
 
 // Initialize WASM module (required once before using other functions)
 await init();
@@ -96,7 +96,7 @@ const { width, height, data } = decodeExrRgba(bytes);
 ### Multi-layer EXR (AOVs)
 
 ```javascript
-import { init, encodeExr } from 'exrs-wasm';
+import { init, encodeExr } from 'exrs';
 
 await init();
 
@@ -115,7 +115,7 @@ const bytes = encodeExr({
 ### WebGL Render Buffer Export
 
 ```javascript
-import { init, encodeExr } from 'exrs-wasm';
+import { init, encodeExr } from 'exrs';
 
 await init();
 
@@ -137,7 +137,7 @@ const bytes = encodeExr({
 ### Load and Display EXR
 
 ```javascript
-import { init, decodeExrRgba } from 'exrs-wasm';
+import { init, decodeExrRgba } from 'exrs';
 
 await init();
 
