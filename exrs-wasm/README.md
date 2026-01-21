@@ -194,7 +194,12 @@ BSD-3-Clause
 
 ## Contributing
 
-### Building the packages
+### Building and Testing
 
 1. `cd js`
-2. `npm build` (this also builds the wasm package)
+2. `npm run test` (this also rebuilds the whole wasm package every time)
+
+### Building and Publishing
+
+1. `cd js`
+2. `npm run publish` (this also rebuilds the whole wasm package every time)
