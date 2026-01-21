@@ -158,14 +158,14 @@ impl ExrEncoder {
     ///
     /// # Arguments
     /// * `name` - Layer name (e.g., "beauty", "diffuse")
-    /// * `data` - Pixel data as Float64Array, length must be width * height * 4
+    /// * `data` - Pixel data as Float32Array, length must be width * height * 4
     /// * `precision` - Sample precision (F16, F32, or U32)
     /// * `compression` - Compression method (defaults to RLE)
     #[wasm_bindgen(js_name = addRgbaLayer)]
     pub fn add_rgba_layer(
         &mut self,
         name: &str,
-        data: &[f64],
+        data: &[f32],
         precision: SamplePrecision,
         compression: Option<CompressionMethod>,
     ) -> std::result::Result<(), JsValue> {
@@ -212,14 +212,14 @@ impl ExrEncoder {
     ///
     /// # Arguments
     /// * `name` - Layer name (e.g., "normals", "albedo")
-    /// * `data` - Pixel data as Float64Array, length must be width * height * 3
+    /// * `data` - Pixel data as Float32Array, length must be width * height * 3
     /// * `precision` - Sample precision (F16, F32, or U32)
     /// * `compression` - Compression method (defaults to RLE)
     #[wasm_bindgen(js_name = addRgbLayer)]
     pub fn add_rgb_layer(
         &mut self,
         name: &str,
-        data: &[f64],
+        data: &[f32],
         precision: SamplePrecision,
         compression: Option<CompressionMethod>,
     ) -> std::result::Result<(), JsValue> {
@@ -264,7 +264,7 @@ impl ExrEncoder {
     /// # Arguments
     /// * `name` - Layer name
     /// * `channel_name` - Channel name (e.g., "Z" for depth, "A" for alpha)
-    /// * `data` - Pixel data as Float64Array, length must be width * height
+    /// * `data` - Pixel data as Float32Array, length must be width * height
     /// * `precision` - Sample precision (F16, F32, or U32)
     /// * `compression` - Compression method (defaults to RLE)
     #[wasm_bindgen(js_name = addSingleChannelLayer)]
@@ -272,7 +272,7 @@ impl ExrEncoder {
         &mut self,
         name: &str,
         channel_name: &str,
-        data: &[f64],
+        data: &[f32],
         precision: SamplePrecision,
         compression: Option<CompressionMethod>,
     ) -> std::result::Result<(), JsValue> {
@@ -367,16 +367,16 @@ impl ExrEncoder {
 
     fn make_channel(
         name: &str,
-        data: Vec<f64>,
+        data: Vec<f32>,
         sample_type: exr::meta::attribute::SampleType,
     ) -> AnyChannel<FlatSamples> {
         use exr::meta::attribute::SampleType;
 
         let samples = match sample_type {
             SampleType::F16 => {
-                FlatSamples::F16(data.into_iter().map(|v| half::f16::from_f64(v)).collect())
+                FlatSamples::F16(data.into_iter().map(|v| half::f16::from_f32(v)).collect())
             }
-            SampleType::F32 => FlatSamples::F32(data.into_iter().map(|v| v as f32).collect()),
+            SampleType::F32 => FlatSamples::F32(data),
             SampleType::U32 => {
                 FlatSamples::U32(data.into_iter().map(|v| v as u32).collect())
             }
@@ -398,7 +398,7 @@ impl ExrEncoder {
 /// Data for a single channel read from an EXR file.
 struct ReadChannelData {
     name: String,
-    samples: Vec<f64>,
+    samples: Vec<f32>,
 }
 
 /// Data for a single layer read from an EXR file.
@@ -454,9 +454,9 @@ impl ExrDecoder {
     }
 
     /// Get the pixel data for a specific channel.
-    /// Returns the data as Float64Array (all sample types converted to f64).
+    /// Returns the data as Float32Array (all sample types converted to f32).
     #[wasm_bindgen(js_name = getChannelData)]
-    pub fn get_channel_data(&self, layer_index: usize, channel_name: &str) -> Option<Vec<f64>> {
+    pub fn get_channel_data(&self, layer_index: usize, channel_name: &str) -> Option<Vec<f32>> {
         self.layers.get(layer_index).and_then(|layer| {
             layer
                 .channels
@@ -469,7 +469,7 @@ impl ExrDecoder {
     /// Get interleaved RGBA data for a layer (if R, G, B, A channels exist).
     /// Returns null if any of the required channels are missing.
     #[wasm_bindgen(js_name = getRgbaData)]
-    pub fn get_rgba_data(&self, layer_index: usize) -> Option<Vec<f64>> {
+    pub fn get_rgba_data(&self, layer_index: usize) -> Option<Vec<f32>> {
         let layer = self.layers.get(layer_index)?;
 
         let r = layer.channels.iter().find(|c| c.name == "R")?;
@@ -493,7 +493,7 @@ impl ExrDecoder {
     /// Get interleaved RGB data for a layer (if R, G, B channels exist).
     /// Returns null if any of the required channels are missing.
     #[wasm_bindgen(js_name = getRgbData)]
-    pub fn get_rgb_data(&self, layer_index: usize) -> Option<Vec<f64>> {
+    pub fn get_rgb_data(&self, layer_index: usize) -> Option<Vec<f32>> {
         let layer = self.layers.get(layer_index)?;
 
         let r = layer.channels.iter().find(|c| c.name == "R")?;
@@ -526,7 +526,7 @@ pub fn read_exr(data: &[u8]) -> std::result::Result<ExrDecoder, JsValue> {
 pub struct ExrRgbaResult {
     width: u32,
     height: u32,
-    data: Vec<f64>,
+    data: Vec<f32>,
 }
 
 #[wasm_bindgen]
@@ -543,9 +543,9 @@ impl ExrRgbaResult {
         self.height
     }
 
-    /// Get the interleaved RGBA pixel data as Float64Array.
+    /// Get the interleaved RGBA pixel data as Float32Array.
     #[wasm_bindgen(getter)]
-    pub fn data(&self) -> Vec<f64> {
+    pub fn data(&self) -> Vec<f32> {
         self.data.clone()
     }
 }
@@ -571,17 +571,17 @@ pub fn read_exr_rgba(data: &[u8]) -> std::result::Result<ExrRgbaResult, JsValue>
         .no_deep_data()
         .largest_resolution_level()
         .rgba_channels(
-            move |resolution, _channels| -> Vec<f64> {
+            move |resolution, _channels| -> Vec<f32> {
                 img_width_create.set(resolution.width());
-                vec![0.0f64; resolution.width() * resolution.height() * 4]
+                vec![0.0f32; resolution.width() * resolution.height() * 4]
             },
             move |pixels, position, (r, g, b, a): (f32, f32, f32, f32)| {
                 let width = img_width_set.get();
                 let idx = (position.y() * width + position.x()) * 4;
-                pixels[idx] = r as f64;
-                pixels[idx + 1] = g as f64;
-                pixels[idx + 2] = b as f64;
-                pixels[idx + 3] = a as f64;
+                pixels[idx] = r;
+                pixels[idx + 1] = g;
+                pixels[idx + 2] = b;
+                pixels[idx + 3] = a;
             },
         )
         .first_valid_layer()
@@ -606,7 +606,7 @@ pub fn read_exr_rgba(data: &[u8]) -> std::result::Result<ExrRgbaResult, JsValue>
 pub struct ExrRgbResult {
     width: u32,
     height: u32,
-    data: Vec<f64>,
+    data: Vec<f32>,
 }
 
 #[wasm_bindgen]
@@ -623,9 +623,9 @@ impl ExrRgbResult {
         self.height
     }
 
-    /// Get the interleaved RGB pixel data as Float64Array.
+    /// Get the interleaved RGB pixel data as Float32Array.
     #[wasm_bindgen(getter)]
-    pub fn data(&self) -> Vec<f64> {
+    pub fn data(&self) -> Vec<f32> {
         self.data.clone()
     }
 }
@@ -651,16 +651,16 @@ pub fn read_exr_rgb(data: &[u8]) -> std::result::Result<ExrRgbResult, JsValue> {
         .no_deep_data()
         .largest_resolution_level()
         .rgb_channels(
-            move |resolution, _channels| -> Vec<f64> {
+            move |resolution, _channels| -> Vec<f32> {
                 img_width_create.set(resolution.width());
-                vec![0.0f64; resolution.width() * resolution.height() * 3]
+                vec![0.0f32; resolution.width() * resolution.height() * 3]
             },
             move |pixels, position, (r, g, b): (f32, f32, f32)| {
                 let width = img_width_set.get();
                 let idx = (position.y() * width + position.x()) * 3;
-                pixels[idx] = r as f64;
-                pixels[idx + 1] = g as f64;
-                pixels[idx + 2] = b as f64;
+                pixels[idx] = r;
+                pixels[idx + 1] = g;
+                pixels[idx + 2] = b;
             },
         )
         .first_valid_layer()
@@ -693,7 +693,7 @@ pub fn read_exr_rgb(data: &[u8]) -> std::result::Result<ExrRgbResult, JsValue> {
 /// * `width` - Image width in pixels
 /// * `height` - Image height in pixels
 /// * `layer_name` - Layer name (e.g., "beauty")
-/// * `data` - RGBA pixel data as Float64Array, length must be width * height * 4
+/// * `data` - RGBA pixel data as Float32Array, length must be width * height * 4
 /// * `precision` - Sample precision (F16, F32, or U32)
 /// * `compression` - Compression method
 #[wasm_bindgen(js_name = writeExrRgba)]
@@ -701,7 +701,7 @@ pub fn write_exr_rgba(
     width: u32,
     height: u32,
     layer_name: &str,
-    data: &[f64],
+    data: &[f32],
     precision: SamplePrecision,
     compression: CompressionMethod,
 ) -> std::result::Result<Vec<u8>, JsValue> {
@@ -719,7 +719,7 @@ pub fn write_exr_rgba(
 /// * `width` - Image width in pixels
 /// * `height` - Image height in pixels
 /// * `layer_name` - Layer name (e.g., "normals")
-/// * `data` - RGB pixel data as Float64Array, length must be width * height * 3
+/// * `data` - RGB pixel data as Float32Array, length must be width * height * 3
 /// * `precision` - Sample precision (F16, F32, or U32)
 /// * `compression` - Compression method
 #[wasm_bindgen(js_name = writeExrRgb)]
@@ -727,7 +727,7 @@ pub fn write_exr_rgb(
     width: u32,
     height: u32,
     layer_name: &str,
-    data: &[f64],
+    data: &[f32],
     precision: SamplePrecision,
     compression: CompressionMethod,
 ) -> std::result::Result<Vec<u8>, JsValue> {
@@ -746,7 +746,7 @@ pub fn write_exr_rgb(
 /// * `height` - Image height in pixels
 /// * `layer_name` - Layer name (e.g., "depth")
 /// * `channel_name` - Channel name (e.g., "Z" for depth)
-/// * `data` - Pixel data as Float64Array, length must be width * height
+/// * `data` - Pixel data as Float32Array, length must be width * height
 /// * `precision` - Sample precision (F16, F32, or U32)
 /// * `compression` - Compression method
 #[wasm_bindgen(js_name = writeExrSingleChannel)]
@@ -755,7 +755,7 @@ pub fn write_exr_single_channel(
     height: u32,
     layer_name: &str,
     channel_name: &str,
-    data: &[f64],
+    data: &[f32],
     precision: SamplePrecision,
     compression: CompressionMethod,
 ) -> std::result::Result<Vec<u8>, JsValue> {
@@ -795,7 +795,7 @@ fn read_exr_internal(data: &[u8]) -> std::result::Result<ExrDecoder, exr::error:
                 .iter()
                 .map(|channel| ReadChannelData {
                     name: channel.name.to_string(),
-                    samples: channel.sample_data.values_as_f32().map(|v| v as f64).collect(),
+                    samples: channel.sample_data.values_as_f32().collect(),
                 })
                 .collect();
 

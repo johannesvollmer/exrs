@@ -19,7 +19,7 @@ describe('EXRS WASM Integration Tests', () => {
     const pixelCount = width * height;
 
     // Create test RGBA data
-    const data = new Float64Array(pixelCount * 4);
+    const data = new Float32Array(pixelCount * 4);
     for (let i = 0; i < pixelCount; i++) {
       data[i * 4] = i / pixelCount; // R
       data[i * 4 + 1] = 0.5; // G
@@ -62,7 +62,7 @@ describe('EXRS WASM Integration Tests', () => {
     const height = 8;
     const pixelCount = width * height;
 
-    const data = new Float64Array(pixelCount * 3);
+    const data = new Float32Array(pixelCount * 3);
     for (let i = 0; i < pixelCount * 3; i++) {
       data[i] = i / 100;
     }
@@ -93,7 +93,7 @@ describe('EXRS WASM Integration Tests', () => {
     const height = 16;
     const pixelCount = width * height;
 
-    const data = new Float64Array(pixelCount);
+    const data = new Float32Array(pixelCount);
     for (let i = 0; i < pixelCount; i++) {
       data[i] = i;
     }
@@ -122,9 +122,9 @@ describe('EXRS WASM Integration Tests', () => {
     const height = 4;
     const pixelCount = width * height;
 
-    const rgbaData = new Float64Array(pixelCount * 4).fill(0.8);
-    const rgbData = new Float64Array(pixelCount * 3).fill(0.5);
-    const depthData = new Float64Array(pixelCount).fill(1.0);
+    const rgbaData = new Float32Array(pixelCount * 4).fill(0.8);
+    const rgbData = new Float32Array(pixelCount * 3).fill(0.5);
+    const depthData = new Float32Array(pixelCount).fill(1.0);
 
     const bytes = encodeExr({
       width,
@@ -166,7 +166,7 @@ describe('EXRS WASM Integration Tests', () => {
     const height = 4;
     const pixelCount = width * height;
 
-    const data = new Float64Array(pixelCount * 4);
+    const data = new Float32Array(pixelCount * 4);
     for (let i = 0; i < pixelCount; i++) {
       data[i * 4] = 0.1; // R
       data[i * 4 + 1] = 0.2; // G
@@ -207,7 +207,7 @@ describe('EXRS WASM Integration Tests', () => {
     const height = 4;
     const pixelCount = width * height;
 
-    const data = new Float64Array(pixelCount * 4);
+    const data = new Float32Array(pixelCount * 4);
     for (let i = 0; i < pixelCount; i++) {
       data[i * 4] = i / pixelCount;
       data[i * 4 + 1] = 0.5;
@@ -237,7 +237,7 @@ describe('EXRS WASM Integration Tests', () => {
     const height = 4;
     const pixelCount = width * height;
 
-    const data = new Float64Array(pixelCount * 3);
+    const data = new Float32Array(pixelCount * 3);
     for (let i = 0; i < pixelCount * 3; i++) {
       data[i] = i / 100;
     }
@@ -263,7 +263,7 @@ describe('EXRS WASM Integration Tests', () => {
     const width = 8;
     const height = 8;
     const pixelCount = width * height;
-    const data = new Float64Array(pixelCount * 4).fill(0.5);
+    const data = new Float32Array(pixelCount * 4).fill(0.5);
 
     const compressions = ['none', 'rle', 'zip', 'zip16', 'piz', 'pxr24'] as const;
 
@@ -286,7 +286,7 @@ describe('EXRS WASM Integration Tests', () => {
     const width = 4;
     const height = 4;
     const pixelCount = width * height;
-    const data = new Float64Array(pixelCount * 4).fill(0.5);
+    const data = new Float32Array(pixelCount * 4).fill(0.5);
 
     const bytes = encodeExr({
       width,
@@ -315,8 +315,8 @@ describe('EXRS WASM Integration Tests', () => {
       width,
       height,
       layers: [
-        { name: 'my_beauty', channels: 'rgba', data: new Float64Array(pixelCount * 4) },
-        { name: 'my_normals', channels: 'rgb', data: new Float64Array(pixelCount * 3) },
+        { name: 'my_beauty', channels: 'rgba', data: new Float32Array(pixelCount * 4) },
+        { name: 'my_normals', channels: 'rgb', data: new Float32Array(pixelCount * 3) },
       ],
     });
 
@@ -333,7 +333,7 @@ describe('EXRS WASM Integration Tests', () => {
     const bytes = encodeExr({
       width,
       height,
-      layers: [{ name: 'test', channels: 'rgba', data: new Float64Array(pixelCount * 4) }],
+      layers: [{ name: 'test', channels: 'rgba', data: new Float32Array(pixelCount * 4) }],
     });
 
     const image = decodeExr(bytes);

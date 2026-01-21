@@ -21,8 +21,8 @@ export interface ExrLayer {
   name: string;
   /** Channel type: 'rgba', 'rgb', or array of channel names like ['Z'] */
   channels: Channels;
-  /** Pixel data as Float64Array */
-  data: Float64Array;
+  /** Pixel data as Float32Array */
+  data: Float32Array;
   /** Sample precision (default: 'f32') */
   precision?: Precision;
   /** Compression method (default: 'rle') */
@@ -48,15 +48,15 @@ export interface DecodedLayer {
   /**
    * Get interleaved pixel data for this layer.
    * Auto-detects format based on channel names (RGBA, RGB, or single channel).
-   * @returns Pixel data as Float64Array, or null if channels don't exist
+   * @returns Pixel data as Float32Array, or null if channels don't exist
    */
-  getData(): Float64Array | null;
+  getData(): Float32Array | null;
   /**
    * Get data for a specific channel by name.
    * @param channelName - Channel name like 'R', 'G', 'B', 'A', 'Z', etc.
-   * @returns Pixel data as Float64Array, or null if channel doesn't exist
+   * @returns Pixel data as Float32Array, or null if channel doesn't exist
    */
-  getChannel(channelName: string): Float64Array | null;
+  getChannel(channelName: string): Float32Array | null;
 }
 
 /** Result of decoding an EXR file */
@@ -76,7 +76,7 @@ export interface ExrRgbaDecodeResult {
   /** Image height in pixels */
   height: number;
   /** Interleaved RGBA pixel data */
-  data: Float64Array;
+  data: Float32Array;
 }
 
 /** Result of optimized RGB decoding */
@@ -86,7 +86,7 @@ export interface ExrRgbDecodeResult {
   /** Image height in pixels */
   height: number;
   /** Interleaved RGB pixel data */
-  data: Float64Array;
+  data: Float32Array;
 }
 
 // WASM module reference (set by init())
