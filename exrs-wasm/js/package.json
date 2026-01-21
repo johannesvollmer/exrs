@@ -15,7 +15,7 @@
     "prebuild": "cd .. && wasm-pack build --target web",
     "build": "npm i && tsc",
     "test": "npm run build && vitest run",
-    "publish": "npm run build && npm publish"
+    "publish": "npm run test && npm publish"
   },
   "dependencies": {
     "exrs-raw-wasm-bindgen": "file:../pkg",
