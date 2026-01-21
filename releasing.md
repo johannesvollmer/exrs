@@ -27,4 +27,6 @@ Yanking shouldn't be the default.
     - `examples/README.md`
     
 1. Run `cargo publish`
+
+1. Run `cd exrs-wasm && npm run publish`
     

@@ -1,8 +1,8 @@
 [package]
-name = "exrs-wasm"
+name = "exrs-raw-wasm-bindgen"
 version = "0.1.0"
 edition = "2021"
-description = "WebAssembly bindings for the exr crate - write EXR files from the browser"
+description = "Generated WebAssembly bindings for the exr crate. Prefer `exrs` npm package in your projects."
 license = "BSD-3-Clause"
 repository = "https://github.com/johannesvollmer/exrs"
 

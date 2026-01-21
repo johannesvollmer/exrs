@@ -191,3 +191,15 @@ ctx.putImageData(imageData, 0, 0);
 ## License
 
 BSD-3-Clause
+
+## Contributing
+
+### Building and Testing
+
+1. `cd js`
+2. `npm run test` (this also rebuilds the whole wasm package every time)
+
+### Building and Publishing
+
+1. `cd js`
+2. `npm run publish` (this also rebuilds the whole wasm package every time)
