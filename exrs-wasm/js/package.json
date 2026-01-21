@@ -1,0 +1,27 @@
+{
+  "name": "exrs",
+  "version": "1.0.0",
+  "description": "",
+  "license": "BSD-3-Clause",
+  "author": "",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prebuild": "cd .. && wasm-pack build --target web",
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "exrs-raw-wasm-bindgen": "file:../pkg",
+    "tslib": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.9",
+    "typescript": "^5.0.0",
+    "vitest": "^4.0.17"
+  }
+}

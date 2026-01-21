@@ -194,7 +194,7 @@ BSD-3-Clause
 
 ## Contributing
 
-### Building
+### Building the packages
 
-1. `cd exrs-wasm`
-2. `wasm-pack build --target web`
+1. `cd js`
+2. `npm build` (this also builds the wasm package)
