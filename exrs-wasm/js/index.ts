@@ -6,87 +6,70 @@
  */
 
 
-/** Sample precision for pixel data */
 export type Precision = 'f16' | 'f32' | 'u32';
 
-/** Compression method for EXR output */
 export type Compression = 'none' | 'rle' | 'zip' | 'zip16' | 'piz' | 'pxr24';
 
-/** Channel type specification */
+/** You can always use string[]. But use rgb or rgba directly for simplicity and speed. */
 export type Channels = 'rgba' | 'rgb' | string[];
 
-/** Layer definition for encoding */
-export interface ExrLayer {
+export interface ExrEncodeLayer {
+
   /** Layer name (e.g., "beauty", "depth") */
   name: string;
+
   /** Channel type: 'rgba', 'rgb', or array of channel names like ['Z'] */
-  channels: Channels;
-  /** Pixel data as Float32Array */
-  data: Float32Array;
-  /** Sample precision (default: 'f32') */
+  channelNames: Channels;
+
+  interleavedPixels: Float32Array;
+
+  /** Default: 'f32' */
   precision?: Precision;
-  /** Compression method (default: 'rle') */
+
+  /** Default: 'rle' */
   compression?: Compression;
 }
 
-/** Options for encoding an EXR file */
-export interface ExrEncodeOptions {
-  /** Image width in pixels */
+export interface ExrEncodeImage {
   width: number;
-  /** Image height in pixels */
+
   height: number;
-  /** Array of layer definitions */
-  layers: ExrLayer[];
+
+  layers: ExrEncodeLayer[];
 }
 
 /** Decoded layer information */
-export interface DecodedLayer {
-  /** Layer name (null for default layer) */
+export interface ExrDecodeLayer {
   name: string | null;
-  /** Channel names in this layer */
-  channels: string[];
+
+  channelNames: string[];
+
+  getInterleavedPixels(): Float32Array;
+
   /**
-   * Get interleaved pixel data for this layer.
-   * Auto-detects format based on channel names (RGBA, RGB, or single channel).
-   * @returns Pixel data as Float32Array, or null if channels don't exist
-   */
-  getData(): Float32Array | null;
-  /**
-   * Get data for a specific channel by name.
+   * Get all samples for a specific channel by name.
    * @param channelName - Channel name like 'R', 'G', 'B', 'A', 'Z', etc.
-   * @returns Pixel data as Float32Array, or null if channel doesn't exist
+   * @returns The samples or null if channel with that name doesn't exist
    */
-  getChannel(channelName: string): Float32Array | null;
+  getChannelPixels(channelName: string): Float32Array | null;
 }
 
-/** Result of decoding an EXR file */
-export interface ExrDecodeResult {
-  /** Image width in pixels */
+export interface ExrDecodeImage {
   width: number;
-  /** Image height in pixels */
   height: number;
-  /** Array of decoded layers */
-  layers: DecodedLayer[];
+  layers: ExrDecodeLayer[];
 }
 
-/** Result of optimized RGBA decoding */
-export interface ExrRgbaDecodeResult {
-  /** Image width in pixels */
+export interface ExrDecodeRgbaImage {
   width: number;
-  /** Image height in pixels */
   height: number;
-  /** Interleaved RGBA pixel data */
-  data: Float32Array;
+  interleavedRgbaPixels: Float32Array;
 }
 
-/** Result of optimized RGB decoding */
-export interface ExrRgbDecodeResult {
-  /** Image width in pixels */
+export interface ExrDecodeRgbImage {
   width: number;
-  /** Image height in pixels */
   height: number;
-  /** Interleaved RGB pixel data */
-  data: Float32Array;
+  interleavedRgbPixels: Float32Array;
 }
 
 // WASM module reference (set by init())
@@ -123,7 +106,7 @@ export async function init(): Promise<void> {
       const wasmBuffer = fs.readFileSync(wasmPath);
       
       wasm = await import('exrs-raw-wasm-bindgen');
-      await wasm.initSync({ module: wasmBuffer });
+      wasm.initSync({ module: wasmBuffer });
     } catch (nodeErr) {
       console.error('Failed to initialize WASM in both browser and Node environments');
       throw e;
@@ -141,7 +124,7 @@ function ensureInitialized() {
 /**
  * Encode pixel data into an EXR file.
  *
- * @param {ExrEncodeOptions} options - Encoding options
+ * @param {ExrEncodeImage} options - Encoding options
  * @returns {Uint8Array} EXR file bytes
  *
  * @example
@@ -150,12 +133,12 @@ function ensureInitialized() {
  *   width: 1920,
  *   height: 1080,
  *   layers: [
- *     { name: 'beauty', channels: 'rgba', data: rgbaData, precision: 'f32', compression: 'piz' },
- *     { name: 'depth', channels: ['Z'], data: depthData, precision: 'f32', compression: 'pxr24' }
+ *     { name: 'beauty', channelNames: 'rgba', interleavedPixels: rgbaData, precision: 'f32', compression: 'piz' },
+ *     { name: 'depth', channelNames: ['Z'], interleavedPixels: depthData, precision: 'f32', compression: 'pxr24' }
  *   ]
  * });
  */
-export function encodeExr(options: ExrEncodeOptions): Uint8Array {
+export function encodeExr(options: ExrEncodeImage): Uint8Array {
   ensureInitialized();
 
   const { width, height, layers } = options;
@@ -177,18 +160,19 @@ export function encodeExr(options: ExrEncodeOptions): Uint8Array {
   };
 
   // Single layer shortcuts
+  // TODO: This optimization should happen entirely in the rust file
   if (layers.length === 1) {
     const layer = layers[0];
     const precision = precisionMap[layer.precision || 'f32'];
     const compression = compressionMap[layer.compression || 'rle'];
 
-    if (layer.channels === 'rgba') {
-      return wasmModule.writeExrRgba(width, height, layer.name, layer.data, precision, compression);
-    } else if (layer.channels === 'rgb') {
-      return wasmModule.writeExrRgb(width, height, layer.name, layer.data, precision, compression);
-    } else if (Array.isArray(layer.channels) && layer.channels.length === 1) {
+    if (layer.channelNames === 'rgba') {
+      return wasmModule.writeExrRgba(width, height, layer.name, layer.interleavedPixels, precision, compression);
+    } else if (layer.channelNames === 'rgb') {
+      return wasmModule.writeExrRgb(width, height, layer.name, layer.interleavedPixels, precision, compression);
+    } else if (Array.isArray(layer.channelNames) && layer.channelNames.length === 1) {
       return wasmModule.writeExrSingleChannel(
-        width, height, layer.name, layer.channels[0], layer.data, precision, compression
+        width, height, layer.name, layer.channelNames[0], layer.interleavedPixels, precision, compression
       );
     }
   }
@@ -201,14 +185,14 @@ export function encodeExr(options: ExrEncodeOptions): Uint8Array {
       const precision = precisionMap[layer.precision || 'f32'];
       const compression = compressionMap[layer.compression || 'rle'];
 
-      if (layer.channels === 'rgba') {
-        encoder.addRgbaLayer(layer.name, layer.data, precision, compression);
-      } else if (layer.channels === 'rgb') {
-        encoder.addRgbLayer(layer.name, layer.data, precision, compression);
-      } else if (Array.isArray(layer.channels) && layer.channels.length === 1) {
-        encoder.addSingleChannelLayer(layer.name, layer.channels[0], layer.data, precision, compression);
+      if (layer.channelNames === 'rgba') {
+        encoder.addRgbaLayer(layer.name, layer.interleavedPixels, precision, compression);
+      } else if (layer.channelNames === 'rgb') {
+        encoder.addRgbLayer(layer.name, layer.interleavedPixels, precision, compression);
+      } else if (Array.isArray(layer.channelNames) && layer.channelNames.length === 1) {
+        encoder.addSingleChannelLayer(layer.name, layer.channelNames[0], layer.interleavedPixels, precision, compression);
       } else {
-        throw new Error(`Unsupported channels format: ${JSON.stringify(layer.channels)}`);
+        throw new Error(`Unsupported channels format: ${JSON.stringify(layer.channelNames)}`);
       }
     }
 
@@ -223,7 +207,7 @@ export function encodeExr(options: ExrEncodeOptions): Uint8Array {
  * Decode an EXR file into pixel data.
  *
  * @param {Uint8Array} data - EXR file bytes
- * @returns {ExrDecodeResult} Decoded image data
+ * @returns {ExrDecodeImage} Decoded image data
  *
  * @example
  * await init();
@@ -236,7 +220,7 @@ export function encodeExr(options: ExrEncodeOptions): Uint8Array {
  * // Get a specific channel by name
  * const depthData = image.layers[1].getChannel('Z');
  */
-export function decodeExr(data: Uint8Array): ExrDecodeResult {
+export function decodeExr(data: Uint8Array): ExrDecodeImage {
   ensureInitialized();
 
   const decoder = wasmModule.readExr(data);
@@ -245,12 +229,15 @@ export function decodeExr(data: Uint8Array): ExrDecodeResult {
   const height = decoder.height;
   const layerCount = decoder.layerCount;
 
-  const layers: DecodedLayer[] = [];
+  const layers: ExrDecodeLayer[] = [];
   for (let i = 0; i < layerCount; i++) {
     const name = decoder.getLayerName(i);
+    if (name == undefined) throw new Error("invalid index");
+
     const channels = decoder.getChannelNames(i);
 
     // Determine channel type from actual channel names
+    // TODO we should intentionally decide what happens with layers that are RGBZ. is this a use case?
     const hasR = channels.includes('R');
     const hasG = channels.includes('G');
     const hasB = channels.includes('B');
@@ -260,30 +247,28 @@ export function decodeExr(data: Uint8Array): ExrDecodeResult {
 
     layers.push({
       name,
-      channels,
+      channelNames: channels,
       // Auto-detect format based on channel names
-      getData: () => {
+      getInterleavedPixels: (): Float32Array => {
         if (isRgba) {
           return decoder.getRgbaData(i);
         } else if (isRgb) {
+          // TODO this can be undefined, why does TS not show a type mismatch here?!
           return decoder.getRgbData(i);
         } else if (channels.length === 1) {
           return decoder.getChannelData(i, channels[0]);
         } else {
-          // Multiple non-RGB channels - return first channel
-          return decoder.getChannelData(i, channels[0]);
+          // TODO: add one generic function in rust that just interleaves all the desired/existing channels
+          throw new Error("multiple channels not supported yet");
         }
       },
-      // Get specific channel by name
-      getChannel: (channelName: string) => decoder.getChannelData(i, channelName),
+
+      getChannelPixels: (channelName: string) =>
+          decoder.getChannelData(i, channelName),
     });
   }
 
-  // Note: We are NOT calling decoder.free() here because the getData/getChannel 
-  // closures depend on it. In a real application, this might lead to memory leaks 
-  // if not handled by FinalizationRegistry or similar.
-  // For now, we prioritize functionality in tests.
-
+  // TODO add free: () => decoder.free()
   return { width, height, layers };
 }
 
@@ -293,21 +278,22 @@ export function decodeExr(data: Uint8Array): ExrDecodeResult {
  * This is faster than decodeExr() when you know the image has RGBA channels.
  *
  * @param {Uint8Array} data - EXR file bytes
- * @returns {ExrRgbaDecodeResult} Decoded image data
+ * @returns {ExrDecodeRgbaImage} Decoded image data
  *
  * @example
  * await init();
  * const { width, height, data } = decodeExrRgba(bytes);
  */
-export function decodeExrRgba(data: Uint8Array): ExrRgbaDecodeResult {
+export function decodeExrRgba(data: Uint8Array): ExrDecodeRgbaImage {
   ensureInitialized();
 
+  // TODO this kind of optimizatoin/specialization could happen in the rust file, not here
   const result = wasmModule.readExrRgba(data);
   try {
     return {
       width: result.width,
       height: result.height,
-      data: result.data,
+      interleavedRgbaPixels: result.data,
     };
   } finally {
     result.free();
@@ -320,21 +306,22 @@ export function decodeExrRgba(data: Uint8Array): ExrRgbaDecodeResult {
  * This is faster than decodeExr() when you know the image has RGB channels.
  *
  * @param {Uint8Array} data - EXR file bytes
- * @returns {ExrRgbDecodeResult} Decoded image data
+ * @returns {ExrDecodeRgbImage} Decoded image data
  *
  * @example
  * await init();
  * const { width, height, data } = decodeExrRgb(bytes);
  */
-export function decodeExrRgb(data: Uint8Array): ExrRgbDecodeResult {
+export function decodeExrRgb(data: Uint8Array): ExrDecodeRgbImage {
   ensureInitialized();
 
+  // TODO this kind of optimizatoin/specialization could happen in the rust file, not here
   const result = wasmModule.readExrRgb(data);
   try {
     return {
       width: result.width,
       height: result.height,
-      data: result.data,
+      interleavedRgbPixels: result.data,
     };
   } finally {
     result.free();
