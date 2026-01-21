@@ -4,6 +4,9 @@
   "description": "OpenEXR file encoding and decoding in the browser and node",
   "license": "BSD-3-Clause",
   "author": "johannesvollmer",
+  "contributors": [
+    "Adam Krebs <amk528@cs.nyu.edu>"
+  ],
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>exrs-wasm Demo</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "exrs-raw-wasm-bindgen": "../pkg/exrs_raw_wasm_bindgen.js"
+      }
+    }
+  </script>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #1a1a2e;
+      color: #eee;
+    }
+    h1 {
+      color: #fff;
+      border-bottom: 2px solid #4a4a6a;
+      padding-bottom: 10px;
+    }
+    h2 {
+      color: #aaa;
+      font-size: 1.1em;
+      margin-top: 30px;
+      margin-bottom: 15px;
+    }
+    .section {
+      background: #252540;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      align-items: flex-end;
+    }
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    label {
+      font-size: 0.85em;
+      color: #999;
+    }
+    input[type="number"], select {
+      padding: 8px 12px;
+      border: 1px solid #4a4a6a;
+      border-radius: 4px;
+      background: #1a1a2e;
+      color: #fff;
+      font-size: 14px;
+      width: 100px;
+    }
+    select {
+      width: 140px;
+    }
+    .radio-group {
+      display: flex;
+      gap: 15px;
+    }
+    .radio-group label {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      color: #eee;
+    }
+    button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button.primary {
+      background: #6366f1;
+      color: white;
+    }
+    button.primary:hover {
+      background: #4f46e5;
+    }
+    button.secondary {
+      background: #4a4a6a;
+      color: white;
+    }
+    button.secondary:hover {
+      background: #5a5a7a;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .previews {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      margin-top: 15px;
+    }
+    .preview-card {
+      background: #1a1a2e;
+      border-radius: 6px;
+      padding: 10px;
+      text-align: center;
+    }
+    .preview-card canvas {
+      border: 1px solid #4a4a6a;
+      border-radius: 4px;
+    }
+    .preview-card h3 {
+      margin: 10px 0 5px;
+      font-size: 0.9em;
+      color: #ccc;
+    }
+    .preview-card p {
+      margin: 0;
+      font-size: 0.75em;
+      color: #888;
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+      margin-top: 15px;
+    }
+    .stat-card {
+      background: #1a1a2e;
+      border-radius: 6px;
+      padding: 15px;
+    }
+    .stat-card .value {
+      font-size: 1.5em;
+      font-weight: bold;
+      color: #6366f1;
+    }
+    .stat-card .label {
+      font-size: 0.85em;
+      color: #888;
+      margin-top: 5px;
+    }
+    .status {
+      margin-top: 15px;
+      padding: 10px 15px;
+      border-radius: 4px;
+      font-size: 0.9em;
+    }
+    .status.loading {
+      background: #2d2d4a;
+      color: #aaa;
+    }
+    .status.success {
+      background: #1a3a2a;
+      color: #4ade80;
+    }
+    .status.error {
+      background: #3a1a1a;
+      color: #f87171;
+    }
+    .code-example {
+      background: #1a1a2e;
+      border-radius: 6px;
+      padding: 15px;
+      margin-top: 15px;
+      overflow-x: auto;
+    }
+    .code-example pre {
+      margin: 0;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 0.85em;
+      color: #e2e8f0;
+      white-space: pre-wrap;
+    }
+    .code-example .comment {
+      color: #6b7280;
+    }
+    .code-example .keyword {
+      color: #c084fc;
+    }
+    .code-example .string {
+      color: #34d399;
+    }
+    .code-example .function {
+      color: #60a5fa;
+    }
+    .layer-checkboxes {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      margin-top: 10px;
+    }
+    .layer-checkboxes label {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      color: #eee;
+    }
+    .toggle-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .toggle {
+      position: relative;
+      width: 60px;
+      height: 30px;
+      background: #4a4a6a;
+      border-radius: 15px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    .toggle.active {
+      background: #6366f1;
+    }
+    .toggle::after {
+      content: '';
+      position: absolute;
+      width: 24px;
+      height: 24px;
+      background: white;
+      border-radius: 50%;
+      top: 3px;
+      left: 3px;
+      transition: transform 0.3s;
+    }
+    .toggle.active::after {
+      transform: translateX(30px);
+    }
+    .toggle-label {
+      font-size: 0.9em;
+      color: #ccc;
+    }
+    .toggle-label.active {
+      color: #6366f1;
+      font-weight: bold;
+    }
+    .api-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.75em;
+      font-weight: bold;
+      margin-left: 10px;
+    }
+    .api-badge.raw {
+      background: #4a4a6a;
+      color: #ccc;
+    }
+    .api-badge.wrapper {
+      background: #6366f1;
+      color: white;
+    }
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <h1>exrs-wasm Demo</h1>
+  <p>Generate multi-layer OpenEXR files directly in the browser using WebAssembly.</p>
+
+  <div id="loading-status" class="status loading">Loading WASM module...</div>
+
+  <div id="main-content" style="display: none;">
+    <h2>API Selection</h2>
+    <div class="section">
+      <div class="toggle-container">
+        <span class="toggle-label" id="label-raw">Raw WASM</span>
+        <div class="toggle" id="api-toggle" onclick="toggleApi()"></div>
+        <span class="toggle-label" id="label-wrapper">Wrapper JS</span>
+      </div>
+      <p style="margin-top: 10px; font-size: 0.85em; color: #888;">
+        <strong>Raw WASM:</strong> Low-level builder API from <code>exrs-raw-wasm-bindgen</code><br>
+        <strong>Wrapper JS:</strong> High-level <code>encodeExr()</code> API from <code>exrs</code> package
+      </p>
+    </div>
+
+    <h2>Image Settings</h2>
+    <div class="section">
+      <div class="controls">
+        <div class="control-group">
+          <label for="width">Width</label>
+          <input type="number" id="width" value="512" min="1" max="4096">
+        </div>
+        <div class="control-group">
+          <label for="height">Height</label>
+          <input type="number" id="height" value="512" min="1" max="4096">
+        </div>
+        <div class="control-group">
+          <label for="compression">Compression</label>
+          <select id="compression">
+            <option value="none">None (fastest)</option>
+            <option value="rle" selected>RLE (default)</option>
+            <option value="zip">ZIP (single line)</option>
+            <option value="zip16">ZIP16 (16 lines)</option>
+            <option value="piz">PIZ (wavelet)</option>
+            <option value="pxr24">PXR24 (lossy)</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label>Precision</label>
+          <div class="radio-group">
+            <label><input type="radio" name="precision" value="f32" checked> F32</label>
+            <label><input type="radio" name="precision" value="f16"> F16</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h2>Layers to Include</h2>
+    <div class="section">
+      <div class="layer-checkboxes">
+        <label><input type="checkbox" id="layer-beauty" checked> Beauty (RGBA)</label>
+        <label><input type="checkbox" id="layer-depth" checked> Depth (Z)</label>
+        <label><input type="checkbox" id="layer-normals" checked> Normals (RGB)</label>
+        <label><input type="checkbox" id="layer-ao"> Ambient Occlusion (single)</label>
+      </div>
+    </div>
+
+    <h2>Test Pattern Preview</h2>
+    <div class="section">
+      <div class="previews">
+        <div class="preview-card">
+          <canvas id="preview-beauty" width="128" height="128"></canvas>
+          <h3>Beauty</h3>
+          <p>RGBA gradient</p>
+        </div>
+        <div class="preview-card">
+          <canvas id="preview-depth" width="128" height="128"></canvas>
+          <h3>Depth</h3>
+          <p>Radial Z-buffer</p>
+        </div>
+        <div class="preview-card">
+          <canvas id="preview-normals" width="128" height="128"></canvas>
+          <h3>Normals</h3>
+          <p>Sphere normals</p>
+        </div>
+        <div class="preview-card">
+          <canvas id="preview-ao" width="128" height="128"></canvas>
+          <h3>AO</h3>
+          <p>Noise pattern</p>
+        </div>
+      </div>
+      <button class="secondary" onclick="updatePreviews()" style="margin-top: 15px;">Refresh Previews</button>
+    </div>
+
+    <h2>Generate EXR</h2>
+    <div class="section">
+      <div class="actions">
+        <button class="primary" id="btn-generate" onclick="generateExr()">
+          Generate &amp; Download EXR
+          <span class="api-badge raw" id="btn-badge">RAW</span>
+        </button>
+      </div>
+      <div id="generate-status" class="status" style="display: none;"></div>
+    </div>
+
+    <h2>Output Statistics</h2>
+    <div class="section">
+      <div class="stats">
+        <div class="stat-card">
+          <div class="value" id="stat-size">-</div>
+          <div class="label">File Size</div>
+        </div>
+        <div class="stat-card">
+          <div class="value" id="stat-layers">-</div>
+          <div class="label">Layers</div>
+        </div>
+        <div class="stat-card">
+          <div class="value" id="stat-time">-</div>
+          <div class="label">Encode Time</div>
+        </div>
+        <div class="stat-card">
+          <div class="value" id="stat-dimensions">-</div>
+          <div class="label">Dimensions</div>
+        </div>
+      </div>
+    </div>
+
+    <h2>Code Example</h2>
+    <div class="section">
+      <!-- Raw WASM examples -->
+      <div id="code-raw">
+        <h3 style="color: #999; font-size: 0.9em; margin: 0 0 10px;">Raw WASM - Builder API</h3>
+        <div class="code-example">
+          <pre><span class="keyword">import</span> init, { ExrEncoder, SamplePrecision, CompressionMethod }
+  <span class="keyword">from</span> <span class="string">'exrs-raw-wasm-bindgen'</span>;
+
+<span class="keyword">await</span> <span class="function">init</span>();
+
+<span class="keyword">const</span> exr = <span class="keyword">new</span> <span class="function">ExrEncoder</span>(1920, 1080);
+
+<span class="comment">// Add multiple layers with per-layer settings</span>
+exr.<span class="function">addRgbaLayer</span>(<span class="string">'beauty'</span>, beautyPixels, SamplePrecision.F32, CompressionMethod.Piz);
+exr.<span class="function">addSingleChannelLayer</span>(<span class="string">'depth'</span>, <span class="string">'Z'</span>, depthPixels, SamplePrecision.F32, CompressionMethod.Pxr24);
+exr.<span class="function">addRgbLayer</span>(<span class="string">'normals'</span>, normalPixels, SamplePrecision.F16, CompressionMethod.Zip16);
+
+<span class="keyword">const</span> bytes = exr.<span class="function">toBytes</span>();
+<span class="comment">// No .free() needed - automatic cleanup via FinalizationRegistry</span></pre>
+        </div>
+      </div>
+
+      <!-- Wrapper JS examples -->
+      <div id="code-wrapper" class="hidden">
+        <h3 style="color: #999; font-size: 0.9em; margin: 0 0 10px;">Wrapper JS - High-Level API</h3>
+        <div class="code-example">
+          <pre><span class="keyword">import</span> { init, encodeExr, decodeExr } <span class="keyword">from</span> <span class="string">'exrs'</span>;
+
+<span class="keyword">await</span> <span class="function">init</span>();
+
+<span class="comment">// Encode with simple options object</span>
+<span class="keyword">const</span> bytes = <span class="function">encodeExr</span>({
+  width: 1920,
+  height: 1080,
+  layers: [
+    { name: <span class="string">'beauty'</span>, channels: <span class="string">'rgba'</span>, data: beautyPixels,
+      precision: <span class="string">'f32'</span>, compression: <span class="string">'piz'</span> },
+    { name: <span class="string">'depth'</span>, channels: [<span class="string">'Z'</span>], data: depthPixels,
+      precision: <span class="string">'f32'</span>, compression: <span class="string">'pxr24'</span> },
+    { name: <span class="string">'normals'</span>, channels: <span class="string">'rgb'</span>, data: normalPixels,
+      precision: <span class="string">'f16'</span>, compression: <span class="string">'zip16'</span> }
+  ]
+});
+
+<span class="comment">// Decode with layer access</span>
+<span class="keyword">const</span> image = <span class="function">decodeExr</span>(bytes);
+<span class="keyword">const</span> beautyData = image.layers[0].<span class="function">getData</span>();
+<span class="keyword">const</span> depthData = image.layers[1].<span class="function">getChannel</span>(<span class="string">'Z'</span>);</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    // Module references
+    let rawWasm = null;
+    let wrapperJs = null;
+    let useWrapper = false;
+
+    async function initWasm() {
+      const status = document.getElementById('loading-status');
+
+      try {
+        // Load both modules in parallel
+        status.textContent = 'Loading WASM modules...';
+
+        const [rawModule, wrapperModule] = await Promise.all([
+          import('../pkg/exrs_raw_wasm_bindgen.js'),
+          import('../js/dist/index.js')
+        ]);
+
+        // Initialize raw WASM
+        status.textContent = 'Initializing raw WASM...';
+        await rawModule.default();
+        rawWasm = rawModule;
+
+        // Initialize wrapper
+        status.textContent = 'Initializing wrapper...';
+        await wrapperModule.init();
+        wrapperJs = wrapperModule;
+
+        status.style.display = 'none';
+        document.getElementById('main-content').style.display = 'block';
+
+        updatePreviews();
+      } catch (error) {
+        status.className = 'status error';
+        status.textContent = `Failed to load WASM: ${error.message}`;
+        console.error('WASM init error:', error);
+      }
+    }
+
+    function toggleApi() {
+      useWrapper = !useWrapper;
+      const toggle = document.getElementById('api-toggle');
+      const labelRaw = document.getElementById('label-raw');
+      const labelWrapper = document.getElementById('label-wrapper');
+      const codeRaw = document.getElementById('code-raw');
+      const codeWrapper = document.getElementById('code-wrapper');
+      const btnBadge = document.getElementById('btn-badge');
+
+      if (useWrapper) {
+        toggle.classList.add('active');
+        labelRaw.classList.remove('active');
+        labelWrapper.classList.add('active');
+        codeRaw.classList.add('hidden');
+        codeWrapper.classList.remove('hidden');
+        btnBadge.textContent = 'WRAPPER';
+        btnBadge.classList.remove('raw');
+        btnBadge.classList.add('wrapper');
+      } else {
+        toggle.classList.remove('active');
+        labelRaw.classList.add('active');
+        labelWrapper.classList.remove('active');
+        codeRaw.classList.remove('hidden');
+        codeWrapper.classList.add('hidden');
+        btnBadge.textContent = 'RAW';
+        btnBadge.classList.remove('wrapper');
+        btnBadge.classList.add('raw');
+      }
+    }
+
+    // Initialize the toggle state
+    document.getElementById('label-raw').classList.add('active');
+
+    function generateBeautyData(width, height) {
+      const data = new Float64Array(width * height * 4);
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const i = (y * width + x) * 4;
+          const u = x / width;
+          const v = y / height;
+          data[i + 0] = u;
+          data[i + 1] = v;
+          data[i + 2] = Math.sin(u * Math.PI) * Math.sin(v * Math.PI);
+          data[i + 3] = 1.0;
+        }
+      }
+      return data;
+    }
+
+    function generateDepthData(width, height) {
+      const data = new Float64Array(width * height);
+      const cx = width / 2;
+      const cy = height / 2;
+      const maxDist = Math.sqrt(cx * cx + cy * cy);
+
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const dx = x - cx;
+          const dy = y - cy;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          data[y * width + x] = dist / maxDist;
+        }
+      }
+      return data;
+    }
+
+    function generateNormalsData(width, height) {
+      const data = new Float64Array(width * height * 3);
+      const cx = width / 2;
+      const cy = height / 2;
+      const radius = Math.min(width, height) / 2;
+
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const i = (y * width + x) * 3;
+          const dx = (x - cx) / radius;
+          const dy = (y - cy) / radius;
+          const d2 = dx * dx + dy * dy;
+
+          if (d2 <= 1.0) {
+            const dz = Math.sqrt(1.0 - d2);
+            data[i + 0] = dx * 0.5 + 0.5;
+            data[i + 1] = dy * 0.5 + 0.5;
+            data[i + 2] = dz;
+          } else {
+            data[i + 0] = 0.5;
+            data[i + 1] = 0.5;
+            data[i + 2] = 1.0;
+          }
+        }
+      }
+      return data;
+    }
+
+    function generateAOData(width, height) {
+      const data = new Float64Array(width * height);
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const noise = Math.sin(x * 0.1) * Math.cos(y * 0.1) * 0.5 + 0.5;
+          const checker = ((Math.floor(x / 32) + Math.floor(y / 32)) % 2) * 0.1;
+          data[y * width + x] = Math.max(0, Math.min(1, noise + checker));
+        }
+      }
+      return data;
+    }
+
+    function drawPreview(canvasId, data, channels) {
+      const canvas = document.getElementById(canvasId);
+      const ctx = canvas.getContext('2d');
+      const width = canvas.width;
+      const height = canvas.height;
+      const imageData = ctx.createImageData(width, height);
+      const dataWidth = Math.sqrt(data.length / channels);
+
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const srcX = Math.floor(x * dataWidth / width);
+          const srcY = Math.floor(y * dataWidth / height);
+          const srcI = (srcY * dataWidth + srcX) * channels;
+          const dstI = (y * width + x) * 4;
+
+          if (channels === 4) {
+            imageData.data[dstI + 0] = Math.floor(data[srcI + 0] * 255);
+            imageData.data[dstI + 1] = Math.floor(data[srcI + 1] * 255);
+            imageData.data[dstI + 2] = Math.floor(data[srcI + 2] * 255);
+            imageData.data[dstI + 3] = Math.floor(data[srcI + 3] * 255);
+          } else if (channels === 3) {
+            imageData.data[dstI + 0] = Math.floor(data[srcI + 0] * 255);
+            imageData.data[dstI + 1] = Math.floor(data[srcI + 1] * 255);
+            imageData.data[dstI + 2] = Math.floor(data[srcI + 2] * 255);
+            imageData.data[dstI + 3] = 255;
+          } else {
+            const v = Math.floor(data[srcI] * 255);
+            imageData.data[dstI + 0] = v;
+            imageData.data[dstI + 1] = v;
+            imageData.data[dstI + 2] = v;
+            imageData.data[dstI + 3] = 255;
+          }
+        }
+      }
+
+      ctx.putImageData(imageData, 0, 0);
+    }
+
+    function updatePreviews() {
+      const size = 128;
+      drawPreview('preview-beauty', generateBeautyData(size, size), 4);
+      drawPreview('preview-depth', generateDepthData(size, size), 1);
+      drawPreview('preview-normals', generateNormalsData(size, size), 3);
+      drawPreview('preview-ao', generateAOData(size, size), 1);
+    }
+
+    function getSettings() {
+      return {
+        width: parseInt(document.getElementById('width').value, 10),
+        height: parseInt(document.getElementById('height').value, 10),
+        compression: document.getElementById('compression').value,
+        precision: document.querySelector('input[name="precision"]:checked').value,
+        includeBeauty: document.getElementById('layer-beauty').checked,
+        includeDepth: document.getElementById('layer-depth').checked,
+        includeNormals: document.getElementById('layer-normals').checked,
+        includeAO: document.getElementById('layer-ao').checked,
+      };
+    }
+
+    function downloadBlob(bytes, filename) {
+      const blob = new Blob([bytes], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    }
+
+    function showStatus(message, type = 'loading') {
+      const status = document.getElementById('generate-status');
+      status.style.display = 'block';
+      status.className = `status ${type}`;
+      status.textContent = message;
+    }
+
+    function updateStats(size, layers, time, width, height) {
+      document.getElementById('stat-size').textContent = formatSize(size);
+      document.getElementById('stat-layers').textContent = layers;
+      document.getElementById('stat-time').textContent = time.toFixed(1) + ' ms';
+      document.getElementById('stat-dimensions').textContent = `${width} x ${height}`;
+    }
+
+    // Map string values to raw WASM enums
+    function getRawPrecision(precision) {
+      return precision === 'f16' ? rawWasm.SamplePrecision.F16 : rawWasm.SamplePrecision.F32;
+    }
+
+    function getRawCompression(compression) {
+      const map = {
+        none: rawWasm.CompressionMethod.None,
+        rle: rawWasm.CompressionMethod.Rle,
+        zip: rawWasm.CompressionMethod.Zip,
+        zip16: rawWasm.CompressionMethod.Zip16,
+        piz: rawWasm.CompressionMethod.Piz,
+        pxr24: rawWasm.CompressionMethod.Pxr24,
+      };
+      return map[compression] || rawWasm.CompressionMethod.Rle;
+    }
+
+    function generateExrWithRawWasm(settings) {
+      const { width, height, compression, precision, includeBeauty, includeDepth, includeNormals, includeAO } = settings;
+
+      const exr = new rawWasm.ExrEncoder(width, height);
+      const rawPrecision = getRawPrecision(precision);
+      const rawCompression = getRawCompression(compression);
+
+      if (includeBeauty) {
+        exr.addRgbaLayer('beauty', generateBeautyData(width, height), rawPrecision, rawCompression);
+      }
+      if (includeDepth) {
+        exr.addSingleChannelLayer('depth', 'Z', generateDepthData(width, height), rawPrecision, rawCompression);
+      }
+      if (includeNormals) {
+        exr.addRgbLayer('normals', generateNormalsData(width, height), rawPrecision, rawCompression);
+      }
+      if (includeAO) {
+        exr.addSingleChannelLayer('ao', 'Y', generateAOData(width, height), rawPrecision, rawCompression);
+      }
+
+      const bytes = exr.toBytes();
+      const layerCount = exr.layerCount;
+      return { bytes, layerCount };
+    }
+
+    function generateExrWithWrapper(settings) {
+      const { width, height, compression, precision, includeBeauty, includeDepth, includeNormals, includeAO } = settings;
+
+      const layers = [];
+
+      if (includeBeauty) {
+        layers.push({
+          name: 'beauty',
+          channels: 'rgba',
+          data: generateBeautyData(width, height),
+          precision,
+          compression
+        });
+      }
+      if (includeDepth) {
+        layers.push({
+          name: 'depth',
+          channels: ['Z'],
+          data: generateDepthData(width, height),
+          precision,
+          compression
+        });
+      }
+      if (includeNormals) {
+        layers.push({
+          name: 'normals',
+          channels: 'rgb',
+          data: generateNormalsData(width, height),
+          precision,
+          compression
+        });
+      }
+      if (includeAO) {
+        layers.push({
+          name: 'ao',
+          channels: ['Y'],
+          data: generateAOData(width, height),
+          precision,
+          compression
+        });
+      }
+
+      const bytes = wrapperJs.encodeExr({ width, height, layers });
+      return { bytes, layerCount: layers.length };
+    }
+
+    function generateExr() {
+      if (!rawWasm || !wrapperJs) return;
+
+      const settings = getSettings();
+      const { width, height, includeBeauty, includeDepth, includeNormals, includeAO } = settings;
+
+      if (!includeBeauty && !includeDepth && !includeNormals && !includeAO) {
+        showStatus('Please select at least one layer', 'error');
+        return;
+      }
+
+      const apiName = useWrapper ? 'Wrapper JS' : 'Raw WASM';
+      showStatus(`Generating EXR with ${apiName}...`, 'loading');
+
+      try {
+        const startTime = performance.now();
+
+        const { bytes, layerCount } = useWrapper
+          ? generateExrWithWrapper(settings)
+          : generateExrWithRawWasm(settings);
+
+        const endTime = performance.now();
+
+        updateStats(bytes.length, layerCount, endTime - startTime, width, height);
+        downloadBlob(bytes, 'render.exr');
+
+        showStatus(`EXR generated successfully with ${apiName}!`, 'success');
+      } catch (error) {
+        showStatus(`Error: ${error.message || error}`, 'error');
+        console.error('EXR generation error:', error);
+      }
+    }
+
+    // Expose functions to window for onclick handlers
+    window.updatePreviews = updatePreviews;
+    window.generateExr = generateExr;
+    window.toggleApi = toggleApi;
+
+    // Initialize on load
+    initWasm();
+  </script>
+</body>
+</html>
