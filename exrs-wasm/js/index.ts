@@ -69,6 +69,8 @@ export interface ExrEncodeRgbImage {
 /** Decoded layer information */
 export interface ExrDecodeLayer {
   name: string | null;
+
+  /** Ordered alphabetically */
   channelNames: Channels;
 
   /** @example getInterleavedPixels(RGB), getInterleavedPixels(RGBA), getInterleavedPixels(["X", "Y", "Z"]) */
@@ -147,7 +149,7 @@ export function encodeRgbExr(image: ExrEncodeRgbImage): Uint8Array {
     width: image.width,
     height: image.height,
     layers: [{
-      channelNames: "rgb".split(''),
+      channelNames: RGB,
       interleavedPixels: image.interleavedRgbPixels,
       compression: image.compression,
       precision: image.precision,
@@ -160,7 +162,7 @@ export function encodeRgbaExr(image: ExrEncodeRgbaImage): Uint8Array {
     width: image.width,
     height: image.height,
     layers: [{
-      channelNames: "rgba".split(''),
+      channelNames: RGBA,
       interleavedPixels: image.interleavedRgbaPixels,
       compression: image.compression,
       precision: image.precision,
@@ -204,11 +206,11 @@ export function encodeExr(options: ExrEncodeImage): Uint8Array {
   };
 
   // Single layer shortcuts
-  // TODO: This optimization should happen entirely in the rust file
+  // TODO: This optimization could happen entirely in the rust file? would add more wasm bindgen overhead though
   if (layers.length === 1) {
     const layer = layers[0];
-    const precision = precisionMap[layer.precision || 'f32'];
-    const compression = compressionMap[layer.compression || 'rle'];
+    const precision = precisionMap[layer.precision ?? 'f32'];
+    const compression = compressionMap[layer.compression ?? 'rle'];
 
     if (layer.channelNames.join('') === 'rgba') {
       return wasm.writeExrRgba(width, height, layer.name, layer.interleavedPixels, precision, compression);
@@ -221,8 +223,8 @@ export function encodeExr(options: ExrEncodeImage): Uint8Array {
 
   try {
     for (const layer of layers) {
-      const precision = precisionMap[layer.precision || 'f32'];
-      const compression = compressionMap[layer.compression || 'rle'];
+      const precision = precisionMap[layer.precision ?? 'f32'];
+      const compression = compressionMap[layer.compression ?? 'rle'];
       encoder.addLayer(layer.name, [...layer.channelNames], layer.interleavedPixels, precision, compression);
     }
 
