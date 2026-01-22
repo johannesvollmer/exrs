@@ -248,9 +248,34 @@ to reduce memory exhaustion attacks.
 -   [Awesome Contributors!](CONTRIBUTORS.md)
 
 ### Wasm
-This crate supports the `wasm-unknown-unknown` target.
-Until WASM has threads, decoding and encoding will be slower for compressed files.
-Of course, you will need to read from byte buffers instead of file handles.
+
+This crate supports the `wasm32-unknown-unknown` target for use in browsers and Node.js.
+
+#### npm Package
+
+For JavaScript/TypeScript projects, install the [`exrs`](https://www.npmjs.com/package/exrs) package from npm:
+
+```bash
+npm install exrs
+```
+
+```javascript
+import { init, encodeExr, decodeExr } from 'exrs';
+
+await init();
+
+const bytes = encodeExr({
+  width: 1920,
+  height: 1080,
+  layers: [{ name: 'rgba', channels: 'rgba', data: rgbaPixels }]
+});
+```
+
+See the [exrs-wasm documentation](./exrs-wasm/README.md) for the full API reference.
+
+#### Notes
+- Until WASM has threads, decoding and encoding will be slower for compressed files
+- Read from byte buffers (`Uint8Array`) instead of file handles
 
 ### Motivation
 
