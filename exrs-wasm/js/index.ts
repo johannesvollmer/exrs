@@ -21,7 +21,7 @@ export interface ExrEncodeLayer {
   /** Layer name (e.g., "beauty", "depth") */
   name?: string;
 
-  /** @example 'Rgba()', 'Rgb()', or ['Z'] */
+  /** @example 'RGBA', 'RGB', ['Z'], ['R', 'G', 'B', 'A'], ['X', 'Y', 'Z'], ...  */
   channelNames: Channels;
 
   interleavedPixels: Float32Array;
@@ -33,13 +33,6 @@ export interface ExrEncodeLayer {
   compression?: Compression;
 }
 
-
-export function encodeRgbaLayer(image: Omit<ExrEncodeLayer, "channelNames">): ExrEncodeLayer {
-  return {
-    ...image,
-    channelNames: RGBA,
-  }
-}
 
 export interface ExrEncodeImage {
   width: number;
