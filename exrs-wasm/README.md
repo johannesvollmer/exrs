@@ -21,20 +21,20 @@ await init();
 // Create RGBA pixel data
 const width = 1920;
 const height = 1080;
-const rgbaData = new Float64Array(width * height * 4);
+const interleavedPixels = new Float32Array(width * height * 4);
 // ... fill with pixel values ...
 
 // Encode to EXR
-const bytes = encodeExr({
-  width,
-  height,
-  layers: [
-    { name: 'beauty', channels: 'rgba', data: rgbaData, compression: 'piz' }
-  ]
+const bytes: Uint8Array = encodeRgbaExr({
+    width,
+    height,
+    interleavedPixels, 
+    compression: 'piz'
 });
 
-// Download or use the bytes
-const blob = new Blob([bytes], { type: 'image/x-exr' });
+// Decode back
+const image = decodeRgbaExr(bytes);
+const firstLayerPixels: Float32Array = image.interleavedRgbaPixels;
 ```
 
 ## API
@@ -53,14 +53,14 @@ Encode pixel data into an EXR file.
 
 ```typescript
 const bytes = encodeExr({
-  width: number,
-  height: number,
+  width: 1920,
+  height: 1080,
   layers: [{
-    name: string,                           // Layer name (e.g., "beauty")
-    channels: 'rgba' | 'rgb' | string[],    // Channel type or custom names
-    data: Float64Array,                     // Pixel data
-    precision?: 'f16' | 'f32' | 'u32',      // Default: 'f32'
-    compression?: 'none' | 'rle' | 'zip' | 'zip16' | 'piz' | 'pxr24'  // Default: 'rle'
+    name: 'beauty',                                 // Layer name (e.g., "beauty")
+    channelNames: 'rgba',                           // 'rgba', 'rgb' or string[]
+    interleavedPixels: rgbaData,                    // Float32Array
+    precision: 'f32',                               // 'f16', 'f32', or 'u32'
+    compression: 'piz'                              // 'none', 'rle', 'zip', 'zip16', 'piz', 'pxr24'
   }]
 });
 ```
@@ -76,19 +76,19 @@ console.log(image.width, image.height);
 console.log(image.layers.length);
 
 // Get pixel data (auto-detects RGBA/RGB/single channel based on layer contents)
-const pixelData = image.layers[0].getData();
+const pixelData = image.layers[0].getInterleavedPixels();
 
 // Get individual channel by name
-const depthData = image.layers[1].getChannel('Z');
+const depthData = image.layers[1].getChannelPixels('Z');
 ```
 
-### `decodeExrRgba(data)` / `decodeExrRgb(data)`
+### `decodeRgbaExr(data)` / `decodeRgbExr(data)`
 
 Optimized decoders for when you know the channel layout:
 
 ```typescript
-const { width, height, data } = decodeExrRgba(bytes);
-// data is interleaved RGBA Float64Array
+const { width, height, interleavedRgbaPixels } = decodeRgbaExr(bytes);
+// interleavedRgbaPixels is interleaved RGBA Float32Array
 ```
 
 ## Examples
@@ -104,10 +104,10 @@ const bytes = encodeExr({
   width: 1920,
   height: 1080,
   layers: [
-    { name: 'beauty', channels: 'rgba', data: beautyData, compression: 'piz' },
-    { name: 'depth', channels: ['Z'], data: depthData, compression: 'pxr24' },
-    { name: 'normals', channels: 'rgb', data: normalsData, compression: 'zip16' },
-    { name: 'ao', channels: ['Y'], data: aoData, compression: 'rle' }
+    { name: 'beauty', channelNames: 'rgba', interleavedPixels: beautyData, compression: 'piz' },
+    { name: 'depth', channelNames: ['Z'], interleavedPixels: depthData, compression: 'pxr24' },
+    { name: 'normals', channelNames: 'rgb', interleavedPixels: normalsData, compression: 'zip16' },
+    { name: 'ao', channelNames: ['Y'], interleavedPixels: aoData, compression: 'rle' }
   ]
 });
 ```
@@ -124,27 +124,24 @@ const gl = canvas.getContext('webgl2');
 const pixels = new Float32Array(width * height * 4);
 gl.readPixels(0, 0, width, height, gl.RGBA, gl.FLOAT, pixels);
 
-// Convert to Float64Array (required by API)
-const data = new Float64Array(pixels);
-
 const bytes = encodeExr({
   width,
   height,
-  layers: [{ name: 'render', channels: 'rgba', data, compression: 'piz' }]
+  layers: [{ name: 'render', channelNames: 'rgba', interleavedPixels: pixels, compression: 'piz' }]
 });
 ```
 
 ### Load and Display EXR
 
 ```javascript
-import { init, decodeExrRgba } from 'exrs';
+import { init, decodeRgbaExr } from 'exrs';
 
 await init();
 
 const response = await fetch('image.exr');
 const bytes = new Uint8Array(await response.arrayBuffer());
 
-const { width, height, data } = decodeExrRgba(bytes);
+const { width, height, interleavedRgbaPixels } = decodeRgbaExr(bytes);
 
 // Display on canvas (tone mapping required for HDR)
 const canvas = document.createElement('canvas');
@@ -155,10 +152,10 @@ const imageData = ctx.createImageData(width, height);
 
 for (let i = 0; i < width * height; i++) {
   // Simple tone mapping (Reinhard)
-  const r = data[i * 4];
-  const g = data[i * 4 + 1];
-  const b = data[i * 4 + 2];
-  const a = data[i * 4 + 3];
+  const r = interleavedRgbaPixels[i * 4];
+  const g = interleavedRgbaPixels[i * 4 + 1];
+  const b = interleavedRgbaPixels[i * 4 + 2];
+  const a = interleavedRgbaPixels[i * 4 + 3];
 
   imageData.data[i * 4] = Math.min(255, (r / (1 + r)) * 255);
   imageData.data[i * 4 + 1] = Math.min(255, (g / (1 + g)) * 255);

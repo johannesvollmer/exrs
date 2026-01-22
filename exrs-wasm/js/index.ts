@@ -236,11 +236,11 @@ export function encodeExr(options: ExrEncodeImage): Uint8Array {
       const compression = compressionMap[layer.compression || 'rle'];
 
       if (layer.channelNames === 'rgba') {
-        encoder.addRgbaLayer(layer.name || "", layer.interleavedPixels, precision, compression);
+        encoder.addRgbaLayer(layer.name, layer.interleavedPixels, precision, compression);
       } else if (layer.channelNames === 'rgb') {
-        encoder.addRgbLayer(layer.name || "", layer.interleavedPixels, precision, compression);
+        encoder.addRgbLayer(layer.name, layer.interleavedPixels, precision, compression);
       } else if (Array.isArray(layer.channelNames) && layer.channelNames.length === 1) {
-        encoder.addSingleChannelLayer(layer.name || "", layer.channelNames[0], layer.interleavedPixels, precision, compression);
+        encoder.addSingleChannelLayer(layer.name, layer.channelNames[0], layer.interleavedPixels, precision, compression);
       } else {
         throw new Error(`Unsupported channels format: ${JSON.stringify(layer.channelNames)}`);
       }
@@ -265,10 +265,10 @@ export function encodeExr(options: ExrEncodeImage): Uint8Array {
  * console.log(image.width, image.height);
  *
  * // Get pixel data (auto-detects format based on channels)
- * const pixelData = image.layers[0].getData();
+ * const pixelData = image.layers[0].getInterleavedPixels();
  *
  * // Get a specific channel by name
- * const depthData = image.layers[1].getChannel('Z');
+ * const depthData = image.layers[1].getChannelPixels('Z');
  */
 export function decodeExr(data: Uint8Array): ExrDecodeImage {
   ensureInitialized();
@@ -318,6 +318,7 @@ export function decodeExr(data: Uint8Array): ExrDecodeImage {
   }
 
   // TODO add free: () => decoder.free()
+  // Decoder is currently freed in rust when dropped, but wasm-bindgen handles it
   return { width, height, layers };
 }
 
@@ -331,7 +332,7 @@ export function decodeExr(data: Uint8Array): ExrDecodeImage {
  *
  * @example
  * await init();
- * const { width, height, data } = decodeExrRgba(bytes);
+ * const { width, height, interleavedRgbaPixels } = decodeRgbaExr(bytes);
  */
 export function decodeRgbaExr(data: Uint8Array): ExrDecodeRgbaImage {
   ensureInitialized();
@@ -359,7 +360,7 @@ export function decodeRgbaExr(data: Uint8Array): ExrDecodeRgbaImage {
  *
  * @example
  * await init();
- * const { width, height, data } = decodeExrRgb(bytes);
+ * const { width, height, interleavedRgbPixels } = decodeRgbExr(bytes);
  */
 export function decodeRgbExr(data: Uint8Array): ExrDecodeRgbImage {
   ensureInitialized();
