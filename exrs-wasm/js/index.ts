@@ -16,7 +16,7 @@ export type Channels = 'rgba' | 'rgb' | string[];
 export interface ExrEncodeLayer {
 
   /** Layer name (e.g., "beauty", "depth") */
-  name: string;
+  name?: string;
 
   /** Channel type: 'rgba', 'rgb', or array of channel names like ['Z'] */
   channelNames: Channels;
@@ -32,10 +32,34 @@ export interface ExrEncodeLayer {
 
 export interface ExrEncodeImage {
   width: number;
+  height: number;
+  layers: ExrEncodeLayer[];
+}
+
+export interface ExrEncodeRgbaImage {
+  width: number;
+  height: number;
+  interleavedRgbaPixels: Float32Array;
+
+  /** Default: 'f32' */
+  precision?: Precision;
+
+  /** Default: 'rle' */
+  compression?: Compression;
+}
+
+export interface ExrEncodeRgbImage {
+  width: number;
 
   height: number;
 
-  layers: ExrEncodeLayer[];
+  interleavedRgbPixels: Float32Array;
+
+  /** Default: 'f32' */
+  precision?: Precision;
+
+  /** Default: 'rle' */
+  compression?: Compression;
 }
 
 /** Decoded layer information */
@@ -121,6 +145,32 @@ function ensureInitialized() {
   }
 }
 
+export function encodeRgbExr(image: ExrEncodeRgbImage): Uint8Array {
+  return encodeExr({
+    width: image.width,
+    height: image.height,
+    layers: [{
+      channelNames: "rgb",
+      interleavedPixels: image.interleavedRgbPixels,
+      compression: image.compression,
+      precision: image.precision,
+    }]
+  })
+}
+
+export function encodeRgbaExr(image: ExrEncodeRgbaImage): Uint8Array {
+  return encodeExr({
+    width: image.width,
+    height: image.height,
+    layers: [{
+      channelNames: "rgba",
+      interleavedPixels: image.interleavedRgbaPixels,
+      compression: image.compression,
+      precision: image.precision,
+    }]
+  })
+}
+
 /**
  * Encode pixel data into an EXR file.
  *
@@ -186,11 +236,11 @@ export function encodeExr(options: ExrEncodeImage): Uint8Array {
       const compression = compressionMap[layer.compression || 'rle'];
 
       if (layer.channelNames === 'rgba') {
-        encoder.addRgbaLayer(layer.name, layer.interleavedPixels, precision, compression);
+        encoder.addRgbaLayer(layer.name || "", layer.interleavedPixels, precision, compression);
       } else if (layer.channelNames === 'rgb') {
-        encoder.addRgbLayer(layer.name, layer.interleavedPixels, precision, compression);
+        encoder.addRgbLayer(layer.name || "", layer.interleavedPixels, precision, compression);
       } else if (Array.isArray(layer.channelNames) && layer.channelNames.length === 1) {
-        encoder.addSingleChannelLayer(layer.name, layer.channelNames[0], layer.interleavedPixels, precision, compression);
+        encoder.addSingleChannelLayer(layer.name || "", layer.channelNames[0], layer.interleavedPixels, precision, compression);
       } else {
         throw new Error(`Unsupported channels format: ${JSON.stringify(layer.channelNames)}`);
       }
@@ -231,8 +281,7 @@ export function decodeExr(data: Uint8Array): ExrDecodeImage {
 
   const layers: ExrDecodeLayer[] = [];
   for (let i = 0; i < layerCount; i++) {
-    const name = decoder.getLayerName(i);
-    if (name == undefined) throw new Error("invalid index");
+    const name = decoder.getLayerName(i) ?? null;
 
     const channels = decoder.getChannelNames(i);
 
@@ -284,7 +333,7 @@ export function decodeExr(data: Uint8Array): ExrDecodeImage {
  * await init();
  * const { width, height, data } = decodeExrRgba(bytes);
  */
-export function decodeExrRgba(data: Uint8Array): ExrDecodeRgbaImage {
+export function decodeRgbaExr(data: Uint8Array): ExrDecodeRgbaImage {
   ensureInitialized();
 
   // TODO this kind of optimizatoin/specialization could happen in the rust file, not here
@@ -312,7 +361,7 @@ export function decodeExrRgba(data: Uint8Array): ExrDecodeRgbaImage {
  * await init();
  * const { width, height, data } = decodeExrRgb(bytes);
  */
-export function decodeExrRgb(data: Uint8Array): ExrDecodeRgbImage {
+export function decodeRgbExr(data: Uint8Array): ExrDecodeRgbImage {
   ensureInitialized();
 
   // TODO this kind of optimizatoin/specialization could happen in the rust file, not here

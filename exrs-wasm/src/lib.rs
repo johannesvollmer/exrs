@@ -67,7 +67,7 @@ pub fn init_panic_hook() {
 
 /// Represents a pre-built layer ready for encoding.
 struct LayerData {
-    name: String,
+    name: Option<String>,
     channels: AnyChannels<FlatSamples>,
     compression: Compression,
 }
@@ -164,7 +164,7 @@ impl ExrEncoder {
     #[wasm_bindgen(js_name = addRgbaLayer)]
     pub fn add_rgba_layer(
         &mut self,
-        name: &str,
+        name: Option<String>,
         data: &[f32],
         precision: SamplePrecision,
         compression: Option<CompressionMethod>,
@@ -174,7 +174,7 @@ impl ExrEncoder {
         if data.len() != expected_len {
             return Err(JsValue::from_str(&format!(
                 "RGBA layer '{}' expects {} floats ({}x{}x4), got {}",
-                name, expected_len, self.width, self.height, data.len()
+                name.unwrap_or_default(), expected_len, self.width, self.height, data.len()
             )));
         }
 
@@ -200,7 +200,7 @@ impl ExrEncoder {
         ]);
 
         self.layers.push(LayerData {
-            name: name.to_string(),
+            name,
             channels,
             compression: compression.unwrap_or_default().into(),
         });
@@ -218,7 +218,7 @@ impl ExrEncoder {
     #[wasm_bindgen(js_name = addRgbLayer)]
     pub fn add_rgb_layer(
         &mut self,
-        name: &str,
+        name: Option<String>,
         data: &[f32],
         precision: SamplePrecision,
         compression: Option<CompressionMethod>,
@@ -228,7 +228,7 @@ impl ExrEncoder {
         if data.len() != expected_len {
             return Err(JsValue::from_str(&format!(
                 "RGB layer '{}' expects {} floats ({}x{}x3), got {}",
-                name, expected_len, self.width, self.height, data.len()
+                name.unwrap_or_default(), expected_len, self.width, self.height, data.len()
             )));
         }
 
@@ -251,7 +251,7 @@ impl ExrEncoder {
         ]);
 
         self.layers.push(LayerData {
-            name: name.to_string(),
+            name,
             channels,
             compression: compression.unwrap_or_default().into(),
         });
@@ -270,7 +270,7 @@ impl ExrEncoder {
     #[wasm_bindgen(js_name = addSingleChannelLayer)]
     pub fn add_single_channel_layer(
         &mut self,
-        name: &str,
+        name: Option<String>,
         channel_name: &str,
         data: &[f32],
         precision: SamplePrecision,
@@ -280,7 +280,7 @@ impl ExrEncoder {
         if data.len() != expected_len {
             return Err(JsValue::from_str(&format!(
                 "Single-channel layer '{}' expects {} floats ({}x{}), got {}",
-                name, expected_len, self.width, self.height, data.len()
+                name.unwrap_or_default(), expected_len, self.width, self.height, data.len()
             )));
         }
 
@@ -290,7 +290,7 @@ impl ExrEncoder {
         ]);
 
         self.layers.push(LayerData {
-            name: name.to_string(),
+            name,
             channels,
             compression: compression.unwrap_or_default().into(),
         });
@@ -341,7 +341,10 @@ impl ExrEncoder {
 
                 Layer::new(
                     size,
-                    LayerAttributes::named(layer_data.name.as_str()),
+                    LayerAttributes {
+                        layer_name: layer_data.name.as_ref().map(|s| Text::new_or_none(s)).flatten(),
+                        .. Default::default()
+                    },
                     encoding,
                     layer_data.channels.clone(),
                 )
@@ -700,7 +703,7 @@ pub fn read_exr_rgb(data: &[u8]) -> std::result::Result<ExrRgbResult, JsValue> {
 pub fn write_exr_rgba(
     width: u32,
     height: u32,
-    layer_name: &str,
+    layer_name: Option<String>,
     data: &[f32],
     precision: SamplePrecision,
     compression: CompressionMethod,
@@ -726,7 +729,7 @@ pub fn write_exr_rgba(
 pub fn write_exr_rgb(
     width: u32,
     height: u32,
-    layer_name: &str,
+    layer_name: Option<String>,
     data: &[f32],
     precision: SamplePrecision,
     compression: CompressionMethod,
@@ -753,7 +756,7 @@ pub fn write_exr_rgb(
 pub fn write_exr_single_channel(
     width: u32,
     height: u32,
-    layer_name: &str,
+    layer_name: Option<String>,
     channel_name: &str,
     data: &[f32],
     precision: SamplePrecision,

@@ -3,9 +3,11 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { 
   init, 
   encodeExr, 
+  encodeRgbaExr,
+  encodeRgbExr,
   decodeExr, 
-  decodeExrRgba, 
-  decodeExrRgb 
+  decodeRgbaExr,
+  decodeRgbExr
 } from './index';
 
 describe('EXRS WASM Integration Tests', () => {
@@ -28,10 +30,11 @@ describe('EXRS WASM Integration Tests', () => {
     }
 
     // Encode
-    const bytes = encodeExr({
+    const bytes = encodeRgbaExr({
       width,
       height,
-      layers: [{ name: 'test', channelNames: 'rgba', interleavedPixels: data, compression: 'none' }],
+      interleavedRgbaPixels: data,
+      compression: 'none',
     });
 
     expect(bytes.length).toBeGreaterThan(0);
@@ -67,10 +70,11 @@ describe('EXRS WASM Integration Tests', () => {
       data[i] = i / 100;
     }
 
-    const bytes = encodeExr({
+    const bytes = encodeRgbExr({
       width,
       height,
-      layers: [{ name: 'normals', channelNames: 'rgb', interleavedPixels: data, compression: 'rle' }],
+      interleavedRgbPixels: data,
+      compression: 'rle',
     });
 
     const image = decodeExr(bytes);
@@ -174,10 +178,10 @@ describe('EXRS WASM Integration Tests', () => {
       data[i * 4 + 3] = 0.4; // A
     }
 
-    const bytes = encodeExr({
+    const bytes = encodeRgbaExr({
       width,
       height,
-      layers: [{ name: 'test', channelNames: 'rgba', interleavedPixels: data }],
+      interleavedRgbaPixels: data,
     });
 
     const image = decodeExr(bytes);
@@ -215,14 +219,14 @@ describe('EXRS WASM Integration Tests', () => {
       data[i * 4 + 3] = 1.0;
     }
 
-    const bytes = encodeExr({
+    const bytes = encodeRgbaExr({
       width,
       height,
-      layers: [{ name: 'test', channelNames: 'rgba', interleavedPixels: data }],
+      interleavedRgbaPixels: data,
     });
 
     // Use optimized RGBA reader
-    const result = decodeExrRgba(bytes);
+    const result = decodeRgbaExr(bytes);
     expect(result.width).toBe(width);
     expect(result.height).toBe(height);
     expect(result.interleavedRgbaPixels.length).toBe(pixelCount * 4);
@@ -242,14 +246,14 @@ describe('EXRS WASM Integration Tests', () => {
       data[i] = i / 100;
     }
 
-    const bytes = encodeExr({
+    const bytes = encodeRgbExr({
       width,
       height,
-      layers: [{ name: 'normals', channelNames: 'rgb', interleavedPixels: data }],
+      interleavedRgbPixels: data,
     });
 
     // Use optimized RGB reader
-    const result = decodeExrRgb(bytes);
+    const result = decodeRgbExr(bytes);
     expect(result.width).toBe(width);
     expect(result.height).toBe(height);
     expect(result.interleavedRgbPixels.length).toBe(pixelCount * 3);
@@ -268,10 +272,11 @@ describe('EXRS WASM Integration Tests', () => {
     const compressions = ['none', 'rle', 'zip', 'zip16', 'piz', 'pxr24'] as const;
 
     for (const compression of compressions) {
-      const bytes = encodeExr({
+      const bytes = encodeRgbaExr({
         width,
         height,
-        layers: [{ name: 'test', channelNames: 'rgba', interleavedPixels: data, compression }],
+        interleavedRgbaPixels: data,
+        compression,
       });
 
       expect(bytes.length).toBeGreaterThan(0);
@@ -288,10 +293,11 @@ describe('EXRS WASM Integration Tests', () => {
     const pixelCount = width * height;
     const data = new Float32Array(pixelCount * 4).fill(0.5);
 
-    const bytes = encodeExr({
+    const bytes = encodeRgbaExr({
       width,
       height,
-      layers: [{ name: 'test', channelNames: 'rgba', interleavedPixels: data, precision: 'f16' }],
+      interleavedRgbaPixels: data,
+      precision: 'f16',
     });
 
     const image = decodeExr(bytes);
@@ -330,10 +336,10 @@ describe('EXRS WASM Integration Tests', () => {
     const height = 2;
     const pixelCount = width * height;
 
-    const bytes = encodeExr({
+    const bytes = encodeRgbaExr({
       width,
       height,
-      layers: [{ name: 'test', channelNames: 'rgba', interleavedPixels: new Float32Array(pixelCount * 4) }],
+      interleavedRgbaPixels: new Float32Array(pixelCount * 4),
     });
 
     const image = decodeExr(bytes);
