@@ -4,21 +4,24 @@
  * This module provides a clean, easy-to-use API for EXR files.
  * Call init() once before using other functions.
  */
-
+import * as wasm from "exrs-raw-wasm-bindgen"
 
 export type Precision = 'f16' | 'f32' | 'u32';
 
 export type Compression = 'none' | 'rle' | 'zip' | 'zip16' | 'piz' | 'pxr24';
 
-/** You can always use string[]. But use rgb or rgba directly for simplicity and speed. */
-export type Channels = 'rgba' | 'rgb' | string[];
+export type Channels = readonly string[];
+
+// TODO this is not so pretty...?
+export const RGBA: Channels = Object.freeze("RGBA".split(''));
+export const RGB: Channels = Object.freeze("RGB".split(''));
 
 export interface ExrEncodeLayer {
 
   /** Layer name (e.g., "beauty", "depth") */
   name?: string;
 
-  /** @example 'rgba', 'rgb', or ['Z'] */
+  /** @example 'Rgba()', 'Rgb()', or ['Z'] */
   channelNames: Channels;
 
   interleavedPixels: Float32Array;
@@ -28,6 +31,14 @@ export interface ExrEncodeLayer {
 
   /** @default 'rle' */
   compression?: Compression;
+}
+
+
+export function encodeRgbaLayer(image: Omit<ExrEncodeLayer, "channelNames">): ExrEncodeLayer {
+  return {
+    ...image,
+    channelNames: RGBA,
+  }
 }
 
 export interface ExrEncodeImage {
@@ -65,16 +76,11 @@ export interface ExrEncodeRgbImage {
 /** Decoded layer information */
 export interface ExrDecodeLayer {
   name: string | null;
+  channelNames: Channels;
 
-  channelNames: string[];
-
-  getInterleavedPixels(): Float32Array;
-
-  /**
-   * Get all samples for a specific channel by name.
-   * @param channelName - e.g. 'R', 'G', 'B', 'A', 'Z'
-   */
-  getChannelPixels(channelName: string): Float32Array | null;
+  /** @example getInterleavedPixels(RGB), getInterleavedPixels(RGBA), getInterleavedPixels(["X", "Y", "Z"]) */
+  getInterleavedPixels(desiredChannels: Channels): Float32Array | null;
+  getAllInterleavedPixels(): Float32Array | null;
 }
 
 export interface ExrDecodeImage {
@@ -96,7 +102,7 @@ export interface ExrDecodeRgbImage {
 }
 
 // WASM module reference (set by init())
-let wasmModule: any = null;
+let isInit = false
 
 /**
  * Initialize the WASM module. Must be called once before using other functions.
@@ -107,13 +113,14 @@ let wasmModule: any = null;
  * // Now use encodeExr/decodeExr synchronously
  */
 export async function init(): Promise<void> {
-  if (wasmModule) return;
+  if (isInit) return;
 
-  let wasm;
   try {
     // Try browser-style loading
-    wasm = await import('exrs-raw-wasm-bindgen');
     await wasm.default();
+    // FIXME is this really needed if we import it normally? or does the import run the default() function for us?
+    isInit = true;
+
   } catch (e) {
     // Fallback for Node.js/Vitest
     try {
@@ -127,18 +134,17 @@ export async function init(): Promise<void> {
       const wasmPath = path.resolve(packagePath, 'exrs_raw_wasm_bindgen_bg.wasm');
       const wasmBuffer = fs.readFileSync(wasmPath);
 
-      wasm = await import('exrs-raw-wasm-bindgen');
       wasm.initSync({ module: wasmBuffer });
+      isInit = true;
     } catch (nodeErr) {
       console.error('Failed to initialize WASM in both browser and Node environments');
       throw e;
     }
   }
-  wasmModule = wasm;
 }
 
 function ensureInitialized() {
-  if (!wasmModule) {
+  if (!isInit) {
     throw new Error('WASM module not initialized. Call init() first.');
   }
 }
@@ -148,7 +154,7 @@ export function encodeRgbExr(image: ExrEncodeRgbImage): Uint8Array {
     width: image.width,
     height: image.height,
     layers: [{
-      channelNames: "rgb",
+      channelNames: "rgb".split(''),
       interleavedPixels: image.interleavedRgbPixels,
       compression: image.compression,
       precision: image.precision,
@@ -161,7 +167,7 @@ export function encodeRgbaExr(image: ExrEncodeRgbaImage): Uint8Array {
     width: image.width,
     height: image.height,
     layers: [{
-      channelNames: "rgba",
+      channelNames: "rgba".split(''),
       interleavedPixels: image.interleavedRgbaPixels,
       compression: image.compression,
       precision: image.precision,
@@ -190,18 +196,18 @@ export function encodeExr(options: ExrEncodeImage): Uint8Array {
 
   // Map string precision/compression to WASM enum values
   const precisionMap: Record<Precision, any> = {
-    f16: wasmModule.SamplePrecision.F16,
-    f32: wasmModule.SamplePrecision.F32,
-    u32: wasmModule.SamplePrecision.U32,
+    f16: wasm.SamplePrecision.F16,
+    f32: wasm.SamplePrecision.F32,
+    u32: wasm.SamplePrecision.U32,
   };
 
   const compressionMap: Record<Compression, any> = {
-    none: wasmModule.CompressionMethod.None,
-    rle: wasmModule.CompressionMethod.Rle,
-    zip: wasmModule.CompressionMethod.Zip,
-    zip16: wasmModule.CompressionMethod.Zip16,
-    piz: wasmModule.CompressionMethod.Piz,
-    pxr24: wasmModule.CompressionMethod.Pxr24,
+    none: wasm.CompressionMethod.None,
+    rle: wasm.CompressionMethod.Rle,
+    zip: wasm.CompressionMethod.Zip,
+    zip16: wasm.CompressionMethod.Zip16,
+    piz: wasm.CompressionMethod.Piz,
+    pxr24: wasm.CompressionMethod.Pxr24,
   };
 
   // Single layer shortcuts
@@ -211,37 +217,23 @@ export function encodeExr(options: ExrEncodeImage): Uint8Array {
     const precision = precisionMap[layer.precision || 'f32'];
     const compression = compressionMap[layer.compression || 'rle'];
 
-    if (layer.channelNames === 'rgba') {
-      return wasmModule.writeExrRgba(width, height, layer.name, layer.interleavedPixels, precision, compression);
-    } else if (layer.channelNames === 'rgb') {
-      return wasmModule.writeExrRgb(width, height, layer.name, layer.interleavedPixels, precision, compression);
-    } else if (Array.isArray(layer.channelNames) && layer.channelNames.length === 1) {
-      return wasmModule.writeExrSingleChannel(
-        width, height, layer.name, layer.channelNames[0], layer.interleavedPixels, precision, compression
-      );
+    if (layer.channelNames.join('') === 'rgba') {
+      return wasm.writeExrRgba(width, height, layer.name, layer.interleavedPixels, precision, compression);
+    } else if (layer.channelNames.join('') === 'rgb') {
+      return wasm.writeExrRgb(width, height, layer.name, layer.interleavedPixels, precision, compression);
     }
   }
 
-  // Multi-layer: use the encoder
-  const encoder = new wasmModule.ExrEncoder(width, height);
+  const encoder = new wasm.ExrEncoder(width, height);
 
   try {
     for (const layer of layers) {
       const precision = precisionMap[layer.precision || 'f32'];
       const compression = compressionMap[layer.compression || 'rle'];
-
-      if (layer.channelNames === 'rgba') {
-        encoder.addRgbaLayer(layer.name, layer.interleavedPixels, precision, compression);
-      } else if (layer.channelNames === 'rgb') {
-        encoder.addRgbLayer(layer.name, layer.interleavedPixels, precision, compression);
-      } else if (Array.isArray(layer.channelNames) && layer.channelNames.length === 1) {
-        encoder.addSingleChannelLayer(layer.name, layer.channelNames[0], layer.interleavedPixels, precision, compression);
-      } else {
-        throw new Error(`Unsupported channels format: ${JSON.stringify(layer.channelNames)}`);
-      }
+      encoder.addLayer(layer.name, [...layer.channelNames], layer.interleavedPixels, precision, compression);
     }
 
-    return encoder.toBytes();
+    return encoder.encode();
   } finally {
     // Free is optional with FinalizationRegistry, but we call it for deterministic cleanup
     encoder.free();
@@ -265,47 +257,29 @@ export function encodeExr(options: ExrEncodeImage): Uint8Array {
 export function decodeExr(data: Uint8Array): ExrDecodeImage {
   ensureInitialized();
 
-  const decoder = wasmModule.readExr(data);
+  const decoder = wasm.readExr(data);
 
   const width = decoder.width;
   const height = decoder.height;
   const layerCount = decoder.layerCount;
 
   const layers: ExrDecodeLayer[] = [];
-  for (let i = 0; i < layerCount; i++) {
-    const name = decoder.getLayerName(i) ?? null;
-
-    const channels = decoder.getChannelNames(i);
-
-    // Determine channel type from actual channel names
-    // TODO we should intentionally decide what happens with layers that are RGBZ. is this a use case?
-    const hasR = channels.includes('R');
-    const hasG = channels.includes('G');
-    const hasB = channels.includes('B');
-    const hasA = channels.includes('A');
-    const isRgba = hasR && hasG && hasB && hasA;
-    const isRgb = hasR && hasG && hasB && !hasA;
+  for (let layerIndex = 0; layerIndex < layerCount; layerIndex++) {
+    const name = decoder.getLayerName(layerIndex) ?? null;
+    const channels = decoder.getLayerChannelNames(layerIndex);
 
     layers.push({
       name,
       channelNames: channels,
+
       // Auto-detect format based on channel names
-      getInterleavedPixels: (): Float32Array => {
-        if (isRgba) {
-          return decoder.getRgbaData(i);
-        } else if (isRgb) {
-          // TODO this can be undefined, why does TS not show a type mismatch here?!
-          return decoder.getRgbData(i);
-        } else if (channels.length === 1) {
-          return decoder.getChannelData(i, channels[0]);
-        } else {
-          // TODO: add one generic function in rust that just interleaves all the desired/existing channels
-          throw new Error("multiple channels not supported yet");
-        }
+      getInterleavedPixels: (desiredChannels: Channels): Float32Array | null => {
+        return decoder.getLayerPixels(layerIndex, [...desiredChannels]) ?? null
       },
 
-      getChannelPixels: (channelName: string) =>
-        decoder.getChannelData(i, channelName),
+      getAllInterleavedPixels: () => {
+        return decoder.getLayerPixels(layerIndex, channels) ?? null;
+      }
     });
   }
 
@@ -330,7 +304,7 @@ export function decodeRgbaExr(data: Uint8Array): ExrDecodeRgbaImage {
   ensureInitialized();
 
   // TODO this kind of optimizatoin/specialization could happen in the rust file, not here
-  const result = wasmModule.readExrRgba(data);
+  const result = wasm.readExrRgba(data);
   try {
     return {
       width: result.width,
@@ -358,7 +332,7 @@ export function decodeRgbExr(data: Uint8Array): ExrDecodeRgbImage {
   ensureInitialized();
 
   // TODO this kind of optimizatoin/specialization could happen in the rust file, not here
-  const result = wasmModule.readExrRgb(data);
+  const result = wasm.readExrRgb(data);
   try {
     return {
       width: result.width,

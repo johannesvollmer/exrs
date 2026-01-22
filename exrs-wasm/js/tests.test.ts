@@ -1,13 +1,13 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { 
-  init, 
-  encodeExr, 
+import {
+  init,
+  encodeExr,
   encodeRgbaExr,
   encodeRgbExr,
-  decodeExr, 
+  decodeExr,
   decodeRgbaExr,
-  decodeRgbExr
+  decodeRgbExr, RGB, RGBA
 } from './index';
 
 describe('EXRS WASM Integration Tests', () => {
@@ -47,8 +47,7 @@ describe('EXRS WASM Integration Tests', () => {
     expect(image.height).toBe(height);
     expect(image.layers.length).toBe(1);
 
-    // Get RGBA data (auto-detected)
-    const rgbaData = image.layers[0].getInterleavedPixels();
+    const rgbaData = image.layers[0].getInterleavedPixels(RGBA);
     expect(rgbaData).not.toBeNull();
     if (rgbaData) {
       expect(rgbaData.length).toBe(pixelCount * 4);
@@ -81,7 +80,7 @@ describe('EXRS WASM Integration Tests', () => {
     expect(image.layers.length).toBe(1);
 
     // getData() auto-detects RGB
-    const rgbData = image.layers[0].getInterleavedPixels();
+    const rgbData = image.layers[0].getInterleavedPixels(RGB);
     expect(rgbData).not.toBeNull();
     if (rgbData) {
       expect(rgbData.length).toBe(pixelCount * 3);
@@ -110,7 +109,7 @@ describe('EXRS WASM Integration Tests', () => {
 
     const image = decodeExr(bytes);
     // getData() auto-detects single channel
-    const zData = image.layers[0].getInterleavedPixels();
+    const zData = image.layers[0].getInterleavedPixels(["Z"]);
     expect(zData).not.toBeNull();
     if (zData) {
       expect(zData.length).toBe(pixelCount);
@@ -134,8 +133,8 @@ describe('EXRS WASM Integration Tests', () => {
       width,
       height,
       layers: [
-        { name: 'beauty', channelNames: 'rgba', interleavedPixels: rgbaData, compression: 'piz' },
-        { name: 'normals', channelNames: 'rgb', interleavedPixels: rgbData, compression: 'zip16' },
+        { name: 'beauty', channelNames: RGBA, interleavedPixels: rgbaData, compression: 'piz' },
+        { name: 'normals', channelNames: RGB, interleavedPixels: rgbData, compression: 'zip16' },
         { name: 'depth', channelNames: ['Z'], interleavedPixels: depthData, compression: 'pxr24' },
       ],
     });
@@ -144,21 +143,21 @@ describe('EXRS WASM Integration Tests', () => {
     expect(image.layers.length).toBe(3);
 
     // Verify beauty layer (auto-detect RGBA)
-    const beautyRgba = image.layers[0].getInterleavedPixels();
+    const beautyRgba = image.layers[0].getInterleavedPixels(RGBA);
     expect(beautyRgba).not.toBeNull();
     if (beautyRgba) {
       expect(beautyRgba.length).toBe(pixelCount * 4);
     }
 
     // Verify normals layer (auto-detect RGB)
-    const normalsRgb = image.layers[1].getInterleavedPixels();
+    const normalsRgb = image.layers[1].getInterleavedPixels(RGB);
     expect(normalsRgb).not.toBeNull();
     if (normalsRgb) {
       expect(normalsRgb.length).toBe(pixelCount * 3);
     }
 
     // Verify depth layer (auto-detect single channel)
-    const depthZ = image.layers[2].getInterleavedPixels();
+    const depthZ = image.layers[2].getInterleavedPixels(["Z"]);
     expect(depthZ).not.toBeNull();
     if (depthZ) {
       expect(depthZ.length).toBe(pixelCount);
@@ -186,11 +185,11 @@ describe('EXRS WASM Integration Tests', () => {
 
     const image = decodeExr(bytes);
 
-    // Use getChannel to get individual channels
-    const rData = image.layers[0].getChannelPixels('R');
-    const gData = image.layers[0].getChannelPixels('G');
-    const bData = image.layers[0].getChannelPixels('B');
-    const aData = image.layers[0].getChannelPixels('A');
+    // get individual channels
+    const rData = image.layers[0].getInterleavedPixels(['R']);
+    const gData = image.layers[0].getInterleavedPixels(['G']);
+    const bData = image.layers[0].getInterleavedPixels(['B']);
+    const aData = image.layers[0].getInterleavedPixels(['A']);
 
     expect(rData).not.toBeNull();
     expect(gData).not.toBeNull();
@@ -301,7 +300,7 @@ describe('EXRS WASM Integration Tests', () => {
     });
 
     const image = decodeExr(bytes);
-    const rgbaData = image.layers[0].getInterleavedPixels();
+    const rgbaData = image.layers[0].getInterleavedPixels(RGBA);
     expect(rgbaData).not.toBeNull();
 
     if (rgbaData) {
@@ -321,8 +320,8 @@ describe('EXRS WASM Integration Tests', () => {
       width,
       height,
       layers: [
-        { name: 'my_beauty', channelNames: 'rgba', interleavedPixels: new Float32Array(pixelCount * 4) },
-        { name: 'my_normals', channelNames: 'rgb', interleavedPixels: new Float32Array(pixelCount * 3) },
+        { name: 'my_beauty', channelNames: RGBA, interleavedPixels: new Float32Array(pixelCount * 4) },
+        { name: 'my_normals', channelNames: RGB, interleavedPixels: new Float32Array(pixelCount * 3) },
       ],
     });
 
