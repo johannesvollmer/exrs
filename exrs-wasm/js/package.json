@@ -2,6 +2,20 @@
   "name": "exrs",
   "version": "1.0.0",
   "description": "OpenEXR file encoding and decoding in the browser and node",
+  "keywords": [
+    "exr",
+    "openexr",
+    "wasm",
+    "webassembly",
+    "image",
+    "hdr",
+    "vfx",
+    "render",
+    "aov",
+    "compositing",
+    "encode",
+    "decode"
+  ],
   "license": "BSD-3-Clause",
   "author": "johannesvollmer",
   "contributors": [
