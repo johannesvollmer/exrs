@@ -86,10 +86,6 @@ pub struct ExrEncoder {
 #[wasm_bindgen]
 impl ExrEncoder {
     /// Create a new EXR image builder.
-    ///
-    /// # Arguments
-    /// * `width` - Image width in pixels
-    /// * `height` - Image height in pixels
     #[wasm_bindgen(constructor)]
     pub fn new(width: u32, height: u32) -> ExrEncoder {
         ExrEncoder {
@@ -101,11 +97,7 @@ impl ExrEncoder {
 
     /// Add an RGBA layer (4 channels: R, G, B, A).
     ///
-    /// # Arguments
-    /// * `name` - Layer name (e.g., "beauty", "diffuse")
-    /// * `data` - Pixel data as Float32Array, length must be width * height * 4
-    /// * `precision` - Sample precision (F16, F32, or U32)
-    /// * `compression` - Compression method (defaults to RLE)
+    /// `data` must have length `width * height * 4`.
     #[wasm_bindgen(js_name = addRgbaLayer)]
     pub fn add_rgba_layer(
         &mut self,
@@ -155,11 +147,7 @@ impl ExrEncoder {
 
     /// Add an RGB layer (3 channels: R, G, B).
     ///
-    /// # Arguments
-    /// * `name` - Layer name (e.g., "normals", "albedo")
-    /// * `data` - Pixel data as Float32Array, length must be width * height * 3
-    /// * `precision` - Sample precision (F16, F32, or U32)
-    /// * `compression` - Compression method (defaults to RLE)
+    /// `data` must have length `width * height * 3`.
     #[wasm_bindgen(js_name = addRgbLayer)]
     pub fn add_rgb_layer(
         &mut self,
@@ -206,12 +194,7 @@ impl ExrEncoder {
 
     /// Add a single-channel layer with a custom channel name.
     ///
-    /// # Arguments
-    /// * `name` - Layer name
-    /// * `channel_name` - Channel name (e.g., "Z" for depth, "A" for alpha)
-    /// * `data` - Pixel data as Float32Array, length must be width * height
-    /// * `precision` - Sample precision (F16, F32, or U32)
-    /// * `compression` - Compression method (defaults to RLE)
+    /// `data` must have length `width * height`.
     #[wasm_bindgen(js_name = addSingleChannelLayer)]
     pub fn add_single_channel_layer(
         &mut self,
@@ -462,8 +445,6 @@ impl ExrDecoder {
 }
 
 /// Read an EXR file from bytes.
-///
-/// Returns an ExrDecoder containing all layers and channels.
 #[wasm_bindgen(js_name = readExr)]
 pub fn read_exr(data: &[u8]) -> std::result::Result<ExrDecoder, JsValue> {
     read_exr_internal(data).map_err(|e| JsValue::from_str(&format!("EXR read error: {}", e)))
@@ -501,10 +482,7 @@ impl ExrRgbaResult {
 /// Read an EXR file expecting RGBA channels.
 ///
 /// This is an optimized function that reads RGBA data directly into
-/// interleaved format. More efficient than `readExr()` when you know
-/// the image has RGBA channels.
-///
-/// Returns the first valid layer with RGBA channels.
+/// interleaved format. Returns the first valid layer with RGBA channels.
 #[wasm_bindgen(js_name = readExrRgba)]
 pub fn read_exr_rgba(data: &[u8]) -> std::result::Result<ExrRgbaResult, JsValue> {
     use exr::prelude::*;
@@ -581,10 +559,7 @@ impl ExrRgbResult {
 /// Read an EXR file expecting RGB channels.
 ///
 /// This is an optimized function that reads RGB data directly into
-/// interleaved format. More efficient than `readExr()` when you know
-/// the image has RGB channels.
-///
-/// Returns the first valid layer with RGB channels.
+/// interleaved format. Returns the first valid layer with RGB channels.
 #[wasm_bindgen(js_name = readExrRgb)]
 pub fn read_exr_rgb(data: &[u8]) -> std::result::Result<ExrRgbResult, JsValue> {
     use exr::prelude::*;
@@ -634,16 +609,7 @@ pub fn read_exr_rgb(data: &[u8]) -> std::result::Result<ExrRgbResult, JsValue> {
 
 /// Write a single RGBA layer to EXR bytes.
 ///
-/// This is a convenience function for simple single-layer images.
-/// No `.free()` call is needed - the result is returned directly.
-///
-/// # Arguments
-/// * `width` - Image width in pixels
-/// * `height` - Image height in pixels
-/// * `layer_name` - Layer name (e.g., "beauty")
-/// * `data` - RGBA pixel data as Float32Array, length must be width * height * 4
-/// * `precision` - Sample precision (F16, F32, or U32)
-/// * `compression` - Compression method
+/// `data` must have length `width * height * 4`.
 #[wasm_bindgen(js_name = writeExrRgba)]
 pub fn write_exr_rgba(
     width: u32,

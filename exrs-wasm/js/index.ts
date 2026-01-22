@@ -18,15 +18,15 @@ export interface ExrEncodeLayer {
   /** Layer name (e.g., "beauty", "depth") */
   name?: string;
 
-  /** Channel type: 'rgba', 'rgb', or array of channel names like ['Z'] */
+  /** @example 'rgba', 'rgb', or ['Z'] */
   channelNames: Channels;
 
   interleavedPixels: Float32Array;
 
-  /** Default: 'f32' */
+  /** @default 'f32' */
   precision?: Precision;
 
-  /** Default: 'rle' */
+  /** @default 'rle' */
   compression?: Compression;
 }
 
@@ -41,10 +41,10 @@ export interface ExrEncodeRgbaImage {
   height: number;
   interleavedRgbaPixels: Float32Array;
 
-  /** Default: 'f32' */
+  /** @default 'f32' */
   precision?: Precision;
 
-  /** Default: 'rle' */
+  /** @default 'rle' */
   compression?: Compression;
 }
 
@@ -55,10 +55,10 @@ export interface ExrEncodeRgbImage {
 
   interleavedRgbPixels: Float32Array;
 
-  /** Default: 'f32' */
+  /** @default 'f32' */
   precision?: Precision;
 
-  /** Default: 'rle' */
+  /** @default 'rle' */
   compression?: Compression;
 }
 
@@ -72,8 +72,7 @@ export interface ExrDecodeLayer {
 
   /**
    * Get all samples for a specific channel by name.
-   * @param channelName - Channel name like 'R', 'G', 'B', 'A', 'Z', etc.
-   * @returns The samples or null if channel with that name doesn't exist
+   * @param channelName - e.g. 'R', 'G', 'B', 'A', 'Z'
    */
   getChannelPixels(channelName: string): Float32Array | null;
 }
@@ -100,8 +99,7 @@ export interface ExrDecodeRgbImage {
 let wasmModule: any = null;
 
 /**
- * Initialize the WASM module. Must be called before using other functions.
- * @returns {Promise<void>}
+ * Initialize the WASM module. Must be called once before using other functions.
  *
  * @example
  * import { init, encodeExr, decodeExr } from 'exrs';
@@ -173,9 +171,6 @@ export function encodeRgbaExr(image: ExrEncodeRgbaImage): Uint8Array {
 
 /**
  * Encode pixel data into an EXR file.
- *
- * @param {ExrEncodeImage} options - Encoding options
- * @returns {Uint8Array} EXR file bytes
  *
  * @example
  * await init();
@@ -255,9 +250,6 @@ export function encodeExr(options: ExrEncodeImage): Uint8Array {
 
 /**
  * Decode an EXR file into pixel data.
- *
- * @param {Uint8Array} data - EXR file bytes
- * @returns {ExrDecodeImage} Decoded image data
  *
  * @example
  * await init();
