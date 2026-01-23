@@ -451,6 +451,8 @@ exr.<span class="function">addRgbLayer</span>(<span class="string">'normals'</sp
 
   <script type="module">
     // Module references
+    import {RGBA} from "../js/index";
+
     let rawWasm = null;
     let wrapperJs = null;
     let useWrapper = false;
@@ -735,7 +737,7 @@ exr.<span class="function">addRgbLayer</span>(<span class="string">'normals'</sp
       if (includeBeauty) {
         layers.push({
           name: 'beauty',
-          channels: 'rgba',
+          channels: RGBA,
           data: generateBeautyData(width, height),
           precision,
           compression
@@ -753,7 +755,7 @@ exr.<span class="function">addRgbLayer</span>(<span class="string">'normals'</sp
       if (includeNormals) {
         layers.push({
           name: 'normals',
-          channels: 'rgb',
+          channels: RGB,
           data: generateNormalsData(width, height),
           precision,
           compression

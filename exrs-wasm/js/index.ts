@@ -248,7 +248,7 @@ export function encodeRgbaExr(image: ExrEncodeRgbaImage): Uint8Array {
  *   width: 1920,
  *   height: 1080,
  *   layers: [
- *     { name: 'beauty', channelNames: 'rgba', interleavedPixels: rgbaData, precision: 'f32', compression: 'piz' },
+ *     { name: 'beauty', channelNames: RGBA, interleavedPixels: rgbaData, precision: 'f32', compression: 'piz' },
  *     { name: 'depth', channelNames: ['Z'], interleavedPixels: depthData, precision: 'f32', compression: 'pxr24' }
  *   ]
  * });
