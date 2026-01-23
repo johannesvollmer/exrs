@@ -25,7 +25,7 @@ npm install exrs
 #### `encodeExr(options: ExrEncodeImage): Uint8Array`
 The most flexible encoding function, supporting multiple layers and arbitrary channel names.
 ```typescript
-import {init, decodeRgbaExr} from "exrs";
+import {init, encodeExr} from "exrs";
 await init();
 
 const bytes = encodeExr({
@@ -63,7 +63,7 @@ const bytes = encodeRgbaExr({
 #### `decodeExr(data: Uint8Array): ExrDecodeImage`
 Decodes an EXR file into a structured image object containing one or more layers. Most flexible decoding function.
 ```typescript
-import {init, decodeRgbaExr} from "exrs";
+import {init, decodeExr} from "exrs";
 await init();
 
 const image = decodeExr(bytes);
