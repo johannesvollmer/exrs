@@ -1,8 +1,8 @@
-# exrs
+# exrs-wasm
 
 WebAssembly bindings for reading and writing [OpenEXR](https://www.openexr.com/) files in the browser.
 
-Built on top of the [`exr`](https://crates.io/crates/exr) Rust crate.
+Built on top of the [`exrs`](https://github.com/johannesvollmer/exrs) Rust crate.
 
 ## Installation
 
@@ -13,7 +13,7 @@ npm install exrs
 ## Quick Start
 
 ```javascript
-import { init, encodeExr, decodeExr } from 'exrs';
+import { init, encodeExr, decodeRgbaExr } from 'exrs-wasm';
 
 // Initialize WASM module (required once before using other functions)
 await init();
@@ -25,16 +25,18 @@ const interleavedPixels = new Float32Array(width * height * 4);
 // ... fill with pixel values ...
 
 // Encode to EXR
-const bytes: Uint8Array = encodeRgbaExr({
+const bytes: Uint8Array = encodeExr({
     width,
     height,
-    interleavedPixels, 
-    compression: 'piz'
+    layers: [{
+        channelNames: 'rgba',
+        interleavedPixels,
+        compression: 'piz'
+    }]
 });
 
 // Decode back
-const image = decodeRgbaExr(bytes);
-const firstLayerPixels: Float32Array = image.interleavedRgbaPixels;
+const { width: w, height: h, interleavedRgbaPixels } = decodeRgbaExr(bytes);
 ```
 
 ## API
@@ -57,7 +59,7 @@ const bytes = encodeExr({
   height: 1080,
   layers: [{
     name: 'beauty',                                 // Layer name (e.g., "beauty")
-    channelNames: 'rgba',                           // 'rgba', 'rgb' or string[]
+    channelNames: RGBA,                           // 'rgba', 'rgb' or string[]
     interleavedPixels: rgbaData,                    // Float32Array
     precision: 'f32',                               // 'f16', 'f32', or 'u32'
     compression: 'piz'                              // 'none', 'rle', 'zip', 'zip16', 'piz', 'pxr24'
@@ -75,11 +77,10 @@ const image = decodeExr(bytes);
 console.log(image.width, image.height);
 console.log(image.layers.length);
 
-// Get pixel data (auto-detects RGBA/RGB/single channel based on layer contents)
-const pixelData = image.layers[0].getInterleavedPixels();
+const pixelData = image.layers[0].getAllInterleavedPixels();
 
 // Get individual channel by name
-const depthData = image.layers[1].getChannelPixels('Z');
+const depthData = image.layers[1].getInterleavedPixels(['Z']);
 ```
 
 ### `decodeRgbaExr(data)` / `decodeRgbExr(data)`
@@ -96,7 +97,7 @@ const { width, height, interleavedRgbaPixels } = decodeRgbaExr(bytes);
 ### Multi-layer EXR (AOVs)
 
 ```javascript
-import { init, encodeExr } from 'exrs';
+import { init, encodeExr } from 'exrs-wasm';
 
 await init();
 
@@ -115,7 +116,7 @@ const bytes = encodeExr({
 ### WebGL Render Buffer Export
 
 ```javascript
-import { init, encodeExr } from 'exrs';
+import { init, encodeExr } from 'exrs-wasm';
 
 await init();
 
@@ -134,7 +135,7 @@ const bytes = encodeExr({
 ### Load and Display EXR
 
 ```javascript
-import { init, decodeRgbaExr } from 'exrs';
+import { init, decodeRgbaExr } from 'exrs-wasm';
 
 await init();
 
@@ -190,6 +191,10 @@ ctx.putImageData(imageData, 0, 0);
 BSD-3-Clause
 
 ## Contributing
+
+Prerequisites:
+- You will need Rust `cargo`, `npm` and `nodejs`
+- `cargo install wasm-pack`
 
 ### Building and Testing
 
