@@ -2,6 +2,8 @@ use wasm_bindgen::prelude::*;
 use exr::prelude::*;
 use exr::image::AnyChannels;
 use std::io::Cursor;
+use smallvec::smallvec;
+use exr::image::pixel_vec::PixelVec;
 
 /// Initialize panic hook for better error messages in browser console.
 /// This is called automatically when the WASM module loads - no need to call manually.
@@ -95,148 +97,67 @@ impl ExrEncoder {
         }
     }
 
-    /// Add an RGBA layer (4 channels: R, G, B, A).
-    ///
-    /// `data` must have length `width * height * 4`.
-    #[wasm_bindgen(js_name = addRgbaLayer)]
-    pub fn add_rgba_layer(
+    /// Add a new layer with the specified channels.
+    /// The `data` contains all pixels, each pixel with one float per channel.
+    #[wasm_bindgen(js_name = addLayer)]
+    pub fn add_layer(
         &mut self,
         name: Option<String>,
-        data: &[f32],
+        channel_names: Vec<String>,
+        interleaved: &[f32],
         precision: SamplePrecision,
-        compression: Option<CompressionMethod>,
+        compression: CompressionMethod, // default is provided in js wrapper
     ) -> std::result::Result<(), JsValue> {
         let pixel_count = self.width * self.height;
-        let expected_len = pixel_count * 4;
-        if data.len() != expected_len {
+        let expected_len = pixel_count * channel_names.len();
+        if interleaved.len() != expected_len {
             return Err(JsValue::from_str(&format!(
-                "RGBA layer '{}' expects {} floats ({}x{}x4), got {}",
-                name.unwrap_or_default(), expected_len, self.width, self.height, data.len()
-            )));
-        }
-
-        // Deinterleave and build channels
-        let mut r = Vec::with_capacity(pixel_count);
-        let mut g = Vec::with_capacity(pixel_count);
-        let mut b = Vec::with_capacity(pixel_count);
-        let mut a = Vec::with_capacity(pixel_count);
-
-        for i in 0..pixel_count {
-            r.push(data[i * 4]);
-            g.push(data[i * 4 + 1]);
-            b.push(data[i * 4 + 2]);
-            a.push(data[i * 4 + 3]);
-        }
-
-        let sample_type: exr::meta::attribute::SampleType = precision.into();
-        let channels = AnyChannels::sort(smallvec::smallvec![
-            Self::make_channel("A", a, sample_type),
-            Self::make_channel("B", b, sample_type),
-            Self::make_channel("G", g, sample_type),
-            Self::make_channel("R", r, sample_type),
-        ]);
-
-        self.layers.push(LayerData {
-            name,
-            channels,
-            compression: compression.unwrap_or_default().into(),
-        });
-
-        Ok(())
-    }
-
-    /// Add an RGB layer (3 channels: R, G, B).
-    ///
-    /// `data` must have length `width * height * 3`.
-    #[wasm_bindgen(js_name = addRgbLayer)]
-    pub fn add_rgb_layer(
-        &mut self,
-        name: Option<String>,
-        data: &[f32],
-        precision: SamplePrecision,
-        compression: Option<CompressionMethod>,
-    ) -> std::result::Result<(), JsValue> {
-        let pixel_count = self.width * self.height;
-        let expected_len = pixel_count * 3;
-        if data.len() != expected_len {
-            return Err(JsValue::from_str(&format!(
-                "RGB layer '{}' expects {} floats ({}x{}x3), got {}",
-                name.unwrap_or_default(), expected_len, self.width, self.height, data.len()
-            )));
-        }
-
-        // Deinterleave and build channels
-        let mut r = Vec::with_capacity(pixel_count);
-        let mut g = Vec::with_capacity(pixel_count);
-        let mut b = Vec::with_capacity(pixel_count);
-
-        for i in 0..pixel_count {
-            r.push(data[i * 3]);
-            g.push(data[i * 3 + 1]);
-            b.push(data[i * 3 + 2]);
-        }
-
-        let sample_type: exr::meta::attribute::SampleType = precision.into();
-        let channels = AnyChannels::sort(smallvec::smallvec![
-            Self::make_channel("B", b, sample_type),
-            Self::make_channel("G", g, sample_type),
-            Self::make_channel("R", r, sample_type),
-        ]);
-
-        self.layers.push(LayerData {
-            name,
-            channels,
-            compression: compression.unwrap_or_default().into(),
-        });
-
-        Ok(())
-    }
-
-    /// Add a single-channel layer with a custom channel name.
-    ///
-    /// `data` must have length `width * height`.
-    #[wasm_bindgen(js_name = addSingleChannelLayer)]
-    pub fn add_single_channel_layer(
-        &mut self,
-        name: Option<String>,
-        channel_name: &str,
-        data: &[f32],
-        precision: SamplePrecision,
-        compression: Option<CompressionMethod>,
-    ) -> std::result::Result<(), JsValue> {
-        let expected_len = self.width * self.height;
-        if data.len() != expected_len {
-            return Err(JsValue::from_str(&format!(
-                "Single-channel layer '{}' expects {} floats ({}x{}), got {}",
-                name.unwrap_or_default(), expected_len, self.width, self.height, data.len()
+                "Layer '{}' expects {} floats ({}x{}x{}), got {}",
+                name.unwrap_or_default(), expected_len, self.width, self.height, channel_names.len(), interleaved.len()
             )));
         }
 
         let sample_type: exr::meta::attribute::SampleType = precision.into();
-        let channels = AnyChannels::sort(smallvec::smallvec![
-            Self::make_channel(channel_name, data.to_vec(), sample_type),
-        ]);
+
+        let any_channels = {
+            if interleaved.len() == 1 {
+                // optimized: single-channel layer does not need interleaving
+                smallvec![Self::make_channel(&channel_names[0], interleaved.to_vec(), sample_type)]
+            }
+            else {
+                let mut deinterleaved: Vec<Vec<f32>> = channel_names.iter().map(|_| Vec::with_capacity(pixel_count)).collect();
+
+                for pixel in interleaved.chunks(deinterleaved.len()) {
+                    for (chan, sample) in deinterleaved.iter_mut().zip(pixel) {
+                        chan.push(*sample);
+                    }
+                }
+
+                let any_channels: SmallVec<[_; 4]> = deinterleaved.into_iter()
+                    .zip(channel_names)
+                    .map(|(data, name)| Self::make_channel(&name, data, sample_type))
+                    .collect();
+
+                any_channels
+            }
+        };
+
+        let channels = AnyChannels::sort(any_channels);
 
         self.layers.push(LayerData {
             name,
             channels,
-            compression: compression.unwrap_or_default().into(),
+            compression: compression.into(),
         });
 
         Ok(())
-    }
-
-    /// Get the number of layers added so far.
-    #[wasm_bindgen(getter, js_name = layerCount)]
-    pub fn layer_count(&self) -> usize {
-        self.layers.len()
     }
 
     /// Encode the image to EXR bytes.
     ///
     /// Returns a Uint8Array containing the complete EXR file.
-    #[wasm_bindgen(js_name = toBytes)]
-    pub fn to_bytes(&self) -> std::result::Result<Vec<u8>, JsValue> {
+    #[wasm_bindgen(js_name = encode)]
+    pub fn encode(&self) -> std::result::Result<Vec<u8>, JsValue> {
         if self.layers.is_empty() {
             return Err(JsValue::from_str("No layers added to image"));
         }
@@ -245,14 +166,6 @@ impl ExrEncoder {
             .map_err(|e| JsValue::from_str(&format!("EXR encoding error: {}", e)))
     }
 
-    /// Clear all layers (allows reusing the builder for a new frame).
-    pub fn clear(&mut self) {
-        self.layers.clear();
-    }
-}
-
-// Private implementation
-impl ExrEncoder {
     fn build_and_encode(&self) -> std::result::Result<Vec<u8>, exr::error::Error> {
         let size = Vec2(self.width, self.height);
 
@@ -322,9 +235,7 @@ impl ExrEncoder {
     }
 }
 
-// ============================================================================
-// Reading EXR files
-// ============================================================================
+
 
 /// Data for a single channel read from an EXR file.
 struct ReadChannelData {
@@ -376,71 +287,44 @@ impl ExrDecoder {
     }
 
     /// Get the channel names for a layer.
-    #[wasm_bindgen(js_name = getChannelNames)]
-    pub fn get_channel_names(&self, layer_index: usize) -> Vec<String> {
+    #[wasm_bindgen(js_name = getLayerChannelNames)]
+    pub fn get_layer_channel_names(&self, layer_index: usize) -> Vec<String> {
         self.layers
             .get(layer_index)
             .map(|l| l.channels.iter().map(|c| c.name.clone()).collect())
             .unwrap_or_default()
     }
 
-    /// Get the pixel data for a specific channel.
-    /// Returns the data as Float32Array (all sample types converted to f32).
-    #[wasm_bindgen(js_name = getChannelData)]
-    pub fn get_channel_data(&self, layer_index: usize, channel_name: &str) -> Option<Vec<f32>> {
-        self.layers.get(layer_index).and_then(|layer| {
-            layer
-                .channels
-                .iter()
-                .find(|c| c.name == channel_name)
-                .map(|c| c.samples.clone())
-        })
-    }
-
-    /// Get interleaved RGBA data for a layer (if R, G, B, A channels exist).
-    /// Returns null if any of the required channels are missing.
-    #[wasm_bindgen(js_name = getRgbaData)]
-    pub fn get_rgba_data(&self, layer_index: usize) -> Option<Vec<f32>> {
+    /// Get interleaved pixel data for a layer.
+    /// Returns null if any of the required channels are missing of if the layer index is invalid.
+    /// Pixels are interleaved in the order specified by the provided channel names.
+    #[wasm_bindgen(js_name = getLayerPixels)]
+    pub fn get_layer_pixels(&self, layer_index: usize, channel_names: Vec<String>) -> Option<Vec<f32>> {
         let layer = self.layers.get(layer_index)?;
 
-        let r = layer.channels.iter().find(|c| c.name == "R")?;
-        let g = layer.channels.iter().find(|c| c.name == "G")?;
-        let b = layer.channels.iter().find(|c| c.name == "B")?;
-        let a = layer.channels.iter().find(|c| c.name == "A")?;
+        let channels: Vec<_> = channel_names.iter()
+            .flat_map(|name| layer.channels.iter().find(|c| &c.name == name))
+            .collect();
 
-        let pixel_count = r.samples.len();
-        let mut result = Vec::with_capacity(pixel_count * 4);
-
-        for i in 0..pixel_count {
-            result.push(r.samples[i]);
-            result.push(g.samples[i]);
-            result.push(b.samples[i]);
-            result.push(a.samples[i]);
+        if channels.len() != channel_names.len() {
+            return None;
         }
 
-        Some(result)
-    }
-
-    /// Get interleaved RGB data for a layer (if R, G, B channels exist).
-    /// Returns null if any of the required channels are missing.
-    #[wasm_bindgen(js_name = getRgbData)]
-    pub fn get_rgb_data(&self, layer_index: usize) -> Option<Vec<f32>> {
-        let layer = self.layers.get(layer_index)?;
-
-        let r = layer.channels.iter().find(|c| c.name == "R")?;
-        let g = layer.channels.iter().find(|c| c.name == "G")?;
-        let b = layer.channels.iter().find(|c| c.name == "B")?;
-
-        let pixel_count = r.samples.len();
-        let mut result = Vec::with_capacity(pixel_count * 3);
-
-        for i in 0..pixel_count {
-            result.push(r.samples[i]);
-            result.push(g.samples[i]);
-            result.push(b.samples[i]);
+        // optimized: skip interleaving if not needed
+        if channels.len()  == 1 {
+            return Some(channels[0].samples.clone());
         }
 
-        Some(result)
+        let pixel_count = (self.width * self.height) as usize;
+        let mut interleaved = Vec::with_capacity(pixel_count * channels.len());
+
+        for pixel_index in 0..pixel_count {
+            for chan in &channels {
+                interleaved.push(chan.samples[pixel_index]);
+            }
+        }
+
+        Some(interleaved)
     }
 }
 
@@ -450,93 +334,41 @@ pub fn read_exr(data: &[u8]) -> std::result::Result<ExrDecoder, JsValue> {
     read_exr_internal(data).map_err(|e| JsValue::from_str(&format!("EXR read error: {}", e)))
 }
 
-/// Result of optimized RGBA reading.
-#[wasm_bindgen]
-pub struct ExrRgbaResult {
-    width: u32,
-    height: u32,
-    data: Vec<f32>,
-}
-
-#[wasm_bindgen]
-impl ExrRgbaResult {
-    /// Image width in pixels.
-    #[wasm_bindgen(getter)]
-    pub fn width(&self) -> u32 {
-        self.width
-    }
-
-    /// Image height in pixels.
-    #[wasm_bindgen(getter)]
-    pub fn height(&self) -> u32 {
-        self.height
-    }
-
-    /// Get the interleaved RGBA pixel data as Float32Array.
-    #[wasm_bindgen(getter)]
-    pub fn data(&self) -> Vec<f32> {
-        self.data.clone()
-    }
-}
-
 /// Read an EXR file expecting RGBA channels.
 ///
 /// This is an optimized function that reads RGBA data directly into
 /// interleaved format. Returns the first valid layer with RGBA channels.
 #[wasm_bindgen(js_name = readExrRgba)]
-pub fn read_exr_rgba(data: &[u8]) -> std::result::Result<ExrRgbaResult, JsValue> {
+pub fn read_exr_rgba(data: &[u8]) -> std::result::Result<ExrSimpleImage, JsValue> {
     use exr::prelude::*;
-    use std::cell::Cell;
-    use std::rc::Rc;
-
-    let img_width = Rc::new(Cell::new(0usize));
-    let img_width_create = Rc::clone(&img_width);
-    let img_width_set = Rc::clone(&img_width);
 
     let image = read()
         .no_deep_data()
         .largest_resolution_level()
-        .rgba_channels(
-            move |resolution, _channels| -> Vec<f32> {
-                img_width_create.set(resolution.width());
-                vec![0.0f32; resolution.width() * resolution.height() * 4]
-            },
-            move |pixels, position, (r, g, b, a): (f32, f32, f32, f32)| {
-                let width = img_width_set.get();
-                let idx = (position.y() * width + position.x()) * 4;
-                pixels[idx] = r;
-                pixels[idx + 1] = g;
-                pixels[idx + 2] = b;
-                pixels[idx + 3] = a;
-            },
-        )
+        .rgba_channels(PixelVec::<(f32,f32,f32,f32)>::constructor, PixelVec::set_pixel)
         .first_valid_layer()
         .all_attributes()
-        .non_parallel()
         .from_buffered(Cursor::new(data))
         .map_err(|e| JsValue::from_str(&format!("EXR RGBA read error: {}", e)))?;
 
-    let bounds = image.attributes.display_window;
-    let width = bounds.size.0 as u32;
-    let height = bounds.size.1 as u32;
-
-    Ok(ExrRgbaResult {
-        width,
-        height,
-        data: image.layer_data.channel_data.pixels,
+    Ok(ExrSimpleImage {
+        width: image.layer_data.size.x() as u32,
+        height: image.layer_data.size.y() as u32,
+        data: image.layer_data.channel_data.pixels.pixels
+            .iter().flat_map(|(r,g,b,a)| [r,g,b,a]).map(|f| *f).collect(), // TODO read into this structure directly to improve performance
     })
 }
 
-/// Result of optimized RGB reading.
+/// Result of optimized RGB(A) reading.
 #[wasm_bindgen]
-pub struct ExrRgbResult {
+pub struct ExrSimpleImage {
     width: u32,
     height: u32,
     data: Vec<f32>,
 }
 
 #[wasm_bindgen]
-impl ExrRgbResult {
+impl ExrSimpleImage {
     /// Image width in pixels.
     #[wasm_bindgen(getter)]
     pub fn width(&self) -> u32 {
@@ -561,51 +393,25 @@ impl ExrRgbResult {
 /// This is an optimized function that reads RGB data directly into
 /// interleaved format. Returns the first valid layer with RGB channels.
 #[wasm_bindgen(js_name = readExrRgb)]
-pub fn read_exr_rgb(data: &[u8]) -> std::result::Result<ExrRgbResult, JsValue> {
+pub fn read_exr_rgb(data: &[u8]) -> std::result::Result<ExrSimpleImage, JsValue> {
     use exr::prelude::*;
-    use std::cell::Cell;
-    use std::rc::Rc;
-
-    let img_width = Rc::new(Cell::new(0usize));
-    let img_width_create = Rc::clone(&img_width);
-    let img_width_set = Rc::clone(&img_width);
 
     let image = read()
         .no_deep_data()
         .largest_resolution_level()
-        .rgb_channels(
-            move |resolution, _channels| -> Vec<f32> {
-                img_width_create.set(resolution.width());
-                vec![0.0f32; resolution.width() * resolution.height() * 3]
-            },
-            move |pixels, position, (r, g, b): (f32, f32, f32)| {
-                let width = img_width_set.get();
-                let idx = (position.y() * width + position.x()) * 3;
-                pixels[idx] = r;
-                pixels[idx + 1] = g;
-                pixels[idx + 2] = b;
-            },
-        )
+        .rgb_channels(PixelVec::<(f32,f32,f32)>::constructor, PixelVec::set_pixel)
         .first_valid_layer()
         .all_attributes()
-        .non_parallel()
         .from_buffered(Cursor::new(data))
-        .map_err(|e| JsValue::from_str(&format!("EXR RGB read error: {}", e)))?;
+        .map_err(|e| JsValue::from_str(&format!("EXR RGBA read error: {}", e)))?;
 
-    let bounds = image.attributes.display_window;
-    let width = bounds.size.0 as u32;
-    let height = bounds.size.1 as u32;
-
-    Ok(ExrRgbResult {
-        width,
-        height,
-        data: image.layer_data.channel_data.pixels,
+    Ok(ExrSimpleImage {
+        width: image.layer_data.size.x() as u32,
+        height: image.layer_data.size.y() as u32,
+        data: image.layer_data.channel_data.pixels.pixels
+            .iter().flat_map(|(r,g,b)| [r,g,b]).map(|f| *f).collect(), // TODO read into this structure directly to improve performance
     })
 }
-
-// ============================================================================
-// Convenience functions (no .free() needed)
-// ============================================================================
 
 /// Write a single RGBA layer to EXR bytes.
 ///
@@ -620,8 +426,10 @@ pub fn write_exr_rgba(
     compression: CompressionMethod,
 ) -> std::result::Result<Vec<u8>, JsValue> {
     let mut image = ExrEncoder::new(width, height);
-    image.add_rgba_layer(layer_name, data, precision, Some(compression))?;
-    image.to_bytes()
+    image.add_layer(layer_name, vec!["R".to_string(),"G".to_string(),"B".to_string(),"A".to_string()],
+                    data, precision, compression)?;
+    image.encode()
+    // TODO: not use exrEncoder to improve performance and simplify the code
 }
 
 /// Write a single RGB layer to EXR bytes.
@@ -646,36 +454,9 @@ pub fn write_exr_rgb(
     compression: CompressionMethod,
 ) -> std::result::Result<Vec<u8>, JsValue> {
     let mut image = ExrEncoder::new(width, height);
-    image.add_rgb_layer(layer_name, data, precision, Some(compression))?;
-    image.to_bytes()
-}
-
-/// Write a single-channel layer to EXR bytes.
-///
-/// This is a convenience function for simple single-layer images (e.g., depth maps).
-/// No `.free()` call is needed - the result is returned directly.
-///
-/// # Arguments
-/// * `width` - Image width in pixels
-/// * `height` - Image height in pixels
-/// * `layer_name` - Layer name (e.g., "depth")
-/// * `channel_name` - Channel name (e.g., "Z" for depth)
-/// * `data` - Pixel data as Float32Array, length must be width * height
-/// * `precision` - Sample precision (F16, F32, or U32)
-/// * `compression` - Compression method
-#[wasm_bindgen(js_name = writeExrSingleChannel)]
-pub fn write_exr_single_channel(
-    width: u32,
-    height: u32,
-    layer_name: Option<String>,
-    channel_name: &str,
-    data: &[f32],
-    precision: SamplePrecision,
-    compression: CompressionMethod,
-) -> std::result::Result<Vec<u8>, JsValue> {
-    let mut image = ExrEncoder::new(width, height);
-    image.add_single_channel_layer(layer_name, channel_name, data, precision, Some(compression))?;
-    image.to_bytes()
+    image.add_layer(layer_name, vec!["R".to_string(),"G".to_string(),"B".to_string()], data, precision, compression)?;
+    image.encode()
+    // TODO: not use exrEncoder to improve performance and simplify the code
 }
 
 /// Internal implementation of EXR reading (without JsValue for testing).

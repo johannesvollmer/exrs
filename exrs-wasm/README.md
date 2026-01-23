@@ -1,8 +1,16 @@
 # exrs
 
-WebAssembly bindings for reading and writing [OpenEXR](https://www.openexr.com/) files in the browser.
+WebAssembly bindings for reading and writing [OpenEXR](https://www.openexr.com/) files in the browser and Node.js.
 
-Built on top of the [`exr`](https://crates.io/crates/exr) Rust crate.
+Built on top of the [`exrs`](https://github.com/johannesvollmer/exrs) Rust crate.
+
+## Features
+
+- **Fast**: Specialized paths for RGB/RGBA images.
+- **Flexible**: Support for multiple layers and custom channels.
+- **Modern**: Clean TypeScript/JavaScript API with standard `Float32Array`.
+- **Portable**: Works in Browser and Node.js.
+- **Compatible**: Supports various compression methods and bit depths.
 
 ## Installation
 
@@ -10,90 +18,102 @@ Built on top of the [`exr`](https://crates.io/crates/exr) Rust crate.
 npm install exrs
 ```
 
-## Quick Start
+## Examples
 
-```javascript
-import { init, encodeExr, decodeExr } from 'exrs';
+### Encoding
 
-// Initialize WASM module (required once before using other functions)
+#### `encodeExr(options: ExrEncodeImage): Uint8Array`
+The most flexible encoding function, supporting multiple layers and arbitrary channel names.
+```typescript
+import {init, encodeExr} from "exrs";
 await init();
 
-// Create RGBA pixel data
-const width = 1920;
-const height = 1080;
-const interleavedPixels = new Float32Array(width * height * 4);
-// ... fill with pixel values ...
-
-// Encode to EXR
-const bytes: Uint8Array = encodeRgbaExr({
-    width,
-    height,
-    interleavedPixels, 
-    compression: 'piz'
-});
-
-// Decode back
-const image = decodeRgbaExr(bytes);
-const firstLayerPixels: Float32Array = image.interleavedRgbaPixels;
-```
-
-## API
-
-### `init()`
-
-Initialize the WASM module. Must be called once before using other functions.
-
-```typescript
-await init();
-```
-
-### `encodeExr(options)`
-
-Encode pixel data into an EXR file.
-
-```typescript
 const bytes = encodeExr({
   width: 1920,
   height: 1080,
   layers: [{
-    name: 'beauty',                                 // Layer name (e.g., "beauty")
-    channelNames: 'rgba',                           // 'rgba', 'rgb' or string[]
-    interleavedPixels: rgbaData,                    // Float32Array
-    precision: 'f32',                               // 'f16', 'f32', or 'u32'
-    compression: 'piz'                              // 'none', 'rle', 'zip', 'zip16', 'piz', 'pxr24'
+    name: 'beauty',
+    channelNames: ['R', 'G', 'B', 'A'],
+    interleavedPixels: rgbaData,
+    precision: 'f32',
+    compression: 'piz'
   }]
 });
 ```
 
-### `decodeExr(data)`
-
-Decode an EXR file into pixel data.
+#### `encodeRgbaExr(image: ExrEncodeRgbaImage): Uint8Array`, `encodeRgbExr(image: ExrEncodeRgbaImage): Uint8Array`
+Optimized encoders for standard RGB or RGBA channel images.
 
 ```typescript
+import {init, decodeRgbaExr} from "exrs";
+await init();
+
+const bytes = encodeRgbaExr({
+    width: 1920,
+    height: 1080,
+    interleavedPixels: rgbaData,
+    precision: 'f32',
+    compression: 'piz'
+});
+```
+
+
+### Decoding
+
+#### `decodeExr(data: Uint8Array): ExrDecodeImage`
+Decodes an EXR file into a structured image object containing one or more layers. Most flexible decoding function.
+```typescript
+import {init, decodeExr} from "exrs";
+await init();
+
 const image = decodeExr(bytes);
+const layer = image.layers[0];
 
-console.log(image.width, image.height);
-console.log(image.layers.length);
+// Get pixels in a specific order
+const pixels = layer.getInterleavedPixels(['R', 'G', 'B']);
 
-// Get pixel data (auto-detects RGBA/RGB/single channel based on layer contents)
-const pixelData = image.layers[0].getInterleavedPixels();
-
-// Get individual channel by name
-const depthData = image.layers[1].getChannelPixels('Z');
+// Check for specific channels
+if (layer.containsChannelNames(['Z'])) {
+    const depth = layer.getInterleavedPixels(['Z']);
+}
 ```
 
-### `decodeRgbaExr(data)` / `decodeRgbExr(data)`
-
-Optimized decoders for when you know the channel layout:
+#### `decodeRgbaExr(data: Uint8Array): ExrDecodeRgbaImage`, `decodeRgbExr(data: Uint8Array): ExrDecodeRgbaImage`
+High-performance decoders that return a simple object with width, height, and a single `Float32Array` of interleaved pixels.
 
 ```typescript
-const { width, height, interleavedRgbaPixels } = decodeRgbaExr(bytes);
-// interleavedRgbaPixels is interleaved RGBA Float32Array
+import {init, decodeRgbaExr} from "exrs";
+await init();
+
+const image = decodeRgbaExr(bytes);
+const { width, height } = image;
+const pixels = layer.interleavedRgbaPixels;
 ```
+
+### Layer Options
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `name` | `string` | `undefined` | Optional name for the layer |
+| `channelNames` | `string[]` | **Required** | Names of channels (e.g., `['R', 'G', 'B']`) |
+| `interleavedPixels`| `Float32Array` | **Required** | Pixel data interleaved by channel |
+| `precision` | `'f16' \| 'f32' \| 'u32'` | `'f32'` | Sample bit depth |
+| `compression` | `Compression` | `'rle'` | Compression method |
+
+### Compression Methods
+
+| Method | Description | Best For |
+|--------|-------------|----------|
+| `none` | No compression | Debugging, extreme speed |
+| `rle` | Run-length encoding | Flat/simple images, fast |
+| `zip` | ZIP (single scanline) | General purpose |
+| `zip16` | ZIP (16 scanlines) | Good balance |
+| `piz` | PIZ wavelet | Noisy/natural images (often best) |
+| `pxr24` | PXR24 | Depth buffers (lossy for 32-bit) |
 
 ## Examples
 
-### Multi-layer EXR (AOVs)
+### Encode Multi-layer EXR (AOVs)
 
 ```javascript
 import { init, encodeExr } from 'exrs';
@@ -104,10 +124,9 @@ const bytes = encodeExr({
   width: 1920,
   height: 1080,
   layers: [
-    { name: 'beauty', channelNames: 'rgba', interleavedPixels: beautyData, compression: 'piz' },
+    { name: 'beauty', channelNames: ['R', 'G', 'B', 'A'], interleavedPixels: beautyData, compression: 'piz' },
     { name: 'depth', channelNames: ['Z'], interleavedPixels: depthData, compression: 'pxr24' },
-    { name: 'normals', channelNames: 'rgb', interleavedPixels: normalsData, compression: 'zip16' },
-    { name: 'ao', channelNames: ['Y'], interleavedPixels: aoData, compression: 'rle' }
+    { name: 'normals', channelNames: ['R', 'G', 'B'], interleavedPixels: normalsData, compression: 'zip16' }
   ]
 });
 ```
@@ -115,19 +134,22 @@ const bytes = encodeExr({
 ### WebGL Render Buffer Export
 
 ```javascript
-import { init, encodeExr } from 'exrs';
+import { init, encodeRgbaExr } from 'exrs';
 
 await init();
 
-// Read pixels from WebGL framebuffer
 const gl = canvas.getContext('webgl2');
 const pixels = new Float32Array(width * height * 4);
 gl.readPixels(0, 0, width, height, gl.RGBA, gl.FLOAT, pixels);
 
-const bytes = encodeExr({
+// EXR is often stored top-to-bottom, WebGL is bottom-to-top.
+// You might need to flip your pixels vertically before encoding.
+
+const bytes = encodeRgbaExr({
   width,
   height,
-  layers: [{ name: 'render', channelNames: 'rgba', interleavedPixels: pixels, compression: 'piz' }]
+  interleavedRgbaPixels: pixels,
+  compression: 'piz'
 });
 ```
 
@@ -157,7 +179,7 @@ for (let i = 0; i < width * height; i++) {
   const b = interleavedRgbaPixels[i * 4 + 2];
   const a = interleavedRgbaPixels[i * 4 + 3];
 
-  imageData.data[i * 4] = Math.min(255, (r / (1 + r)) * 255);
+  imageData.data[i * 4]     = Math.min(255, (r / (1 + r)) * 255);
   imageData.data[i * 4 + 1] = Math.min(255, (g / (1 + g)) * 255);
   imageData.data[i * 4 + 2] = Math.min(255, (b / (1 + b)) * 255);
   imageData.data[i * 4 + 3] = a * 255;
@@ -166,37 +188,18 @@ for (let i = 0; i < width * height; i++) {
 ctx.putImageData(imageData, 0, 0);
 ```
 
-## Compression Methods
-
-| Method | Description | Best For |
-|--------|-------------|----------|
-| `none` | No compression | Debug, speed |
-| `rle` | Run-length encoding | Flat areas, fast |
-| `zip` | ZIP (single scanline) | General purpose |
-| `zip16` | ZIP (16 scanlines) | Good balance |
-| `piz` | PIZ wavelet | Noisy images |
-| `pxr24` | PXR24 | Depth buffers (lossy for f32) |
-
-## Sample Precision
-
-| Type | Description |
-|------|-------------|
-| `f16` | 16-bit half float (smaller files) |
-| `f32` | 32-bit float (default, full precision) |
-| `u32` | 32-bit unsigned integer |
-
 ## License
 
 BSD-3-Clause
 
 ## Contributing
 
+Prerequisites:
+- Rust `cargo`, `npm` and `nodejs`
+- `cargo install wasm-pack`
+
 ### Building and Testing
 
-1. `cd js`
-2. `npm run test` (this also rebuilds the whole wasm package every time)
-
-### Building and Publishing
-
-1. `cd js`
-2. `npm run publish` (this also rebuilds the whole wasm package every time)
+1. `cd exrs-wasm/js`
+2. `npm install`
+3. `npm run test` (this also rebuilds the whole wasm package every time)
