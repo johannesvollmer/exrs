@@ -1,5 +1,5 @@
 /**
- * exrs-wasm - JavaScript wrapper for writing and reading EXR files in the browser.
+ * exrs - JavaScript wrapper for writing and reading EXR files in the browser and node.
  *
  * This module provides a clean, easy-to-use API for EXR files.
  * Call init() once before using other functions.
@@ -18,27 +18,50 @@ export interface ExrEncodeLayer {
   /** Layer name (e.g., "beauty", "depth") */
   name?: string;
 
-  /** @example 'RGBA', 'RGB', ['Z'], ['R', 'G', 'B', 'A'], ['X', 'Y', 'Z'], ...  */
+  /**
+   * Names of the channels in this layer.
+   * @example RGBA, RGB, ['Z'], ['R', 'G', 'B', 'A'], ['X', 'Y', 'Z']
+   */
   channelNames: Channels;
 
+  /**
+   * Contains all samples of all pixels.
+   * Per pixel, one sample for each of the channelNames you specified, in the same order.
+   */
   interleavedPixels: Float32Array;
 
-  /** @default 'f32' */
+  /**
+   * Data precision for this layer.
+   * @default 'f32'
+   */
   precision?: Precision;
 
-  /** @default 'rle' */
+  /**
+   * Compression method for this layer.
+   * @default 'rle'
+   */
   compression?: Compression;
 }
 
+/**
+ * Multiple layers to be encoded into an EXR image.
+ */
 export interface ExrEncodeImage {
+  /** Image width in pixels */
   width: number;
+  /** Image height in pixels */
   height: number;
+  /** List of layers to include in the image */
   layers: ExrEncodeLayer[];
 }
 
+/**
+ * Options for encoding a single-layer RGBA EXR image.
+ */
 export interface ExrEncodeRgbaImage {
   width: number;
   height: number;
+  /** Interleaved RGBA pixel data (R, G, B, A, R, G, B, A, ...) */
   interleavedRgbaPixels: Float32Array;
 
   /** @default 'f32' */
@@ -48,11 +71,15 @@ export interface ExrEncodeRgbaImage {
   compression?: Compression;
 }
 
+/**
+ * Options for encoding a single-layer RGB EXR image.
+ */
 export interface ExrEncodeRgbImage {
   width: number;
 
   height: number;
 
+  /** Interleaved RGB pixel data (R, G, B, R, G, B, ...) */
   interleavedRgbPixels: Float32Array;
 
   /** @default 'f32' */
@@ -64,34 +91,60 @@ export interface ExrEncodeRgbImage {
 
 /** Decoded layer information */
 export interface ExrDecodeLayer {
+  /** Name of the layer, if any */
   name: string | null;
 
-  /** EXR files always store channels in alphabetical order */
+  /**
+   * The names of all channels present in this layer, in alphabetical order.
+   * EXR files always store channels alphabetically.
+   */
   channelNamesAlphabetical: Channels;
 
-  /** Checks if the channels exist in the layer, regardless of order */
+  /**
+   * Checks if the channels exist in the layer, regardless of order.
+   */
   containsChannelNames(channels: Channels): boolean;
 
-  /** @example getInterleavedPixels(RGB), getInterleavedPixels(RGBA), getInterleavedPixels(["X", "Y", "Z"]) */
+  /**
+   * Returns the pixel data for the specified channels, interleaved in the order you requested.
+   * @example getInterleavedPixels(RGB), getInterleavedPixels(RGBA), getInterleavedPixels(["X", "Y", "Z"])
+   * @returns Float32Array or null if channels are not found
+   */
   getInterleavedPixels(desiredChannels: Channels): Float32Array | null;
+
+  /**
+   * Returns all pixel data for all channels in this layer, interleaved in alphabetical order.
+   */
   getAllInterleavedPixels(): Float32Array | null;
 }
 
+/**
+ * Decoded EXR image containing one or more layers.
+ */
 export interface ExrDecodeImage {
   width: number;
   height: number;
+  /** All layers found in the EXR file */
   layers: ExrDecodeLayer[];
 }
 
+/**
+ * Decoded RGBA image data.
+ */
 export interface ExrDecodeRgbaImage {
   width: number;
   height: number;
+  /** Interleaved RGBA pixel data */
   interleavedRgbaPixels: Float32Array;
 }
 
+/**
+ * Decoded RGB image data.
+ */
 export interface ExrDecodeRgbImage {
   width: number;
   height: number;
+  /** Interleaved RGB pixel data */
   interleavedRgbPixels: Float32Array;
 }
 
@@ -142,6 +195,10 @@ function ensureInitialized() {
   }
 }
 
+/**
+ * Encode an RGB image into an EXR file.
+ * Specialized for performance.
+ */
 export function encodeRgbExr(image: ExrEncodeRgbImage): Uint8Array {
   return encodeExr({
     width: image.width,
@@ -157,6 +214,10 @@ export function encodeRgbExr(image: ExrEncodeRgbImage): Uint8Array {
   });
 }
 
+/**
+ * Encode an RGBA image into an EXR file.
+ * Specialized for performance.
+ */
 export function encodeRgbaExr(image: ExrEncodeRgbaImage): Uint8Array {
   return encodeExr({
     width: image.width,
@@ -291,8 +352,7 @@ export function decodeExr(data: Uint8Array): ExrDecodeImage {
       channelNamesAlphabetical: channels,
 
       containsChannelNames(desiredChannels: Channels): boolean {
-        console.log('eq?', channels, desiredChannels.toSorted());
-        return shallow_equals(channels, desiredChannels.toSorted());
+        return desiredChannels.every((desired) => channels.includes(desired));
       },
 
       getInterleavedPixels: (desiredChannels: Channels): Float32Array | null => {

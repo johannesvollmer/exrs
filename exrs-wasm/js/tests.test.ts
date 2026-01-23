@@ -124,7 +124,9 @@ describe('EXRS WASM Integration Tests', () => {
 
     expect(image.layers[0].containsChannelNames(['X', 'Y', 'F', 'Z'])).toBeTruthy();
     expect(image.layers[0].containsChannelNames(['X', 'Z', 'Y', 'F'])).toBeTruthy();
-    expect(image.layers[0].containsChannelNames(['X', 'Y', 'Z'])).toBeFalsy();
+    expect(image.layers[0].containsChannelNames(['X', 'Y', 'Z'])).toBeTruthy();
+    expect(image.layers[0].containsChannelNames(RGB)).toBeFalsy();
+    expect(image.layers[0].containsChannelNames(RGBA)).toBeFalsy();
 
     const ZXY = image.layers[0].getInterleavedPixels(['Z', 'X', 'Y']);
     expect(ZXY.length).toBe(pixelCount * 3);
