@@ -1,7 +1,5 @@
 /**
- * exrs - JavaScript wrapper for writing and reading EXR files in the browser and node.
- *
- * This module provides a clean, easy-to-use API for EXR files.
+ * exrs - Typescript package for encoding and decoding EXR files in the browser and node.
  * Call init() once before using other functions.
  */
 import * as wasm from 'exrs-raw-wasm-bindgen';
@@ -31,7 +29,7 @@ export interface ExrEncodeLayer {
   interleavedPixels: Float32Array;
 
   /**
-   * Data precision for this layer.
+   * Sample precision for this layer. applied to all channels.
    * @default 'f32'
    */
   precision?: Precision;
@@ -47,11 +45,8 @@ export interface ExrEncodeLayer {
  * Multiple layers to be encoded into an EXR image.
  */
 export interface ExrEncodeImage {
-  /** Image width in pixels */
   width: number;
-  /** Image height in pixels */
   height: number;
-  /** List of layers to include in the image */
   layers: ExrEncodeLayer[];
 }
 
@@ -61,13 +56,20 @@ export interface ExrEncodeImage {
 export interface ExrEncodeRgbaImage {
   width: number;
   height: number;
+
   /** Interleaved RGBA pixel data (R, G, B, A, R, G, B, A, ...) */
   interleavedRgbaPixels: Float32Array;
 
-  /** @default 'f32' */
+  /**
+   * Sample precision for this layer. applied to all channels.
+   * @default 'f32'
+   */
   precision?: Precision;
 
-  /** @default 'rle' */
+  /**
+   * Compression method for this layer.
+   * @default 'rle'
+   */
   compression?: Compression;
 }
 
@@ -82,16 +84,20 @@ export interface ExrEncodeRgbImage {
   /** Interleaved RGB pixel data (R, G, B, R, G, B, ...) */
   interleavedRgbPixels: Float32Array;
 
-  /** @default 'f32' */
+  /**
+   * Sample precision for this layer. applied to all channels.
+   * @default 'f32'
+   */
   precision?: Precision;
 
-  /** @default 'rle' */
+  /**
+   * Compression method for this layer.
+   * @default 'rle'
+   */
   compression?: Compression;
 }
 
-/** Decoded layer information */
 export interface ExrDecodeLayer {
-  /** Name of the layer, if any */
   name: string | null;
 
   /**
@@ -101,13 +107,13 @@ export interface ExrDecodeLayer {
   channelNamesAlphabetical: Channels;
 
   /**
-   * Checks if the channels exist in the layer, regardless of order.
+   * Checks if the given channels are present in this layer, regardless of order.
    */
   containsChannelNames(channels: Channels): boolean;
 
   /**
    * Returns the pixel data for the specified channels, interleaved in the order you requested.
-   * @example getInterleavedPixels(RGB), getInterleavedPixels(RGBA), getInterleavedPixels(["X", "Y", "Z"])
+   * @example getInterleavedPixels(RGB), getInterleavedPixels(RGBA), getInterleavedPixels(["X", "Y", "Z"]), getInterleavedPixels(["B", "G", "R"])
    * @returns Float32Array or null if channels are not found
    */
   getInterleavedPixels(desiredChannels: Channels): Float32Array | null;
@@ -115,7 +121,7 @@ export interface ExrDecodeLayer {
   /**
    * Returns all pixel data for all channels in this layer, interleaved in alphabetical order.
    */
-  getAllInterleavedPixels(): Float32Array | null;
+  getAllInterleavedPixels(): Float32Array;
 }
 
 /**
@@ -360,7 +366,9 @@ export function decodeExr(data: Uint8Array): ExrDecodeImage {
       },
 
       getAllInterleavedPixels: () => {
-        return decoder.getLayerPixels(layerIndex, channels) ?? null;
+        const pixels = decoder.getLayerPixels(layerIndex, channels);
+        if (!pixels) throw new Error("unreachable");
+        return pixels;
       },
     });
   }
