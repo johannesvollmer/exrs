@@ -192,6 +192,10 @@ ctx.putImageData(imageData, 0, 0);
 
 BSD-3-Clause
 
+## Contributors
+
+Big thanks to [akre54](https://github.com/akre54) for the initial proposal and implementation of this javascript package.
+
 ## Contributing
 
 Prerequisites:
