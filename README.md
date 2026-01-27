@@ -316,6 +316,27 @@ document. Unspecified behavior is concluded from the C++ library.
 This project has awesome contributors and is welcoming for
 contributions on [Github](https://github.com/johannesvollmer/exrs).
 
+### Code Formatting
+
+This repository uses Rustfmt's standard style. Continuous Integration checks formatting on every pull request and will fail if files are not properly formatted.
+
+How to format locally:
+
+- Format the entire workspace in-place:
+  - `cargo fmt --all`
+- Check formatting without changing files (what CI runs):
+  - `cargo fmt --all -- --check`
+
+If `cargo fmt` is not found, install the Rustfmt component via Rustup:
+
+- Install Rustfmt for your current toolchain:
+  - `rustup component add rustfmt`
+- If needed, ensure the stable toolchain is installed, then add Rustfmt explicitly:
+  - `rustup toolchain install stable`
+  - `rustup component add --toolchain stable rustfmt`
+
+You may also configure your editor to run `cargo fmt` on save.
+
 ### Running Tests
 
 To run all fast tests on your native system, use `cargo test`.
