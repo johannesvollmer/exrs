@@ -7,6 +7,19 @@ on:
     branches: [ master, dev ]
 
 jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    name: check rustfmt formatting
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install rustfmt component
+        run: rustup component add rustfmt
+      - name: Verify formatting
+        run: cargo fmt --all -- --check
+
   ubuntu:
     runs-on: ubuntu-latest
     name: test on ubuntu
