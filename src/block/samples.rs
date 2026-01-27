@@ -1,7 +1,8 @@
 //! Extract pixel samples from a block of pixel bytes.
 
-use crate::prelude::*;
 use half::prelude::HalfFloatSliceExt;
+
+use crate::prelude::*;
 
 /// A single red, green, blue, or alpha value.
 #[derive(Copy, Clone, Debug)]

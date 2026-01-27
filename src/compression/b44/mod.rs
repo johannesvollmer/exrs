@@ -1,6 +1,11 @@
 #[rustfmt::skip]
 mod table;
 
+use std::{cmp::min, mem::size_of};
+
+use lebe::io::{ReadPrimitive, WriteEndian};
+use table::{EXP_TABLE, LOG_TABLE};
+
 use crate::{
     compression::{mod_p, ByteVec},
     error::usize_to_i32,
@@ -8,9 +13,6 @@ use crate::{
     meta::attribute::ChannelList,
     prelude::*,
 };
-use lebe::io::{ReadPrimitive, WriteEndian};
-use std::{cmp::min, mem::size_of};
-use table::{EXP_TABLE, LOG_TABLE};
 
 const BLOCK_SAMPLE_COUNT: usize = 4;
 
@@ -259,8 +261,7 @@ fn memcpy_u16_to_u8(src: &[u16], mut dst: &mut [u8]) {
 #[inline]
 fn memcpy_u8_to_u16(mut src: &[u8], dst: &mut [u16]) {
     use lebe::prelude::*;
-    src.read_from_native_endian_into(dst)
-        .expect("byte copy error");
+    src.read_from_native_endian_into(dst).expect("byte copy error");
 }
 
 #[inline]
@@ -609,7 +610,6 @@ pub fn compress(
         let cd_start = channel.tmp_start_index;
 
         for y in (0..y_sample_count).step_by(BLOCK_SAMPLE_COUNT) {
-            //
             // Copy the next 4x4 pixel block into array s.
             // If the width, cd.nx, or the height, cd.ny, of
             // the pixel data in _tmpBuffer is not divisible
@@ -740,14 +740,9 @@ mod test {
 
         let compressed = b44::compress(&channels, pixel_bytes.clone(), rectangle, true).unwrap();
 
-        let decompressed = b44::decompress(
-            &channels,
-            compressed.clone(),
-            rectangle,
-            pixel_bytes.len(),
-            true,
-        )
-        .unwrap();
+        let decompressed =
+            b44::decompress(&channels, compressed.clone(), rectangle, pixel_bytes.len(), true)
+                .unwrap();
 
         assert_eq!(decompressed.len(), pixel_bytes.len());
 
@@ -999,15 +994,9 @@ mod test {
         let image = read_image.clone().from_file(path).unwrap();
 
         let mut tmp_bytes = Vec::new();
-        image
-            .write()
-            .non_parallel()
-            .to_buffered(std::io::Cursor::new(&mut tmp_bytes))
-            .unwrap();
+        image.write().non_parallel().to_buffered(std::io::Cursor::new(&mut tmp_bytes)).unwrap();
 
-        let image2 = read_image
-            .from_buffered(std::io::Cursor::new(tmp_bytes))
-            .unwrap();
+        let image2 = read_image.from_buffered(std::io::Cursor::new(tmp_bytes)).unwrap();
 
         image.assert_equals_result(&image2);
     }

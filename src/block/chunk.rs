@@ -396,10 +396,7 @@ impl Chunk {
         if header_count != 1 {
             usize_to_i32(self.layer_index, "layer index")?.write_le(write)?;
         } else {
-            assert_eq!(
-                self.layer_index, 0,
-                "invalid header index for single layer file"
-            );
+            assert_eq!(self.layer_index, 0, "invalid header index for single layer file");
         }
 
         match self.compressed_block {

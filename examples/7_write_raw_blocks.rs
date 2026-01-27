@@ -3,8 +3,9 @@ extern crate smallvec;
 extern crate half;
 extern crate rand;
 
-use exr::block::{writer::ChunksWriter, UncompressedBlock};
 use std::{convert::TryInto, fs::File, io::BufWriter};
+
+use exr::block::{writer::ChunksWriter, UncompressedBlock};
 
 // exr imports
 extern crate exr;
@@ -102,8 +103,5 @@ fn main() {
     .unwrap();
 
     // warning: highly unscientific benchmarks ahead!
-    println!(
-        "\ncreated file 3GB.exr in {:?}s",
-        start_time.elapsed().as_secs_f32()
-    );
+    println!("\ncreated file 3GB.exr in {:?}s", start_time.elapsed().as_secs_f32());
 }

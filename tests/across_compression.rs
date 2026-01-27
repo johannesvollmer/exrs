@@ -1,5 +1,6 @@
-use exr::{image::validate_results::ValidateResult, prelude::*};
 use std::path::Path;
+
+use exr::{image::validate_results::ValidateResult, prelude::*};
 
 fn dir() -> &'static Path {
     Path::new("tests/images/valid/custom/compression_methods")
@@ -80,9 +81,7 @@ fn expect_eq_png(image_name: &str) {
                 "size should not be affected by compression"
             );
 
-            let expected_px = ground_truth_png
-                .pixels()
-                .flat_map(|px| px.0.iter().copied());
+            let expected_px = ground_truth_png.pixels().flat_map(|px| px.0.iter().copied());
 
             let actual_px = exr_as_png_px.pixels().flat_map(|px| px.0.iter().copied());
 

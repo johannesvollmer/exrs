@@ -2,19 +2,20 @@
 //! Uses the error handling for this crate.
 
 #![doc(hidden)]
-pub use ::std::io::{Read, Write};
-
-use crate::error::{Error, IoResult, Result, UnitResult};
-use ::half::f16;
-use half::slice::HalfFloatSliceExt;
-use lebe::prelude::*;
-use smallvec::{Array, SmallVec};
 use std::{
     convert::TryFrom,
     fs::File,
     io::{Seek, SeekFrom},
     path::Path,
 };
+
+use ::half::f16;
+pub use ::std::io::{Read, Write};
+use half::slice::HalfFloatSliceExt;
+use lebe::prelude::*;
+use smallvec::{Array, SmallVec};
+
+use crate::error::{Error, IoResult, Result, UnitResult};
 
 /// Skip reading uninteresting bytes without allocating.
 #[inline]
@@ -62,7 +63,10 @@ pub struct LateFile<'p> {
 
 impl<'p> From<&'p Path> for LateFile<'p> {
     fn from(path: &'p Path) -> Self {
-        Self { path, file: None }
+        Self {
+            path,
+            file: None,
+        }
     }
 }
 
@@ -118,10 +122,8 @@ impl<T: Read> PeekRead<T> {
     /// The next `read` call will include that byte.
     #[inline]
     pub fn peek_u8(&mut self) -> &IoResult<u8> {
-        self.peeked = self
-            .peeked
-            .take()
-            .or_else(|| Some(u8::read_from_little_endian(&mut self.inner)));
+        self.peeked =
+            self.peeked.take().or_else(|| Some(u8::read_from_little_endian(&mut self.inner)));
         self.peeked.as_ref().unwrap() // unwrap cannot fail because we just set
                                       // it
     }
@@ -216,7 +218,10 @@ impl<T> Tracking<T> {
     /// If `inner` is a reference, if must never be seeked directly,
     /// but only through this `Tracking` instance.
     pub fn new(inner: T) -> Self {
-        Tracking { inner, position: 0 }
+        Tracking {
+            inner,
+            position: 0,
+        }
     }
 
     /// Current number of bytes written or read.
@@ -238,8 +243,7 @@ impl<T: Read + Seek> Tracking<T> {
             skip_bytes(self, delta as usize)?;
             self.position += delta as usize;
         } else if delta != 0 {
-            self.inner
-                .seek(SeekFrom::Start(u64::try_from(target_position).unwrap()))?;
+            self.inner.seek(SeekFrom::Start(u64::try_from(target_position).unwrap()))?;
             self.position = target_position;
         }
 
@@ -252,8 +256,7 @@ impl<T: Write + Seek> Tracking<T> {
     /// If seeking forward, this will write zeroes.
     pub fn seek_write_to(&mut self, target_position: usize) -> std::io::Result<()> {
         if target_position < self.position {
-            self.inner
-                .seek(SeekFrom::Start(u64::try_from(target_position).unwrap()))?;
+            self.inner.seek(SeekFrom::Start(u64::try_from(target_position).unwrap()))?;
         } else if target_position > self.position {
             std::io::copy(
                 &mut std::io::repeat(0)
@@ -546,8 +549,9 @@ impl Data for f16 {
 
 #[cfg(test)]
 mod test {
-    use crate::io::PeekRead;
     use std::io::Read;
+
+    use crate::io::PeekRead;
 
     #[test]
     fn peek() {

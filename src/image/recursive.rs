@@ -25,7 +25,10 @@ impl<Inner, Value> Recursive<Inner, Value> {
     /// Create a new recursive type. Equivalent to the manual constructor, but
     /// less verbose.
     pub fn new(inner: Inner, value: Value) -> Self {
-        Self { inner, value }
+        Self {
+            inner,
+            value,
+        }
     }
 }
 
@@ -81,7 +84,7 @@ impl<I: IntoNonRecursive> IntoTuple<I::NonRecursive> for I {
     }
 }
 
-//Implement traits for the empty tuple, the macro doesn't handle that
+// Implement traits for the empty tuple, the macro doesn't handle that
 impl IntoRecursive for () {
     type Recursive = NoneMore;
 

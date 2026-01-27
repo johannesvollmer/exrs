@@ -1,19 +1,21 @@
 //! 16-bit Huffman compression and decompression.
 //! Huffman compression and decompression routines written
-//!	by Christian Rouet for his PIZ image file format.
+//! 	by Christian Rouet for his PIZ image file format.
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/88246d991e0318c043e6f584f7493da08a31f9f8/OpenEXR/IlmImf/ImfHuf.cpp
 
-use crate::{
-    error::{u32_to_usize, u64_to_usize, Error, Result, UnitResult},
-    io::Data,
-    math::RoundingMode,
-};
-use smallvec::SmallVec;
 use std::{
     cmp::Ordering,
     collections::BinaryHeap,
     convert::TryFrom,
     io::{Cursor, Read, Write},
+};
+
+use smallvec::SmallVec;
+
+use crate::{
+    error::{u32_to_usize, u64_to_usize, Error, Result, UnitResult},
+    io::Data,
+    math::RoundingMode,
 };
 
 pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
@@ -201,9 +203,7 @@ fn decode_with_tables(
     let count = u64::try_from((8 - input_bit_count) & 7)?;
     code_bits >>= count;
 
-    code_bit_count = code_bit_count
-        .checked_sub(count)
-        .ok_or_else(|| Error::invalid("code"))?;
+    code_bit_count = code_bit_count.checked_sub(count).ok_or_else(|| Error::invalid("code"))?;
 
     while code_bit_count > 0 {
         let index = (code_bits << (DECODE_BITS - code_bit_count)) & DECODE_MASK;
@@ -248,10 +248,8 @@ fn build_decoding_table(
 ) -> Result<Vec<Code>> {
     let mut decoding_table = vec![Code::Empty; DECODING_TABLE_SIZE]; // not an array because of code not being copy
 
-    for (code_index, &encoded_code) in encoding_table[..=max_code_index]
-        .iter()
-        .enumerate()
-        .skip(min_code_index)
+    for (code_index, &encoded_code) in
+        encoding_table[..=max_code_index].iter().enumerate().skip(min_code_index)
     {
         let code_index = u32::try_from(code_index).unwrap();
 
@@ -438,13 +436,7 @@ fn write_code(
     code_bit_count: &mut u64,
     mut out: impl Write,
 ) -> UnitResult {
-    write_bits(
-        length(scode),
-        code(scode),
-        code_bits,
-        code_bit_count,
-        &mut out,
-    )
+    write_bits(length(scode), code(scode), code_bits, code_bit_count, &mut out)
 }
 
 #[inline(always)]
@@ -527,19 +519,18 @@ fn encode_with_frequencies(
     Ok(data_length * 8 + code_bit_count)
 }
 
-///
 /// Pack an encoding table:
 /// 	- only code lengths, not actual codes, are stored
 /// 	- runs of zeroes are compressed as follows:
 ///
-///	  unpacked		packed
-///	  --------------------------------
-///	  1 zero		0	(6 bits)
-///	  2 zeroes		59
-///	  3 zeroes		60
-///	  4 zeroes		61
-///	  5 zeroes		62
-///	  n zeroes (6 or more)	63 n-6	(6 + 8 bits)
+/// 	  unpacked		packed
+/// 	  --------------------------------
+/// 	  1 zero		0	(6 bits)
+/// 	  2 zeroes		59
+/// 	  3 zeroes		60
+/// 	  4 zeroes		61
+/// 	  5 zeroes		62
+/// 	  n zeroes (6 or more)	63 n-6	(6 + 8 bits)
 fn pack_encoding_table(
     frequencies: &[u64],
     min_index: usize,
@@ -597,13 +588,7 @@ fn pack_encoding_table(
             }
         }
 
-        write_bits(
-            6,
-            code_length,
-            &mut code_bits,
-            &mut code_bit_count,
-            &mut out,
-        )?;
+        write_bits(6, code_length, &mut code_bits, &mut code_bit_count, &mut out)?;
         frequency_index += 1;
     }
 
@@ -690,10 +675,7 @@ fn build_encoding_table(
 
     impl Ord for HeapFrequency {
         fn cmp(&self, other: &Self) -> Ordering {
-            other
-                .frequency
-                .cmp(&self.frequency)
-                .then_with(|| other.position.cmp(&self.position))
+            other.frequency.cmp(&self.frequency).then_with(|| other.position.cmp(&self.position))
         }
     }
 
@@ -801,10 +783,7 @@ fn build_encoding_table(
             let mut second_smallest_frequency = heap.peek_mut().expect("heap empty bug");
             second_smallest_frequency.frequency += smallest_frequency.frequency;
 
-            (
-                second_smallest_frequency.position,
-                smallest_frequency.position,
-            )
+            (second_smallest_frequency.position, smallest_frequency.position)
         };
 
         // The entries in scode are linked into lists with the
@@ -877,8 +856,9 @@ const TOO_MUCH_DATA: &'static str = "decoded data are longer than expected";
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use rand::{Rng, SeedableRng};
+
+    use super::*;
 
     const UNCOMPRESSED_ARRAY: [u16; 100] = [
         3852, 2432, 33635, 49381, 10100, 15095, 62693, 63738, 62359, 5013, 7715, 59875, 28182,
@@ -953,7 +933,11 @@ mod test {
 
     fn fill(rng: &mut impl Rng, size: usize) -> Vec<u16> {
         if rng.gen_bool(0.2) {
-            let value = if rng.gen_bool(0.5) { 0 } else { u16::MAX };
+            let value = if rng.gen_bool(0.5) {
+                0
+            } else {
+                u16::MAX
+            };
             return vec![value; size];
         }
 
@@ -1010,9 +994,8 @@ mod test {
 
     #[test]
     fn test_zeroes() {
-        let uncompressed: &[u16] = &[
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
+        let uncompressed: &[u16] =
+            &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
         let compressed = compress(uncompressed).unwrap();
         let decompressed = decompress(&compressed, uncompressed.len()).unwrap();

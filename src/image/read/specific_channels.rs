@@ -1,6 +1,8 @@
 //! How to read arbitrary but specific selection of arbitrary channels.
 //! This is not a zero-cost abstraction.
 
+use std::marker::PhantomData;
+
 use crate::{
     block::{chunk::TileCoordinates, samples::*, UncompressedBlock},
     error::*,
@@ -9,12 +11,10 @@ use crate::{
         recursive::*,
         *,
     },
+    io::Read,
     math::*,
     meta::header::*,
 };
-
-use crate::io::Read;
-use std::marker::PhantomData;
 
 /// Can be attached one more channel reader.
 /// Call `required` or `optional` on this object to declare another channel to
@@ -243,8 +243,7 @@ where
             // TODO sampling
             // this two-step copy method should be very cache friendly in theory, and also
             // reduce sample_type lookup count
-            self.pixel_reader
-                .read_pixels(line_bytes, &mut pixels, |px| px);
+            self.pixel_reader.read_pixels(line_bytes, &mut pixels, |px| px);
 
             for (x_offset, pixel) in pixels.iter().enumerate() {
                 let set_pixel = &self.set_pixel;
@@ -293,9 +292,7 @@ where
         channels: &ChannelList,
     ) -> Result<Self::RecursivePixelReader> {
         debug_assert!(
-            self.previous_channels
-                .already_contains(&self.channel_name)
-                .not(),
+            self.previous_channels.already_contains(&self.channel_name).not(),
             "duplicate channel name: {}",
             self.channel_name
         );
@@ -406,14 +403,8 @@ impl<Sample: FromNativeSample> SampleReader<Sample> {
             ),
         }
 
-        debug_assert!(
-            samples_out.next().is_none(),
-            "not all samples have been converted"
-        );
-        debug_assert!(
-            own_bytes_reader.is_empty(),
-            "bytes left after reading all samples"
-        );
+        debug_assert!(samples_out.next().is_none(), "not all samples have been converted");
+        debug_assert!(own_bytes_reader.is_empty(), "bytes left after reading all samples");
     }
 }
 
@@ -465,10 +456,7 @@ fn read_and_convert_all_samples_batched<'t, From, To>(
     // arrays
     for _ in 0..batch_count {
         read_n_samples(&mut source_samples_batch);
-        convert_batch(
-            source_samples_batch.as_slice(),
-            desired_samples_batch.as_mut_slice(),
-        );
+        convert_batch(source_samples_batch.as_slice(), desired_samples_batch.as_mut_slice());
         output_n_samples(&desired_samples_batch);
     }
 
@@ -490,14 +478,10 @@ mod test {
     #[test]
     fn equals_naive_f32() {
         for total_array_size in [3, 7, 30, 41, 120, 10_423] {
-            let input_f32s = (0..total_array_size)
-                .map(|_| rand::random::<f32>())
-                .collect::<Vec<f32>>();
-            let in_f32s_bytes = input_f32s
-                .iter()
-                .cloned()
-                .flat_map(f32::to_ne_bytes)
-                .collect::<Vec<u8>>();
+            let input_f32s =
+                (0..total_array_size).map(|_| rand::random::<f32>()).collect::<Vec<f32>>();
+            let in_f32s_bytes =
+                input_f32s.iter().cloned().flat_map(f32::to_ne_bytes).collect::<Vec<u8>>();
 
             let mut out_f16_samples_batched =
                 vec![f16::from_f32(rand::random::<f32>()); total_array_size];
@@ -551,10 +535,8 @@ where
         pixels: &mut [FullPixel],
         get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel,
     ) {
-        self.value
-            .read_own_samples(bytes, pixels, |px| &mut get_pixel(px).value);
-        self.inner
-            .read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
+        self.value.read_own_samples(bytes, pixels, |px| &mut get_pixel(px).value);
+        self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
     }
 }
 
@@ -570,10 +552,7 @@ where
     fn get_descriptions(&self) -> Self::RecursiveChannelDescriptions {
         Recursive::new(
             self.inner.get_descriptions(),
-            self.value
-                .reader
-                .as_ref()
-                .map(|reader| reader.channel.clone()),
+            self.value.reader.as_ref().map(|reader| reader.channel.clone()),
         )
     }
 
@@ -593,7 +572,6 @@ where
             }
         }
 
-        self.inner
-            .read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
+        self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
     }
 }

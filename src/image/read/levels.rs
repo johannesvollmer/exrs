@@ -138,15 +138,17 @@ pub struct ReadAllLevels<DeepOrFlatSamples> {
 impl<ReadDeepOrFlatSamples> ReadAllLevels<ReadDeepOrFlatSamples> {
     /// Read all arbitrary channels in each layer.
     pub fn all_channels(self) -> ReadAnyChannels<Self> {
-        ReadAnyChannels { read_samples: self }
+        ReadAnyChannels {
+            read_samples: self,
+        }
     }
 
     // TODO specific channels for multiple resolution levels
 }
 
-/*pub struct ReadLevels<S> {
-    read_samples: S,
-}*/
+// pub struct ReadLevels<S> {
+// read_samples: S,
+// }
 
 /// Processes pixel blocks from a file and accumulates them into multiple levels
 /// per channel.
@@ -247,7 +249,9 @@ impl<S: ReadSamplesLevel> ReadSamples for ReadAllLevels<S> {
             }
         };
 
-        Ok(AllLevelsReader { levels })
+        Ok(AllLevelsReader {
+            levels,
+        })
     }
 }
 
@@ -259,9 +263,7 @@ impl<S: SamplesReader> SamplesReader for AllLevelsReader<S> {
     }
 
     fn read_line(&mut self, line: LineRef<'_>) -> UnitResult {
-        self.levels
-            .get_level_mut(line.location.level)?
-            .read_line(line)
+        self.levels.get_level_mut(line.location.level)?.read_line(line)
     }
 
     fn into_samples(self) -> Self::Samples {
@@ -282,11 +284,7 @@ impl<S: SamplesReader> SamplesReader for AllLevelsReader<S> {
                 rounding_mode,
                 level_data: RipMaps {
                     level_count: level_data.level_count,
-                    map_data: level_data
-                        .map_data
-                        .into_iter()
-                        .map(|s| s.into_samples())
-                        .collect(),
+                    map_data: level_data.map_data.into_iter().map(|s| s.into_samples()).collect(),
                 },
             },
         }

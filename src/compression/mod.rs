@@ -8,6 +8,8 @@ mod pxr24;
 mod rle;
 mod zip;
 
+use std::convert::TryInto;
+
 use crate::{
     error::{usize_to_i32, Error, Result, UnitResult},
     meta::{
@@ -15,7 +17,6 @@ use crate::{
         header::Header,
     },
 };
-use std::convert::TryInto;
 
 /// A byte vector.
 pub type ByteVec = Vec<u8>;
@@ -217,16 +218,12 @@ impl Compression {
                 uncompressed_native_endian.clone(),
                 pixel_section,
             ),
-            PIZ => piz::compress(
-                &header.channels,
-                uncompressed_native_endian.clone(),
-                pixel_section,
-            ),
-            PXR24 => pxr24::compress(
-                &header.channels,
-                uncompressed_native_endian.clone(),
-                pixel_section,
-            ),
+            PIZ => {
+                piz::compress(&header.channels, uncompressed_native_endian.clone(), pixel_section)
+            }
+            PXR24 => {
+                pxr24::compress(&header.channels, uncompressed_native_endian.clone(), pixel_section)
+            }
             B44 => b44::compress(
                 &header.channels,
                 uncompressed_native_endian.clone(),
@@ -353,11 +350,9 @@ impl Compression {
                     message
                 )),
 
-                error => Error::invalid(format!(
-                    "compressed {:?} data ({})",
-                    self,
-                    error.to_string()
-                )),
+                error => {
+                    Error::invalid(format!("compressed {:?} data ({})", self, error.to_string()))
+                }
             })?;
 
             if bytes_ne.len() != expected_byte_size {
@@ -398,8 +393,9 @@ impl Compression {
         use self::Compression::*;
         match self {
             PXR24 => sample_type != SampleType::F32, // pxr reduces f32 to f24
-            B44 | B44A => sample_type != SampleType::F16, /* b44 only compresses f16 values, others
-            * are left uncompressed */
+            B44 | B44A => sample_type != SampleType::F16, /* b44 only compresses f16 values,
+                                                            * others */
+            // are left uncompressed
             Uncompressed | RLE | ZIP1 | ZIP16 | PIZ | HTJ2K32 | HTJ2K256 => true,
             DWAB(_) | DWAA(_) => false,
         }
@@ -521,10 +517,7 @@ fn reverse_block_endianness(
         rest
     }
 
-    debug_assert!(
-        remaining_bytes.is_empty(),
-        "not all bytes were converted to little endian"
-    );
+    debug_assert!(remaining_bytes.is_empty(), "not all bytes were converted to little endian");
     Ok(())
 }
 
@@ -722,10 +715,8 @@ mod optimize_bytes {
             let first_half_iter = &first_half[..second_half.len()];
 
             // Main loop that performs the interleaving
-            for ((first, second), interleaved) in first_half_iter
-                .iter()
-                .zip(second_half.iter())
-                .zip(interleaved.chunks_exact_mut(2))
+            for ((first, second), interleaved) in
+                first_half_iter.iter().zip(second_half.iter()).zip(interleaved.chunks_exact_mut(2))
             {
                 // The length of each chunk is known to be 2 at compile time,
                 // and each index is also a constant.
@@ -763,10 +754,8 @@ mod optimize_bytes {
             let first_half_iter = &mut first_half[..second_half.len()];
 
             // Main loop that performs the deinterleaving
-            for ((first, second), interleaved) in first_half_iter
-                .iter_mut()
-                .zip(second_half.iter_mut())
-                .zip(source.chunks_exact(2))
+            for ((first, second), interleaved) in
+                first_half_iter.iter_mut().zip(second_half.iter_mut()).zip(source.chunks_exact(2))
             {
                 // The length of each chunk is known to be 2 at compile time,
                 // and each index is also a constant.
@@ -857,9 +846,6 @@ mod test {
         let current_endian_decoded =
             convert_little_endian_to_current(little_endian.clone(), channels, rectangle).unwrap();
 
-        assert_eq!(
-            current_endian, current_endian_decoded,
-            "endianness conversion failed"
-        );
+        assert_eq!(current_endian, current_endian_decoded, "endianness conversion failed");
     }
 }

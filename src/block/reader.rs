@@ -1,5 +1,11 @@
 //! Composable structures to handle reading an image.
 
+use std::{
+    convert::TryFrom,
+    fmt::Debug,
+    io::{Read, Seek},
+};
+
 use crate::{
     block::{
         chunk::{Chunk, TileCoordinates},
@@ -8,11 +14,6 @@ use crate::{
     error::{u64_to_usize, Error, Result, UnitResult},
     io::{PeekRead, Tracking},
     meta::{header::Header, MetaData, OffsetTables},
-};
-use std::{
-    convert::TryFrom,
-    fmt::Debug,
-    io::{Read, Seek},
 };
 
 /// Decode the meta data from a byte source, keeping the source ready for
@@ -165,14 +166,13 @@ fn validate_offset_tables(
 
     // check that each offset is within the bounds
     let end_byte = chunks_start_byte + max_pixel_bytes;
-    let is_invalid = offset_tables
-        .iter()
-        .flatten()
-        .map(|&u64| u64_to_usize(u64, "chunk start"))
-        .any(|maybe_chunk_start| match maybe_chunk_start {
-            Ok(chunk_start) => chunk_start < chunks_start_byte || chunk_start > end_byte,
-            Err(_) => true,
-        });
+    let is_invalid =
+        offset_tables.iter().flatten().map(|&u64| u64_to_usize(u64, "chunk start")).any(
+            |maybe_chunk_start| match maybe_chunk_start {
+                Ok(chunk_start) => chunk_start < chunks_start_byte || chunk_start > end_byte,
+                Err(_) => true,
+            },
+        );
 
     if is_invalid {
         Err(Error::invalid("offset table"))
@@ -423,10 +423,7 @@ impl<R: Read + Seek> Iterator for AllChunksReader<R> {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (
-            self.remaining_chunks.len(),
-            Some(self.remaining_chunks.len()),
-        )
+        (self.remaining_chunks.len(), Some(self.remaining_chunks.len()))
     }
 }
 
@@ -446,17 +443,15 @@ impl<R: Read + Seek> Iterator for FilteredChunksReader<R> {
 
     fn next(&mut self) -> Option<Self::Item> {
         // read as many chunks as we have desired chunk offsets
-        self.remaining_filtered_chunk_indices
-            .next()
-            .map(|next_chunk_location| {
-                self.remaining_bytes.skip_to(
-                    // no-op for seek at current position, uses skip_bytes for small amounts
-                    usize::try_from(next_chunk_location)?,
-                )?;
+        self.remaining_filtered_chunk_indices.next().map(|next_chunk_location| {
+            self.remaining_bytes.skip_to(
+                // no-op for seek at current position, uses skip_bytes for small amounts
+                usize::try_from(next_chunk_location)?,
+            )?;
 
-                let meta_data = &self.meta_data;
-                Chunk::read(&mut self.remaining_bytes, meta_data)
-            })
+            let meta_data = &self.meta_data;
+            Chunk::read(&mut self.remaining_bytes, meta_data)
+        })
 
         // TODO remember last chunk index and then seek to index+size and check
         // whether bytes are left?
@@ -486,15 +481,13 @@ impl<R: ChunksReader> SequentialBlockDecompressor<R> {
 
     /// Read and then decompress a single block of pixels from the byte source.
     pub fn decompress_next_block(&mut self) -> Option<Result<UncompressedBlock>> {
-        self.remaining_chunks_reader
-            .read_next_chunk()
-            .map(|compressed_chunk| {
-                UncompressedBlock::decompress_chunk(
-                    compressed_chunk?,
-                    &self.remaining_chunks_reader.meta_data(),
-                    self.pedantic,
-                )
-            })
+        self.remaining_chunks_reader.read_next_chunk().map(|compressed_chunk| {
+            UncompressedBlock::decompress_chunk(
+                compressed_chunk?,
+                &self.remaining_chunks_reader.meta_data(),
+                self.pedantic,
+            )
+        })
     }
 }
 

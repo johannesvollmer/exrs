@@ -5,6 +5,8 @@
 mod huffman;
 mod wavelet;
 
+use std::convert::TryFrom;
+
 use crate::{
     compression::{mod_p, ByteVec, Bytes},
     error::{usize_to_i32, usize_to_u16},
@@ -12,7 +14,6 @@ use crate::{
     meta::attribute::*,
     prelude::*,
 };
-use std::convert::TryFrom;
 
 const U16_RANGE: usize = (1_i32 << 16_i32) as usize;
 const BITMAP_SIZE: usize = (U16_RANGE as i32 >> 3_i32) as usize;
@@ -36,10 +37,7 @@ pub fn decompress(
     pedantic: bool,
 ) -> Result<ByteVec> {
     let expected_u16_count = expected_byte_size / 2;
-    debug_assert_eq!(
-        expected_byte_size,
-        rectangle.size.area() * channels.bytes_per_pixel
-    );
+    debug_assert_eq!(expected_byte_size, rectangle.size.area() * channels.bytes_per_pixel);
     debug_assert!(!channels.list.is_empty());
 
     if compressed_le.is_empty() {
@@ -59,10 +57,7 @@ pub fn decompress(
     }
 
     if min_non_zero <= max_non_zero {
-        u8::read_slice_ne(
-            &mut remaining_input_le,
-            &mut bitmap[min_non_zero..=max_non_zero],
-        )?;
+        u8::read_slice_ne(&mut remaining_input_le, &mut bitmap[min_non_zero..=max_non_zero])?;
     }
 
     let (lookup_table, max_value) = reverse_lookup_table_from_bitmap(&bitmap);
@@ -112,10 +107,7 @@ pub fn decompress(
             wavelet::decode(
                 &mut u16s[offset..],
                 channel.resolution,
-                Vec2(
-                    channel.samples_per_pixel,
-                    channel.resolution.x() * channel.samples_per_pixel,
-                ),
+                Vec2(channel.samples_per_pixel, channel.resolution.x() * channel.samples_per_pixel),
                 max_value,
             )?;
         }
@@ -152,10 +144,7 @@ pub fn decompress(
         debug_assert_eq!(previous.tmp_end_index, current.tmp_start_index);
     }
 
-    debug_assert_eq!(
-        channel_data.last().unwrap().tmp_end_index,
-        tmp_u16_buffer.len()
-    );
+    debug_assert_eq!(channel_data.last().unwrap().tmp_end_index, tmp_u16_buffer.len());
     debug_assert_eq!(out.len(), expected_byte_size);
 
     // TODO optimize for when all channels are f16!
@@ -247,10 +236,7 @@ pub fn compress(
             wavelet::encode(
                 &mut tmp[channel.tmp_start_index + offset..channel.tmp_end_index],
                 channel.resolution,
-                Vec2(
-                    channel.samples_per_pixel,
-                    channel.resolution.x() * channel.samples_per_pixel,
-                ),
+                Vec2(channel.samples_per_pixel, channel.resolution.x() * channel.samples_per_pixel),
                 max_value,
             )?;
         }

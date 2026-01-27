@@ -22,11 +22,8 @@ pub fn main() {
     println!("writing images...");
 
     for (layer_index, layer) in image.layer_data.iter().enumerate() {
-        let layer_name = layer
-            .attributes
-            .layer_name
-            .as_ref()
-            .map_or(String::from("1"), Text::to_string);
+        let layer_name =
+            layer.attributes.layer_name.as_ref().map_or(String::from("1"), Text::to_string);
 
         for channel in &layer.channel_data.list {
             for (level, level_size) in layer.levels_with_resolution(&channel.sample_data) {

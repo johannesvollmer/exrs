@@ -14,6 +14,8 @@ pub mod chunk;
 pub mod lines;
 pub mod samples;
 
+use std::io::{Read, Seek, Write};
+
 use crate::{
     block::{
         chunk::{
@@ -26,7 +28,6 @@ use crate::{
     math::Vec2,
     meta::{attribute::ChannelList, header::Header, BlockDescription, Headers, MetaData},
 };
-use std::io::{Read, Seek, Write};
 
 /// Specifies where a block of pixel data should be placed in the actual image.
 /// This is a globally unique identifier which
@@ -99,30 +100,25 @@ pub fn write<W: Write + Seek>(
 pub fn enumerate_ordered_header_block_indices(
     headers: &[Header],
 ) -> impl '_ + Iterator<Item = (usize, BlockIndex)> {
-    headers
-        .iter()
-        .enumerate()
-        .flat_map(|(layer_index, header)| {
-            header
-                .enumerate_ordered_blocks()
-                .map(move |(index_in_header, tile)| {
-                    let data_indices = header
-                        .get_absolute_block_pixel_coordinates(tile.location)
-                        .expect("tile coordinate bug");
+    headers.iter().enumerate().flat_map(|(layer_index, header)| {
+        header.enumerate_ordered_blocks().map(move |(index_in_header, tile)| {
+            let data_indices = header
+                .get_absolute_block_pixel_coordinates(tile.location)
+                .expect("tile coordinate bug");
 
-                    let block = BlockIndex {
-                        layer: layer_index,
-                        level: tile.location.level_index,
-                        pixel_position: data_indices
-                            .position
-                            .to_usize("data indices start")
-                            .expect("data index bug"),
-                        pixel_size: data_indices.size,
-                    };
+            let block = BlockIndex {
+                layer: layer_index,
+                level: tile.location.level_index,
+                pixel_position: data_indices
+                    .position
+                    .to_usize("data indices start")
+                    .expect("data index bug"),
+                pixel_size: data_indices.size,
+            };
 
-                    (index_in_header, block)
-                })
+            (index_in_header, block)
         })
+    })
 }
 
 impl UncompressedBlock {
@@ -132,10 +128,8 @@ impl UncompressedBlock {
     #[inline]
     #[must_use]
     pub fn decompress_chunk(chunk: Chunk, meta_data: &MetaData, pedantic: bool) -> Result<Self> {
-        let header: &Header = meta_data
-            .headers
-            .get(chunk.layer_index)
-            .ok_or(Error::invalid("chunk layer index"))?;
+        let header: &Header =
+            meta_data.headers.get(chunk.layer_index).ok_or(Error::invalid("chunk layer index"))?;
 
         let tile_data_indices = header.get_block_data_indices(&chunk.compressed_block)?;
         let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_data_indices)?;
@@ -174,17 +168,16 @@ impl UncompressedBlock {
     #[inline]
     #[must_use]
     pub fn compress_to_chunk(self, headers: &[Header]) -> Result<Chunk> {
-        let UncompressedBlock { data, index } = self;
+        let UncompressedBlock {
+            data,
+            index,
+        } = self;
 
         let header: &Header = headers.get(index.layer).expect("block layer index bug");
 
         let expected_byte_size = header.channels.bytes_per_pixel * self.index.pixel_size.area(); // TODO sampling??
         if expected_byte_size != data.len() {
-            panic!(
-                "get_line byte size should be {} but was {}",
-                expected_byte_size,
-                data.len()
-            );
+            panic!("get_line byte size should be {} but was {}", expected_byte_size, data.len());
         }
 
         let tile_coordinates = TileCoordinates {
@@ -218,9 +211,7 @@ impl UncompressedBlock {
         }
 
         let compressed_pixels_le =
-            header
-                .compression
-                .compress_image_section_to_le(header, data, absolute_indices)?;
+            header.compression.compress_image_section_to_le(header, data, absolute_indices)?;
 
         Ok(Chunk {
             layer_index: index.layer,
@@ -251,24 +242,24 @@ impl UncompressedBlock {
         })
     }
 
-    /* TODO pub fn lines_mut<'s>(&'s mut self, header: &Header) -> impl 's + Iterator<Item=LineRefMut<'s>> {
-        LineIndex::lines_in_block(self.index, &header.channels)
-            .map(move |(bytes, line)| LineSlice { location: line, value: &mut self.data[bytes] })
-    }*/
+    // TODO pub fn lines_mut<'s>(&'s mut self, header: &Header) -> impl 's +
+    // Iterator<Item=LineRefMut<'s>> { LineIndex::lines_in_block(self.index,
+    // &header.channels) .map(move |(bytes, line)| LineSlice { location: line,
+    // value: &mut self.data[bytes] }) }
 
-    /*// TODO make iterator
-    /// Call a closure for each line of samples in this uncompressed block.
-    pub fn for_lines(
-        &self, header: &Header,
-        mut accept_line: impl FnMut(LineRef<'_>) -> UnitResult
-    ) -> UnitResult {
-        for (bytes, line) in LineIndex::lines_in_block(self.index, &header.channels) {
-            let line_ref = LineSlice { location: line, value: &self.data[bytes] };
-            accept_line(line_ref)?;
-        }
-
-        Ok(())
-    }*/
+    // // TODO make iterator
+    // Call a closure for each line of samples in this uncompressed block.
+    // pub fn for_lines(
+    // &self, header: &Header,
+    // mut accept_line: impl FnMut(LineRef<'_>) -> UnitResult
+    // ) -> UnitResult {
+    // for (bytes, line) in LineIndex::lines_in_block(self.index, &header.channels)
+    // { let line_ref = LineSlice { location: line, value: &self.data[bytes] };
+    // accept_line(line_ref)?;
+    // }
+    //
+    // Ok(())
+    // }
 
     // TODO from iterator??
     /// Create an uncompressed block byte vector by requesting one line of

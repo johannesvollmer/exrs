@@ -38,22 +38,12 @@ fn main() {
 
     let b = AnyChannel::new(
         "B",
-        FlatSamples::F32(
-            generate_f16_vector(size.into())
-                .into_iter()
-                .map(f16::to_f32)
-                .collect(),
-        ),
+        FlatSamples::F32(generate_f16_vector(size.into()).into_iter().map(f16::to_f32).collect()),
     );
 
     let a = AnyChannel::new(
         "A",
-        FlatSamples::F32(
-            generate_f16_vector(size.into())
-                .into_iter()
-                .map(f16::to_f32)
-                .collect(),
-        ),
+        FlatSamples::F32(generate_f16_vector(size.into()).into_iter().map(f16::to_f32).collect()),
     );
 
     let mut layer_attributes = LayerAttributes::named("test-image");

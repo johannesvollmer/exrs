@@ -2,6 +2,11 @@
 //! [`from_file(path)`] method. This completes the builder and reads a complete
 //! image.
 
+use std::{
+    io::{BufReader, Read, Seek},
+    path::Path,
+};
+
 use crate::{
     block::{chunk::TileCoordinates, reader::ChunksReader, BlockIndex, UncompressedBlock},
     error::{Result, UnitResult},
@@ -10,10 +15,6 @@ use crate::{
         header::{Header, ImageAttributes},
         MetaData,
     },
-};
-use std::{
-    io::{BufReader, Read, Seek},
-    path::Path,
 };
 
 /// Specify whether to read the image in parallel,

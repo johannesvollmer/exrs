@@ -108,9 +108,7 @@ where
         } else {
             self.pixels
                 .as_slice()
-                .validate_result(&other.pixels.as_slice(), options, || {
-                    location() + " > pixels"
-                })
+                .validate_result(&other.pixels.as_slice(), options, || location() + " > pixels")
         }
     }
 }
@@ -131,11 +129,6 @@ use std::fmt::*;
 impl<T> Debug for PixelVec<T> {
     #[inline]
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "[{}; {}]",
-            std::any::type_name::<T>(),
-            self.pixels.len()
-        )
+        write!(formatter, "[{}; {}]", std::any::type_name::<T>(), self.pixels.len())
     }
 }

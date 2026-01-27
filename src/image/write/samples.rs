@@ -140,17 +140,10 @@ where
     type Writer = LevelsWriter<LevelSamples::Writer>;
 
     fn sample_type(&self) -> SampleType {
-        let sample_type = self
-            .levels_as_slice()
-            .first()
-            .expect("no levels found")
-            .sample_type();
+        let sample_type = self.levels_as_slice().first().expect("no levels found").sample_type();
 
         debug_assert!(
-            self.levels_as_slice()
-                .iter()
-                .skip(1)
-                .all(|ty| ty.sample_type() == sample_type),
+            self.levels_as_slice().iter().skip(1).all(|ty| ty.sample_type() == sample_type),
             "sample types must be the same across all levels"
         );
 
@@ -160,14 +153,23 @@ where
     fn infer_level_modes(&self) -> (LevelMode, RoundingMode) {
         match self {
             Levels::Singular(_) => (LevelMode::Singular, RoundingMode::Down),
-            Levels::Mip { rounding_mode, .. } => (LevelMode::MipMap, *rounding_mode),
-            Levels::Rip { rounding_mode, .. } => (LevelMode::RipMap, *rounding_mode),
+            Levels::Mip {
+                rounding_mode,
+                ..
+            } => (LevelMode::MipMap, *rounding_mode),
+            Levels::Rip {
+                rounding_mode,
+                ..
+            } => (LevelMode::RipMap, *rounding_mode),
         }
     }
 
     fn create_samples_writer(&'samples self, header: &Header) -> Self::Writer {
         let rounding = match header.blocks {
-            BlockDescription::Tiles(TileDescription { rounding_mode, .. }) => Some(rounding_mode),
+            BlockDescription::Tiles(TileDescription {
+                rounding_mode,
+                ..
+            }) => Some(rounding_mode),
             BlockDescription::ScanLines => None,
         };
 

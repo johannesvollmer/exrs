@@ -21,9 +21,8 @@ pub fn decompress_bytes(
         .set_limit(expected_byte_size)
         .set_size_hint(expected_byte_size);
     let mut decoder = zune_inflate::DeflateDecoder::new_with_options(&data_le, options);
-    let mut decompressed_le = decoder
-        .decode_zlib()
-        .map_err(|_| Error::invalid("zlib-compressed data malformed"))?;
+    let mut decompressed_le =
+        decoder.decode_zlib().map_err(|_| Error::invalid("zlib-compressed data malformed"))?;
 
     differences_to_samples(&mut decompressed_le);
     interleave_byte_blocks(&mut decompressed_le);
@@ -43,8 +42,5 @@ pub fn compress_bytes(
     separate_bytes_fragments(&mut packed_le);
     samples_to_differences(&mut packed_le);
 
-    Ok(miniz_oxide::deflate::compress_to_vec_zlib(
-        packed_le.as_slice(),
-        4,
-    ))
+    Ok(miniz_oxide::deflate::compress_to_vec_zlib(packed_le.as_slice(), 4))
 }

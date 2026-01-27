@@ -37,9 +37,7 @@ fn main() {
     );
 
     // crop away black and transparent pixels from the border, if any
-    let layer = layer
-        .crop_where_eq((0.0, 0.0, 0.0, 0.0))
-        .or_crop_to_1x1_if_empty();
+    let layer = layer.crop_where_eq((0.0, 0.0, 0.0, 0.0)).or_crop_to_1x1_if_empty();
 
     let mut image = Image::from_layer(layer);
     image.attributes.pixel_aspect = 1.0;
@@ -52,15 +50,12 @@ fn main() {
         ..TimeCode::default()
     });
 
-    image.attributes.other.insert(
-        Text::from("Mice Count (Custom Image Attribute)"),
-        AttributeValue::I32(23333),
-    );
+    image
+        .attributes
+        .other
+        .insert(Text::from("Mice Count (Custom Image Attribute)"), AttributeValue::I32(23333));
 
     // write it to a file with all cores in parallel
-    image
-        .write()
-        .to_file("generated_rgba_with_meta.exr")
-        .unwrap();
+    image.write().to_file("generated_rgba_with_meta.exr").unwrap();
     println!("created file generated_rgba_with_meta.exr");
 }

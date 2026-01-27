@@ -2,13 +2,14 @@
 
 use std::{fmt::Debug, io::Seek, iter::Peekable, ops::Not};
 
+use smallvec::alloc::collections::BTreeMap;
+
 use crate::{
     block::{chunk::Chunk, UncompressedBlock},
     error::{usize_to_u64, Error, Result, UnitResult},
     io::{Data, Tracking, Write},
     meta::{attribute::LineOrder, Headers, MetaData, OffsetTables},
 };
-use smallvec::alloc::collections::BTreeMap;
 
 /// Write an exr file by writing one chunk after another in a closure.
 /// In the closure, you are provided a chunk writer, which should be used to
@@ -197,14 +198,14 @@ where
 
         // TODO: use increasing line order where possible, but this requires us to know
         // whether we want to be parallel right now
-        /*// if non-parallel compression, we always use increasing order anyways
-        if !parallel || !has_compression {
-            for header in &mut headers {
-                if header.line_order == LineOrder::Unspecified {
-                    header.line_order = LineOrder::Increasing;
-                }
-            }
-        }*/
+        // // if non-parallel compression, we always use increasing order anyways
+        // if !parallel || !has_compression {
+        // for header in &mut headers {
+        // if header.line_order == LineOrder::Unspecified {
+        // header.line_order = LineOrder::Increasing;
+        // }
+        // }
+        // }
 
         let offset_table_size: usize = headers.iter().map(|header| header.chunk_count).sum();
 
@@ -216,10 +217,8 @@ where
         write.seek_write_to(offset_table_end_byte)?;
 
         let header_count = headers.len();
-        let chunk_indices_increasing_y = headers
-            .iter()
-            .map(|header| vec![0_u64; header.chunk_count])
-            .collect();
+        let chunk_indices_increasing_y =
+            headers.iter().map(|header| vec![0_u64; header.chunk_count]).collect();
 
         let meta_data = MetaData {
             requirements,
@@ -242,12 +241,7 @@ where
     /// writer. Leaves the writer seeked to the middle of the file,
     /// therefore we drop it.
     fn complete_meta_data(mut self) -> UnitResult {
-        if self
-            .chunk_indices_increasing_y
-            .iter()
-            .flatten()
-            .any(|&index| index == 0)
-        {
+        if self.chunk_indices_increasing_y.iter().flatten().any(|&index| index == 0) {
             return Err(Error::invalid("some chunks are not written yet"));
         }
 
@@ -257,8 +251,7 @@ where
             self.chunk_indices_byte_location.end,
             "offset table has already been updated"
         );
-        self.byte_writer
-            .seek_write_to(self.chunk_indices_byte_location.start)?;
+        self.byte_writer.seek_write_to(self.chunk_indices_byte_location.start)?;
 
         for table in self.chunk_indices_increasing_y {
             u64::write_slice_le(&mut self.byte_writer, table.as_slice())?;
@@ -287,8 +280,7 @@ where
             on_progress(0.0);
         }
 
-        self.chunk_writer
-            .write_chunk(index_in_header_increasing_y, chunk)?;
+        self.chunk_writer.write_chunk(index_in_header_increasing_y, chunk)?;
 
         self.written_chunks += 1;
 
@@ -322,10 +314,8 @@ where
 {
     /// New sorting writer. Returns `None` if sorting is not required.
     pub fn new(meta_data: &MetaData, chunk_writer: &'w mut W) -> SortedBlocksWriter<'w, W> {
-        let requires_sorting = meta_data
-            .headers
-            .iter()
-            .any(|header| header.line_order != LineOrder::Unspecified);
+        let requires_sorting =
+            meta_data.headers.iter().any(|header| header.line_order != LineOrder::Unspecified);
 
         let total_chunk_count = chunk_writer.total_chunks_count();
 
@@ -352,9 +342,7 @@ where
         // write this chunk now if possible
         if self.unwritten_chunk_indices.peek() == Some(&chunk_index_in_file) {
             self.chunk_writer.write_chunk(chunk_y_index, chunk)?;
-            self.unwritten_chunk_indices
-                .next()
-                .expect("peeked chunk index is missing");
+            self.unwritten_chunk_indices.next().expect("peeked chunk index is missing");
 
             // write all pending blocks that are immediate successors of this block
             while let Some((next_chunk_y_index, next_chunk)) = self
@@ -363,18 +351,14 @@ where
                 .cloned()
                 .and_then(|id| self.pending_chunks.remove(&id))
             {
-                self.chunk_writer
-                    .write_chunk(next_chunk_y_index, next_chunk)?;
-                self.unwritten_chunk_indices
-                    .next()
-                    .expect("peeked chunk index is missing");
+                self.chunk_writer.write_chunk(next_chunk_y_index, next_chunk)?;
+                self.unwritten_chunk_indices.next().expect("peeked chunk index is missing");
             }
         } else {
             // the argument block is not to be written now,
             // and all the pending blocks are not next up either,
             // so just stash this block
-            self.pending_chunks
-                .insert(chunk_index_in_file, (chunk_y_index, chunk));
+            self.pending_chunks.insert(chunk_index_in_file, (chunk_y_index, chunk));
         }
 
         Ok(())
@@ -418,10 +402,8 @@ where
         index_in_header_increasing_y: usize,
         block: UncompressedBlock,
     ) -> UnitResult {
-        self.chunks_writer.write_chunk(
-            index_in_header_increasing_y,
-            block.compress_to_chunk(&self.meta.headers)?,
-        )
+        self.chunks_writer
+            .write_chunk(index_in_header_increasing_y, block.compress_to_chunk(&self.meta.headers)?)
     }
 }
 
@@ -472,10 +454,8 @@ where
     {
         use crate::compression::Compression;
 
-        let is_entirely_uncompressed = meta
-            .headers
-            .iter()
-            .all(|head| head.compression == Compression::Uncompressed);
+        let is_entirely_uncompressed =
+            meta.headers.iter().all(|head| head.compression == Compression::Uncompressed);
 
         if is_entirely_uncompressed {
             return None;
@@ -490,11 +470,8 @@ where
             Err(_) => return None,
         };
 
-        let max_threads = pool
-            .current_num_threads()
-            .max(1)
-            .min(chunks_writer.total_chunks_count())
-            + 2; // ca one block for each thread at all times
+        let max_threads =
+            pool.current_num_threads().max(1).min(chunks_writer.total_chunks_count()) + 2; // ca one block for each thread at all times
         let (send, recv) = std::sync::mpsc::channel(); // TODO bounded channel simplifies logic?
 
         Some(Self {
@@ -522,15 +499,11 @@ where
             "cannot wait for chunks as there are none left"
         );
 
-        let some_compressed_chunk = self
-            .receiver
-            .recv()
-            .expect("cannot receive compressed block");
+        let some_compressed_chunk = self.receiver.recv().expect("cannot receive compressed block");
 
         self.currently_compressing_count -= 1;
         let (chunk_file_index, chunk_y_index, chunk) = some_compressed_chunk?;
-        self.sorted_writer
-            .write_or_stash_chunk(chunk_file_index, chunk_y_index, chunk)?;
+        self.sorted_writer.write_or_stash_chunk(chunk_file_index, chunk_y_index, chunk)?;
 
         self.written_chunk_count += 1;
         Ok(())
@@ -543,10 +516,7 @@ where
             self.write_next_queued_chunk()?;
         }
 
-        debug_assert_eq!(
-            self.currently_compressing_count, 0,
-            "counter does not match block count"
-        );
+        debug_assert_eq!(self.currently_compressing_count, 0, "counter does not match block count");
         Ok(())
     }
 
