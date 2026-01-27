@@ -14,11 +14,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly
       - name: Install rustfmt component
         run: rustup component add rustfmt
       - name: Verify formatting
-        run: cargo fmt --all -- --check
+        run: cargo +nightly fmt --all -- --check
 
   ubuntu:
     runs-on: ubuntu-latest
