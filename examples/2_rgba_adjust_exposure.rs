@@ -1,4 +1,3 @@
-
 // exr imports
 extern crate exr;
 
@@ -14,11 +13,14 @@ fn main() {
     // This struct trades sub-optimal memory-efficiency for clarity,
     // because this is an example, and does not have to be perfectly efficient.
     #[derive(Debug, PartialEq)]
-    struct CustomPixels { lines: Vec<Vec<RgbaF32Pixel>> }
+    struct CustomPixels {
+        lines: Vec<Vec<RgbaF32Pixel>>,
+    }
     type RgbaF32Pixel = (f32, f32, f32, f32);
 
     // read the image from a file
-    let mut image = read().no_deep_data()
+    let mut image = read()
+        .no_deep_data()
         .largest_resolution_level()
         .rgba_channels(
             // create our custom image based on the file info
@@ -28,14 +30,12 @@ fn main() {
                 let lines = vec![default_line; resolution.height()];
                 CustomPixels { lines }
             },
-
             // request pixels with red, green, blue, and optionally and alpha values.
             // transfer each pixel from the file to our image
-            |image, position, (r,g,b,a): RgbaF32Pixel| {
-
+            |image, position, (r, g, b, a): RgbaF32Pixel| {
                 // insert the values into our custom image
-                image.lines[position.y()][position.x()] = (r,g,b,a);
-            }
+                image.lines[position.y()][position.x()] = (r, g, b, a);
+            },
         )
         .first_valid_layer()
         .all_attributes()
@@ -44,9 +44,10 @@ fn main() {
 
     let exposure_multiplier = 2.0;
 
-    {   // increase exposure of all pixels
+    {
+        // increase exposure of all pixels
         for line in &mut image.layer_data.channel_data.pixels.lines {
-            for (r,g,b,_) in line {
+            for (r, g, b, _) in line {
                 // you should probably check the color space and white points
                 // for high quality color adjustments
                 *r *= exposure_multiplier;
@@ -57,7 +58,11 @@ fn main() {
 
         // also update meta data after modifying the image
         if let Some(exposure) = &mut image.layer_data.attributes.exposure {
-            println!("increased exposure from {}s to {}s", exposure, *exposure * exposure_multiplier);
+            println!(
+                "increased exposure from {}s to {}s",
+                exposure,
+                *exposure * exposure_multiplier
+            );
             *exposure *= exposure_multiplier;
         }
     }
@@ -72,9 +77,7 @@ fn main() {
     }
 
     // write the image to a file
-    image
-        .write().to_file("rgba_exposure_adjusted.exr")
-        .unwrap();
+    image.write().to_file("rgba_exposure_adjusted.exr").unwrap();
 
     println!("created file rgba_exposure_adjusted.exr");
 }

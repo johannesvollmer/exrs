@@ -7,32 +7,30 @@
 //! Start with the `block::read(...)`
 //! and `block::write(...)` functions.
 
-
-pub mod writer;
 pub mod reader;
+pub mod writer;
 
+pub mod chunk;
 pub mod lines;
 pub mod samples;
-pub mod chunk;
 
-
-use std::io::{Read, Seek, Write};
-use crate::error::{Result, UnitResult, Error, usize_to_i32};
-use crate::meta::{Headers, MetaData, BlockDescription};
-use crate::math::Vec2;
+use crate::block::chunk::{
+    Chunk, CompressedBlock, CompressedScanLineBlock, CompressedTileBlock, TileCoordinates,
+};
+use crate::block::lines::{LineIndex, LineRef, LineRefMut, LineSlice};
 use crate::compression::ByteVec;
-use crate::block::chunk::{CompressedBlock, CompressedTileBlock, CompressedScanLineBlock, Chunk, TileCoordinates};
+use crate::error::{usize_to_i32, Error, Result, UnitResult};
+use crate::math::Vec2;
+use crate::meta::attribute::{ChannelList, IntegerBounds};
 use crate::meta::header::Header;
-use crate::block::lines::{LineIndex, LineRef, LineSlice, LineRefMut};
-use crate::meta::attribute::ChannelList;
-
+use crate::meta::{BlockDescription, Headers, MetaData};
+use std::io::{Read, Seek, Write};
 
 /// Specifies where a block of pixel data should be placed in the actual image.
 /// This is a globally unique identifier which
 /// includes the layer, level index, and pixel location.
 #[derive(Clone, Copy, Eq, Hash, PartialEq, Debug)]
 pub struct BlockIndex {
-
     /// Index of the layer.
     pub layer: usize,
 
@@ -52,7 +50,6 @@ pub struct BlockIndex {
 /// The conversion to little-endian format happens when converting to chunks (potentially in parallel).
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct UncompressedBlock {
-
     /// Location of the data inside the image.
     pub index: BlockIndex,
 
@@ -80,14 +77,13 @@ pub fn read<R: Read + Seek>(buffered_read: R, pedantic: bool) -> Result<self::re
 /// Alternatively, you can create a compressor, wrapping the writer, and push the uncompressed data to it.
 /// The writer is assumed to be buffered.
 pub fn write<W: Write + Seek>(
-    buffered_write: W, headers: Headers, compatibility_checks: bool,
-    write_chunks: impl FnOnce(MetaData, &mut self::writer::ChunkWriter<W>) -> UnitResult
+    buffered_write: W,
+    headers: Headers,
+    compatibility_checks: bool,
+    write_chunks: impl FnOnce(MetaData, &mut self::writer::ChunkWriter<W>) -> UnitResult,
 ) -> UnitResult {
     self::writer::write_chunks_with(buffered_write, headers, compatibility_checks, write_chunks)
 }
-
-
-
 
 /// This iterator tells you the block indices of all blocks that must be in the image.
 /// The order of the blocks depends on the `LineOrder` attribute
@@ -95,32 +91,44 @@ pub fn write<W: Write + Seek>(
 /// The blocks written to the file must be exactly in this order,
 /// except for when the `LineOrder` is unspecified.
 /// The index represents the block index, in increasing line order, within the header.
-pub fn enumerate_ordered_header_block_indices(headers: &[Header]) -> impl '_ + Iterator<Item=(usize, BlockIndex)> {
-    headers.iter().enumerate().flat_map(|(layer_index, header)|{
-        header.enumerate_ordered_blocks().map(move |(index_in_header, tile)|{
-            let data_indices = header.get_absolute_block_pixel_coordinates(tile.location).expect("tile coordinate bug");
+pub fn enumerate_ordered_header_block_indices(
+    headers: &[Header],
+) -> impl '_ + Iterator<Item = (usize, BlockIndex)> {
+    headers
+        .iter()
+        .enumerate()
+        .flat_map(|(layer_index, header)| {
+            header
+                .enumerate_ordered_blocks()
+                .map(move |(index_in_header, tile)| {
+                    let data_indices = header
+                        .get_absolute_block_pixel_coordinates(tile.location)
+                        .expect("tile coordinate bug");
 
-            let block = BlockIndex {
-                layer: layer_index,
-                level: tile.location.level_index,
-                pixel_position: data_indices.position.to_usize("data indices start").expect("data index bug"),
-                pixel_size: data_indices.size,
-            };
+                    let block = BlockIndex {
+                        layer: layer_index,
+                        level: tile.location.level_index,
+                        pixel_position: data_indices
+                            .position
+                            .to_usize("data indices start")
+                            .expect("data index bug"),
+                        pixel_size: data_indices.size,
+                    };
 
-            (index_in_header, block)
+                    (index_in_header, block)
+                })
         })
-    })
 }
 
-
 impl UncompressedBlock {
-
     /// Decompress the possibly compressed chunk and returns an `UncompressedBlock`.
     // for uncompressed data, the ByteVec in the chunk is moved all the way
     #[inline]
     #[must_use]
     pub fn decompress_chunk(chunk: Chunk, meta_data: &MetaData, pedantic: bool) -> Result<Self> {
-        let header: &Header = meta_data.headers.get(chunk.layer_index)
+        let header: &Header = meta_data
+            .headers
+            .get(chunk.layer_index)
             .ok_or(Error::invalid("chunk layer index"))?;
 
         let tile_data_indices = header.get_block_data_indices(&chunk.compressed_block)?;
@@ -129,20 +137,29 @@ impl UncompressedBlock {
         absolute_indices.validate(Some(header.layer_size))?;
 
         match chunk.compressed_block {
-            CompressedBlock::Tile(CompressedTileBlock { compressed_pixels_le, .. }) |
-            CompressedBlock::ScanLine(CompressedScanLineBlock { compressed_pixels_le, .. }) => {
-                Ok(UncompressedBlock {
-                    data: header.compression.decompress_image_section_from_le(header, compressed_pixels_le, absolute_indices, pedantic)?,
-                    index: BlockIndex {
-                        layer: chunk.layer_index,
-                        pixel_position: absolute_indices.position.to_usize("data indices start")?,
-                        level: tile_data_indices.level_index,
-                        pixel_size: absolute_indices.size,
-                    }
-                })
-            },
+            CompressedBlock::Tile(CompressedTileBlock {
+                compressed_pixels_le,
+                ..
+            })
+            | CompressedBlock::ScanLine(CompressedScanLineBlock {
+                compressed_pixels_le,
+                ..
+            }) => Ok(UncompressedBlock {
+                data: header.compression.decompress_image_section_from_le(
+                    header,
+                    compressed_pixels_le,
+                    absolute_indices,
+                    pedantic,
+                )?,
+                index: BlockIndex {
+                    layer: chunk.layer_index,
+                    pixel_position: absolute_indices.position.to_usize("data indices start")?,
+                    level: tile_data_indices.level_index,
+                    pixel_size: absolute_indices.size,
+                },
+            }),
 
-            _ => return Err(Error::unsupported("deep data not supported yet"))
+            _ => return Err(Error::unsupported("deep data not supported yet")),
         }
     }
 
@@ -153,59 +170,78 @@ impl UncompressedBlock {
     pub fn compress_to_chunk(self, headers: &[Header]) -> Result<Chunk> {
         let UncompressedBlock { data, index } = self;
 
-        let header: &Header = headers.get(index.layer)
-            .expect("block layer index bug");
-
-        let expected_byte_size = header.channels.bytes_per_pixel * self.index.pixel_size.area(); // TODO sampling??
-        if expected_byte_size != data.len() {
-            panic!("get_line byte size should be {} but was {}", expected_byte_size, data.len());
-        }
+        let header: &Header = headers.get(index.layer).expect("block layer index bug");
 
         let tile_coordinates = TileCoordinates {
             // FIXME this calculation should not be made here but elsewhere instead (in meta::header?)
-            tile_index: index.pixel_position / header.max_block_pixel_size(), // TODO sampling??
+            tile_index: index.pixel_position / header.max_block_pixel_size(),
             level_index: index.level,
         };
 
         let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_coordinates)?;
         absolute_indices.validate(Some(header.layer_size))?;
 
-        if !header.compression.may_loose_data() { debug_assert_eq!(
-            &header.compression.decompress_image_section_from_le(
-                header,
-                header.compression.compress_image_section_to_le(header, data.clone(), absolute_indices)?,
-                absolute_indices,
-                true
-            ).unwrap(),
-            &data,
-            "compression method not round trippin'"
-        ); }
+        // Calculate expected byte size accounting for channel subsampling
+        let expected_byte_size = header.channels.bytes_per_pixel_section(absolute_indices);
+        if expected_byte_size != data.len() {
+            panic!(
+                "get_line byte size should be {} but was {}",
+                expected_byte_size,
+                data.len()
+            );
+        }
 
-        let compressed_pixels_le = header.compression.compress_image_section_to_le(header, data, absolute_indices)?;
+        if !header.compression.may_loose_data() {
+            debug_assert_eq!(
+                &header
+                    .compression
+                    .decompress_image_section_from_le(
+                        header,
+                        header.compression.compress_image_section_to_le(
+                            header,
+                            data.clone(),
+                            absolute_indices
+                        )?,
+                        absolute_indices,
+                        true
+                    )
+                    .unwrap(),
+                &data,
+                "compression method not round trippin'"
+            );
+        }
+
+        let compressed_pixels_le =
+            header
+                .compression
+                .compress_image_section_to_le(header, data, absolute_indices)?;
 
         Ok(Chunk {
             layer_index: index.layer,
-            compressed_block : match header.blocks {
+            compressed_block: match header.blocks {
                 BlockDescription::ScanLines => CompressedBlock::ScanLine(CompressedScanLineBlock {
                     compressed_pixels_le,
 
                     // FIXME this calculation should not be made here but elsewhere instead (in meta::header?)
-                    y_coordinate: usize_to_i32(index.pixel_position.y(), "pixel index")? + header.own_attributes.layer_position.y(), // TODO sampling??
+                    y_coordinate: usize_to_i32(index.pixel_position.y(), "pixel index")?
+                        + header.own_attributes.layer_position.y(), // TODO sampling??
                 }),
 
                 BlockDescription::Tiles(_) => CompressedBlock::Tile(CompressedTileBlock {
                     compressed_pixels_le,
                     coordinates: tile_coordinates,
                 }),
-            }
+            },
         })
     }
 
     /// Iterate all the lines in this block.
     /// Each line contains the all samples for one of the channels.
-    pub fn lines(&self, channels: &ChannelList) -> impl Iterator<Item=LineRef<'_>> {
-        LineIndex::lines_in_block(self.index, channels)
-            .map(move |(bytes, line)| LineSlice { location: line, value: &self.data[bytes] })
+    pub fn lines(&self, channels: &ChannelList) -> impl Iterator<Item = LineRef<'_>> {
+        LineIndex::lines_in_block(self.index, channels).map(move |(bytes, line)| LineSlice {
+            location: line,
+            value: &self.data[bytes],
+        })
     }
 
     /* TODO pub fn lines_mut<'s>(&'s mut self, header: &Header) -> impl 's + Iterator<Item=LineRefMut<'s>> {
@@ -230,15 +266,20 @@ impl UncompressedBlock {
     // TODO from iterator??
     /// Create an uncompressed block byte vector by requesting one line of samples after another.
     pub fn collect_block_data_from_lines(
-        channels: &ChannelList, block_index: BlockIndex,
-        mut extract_line: impl FnMut(LineRefMut<'_>)
-    ) -> Vec<u8>
-    {
-        let byte_count = block_index.pixel_size.area() * channels.bytes_per_pixel;
+        channels: &ChannelList,
+        block_index: BlockIndex,
+        mut extract_line: impl FnMut(LineRefMut<'_>),
+    ) -> Vec<u8> {
+        // Calculate byte count accounting for channel subsampling
+        let pixel_bounds = IntegerBounds {
+            position: block_index.pixel_position.to_i32(),
+            size: block_index.pixel_size,
+        };
+        let byte_count = channels.bytes_per_pixel_section(pixel_bounds);
         let mut block_bytes = vec![0_u8; byte_count];
 
         for (byte_range, line_index) in LineIndex::lines_in_block(block_index, channels) {
-            extract_line(LineRefMut { // TODO subsampling
+            extract_line(LineRefMut {
                 value: &mut block_bytes[byte_range],
                 location: line_index,
             });
@@ -249,12 +290,13 @@ impl UncompressedBlock {
 
     /// Create an uncompressed block by requesting one line of samples after another.
     pub fn from_lines(
-        channels: &ChannelList, block_index: BlockIndex,
-        extract_line: impl FnMut(LineRefMut<'_>)
+        channels: &ChannelList,
+        block_index: BlockIndex,
+        extract_line: impl FnMut(LineRefMut<'_>),
     ) -> Self {
         Self {
             index: block_index,
-            data: Self::collect_block_data_from_lines(channels, block_index, extract_line)
+            data: Self::collect_block_data_from_lines(channels, block_index, extract_line),
         }
     }
 }
