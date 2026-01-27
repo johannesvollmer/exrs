@@ -1,0 +1,22 @@
+[package]
+name = "exrs-raw-wasm-bindgen"
+version = "0.1.0"
+edition = "2021"
+description = "Generated WebAssembly bindings for the exr crate. Prefer `exrs` npm package in your projects."
+license = "BSD-3-Clause"
+repository = "https://github.com/johannesvollmer/exrs"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exr = { path = "..", default-features = false }
+smallvec = "1.7"
+half = "2.1"
+
+wasm-bindgen = "=0.2.100"
+console_error_panic_hook = "0.1"
+
+[profile.release]
+opt-level = "s"
+lto = true

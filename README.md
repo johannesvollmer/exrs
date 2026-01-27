@@ -1,7 +1,7 @@
 [![Rust Crate](https://img.shields.io/crates/v/exr.svg)](https://crates.io/crates/exr)
 [![Crates.io MSRV](https://img.shields.io/crates/msrv/exr?label=minimum%20rust%20version)](https://doc.rust-lang.org/cargo/reference/manifest.html#the-rust-version-field)
 [![Rust Docs](https://docs.rs/exr/badge.svg)](https://docs.rs/exr)
-[![Wasm Ready](https://img.shields.io/badge/wasm-supported-%236d0)](https://github.com/johannesvollmer/exrs/actions?query=branch%3Amaster)
+[![NPM](https://img.shields.io/npm/v/exrs?style=flat&color=green)](https://www.npmjs.com/package/exrs)
 [![downloads](https://img.shields.io/crates/d/exr)](https://crates.io/crates/exr)
 [![Lines of Code](https://tokei.rs/b1/github/johannesvollmer/exrs?category=code)](https://tokei.rs)
 
@@ -248,9 +248,34 @@ to reduce memory exhaustion attacks.
 -   [Awesome Contributors!](CONTRIBUTORS.md)
 
 ### Wasm
-This crate supports the `wasm-unknown-unknown` target.
-Until WASM has threads, decoding and encoding will be slower for compressed files.
-Of course, you will need to read from byte buffers instead of file handles.
+
+This crate supports the `wasm32-unknown-unknown` target for use in browsers and Node.js.
+
+#### npm Package
+
+For JavaScript/TypeScript projects, install the [`exrs`](https://www.npmjs.com/package/exrs) package from npm:
+
+```bash
+npm install exrs
+```
+
+```javascript
+import { init, encodeExr, decodeExr } from 'exrs';
+
+await init();
+
+const bytes = encodeExr({
+  width: 1920,
+  height: 1080,
+  layers: [{ name: 'rgba', channels: 'rgba', data: rgbaPixels }]
+});
+```
+
+See the [exrs-wasm documentation](exrs-wasm/js/README.md) for the full API reference.
+
+#### Notes
+- Until WASM has threads, decoding and encoding will be slower for compressed files
+- Read from byte buffers (`Uint8Array`) instead of file handles
 
 ### Motivation
 
