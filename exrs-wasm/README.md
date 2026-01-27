@@ -41,11 +41,11 @@ const bytes = encodeExr({
 });
 ```
 
-#### `encodeRgbaExr(image: ExrEncodeRgbaImage): Uint8Array`, `encodeRgbExr(image: ExrEncodeRgbaImage): Uint8Array`
+#### `encodeRgbaExr(image: ExrEncodeRgbaImage): Uint8Array`, `encodeRgbExr(image: ExrEncodeRgbImage): Uint8Array`
 Optimized encoders for standard RGB or RGBA channel images.
 
 ```typescript
-import {init, decodeRgbaExr} from "exrs";
+import {init, encodeRgbaExr} from "exrs";
 await init();
 
 const bytes = encodeRgbaExr({
@@ -78,7 +78,7 @@ if (layer.containsChannelNames(['Z'])) {
 }
 ```
 
-#### `decodeRgbaExr(data: Uint8Array): ExrDecodeRgbaImage`, `decodeRgbExr(data: Uint8Array): ExrDecodeRgbaImage`
+#### `decodeRgbaExr(data: Uint8Array): ExrDecodeRgbaImage`, `decodeRgbExr(data: Uint8Array): ExrDecodeRgbImage`
 High-performance decoders that return a simple object with width, height, and a single `Float32Array` of interleaved pixels.
 
 ```typescript
@@ -87,7 +87,7 @@ await init();
 
 const image = decodeRgbaExr(bytes);
 const { width, height } = image;
-const pixels = layer.interleavedRgbaPixels;
+const pixels = image.interleavedRgbaPixels;
 ```
 
 ### Layer Options
@@ -111,7 +111,7 @@ const pixels = layer.interleavedRgbaPixels;
 | `piz` | PIZ wavelet | Noisy/natural images (often best) |
 | `pxr24` | PXR24 | Depth buffers (lossy for 32-bit) |
 
-## Examples
+## More Examples
 
 ### Encode Multi-layer EXR (AOVs)
 

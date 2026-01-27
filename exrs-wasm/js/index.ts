@@ -154,7 +154,6 @@ export interface ExrDecodeRgbImage {
   interleavedRgbPixels: Float32Array;
 }
 
-// WASM module reference (set by init())
 let isInit = false;
 
 /**
@@ -165,7 +164,6 @@ let isInit = false;
  * await init();
  * // Now use encodeExr/decodeExr synchronously
  */
-// Loads the binary *.wasm file
 export async function init(): Promise<void> {
   if (isInit) return;
 
@@ -273,8 +271,6 @@ export function encodeExr(options: ExrEncodeImage): Uint8Array {
     pxr24: wasm.CompressionMethod.Pxr24,
   };
 
-  // special case: for plain old rgb(a) images,
-  // we call specially optimized functions for performance
   if (layers.length === 1) {
     const layer = layers[0];
     const precision = precisionByName[layer.precision ?? 'f32'];
@@ -333,10 +329,9 @@ export function encodeExr(options: ExrEncodeImage): Uint8Array {
  * const image = decodeExr(bytes);
  * console.log(image.width, image.height);
  *
- * const pixelData = image.layers[0].getInterleavedPixels();
+ * const pixelData = image.layers[0].getInterleavedPixels(['R', 'G', 'B', 'A']);
  *
- * // Get a specific channel by name
- * const depthData = image.layers[1].getChannelPixels('Z');
+ * const depthData = image.layers[1].getInterleavedPixels(['Z']);
  */
 export function decodeExr(data: Uint8Array): ExrDecodeImage {
   ensureInitialized();
@@ -392,8 +387,6 @@ export function decodeExr(data: Uint8Array): ExrDecodeImage {
 export function decodeRgbaExr(data: Uint8Array): ExrDecodeRgbaImage {
   ensureInitialized();
 
-  // it makes sense to specialize this here,
-  // because it reduces wasm binding runtime cost
   const result = wasm.readExrRgba(data);
   try {
     return {
@@ -421,8 +414,6 @@ export function decodeRgbaExr(data: Uint8Array): ExrDecodeRgbaImage {
 export function decodeRgbExr(data: Uint8Array): ExrDecodeRgbImage {
   ensureInitialized();
 
-  // it makes sense to specialize this here,
-  // because it reduces wasm binding runtime cost
   const result = wasm.readExrRgb(data);
   try {
     return {

@@ -106,7 +106,7 @@ impl ExrEncoder {
         channel_names: Vec<String>,
         interleaved: &[f32],
         precision: SamplePrecision,
-        compression: CompressionMethod, // default is provided in js wrapper
+        compression: CompressionMethod,
     ) -> std::result::Result<(), JsValue> {
         let pixel_count = self.width * self.height;
         let expected_len = pixel_count * channel_names.len();
@@ -121,7 +121,6 @@ impl ExrEncoder {
 
         let any_channels = {
             if interleaved.len() == 1 {
-                // optimized: single-channel layer does not need interleaving
                 smallvec![Self::make_channel(&channel_names[0], interleaved.to_vec(), sample_type)]
             }
             else {
@@ -296,7 +295,7 @@ impl ExrDecoder {
     }
 
     /// Get interleaved pixel data for a layer.
-    /// Returns null if any of the required channels are missing of if the layer index is invalid.
+    /// Returns null if any of the required channels are missing or if the layer index is invalid.
     /// Pixels are interleaved in the order specified by the provided channel names.
     #[wasm_bindgen(js_name = getLayerPixels)]
     pub fn get_layer_pixels(&self, layer_index: usize, channel_names: Vec<String>) -> Option<Vec<f32>> {
@@ -310,8 +309,7 @@ impl ExrDecoder {
             return None;
         }
 
-        // optimized: skip interleaving if not needed
-        if channels.len()  == 1 {
+        if channels.len() == 1 {
             return Some(channels[0].samples.clone());
         }
 
@@ -403,7 +401,7 @@ pub fn read_exr_rgb(data: &[u8]) -> std::result::Result<ExrSimpleImage, JsValue>
         .first_valid_layer()
         .all_attributes()
         .from_buffered(Cursor::new(data))
-        .map_err(|e| JsValue::from_str(&format!("EXR RGBA read error: {}", e)))?;
+        .map_err(|e| JsValue::from_str(&format!("EXR RGB read error: {}", e)))?;
 
     Ok(ExrSimpleImage {
         width: image.layer_data.size.x() as u32,
