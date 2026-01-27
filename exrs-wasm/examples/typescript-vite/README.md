@@ -2,17 +2,7 @@
 
 A TypeScript example demonstrating the `exrs` WASM package for encoding and decoding OpenEXR files in the browser.
 
-## Setup
-
-1. First, build the main exrs package:
-
-```bash
-cd ../../js
-npm install
-npm run build
-```
-
-2. Install this example's dependencies:
+Install this example's dependencies:
 
 ```bash
 npm install
@@ -36,7 +26,7 @@ Open the URL shown (typically http://localhost:5173) in your browser.
 
 ## Using npm link (alternative setup)
 
-Instead of `file:../../js`, you can use npm link:
+Use npm linking to use the locally built package instead of the npm package:
 
 ```bash
 # In the js directory
