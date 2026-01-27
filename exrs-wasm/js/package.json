@@ -1,0 +1,53 @@
+{
+  "name": "exrs",
+  "version": "1.0.0",
+  "description": "OpenEXR file encoding and decoding in the browser and node",
+  "keywords": [
+    "exr",
+    "openexr",
+    "wasm",
+    "webassembly",
+    "image",
+    "hdr",
+    "vfx",
+    "render",
+    "aov",
+    "compositing",
+    "encode",
+    "decode"
+  ],
+  "license": "BSD-3-Clause",
+  "author": "johannesvollmer",
+  "contributors": [
+    "Adam Krebs <amk528@cs.nyu.edu>"
+  ],
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "repository": "https://github.com/johannesvollmer/exrs",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prebuild": "cd .. && wasm-pack build --target web",
+    "build": "npm i && tsc",
+    "test": "npm run build && vitest run",
+    "publish": "npm run test && npm publish",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "exrs-raw-wasm-bindgen": "file:../pkg",
+    "shallow-equals": "^1.0.0",
+    "tslib": "^2.8.1"
+  },
+  "bundledDependencies": [
+    "exrs-raw-wasm-bindgen"
+  ],
+  "devDependencies": {
+    "@types/shallow-equals": "^1.0.3",
+    "@types/node": "^25.0.9",
+    "prettier": "^3.8.1",
+    "typescript": "^5.0.0",
+    "vitest": "^4.0.17"
+  }
+}
