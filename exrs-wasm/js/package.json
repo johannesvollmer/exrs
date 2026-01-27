@@ -24,7 +24,10 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "repository": "https://github.com/johannesvollmer/exrs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/johannesvollmer/exrs.git"
+  },
   "files": [
     "dist"
   ],
@@ -32,7 +35,6 @@
     "prebuild": "cd .. && wasm-pack build --target web",
     "build": "npm i && tsc",
     "test": "npm run build && vitest run",
-    "publish": "npm run test && npm publish",
     "format": "prettier --write ."
   },
   "dependencies": {

@@ -271,7 +271,7 @@ const bytes = encodeExr({
 });
 ```
 
-See the [exrs-wasm documentation](./exrs-wasm/README.md) for the full API reference.
+See the [exrs-wasm documentation](exrs-wasm/js/README.md) for the full API reference.
 
 #### Notes
 - Until WASM has threads, decoding and encoding will be slower for compressed files
