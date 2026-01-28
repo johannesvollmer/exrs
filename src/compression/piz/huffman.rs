@@ -522,7 +522,7 @@ fn encode_with_frequencies(
 /// Pack an encoding table:
 /// 	- only code lengths, not actual codes, are stored
 /// 	- runs of zeroes are compressed as follows:
-///
+/// ```md
 /// 	  unpacked		packed
 /// 	  --------------------------------
 /// 	  1 zero		0	(6 bits)
@@ -531,6 +531,7 @@ fn encode_with_frequencies(
 /// 	  4 zeroes		61
 /// 	  5 zeroes		62
 /// 	  n zeroes (6 or more)	63 n-6	(6 + 8 bits)
+/// ```
 fn pack_encoding_table(
     frequencies: &[u64],
     min_index: usize,
