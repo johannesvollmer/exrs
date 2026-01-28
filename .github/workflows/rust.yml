@@ -79,7 +79,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@nightly
       - name: Generate Cargo.lock with minimal-version dependencies
-        run: cargo +stable -Zminimal-versions generate-lockfile
+        run: cargo -Zminimal-versions generate-lockfile
 
       - name: Verify the Rustc version declared in `Cargo.toml` with `minimal-versions`
         run: cargo-msrv verify
