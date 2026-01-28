@@ -506,7 +506,7 @@ impl RecursivePixelReader for NoneMore {
     type RecursiveChannelDescriptions = Self;
     type RecursivePixel = Self;
 
-    fn descriptions(&self) -> Self::RecursiveChannelDescriptions {
+    fn get_descriptions(&self) -> Self::RecursiveChannelDescriptions {
         Self
     }
 

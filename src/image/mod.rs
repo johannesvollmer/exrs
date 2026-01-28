@@ -621,7 +621,7 @@ impl<SampleData> AnyChannels<SampleData> {
 // FIXME check content size of layer somewhere??? before writing?
 impl<LevelSamples> Levels<LevelSamples> {
     /// Get a resolution level by index, sorted by size, decreasing.
-    pub fn level(&self, level: Vec2<usize>) -> Result<&LevelSamples> {
+    pub fn get_level(&self, level: Vec2<usize>) -> Result<&LevelSamples> {
         match self {
             Self::Singular(block) => {
                 debug_assert_eq!(
@@ -654,7 +654,7 @@ impl<LevelSamples> Levels<LevelSamples> {
                 level_data,
                 ..
             } => level_data
-                .by_level(level)
+                .get_by_level(level)
                 .ok_or_else(|| Error::invalid(format!("rip level index {level:?} not found"))),
         }
     }
@@ -694,7 +694,7 @@ impl<LevelSamples> Levels<LevelSamples> {
                 level_data,
                 ..
             } => level_data
-                .by_level_mut(level)
+                .get_by_level_mut(level)
                 .ok_or_else(|| Error::invalid(format!("rip level index {level:?} not found"))),
         }
     }
