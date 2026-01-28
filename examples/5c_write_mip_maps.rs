@@ -8,8 +8,7 @@ extern crate exr;
 /// Writes two layers, each with multiple mip maps.
 /// All mip maps have solid color for brevity.
 fn main() {
-    use exr::math::RoundingMode;
-    use exr::prelude::*;
+    use exr::{math::RoundingMode, prelude::*};
     use smallvec::smallvec;
 
     let full_size = Vec2(512, 512);
@@ -70,9 +69,7 @@ fn main() {
     // define the visible area of the canvas
     let image_attributes = ImageAttributes::new(IntegerBounds::from_dimensions(full_size));
 
-    let image = Image::empty(image_attributes)
-        .with_layer(layer1)
-        .with_layer(layer2);
+    let image = Image::empty(image_attributes).with_layer(layer1).with_layer(layer2);
 
     println!("writing image...");
     image.write().to_file("mip_maps.exr").unwrap();

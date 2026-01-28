@@ -1,5 +1,6 @@
 //! Data structures that represent a complete exr image.
-//! Contains generic structs that must be nested to obtain a complete image type.
+//! Contains generic structs that must be nested to obtain a complete image
+//! type.
 //!
 //!
 //! For example, an rgba image containing multiple layers
@@ -12,9 +13,11 @@
 //! 1. `PixelImage`: A single layer, fixed set of arbitrary channels.
 //! 1. `PixelLayersImage`: Multiple layers, fixed set of arbitrary channels.
 //! 1. `RgbaImage`: A single layer, fixed set of channels: rgb, optional a.
-//! 1. `RgbaLayersImage`: Multiple layers, fixed set of channels: rgb, optional a.
+//! 1. `RgbaLayersImage`: Multiple layers, fixed set of channels: rgb, optional
+//!    a.
 //! 1. `FlatImage`: Multiple layers, any channels, no deep data.
-//! 1. `AnyImage`: All supported data (multiple layers, arbitrary channels, no deep data yet)
+//! 1. `AnyImage`: All supported data (multiple layers, arbitrary channels, no
+//!    deep data yet)
 //!
 //! You can also use your own types inside an image,
 //! for example if you want to use a custom sample storage.
@@ -29,47 +32,55 @@ pub mod recursive;
 pub mod write;
 // pub mod channel_groups;
 
-use crate::compression::Compression;
-use crate::error::Error;
-use crate::math::{RoundingMode, Vec2};
-use crate::meta::attribute::{LineOrder, Text};
-use crate::meta::header::{ImageAttributes, LayerAttributes};
 use half::f16;
 use smallvec::SmallVec;
+
+use crate::{
+    compression::Compression,
+    error::Error,
+    math::{RoundingMode, Vec2},
+    meta::{
+        attribute::{LineOrder, Text},
+        header::{ImageAttributes, LayerAttributes},
+    },
+};
 
 /// Don't do anything
 pub(crate) const fn ignore_progress(_progress: f64) {}
 
-/// This image type contains all supported exr features and can represent almost any image.
-/// It currently does not support deep data yet.
+/// This image type contains all supported exr features and can represent almost
+/// any image. It currently does not support deep data yet.
 pub type AnyImage = Image<Layers<AnyChannels<Levels<FlatSamples>>>>;
 
-/// This image type contains the most common exr features and can represent almost any plain image.
-/// Does not contain resolution levels. Does not support deep data.
+/// This image type contains the most common exr features and can represent
+/// almost any plain image. Does not contain resolution levels. Does not support
+/// deep data.
 pub type FlatImage = Image<Layers<AnyChannels<FlatSamples>>>;
 
-/// This image type contains multiple layers, with each layer containing a user-defined type of pixels.
+/// This image type contains multiple layers, with each layer containing a
+/// user-defined type of pixels.
 pub type PixelLayersImage<Storage, Channels> = Image<Layers<SpecificChannels<Storage, Channels>>>;
 
-/// This image type contains a single layer containing a user-defined type of pixels.
+/// This image type contains a single layer containing a user-defined type of
+/// pixels.
 pub type PixelImage<Storage, Channels> = Image<Layer<SpecificChannels<Storage, Channels>>>;
 
-/// This image type contains multiple layers, with each layer containing a user-defined type of rgba pixels.
+/// This image type contains multiple layers, with each layer containing a
+/// user-defined type of rgba pixels.
 pub type RgbaLayersImage<Storage> = PixelLayersImage<Storage, RgbaChannels>;
 
-/// This image type contains a single layer containing a user-defined type of rgba pixels.
+/// This image type contains a single layer containing a user-defined type of
+/// rgba pixels.
 pub type RgbaImage<Storage> = PixelImage<Storage, RgbaChannels>;
 
-/// Contains information about the channels in an rgba image, in the order `(red, green, blue, alpha)`.
-/// The alpha channel is not required. May be `None` if the image did not contain an alpha channel.
-pub type RgbaChannels = (
-    ChannelDescription,
-    ChannelDescription,
-    ChannelDescription,
-    Option<ChannelDescription>,
-);
+/// Contains information about the channels in an rgba image, in the order
+/// `(red, green, blue, alpha)`. The alpha channel is not required. May be
+/// `None` if the image did not contain an alpha channel.
+pub type RgbaChannels =
+    (ChannelDescription, ChannelDescription, ChannelDescription, Option<ChannelDescription>);
 
-/// Contains information about the channels in an rgb image, in the order `(red, green, blue)`.
+/// Contains information about the channels in an rgb image, in the order `(red,
+/// green, blue)`.
 pub type RgbChannels = (ChannelDescription, ChannelDescription, ChannelDescription);
 
 /// The complete exr image.
@@ -98,13 +109,15 @@ pub struct Layer<Channels> {
     pub channel_data: Channels,
 
     /// Attributes that apply to this layer.
-    /// May still contain attributes that should be considered global for an image file.
-    /// Excludes technical meta data: Does not contain data window size, line order, tiling, or compression attributes.
+    /// May still contain attributes that should be considered global for an
+    /// image file. Excludes technical meta data: Does not contain data
+    /// window size, line order, tiling, or compression attributes.
     /// The image also has attributes, which do not differ per layer.
     pub attributes: LayerAttributes,
 
     /// The pixel resolution of this layer.
-    /// See `layer.attributes` for more attributes, like for example layer position.
+    /// See `layer.attributes` for more attributes, like for example layer
+    /// position.
     pub size: Vec2<usize>,
 
     /// How the pixels are split up and compressed.
@@ -114,13 +127,15 @@ pub struct Layer<Channels> {
 /// How the pixels are split up and compressed.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Encoding {
-    /// How the pixel data of all channels in this layer is compressed. May be `Compression::Uncompressed`.
-    /// See `layer.attributes` for more attributes.
+    /// How the pixel data of all channels in this layer is compressed. May be
+    /// `Compression::Uncompressed`. See `layer.attributes` for more
+    /// attributes.
     pub compression: Compression,
 
     /// Describes how the pixels of this layer are divided into smaller blocks.
-    /// Either splits the image into its scan lines or splits the image into tiles of the specified size.
-    /// A single block can be loaded without processing all bytes of a file.
+    /// Either splits the image into its scan lines or splits the image into
+    /// tiles of the specified size. A single block can be loaded without
+    /// processing all bytes of a file.
     pub blocks: Blocks,
 
     /// In what order the tiles of this header occur in the file.
@@ -147,13 +162,16 @@ pub enum Blocks {
 
 /// A grid of pixels. The pixels are written to your custom pixel storage.
 ///
-/// `PixelStorage` can be anything, from a flat `Vec<f16>` to `Vec<Vec<AnySample>>`, as desired.
-/// In order to write this image to a file, your `PixelStorage` must implement [`GetPixel`].
+/// `PixelStorage` can be anything, from a flat `Vec<f16>` to
+/// `Vec<Vec<AnySample>>`, as desired. In order to write this image to a file,
+/// your `PixelStorage` must implement [`GetPixel`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpecificChannels<Pixels, ChannelsDescription> {
-    /// A description of the channels in the file, as opposed to the channels in memory.
-    /// Should always be a tuple containing `ChannelDescription`s, one description for each channel.
-    pub channels: ChannelsDescription, // TODO this is awkward. can this be not a type parameter please? maybe vec<option<chan_info>> ??
+    /// A description of the channels in the file, as opposed to the channels in
+    /// memory. Should always be a tuple containing `ChannelDescription`s,
+    /// one description for each channel.
+    pub channels: ChannelsDescription, /* TODO this is awkward. can this be not a type parameter
+                                        * please? maybe vec<option<chan_info>> ?? */
 
     /// Your custom pixel storage
     // TODO should also support `Levels<YourStorage>`, where levels are desired!
@@ -183,15 +201,18 @@ pub struct AnyChannel<Samples> {
     /// This attribute only tells lossy compression methods
     /// whether this value should be quantized exponentially or linearly.
     ///
-    /// Should be `false` for red, green, blue and luma channels, as they are not perceived linearly.
-    /// Should be `true` for hue, chroma, saturation, and alpha channels.
+    /// Should be `false` for red, green, blue and luma channels, as they are
+    /// not perceived linearly. Should be `true` for hue, chroma,
+    /// saturation, and alpha channels.
     pub quantize_linearly: bool,
 
-    /// How many of the samples are skipped compared to the other channels in this layer.
+    /// How many of the samples are skipped compared to the other channels in
+    /// this layer.
     ///
     /// Can be used for chroma subsampling for manual lossy data compression.
     /// Values other than 1 are allowed only in flat, scan-line based images.
-    /// If an image is deep or tiled, the sampling rates for all of its channels must be 1.
+    /// If an image is deep or tiled, the sampling rates for all of its channels
+    /// must be 1.
     pub sampling: Vec2<usize>,
 }
 
@@ -200,7 +221,8 @@ pub struct AnyChannel<Samples> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Levels<Samples> {
     /// A single image without smaller versions of itself.
-    /// If you only want to handle exclusively this case, use `Samples` directly, and not `Levels<Samples>`.
+    /// If you only want to handle exclusively this case, use `Samples`
+    /// directly, and not `Levels<Samples>`.
     Singular(Samples),
 
     /// Contains uniformly scaled smaller versions of the original.
@@ -240,11 +262,11 @@ pub struct RipMaps<Samples> {
 }
 
 // TODO deep data
-/*#[derive(Clone, PartialEq)]
-pub enum DeepAndFlatSamples {
-    Deep(DeepSamples),
-    Flat(FlatSamples)
-}*/
+// #[derive(Clone, PartialEq)]
+// pub enum DeepAndFlatSamples {
+// Deep(DeepSamples),
+// Flat(FlatSamples)
+// }
 
 /// A vector of non-deep values (one value per pixel per channel).
 /// Stores row after row in a single vector.
@@ -266,28 +288,35 @@ pub enum FlatSamples {
     U32(Vec<u32>),
 }
 
-/*#[derive(Clone, PartialEq)]
-pub enum DeepSamples {
-    F16(Vec<Vec<f16>>),
-    F32(Vec<Vec<f32>>),
-    U32(Vec<Vec<u32>>),
-}*/
+// #[derive(Clone, PartialEq)]
+// pub enum DeepSamples {
+// F16(Vec<Vec<f16>>),
+// F32(Vec<Vec<f32>>),
+// U32(Vec<Vec<u32>>),
+// }
 
-use crate::block::samples::IntoNativeSample;
-use crate::block::samples::Sample;
-use crate::error::Result;
-use crate::image::recursive::{IntoRecursive, NoneMore, Recursive};
-use crate::image::validate_results::ValidationOptions;
-use crate::image::write::channels::{GetPixel, WritableChannels, WritableChannelsDescription};
-use crate::image::write::layers::WritableLayers;
-use crate::image::write::samples::WritableSamples;
-use crate::io::Data;
-use crate::meta::attribute::{
-    ChannelDescription, ChannelList, IntegerBounds, LevelMode, SampleType, TileDescription,
+use std::{marker::PhantomData, ops::Not};
+
+use crate::{
+    block::samples::{IntoNativeSample, Sample},
+    error::Result,
+    image::{
+        recursive::{IntoRecursive, NoneMore, Recursive},
+        validate_results::ValidationOptions,
+        write::{
+            channels::{GetPixel, WritableChannels, WritableChannelsDescription},
+            layers::WritableLayers,
+            samples::WritableSamples,
+        },
+    },
+    io::Data,
+    meta::{
+        attribute::{
+            ChannelDescription, ChannelList, IntegerBounds, LevelMode, SampleType, TileDescription,
+        },
+        mip_map_levels, rip_map_levels,
+    },
 };
-use crate::meta::{mip_map_levels, rip_map_levels};
-use std::marker::PhantomData;
-use std::ops::Not;
 
 impl<Channels> Layer<Channels> {
     /// Sometimes called "data window"
@@ -298,8 +327,9 @@ impl<Channels> Layer<Channels> {
 
 impl<SampleStorage, Channels> SpecificChannels<SampleStorage, Channels> {
     /// Create some pixels with channel information.
-    /// The `Channels` must be a tuple containing either `ChannelDescription` or `Option<ChannelDescription>`.
-    /// The length of the tuple dictates the number of channels in the sample storage.
+    /// The `Channels` must be a tuple containing either `ChannelDescription` or
+    /// `Option<ChannelDescription>`. The length of the tuple dictates the
+    /// number of channels in the sample storage.
     pub const fn new(channels: Channels, source_samples: SampleStorage) -> Self
     where
         SampleStorage: GetPixel,
@@ -316,7 +346,8 @@ impl<SampleStorage, Channels> SpecificChannels<SampleStorage, Channels> {
 }
 
 /// Convert this type into one of the known sample types.
-/// Also specify the preferred native type, which dictates the default sample type in the image.
+/// Also specify the preferred native type, which dictates the default sample
+/// type in the image.
 pub trait IntoSample: IntoNativeSample {
     /// The native sample types that this type should be converted to.
     const PREFERRED_SAMPLE_TYPE: SampleType;
@@ -381,8 +412,9 @@ impl<RecursiveChannels: CheckDuplicates, RecursivePixel>
     /// Panics if the name contains unsupported characters.
     /// Panics if a channel with the same name already exists.
     /// Use `Text::new_or_none()` to manually handle these cases.
-    /// Use `with_channel_details` instead if you want to specify more options than just the name of the channel.
-    /// The generic parameter can usually be inferred from the closure in `with_pixels`.
+    /// Use `with_channel_details` instead if you want to specify more options
+    /// than just the name of the channel. The generic parameter can usually
+    /// be inferred from the closure in `with_pixels`.
     pub fn with_channel<Sample: IntoSample>(
         self,
         name: impl Into<Text>,
@@ -398,9 +430,10 @@ impl<RecursiveChannels: CheckDuplicates, RecursivePixel>
 
     /// Add another channel to this image. Does not add the actual pixels,
     /// but instead only declares the presence of the channel.
-    /// Use `with_channel` instead if you only want to specify the name of the channel.
-    /// Panics if a channel with the same name already exists.
-    /// The generic parameter can usually be inferred from the closure in `with_pixels`.
+    /// Use `with_channel` instead if you only want to specify the name of the
+    /// channel. Panics if a channel with the same name already exists.
+    /// The generic parameter can usually be inferred from the closure in
+    /// `with_pixels`.
     pub fn with_channel_details<Sample: Into<Sample>>(
         self,
         channel: ChannelDescription,
@@ -408,7 +441,8 @@ impl<RecursiveChannels: CheckDuplicates, RecursivePixel>
         Recursive<RecursiveChannels, ChannelDescription>,
         Recursive<RecursivePixel, Sample>,
     > {
-        // duplicate channel names are checked later, but also check now to make sure there are no problems with the `SpecificChannelsWriter`
+        // duplicate channel names are checked later, but also check now to make sure
+        // there are no problems with the `SpecificChannelsWriter`
         assert!(
             self.channels.already_contains(&channel.name).not(),
             "channel name `{}` is duplicate",
@@ -422,11 +456,13 @@ impl<RecursiveChannels: CheckDuplicates, RecursivePixel>
     }
 
     /// Specify the actual pixel contents of the image.
-    /// You can pass a closure that returns a color for each pixel (`Fn(Vec2<usize>) -> Pixel`),
-    /// or you can pass your own image if it implements `GetPixel`.
-    /// The pixel type must be a tuple with the correct number of entries, depending on the number of channels.
+    /// You can pass a closure that returns a color for each pixel
+    /// (`Fn(Vec2<usize>) -> Pixel`), or you can pass your own image if it
+    /// implements `GetPixel`. The pixel type must be a tuple with the
+    /// correct number of entries, depending on the number of channels.
     /// The tuple entries can be either `f16`, `f32`, `u32` or `Sample`.
-    /// Use `with_pixel_fn` instead of this function, to get extra type safety for your pixel closure.
+    /// Use `with_pixel_fn` instead of this function, to get extra type safety
+    /// for your pixel closure.
     pub fn with_pixels<Pixels>(
         self,
         get_pixel: Pixels,
@@ -442,13 +478,15 @@ impl<RecursiveChannels: CheckDuplicates, RecursivePixel>
     }
 
     /// Specify the contents of the image.
-    /// The pixel type must be a tuple with the correct number of entries, depending on the number of channels.
-    /// The tuple entries can be either `f16`, `f32`, `u32` or `Sample`.
-    /// Use `with_pixels` instead of this function, if you want to pass an object that is not a closure.
+    /// The pixel type must be a tuple with the correct number of entries,
+    /// depending on the number of channels. The tuple entries can be either
+    /// `f16`, `f32`, `u32` or `Sample`. Use `with_pixels` instead of this
+    /// function, if you want to pass an object that is not a closure.
     ///
-    /// Usually, the compiler can infer the type of the pixel (for example, `f16,f32,f32`) from the closure.
-    /// If that's not possible, you can specify the type of the channels
-    /// when declaring the channel (for example, `with_named_channel::<f32>("R")`).
+    /// Usually, the compiler can infer the type of the pixel (for example,
+    /// `f16,f32,f32`) from the closure. If that's not possible, you can
+    /// specify the type of the channels when declaring the channel (for
+    /// example, `with_named_channel::<f32>("R")`).
     pub fn with_pixel_fn<Pixel, Pixels>(
         self,
         get_pixel: Pixels,
@@ -467,18 +505,14 @@ impl<RecursiveChannels: CheckDuplicates, RecursivePixel>
 impl<SampleStorage>
     SpecificChannels<
         SampleStorage,
-        (
-            ChannelDescription,
-            ChannelDescription,
-            ChannelDescription,
-            ChannelDescription,
-        ),
+        (ChannelDescription, ChannelDescription, ChannelDescription, ChannelDescription),
     >
 {
     /// Create an image with red, green, blue, and alpha channels.
-    /// You can pass a closure that returns a color for each pixel (`Fn(Vec2<usize>) -> (R,G,B,A)`),
-    /// or you can pass your own image if it implements `GetPixel<Pixel=(R,G,B,A)>`.
-    /// Each of `R`, `G`, `B` and `A` can be either `f16`, `f32`, `u32`, or `Sample`.
+    /// You can pass a closure that returns a color for each pixel
+    /// (`Fn(Vec2<usize>) -> (R,G,B,A)`), or you can pass your own image if
+    /// it implements `GetPixel<Pixel=(R,G,B,A)>`. Each of `R`, `G`, `B` and
+    /// `A` can be either `f16`, `f32`, `u32`, or `Sample`.
     pub fn rgba<R, G, B, A>(source_samples: SampleStorage) -> Self
     where
         R: IntoSample,
@@ -503,9 +537,10 @@ impl<SampleStorage>
     SpecificChannels<SampleStorage, (ChannelDescription, ChannelDescription, ChannelDescription)>
 {
     /// Create an image with red, green, and blue channels.
-    /// You can pass a closure that returns a color for each pixel (`Fn(Vec2<usize>) -> (R,G,B)`),
-    /// or you can pass your own image if it implements `GetPixel<Pixel=(R,G,B)>`.
-    /// Each of `R`, `G` and `B` can be either `f16`, `f32`, `u32`, or `Sample`.
+    /// You can pass a closure that returns a color for each pixel
+    /// (`Fn(Vec2<usize>) -> (R,G,B)`), or you can pass your own image if it
+    /// implements `GetPixel<Pixel=(R,G,B)>`. Each of `R`, `G` and `B` can
+    /// be either `f16`, `f32`, `u32`, or `Sample`.
     pub fn rgb<R, G, B>(source_samples: SampleStorage) -> Self
     where
         R: IntoSample,
@@ -577,12 +612,7 @@ impl Iterator for FlatSampleIterator<'_> {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self
-            .layer
-            .channel_data
-            .list
-            .len()
-            .saturating_sub(self.channel_index);
+        let remaining = self.layer.channel_data.list.len().saturating_sub(self.channel_index);
         (remaining, Some(remaining))
     }
 }
@@ -590,10 +620,13 @@ impl Iterator for FlatSampleIterator<'_> {
 impl ExactSizeIterator for FlatSampleIterator<'_> {}
 
 impl<SampleData> AnyChannels<SampleData> {
-    /// A new list of arbitrary channels. Sorts the list to make it alphabetically stable.
+    /// A new list of arbitrary channels. Sorts the list to make it
+    /// alphabetically stable.
     pub fn sort(mut list: SmallVec<[AnyChannel<SampleData>; 4]>) -> Self {
         list.sort_unstable_by_key(|channel| channel.name.clone()); // TODO no clone?
-        Self { list }
+        Self {
+            list,
+        }
     }
 }
 
@@ -611,7 +644,10 @@ impl<LevelSamples> Levels<LevelSamples> {
                 Ok(block)
             }
 
-            Self::Mip { level_data, .. } => {
+            Self::Mip {
+                level_data,
+                ..
+            } => {
                 debug_assert_eq!(
                     level.x(),
                     level.y(),
@@ -626,17 +662,17 @@ impl<LevelSamples> Levels<LevelSamples> {
                 })
             }
 
-            Self::Rip { level_data, .. } => level_data
+            Self::Rip {
+                level_data,
+                ..
+            } => level_data
                 .by_level(level)
                 .ok_or_else(|| Error::invalid(format!("rip level index {level:?} not found"))),
         }
     }
 
     /// Deprecated: Use `level()` instead.
-    #[deprecated(
-        since = "1.75.0",
-        note = "Renamed to `level` to comply with Rust API guidelines"
-    )]
+    #[deprecated(since = "1.75.0", note = "Renamed to `level` to comply with Rust API guidelines")]
     pub fn get_level(&self, level: Vec2<usize>) -> Result<&LevelSamples> {
         self.level(level)
     }
@@ -654,7 +690,10 @@ impl<LevelSamples> Levels<LevelSamples> {
                 Ok(block)
             }
 
-            Self::Mip { level_data, .. } => {
+            Self::Mip {
+                level_data,
+                ..
+            } => {
                 debug_assert_eq!(
                     level.x(),
                     level.y(),
@@ -669,7 +708,10 @@ impl<LevelSamples> Levels<LevelSamples> {
                 })
             }
 
-            Self::Rip { level_data, .. } => level_data
+            Self::Rip {
+                level_data,
+                ..
+            } => level_data
                 .by_level_mut(level)
                 .ok_or_else(|| Error::invalid(format!("rip level index {level:?} not found"))),
         }
@@ -688,17 +730,30 @@ impl<LevelSamples> Levels<LevelSamples> {
     pub fn levels_as_slice(&self) -> &[LevelSamples] {
         match self {
             Self::Singular(data) => std::slice::from_ref(data),
-            Self::Mip { level_data, .. } => level_data,
-            Self::Rip { level_data, .. } => &level_data.map_data,
+            Self::Mip {
+                level_data,
+                ..
+            } => level_data,
+            Self::Rip {
+                level_data,
+                ..
+            } => &level_data.map_data,
         }
     }
 
-    /// Get a mutable slice of all resolution levels, sorted by size, decreasing.
+    /// Get a mutable slice of all resolution levels, sorted by size,
+    /// decreasing.
     pub fn levels_as_mut_slice(&mut self) -> &mut [LevelSamples] {
         match self {
             Self::Singular(data) => std::slice::from_mut(data),
-            Self::Mip { level_data, .. } => level_data,
-            Self::Rip { level_data, .. } => &mut level_data.map_data,
+            Self::Mip {
+                level_data,
+                ..
+            } => level_data,
+            Self::Rip {
+                level_data,
+                ..
+            } => &mut level_data.map_data,
         }
     }
 
@@ -711,22 +766,29 @@ impl<LevelSamples> Levels<LevelSamples> {
         self.levels_as_mut_slice()
     }
 
-    // TODO simplify working with levels in general! like level_size_by_index and such
+    // TODO simplify working with levels in general! like level_size_by_index and
+    // such
 
-    /*pub fn levels_with_size(&self, rounding: RoundingMode, max_resolution: Vec2<usize>) -> Vec<(Vec2<usize>, &S)> {
-        match self {
-            Levels::Singular(ref data) => vec![ (max_resolution, data) ],
-            Levels::Mip(ref maps) => mip_map_levels(rounding, max_resolution).map(|(_index, size)| size).zip(maps).collect(),
-            Levels::Rip(ref rip_maps) => rip_map_levels(rounding, max_resolution).map(|(_index, size)| size).zip(&rip_maps.map_data).collect(),
-        }
-    }*/
+    // pub fn levels_with_size(&self, rounding: RoundingMode, max_resolution:
+    // Vec2<usize>) -> Vec<(Vec2<usize>, &S)> { match self {
+    // Levels::Singular(ref data) => vec![ (max_resolution, data) ],
+    // Levels::Mip(ref maps) => mip_map_levels(rounding,
+    // max_resolution).map(|(_index, size)| size).zip(maps).collect(),
+    // Levels::Rip(ref rip_maps) => rip_map_levels(rounding,
+    // max_resolution).map(|(_index, size)| size).zip(&rip_maps.map_data).collect(),
+    // }
+    // }
 
     /// Whether this stores multiple resolution levels.
     pub const fn level_mode(&self) -> LevelMode {
         match self {
             Self::Singular(_) => LevelMode::Singular,
-            Self::Mip { .. } => LevelMode::MipMap,
-            Self::Rip { .. } => LevelMode::RipMap,
+            Self::Mip {
+                ..
+            } => LevelMode::MipMap,
+            Self::Rip {
+                ..
+            } => LevelMode::RipMap,
         }
     }
 }
@@ -764,7 +826,8 @@ impl<Samples> RipMaps<Samples> {
         self.by_level(level)
     }
 
-    /// Return a mutable level reference by level index. Level `0` has the largest resolution.
+    /// Return a mutable level reference by level index. Level `0` has the
+    /// largest resolution.
     pub fn by_level_mut(&mut self, level: Vec2<usize>) -> Option<&mut Samples> {
         let index = self.level_index(level);
         self.map_data.get_mut(index)
@@ -781,8 +844,8 @@ impl<Samples> RipMaps<Samples> {
 }
 
 impl FlatSamples {
-    /// The number of samples in the image. Should be the width times the height.
-    /// Might vary when subsampling is used.
+    /// The number of samples in the image. Should be the width times the
+    /// height. Might vary when subsampling is used.
     #[must_use]
     pub fn len(&self) -> usize {
         match self {
@@ -826,8 +889,9 @@ impl FlatSamples {
 }
 
 impl<'s, ChannelData: 's> Layer<ChannelData> {
-    /// Create a layer with the specified size, attributes, encoding and channels.
-    /// The channels can be either `SpecificChannels` or `AnyChannels`.
+    /// Create a layer with the specified size, attributes, encoding and
+    /// channels. The channels can be either `SpecificChannels` or
+    /// `AnyChannels`.
     pub fn new(
         dimensions: impl Into<Vec2<usize>>,
         attributes: LayerAttributes,
@@ -877,34 +941,35 @@ impl<'s, ChannelData: 's> Layer<ChannelData> {
 }
 
 impl Encoding {
+    /// Run-length encoding with tiles of 64x64 pixels. This is the recommended
+    /// default encoding. Almost as fast as uncompressed data, but optimizes
+    /// single-colored areas such as mattes and masks.
+    pub const FAST_LOSSLESS: Self = Self {
+        compression: Compression::RLE,
+        blocks: Blocks::Tiles(Vec2(64, 64)), // optimize for RLE compression
+        line_order: LineOrder::Unspecified,
+    };
+    /// PIZ compression with tiles of 256x256 pixels. Small images, not too
+    /// slow.
+    pub const SMALL_FAST_LOSSLESS: Self = Self {
+        compression: Compression::PIZ,
+        blocks: Blocks::Tiles(Vec2(256, 256)),
+        line_order: LineOrder::Unspecified,
+    };
+    /// ZIP compression with blocks of 16 lines. Slow, but produces small files
+    /// without visible artefacts.
+    pub const SMALL_LOSSLESS: Self = Self {
+        compression: Compression::ZIP16,
+        blocks: Blocks::ScanLines, /* largest possible, but also with high probability of
+                                    * parallel workers */
+        line_order: LineOrder::Increasing,
+    };
     /// No compression. Massive space requirements.
     /// Fast, because it minimizes data shuffling and reallocation.
     pub const UNCOMPRESSED: Self = Self {
         compression: Compression::Uncompressed,
         blocks: Blocks::ScanLines,         // longest lines, faster memcpy
         line_order: LineOrder::Increasing, // presumably fastest?
-    };
-
-    /// Run-length encoding with tiles of 64x64 pixels. This is the recommended default encoding.
-    /// Almost as fast as uncompressed data, but optimizes single-colored areas such as mattes and masks.
-    pub const FAST_LOSSLESS: Self = Self {
-        compression: Compression::RLE,
-        blocks: Blocks::Tiles(Vec2(64, 64)), // optimize for RLE compression
-        line_order: LineOrder::Unspecified,
-    };
-
-    /// ZIP compression with blocks of 16 lines. Slow, but produces small files without visible artefacts.
-    pub const SMALL_LOSSLESS: Self = Self {
-        compression: Compression::ZIP16,
-        blocks: Blocks::ScanLines, // largest possible, but also with high probability of parallel workers
-        line_order: LineOrder::Increasing,
-    };
-
-    /// PIZ compression with tiles of 256x256 pixels. Small images, not too slow.
-    pub const SMALL_FAST_LOSSLESS: Self = Self {
-        compression: Compression::PIZ,
-        blocks: Blocks::Tiles(Vec2(256, 256)),
-        line_order: LineOrder::Unspecified,
     };
 }
 
@@ -918,7 +983,8 @@ impl<'s, LayerData: 's> Image<LayerData>
 where
     LayerData: WritableLayers<'s>,
 {
-    /// Create an image with one or multiple layers. The layer can be a `Layer`, or `Layers` small vector, or `Vec<Layer>` or `&[Layer]`.
+    /// Create an image with one or multiple layers. The layer can be a `Layer`,
+    /// or `Layers` small vector, or `Vec<Layer>` or `&[Layer]`.
     pub const fn new(image_attributes: ImageAttributes, layer_data: LayerData) -> Self {
         Self {
             attributes: image_attributes,
@@ -932,7 +998,8 @@ impl<'s, Channels: 's> Image<Layers<Channels>>
 where
     Channels: WritableChannels<'s>,
 {
-    /// Create an image with multiple layers. The layer can be a `Vec<Layer>` or `Layers` (a small vector).
+    /// Create an image with multiple layers. The layer can be a `Vec<Layer>` or
+    /// `Layers` (a small vector).
     pub fn from_layers(
         image_attributes: ImageAttributes,
         layer_data: impl Into<Layers<Channels>>,
@@ -945,7 +1012,8 @@ impl<'s, ChannelData: 's> Image<Layer<ChannelData>>
 where
     ChannelData: WritableChannels<'s>,
 {
-    /// Uses the display position and size to the channel position and size of the layer.
+    /// Uses the display position and size to the channel position and size of
+    /// the layer.
     pub fn from_layer(layer: Layer<ChannelData>) -> Self {
         let bounds = IntegerBounds::new(layer.attributes.layer_position, layer.size);
         Self::new(ImageAttributes::new(bounds), layer)
@@ -958,12 +1026,7 @@ where
         channels: ChannelData,
     ) -> Self {
         // layer name is not required for single-layer images
-        Self::from_layer(Layer::new(
-            size,
-            LayerAttributes::default(),
-            encoding,
-            channels,
-        ))
+        Self::from_layer(Layer::new(size, LayerAttributes::default(), encoding, channels))
     }
 
     /// Uses empty attributes and fast compression.
@@ -973,8 +1036,9 @@ where
 }
 
 impl Image<NoneMore> {
-    /// Create an empty image, to be filled with layers later on. Add at least one layer to obtain a valid image.
-    /// Call `with_layer(another_layer)` for each layer you want to add to this image.
+    /// Create an empty image, to be filled with layers later on. Add at least
+    /// one layer to obtain a valid image. Call `with_layer(another_layer)`
+    /// for each layer you want to add to this image.
     #[must_use]
     pub const fn empty(attributes: ImageAttributes) -> Self {
         Self {
@@ -1010,7 +1074,8 @@ impl<'s, SampleData: 's> AnyChannel<SampleData> {
     /// Automatically flags this channel for specialized compression
     /// if the name is "R", "G", "B", "Y", or "L",
     /// as they typically encode values that are perceived non-linearly.
-    /// Construct the value yourself using `AnyChannel { .. }`, if you want to control this flag.
+    /// Construct the value yourself using `AnyChannel { .. }`, if you want to
+    /// control this flag.
     pub fn new(name: impl Into<Text>, sample_data: SampleData) -> Self
     where
         SampleData: WritableSamples<'s>,
@@ -1025,12 +1090,12 @@ impl<'s, SampleData: 's> AnyChannel<SampleData> {
         }
     }
 
-    /*/// This is the same as `AnyChannel::new()`, but additionally ensures that the closure type is correct.
-    pub fn from_closure<V>(name: Text, sample_data: S) -> Self
-        where S: Sync + Fn(Vec2<usize>) -> V, V: InferSampleType + Data
-    {
-        Self::new(name, sample_data)
-    }*/
+    // /// This is the same as `AnyChannel::new()`, but additionally ensures that
+    // the closure type is correct. pub fn from_closure<V>(name: Text,
+    // sample_data: S) -> Self where S: Sync + Fn(Vec2<usize>) -> V, V:
+    // InferSampleType + Data {
+    // Self::new(name, sample_data)
+    // }
 }
 
 impl std::fmt::Debug for FlatSamples {
@@ -1055,12 +1120,15 @@ impl std::fmt::Debug for FlatSamples {
 /// Supports lossy compression methods.
 // #[cfg(test)] TODO do not ship this code
 pub mod validate_results {
-    use crate::block::samples::IntoNativeSample;
-    use crate::image::write::samples::WritableSamples;
-    use crate::prelude::recursive::*;
-    use crate::prelude::*;
-    use smallvec::Array;
     use std::ops::Not;
+
+    use smallvec::Array;
+
+    use crate::{
+        block::samples::IntoNativeSample,
+        image::write::samples::WritableSamples,
+        prelude::{recursive::*, *},
+    };
 
     /// Compare two objects, but with a few special quirks.
     /// Intended mainly for unit testing.
@@ -1068,32 +1136,37 @@ pub mod validate_results {
         /// Compare self with the other. Panics if not equal.
         ///
         /// Exceptional behaviour:
-        /// This does not work the other way around! This method is not symmetrical!
-        /// Returns whether the result is correct for this image.
-        /// For lossy compression methods, uses approximate equality.
-        /// Intended for unit testing.
+        /// This does not work the other way around! This method is not
+        /// symmetrical! Returns whether the result is correct for this
+        /// image. For lossy compression methods, uses approximate
+        /// equality. Intended for unit testing.
         ///
-        /// Warning: If you use `SpecificChannels`, the comparison might be inaccurate
-        /// for images with mixed compression methods. This is to be used with `AnyChannels` mainly.
+        /// Warning: If you use `SpecificChannels`, the comparison might be
+        /// inaccurate for images with mixed compression methods. This
+        /// is to be used with `AnyChannels` mainly.
         fn assert_equals_result(&self, result: &Self) {
-            self.validate_result(result, ValidationOptions::default(), String::new)
-                .unwrap();
+            self.validate_result(result, ValidationOptions::default(), String::new).unwrap();
         }
 
         /// Compare self with the other.
         /// Exceptional behaviour:
-        /// - Any two NaN values are considered equal, regardless of bit representation.
-        /// - If a `lossy` is specified, any two values that differ only by a small amount will be considered equal.
-        /// - If `nan_to_zero` is true, and __self is NaN/Infinite and the other value is zero, they are considered equal__
-        ///   (because some compression methods replace nan with zero)
+        /// - Any two NaN values are considered equal, regardless of bit
+        ///   representation.
+        /// - If a `lossy` is specified, any two values that differ only by a
+        ///   small amount will be considered equal.
+        /// - If `nan_to_zero` is true, and __self is NaN/Infinite and the other
+        ///   value is zero, they are considered equal__ (because some
+        ///   compression methods replace nan with zero)
         ///
-        /// This does not work the other way around! This method is not symmetrical!
+        /// This does not work the other way around! This method is not
+        /// symmetrical!
         fn validate_result(
             &self,
             lossy_result: &Self,
             options: ValidationOptions,
-            // this is a lazy string, because constructing a string is only necessary in the case of an error,
-            // but eats up memory and allocation time every time. this was measured.
+            // this is a lazy string, because constructing a string is only necessary in the case
+            // of an error, but eats up memory and allocation time every time. this was
+            // measured.
             context: impl Fn() -> String,
         ) -> ValidationResult;
     }
@@ -1119,10 +1192,9 @@ pub mod validate_results {
             location: impl Fn() -> String,
         ) -> ValidationResult {
             if self.attributes == other.attributes {
-                self.layer_data
-                    .validate_result(&other.layer_data, options, || {
-                        location() + "| image > layer data"
-                    })
+                self.layer_data.validate_result(&other.layer_data, options, || {
+                    location() + "| image > layer data"
+                })
             } else {
                 Err(location() + "| image > attributes")
             }
@@ -1150,11 +1222,8 @@ pub mod validate_results {
             } else if self.channel_data.list.len() != other.channel_data.list.len() {
                 Err(location() + " > channel count")
             } else {
-                for (own_chan, other_chan) in self
-                    .channel_data
-                    .list
-                    .iter()
-                    .zip(other.channel_data.list.iter())
+                for (own_chan, other_chan) in
+                    self.channel_data.list.iter().zip(other.channel_data.list.iter())
                 {
                     own_chan.validate_result(
                         other_chan,
@@ -1166,7 +1235,8 @@ pub mod validate_results {
                                 .is_lossless_for(other_chan.sample_data.sample_type())
                                 .not(),
 
-                            // consider nan and zero equal if the compression method does not support nan
+                            // consider nan and zero equal if the compression method does not
+                            // support nan
                             nan_converted_to_zero: other.encoding.compression.supports_nan().not(),
                         },
                         || format!("{} > channel `{}`", location(), own_chan.name),
@@ -1201,17 +1271,19 @@ pub mod validate_results {
             } else {
                 let options = ValidationOptions {
                     // no tolerance for lossless channels
-                    // pxr only looses data for f32 values, B44 only for f16, not other any other types
-                    allow_lossy: other.encoding.compression.may_loose_data(), // TODO check specific channels sample types
+                    // pxr only looses data for f32 values, B44 only for f16, not other any other
+                    // types
+                    allow_lossy: other.encoding.compression.may_loose_data(), /* TODO check
+                                                                               * specific channels
+                                                                               * sample types */
 
                     // consider nan and zero equal if the compression method does not support nan
                     nan_converted_to_zero: other.encoding.compression.supports_nan().not(),
                 };
 
-                self.channel_data
-                    .validate_result(&other.channel_data, options, || {
-                        location() + " > channel_data"
-                    })?;
+                self.channel_data.validate_result(&other.channel_data, options, || {
+                    location() + " > channel_data"
+                })?;
                 Ok(())
             }
         }
@@ -1249,9 +1321,7 @@ pub mod validate_results {
                 Err(location() + " > sampling")
             } else {
                 self.sample_data
-                    .validate_result(&other.sample_data, options, || {
-                        location() + " > sample_data"
-                    })
+                    .validate_result(&other.sample_data, options, || location() + " > sample_data")
             }
         }
     }
@@ -1287,9 +1357,7 @@ pub mod validate_results {
             location: impl Fn() -> String,
         ) -> ValidationResult {
             self.levels_as_slice()
-                .validate_result(&other.levels_as_slice(), options, || {
-                    location() + " > levels"
-                })
+                .validate_result(&other.levels_as_slice(), options, || location() + " > levels")
         }
     }
 
@@ -1303,25 +1371,19 @@ pub mod validate_results {
             use FlatSamples::{F16, F32, U32};
             match (self, other) {
                 (F16(values), F16(other_values)) => {
-                    values
-                        .as_slice()
-                        .validate_result(&other_values.as_slice(), options, || {
-                            location() + " > f16 samples"
-                        })
+                    values.as_slice().validate_result(&other_values.as_slice(), options, || {
+                        location() + " > f16 samples"
+                    })
                 }
                 (F32(values), F32(other_values)) => {
-                    values
-                        .as_slice()
-                        .validate_result(&other_values.as_slice(), options, || {
-                            location() + " > f32 samples"
-                        })
+                    values.as_slice().validate_result(&other_values.as_slice(), options, || {
+                        location() + " > f32 samples"
+                    })
                 }
                 (U32(values), U32(other_values)) => {
-                    values
-                        .as_slice()
-                        .validate_result(&other_values.as_slice(), options, || {
-                            location() + " > u32 samples"
-                        })
+                    values.as_slice().validate_result(&other_values.as_slice(), options, || {
+                        location() + " > u32 samples"
+                    })
                 }
                 (own, other) => Err(format!(
                     "{}: samples type mismatch. expected {:?}, found {:?}",
@@ -1366,8 +1428,7 @@ pub mod validate_results {
             options: ValidationOptions,
             location: impl Fn() -> String,
         ) -> ValidationResult {
-            self.as_slice()
-                .validate_result(&other.as_slice(), options, location)
+            self.as_slice().validate_result(&other.as_slice(), options, location)
         }
     }
 
@@ -1381,8 +1442,7 @@ pub mod validate_results {
             options: ValidationOptions,
             location: impl Fn() -> String,
         ) -> ValidationResult {
-            self.as_slice()
-                .validate_result(&other.as_slice(), options, location)
+            self.as_slice().validate_result(&other.as_slice(), options, location)
         }
     }
 
@@ -1428,15 +1488,15 @@ pub mod validate_results {
     }
 
     // // (low priority because it is only used in the tests)
-    /*TODO
-    impl<Tuple> SimilarToLossy for Tuple where
-        Tuple: Clone + IntoRecursive,
-        <Tuple as IntoRecursive>::Recursive: SimilarToLossy,
-    {
-        fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
-            self.clone().into_recursive().similar_to_lossy(&other.clone().into_recursive(), max_difference)
-        } // TODO no clone?
-    }*/
+    // TODO
+    // impl<Tuple> SimilarToLossy for Tuple where
+    // Tuple: Clone + IntoRecursive,
+    // <Tuple as IntoRecursive>::Recursive: SimilarToLossy,
+    // {
+    // fn similar_to_lossy(&self, other: &Self, max_difference: f32) -> bool {
+    // self.clone().into_recursive().similar_to_lossy(&other.clone().
+    // into_recursive(), max_difference) } // TODO no clone?
+    // }
 
     // implement for recursive types
     impl ValidateResult for NoneMore {
@@ -1520,12 +1580,7 @@ pub mod validate_results {
                 };
             }
 
-            Err(format!(
-                "{}: expected exactly {}, found {}",
-                location(),
-                self,
-                other
-            ))
+            Err(format!("{}: expected exactly {}, found {}", location(), self, other))
         }
     }
 
@@ -1539,8 +1594,7 @@ pub mod validate_results {
             if self.to_bits() == other.to_bits() {
                 Ok(())
             } else {
-                self.to_f32()
-                    .validate_result(&other.to_f32(), options, location)
+                self.to_f32().validate_result(&other.to_f32(), options, location)
             }
         }
     }
@@ -1556,8 +1610,7 @@ pub mod validate_results {
                 Ok(())
             } else {
                 // todo to float conversion resulting in nan/infinity?
-                self.to_f32()
-                    .validate_result(&other.to_f32(), options, location)
+                self.to_f32().validate_result(&other.to_f32(), options, location)
             }
         }
     }
@@ -1581,12 +1634,16 @@ pub mod validate_results {
 
     #[cfg(test)]
     mod test_value_result {
-        use crate::image::pixel_vec::PixelVec;
-        use crate::image::validate_results::{ValidateResult, ValidationOptions};
-        use crate::image::FlatSamples;
-        use crate::meta::attribute::LineOrder::Increasing;
-        use std::f32::consts::*;
-        use std::io::Cursor;
+        use std::{f32::consts::*, io::Cursor};
+
+        use crate::{
+            image::{
+                pixel_vec::PixelVec,
+                validate_results::{ValidateResult, ValidationOptions},
+                FlatSamples,
+            },
+            meta::attribute::LineOrder::Increasing,
+        };
 
         fn expect_valid<T>(original: &T, result: &T, allow_lossy: bool, nan_converted_to_zero: bool)
         where
@@ -1691,11 +1748,7 @@ pub mod validate_results {
                 &FlatSamples::F32(vec![0.1, 0.2]),
                 false,
             );
-            print_error(
-                &FlatSamples::U32(vec![0, 0]),
-                &FlatSamples::F32(vec![0.1, 0.2]),
-                false,
-            );
+            print_error(&FlatSamples::U32(vec![0, 0]), &FlatSamples::F32(vec![0.1, 0.2]), false);
 
             {
                 let image = crate::prelude::read_all_data_from_file(
@@ -1745,24 +1798,19 @@ pub mod validate_results {
                 (2, 2),
                 Encoding {
                     compression: Compression::Uncompressed,
-                    line_order: Increasing, // FIXME unspecified may be optimized to increasing, which destroys test eq
+                    line_order: Increasing, /* FIXME unspecified may be optimized to increasing,
+                                             * which destroys test eq */
                     ..Encoding::default()
                 },
                 SpecificChannels::rgb(PixelVec::new(Vec2(2, 2), original_pixels.to_vec())),
             );
 
-            original_image
-                .write()
-                .to_buffered(Cursor::new(&mut file_bytes))
-                .unwrap();
+            original_image.write().to_buffered(Cursor::new(&mut file_bytes)).unwrap();
 
             let lossy_image = read()
                 .no_deep_data()
                 .largest_resolution_level()
-                .rgb_channels(
-                    PixelVec::<(f32, f32, f32)>::constructor,
-                    PixelVec::set_pixel,
-                )
+                .rgb_channels(PixelVec::<(f32, f32, f32)>::constructor, PixelVec::set_pixel)
                 .first_valid_layer()
                 .all_attributes()
                 .from_buffered(Cursor::new(&file_bytes))
@@ -1800,11 +1848,12 @@ pub mod validate_results {
 
     #[test]
     fn test_nan_compression_attribute() {
-        use crate::image::pixel_vec::PixelVec;
-        use crate::prelude::Compression::*;
-        use crate::prelude::LineOrder::Increasing;
-        use crate::prelude::*;
         use std::io::Cursor;
+
+        use crate::{
+            image::pixel_vec::PixelVec,
+            prelude::{Compression::*, LineOrder::Increasing, *},
+        };
 
         let all_compression_methods = [Uncompressed, RLE, ZIP1, ZIP16, PXR24, PIZ, B44, B44A];
 
@@ -1816,9 +1865,7 @@ pub mod validate_results {
         ];
 
         assert!(
-            original_pixels
-                .iter()
-                .all(|&(a, b, c)| a.is_nan() && b.is_nan() && c.is_nan()),
+            original_pixels.iter().all(|&(a, b, c)| a.is_nan() && b.is_nan() && c.is_nan()),
             "test case has a bug"
         );
 
@@ -1835,9 +1882,7 @@ pub mod validate_results {
                 SpecificChannels::rgb(PixelVec::new((2, 2), original_pixels.to_vec())),
             );
 
-            let result = original_image
-                .write()
-                .to_buffered(Cursor::new(&mut file_bytes));
+            let result = original_image.write().to_buffered(Cursor::new(&mut file_bytes));
             if let Err(Error::NotSupported(_)) = result {
                 continue;
             }
@@ -1845,10 +1890,7 @@ pub mod validate_results {
             let reconstructed_image = read()
                 .no_deep_data()
                 .largest_resolution_level()
-                .rgb_channels(
-                    PixelVec::<(f32, f32, f16)>::constructor,
-                    PixelVec::set_pixel,
-                )
+                .rgb_channels(PixelVec::<(f32, f32, f16)>::constructor, PixelVec::set_pixel)
                 .first_valid_layer()
                 .all_attributes()
                 .from_buffered(Cursor::new(&file_bytes))
@@ -1856,12 +1898,7 @@ pub mod validate_results {
 
             assert_eq!(
                 original_image.layer_data.channel_data.pixels.pixels.len(),
-                reconstructed_image
-                    .layer_data
-                    .channel_data
-                    .pixels
-                    .pixels
-                    .len()
+                reconstructed_image.layer_data.channel_data.pixels.pixels.len()
             );
 
             let was_nanness_preserved = reconstructed_image

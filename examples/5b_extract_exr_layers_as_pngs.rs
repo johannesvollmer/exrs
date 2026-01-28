@@ -6,7 +6,6 @@ extern crate exr;
 /// For each layer in the exr file,
 /// extract each channel as grayscale png,
 /// including all multi-resolution levels.
-//
 // FIXME throws "access denied" sometimes, simply trying again usually works.
 //
 pub fn main() {
@@ -54,7 +53,8 @@ pub fn main() {
         }
     }
 
-    /// Save raw float data to a PNG file, doing automatic brightness adjustments per channel
+    /// Save raw float data to a PNG file, doing automatic brightness
+    /// adjustments per channel
     fn save_f32_image_as_png(data: &[f32], size: Vec2<usize>, name: String) {
         let mut png_buffer = png::GrayImage::new(size.width() as u32, size.height() as u32);
         let mut sorted = Vec::from(data);

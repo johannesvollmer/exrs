@@ -5,12 +5,15 @@
 mod huffman;
 mod wavelet;
 
-use crate::compression::{mod_p, ByteVec, Bytes};
-use crate::error::{usize_to_i32, usize_to_u16};
-use crate::io::Data;
-use crate::meta::attribute::{ChannelList, IntegerBounds, SampleType};
-use crate::prelude::*;
 use std::convert::TryFrom;
+
+use crate::{
+    compression::{mod_p, ByteVec, Bytes},
+    error::{usize_to_i32, usize_to_u16},
+    io::Data,
+    meta::attribute::{ChannelList, IntegerBounds, SampleType},
+    prelude::*,
+};
 
 const U16_RANGE: usize = (1_i32 << 16_i32) as usize;
 const BITMAP_SIZE: usize = (U16_RANGE as i32 >> 3_i32) as usize;
@@ -29,14 +32,12 @@ pub fn decompress(
     channels: &ChannelList,
     compressed_le: ByteVec,
     rectangle: IntegerBounds,
-    expected_byte_size: usize, // TODO remove expected byte size as it can be computed with `rectangle.size.area() * channels.bytes_per_pixel`
+    expected_byte_size: usize, /* TODO remove expected byte size as it can be computed with
+                                * `rectangle.size.area() * channels.bytes_per_pixel` */
     pedantic: bool,
 ) -> Result<ByteVec> {
     let expected_u16_count = expected_byte_size / 2;
-    debug_assert_eq!(
-        expected_byte_size,
-        rectangle.size.area() * channels.bytes_per_pixel
-    );
+    debug_assert_eq!(expected_byte_size, rectangle.size.area() * channels.bytes_per_pixel);
     debug_assert!(!channels.list.is_empty());
 
     if compressed_le.is_empty() {
@@ -56,10 +57,7 @@ pub fn decompress(
     }
 
     if min_non_zero <= max_non_zero {
-        u8::read_slice_ne(
-            &mut remaining_input_le,
-            &mut bitmap[min_non_zero..=max_non_zero],
-        )?;
+        u8::read_slice_ne(&mut remaining_input_le, &mut bitmap[min_non_zero..=max_non_zero])?;
     }
 
     let (lookup_table, max_value) = reverse_lookup_table_from_bitmap(&bitmap);
@@ -109,10 +107,7 @@ pub fn decompress(
             wavelet::decode(
                 &mut u16s[offset..],
                 channel.resolution,
-                Vec2(
-                    channel.samples_per_pixel,
-                    channel.resolution.x() * channel.samples_per_pixel,
-                ),
+                Vec2(channel.samples_per_pixel, channel.resolution.x() * channel.samples_per_pixel),
                 max_value,
             )?;
         }
@@ -121,7 +116,8 @@ pub fn decompress(
     // Expand the pixel data to their original range
     apply_lookup_table(&mut tmp_u16_buffer, &lookup_table);
 
-    // let out_buffer_size = (max_scan_line_size * scan_line_count) + 65536 + 8192; // TODO not use expected byte size?
+    // let out_buffer_size = (max_scan_line_size * scan_line_count) + 65536 + 8192;
+    // // TODO not use expected byte size?
     let mut out = Vec::with_capacity(expected_byte_size);
 
     for y in rectangle.position.y()..rectangle.end().y() {
@@ -148,10 +144,7 @@ pub fn decompress(
         debug_assert_eq!(previous.tmp_end_index, current.tmp_start_index);
     }
 
-    debug_assert_eq!(
-        channel_data.last().unwrap().tmp_end_index,
-        tmp_u16_buffer.len()
-    );
+    debug_assert_eq!(channel_data.last().unwrap().tmp_end_index, tmp_u16_buffer.len());
     debug_assert_eq!(out.len(), expected_byte_size);
 
     // TODO optimize for when all channels are f16!
@@ -243,10 +236,7 @@ pub fn compress(
             wavelet::encode(
                 &mut tmp[channel.tmp_start_index + offset..channel.tmp_end_index],
                 channel.resolution,
-                Vec2(
-                    channel.samples_per_pixel,
-                    channel.resolution.x() * channel.samples_per_pixel,
-                ),
+                Vec2(channel.samples_per_pixel, channel.resolution.x() * channel.samples_per_pixel),
                 max_value,
             )?;
         }
@@ -266,7 +256,8 @@ pub fn bitmap_from_data(data: &[u16]) -> (usize, usize, Vec<u8>) {
         bitmap[*value as usize >> 3] |= 1 << (*value as u8 & 7);
     }
 
-    bitmap[0] &= !1; // zero is not explicitly stored in the bitmap; we assume that the data always contain zeroes
+    bitmap[0] &= !1; // zero is not explicitly stored in the bitmap; we assume that the data always
+                     // contain zeroes
 
     let min_index = bitmap.iter().position(|&value| value != 0);
     let max_index = min_index.map(|min|  // only if min was found
@@ -320,10 +311,11 @@ fn apply_lookup_table(data: &mut [u16], table: &[u16]) {
 
 #[cfg(test)]
 mod test {
-    use crate::compression::piz;
-    use crate::compression::ByteVec;
-    use crate::meta::attribute::*;
-    use crate::prelude::*;
+    use crate::{
+        compression::{piz, ByteVec},
+        meta::attribute::*,
+        prelude::*,
+    };
 
     fn test_roundtrip_noise_with(channels: ChannelList, rectangle: IntegerBounds) {
         let pixel_bytes: ByteVec = (0..37)

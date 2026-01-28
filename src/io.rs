@@ -2,17 +2,20 @@
 //! Uses the error handling for this crate.
 
 #![doc(hidden)]
-pub use ::std::io::{Read, Write};
+use std::{
+    convert::TryFrom,
+    fs::File,
+    io::{Seek, SeekFrom},
+    path::Path,
+};
 
-use crate::error::{Error, IoResult, Result, UnitResult};
 use ::half::f16;
+pub use ::std::io::{Read, Write};
 use half::slice::HalfFloatSliceExt;
 use lebe::prelude::*;
 use smallvec::{Array, SmallVec};
-use std::convert::TryFrom;
-use std::fs::File;
-use std::io::{Seek, SeekFrom};
-use std::path::Path;
+
+use crate::error::{Error, IoResult, Result, UnitResult};
 
 /// Skip reading uninteresting bytes without allocating.
 #[inline]
@@ -33,8 +36,9 @@ pub fn skip_bytes(read: &mut impl Read, count: usize) -> IoResult<()> {
     Ok(())
 }
 
-/// If an error occurs while writing, attempts to delete the partially written file.
-/// Creates a file just before the first write operation, not when this function is called.
+/// If an error occurs while writing, attempts to delete the partially written
+/// file. Creates a file just before the first write operation, not when this
+/// function is called.
 #[inline]
 pub fn attempt_delete_file_on_write_error<'p>(
     path: &'p Path,
@@ -59,7 +63,10 @@ pub struct LateFile<'p> {
 
 impl<'p> From<&'p Path> for LateFile<'p> {
     fn from(path: &'p Path) -> Self {
-        Self { path, file: None }
+        Self {
+            path,
+            file: None,
+        }
     }
 }
 
@@ -115,11 +122,10 @@ impl<T: Read> PeekRead<T> {
     /// The next `read` call will include that byte.
     #[inline]
     pub fn peek_u8(&mut self) -> &IoResult<u8> {
-        self.peeked = self
-            .peeked
-            .take()
-            .or_else(|| Some(u8::read_from_little_endian(&mut self.inner)));
-        self.peeked.as_ref().unwrap() // unwrap cannot fail because we just set it
+        self.peeked =
+            self.peeked.take().or_else(|| Some(u8::read_from_little_endian(&mut self.inner)));
+        self.peeked.as_ref().unwrap() // unwrap cannot fail because we just set
+                                      // it
     }
 
     /// Skip a single byte if it equals the specified value.
@@ -212,7 +218,10 @@ impl<T> Tracking<T> {
     /// If `inner` is a reference, if must never be seeked directly,
     /// but only through this `Tracking` instance.
     pub const fn new(inner: T) -> Self {
-        Self { inner, position: 0 }
+        Self {
+            inner,
+            position: 0,
+        }
     }
 
     /// Current number of bytes written or read.
@@ -229,12 +238,12 @@ impl<T: Read + Seek> Tracking<T> {
         debug_assert!(delta.abs() < usize::MAX as i128);
 
         if delta > 0 && delta < 16 {
-            // TODO profile that this is indeed faster than a syscall! (should be because of bufread buffer discard)
+            // TODO profile that this is indeed faster than a syscall! (should be because of
+            // bufread buffer discard)
             skip_bytes(self, delta as usize)?;
             self.position += delta as usize;
         } else if delta != 0 {
-            self.inner
-                .seek(SeekFrom::Start(u64::try_from(target_position).unwrap()))?;
+            self.inner.seek(SeekFrom::Start(u64::try_from(target_position).unwrap()))?;
             self.position = target_position;
         }
 
@@ -247,8 +256,7 @@ impl<T: Write + Seek> Tracking<T> {
     /// If seeking forward, this will write zeroes.
     pub fn seek_write_to(&mut self, target_position: usize) -> std::io::Result<()> {
         if target_position < self.position {
-            self.inner
-                .seek(SeekFrom::Start(u64::try_from(target_position).unwrap()))?;
+            self.inner.seek(SeekFrom::Start(u64::try_from(target_position).unwrap()))?;
         } else if target_position > self.position {
             std::io::copy(
                 &mut std::io::repeat(0)
@@ -262,7 +270,8 @@ impl<T: Write + Seek> Tracking<T> {
     }
 }
 
-/// Generic trait that defines common binary operations such as reading and writing for this type.
+/// Generic trait that defines common binary operations such as reading and
+/// writing for this type.
 pub trait Data: Sized + Default + Clone {
     /// Number of bytes this would consume in an exr file.
     const BYTE_SIZE: usize = ::std::mem::size_of::<Self>();
@@ -270,23 +279,26 @@ pub trait Data: Sized + Default + Clone {
     /// Read a value of type `Self` from a little-endian source.
     fn read_le(read: &mut impl Read) -> Result<Self>;
 
-    /// Read a value of type `Self` from a **native-endian** source (no conversion).
+    /// Read a value of type `Self` from a **native-endian** source (no
+    /// conversion).
     fn read_ne(read: &mut impl Read) -> Result<Self>;
 
-    /// Read as many values of type `Self` as fit into the specified slice, from a little-endian source.
-    /// If the slice cannot be filled completely, returns `Error::Invalid`.
+    /// Read as many values of type `Self` as fit into the specified slice, from
+    /// a little-endian source. If the slice cannot be filled completely,
+    /// returns `Error::Invalid`.
     fn read_slice_le(read: &mut impl Read, slice: &mut [Self]) -> UnitResult;
 
-    /// Read as many values of type `Self` as fit into the specified slice, from a **native-endian** source (no conversion).
-    /// If the slice cannot be filled completely, returns `Error::Invalid`.
+    /// Read as many values of type `Self` as fit into the specified slice, from
+    /// a **native-endian** source (no conversion). If the slice cannot be
+    /// filled completely, returns `Error::Invalid`.
     fn read_slice_ne(read: &mut impl Read, slice: &mut [Self]) -> UnitResult;
 
     /// Read as many values of type `Self` as specified with `data_size`.
     ///
     /// This method will not allocate more memory than `soft_max` at once.
     /// If `hard_max` is specified, it will never read any more than that.
-    /// Returns `Error::Invalid` if the reader does not contain the desired number of elements.
-    /// Reads from little-endian byte source.
+    /// Returns `Error::Invalid` if the reader does not contain the desired
+    /// number of elements. Reads from little-endian byte source.
     #[inline]
     fn read_vec_le(
         read: &mut impl Read,
@@ -309,20 +321,25 @@ pub trait Data: Sized + Default + Clone {
     /// Write this value to the writer, converting to little-endian format.
     fn write_le(self, write: &mut impl Write) -> UnitResult;
 
-    /// Write this value to the writer, in **native-endian** format (no conversion).
+    /// Write this value to the writer, in **native-endian** format (no
+    /// conversion).
     fn write_ne(self, write: &mut impl Write) -> UnitResult;
 
-    /// Write all values of that slice to the writer, converting to little-endian format.
+    /// Write all values of that slice to the writer, converting to
+    /// little-endian format.
     fn write_slice_le(write: &mut impl Write, slice: &[Self]) -> UnitResult;
 
-    /// Write all values of that slice to the writer, in **native-endian** format (no conversion).
+    /// Write all values of that slice to the writer, in **native-endian**
+    /// format (no conversion).
     fn write_slice_ne(write: &mut impl Write, slice: &[Self]) -> UnitResult;
 
-    /// Read as many values of type `Self` as specified with `data_size` into the provided vector.
+    /// Read as many values of type `Self` as specified with `data_size` into
+    /// the provided vector.
     ///
     /// This method will not allocate more memory than `soft_max` at once.
     /// If `hard_max` is specified, it will never read any more than that.
-    /// Returns `Error::Invalid` if reader does not contain the desired number of elements.
+    /// Returns `Error::Invalid` if reader does not contain the desired number
+    /// of elements.
     #[inline]
     fn read_into_vec_le(
         read: &mut impl Read,
@@ -355,18 +372,21 @@ pub trait Data: Sized + Default + Clone {
         Ok(())
     }
 
-    /// Write the length of the slice and then its contents, converting to little-endian format.
+    /// Write the length of the slice and then its contents, converting to
+    /// little-endian format.
     #[inline]
     fn write_i32_sized_slice_le<W: Write>(write: &mut W, slice: &[Self]) -> UnitResult {
         i32::try_from(slice.len())?.write_le(write)?;
         Self::write_slice_le(write, slice)
     }
 
-    /// Read the desired element count and then read that many items into a vector.
+    /// Read the desired element count and then read that many items into a
+    /// vector.
     ///
     /// This method will not allocate more memory than `soft_max` at once.
     /// If `hard_max` is specified, it will never read any more than that.
-    /// Returns `Error::Invalid` if reader does not contain the desired number of elements.
+    /// Returns `Error::Invalid` if reader does not contain the desired number
+    /// of elements.
     #[inline]
     fn read_i32_sized_vec_le(
         read: &mut impl Read,
@@ -405,6 +425,7 @@ impl<T: Clone> ResizableVec<T> for Vec<T> {
     fn resize(&mut self, new_len: usize, value: T) {
         Self::resize(self, new_len, value);
     }
+
     fn len(&self) -> usize {
         Self::len(self)
     }
@@ -414,6 +435,7 @@ impl<T: Clone, A: Array<Item = T>> ResizableVec<T> for SmallVec<A> {
     fn resize(&mut self, new_len: usize, value: T) {
         Self::resize(self, new_len, value);
     }
+
     fn len(&self) -> usize {
         Self::len(self)
     }
@@ -530,8 +552,9 @@ impl Data for f16 {
 
 #[cfg(test)]
 mod test {
-    use crate::io::PeekRead;
     use std::io::Read;
+
+    use crate::io::PeekRead;
 
     #[test]
     fn peek() {

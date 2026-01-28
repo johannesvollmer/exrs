@@ -3,7 +3,8 @@
 //! Currently only contains a simple flattened vector storage.
 //! Use the functions `create_pixel_vec::<YourPixelTuple>` and
 //! `set_pixel_in_vec::<YourPixelTuple>` for reading a predefined pixel vector.
-//! Use the function `PixelVec::new` to create a pixel vector which can be written to a file.
+//! Use the function `PixelVec::new` to create a pixel vector which can be
+//! written to a file.
 
 use super::{GetPixel, ValidationOptions, Vec2};
 
@@ -33,7 +34,8 @@ pub struct PixelVec<T> {
 
 impl<Pixel> PixelVec<Pixel> {
     /// Create a new flattened pixel storage, filled with default pixels.
-    /// Accepts a `Channels` parameter, which is not used, so that it can be passed as a function pointer instead of calling it.
+    /// Accepts a `Channels` parameter, which is not used, so that it can be
+    /// passed as a function pointer instead of calling it.
     #[must_use]
     pub fn constructor<Channels>(resolution: Vec2<usize>, _: &Channels) -> Self
     where
@@ -46,7 +48,8 @@ impl<Pixel> PixelVec<Pixel> {
     }
 
     /// Examine a pixel of a `PixelVec<T>` image.
-    /// Can usually be used as a function reference instead of calling it directly.
+    /// Can usually be used as a function reference instead of calling it
+    /// directly.
     #[inline]
     #[must_use]
     pub fn pixel(&self, position: Vec2<usize>) -> &Pixel
@@ -57,10 +60,7 @@ impl<Pixel> PixelVec<Pixel> {
     }
 
     /// Deprecated: Use `pixel()` instead.
-    #[deprecated(
-        since = "1.75.0",
-        note = "Renamed to `pixel` to comply with Rust API guidelines"
-    )]
+    #[deprecated(since = "1.75.0", note = "Renamed to `pixel` to comply with Rust API guidelines")]
     #[inline]
     #[must_use]
     pub fn get_pixel(&self, position: Vec2<usize>) -> &Pixel
@@ -71,14 +71,16 @@ impl<Pixel> PixelVec<Pixel> {
     }
 
     /// Update a pixel of a `PixelVec<T>` image.
-    /// Can usually be used as a function reference instead of calling it directly.
+    /// Can usually be used as a function reference instead of calling it
+    /// directly.
     #[inline]
     pub fn set_pixel(&mut self, position: Vec2<usize>, pixel: Pixel) {
         let index = self.compute_pixel_index(position);
         self.pixels[index] = pixel;
     }
 
-    /// Create a new flattened pixel storage, checking the length of the provided pixels vector.
+    /// Create a new flattened pixel storage, checking the length of the
+    /// provided pixels vector.
     pub fn new(resolution: impl Into<Vec2<usize>>, pixels: Vec<Pixel>) -> Self {
         let size = resolution.into();
         assert_eq!(
@@ -94,9 +96,9 @@ impl<Pixel> PixelVec<Pixel> {
         }
     }
 
-    /// Compute the flat index of a specific pixel. Returns a range of either 3 or 4 samples.
-    /// The computed index can be used with `PixelVec.samples[index]`.
-    /// Panics for invalid sample coordinates.
+    /// Compute the flat index of a specific pixel. Returns a range of either 3
+    /// or 4 samples. The computed index can be used with
+    /// `PixelVec.samples[index]`. Panics for invalid sample coordinates.
     #[inline]
     #[must_use]
     pub fn compute_pixel_index(&self, position: Vec2<usize>) -> usize {
@@ -119,9 +121,7 @@ where
         if self.resolution == other.resolution {
             self.pixels
                 .as_slice()
-                .validate_result(&other.pixels.as_slice(), options, || {
-                    location() + " > pixels"
-                })
+                .validate_result(&other.pixels.as_slice(), options, || location() + " > pixels")
         } else {
             Err(location() + " > resolution")
         }
@@ -133,6 +133,7 @@ where
     Px: Clone + Sync,
 {
     type Pixel = Px;
+
     fn pixel(&self, position: Vec2<usize>) -> Self::Pixel {
         self.pixel(position).clone()
     }
@@ -143,11 +144,6 @@ use std::fmt::{Debug, Formatter};
 impl<T> Debug for PixelVec<T> {
     #[inline]
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "[{}; {}]",
-            std::any::type_name::<T>(),
-            self.pixels.len()
-        )
+        write!(formatter, "[{}; {}]", std::any::type_name::<T>(), self.pixels.len())
     }
 }

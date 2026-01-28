@@ -2,12 +2,10 @@
 extern crate bencher;
 
 extern crate exr;
-use exr::prelude::*;
+use std::{fs, io::Cursor};
 
 use bencher::Bencher;
-use exr::image::pixel_vec::PixelVec;
-use std::fs;
-use std::io::Cursor;
+use exr::{image::pixel_vec::PixelVec, prelude::*};
 
 /// Read uncompressed (always single core)
 fn read_single_image_uncompressed_non_parallel_rgba(bench: &mut Bencher) {
@@ -18,10 +16,7 @@ fn read_single_image_uncompressed_non_parallel_rgba(bench: &mut Bencher) {
         let image = exr::prelude::read()
             .no_deep_data()
             .largest_resolution_level()
-            .rgba_channels(
-                PixelVec::<(f32, f32, f32, f32)>::constructor,
-                PixelVec::set_pixel,
-            )
+            .rgba_channels(PixelVec::<(f32, f32, f32, f32)>::constructor, PixelVec::set_pixel)
             .all_layers()
             .all_attributes()
             .non_parallel()
@@ -42,10 +37,7 @@ fn read_single_image_uncompressed_rgba(bench: &mut Bencher) {
         let image = exr::prelude::read()
             .no_deep_data()
             .largest_resolution_level()
-            .rgba_channels(
-                PixelVec::<(f32, f32, f32, f32)>::constructor,
-                PixelVec::set_pixel,
-            )
+            .rgba_channels(PixelVec::<(f32, f32, f32, f32)>::constructor, PixelVec::set_pixel)
             .all_layers()
             .all_attributes()
             .from_buffered(Cursor::new(file.as_slice()))
@@ -107,10 +99,7 @@ fn read_single_image_rle_rgba(bench: &mut Bencher) {
         let image = exr::prelude::read()
             .no_deep_data()
             .largest_resolution_level()
-            .rgba_channels(
-                PixelVec::<(f32, f32, f32, f32)>::constructor,
-                PixelVec::set_pixel,
-            )
+            .rgba_channels(PixelVec::<(f32, f32, f32, f32)>::constructor, PixelVec::set_pixel)
             .all_layers()
             .all_attributes()
             .from_buffered(Cursor::new(file.as_slice()))
@@ -131,10 +120,7 @@ fn read_single_image_rle_non_parallel_rgba(bench: &mut Bencher) {
         let image = exr::prelude::read()
             .no_deep_data()
             .largest_resolution_level()
-            .rgba_channels(
-                PixelVec::<(f32, f32, f32, f32)>::constructor,
-                PixelVec::set_pixel,
-            )
+            .rgba_channels(PixelVec::<(f32, f32, f32, f32)>::constructor, PixelVec::set_pixel)
             .all_layers()
             .all_attributes()
             .non_parallel()
@@ -155,10 +141,7 @@ fn read_single_image_zips_rgba(bench: &mut Bencher) {
         let image = exr::prelude::read()
             .no_deep_data()
             .largest_resolution_level()
-            .rgba_channels(
-                PixelVec::<(f32, f32, f32, f32)>::constructor,
-                PixelVec::set_pixel,
-            )
+            .rgba_channels(PixelVec::<(f32, f32, f32, f32)>::constructor, PixelVec::set_pixel)
             .all_layers()
             .all_attributes()
             .from_buffered(Cursor::new(file.as_slice()))
@@ -178,10 +161,7 @@ fn read_single_image_zips_non_parallel_rgba(bench: &mut Bencher) {
         let image = exr::prelude::read()
             .no_deep_data()
             .largest_resolution_level()
-            .rgba_channels(
-                PixelVec::<(f32, f32, f32, f32)>::constructor,
-                PixelVec::set_pixel,
-            )
+            .rgba_channels(PixelVec::<(f32, f32, f32, f32)>::constructor, PixelVec::set_pixel)
             .all_layers()
             .all_attributes()
             .non_parallel()

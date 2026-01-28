@@ -1,13 +1,7 @@
 //! Error type definitions.
 
-use std::borrow::Cow;
-use std::convert::TryFrom;
-use std::error;
-use std::fmt;
-pub use std::io::Error as IoError;
-use std::io::ErrorKind;
-pub use std::io::Result as IoResult;
-use std::num::TryFromIntError;
+pub use std::io::{Error as IoError, Result as IoResult};
+use std::{borrow::Cow, convert::TryFrom, error, fmt, io::ErrorKind, num::TryFromIntError};
 
 // Export types
 
@@ -67,8 +61,9 @@ impl From<IoError> for Error {
 
 // TODO use `usize::try_from(x)?` everywhere
 // Note: This provides a generic error message for integer conversion failures.
-// For better error messages, prefer using `.map_err(|_| Error::invalid(format!("specific context")))
-// instead of relying on this From impl.
+// For better error messages, prefer using `.map_err(|_|
+// Error::invalid(format!("specific context"))) instead of relying on this From
+// impl.
 impl From<TryFromIntError> for Error {
     fn from(_: TryFromIntError) -> Self {
         Error::invalid("integer conversion failed: value out of range")

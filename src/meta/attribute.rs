@@ -1,5 +1,6 @@
 //! Contains all meta data attributes.
-//! Each layer can have any number of [`Attribute`]s, including custom attributes.
+//! Each layer can have any number of [`Attribute`]s, including custom
+//! attributes.
 
 use smallvec::SmallVec;
 
@@ -99,7 +100,8 @@ pub enum AttributeValue {
         kind: Text,
 
         /// The value, stored in little-endian byte order, of the value.
-        /// Use the `exr::io::Data` trait to extract binary values from this vector.
+        /// Use the `exr::io::Data` trait to extract binary values from this
+        /// vector.
         bytes: SmallVec<[u8; 16]>,
     },
 }
@@ -184,10 +186,12 @@ pub mod block_type_strings {
 
 pub use crate::compression::Compression;
 
-/// The integer rectangle describing where an layer is placed on the infinite 2D global space.
+/// The integer rectangle describing where an layer is placed on the infinite 2D
+/// global space.
 pub type DataWindow = IntegerBounds;
 
-/// The integer rectangle limiting which part of the infinite 2D global space should be displayed.
+/// The integer rectangle limiting which part of the infinite 2D global space
+/// should be displayed.
 pub type DisplayWindow = IntegerBounds;
 
 /// An integer dividend and divisor, together forming a ratio.
@@ -201,7 +205,8 @@ pub type Matrix3x3 = [f32; 3 * 3];
 
 /// A rectangular section anywhere in 2D integer space.
 /// Valid from minimum coordinate (including) `-1,073,741,822`
-/// to maximum coordinate (including) `1,073,741,822`, the value of (`i32::MAX/2 -1`).
+/// to maximum coordinate (including) `1,073,741,822`, the value of (`i32::MAX/2
+/// -1`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default, Hash)]
 pub struct IntegerBounds {
     /// The top left corner of this rectangle.
@@ -256,11 +261,13 @@ pub struct ChannelDescription {
     /// Should be `true` for hue, chroma, saturation, or alpha channels.
     pub quantize_linearly: bool,
 
-    /// How many of the samples are skipped compared to the other channels in this layer.
+    /// How many of the samples are skipped compared to the other channels in
+    /// this layer.
     ///
     /// Can be used for chroma subsampling for manual lossy data compression.
     /// Values other than 1 are allowed only in flat, scan-line based images.
-    /// If an image is deep or tiled, x and y sampling rates for all of its channels must be 1.
+    /// If an image is deep or tiled, x and y sampling rates for all of its
+    /// channels must be 1.
     pub sampling: Vec2<usize>,
 }
 
@@ -280,7 +287,8 @@ pub enum SampleType {
 /// The color space of the pixels.
 ///
 /// If a file doesn't have a chromaticities attribute, display software
-/// should assume that the file's primaries and the white point match `Rec. ITU-R BT.709-3`.
+/// should assume that the file's primaries and the white point match `Rec.
+/// ITU-R BT.709-3`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Chromaticities {
     /// "Red" location on the CIE XY chromaticity diagram.
@@ -335,14 +343,16 @@ pub struct KeyCode {
 /// In what order the `Block`s of pixel data appear in a file.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum LineOrder {
-    /// The blocks in the file are ordered in descending rows from left to right.
-    /// When compressing in parallel, this option requires potentially large amounts of memory.
-    /// In that case, use `LineOrder::Unspecified` for best performance.
+    /// The blocks in the file are ordered in descending rows from left to
+    /// right. When compressing in parallel, this option requires
+    /// potentially large amounts of memory. In that case, use
+    /// `LineOrder::Unspecified` for best performance.
     Increasing,
 
     /// The blocks in the file are ordered in ascending rows from right to left.
-    /// When compressing in parallel, this option requires potentially large amounts of memory.
-    /// In that case, use `LineOrder::Unspecified` for best performance.
+    /// When compressing in parallel, this option requires potentially large
+    /// amounts of memory. In that case, use `LineOrder::Unspecified` for
+    /// best performance.
     Decreasing,
 
     /// The blocks are not ordered in a specific way inside the file.
@@ -400,17 +410,21 @@ pub type TextBytes = SmallVec<[u8; 24]>;
 /// A byte slice, interpreted as text
 pub type TextSlice = [u8];
 
-use crate::error::{
-    i32_to_usize, u32_to_usize, usize_to_i32, usize_to_u32, Error, Result, UnitResult,
+use std::{
+    borrow::Borrow,
+    convert::TryFrom,
+    hash::{Hash, Hasher},
 };
-use crate::io::{Data, PeekRead, Read, Write};
-use crate::math::{RoundingMode, Vec2};
-use crate::meta::sequence_end;
+
 use bit_field::BitField;
 use half::f16;
-use std::borrow::Borrow;
-use std::convert::TryFrom;
-use std::hash::{Hash, Hasher};
+
+use crate::{
+    error::{i32_to_usize, u32_to_usize, usize_to_i32, usize_to_u32, Error, Result, UnitResult},
+    io::{Data, PeekRead, Read, Write},
+    math::{RoundingMode, Vec2},
+    meta::sequence_end,
+};
 
 fn invalid_type() -> Error {
     Error::invalid("attribute type mismatch")
@@ -420,11 +434,8 @@ impl Text {
     /// Create a `Text` from an `str` reference.
     /// Returns `None` if this string contains unsupported chars.
     pub fn new_or_none(string: impl AsRef<str>) -> Option<Self> {
-        let vec: Option<TextBytes> = string
-            .as_ref()
-            .chars()
-            .map(|character| u8::try_from(character as u64).ok())
-            .collect();
+        let vec: Option<TextBytes> =
+            string.as_ref().chars().map(|character| u8::try_from(character as u64).ok()).collect();
 
         vec.map(Self::from_bytes_unchecked)
     }
@@ -446,7 +457,9 @@ impl Text {
     /// without checking any of the bytes.
     #[must_use]
     pub const fn from_bytes_unchecked(bytes: TextBytes) -> Self {
-        Self { bytes }
+        Self {
+            bytes,
+        }
     }
 
     /// The internal ASCII bytes this text is made of.
@@ -484,19 +497,22 @@ impl Text {
         Ok(())
     }
 
-    /// The byte count this string would occupy if it were encoded as a null-terminated string.
+    /// The byte count this string would occupy if it were encoded as a
+    /// null-terminated string.
     #[must_use]
     pub fn null_terminated_byte_size(&self) -> usize {
         self.bytes.len() + sequence_end::byte_size()
     }
 
-    /// The byte count this string would occupy if it were encoded as a size-prefixed string.
+    /// The byte count this string would occupy if it were encoded as a
+    /// size-prefixed string.
     #[must_use]
     pub fn i32_sized_byte_size(&self) -> usize {
         self.bytes.len() + i32::BYTE_SIZE
     }
 
-    /// The byte count this string would occupy if it were encoded as a size-prefixed string.
+    /// The byte count this string would occupy if it were encoded as a
+    /// size-prefixed string.
     #[must_use]
     pub fn u32_sized_byte_size(&self) -> usize {
         self.bytes.len() + u32::BYTE_SIZE
@@ -525,17 +541,25 @@ impl Text {
     /// Read the length of a string and then the contents with that length.
     pub fn read_i32_sized_le<R: Read>(read: &mut R, max_size: usize) -> Result<Self> {
         let size = i32_to_usize(i32::read_le(read)?, "vector size")?;
-        Ok(Self::from_bytes_unchecked(SmallVec::from_vec(
-            u8::read_vec_le(read, size, 1024, Some(max_size), "text attribute length")?,
-        )))
+        Ok(Self::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec_le(
+            read,
+            size,
+            1024,
+            Some(max_size),
+            "text attribute length",
+        )?)))
     }
 
     /// Read the length of a string and then the contents with that length.
     pub fn read_u32_sized_le<R: Read>(read: &mut R, max_size: usize) -> Result<Self> {
         let size = u32_to_usize(u32::read_le(read)?, "text length")?;
-        Ok(Self::from_bytes_unchecked(SmallVec::from_vec(
-            u8::read_vec_le(read, size, 1024, Some(max_size), "text attribute length")?,
-        )))
+        Ok(Self::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec_le(
+            read,
+            size,
+            1024,
+            Some(max_size),
+            "text attribute length",
+        )?)))
     }
 
     /// Read the contents with that length.
@@ -552,9 +576,13 @@ impl Text {
         }
         // for large strings, read a dynamic vec of arbitrary size
         else {
-            Ok(Self::from_bytes_unchecked(SmallVec::from_vec(
-                u8::read_vec_le(read, size, 1024, None, "text attribute length")?,
-            )))
+            Ok(Self::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec_le(
+                read,
+                size,
+                1024,
+                None,
+                "text attribute length",
+            )?)))
         }
     }
 
@@ -572,7 +600,8 @@ impl Text {
         Ok(())
     }
 
-    /// Read a string until the null-terminator is found. Then skips the null-terminator.
+    /// Read a string until the null-terminator is found. Then skips the
+    /// null-terminator.
     pub fn read_null_terminated<R: Read>(read: &mut R, max_len: usize) -> Result<Self> {
         let mut bytes = smallvec![u8::read_le(read)?]; // null-terminated strings are always at least 1 byte
 
@@ -587,7 +616,9 @@ impl Text {
             }
         }
 
-        Ok(Self { bytes })
+        Ok(Self {
+            bytes,
+        })
     }
 
     /// Allows any text length since it is only used for attribute values,
@@ -633,8 +664,9 @@ impl Text {
         self.bytes.as_slice()
     }
 
-    /// Iterate over the individual chars in this text, similar to `String::chars()`.
-    /// Does not do any heap-allocation but borrows from this instance instead.
+    /// Iterate over the individual chars in this text, similar to
+    /// `String::chars()`. Does not do any heap-allocation but borrows from
+    /// this instance instead.
     pub fn chars(&self) -> impl '_ + Iterator<Item = char> {
         self.bytes.iter().map(|&byte| byte as char)
     }
@@ -647,7 +679,8 @@ impl Text {
 
     /// Compare this `exr::Text` with a plain `&str` ignoring capitalization.
     pub fn eq_case_insensitive(&self, string: &str) -> bool {
-        // this is technically not working for a "turkish i", but those cannot be encoded in exr files anyways
+        // this is technically not working for a "turkish i", but those cannot be
+        // encoded in exr files anyways
         let self_chars = self.chars().map(|char| char.to_ascii_lowercase());
         let string_chars = string.chars().flat_map(char::to_lowercase);
 
@@ -675,7 +708,8 @@ impl Borrow<TextSlice> for Text {
     }
 }
 
-// forwarding implementation. guarantees `text.borrow().hash() == text.hash()` (required for Borrow)
+// forwarding implementation. guarantees `text.borrow().hash() == text.hash()`
+// (required for Borrow)
 impl Hash for Text {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.bytes.hash(state);
@@ -695,18 +729,18 @@ impl<'s> From<&'s str> for Text {
     }
 }
 
-/* TODO (currently conflicts with From<&str>)
-impl<'s> TryFrom<&'s str> for Text {
-    type Error = String;
-
-    fn try_from(value: &'s str) -> std::result::Result<Self, Self::Error> {
-        Text::new_or_none(value)
-            .ok_or_else(|| format!(
-                "exr::Text does not support all characters in the string `{}`",
-                value
-            ))
-    }
-}*/
+// TODO (currently conflicts with From<&str>)
+// impl<'s> TryFrom<&'s str> for Text {
+// type Error = String;
+//
+// fn try_from(value: &'s str) -> std::result::Result<Self, Self::Error> {
+// Text::new_or_none(value)
+// .ok_or_else(|| format!(
+// "exr::Text does not support all characters in the string `{}`",
+// value
+// ))
+// }
+// }
 
 impl ::std::fmt::Debug for Text {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
@@ -733,10 +767,8 @@ impl ChannelList {
     pub fn new(channels: SmallVec<[ChannelDescription; 5]>) -> Self {
         let uniform_sample_type = {
             if let Some(first) = channels.first() {
-                let has_uniform_types = channels
-                    .iter()
-                    .skip(1)
-                    .all(|chan| chan.sample_type == first.sample_type);
+                let has_uniform_types =
+                    channels.iter().skip(1).all(|chan| chan.sample_type == first.sample_type);
 
                 if has_uniform_types {
                     Some(first.sample_type)
@@ -758,8 +790,9 @@ impl ChannelList {
         }
     }
 
-    /// Iterate over the channels, and adds to each channel the byte offset of the channels sample type.
-    /// Assumes the internal channel list is properly sorted.
+    /// Iterate over the channels, and adds to each channel the byte offset of
+    /// the channels sample type. Assumes the internal channel list is
+    /// properly sorted.
     pub fn channels_with_byte_offset(&self) -> impl Iterator<Item = (usize, &ChannelDescription)> {
         self.list.iter().scan(0, |byte_position, channel| {
             let previous_position = *byte_position;
@@ -768,27 +801,25 @@ impl ChannelList {
         })
     }
 
-    /// Return the index of the channel with the exact name, case sensitive, or none.
-    /// Potentially uses less than linear time.
+    /// Return the index of the channel with the exact name, case sensitive, or
+    /// none. Potentially uses less than linear time.
     #[must_use]
     pub fn find_index_of_channel(&self, exact_name: &Text) -> Option<usize> {
-        self.list
-            .binary_search_by_key(&exact_name.bytes(), |chan| chan.name.bytes())
-            .ok()
+        self.list.binary_search_by_key(&exact_name.bytes(), |chan| chan.name.bytes()).ok()
     }
 
     // TODO use this in compression methods
-    /*pub fn pixel_section_indices(&self, bounds: IntegerBounds) -> impl '_ + Iterator<Item=(&Channel, usize, usize)> {
-        (bounds.position.y() .. bounds.end().y()).flat_map(|y| {
-            self.list
-                .filter(|channel| mod_p(y, usize_to_i32(channel.sampling.1)) == 0)
-                .flat_map(|channel|{
-                    (bounds.position.x() .. bounds.end().x())
-                        .filter(|x| mod_p(*x, usize_to_i32(channel.sampling.0)) == 0)
-                        .map(|x| (channel, x, y))
-                })
-        })
-    }*/
+    // pub fn pixel_section_indices(&self, bounds: IntegerBounds) -> impl '_ +
+    // Iterator<Item=(&Channel, usize, usize)> { (bounds.position.y() ..
+    // bounds.end().y()).flat_map(|y| { self.list
+    // .filter(|channel| mod_p(y, usize_to_i32(channel.sampling.1)) == 0)
+    // .flat_map(|channel|{
+    // (bounds.position.x() .. bounds.end().x())
+    // .filter(|x| mod_p(*x, usize_to_i32(channel.sampling.0)) == 0)
+    // .map(|x| (channel, x, y))
+    // })
+    // })
+    // }
 }
 
 impl BlockType {
@@ -814,7 +845,8 @@ impl BlockType {
         Ok(())
     }
 
-    /// Returns the raw attribute text value this type is represented by in a file.
+    /// Returns the raw attribute text value this type is represented by in a
+    /// file.
     #[must_use]
     pub const fn to_text_bytes(&self) -> &[u8] {
         match self {
@@ -853,8 +885,8 @@ impl IntegerBounds {
     }
 
     /// Returns the top-right coordinate of the rectangle.
-    /// The row and column described by this vector are not included in the rectangle,
-    /// just like `Vec::len()`.
+    /// The row and column described by this vector are not included in the
+    /// rectangle, just like `Vec::len()`.
     #[must_use]
     pub fn end(self) -> Vec2<i32> {
         self.position + self.size.to_i32() // larger than max int32 is panic
@@ -952,7 +984,8 @@ impl IntegerBounds {
         }
     }
 
-    /// Returns whether the specified rectangle is equal to or inside this rectangle.
+    /// Returns whether the specified rectangle is equal to or inside this
+    /// rectangle.
     #[must_use]
     pub fn contains(self, subset: Self) -> bool {
         subset.position.x() >= self.position.x()
@@ -1023,7 +1056,8 @@ impl SampleType {
 
     /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
-        // there's definitely going to be more than 255 different pixel types in the future
+        // there's definitely going to be more than 255 different pixel types in the
+        // future
         Ok(match i32::read_le(read)? {
             0 => Self::U32,
             1 => Self::F16,
@@ -1034,8 +1068,9 @@ impl SampleType {
 }
 
 impl ChannelDescription {
-    /// Choose whether to compress samples linearly or not, based on the channel name.
-    /// Luminance-based channels will be compressed differently than linear data such as alpha.
+    /// Choose whether to compress samples linearly or not, based on the channel
+    /// name. Luminance-based channels will be compressed differently than
+    /// linear data such as alpha.
     #[must_use]
     pub fn guess_quantization_linearity(name: &Text) -> bool {
         !(name.eq_case_insensitive("R")
@@ -1047,19 +1082,21 @@ impl ChannelDescription {
             || name.eq_case_insensitive("Z"))
     }
 
-    /// Create a new channel with the specified properties and a sampling rate of (1,1).
-    /// Automatically chooses the linearity for compression based on the channel name.
+    /// Create a new channel with the specified properties and a sampling rate
+    /// of (1,1). Automatically chooses the linearity for compression based
+    /// on the channel name.
     pub fn named(name: impl Into<Text>, sample_type: SampleType) -> Self {
         let name = name.into();
         let linearity = Self::guess_quantization_linearity(&name);
         Self::new(name, sample_type, linearity)
     }
 
-    /*pub fn from_name<T: Into<Sample> + Default>(name: impl Into<Text>) -> Self {
-        Self::named(name, T::default().into().sample_type())
-    }*/
+    // pub fn from_name<T: Into<Sample> + Default>(name: impl Into<Text>) -> Self {
+    // Self::named(name, T::default().into().sample_type())
+    // }
 
-    /// Create a new channel with the specified properties and a sampling rate of (1,1).
+    /// Create a new channel with the specified properties and a sampling rate
+    /// of (1,1).
     pub fn new(name: impl Into<Text>, sample_type: SampleType, quantize_linearly: bool) -> Self {
         Self {
             name: name.into(),
@@ -1137,16 +1174,15 @@ impl ChannelDescription {
         data_window: IntegerBounds,
         strict: bool,
     ) -> UnitResult {
-        self.name.validate(true, None)?; // TODO spec says this does not affect `requirements.long_names` but is that true?
+        self.name.validate(true, None)?; // TODO spec says this does not affect `requirements.long_names` but is that
+                                         // true?
 
         if self.sampling.x() == 0 || self.sampling.y() == 0 {
             return Err(Error::invalid("zero sampling factor"));
         }
 
         if strict && !allow_sampling && self.sampling != Vec2(1, 1) {
-            return Err(Error::invalid(
-                "subsampling is only allowed in flat scan line images",
-            ));
+            return Err(Error::invalid("subsampling is only allowed in flat scan line images"));
         }
 
         if data_window.position.x() % self.sampling.x() as i32 != 0
@@ -1160,14 +1196,12 @@ impl ChannelDescription {
         if data_window.size.x() % self.sampling.x() != 0
             || data_window.size.y() % self.sampling.y() != 0
         {
-            return Err(Error::invalid(
-                "channel sampling factor not dividing data window size",
-            ));
+            return Err(Error::invalid("channel sampling factor not dividing data window size"));
         }
 
         if self.sampling != Vec2(1, 1) {
-            // TODO this must only be implemented in the crate::image module and child modules,
-            //      should not be too difficult
+            // TODO this must only be implemented in the crate::image module and child
+            // modules,      should not be too difficult
 
             return Err(Error::unsupported("channel subsampling not supported yet"));
         }
@@ -1179,10 +1213,7 @@ impl ChannelDescription {
 impl ChannelList {
     /// Number of bytes this would consume in an exr file.
     pub fn byte_size(&self) -> usize {
-        self.list
-            .iter()
-            .map(ChannelDescription::byte_size)
-            .sum::<usize>()
+        self.list.iter().map(ChannelDescription::byte_size).sum::<usize>()
             + sequence_end::byte_size()
     }
 
@@ -1214,22 +1245,19 @@ impl ChannelList {
         data_window: IntegerBounds,
         strict: bool,
     ) -> UnitResult {
-        let mut iter = self.list.iter().map(|chan| {
-            chan.validate(allow_sampling, data_window, strict)
-                .map(|()| &chan.name)
-        });
-        let mut previous = iter
-            .next()
-            .ok_or_else(|| Error::invalid("at least one channel is required"))??;
+        let mut iter = self
+            .list
+            .iter()
+            .map(|chan| chan.validate(allow_sampling, data_window, strict).map(|()| &chan.name));
+        let mut previous =
+            iter.next().ok_or_else(|| Error::invalid("at least one channel is required"))??;
 
         for result in iter {
             let value = result?;
             if strict && previous == value {
                 return Err(Error::invalid("channel names are not unique"));
             } else if previous > value {
-                return Err(Error::invalid(
-                    "channel names are not sorted alphabetically",
-                ));
+                return Err(Error::invalid("channel names are not sorted alphabetically"));
             }
             previous = value;
         }
@@ -1266,9 +1294,7 @@ impl TimeCode {
             } else if self.hours > 23 {
                 Err(Error::invalid("time code hours larger than 23"))
             } else if self.binary_groups.iter().any(|&group| group > 15) {
-                Err(Error::invalid(
-                    "time code binary group value too large for 3 bits",
-                ))
+                Err(Error::invalid("time code binary group value too large for 3 bits"))
             } else {
                 Ok(())
             }
@@ -1296,18 +1322,22 @@ impl TimeCode {
             .set_bit(31, self.binary_group_flags[2]))
     }
 
-    /// Unpack a time code from one TV60 encoded u32 value and the encoded user data.
-    /// This is the encoding which is used within a binary exr file.
+    /// Unpack a time code from one TV60 encoded u32 value and the encoded user
+    /// data. This is the encoding which is used within a binary exr file.
     #[must_use]
     pub fn from_tv60_time(tv60_time: u32, user_data: u32) -> Self {
         Self {
-            frame: u8_from_decimal32(tv60_time.get_bits(0..6)), // cast cannot fail, as these are less than 8 bits
+            frame: u8_from_decimal32(tv60_time.get_bits(0..6)), /* cast cannot fail, as these are
+                                                                 * less than 8 bits */
             drop_frame: tv60_time.get_bit(6),
             color_frame: tv60_time.get_bit(7),
-            seconds: u8_from_decimal32(tv60_time.get_bits(8..15)), // cast cannot fail, as these are less than 8 bits
+            seconds: u8_from_decimal32(tv60_time.get_bits(8..15)), /* cast cannot fail, as these
+                                                                    * are less than 8 bits */
             field_phase: tv60_time.get_bit(15),
-            minutes: u8_from_decimal32(tv60_time.get_bits(16..23)), // cast cannot fail, as these are less than 8 bits
-            hours: u8_from_decimal32(tv60_time.get_bits(24..30)), // cast cannot fail, as these are less than 8 bits
+            minutes: u8_from_decimal32(tv60_time.get_bits(16..23)), /* cast cannot fail, as these
+                                                                     * are less than 8 bits */
+            hours: u8_from_decimal32(tv60_time.get_bits(24..30)), /* cast cannot fail, as these
+                                                                   * are less than 8 bits */
             binary_group_flags: [
                 tv60_time.get_bit(23),
                 tv60_time.get_bit(30),
@@ -1331,8 +1361,9 @@ impl TimeCode {
             .set_bit(31, self.field_phase))
     }
 
-    /// Unpack a time code from one TV50 encoded u32 value and the encoded user data.
-    /// This encoding does not support the `drop_frame` flag, it will always be false.
+    /// Unpack a time code from one TV50 encoded u32 value and the encoded user
+    /// data. This encoding does not support the `drop_frame` flag, it will
+    /// always be false.
     #[must_use]
     pub fn from_tv50_time(tv50_time: u32, user_data: u32) -> Self {
         Self {
@@ -1351,16 +1382,15 @@ impl TimeCode {
     }
 
     /// Pack the SMPTE time code into a u32 value, according to FILM24 packing.
-    /// This encoding does not support the `drop_frame` and `color_frame` flags, they will be lost.
+    /// This encoding does not support the `drop_frame` and `color_frame` flags,
+    /// they will be lost.
     pub fn pack_time_as_film24_u32(&self) -> Result<u32> {
-        Ok(*self
-            .pack_time_as_tv60_u32()?
-            .set_bit(6, false)
-            .set_bit(7, false))
+        Ok(*self.pack_time_as_tv60_u32()?.set_bit(6, false).set_bit(7, false))
     }
 
-    /// Unpack a time code from one TV60 encoded u32 value and the encoded user data.
-    /// This encoding does not support the `drop_frame` and `color_frame` flags, they will always be `false`.
+    /// Unpack a time code from one TV60 encoded u32 value and the encoded user
+    /// data. This encoding does not support the `drop_frame` and
+    /// `color_frame` flags, they will always be `false`.
     #[must_use]
     pub fn from_film24_time(film24_time: u32, user_data: u32) -> Self {
         Self {
@@ -1398,7 +1428,8 @@ impl TimeCode {
         packed
     }
 
-    // Unpack the encoded u32 user data to an array of bytes, each byte having a value from 0 to 4.
+    // Unpack the encoded u32 user data to an array of bytes, each byte having a
+    // value from 0 to 4.
     fn unpack_user_data_from_u32(user_data: u32) -> [u8; 8] {
         (0..8)
             .map(|group_index| user_data.get_bits(Self::user_data_bit_indices(group_index)) as u8)
@@ -1654,9 +1685,7 @@ impl Preview {
     /// Validate this instance.
     pub fn validate(&self, strict: bool) -> UnitResult {
         if strict && (self.size.area() * 4 != self.pixel_data.len()) {
-            return Err(Error::invalid(
-                "preview dimensions do not match content length",
-            ));
+            return Err(Error::invalid("preview dimensions do not match content length"));
         }
 
         Ok(())
@@ -1665,12 +1694,7 @@ impl Preview {
 
 impl ::std::fmt::Debug for Preview {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        write!(
-            f,
-            "Preview ({}x{} px)",
-            self.size.width(),
-            self.size.height()
-        )
+        write!(f, "Preview ({}x{} px)", self.size.width(), self.size.height())
     }
 }
 
@@ -1751,7 +1775,8 @@ impl TileDescription {
 }
 
 /// Number of bytes this attribute would consume in an exr file.
-// TODO instead of pre calculating byte size, write to a tmp buffer whose length is inspected before actually writing?
+// TODO instead of pre calculating byte size, write to a tmp buffer whose length is inspected before
+// actually writing?
 #[must_use]
 pub fn byte_size(name: &Text, value: &AttributeValue) -> usize {
     name.null_terminated_byte_size()
@@ -1768,7 +1793,8 @@ pub fn write<W: Write>(name: &TextSlice, value: &AttributeValue, write: &mut W) 
     value.write(write)
 }
 
-/// Read the attribute without validating. The result may be `Ok` even if this single attribute is invalid.
+/// Read the attribute without validating. The result may be `Ok` even if this
+/// single attribute is invalid.
 pub fn read(
     read: &mut PeekRead<impl Read>,
     max_size: usize,
@@ -1790,7 +1816,9 @@ pub fn validate(
     strict: bool,
 ) -> UnitResult {
     name.validate(true, Some(long_names))?; // only name text has length restriction
-    value.validate(allow_sampling, data_window, strict) // attribute value text length is never restricted
+    value.validate(allow_sampling, data_window, strict) // attribute value text
+                                                        // length is never
+                                                        // restricted
 }
 
 impl AttributeValue {
@@ -1838,7 +1866,10 @@ impl AttributeValue {
 
             TextVector(ref value) => value.iter().map(self::Text::i32_sized_byte_size).sum(),
             TileDescription(_) => self::TileDescription::byte_size(),
-            Custom { ref bytes, .. } => bytes.len(),
+            Custom {
+                ref bytes,
+                ..
+            } => bytes.len(),
             BlockType(ref kind) => kind.byte_size(),
 
             Bytes {
@@ -1851,12 +1882,14 @@ impl AttributeValue {
     /// The exr name string of the type that an attribute can have.
     #[must_use]
     pub fn kind_name(&self) -> &TextSlice {
-        use self::type_names as ty;
-        use self::AttributeValue::{
-            BlockType, Bytes, ChannelList, Chromaticities, Compression, Custom, EnvironmentMap,
-            FloatRect, FloatVec2, FloatVec3, IntVec2, IntVec3, IntegerBounds, KeyCode, LineOrder,
-            Matrix3x3, Matrix4x4, Preview, Rational, Text, TextVector, TileDescription, TimeCode,
-            F32, F64, I32,
+        use self::{
+            type_names as ty,
+            AttributeValue::{
+                BlockType, Bytes, ChannelList, Chromaticities, Compression, Custom, EnvironmentMap,
+                FloatRect, FloatVec2, FloatVec3, IntVec2, IntVec3, IntegerBounds, KeyCode,
+                LineOrder, Matrix3x3, Matrix4x4, Preview, Rational, Text, TextVector,
+                TileDescription, TimeCode, F32, F64, I32,
+            },
         };
 
         match *self {
@@ -1884,8 +1917,13 @@ impl AttributeValue {
             TextVector(_) => ty::TEXT_VECTOR,
             TileDescription(_) => ty::TILES,
             BlockType(_) => super::BlockType::TYPE_NAME,
-            Bytes { .. } => ty::BYTES,
-            Custom { ref kind, .. } => kind.as_slice(),
+            Bytes {
+                ..
+            } => ty::BYTES,
+            Custom {
+                ref kind,
+                ..
+            } => kind.as_slice(),
         }
     }
 
@@ -1959,7 +1997,10 @@ impl AttributeValue {
                 u8::write_slice_le(write, bytes.as_slice())?;
             }
 
-            Custom { ref bytes, .. } => u8::write_slice_le(write, bytes)?, // write.write(&bytes).map(|_| ()),
+            Custom {
+                ref bytes,
+                ..
+            } => u8::write_slice_le(write, bytes)?, // write.write(&bytes).map(|_| ()),
         }
 
         Ok(())
@@ -1967,19 +2008,22 @@ impl AttributeValue {
 
     /// Read the value without validating.
     /// Returns `Ok(Ok(attribute))` for valid attributes.
-    /// Returns `Ok(Err(Error))` for malformed attributes from a valid byte source.
-    /// Returns `Err(Error)` for invalid byte sources, for example for invalid files.
+    /// Returns `Ok(Err(Error))` for malformed attributes from a valid byte
+    /// source. Returns `Err(Error)` for invalid byte sources, for example
+    /// for invalid files.
     pub fn read(
         read: &mut PeekRead<impl Read>,
         kind: Text,
         byte_size: usize,
     ) -> Result<Result<Self>> {
-        use self::type_names as ty;
-        use self::AttributeValue::{
-            Bytes, ChannelList, Chromaticities, Compression, Custom, EnvironmentMap, FloatRect,
-            FloatVec2, FloatVec3, IntVec2, IntVec3, IntegerBounds, KeyCode, LineOrder, Matrix3x3,
-            Matrix4x4, Preview, Rational, Text, TextVector, TileDescription, TimeCode, F32, F64,
-            I32,
+        use self::{
+            type_names as ty,
+            AttributeValue::{
+                Bytes, ChannelList, Chromaticities, Compression, Custom, EnvironmentMap, FloatRect,
+                FloatVec2, FloatVec3, IntVec2, IntVec3, IntegerBounds, KeyCode, LineOrder,
+                Matrix3x3, Matrix4x4, Preview, Rational, Text, TextVector, TileDescription,
+                TimeCode, F32, F64, I32,
+            },
         };
 
         // always read bytes as to leave the read position at the end of the attribute
@@ -1993,7 +2037,8 @@ impl AttributeValue {
             None,
             "attribute value size",
         )?;
-        // TODO: don't read into an array at all, just read directly from the reader and optionally seek afterwards?
+        // TODO: don't read into an array at all, just read directly from the reader and
+        // optionally seek afterwards?
 
         let parse_attribute = move || {
             let reader = &mut attribute_bytes.as_slice();
@@ -2077,7 +2122,10 @@ impl AttributeValue {
                     // for some reason, they went for unsigned sizes, in this place only
                     let type_hint = self::Text::read_u32_sized_le(reader, reader.len())?;
                     let bytes = SmallVec::from(*reader);
-                    Bytes { type_hint, bytes }
+                    Bytes {
+                        type_hint,
+                        bytes,
+                    }
                 }
 
                 _ => Custom {
@@ -2149,7 +2197,8 @@ impl AttributeValue {
         }
     }
 
-    /// Return `Ok(Chromaticities)` if this attribute is a chromaticities attribute.
+    /// Return `Ok(Chromaticities)` if this attribute is a chromaticities
+    /// attribute.
     pub fn to_chromaticities(&self) -> Result<Chromaticities> {
         match *self {
             Self::Chromaticities(value) => Ok(value),
@@ -2207,9 +2256,10 @@ pub mod type_names {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use ::std::io::Cursor;
     use rand::{random, thread_rng, Rng};
+
+    use super::*;
 
     #[test]
     fn text_ord() {
@@ -2280,10 +2330,7 @@ mod test {
     #[test]
     fn attribute_write_read_roundtrip_and_byte_size() {
         let attributes = [
-            (
-                Text::from("greeting"),
-                AttributeValue::Text(Text::from("hello")),
-            ),
+            (Text::from("greeting"), AttributeValue::Text(Text::from("hello"))),
             (Text::from("age"), AttributeValue::I32(923)),
             (Text::from("leg count"), AttributeValue::F64(9.114939599234)),
             (
@@ -2385,21 +2432,12 @@ mod test {
         }
 
         {
-            let (name, value) = (
-                Text::from("asdkaspfokpaosdkfpaokswdpoakpsfokaposdkf"),
-                AttributeValue::I32(0),
-            );
+            let (name, value) =
+                (Text::from("asdkaspfokpaosdkfpaokswdpoakpsfokaposdkf"), AttributeValue::I32(0));
 
             let mut long_names = false;
-            super::validate(
-                &name,
-                &value,
-                &mut long_names,
-                false,
-                IntegerBounds::zero(),
-                false,
-            )
-            .unwrap();
+            super::validate(&name, &value, &mut long_names, false, IntegerBounds::zero(), false)
+                .unwrap();
             assert!(long_names);
         }
 
@@ -2409,15 +2447,8 @@ mod test {
                 AttributeValue::I32(0),
             );
 
-            super::validate(
-                &name,
-                &value,
-                &mut false,
-                false,
-                IntegerBounds::zero(),
-                false,
-            )
-            .expect_err("name length check failed");
+            super::validate(&name, &value, &mut false, false, IntegerBounds::zero(), false)
+                .expect_err("name length check failed");
         }
     }
 
@@ -2446,9 +2477,8 @@ mod test {
 
             {
                 // through tv60 packing, roundtrip
-                let packed_tv60 = code
-                    .pack_time_as_tv60_u32()
-                    .expect("invalid timecode test input");
+                let packed_tv60 =
+                    code.pack_time_as_tv60_u32().expect("invalid timecode test input");
                 let packed_user = code.pack_user_data_as_u32();
                 assert_eq!(TimeCode::from_tv60_time(packed_tv60, packed_user), code);
             }
@@ -2463,18 +2493,15 @@ mod test {
 
             {
                 let tv50_code = TimeCode {
-                    drop_frame: false, // apparently, tv50 does not support drop frame, so do not use this value
+                    drop_frame: false, /* apparently, tv50 does not support drop frame, so do not
+                                        * use this value */
                     ..code
                 };
 
-                let packed_tv50 = code
-                    .pack_time_as_tv50_u32()
-                    .expect("invalid timecode test input");
+                let packed_tv50 =
+                    code.pack_time_as_tv50_u32().expect("invalid timecode test input");
                 let packed_user = code.pack_user_data_as_u32();
-                assert_eq!(
-                    TimeCode::from_tv50_time(packed_tv50, packed_user),
-                    tv50_code
-                );
+                assert_eq!(TimeCode::from_tv50_time(packed_tv50, packed_user), tv50_code);
             }
 
             {
@@ -2485,14 +2512,10 @@ mod test {
                     ..code
                 };
 
-                let packed_film24 = code
-                    .pack_time_as_film24_u32()
-                    .expect("invalid timecode test input");
+                let packed_film24 =
+                    code.pack_time_as_film24_u32().expect("invalid timecode test input");
                 let packed_user = code.pack_user_data_as_u32();
-                assert_eq!(
-                    TimeCode::from_film24_time(packed_film24, packed_user),
-                    film24_code
-                );
+                assert_eq!(TimeCode::from_film24_time(packed_film24, packed_user), film24_code);
             }
         }
     }

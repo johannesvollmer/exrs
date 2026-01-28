@@ -1,37 +1,36 @@
 //! Composable structures to handle writing an image.
 
-use std::fmt::Debug;
-use std::io::Seek;
-use std::iter::Peekable;
-use std::ops::Not;
+use std::{fmt::Debug, io::Seek, iter::Peekable, ops::Not};
 
-use crate::block::chunk::Chunk;
-use crate::block::UncompressedBlock;
-use crate::error::{usize_to_u64, Error, Result, UnitResult};
-use crate::io::{Data, Tracking, Write};
-use crate::meta::attribute::LineOrder;
-use crate::meta::{Headers, MetaData, OffsetTables};
 use smallvec::alloc::collections::BTreeMap;
 
+use crate::{
+    block::{chunk::Chunk, UncompressedBlock},
+    error::{usize_to_u64, Error, Result, UnitResult},
+    io::{Data, Tracking, Write},
+    meta::{attribute::LineOrder, Headers, MetaData, OffsetTables},
+};
+
 /// Write an exr file by writing one chunk after another in a closure.
-/// In the closure, you are provided a chunk writer, which should be used to write all the chunks.
-/// Assumes the your write destination is buffered.
+/// In the closure, you are provided a chunk writer, which should be used to
+/// write all the chunks. Assumes the your write destination is buffered.
 pub fn write_chunks_with<W: Write + Seek>(
     buffered_write: W,
     headers: Headers,
     pedantic: bool,
     write_chunks: impl FnOnce(MetaData, &mut ChunkWriter<W>) -> UnitResult,
 ) -> UnitResult {
-    // this closure approach ensures that after writing all chunks, the file is always completed and checked and flushed
+    // this closure approach ensures that after writing all chunks, the file is
+    // always completed and checked and flushed
     let (meta, mut writer) = ChunkWriter::new_for_buffered(buffered_write, headers, pedantic)?;
     write_chunks(meta, &mut writer)?;
     writer.complete_meta_data()
 }
 
 /// Can consume compressed pixel chunks, writing them a file.
-/// Use `sequential_blocks_compressor` or `parallel_blocks_compressor` to compress your data,
-/// or use `compress_all_blocks_sequential` or `compress_all_blocks_parallel`.
-/// Use `on_progress` to obtain a new writer
+/// Use `sequential_blocks_compressor` or `parallel_blocks_compressor` to
+/// compress your data, or use `compress_all_blocks_sequential` or
+/// `compress_all_blocks_parallel`. Use `on_progress` to obtain a new writer
 /// that triggers a callback for each block.
 // #[must_use]
 #[derive(Debug)]
@@ -66,7 +65,8 @@ pub trait ChunksWriter: Sized {
     /// Errors when the chunk at this index was already written.
     fn write_chunk(&mut self, index_in_header_increasing_y: usize, chunk: Chunk) -> UnitResult;
 
-    /// Obtain a new writer that calls the specified closure for each block that is written to this writer.
+    /// Obtain a new writer that calls the specified closure for each block that
+    /// is written to this writer.
     fn on_progress<F>(&mut self, on_progress: F) -> OnProgressChunkWriter<'_, Self, F>
     where
         F: FnMut(f64),
@@ -78,7 +78,8 @@ pub trait ChunksWriter: Sized {
         }
     }
 
-    /// Obtain a new writer that can compress blocks to chunks, which are then passed to this writer.
+    /// Obtain a new writer that can compress blocks to chunks, which are then
+    /// passed to this writer.
     fn sequential_blocks_compressor<'w>(
         &'w mut self,
         meta: &'w MetaData,
@@ -87,8 +88,10 @@ pub trait ChunksWriter: Sized {
     }
 
     #[cfg(feature = "rayon")]
-    /// Obtain a new writer that can compress blocks to chunks on multiple threads, which are then passed to this writer.
-    /// Returns none if the sequential compressor should be used instead (thread pool creation failure or too large performance overhead).
+    /// Obtain a new writer that can compress blocks to chunks on multiple
+    /// threads, which are then passed to this writer. Returns none if the
+    /// sequential compressor should be used instead (thread pool creation
+    /// failure or too large performance overhead).
     fn parallel_blocks_compressor<'w>(
         &'w mut self,
         meta: &'w MetaData,
@@ -97,8 +100,9 @@ pub trait ChunksWriter: Sized {
     }
 
     /// Compresses all blocks to the file.
-    /// The index of the block must be in increasing line order within the header.
-    /// Obtain iterator with `MetaData::collect_ordered_blocks(...)` or similar methods.
+    /// The index of the block must be in increasing line order within the
+    /// header. Obtain iterator with `MetaData::collect_ordered_blocks(...)`
+    /// or similar methods.
     fn compress_all_blocks_sequential(
         mut self,
         meta: &MetaData,
@@ -117,9 +121,10 @@ pub trait ChunksWriter: Sized {
 
     #[cfg(feature = "rayon")]
     /// Compresses all blocks to the file.
-    /// The index of the block must be in increasing line order within the header.
-    /// Obtain iterator with `MetaData::collect_ordered_blocks(...)` or similar methods.
-    /// Will fallback to sequential processing where threads are not available, or where it would not speed up the process.
+    /// The index of the block must be in increasing line order within the
+    /// header. Obtain iterator with `MetaData::collect_ordered_blocks(...)`
+    /// or similar methods. Will fallback to sequential processing where
+    /// threads are not available, or where it would not speed up the process.
     fn compress_all_blocks_parallel(
         mut self,
         meta: &MetaData,
@@ -183,7 +188,8 @@ impl<W> ChunkWriter<W>
 where
     W: Write + Seek,
 {
-    // -- the following functions are private, because they must be called in a strict order --
+    // -- the following functions are private, because they must be called in a
+    // strict order --
 
     /// Writes the meta data and zeroed offset tables as a placeholder.
     fn new_for_buffered(
@@ -195,29 +201,29 @@ where
         let requirements =
             MetaData::write_validating_to_buffered(&mut write, headers.as_slice(), pedantic)?;
 
-        // TODO: use increasing line order where possible, but this requires us to know whether we want to be parallel right now
-        /*// if non-parallel compression, we always use increasing order anyways
-        if !parallel || !has_compression {
-            for header in &mut headers {
-                if header.line_order == LineOrder::Unspecified {
-                    header.line_order = LineOrder::Increasing;
-                }
-            }
-        }*/
+        // TODO: use increasing line order where possible, but this requires us to know
+        // whether we want to be parallel right now
+        // // if non-parallel compression, we always use increasing order anyways
+        // if !parallel || !has_compression {
+        // for header in &mut headers {
+        // if header.line_order == LineOrder::Unspecified {
+        // header.line_order = LineOrder::Increasing;
+        // }
+        // }
+        // }
 
         let offset_table_size: usize = headers.iter().map(|header| header.chunk_count).sum();
 
         let offset_table_start_byte = write.byte_position();
         let offset_table_end_byte = write.byte_position() + offset_table_size * u64::BYTE_SIZE;
 
-        // skip offset tables, filling with 0, will be updated after the last chunk has been written
+        // skip offset tables, filling with 0, will be updated after the last chunk has
+        // been written
         write.seek_write_to(offset_table_end_byte)?;
 
         let header_count = headers.len();
-        let chunk_indices_increasing_y = headers
-            .iter()
-            .map(|header| vec![0_u64; header.chunk_count])
-            .collect();
+        let chunk_indices_increasing_y =
+            headers.iter().map(|header| vec![0_u64; header.chunk_count]).collect();
 
         let meta_data = MetaData {
             requirements,
@@ -236,15 +242,11 @@ where
         ))
     }
 
-    /// Seek back to the meta data, write offset tables, and flush the byte writer.
-    /// Leaves the writer seeked to the middle of the file, therefore we drop it.
+    /// Seek back to the meta data, write offset tables, and flush the byte
+    /// writer. Leaves the writer seeked to the middle of the file,
+    /// therefore we drop it.
     fn complete_meta_data(mut self) -> UnitResult {
-        if self
-            .chunk_indices_increasing_y
-            .iter()
-            .flatten()
-            .any(|&index| index == 0)
-        {
+        if self.chunk_indices_increasing_y.iter().flatten().any(|&index| index == 0) {
             return Err(Error::invalid("some chunks are not written yet"));
         }
 
@@ -254,8 +256,7 @@ where
             self.chunk_indices_byte_location.end,
             "offset table has already been updated"
         );
-        self.byte_writer
-            .seek_write_to(self.chunk_indices_byte_location.start)?;
+        self.byte_writer.seek_write_to(self.chunk_indices_byte_location.start)?;
 
         for table in self.chunk_indices_increasing_y {
             u64::write_slice_le(&mut self.byte_writer, table.as_slice())?;
@@ -284,13 +285,13 @@ where
             on_progress(0.0);
         }
 
-        self.chunk_writer
-            .write_chunk(index_in_header_increasing_y, chunk)?;
+        self.chunk_writer.write_chunk(index_in_header_increasing_y, chunk)?;
 
         self.written_chunks += 1;
 
         on_progress({
-            // guarantee finishing with progress 1.0 for last block at least once, float division might slightly differ from 1.0
+            // guarantee finishing with progress 1.0 for last block at least once, float
+            // division might slightly differ from 1.0
             if self.written_chunks == total_chunks {
                 1.0
             } else {
@@ -318,10 +319,8 @@ where
 {
     /// New sorting writer. Returns `None` if sorting is not required.
     pub fn new(meta_data: &MetaData, chunk_writer: &'w mut W) -> SortedBlocksWriter<'w, W> {
-        let requires_sorting = meta_data
-            .headers
-            .iter()
-            .any(|header| header.line_order != LineOrder::Unspecified);
+        let requires_sorting =
+            meta_data.headers.iter().any(|header| header.line_order != LineOrder::Unspecified);
 
         let total_chunk_count = chunk_writer.total_chunks_count();
 
@@ -333,7 +332,8 @@ where
         }
     }
 
-    /// Write the chunk or stash it. In the closure, write all chunks that can be written now.
+    /// Write the chunk or stash it. In the closure, write all chunks that can
+    /// be written now.
     pub fn write_or_stash_chunk(
         &mut self,
         chunk_index_in_file: usize,
@@ -347,9 +347,7 @@ where
         // write this chunk now if possible
         if self.unwritten_chunk_indices.peek() == Some(&chunk_index_in_file) {
             self.chunk_writer.write_chunk(chunk_y_index, chunk)?;
-            self.unwritten_chunk_indices
-                .next()
-                .expect("peeked chunk index is missing");
+            self.unwritten_chunk_indices.next().expect("peeked chunk index is missing");
 
             // write all pending blocks that are immediate successors of this block
             while let Some((next_chunk_y_index, next_chunk)) = self
@@ -358,18 +356,14 @@ where
                 .cloned()
                 .and_then(|id| self.pending_chunks.remove(&id))
             {
-                self.chunk_writer
-                    .write_chunk(next_chunk_y_index, next_chunk)?;
-                self.unwritten_chunk_indices
-                    .next()
-                    .expect("peeked chunk index is missing");
+                self.chunk_writer.write_chunk(next_chunk_y_index, next_chunk)?;
+                self.unwritten_chunk_indices.next().expect("peeked chunk index is missing");
             }
         } else {
             // the argument block is not to be written now,
             // and all the pending blocks are not next up either,
             // so just stash this block
-            self.pending_chunks
-                .insert(chunk_index_in_file, (chunk_y_index, chunk));
+            self.pending_chunks.insert(chunk_index_in_file, (chunk_y_index, chunk));
         }
 
         Ok(())
@@ -406,16 +400,15 @@ where
         self.chunks_writer
     }
 
-    /// Compress a single block immediately. The index of the block must be in increasing line order.
+    /// Compress a single block immediately. The index of the block must be in
+    /// increasing line order.
     pub fn compress_block(
         &mut self,
         index_in_header_increasing_y: usize,
         block: UncompressedBlock,
     ) -> UnitResult {
-        self.chunks_writer.write_chunk(
-            index_in_header_increasing_y,
-            block.compress_to_chunk(&self.meta.headers)?,
-        )
+        self.chunks_writer
+            .write_chunk(index_in_header_increasing_y, block.compress_to_chunk(&self.meta.headers)?)
     }
 }
 
@@ -442,8 +435,8 @@ impl<'w, W> ParallelBlocksCompressor<'w, W>
 where
     W: 'w + ChunksWriter,
 {
-    /// New blocks writer. Returns none if sequential compression should be used.
-    /// Use `new_with_thread_pool` to customize the threadpool.
+    /// New blocks writer. Returns none if sequential compression should be
+    /// used. Use `new_with_thread_pool` to customize the threadpool.
     pub fn new(meta: &'w MetaData, chunks_writer: &'w mut W) -> Option<Self> {
         Self::new_with_thread_pool(meta, chunks_writer, || {
             rayon_core::ThreadPoolBuilder::new()
@@ -452,7 +445,8 @@ where
         })
     }
 
-    /// New blocks writer. Returns none if sequential compression should be used.
+    /// New blocks writer. Returns none if sequential compression should be
+    /// used.
     pub fn new_with_thread_pool<CreatePool>(
         meta: &'w MetaData,
         chunks_writer: &'w mut W,
@@ -465,10 +459,8 @@ where
     {
         use crate::compression::Compression;
 
-        let is_entirely_uncompressed = meta
-            .headers
-            .iter()
-            .all(|head| head.compression == Compression::Uncompressed);
+        let is_entirely_uncompressed =
+            meta.headers.iter().all(|head| head.compression == Compression::Uncompressed);
 
         if is_entirely_uncompressed {
             return None;
@@ -483,11 +475,8 @@ where
             Err(_) => return None,
         };
 
-        let max_threads = pool
-            .current_num_threads()
-            .max(1)
-            .min(chunks_writer.total_chunks_count())
-            + 2; // ca one block for each thread at all times
+        let max_threads =
+            pool.current_num_threads().max(1).min(chunks_writer.total_chunks_count()) + 2; // ca one block for each thread at all times
         let (send, recv) = std::sync::mpsc::channel(); // TODO bounded channel simplifies logic?
 
         Some(Self {
@@ -515,37 +504,34 @@ where
             "cannot wait for chunks as there are none left"
         );
 
-        let some_compressed_chunk = self
-            .receiver
-            .recv()
-            .expect("cannot receive compressed block");
+        let some_compressed_chunk = self.receiver.recv().expect("cannot receive compressed block");
 
         self.currently_compressing_count -= 1;
         let (chunk_file_index, chunk_y_index, chunk) = some_compressed_chunk?;
-        self.sorted_writer
-            .write_or_stash_chunk(chunk_file_index, chunk_y_index, chunk)?;
+        self.sorted_writer.write_or_stash_chunk(chunk_file_index, chunk_y_index, chunk)?;
 
         self.written_chunk_count += 1;
         Ok(())
     }
 
-    /// Wait until all currently compressing chunks in the compressor have been written.
+    /// Wait until all currently compressing chunks in the compressor have been
+    /// written.
     pub fn write_all_queued_chunks(&mut self) -> UnitResult {
         while self.currently_compressing_count > 0 {
             self.write_next_queued_chunk()?;
         }
 
-        debug_assert_eq!(
-            self.currently_compressing_count, 0,
-            "counter does not match block count"
-        );
+        debug_assert_eq!(self.currently_compressing_count, 0, "counter does not match block count");
         Ok(())
     }
 
-    /// Add a single block to the compressor queue. The index of the block must be in increasing line order.
-    /// When calling this function for the last block, this method waits until all the blocks have been written.
-    /// This only works when you write as many blocks as the image expects, otherwise you can use `wait_for_all_remaining_chunks`.
-    /// Waits for a block from the queue to be written, if the queue already has enough items.
+    /// Add a single block to the compressor queue. The index of the block must
+    /// be in increasing line order. When calling this function for the last
+    /// block, this method waits until all the blocks have been written.
+    /// This only works when you write as many blocks as the image expects,
+    /// otherwise you can use `wait_for_all_remaining_chunks`. Waits for a
+    /// block from the queue to be written, if the queue already has enough
+    /// items.
     pub fn add_block_to_compression_queue(
         &mut self,
         index_in_header_increasing_y: usize,

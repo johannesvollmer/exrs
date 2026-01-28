@@ -1,22 +1,21 @@
 //! How to read a set of resolution levels.
 
-use crate::block::chunk::TileCoordinates;
-use crate::block::lines::LineRef;
-use crate::block::samples::*;
-use crate::error::*;
-use crate::image::read::any_channels::*;
-use crate::image::read::specific_channels::*;
-use crate::image::recursive::*;
-use crate::image::*;
-use crate::math::Vec2;
-use crate::meta::attribute::*;
-use crate::meta::header::Header;
-use crate::meta::*;
+use crate::{
+    block::{chunk::TileCoordinates, lines::LineRef, samples::*},
+    error::*,
+    image::{
+        read::{any_channels::*, specific_channels::*},
+        recursive::*,
+        *,
+    },
+    math::Vec2,
+    meta::{attribute::*, header::Header, *},
+};
 
 // Note: In the resulting image, the `FlatSamples` are placed
 // directly inside the channels, without `LargestLevel<>` indirection
-/// Specify to read only the highest resolution level, skipping all smaller variations.
-/// The sample storage can be [`ReadFlatSamples`].
+/// Specify to read only the highest resolution level, skipping all smaller
+/// variations. The sample storage can be [`ReadFlatSamples`].
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReadLargestLevel<DeepOrFlatSamples> {
     /// The sample reading specification
@@ -32,18 +31,23 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
         ReadAnyChannels {
             read_samples: self.read_samples,
         }
-    } // Instead of Self, the `FlatSamples` are used directly
+    }
 
-    /// Read only layers that contain rgba channels. Skips any other channels in the layer.
-    /// The alpha channel will contain the value `1.0` if no alpha channel can be found in the image.
+    // Instead of Self, the `FlatSamples` are used directly
+
+    /// Read only layers that contain rgba channels. Skips any other channels in
+    /// the layer. The alpha channel will contain the value `1.0` if no
+    /// alpha channel can be found in the image.
     ///
     /// Using two closures, define how to store the pixels.
-    /// The first closure creates an image, and the second closure inserts a single pixel.
-    /// The type of the pixel can be defined by the second closure;
-    /// it must be a tuple containing four values, each being either `f16`, `f32`, `u32` or `Sample`.
+    /// The first closure creates an image, and the second closure inserts a
+    /// single pixel. The type of the pixel can be defined by the second
+    /// closure; it must be a tuple containing four values, each being
+    /// either `f16`, `f32`, `u32` or `Sample`.
     ///
     /// Throws an error for images with deep data or subsampling.
-    /// Use `specific_channels` or `all_channels` if you want to read something other than rgba.
+    /// Use `specific_channels` or `all_channels` if you want to read something
+    /// other than rgba.
     pub fn rgba_channels<R, G, B, A, Create, Set, Pixels>(
         self,
         create_pixels: Create,
@@ -74,15 +78,18 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
             .collect_pixels(create_pixels, set_pixel)
     }
 
-    /// Read only layers that contain rgb channels. Skips any other channels in the layer.
+    /// Read only layers that contain rgb channels. Skips any other channels in
+    /// the layer.
     ///
     /// Using two closures, define how to store the pixels.
-    /// The first closure creates an image, and the second closure inserts a single pixel.
-    /// The type of the pixel can be defined by the second closure;
-    /// it must be a tuple containing three values, each being either `f16`, `f32`, `u32` or `Sample`.
+    /// The first closure creates an image, and the second closure inserts a
+    /// single pixel. The type of the pixel can be defined by the second
+    /// closure; it must be a tuple containing three values, each being
+    /// either `f16`, `f32`, `u32` or `Sample`.
     ///
     /// Throws an error for images with deep data or subsampling.
-    /// Use `specific_channels` or `all_channels` if you want to read something other than rgb.
+    /// Use `specific_channels` or `all_channels` if you want to read something
+    /// other than rgb.
     pub fn rgb_channels<R, G, B, Create, Set, Pixels>(
         self,
         create_pixels: Create,
@@ -108,10 +115,12 @@ impl<DeepOrFlatSamples> ReadLargestLevel<DeepOrFlatSamples> {
             .collect_pixels(create_pixels, set_pixel)
     }
 
-    /// Read only layers that contain the specified channels, skipping any other channels in the layer.
-    /// Further specify which channels should be included by calling `.required("ChannelName")`
-    /// or `.optional("ChannelName", default_value)` on the result of this function.
-    /// Call `collect_pixels` afterwards to define the pixel container for your set of channels.
+    /// Read only layers that contain the specified channels, skipping any other
+    /// channels in the layer. Further specify which channels should be
+    /// included by calling `.required("ChannelName")` or `.optional("
+    /// ChannelName", default_value)` on the result of this function.
+    /// Call `collect_pixels` afterwards to define the pixel container for your
+    /// set of channels.
     ///
     /// Throws an error for images with deep data or subsampling.
     pub fn specific_channels(self) -> ReadZeroChannels {
@@ -129,17 +138,20 @@ pub struct ReadAllLevels<DeepOrFlatSamples> {
 impl<ReadDeepOrFlatSamples> ReadAllLevels<ReadDeepOrFlatSamples> {
     /// Read all arbitrary channels in each layer.
     pub fn all_channels(self) -> ReadAnyChannels<Self> {
-        ReadAnyChannels { read_samples: self }
+        ReadAnyChannels {
+            read_samples: self,
+        }
     }
 
     // TODO specific channels for multiple resolution levels
 }
 
-/*pub struct ReadLevels<S> {
-    read_samples: S,
-}*/
+// pub struct ReadLevels<S> {
+// read_samples: S,
+// }
 
-/// Processes pixel blocks from a file and accumulates them into multiple levels per channel.
+/// Processes pixel blocks from a file and accumulates them into multiple levels
+/// per channel.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct AllLevelsReader<SamplesReader> {
     levels: Levels<SamplesReader>,
@@ -237,7 +249,9 @@ impl<S: ReadSamplesLevel> ReadSamples for ReadAllLevels<S> {
             }
         };
 
-        Ok(AllLevelsReader { levels })
+        Ok(AllLevelsReader {
+            levels,
+        })
     }
 }
 
@@ -249,9 +263,7 @@ impl<S: SamplesReader> SamplesReader for AllLevelsReader<S> {
     }
 
     fn read_line(&mut self, line: LineRef<'_>) -> UnitResult {
-        self.levels
-            .get_level_mut(line.location.level)?
-            .read_line(line)
+        self.levels.get_level_mut(line.location.level)?.read_line(line)
     }
 
     fn into_samples(self) -> Self::Samples {
@@ -272,11 +284,7 @@ impl<S: SamplesReader> SamplesReader for AllLevelsReader<S> {
                 rounding_mode,
                 level_data: RipMaps {
                     level_count: level_data.level_count,
-                    map_data: level_data
-                        .map_data
-                        .into_iter()
-                        .map(|s| s.into_samples())
-                        .collect(),
+                    map_data: level_data.map_data.into_iter().map(|s| s.into_samples()).collect(),
                 },
             },
         }

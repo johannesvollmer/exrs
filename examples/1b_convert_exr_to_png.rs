@@ -5,10 +5,10 @@ extern crate exr;
 
 /// Converts one rgba exr with one layer to one png, or fail.
 fn main() {
-    use exr::prelude as exrs;
-    use exr::prelude::*;
+    use exr::{prelude as exrs, prelude::*};
 
-    // read from the exr file directly into a new `png::RgbaImage` image without intermediate buffers
+    // read from the exr file directly into a new `png::RgbaImage` image without
+    // intermediate buffers
     let reader = exrs::read()
         .no_deep_data()
         .largest_resolution_level()

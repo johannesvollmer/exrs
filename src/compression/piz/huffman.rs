@@ -3,15 +3,19 @@
 //!    by Christian Rouet for his PIZ image file format.
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/88246d991e0318c043e6f584f7493da08a31f9f8/OpenEXR/IlmImf/ImfHuf.cpp
 
-use crate::error::{u32_to_usize, u64_to_usize, Error, Result, UnitResult};
-use crate::io::Data;
-use crate::math::RoundingMode;
-use smallvec::SmallVec;
-use std::convert::TryFrom;
 use std::{
     cmp::Ordering,
     collections::BinaryHeap,
+    convert::TryFrom,
     io::{Cursor, Read, Write},
+};
+
+use smallvec::SmallVec;
+
+use crate::{
+    error::{u32_to_usize, u64_to_usize, Error, Result, UnitResult},
+    io::Data,
+    math::RoundingMode,
 };
 
 pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
@@ -199,9 +203,7 @@ fn decode_with_tables(
     let count = u64::try_from((8 - input_bit_count) & 7)?;
     code_bits >>= count;
 
-    code_bit_count = code_bit_count
-        .checked_sub(count)
-        .ok_or_else(|| Error::invalid("code"))?;
+    code_bit_count = code_bit_count.checked_sub(count).ok_or_else(|| Error::invalid("code"))?;
 
     while code_bit_count > 0 {
         let index = (code_bits << (DECODE_BITS - code_bit_count)) & DECODE_MASK;
@@ -246,10 +248,8 @@ fn build_decoding_table(
 ) -> Result<Vec<Code>> {
     let mut decoding_table = vec![Code::Empty; DECODING_TABLE_SIZE]; // not an array because of code not being copy
 
-    for (code_index, &encoded_code) in encoding_table[..=max_code_index]
-        .iter()
-        .enumerate()
-        .skip(min_code_index)
+    for (code_index, &encoded_code) in
+        encoding_table[..=max_code_index].iter().enumerate().skip(min_code_index)
     {
         let code_index = u32::try_from(code_index).unwrap();
 
@@ -289,7 +289,8 @@ fn build_decoding_table(
     Ok(decoding_table)
 }
 
-/// Run-length-decompresses all zero runs from the packed table to the encoding table
+/// Run-length-decompresses all zero runs from the packed table to the encoding
+/// table
 fn read_encoding_table(
     packed: &mut impl Read,
     min_code_index: usize,
@@ -435,13 +436,7 @@ fn write_code(
     code_bit_count: &mut u64,
     mut out: impl Write,
 ) -> UnitResult {
-    write_bits(
-        length(scode),
-        code(scode),
-        code_bits,
-        code_bit_count,
-        &mut out,
-    )
+    write_bits(length(scode), code(scode), code_bits, code_bit_count, &mut out)
 }
 
 #[inline(always)]
@@ -524,7 +519,6 @@ fn encode_with_frequencies(
     Ok(data_length * 8 + code_bit_count)
 }
 
-///
 /// Pack an encoding table:
 ///    - only code lengths, not actual codes, are stored
 ///    - runs of zeroes are compressed as follows:
@@ -537,7 +531,6 @@ fn encode_with_frequencies(
 ///      4 zeroes        61
 ///      5 zeroes        62
 ///      n zeroes (6 or more)    63 n-6    (6 + 8 bits)
-///
 fn pack_encoding_table(
     frequencies: &[u64],
     min_index: usize,
@@ -595,13 +588,7 @@ fn pack_encoding_table(
             }
         }
 
-        write_bits(
-            6,
-            code_length,
-            &mut code_bits,
-            &mut code_bit_count,
-            &mut out,
-        )?;
+        write_bits(6, code_length, &mut code_bits, &mut code_bit_count, &mut out)?;
         frequency_index += 1;
     }
 
@@ -613,17 +600,17 @@ fn pack_encoding_table(
 }
 
 /// Build a "canonical" Huffman code table:
-///    - for each (uncompressed) symbol, code contains the length
-///      of the corresponding code (in the compressed data)
+///    - for each (uncompressed) symbol, code contains the length of the
+///      corresponding code (in the compressed data)
 ///    - canonical codes are computed and stored in code
 ///    - the rules for constructing canonical codes are as follows:
-///      * shorter codes (if filled with zeroes to the right)
-///        have a numerically higher value than longer codes
-///      * for codes with the same length, numerical values
-///        increase with numerical symbol values
-///    - because the canonical code table can be constructed from
-///      symbol lengths alone, the code table can be transmitted
-///      without sending the actual code values
+///      * shorter codes (if filled with zeroes to the right) have a numerically
+///        higher value than longer codes
+///      * for codes with the same length, numerical values increase with
+///        numerical symbol values
+///    - because the canonical code table can be constructed from symbol lengths
+///      alone, the code table can be transmitted without sending the actual
+///      code values
 ///    - see <http://www.compressconsult.com/huffman>/
 fn build_canonical_table(code_table: &mut [u64]) -> UnitResult {
     debug_assert_eq!(code_table.len(), ENCODING_TABLE_SIZE);
@@ -688,10 +675,7 @@ fn build_encoding_table(
 
     impl Ord for HeapFrequency {
         fn cmp(&self, other: &Self) -> Ordering {
-            other
-                .frequency
-                .cmp(&self.frequency)
-                .then_with(|| other.position.cmp(&self.position))
+            other.frequency.cmp(&self.frequency).then_with(|| other.position.cmp(&self.position))
         }
     }
 
@@ -708,24 +692,23 @@ fn build_encoding_table(
     //
     // The loop below does three things:
     //
-    // 1) Finds the minimum and maximum indices that point
-    //    to non-zero entries in frq:
+    // 1) Finds the minimum and maximum indices that point to non-zero entries in
+    //    frq:
     //
     //     frq[im] != 0, and frq[i] == 0 for all i < im
     //     frq[iM] != 0, and frq[i] == 0 for all i > iM
     //
-    // 2) Fills array fHeap with pointers to all non-zero
-    //    entries in frq.
+    // 2) Fills array fHeap with pointers to all non-zero entries in frq.
     //
-    // 3) Initializes array hlink such that hlink[i] == i
-    //    for all array entries.
+    // 3) Initializes array hlink such that hlink[i] == i for all array entries.
 
     // We need to use vec here or we overflow the stack.
     let mut links = vec![0_usize; ENCODING_TABLE_SIZE];
     let mut frequency_heap = vec![0_usize; ENCODING_TABLE_SIZE];
 
-    // This is a good solution since we don't have usize::MAX items (no panics or UB),
-    // and since this is short-circuit, it stops at the first in order non zero element.
+    // This is a good solution since we don't have usize::MAX items (no panics or
+    // UB), and since this is short-circuit, it stops at the first in order non
+    // zero element.
     let min_frequency_index = frequencies.iter().position(|f| *f != 0).unwrap_or(0);
 
     let mut max_frequency_index = 0;
@@ -800,10 +783,7 @@ fn build_encoding_table(
             let mut second_smallest_frequency = heap.peek_mut().expect("heap empty bug");
             second_smallest_frequency.frequency += smallest_frequency.frequency;
 
-            (
-                second_smallest_frequency.position,
-                smallest_frequency.position,
-            )
+            (second_smallest_frequency.position, smallest_frequency.position)
         };
 
         // The entries in scode are linked into lists with the
@@ -876,8 +856,9 @@ const TOO_MUCH_DATA: &str = "decoded data are longer than expected";
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use rand::{Rng, SeedableRng};
+
+    use super::*;
 
     const UNCOMPRESSED_ARRAY: [u16; 100] = [
         3852, 2432, 33635, 49381, 10100, 15095, 62693, 63738, 62359, 5013, 7715, 59875, 28182,
@@ -952,7 +933,11 @@ mod test {
 
     fn fill(rng: &mut impl Rng, size: usize) -> Vec<u16> {
         if rng.gen_bool(0.2) {
-            let value = if rng.gen_bool(0.5) { 0 } else { u16::MAX };
+            let value = if rng.gen_bool(0.5) {
+                0
+            } else {
+                u16::MAX
+            };
             return vec![value; size];
         }
 
@@ -1009,9 +994,8 @@ mod test {
 
     #[test]
     fn test_zeroes() {
-        let uncompressed: &[u16] = &[
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
+        let uncompressed: &[u16] =
+            &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
         let compressed = compress(uncompressed).unwrap();
         let decompressed = decompress(&compressed, uncompressed.len()).unwrap();

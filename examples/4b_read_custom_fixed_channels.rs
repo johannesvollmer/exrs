@@ -2,8 +2,9 @@
 extern crate exr;
 
 /// Read an image and print information about the image into the console.
-/// This example shows how to read an image with multiple layers and specific channels.
-/// This example does not include resolution levels (mipmaps or ripmaps).
+/// This example shows how to read an image with multiple layers and specific
+/// channels. This example does not include resolution levels (mipmaps or
+/// ripmaps).
 fn main() {
     use exr::prelude::*;
 
@@ -17,15 +18,13 @@ fn main() {
         .collect_pixels(
             |resolution, (a_channel, y_channel, y_right_channel)| {
                 println!("image contains alpha channel? {}", a_channel.is_some());
-                println!(
-                    "image contains stereoscopic luma channel? {}",
-                    y_right_channel.is_some()
-                );
+                println!("image contains stereoscopic luma channel? {}", y_right_channel.is_some());
                 println!("the type of luma samples is {:?}", y_channel.sample_type);
 
                 vec![vec![(f16::ZERO, 0.0, 0.0); resolution.width()]; resolution.height()]
             },
-            // all samples will be converted to f32 (you can also use the enum `Sample` instead of `f32` here to retain the original data type from the file)
+            // all samples will be converted to f32 (you can also use the enum `Sample` instead of
+            // `f32` here to retain the original data type from the file)
             |vec, position, (a, y, yr): (f16, f32, f32)| {
                 vec[position.y()][position.x()] = (a, y, yr)
             },

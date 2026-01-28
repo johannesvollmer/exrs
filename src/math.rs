@@ -3,11 +3,13 @@
 
 //! Simple math utilities.
 
-use crate::error::i32_to_usize;
-use crate::error::Result;
-use std::convert::TryFrom;
-use std::fmt::Debug;
-use std::ops::{Add, Div, Mul, Sub};
+use std::{
+    convert::TryFrom,
+    fmt::Debug,
+    ops::{Add, Div, Mul, Sub},
+};
+
+use crate::error::{i32_to_usize, Result};
 
 /// Simple two-dimensional vector of any numerical type.
 /// Supports only few mathematical operations
@@ -78,8 +80,9 @@ impl<T> Vec2<T> {
     }
 
     // TODO use this!
-    /// Convert this two-dimensional coordinate to an index suited for one-dimensional flattened image arrays.
-    /// Works for images that store the pixels row by row, one after another, in a single array.
+    /// Convert this two-dimensional coordinate to an index suited for
+    /// one-dimensional flattened image arrays. Works for images that store
+    /// the pixels row by row, one after another, in a single array.
     /// In debug mode, panics for an index out of bounds.
     #[inline]
     pub fn flat_index_for_size(self, resolution: Self) -> T
@@ -99,7 +102,8 @@ impl<T> Vec2<T> {
 }
 
 impl Vec2<i32> {
-    /// Try to convert to [`Vec2<usize>`], returning an error on negative numbers.
+    /// Try to convert to [`Vec2<usize>`], returning an error on negative
+    /// numbers.
     pub fn to_usize(self, error_message: &'static str) -> Result<Vec2<usize>> {
         let x = i32_to_usize(self.0, error_message)?;
         let y = i32_to_usize(self.1, error_message)?;
@@ -119,6 +123,7 @@ impl Vec2<usize> {
 
 impl<T: std::ops::Add<T>> std::ops::Add<Self> for Vec2<T> {
     type Output = Vec2<T::Output>;
+
     fn add(self, other: Self) -> Self::Output {
         Vec2(self.0 + other.0, self.1 + other.1)
     }
@@ -126,6 +131,7 @@ impl<T: std::ops::Add<T>> std::ops::Add<Self> for Vec2<T> {
 
 impl<T: std::ops::Sub<T>> std::ops::Sub<Self> for Vec2<T> {
     type Output = Vec2<T::Output>;
+
     fn sub(self, other: Self) -> Self::Output {
         Vec2(self.0 - other.0, self.1 - other.1)
     }
@@ -133,6 +139,7 @@ impl<T: std::ops::Sub<T>> std::ops::Sub<Self> for Vec2<T> {
 
 impl<T: std::ops::Div<T>> std::ops::Div<Self> for Vec2<T> {
     type Output = Vec2<T::Output>;
+
     fn div(self, other: Self) -> Self::Output {
         Vec2(self.0 / other.0, self.1 / other.1)
     }
@@ -140,6 +147,7 @@ impl<T: std::ops::Div<T>> std::ops::Div<Self> for Vec2<T> {
 
 impl<T: std::ops::Mul<T>> std::ops::Mul<Self> for Vec2<T> {
     type Output = Vec2<T::Output>;
+
     fn mul(self, other: Self) -> Self::Output {
         Vec2(self.0 * other.0, self.1 * other.1)
     }
@@ -150,6 +158,7 @@ where
     T: std::ops::Neg<Output = T>,
 {
     type Output = Self;
+
     fn neg(self) -> Self::Output {
         Self(-self.0, -self.1)
     }
@@ -235,7 +244,8 @@ impl RoundingMode {
         );
 
         match self {
-            Self::Up => (dividend + divisor - T::from(1_u8)) / divisor, // only works for positive numbers
+            Self::Up => (dividend + divisor - T::from(1_u8)) / divisor, // only works for
+            // positive numbers
             Self::Down => dividend / divisor,
         }
     }

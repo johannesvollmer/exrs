@@ -2,19 +2,21 @@ extern crate exr;
 
 extern crate smallvec;
 
-use std::ffi::OsStr;
-use std::io::Cursor;
-use std::panic;
-use std::panic::catch_unwind;
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsStr,
+    io::Cursor,
+    panic,
+    panic::catch_unwind,
+    path::{Path, PathBuf},
+};
 
-use exr::block::samples::IntoNativeSample;
-use exr::error::{Error, UnitResult};
-use exr::image::validate_results::ValidateResult;
-use exr::prelude::pixel_vec::PixelVec;
-use exr::prelude::*;
-use rayon::iter::ParallelIterator;
-use rayon::prelude::IntoParallelIterator;
+use exr::{
+    block::samples::IntoNativeSample,
+    error::{Error, UnitResult},
+    image::validate_results::ValidateResult,
+    prelude::{pixel_vec::PixelVec, *},
+};
+use rayon::{iter::ParallelIterator, prelude::IntoParallelIterator};
 
 #[test]
 fn roundtrip_all_files_in_repository_x4() {
@@ -42,10 +44,7 @@ fn round_trip_full(file: &[u8]) -> Result<()> {
     let image = read_image.clone().from_buffered(Cursor::new(file))?;
 
     let mut tmp_bytes = Vec::with_capacity(file.len());
-    image
-        .write()
-        .non_parallel()
-        .to_buffered(Cursor::new(&mut tmp_bytes))?;
+    image.write().non_parallel().to_buffered(Cursor::new(&mut tmp_bytes))?;
 
     let image2 = read_image.from_buffered(Cursor::new(tmp_bytes))?;
 
@@ -65,10 +64,7 @@ fn round_trip_simple(file: &[u8]) -> Result<()> {
     let image = read_image.clone().from_buffered(Cursor::new(file))?;
 
     let mut tmp_bytes = Vec::with_capacity(file.len());
-    image
-        .write()
-        .non_parallel()
-        .to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
+    image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
 
     let image2 = read_image.from_buffered(Cursor::new(&tmp_bytes))?;
 
@@ -77,7 +73,8 @@ fn round_trip_simple(file: &[u8]) -> Result<()> {
 }
 
 fn round_trip_rgba_file(path: &Path, file: &[u8]) -> Result<()> {
-    // these files are known to be invalid, because they do not contain any rgb channels
+    // these files are known to be invalid, because they do not contain any rgb
+    // channels
     let blacklist = [
         Path::new("tests/images/valid/openexr/LuminanceChroma/Garden.exr"),
         Path::new("tests/images/valid/openexr/MultiView/Fog.exr"),
@@ -94,10 +91,7 @@ fn round_trip_rgba_file(path: &Path, file: &[u8]) -> Result<()> {
     let image_reader = read()
         .no_deep_data()
         .largest_resolution_level() // TODO all levels
-        .rgba_channels(
-            PixelVec::<(f32, f32, f32, f32)>::constructor,
-            PixelVec::set_pixel,
-        )
+        .rgba_channels(PixelVec::<(f32, f32, f32, f32)>::constructor, PixelVec::set_pixel)
         .first_valid_layer()
         .all_attributes()
         .non_parallel();
@@ -106,10 +100,7 @@ fn round_trip_rgba_file(path: &Path, file: &[u8]) -> Result<()> {
 
     let mut tmp_bytes = Vec::with_capacity(file.len());
 
-    image
-        .write()
-        .non_parallel()
-        .to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
+    image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
 
     let image2 = image_reader.from_buffered(Cursor::new(&tmp_bytes))?;
 
@@ -145,7 +136,8 @@ fn round_trip_parallel_file(file: &[u8]) -> Result<()> {
 }
 
 /// read all images in a directory.
-/// does not check any content, just checks whether a read error or panic happened.
+/// does not check any content, just checks whether a read error or panic
+/// happened.
 fn check_all_files_in_repo<T>(
     operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -> exr::error::Result<T>,
 ) {
@@ -245,10 +237,7 @@ fn roundtrip_unusual_2() -> UnitResult {
     let image = Image::from_channels(size, channels);
 
     let mut tmp_bytes = Vec::new();
-    image
-        .write()
-        .non_parallel()
-        .to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
+    image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
 
     let image_reader = read()
         .no_deep_data()
@@ -309,10 +298,7 @@ fn roundtrip_unusual_7() -> UnitResult {
     let image = Image::from_channels(size, channels);
 
     let mut tmp_bytes = Vec::new();
-    image
-        .write()
-        .non_parallel()
-        .to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
+    image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
 
     let image_reader = read()
         .no_deep_data()
@@ -402,18 +388,12 @@ fn test_mixed_roundtrip_with_compression(compression: Compression) {
         SpecificChannels::rgb(PixelVec::new(Vec2(2, 2), original_pixels.to_vec())),
     );
 
-    original_image
-        .write()
-        .to_buffered(Cursor::new(&mut file_bytes))
-        .unwrap();
+    original_image.write().to_buffered(Cursor::new(&mut file_bytes)).unwrap();
 
     let lossy_image = read()
         .no_deep_data()
         .largest_resolution_level()
-        .rgb_channels(
-            PixelVec::<(f16, f32, f32)>::constructor,
-            PixelVec::set_pixel,
-        )
+        .rgb_channels(PixelVec::<(f16, f32, f32)>::constructor, PixelVec::set_pixel)
         .first_valid_layer()
         .all_attributes()
         .from_buffered(Cursor::new(&file_bytes))

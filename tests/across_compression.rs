@@ -1,6 +1,6 @@
-use exr::image::validate_results::ValidateResult;
-use exr::prelude::*;
 use std::path::Path;
+
+use exr::{image::validate_results::ValidateResult, prelude::*};
 
 fn dir() -> &'static Path {
     Path::new("tests/images/valid/custom/compression_methods")
@@ -17,8 +17,9 @@ fn expect_eq_other(sub_dir: &str, image_name: &str, expected: &str) {
             let mut expected_decompressed = read_first_flat_layer_from_file(decompressed_path)
                 .expect("uncompressed image could not be loaded");
 
-            // HACK: make metadata match artificially, to avoid failing the check due to meta data mismatch
-            // (the name of the compression methods should not be equal, as we test between compression methods)
+            // HACK: make metadata match artificially, to avoid failing the check due to
+            // meta data mismatch (the name of the compression methods should
+            // not be equal, as we test between compression methods)
             expected_decompressed.layer_data.encoding.compression = Compression::Uncompressed;
             decompressed.layer_data.encoding.compression = Compression::Uncompressed;
 
@@ -31,7 +32,8 @@ fn expect_eq_other(sub_dir: &str, image_name: &str, expected: &str) {
                 "size should not be affected by compression"
             );
 
-            // Note: Unimplemented methods may still work, if each compressed tile would be larger than uncompressed.
+            // Note: Unimplemented methods may still work, if each compressed tile would be
+            // larger than uncompressed.
             expected_decompressed.assert_equals_result(&decompressed);
         }
     }
@@ -79,9 +81,7 @@ fn expect_eq_png(image_name: &str) {
                 "size should not be affected by compression"
             );
 
-            let expected_px = ground_truth_png
-                .pixels()
-                .flat_map(|px| px.0.iter().copied());
+            let expected_px = ground_truth_png.pixels().flat_map(|px| px.0.iter().copied());
 
             let actual_px = exr_as_png_px.pixels().flat_map(|px| px.0.iter().copied());
 
@@ -124,7 +124,8 @@ fn compare_compression_contents_zips_f16() {
 
 #[test]
 fn compare_compression_contents_b44_f32() {
-    expect_eq_uncompressed("f32", "b44.exr"); // f32s are not compressed in b44 and can be compared exactly
+    expect_eq_uncompressed("f32", "b44.exr"); // f32s are not compressed in b44
+                                              // and can be compared exactly
 }
 
 #[test]
@@ -134,7 +135,8 @@ fn compare_compression_contents_b44_f16() {
 
 #[test]
 fn compare_compression_contents_b44a_f32() {
-    expect_eq_uncompressed("f32", "b44a.exr"); // f32s are not compressed in b44 and can be compared exactly
+    expect_eq_uncompressed("f32", "b44a.exr"); // f32s are not compressed in b44
+                                               // and can be compared exactly
 }
 
 #[test]

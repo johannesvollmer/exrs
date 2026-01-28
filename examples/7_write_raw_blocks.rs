@@ -3,21 +3,20 @@ extern crate smallvec;
 extern crate half;
 extern crate rand;
 
-use exr::block::writer::ChunksWriter;
-use exr::block::UncompressedBlock;
-use std::convert::TryInto;
-use std::fs::File;
-use std::io::BufWriter;
+use std::{convert::TryInto, fs::File, io::BufWriter};
+
+use exr::block::{writer::ChunksWriter, UncompressedBlock};
 
 // exr imports
 extern crate exr;
 
-/// Generate a striped image on the fly and directly write that to a file without allocating the whole image at once.
-/// On my machine, this program produces a 3GB file while only ever allocating 4MB memory (takes a while though).
+/// Generate a striped image on the fly and directly write that to a file
+/// without allocating the whole image at once. On my machine, this program
+/// produces a 3GB file while only ever allocating 4MB memory (takes a while
+/// though).
 fn main() {
     use attribute::*;
-    use exr::math::*;
-    use exr::prelude::*;
+    use exr::{math::*, prelude::*};
 
     // pre-compute a list of random values
     let random_values: Vec<f32> = (0..64).map(|_| rand::random::<f32>()).collect();
@@ -104,8 +103,5 @@ fn main() {
     .unwrap();
 
     // warning: highly unscientific benchmarks ahead!
-    println!(
-        "\ncreated file 3GB.exr in {:?}s",
-        start_time.elapsed().as_secs_f32()
-    );
+    println!("\ncreated file 3GB.exr in {:?}s", start_time.elapsed().as_secs_f32());
 }

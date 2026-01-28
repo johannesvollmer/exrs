@@ -52,14 +52,16 @@ pub enum CompressedBlock {
 /// as these bytes will be written into the file directly.
 #[derive(Debug, Clone)]
 pub struct CompressedScanLineBlock {
-    /// The block's y coordinate is the pixel space y coordinate of the top scan line in the block.
-    /// The top scan line block in the image is aligned with the top edge of the data window.
+    /// The block's y coordinate is the pixel space y coordinate of the top scan
+    /// line in the block. The top scan line block in the image is aligned
+    /// with the top edge of the data window.
     pub y_coordinate: i32,
 
     /// One or more scan lines may be stored together as a scan line block.
-    /// The number of scan lines per block depends on how the pixel data are compressed.
-    /// For each line in the tile, for each channel, the row values are contiguous.
-    /// This data is compressed and in little-endian format.
+    /// The number of scan lines per block depends on how the pixel data are
+    /// compressed. For each line in the tile, for each channel, the row
+    /// values are contiguous. This data is compressed and in little-endian
+    /// format.
     pub compressed_pixels_le: Vec<u8>,
 }
 
@@ -73,13 +75,15 @@ pub struct CompressedTileBlock {
     pub coordinates: TileCoordinates,
 
     /// One or more scan lines may be stored together as a scan line block.
-    /// The number of scan lines per block depends on how the pixel data are compressed.
-    /// For each line in the tile, for each channel, the row values are contiguous.
-    /// This data is compressed and in little-endian format.
+    /// The number of scan lines per block depends on how the pixel data are
+    /// compressed. For each line in the tile, for each channel, the row
+    /// values are contiguous. This data is compressed and in little-endian
+    /// format.
     pub compressed_pixels_le: Vec<u8>,
 }
 
-/// Indicates the position and resolution level of a `TileBlock` or `DeepTileBlock`.
+/// Indicates the position and resolution level of a `TileBlock` or
+/// `DeepTileBlock`.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct TileCoordinates {
     /// Index of the tile, not pixel position.
@@ -95,21 +99,24 @@ pub struct TileCoordinates {
 /// as these bytes will be written into the file directly.
 #[derive(Debug, Clone)]
 pub struct CompressedDeepScanLineBlock {
-    /// The block's y coordinate is the pixel space y coordinate of the top scan line in the block.
-    /// The top scan line block in the image is aligned with the top edge of the data window.
+    /// The block's y coordinate is the pixel space y coordinate of the top scan
+    /// line in the block. The top scan line block in the image is aligned
+    /// with the top edge of the data window.
     pub y_coordinate: i32,
 
     /// Count of samples.
     pub decompressed_sample_data_size: usize,
 
-    /// The pixel offset table is a list of integers, one for each pixel column within the data window.
-    /// Each entry in the table indicates the total number of samples required
-    /// to store the pixel in it as well as all pixels to the left of it.
+    /// The pixel offset table is a list of integers, one for each pixel column
+    /// within the data window. Each entry in the table indicates the total
+    /// number of samples required to store the pixel in it as well as all
+    /// pixels to the left of it.
     pub compressed_pixel_offset_table: Vec<i8>,
 
     /// One or more scan lines may be stored together as a scan line block.
-    /// The number of scan lines per block depends on how the pixel data are compressed.
-    /// For each line in the tile, for each channel, the row values are contiguous.
+    /// The number of scan lines per block depends on how the pixel data are
+    /// compressed. For each line in the tile, for each channel, the row
+    /// values are contiguous.
     pub compressed_sample_data_le: Vec<u8>,
 }
 
@@ -125,14 +132,16 @@ pub struct CompressedDeepTileBlock {
     /// Count of samples.
     pub decompressed_sample_data_size: usize,
 
-    /// The pixel offset table is a list of integers, one for each pixel column within the data window.
-    /// Each entry in the table indicates the total number of samples required
-    /// to store the pixel in it as well as all pixels to the left of it.
+    /// The pixel offset table is a list of integers, one for each pixel column
+    /// within the data window. Each entry in the table indicates the total
+    /// number of samples required to store the pixel in it as well as all
+    /// pixels to the left of it.
     pub compressed_pixel_offset_table: Vec<i8>,
 
     /// One or more scan lines may be stored together as a scan line block.
-    /// The number of scan lines per block depends on how the pixel data are compressed.
-    /// For each line in the tile, for each channel, the row values are contiguous.
+    /// The number of scan lines per block depends on how the pixel data are
+    /// compressed. For each line in the tile, for each channel, the row
+    /// values are contiguous.
     pub compressed_sample_data_le: Vec<u8>,
 }
 
@@ -157,8 +166,8 @@ impl TileCoordinates {
         let level_y = i32::read_le(read)?;
 
         if level_x > 31 || level_y > 31 {
-            // there can be at most 31 levels, because the largest level would have a size of 2^31,
-            // which exceeds the maximum 32-bit integer value.
+            // there can be at most 31 levels, because the largest level would have a size
+            // of 2^31, which exceeds the maximum 32-bit integer value.
             return Err(Error::invalid("level index exceeding integer maximum"));
         }
 
@@ -192,7 +201,8 @@ impl TileCoordinates {
         }
     }
 
-    /// Absolute coordinates inside the global 2D space of a file, may be negative.
+    /// Absolute coordinates inside the global 2D space of a file, may be
+    /// negative.
     pub fn to_absolute_indices(
         &self,
         tile_size: Vec2<usize>,
@@ -374,20 +384,20 @@ impl CompressedDeepTileBlock {
     }
 }
 
-use crate::error::{i32_to_usize, u64_to_usize, usize_to_i32, Error, Result, UnitResult};
-use crate::math::Vec2;
+use crate::{
+    error::{i32_to_usize, u64_to_usize, usize_to_i32, Error, Result, UnitResult},
+    math::Vec2,
+};
 
-/// Validation of chunks is done while reading and writing the actual data. (For example in `exr::full_image`)
+/// Validation of chunks is done while reading and writing the actual data. (For
+/// example in `exr::full_image`)
 impl Chunk {
     /// Without validation, write this instance to the byte stream.
     pub fn write(&self, write: &mut impl Write, header_count: usize) -> UnitResult {
         debug_assert!(self.layer_index < header_count, "layer index bug"); // validation is done in full_image or simple_image
 
         if header_count == 1 {
-            assert_eq!(
-                self.layer_index, 0,
-                "invalid header index for single layer file"
-            );
+            assert_eq!(self.layer_index, 0, "invalid header index for single layer file");
         } else {
             usize_to_i32(self.layer_index, "layer index")?.write_le(write)?;
         }

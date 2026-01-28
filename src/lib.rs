@@ -43,50 +43,55 @@ pub mod error;
 extern crate smallvec;
 
 /// Export the most important items from `exrs`.
-/// _Note: This includes a type called `Result`, possibly overwriting the default `std::Result` type usage._
+/// _Note: This includes a type called `Result`, possibly overwriting the
+/// default `std::Result` type usage._
 pub mod prelude {
 
-    /// Import this specifically if you want to be explicit but still use the extension traits.
+    /// Import this specifically if you want to be explicit but still use the
+    /// extension traits.
     pub mod traits {
-        pub use crate::image::read::{
-            any_channels::ReadSamples, image::ReadImage, image::ReadLayers, layers::ReadChannels,
-            read, specific_channels::ReadSpecificChannel,
-        };
-        pub use crate::image::write::{channels::GetPixel, WritableImage};
-
-        pub use crate::image::crop::{
-            ApplyCroppedView, Crop, CropResult, CropWhere, CroppedChannels, InspectSample,
+        pub use crate::image::{
+            crop::{ApplyCroppedView, Crop, CropResult, CropWhere, CroppedChannels, InspectSample},
+            read::{
+                any_channels::ReadSamples,
+                image::{ReadImage, ReadLayers},
+                layers::ReadChannels,
+                read,
+                specific_channels::ReadSpecificChannel,
+            },
+            write::{channels::GetPixel, WritableImage},
         };
     }
-
-    pub use traits::*;
-
-    pub use crate::image::read::{
-        read_all_data_from_file, read_all_flat_layers_from_file, read_all_rgba_layers_from_file,
-        read_first_flat_layer_from_file, read_first_rgba_layer_from_file,
-    };
-    pub use crate::image::write::{write_rgb_file, write_rgba_file};
-
-    // image data structures
-    pub use crate::block::samples::Sample;
-    pub use crate::image::*;
-    pub use crate::meta::attribute::{
-        AttributeValue, ChannelDescription, Compression, IntegerBounds, LineOrder, SampleType,
-        Text, TileDescription,
-    };
-    pub use crate::meta::{
-        attribute,
-        header::{ImageAttributes, LayerAttributes},
-        MetaData,
-    };
-
-    // common math
-    pub use crate::math::Vec2;
-
-    // error handling
-    pub use crate::error::{Error, Result};
 
     // re-export external stuff
     pub use half::f16;
     pub use smallvec::SmallVec;
+    pub use traits::*;
+
+    // image data structures
+    pub use crate::block::samples::Sample;
+    // error handling
+    pub use crate::error::{Error, Result};
+    // common math
+    pub use crate::math::Vec2;
+    pub use crate::{
+        image::{
+            read::{
+                read_all_data_from_file, read_all_flat_layers_from_file,
+                read_all_rgba_layers_from_file, read_first_flat_layer_from_file,
+                read_first_rgba_layer_from_file,
+            },
+            write::{write_rgb_file, write_rgba_file},
+            *,
+        },
+        meta::{
+            attribute,
+            attribute::{
+                AttributeValue, ChannelDescription, Compression, IntegerBounds, LineOrder,
+                SampleType, Text, TileDescription,
+            },
+            header::{ImageAttributes, LayerAttributes},
+            MetaData,
+        },
+    };
 }
