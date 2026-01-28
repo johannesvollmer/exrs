@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EXRS Example</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 800px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+      }
+      canvas {
+        border: 1px solid #ccc;
+        max-width: 100%;
+      }
+      pre {
+        background: #f5f5f5;
+        padding: 1rem;
+        overflow-x: auto;
+      }
+      .section {
+        margin: 2rem 0;
+      }
+      button {
+        padding: 0.5rem 1rem;
+        cursor: pointer;
+      }
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>EXRS WASM Example</h1>
+
+    <div class="section">
+      <h2>1. Encode and Decode RGBA Image</h2>
+      <p>Creating a gradient image, encoding to EXR, then decoding:</p>
+      <canvas id="canvas-rgba" width="256" height="256"></canvas>
+      <pre id="output-rgba"></pre>
+      <button id="download-rgba" disabled>Download EXR</button>
+    </div>
+
+    <div class="section">
+      <h2>2. Multi-Layer EXR (AOV Export)</h2>
+      <p>Creating an EXR with beauty, depth, and normals layers:</p>
+      <pre id="output-multilayer"></pre>
+      <button id="download-multilayer" disabled>Download Multi-Layer EXR</button>
+    </div>
+
+    <div class="section">
+      <h2>3. File Upload</h2>
+      <p>Upload an EXR file to decode and display:</p>
+      <input type="file" id="file-input" accept=".exr" />
+      <canvas id="canvas-upload" width="512" height="512"></canvas>
+      <pre id="output-upload"></pre>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

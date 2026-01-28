@@ -13,3 +13,7 @@ pngs/
 
 # ignore Cargo.lock since this is package
 Cargo.lock
+
+# wasm build artifacts
+exrs-wasm/target/
+exrs-wasm/pkg/
