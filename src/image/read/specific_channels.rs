@@ -17,6 +17,7 @@ use crate::{
 };
 
 /// Can be attached one more channel reader.
+///
 /// Call `required` or `optional` on this object to declare another channel to
 /// be read from the file. Call `collect_pixels` at last to define how the
 /// previously declared pixels should be stored.
@@ -113,9 +114,9 @@ pub trait RecursivePixelReader {
     type RecursivePixel: Copy + Default + 'static;
 
     /// Read the line of pixels.
-    fn read_pixels<'s, FullPixel>(
+    fn read_pixels<FullPixel>(
         &self,
-        bytes: &'s [u8],
+        bytes: &[u8],
         pixels: &mut [FullPixel],
         get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel,
     );
@@ -271,10 +272,10 @@ where
 pub type ReadZeroChannels = NoneMore;
 
 impl ReadSpecificChannel for NoneMore {
-    type RecursivePixelReader = NoneMore;
+    type RecursivePixelReader = Self;
 
     fn create_recursive_reader(&self, _: &ChannelList) -> Result<Self::RecursivePixelReader> {
-        Ok(NoneMore)
+        Ok(Self)
     }
 }
 
@@ -371,16 +372,16 @@ pub struct OptionalSampleReader<DefaultSample> {
 }
 
 impl<Sample: FromNativeSample> SampleReader<Sample> {
-    fn read_own_samples<'s, FullPixel>(
+    fn read_own_samples<FullPixel>(
         &self,
-        bytes: &'s [u8],
+        bytes: &[u8],
         pixels: &mut [FullPixel],
         get_sample: impl Fn(&mut FullPixel) -> &mut Sample,
     ) {
         let start_index = pixels.len() * self.channel_byte_offset;
         let byte_count = pixels.len() * self.channel.sample_type.bytes_per_sample();
         let mut own_bytes_reader = &mut &bytes[start_index..start_index + byte_count]; // TODO check block size somewhere
-        let mut samples_out = pixels.iter_mut().map(|pixel| get_sample(pixel));
+        let mut samples_out = pixels.iter_mut().map(get_sample);
 
         // match the type once for the whole line, not on every single sample
         match self.channel.sample_type {
@@ -473,6 +474,8 @@ fn read_and_convert_all_samples_batched<'t, From, To>(
 
 #[cfg(test)]
 mod test {
+    use half::f16;
+
     use super::*;
 
     #[test]
@@ -500,18 +503,18 @@ mod test {
 }
 
 impl RecursivePixelReader for NoneMore {
-    type RecursiveChannelDescriptions = NoneMore;
-    type RecursivePixel = NoneMore;
+    type RecursiveChannelDescriptions = Self;
+    type RecursivePixel = Self;
 
-    fn get_descriptions(&self) -> Self::RecursiveChannelDescriptions {
-        NoneMore
+    fn descriptions(&self) -> Self::RecursiveChannelDescriptions {
+        Self
     }
 
-    fn read_pixels<'s, FullPixel>(
+    fn read_pixels<FullPixel>(
         &self,
-        _: &'s [u8],
+        _: &[u8],
         _: &mut [FullPixel],
-        _: impl Fn(&mut FullPixel) -> &mut NoneMore,
+        _: impl Fn(&mut FullPixel) -> &mut Self,
     ) {
     }
 }
@@ -529,9 +532,9 @@ where
         Recursive::new(self.inner.get_descriptions(), self.value.channel.clone())
     }
 
-    fn read_pixels<'s, FullPixel>(
+    fn read_pixels<FullPixel>(
         &self,
-        bytes: &'s [u8],
+        bytes: &[u8],
         pixels: &mut [FullPixel],
         get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel,
     ) {
@@ -556,9 +559,9 @@ where
         )
     }
 
-    fn read_pixels<'s, FullPixel>(
+    fn read_pixels<FullPixel>(
         &self,
-        bytes: &'s [u8],
+        bytes: &[u8],
         pixels: &mut [FullPixel],
         get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel,
     ) {

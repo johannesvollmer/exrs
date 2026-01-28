@@ -117,7 +117,9 @@ where
         UncompressedBlock::collect_block_data_from_lines(
             &header.channels,
             block_index,
-            |line_ref| self.channels[line_ref.location.channel].extract_line(line_ref),
+            |line_ref| {
+                self.channels[line_ref.location.channel].extract_line(line_ref);
+            },
         )
     }
 }
@@ -177,8 +179,8 @@ pub struct SpecificChannelsWriter<'channels, PixelWriter, Storage, Channels> {
     recursive_channel_writer: PixelWriter,
 }
 
-impl<'channels, PxWriter, Storage, Channels> ChannelsWriter
-    for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
+impl<PxWriter, Storage, Channels> ChannelsWriter
+    for SpecificChannelsWriter<'_, PxWriter, Storage, Channels>
 where
     Channels: Sync,
     Storage: GetPixel,
@@ -215,9 +217,11 @@ where
 }
 
 /// A tuple containing either `ChannelsDescription` or
-/// `Option<ChannelsDescription>` entries. Use an `Option` if you want to
-/// dynamically omit a single channel (probably only for roundtrip tests).
-/// The number of entries must match the number of channels.
+/// `Option<ChannelsDescription>` entries.
+///
+/// Use an `Option` if you want to dynamically omit a single channel (probably
+/// only for roundtrip tests). The number of entries must match the number of
+/// channels.
 pub trait WritableChannelsDescription<Pixel>: Sync {
     /// A type that has a recursive entry for each channel in the image,
     /// which must accept the desired pixel type.
@@ -232,11 +236,11 @@ pub trait WritableChannelsDescription<Pixel>: Sync {
     fn channel_descriptions_list(&self) -> SmallVec<[ChannelDescription; 5]>;
 }
 
-impl WritableChannelsDescription<NoneMore> for NoneMore {
-    type RecursiveWriter = NoneMore;
+impl WritableChannelsDescription<Self> for NoneMore {
+    type RecursiveWriter = Self;
 
     fn create_recursive_writer(&self, _: &ChannelList) -> Self::RecursiveWriter {
-        NoneMore
+        Self
     }
 
     fn channel_descriptions_list(&self) -> SmallVec<[ChannelDescription; 5]> {
@@ -266,7 +270,7 @@ where
             SampleWriter {
                 start_byte_offset,
                 target_sample_type,
-                px: PhantomData::default(),
+                px: PhantomData,
             },
         )
     }
@@ -303,7 +307,7 @@ where
             channel.map(|(start_byte_offset, target_sample_type)| SampleWriter {
                 start_byte_offset,
                 target_sample_type,
-                px: PhantomData::default(),
+                px: PhantomData,
             }),
         )
     }
@@ -348,7 +352,7 @@ where
     fn write_own_samples(&self, bytes: &mut [u8], samples: impl ExactSizeIterator<Item = Sample>) {
         let byte_start_index = samples.len() * self.start_byte_offset;
         let byte_count = samples.len() * self.target_sample_type.bytes_per_sample();
-        let ref mut byte_writer = &mut bytes[byte_start_index..byte_start_index + byte_count];
+        let byte_writer = &mut &mut bytes[byte_start_index..byte_start_index + byte_count];
 
         let write_error_msg = "invalid memory buffer length when writing";
 
@@ -371,18 +375,18 @@ where
                     sample.to_u32().write_ne(byte_writer).expect(write_error_msg);
                 }
             }
-        };
+        }
 
         debug_assert!(byte_writer.is_empty(), "all samples are written, but more were expected");
     }
 }
 
-impl RecursivePixelWriter<NoneMore> for NoneMore {
+impl RecursivePixelWriter<Self> for NoneMore {
     fn write_pixels<FullPixel>(
         &self,
         _: &mut [u8],
         _: &[FullPixel],
-        _: impl Fn(&FullPixel) -> &NoneMore,
+        _: impl Fn(&FullPixel) -> &Self,
     ) {
     }
 }

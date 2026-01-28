@@ -49,7 +49,9 @@ pub struct BlockIndex {
 }
 
 /// Contains a block of pixel data and where that data should be placed in the
-/// actual image. The bytes must be encoded in native-endian format.
+/// actual image.
+///
+/// The bytes must be encoded in native-endian format.
 /// The conversion to little-endian format happens when converting to chunks
 /// (potentially in parallel).
 #[derive(Clone, Eq, PartialEq, Debug)]
@@ -68,6 +70,7 @@ pub struct UncompressedBlock {
 }
 
 /// Immediately reads the meta data from the file.
+///
 /// Then, returns a reader that can be used to read all pixel blocks.
 /// From the reader, you can pull each compressed chunk from the file.
 /// Alternatively, you can create a decompressor, and pull the uncompressed data
@@ -77,6 +80,7 @@ pub fn read<R: Read + Seek>(buffered_read: R, pedantic: bool) -> Result<self::re
 }
 
 /// Immediately writes the meta data to the file.
+///
 /// Then, calls a closure with a writer that can be used to write all pixel
 /// blocks. In the closure, you can push compressed chunks directly into the
 /// writer. Alternatively, you can create a compressor, wrapping the writer, and
@@ -91,7 +95,9 @@ pub fn write<W: Write + Seek>(
 }
 
 /// This iterator tells you the block indices of all blocks that must be in the
-/// image. The order of the blocks depends on the `LineOrder` attribute
+/// image.
+///
+/// The order of the blocks depends on the `LineOrder` attribute
 /// (unspecified line order is treated the same as increasing line order).
 /// The blocks written to the file must be exactly in this order,
 /// except for when the `LineOrder` is unspecified.
@@ -128,8 +134,10 @@ impl UncompressedBlock {
     #[inline]
     #[must_use]
     pub fn decompress_chunk(chunk: Chunk, meta_data: &MetaData, pedantic: bool) -> Result<Self> {
-        let header: &Header =
-            meta_data.headers.get(chunk.layer_index).ok_or(Error::invalid("chunk layer index"))?;
+        let header: &Header = meta_data
+            .headers
+            .get(chunk.layer_index)
+            .ok_or_else(|| Error::invalid("chunk layer index"))?;
 
         let tile_data_indices = header.get_block_data_indices(&chunk.compressed_block)?;
         let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_data_indices)?;
@@ -144,7 +152,7 @@ impl UncompressedBlock {
             | CompressedBlock::ScanLine(CompressedScanLineBlock {
                 compressed_pixels_le,
                 ..
-            }) => Ok(UncompressedBlock {
+            }) => Ok(Self {
                 data: header.compression.decompress_image_section_from_le(
                     header,
                     compressed_pixels_le,
@@ -159,7 +167,7 @@ impl UncompressedBlock {
                 },
             }),
 
-            _ => return Err(Error::unsupported("deep data not supported yet")),
+            _ => Err(Error::unsupported("deep data not supported yet")),
         }
     }
 
@@ -168,7 +176,7 @@ impl UncompressedBlock {
     #[inline]
     #[must_use]
     pub fn compress_to_chunk(self, headers: &[Header]) -> Result<Chunk> {
-        let UncompressedBlock {
+        let Self {
             data,
             index,
         } = self;
@@ -177,7 +185,11 @@ impl UncompressedBlock {
 
         let expected_byte_size = header.channels.bytes_per_pixel * self.index.pixel_size.area(); // TODO sampling??
         if expected_byte_size != data.len() {
-            panic!("get_line byte size should be {} but was {}", expected_byte_size, data.len());
+            return Err(Error::invalid(format!(
+                "decompressed block byte size mismatch: expected {} bytes but got {} bytes",
+                expected_byte_size,
+                data.len()
+            )));
         }
 
         let tile_coordinates = TileCoordinates {

@@ -266,6 +266,7 @@ impl LayerAttributes {
     }
 
     /// Set the data position of this layer.
+    #[must_use]
     pub fn with_position(self, data_position: Vec2<i32>) -> Self {
         Self {
             layer_position: data_position,
@@ -297,6 +298,7 @@ impl LayerAttributes {
 
 impl ImageAttributes {
     /// Set the display position and size of this image.
+    #[must_use]
     pub fn new(display_window: IntegerBounds) -> Self {
         Self {
             pixel_aspect: 1.0,
@@ -360,19 +362,22 @@ impl Header {
 
     /// Set the display window, that is, the global clipping rectangle.
     /// __Must be the same for all headers of a file.__
-    pub fn with_display_window(mut self, display_window: IntegerBounds) -> Self {
+    #[must_use]
+    pub const fn with_display_window(mut self, display_window: IntegerBounds) -> Self {
         self.shared_attributes.display_window = display_window;
         self
     }
 
     /// Set the offset of this layer.
-    pub fn with_position(mut self, position: Vec2<i32>) -> Self {
+    #[must_use]
+    pub const fn with_position(mut self, position: Vec2<i32>) -> Self {
         self.own_attributes.layer_position = position;
         self
     }
 
     /// Set compression, tiling, and line order. Automatically computes chunk
     /// count.
+    #[must_use]
     pub fn with_encoding(
         self,
         compression: Compression,
@@ -390,6 +395,7 @@ impl Header {
 
     /// Set **all** attributes of the header that are not shared with all other
     /// headers in the image.
+    #[must_use]
     pub fn with_attributes(self, own_attributes: LayerAttributes) -> Self {
         Self {
             own_attributes,
@@ -399,6 +405,7 @@ impl Header {
 
     /// Set **all** attributes of the header that are shared with all other
     /// headers in the image.
+    #[must_use]
     pub fn with_shared_attributes(self, shared_attributes: ImageAttributes) -> Self {
         Self {
             shared_attributes,
@@ -448,7 +455,7 @@ impl Header {
     /// order.
     pub fn blocks_increasing_y_order(
         &self,
-    ) -> impl Iterator<Item = TileIndices> + ExactSizeIterator + DoubleEndedIterator {
+    ) -> impl ExactSizeIterator<Item = TileIndices> + DoubleEndedIterator {
         fn tiles_of(
             image_size: Vec2<usize>,
             tile_size: Vec2<usize>,
@@ -530,7 +537,7 @@ impl Header {
     /// The default pixel resolution of a single block (tile or scan line
     /// block). Not all blocks have this size, because they may be cutoff at
     /// the end of the image.
-    pub fn max_block_pixel_size(&self) -> Vec2<usize> {
+    pub const fn max_block_pixel_size(&self) -> Vec2<usize> {
         match self.blocks {
             BlockDescription::ScanLines => {
                 Vec2(self.layer_size.0, self.compression.scan_lines_per_block())
@@ -565,8 +572,8 @@ impl Header {
             let absolute_tile_coordinates =
                 tile.to_data_indices(tiles.tile_size, Vec2(data_width, data_height))?;
 
-            if absolute_tile_coordinates.position.x() as i64 >= data_width as i64
-                || absolute_tile_coordinates.position.y() as i64 >= data_height as i64
+            if i64::from(absolute_tile_coordinates.position.x()) >= data_width as i64
+                || i64::from(absolute_tile_coordinates.position.y()) >= data_height as i64
             {
                 return Err(Error::invalid("data block tile index"));
             }
@@ -603,8 +610,8 @@ impl Header {
                 let diff = block
                     .y_coordinate
                     .checked_sub(self.own_attributes.layer_position.y())
-                    .ok_or(Error::invalid("invalid header"))?;
-                let y = diff.checked_div(size).ok_or(Error::invalid("invalid header"))?;
+                    .ok_or_else(|| Error::invalid("invalid header"))?;
+                let y = diff.checked_div(size).ok_or_else(|| Error::invalid("invalid header"))?;
 
                 if y < 0 {
                     return Err(Error::invalid("scan block y coordinate"));
@@ -629,8 +636,8 @@ impl Header {
 
         let diff = block_y_coordinate
             .checked_sub(self.own_attributes.layer_position.1)
-            .ok_or(Error::invalid("invalid header"))?;
-        let y = diff.checked_div(size).ok_or(Error::invalid("invalid header"))?;
+            .ok_or_else(|| Error::invalid("invalid header"))?;
+        let y = diff.checked_div(size).ok_or_else(|| Error::invalid("invalid header"))?;
 
         if y < 0 {
             return Err(Error::invalid("scan block y coordinate"));
@@ -703,10 +710,8 @@ impl Header {
         self.shared_attributes.display_window.validate(None)?;
 
         if strict {
-            if is_multilayer {
-                if self.own_attributes.layer_name.is_none() {
-                    return Err(missing_attribute("layer name for multi layer file"));
-                }
+            if is_multilayer && self.own_attributes.layer_name.is_none() {
+                return Err(missing_attribute("layer name for multi layer file"));
             }
 
             if self.blocks == BlockDescription::ScanLines
@@ -768,13 +773,13 @@ impl Header {
 
         // check if attribute names appear twice
         if strict {
-            for (name, _) in &self.shared_attributes.other {
+            for name in self.shared_attributes.other.keys() {
                 if self.own_attributes.other.contains_key(name) {
-                    return Err(Error::invalid(format!("duplicate attribute name: `{}`", name)));
+                    return Err(Error::invalid(format!("duplicate attribute name: `{name}`")));
                 }
             }
 
-            for &reserved in header::standard_names::ALL.iter() {
+            for &reserved in header::standard_names::ALL {
                 let name = Text::from_bytes_unchecked(SmallVec::from_slice(reserved));
                 if self.own_attributes.other.contains_key(&name)
                     || self.shared_attributes.other.contains_key(&name)
@@ -820,25 +825,21 @@ impl Header {
         version: &Requirements,
         pedantic: bool,
     ) -> Result<Headers> {
-        if !version.is_multilayer() {
-            Ok(smallvec![Header::read(read, version, pedantic)?])
-        } else {
+        if version.is_multilayer() {
             let mut headers = SmallVec::new();
 
             while !sequence_end::has_come(read)? {
-                headers.push(Header::read(read, version, pedantic)?);
+                headers.push(Self::read(read, version, pedantic)?);
             }
 
             Ok(headers)
+        } else {
+            Ok(smallvec![Self::read(read, version, pedantic)?])
         }
     }
 
     /// Without validation, write the headers to the byte stream.
-    pub fn write_all(
-        headers: &[Header],
-        write: &mut impl Write,
-        is_multilayer: bool,
-    ) -> UnitResult {
+    pub fn write_all(headers: &[Self], write: &mut impl Write, is_multilayer: bool) -> UnitResult {
         for header in headers {
             header.write(write)?;
         }
@@ -887,7 +888,9 @@ impl Header {
         // used to type-check local variables. only requried because you cannot do `let
         // i: impl Iterator<> = ...`
         #[inline]
-        fn expect_is_iter<'s, T: Iterator<Item = (&'s TextSlice, AttributeValue)>>(val: T) -> T {
+        const fn expect_is_iter<'s, T: Iterator<Item = (&'s TextSlice, AttributeValue)>>(
+            val: T,
+        ) -> T {
             val
         }
 
@@ -1065,54 +1068,54 @@ impl Header {
                     // used type for that attribute
                     match (attribute_name.as_slice(), value) {
                         (name::BLOCK_TYPE, Text(value)) => {
-                            block_type = Some(attribute::BlockType::parse(value)?)
+                            block_type = Some(attribute::BlockType::parse(value)?);
                         }
                         (name::TILES, TileDescription(value)) => tiles = Some(value),
                         (name::CHANNELS, ChannelList(value)) => channels = Some(value),
                         (name::COMPRESSION, Compression(value)) => compression = Some(value),
                         (name::DATA_WINDOW, IntegerBounds(value)) => data_window = Some(value),
                         (name::DISPLAY_WINDOW, IntegerBounds(value)) => {
-                            display_window = Some(value)
+                            display_window = Some(value);
                         }
                         (name::LINE_ORDER, LineOrder(value)) => line_order = Some(value),
                         (name::DEEP_DATA_VERSION, I32(value)) => version = Some(value),
 
                         (name::MAX_SAMPLES, I32(value)) => {
-                            max_samples_per_pixel = Some(i32_to_usize(value, "max sample count")?)
+                            max_samples_per_pixel = Some(i32_to_usize(value, "max sample count")?);
                         }
 
                         (name::CHUNKS, I32(value)) => {
-                            chunk_count = Some(i32_to_usize(value, "chunk count")?)
+                            chunk_count = Some(i32_to_usize(value, "chunk count")?);
                         }
 
                         (name::NAME, Text(value)) => layer_attributes.layer_name = Some(value),
                         (name::WINDOW_CENTER, FloatVec2(value)) => {
-                            layer_attributes.screen_window_center = value
+                            layer_attributes.screen_window_center = value;
                         }
                         (name::WINDOW_WIDTH, F32(value)) => {
-                            layer_attributes.screen_window_width = value
+                            layer_attributes.screen_window_width = value;
                         }
 
                         (name::WHITE_LUMINANCE, F32(value)) => {
-                            layer_attributes.white_luminance = Some(value)
+                            layer_attributes.white_luminance = Some(value);
                         }
                         (name::ADOPTED_NEUTRAL, FloatVec2(value)) => {
-                            layer_attributes.adopted_neutral = Some(value)
+                            layer_attributes.adopted_neutral = Some(value);
                         }
                         (name::RENDERING_TRANSFORM, Text(value)) => {
-                            layer_attributes.rendering_transform_name = Some(value)
+                            layer_attributes.rendering_transform_name = Some(value);
                         }
                         (name::LOOK_MOD_TRANSFORM, Text(value)) => {
-                            layer_attributes.look_modification_transform_name = Some(value)
+                            layer_attributes.look_modification_transform_name = Some(value);
                         }
                         (name::X_DENSITY, F32(value)) => {
-                            layer_attributes.horizontal_density = Some(value)
+                            layer_attributes.horizontal_density = Some(value);
                         }
 
                         (name::OWNER, Text(value)) => layer_attributes.owner = Some(value),
                         (name::COMMENTS, Text(value)) => layer_attributes.comments = Some(value),
                         (name::CAPTURE_DATE, Text(value)) => {
-                            layer_attributes.capture_date = Some(value)
+                            layer_attributes.capture_date = Some(value);
                         }
                         (name::UTC_OFFSET, F32(value)) => layer_attributes.utc_offset = Some(value),
                         (name::LONGITUDE, F32(value)) => layer_attributes.longitude = Some(value),
@@ -1120,39 +1123,39 @@ impl Header {
                         (name::ALTITUDE, F32(value)) => layer_attributes.altitude = Some(value),
                         (name::FOCUS, F32(value)) => layer_attributes.focus = Some(value),
                         (name::EXPOSURE_TIME, F32(value)) => {
-                            layer_attributes.exposure = Some(value)
+                            layer_attributes.exposure = Some(value);
                         }
                         (name::APERTURE, F32(value)) => layer_attributes.aperture = Some(value),
                         (name::ISO_SPEED, F32(value)) => layer_attributes.iso_speed = Some(value),
                         (name::ENVIRONMENT_MAP, EnvironmentMap(value)) => {
-                            layer_attributes.environment_map = Some(value)
+                            layer_attributes.environment_map = Some(value);
                         }
                         (name::KEY_CODE, KeyCode(value)) => {
-                            layer_attributes.film_key_code = Some(value)
+                            layer_attributes.film_key_code = Some(value);
                         }
                         (name::WRAP_MODES, Text(value)) => {
-                            layer_attributes.wrap_mode_name = Some(value)
+                            layer_attributes.wrap_mode_name = Some(value);
                         }
                         (name::FRAMES_PER_SECOND, Rational(value)) => {
-                            layer_attributes.frames_per_second = Some(value)
+                            layer_attributes.frames_per_second = Some(value);
                         }
                         (name::MULTI_VIEW, TextVector(value)) => {
-                            layer_attributes.multi_view_names = Some(value)
+                            layer_attributes.multi_view_names = Some(value);
                         }
                         (name::WORLD_TO_CAMERA, Matrix4x4(value)) => {
-                            layer_attributes.world_to_camera = Some(value)
+                            layer_attributes.world_to_camera = Some(value);
                         }
                         (name::WORLD_TO_NDC, Matrix4x4(value)) => {
-                            layer_attributes.world_to_normalized_device = Some(value)
+                            layer_attributes.world_to_normalized_device = Some(value);
                         }
                         (name::DEEP_IMAGE_STATE, Rational(value)) => {
-                            layer_attributes.deep_image_state = Some(value)
+                            layer_attributes.deep_image_state = Some(value);
                         }
                         (name::ORIGINAL_DATA_WINDOW, IntegerBounds(value)) => {
-                            layer_attributes.original_data_window = Some(value)
+                            layer_attributes.original_data_window = Some(value);
                         }
                         (name::DWA_COMPRESSION_LEVEL, F32(value)) => {
-                            dwa_compression_level = Some(value)
+                            dwa_compression_level = Some(value);
                         }
                         (name::PREVIEW, Preview(value)) => layer_attributes.preview = Some(value),
                         (name::VIEW, Text(value)) => layer_attributes.view_name = Some(value),
@@ -1160,26 +1163,26 @@ impl Header {
                         (name::NEAR, F32(value)) => layer_attributes.near_clip_plane = Some(value),
                         (name::FAR, F32(value)) => layer_attributes.far_clip_plane = Some(value),
                         (name::FOV_X, F32(value)) => {
-                            layer_attributes.horizontal_field_of_view = Some(value)
+                            layer_attributes.horizontal_field_of_view = Some(value);
                         }
                         (name::FOV_Y, F32(value)) => {
-                            layer_attributes.vertical_field_of_view = Some(value)
+                            layer_attributes.vertical_field_of_view = Some(value);
                         }
                         (name::SOFTWARE, Text(value)) => {
-                            layer_attributes.software_name = Some(value)
+                            layer_attributes.software_name = Some(value);
                         }
 
                         (name::PIXEL_ASPECT, F32(value)) => image_attributes.pixel_aspect = value,
                         (name::TIME_CODE, TimeCode(value)) => {
-                            image_attributes.time_code = Some(value)
+                            image_attributes.time_code = Some(value);
                         }
                         (name::CHROMATICITIES, Chromaticities(value)) => {
-                            image_attributes.chromaticities = Some(value)
+                            image_attributes.chromaticities = Some(value);
                         }
 
                         // insert unknown attributes of these types into image attributes,
                         // as these must be the same for all headers
-                        (_, value @ Chromaticities(_)) | (_, value @ TimeCode(_)) => {
+                        (_, value @ (Chromaticities(_) | TimeCode(_))) => {
                             image_attributes.other.insert(attribute_name, value);
                         }
 
@@ -1209,11 +1212,11 @@ impl Header {
             // process
         };
 
-        let compression = compression.ok_or(missing_attribute("compression"))?;
+        let compression = compression.ok_or_else(|| missing_attribute("compression"))?;
         image_attributes.display_window =
-            display_window.ok_or(missing_attribute("display window"))?;
+            display_window.ok_or_else(|| missing_attribute("display window"))?;
 
-        let data_window = data_window.ok_or(missing_attribute("data window"))?;
+        let data_window = data_window.ok_or_else(|| missing_attribute("data window"))?;
         data_window.validate(None)?; // validate now to avoid errors when computing the chunk_count
         layer_attributes.layer_position = data_window.position;
 
@@ -1223,10 +1226,10 @@ impl Header {
         }
         let blocks = match block_type {
             None if requirements.is_single_layer_and_tiled => {
-                BlockDescription::Tiles(tiles.ok_or(missing_attribute("tiles"))?)
+                BlockDescription::Tiles(tiles.ok_or_else(|| missing_attribute("tiles"))?)
             }
-            Some(BlockType::Tile) | Some(BlockType::DeepTile) => {
-                BlockDescription::Tiles(tiles.ok_or(missing_attribute("tiles"))?)
+            Some(BlockType::Tile | BlockType::DeepTile) => {
+                BlockDescription::Tiles(tiles.ok_or_else(|| missing_attribute("tiles"))?)
             }
 
             _ => BlockDescription::ScanLines,
@@ -1237,7 +1240,7 @@ impl Header {
             return Err(Error::invalid("chunk count not matching data size"));
         }
 
-        let header = Header {
+        let header = Self {
             compression,
 
             // always compute ourselves, because we cannot trust anyone out there 😱
@@ -1248,7 +1251,7 @@ impl Header {
             shared_attributes: image_attributes,
             own_attributes: layer_attributes,
 
-            channels: channels.ok_or(missing_attribute("channels"))?,
+            channels: channels.ok_or_else(|| missing_attribute("channels"))?,
             line_order: line_order.unwrap_or(LineOrder::Unspecified),
 
             blocks,
@@ -1430,7 +1433,7 @@ impl std::fmt::Debug for LayerAttributes {
         }
 
         for (name, value) in &self.other {
-            debug.field(&format!("\"{}\"", name), value);
+            debug.field(&format!("\"{name}\""), value);
         }
 
         // debug.finish_non_exhaustive() TODO

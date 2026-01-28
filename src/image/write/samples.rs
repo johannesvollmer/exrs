@@ -64,9 +64,9 @@ impl<'samples> WritableSamples<'samples> for FlatSamples {
 
     fn sample_type(&self) -> SampleType {
         match self {
-            FlatSamples::F16(_) => SampleType::F16,
-            FlatSamples::F32(_) => SampleType::F32,
-            FlatSamples::U32(_) => SampleType::U32,
+            Self::F16(_) => SampleType::F16,
+            Self::F32(_) => SampleType::F32,
+            Self::U32(_) => SampleType::U32,
         }
     }
 
@@ -89,9 +89,9 @@ impl<'samples> WritableLevel<'samples> for FlatSamples {
 
     fn sample_type(&self) -> SampleType {
         match self {
-            FlatSamples::F16(_) => SampleType::F16,
-            FlatSamples::F32(_) => SampleType::F32,
-            FlatSamples::U32(_) => SampleType::U32,
+            Self::F16(_) => SampleType::F16,
+            Self::F32(_) => SampleType::F32,
+            Self::U32(_) => SampleType::U32,
         }
     }
 
@@ -103,7 +103,7 @@ impl<'samples> WritableLevel<'samples> for FlatSamples {
     }
 }
 
-impl<'samples> SamplesWriter for FlatSamplesWriter<'samples> {
+impl SamplesWriter for FlatSamplesWriter<'_> {
     fn extract_line(&self, line: LineRefMut<'_>) {
         let image_width = self.resolution.width(); // header.layer_size.width();
         debug_assert_ne!(image_width, 0, "image width calculation bug");
@@ -152,12 +152,12 @@ where
 
     fn infer_level_modes(&self) -> (LevelMode, RoundingMode) {
         match self {
-            Levels::Singular(_) => (LevelMode::Singular, RoundingMode::Down),
-            Levels::Mip {
+            Self::Singular(_) => (LevelMode::Singular, RoundingMode::Down),
+            Self::Mip {
                 rounding_mode,
                 ..
             } => (LevelMode::MipMap, *rounding_mode),
-            Levels::Rip {
+            Self::Rip {
                 rounding_mode,
                 ..
             } => (LevelMode::RipMap, *rounding_mode),
@@ -175,10 +175,10 @@ where
 
         LevelsWriter {
             levels: match self {
-                Levels::Singular(level) => {
+                Self::Singular(level) => {
                     Levels::Singular(level.create_level_writer(header.layer_size))
                 }
-                Levels::Mip {
+                Self::Mip {
                     level_data,
                     rounding_mode,
                 } => {
@@ -208,7 +208,7 @@ where
                             .collect(),
                     }
                 }
-                Levels::Rip {
+                Self::Rip {
                     level_data,
                     rounding_mode,
                 } => {
@@ -264,6 +264,6 @@ where
         self.levels
             .get_level(line.location.level)
             .expect("invalid level index") // TODO compute level size from line index??
-            .extract_line(line)
+            .extract_line(line);
     }
 }
