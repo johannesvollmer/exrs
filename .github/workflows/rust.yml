@@ -31,13 +31,13 @@ jobs:
     - name: Cache Cargo Dependencies
       uses: Swatinem/rust-cache@v1.3.0
     - name: Build without default features
-      run: cargo build --no-default-features --verbose
+      run: cargo +stable build --no-default-features --verbose
     - name: Run tests without default features
-      run: cargo test --no-default-features --verbose
+      run: cargo +stable test --no-default-features --verbose
     - name: Build with rayon feature
-      run: cargo build --features rayon --verbose
+      run: cargo +stable build --features rayon --verbose
     - name: Run tests with rayon feature
-      run: cargo test --features rayon --verbose
+      run: cargo +stable test --features rayon --verbose
 
 
   macos:
@@ -51,13 +51,13 @@ jobs:
       - name: Cache Cargo Dependencies
         uses: Swatinem/rust-cache@v1.3.0
       - name: Build without default features
-        run: cargo build --no-default-features --verbose
+        run: cargo +stable build --no-default-features --verbose
       - name: Run tests without default features
-        run: cargo test --no-default-features --verbose
+        run: cargo +stable test --no-default-features --verbose
       - name: Build with rayon feature
-        run: cargo build --features rayon --verbose
+        run: cargo +stable build --features rayon --verbose
       - name: Run tests with rayon feature
-        run: cargo test --features rayon --verbose
+        run: cargo +stable test --features rayon --verbose
 
   verify-msrv:
     strategy:
@@ -75,11 +75,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install foresterre/cargo-msrv
-        run: cargo install cargo-msrv
+        run: cargo +stable install cargo-msrv
 
       - uses: dtolnay/rust-toolchain@nightly
       - name: Generate Cargo.lock with minimal-version dependencies
-        run: cargo -Zminimal-versions generate-lockfile
+        run: cargo +stable -Zminimal-versions generate-lockfile
 
       - name: Verify the Rustc version declared in `Cargo.toml` with `minimal-versions`
         run: cargo-msrv verify
@@ -138,10 +138,10 @@ jobs:
       run: rustup target add wasm32-unknown-unknown
 
     - name: Build without default features
-      run: cargo build --verbose --no-default-features --target wasm32-unknown-unknown
+      run: cargo +stable build --verbose --no-default-features --target wasm32-unknown-unknown
 
     - name: Run tests without default features
-      run: cargo test --verbose --no-default-features
+      run: cargo +stable test --verbose --no-default-features
 
   js:
     runs-on: ubuntu-latest
@@ -168,7 +168,7 @@ jobs:
           workspaces: exrs-wasm
 
       - name: Install wasm-pack
-        run: cargo install wasm-pack
+        run: cargo +stable install wasm-pack
 
       # todo: cache?
       - name: Install
