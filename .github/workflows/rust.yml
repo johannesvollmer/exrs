@@ -27,6 +27,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - uses: dtolnay/rust-toolchain@stable
     - name: Cache Cargo Dependencies
       uses: Swatinem/rust-cache@v1.3.0
     - name: Build without default features
@@ -46,6 +47,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
       - name: Cache Cargo Dependencies
         uses: Swatinem/rust-cache@v1.3.0
       - name: Build without default features
@@ -70,6 +72,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Install foresterre/cargo-msrv
         run: cargo install cargo-msrv
@@ -93,6 +96,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Install or use cached cross-rs/cross
         uses: baptiste0928/cargo-install@v1
@@ -125,6 +129,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - uses: dtolnay/rust-toolchain@stable
 
     - name: Cache Cargo Dependencies
       uses: Swatinem/rust-cache@v1.3.0
