@@ -323,19 +323,19 @@ This repository uses Rustfmt's standard style. Continuous Integration checks for
 How to format locally:
 
 - Format the entire workspace in-place:
-  - `cargo fmt --all`
+  - `cargo +nightly fmt --all`
 - Check formatting without changing files (what CI runs):
-  - `cargo fmt --all -- --check`
+  - `cargo +nightly fmt --all -- --check`
 
-If `cargo fmt` is not found, install the Rustfmt component via Rustup:
+If `cargo +nightly fmt` is not found, install the Rustfmt component via Rustup:
 
 - Install Rustfmt for your current toolchain:
   - `rustup component add rustfmt`
 - If needed, ensure the stable toolchain is installed, then add Rustfmt explicitly:
-  - `rustup toolchain install stable`
-  - `rustup component add --toolchain stable rustfmt`
+  - `rustup toolchain install nightly`
+  - `rustup component add --toolchain nightly rustfmt`
 
-You may also configure your editor to run `cargo fmt` on save.
+You may also configure your editor to run `cargo +nightly fmt` on save.
 
 ### Running Tests
 

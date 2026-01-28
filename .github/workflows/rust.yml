@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@nightly
       - name: Install rustfmt component
-        run: rustup component add rustfmt
+        run: rustup component add --toolchain nightly rustfmt
       - name: Verify formatting
         run: cargo +nightly fmt --all -- --check
 
