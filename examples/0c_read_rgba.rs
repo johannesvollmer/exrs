@@ -26,8 +26,5 @@ fn main() {
 
     // printing all pixels might kill the console, so only print some meta data
     // about the image
-    println!(
-        "opened file generated_rgba.exr: {:#?}",
-        image.layer_data.attributes
-    );
+    println!("opened file generated_rgba.exr: {:#?}", image.layer_data.attributes);
 }

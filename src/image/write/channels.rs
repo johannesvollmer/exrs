@@ -1,5 +1,7 @@
 //! How to read arbitrary channels and rgb channels.
 
+use std::marker::PhantomData;
+
 use crate::{
     block::{samples::*, *},
     image::{recursive::*, write::samples::*},
@@ -8,8 +10,6 @@ use crate::{
     meta::{attribute::*, header::*},
     prelude::*,
 };
-
-use std::marker::PhantomData;
 
 /// Enables an image containing this list of channels to be written to a file.
 pub trait WritableChannels<'slf> {
@@ -80,13 +80,8 @@ where
     }
 
     fn infer_level_modes(&self) -> (LevelMode, RoundingMode) {
-        let mode = self
-            .list
-            .iter()
-            .next()
-            .expect("zero channels in list")
-            .sample_data
-            .infer_level_modes();
+        let mode =
+            self.list.iter().next().expect("zero channels in list").sample_data.infer_level_modes();
 
         debug_assert!(
             std::iter::repeat(mode)
@@ -99,13 +94,12 @@ where
     }
 
     fn create_writer(&'samples self, header: &Header) -> Self::Writer {
-        let channels = self
-            .list
-            .iter()
-            .map(|chan| chan.sample_data.create_samples_writer(header))
-            .collect();
+        let channels =
+            self.list.iter().map(|chan| chan.sample_data.create_samples_writer(header)).collect();
 
-        AnyChannelsWriter { channels }
+        AnyChannelsWriter {
+            channels,
+        }
     }
 }
 
@@ -146,18 +140,12 @@ where
     >;
 
     fn infer_channel_list(&self) -> ChannelList {
-        let mut vec = self
-            .channels
-            .clone()
-            .into_recursive()
-            .channel_descriptions_list();
+        let mut vec = self.channels.clone().into_recursive().channel_descriptions_list();
         vec.sort_unstable_by_key(|channel: &ChannelDescription| channel.name.clone()); // TODO no clone?
 
         debug_assert!(
             // check for equal neighbors in sorted vec
-            vec.iter()
-                .zip(vec.iter().skip(1))
-                .all(|(prev, next)| prev.name != next.name),
+            vec.iter().zip(vec.iter().skip(1)).all(|(prev, next)| prev.name != next.name),
             "specific channels contain duplicate channel names"
         );
 
@@ -204,13 +192,9 @@ where
         let width = block_index.pixel_size.0;
         let line_bytes = width * header.channels.bytes_per_pixel;
         let byte_lines = block_bytes.chunks_exact_mut(line_bytes);
-        assert_eq!(
-            byte_lines.len(),
-            block_index.pixel_size.height(),
-            "invalid block line splits"
-        );
+        assert_eq!(byte_lines.len(), block_index.pixel_size.height(), "invalid block line splits");
 
-        //dbg!(width, line_bytes, header.channels.bytes_per_pixel, byte_lines.len());
+        // dbg!(width, line_bytes, header.channels.bytes_per_pixel, byte_lines.len());
 
         let mut pixel_line = Vec::with_capacity(width);
 
@@ -223,8 +207,7 @@ where
                     .into_recursive()
             }));
 
-            self.recursive_channel_writer
-                .write_pixels(line_bytes, pixel_line.as_slice(), |px| px);
+            self.recursive_channel_writer.write_pixels(line_bytes, pixel_line.as_slice(), |px| px);
         }
 
         block_bytes
@@ -375,34 +358,22 @@ where
             // parameter?
             SampleType::F16 => {
                 for sample in samples {
-                    sample
-                        .to_f16()
-                        .write_ne(byte_writer)
-                        .expect(write_error_msg);
+                    sample.to_f16().write_ne(byte_writer).expect(write_error_msg);
                 }
             }
             SampleType::F32 => {
                 for sample in samples {
-                    sample
-                        .to_f32()
-                        .write_ne(byte_writer)
-                        .expect(write_error_msg);
+                    sample.to_f32().write_ne(byte_writer).expect(write_error_msg);
                 }
             }
             SampleType::U32 => {
                 for sample in samples {
-                    sample
-                        .to_u32()
-                        .write_ne(byte_writer)
-                        .expect(write_error_msg);
+                    sample.to_u32().write_ne(byte_writer).expect(write_error_msg);
                 }
             }
         };
 
-        debug_assert!(
-            byte_writer.is_empty(),
-            "all samples are written, but more were expected"
-        );
+        debug_assert!(byte_writer.is_empty(), "all samples are written, but more were expected");
     }
 }
 
@@ -428,10 +399,8 @@ where
         pixels: &[FullPixel],
         get_pixel: impl Fn(&FullPixel) -> &Recursive<InnerPixel, Sample>,
     ) {
-        self.value
-            .write_own_samples(bytes, pixels.iter().map(|px| get_pixel(px).value));
-        self.inner
-            .write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
+        self.value.write_own_samples(bytes, pixels.iter().map(|px| get_pixel(px).value));
+        self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
     }
 }
 
@@ -451,8 +420,7 @@ where
             writer.write_own_samples(bytes, pixels.iter().map(|px| get_pixel(px).value));
         }
 
-        self.inner
-            .write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
+        self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
     }
 }
 

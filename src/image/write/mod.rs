@@ -16,6 +16,8 @@ pub mod channels;
 pub mod layers;
 pub mod samples;
 
+use std::io::{BufWriter, Seek};
+
 use crate::{
     block::writer::ChunksWriter,
     error::UnitResult,
@@ -28,7 +30,6 @@ use crate::{
     math::Vec2,
     meta::Headers,
 };
-use std::io::{BufWriter, Seek};
 
 /// An oversimplified function for "just write the damn file already" use cases.
 /// Have a look at the examples to see how you can write an image with more
@@ -51,9 +52,7 @@ where
     A: IntoSample,
 {
     let channels = SpecificChannels::rgba(|Vec2(x, y)| colors(x, y));
-    Image::from_channels((width, height), channels)
-        .write()
-        .to_file(path)
+    Image::from_channels((width, height), channels).write().to_file(path)
 }
 
 /// An oversimplified function for "just write the damn file already" use cases.
@@ -75,9 +74,7 @@ where
     B: IntoSample,
 {
     let channels = SpecificChannels::rgb(|Vec2(x, y)| colors(x, y));
-    Image::from_channels((width, height), channels)
-        .write()
-        .to_file(path)
+    Image::from_channels((width, height), channels).write().to_file(path)
 }
 
 /// Enables an image to be written to a file. Call `image.write()` where this
@@ -205,29 +202,24 @@ where
         let headers = self.infer_meta_data();
         let layers = self.image.layer_data.create_writer(&headers);
 
-        crate::block::write(
-            write,
-            headers,
-            self.check_compatibility,
-            move |meta, chunk_writer| {
-                let blocks = meta.collect_ordered_block_data(|block_index| {
-                    layers.extract_uncompressed_block(&meta.headers, block_index)
-                });
+        crate::block::write(write, headers, self.check_compatibility, move |meta, chunk_writer| {
+            let blocks = meta.collect_ordered_block_data(|block_index| {
+                layers.extract_uncompressed_block(&meta.headers, block_index)
+            });
 
-                let chunk_writer = chunk_writer.on_progress(self.on_progress);
-                if self.parallel {
-                    #[cfg(not(feature = "rayon"))]
-                    return Err(crate::error::Error::unsupported(
-                        "parallel compression requires the rayon feature",
-                    ));
+            let chunk_writer = chunk_writer.on_progress(self.on_progress);
+            if self.parallel {
+                #[cfg(not(feature = "rayon"))]
+                return Err(crate::error::Error::unsupported(
+                    "parallel compression requires the rayon feature",
+                ));
 
-                    #[cfg(feature = "rayon")]
-                    chunk_writer.compress_all_blocks_parallel(&meta, blocks)?;
-                } else {
-                    chunk_writer.compress_all_blocks_sequential(&meta, blocks)?;
-                }
-                Ok(())
-            },
-        )
+                #[cfg(feature = "rayon")]
+                chunk_writer.compress_all_blocks_parallel(&meta, blocks)?;
+            } else {
+                chunk_writer.compress_all_blocks_sequential(&meta, blocks)?;
+            }
+            Ok(())
+        })
     }
 }

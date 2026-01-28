@@ -69,9 +69,7 @@ fn main() {
     // define the visible area of the canvas
     let image_attributes = ImageAttributes::new(IntegerBounds::from_dimensions(full_size));
 
-    let image = Image::empty(image_attributes)
-        .with_layer(layer1)
-        .with_layer(layer2);
+    let image = Image::empty(image_attributes).with_layer(layer1).with_layer(layer2);
 
     println!("writing image...");
     image.write().to_file("mip_maps.exr").unwrap();

@@ -1,8 +1,9 @@
 extern crate half;
 extern crate rand;
 
-use exr::block::reader::ChunksReader;
 use std::{fs::File, io::BufReader};
+
+use exr::block::reader::ChunksReader;
 
 // exr imports
 extern crate exr;
@@ -134,8 +135,5 @@ fn main() {
     println!("average values: {:#?}", averages);
 
     // warning: highly unscientific benchmarks ahead!
-    println!(
-        "\nprocessed file in {:?}s",
-        start_time.elapsed().as_secs_f32()
-    );
+    println!("\nprocessed file in {:?}s", start_time.elapsed().as_secs_f32());
 }

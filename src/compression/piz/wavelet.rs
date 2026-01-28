@@ -423,9 +423,7 @@ mod test {
         }
 
         fn noise_14bit(size: Vec2<usize>) -> Vec<u16> {
-            (0..size.area())
-                .map(|_| (rand::random::<i32>() & 0x3fff) as u16)
-                .collect()
+            (0..size.area()).map(|_| (rand::random::<i32>() & 0x3fff) as u16).collect()
         }
 
         fn noise_16bit(size: Vec2<usize>) -> Vec<u16> {
@@ -437,16 +435,29 @@ mod test {
         }
 
         fn verticals(size: Vec2<usize>, max_value: u16) -> Vec<u16> {
-            std::iter::repeat_with(|| (0..size.0).map(|x| if x & 1 != 0 { 0 } else { max_value }))
-                .take(size.1)
-                .flatten()
-                .collect()
+            std::iter::repeat_with(|| {
+                (0..size.0).map(|x| {
+                    if x & 1 != 0 {
+                        0
+                    } else {
+                        max_value
+                    }
+                })
+            })
+            .take(size.1)
+            .flatten()
+            .collect()
         }
 
         fn horizontals(size: Vec2<usize>, max_value: u16) -> Vec<u16> {
             (0..size.1)
                 .flat_map(|y| {
-                    std::iter::repeat(if y & 1 != 0 { 0 } else { max_value }).take(size.0)
+                    std::iter::repeat(if y & 1 != 0 {
+                        0
+                    } else {
+                        max_value
+                    })
+                    .take(size.0)
                 })
                 .collect()
         }
@@ -454,7 +465,13 @@ mod test {
         fn diagonals(size: Vec2<usize>, max_value: u16) -> Vec<u16> {
             (0..size.1)
                 .flat_map(|y| {
-                    (0..size.0).map(move |x| if (x + y) & 1 != 0 { 0 } else { max_value })
+                    (0..size.0).map(move |x| {
+                        if (x + y) & 1 != 0 {
+                            0
+                        } else {
+                            max_value
+                        }
+                    })
                 })
                 .collect()
         }

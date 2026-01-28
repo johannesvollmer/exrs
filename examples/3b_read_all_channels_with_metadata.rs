@@ -33,10 +33,7 @@ fn main() {
                     channel.name, layer_name, average
                 );
             } else {
-                println!(
-                    "Channel `{}` has an average value of {}",
-                    channel.name, average
-                );
+                println!("Channel `{}` has an average value of {}", channel.name, average);
             }
         }
     }

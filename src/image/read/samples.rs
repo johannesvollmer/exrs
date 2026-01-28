@@ -32,12 +32,16 @@ impl ReadFlatSamples {
     /// Specify to read only the highest resolution level, skipping all smaller
     /// variations.
     pub fn largest_resolution_level(self) -> ReadLargestLevel<Self> {
-        ReadLargestLevel { read_samples: self }
+        ReadLargestLevel {
+            read_samples: self,
+        }
     }
 
     /// Specify to read all contained resolution levels from the image, if any.
     pub fn all_resolution_levels(self) -> ReadAllLevels<Self> {
-        ReadAllLevels { read_samples: self }
+        ReadAllLevels {
+            read_samples: self,
+        }
     }
 
     // TODO pub fn specific_resolution_level<F: Fn(&[Vec2<usize>])->usize >(self,
@@ -45,10 +49,10 @@ impl ReadFlatSamples {
     // }
 }
 
-/*pub struct AnySamplesReader { TODO
-    resolution: Vec2<usize>,
-    samples: DeepAndFlatSamples
-}*/
+// pub struct AnySamplesReader { TODO
+// resolution: Vec2<usize>,
+// samples: DeepAndFlatSamples
+// }
 
 /// Processes pixel blocks from a file and accumulates them into a grid of
 /// samples, for example "Red" or "Alpha".
@@ -111,10 +115,7 @@ impl SamplesReader for FlatSamplesReader {
             index.position.x() + index.sample_count <= resolution.width(),
             "line index calculation bug"
         );
-        debug_assert!(
-            index.position.y() < resolution.height(),
-            "line index calculation bug"
-        );
+        debug_assert!(index.position.y() < resolution.height(), "line index calculation bug");
         debug_assert_ne!(resolution.0, 0, "sample size bug");
 
         let start_index = index.position.y() * resolution.width() + index.position.x();

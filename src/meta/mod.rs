@@ -5,6 +5,10 @@
 pub mod attribute;
 pub mod header;
 
+use std::{collections::HashSet, convert::TryFrom, fs::File, io::BufReader};
+
+use ::smallvec::SmallVec;
+
 use self::attribute::*;
 use crate::{
     block::{
@@ -16,8 +20,6 @@ use crate::{
     math::*,
     meta::header::Header,
 };
-use ::smallvec::SmallVec;
-use std::{collections::HashSet, convert::TryFrom, fs::File, io::BufReader};
 
 // TODO rename MetaData to ImageInfo?
 
@@ -107,36 +109,38 @@ pub enum BlockDescription {
     Tiles(TileDescription),
 }
 
-/*impl TileIndices {
-    pub fn cmp(&self, other: &Self) -> Ordering {
-        match self.location.level_index.1.cmp(&other.location.level_index.1) {
-            Ordering::Equal => {
-                match self.location.level_index.0.cmp(&other.location.level_index.0) {
-                    Ordering::Equal => {
-                        match self.location.tile_index.1.cmp(&other.location.tile_index.1) {
-                            Ordering::Equal => {
-                                self.location.tile_index.0.cmp(&other.location.tile_index.0)
-                            },
-
-                            other => other,
-                        }
-                    },
-
-                    other => other
-                }
-            },
-
-            other => other
-        }
-    }
-}*/
+// impl TileIndices {
+// pub fn cmp(&self, other: &Self) -> Ordering {
+// match self.location.level_index.1.cmp(&other.location.level_index.1) {
+// Ordering::Equal => {
+// match self.location.level_index.0.cmp(&other.location.level_index.0) {
+// Ordering::Equal => {
+// match self.location.tile_index.1.cmp(&other.location.tile_index.1) {
+// Ordering::Equal => {
+// self.location.tile_index.0.cmp(&other.location.tile_index.0)
+// },
+//
+// other => other,
+// }
+// },
+//
+// other => other
+// }
+// },
+//
+// other => other
+// }
+// }
+// }
 
 impl BlockDescription {
     /// Whether this image is tiled. If false, this image is divided into scan
     /// line blocks.
     pub fn has_tiles(&self) -> bool {
         match self {
-            BlockDescription::Tiles { .. } => true,
+            BlockDescription::Tiles {
+                ..
+            } => true,
             _ => false,
         }
     }
@@ -214,10 +218,7 @@ pub fn calculate_block_position_and_size(
 ) -> Result<(usize, usize)> {
     let block_position = block_size * block_index;
 
-    Ok((
-        block_position,
-        calculate_block_size(total_size, block_size, block_position)?,
-    ))
+    Ok((block_position, calculate_block_size(total_size, block_size, block_position)?))
 }
 
 /// Calculate the size of a single block. If this is the last block,
@@ -515,10 +516,8 @@ impl MetaData {
 
         let deep = false; // TODO deep data
         let is_multilayer = headers.len() > 1;
-        let first_header_has_tiles = headers
-            .iter()
-            .next()
-            .map_or(false, |header| header.blocks.has_tiles());
+        let first_header_has_tiles =
+            headers.iter().next().map_or(false, |header| header.blocks.has_tiles());
 
         let mut minimal_requirements = Requirements {
             // according to the spec, version 2  should only be necessary if `is_multilayer ||
@@ -540,23 +539,19 @@ impl MetaData {
                 return Err(Error::unsupported("deep data not supported yet"));
             }
 
-            header.validate(
-                is_multilayer,
-                &mut minimal_requirements.has_long_names,
-                pedantic,
-            )?;
+            header.validate(is_multilayer, &mut minimal_requirements.has_long_names, pedantic)?;
         }
 
         // TODO validation fn!
-        /*if let Some(max) = max_pixel_bytes {
-            let byte_size: usize = headers.iter()
-                .map(|header| header.total_pixel_bytes())
-                .sum();
-
-            if byte_size > max {
-                return Err(Error::invalid("image larger than specified maximum"));
-            }
-        }*/
+        // if let Some(max) = max_pixel_bytes {
+        // let byte_size: usize = headers.iter()
+        // .map(|header| header.total_pixel_bytes())
+        // .sum();
+        //
+        // if byte_size > max {
+        // return Err(Error::invalid("image larger than specified maximum"));
+        // }
+        // }
 
         if pedantic {
             // check for duplicate header names
@@ -565,23 +560,17 @@ impl MetaData {
                 if !header_names.insert(&header.own_attributes.layer_name) {
                     return Err(Error::invalid(format!(
                         "duplicate layer name: `{}`",
-                        header
-                            .own_attributes
-                            .layer_name
-                            .as_ref()
-                            .expect("header validation bug")
+                        header.own_attributes.layer_name.as_ref().expect("header validation bug")
                     )));
                 }
             }
         }
 
         if pedantic {
-            let must_share = headers
-                .iter()
-                .flat_map(|header| header.own_attributes.other.iter())
-                .any(|(_, value)| {
-                    value.to_chromaticities().is_ok() || value.to_time_code().is_ok()
-                });
+            let must_share =
+                headers.iter().flat_map(|header| header.own_attributes.other.iter()).any(
+                    |(_, value)| value.to_chromaticities().is_ok() || value.to_time_code().is_ok(),
+                );
 
             if must_share {
                 return Err(Error::invalid("chromaticities and time code attributes must must not exist in own attributes but shared instead"));
@@ -600,10 +589,7 @@ impl MetaData {
             }
         }
 
-        debug_assert!(
-            minimal_requirements.validate().is_ok(),
-            "inferred requirements are invalid"
-        );
+        debug_assert!(minimal_requirements.validate().is_ok(), "inferred requirements are invalid");
         Ok(minimal_requirements)
     }
 }
@@ -703,9 +689,7 @@ impl Requirements {
                 _ => Err(Error::invalid("file feature flags")),
             }
         } else {
-            Err(Error::unsupported(
-                "file versions other than 2.0 are not supported",
-            ))
+            Err(Error::unsupported("file versions other than 2.0 are not supported"))
         }
     }
 }

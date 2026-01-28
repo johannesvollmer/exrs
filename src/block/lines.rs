@@ -1,13 +1,15 @@
 //! Extract lines from a block of pixel bytes.
 
+use std::{io::Cursor, ops::Range};
+
+use smallvec::SmallVec;
+
 use crate::{
     block::BlockIndex,
     error::{Result, UnitResult},
     math::*,
     meta::attribute::ChannelList,
 };
-use smallvec::SmallVec;
-use std::{io::Cursor, ops::Range};
 
 /// A single line of pixels.
 /// Use [LineRef] or [LineRefMut] for easier type names.

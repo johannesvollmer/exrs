@@ -14,9 +14,6 @@ fn main() {
     .expect("run example `1_write_rgba_with_metadata` to generate the required file");
 
     for (layer_index, image_layer) in meta_data.headers.iter().enumerate() {
-        println!(
-            "custom meta data of layer #{}:\n{:#?}",
-            layer_index, image_layer.own_attributes
-        );
+        println!("custom meta data of layer #{}:\n{:#?}", layer_index, image_layer.own_attributes);
     }
 }

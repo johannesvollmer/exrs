@@ -1,9 +1,10 @@
 //! Contains collections of common attributes.
 //! Defines some data types that list all standard attributes.
 
+use std::collections::HashMap;
+
 use crate::meta::attribute::*; // FIXME shouldn't this need some more imports????
 use crate::{math::Vec2, meta::*};
-use std::collections::HashMap;
 
 // TODO rename header to LayerDescription!
 
@@ -25,7 +26,6 @@ pub struct Header {
     /// Also describes whether a file contains multiple resolution levels: mip
     /// maps or rip maps. This allows loading not the full resolution, but
     /// the smallest sensible resolution.
-    //
     // Required if file contains deep data or multiple layers.
     // Note: This value must agree with the version field's tile bit and deep data bit.
     // In this crate, this attribute will always have a value, for simplicity.
@@ -425,22 +425,24 @@ impl Header {
         ordered
     }
 
-    /*/// Iterate over all blocks, in the order specified by the headers line order attribute.
-    /// Also includes an index of the block if it were `LineOrder::Increasing`, starting at zero for this header.
-    pub fn enumerate_ordered_blocks(&self) -> impl Iterator<Item = (usize, TileIndices)> + Send {
-        let increasing_y = self.blocks_increasing_y_order().enumerate();
-
-        let ordered: Box<dyn Send + Iterator<Item = (usize, TileIndices)>> = {
-            if self.line_order == LineOrder::Decreasing {
-                Box::new(increasing_y.rev()) // TODO without box?
-            }
-            else {
-                Box::new(increasing_y)
-            }
-        };
-
-        ordered
-    }*/
+    // /// Iterate over all blocks, in the order specified by the headers line order
+    // attribute. Also includes an index of the block if it were
+    // `LineOrder::Increasing`, starting at zero for this header.
+    // pub fn enumerate_ordered_blocks(&self) -> impl Iterator<Item = (usize,
+    // TileIndices)> + Send { let increasing_y =
+    // self.blocks_increasing_y_order().enumerate();
+    //
+    // let ordered: Box<dyn Send + Iterator<Item = (usize, TileIndices)>> = {
+    // if self.line_order == LineOrder::Decreasing {
+    // Box::new(increasing_y.rev()) // TODO without box?
+    // }
+    // else {
+    // Box::new(increasing_y)
+    // }
+    // };
+    //
+    // ordered
+    // }
 
     /// Iterate over all tile indices in this header in `LineOrder::Increasing`
     /// order.
@@ -507,20 +509,22 @@ impl Header {
         vec.into_iter() // TODO without collect
     }
 
-    /* TODO
-    /// The block indices of this header, ordered as they would appear in the file.
-    pub fn ordered_block_indices<'s>(&'s self, layer_index: usize) -> impl 's + Iterator<Item=BlockIndex> {
-        self.enumerate_ordered_blocks().map(|(chunk_index, tile)|{
-            let data_indices = self.get_absolute_block_pixel_coordinates(tile.location).expect("tile coordinate bug");
-
-            BlockIndex {
-                layer: layer_index,
-                level: tile.location.level_index,
-                pixel_position: data_indices.position.to_usize("data indices start").expect("data index bug"),
-                pixel_size: data_indices.size,
-            }
-        })
-    }*/
+    // TODO
+    // The block indices of this header, ordered as they would appear in the file.
+    // pub fn ordered_block_indices<'s>(&'s self, layer_index: usize) -> impl 's +
+    // Iterator<Item=BlockIndex> { self.enumerate_ordered_blocks().
+    // map(|(chunk_index, tile)|{ let data_indices =
+    // self.get_absolute_block_pixel_coordinates(tile.location).expect("tile
+    // coordinate bug");
+    //
+    // BlockIndex {
+    // layer: layer_index,
+    // level: tile.location.level_index,
+    // pixel_position: data_indices.position.to_usize("data indices
+    // start").expect("data index bug"), pixel_size: data_indices.size,
+    // }
+    // })
+    // }
 
     // TODO reuse this function everywhere
     /// The default pixel resolution of a single block (tile or scan line
@@ -600,9 +604,7 @@ impl Header {
                     .y_coordinate
                     .checked_sub(self.own_attributes.layer_position.y())
                     .ok_or(Error::invalid("invalid header"))?;
-                let y = diff
-                    .checked_div(size)
-                    .ok_or(Error::invalid("invalid header"))?;
+                let y = diff.checked_div(size).ok_or(Error::invalid("invalid header"))?;
 
                 if y < 0 {
                     return Err(Error::invalid("scan block y coordinate"));
@@ -628,9 +630,7 @@ impl Header {
         let diff = block_y_coordinate
             .checked_sub(self.own_attributes.layer_position.1)
             .ok_or(Error::invalid("invalid header"))?;
-        let y = diff
-            .checked_div(size)
-            .ok_or(Error::invalid("invalid header"))?;
+        let y = diff.checked_div(size).ok_or(Error::invalid("invalid header"))?;
 
         if y < 0 {
             return Err(Error::invalid("scan block y coordinate"));
@@ -736,8 +736,7 @@ impl Header {
         }
 
         let allow_subsampling = !self.deep && self.blocks == BlockDescription::ScanLines;
-        self.channels
-            .validate(allow_subsampling, self.data_window(), strict)?;
+        self.channels.validate(allow_subsampling, self.data_window(), strict)?;
 
         for (name, value) in &self.shared_attributes.other {
             attribute::validate(
@@ -771,10 +770,7 @@ impl Header {
         if strict {
             for (name, _) in &self.shared_attributes.other {
                 if self.own_attributes.other.contains_key(name) {
-                    return Err(Error::invalid(format!(
-                        "duplicate attribute name: `{}`",
-                        name
-                    )));
+                    return Err(Error::invalid(format!("duplicate attribute name: `{}`", name)));
                 }
             }
 
@@ -811,9 +807,7 @@ impl Header {
             }
 
             if !self.compression.supports_deep_data() {
-                return Err(Error::invalid(
-                    "compression method does not support deep data",
-                ));
+                return Err(Error::invalid("compression method does not support deep data"));
             }
         }
 
@@ -866,9 +860,11 @@ impl Header {
     // This function is used for writing the attributes to files.
     #[inline]
     pub fn all_named_attributes(&self) -> impl '_ + Iterator<Item = (&TextSlice, AttributeValue)> {
-        use crate::meta::header::standard_names::*;
         use std::iter::{empty, once, once_with};
+
         use AttributeValue::*;
+
+        use crate::meta::header::standard_names::*;
 
         #[inline]
         fn optional<'t, T: Clone>(
@@ -876,10 +872,7 @@ impl Header {
             to_attribute: impl Fn(T) -> AttributeValue,
             value: &'t Option<T>,
         ) -> impl Iterator<Item = (&'t TextSlice, AttributeValue)> {
-            value
-                .as_ref()
-                .map(move |value| (name, to_attribute(value.clone())))
-                .into_iter()
+            value.as_ref().map(move |value| (name, to_attribute(value.clone()))).into_iter()
         }
 
         #[inline]
@@ -938,9 +931,8 @@ impl Header {
             .flatten(),
         );
 
-        let data_window = expect_is_iter(once_with(move || {
-            (DATA_WINDOW, IntegerBounds(self.data_window()))
-        }));
+        let data_window =
+            expect_is_iter(once_with(move || (DATA_WINDOW, IntegerBounds(self.data_window()))));
 
         // dwa writes compression parameters as attribute.
         let dwa_compr_level = expect_is_iter(
@@ -1023,10 +1015,7 @@ impl Header {
             .chain(self.shared_attributes.other.iter())
             .map(|(name, val)| (name.as_slice(), val.clone())); // TODO no clone
 
-        req_core_attrs
-            .chain(opt_core_attrs)
-            .chain(opt_attr)
-            .chain(other)
+        req_core_attrs.chain(opt_core_attrs).chain(opt_attr).chain(other)
     }
 
     /// Read the value without validating.
@@ -1035,7 +1024,11 @@ impl Header {
         requirements: &Requirements,
         pedantic: bool,
     ) -> Result<Self> {
-        let max_string_len = if requirements.has_long_names { 256 } else { 32 }; // TODO DRY this information
+        let max_string_len = if requirements.has_long_names {
+            256
+        } else {
+            32
+        }; // TODO DRY this information
 
         // these required attributes will be filled when encountered while parsing
         let mut tiles = None;

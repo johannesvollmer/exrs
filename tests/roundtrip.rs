@@ -44,10 +44,7 @@ fn round_trip_full(file: &[u8]) -> Result<()> {
     let image = read_image.clone().from_buffered(Cursor::new(file))?;
 
     let mut tmp_bytes = Vec::with_capacity(file.len());
-    image
-        .write()
-        .non_parallel()
-        .to_buffered(Cursor::new(&mut tmp_bytes))?;
+    image.write().non_parallel().to_buffered(Cursor::new(&mut tmp_bytes))?;
 
     let image2 = read_image.from_buffered(Cursor::new(tmp_bytes))?;
 
@@ -67,10 +64,7 @@ fn round_trip_simple(file: &[u8]) -> Result<()> {
     let image = read_image.clone().from_buffered(Cursor::new(file))?;
 
     let mut tmp_bytes = Vec::with_capacity(file.len());
-    image
-        .write()
-        .non_parallel()
-        .to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
+    image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
 
     let image2 = read_image.from_buffered(Cursor::new(&tmp_bytes))?;
 
@@ -97,10 +91,7 @@ fn round_trip_rgba_file(path: &Path, file: &[u8]) -> Result<()> {
     let image_reader = read()
         .no_deep_data()
         .largest_resolution_level() // TODO all levels
-        .rgba_channels(
-            PixelVec::<(f32, f32, f32, f32)>::constructor,
-            PixelVec::set_pixel,
-        )
+        .rgba_channels(PixelVec::<(f32, f32, f32, f32)>::constructor, PixelVec::set_pixel)
         .first_valid_layer()
         .all_attributes()
         .non_parallel();
@@ -109,10 +100,7 @@ fn round_trip_rgba_file(path: &Path, file: &[u8]) -> Result<()> {
 
     let mut tmp_bytes = Vec::with_capacity(file.len());
 
-    image
-        .write()
-        .non_parallel()
-        .to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
+    image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
 
     let image2 = image_reader.from_buffered(Cursor::new(&tmp_bytes))?;
 
@@ -249,10 +237,7 @@ fn roundtrip_unusual_2() -> UnitResult {
     let image = Image::from_channels(size, channels);
 
     let mut tmp_bytes = Vec::new();
-    image
-        .write()
-        .non_parallel()
-        .to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
+    image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
 
     let image_reader = read()
         .no_deep_data()
@@ -313,10 +298,7 @@ fn roundtrip_unusual_7() -> UnitResult {
     let image = Image::from_channels(size, channels);
 
     let mut tmp_bytes = Vec::new();
-    image
-        .write()
-        .non_parallel()
-        .to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
+    image.write().non_parallel().to_buffered(&mut Cursor::new(&mut tmp_bytes))?;
 
     let image_reader = read()
         .no_deep_data()
@@ -406,18 +388,12 @@ fn test_mixed_roundtrip_with_compression(compression: Compression) {
         SpecificChannels::rgb(PixelVec::new(Vec2(2, 2), original_pixels.to_vec())),
     );
 
-    original_image
-        .write()
-        .to_buffered(Cursor::new(&mut file_bytes))
-        .unwrap();
+    original_image.write().to_buffered(Cursor::new(&mut file_bytes)).unwrap();
 
     let lossy_image = read()
         .no_deep_data()
         .largest_resolution_level()
-        .rgb_channels(
-            PixelVec::<(f16, f32, f32)>::constructor,
-            PixelVec::set_pixel,
-        )
+        .rgb_channels(PixelVec::<(f16, f32, f32)>::constructor, PixelVec::set_pixel)
         .first_valid_layer()
         .all_attributes()
         .from_buffered(Cursor::new(&file_bytes))

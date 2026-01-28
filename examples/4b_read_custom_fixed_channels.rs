@@ -18,10 +18,7 @@ fn main() {
         .collect_pixels(
             |resolution, (a_channel, y_channel, y_right_channel)| {
                 println!("image contains alpha channel? {}", a_channel.is_some());
-                println!(
-                    "image contains stereoscopic luma channel? {}",
-                    y_right_channel.is_some()
-                );
+                println!("image contains stereoscopic luma channel? {}", y_right_channel.is_some());
                 println!("the type of luma samples is {:?}", y_channel.sample_type);
 
                 vec![vec![(f16::ZERO, 0.0, 0.0); resolution.width()]; resolution.height()]

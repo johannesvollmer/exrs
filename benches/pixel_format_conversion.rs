@@ -2,11 +2,10 @@
 extern crate bencher;
 
 extern crate exr;
-use exr::prelude::*;
+use std::{fs, io::Cursor};
 
 use bencher::Bencher;
-use exr::{block::samples::FromNativeSample, image::pixel_vec::PixelVec};
-use std::{fs, io::Cursor};
+use exr::{block::samples::FromNativeSample, image::pixel_vec::PixelVec, prelude::*};
 
 const F32_ZIPS_PATH: &'static str = "tests/images/valid/custom/crowskull/crow_zips.exr";
 const F32_UNCOMPRESSED_PATH: &'static str =
@@ -96,7 +95,11 @@ where
         .first_valid_layer()
         .all_attributes();
 
-    let read = if parallel { read } else { read.non_parallel() };
+    let read = if parallel {
+        read
+    } else {
+        read.non_parallel()
+    };
     read.from_buffered(Cursor::new(file)).unwrap()
 }
 

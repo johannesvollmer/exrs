@@ -410,18 +410,20 @@ pub type TextBytes = SmallVec<[u8; 24]>;
 /// A byte slice, interpreted as text
 pub type TextSlice = [u8];
 
+use std::{
+    borrow::Borrow,
+    convert::TryFrom,
+    hash::{Hash, Hasher},
+};
+
+use bit_field::BitField;
+use half::f16;
+
 use crate::{
     error::*,
     io::*,
     math::{RoundingMode, Vec2},
     meta::sequence_end,
-};
-use bit_field::BitField;
-use half::f16;
-use std::{
-    borrow::Borrow,
-    convert::TryFrom,
-    hash::{Hash, Hasher},
 };
 
 fn invalid_type() -> Error {
@@ -432,11 +434,8 @@ impl Text {
     /// Create a `Text` from an `str` reference.
     /// Returns `None` if this string contains unsupported chars.
     pub fn new_or_none(string: impl AsRef<str>) -> Option<Self> {
-        let vec: Option<TextBytes> = string
-            .as_ref()
-            .chars()
-            .map(|character| u8::try_from(character as u64).ok())
-            .collect();
+        let vec: Option<TextBytes> =
+            string.as_ref().chars().map(|character| u8::try_from(character as u64).ok()).collect();
 
         vec.map(Self::from_bytes_unchecked)
     }
@@ -456,7 +455,9 @@ impl Text {
     /// Create a `Text` from the specified bytes object,
     /// without checking any of the bytes.
     pub fn from_bytes_unchecked(bytes: TextBytes) -> Self {
-        Text { bytes }
+        Text {
+            bytes,
+        }
     }
 
     /// The internal ASCII bytes this text is made of.
@@ -534,17 +535,25 @@ impl Text {
     /// Read the length of a string and then the contents with that length.
     pub fn read_i32_sized_le<R: Read>(read: &mut R, max_size: usize) -> Result<Self> {
         let size = i32_to_usize(i32::read_le(read)?, "vector size")?;
-        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(
-            u8::read_vec_le(read, size, 1024, Some(max_size), "text attribute length")?,
-        )))
+        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec_le(
+            read,
+            size,
+            1024,
+            Some(max_size),
+            "text attribute length",
+        )?)))
     }
 
     /// Read the length of a string and then the contents with that length.
     pub fn read_u32_sized_le<R: Read>(read: &mut R, max_size: usize) -> Result<Self> {
         let size = u32_to_usize(u32::read_le(read)?, "text length")?;
-        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(
-            u8::read_vec_le(read, size, 1024, Some(max_size), "text attribute length")?,
-        )))
+        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec_le(
+            read,
+            size,
+            1024,
+            Some(max_size),
+            "text attribute length",
+        )?)))
     }
 
     /// Read the contents with that length.
@@ -561,9 +570,13 @@ impl Text {
         }
         // for large strings, read a dynamic vec of arbitrary size
         else {
-            Ok(Text::from_bytes_unchecked(SmallVec::from_vec(
-                u8::read_vec_le(read, size, 1024, None, "text attribute length")?,
-            )))
+            Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec_le(
+                read,
+                size,
+                1024,
+                None,
+                "text attribute length",
+            )?)))
         }
     }
 
@@ -597,7 +610,9 @@ impl Text {
             }
         }
 
-        Ok(Text { bytes })
+        Ok(Text {
+            bytes,
+        })
     }
 
     /// Allows any text length since it is only used for attribute values,
@@ -706,18 +721,18 @@ impl<'s> From<&'s str> for Text {
     }
 }
 
-/* TODO (currently conflicts with From<&str>)
-impl<'s> TryFrom<&'s str> for Text {
-    type Error = String;
-
-    fn try_from(value: &'s str) -> std::result::Result<Self, Self::Error> {
-        Text::new_or_none(value)
-            .ok_or_else(|| format!(
-                "exr::Text does not support all characters in the string `{}`",
-                value
-            ))
-    }
-}*/
+// TODO (currently conflicts with From<&str>)
+// impl<'s> TryFrom<&'s str> for Text {
+// type Error = String;
+//
+// fn try_from(value: &'s str) -> std::result::Result<Self, Self::Error> {
+// Text::new_or_none(value)
+// .ok_or_else(|| format!(
+// "exr::Text does not support all characters in the string `{}`",
+// value
+// ))
+// }
+// }
 
 impl ::std::fmt::Debug for Text {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
@@ -743,10 +758,8 @@ impl ChannelList {
     pub fn new(channels: SmallVec<[ChannelDescription; 5]>) -> Self {
         let uniform_sample_type = {
             if let Some(first) = channels.first() {
-                let has_uniform_types = channels
-                    .iter()
-                    .skip(1)
-                    .all(|chan| chan.sample_type == first.sample_type);
+                let has_uniform_types =
+                    channels.iter().skip(1).all(|chan| chan.sample_type == first.sample_type);
 
                 if has_uniform_types {
                     Some(first.sample_type)
@@ -782,23 +795,21 @@ impl ChannelList {
     /// Return the index of the channel with the exact name, case sensitive, or
     /// none. Potentially uses less than linear time.
     pub fn find_index_of_channel(&self, exact_name: &Text) -> Option<usize> {
-        self.list
-            .binary_search_by_key(&exact_name.bytes(), |chan| chan.name.bytes())
-            .ok()
+        self.list.binary_search_by_key(&exact_name.bytes(), |chan| chan.name.bytes()).ok()
     }
 
     // TODO use this in compression methods
-    /*pub fn pixel_section_indices(&self, bounds: IntegerBounds) -> impl '_ + Iterator<Item=(&Channel, usize, usize)> {
-        (bounds.position.y() .. bounds.end().y()).flat_map(|y| {
-            self.list
-                .filter(|channel| mod_p(y, usize_to_i32(channel.sampling.1)) == 0)
-                .flat_map(|channel|{
-                    (bounds.position.x() .. bounds.end().x())
-                        .filter(|x| mod_p(*x, usize_to_i32(channel.sampling.0)) == 0)
-                        .map(|x| (channel, x, y))
-                })
-        })
-    }*/
+    // pub fn pixel_section_indices(&self, bounds: IntegerBounds) -> impl '_ +
+    // Iterator<Item=(&Channel, usize, usize)> { (bounds.position.y() ..
+    // bounds.end().y()).flat_map(|y| { self.list
+    // .filter(|channel| mod_p(y, usize_to_i32(channel.sampling.1)) == 0)
+    // .flat_map(|channel|{
+    // (bounds.position.x() .. bounds.end().x())
+    // .filter(|x| mod_p(*x, usize_to_i32(channel.sampling.0)) == 0)
+    // .map(|x| (channel, x, y))
+    // })
+    // })
+    // }
 }
 
 impl BlockType {
@@ -1058,9 +1069,9 @@ impl ChannelDescription {
         Self::new(name, sample_type, linearity)
     }
 
-    /*pub fn from_name<T: Into<Sample> + Default>(name: impl Into<Text>) -> Self {
-        Self::named(name, T::default().into().sample_type())
-    }*/
+    // pub fn from_name<T: Into<Sample> + Default>(name: impl Into<Text>) -> Self {
+    // Self::named(name, T::default().into().sample_type())
+    // }
 
     /// Create a new channel with the specified properties and a sampling rate
     /// of (1,1).
@@ -1150,9 +1161,7 @@ impl ChannelDescription {
         }
 
         if strict && !allow_sampling && self.sampling != Vec2(1, 1) {
-            return Err(Error::invalid(
-                "subsampling is only allowed in flat scan line images",
-            ));
+            return Err(Error::invalid("subsampling is only allowed in flat scan line images"));
         }
 
         if data_window.position.x() % self.sampling.x() as i32 != 0
@@ -1166,9 +1175,7 @@ impl ChannelDescription {
         if data_window.size.x() % self.sampling.x() != 0
             || data_window.size.y() % self.sampling.y() != 0
         {
-            return Err(Error::invalid(
-                "channel sampling factor not dividing data window size",
-            ));
+            return Err(Error::invalid("channel sampling factor not dividing data window size"));
         }
 
         if self.sampling != Vec2(1, 1) {
@@ -1185,10 +1192,7 @@ impl ChannelDescription {
 impl ChannelList {
     /// Number of bytes this would consume in an exr file.
     pub fn byte_size(&self) -> usize {
-        self.list
-            .iter()
-            .map(ChannelDescription::byte_size)
-            .sum::<usize>()
+        self.list.iter().map(ChannelDescription::byte_size).sum::<usize>()
             + sequence_end::byte_size()
     }
 
@@ -1220,22 +1224,19 @@ impl ChannelList {
         data_window: IntegerBounds,
         strict: bool,
     ) -> UnitResult {
-        let mut iter = self.list.iter().map(|chan| {
-            chan.validate(allow_sampling, data_window, strict)
-                .map(|_| &chan.name)
-        });
-        let mut previous = iter
-            .next()
-            .ok_or(Error::invalid("at least one channel is required"))??;
+        let mut iter = self
+            .list
+            .iter()
+            .map(|chan| chan.validate(allow_sampling, data_window, strict).map(|_| &chan.name));
+        let mut previous =
+            iter.next().ok_or(Error::invalid("at least one channel is required"))??;
 
         for result in iter {
             let value = result?;
             if strict && previous == value {
                 return Err(Error::invalid("channel names are not unique"));
             } else if previous > value {
-                return Err(Error::invalid(
-                    "channel names are not sorted alphabetically",
-                ));
+                return Err(Error::invalid("channel names are not sorted alphabetically"));
             } else {
                 previous = value;
             }
@@ -1273,9 +1274,7 @@ impl TimeCode {
             } else if self.hours > 23 {
                 Err(Error::invalid("time code hours larger than 23"))
             } else if self.binary_groups.iter().any(|&group| group > 15) {
-                Err(Error::invalid(
-                    "time code binary group value too large for 3 bits",
-                ))
+                Err(Error::invalid("time code binary group value too large for 3 bits"))
             } else {
                 Ok(())
             }
@@ -1364,10 +1363,7 @@ impl TimeCode {
     /// This encoding does not support the `drop_frame` and `color_frame` flags,
     /// they will be lost.
     pub fn pack_time_as_film24_u32(&self) -> Result<u32> {
-        Ok(*self
-            .pack_time_as_tv60_u32()?
-            .set_bit(6, false)
-            .set_bit(7, false))
+        Ok(*self.pack_time_as_tv60_u32()?.set_bit(6, false).set_bit(7, false))
     }
 
     /// Unpack a time code from one TV60 encoded u32 value and the encoded user
@@ -1656,9 +1652,7 @@ impl Preview {
     /// Validate this instance.
     pub fn validate(&self, strict: bool) -> UnitResult {
         if strict && (self.size.area() * 4 != self.pixel_data.len()) {
-            return Err(Error::invalid(
-                "preview dimensions do not match content length",
-            ));
+            return Err(Error::invalid("preview dimensions do not match content length"));
         }
 
         Ok(())
@@ -1667,12 +1661,7 @@ impl Preview {
 
 impl ::std::fmt::Debug for Preview {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        write!(
-            f,
-            "Preview ({}x{} px)",
-            self.size.width(),
-            self.size.height()
-        )
+        write!(f, "Preview ({}x{} px)", self.size.width(), self.size.height())
     }
 }
 
@@ -1837,7 +1826,10 @@ impl AttributeValue {
 
             TextVector(ref value) => value.iter().map(self::Text::i32_sized_byte_size).sum(),
             TileDescription(_) => self::TileDescription::byte_size(),
-            Custom { ref bytes, .. } => bytes.len(),
+            Custom {
+                ref bytes,
+                ..
+            } => bytes.len(),
             BlockType(ref kind) => kind.byte_size(),
 
             Bytes {
@@ -1876,8 +1868,13 @@ impl AttributeValue {
             TextVector(_) => ty::TEXT_VECTOR,
             TileDescription(_) => ty::TILES,
             BlockType(_) => super::BlockType::TYPE_NAME,
-            Bytes { .. } => ty::BYTES,
-            Custom { ref kind, .. } => kind.as_slice(),
+            Bytes {
+                ..
+            } => ty::BYTES,
+            Custom {
+                ref kind,
+                ..
+            } => kind.as_slice(),
         }
     }
 
@@ -1946,9 +1943,12 @@ impl AttributeValue {
                 u8::write_slice_le(write, bytes.as_slice())?
             }
 
-            Custom { ref bytes, .. } => u8::write_slice_le(write, &bytes)?, /* write.write(&
-                                                                             * bytes).map(|_|
-                                                                             * ()), */
+            Custom {
+                ref bytes,
+                ..
+            } => u8::write_slice_le(write, &bytes)?, /* write.write(&
+                                                      * bytes).map(|_|
+                                                      * ()), */
         };
 
         Ok(())
@@ -2062,7 +2062,10 @@ impl AttributeValue {
                     // for some reason, they went for unsigned sizes, in this place only
                     let type_hint = self::Text::read_u32_sized_le(reader, reader.len())?;
                     let bytes = SmallVec::from(*reader);
-                    Bytes { type_hint, bytes }
+                    Bytes {
+                        type_hint,
+                        bytes,
+                    }
                 }
 
                 _ => Custom {
@@ -2193,9 +2196,10 @@ pub mod type_names {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use ::std::io::Cursor;
     use rand::{random, thread_rng, Rng};
+
+    use super::*;
 
     #[test]
     fn text_ord() {
@@ -2268,10 +2272,7 @@ mod test {
     #[test]
     fn attribute_write_read_roundtrip_and_byte_size() {
         let attributes = [
-            (
-                Text::from("greeting"),
-                AttributeValue::Text(Text::from("hello")),
-            ),
+            (Text::from("greeting"), AttributeValue::Text(Text::from("hello"))),
             (Text::from("age"), AttributeValue::I32(923)),
             (Text::from("leg count"), AttributeValue::F64(9.114939599234)),
             (
@@ -2373,21 +2374,12 @@ mod test {
         }
 
         {
-            let (name, value) = (
-                Text::from("asdkaspfokpaosdkfpaokswdpoakpsfokaposdkf"),
-                AttributeValue::I32(0),
-            );
+            let (name, value) =
+                (Text::from("asdkaspfokpaosdkfpaokswdpoakpsfokaposdkf"), AttributeValue::I32(0));
 
             let mut long_names = false;
-            super::validate(
-                &name,
-                &value,
-                &mut long_names,
-                false,
-                IntegerBounds::zero(),
-                false,
-            )
-            .unwrap();
+            super::validate(&name, &value, &mut long_names, false, IntegerBounds::zero(), false)
+                .unwrap();
             assert!(long_names);
         }
 
@@ -2397,15 +2389,8 @@ mod test {
                 AttributeValue::I32(0),
             );
 
-            super::validate(
-                &name,
-                &value,
-                &mut false,
-                false,
-                IntegerBounds::zero(),
-                false,
-            )
-            .expect_err("name length check failed");
+            super::validate(&name, &value, &mut false, false, IntegerBounds::zero(), false)
+                .expect_err("name length check failed");
         }
     }
 
@@ -2434,9 +2419,8 @@ mod test {
 
             {
                 // through tv60 packing, roundtrip
-                let packed_tv60 = code
-                    .pack_time_as_tv60_u32()
-                    .expect("invalid timecode test input");
+                let packed_tv60 =
+                    code.pack_time_as_tv60_u32().expect("invalid timecode test input");
                 let packed_user = code.pack_user_data_as_u32();
                 assert_eq!(TimeCode::from_tv60_time(packed_tv60, packed_user), code);
             }
@@ -2456,14 +2440,10 @@ mod test {
                     ..code
                 };
 
-                let packed_tv50 = code
-                    .pack_time_as_tv50_u32()
-                    .expect("invalid timecode test input");
+                let packed_tv50 =
+                    code.pack_time_as_tv50_u32().expect("invalid timecode test input");
                 let packed_user = code.pack_user_data_as_u32();
-                assert_eq!(
-                    TimeCode::from_tv50_time(packed_tv50, packed_user),
-                    tv50_code
-                );
+                assert_eq!(TimeCode::from_tv50_time(packed_tv50, packed_user), tv50_code);
             }
 
             {
@@ -2474,14 +2454,10 @@ mod test {
                     ..code
                 };
 
-                let packed_film24 = code
-                    .pack_time_as_film24_u32()
-                    .expect("invalid timecode test input");
+                let packed_film24 =
+                    code.pack_time_as_film24_u32().expect("invalid timecode test input");
                 let packed_user = code.pack_user_data_as_u32();
-                assert_eq!(
-                    TimeCode::from_film24_time(packed_film24, packed_user),
-                    film24_code
-                );
+                assert_eq!(TimeCode::from_film24_time(packed_film24, packed_user), film24_code);
             }
         }
     }

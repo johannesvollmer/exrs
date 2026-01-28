@@ -6,7 +6,6 @@ extern crate exr;
 /// For each layer in the exr file,
 /// extract each channel as grayscale png,
 /// including all multi-resolution levels.
-//
 // FIXME throws "access denied" sometimes, simply trying again usually works.
 //
 pub fn main() {

@@ -29,7 +29,9 @@ fn main() {
                 let default_rgba_pixel = (0.0, 0.0, 0.0, 0.0);
                 let default_line = vec![default_rgba_pixel; resolution.width()];
                 let lines = vec![default_line; resolution.height()];
-                CustomPixels { lines }
+                CustomPixels {
+                    lines,
+                }
             },
             // request pixels with red, green, blue, and optionally and alpha values.
             // transfer each pixel from the file to our image

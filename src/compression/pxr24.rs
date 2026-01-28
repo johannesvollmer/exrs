@@ -8,28 +8,28 @@
 
 //  The compressor preprocesses the pixel data to reduce entropy, and then calls
 // zlib. 	Compression of HALF and UINT channels is lossless, but compressing
-//	FLOAT channels is lossy: 32-bit floating-point numbers are converted
-//	to 24 bits by rounding the significand to 15 bits.
+// 	FLOAT channels is lossy: 32-bit floating-point numbers are converted
+// 	to 24 bits by rounding the significand to 15 bits.
 //
-//	When the compressor is invoked, the caller has already arranged
-//	the pixel data so that the values for each channel appear in a
-//	contiguous block of memory.  The compressor converts the pixel
-//	values to unsigned integers: For UINT, this is a no-op.  HALF
-//	values are simply re-interpreted as 16-bit integers.  FLOAT
-//	values are converted to 24 bits, and the resulting bit patterns
-//	are interpreted as integers.  The compressor then replaces each
-//	value with the difference between the value and its left neighbor.
-//	This turns flat fields in the image into zeroes, and ramps into
-//	strings of similar values.  Next, each difference is split into
-//	2, 3 or 4 bytes, and the bytes are transposed so that all the
-//	most significant bytes end up in a contiguous block, followed
-//	by the second most significant bytes, and so on.  The resulting
-//	string of bytes is compressed with zlib.
+// 	When the compressor is invoked, the caller has already arranged
+// 	the pixel data so that the values for each channel appear in a
+// 	contiguous block of memory.  The compressor converts the pixel
+// 	values to unsigned integers: For UINT, this is a no-op.  HALF
+// 	values are simply re-interpreted as 16-bit integers.  FLOAT
+// 	values are converted to 24 bits, and the resulting bit patterns
+// 	are interpreted as integers.  The compressor then replaces each
+// 	value with the difference between the value and its left neighbor.
+// 	This turns flat fields in the image into zeroes, and ramps into
+// 	strings of similar values.  Next, each difference is split into
+// 	2, 3 or 4 bytes, and the bytes are transposed so that all the
+// 	most significant bytes end up in a contiguous block, followed
+// 	by the second most significant bytes, and so on.  The resulting
+// 	string of bytes is compressed with zlib.
+
+use lebe::io::ReadPrimitive;
 
 use super::*;
-
 use crate::error::Result;
-use lebe::io::ReadPrimitive;
 
 // scanline decompreroussion tine, see https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfScanLineInputFile.cpp
 // 1. Uncompress the data, if necessary (If the line is uncompressed, it's in
@@ -81,9 +81,8 @@ pub fn compress(channels: &ChannelList, bytes_ne: ByteVec, area: IntegerBounds) 
 
                 match channel.sample_type {
                     SampleType::F16 => {
-                        let out_byte_tuples = split_off_write_slice!()
-                            .iter_mut()
-                            .zip(split_off_write_slice!());
+                        let out_byte_tuples =
+                            split_off_write_slice!().iter_mut().zip(split_off_write_slice!());
 
                         let mut previous_pixel: u32 = 0;
                         for (out_byte_0, out_byte_1) in out_byte_tuples {
@@ -154,10 +153,7 @@ pub fn compress(channels: &ChannelList, bytes_ne: ByteVec, area: IntegerBounds) 
         debug_assert_eq!(write.len(), 0, "bytes left after compression");
     }
 
-    Ok(miniz_oxide::deflate::compress_to_vec_zlib(
-        encoded_be.as_slice(),
-        4,
-    ))
+    Ok(miniz_oxide::deflate::compress_to_vec_zlib(encoded_be.as_slice(), 4))
 }
 
 pub fn decompress(
@@ -172,9 +168,8 @@ pub fn decompress(
         .set_size_hint(expected_byte_size);
     let mut decompressor = zune_inflate::DeflateDecoder::new_with_options(&bytes_le, options);
 
-    let encoded_be = decompressor
-        .decode_zlib()
-        .map_err(|_| Error::invalid("zlib-compressed data malformed"))?; // TODO share code with zip?
+    let encoded_be =
+        decompressor.decode_zlib().map_err(|_| Error::invalid("zlib-compressed data malformed"))?; // TODO share code with zip?
 
     let mut encoded_be = encoded_be.as_slice();
     let mut out = Vec::with_capacity(expected_byte_size.min(2048 * 4));
@@ -266,7 +261,13 @@ pub fn f32_to_f24(float: f32) -> u32 {
             // least one bit in the significand.
 
             let mantissa = mantissa >> 8;
-            (exponent >> 8) | mantissa | if mantissa == 0 { 1 } else { 0 }
+            (exponent >> 8)
+                | mantissa
+                | if mantissa == 0 {
+                    1
+                } else {
+                    0
+                }
         } else {
             // F is an infinity.
             exponent >> 8

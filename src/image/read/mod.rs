@@ -4,7 +4,6 @@
 //! The return value of the `read()` function must be further customized before
 //! reading a file.
 
-//!
 //! For very simple applications, you can alternatively use one of these
 //! functions:
 //!
@@ -50,6 +49,8 @@ pub mod levels;
 pub mod samples;
 pub mod specific_channels;
 
+use std::path::Path;
+
 use crate::{
     block::samples::FromNativeSample,
     error::Result,
@@ -61,7 +62,6 @@ use crate::{
     math::Vec2,
     prelude::PixelImage,
 };
-use std::path::Path;
 
 /// All resolution levels, all channels, all layers.
 /// Does not support deep data yet. Uses parallel decompression and relaxed

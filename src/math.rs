@@ -3,12 +3,13 @@
 
 //! Simple math utilities.
 
-use crate::error::{i32_to_usize, Result};
 use std::{
     convert::TryFrom,
     fmt::Debug,
     ops::{Add, Div, Mul, Sub},
 };
+
+use crate::error::{i32_to_usize, Result};
 
 /// Simple two-dimensional vector of any numerical type.
 /// Supports only few mathematical operations
@@ -242,9 +243,9 @@ impl RoundingMode {
         );
 
         match self {
-            RoundingMode::Up => (dividend + divisor - T::from(1_u8)) / divisor, /* only works
-            * for positive
-             * numbers */
+            RoundingMode::Up => (dividend + divisor - T::from(1_u8)) / divisor, // only works
+            // for positive
+            // numbers
             RoundingMode::Down => dividend / divisor,
         }
     }

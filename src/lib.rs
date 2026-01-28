@@ -52,6 +52,7 @@ pub mod prelude {
     /// extension traits.
     pub mod traits {
         pub use crate::image::{
+            crop::{ApplyCroppedView, Crop, CropResult, CropWhere, CroppedChannels, InspectSample},
             read::{
                 any_channels::ReadSamples,
                 image::{ReadImage, ReadLayers},
@@ -61,14 +62,15 @@ pub mod prelude {
             },
             write::{channels::GetPixel, WritableImage},
         };
-
-        pub use crate::image::crop::{
-            ApplyCroppedView, Crop, CropResult, CropWhere, CroppedChannels, InspectSample,
-        };
     }
 
+    // re-export external stuff
+    pub use half::f16;
+    pub use smallvec::SmallVec;
     pub use traits::*;
 
+    // error handling
+    pub use crate::error::{Error, Result};
     pub use crate::image::{
         read::{
             read_all_data_from_file, read_all_flat_layers_from_file,
@@ -77,7 +79,8 @@ pub mod prelude {
         },
         write::{write_rgb_file, write_rgba_file},
     };
-
+    // common math
+    pub use crate::math::Vec2;
     // image data structures
     pub use crate::{
         block::samples::Sample,
@@ -92,14 +95,4 @@ pub mod prelude {
             MetaData,
         },
     };
-
-    // common math
-    pub use crate::math::Vec2;
-
-    // error handling
-    pub use crate::error::{Error, Result};
-
-    // re-export external stuff
-    pub use half::f16;
-    pub use smallvec::SmallVec;
 }

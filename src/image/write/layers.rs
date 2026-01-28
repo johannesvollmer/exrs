@@ -66,10 +66,8 @@ fn slice_infer_headers<'slf, Channels: 'slf + WritableChannels<'slf>>(
     slice: &[Layer<Channels>],
     image_attributes: &ImageAttributes,
 ) -> Headers {
-    slice
-        .iter()
-        .map(|layer| layer.infer_headers(image_attributes).remove(0))
-        .collect() // TODO no array-vs-first
+    slice.iter().map(|layer| layer.infer_headers(image_attributes).remove(0)).collect()
+    // TODO no array-vs-first
 }
 
 fn slice_create_writer<'slf, Channels: 'slf + WritableChannels<'slf>>(
@@ -124,11 +122,12 @@ impl<'slf, Channels: WritableChannels<'slf>> WritableLayers<'slf> for Layer<Chan
     }
 
     fn create_writer(&'slf self, headers: &[Header]) -> Self::Writer {
-        let channels = self
-            .channel_data
-            .create_writer(headers.first().expect("inferred header error")); // TODO no array-vs-first
+        let channels =
+            self.channel_data.create_writer(headers.first().expect("inferred header error")); // TODO no array-vs-first
 
-        LayerWriter { channels }
+        LayerWriter {
+            channels,
+        }
     }
 }
 
@@ -180,17 +179,13 @@ where
     }
 
     fn create_writer(&'slf self, headers: &[Header]) -> Self::Writer {
-        let (own_header, inner_headers) = headers
-            .split_last()
-            .expect("header has not been inferred correctly");
+        let (own_header, inner_headers) =
+            headers.split_last().expect("header has not been inferred correctly");
 
         let layer_index = inner_headers.len();
         RecursiveLayersWriter {
             inner: self.inner.create_writer(inner_headers),
-            value: (
-                layer_index,
-                self.value.create_writer(std::slice::from_ref(own_header)),
-            ), // TODO no slice
+            value: (layer_index, self.value.create_writer(std::slice::from_ref(own_header))), /* TODO no slice */
         }
     }
 }

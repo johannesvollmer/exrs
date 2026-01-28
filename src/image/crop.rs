@@ -52,7 +52,9 @@ pub trait Crop: Sized {
     fn try_crop(self, bounds: Option<IntegerBounds>) -> CropResult<Self::Cropped, Self> {
         match bounds {
             Some(bounds) => CropResult::Cropped(self.crop(bounds)),
-            None => CropResult::Empty { original: self },
+            None => CropResult::Empty {
+                original: self,
+            },
         }
     }
 }
@@ -278,10 +280,7 @@ impl ApplyCroppedView for Layer<CroppedChannels<AnyChannels<FlatSamples>>> {
             self.absolute_bounds().contains(cropped_absolute_bounds),
             "bounds not valid for layer dimensions"
         );
-        assert!(
-            cropped_relative_bounds.size.area() > 0,
-            "the cropped image would be empty"
-        );
+        assert!(cropped_relative_bounds.size.area() > 0, "the cropped image would be empty");
 
         Layer {
             channel_data: if cropped_relative_bounds.size == self.channel_data.full_bounds.size {
@@ -312,10 +311,8 @@ impl ApplyCroppedView for Layer<CroppedChannels<AnyChannels<FlatSamples>>> {
                             x_range: std::ops::Range<usize>,
                             y_start: usize,
                         ) -> Vec<T> {
-                            let filtered_lines = samples
-                                .chunks_exact(old_width)
-                                .skip(y_start)
-                                .take(new_height);
+                            let filtered_lines =
+                                samples.chunks_exact(old_width).skip(y_start).take(new_height);
                             let trimmed_lines = filtered_lines.map(|line| &line[x_range.clone()]);
                             trimmed_lines.flatten().map(|x| *x).collect() // TODO does this use memcpy?
                         }
@@ -353,7 +350,9 @@ impl ApplyCroppedView for Layer<CroppedChannels<AnyChannels<FlatSamples>>> {
                     })
                     .collect();
 
-                AnyChannels { list: channels }
+                AnyChannels {
+                    list: channels,
+                }
             },
 
             attributes: self.attributes,
@@ -453,7 +452,9 @@ impl<Cropped, Original> CropResult<Cropped, Original> {
     pub fn or_none_if_empty(self) -> Option<Cropped> {
         match self {
             CropResult::Cropped(cropped) => Some(cropped),
-            CropResult::Empty { .. } => None,
+            CropResult::Empty {
+                ..
+            } => None,
         }
     }
 
@@ -466,7 +467,9 @@ impl<Cropped, Original> CropResult<Cropped, Original> {
     {
         match self {
             CropResult::Cropped(cropped) => cropped,
-            CropResult::Empty { original } => {
+            CropResult::Empty {
+                original,
+            } => {
                 let bounds = original.bounds();
                 if bounds.size == Vec2(0, 0) {
                     panic!("layer has width and height of zero")
@@ -540,11 +543,7 @@ mod test {
 
         assert_found_smaller_bounds(
             Vec2(3, 3),
-            vec![
-                vec![0, 1, 1, 2, 1, 0],
-                vec![0, 1, 3, 1, 1, 0],
-                vec![0, 1, 1, 1, 1, 0],
-            ],
+            vec![vec![0, 1, 1, 2, 1, 0], vec![0, 1, 3, 1, 1, 0], vec![0, 1, 1, 1, 1, 0]],
             vec![vec![1, 1, 2, 1], vec![1, 3, 1, 1], vec![1, 1, 1, 1]],
         );
 
@@ -562,21 +561,13 @@ mod test {
 
         assert_found_smaller_bounds(
             Vec2(3, 3),
-            vec![
-                vec![0, 1, 1, 2, 1, 0],
-                vec![0, 0, 3, 1, 0, 0],
-                vec![0, 1, 1, 1, 1, 0],
-            ],
+            vec![vec![0, 1, 1, 2, 1, 0], vec![0, 0, 3, 1, 0, 0], vec![0, 1, 1, 1, 1, 0]],
             vec![vec![1, 1, 2, 1], vec![0, 3, 1, 0], vec![1, 1, 1, 1]],
         );
 
         assert_found_smaller_bounds(
             Vec2(3, 3),
-            vec![
-                vec![0, 0, 1, 2, 0, 0],
-                vec![0, 1, 3, 1, 1, 0],
-                vec![0, 0, 1, 1, 0, 0],
-            ],
+            vec![vec![0, 0, 1, 2, 0, 0], vec![0, 1, 3, 1, 1, 0], vec![0, 0, 1, 1, 0, 0]],
             vec![vec![0, 1, 2, 0], vec![1, 3, 1, 1], vec![0, 1, 1, 0]],
         );
 
@@ -623,11 +614,7 @@ mod test {
                 vec![0, 0, 0, 0, 0, 0, 0],
                 vec![0, 0, 0, 0, 0, 0, 0],
             ],
-            vec![
-                vec![0, 1, 1, 1, 0],
-                vec![1, 1, 1, 1, 1],
-                vec![0, 1, 1, 1, 0],
-            ],
+            vec![vec![0, 1, 1, 1, 0], vec![1, 1, 1, 1, 1], vec![0, 1, 1, 1, 0]],
         );
 
         assert_found_smaller_bounds(
@@ -721,12 +708,7 @@ mod test {
 
         assert_found_smaller_bounds(
             Vec2(-1, -3),
-            vec![
-                vec![1, 0, 0, 0],
-                vec![0, 1, 0, 0],
-                vec![0, 0, 0, 0],
-                vec![0, 0, 0, 0],
-            ],
+            vec![vec![1, 0, 0, 0], vec![0, 1, 0, 0], vec![0, 0, 0, 0], vec![0, 0, 0, 0]],
             vec![vec![1, 0], vec![0, 1]],
         );
     }

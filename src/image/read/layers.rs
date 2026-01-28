@@ -127,9 +127,10 @@ impl<C> LayerReader<C> {
                 line_order: header.line_order,
                 blocks: match header.blocks {
                     crate::meta::BlockDescription::ScanLines => Blocks::ScanLines,
-                    crate::meta::BlockDescription::Tiles(TileDescription { tile_size, .. }) => {
-                        Blocks::Tiles(tile_size)
-                    }
+                    crate::meta::BlockDescription::Tiles(TileDescription {
+                        tile_size,
+                        ..
+                    }) => Blocks::Tiles(tile_size),
                 },
             },
         })
@@ -164,10 +165,7 @@ where
     type Layers = Layers<C::Channels>;
 
     fn filter_block(&self, _: &MetaData, tile: TileCoordinates, block: BlockIndex) -> bool {
-        let layer = self
-            .layer_readers
-            .get(block.layer)
-            .expect("invalid layer index argument");
+        let layer = self.layer_readers.get(block.layer).expect("invalid layer index argument");
         layer.channels_reader.filter_block(tile)
     }
 
@@ -177,9 +175,7 @@ where
             .expect("invalid layer index argument")
             .channels_reader
             .read_block(
-                headers
-                    .get(block.index.layer)
-                    .expect("invalid header index in block"),
+                headers.get(block.index.layer).expect("invalid header index in block"),
                 block,
             )
     }
@@ -220,9 +216,7 @@ where
                     .ok()
             })
             .next()
-            .ok_or(Error::invalid(
-                "no layer in the image matched your specified requirements",
-            ))
+            .ok_or(Error::invalid("no layer in the image matched your specified requirements"))
     }
 }
 
@@ -241,9 +235,7 @@ where
             block.index.layer, self.layer_index,
             "block should have been filtered out"
         );
-        self.layer_reader
-            .channels_reader
-            .read_block(&headers[self.layer_index], block)
+        self.layer_reader.channels_reader.read_block(&headers[self.layer_index], block)
     }
 
     fn into_layers(self) -> Self::Layers {
