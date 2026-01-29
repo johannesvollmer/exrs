@@ -75,7 +75,7 @@ fn main() {
     impl GetPixel for CustomPixels {
         type Pixel = RgbaF32Pixel;
 
-        fn pixel(&self, position: Vec2<usize>) -> Self::Pixel {
+        fn get_pixel(&self, position: Vec2<usize>) -> Self::Pixel {
             self.lines[position.y()][position.x()]
         }
     }

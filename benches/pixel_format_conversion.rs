@@ -7,12 +7,11 @@ use std::{fs, io::Cursor};
 use bencher::Bencher;
 use exr::{block::samples::FromNativeSample, image::pixel_vec::PixelVec, prelude::*};
 
-const F32_ZIPS_PATH: &'static str = "tests/images/valid/custom/crowskull/crow_zips.exr";
-const F32_UNCOMPRESSED_PATH: &'static str =
-    "tests/images/valid/custom/crowskull/crow_uncompressed.exr";
-const F16_UNCOMPRESSED_PATH: &'static str =
+const F32_ZIPS_PATH: &str = "tests/images/valid/custom/crowskull/crow_zips.exr";
+const F32_UNCOMPRESSED_PATH: &str = "tests/images/valid/custom/crowskull/crow_uncompressed.exr";
+const F16_UNCOMPRESSED_PATH: &str =
     "tests/images/valid/custom/crowskull/crow_uncompressed_half.exr";
-const F16_ZIP_PATH: &'static str = "tests/images/valid/custom/crowskull/crow_zip_half.exr";
+const F16_ZIP_PATH: &str = "tests/images/valid/custom/crowskull/crow_zip_half.exr";
 
 /// Read an image from an in-memory buffer into its native f32 format
 fn read_f32_as_f32_uncompressed_1thread(bench: &mut Bencher) {
@@ -74,12 +73,15 @@ fn read_f16_as_f16_zip_1thread(bench: &mut Bencher) {
     bench_read_image_rgba_as::<f16>(bench, F16_ZIP_PATH, false);
 }
 
-fn bench_read_image_rgba_as<T>(bench: &mut Bencher, path: &str, parallel: bool) {
+fn bench_read_image_rgba_as<T>(bench: &mut Bencher, path: &str, parallel: bool)
+where
+    T: FromNativeSample,
+{
     let mut file = fs::read(path).unwrap();
     bencher::black_box(&mut file);
 
     bench.iter(|| {
-        let image = read_file_from_memory_as::<f16>(file.as_slice(), parallel);
+        let image = read_file_from_memory_as::<T>(file.as_slice(), parallel);
         bencher::black_box(image);
     })
 }
