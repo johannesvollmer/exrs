@@ -32,6 +32,7 @@ use crate::{
 };
 
 /// An oversimplified function for "just write the damn file already" use cases.
+///
 /// Have a look at the examples to see how you can write an image with more
 /// flexibility (it's not that hard). Use `write_rgb_file` if you do not need an
 /// alpha channel.
@@ -56,6 +57,7 @@ where
 }
 
 /// An oversimplified function for "just write the damn file already" use cases.
+///
 /// Have a look at the examples to see how you can write an image with more
 /// flexibility (it's not that hard). Use `write_rgb_file` if you do not need an
 /// alpha channel.

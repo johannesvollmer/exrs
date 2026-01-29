@@ -25,6 +25,7 @@ pub type ByteVec = Vec<u8>;
 pub type Bytes<'s> = &'s [u8];
 
 /// Specifies which compression method to use.
+///
 /// Use uncompressed data for fastest loading and writing speeds.
 /// Use RLE compression for fast loading and writing with slight memory savings.
 /// Use ZIP compression for slow processing with large memory savings.
@@ -155,18 +156,18 @@ impl std::fmt::Display for Compression {
             formatter,
             "{} compression",
             match self {
-                Compression::Uncompressed => "no",
-                Compression::RLE => "rle",
-                Compression::ZIP1 => "zip line",
-                Compression::ZIP16 => "zip block",
-                Compression::B44 => "b44",
-                Compression::B44A => "b44a",
-                Compression::DWAA(_) => "dwaa",
-                Compression::DWAB(_) => "dwab",
-                Compression::PIZ => "piz",
-                Compression::PXR24 => "pxr24",
-                Compression::HTJ2K32 => "ht j2k 32",
-                Compression::HTJ2K256 => "ht j2k 256",
+                Self::Uncompressed => "no",
+                Self::RLE => "rle",
+                Self::ZIP1 => "zip line",
+                Self::ZIP16 => "zip block",
+                Self::B44 => "b44",
+                Self::B44A => "b44a",
+                Self::DWAA(_) => "dwaa",
+                Self::DWAB(_) => "dwab",
+                Self::PIZ => "piz",
+                Self::PXR24 => "pxr24",
+                Self::HTJ2K32 => "ht j2k 32",
+                Self::HTJ2K256 => "ht j2k 256",
             }
         )
     }
@@ -188,7 +189,7 @@ impl Compression {
             "decompress tile coordinate bug"
         );
         if header.deep {
-            assert!(self.supports_deep_data())
+            assert!(self.supports_deep_data());
         }
 
         use self::Compression::*;
@@ -238,14 +239,13 @@ impl Compression {
             ),
             _ => {
                 return Err(Error::unsupported(format!(
-                    "yet unimplemented compression method: {}",
-                    self
+                    "yet unimplemented compression method: {self}"
                 )))
             }
         };
 
         let compressed_little_endian = compressed_little_endian
-            .map_err(|_| Error::invalid(format!("pixels cannot be compressed ({})", self)))?;
+            .map_err(|_| Error::invalid(format!("pixels cannot be compressed ({self})")))?;
 
         if self == Uncompressed || compressed_little_endian.len() < uncompressed_native_endian.len()
         {
@@ -277,7 +277,7 @@ impl Compression {
             "decompress tile coordinate bug"
         );
         if header.deep {
-            assert!(self.supports_deep_data())
+            assert!(self.supports_deep_data());
         }
 
         let expected_byte_size = pixel_section.size.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
@@ -337,8 +337,7 @@ impl Compression {
                 ),
                 _ => {
                     return Err(Error::unsupported(format!(
-                        "yet unimplemented compression method: {}",
-                        self
+                        "yet unimplemented compression method: {self}"
                     )))
                 }
             };
@@ -346,19 +345,16 @@ impl Compression {
             // map all errors to compression errors
             let bytes_ne = bytes_ne.map_err(|decompression_error| match decompression_error {
                 Error::NotSupported(message) => Error::unsupported(format!(
-                    "yet unimplemented compression special case ({})",
-                    message
+                    "yet unimplemented compression special case ({message})"
                 )),
 
-                error => {
-                    Error::invalid(format!("compressed {:?} data ({})", self, error.to_string()))
-                }
+                error => Error::invalid(format!("compressed {self:?} data ({error})")),
             })?;
 
-            if bytes_ne.len() != expected_byte_size {
-                Err(Error::invalid("decompressed data"))
-            } else {
+            if bytes_ne.len() == expected_byte_size {
                 Ok(bytes_ne)
+            } else {
+                Err(Error::invalid("decompressed data"))
             }
         }
     }
@@ -366,7 +362,7 @@ impl Compression {
     /// For scan line images and deep scan line images, one or more scan lines
     /// may be stored together as a scan line block. The number of scan
     /// lines per block depends on how the pixel data are compressed.
-    pub fn scan_lines_per_block(self) -> usize {
+    pub const fn scan_lines_per_block(self) -> usize {
         use self::Compression::*;
         match self {
             Uncompressed | RLE | ZIP1 => 1,
@@ -377,7 +373,7 @@ impl Compression {
     }
 
     /// Deep data can only be compressed using RLE or ZIP compression.
-    pub fn supports_deep_data(self) -> bool {
+    pub const fn supports_deep_data(self) -> bool {
         use self::Compression::*;
         match self {
             Uncompressed | RLE | ZIP1 => true,
@@ -482,17 +478,17 @@ fn reverse_block_endianness(
             match channel.sample_type {
                 SampleType::F16 => {
                     remaining_bytes =
-                        convert_byte_chunks(reverse_2_bytes, 2, remaining_bytes, sample_count)
+                        convert_byte_chunks(reverse_2_bytes, 2, remaining_bytes, sample_count);
                 }
 
                 SampleType::F32 => {
                     remaining_bytes =
-                        convert_byte_chunks(reverse_4_bytes, 4, remaining_bytes, sample_count)
+                        convert_byte_chunks(reverse_4_bytes, 4, remaining_bytes, sample_count);
                 }
 
                 SampleType::U32 => {
                     remaining_bytes =
-                        convert_byte_chunks(reverse_4_bytes, 4, remaining_bytes, sample_count)
+                        convert_byte_chunks(reverse_4_bytes, 4, remaining_bytes, sample_count);
                 }
             }
         }
@@ -535,24 +531,22 @@ fn reverse_4_bytes(bytes: &mut [u8]) {
 }
 
 #[inline]
-fn div_p(x: i32, y: i32) -> i32 {
+const fn div_p(x: i32, y: i32) -> i32 {
     if x >= 0 {
         if y >= 0 {
             x / y
         } else {
             -(x / -y)
         }
+    } else if y >= 0 {
+        -((y - 1 - x) / y)
     } else {
-        if y >= 0 {
-            -((y - 1 - x) / y)
-        } else {
-            (-y - 1 - x) / -y
-        }
+        (-y - 1 - x) / -y
     }
 }
 
 #[inline]
-fn mod_p(x: i32, y: i32) -> i32 {
+const fn mod_p(x: i32, y: i32) -> i32 {
     x - y * div_p(x, y)
 }
 
@@ -573,12 +567,12 @@ mod optimize_bytes {
         // other, they can be processed in parallel. Since this function is
         // responsible for a very large chunk of execution time, this tweak
         // alone improves decoding performance of RLE images by 20%.
-        if let Some(first) = buffer.get(0) {
-            let mut previous = *first as i16;
+        if let Some(first) = buffer.first() {
+            let mut previous = i16::from(*first);
             for chunk in &mut buffer[1..].chunks_exact_mut(2) {
                 // no bounds checks here due to indices and chunk size being constant
-                let diff0 = chunk[0] as i16;
-                let diff1 = chunk[1] as i16;
+                let diff0 = i16::from(chunk[0]);
+                let diff1 = i16::from(chunk[1]);
                 // these two computations do not depend on each other, unlike in the naive
                 // version, so they can be executed by the CPU in parallel via
                 // instruction-level parallelism
@@ -586,14 +580,14 @@ mod optimize_bytes {
                 let sample1 = (previous + diff0 + diff1 - 128 * 2) as u8;
                 chunk[0] = sample0;
                 chunk[1] = sample1;
-                previous = sample1 as i16;
+                previous = i16::from(sample1);
             }
             // handle the remaining element at the end not processed by the loop over pairs,
             // if present
             for elem in &mut buffer[1..].chunks_exact_mut(2).into_remainder().iter_mut() {
-                let sample = (previous + *elem as i16 - 128) as u8;
+                let sample = (previous + i16::from(*elem) - 128) as u8;
                 *elem = sample;
-                previous = sample as i16;
+                previous = i16::from(sample);
             }
         }
     }
@@ -610,29 +604,29 @@ mod optimize_bytes {
         // If the target platform has no vector instructions (e.g. 32-bit ARM without
         // `-C target-cpu=native`) this will instead take advantage of
         // instruction-level parallelism.
-        if let Some(first) = buffer.get(0) {
-            let mut previous = *first as i16;
+        if let Some(first) = buffer.first() {
+            let mut previous = i16::from(*first);
             // Chunk size is 16 because we process bytes (8 bits),
             // and 8*16 = 128 bits is the size of a typical SIMD register.
             // Even WASM has 128-bit SIMD registers.
             for chunk in &mut buffer[1..].chunks_exact_mut(16) {
                 // no bounds checks here due to indices and chunk size being constant
-                let sample0 = chunk[0] as i16;
-                let sample1 = chunk[1] as i16;
-                let sample2 = chunk[2] as i16;
-                let sample3 = chunk[3] as i16;
-                let sample4 = chunk[4] as i16;
-                let sample5 = chunk[5] as i16;
-                let sample6 = chunk[6] as i16;
-                let sample7 = chunk[7] as i16;
-                let sample8 = chunk[8] as i16;
-                let sample9 = chunk[9] as i16;
-                let sample10 = chunk[10] as i16;
-                let sample11 = chunk[11] as i16;
-                let sample12 = chunk[12] as i16;
-                let sample13 = chunk[13] as i16;
-                let sample14 = chunk[14] as i16;
-                let sample15 = chunk[15] as i16;
+                let sample0 = i16::from(chunk[0]);
+                let sample1 = i16::from(chunk[1]);
+                let sample2 = i16::from(chunk[2]);
+                let sample3 = i16::from(chunk[3]);
+                let sample4 = i16::from(chunk[4]);
+                let sample5 = i16::from(chunk[5]);
+                let sample6 = i16::from(chunk[6]);
+                let sample7 = i16::from(chunk[7]);
+                let sample8 = i16::from(chunk[8]);
+                let sample9 = i16::from(chunk[9]);
+                let sample10 = i16::from(chunk[10]);
+                let sample11 = i16::from(chunk[11]);
+                let sample12 = i16::from(chunk[12]);
+                let sample13 = i16::from(chunk[13]);
+                let sample14 = i16::from(chunk[14]);
+                let sample15 = i16::from(chunk[15]);
                 // Unlike in decoding, computations in here are truly independent from each
                 // other, which enables the compiler to vectorize this loop.
                 // Even if the target platform has no vector instructions,
@@ -660,8 +654,8 @@ mod optimize_bytes {
             // batches, if present This is what the iterator-based version of
             // this function would look like without vectorization
             for elem in &mut buffer[1..].chunks_exact_mut(16).into_remainder().iter_mut() {
-                let diff = (*elem as i16 - previous + 128) as u8;
-                previous = *elem as i16;
+                let diff = (i16::from(*elem) - previous + 128) as u8;
+                previous = i16::from(*elem);
                 *elem = diff;
             }
         }
@@ -673,7 +667,7 @@ mod optimize_bytes {
         // Allocating memory is cheap, but zeroing or otherwise initializing it is not.
         // Doing it hundreds of times (once per block) would be expensive.
         // This optimization brings down the time spent in interleaving from 15% to 5%.
-        static SCRATCH_SPACE: Cell<Vec<u8>> = Cell::new(Vec::new());
+        static SCRATCH_SPACE: Cell<Vec<u8>> = const { Cell::new(Vec::new()) };
     }
 
     fn with_reused_buffer<F>(length: usize, mut func: F)
@@ -736,7 +730,7 @@ mod optimize_bytes {
             }
 
             // write out the results
-            separated.copy_from_slice(&interleaved);
+            separated.copy_from_slice(interleaved);
         });
     }
 
@@ -775,7 +769,7 @@ mod optimize_bytes {
             }
 
             // write out the results
-            source.copy_from_slice(&separated);
+            source.copy_from_slice(separated);
         });
     }
 
@@ -829,7 +823,7 @@ mod test {
         ]
         .into_iter()
         .flatten()
-        .map(|x| *x)
+        .copied()
         .collect();
 
         roundtrip_convert_endianness(data, &channels, IntegerBounds::from_dimensions((2, 2)));
@@ -844,7 +838,7 @@ mod test {
             convert_current_to_little_endian(current_endian.clone(), channels, rectangle).unwrap();
 
         let current_endian_decoded =
-            convert_little_endian_to_current(little_endian.clone(), channels, rectangle).unwrap();
+            convert_little_endian_to_current(little_endian, channels, rectangle).unwrap();
 
         assert_eq!(current_endian, current_endian_decoded, "endianness conversion failed");
     }

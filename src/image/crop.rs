@@ -461,6 +461,11 @@ impl<Cropped, Original> CropResult<Cropped, Original> {
     /// If the image was fully empty, crop to one single pixel of all the
     /// transparent pixels instead, leaving the layer intact while reducing
     /// memory usage.
+    ///
+    /// # Panics
+    /// Panics if the layer has zero width and height (which indicates an
+    /// invalid layer state). This should never happen with properly
+    /// constructed images.
     pub fn or_crop_to_1x1_if_empty(self) -> Cropped
     where
         Original: Crop<Cropped = Cropped> + GetBounds,
@@ -472,7 +477,7 @@ impl<Cropped, Original> CropResult<Cropped, Original> {
             } => {
                 let bounds = original.bounds();
                 if bounds.size == Vec2(0, 0) {
-                    panic!("layer has width and height of zero")
+                    unreachable!("layer has zero width and height - this indicates an invalid layer state that should have been caught during construction")
                 }
                 original.crop(IntegerBounds::new(bounds.position, Vec2(1, 1)))
             }

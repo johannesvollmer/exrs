@@ -4,6 +4,7 @@
 use crate::meta::attribute::IntegerBounds;
 
 /// A generic block of pixel information.
+///
 /// Contains pixel data and an index to the corresponding header.
 /// All pixel data in a file is split into a list of chunks.
 /// Also contains positioning information that locates this
@@ -23,6 +24,7 @@ pub struct Chunk {
 }
 
 /// The raw, possibly compressed pixel data of a file.
+///
 /// Each layer in a file can have a different type.
 /// Also contains positioning information that locates this
 /// data block in the corresponding layer.
@@ -169,7 +171,7 @@ impl TileCoordinates {
             return Err(Error::invalid("level index exceeding integer maximum"));
         }
 
-        Ok(TileCoordinates {
+        Ok(Self {
             tile_index: Vec2(tile_x, tile_y).to_usize("tile coordinate index")?,
             level_index: Vec2(level_x, level_y).to_usize("tile coordinate level")?,
         })
@@ -241,7 +243,7 @@ impl CompressedScanLineBlock {
             Some(max_block_byte_size),
             "scan line block sample count",
         )?;
-        Ok(CompressedScanLineBlock {
+        Ok(Self {
             y_coordinate,
             compressed_pixels_le,
         })
@@ -271,7 +273,7 @@ impl CompressedTileBlock {
             Some(max_block_byte_size),
             "tile block sample count",
         )?;
-        Ok(CompressedTileBlock {
+        Ok(Self {
             coordinates,
             compressed_pixels_le,
         })
@@ -321,7 +323,7 @@ impl CompressedDeepScanLineBlock {
             "deep scan line block sample count",
         )?;
 
-        Ok(CompressedDeepScanLineBlock {
+        Ok(Self {
             y_coordinate,
             decompressed_sample_data_size,
             compressed_pixel_offset_table,
@@ -372,7 +374,7 @@ impl CompressedDeepTileBlock {
             "deep tile block sample count",
         )?;
 
-        Ok(CompressedDeepTileBlock {
+        Ok(Self {
             coordinates,
             decompressed_sample_data_size,
             compressed_pixel_offset_table,
@@ -387,16 +389,16 @@ use crate::{
 };
 
 /// Validation of chunks is done while reading and writing the actual data. (For
-/// example in exr::full_image)
+/// example in `exr::full_image`)
 impl Chunk {
     /// Without validation, write this instance to the byte stream.
     pub fn write(&self, write: &mut impl Write, header_count: usize) -> UnitResult {
         debug_assert!(self.layer_index < header_count, "layer index bug"); // validation is done in full_image or simple_image
 
-        if header_count != 1 {
-            usize_to_i32(self.layer_index, "layer index")?.write_le(write)?;
-        } else {
+        if header_count == 1 {
             assert_eq!(self.layer_index, 0, "invalid header index for single layer file");
+        } else {
+            usize_to_i32(self.layer_index, "layer index")?.write_le(write)?;
         }
 
         match self.compressed_block {
@@ -427,7 +429,7 @@ impl Chunk {
         let header = &meta_data.headers[layer_number];
         let max_block_byte_size = header.max_block_byte_size();
 
-        let chunk = Chunk {
+        let chunk = Self {
             layer_index: layer_number,
             compressed_block: match header.blocks {
                 // flat data

@@ -1,5 +1,5 @@
 //! The PIZ compression method is a wavelet compression,
-//! based on the PIZ image format, customized for OpenEXR.
+//! based on the PIZ image format, customized for `OpenEXR`.
 // inspired by  https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfPizCompressor.cpp
 
 mod huffman;
@@ -64,7 +64,7 @@ pub fn decompress(
 
     {
         let length = i32::read_le(&mut remaining_input_le)?;
-        if pedantic && length as i64 != remaining_input_le.len() as i64 {
+        if pedantic && i64::from(length) != remaining_input_le.len() as i64 {
             // TODO length might be smaller than remaining??
             return Err(Error::invalid("compression data"));
         }
@@ -256,8 +256,8 @@ pub fn bitmap_from_data(data: &[u16]) -> (usize, usize, Vec<u8>) {
         bitmap[*value as usize >> 3] |= 1 << (*value as u8 & 7);
     }
 
-    bitmap[0] = bitmap[0] & !1; // zero is not explicitly stored in the bitmap; we assume that the data always
-                                // contain zeroes
+    bitmap[0] &= !1; // zero is not explicitly stored in the bitmap; we assume that the data always
+                     // contain zeroes
 
     let min_index = bitmap.iter().position(|&value| value != 0);
     let max_index = min_index.map(|min|  // only if min was found

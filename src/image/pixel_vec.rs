@@ -35,11 +35,12 @@ impl<Pixel> PixelVec<Pixel> {
     /// Create a new flattened pixel storage, filled with default pixels.
     /// Accepts a `Channels` parameter, which is not used, so that it can be
     /// passed as a function pointer instead of calling it.
+    #[must_use]
     pub fn constructor<Channels>(resolution: Vec2<usize>, _: &Channels) -> Self
     where
         Pixel: Default + Clone,
     {
-        PixelVec {
+        Self {
             resolution,
             pixels: vec![Pixel::default(); resolution.area()],
         }
@@ -103,12 +104,12 @@ where
         options: ValidationOptions,
         location: impl Fn() -> String,
     ) -> ValidationResult {
-        if self.resolution != other.resolution {
-            Err(location() + " > resolution")
-        } else {
+        if self.resolution == other.resolution {
             self.pixels
                 .as_slice()
                 .validate_result(&other.pixels.as_slice(), options, || location() + " > pixels")
+        } else {
+            Err(location() + " > resolution")
         }
     }
 }

@@ -74,7 +74,7 @@ pub fn damaged() {
                     )
                     .first_valid_layer()
                     .all_attributes()
-                    .from_file(&file)?;
+                    .from_file(file)?;
             }
 
             {
@@ -90,7 +90,7 @@ pub fn damaged() {
                     .all_layers()
                     .all_attributes()
                     .pedantic()
-                    .from_file(&file)?;
+                    .from_file(file)?;
             }
 
             {

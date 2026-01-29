@@ -162,7 +162,12 @@ where
         let header_chunk_indices = &mut self.chunk_indices_increasing_y[chunk.layer_index];
 
         if index_in_header_increasing_y >= header_chunk_indices.len() {
-            return Err(Error::invalid("too large chunk index"));
+            return Err(Error::invalid(format!(
+                "chunk index {} exceeds maximum {} for layer {}",
+                index_in_header_increasing_y,
+                header_chunk_indices.len().saturating_sub(1),
+                chunk.layer_index
+            )));
         }
 
         let chunk_index_slot = &mut header_chunk_indices[index_in_header_increasing_y];
