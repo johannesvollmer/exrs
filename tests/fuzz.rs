@@ -1,19 +1,24 @@
 //! Fuzzy testing.
 //! Tries to discover panics with random bytes.
-//! This test is expensive and therefore marked with `#[ignore]`. To run this test, use `cargo test -- --ignored`.
+//! This test is expensive and therefore marked with `#[ignore]`. To run this
+//! test, use `cargo test -- --ignored`.
 
-use rand::rngs::StdRng;
-use rand::Rng;
 use std::panic::catch_unwind;
 
+use rand::{rngs::StdRng, Rng};
+
 extern crate exr;
-use exr::image::pixel_vec::PixelVec;
-use exr::image::read::read_first_rgba_layer_from_file;
-use exr::prelude::*;
-use std::ffi::OsStr;
-use std::fs::File;
-use std::io::{Cursor, Write};
-use std::path::PathBuf;
+use std::{
+    ffi::OsStr,
+    fs::File,
+    io::{Cursor, Write},
+    path::PathBuf,
+};
+
+use exr::{
+    image::{pixel_vec::PixelVec, read::read_first_rgba_layer_from_file},
+    prelude::*,
+};
 
 fn exr_files(path: &'static str, filter: bool) -> impl Iterator<Item = PathBuf> {
     walkdir::WalkDir::new(path)
@@ -130,10 +135,7 @@ pub fn damaged() {
                     let meta_data = MetaData::read_from_file(file, true);
 
                     if let Err(error) = meta_data {
-                        println!(
-                            "✓ Recognized as invalid when pedantic ({}): {:?}",
-                            error, file
-                        );
+                        println!("✓ Recognized as invalid when pedantic ({}): {:?}", error, file);
                         true
                     } else {
                         println!("✗ Oh no, there is nothing wrong with: {:#?}", file);
@@ -161,9 +163,7 @@ pub fn fuzz() {
     let mut random: StdRng = rand::SeedableRng::from_seed(seed);
 
     let mut records = File::create("tests/images/fuzzed/list.txt").unwrap();
-    records
-        .write_all(format!("seed = {:?}", seed).as_bytes())
-        .unwrap();
+    records.write_all(format!("seed = {:?}", seed).as_bytes()).unwrap();
 
     let start_index = 0; // default is 0. increase this integer for debugging a specific fuzz case
     for fuzz_index in 0..1024_u64 * 2048 * 4 {
@@ -197,21 +197,14 @@ pub fn fuzz() {
             });
 
             if let Err(_) = result {
-                records
-                    .write_all(fuzz_index.to_string().as_bytes())
-                    .unwrap();
+                records.write_all(fuzz_index.to_string().as_bytes()).unwrap();
                 records.flush().unwrap();
 
-                let seed = seed
-                    .iter()
-                    .map(|num| num.to_string())
-                    .collect::<Vec<String>>()
-                    .join("-");
-                let mut saved = File::create(format!(
-                    "tests/images/fuzzed/fuzz_{}_{}.exr",
-                    fuzz_index, seed
-                ))
-                .unwrap();
+                let seed =
+                    seed.iter().map(|num| num.to_string()).collect::<Vec<String>>().join("-");
+                let mut saved =
+                    File::create(format!("tests/images/fuzzed/fuzz_{}_{}.exr", fuzz_index, seed))
+                        .unwrap();
                 saved.write_all(file).unwrap();
 
                 println!("✗ PANIC! [{}]", fuzz_index);

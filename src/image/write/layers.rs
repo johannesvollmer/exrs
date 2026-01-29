@@ -1,13 +1,20 @@
 //! How to write either a single or a list of layers.
 
-use crate::block::BlockIndex;
-use crate::image::recursive::{NoneMore, Recursive};
-use crate::image::write::channels::{ChannelsWriter, WritableChannels};
-use crate::image::{Layer, Layers};
-use crate::meta::attribute::TileDescription;
-use crate::meta::header::{Header, ImageAttributes};
-use crate::meta::{compute_chunk_count, Headers};
-use crate::prelude::{Error, Result, SmallVec};
+use crate::{
+    block::BlockIndex,
+    image::{
+        recursive::{NoneMore, Recursive},
+        write::channels::{ChannelsWriter, WritableChannels},
+        Layer, Layers,
+    },
+    meta::{
+        attribute::TileDescription,
+        compute_chunk_count,
+        header::{Header, ImageAttributes},
+        Headers,
+    },
+    prelude::{Error, Result, SmallVec},
+};
 
 /// Enables an image containing this list of layers to be written to a file.
 pub trait WritableLayers<'slf> {
@@ -44,11 +51,12 @@ impl<'slf, Channels: 'slf> WritableLayers<'slf> for Layers<Channels>
 where
     Channels: WritableChannels<'slf>,
 {
+    type Writer = AllLayersWriter<Channels::Writer>;
+
     fn infer_headers(&self, image_attributes: &ImageAttributes) -> Result<Headers> {
         slice_infer_headers(self.as_slice(), image_attributes)
     }
 
-    type Writer = AllLayersWriter<Channels::Writer>;
     fn create_writer(&'slf self, headers: &[Header]) -> Result<Self::Writer> {
         slice_create_writer(self.as_slice(), headers)
     }
@@ -60,11 +68,7 @@ fn slice_infer_headers<'slf, Channels: 'slf + WritableChannels<'slf>>(
 ) -> Result<Headers> {
     slice
         .iter()
-        .map(|layer| {
-            layer
-                .infer_headers(image_attributes)
-                .map(|mut h| h.remove(0))
-        })
+        .map(|layer| layer.infer_headers(image_attributes).map(|mut h| h.remove(0)))
         .collect()
 }
 
@@ -82,6 +86,8 @@ fn slice_create_writer<'slf, Channels: 'slf + WritableChannels<'slf>>(
 }
 
 impl<'slf, Channels: WritableChannels<'slf>> WritableLayers<'slf> for Layer<Channels> {
+    type Writer = LayerWriter</* 'l, */ Channels::Writer>;
+
     fn infer_headers(&self, image_attributes: &ImageAttributes) -> Result<Headers> {
         let blocks = match self.encoding.blocks {
             crate::image::Blocks::ScanLines => crate::meta::BlockDescription::ScanLines,
@@ -117,14 +123,15 @@ impl<'slf, Channels: WritableChannels<'slf>> WritableLayers<'slf> for Layer<Chan
         Ok(smallvec![header]) // TODO no array-vs-first
     }
 
-    type Writer = LayerWriter</*'l,*/ Channels::Writer>;
     fn create_writer(&'slf self, headers: &[Header]) -> Result<Self::Writer> {
         let header = headers
             .first()
             .ok_or_else(|| Error::invalid("cannot create layer writer: no header provided"))?;
         let channels = self.channel_data.create_writer(header)?;
 
-        Ok(LayerWriter { channels })
+        Ok(LayerWriter {
+            channels,
+        })
     }
 }
 
@@ -152,11 +159,12 @@ where
 }
 
 impl<'slf> WritableLayers<'slf> for NoneMore {
+    type Writer = NoneMore;
+
     fn infer_headers(&self, _: &ImageAttributes) -> Result<Headers> {
         Ok(SmallVec::new())
     }
 
-    type Writer = NoneMore;
     fn create_writer(&'slf self, _: &[Header]) -> Result<Self::Writer> {
         Ok(NoneMore)
     }
@@ -167,13 +175,13 @@ where
     InnerLayers: WritableLayers<'slf>,
     Channels: WritableChannels<'slf>,
 {
+    type Writer = RecursiveLayersWriter<InnerLayers::Writer, Channels::Writer>;
+
     fn infer_headers(&self, image_attributes: &ImageAttributes) -> Result<Headers> {
         let mut headers = self.inner.infer_headers(image_attributes)?;
         headers.push(self.value.infer_headers(image_attributes)?.remove(0)); // TODO no unwrap
         Ok(headers)
     }
-
-    type Writer = RecursiveLayersWriter<InnerLayers::Writer, Channels::Writer>;
 
     fn create_writer(&'slf self, headers: &[Header]) -> Result<Self::Writer> {
         let (own_header, inner_headers) = headers.split_last().ok_or_else(|| {
@@ -183,10 +191,7 @@ where
         let layer_index = inner_headers.len();
         Ok(RecursiveLayersWriter {
             inner: self.inner.create_writer(inner_headers)?,
-            value: (
-                layer_index,
-                self.value.create_writer(std::slice::from_ref(own_header))?,
-            ), // TODO no slice
+            value: (layer_index, self.value.create_writer(std::slice::from_ref(own_header))?), /* TODO no slice */
         })
     }
 }
@@ -196,9 +201,9 @@ type RecursiveLayersWriter<InnerLayersWriter, ChannelsWriter> =
 
 impl LayersWriter for NoneMore {
     /// # Errors
-    /// Returns an error if called, as this indicates a recursive length mismatch bug where
-    /// a block is being extracted for a layer index that doesn't exist in the
-    /// recursive layer structure.
+    /// Returns an error if called, as this indicates a recursive length
+    /// mismatch bug where a block is being extracted for a layer index that
+    /// doesn't exist in the recursive layer structure.
     fn extract_uncompressed_block(&self, _: &[Header], _: BlockIndex) -> Result<Vec<u8>> {
         Err(Error::invalid(
             "recursive length mismatch: attempted to extract block for non-existent layer",

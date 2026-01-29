@@ -1,14 +1,21 @@
 //! How to read samples (a grid of `f32`, `f16` or `u32` values).
 
-use crate::block::chunk::TileCoordinates;
-use crate::block::lines::LineRef;
-use crate::error::{Result, UnitResult};
-use crate::image::read::any_channels::{ReadSamples, SamplesReader};
-use crate::image::read::levels::{ReadAllLevels, ReadLargestLevel, ReadSamplesLevel};
-use crate::image::*;
-use crate::math::Vec2;
-use crate::meta::attribute::{ChannelDescription, SampleType};
-use crate::meta::header::Header;
+use crate::{
+    block::{chunk::TileCoordinates, lines::LineRef},
+    error::{Result, UnitResult},
+    image::{
+        read::{
+            any_channels::{ReadSamples, SamplesReader},
+            levels::{ReadAllLevels, ReadLargestLevel, ReadSamplesLevel},
+        },
+        *,
+    },
+    math::Vec2,
+    meta::{
+        attribute::{ChannelDescription, SampleType},
+        header::Header,
+    },
+};
 // use crate::image::read::layers::ReadChannels;
 
 /// Specify to read only flat samples and no "deep data"
@@ -22,25 +29,33 @@ impl ReadFlatSamples {
     // e. g. `let sum = reader.any_channels_with(|sample, sum| sum += sample)`
     // pub fn any_channels_with <S> (self, storage: S) -> {  }
 
-    /// Specify to read only the highest resolution level, skipping all smaller variations.
+    /// Specify to read only the highest resolution level, skipping all smaller
+    /// variations.
     pub fn largest_resolution_level(self) -> ReadLargestLevel<Self> {
-        ReadLargestLevel { read_samples: self }
+        ReadLargestLevel {
+            read_samples: self,
+        }
     }
 
     /// Specify to read all contained resolution levels from the image, if any.
     pub fn all_resolution_levels(self) -> ReadAllLevels<Self> {
-        ReadAllLevels { read_samples: self }
+        ReadAllLevels {
+            read_samples: self,
+        }
     }
 
-    // TODO pub fn specific_resolution_level<F: Fn(&[Vec2<usize>])->usize >(self, select_level: F) -> ReadLevelBy<Self> { ReadAllLevels { read_samples: self } }
+    // TODO pub fn specific_resolution_level<F: Fn(&[Vec2<usize>])->usize >(self,
+    // select_level: F) -> ReadLevelBy<Self> { ReadAllLevels { read_samples: self }
+    // }
 }
 
-/*pub struct AnySamplesReader { TODO
-    resolution: Vec2<usize>,
-    samples: DeepAndFlatSamples
-}*/
+// pub struct AnySamplesReader { TODO
+// resolution: Vec2<usize>,
+// samples: DeepAndFlatSamples
+// }
 
-/// Processes pixel blocks from a file and accumulates them into a grid of samples, for example "Red" or "Alpha".
+/// Processes pixel blocks from a file and accumulates them into a grid of
+/// samples, for example "Red" or "Alpha".
 #[derive(Debug, Clone, PartialEq)]
 pub struct FlatSamplesReader {
     level: Vec2<usize>,
@@ -100,10 +115,7 @@ impl SamplesReader for FlatSamplesReader {
             index.position.x() + index.sample_count <= resolution.width(),
             "line index calculation bug"
         );
-        debug_assert!(
-            index.position.y() < resolution.height(),
-            "line index calculation bug"
-        );
+        debug_assert!(index.position.y() < resolution.height(), "line index calculation bug");
         debug_assert_ne!(resolution.0, 0, "sample size bug");
 
         let start_index = index.position.y() * resolution.width() + index.position.x();

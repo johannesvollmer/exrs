@@ -1,12 +1,15 @@
 //! Extract lines from a block of pixel bytes.
 
-use crate::block::BlockIndex;
-use crate::error::{Result, UnitResult};
-use crate::math::*;
-use crate::meta::attribute::ChannelList;
+use std::{io::Cursor, ops::Range};
+
 use smallvec::SmallVec;
-use std::io::Cursor;
-use std::ops::Range;
+
+use crate::{
+    block::BlockIndex,
+    error::{Result, UnitResult},
+    math::*,
+    meta::attribute::ChannelList,
+};
 
 /// A single line of pixels.
 /// Use [LineRef] or [LineRefMut] for easier type names.
@@ -58,11 +61,13 @@ pub struct LineIndex {
 
 impl LineIndex {
     /// Iterates the lines of this block index in interleaved fashion:
-    /// For each line in this block, this iterator steps once through each channel.
-    /// This is how lines are stored in a pixel data block.
+    /// For each line in this block, this iterator steps once through each
+    /// channel. This is how lines are stored in a pixel data block.
     ///
-    /// Does not check whether `self.layer_index`, `self.level`, `self.size` and `self.position` are valid indices.__
-    // TODO be sure this cannot produce incorrect data, as this is not further checked but only handled with panics
+    /// Does not check whether `self.layer_index`, `self.level`, `self.size` and
+    /// `self.position` are valid indices.__
+    // TODO be sure this cannot produce incorrect data, as this is not further checked but only
+    // handled with panics
     #[inline]
     #[must_use]
     pub fn lines_in_block(
@@ -85,6 +90,7 @@ impl LineIndex {
 
         impl Iterator for LineIter {
             type Item = (Range<usize>, LineIndex);
+
             // TODO size hint?
 
             fn next(&mut self) -> Option<Self::Item> {
@@ -142,8 +148,8 @@ impl LineIndex {
 }
 
 impl<'s> LineRefMut<'s> {
-    /// Writes the samples (f16, f32, u32 values) into this line value reference.
-    /// Use `write_samples` if there is no slice available.
+    /// Writes the samples (f16, f32, u32 values) into this line value
+    /// reference. Use `write_samples` if there is no slice available.
     #[inline]
     #[must_use]
     pub fn write_samples_from_slice<T: crate::io::Data>(self, slice: &[T]) -> UnitResult {

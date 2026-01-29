@@ -2,9 +2,10 @@
 extern crate exr;
 
 /// Read an image and print information about the image into the console.
-/// This example shows how to read an image with multiple layers and arbitrary channels.
-/// For example, a layer with XYZ channels, and additionally a separate Depth layer.
-/// This example does not include resolution levels (mipmaps or ripmaps).
+/// This example shows how to read an image with multiple layers and arbitrary
+/// channels. For example, a layer with XYZ channels, and additionally a
+/// separate Depth layer. This example does not include resolution levels
+/// (mipmaps or ripmaps).
 fn main() {
     use exr::prelude::*;
 
@@ -32,10 +33,7 @@ fn main() {
                     channel.name, layer_name, average
                 );
             } else {
-                println!(
-                    "Channel `{}` has an average value of {}",
-                    channel.name, average
-                );
+                println!("Channel `{}` has an average value of {}", channel.name, average);
             }
         }
     }

@@ -1,13 +1,18 @@
 //! How to read either a single or a list of layers.
 
-use crate::block::chunk::TileCoordinates;
-use crate::block::{BlockIndex, UncompressedBlock};
-use crate::error::{Error, Result, UnitResult};
-use crate::image::read::image::{LayersReader, ReadLayers};
-use crate::image::*;
-use crate::math::Vec2;
-use crate::meta::header::{Header, LayerAttributes};
-use crate::meta::MetaData;
+use crate::{
+    block::{chunk::TileCoordinates, BlockIndex, UncompressedBlock},
+    error::{Error, Result, UnitResult},
+    image::{
+        read::image::{LayersReader, ReadLayers},
+        *,
+    },
+    math::Vec2,
+    meta::{
+        header::{Header, LayerAttributes},
+        MetaData,
+    },
+};
 
 /// Specify to read all channels, aborting if any one is invalid.
 /// [`ReadRgbaChannels`] or [`ReadAnyChannels<ReadFlatSamples>`].
@@ -17,7 +22,8 @@ pub struct ReadAllLayers<ReadChannels> {
     pub read_channels: ReadChannels,
 }
 
-/// Specify to read only the first layer which meets the previously specified requirements
+/// Specify to read only the first layer which meets the previously specified
+/// requirements
 // FIXME do not throw error on deep data but just skip it!
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReadFirstValidLayer<ReadChannels> {
@@ -25,7 +31,8 @@ pub struct ReadFirstValidLayer<ReadChannels> {
     pub read_channels: ReadChannels,
 }
 
-/// A template that creates a [`ChannelsReader`] once for all channels per layer.
+/// A template that creates a [`ChannelsReader`] once for all channels per
+/// layer.
 pub trait ReadChannels<'s> {
     /// The type of the temporary channels reader
     type Reader: ChannelsReader;
@@ -33,9 +40,9 @@ pub trait ReadChannels<'s> {
     /// Create a single reader for all channels of a specific layer
     fn create_channels_reader(&'s self, header: &Header) -> Result<Self::Reader>;
 
-    /// Read only the first layer which meets the previously specified requirements
-    /// For example, skips layers with deep data, if specified earlier.
-    /// Aborts if the image contains no layers.
+    /// Read only the first layer which meets the previously specified
+    /// requirements For example, skips layers with deep data, if specified
+    /// earlier. Aborts if the image contains no layers.
     // TODO test if this filters non-deep layers while ignoring deep data layers!
     fn first_valid_layer(self) -> ReadFirstValidLayer<Self>
     where
@@ -48,8 +55,9 @@ pub trait ReadChannels<'s> {
 
     // FIXME do not throw error on deep data but just skip it!
 
-    /// Reads all layers, including an empty list. Aborts if any of the layers are invalid,
-    /// even if only one of the layers contains unexpected data.
+    /// Reads all layers, including an empty list. Aborts if any of the layers
+    /// are invalid, even if only one of the layers contains unexpected
+    /// data.
     fn all_layers(self) -> ReadAllLayers<Self>
     where
         Self: Sized,
@@ -59,19 +67,20 @@ pub trait ReadChannels<'s> {
         }
     }
 
-    // TODO pub fn all_valid_layers(self) -> ReadAllValidLayers<Self> { ReadAllValidLayers { read_channels: self } }
+    // TODO pub fn all_valid_layers(self) -> ReadAllValidLayers<Self> {
+    // ReadAllValidLayers { read_channels: self } }
 }
 
-/// Processes pixel blocks from a file and accumulates them into a list of layers.
-/// For example, `ChannelsReader` can be
+/// Processes pixel blocks from a file and accumulates them into a list of
+/// layers. For example, `ChannelsReader` can be
 /// [`SpecificChannelsReader`] or [`AnyChannelsReader<FlatSamplesReader>`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct AllLayersReader<ChannelsReader> {
     layer_readers: SmallVec<[LayerReader<ChannelsReader>; 2]>, // TODO unpack struct?
 }
 
-/// Processes pixel blocks from a file and accumulates them into a single layers, using only the first.
-/// For example, `ChannelsReader` can be
+/// Processes pixel blocks from a file and accumulates them into a single
+/// layers, using only the first. For example, `ChannelsReader` can be
 /// `SpecificChannelsReader` or `AnyChannelsReader<FlatSamplesReader>`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FirstValidLayerReader<ChannelsReader> {
@@ -79,8 +88,8 @@ pub struct FirstValidLayerReader<ChannelsReader> {
     layer_index: usize,
 }
 
-/// Processes pixel blocks from a file and accumulates them into a single layers.
-/// For example, `ChannelsReader` can be
+/// Processes pixel blocks from a file and accumulates them into a single
+/// layers. For example, `ChannelsReader` can be
 /// `SpecificChannelsReader` or `AnyChannelsReader<FlatSamplesReader>`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LayerReader<ChannelsReader> {
@@ -90,7 +99,8 @@ pub struct LayerReader<ChannelsReader> {
     encoding: Encoding,
 }
 
-/// Processes pixel blocks from a file and accumulates them into multiple channels per layer.
+/// Processes pixel blocks from a file and accumulates them into multiple
+/// channels per layer.
 pub trait ChannelsReader {
     /// The type of the resulting channel collection
     type Channels;
@@ -98,7 +108,8 @@ pub trait ChannelsReader {
     /// Specify whether a single block of pixels should be loaded from the file
     fn filter_block(&self, tile: TileCoordinates) -> bool;
 
-    /// Load a single pixel block, which has not been filtered, into the reader, accumulating the channel data
+    /// Load a single pixel block, which has not been filtered, into the reader,
+    /// accumulating the channel data
     fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult;
 
     /// Deliver the final accumulated channel collection for the image
@@ -116,9 +127,10 @@ impl<C> LayerReader<C> {
                 line_order: header.line_order,
                 blocks: match header.blocks {
                     crate::meta::BlockDescription::ScanLines => Blocks::ScanLines,
-                    crate::meta::BlockDescription::Tiles(TileDescription { tile_size, .. }) => {
-                        Blocks::Tiles(tile_size)
-                    }
+                    crate::meta::BlockDescription::Tiles(TileDescription {
+                        tile_size,
+                        ..
+                    }) => Blocks::Tiles(tile_size),
                 },
             },
         })
@@ -153,10 +165,7 @@ where
     type Layers = Layers<C::Channels>;
 
     fn filter_block(&self, _: &MetaData, tile: TileCoordinates, block: BlockIndex) -> bool {
-        let layer = self
-            .layer_readers
-            .get(block.layer)
-            .expect("invalid layer index argument");
+        let layer = self.layer_readers.get(block.layer).expect("invalid layer index argument");
         layer.channels_reader.filter_block(tile)
     }
 
@@ -166,9 +175,7 @@ where
             .expect("invalid layer index argument")
             .channels_reader
             .read_block(
-                headers
-                    .get(block.index.layer)
-                    .expect("invalid header index in block"),
+                headers.get(block.index.layer).expect("invalid header index in block"),
                 block,
             )
     }
@@ -209,9 +216,7 @@ where
                     .ok()
             })
             .next()
-            .ok_or(Error::invalid(
-                "no layer in the image matched your specified requirements",
-            ))
+            .ok_or(Error::invalid("no layer in the image matched your specified requirements"))
     }
 }
 
@@ -230,9 +235,7 @@ where
             block.index.layer, self.layer_index,
             "block should have been filtered out"
         );
-        self.layer_reader
-            .channels_reader
-            .read_block(&headers[self.layer_index], block)
+        self.layer_reader.channels_reader.read_block(&headers[self.layer_index], block)
     }
 
     fn into_layers(self) -> Self::Layers {

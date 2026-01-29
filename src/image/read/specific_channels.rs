@@ -1,34 +1,40 @@
 //! How to read arbitrary but specific selection of arbitrary channels.
 //! This is not a zero-cost abstraction.
 
-use crate::block::chunk::TileCoordinates;
-use crate::block::samples::*;
-use crate::block::UncompressedBlock;
-use crate::error::*;
-use crate::image::read::layers::{ChannelsReader, ReadChannels};
-use crate::image::recursive::*;
-use crate::image::*;
-use crate::math::*;
-use crate::meta::header::*;
-
-use crate::io::Read;
 use std::marker::PhantomData;
 
+use crate::{
+    block::{chunk::TileCoordinates, samples::*, UncompressedBlock},
+    error::*,
+    image::{
+        read::layers::{ChannelsReader, ReadChannels},
+        recursive::*,
+        *,
+    },
+    io::Read,
+    math::*,
+    meta::header::*,
+};
+
 /// Can be attached one more channel reader.
-/// Call `required` or `optional` on this object to declare another channel to be read from the file.
-/// Call `collect_pixels` at last to define how the previously declared pixels should be stored.
+/// Call `required` or `optional` on this object to declare another channel to
+/// be read from the file. Call `collect_pixels` at last to define how the
+/// previously declared pixels should be stored.
 pub trait ReadSpecificChannel: Sized + CheckDuplicates {
-    /// A separate internal reader for the pixels. Will be of type `Recursive<_, SampleReader<_>>`,
-    /// depending on the pixels of the specific channel combination.
+    /// A separate internal reader for the pixels. Will be of type `Recursive<_,
+    /// SampleReader<_>>`, depending on the pixels of the specific channel
+    /// combination.
     type RecursivePixelReader: RecursivePixelReader;
 
-    /// Create a separate internal reader for the pixels of the specific channel combination.
+    /// Create a separate internal reader for the pixels of the specific channel
+    /// combination.
     fn create_recursive_reader(&self, channels: &ChannelList)
         -> Result<Self::RecursivePixelReader>;
 
-    /// Plan to read an additional channel from the image, with the specified name.
-    /// If the channel cannot be found in the image when the image is read, the image will not be loaded.
-    /// The generic parameter can usually be inferred from the closure in `collect_pixels`.
+    /// Plan to read an additional channel from the image, with the specified
+    /// name. If the channel cannot be found in the image when the image is
+    /// read, the image will not be loaded. The generic parameter can
+    /// usually be inferred from the closure in `collect_pixels`.
     fn required<Sample>(self, channel_name: impl Into<Text>) -> ReadRequiredChannel<Self, Sample> {
         let channel_name = channel_name.into();
         assert!(
@@ -43,11 +49,12 @@ pub trait ReadSpecificChannel: Sized + CheckDuplicates {
         }
     }
 
-    /// Plan to read an additional channel from the image, with the specified name.
-    /// If the file does not contain this channel, the specified default sample will be returned instead.
-    /// You can check whether the channel has been loaded by
-    /// checking the presence of the optional channel description before instantiating your own image.
-    /// The generic parameter can usually be inferred from the closure in `collect_pixels`.
+    /// Plan to read an additional channel from the image, with the specified
+    /// name. If the file does not contain this channel, the specified
+    /// default sample will be returned instead. You can check whether the
+    /// channel has been loaded by checking the presence of the optional
+    /// channel description before instantiating your own image. The generic
+    /// parameter can usually be inferred from the closure in `collect_pixels`.
     fn optional<Sample>(
         self,
         channel_name: impl Into<Text>,
@@ -67,10 +74,10 @@ pub trait ReadSpecificChannel: Sized + CheckDuplicates {
     }
 
     /// Using two closures, define how to store the pixels.
-    /// The first closure creates an image, and the second closure inserts a single pixel.
-    /// The type of the pixel can be defined by the second closure;
-    /// it must be a tuple containing `f16`, `f32`, `u32` or `Sample` values.
-    /// See the examples for more information.
+    /// The first closure creates an image, and the second closure inserts a
+    /// single pixel. The type of the pixel can be defined by the second
+    /// closure; it must be a tuple containing `f16`, `f32`, `u32` or
+    /// `Sample` values. See the examples for more information.
     fn collect_pixels<Pixel, PixelStorage, CreatePixels, SetPixel>(
         self, create_pixels: CreatePixels, set_pixel: SetPixel
     ) -> CollectPixels<Self, Pixel, PixelStorage, CreatePixels, SetPixel>
@@ -95,7 +102,8 @@ pub trait ReadSpecificChannel: Sized + CheckDuplicates {
 /// A reader containing sub-readers for reading the pixel content of an image.
 pub trait RecursivePixelReader {
     /// The channel descriptions from the image.
-    /// Will be converted to a tuple before being stored in `SpecificChannels<_, ChannelDescriptions>`.
+    /// Will be converted to a tuple before being stored in `SpecificChannels<_,
+    /// ChannelDescriptions>`.
     type RecursiveChannelDescriptions;
 
     /// Returns the channel descriptions based on the channels in the file.
@@ -122,7 +130,8 @@ pub trait RecursivePixelReader {
     );
 }
 
-// does not use the generic `Recursive` struct to reduce the number of angle brackets in the public api
+// does not use the generic `Recursive` struct to reduce the number of angle
+// brackets in the public api
 /// Used to read another specific channel from an image.
 /// Contains the previous `ReadChannels` objects.
 #[derive(Clone, Debug)]
@@ -132,7 +141,8 @@ pub struct ReadOptionalChannel<ReadChannels, Sample> {
     default_sample: Sample,
 }
 
-// does not use the generic `Recursive` struct to reduce the number of angle brackets in the public api
+// does not use the generic `Recursive` struct to reduce the number of angle
+// brackets in the public api
 /// Used to read another specific channel from an image.
 /// Contains the previous `ReadChannels` objects.
 #[derive(Clone, Debug)]
@@ -142,7 +152,8 @@ pub struct ReadRequiredChannel<ReadChannels, Sample> {
     px: PhantomData<Sample>,
 }
 
-/// Specifies how to collect all the specified channels into a number of individual pixels.
+/// Specifies how to collect all the specified channels into a number of
+/// individual pixels.
 #[derive(Copy, Clone, Debug)]
 pub struct CollectPixels<ReadChannels, Pixel, PixelStorage, CreatePixels, SetPixel> {
     read_channels: ReadChannels,
@@ -196,7 +207,8 @@ ReadChannels<'s> for CollectPixels<InnerChannels, Pixel, PixelStorage, CreatePix
     }
 }
 
-/// The reader that holds the temporary data that is required to read some specified channels.
+/// The reader that holds the temporary data that is required to read some
+/// specified channels.
 #[derive(Copy, Clone, Debug)]
 pub struct SpecificChannelsReader<PixelStorage, SetPixel, PixelReader, Pixel> {
     set_pixel: SetPixel,
@@ -220,7 +232,9 @@ where
 
     fn filter_block(&self, tile: TileCoordinates) -> bool {
         tile.is_largest_resolution_level()
-    } // TODO all levels
+    }
+
+    // TODO all levels
 
     fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult {
         let mut pixels = vec![PxReader::RecursivePixel::default(); block.index.pixel_size.width()]; // TODO allocate once in self
@@ -236,9 +250,9 @@ where
 
         for (y_offset, line_bytes) in byte_lines.enumerate() {
             // TODO sampling
-            // this two-step copy method should be very cache friendly in theory, and also reduce sample_type lookup count
-            self.pixel_reader
-                .read_pixels(line_bytes, &mut pixels, |px| px);
+            // this two-step copy method should be very cache friendly in theory, and also
+            // reduce sample_type lookup count
+            self.pixel_reader.read_pixels(line_bytes, &mut pixels, |px| px);
 
             for (x_offset, pixel) in pixels.iter().enumerate() {
                 let set_pixel = &self.set_pixel;
@@ -267,6 +281,7 @@ pub type ReadZeroChannels = NoneMore;
 
 impl ReadSpecificChannel for NoneMore {
     type RecursivePixelReader = NoneMore;
+
     fn create_recursive_reader(&self, _: &ChannelList) -> Result<Self::RecursivePixelReader> {
         Ok(NoneMore)
     }
@@ -286,9 +301,7 @@ where
         channels: &ChannelList,
     ) -> Result<Self::RecursivePixelReader> {
         debug_assert!(
-            self.previous_channels
-                .already_contains(&self.channel_name)
-                .not(),
+            self.previous_channels.already_contains(&self.channel_name).not(),
             "duplicate channel name: {}",
             self.channel_name
         );
@@ -346,7 +359,8 @@ where
     }
 }
 
-/// Reader for a single channel. Generic over the concrete sample type (f16, f32, u32).
+/// Reader for a single channel. Generic over the concrete sample type (f16,
+/// f32, u32).
 #[derive(Clone, Debug)]
 pub struct SampleReader<Sample> {
     /// to be multiplied with line width!
@@ -356,8 +370,9 @@ pub struct SampleReader<Sample> {
     px: PhantomData<Sample>,
 }
 
-/// Reader for a single channel. Generic over the concrete sample type (f16, f32, u32).
-/// Can also skip reading a channel if it could not be found in the image.
+/// Reader for a single channel. Generic over the concrete sample type (f16,
+/// f32, u32). Can also skip reading a channel if it could not be found in the
+/// image.
 #[derive(Clone, Debug)]
 pub struct OptionalSampleReader<DefaultSample> {
     reader: Option<SampleReader<DefaultSample>>,
@@ -397,22 +412,16 @@ impl<Sample: FromNativeSample> SampleReader<Sample> {
             ),
         }
 
-        debug_assert!(
-            samples_out.next().is_none(),
-            "not all samples have been converted"
-        );
-        debug_assert!(
-            own_bytes_reader.is_empty(),
-            "bytes left after reading all samples"
-        );
+        debug_assert!(samples_out.next().is_none(), "not all samples have been converted");
+        debug_assert!(own_bytes_reader.is_empty(), "bytes left after reading all samples");
     }
 }
 
-/// Does the same as `convert_batch(in_bytes.chunks().map(From::from_bytes))`, but vectorized.
-/// Reads the samples for one line, using the sample type specified in the file,
-/// and then converts those to the desired sample types.
-/// Uses batches to allow vectorization, converting multiple values with one instruction.
-/// Does not convert endianness.
+/// Does the same as `convert_batch(in_bytes.chunks().map(From::from_bytes))`,
+/// but vectorized. Reads the samples for one line, using the sample type
+/// specified in the file, and then converts those to the desired sample types.
+/// Uses batches to allow vectorization, converting multiple values with one
+/// instruction. Does not convert endianness.
 fn read_and_convert_all_samples_batched<'t, From, To>(
     mut in_bytes: impl Read,
     out_samples: &mut impl ExactSizeIterator<Item = &'t mut To>,
@@ -447,17 +456,16 @@ fn read_and_convert_all_samples_batched<'t, From, To>(
         Data::read_slice_ne(&mut in_bytes, samples).expect(byte_error_msg);
     };
 
-    // temporary arrays with fixed size, operations should be vectorized within these arrays
+    // temporary arrays with fixed size, operations should be vectorized within
+    // these arrays
     let mut source_samples_batch: [From; batch_size] = Default::default();
     let mut desired_samples_batch: [To; batch_size] = Default::default();
 
-    // first convert all whole batches, size statically known to be 16 element arrays
+    // first convert all whole batches, size statically known to be 16 element
+    // arrays
     for _ in 0..batch_count {
         read_n_samples(&mut source_samples_batch);
-        convert_batch(
-            source_samples_batch.as_slice(),
-            desired_samples_batch.as_mut_slice(),
-        );
+        convert_batch(source_samples_batch.as_slice(), desired_samples_batch.as_mut_slice());
         output_n_samples(&desired_samples_batch);
     }
 
@@ -479,14 +487,10 @@ mod test {
     #[test]
     fn equals_naive_f32() {
         for total_array_size in [3, 7, 30, 41, 120, 10_423] {
-            let input_f32s = (0..total_array_size)
-                .map(|_| rand::random::<f32>())
-                .collect::<Vec<f32>>();
-            let in_f32s_bytes = input_f32s
-                .iter()
-                .cloned()
-                .flat_map(f32::to_ne_bytes)
-                .collect::<Vec<u8>>();
+            let input_f32s =
+                (0..total_array_size).map(|_| rand::random::<f32>()).collect::<Vec<f32>>();
+            let in_f32s_bytes =
+                input_f32s.iter().cloned().flat_map(f32::to_ne_bytes).collect::<Vec<u8>>();
 
             let mut out_f16_samples_batched =
                 vec![f16::from_f32(rand::random::<f32>()); total_array_size];
@@ -506,11 +510,11 @@ mod test {
 
 impl RecursivePixelReader for NoneMore {
     type RecursiveChannelDescriptions = NoneMore;
+    type RecursivePixel = NoneMore;
+
     fn descriptions(&self) -> Self::RecursiveChannelDescriptions {
         NoneMore
     }
-
-    type RecursivePixel = NoneMore;
 
     fn read_pixels<'s, FullPixel>(
         &self,
@@ -528,11 +532,11 @@ where
 {
     type RecursiveChannelDescriptions =
         Recursive<InnerReader::RecursiveChannelDescriptions, ChannelDescription>;
+    type RecursivePixel = Recursive<InnerReader::RecursivePixel, Sample>;
+
     fn descriptions(&self) -> Self::RecursiveChannelDescriptions {
         Recursive::new(self.inner.descriptions(), self.value.channel.clone())
     }
-
-    type RecursivePixel = Recursive<InnerReader::RecursivePixel, Sample>;
 
     fn read_pixels<'s, FullPixel>(
         &self,
@@ -540,10 +544,8 @@ where
         pixels: &mut [FullPixel],
         get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel,
     ) {
-        self.value
-            .read_own_samples(bytes, pixels, |px| &mut get_pixel(px).value);
-        self.inner
-            .read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
+        self.value.read_own_samples(bytes, pixels, |px| &mut get_pixel(px).value);
+        self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
     }
 }
 
@@ -554,17 +556,14 @@ where
 {
     type RecursiveChannelDescriptions =
         Recursive<InnerReader::RecursiveChannelDescriptions, Option<ChannelDescription>>;
+    type RecursivePixel = Recursive<InnerReader::RecursivePixel, Sample>;
+
     fn descriptions(&self) -> Self::RecursiveChannelDescriptions {
         Recursive::new(
             self.inner.descriptions(),
-            self.value
-                .reader
-                .as_ref()
-                .map(|reader| reader.channel.clone()),
+            self.value.reader.as_ref().map(|reader| reader.channel.clone()),
         )
     }
-
-    type RecursivePixel = Recursive<InnerReader::RecursivePixel, Sample>;
 
     fn read_pixels<'s, FullPixel>(
         &self,
@@ -575,13 +574,13 @@ where
         if let Some(reader) = &self.value.reader {
             reader.read_own_samples(bytes, pixels, |px| &mut get_pixel(px).value);
         } else {
-            // if this channel is optional and was not found in the file, fill the default sample
+            // if this channel is optional and was not found in the file, fill the default
+            // sample
             for pixel in pixels.iter_mut() {
                 get_pixel(pixel).value = self.value.default_sample;
             }
         }
 
-        self.inner
-            .read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
+        self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
     }
 }

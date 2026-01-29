@@ -1,16 +1,17 @@
 extern crate half;
 extern crate rand;
 
+use std::{fs::File, io::BufReader};
+
 use exr::block::reader::ChunksReader;
-use std::fs::File;
-use std::io::BufReader;
 
 // exr imports
 extern crate exr;
 
 /// Collects the average pixel value for each channel.
-/// Does not load the whole image into memory at once: only processes the image block by block.
-/// On my machine, this program analyzes a 3GB file while only allocating 1.1MB.
+/// Does not load the whole image into memory at once: only processes the image
+/// block by block. On my machine, this program analyzes a 3GB file while only
+/// allocating 1.1MB.
 fn main() {
     use exr::prelude::*;
 
@@ -77,7 +78,8 @@ fn main() {
         })
         .collect::<Vec<_>>();
 
-    // create a reader that loads only relevant chunks from the file, and also prints something on progress
+    // create a reader that loads only relevant chunks from the file, and also
+    // prints something on progress
     let reader = reader
         // do not worry about multi-resolution levels or deep data
         .filter_chunks(true, |meta_data, tile, block| {
@@ -133,8 +135,5 @@ fn main() {
     println!("average values: {:#?}", averages);
 
     // warning: highly unscientific benchmarks ahead!
-    println!(
-        "\nprocessed file in {:?}s",
-        start_time.elapsed().as_secs_f32()
-    );
+    println!("\nprocessed file in {:?}s", start_time.elapsed().as_secs_f32());
 }

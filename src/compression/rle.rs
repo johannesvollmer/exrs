@@ -1,7 +1,4 @@
-use super::optimize_bytes::*;
-use super::Error;
-use super::Result;
-use super::*;
+use super::{optimize_bytes::*, Error, Result, *};
 
 // inspired by  https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfRle.cpp
 

@@ -2,10 +2,10 @@
 extern crate bencher;
 
 extern crate exr;
-use exr::prelude::*;
+use std::io::Cursor;
 
 use bencher::Bencher;
-use std::io::Cursor;
+use exr::prelude::*;
 
 fn write_parallel_any_channels_to_buffered(bench: &mut Bencher) {
     let path = "tests/images/valid/custom/crowskull/crow_rle.exr";
@@ -39,11 +39,7 @@ fn write_nonparallel_zip1_to_buffered(bench: &mut Bencher) {
 
     bench.iter(|| {
         let mut result = Vec::new();
-        image
-            .write()
-            .non_parallel()
-            .to_buffered(Cursor::new(&mut result))
-            .unwrap();
+        image.write().non_parallel().to_buffered(Cursor::new(&mut result)).unwrap();
         bencher::black_box(result);
     })
 }

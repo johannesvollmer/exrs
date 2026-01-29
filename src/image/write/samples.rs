@@ -1,14 +1,16 @@
 //! How to write samples (a grid of `f32`, `f16` or `u32` values).
 
-use crate::block::lines::LineRefMut;
-use crate::image::{FlatSamples, Levels, RipMaps};
-use crate::math::{RoundingMode, Vec2};
-use crate::meta::attribute::{LevelMode, SampleType, TileDescription};
-use crate::meta::header::Header;
-use crate::meta::{
-    mip_map_indices, mip_map_levels, rip_map_indices, rip_map_levels, BlockDescription,
+use crate::{
+    block::lines::LineRefMut,
+    image::{FlatSamples, Levels, RipMaps},
+    math::{RoundingMode, Vec2},
+    meta::{
+        attribute::{LevelMode, SampleType, TileDescription},
+        header::Header,
+        mip_map_indices, mip_map_levels, rip_map_indices, rip_map_levels, BlockDescription,
+    },
+    prelude::{Error, Result},
 };
-use crate::prelude::{Error, Result};
 
 /// Enable an image with this sample grid to be written to a file.
 /// Also can contain multiple resolution levels.
@@ -44,7 +46,8 @@ pub trait WritableLevel<'slf> {
 
 /// A temporary writer for one or more resolution levels containing samples
 pub trait SamplesWriter: Sync {
-    /// Deliver a single short horizontal list of samples for a specific channel.
+    /// Deliver a single short horizontal list of samples for a specific
+    /// channel.
     fn extract_line(&self, line: LineRefMut<'_>) -> Result<()>;
 }
 
@@ -55,8 +58,11 @@ pub struct FlatSamplesWriter<'samples> {
     samples: &'samples FlatSamples,
 }
 
-// used if no layers are used and the flat samples are directly inside the channels
+// used if no layers are used and the flat samples are directly inside the
+// channels
 impl<'samples> WritableSamples<'samples> for FlatSamples {
+    type Writer = FlatSamplesWriter<'samples>;
+
     fn sample_type(&self) -> SampleType {
         match self {
             FlatSamples::F16(_) => SampleType::F16,
@@ -69,7 +75,7 @@ impl<'samples> WritableSamples<'samples> for FlatSamples {
         Ok((LevelMode::Singular, RoundingMode::Down))
     }
 
-    type Writer = FlatSamplesWriter<'samples>; //&'s FlatSamples;
+    //&'s FlatSamples;
     fn create_samples_writer(&'samples self, header: &Header) -> Result<Self::Writer> {
         Ok(FlatSamplesWriter {
             resolution: header.layer_size,
@@ -80,6 +86,8 @@ impl<'samples> WritableSamples<'samples> for FlatSamples {
 
 // used if layers are used and the flat samples are inside the levels
 impl<'samples> WritableLevel<'samples> for FlatSamples {
+    type Writer = FlatSamplesWriter<'samples>;
+
     fn sample_type(&self) -> SampleType {
         match self {
             FlatSamples::F16(_) => SampleType::F16,
@@ -88,7 +96,6 @@ impl<'samples> WritableLevel<'samples> for FlatSamples {
         }
     }
 
-    type Writer = FlatSamplesWriter<'samples>;
     fn create_level_writer(&'samples self, size: Vec2<usize>) -> Self::Writer {
         FlatSamplesWriter {
             resolution: size,
@@ -130,6 +137,8 @@ impl<'samples, LevelSamples> WritableSamples<'samples> for Levels<LevelSamples>
 where
     LevelSamples: WritableLevel<'samples>,
 {
+    type Writer = LevelsWriter<LevelSamples::Writer>;
+
     fn sample_type(&self) -> SampleType {
         let sample_type = self
             .levels_as_slice()
@@ -138,10 +147,7 @@ where
             .sample_type();
 
         debug_assert!(
-            self.levels_as_slice()
-                .iter()
-                .skip(1)
-                .all(|ty| ty.sample_type() == sample_type),
+            self.levels_as_slice().iter().skip(1).all(|ty| ty.sample_type() == sample_type),
             "sample types must be the same across all levels"
         );
 
@@ -151,15 +157,23 @@ where
     fn infer_level_modes(&self) -> Result<(LevelMode, RoundingMode)> {
         Ok(match self {
             Levels::Singular(_) => (LevelMode::Singular, RoundingMode::Down),
-            Levels::Mip { rounding_mode, .. } => (LevelMode::MipMap, *rounding_mode),
-            Levels::Rip { rounding_mode, .. } => (LevelMode::RipMap, *rounding_mode),
+            Levels::Mip {
+                rounding_mode,
+                ..
+            } => (LevelMode::MipMap, *rounding_mode),
+            Levels::Rip {
+                rounding_mode,
+                ..
+            } => (LevelMode::RipMap, *rounding_mode),
         })
     }
 
-    type Writer = LevelsWriter<LevelSamples::Writer>;
     fn create_samples_writer(&'samples self, header: &Header) -> Result<Self::Writer> {
         let rounding = match header.blocks {
-            BlockDescription::Tiles(TileDescription { rounding_mode, .. }) => Some(rounding_mode),
+            BlockDescription::Tiles(TileDescription {
+                rounding_mode,
+                ..
+            }) => Some(rounding_mode),
             BlockDescription::ScanLines => None,
         };
 

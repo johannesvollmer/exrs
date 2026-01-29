@@ -33,7 +33,8 @@ fn main() {
 
     let image = Image::empty(attributes)
         .with_layer(layer1) // add an rgb layer of type `SpecificChannels<ClosureA>`
-        .with_layer(layer2); // add an rgba layer of different type, `SpecificChannels<ClosureB>`, not possible with a vector
+        .with_layer(layer2); // add an rgba layer of different type, `SpecificChannels<ClosureB>`, not
+                             // possible with a vector
 
     println!("writing image...");
     image.write().to_file("layers.exr").unwrap();

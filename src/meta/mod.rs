@@ -5,18 +5,21 @@
 pub mod attribute;
 pub mod header;
 
-use self::attribute::*;
-use crate::block::chunk::{CompressedBlock, TileCoordinates};
-use crate::block::{BlockIndex, UncompressedBlock};
-use crate::error::*;
-use crate::io::*;
-use crate::math::*;
-use crate::meta::header::Header;
+use std::{collections::HashSet, convert::TryFrom, fs::File, io::BufReader};
+
 use ::smallvec::SmallVec;
-use std::collections::HashSet;
-use std::convert::TryFrom;
-use std::fs::File;
-use std::io::BufReader;
+
+use self::attribute::*;
+use crate::{
+    block::{
+        chunk::{CompressedBlock, TileCoordinates},
+        BlockIndex, UncompressedBlock,
+    },
+    error::*,
+    io::*,
+    math::*,
+    meta::header::Header,
+};
 
 // TODO rename MetaData to ImageInfo?
 
@@ -27,7 +30,8 @@ use std::io::BufReader;
 /// The usage of custom attributes is encouraged.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MetaData {
-    /// Some flags summarizing the features that must be supported to decode the file.
+    /// Some flags summarizing the features that must be supported to decode the
+    /// file.
     pub requirements: Requirements,
 
     /// One header to describe each layer in this file.
@@ -41,11 +45,12 @@ pub type Headers = SmallVec<[Header; 3]>;
 /// List of `OffsetTable`s.
 pub type OffsetTables = SmallVec<[OffsetTable; 3]>;
 
-/// The offset table is an ordered list of indices referencing pixel data in the exr file.
-/// For each pixel tile in the image, an index exists, which points to the byte-location
-/// of the corresponding pixel data in the file. That index can be used to load specific
-/// portions of an image without processing all bytes in a file. For each header,
-/// an offset table exists with its indices ordered by `LineOrder::Increasing`.
+/// The offset table is an ordered list of indices referencing pixel data in the
+/// exr file. For each pixel tile in the image, an index exists, which points to
+/// the byte-location of the corresponding pixel data in the file. That index
+/// can be used to load specific portions of an image without processing all
+/// bytes in a file. For each header, an offset table exists with its indices
+/// ordered by `LineOrder::Increasing`.
 // If the multipart bit is unset and the chunkCount attribute is not present,
 // the number of entries in the chunk table is computed using the
 // dataWindow, tileDesc, and compression attribute.
@@ -56,7 +61,8 @@ pub type OffsetTable = Vec<u64>;
 
 /// A summary of requirements that must be met to read this exr file.
 /// Used to determine whether this file can be read by a given reader.
-/// It includes the OpenEXR version number. This library aims to support version `2.0`.
+/// It includes the OpenEXR version number. This library aims to support version
+/// `2.0`.
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Hash)]
 pub struct Requirements {
     /// This library supports reading version 1 and 2, and writing version 2.
@@ -64,7 +70,8 @@ pub struct Requirements {
     pub file_format_version: u8,
 
     /// If true, this image has tiled blocks and contains only a single layer.
-    /// If false and not deep and not multilayer, this image is a single layer image with scan line blocks.
+    /// If false and not deep and not multilayer, this image is a single layer
+    /// image with scan line blocks.
     pub is_single_layer_and_tiled: bool,
 
     // in c or bad c++ this might have been relevant (omg is he allowed to say that)
@@ -102,35 +109,38 @@ pub enum BlockDescription {
     Tiles(TileDescription),
 }
 
-/*impl TileIndices {
-    pub fn cmp(&self, other: &Self) -> Ordering {
-        match self.location.level_index.1.cmp(&other.location.level_index.1) {
-            Ordering::Equal => {
-                match self.location.level_index.0.cmp(&other.location.level_index.0) {
-                    Ordering::Equal => {
-                        match self.location.tile_index.1.cmp(&other.location.tile_index.1) {
-                            Ordering::Equal => {
-                                self.location.tile_index.0.cmp(&other.location.tile_index.0)
-                            },
-
-                            other => other,
-                        }
-                    },
-
-                    other => other
-                }
-            },
-
-            other => other
-        }
-    }
-}*/
+// impl TileIndices {
+// pub fn cmp(&self, other: &Self) -> Ordering {
+// match self.location.level_index.1.cmp(&other.location.level_index.1) {
+// Ordering::Equal => {
+// match self.location.level_index.0.cmp(&other.location.level_index.0) {
+// Ordering::Equal => {
+// match self.location.tile_index.1.cmp(&other.location.tile_index.1) {
+// Ordering::Equal => {
+// self.location.tile_index.0.cmp(&other.location.tile_index.0)
+// },
+//
+// other => other,
+// }
+// },
+//
+// other => other
+// }
+// },
+//
+// other => other
+// }
+// }
+// }
 
 impl BlockDescription {
-    /// Whether this image is tiled. If false, this image is divided into scan line blocks.
+    /// Whether this image is tiled. If false, this image is divided into scan
+    /// line blocks.
     pub fn has_tiles(&self) -> bool {
         match self {
-            BlockDescription::Tiles { .. } => true,
+            BlockDescription::Tiles {
+                ..
+            } => true,
             _ => false,
         }
     }
@@ -149,7 +159,8 @@ pub mod magic_number {
         u8::write_slice_ne(write, &self::BYTES)
     }
 
-    /// Consumes four bytes from the reader and returns whether the file may be an exr file.
+    /// Consumes four bytes from the reader and returns whether the file may be
+    /// an exr file.
     // TODO check if exr before allocating BufRead
     pub fn is_exr(read: &mut impl Read) -> Result<bool> {
         let mut magic_num = [0; 4];
@@ -207,14 +218,12 @@ pub fn calculate_block_position_and_size(
 ) -> Result<(usize, usize)> {
     let block_position = block_size * block_index;
 
-    Ok((
-        block_position,
-        calculate_block_size(total_size, block_size, block_position)?,
-    ))
+    Ok((block_position, calculate_block_size(total_size, block_size, block_position)?))
 }
 
 /// Calculate the size of a single block. If this is the last block,
-/// this only returns the required size, which is always smaller than the default block size.
+/// this only returns the required size, which is always smaller than the
+/// default block size.
 // TODO use this method everywhere instead of convoluted formulas
 #[inline]
 pub fn calculate_block_size(
@@ -252,8 +261,9 @@ pub fn compute_level_size(round: RoundingMode, full_res: usize, level_index: usi
     round.divide(full_res, 1 << level_index).max(1)
 }
 
-/// Iterates over all rip map level resolutions of a given size, including the indices of each level.
-/// The order of iteration conforms to `LineOrder::Increasing`.
+/// Iterates over all rip map level resolutions of a given size, including the
+/// indices of each level. The order of iteration conforms to
+/// `LineOrder::Increasing`.
 // TODO cache these?
 // TODO compute these directly instead of summing up an iterator?
 pub fn rip_map_levels(
@@ -268,8 +278,9 @@ pub fn rip_map_levels(
     })
 }
 
-/// Iterates over all mip map level resolutions of a given size, including the indices of each level.
-/// The order of iteration conforms to `LineOrder::Increasing`.
+/// Iterates over all mip map level resolutions of a given size, including the
+/// indices of each level. The order of iteration conforms to
+/// `LineOrder::Increasing`.
 // TODO cache all these level values when computing table offset size??
 // TODO compute these directly instead of summing up an iterator?
 pub fn mip_map_levels(
@@ -307,7 +318,8 @@ pub fn mip_map_indices(
     0..compute_level_count(round, max_resolution.width().max(max_resolution.height()))
 }
 
-/// Compute the number of chunks that an image is divided into. May be an expensive operation.
+/// Compute the number of chunks that an image is divided into. May be an
+/// expensive operation.
 // If not multilayer and chunkCount not present,
 // the number of entries in the chunk table is computed
 // using the dataWindow and tileDesc attributes and the compression format
@@ -388,12 +400,14 @@ impl MetaData {
 
         let requirements = Requirements::read(read)?;
 
-        // do this check now in order to fast-fail for newer versions and features than version 2
+        // do this check now in order to fast-fail for newer versions and features than
+        // version 2
         requirements.validate()?;
 
         let headers = Header::read_all(read, &requirements, pedantic)?;
 
-        // TODO check if supporting requirements 2 always implies supporting requirements 1
+        // TODO check if supporting requirements 2 always implies supporting
+        // requirements 1
         Ok(MetaData {
             requirements,
             headers,
@@ -412,8 +426,9 @@ impl MetaData {
     }
 
     /// Validates the meta data and writes it to the stream.
-    /// If pedantic, throws errors for files that may produce errors in other exr readers.
-    /// Returns the automatically detected minimum requirement flags.
+    /// If pedantic, throws errors for files that may produce errors in other
+    /// exr readers. Returns the automatically detected minimum requirement
+    /// flags.
     pub(crate) fn write_validating_to_buffered(
         write: &mut impl Write,
         headers: &[Header],
@@ -448,7 +463,8 @@ impl MetaData {
             .collect()
     }
 
-    /// Skip the offset tables by advancing the reader by the required byte count.
+    /// Skip the offset tables by advancing the reader by the required byte
+    /// count.
     // TODO use seek for large (probably all) tables!
     pub fn skip_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<usize> {
         let chunk_count: usize = headers.iter().map(|header| header.chunk_count).sum();
@@ -456,20 +472,22 @@ impl MetaData {
         Ok(chunk_count)
     }
 
-    /// This iterator tells you the block indices of all blocks that must be in the image.
-    /// The order of the blocks depends on the `LineOrder` attribute
-    /// (unspecified line order is treated the same as increasing line order).
-    /// The blocks written to the file must be exactly in this order,
-    /// except for when the `LineOrder` is unspecified.
-    /// The index represents the block index, in increasing line order, within the header.
+    /// This iterator tells you the block indices of all blocks that must be in
+    /// the image. The order of the blocks depends on the `LineOrder`
+    /// attribute (unspecified line order is treated the same as increasing
+    /// line order). The blocks written to the file must be exactly in this
+    /// order, except for when the `LineOrder` is unspecified.
+    /// The index represents the block index, in increasing line order, within
+    /// the header.
     pub fn enumerate_ordered_header_block_indices(
         &self,
     ) -> impl '_ + Iterator<Item = (usize, BlockIndex)> {
         crate::block::enumerate_ordered_header_block_indices(&self.headers)
     }
 
-    /// Go through all the block indices in the correct order and call the specified closure for each of these blocks.
-    /// That way, the blocks indices are filled with real block data and returned as an iterator.
+    /// Go through all the block indices in the correct order and call the
+    /// specified closure for each of these blocks. That way, the blocks
+    /// indices are filled with real block data and returned as an iterator.
     /// The closure returns the an `UncompressedBlock` for each block index.
     pub fn collect_ordered_blocks<'s>(
         &'s self,
@@ -479,8 +497,9 @@ impl MetaData {
             .map(move |(index_in_header, block_index)| (index_in_header, get_block(block_index)))
     }
 
-    /// Go through all the block indices in the correct order and call the specified closure for each of these blocks.
-    /// That way, the blocks indices are filled with real block data and returned as an iterator.
+    /// Go through all the block indices in the correct order and call the
+    /// specified closure for each of these blocks. That way, the blocks
+    /// indices are filled with real block data and returned as an iterator.
     /// The closure returns the byte data for each block index.
     pub fn collect_ordered_block_data<'s>(
         &'s self,
@@ -509,14 +528,13 @@ impl MetaData {
 
         let deep = false; // TODO deep data
         let is_multilayer = headers.len() > 1;
-        let first_header_has_tiles = headers
-            .iter()
-            .next()
-            .map_or(false, |header| header.blocks.has_tiles());
+        let first_header_has_tiles =
+            headers.iter().next().map_or(false, |header| header.blocks.has_tiles());
 
         let mut minimal_requirements = Requirements {
-            // according to the spec, version 2  should only be necessary if `is_multilayer || deep`.
-            // but the current open exr library does not support images with version 1, so always use version 2.
+            // according to the spec, version 2  should only be necessary if `is_multilayer ||
+            // deep`. but the current open exr library does not support images with
+            // version 1, so always use version 2.
             file_format_version: 2,
 
             // start as low as possible, later increasing if required
@@ -533,23 +551,19 @@ impl MetaData {
                 return Err(Error::unsupported("deep data not supported yet"));
             }
 
-            header.validate(
-                is_multilayer,
-                &mut minimal_requirements.has_long_names,
-                pedantic,
-            )?;
+            header.validate(is_multilayer, &mut minimal_requirements.has_long_names, pedantic)?;
         }
 
         // TODO validation fn!
-        /*if let Some(max) = max_pixel_bytes {
-            let byte_size: usize = headers.iter()
-                .map(|header| header.total_pixel_bytes())
-                .sum();
-
-            if byte_size > max {
-                return Err(Error::invalid("image larger than specified maximum"));
-            }
-        }*/
+        // if let Some(max) = max_pixel_bytes {
+        // let byte_size: usize = headers.iter()
+        // .map(|header| header.total_pixel_bytes())
+        // .sum();
+        //
+        // if byte_size > max {
+        // return Err(Error::invalid("image larger than specified maximum"));
+        // }
+        // }
 
         if pedantic {
             // check for duplicate header names
@@ -558,23 +572,17 @@ impl MetaData {
                 if !header_names.insert(&header.own_attributes.layer_name) {
                     return Err(Error::invalid(format!(
                         "duplicate layer name: `{}`",
-                        header
-                            .own_attributes
-                            .layer_name
-                            .as_ref()
-                            .expect("header validation bug")
+                        header.own_attributes.layer_name.as_ref().expect("header validation bug")
                     )));
                 }
             }
         }
 
         if pedantic {
-            let must_share = headers
-                .iter()
-                .flat_map(|header| header.own_attributes.other.iter())
-                .any(|(_, value)| {
-                    value.to_chromaticities().is_ok() || value.to_time_code().is_ok()
-                });
+            let must_share =
+                headers.iter().flat_map(|header| header.own_attributes.other.iter()).any(
+                    |(_, value)| value.to_chromaticities().is_ok() || value.to_time_code().is_ok(),
+                );
 
             if must_share {
                 return Err(Error::invalid("chromaticities and time code attributes must must not exist in own attributes but shared instead"));
@@ -593,16 +601,14 @@ impl MetaData {
             }
         }
 
-        debug_assert!(
-            minimal_requirements.validate().is_ok(),
-            "inferred requirements are invalid"
-        );
+        debug_assert!(minimal_requirements.validate().is_ok(), "inferred requirements are invalid");
         Ok(minimal_requirements)
     }
 }
 
 impl Requirements {
-    // this is actually used for control flow, as the number of headers may be 1 in a multilayer file
+    // this is actually used for control flow, as the number of headers may be 1 in
+    // a multilayer file
     /// Is this file declared to contain multiple layers?
     pub fn is_multilayer(&self) -> bool {
         self.has_multiple_layers
@@ -614,7 +620,8 @@ impl Requirements {
 
         let version_and_flags = u32::read_le(read)?;
 
-        // take the 8 least significant bits, they contain the file format version number
+        // take the 8 least significant bits, they contain the file format version
+        // number
         let version = (version_and_flags & 0x000F) as u8;
 
         // the 24 most significant bits are treated as a set of boolean flags
@@ -694,9 +701,7 @@ impl Requirements {
                 _ => Err(Error::invalid("file feature flags")),
             }
         } else {
-            Err(Error::unsupported(
-                "file versions other than 2.0 are not supported",
-            ))
+            Err(Error::unsupported("file versions other than 2.0 are not supported"))
         }
     }
 }

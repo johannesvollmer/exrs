@@ -4,7 +4,8 @@ extern crate exr;
 /// Read an rgba image, increase the exposure, and then write it back.
 /// Uses multi-core compression where appropriate.
 ///
-/// All non-rgba channels and all layers except the first rgba layers will not be present in the new file.
+/// All non-rgba channels and all layers except the first rgba layers will not
+/// be present in the new file.
 fn main() {
     use exr::prelude::*;
 
@@ -28,7 +29,9 @@ fn main() {
                 let default_rgba_pixel = (0.0, 0.0, 0.0, 0.0);
                 let default_line = vec![default_rgba_pixel; resolution.width()];
                 let lines = vec![default_line; resolution.height()];
-                CustomPixels { lines }
+                CustomPixels {
+                    lines,
+                }
             },
             // request pixels with red, green, blue, and optionally and alpha values.
             // transfer each pixel from the file to our image
@@ -71,6 +74,7 @@ fn main() {
     // FIXME this should be passed as a closure to the `write_with(|x| y)` call
     impl GetPixel for CustomPixels {
         type Pixel = RgbaF32Pixel;
+
         fn pixel(&self, position: Vec2<usize>) -> Self::Pixel {
             self.lines[position.y()][position.x()]
         }

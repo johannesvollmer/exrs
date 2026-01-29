@@ -1,15 +1,19 @@
-//! Crop away unwanted pixels. Includes automatic detection of bounding rectangle.
-//! Currently does not support deep data and resolution levels.
+//! Crop away unwanted pixels. Includes automatic detection of bounding
+//! rectangle. Currently does not support deep data and resolution levels.
 
-use crate::block::BlockIndex;
-use crate::error::{Error, Result};
-use crate::image::write::channels::{ChannelsWriter, GetPixel, WritableChannels};
-use crate::image::{
-    AnyChannel, AnyChannels, FlatSamples, FlatSamplesPixel, Layer, SpecificChannels,
+use crate::{
+    block::BlockIndex,
+    error::{Error, Result},
+    image::{
+        write::channels::{ChannelsWriter, GetPixel, WritableChannels},
+        AnyChannel, AnyChannels, FlatSamples, FlatSamplesPixel, Layer, SpecificChannels,
+    },
+    math::{RoundingMode, Vec2},
+    meta::{
+        attribute::{ChannelList, IntegerBounds, LevelMode},
+        header::{Header, LayerAttributes},
+    },
 };
-use crate::math::{RoundingMode, Vec2};
-use crate::meta::attribute::{ChannelList, IntegerBounds, LevelMode};
-use crate::meta::header::{Header, LayerAttributes};
 
 /// Something that has a two-dimensional rectangular shape
 pub trait GetBounds {
@@ -35,24 +39,30 @@ pub trait Crop: Sized {
     /// Crop the image to exclude unwanted pixels.
     /// Panics for invalid (larger than previously) bounds.
     /// The bounds are specified in absolute coordinates.
-    /// Does not reduce allocation size of the current image, but instead only adjust a few boundary numbers.
-    /// Use `reallocate_cropped()` on the return value to actually reduce the memory footprint.
+    /// Does not reduce allocation size of the current image, but instead only
+    /// adjust a few boundary numbers. Use `reallocate_cropped()` on the
+    /// return value to actually reduce the memory footprint.
     fn crop(self, bounds: IntegerBounds) -> Self::Cropped;
 
     /// Reduce your image to a smaller part, usually to save memory.
-    /// Crop if bounds are specified, return the original if no bounds are specified.
-    /// Does not reduce allocation size of the current image, but instead only adjust a few boundary numbers.
-    /// Use `reallocate_cropped()` on the return value to actually reduce the memory footprint.
+    /// Crop if bounds are specified, return the original if no bounds are
+    /// specified. Does not reduce allocation size of the current image, but
+    /// instead only adjust a few boundary numbers.
+    /// Use `reallocate_cropped()` on the return value to actually reduce the
+    /// memory footprint.
     fn try_crop(self, bounds: Option<IntegerBounds>) -> CropResult<Self::Cropped, Self> {
         match bounds {
             Some(bounds) => CropResult::Cropped(self.crop(bounds)),
-            None => CropResult::Empty { original: self },
+            None => CropResult::Empty {
+                original: self,
+            },
         }
     }
 }
 
 /// Cropping an image fails if the image is fully transparent.
-/// Use [`or_crop_to_1x1_if_empty`] or [`or_none_if_empty`] to obtain a normal image again.
+/// Use [`or_crop_to_1x1_if_empty`] or [`or_none_if_empty`] to obtain a normal
+/// image again.
 #[must_use]
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum CropResult<Cropped, Old> {
@@ -71,15 +81,19 @@ pub trait CropWhere<Sample>: Sized {
     /// The type of the cropped image (probably the same as the original image).
     type Cropped;
 
-    /// Crop away unwanted pixels from the border if they match the specified rule.
-    /// Does not reduce allocation size of the current image, but instead only adjust a few boundary numbers.
-    /// Use `reallocate_cropped()` on the return value to actually reduce the memory footprint.
+    /// Crop away unwanted pixels from the border if they match the specified
+    /// rule. Does not reduce allocation size of the current image, but
+    /// instead only adjust a few boundary numbers.
+    /// Use `reallocate_cropped()` on the return value to actually reduce the
+    /// memory footprint.
     fn crop_where(self, discard_if: impl Fn(Sample) -> bool) -> CropResult<Self::Cropped, Self>;
 
-    /// Crop away unwanted pixels from the border if they match the specified color.
-    /// If you want discard based on a rule, use `crop_where` with a closure instead.
-    /// Does not reduce allocation size of the current image, but instead only adjust a few boundary numbers.
-    /// Use `reallocate_cropped()` on the return value to actually reduce the memory footprint.
+    /// Crop away unwanted pixels from the border if they match the specified
+    /// color. If you want discard based on a rule, use `crop_where` with a
+    /// closure instead. Does not reduce allocation size of the current
+    /// image, but instead only adjust a few boundary numbers.
+    /// Use `reallocate_cropped()` on the return value to actually reduce the
+    /// memory footprint.
     fn crop_where_eq(self, discard_color: impl Into<Sample>) -> CropResult<Self::Cropped, Self>
     where
         Sample: PartialEq;
@@ -139,7 +153,8 @@ pub struct CroppedChannels<Channels> {
 }
 
 impl<Channels> CroppedChannels<Channels> {
-    /// Wrap a layer in a cropped view with adjusted bounds, but without reallocating your pixels
+    /// Wrap a layer in a cropped view with adjusted bounds, but without
+    /// reallocating your pixels
     pub fn crop_layer(
         new_bounds: IntegerBounds,
         layer: Layer<Channels>,
@@ -163,7 +178,8 @@ impl<Channels> CroppedChannels<Channels> {
     }
 }
 
-// TODO make cropped view readable if you only need a specific section of the image?
+// TODO make cropped view readable if you only need a specific section of the
+// image?
 
 // make cropped view writable:
 
@@ -171,15 +187,17 @@ impl<'slf, Channels: 'slf> WritableChannels<'slf> for CroppedChannels<Channels>
 where
     Channels: WritableChannels<'slf>,
 {
+    type Writer = CroppedWriter<Channels::Writer>;
+
     fn infer_channel_list(&self) -> ChannelList {
-        self.full_channels.infer_channel_list() // no need for adjustments, as the layer content already reflects the changes
+        self.full_channels.infer_channel_list() // no need for adjustments, as
+                                                // the layer content already
+                                                // reflects the changes
     }
 
     fn infer_level_modes(&self) -> Result<(LevelMode, RoundingMode)> {
         self.full_channels.infer_level_modes()
     }
-
-    type Writer = CroppedWriter<Channels::Writer>;
 
     fn create_writer(&'slf self, header: &Header) -> Result<Self::Writer> {
         let offset = (self.cropped_bounds.position - self.full_bounds.position)
@@ -219,6 +237,7 @@ where
     Samples: GetPixel,
 {
     type Sample = Samples::Pixel;
+
     fn inspect_sample(&self, local_index: Vec2<usize>) -> Samples::Pixel {
         self.channel_data.pixels.pixel(local_index)
     }
@@ -233,7 +252,8 @@ impl InspectSample for Layer<AnyChannels<FlatSamples>> {
 }
 
 // ALGORITHM IDEA: for arbitrary channels, find the most desired channel,
-// and process that first, keeping the processed bounds as starting point for the other layers
+// and process that first, keeping the processed bounds as starting point for
+// the other layers
 
 /// Realize a cropped view of the original data,
 /// by actually removing the unwanted original pixels,
@@ -261,10 +281,7 @@ impl ApplyCroppedView for Layer<CroppedChannels<AnyChannels<FlatSamples>>> {
             self.absolute_bounds().contains(cropped_absolute_bounds),
             "bounds not valid for layer dimensions"
         );
-        assert!(
-            cropped_relative_bounds.size.area() > 0,
-            "the cropped image would be empty"
-        );
+        assert!(cropped_relative_bounds.size.area() > 0, "the cropped image would be empty");
 
         Layer {
             channel_data: if cropped_relative_bounds.size == self.channel_data.full_bounds.size {
@@ -295,10 +312,8 @@ impl ApplyCroppedView for Layer<CroppedChannels<AnyChannels<FlatSamples>>> {
                             x_range: std::ops::Range<usize>,
                             y_start: usize,
                         ) -> Vec<T> {
-                            let filtered_lines = samples
-                                .chunks_exact(old_width)
-                                .skip(y_start)
-                                .take(new_height);
+                            let filtered_lines =
+                                samples.chunks_exact(old_width).skip(y_start).take(new_height);
                             let trimmed_lines = filtered_lines.map(|line| &line[x_range.clone()]);
                             trimmed_lines.flatten().map(|x| *x).collect() // TODO does this use memcpy?
                         }
@@ -336,7 +351,9 @@ impl ApplyCroppedView for Layer<CroppedChannels<AnyChannels<FlatSamples>>> {
                     })
                     .collect();
 
-                AnyChannels { list: channels }
+                AnyChannels {
+                    list: channels,
+                }
             },
 
             attributes: self.attributes,
@@ -346,12 +363,13 @@ impl ApplyCroppedView for Layer<CroppedChannels<AnyChannels<FlatSamples>>> {
     }
 }
 
-/// Return the smallest bounding rectangle including all pixels that satisfy the predicate.
-/// Worst case: Fully transparent image, visits each pixel once.
+/// Return the smallest bounding rectangle including all pixels that satisfy the
+/// predicate. Worst case: Fully transparent image, visits each pixel once.
 /// Best case: Fully opaque image, visits two pixels.
 /// Returns `None` if the image is fully transparent.
 /// Returns `[(0,0), size]` if the image is fully opaque.
-/// Designed to be cache-friendly linear search. Optimized for row-major image vectors.
+/// Designed to be cache-friendly linear search. Optimized for row-major image
+/// vectors.
 pub fn try_find_smaller_bounds(
     current_bounds: IntegerBounds,
     pixel_at: impl Fn(Vec2<usize>) -> bool,
@@ -394,8 +412,9 @@ pub fn try_find_smaller_bounds(
             break;
         }
 
-        // search from right image edge towards image center, until known max x, for existing pixels,
-        // possibly including some pixels that would have been cropped otherwise
+        // search from right image edge towards image center, until known max x, for
+        // existing pixels, possibly including some pixels that would have been
+        // cropped otherwise
         if max_right_x != width - 1 {
             max_right_x = (max_right_x + 1..width)
                 .rev() // excluding current max
@@ -403,8 +422,9 @@ pub fn try_find_smaller_bounds(
                 .unwrap_or(max_right_x);
         }
 
-        // search from left image edge towards image center, until known min x, for existing pixels,
-        // possibly including some pixels that would have been cropped otherwise
+        // search from left image edge towards image center, until known min x, for
+        // existing pixels, possibly including some pixels that would have been
+        // cropped otherwise
         if min_left_x != 0 {
             min_left_x = (0..min_left_x) // excluding current min
                 .find(|&x| pixel_at(Vec2(x, y)))
@@ -428,27 +448,34 @@ impl<S> GetBounds for Layer<S> {
 }
 
 impl<Cropped, Original> CropResult<Cropped, Original> {
-    /// If the image was fully empty, return `None`, otherwise return `Some(cropped_image)`.
+    /// If the image was fully empty, return `None`, otherwise return
+    /// `Some(cropped_image)`.
     pub fn or_none_if_empty(self) -> Option<Cropped> {
         match self {
             CropResult::Cropped(cropped) => Some(cropped),
-            CropResult::Empty { .. } => None,
+            CropResult::Empty {
+                ..
+            } => None,
         }
     }
 
-    /// If the image was fully empty, crop to one single pixel of all the transparent pixels instead,
-    /// leaving the layer intact while reducing memory usage.
+    /// If the image was fully empty, crop to one single pixel of all the
+    /// transparent pixels instead, leaving the layer intact while reducing
+    /// memory usage.
     ///
     /// # Errors
-    /// Returns an error if the layer has zero width and height (which indicates an invalid layer state).
-    /// This should never happen with properly constructed images.
+    /// Returns an error if the layer has zero width and height (which indicates
+    /// an invalid layer state). This should never happen with properly
+    /// constructed images.
     pub fn or_crop_to_1x1_if_empty(self) -> Result<Cropped>
     where
         Original: Crop<Cropped = Cropped> + GetBounds,
     {
         match self {
             CropResult::Cropped(cropped) => Ok(cropped),
-            CropResult::Empty { original } => {
+            CropResult::Empty {
+                original,
+            } => {
                 let bounds = original.bounds();
                 if bounds.size == Vec2(0, 0) {
                     Err(Error::invalid(
@@ -525,11 +552,7 @@ mod test {
 
         assert_found_smaller_bounds(
             Vec2(3, 3),
-            vec![
-                vec![0, 1, 1, 2, 1, 0],
-                vec![0, 1, 3, 1, 1, 0],
-                vec![0, 1, 1, 1, 1, 0],
-            ],
+            vec![vec![0, 1, 1, 2, 1, 0], vec![0, 1, 3, 1, 1, 0], vec![0, 1, 1, 1, 1, 0]],
             vec![vec![1, 1, 2, 1], vec![1, 3, 1, 1], vec![1, 1, 1, 1]],
         );
 
@@ -547,21 +570,13 @@ mod test {
 
         assert_found_smaller_bounds(
             Vec2(3, 3),
-            vec![
-                vec![0, 1, 1, 2, 1, 0],
-                vec![0, 0, 3, 1, 0, 0],
-                vec![0, 1, 1, 1, 1, 0],
-            ],
+            vec![vec![0, 1, 1, 2, 1, 0], vec![0, 0, 3, 1, 0, 0], vec![0, 1, 1, 1, 1, 0]],
             vec![vec![1, 1, 2, 1], vec![0, 3, 1, 0], vec![1, 1, 1, 1]],
         );
 
         assert_found_smaller_bounds(
             Vec2(3, 3),
-            vec![
-                vec![0, 0, 1, 2, 0, 0],
-                vec![0, 1, 3, 1, 1, 0],
-                vec![0, 0, 1, 1, 0, 0],
-            ],
+            vec![vec![0, 0, 1, 2, 0, 0], vec![0, 1, 3, 1, 1, 0], vec![0, 0, 1, 1, 0, 0]],
             vec![vec![0, 1, 2, 0], vec![1, 3, 1, 1], vec![0, 1, 1, 0]],
         );
 
@@ -608,11 +623,7 @@ mod test {
                 vec![0, 0, 0, 0, 0, 0, 0],
                 vec![0, 0, 0, 0, 0, 0, 0],
             ],
-            vec![
-                vec![0, 1, 1, 1, 0],
-                vec![1, 1, 1, 1, 1],
-                vec![0, 1, 1, 1, 0],
-            ],
+            vec![vec![0, 1, 1, 1, 0], vec![1, 1, 1, 1, 1], vec![0, 1, 1, 1, 0]],
         );
 
         assert_found_smaller_bounds(
@@ -706,12 +717,7 @@ mod test {
 
         assert_found_smaller_bounds(
             Vec2(-1, -3),
-            vec![
-                vec![1, 0, 0, 0],
-                vec![0, 1, 0, 0],
-                vec![0, 0, 0, 0],
-                vec![0, 0, 0, 0],
-            ],
+            vec![vec![1, 0, 0, 0], vec![0, 1, 0, 0], vec![0, 0, 0, 0], vec![0, 0, 0, 0]],
             vec![vec![1, 0], vec![0, 1]],
         );
     }

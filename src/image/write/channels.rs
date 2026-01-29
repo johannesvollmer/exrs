@@ -1,22 +1,23 @@
 //! How to read arbitrary channels and rgb channels.
 
-use crate::block::samples::*;
-use crate::block::*;
-use crate::image::recursive::*;
-use crate::image::write::samples::*;
-use crate::io::*;
-use crate::math::*;
-use crate::meta::{attribute::*, header::*};
-use crate::prelude::*;
-
 use std::marker::PhantomData;
+
+use crate::{
+    block::{samples::*, *},
+    image::{recursive::*, write::samples::*},
+    io::*,
+    math::*,
+    meta::{attribute::*, header::*},
+    prelude::*,
+};
 
 /// Enables an image containing this list of channels to be written to a file.
 pub trait WritableChannels<'slf> {
     /// Generate the file meta data for this list of channel
     fn infer_channel_list(&self) -> ChannelList;
 
-    ///  Generate the file meta data of whether and how resolution levels should be stored in the file
+    ///  Generate the file meta data of whether and how resolution levels should
+    /// be stored in the file
     fn infer_level_modes(&self) -> Result<(LevelMode, RoundingMode)>;
 
     /// The type of temporary writer
@@ -28,7 +29,8 @@ pub trait WritableChannels<'slf> {
 
 /// A temporary writer for a list of channels
 pub trait ChannelsWriter: Sync {
-    /// Deliver a block of pixels, containing all channel data, to be stored in the file
+    /// Deliver a block of pixels, containing all channel data, to be stored in
+    /// the file
     fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex) -> Result<Vec<u8>>; // TODO return uncompressed block?
 }
 
@@ -46,10 +48,7 @@ pub trait GetPixel: Sync {
     fn pixel(&self, position: Vec2<usize>) -> Self::Pixel;
 
     /// Deprecated: Use `pixel()` instead.
-    #[deprecated(
-        since = "1.75.0",
-        note = "Renamed to `pixel` to comply with Rust API guidelines"
-    )]
+    #[deprecated(since = "1.75.0", note = "Renamed to `pixel` to comply with Rust API guidelines")]
     fn get_pixel(&self, position: Vec2<usize>) -> Self::Pixel {
         self.pixel(position)
     }
@@ -60,6 +59,7 @@ where
     F: Sync + Fn(Vec2<usize>) -> P,
 {
     type Pixel = P;
+
     fn pixel(&self, position: Vec2<usize>) -> P {
         self(position)
     }
@@ -69,6 +69,8 @@ impl<'samples, Samples> WritableChannels<'samples> for AnyChannels<Samples>
 where
     Samples: 'samples + WritableSamples<'samples>,
 {
+    type Writer = AnyChannelsWriter<Samples::Writer>;
+
     fn infer_channel_list(&self) -> ChannelList {
         ChannelList::new(
             self.list
@@ -100,13 +102,9 @@ where
         Ok(mode)
     }
 
-    type Writer = AnyChannelsWriter<Samples::Writer>;
     fn create_writer(&'samples self, header: &Header) -> Result<Self::Writer> {
-        let channels: Result<SmallVec<_>> = self
-            .list
-            .iter()
-            .map(|chan| chan.sample_data.create_samples_writer(header))
-            .collect();
+        let channels: Result<SmallVec<_>> =
+            self.list.iter().map(|chan| chan.sample_data.create_samples_writer(header)).collect();
 
         Ok(AnyChannelsWriter {
             channels: channels?,
@@ -145,19 +143,22 @@ where
     <Channels as IntoRecursive>::Recursive:
         WritableChannelsDescription<<Storage::Pixel as IntoRecursive>::Recursive>,
 {
+    type Writer = SpecificChannelsWriter<
+        'c,
+        <<Channels as IntoRecursive>::Recursive as WritableChannelsDescription<
+            <Storage::Pixel as IntoRecursive>::Recursive,
+        >>::RecursiveWriter,
+        Storage,
+        Channels,
+    >;
+
     fn infer_channel_list(&self) -> ChannelList {
-        let mut vec = self
-            .channels
-            .clone()
-            .into_recursive()
-            .channel_descriptions_list();
+        let mut vec = self.channels.clone().into_recursive().channel_descriptions_list();
         vec.sort_unstable_by_key(|channel: &ChannelDescription| channel.name.clone()); // TODO no clone?
 
         debug_assert!(
             // check for equal neighbors in sorted vec
-            vec.iter()
-                .zip(vec.iter().skip(1))
-                .all(|(prev, next)| prev.name != next.name),
+            vec.iter().zip(vec.iter().skip(1)).all(|(prev, next)| prev.name != next.name),
             "specific channels contain duplicate channel names"
         );
 
@@ -167,15 +168,6 @@ where
     fn infer_level_modes(&self) -> Result<(LevelMode, RoundingMode)> {
         Ok((LevelMode::Singular, RoundingMode::Down)) // TODO
     }
-
-    type Writer = SpecificChannelsWriter<
-        'c,
-        <<Channels as IntoRecursive>::Recursive as WritableChannelsDescription<
-            <Storage::Pixel as IntoRecursive>::Recursive,
-        >>::RecursiveWriter,
-        Storage,
-        Channels,
-    >;
 
     fn create_writer(&'c self, header: &Header) -> Result<Self::Writer> {
         Ok(SpecificChannelsWriter {
@@ -192,7 +184,9 @@ where
 /// A temporary writer for a layer of channels, alpha being optional
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SpecificChannelsWriter<'channels, PixelWriter, Storage, Channels> {
-    channels: &'channels SpecificChannels<Storage, Channels>, // TODO this need not be a reference?? impl writer for specific_channels directly?
+    channels: &'channels SpecificChannels<Storage, Channels>, /* TODO this need not be a
+                                                               * reference?? impl writer for
+                                                               * specific_channels directly? */
     recursive_channel_writer: PixelWriter,
 }
 
@@ -215,23 +209,16 @@ where
         let width = block_index.pixel_size.0;
         let line_bytes = width * header.channels.bytes_per_pixel;
         let byte_lines = block_bytes.chunks_exact_mut(line_bytes);
-        assert_eq!(
-            byte_lines.len(),
-            block_index.pixel_size.height(),
-            "invalid block line splits"
-        );
+        assert_eq!(byte_lines.len(), block_index.pixel_size.height(), "invalid block line splits");
 
-        //dbg!(width, line_bytes, header.channels.bytes_per_pixel, byte_lines.len());
+        // dbg!(width, line_bytes, header.channels.bytes_per_pixel, byte_lines.len());
 
         let mut pixel_line = Vec::with_capacity(width);
 
         for (y, line_bytes) in byte_lines.enumerate() {
             pixel_line.clear();
             pixel_line.extend((0..width).map(|x| {
-                self.channels
-                    .pixels
-                    .pixel(block_index.pixel_position + Vec2(x, y))
-                    .into_recursive()
+                self.channels.pixels.pixel(block_index.pixel_position + Vec2(x, y)).into_recursive()
             }));
 
             self.recursive_channel_writer.write_pixels(
@@ -245,26 +232,31 @@ where
     }
 }
 
-/// A tuple containing either `ChannelsDescription` or `Option<ChannelsDescription>` entries.
-/// Use an `Option` if you want to dynamically omit a single channel (probably only for roundtrip tests).
+/// A tuple containing either `ChannelsDescription` or
+/// `Option<ChannelsDescription>` entries. Use an `Option` if you want to
+/// dynamically omit a single channel (probably only for roundtrip tests).
 /// The number of entries must match the number of channels.
 pub trait WritableChannelsDescription<Pixel>: Sync {
     /// A type that has a recursive entry for each channel in the image,
     /// which must accept the desired pixel type.
     type RecursiveWriter: RecursivePixelWriter<Pixel>;
 
-    /// Create the temporary writer, accepting the sorted list of channels from `channel_descriptions_list`.
+    /// Create the temporary writer, accepting the sorted list of channels from
+    /// `channel_descriptions_list`.
     fn create_recursive_writer(&self, channels: &ChannelList) -> Result<Self::RecursiveWriter>;
 
-    /// Return all the channels that should actually end up in the image, in any order.
+    /// Return all the channels that should actually end up in the image, in any
+    /// order.
     fn channel_descriptions_list(&self) -> SmallVec<[ChannelDescription; 5]>;
 }
 
 impl WritableChannelsDescription<NoneMore> for NoneMore {
     type RecursiveWriter = NoneMore;
+
     fn create_recursive_writer(&self, _: &ChannelList) -> Result<Self::RecursiveWriter> {
         Ok(NoneMore)
     }
+
     fn channel_descriptions_list(&self) -> SmallVec<[ChannelDescription; 5]> {
         SmallVec::new()
     }
@@ -279,7 +271,8 @@ where
     type RecursiveWriter = RecursiveWriter<InnerDescriptions::RecursiveWriter, Sample>;
 
     fn create_recursive_writer(&self, channels: &ChannelList) -> Result<Self::RecursiveWriter> {
-        // this linear lookup is required because the order of the channels changed, due to alphabetical sorting
+        // this linear lookup is required because the order of the channels changed, due
+        // to alphabetical sorting
         let (start_byte_offset, target_sample_type) = channels
             .channels_with_byte_offset()
             .find(|(_offset, channel)| channel.name == self.value.name)
@@ -317,7 +310,8 @@ where
     type RecursiveWriter = OptionalRecursiveWriter<InnerDescriptions::RecursiveWriter, Sample>;
 
     fn create_recursive_writer(&self, channels: &ChannelList) -> Result<Self::RecursiveWriter> {
-        // this linear lookup is required because the order of the channels changed, due to alphabetical sorting
+        // this linear lookup is required because the order of the channels changed, due
+        // to alphabetical sorting
 
         let channel = self
             .value
@@ -355,8 +349,8 @@ where
     }
 }
 
-/// Write pixels to a slice of bytes. The top level writer contains all the other channels,
-/// the most inner channel is `NoneMore`.
+/// Write pixels to a slice of bytes. The top level writer contains all the
+/// other channels, the most inner channel is `NoneMore`.
 pub trait RecursivePixelWriter<Pixel>: Sync {
     /// Write pixels to a slice of bytes. Recursively do this for all channels.
     fn write_pixels<FullPixel>(
@@ -370,7 +364,8 @@ pub trait RecursivePixelWriter<Pixel>: Sync {
 type RecursiveWriter<Inner, Sample> = Recursive<Inner, SampleWriter<Sample>>;
 type OptionalRecursiveWriter<Inner, Sample> = Recursive<Inner, Option<SampleWriter<Sample>>>;
 
-/// Write the pixels of a single channel, unconditionally. Generic over the concrete sample type (f16, f32, u32).
+/// Write the pixels of a single channel, unconditionally. Generic over the
+/// concrete sample type (f16, f32, u32).
 #[derive(Debug, Clone)]
 pub struct SampleWriter<Sample> {
     target_sample_type: SampleType,
@@ -393,7 +388,8 @@ where
 
         // match outside the loop to avoid matching on every single sample
         match self.target_sample_type {
-            // TODO does this boil down to a `memcpy` where the sample type equals the type parameter?
+            // TODO does this boil down to a `memcpy` where the sample type equals the type
+            // parameter?
             SampleType::F16 => {
                 for sample in samples {
                     sample.to_f16().write_ne(byte_writer)?;
@@ -411,10 +407,7 @@ where
             }
         };
 
-        debug_assert!(
-            byte_writer.is_empty(),
-            "all samples are written, but more were expected"
-        );
+        debug_assert!(byte_writer.is_empty(), "all samples are written, but more were expected");
         Ok(())
     }
 }
@@ -442,10 +435,8 @@ where
         pixels: &[FullPixel],
         get_pixel: impl Fn(&FullPixel) -> &Recursive<InnerPixel, Sample>,
     ) -> Result<()> {
-        self.value
-            .write_own_samples(bytes, pixels.iter().map(|px| get_pixel(px).value))?;
-        self.inner
-            .write_pixels(bytes, pixels, |px| &get_pixel(px).inner)?;
+        self.value.write_own_samples(bytes, pixels.iter().map(|px| get_pixel(px).value))?;
+        self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner)?;
         Ok(())
     }
 }
@@ -466,19 +457,18 @@ where
             writer.write_own_samples(bytes, pixels.iter().map(|px| get_pixel(px).value))?;
         }
 
-        self.inner
-            .write_pixels(bytes, pixels, |px| &get_pixel(px).inner)?;
+        self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner)?;
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::image::pixel_vec::PixelVec;
-    use crate::image::write::channels::WritableChannels;
-    use crate::image::SpecificChannels;
-    use crate::meta::attribute::{ChannelDescription, SampleType};
-    use crate::prelude::f16;
+    use crate::{
+        image::{pixel_vec::PixelVec, write::channels::WritableChannels, SpecificChannels},
+        meta::attribute::{ChannelDescription, SampleType},
+        prelude::f16,
+    };
 
     #[test]
     fn compiles() {

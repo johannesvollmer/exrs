@@ -11,9 +11,9 @@ extern crate exr;
 /// Generate an image with channel groups and write it to a file.
 /// Some legacy software may group layers that contain a `.` in the layer name.
 ///
-/// Note: This is an OpenEXR legacy strategy. OpenEXR supports layers natively since 2013.
-/// Use the natively supported exrs `Layer` types instead, if possible.
-///
+/// Note: This is an OpenEXR legacy strategy. OpenEXR supports layers natively
+/// since 2013. Use the natively supported exrs `Layer` types instead, if
+/// possible.
 fn main() {
     use exr::prelude::*;
     // TODO simplify handling these types of layers using read() and write()

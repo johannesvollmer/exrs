@@ -1,10 +1,10 @@
 //! Contains collections of common attributes.
 //! Defines some data types that list all standard attributes.
 
-use crate::math::Vec2;
-use crate::meta::attribute::*; // FIXME shouldn't this need some more imports????
-use crate::meta::*;
 use std::collections::HashMap;
+
+use crate::meta::attribute::*; // FIXME shouldn't this need some more imports????
+use crate::{math::Vec2, meta::*};
 
 // TODO rename header to LayerDescription!
 
@@ -16,15 +16,16 @@ pub struct Header {
     /// List of channels in this layer.
     pub channels: ChannelList,
 
-    /// How the pixel data of all channels in this layer is compressed. May be `Compression::Uncompressed`.
+    /// How the pixel data of all channels in this layer is compressed. May be
+    /// `Compression::Uncompressed`.
     pub compression: Compression,
 
     /// Describes how the pixels of this layer are divided into smaller blocks.
     /// A single block can be loaded without processing all bytes of a file.
     ///
-    /// Also describes whether a file contains multiple resolution levels: mip maps or rip maps.
-    /// This allows loading not the full resolution, but the smallest sensible resolution.
-    //
+    /// Also describes whether a file contains multiple resolution levels: mip
+    /// maps or rip maps. This allows loading not the full resolution, but
+    /// the smallest sensible resolution.
     // Required if file contains deep data or multiple layers.
     // Note: This value must agree with the version field's tile bit and deep data bit.
     // In this crate, this attribute will always have a value, for simplicity.
@@ -33,7 +34,8 @@ pub struct Header {
     /// In what order the tiles of this header occur in the file.
     pub line_order: LineOrder,
 
-    /// The resolution of this layer. Equivalent to the size of the `DataWindow`.
+    /// The resolution of this layer. Equivalent to the size of the
+    /// `DataWindow`.
     pub layer_size: Vec2<usize>,
 
     /// Whether this layer contains deep data.
@@ -42,16 +44,17 @@ pub struct Header {
     /// This library supports only deep data version 1.
     pub deep_data_version: Option<i32>,
 
-    /// Number of chunks, that is, scan line blocks or tiles, that this image has been divided into.
-    /// This number is calculated once at the beginning
-    /// of the read process or when creating a header object.
+    /// Number of chunks, that is, scan line blocks or tiles, that this image
+    /// has been divided into. This number is calculated once at the
+    /// beginning of the read process or when creating a header object.
     ///
     /// This value includes all chunks of all resolution levels.
     ///
     ///
     /// __Warning__
-    /// _This value is relied upon. You should probably use `Header::with_encoding`,
-    /// which automatically updates the chunk count._
+    /// _This value is relied upon. You should probably use
+    /// `Header::with_encoding`, which automatically updates the chunk
+    /// count._
     pub chunk_count: usize,
 
     // Required for deep data (deepscanline and deeptile) layers.
@@ -88,15 +91,17 @@ pub struct ImageAttributes {
     /// Aspect ratio of each pixel in this header.
     pub pixel_aspect: f32,
 
-    /// The chromaticities attribute of the image. See the `Chromaticities` type.
+    /// The chromaticities attribute of the image. See the `Chromaticities`
+    /// type.
     pub chromaticities: Option<Chromaticities>,
 
     /// The time code of the image.
     pub time_code: Option<TimeCode>,
 
     /// Contains custom attributes.
-    /// Does not contain the attributes already present in the `ImageAttributes`.
-    /// Contains only attributes that are standardized to be the same for all headers: chromaticities and time codes.
+    /// Does not contain the attributes already present in the
+    /// `ImageAttributes`. Contains only attributes that are standardized to
+    /// be the same for all headers: chromaticities and time codes.
     pub other: HashMap<Text, AttributeValue>,
 }
 
@@ -124,27 +129,32 @@ pub struct LayerAttributes {
     pub screen_window_width: f32,
 
     /// The white luminance of the colors.
-    /// Defines the luminance in candelas per square meter, Nits, of the rgb value `(1, 1, 1)`.
+    /// Defines the luminance in candelas per square meter, Nits, of the rgb
+    /// value `(1, 1, 1)`.
     // If the chromaticities and the whiteLuminance of an RGB image are
     // known, then it is possible to convert the image's pixels from RGB
     // to CIE XYZ tristimulus values (see function RGBtoXYZ() in header
     // file ImfChromaticities.h).
     pub white_luminance: Option<f32>,
 
-    /// The adopted neutral of the colors. Specifies the CIE (x,y) frequency coordinates that should
-    /// be considered neutral during color rendering. Pixels in the image
-    /// whose CIE (x,y) frequency coordinates match the adopted neutral value should
-    /// be mapped to neutral values on the given display.
+    /// The adopted neutral of the colors. Specifies the CIE (x,y) frequency
+    /// coordinates that should be considered neutral during color
+    /// rendering. Pixels in the image whose CIE (x,y) frequency coordinates
+    /// match the adopted neutral value should be mapped to neutral values
+    /// on the given display.
     pub adopted_neutral: Option<Vec2<f32>>,
 
-    /// Name of the color transform function that is applied for rendering the image.
+    /// Name of the color transform function that is applied for rendering the
+    /// image.
     pub rendering_transform_name: Option<Text>,
 
-    /// Name of the color transform function that computes the look modification of the image.
+    /// Name of the color transform function that computes the look modification
+    /// of the image.
     pub look_modification_transform_name: Option<Text>,
 
     /// The horizontal density, in pixels per inch.
-    /// The image's vertical output density can be computed using `horizontal_density * pixel_aspect_ratio`.
+    /// The image's vertical output density can be computed using
+    /// `horizontal_density * pixel_aspect_ratio`.
     pub horizontal_density: Option<f32>,
 
     /// Name of the owner.
@@ -185,7 +195,8 @@ pub struct LayerAttributes {
     /// If this is an environment map, specifies how to interpret it.
     pub environment_map: Option<EnvironmentMap>,
 
-    /// Identifies film manufacturer, film type, film roll and frame position within the roll.
+    /// Identifies film manufacturer, film type, film roll and frame position
+    /// within the roll.
     pub film_key_code: Option<KeyCode>,
 
     /// Specifies how texture map images are extrapolated.
@@ -195,18 +206,21 @@ pub struct LayerAttributes {
     /// Frames per second if this is a frame in a sequence.
     pub frames_per_second: Option<Rational>,
 
-    /// Specifies the view names for multi-view, for example stereo, image files.
+    /// Specifies the view names for multi-view, for example stereo, image
+    /// files.
     pub multi_view_names: Option<Vec<Text>>,
 
-    /// The matrix that transforms 3D points from the world to the camera coordinate space.
-    /// Left-handed coordinate system, y up, z forward.
+    /// The matrix that transforms 3D points from the world to the camera
+    /// coordinate space. Left-handed coordinate system, y up, z forward.
     pub world_to_camera: Option<Matrix4x4>,
 
-    /// The matrix that transforms 3D points from the world to the "Normalized Device Coordinate" space.
-    /// Left-handed coordinate system, y up, z forward.
+    /// The matrix that transforms 3D points from the world to the "Normalized
+    /// Device Coordinate" space. Left-handed coordinate system, y up, z
+    /// forward.
     pub world_to_normalized_device: Option<Matrix4x4>,
 
-    /// Specifies whether the pixels in a deep image are sorted and non-overlapping.
+    /// Specifies whether the pixels in a deep image are sorted and
+    /// non-overlapping.
     pub deep_image_state: Option<Rational>,
 
     /// If the image was cropped, contains the original data window.
@@ -215,7 +229,8 @@ pub struct LayerAttributes {
     /// An 8-bit rgba image representing the rendered image.
     pub preview: Option<Preview>,
 
-    /// Name of the view, which is typically either `"right"` or `"left"` for a stereoscopic image.
+    /// Name of the view, which is typically either `"right"` or `"left"` for a
+    /// stereoscopic image.
     pub view_name: Option<Text>,
 
     /// The name of the software that produced this image.
@@ -234,8 +249,10 @@ pub struct LayerAttributes {
     pub vertical_field_of_view: Option<f32>,
 
     /// Contains custom attributes.
-    /// Does not contain the attributes already present in the `Header` or `LayerAttributes` struct.
-    /// Does not contain attributes that are standardized to be the same for all layers: no chromaticities and no time codes.
+    /// Does not contain the attributes already present in the `Header` or
+    /// `LayerAttributes` struct. Does not contain attributes that are
+    /// standardized to be the same for all layers: no chromaticities and no
+    /// time codes.
     pub other: HashMap<Text, AttributeValue>,
 }
 
@@ -290,15 +307,17 @@ impl ImageAttributes {
         }
     }
 
-    /// Set the display position to zero and use the specified size for this image.
+    /// Set the display position to zero and use the specified size for this
+    /// image.
     pub fn with_size(size: impl Into<Vec2<usize>>) -> Self {
         Self::new(IntegerBounds::from_dimensions(size))
     }
 }
 
 impl Header {
-    /// Create a new Header with the specified name, display window and channels.
-    /// Use `Header::with_encoding` and the similar methods to add further properties to the header.
+    /// Create a new Header with the specified name, display window and
+    /// channels. Use `Header::with_encoding` and the similar methods to add
+    /// further properties to the header.
     ///
     /// The other settings are left to their default values:
     /// - RLE compression
@@ -352,7 +371,8 @@ impl Header {
         self
     }
 
-    /// Set compression, tiling, and line order. Automatically computes chunk count.
+    /// Set compression, tiling, and line order. Automatically computes chunk
+    /// count.
     pub fn with_encoding(
         self,
         compression: Compression,
@@ -368,7 +388,8 @@ impl Header {
         }
     }
 
-    /// Set **all** attributes of the header that are not shared with all other headers in the image.
+    /// Set **all** attributes of the header that are not shared with all other
+    /// headers in the image.
     pub fn with_attributes(self, own_attributes: LayerAttributes) -> Self {
         Self {
             own_attributes,
@@ -376,7 +397,8 @@ impl Header {
         }
     }
 
-    /// Set **all** attributes of the header that are shared with all other headers in the image.
+    /// Set **all** attributes of the header that are shared with all other
+    /// headers in the image.
     pub fn with_shared_attributes(self, shared_attributes: ImageAttributes) -> Self {
         Self {
             shared_attributes,
@@ -384,9 +406,10 @@ impl Header {
         }
     }
 
-    /// Iterate over all blocks, in the order specified by the headers line order attribute.
-    /// Unspecified line order is treated as increasing line order.
-    /// Also enumerates the index of each block in the header, as if it were sorted in increasing line order.
+    /// Iterate over all blocks, in the order specified by the headers line
+    /// order attribute. Unspecified line order is treated as increasing
+    /// line order. Also enumerates the index of each block in the header,
+    /// as if it were sorted in increasing line order.
     pub fn enumerate_ordered_blocks(&self) -> impl Iterator<Item = (usize, TileIndices)> + Send {
         let increasing_y = self.blocks_increasing_y_order().enumerate();
 
@@ -402,24 +425,27 @@ impl Header {
         ordered
     }
 
-    /*/// Iterate over all blocks, in the order specified by the headers line order attribute.
-    /// Also includes an index of the block if it were `LineOrder::Increasing`, starting at zero for this header.
-    pub fn enumerate_ordered_blocks(&self) -> impl Iterator<Item = (usize, TileIndices)> + Send {
-        let increasing_y = self.blocks_increasing_y_order().enumerate();
+    // /// Iterate over all blocks, in the order specified by the headers line order
+    // attribute. Also includes an index of the block if it were
+    // `LineOrder::Increasing`, starting at zero for this header.
+    // pub fn enumerate_ordered_blocks(&self) -> impl Iterator<Item = (usize,
+    // TileIndices)> + Send { let increasing_y =
+    // self.blocks_increasing_y_order().enumerate();
+    //
+    // let ordered: Box<dyn Send + Iterator<Item = (usize, TileIndices)>> = {
+    // if self.line_order == LineOrder::Decreasing {
+    // Box::new(increasing_y.rev()) // TODO without box?
+    // }
+    // else {
+    // Box::new(increasing_y)
+    // }
+    // };
+    //
+    // ordered
+    // }
 
-        let ordered: Box<dyn Send + Iterator<Item = (usize, TileIndices)>> = {
-            if self.line_order == LineOrder::Decreasing {
-                Box::new(increasing_y.rev()) // TODO without box?
-            }
-            else {
-                Box::new(increasing_y)
-            }
-        };
-
-        ordered
-    }*/
-
-    /// Iterate over all tile indices in this header in `LineOrder::Increasing` order.
+    /// Iterate over all tile indices in this header in `LineOrder::Increasing`
+    /// order.
     pub fn blocks_increasing_y_order(
         &self,
     ) -> impl Iterator<Item = TileIndices> + ExactSizeIterator + DoubleEndedIterator {
@@ -483,24 +509,27 @@ impl Header {
         vec.into_iter() // TODO without collect
     }
 
-    /* TODO
-    /// The block indices of this header, ordered as they would appear in the file.
-    pub fn ordered_block_indices<'s>(&'s self, layer_index: usize) -> impl 's + Iterator<Item=BlockIndex> {
-        self.enumerate_ordered_blocks().map(|(chunk_index, tile)|{
-            let data_indices = self.get_absolute_block_pixel_coordinates(tile.location).expect("tile coordinate bug");
-
-            BlockIndex {
-                layer: layer_index,
-                level: tile.location.level_index,
-                pixel_position: data_indices.position.to_usize("data indices start").expect("data index bug"),
-                pixel_size: data_indices.size,
-            }
-        })
-    }*/
+    // TODO
+    // The block indices of this header, ordered as they would appear in the file.
+    // pub fn ordered_block_indices<'s>(&'s self, layer_index: usize) -> impl 's +
+    // Iterator<Item=BlockIndex> { self.enumerate_ordered_blocks().
+    // map(|(chunk_index, tile)|{ let data_indices =
+    // self.get_absolute_block_pixel_coordinates(tile.location).expect("tile
+    // coordinate bug");
+    //
+    // BlockIndex {
+    // layer: layer_index,
+    // level: tile.location.level_index,
+    // pixel_position: data_indices.position.to_usize("data indices
+    // start").expect("data index bug"), pixel_size: data_indices.size,
+    // }
+    // })
+    // }
 
     // TODO reuse this function everywhere
-    /// The default pixel resolution of a single block (tile or scan line block).
-    /// Not all blocks have this size, because they may be cutoff at the end of the image.
+    /// The default pixel resolution of a single block (tile or scan line
+    /// block). Not all blocks have this size, because they may be cutoff at
+    /// the end of the image.
     pub fn max_block_pixel_size(&self) -> Vec2<usize> {
         match self.blocks {
             BlockDescription::ScanLines => {
@@ -510,7 +539,8 @@ impl Header {
         }
     }
 
-    /// Calculate the position of a block in the global infinite 2D space of a file. May be negative.
+    /// Calculate the position of a block in the global infinite 2D space of a
+    /// file. May be negative.
     pub fn block_data_window_pixel_coordinates(
         &self,
         tile: TileCoordinates,
@@ -531,7 +561,8 @@ impl Header {
         self.block_data_window_pixel_coordinates(tile)
     }
 
-    /// Calculate the pixel index rectangle inside this header. Is not negative. Starts at `0`.
+    /// Calculate the pixel index rectangle inside this header. Is not negative.
+    /// Starts at `0`.
     pub fn absolute_block_pixel_coordinates(&self, tile: TileCoordinates) -> Result<IntegerBounds> {
         if let BlockDescription::Tiles(tiles) = self.blocks {
             let Vec2(data_width, data_height) = self.layer_size;
@@ -581,8 +612,8 @@ impl Header {
         self.absolute_block_pixel_coordinates(tile)
     }
 
-    /// Return the tile index, converting scan line block coordinates to tile indices.
-    /// Starts at `0` and is not negative.
+    /// Return the tile index, converting scan line block coordinates to tile
+    /// indices. Starts at `0` and is not negative.
     pub fn block_data_indices(&self, block: &CompressedBlock) -> Result<TileCoordinates> {
         Ok(match block {
             CompressedBlock::Tile(ref tile) => tile.coordinates,
@@ -594,9 +625,7 @@ impl Header {
                     .y_coordinate
                     .checked_sub(self.own_attributes.layer_position.y())
                     .ok_or(Error::invalid("invalid header"))?;
-                let y = diff
-                    .checked_div(size)
-                    .ok_or(Error::invalid("invalid header"))?;
+                let y = diff.checked_div(size).ok_or(Error::invalid("invalid header"))?;
 
                 if y < 0 {
                     return Err(Error::invalid("scan block y coordinate"));
@@ -631,9 +660,7 @@ impl Header {
         let diff = block_y_coordinate
             .checked_sub(self.own_attributes.layer_position.1)
             .ok_or(Error::invalid("invalid header"))?;
-        let y = diff
-            .checked_div(size)
-            .ok_or(Error::invalid("invalid header"))?;
+        let y = diff.checked_div(size).ok_or(Error::invalid("invalid header"))?;
 
         if y < 0 {
             return Err(Error::invalid("scan block y coordinate"));
@@ -657,7 +684,8 @@ impl Header {
         self.scan_line_block_tile_coordinates(block_y_coordinate)
     }
 
-    /// Maximum byte length of an uncompressed or compressed block, used for validation.
+    /// Maximum byte length of an uncompressed or compressed block, used for
+    /// validation.
     pub fn max_block_byte_size(&self) -> usize {
         self.channels.bytes_per_pixel
             * match self.blocks {
@@ -669,7 +697,8 @@ impl Header {
     }
 
     /// Returns the number of bytes that the pixels of this header will require
-    /// when stored without compression. Respects multi-resolution levels and subsampling.
+    /// when stored without compression. Respects multi-resolution levels and
+    /// subsampling.
     pub fn total_pixel_bytes(&self) -> usize {
         assert!(!self.deep);
 
@@ -700,8 +729,9 @@ impl Header {
             .sum()
     }
 
-    /// Approximates the maximum number of bytes that the pixels of this header will consume in a file.
-    /// Due to compression, the actual byte size may be smaller.
+    /// Approximates the maximum number of bytes that the pixels of this header
+    /// will consume in a file. Due to compression, the actual byte size may
+    /// be smaller.
     pub fn max_pixel_file_bytes(&self) -> usize {
         assert!(!self.deep);
 
@@ -748,8 +778,7 @@ impl Header {
         }
 
         let allow_subsampling = !self.deep && self.blocks == BlockDescription::ScanLines;
-        self.channels
-            .validate(allow_subsampling, self.data_window(), strict)?;
+        self.channels.validate(allow_subsampling, self.data_window(), strict)?;
 
         for (name, value) in &self.shared_attributes.other {
             attribute::validate(
@@ -773,7 +802,8 @@ impl Header {
             )?;
         }
 
-        // this is only to check whether someone tampered with our precious values, to avoid writing an invalid file
+        // this is only to check whether someone tampered with our precious values, to
+        // avoid writing an invalid file
         if self.chunk_count != compute_chunk_count(self.compression, self.layer_size, self.blocks) {
             return Err(Error::invalid("chunk count attribute")); // TODO this may be an expensive check?
         }
@@ -782,10 +812,7 @@ impl Header {
         if strict {
             for (name, _) in &self.shared_attributes.other {
                 if self.own_attributes.other.contains_key(name) {
-                    return Err(Error::invalid(format!(
-                        "duplicate attribute name: `{}`",
-                        name
-                    )));
+                    return Err(Error::invalid(format!("duplicate attribute name: `{}`", name)));
                 }
             }
 
@@ -822,9 +849,7 @@ impl Header {
             }
 
             if !self.compression.supports_deep_data() {
-                return Err(Error::invalid(
-                    "compression method does not support deep data",
-                ));
+                return Err(Error::invalid("compression method does not support deep data"));
             }
         }
 
@@ -867,17 +892,21 @@ impl Header {
         Ok(())
     }
 
-    /// Iterate over all `(name, attribute_value)` pairs in this header that would be written to a file.
-    /// The order of attributes is arbitrary and may change in future versions.
-    /// Will always contain all strictly required attributes, such as channels, compression, data window, and similar.
-    /// Hint: Use `attribute.kind_name()` to obtain the standardized name of the attribute type.
-    /// Does not validate the header or attributes.
+    /// Iterate over all `(name, attribute_value)` pairs in this header that
+    /// would be written to a file. The order of attributes is arbitrary and
+    /// may change in future versions. Will always contain all strictly
+    /// required attributes, such as channels, compression, data window, and
+    /// similar. Hint: Use `attribute.kind_name()` to obtain the
+    /// standardized name of the attribute type. Does not validate the
+    /// header or attributes.
     // This function is used for writing the attributes to files.
     #[inline]
     pub fn all_named_attributes(&self) -> impl '_ + Iterator<Item = (&TextSlice, AttributeValue)> {
-        use crate::meta::header::standard_names::*;
         use std::iter::{empty, once, once_with};
+
         use AttributeValue::*;
+
+        use crate::meta::header::standard_names::*;
 
         #[inline]
         fn optional<'t, T: Clone>(
@@ -885,10 +914,7 @@ impl Header {
             to_attribute: impl Fn(T) -> AttributeValue,
             value: &'t Option<T>,
         ) -> impl Iterator<Item = (&'t TextSlice, AttributeValue)> {
-            value
-                .as_ref()
-                .map(move |value| (name, to_attribute(value.clone())))
-                .into_iter()
+            value.as_ref().map(move |value| (name, to_attribute(value.clone()))).into_iter()
         }
 
         #[inline]
@@ -900,7 +926,8 @@ impl Header {
             once((name, to_attribute((*value).clone())))
         }
 
-        // used to type-check local variables. only requried because you cannot do `let i: impl Iterator<> = ...`
+        // used to type-check local variables. only requried because you cannot do `let
+        // i: impl Iterator<> = ...`
         #[inline]
         fn expect_is_iter<'s, T: Iterator<Item = (&'s TextSlice, AttributeValue)>>(val: T) -> T {
             val
@@ -946,9 +973,8 @@ impl Header {
             .flatten(),
         );
 
-        let data_window = expect_is_iter(once_with(move || {
-            (DATA_WINDOW, IntegerBounds(self.data_window()))
-        }));
+        let data_window =
+            expect_is_iter(once_with(move || (DATA_WINDOW, IntegerBounds(self.data_window()))));
 
         // dwa writes compression parameters as attribute.
         let dwa_compr_level = expect_is_iter(
@@ -1031,10 +1057,7 @@ impl Header {
             .chain(self.shared_attributes.other.iter())
             .map(|(name, val)| (name.as_slice(), val.clone())); // TODO no clone
 
-        req_core_attrs
-            .chain(opt_core_attrs)
-            .chain(opt_attr)
-            .chain(other)
+        req_core_attrs.chain(opt_core_attrs).chain(opt_attr).chain(other)
     }
 
     /// Read the value without validating.
@@ -1043,7 +1066,11 @@ impl Header {
         requirements: &Requirements,
         pedantic: bool,
     ) -> Result<Self> {
-        let max_string_len = if requirements.has_long_names { 256 } else { 32 }; // TODO DRY this information
+        let max_string_len = if requirements.has_long_names {
+            256
+        } else {
+            32
+        }; // TODO DRY this information
 
         // these required attributes will be filled when encountered while parsing
         let mut tiles = None;
@@ -1068,13 +1095,16 @@ impl Header {
             // if the attribute value itself is ok, record it
             match value {
                 Ok(value) => {
-                    use crate::meta::attribute::AttributeValue::*;
-                    use crate::meta::header::standard_names as name;
+                    use crate::meta::{
+                        attribute::AttributeValue::*, header::standard_names as name,
+                    };
 
-                    // if the attribute is a required attribute, set the corresponding variable directly.
-                    // otherwise, add the attribute to the vector of custom attributes
+                    // if the attribute is a required attribute, set the corresponding variable
+                    // directly. otherwise, add the attribute to the vector of
+                    // custom attributes
 
-                    // the following attributes will only be set if the type matches the commonly used type for that attribute
+                    // the following attributes will only be set if the type matches the commonly
+                    // used type for that attribute
                     match (attribute_name.as_slice(), value) {
                         (name::BLOCK_TYPE, Text(value)) => {
                             block_type = Some(attribute::BlockType::parse(value)?)
@@ -1217,7 +1247,8 @@ impl Header {
             (Some(level), Some(Compression::DWAA(_))) => Some(Compression::DWAA(Some(level))),
             (Some(level), Some(Compression::DWAB(_))) => Some(Compression::DWAB(Some(level))),
             (_, other) => other,
-            // FIXME dwa compression level gets lost if any other compression is used later in the process
+            // FIXME dwa compression level gets lost if any other compression is used later in the
+            // process
         };
 
         let compression = compression.ok_or(missing_attribute("compression"))?;

@@ -1,6 +1,7 @@
 // File content generated from:
 // https://github.com/AcademySoftwareFoundation/openexr/blob/master/src/lib/OpenEXR/b44ExpLogTable.h
-// When Rust support it, we should use `const fn` to compute the array at compile time.
+// When Rust support it, we should use `const fn` to compute the array at
+// compile time.
 
 const TABLE_SIZE: usize = 1 << 16;
 

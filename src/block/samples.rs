@@ -1,7 +1,8 @@
 //! Extract pixel samples from a block of pixel bytes.
 
-use crate::prelude::*;
 use half::prelude::HalfFloatSliceExt;
+
+use crate::prelude::*;
 
 /// A single red, green, blue, or alpha value.
 #[derive(Copy, Clone, Debug)]
@@ -33,7 +34,8 @@ impl Sample {
     }
 
     /// Convert the sample to an f16 value. This has lower precision than f32.
-    /// Note: An f32 can only represent integers up to `1024` as precise as a u32 could.
+    /// Note: An f32 can only represent integers up to `1024` as precise as a
+    /// u32 could.
     #[inline]
     pub fn to_f16(self) -> f16 {
         match self {
@@ -44,7 +46,8 @@ impl Sample {
     }
 
     /// Convert the sample to an f32 value.
-    /// Note: An f32 can only represent integers up to `8388608` as precise as a u32 could.
+    /// Note: An f32 can only represent integers up to `8388608` as precise as a
+    /// u32 could.
     #[inline]
     pub fn to_f32(self) -> f32 {
         match self {
@@ -54,7 +57,8 @@ impl Sample {
         }
     }
 
-    /// Convert the sample to a u32. Rounds floats to integers the same way that `3.1 as u32` does.
+    /// Convert the sample to a u32. Rounds floats to integers the same way that
+    /// `3.1 as u32` does.
     #[inline]
     pub fn to_u32(self) -> u32 {
         match self {
@@ -95,7 +99,8 @@ impl PartialEq for Sample {
     }
 }
 
-// this is not recommended because it may hide whether a color is transparent or opaque and might be undesired for depth channels
+// this is not recommended because it may hide whether a color is transparent or
+// opaque and might be undesired for depth channels
 impl Default for Sample {
     fn default() -> Self {
         Sample::F32(0.0)
@@ -151,23 +156,27 @@ impl From<Sample> for u32 {
 }
 
 /// Create an arbitrary sample type from one of the defined sample types.
-/// Should be compiled to a no-op where the file contains the predicted sample type.
-/// The slice functions should be optimized into a `memcpy` where there is no conversion needed.
+/// Should be compiled to a no-op where the file contains the predicted sample
+/// type. The slice functions should be optimized into a `memcpy` where there is
+/// no conversion needed.
 pub trait FromNativeSample: Sized + Copy + Default + 'static {
-    /// Create this sample from a f16, trying to represent the same numerical value
+    /// Create this sample from a f16, trying to represent the same numerical
+    /// value
     fn from_f16(value: f16) -> Self;
 
-    /// Create this sample from a f32, trying to represent the same numerical value
+    /// Create this sample from a f32, trying to represent the same numerical
+    /// value
     fn from_f32(value: f32) -> Self;
 
-    /// Create this sample from a u32, trying to represent the same numerical value
+    /// Create this sample from a u32, trying to represent the same numerical
+    /// value
     fn from_u32(value: u32) -> Self;
 
     /// Convert all values from the slice into this type.
-    /// This function exists to allow the compiler to perform a vectorization optimization.
-    /// Note that this default implementation will **not** be vectorized by the compiler automatically.
-    /// For maximum performance you will need to override this function and implement it via
-    /// an explicit batched conversion such as [`convert_to_f32_slice`](https://docs.rs/half/2.3.1/half/slice/trait.HalfFloatSliceExt.html#tymethod.convert_to_f32_slice)
+    /// This function exists to allow the compiler to perform a vectorization
+    /// optimization. Note that this default implementation will **not** be
+    /// vectorized by the compiler automatically. For maximum performance
+    /// you will need to override this function and implement it via an explicit batched conversion such as [`convert_to_f32_slice`](https://docs.rs/half/2.3.1/half/slice/trait.HalfFloatSliceExt.html#tymethod.convert_to_f32_slice)
     #[inline]
     fn from_f16s(from: &[f16], to: &mut [Self]) {
         assert_eq!(from.len(), to.len(), "slices must have the same length");
@@ -177,8 +186,9 @@ pub trait FromNativeSample: Sized + Copy + Default + 'static {
     }
 
     /// Convert all values from the slice into this type.
-    /// This function exists to allow the compiler to perform a vectorization optimization.
-    /// Note that this default implementation will be vectorized by the compiler automatically.
+    /// This function exists to allow the compiler to perform a vectorization
+    /// optimization. Note that this default implementation will be
+    /// vectorized by the compiler automatically.
     #[inline]
     fn from_f32s(from: &[f32], to: &mut [Self]) {
         assert_eq!(from.len(), to.len(), "slices must have the same length");
@@ -188,11 +198,12 @@ pub trait FromNativeSample: Sized + Copy + Default + 'static {
     }
 
     /// Convert all values from the slice into this type.
-    /// This function exists to allow the compiler to perform a vectorization optimization.
-    /// Note that this default implementation will be vectorized by the compiler automatically,
-    /// provided that the CPU supports the necessary conversion instructions.
-    /// For example, x86_64 lacks the instructions to convert `u32` to floats,
-    /// so this will inevitably be slow on x86_64.
+    /// This function exists to allow the compiler to perform a vectorization
+    /// optimization. Note that this default implementation will be
+    /// vectorized by the compiler automatically, provided that the CPU
+    /// supports the necessary conversion instructions. For example, x86_64
+    /// lacks the instructions to convert `u32` to floats, so this will
+    /// inevitably be slow on x86_64.
     #[inline]
     fn from_u32s(from: &[u32], to: &mut [Self]) {
         assert_eq!(from.len(), to.len(), "slices must have the same length");
@@ -202,16 +213,19 @@ pub trait FromNativeSample: Sized + Copy + Default + 'static {
     }
 }
 
-// TODO haven't i implemented this exact behaviour already somewhere else in this library...??
+// TODO haven't i implemented this exact behaviour already somewhere else in
+// this library...??
 impl FromNativeSample for f32 {
     #[inline]
     fn from_f16(value: f16) -> Self {
         value.to_f32()
     }
+
     #[inline]
     fn from_f32(value: f32) -> Self {
         value
     }
+
     #[inline]
     fn from_u32(value: u32) -> Self {
         value as f32
@@ -231,10 +245,12 @@ impl FromNativeSample for u32 {
     fn from_f16(value: f16) -> Self {
         value.to_f32() as u32
     }
+
     #[inline]
     fn from_f32(value: f32) -> Self {
         value as u32
     }
+
     #[inline]
     fn from_u32(value: u32) -> Self {
         value
@@ -246,10 +262,12 @@ impl FromNativeSample for f16 {
     fn from_f16(value: f16) -> Self {
         value
     }
+
     #[inline]
     fn from_f32(value: f32) -> Self {
         f16::from_f32(value)
     }
+
     #[inline]
     fn from_u32(value: u32) -> Self {
         f16::from_f32(value as f32)
@@ -269,10 +287,12 @@ impl FromNativeSample for Sample {
     fn from_f16(value: f16) -> Self {
         Self::from(value)
     }
+
     #[inline]
     fn from_f32(value: f32) -> Self {
         Self::from(value)
     }
+
     #[inline]
     fn from_u32(value: u32) -> Self {
         Self::from(value)
@@ -280,15 +300,19 @@ impl FromNativeSample for Sample {
 }
 
 /// Convert any type into one of the supported sample types.
-/// Should be compiled to a no-op where the file contains the predicted sample type
+/// Should be compiled to a no-op where the file contains the predicted sample
+/// type
 pub trait IntoNativeSample: Copy + Default + Sync + 'static {
-    /// Convert this sample to an f16, trying to represent the same numerical value.
+    /// Convert this sample to an f16, trying to represent the same numerical
+    /// value.
     fn to_f16(&self) -> f16;
 
-    /// Convert this sample to an f32, trying to represent the same numerical value.
+    /// Convert this sample to an f32, trying to represent the same numerical
+    /// value.
     fn to_f32(&self) -> f32;
 
-    /// Convert this sample to an u16, trying to represent the same numerical value.
+    /// Convert this sample to an u16, trying to represent the same numerical
+    /// value.
     fn to_u32(&self) -> u32;
 }
 
@@ -296,9 +320,11 @@ impl IntoNativeSample for f16 {
     fn to_f16(&self) -> f16 {
         f16::from_f16(*self)
     }
+
     fn to_f32(&self) -> f32 {
         f32::from_f16(*self)
     }
+
     fn to_u32(&self) -> u32 {
         u32::from_f16(*self)
     }
@@ -308,9 +334,11 @@ impl IntoNativeSample for f32 {
     fn to_f16(&self) -> f16 {
         f16::from_f32(*self)
     }
+
     fn to_f32(&self) -> f32 {
         f32::from_f32(*self)
     }
+
     fn to_u32(&self) -> u32 {
         u32::from_f32(*self)
     }
@@ -320,9 +348,11 @@ impl IntoNativeSample for u32 {
     fn to_f16(&self) -> f16 {
         f16::from_u32(*self)
     }
+
     fn to_f32(&self) -> f32 {
         f32::from_u32(*self)
     }
+
     fn to_u32(&self) -> u32 {
         u32::from_u32(*self)
     }
@@ -332,9 +362,11 @@ impl IntoNativeSample for Sample {
     fn to_f16(&self) -> f16 {
         Sample::to_f16(*self)
     }
+
     fn to_f32(&self) -> f32 {
         Sample::to_f32(*self)
     }
+
     fn to_u32(&self) -> u32 {
         Sample::to_u32(*self)
     }

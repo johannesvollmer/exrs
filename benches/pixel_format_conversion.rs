@@ -2,13 +2,10 @@
 extern crate bencher;
 
 extern crate exr;
-use exr::prelude::*;
+use std::{fs, io::Cursor};
 
 use bencher::Bencher;
-use exr::block::samples::FromNativeSample;
-use exr::image::pixel_vec::PixelVec;
-use std::fs;
-use std::io::Cursor;
+use exr::{block::samples::FromNativeSample, image::pixel_vec::PixelVec, prelude::*};
 
 const F32_ZIPS_PATH: &'static str = "tests/images/valid/custom/crowskull/crow_zips.exr";
 const F32_UNCOMPRESSED_PATH: &'static str =
@@ -27,7 +24,8 @@ fn read_f32_as_u32_uncompressed_1thread(bench: &mut Bencher) {
     bench_read_image_rgba_as::<u32>(bench, F32_UNCOMPRESSED_PATH, false);
 }
 
-/// f16 is not natively supported by CPUs, which introduces unique performance pitfalls
+/// f16 is not natively supported by CPUs, which introduces unique performance
+/// pitfalls
 fn read_f32_as_f16_uncompressed_1thread(bench: &mut Bencher) {
     bench_read_image_rgba_as::<f16>(bench, F32_UNCOMPRESSED_PATH, false);
 }
@@ -97,7 +95,11 @@ where
         .first_valid_layer()
         .all_attributes();
 
-    let read = if parallel { read } else { read.non_parallel() };
+    let read = if parallel {
+        read
+    } else {
+        read.non_parallel()
+    };
     read.from_buffered(Cursor::new(file)).unwrap()
 }
 

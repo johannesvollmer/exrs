@@ -1,18 +1,22 @@
 mod table;
 
-use crate::compression::{mod_p, ByteVec};
-use crate::error::usize_to_i32;
-use crate::io::Data;
-use crate::meta::attribute::ChannelList;
-use crate::prelude::*;
+use std::{cmp::min, mem::size_of};
+
 use lebe::io::{ReadPrimitive, WriteEndian};
-use std::cmp::min;
-use std::mem::size_of;
 use table::{EXP_TABLE, LOG_TABLE};
+
+use crate::{
+    compression::{mod_p, ByteVec},
+    error::usize_to_i32,
+    io::Data,
+    meta::attribute::ChannelList,
+    prelude::*,
+};
 
 const BLOCK_SAMPLE_COUNT: usize = 4;
 
-// As B44 compression is only use on f16 channels, we can have a conste for this value.
+// As B44 compression is only use on f16 channels, we can have a conste for this
+// value.
 const BLOCK_X_BYTE_COUNT: usize = BLOCK_SAMPLE_COUNT * size_of::<u16>();
 
 #[inline]
@@ -38,7 +42,8 @@ fn shift_and_round(x: i32, shift: i32) -> i32 {
     (x + a + b) >> shift
 }
 
-/// Pack a block of 4 by 4 16-bit pixels (32 bytes, the array `s`) into either 14 or 3 bytes.
+/// Pack a block of 4 by 4 16-bit pixels (32 bytes, the array `s`) into either
+/// 14 or 3 bytes.
 fn pack(s: [u16; 16], b: &mut [u8], optimize_flat_fields: bool, exact_max: bool) -> usize {
     let mut t = [0u16; 16];
 
@@ -216,10 +221,10 @@ fn unpack14(b: &[u8], s: &mut [u16; 16]) {
 // Unpack a 3-byte block `b` into 4 by 4 identical 16-bit pixels in `s` array.
 fn unpack3(b: &[u8], s: &mut [u16; 16]) {
     // this assertion panics for fuzzed images.
-    // assuming this debug assertion is an overly strict check to catch potential compression errors.
-    // disabling because it panics when fuzzed.
-    // when commenting out, it simply works (maybe it should return an error instead?).
-    // debug_assert_eq!(b[2], 0xfc);
+    // assuming this debug assertion is an overly strict check to catch potential
+    // compression errors. disabling because it panics when fuzzed.
+    // when commenting out, it simply works (maybe it should return an error
+    // instead?). debug_assert_eq!(b[2], 0xfc);
 
     // Get the 16-bit value from the block.
     let mut value = ((b32!(b, 0) << 8) | b32!(b, 1)) as u16;
@@ -244,8 +249,8 @@ struct ChannelData {
     samples_per_pixel: usize,
 }
 
-// TODO: Unsafe seems to be required to efficiently copy whole slice of u16 ot u8. For now, we use
-//   a less efficient, yet safe, implementation.
+// TODO: Unsafe seems to be required to efficiently copy whole slice of u16 ot
+// u8. For now, we use   a less efficient, yet safe, implementation.
 #[inline]
 fn memcpy_u16_to_u8(src: &[u16], mut dst: &mut [u8]) {
     use lebe::prelude::*;
@@ -255,8 +260,7 @@ fn memcpy_u16_to_u8(src: &[u16], mut dst: &mut [u8]) {
 #[inline]
 fn memcpy_u8_to_u16(mut src: &[u8], dst: &mut [u16]) {
     use lebe::prelude::*;
-    src.read_from_native_endian_into(dst)
-        .expect("byte copy error");
+    src.read_from_native_endian_into(dst).expect("byte copy error");
 }
 
 #[inline]
@@ -305,8 +309,9 @@ pub fn decompress(
         channel_data.push(channel);
     }
 
-    // Temporary buffer is used to decompress B44 datas the way they are stored in the compressed
-    // buffer (channel by channel). We interleave the final result later.
+    // Temporary buffer is used to decompress B44 datas the way they are stored in
+    // the compressed buffer (channel by channel). We interleave the final
+    // result later.
     let mut tmp = Vec::with_capacity(expected_byte_size);
 
     // Index in the compressed buffer.
@@ -321,8 +326,9 @@ pub fn decompress(
         let sample_count = channel.resolution.area() * channel.samples_per_pixel;
         let byte_count = sample_count * channel.sample_type.bytes_per_sample();
 
-        // Sample types that does not support B44 compression (u32 and f32) are raw copied.
-        // In this branch, "compressed" array is actually raw, uncompressed data.
+        // Sample types that does not support B44 compression (u32 and f32) are raw
+        // copied. In this branch, "compressed" array is actually raw,
+        // uncompressed data.
         if channel.sample_type != SampleType::F16 {
             debug_assert_eq!(channel.sample_type.bytes_per_sample(), 4);
 
@@ -355,8 +361,8 @@ pub fn decompress(
         let cd_start = channel.tmp_start_index;
 
         for y in (0..y_sample_count).step_by(BLOCK_SAMPLE_COUNT) {
-            // Compute index in output (decompressed) buffer. We have 4 rows, because we will
-            // uncompress 4 by 4 data blocks.
+            // Compute index in output (decompressed) buffer. We have 4 rows, because we
+            // will uncompress 4 by 4 data blocks.
             let mut row0 = cd_start + y * x_byte_count;
             let mut row1 = row0 + x_byte_count;
             let mut row2 = row1 + x_byte_count;
@@ -396,7 +402,8 @@ pub fn decompress(
                     convert_to_linear(&mut s);
                 }
 
-                // Get resting samples from the line to copy in temp buffer (without going outside channel).
+                // Get resting samples from the line to copy in temp buffer (without going
+                // outside channel).
                 let x_resting_sample_count = match x + 3 < x_sample_count {
                     true => BLOCK_SAMPLE_COUNT,
                     false => x_sample_count - x,
@@ -571,7 +578,8 @@ pub fn compress(
         }
     }
 
-    // Generate a whole buffer that we will crop to proper size once compression is done.
+    // Generate a whole buffer that we will crop to proper size once compression is
+    // done.
     let mut b44_compressed = vec![0; std::cmp::max(2048, uncompressed_le.len())];
     let mut b44_end = 0; // Buffer byte index for storing next compressed values.
 
@@ -601,7 +609,6 @@ pub fn compress(
         let cd_start = channel.tmp_start_index;
 
         for y in (0..y_sample_count).step_by(BLOCK_SAMPLE_COUNT) {
-            //
             // Copy the next 4x4 pixel block into array s.
             // If the width, cd.nx, or the height, cd.ny, of
             // the pixel data in _tmpBuffer is not divisible
@@ -655,7 +662,8 @@ pub fn compress(
                 row2 += BLOCK_X_BYTE_COUNT;
                 row3 += BLOCK_X_BYTE_COUNT;
 
-                // Compress the contents of array `s` and append the results to the output buffer.
+                // Compress the contents of array `s` and append the results to the output
+                // buffer.
                 if channel.quantize_linearly {
                     convert_from_linear(&mut s);
                 }
@@ -677,13 +685,16 @@ pub fn compress(
 
 #[cfg(test)]
 mod test {
-    use crate::compression::b44;
-    use crate::compression::b44::{convert_from_linear, convert_to_linear};
-    use crate::compression::ByteVec;
-    use crate::image::validate_results::ValidateResult;
-    use crate::meta::attribute::ChannelList;
-    use crate::prelude::f16;
-    use crate::prelude::*;
+    use crate::{
+        compression::{
+            b44,
+            b44::{convert_from_linear, convert_to_linear},
+            ByteVec,
+        },
+        image::validate_results::ValidateResult,
+        meta::attribute::ChannelList,
+        prelude::{f16, *},
+    };
 
     #[test]
     fn test_convert_from_to_linear() {
@@ -728,14 +739,9 @@ mod test {
 
         let compressed = b44::compress(&channels, pixel_bytes.clone(), rectangle, true).unwrap();
 
-        let decompressed = b44::decompress(
-            &channels,
-            compressed.clone(),
-            rectangle,
-            pixel_bytes.len(),
-            true,
-        )
-        .unwrap();
+        let decompressed =
+            b44::decompress(&channels, compressed.clone(), rectangle, pixel_bytes.len(), true)
+                .unwrap();
 
         assert_eq!(decompressed.len(), pixel_bytes.len());
 
@@ -762,8 +768,8 @@ mod test {
         let (pixel_bytes, compressed, decompressed) =
             test_roundtrip_noise_with(channels, rectangle);
 
-        // On my tests, B44 give a size of 44.08% the original data (this assert implies enough
-        // pixels to be relevant).
+        // On my tests, B44 give a size of 44.08% the original data (this assert implies
+        // enough pixels to be relevant).
         assert_eq!(pixel_bytes.len(), 941528);
         assert_eq!(compressed.len(), 415044);
         assert_eq!(decompressed.len(), 941528);
@@ -987,15 +993,9 @@ mod test {
         let image = read_image.clone().from_file(path).unwrap();
 
         let mut tmp_bytes = Vec::new();
-        image
-            .write()
-            .non_parallel()
-            .to_buffered(std::io::Cursor::new(&mut tmp_bytes))
-            .unwrap();
+        image.write().non_parallel().to_buffered(std::io::Cursor::new(&mut tmp_bytes)).unwrap();
 
-        let image2 = read_image
-            .from_buffered(std::io::Cursor::new(tmp_bytes))
-            .unwrap();
+        let image2 = read_image.from_buffered(std::io::Cursor::new(tmp_bytes)).unwrap();
 
         image.assert_equals_result(&image2);
     }
