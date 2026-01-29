@@ -1,3 +1,4 @@
+#[rustfmt::skip]
 mod table;
 
 use std::{cmp::min, mem::size_of};
