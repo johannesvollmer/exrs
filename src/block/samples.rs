@@ -92,9 +92,9 @@ impl Sample {
 impl PartialEq for Sample {
     fn eq(&self, other: &Self) -> bool {
         match *self {
-            Sample::F16(num) => num == other.to_f16(),
-            Sample::F32(num) => num == other.to_f32(),
-            Sample::U32(num) => num == other.to_u32(),
+            Self::F16(num) => num == other.to_f16(),
+            Self::F32(num) => num == other.to_f32(),
+            Self::U32(num) => num == other.to_u32(),
         }
     }
 }
@@ -103,32 +103,32 @@ impl PartialEq for Sample {
 // opaque and might be undesired for depth channels
 impl Default for Sample {
     fn default() -> Self {
-        Sample::F32(0.0)
+        Self::F32(0.0)
     }
 }
 
 impl From<f16> for Sample {
     #[inline]
     fn from(f: f16) -> Self {
-        Sample::F16(f)
+        Self::F16(f)
     }
 }
 impl From<f32> for Sample {
     #[inline]
     fn from(f: f32) -> Self {
-        Sample::F32(f)
+        Self::F32(f)
     }
 }
 impl From<u32> for Sample {
     #[inline]
     fn from(f: u32) -> Self {
-        Sample::U32(f)
+        Self::U32(f)
     }
 }
 
 impl<T> From<Option<T>> for Sample
 where
-    T: Into<Sample> + Default,
+    T: Into<Self> + Default,
 {
     #[inline]
     fn from(num: Option<T>) -> Self {
@@ -156,6 +156,7 @@ impl From<Sample> for u32 {
 }
 
 /// Create an arbitrary sample type from one of the defined sample types.
+///
 /// Should be compiled to a no-op where the file contains the predicted sample
 /// type. The slice functions should be optimized into a `memcpy` where there is
 /// no conversion needed.
@@ -201,9 +202,9 @@ pub trait FromNativeSample: Sized + Copy + Default + 'static {
     /// This function exists to allow the compiler to perform a vectorization
     /// optimization. Note that this default implementation will be
     /// vectorized by the compiler automatically, provided that the CPU
-    /// supports the necessary conversion instructions. For example, x86_64
-    /// lacks the instructions to convert `u32` to floats, so this will
-    /// inevitably be slow on x86_64.
+    /// supports the necessary conversion instructions. For example,
+    /// `x86_64` lacks the instructions to convert `u32` to floats,
+    /// so this will inevitably be slow on `x86_64`.
     #[inline]
     fn from_u32s(from: &[u32], to: &mut [Self]) {
         assert_eq!(from.len(), to.len(), "slices must have the same length");
@@ -228,7 +229,7 @@ impl FromNativeSample for f32 {
 
     #[inline]
     fn from_u32(value: u32) -> Self {
-        value as f32
+        value as Self
     }
 
     // f16 is a custom type
@@ -243,12 +244,12 @@ impl FromNativeSample for f32 {
 impl FromNativeSample for u32 {
     #[inline]
     fn from_f16(value: f16) -> Self {
-        value.to_f32() as u32
+        value.to_f32() as Self
     }
 
     #[inline]
     fn from_f32(value: f32) -> Self {
-        value as u32
+        value as Self
     }
 
     #[inline]
@@ -265,12 +266,12 @@ impl FromNativeSample for f16 {
 
     #[inline]
     fn from_f32(value: f32) -> Self {
-        f16::from_f32(value)
+        Self::from_f32(value)
     }
 
     #[inline]
     fn from_u32(value: u32) -> Self {
-        f16::from_f32(value as f32)
+        Self::from_f32(value as f32)
     }
 
     // f16 is a custom type
@@ -278,7 +279,7 @@ impl FromNativeSample for f16 {
     // that's why we need to specialize this function
     #[inline]
     fn from_f32s(from: &[f32], to: &mut [Self]) {
-        to.convert_from_f32_slice(from)
+        to.convert_from_f32_slice(from);
     }
 }
 
@@ -318,7 +319,7 @@ pub trait IntoNativeSample: Copy + Default + Sync + 'static {
 
 impl IntoNativeSample for f16 {
     fn to_f16(&self) -> f16 {
-        f16::from_f16(*self)
+        Self::from_f16(*self)
     }
 
     fn to_f32(&self) -> f32 {
@@ -336,7 +337,7 @@ impl IntoNativeSample for f32 {
     }
 
     fn to_f32(&self) -> f32 {
-        f32::from_f32(*self)
+        Self::from_f32(*self)
     }
 
     fn to_u32(&self) -> u32 {
@@ -354,20 +355,20 @@ impl IntoNativeSample for u32 {
     }
 
     fn to_u32(&self) -> u32 {
-        u32::from_u32(*self)
+        Self::from_u32(*self)
     }
 }
 
 impl IntoNativeSample for Sample {
     fn to_f16(&self) -> f16 {
-        Sample::to_f16(*self)
+        Self::to_f16(*self)
     }
 
     fn to_f32(&self) -> f32 {
-        Sample::to_f32(*self)
+        Self::to_f32(*self)
     }
 
     fn to_u32(&self) -> u32 {
-        Sample::to_u32(*self)
+        Self::to_u32(*self)
     }
 }

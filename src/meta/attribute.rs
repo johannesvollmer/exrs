@@ -172,16 +172,16 @@ pub enum BlockType {
 pub mod block_type_strings {
 
     /// Type attribute text value of flat scan lines
-    pub const SCAN_LINE: &'static [u8] = b"scanlineimage";
+    pub const SCAN_LINE: &[u8] = b"scanlineimage";
 
     /// Type attribute text value of flat tiles
-    pub const TILE: &'static [u8] = b"tiledimage";
+    pub const TILE: &[u8] = b"tiledimage";
 
     /// Type attribute text value of deep scan lines
-    pub const DEEP_SCAN_LINE: &'static [u8] = b"deepscanline";
+    pub const DEEP_SCAN_LINE: &[u8] = b"deepscanline";
 
     /// Type attribute text value of deep tiles
-    pub const DEEP_TILE: &'static [u8] = b"deeptile";
+    pub const DEEP_TILE: &[u8] = b"deeptile";
 }
 
 pub use crate::compression::Compression;
@@ -448,14 +448,16 @@ impl Text {
 
     /// Create a `Text` from a slice of bytes,
     /// without checking any of the bytes.
+    #[must_use]
     pub fn from_slice_unchecked(text: &TextSlice) -> Self {
         Self::from_bytes_unchecked(SmallVec::from_slice(text))
     }
 
     /// Create a `Text` from the specified bytes object,
     /// without checking any of the bytes.
-    pub fn from_bytes_unchecked(bytes: TextBytes) -> Self {
-        Text {
+    #[must_use]
+    pub const fn from_bytes_unchecked(bytes: TextBytes) -> Self {
+        Self {
             bytes,
         }
     }
@@ -535,7 +537,7 @@ impl Text {
     /// Read the length of a string and then the contents with that length.
     pub fn read_i32_sized_le<R: Read>(read: &mut R, max_size: usize) -> Result<Self> {
         let size = i32_to_usize(i32::read_le(read)?, "vector size")?;
-        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec_le(
+        Ok(Self::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec_le(
             read,
             size,
             1024,
@@ -547,7 +549,7 @@ impl Text {
     /// Read the length of a string and then the contents with that length.
     pub fn read_u32_sized_le<R: Read>(read: &mut R, max_size: usize) -> Result<Self> {
         let size = u32_to_usize(u32::read_le(read)?, "text length")?;
-        Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec_le(
+        Ok(Self::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec_le(
             read,
             size,
             1024,
@@ -566,11 +568,11 @@ impl Text {
             let data = &mut buffer[..size];
 
             read.read_exact(data)?;
-            Ok(Text::from_bytes_unchecked(SmallVec::from_slice(data)))
+            Ok(Self::from_bytes_unchecked(SmallVec::from_slice(data)))
         }
         // for large strings, read a dynamic vec of arbitrary size
         else {
-            Ok(Text::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec_le(
+            Ok(Self::from_bytes_unchecked(SmallVec::from_vec(u8::read_vec_le(
                 read,
                 size,
                 1024,
@@ -589,7 +591,7 @@ impl Text {
     fn write_null_terminated_bytes<W: Write>(bytes: &[u8], write: &mut W) -> UnitResult {
         debug_assert!(!bytes.is_empty(), "text is empty bug"); // required to avoid mixup with "sequece_end"
 
-        Text::write_unsized_bytes(bytes, write)?;
+        Self::write_unsized_bytes(bytes, write)?;
         sequence_end::write(write)?;
         Ok(())
     }
@@ -610,7 +612,7 @@ impl Text {
             }
         }
 
-        Ok(Text {
+        Ok(Self {
             bytes,
         })
     }
@@ -620,14 +622,14 @@ impl Text {
     fn read_vec_of_i32_sized_texts_le(
         read: &mut PeekRead<impl Read>,
         total_byte_size: usize,
-    ) -> Result<Vec<Text>> {
+    ) -> Result<Vec<Self>> {
         let mut result = Vec::with_capacity(2);
 
         // length of the text-vector can be inferred from attribute size
         let mut processed_bytes = 0;
 
         while processed_bytes < total_byte_size {
-            let text = Text::read_i32_sized_le(read, total_byte_size)?;
+            let text = Self::read_i32_sized_le(read, total_byte_size)?;
             processed_bytes += ::std::mem::size_of::<i32>(); // size i32 of the text
             processed_bytes += text.bytes.len();
             result.push(text);
@@ -643,7 +645,7 @@ impl Text {
 
     /// Allows any text length since it is only used for attribute values,
     /// but not attribute names, attribute type names, or channel names.
-    fn write_vec_of_i32_sized_texts_le<W: Write>(write: &mut W, texts: &[Text]) -> UnitResult {
+    fn write_vec_of_i32_sized_texts_le<W: Write>(write: &mut W, texts: &[Self]) -> UnitResult {
         // length of the text-vector can be inferred from attribute size
         for text in texts {
             text.write_i32_sized_le(write)?;
@@ -674,7 +676,7 @@ impl Text {
         // this is technically not working for a "turkish i", but those cannot be
         // encoded in exr files anyways
         let self_chars = self.chars().map(|char| char.to_ascii_lowercase());
-        let string_chars = string.chars().flat_map(|ch| ch.to_lowercase());
+        let string_chars = string.chars().flat_map(char::to_lowercase);
 
         string_chars.eq(self_chars)
     }
@@ -704,13 +706,13 @@ impl Borrow<TextSlice> for Text {
 // (required for Borrow)
 impl Hash for Text {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.bytes.hash(state)
+        self.bytes.hash(state);
     }
 }
 
-impl Into<String> for Text {
-    fn into(self) -> String {
-        self.to_string()
+impl From<Text> for String {
+    fn from(val: Text) -> Self {
+        val.to_string()
     }
 }
 
@@ -736,7 +738,7 @@ impl<'s> From<&'s str> for Text {
 
 impl ::std::fmt::Debug for Text {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        write!(f, "exr::Text(\"{}\")", self)
+        write!(f, "exr::Text(\"{self}\")")
     }
 }
 
@@ -745,7 +747,7 @@ impl ::std::fmt::Display for Text {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         use std::fmt::Write;
 
-        for &byte in self.bytes.iter() {
+        for &byte in &self.bytes {
             f.write_char(byte as char)?;
         }
 
@@ -755,6 +757,7 @@ impl ::std::fmt::Display for Text {
 
 impl ChannelList {
     /// Does not validate channel order.
+    #[must_use]
     pub fn new(channels: SmallVec<[ChannelDescription; 5]>) -> Self {
         let uniform_sample_type = {
             if let Some(first) = channels.first() {
@@ -771,7 +774,7 @@ impl ChannelList {
             }
         };
 
-        ChannelList {
+        Self {
             bytes_per_pixel: channels
                 .iter()
                 .map(|channel| channel.sample_type.bytes_per_sample())
@@ -794,6 +797,7 @@ impl ChannelList {
 
     /// Return the index of the channel with the exact name, case sensitive, or
     /// none. Potentially uses less than linear time.
+    #[must_use]
     pub fn find_index_of_channel(&self, exact_name: &Text) -> Option<usize> {
         self.list.binary_search_by_key(&exact_name.bytes(), |chan| chan.name.bytes()).ok()
     }
@@ -819,11 +823,11 @@ impl BlockType {
     /// Return a `BlockType` object from the specified attribute text value.
     pub fn parse(text: Text) -> Result<Self> {
         match text.as_slice() {
-            block_type_strings::SCAN_LINE => Ok(BlockType::ScanLine),
-            block_type_strings::TILE => Ok(BlockType::Tile),
+            block_type_strings::SCAN_LINE => Ok(Self::ScanLine),
+            block_type_strings::TILE => Ok(Self::Tile),
 
-            block_type_strings::DEEP_SCAN_LINE => Ok(BlockType::DeepScanLine),
-            block_type_strings::DEEP_TILE => Ok(BlockType::DeepTile),
+            block_type_strings::DEEP_SCAN_LINE => Ok(Self::DeepScanLine),
+            block_type_strings::DEEP_TILE => Ok(Self::DeepTile),
 
             _ => Err(Error::invalid("block type attribute value")),
         }
@@ -837,12 +841,13 @@ impl BlockType {
 
     /// Returns the raw attribute text value this type is represented by in a
     /// file.
-    pub fn to_text_bytes(&self) -> &[u8] {
+    #[must_use]
+    pub const fn to_text_bytes(&self) -> &[u8] {
         match self {
-            BlockType::ScanLine => block_type_strings::SCAN_LINE,
-            BlockType::Tile => block_type_strings::TILE,
-            BlockType::DeepScanLine => block_type_strings::DEEP_SCAN_LINE,
-            BlockType::DeepTile => block_type_strings::DEEP_TILE,
+            Self::ScanLine => block_type_strings::SCAN_LINE,
+            Self::Tile => block_type_strings::TILE,
+            Self::DeepScanLine => block_type_strings::DEEP_SCAN_LINE,
+            Self::DeepTile => block_type_strings::DEEP_TILE,
         }
     }
 
@@ -891,18 +896,18 @@ impl IntegerBounds {
             }
         }
 
-        let min_i64 = Vec2(self.position.x() as i64, self.position.y() as i64);
+        let min_i64 = Vec2(i64::from(self.position.x()), i64::from(self.position.y()));
 
         let max_i64 = Vec2(
-            self.position.x() as i64 + self.size.width() as i64,
-            self.position.y() as i64 + self.size.height() as i64,
+            i64::from(self.position.x()) + self.size.width() as i64,
+            i64::from(self.position.y()) + self.size.height() as i64,
         );
 
         Self::validate_min_max_u64(min_i64, max_i64)
     }
 
     fn validate_min_max_u64(min: Vec2<i64>, max: Vec2<i64>) -> UnitResult {
-        let max_box_size_as_i64 = (i32::MAX / 2) as i64; // as defined in the original c++ library
+        let max_box_size_as_i64 = i64::from(i32::MAX / 2); // as defined in the original c++ library
 
         if max.x() >= max_box_size_as_i64
             || max.y() >= max_box_size_as_i64
@@ -916,7 +921,7 @@ impl IntegerBounds {
     }
 
     /// Number of bytes this would consume in an exr file.
-    pub fn byte_size() -> usize {
+    pub const fn byte_size() -> usize {
         4 * i32::BYTE_SIZE
     }
 
@@ -944,15 +949,15 @@ impl IntegerBounds {
 
         // prevent addition overflow
         Self::validate_min_max_u64(
-            Vec2(min.x() as i64, min.y() as i64),
-            Vec2(max.x() as i64, max.y() as i64),
+            Vec2(i64::from(min.x()), i64::from(min.y())),
+            Vec2(i64::from(max.x()), i64::from(max.y())),
         )?;
 
         // add one to max because the max inclusive, but the size is not
         let size = Vec2(max.x() + 1 - min.x(), max.y() + 1 - min.y());
         let size = size.to_usize("box coordinates")?;
 
-        Ok(IntegerBounds {
+        Ok(Self {
             position: min,
             size,
         })
@@ -961,7 +966,7 @@ impl IntegerBounds {
     /// Create a new rectangle which is offset by the specified origin.
     pub fn with_origin(self, origin: Vec2<i32>) -> Self {
         // TODO rename to "move" or "translate"?
-        IntegerBounds {
+        Self {
             position: self.position + origin,
             ..self
         }
@@ -979,7 +984,7 @@ impl IntegerBounds {
 
 impl FloatRect {
     /// Number of bytes this would consume in an exr file.
-    pub fn byte_size() -> usize {
+    pub const fn byte_size() -> usize {
         4 * f32::BYTE_SIZE
     }
 
@@ -999,7 +1004,7 @@ impl FloatRect {
         let x_max = f32::read_le(read)?;
         let y_max = f32::read_le(read)?;
 
-        Ok(FloatRect {
+        Ok(Self {
             min: Vec2(x_min, y_min),
             max: Vec2(x_max, y_max),
         })
@@ -1008,25 +1013,25 @@ impl FloatRect {
 
 impl SampleType {
     /// How many bytes a single sample takes up.
-    pub fn bytes_per_sample(&self) -> usize {
+    pub const fn bytes_per_sample(&self) -> usize {
         match self {
-            SampleType::F16 => f16::BYTE_SIZE,
-            SampleType::F32 => f32::BYTE_SIZE,
-            SampleType::U32 => u32::BYTE_SIZE,
+            Self::F16 => f16::BYTE_SIZE,
+            Self::F32 => f32::BYTE_SIZE,
+            Self::U32 => u32::BYTE_SIZE,
         }
     }
 
     /// Number of bytes this would consume in an exr file.
-    pub fn byte_size() -> usize {
+    pub const fn byte_size() -> usize {
         i32::BYTE_SIZE
     }
 
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
         match *self {
-            SampleType::U32 => 0_i32,
-            SampleType::F16 => 1_i32,
-            SampleType::F32 => 2_i32,
+            Self::U32 => 0_i32,
+            Self::F16 => 1_i32,
+            Self::F32 => 2_i32,
         }
         .write_le(write)?;
 
@@ -1038,9 +1043,9 @@ impl SampleType {
         // there's definitely going to be more than 255 different pixel types in the
         // future
         Ok(match i32::read_le(read)? {
-            0 => SampleType::U32,
-            1 => SampleType::F16,
-            2 => SampleType::F32,
+            0 => Self::U32,
+            1 => Self::F16,
+            2 => Self::F32,
             _ => return Err(Error::invalid("pixel type attribute value")),
         })
     }
@@ -1138,7 +1143,7 @@ impl ChannelDescription {
         let x_sampling = i32_to_usize(i32::read_le(read)?, "x channel sampling")?;
         let y_sampling = i32_to_usize(i32::read_le(read)?, "y channel sampling")?;
 
-        Ok(ChannelDescription {
+        Ok(Self {
             name,
             sample_type,
             quantize_linearly: is_linear,
@@ -1214,7 +1219,7 @@ impl ChannelList {
             channels.push(ChannelDescription::read(read)?);
         }
 
-        Ok(ChannelList::new(channels))
+        Ok(Self::new(channels))
     }
 
     /// Check if channels are valid and sorted.
@@ -1227,9 +1232,9 @@ impl ChannelList {
         let mut iter = self
             .list
             .iter()
-            .map(|chan| chan.validate(allow_sampling, data_window, strict).map(|_| &chan.name));
+            .map(|chan| chan.validate(allow_sampling, data_window, strict).map(|()| &chan.name));
         let mut previous =
-            iter.next().ok_or(Error::invalid("at least one channel is required"))??;
+            iter.next().ok_or_else(|| Error::invalid("at least one channel is required"))??;
 
         for result in iter {
             let value = result?;
@@ -1247,13 +1252,13 @@ impl ChannelList {
 }
 
 fn u8_to_decimal32(binary: u8) -> u32 {
-    let units = binary as u32 % 10;
-    let tens = (binary as u32 / 10) % 10;
+    let units = u32::from(binary) % 10;
+    let tens = (u32::from(binary) / 10) % 10;
     units | (tens << 4)
 }
 
 // assumes value fits into u8
-fn u8_from_decimal32(coded: u32) -> u8 {
+const fn u8_from_decimal32(coded: u32) -> u8 {
     ((coded & 0x0f) + 10 * ((coded >> 4) & 0x0f)) as u8
 }
 
@@ -1378,7 +1383,7 @@ impl TimeCode {
     }
 
     // in rust, group index starts at zero, not at one.
-    fn user_data_bit_indices(group_index: usize) -> std::ops::Range<usize> {
+    const fn user_data_bit_indices(group_index: usize) -> std::ops::Range<usize> {
         let min_bit = 4 * group_index;
         min_bit..min_bit + 4 // +4, not +3, as `Range` is exclusive
     }
@@ -1391,7 +1396,7 @@ impl TimeCode {
             |mut packed, (group_index, group_value)| {
                 *packed.set_bits(
                     Self::user_data_bit_indices(group_index),
-                    *group_value.min(&15) as u32,
+                    u32::from(*group_value.min(&15)),
                 )
             },
         );
@@ -1432,7 +1437,7 @@ impl TimeCode {
 
 impl Chromaticities {
     /// Number of bytes this would consume in an exr file.
-    pub fn byte_size() -> usize {
+    pub const fn byte_size() -> usize {
         8 * f32::BYTE_SIZE
     }
 
@@ -1465,7 +1470,7 @@ impl Chromaticities {
 
 impl Compression {
     /// Number of bytes this would consume in an exr file.
-    pub fn byte_size() -> usize {
+    pub const fn byte_size() -> usize {
         u8::BYTE_SIZE
     }
 
@@ -1513,7 +1518,7 @@ impl Compression {
 
 impl EnvironmentMap {
     /// Number of bytes this would consume in an exr file.
-    pub fn byte_size() -> usize {
+    pub const fn byte_size() -> usize {
         u8::BYTE_SIZE
     }
 
@@ -1559,7 +1564,7 @@ impl KeyCode {
 
     /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
-        Ok(KeyCode {
+        Ok(Self {
             film_manufacturer_code: i32::read_le(read)?,
             film_type: i32::read_le(read)?,
             film_roll_prefix: i32::read_le(read)?,
@@ -1573,7 +1578,7 @@ impl KeyCode {
 
 impl LineOrder {
     /// Number of bytes this would consume in an exr file.
-    pub fn byte_size() -> usize {
+    pub const fn byte_size() -> usize {
         u8::BYTE_SIZE
     }
 
@@ -1633,7 +1638,7 @@ impl Preview {
                     "preview attribute pixel count",
                 )?;
 
-                let preview = Preview {
+                let preview = Self {
                     size: Vec2(width, height),
                     pixel_data,
                 };
@@ -1642,11 +1647,10 @@ impl Preview {
             }
         }
 
-        return Err(Error::invalid(format!(
+        Err(Error::invalid(format!(
             "Overflow while calculating preview image Attribute size \
-                (width: {}, height: {}).",
-            width, height
-        )));
+                (width: {width}, height: {height})."
+        )))
     }
 
     /// Validate this instance.
@@ -1667,7 +1671,7 @@ impl ::std::fmt::Debug for Preview {
 
 impl TileDescription {
     /// Number of bytes this would consume in an exr file.
-    pub fn byte_size() -> usize {
+    pub const fn byte_size() -> usize {
         2 * u32::BYTE_SIZE + 1 // size x,y + (level mode + rounding mode)
     }
 
@@ -1717,7 +1721,7 @@ impl TileDescription {
             _ => return Err(Error::invalid("tile description rounding mode")),
         };
 
-        Ok(TileDescription {
+        Ok(Self {
             tile_size: Vec2(x_size, y_size),
             level_mode,
             rounding_mode,
@@ -1726,7 +1730,7 @@ impl TileDescription {
 
     /// Validate this instance.
     pub fn validate(&self) -> UnitResult {
-        let max = i32::MAX as i64 / 2;
+        let max = i64::from(i32::MAX) / 2;
 
         if self.tile_size.width() == 0
             || self.tile_size.height() == 0
@@ -1922,8 +1926,8 @@ impl AttributeValue {
             KeyCode(value) => value.write(write)?,
             LineOrder(value) => value.write(write)?,
 
-            Matrix3x3(mut value) => f32::write_slice_le(write, &mut value)?,
-            Matrix4x4(mut value) => f32::write_slice_le(write, &mut value)?,
+            Matrix3x3(value) => f32::write_slice_le(write, &value)?,
+            Matrix4x4(value) => f32::write_slice_le(write, &value)?,
 
             Preview(ref value) => value.write(write)?,
 
@@ -1940,14 +1944,14 @@ impl AttributeValue {
                 ref bytes,
             } => {
                 type_hint.write_u32_sized_le(write)?; // no idea why this one is u32, everything else is usually i32...
-                u8::write_slice_le(write, bytes.as_slice())?
+                u8::write_slice_le(write, bytes.as_slice())?;
             }
 
             Custom {
                 ref bytes,
                 ..
-            } => u8::write_slice_le(write, &bytes)?, // write.write(&bytes).map(|_| ()),
-        };
+            } => u8::write_slice_le(write, bytes)?, // write.write(&bytes).map(|_| ()),
+        }
 
         Ok(())
     }
@@ -2098,7 +2102,7 @@ impl AttributeValue {
             }
 
             _ => {}
-        };
+        }
 
         Ok(())
     }
@@ -2106,7 +2110,7 @@ impl AttributeValue {
     /// Return `Ok(i32)` if this attribute is an i32.
     pub fn to_i32(&self) -> Result<i32> {
         match *self {
-            AttributeValue::I32(value) => Ok(value),
+            Self::I32(value) => Ok(value),
             _ => Err(invalid_type()),
         }
     }
@@ -2114,7 +2118,7 @@ impl AttributeValue {
     /// Return `Ok(f32)` if this attribute is an f32.
     pub fn to_f32(&self) -> Result<f32> {
         match *self {
-            AttributeValue::F32(value) => Ok(value),
+            Self::F32(value) => Ok(value),
             _ => Err(invalid_type()),
         }
     }
@@ -2122,7 +2126,7 @@ impl AttributeValue {
     /// Return `Ok(Text)` if this attribute is a text.
     pub fn into_text(self) -> Result<Text> {
         match self {
-            AttributeValue::Text(value) => Ok(value),
+            Self::Text(value) => Ok(value),
             _ => Err(invalid_type()),
         }
     }
@@ -2130,7 +2134,7 @@ impl AttributeValue {
     /// Return `Ok(Text)` if this attribute is a text.
     pub fn to_text(&self) -> Result<&Text> {
         match self {
-            AttributeValue::Text(value) => Ok(value),
+            Self::Text(value) => Ok(value),
             _ => Err(invalid_type()),
         }
     }
@@ -2139,7 +2143,7 @@ impl AttributeValue {
     /// attribute.
     pub fn to_chromaticities(&self) -> Result<Chromaticities> {
         match *self {
-            AttributeValue::Chromaticities(value) => Ok(value),
+            Self::Chromaticities(value) => Ok(value),
             _ => Err(invalid_type()),
         }
     }
@@ -2147,7 +2151,7 @@ impl AttributeValue {
     /// Return `Ok(TimeCode)` if this attribute is a time code.
     pub fn to_time_code(&self) -> Result<TimeCode> {
         match *self {
-            AttributeValue::TimeCode(value) => Ok(value),
+            Self::TimeCode(value) => Ok(value),
             _ => Err(invalid_type()),
         }
     }
@@ -2208,9 +2212,7 @@ mod test {
             assert_eq!(
                 text1.to_string().cmp(&text2.to_string()),
                 text1.cmp(&text2),
-                "in text {:?} vs {:?}",
-                text1,
-                text2
+                "in text {text1:?} vs {text2:?}"
             );
         }
     }
@@ -2277,7 +2279,7 @@ mod test {
                 Text::from("rabbit area"),
                 AttributeValue::FloatRect(FloatRect {
                     min: Vec2(23.4234, 345.23),
-                    max: Vec2(68623.0, 3.12425926538),
+                    max: Vec2(68623.0, 3.124_259_2),
                 }),
             ),
             (

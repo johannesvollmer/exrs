@@ -1,6 +1,6 @@
 //! 16-bit Huffman compression and decompression.
 //! Huffman compression and decompression routines written
-//! 	by Christian Rouet for his PIZ image file format.
+//!    by Christian Rouet for his PIZ image file format.
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/88246d991e0318c043e6f584f7493da08a31f9f8/OpenEXR/IlmImf/ImfHuf.cpp
 
 use std::{
@@ -47,7 +47,7 @@ pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
     let result = decode_with_tables(
         &encoding_table,
         &decoding_table,
-        &remaining_compressed,
+        remaining_compressed,
         i32::try_from(bit_count)?,
         max_code_index_32,
         expected_size,
@@ -132,7 +132,7 @@ fn decode_with_tables(
     let mut code_bits = 0_u64;
     let mut code_bit_count = 0_u64;
 
-    while input.len() > 0 {
+    while !input.is_empty() {
         read_byte(&mut code_bits, &mut code_bit_count, &mut input)?;
 
         // Access decoding table
@@ -163,7 +163,7 @@ fn decode_with_tables(
                             encoding_table[u32_to_usize(long_code, "huffman long code").ok()?];
                         let length = length(encoded_long_code);
 
-                        while code_bit_count < length && input.len() > 0 {
+                        while code_bit_count < length && !input.is_empty() {
                             let err = read_byte(&mut code_bits, &mut code_bit_count, &mut input);
                             if let Err(err) = err {
                                 return Some(Err(err));
@@ -183,7 +183,7 @@ fn decode_with_tables(
                         None
                     })
                     .next()
-                    .ok_or(Error::invalid(INVALID_CODE))?;
+                    .ok_or_else(|| Error::invalid(INVALID_CODE))?;
 
                 read_code_into_vec(
                     long_code?,
@@ -212,7 +212,7 @@ fn decode_with_tables(
         if let Code::Short(short_code) = code {
             if short_code.len() > code_bit_count {
                 return Err(Error::invalid("code"));
-            }; // FIXME why does this happen??
+            } // FIXME why does this happen??
             code_bit_count -= short_code.len(); // FIXME may throw "attempted to subtract with overflow"
 
             read_code_into_vec(
@@ -237,10 +237,10 @@ fn decode_with_tables(
 }
 
 /// Build a decoding hash table based on the encoding table code:
-/// 	- short codes (<= HUF_DECBITS) are resolved with a single table access;
-/// 	- long code entry allocations are not optimized, because long codes are
-///    unfrequent;
-/// 	- decoding tables are used by hufDecode();
+///    - short codes (<= `HUF_DECBITS`) are resolved with a single table access;
+///    - long code entry allocations are not optimized, because long codes are
+///      unfrequent;
+///    - decoding tables are used by `hufDecode()`;
 fn build_decoding_table(
     encoding_table: &[u64],
     min_code_index: usize,
@@ -357,7 +357,7 @@ fn read_bits(
 
 #[inline]
 fn read_byte(code_bits: &mut u64, bit_count: &mut u64, input: &mut impl Read) -> UnitResult {
-    *code_bits = (*code_bits << 8) | u8::read_ne(input)? as u64;
+    *code_bits = (*code_bits << 8) | u64::from(u8::read_ne(input)?);
     *bit_count += 8;
     Ok(())
 }
@@ -422,7 +422,7 @@ fn write_bits(
 
     while *code_bit_count >= 8 {
         *code_bit_count -= 8;
-        out.write(&[
+        out.write_all(&[
             (*code_bits >> *code_bit_count) as u8, // TODO make sure never or always wraps?
         ])?;
     }
@@ -513,7 +513,7 @@ fn encode_with_frequencies(
     let data_length = out.position() - start_position; // we shouldn't count the last byte write
 
     if code_bit_count != 0 {
-        out.write(&[(code_bits << (8 - code_bit_count) & 0xff) as u8])?;
+        out.write_all(&[(code_bits << (8 - code_bit_count) & 0xff) as u8])?;
     }
 
     Ok(data_length * 8 + code_bit_count)
@@ -522,7 +522,7 @@ fn encode_with_frequencies(
 /// Pack an encoding table:
 /// 	- only code lengths, not actual codes, are stored
 /// 	- runs of zeroes are compressed as follows:
-///
+/// ```md
 /// 	  unpacked		packed
 /// 	  --------------------------------
 /// 	  1 zero		0	(6 bits)
@@ -531,6 +531,7 @@ fn encode_with_frequencies(
 /// 	  4 zeroes		61
 /// 	  5 zeroes		62
 /// 	  n zeroes (6 or more)	63 n-6	(6 + 8 bits)
+/// ```
 fn pack_encoding_table(
     frequencies: &[u64],
     min_index: usize,
@@ -593,25 +594,25 @@ fn pack_encoding_table(
     }
 
     if code_bit_count > 0 {
-        out.write(&[(code_bits << (8 - code_bit_count)) as u8])?;
+        out.write_all(&[(code_bits << (8 - code_bit_count)) as u8])?;
     }
 
     Ok(())
 }
 
 /// Build a "canonical" Huffman code table:
-/// 	- for each (uncompressed) symbol, code contains the length of the
-///    corresponding code (in the compressed data)
-/// 	- canonical codes are computed and stored in code
-/// 	- the rules for constructing canonical codes are as follows:
-/// 	  * shorter codes (if filled with zeroes to the right) have a numerically
-///      higher value than longer codes
-/// 	  * for codes with the same length, numerical values increase with
-///      numerical symbol values
-/// 	- because the canonical code table can be constructed from symbol lengths
-///    alone, the code table can be transmitted without sending the actual code
-///    values
-/// 	- see http://www.compressconsult.com/huffman/
+///    - for each (uncompressed) symbol, code contains the length of the
+///      corresponding code (in the compressed data)
+///    - canonical codes are computed and stored in code
+///    - the rules for constructing canonical codes are as follows:
+///      * shorter codes (if filled with zeroes to the right) have a numerically
+///        higher value than longer codes
+///      * for codes with the same length, numerical values increase with
+///        numerical symbol values
+///    - because the canonical code table can be constructed from symbol lengths
+///      alone, the code table can be transmitted without sending the actual
+///      code values
+///    - see <http://www.compressconsult.com/huffman>/
 fn build_canonical_table(code_table: &mut [u64]) -> UnitResult {
     debug_assert_eq!(code_table.len(), ENCODING_TABLE_SIZE);
 
@@ -650,15 +651,15 @@ fn build_canonical_table(code_table: &mut [u64]) -> UnitResult {
 }
 
 /// Compute Huffman codes (based on frq input) and store them in frq:
-/// 	- code structure is : [63:lsb - 6:msb] | [5-0: bit length];
-/// 	- max code length is 58 bits;
-/// 	- codes outside the range [im-iM] have a null length (unused values);
-/// 	- original frequencies are destroyed;
-/// 	- encoding tables are used by hufEncode() and hufBuildDecTable();
+///    - code structure is : [63:lsb - 6:msb] | [5-0: bit length];
+///    - max code length is 58 bits;
+///    - codes outside the range [im-iM] have a null length (unused values);
+///    - original frequencies are destroyed;
+///    - encoding tables are used by `hufEncode()` and `hufBuildDecTable()`;
 ///
 /// NB: The following code "(*a == *b) && (a > b))" was added to ensure
 ///     elements in the heap with the same value are sorted by index.
-///     This is to ensure, the STL make_heap()/pop_heap()/push_heap() methods
+///     This is to ensure, the STL `make_heap()/pop_heap()/push_heap()` methods
 ///     produced a resultant sorted heap that is identical across OSes.
 fn build_encoding_table(
     frequencies: &mut [u64], // input frequencies, output encoding table
@@ -666,7 +667,7 @@ fn build_encoding_table(
 {
     debug_assert_eq!(frequencies.len(), ENCODING_TABLE_SIZE);
 
-    /// Frequency with position, used for MinHeap.
+    /// Frequency with position, used for `MinHeap`.
     #[derive(Eq, PartialEq, Copy, Clone)]
     struct HeapFrequency {
         position: usize,
@@ -838,21 +839,21 @@ fn build_encoding_table(
 }
 
 #[inline]
-fn length(code: u64) -> u64 {
+const fn length(code: u64) -> u64 {
     code & 63
 }
 #[inline]
-fn code(code: u64) -> u64 {
+const fn code(code: u64) -> u64 {
     code >> 6
 }
 
-const INVALID_BIT_COUNT: &'static str = "invalid number of bits";
-const INVALID_TABLE_ENTRY: &'static str = "invalid code table entry";
-const NOT_ENOUGH_DATA: &'static str = "decoded data are shorter than expected";
-const INVALID_TABLE_SIZE: &'static str = "unexpected end of code table data";
-const TABLE_TOO_LONG: &'static str = "code table is longer than expected";
-const INVALID_CODE: &'static str = "invalid code";
-const TOO_MUCH_DATA: &'static str = "decoded data are longer than expected";
+const INVALID_BIT_COUNT: &str = "invalid number of bits";
+const INVALID_TABLE_ENTRY: &str = "invalid code table entry";
+const NOT_ENOUGH_DATA: &str = "decoded data are shorter than expected";
+const INVALID_TABLE_SIZE: &str = "unexpected end of code table data";
+const TABLE_TOO_LONG: &str = "code table is longer than expected";
+const INVALID_CODE: &str = "invalid code";
+const TOO_MUCH_DATA: &str = "decoded data are longer than expected";
 
 #[cfg(test)]
 mod test {

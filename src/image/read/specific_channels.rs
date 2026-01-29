@@ -17,6 +17,7 @@ use crate::{
 };
 
 /// Can be attached one more channel reader.
+///
 /// Call `required` or `optional` on this object to declare another channel to
 /// be read from the file. Call `collect_pixels` at last to define how the
 /// previously declared pixels should be stored.
@@ -107,24 +108,15 @@ pub trait RecursivePixelReader {
     type RecursiveChannelDescriptions;
 
     /// Returns the channel descriptions based on the channels in the file.
-    fn descriptions(&self) -> Self::RecursiveChannelDescriptions;
-
-    /// Deprecated: Use `descriptions()` instead.
-    #[deprecated(
-        since = "1.75.0",
-        note = "Renamed to `descriptions` to comply with Rust API guidelines"
-    )]
-    fn get_descriptions(&self) -> Self::RecursiveChannelDescriptions {
-        self.descriptions()
-    }
+    fn get_descriptions(&self) -> Self::RecursiveChannelDescriptions;
 
     /// The pixel type. Will be converted to a tuple at the end of the process.
     type RecursivePixel: Copy + Default + 'static;
 
     /// Read the line of pixels.
-    fn read_pixels<'s, FullPixel>(
+    fn read_pixels<FullPixel>(
         &self,
-        bytes: &'s [u8],
+        bytes: &[u8],
         pixels: &mut [FullPixel],
         get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel,
     );
@@ -193,7 +185,7 @@ ReadChannels<'s> for CollectPixels<InnerChannels, Pixel, PixelStorage, CreatePix
         if header.deep { return Err(Error::invalid("`SpecificChannels` does not support deep data yet")) }
 
         let pixel_reader = self.read_channels.create_recursive_reader(&header.channels)?;
-        let channel_descriptions = pixel_reader.descriptions().into_non_recursive();// TODO not call this twice
+        let channel_descriptions = pixel_reader.get_descriptions().into_non_recursive();// TODO not call this twice
 
         let create = &self.create_pixels;
         let pixel_storage = create(header.layer_size, &channel_descriptions);
@@ -269,7 +261,7 @@ where
 
     fn into_channels(self) -> Self::Channels {
         SpecificChannels {
-            channels: self.pixel_reader.descriptions().into_non_recursive(),
+            channels: self.pixel_reader.get_descriptions().into_non_recursive(),
             pixels: self.pixel_storage,
         }
     }
@@ -280,10 +272,10 @@ where
 pub type ReadZeroChannels = NoneMore;
 
 impl ReadSpecificChannel for NoneMore {
-    type RecursivePixelReader = NoneMore;
+    type RecursivePixelReader = Self;
 
     fn create_recursive_reader(&self, _: &ChannelList) -> Result<Self::RecursivePixelReader> {
-        Ok(NoneMore)
+        Ok(Self)
     }
 }
 
@@ -380,16 +372,16 @@ pub struct OptionalSampleReader<DefaultSample> {
 }
 
 impl<Sample: FromNativeSample> SampleReader<Sample> {
-    fn read_own_samples<'s, FullPixel>(
+    fn read_own_samples<FullPixel>(
         &self,
-        bytes: &'s [u8],
+        bytes: &[u8],
         pixels: &mut [FullPixel],
         get_sample: impl Fn(&mut FullPixel) -> &mut Sample,
     ) {
         let start_index = pixels.len() * self.channel_byte_offset;
         let byte_count = pixels.len() * self.channel.sample_type.bytes_per_sample();
         let mut own_bytes_reader = &mut &bytes[start_index..start_index + byte_count]; // TODO check block size somewhere
-        let mut samples_out = pixels.iter_mut().map(|pixel| get_sample(pixel));
+        let mut samples_out = pixels.iter_mut().map(get_sample);
 
         // match the type once for the whole line, not on every single sample
         match self.channel.sample_type {
@@ -482,6 +474,8 @@ fn read_and_convert_all_samples_batched<'t, From, To>(
 
 #[cfg(test)]
 mod test {
+    use half::f16;
+
     use super::*;
 
     #[test]
@@ -509,18 +503,18 @@ mod test {
 }
 
 impl RecursivePixelReader for NoneMore {
-    type RecursiveChannelDescriptions = NoneMore;
-    type RecursivePixel = NoneMore;
+    type RecursiveChannelDescriptions = Self;
+    type RecursivePixel = Self;
 
-    fn descriptions(&self) -> Self::RecursiveChannelDescriptions {
-        NoneMore
+    fn get_descriptions(&self) -> Self::RecursiveChannelDescriptions {
+        Self
     }
 
-    fn read_pixels<'s, FullPixel>(
+    fn read_pixels<FullPixel>(
         &self,
-        _: &'s [u8],
+        _: &[u8],
         _: &mut [FullPixel],
-        _: impl Fn(&mut FullPixel) -> &mut NoneMore,
+        _: impl Fn(&mut FullPixel) -> &mut Self,
     ) {
     }
 }
@@ -534,13 +528,13 @@ where
         Recursive<InnerReader::RecursiveChannelDescriptions, ChannelDescription>;
     type RecursivePixel = Recursive<InnerReader::RecursivePixel, Sample>;
 
-    fn descriptions(&self) -> Self::RecursiveChannelDescriptions {
-        Recursive::new(self.inner.descriptions(), self.value.channel.clone())
+    fn get_descriptions(&self) -> Self::RecursiveChannelDescriptions {
+        Recursive::new(self.inner.get_descriptions(), self.value.channel.clone())
     }
 
-    fn read_pixels<'s, FullPixel>(
+    fn read_pixels<FullPixel>(
         &self,
-        bytes: &'s [u8],
+        bytes: &[u8],
         pixels: &mut [FullPixel],
         get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel,
     ) {
@@ -558,16 +552,16 @@ where
         Recursive<InnerReader::RecursiveChannelDescriptions, Option<ChannelDescription>>;
     type RecursivePixel = Recursive<InnerReader::RecursivePixel, Sample>;
 
-    fn descriptions(&self) -> Self::RecursiveChannelDescriptions {
+    fn get_descriptions(&self) -> Self::RecursiveChannelDescriptions {
         Recursive::new(
-            self.inner.descriptions(),
+            self.inner.get_descriptions(),
             self.value.reader.as_ref().map(|reader| reader.channel.clone()),
         )
     }
 
-    fn read_pixels<'s, FullPixel>(
+    fn read_pixels<FullPixel>(
         &self,
-        bytes: &'s [u8],
+        bytes: &[u8],
         pixels: &mut [FullPixel],
         get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel,
     ) {

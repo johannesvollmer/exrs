@@ -23,7 +23,7 @@ impl<T> Vec2<T> {
     where
         T: Ord,
     {
-        Vec2(self.0.max(other.0), self.1.max(other.1))
+        Self(self.0.max(other.0), self.1.max(other.1))
     }
 
     /// Returns the vector with the minimum of either coordinates.
@@ -31,7 +31,7 @@ impl<T> Vec2<T> {
     where
         T: Ord,
     {
-        Vec2(self.0.min(other.0), self.1.min(other.1))
+        Self(self.0.min(other.0), self.1.min(other.1))
     }
 
     /// Try to convert all components of this vector to a new type,
@@ -42,7 +42,7 @@ impl<T> Vec2<T> {
     {
         let x = T::try_from(value.0)?;
         let y = T::try_from(value.1)?;
-        Ok(Vec2(x, y))
+        Ok(Self(x, y))
     }
 
     /// Seeing this vector as a dimension or size (width and height),
@@ -85,7 +85,7 @@ impl<T> Vec2<T> {
     /// the pixels row by row, one after another, in a single array.
     /// In debug mode, panics for an index out of bounds.
     #[inline]
-    pub fn flat_index_for_size(self, resolution: Vec2<T>) -> T
+    pub fn flat_index_for_size(self, resolution: Self) -> T
     where
         T: Copy + Debug + Ord + Mul<Output = T> + Add<Output = T>,
     {
@@ -96,7 +96,7 @@ impl<T> Vec2<T> {
             resolution
         );
 
-        let Vec2(x, y) = self;
+        let Self(x, y) = self;
         y * resolution.width() + x
     }
 }
@@ -120,34 +120,34 @@ impl Vec2<usize> {
     }
 }
 
-impl<T: std::ops::Add<T>> std::ops::Add<Vec2<T>> for Vec2<T> {
+impl<T: std::ops::Add<T>> std::ops::Add<Self> for Vec2<T> {
     type Output = Vec2<T::Output>;
 
-    fn add(self, other: Vec2<T>) -> Self::Output {
+    fn add(self, other: Self) -> Self::Output {
         Vec2(self.0 + other.0, self.1 + other.1)
     }
 }
 
-impl<T: std::ops::Sub<T>> std::ops::Sub<Vec2<T>> for Vec2<T> {
+impl<T: std::ops::Sub<T>> std::ops::Sub<Self> for Vec2<T> {
     type Output = Vec2<T::Output>;
 
-    fn sub(self, other: Vec2<T>) -> Self::Output {
+    fn sub(self, other: Self) -> Self::Output {
         Vec2(self.0 - other.0, self.1 - other.1)
     }
 }
 
-impl<T: std::ops::Div<T>> std::ops::Div<Vec2<T>> for Vec2<T> {
+impl<T: std::ops::Div<T>> std::ops::Div<Self> for Vec2<T> {
     type Output = Vec2<T::Output>;
 
-    fn div(self, other: Vec2<T>) -> Self::Output {
+    fn div(self, other: Self) -> Self::Output {
         Vec2(self.0 / other.0, self.1 / other.1)
     }
 }
 
-impl<T: std::ops::Mul<T>> std::ops::Mul<Vec2<T>> for Vec2<T> {
+impl<T: std::ops::Mul<T>> std::ops::Mul<Self> for Vec2<T> {
     type Output = Vec2<T::Output>;
 
-    fn mul(self, other: Vec2<T>) -> Self::Output {
+    fn mul(self, other: Self) -> Self::Output {
         Vec2(self.0 * other.0, self.1 * other.1)
     }
 }
@@ -156,16 +156,16 @@ impl<T> std::ops::Neg for Vec2<T>
 where
     T: std::ops::Neg<Output = T>,
 {
-    type Output = Vec2<T>;
+    type Output = Self;
 
     fn neg(self) -> Self::Output {
-        Vec2(-self.0, -self.1)
+        Self(-self.0, -self.1)
     }
 }
 
 impl<T> From<(T, T)> for Vec2<T> {
     fn from((x, y): (T, T)) -> Self {
-        Vec2(x, y)
+        Self(x, y)
     }
 }
 
@@ -177,7 +177,7 @@ impl<T> From<Vec2<T>> for (T, T) {
 
 /// Computes `floor(log(x)/log(2))`. Returns 0 where argument is 0.
 // TODO does rust std not provide this?
-pub(crate) fn floor_log_2(mut number: u32) -> u32 {
+pub(crate) const fn floor_log_2(mut number: u32) -> u32 {
     let mut log = 0;
 
     // TODO check if this unrolls properly?
@@ -192,7 +192,7 @@ pub(crate) fn floor_log_2(mut number: u32) -> u32 {
 /// Computes `ceil(log(x)/log(2))`. Returns 0 where argument is 0.
 // taken from https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
 // TODO does rust std not provide this?
-pub(crate) fn ceil_log_2(mut number: u32) -> u32 {
+pub(crate) const fn ceil_log_2(mut number: u32) -> u32 {
     let mut log = 0;
     let mut round_up = 0;
 
@@ -220,10 +220,10 @@ pub enum RoundingMode {
 }
 
 impl RoundingMode {
-    pub(crate) fn log2(self, number: u32) -> u32 {
+    pub(crate) const fn log2(self, number: u32) -> u32 {
         match self {
-            RoundingMode::Down => self::floor_log_2(number),
-            RoundingMode::Up => self::ceil_log_2(number),
+            Self::Down => self::floor_log_2(number),
+            Self::Up => self::ceil_log_2(number),
         }
     }
 
@@ -243,10 +243,9 @@ impl RoundingMode {
         );
 
         match self {
-            RoundingMode::Up => (dividend + divisor - T::from(1_u8)) / divisor, /* only works
-                                                                                  * for positive
-                                                                                  * numbers */
-            RoundingMode::Down => dividend / divisor,
+            Self::Up => (dividend + divisor - T::from(1_u8)) / divisor, // only works for
+            // positive numbers
+            Self::Down => dividend / divisor,
         }
     }
 }

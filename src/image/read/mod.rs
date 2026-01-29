@@ -64,6 +64,7 @@ use crate::{
 };
 
 /// All resolution levels, all channels, all layers.
+///
 /// Does not support deep data yet. Uses parallel decompression and relaxed
 /// error handling. Inspect the source code of this function if you need
 /// customization.
@@ -107,6 +108,7 @@ pub fn read_first_flat_layer_from_file(
 }
 
 /// No deep data, no resolution levels, rgba channels, all layers.
+///
 /// If a single layer does not contain rgba data, this method returns an error.
 /// Uses parallel decompression and relaxed error handling.
 /// `Create` and `Set` can be closures, see the examples for more information.
@@ -144,7 +146,9 @@ where
 }
 
 /// No deep data, no resolution levels, rgba channels, choosing the first layer
-/// with rgba channels. Uses parallel decompression and relaxed error handling.
+/// with rgba channels.
+///
+/// Uses parallel decompression and relaxed error handling.
 /// `Create` and `Set` can be closures, see the examples for more information.
 /// Inspect the source code of this function if you need customization.
 /// The alpha channel will contain the value `1.0` if no alpha channel can be
@@ -215,7 +219,8 @@ pub fn read() -> ReadBuilder {
 impl ReadBuilder {
     /// Specify to handle only one sample per channel, disabling "deep data".
     // TODO not panic but skip deep layers!
-    pub fn no_deep_data(self) -> ReadFlatSamples {
+    #[must_use]
+    pub const fn no_deep_data(self) -> ReadFlatSamples {
         ReadFlatSamples
     }
 

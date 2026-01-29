@@ -35,11 +35,12 @@ impl<Pixel> PixelVec<Pixel> {
     /// Create a new flattened pixel storage, filled with default pixels.
     /// Accepts a `Channels` parameter, which is not used, so that it can be
     /// passed as a function pointer instead of calling it.
+    #[must_use]
     pub fn constructor<Channels>(resolution: Vec2<usize>, _: &Channels) -> Self
     where
         Pixel: Default + Clone,
     {
-        PixelVec {
+        Self {
             resolution,
             pixels: vec![Pixel::default(); resolution.area()],
         }
@@ -49,21 +50,11 @@ impl<Pixel> PixelVec<Pixel> {
     /// Can usually be used as a function reference instead of calling it
     /// directly.
     #[inline]
-    pub fn pixel(&self, position: Vec2<usize>) -> &Pixel
-    where
-        Pixel: Sync,
-    {
-        &self.pixels[self.compute_pixel_index(position)]
-    }
-
-    /// Deprecated: Use `pixel()` instead.
-    #[deprecated(since = "1.75.0", note = "Renamed to `pixel` to comply with Rust API guidelines")]
-    #[inline]
     pub fn get_pixel(&self, position: Vec2<usize>) -> &Pixel
     where
         Pixel: Sync,
     {
-        self.pixel(position)
+        &self.pixels[self.compute_pixel_index(position)]
     }
 
     /// Update a pixel of a `PixelVec<T>` image.
@@ -113,12 +104,12 @@ where
         options: ValidationOptions,
         location: impl Fn() -> String,
     ) -> ValidationResult {
-        if self.resolution != other.resolution {
-            Err(location() + " > resolution")
-        } else {
+        if self.resolution == other.resolution {
             self.pixels
                 .as_slice()
                 .validate_result(&other.pixels.as_slice(), options, || location() + " > pixels")
+        } else {
+            Err(location() + " > resolution")
         }
     }
 }
@@ -129,8 +120,8 @@ where
 {
     type Pixel = Px;
 
-    fn pixel(&self, position: Vec2<usize>) -> Self::Pixel {
-        self.pixel(position).clone()
+    fn get_pixel(&self, position: Vec2<usize>) -> Self::Pixel {
+        self.get_pixel(position).clone()
     }
 }
 

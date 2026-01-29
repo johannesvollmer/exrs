@@ -80,7 +80,9 @@ pub struct AllLayersReader<ChannelsReader> {
 }
 
 /// Processes pixel blocks from a file and accumulates them into a single
-/// layers, using only the first. For example, `ChannelsReader` can be
+/// layers, using only the first.
+///
+/// For example, `ChannelsReader` can be
 /// `SpecificChannelsReader` or `AnyChannelsReader<FlatSamplesReader>`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FirstValidLayerReader<ChannelsReader> {
@@ -118,7 +120,7 @@ pub trait ChannelsReader {
 
 impl<C> LayerReader<C> {
     fn new(header: &Header, channels_reader: C) -> Result<Self> {
-        Ok(LayerReader {
+        Ok(Self {
             channels_reader,
             attributes: header.own_attributes.clone(),
             size: header.layer_size,
@@ -204,7 +206,7 @@ where
         headers
             .iter()
             .enumerate()
-            .flat_map(|(index, header)| {
+            .filter_map(|(index, header)| {
                 self.read_channels
                     .create_channels_reader(header)
                     .and_then(|reader| {
@@ -216,7 +218,9 @@ where
                     .ok()
             })
             .next()
-            .ok_or(Error::invalid("no layer in the image matched your specified requirements"))
+            .ok_or_else(|| {
+                Error::invalid("no layer in the image matched your specified requirements")
+            })
     }
 }
 

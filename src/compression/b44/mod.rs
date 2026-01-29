@@ -35,7 +35,7 @@ fn convert_to_linear(s: &mut [u16; 16]) {
 }
 
 #[inline]
-fn shift_and_round(x: i32, shift: i32) -> i32 {
+const fn shift_and_round(x: i32, shift: i32) -> i32 {
     let x = x << 1;
     let a = (1 << shift) - 1;
     let shift = shift + 1;
@@ -160,7 +160,7 @@ fn pack(s: [u16; 16], b: &mut [u8], optimize_flat_fields: bool, exact_max: bool)
     b[12] = ((r[12] << 4) | (r[13] >> 2)) as u8;
     b[13] = ((r[13] << 6) | r[14]) as u8;
 
-    return 14;
+    14
 }
 
 // Tiny macro to simply get block array value as a u32.
@@ -183,32 +183,32 @@ fn unpack14(b: &[u8], s: &mut [u16; 16]) {
     let shift = b32!(b, 2) >> 2;
     let bias = 0x20 << shift;
 
-    s[4] = (s[0] as u32 + ((((b32!(b, 2) << 4) | (b32!(b, 3) >> 4)) & SIX_BITS) << shift) - bias)
-        as u16;
-    s[8] = (s[4] as u32 + ((((b32!(b, 3) << 2) | (b32!(b, 4) >> 6)) & SIX_BITS) << shift) - bias)
-        as u16;
-    s[12] = (s[8] as u32 + ((b32!(b, 4) & SIX_BITS) << shift) - bias) as u16;
-
-    s[1] = (s[0] as u32 + ((b32!(b, 5) >> 2) << shift) - bias) as u16;
-    s[5] = (s[4] as u32 + ((((b32!(b, 5) << 4) | (b32!(b, 6) >> 4)) & SIX_BITS) << shift) - bias)
-        as u16;
-    s[9] = (s[8] as u32 + ((((b32!(b, 6) << 2) | (b32!(b, 7) >> 6)) & SIX_BITS) << shift) - bias)
-        as u16;
-    s[13] = (s[12] as u32 + ((b32!(b, 7) & SIX_BITS) << shift) - bias) as u16;
-
-    s[2] = (s[1] as u32 + ((b32!(b, 8) >> 2) << shift) - bias) as u16;
-    s[6] = (s[5] as u32 + ((((b32!(b, 8) << 4) | (b32!(b, 9) >> 4)) & SIX_BITS) << shift) - bias)
-        as u16;
-    s[10] = (s[9] as u32 + ((((b32!(b, 9) << 2) | (b32!(b, 10) >> 6)) & SIX_BITS) << shift) - bias)
-        as u16;
-    s[14] = (s[13] as u32 + ((b32!(b, 10) & SIX_BITS) << shift) - bias) as u16;
-
-    s[3] = (s[2] as u32 + ((b32!(b, 11) >> 2) << shift) - bias) as u16;
-    s[7] = (s[6] as u32 + ((((b32!(b, 11) << 4) | (b32!(b, 12) >> 4)) & SIX_BITS) << shift) - bias)
-        as u16;
-    s[11] = (s[10] as u32 + ((((b32!(b, 12) << 2) | (b32!(b, 13) >> 6)) & SIX_BITS) << shift)
+    s[4] = (u32::from(s[0]) + ((((b32!(b, 2) << 4) | (b32!(b, 3) >> 4)) & SIX_BITS) << shift)
         - bias) as u16;
-    s[15] = (s[14] as u32 + ((b32!(b, 13) & SIX_BITS) << shift) - bias) as u16;
+    s[8] = (u32::from(s[4]) + ((((b32!(b, 3) << 2) | (b32!(b, 4) >> 6)) & SIX_BITS) << shift)
+        - bias) as u16;
+    s[12] = (u32::from(s[8]) + ((b32!(b, 4) & SIX_BITS) << shift) - bias) as u16;
+
+    s[1] = (u32::from(s[0]) + ((b32!(b, 5) >> 2) << shift) - bias) as u16;
+    s[5] = (u32::from(s[4]) + ((((b32!(b, 5) << 4) | (b32!(b, 6) >> 4)) & SIX_BITS) << shift)
+        - bias) as u16;
+    s[9] = (u32::from(s[8]) + ((((b32!(b, 6) << 2) | (b32!(b, 7) >> 6)) & SIX_BITS) << shift)
+        - bias) as u16;
+    s[13] = (u32::from(s[12]) + ((b32!(b, 7) & SIX_BITS) << shift) - bias) as u16;
+
+    s[2] = (u32::from(s[1]) + ((b32!(b, 8) >> 2) << shift) - bias) as u16;
+    s[6] = (u32::from(s[5]) + ((((b32!(b, 8) << 4) | (b32!(b, 9) >> 4)) & SIX_BITS) << shift)
+        - bias) as u16;
+    s[10] = (u32::from(s[9]) + ((((b32!(b, 9) << 2) | (b32!(b, 10) >> 6)) & SIX_BITS) << shift)
+        - bias) as u16;
+    s[14] = (u32::from(s[13]) + ((b32!(b, 10) & SIX_BITS) << shift) - bias) as u16;
+
+    s[3] = (u32::from(s[2]) + ((b32!(b, 11) >> 2) << shift) - bias) as u16;
+    s[7] = (u32::from(s[6]) + ((((b32!(b, 11) << 4) | (b32!(b, 12) >> 4)) & SIX_BITS) << shift)
+        - bias) as u16;
+    s[11] = (u32::from(s[10]) + ((((b32!(b, 12) << 2) | (b32!(b, 13) >> 6)) & SIX_BITS) << shift)
+        - bias) as u16;
+    s[15] = (u32::from(s[14]) + ((b32!(b, 13) & SIX_BITS) << shift) - bias) as u16;
 
     for i in 0..16 {
         if (s[i] & 0x8000) != 0 {
@@ -292,7 +292,7 @@ pub fn decompress(
     let mut channel_data: Vec<ChannelData> = Vec::with_capacity(channels.list.len());
     let mut tmp_read_index = 0;
 
-    for channel in channels.list.iter() {
+    for channel in &channels.list {
         let channel = ChannelData {
             tmp_start_index: tmp_read_index,
             tmp_end_index: tmp_read_index,
@@ -405,9 +405,10 @@ pub fn decompress(
 
                 // Get resting samples from the line to copy in temp buffer (without going
                 // outside channel).
-                let x_resting_sample_count = match x + 3 < x_sample_count {
-                    true => BLOCK_SAMPLE_COUNT,
-                    false => x_sample_count - x,
+                let x_resting_sample_count = if x + 3 < x_sample_count {
+                    BLOCK_SAMPLE_COUNT
+                } else {
+                    x_sample_count - x
                 };
 
                 debug_assert!(x_resting_sample_count > 0);
@@ -645,7 +646,7 @@ pub fn compress(
                         let j = min(i, n - 1) * 2;
 
                         // TODO: Make [u8; 2] to u16 fast.
-                        s[i + 0] = u16::from_ne_bytes([tmp[row0 + j], tmp[row0 + j + 1]]);
+                        s[i] = u16::from_ne_bytes([tmp[row0 + j], tmp[row0 + j + 1]]);
                         s[i + 4] = u16::from_ne_bytes([tmp[row1 + j], tmp[row1 + j + 1]]);
                         s[i + 8] = u16::from_ne_bytes([tmp[row2 + j], tmp[row2 + j + 1]]);
                         s[i + 12] = u16::from_ne_bytes([tmp[row3 + j], tmp[row3 + j + 1]]);
@@ -706,7 +707,7 @@ mod test {
             s1[i] = f16::from_f32(rand::random::<f32>()).to_bits();
         }
 
-        let s2 = s1.clone();
+        let s2 = s1;
 
         // Apply two reversible conversion.
         convert_from_linear(&mut s1);

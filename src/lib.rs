@@ -13,7 +13,6 @@
     missing_copy_implementations,
     missing_debug_implementations,
     clippy::all,
-    clippy::restriction,
     clippy::pedantic,
     clippy::nursery,
     clippy::cargo
@@ -69,22 +68,22 @@ pub mod prelude {
     pub use smallvec::SmallVec;
     pub use traits::*;
 
-    // image data structures
-    pub use crate::block::samples::Sample;
     // error handling
     pub use crate::error::{Error, Result};
+    pub use crate::image::{
+        read::{
+            read_all_data_from_file, read_all_flat_layers_from_file,
+            read_all_rgba_layers_from_file, read_first_flat_layer_from_file,
+            read_first_rgba_layer_from_file,
+        },
+        write::{write_rgb_file, write_rgba_file},
+    };
     // common math
     pub use crate::math::Vec2;
+    // image data structures
     pub use crate::{
-        image::{
-            read::{
-                read_all_data_from_file, read_all_flat_layers_from_file,
-                read_all_rgba_layers_from_file, read_first_flat_layer_from_file,
-                read_first_rgba_layer_from_file,
-            },
-            write::{write_rgb_file, write_rgba_file},
-            *,
-        },
+        block::samples::Sample,
+        image::*,
         meta::{
             attribute,
             attribute::{
