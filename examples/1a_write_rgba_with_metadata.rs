@@ -37,7 +37,7 @@ fn main() {
     );
 
     // crop away black and transparent pixels from the border, if any
-    let layer = layer.crop_where_eq((0.0, 0.0, 0.0, 0.0)).or_crop_to_1x1_if_empty();
+    let layer = layer.crop_where_eq((0.0, 0.0, 0.0, 0.0)).or_crop_to_1x1_if_empty().unwrap();
 
     let mut image = Image::from_layer(layer);
     image.attributes.pixel_aspect = 1.0;
