@@ -239,7 +239,7 @@ where
     type Sample = Samples::Pixel;
 
     fn inspect_sample(&self, local_index: Vec2<usize>) -> Samples::Pixel {
-        self.channel_data.pixels.pixel(local_index)
+        self.channel_data.pixels.get_pixel(local_index)
     }
 }
 

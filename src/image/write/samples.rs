@@ -65,9 +65,9 @@ impl<'samples> WritableSamples<'samples> for FlatSamples {
 
     fn sample_type(&self) -> SampleType {
         match self {
-            FlatSamples::F16(_) => SampleType::F16,
-            FlatSamples::F32(_) => SampleType::F32,
-            FlatSamples::U32(_) => SampleType::U32,
+            Self::F16(_) => SampleType::F16,
+            Self::F32(_) => SampleType::F32,
+            Self::U32(_) => SampleType::U32,
         }
     }
 
@@ -90,9 +90,9 @@ impl<'samples> WritableLevel<'samples> for FlatSamples {
 
     fn sample_type(&self) -> SampleType {
         match self {
-            FlatSamples::F16(_) => SampleType::F16,
-            FlatSamples::F32(_) => SampleType::F32,
-            FlatSamples::U32(_) => SampleType::U32,
+            Self::F16(_) => SampleType::F16,
+            Self::F32(_) => SampleType::F32,
+            Self::U32(_) => SampleType::U32,
         }
     }
 
@@ -156,12 +156,12 @@ where
 
     fn infer_level_modes(&self) -> Result<(LevelMode, RoundingMode)> {
         Ok(match self {
-            Levels::Singular(_) => (LevelMode::Singular, RoundingMode::Down),
-            Levels::Mip {
+            Self::Singular(_) => (LevelMode::Singular, RoundingMode::Down),
+            Self::Mip {
                 rounding_mode,
                 ..
             } => (LevelMode::MipMap, *rounding_mode),
-            Levels::Rip {
+            Self::Rip {
                 rounding_mode,
                 ..
             } => (LevelMode::RipMap, *rounding_mode),
@@ -179,10 +179,10 @@ where
 
         Ok(LevelsWriter {
             levels: match self {
-                Levels::Singular(level) => {
+                Self::Singular(level) => {
                     Levels::Singular(level.create_level_writer(header.layer_size))
                 }
-                Levels::Mip {
+                Self::Mip {
                     level_data,
                     rounding_mode,
                 } => {
@@ -208,7 +208,7 @@ where
                             .collect(),
                     }
                 }
-                Levels::Rip {
+                Self::Rip {
                     level_data,
                     rounding_mode,
                 } => {
@@ -258,7 +258,7 @@ where
 {
     fn extract_line(&self, line: LineRefMut<'_>) -> Result<()> {
         self.levels
-            .level(line.location.level)? // TODO compute level size from line index??
+            .get_level(line.location.level)? // TODO compute level size from line index??
             .extract_line(line)
     }
 }

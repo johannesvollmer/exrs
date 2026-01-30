@@ -24,6 +24,7 @@ use crate::{
 // TODO rename MetaData to ImageInfo?
 
 /// Contains the complete meta data of an exr image.
+///
 /// Defines how the image is split up in the file,
 /// the number and type of images and channels,
 /// and various other attributes.
@@ -46,11 +47,13 @@ pub type Headers = SmallVec<[Header; 3]>;
 pub type OffsetTables = SmallVec<[OffsetTable; 3]>;
 
 /// The offset table is an ordered list of indices referencing pixel data in the
-/// exr file. For each pixel tile in the image, an index exists, which points to
-/// the byte-location of the corresponding pixel data in the file. That index
-/// can be used to load specific portions of an image without processing all
-/// bytes in a file. For each header, an offset table exists with its indices
-/// ordered by `LineOrder::Increasing`.
+/// exr file.
+///
+/// For each pixel tile in the image, an index exists, which points to the
+/// byte-location of the corresponding pixel data in the file. That index can be
+/// used to load specific portions of an image without processing all bytes in a
+/// file. For each header, an offset table exists with its indices ordered by
+/// `LineOrder::Increasing`.
 // If the multipart bit is unset and the chunkCount attribute is not present,
 // the number of entries in the chunk table is computed using the
 // dataWindow, tileDesc, and compression attribute.
@@ -60,9 +63,10 @@ pub type OffsetTables = SmallVec<[OffsetTable; 3]>;
 pub type OffsetTable = Vec<u64>;
 
 /// A summary of requirements that must be met to read this exr file.
+///
 /// Used to determine whether this file can be read by a given reader.
-/// It includes the OpenEXR version number. This library aims to support version
-/// `2.0`.
+/// It includes the `OpenEXR` version number. This library aims to support
+/// version `2.0`.
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Hash)]
 pub struct Requirements {
     /// This library supports reading version 1 and 2, and writing version 2.
@@ -138,7 +142,7 @@ impl BlockDescription {
     /// line blocks.
     pub fn has_tiles(&self) -> bool {
         match self {
-            BlockDescription::Tiles {
+            Self::Tiles {
                 ..
             } => true,
             _ => false,
@@ -199,7 +203,7 @@ pub mod sequence_end {
 }
 
 fn missing_attribute(name: &str) -> Error {
-    Error::invalid(format!("missing or invalid {} attribute", name))
+    Error::invalid(format!("missing or invalid {name} attribute"))
 }
 
 /// Compute the number of tiles required to contain all values.
@@ -233,8 +237,7 @@ pub fn calculate_block_size(
 ) -> Result<usize> {
     if block_position >= total_size {
         return Err(Error::invalid(format!(
-            "block position {} exceeds total size {}",
-            block_position, total_size
+            "block position {block_position} exceeds total size {total_size}"
         )));
     }
 
@@ -387,7 +390,7 @@ impl MetaData {
     #[must_use]
     pub fn read_from_buffered(buffered: impl Read, pedantic: bool) -> Result<Self> {
         let mut read = PeekRead::new(buffered);
-        MetaData::read_unvalidated_from_buffered_peekable(&mut read, pedantic)
+        Self::read_unvalidated_from_buffered_peekable(&mut read, pedantic)
     }
 
     /// Does __not validate__ the meta data completely.
@@ -408,7 +411,7 @@ impl MetaData {
 
         // TODO check if supporting requirements 2 always implies supporting
         // requirements 1
-        Ok(MetaData {
+        Ok(Self {
             requirements,
             headers,
         })
@@ -421,7 +424,7 @@ impl MetaData {
         pedantic: bool,
     ) -> Result<Self> {
         let meta_data = Self::read_unvalidated_from_buffered_peekable(read, !pedantic)?;
-        MetaData::validate(meta_data.headers.as_slice(), pedantic)?;
+        Self::validate(meta_data.headers.as_slice(), pedantic)?;
         Ok(meta_data)
     }
 
