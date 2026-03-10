@@ -982,7 +982,7 @@ mod test {
     #[test]
     fn border_on_multiview() {
         // This test is hard to reproduce, so we use the direct image.
-        let path = "tests/images/valid/openexr/MultiView/Adjuster.exr";
+        let path = "../../tests/images/valid/openexr/MultiView/Adjuster.exr";
 
         let read_image = read()
             .no_deep_data()

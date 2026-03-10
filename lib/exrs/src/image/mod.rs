@@ -1677,7 +1677,7 @@ pub mod validate_results {
 
             {
                 let image = crate::prelude::read_all_data_from_file(
-                    "tests/images/valid/openexr/MultiResolution/Kapaa.exr",
+                    "../../tests/images/valid/openexr/MultiResolution/Kapaa.exr",
                 )
                 .unwrap();
 
