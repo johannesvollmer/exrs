@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["lib/exrs"]
+members = ["lib/exrs", "lib/exrs-wasm"]
 
 # recommended release settings for max runtime performance
 [profile.release]
@@ -36,3 +36,10 @@ overflow-checks = false
 lto = true
 debug = true
 codegen-units = 1
+
+# NOTE: When using per-package profile some keys (like `lto`) are currently not supported inside workspaces, see:
+# - https://github.com/rust-lang/cargo/issues/15262
+# - https://github.com/rust-lang/cargo/issues/8264#issuecomment-635424772
+[profile.release.package.exrs-raw-wasm-bindgen]
+opt-level = "s"
+# lto = true
