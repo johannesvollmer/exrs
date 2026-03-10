@@ -1,6 +1,6 @@
 {
   "name": "exrs",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "OpenEXR file encoding and decoding in the browser and node",
   "keywords": [
     "exr",
@@ -34,6 +34,7 @@
   "scripts": {
     "prebuild": "cd .. && wasm-pack build --target web",
     "build": "npm i && tsc",
+    "prepack": "npm run build",
     "test": "npm run build && vitest run",
     "format": "prettier --write ."
   },
