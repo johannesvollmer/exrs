@@ -82,7 +82,7 @@ jobs:
         run: cargo -Zminimal-versions generate-lockfile
 
       - name: Verify the Rustc version declared in `Cargo.toml` with `minimal-versions`
-        run: cargo-msrv verify
+        run: cargo msrv verify -- cargo check -p exr
 
   # github actions does not support big endian systems directly, but it does support QEMU.
   # so we use cross-rs, which uses QEMU internally.
