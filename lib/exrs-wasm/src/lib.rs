@@ -1,12 +1,15 @@
-use wasm_bindgen::prelude::*;
-use exr::prelude::*;
-use exr::image::AnyChannels;
 use std::io::Cursor;
+
+use exr::{
+    image::{pixel_vec::PixelVec, AnyChannels},
+    prelude::*,
+};
 use smallvec::smallvec;
-use exr::image::pixel_vec::PixelVec;
+use wasm_bindgen::prelude::*;
 
 /// Initialize panic hook for better error messages in browser console.
-/// This is called automatically when the WASM module loads - no need to call manually.
+/// This is called automatically when the WASM module loads - no need to call
+/// manually.
 #[wasm_bindgen(start)]
 pub fn init_panic_hook() {
     console_error_panic_hook::set_once();
@@ -113,7 +116,12 @@ impl ExrEncoder {
         if interleaved.len() != expected_len {
             return Err(JsValue::from_str(&format!(
                 "Layer '{}' expects {} floats ({}x{}x{}), got {}",
-                name.unwrap_or_default(), expected_len, self.width, self.height, channel_names.len(), interleaved.len()
+                name.unwrap_or_default(),
+                expected_len,
+                self.width,
+                self.height,
+                channel_names.len(),
+                interleaved.len()
             )));
         }
 
@@ -122,9 +130,9 @@ impl ExrEncoder {
         let any_channels = {
             if interleaved.len() == 1 {
                 smallvec![Self::make_channel(&channel_names[0], interleaved.to_vec(), sample_type)]
-            }
-            else {
-                let mut deinterleaved: Vec<Vec<f32>> = channel_names.iter().map(|_| Vec::with_capacity(pixel_count)).collect();
+            } else {
+                let mut deinterleaved: Vec<Vec<f32>> =
+                    channel_names.iter().map(|_| Vec::with_capacity(pixel_count)).collect();
 
                 for pixel in interleaved.chunks(deinterleaved.len()) {
                     for (chan, sample) in deinterleaved.iter_mut().zip(pixel) {
@@ -132,7 +140,8 @@ impl ExrEncoder {
                     }
                 }
 
-                let any_channels: SmallVec<[_; 4]> = deinterleaved.into_iter()
+                let any_channels: SmallVec<[_; 4]> = deinterleaved
+                    .into_iter()
                     .zip(channel_names)
                     .map(|(data, name)| Self::make_channel(&name, data, sample_type))
                     .collect();
@@ -182,8 +191,12 @@ impl ExrEncoder {
                 Layer::new(
                     size,
                     LayerAttributes {
-                        layer_name: layer_data.name.as_ref().map(|s| Text::new_or_none(s)).flatten(),
-                        .. Default::default()
+                        layer_name: layer_data
+                            .name
+                            .as_ref()
+                            .map(|s| Text::new_or_none(s))
+                            .flatten(),
+                        ..Default::default()
                     },
                     encoding,
                     layer_data.channels.clone(),
@@ -220,9 +233,7 @@ impl ExrEncoder {
                 FlatSamples::F16(data.into_iter().map(|v| half::f16::from_f32(v)).collect())
             }
             SampleType::F32 => FlatSamples::F32(data),
-            SampleType::U32 => {
-                FlatSamples::U32(data.into_iter().map(|v| v as u32).collect())
-            }
+            SampleType::U32 => FlatSamples::U32(data.into_iter().map(|v| v as u32).collect()),
         };
 
         AnyChannel {
@@ -233,8 +244,6 @@ impl ExrEncoder {
         }
     }
 }
-
-
 
 /// Data for a single channel read from an EXR file.
 struct ReadChannelData {
@@ -295,13 +304,19 @@ impl ExrDecoder {
     }
 
     /// Get interleaved pixel data for a layer.
-    /// Returns null if any of the required channels are missing or if the layer index is invalid.
-    /// Pixels are interleaved in the order specified by the provided channel names.
+    /// Returns null if any of the required channels are missing or if the layer
+    /// index is invalid. Pixels are interleaved in the order specified by
+    /// the provided channel names.
     #[wasm_bindgen(js_name = getLayerPixels)]
-    pub fn get_layer_pixels(&self, layer_index: usize, channel_names: Vec<String>) -> Option<Vec<f32>> {
+    pub fn get_layer_pixels(
+        &self,
+        layer_index: usize,
+        channel_names: Vec<String>,
+    ) -> Option<Vec<f32>> {
         let layer = self.layers.get(layer_index)?;
 
-        let channels: Vec<_> = channel_names.iter()
+        let channels: Vec<_> = channel_names
+            .iter()
             .flat_map(|name| layer.channels.iter().find(|c| &c.name == name))
             .collect();
 
@@ -343,7 +358,7 @@ pub fn read_exr_rgba(data: &[u8]) -> std::result::Result<ExrSimpleImage, JsValue
     let image = read()
         .no_deep_data()
         .largest_resolution_level()
-        .rgba_channels(PixelVec::<(f32,f32,f32,f32)>::constructor, PixelVec::set_pixel)
+        .rgba_channels(PixelVec::<(f32, f32, f32, f32)>::constructor, PixelVec::set_pixel)
         .first_valid_layer()
         .all_attributes()
         .from_buffered(Cursor::new(data))
@@ -352,8 +367,15 @@ pub fn read_exr_rgba(data: &[u8]) -> std::result::Result<ExrSimpleImage, JsValue
     Ok(ExrSimpleImage {
         width: image.layer_data.size.x() as u32,
         height: image.layer_data.size.y() as u32,
-        data: image.layer_data.channel_data.pixels.pixels
-            .iter().flat_map(|(r,g,b,a)| [r,g,b,a]).map(|f| *f).collect(), // TODO read into this structure directly to improve performance
+        data: image
+            .layer_data
+            .channel_data
+            .pixels
+            .pixels
+            .iter()
+            .flat_map(|(r, g, b, a)| [r, g, b, a])
+            .map(|f| *f)
+            .collect(), // TODO read into this structure directly to improve performance
     })
 }
 
@@ -397,7 +419,7 @@ pub fn read_exr_rgb(data: &[u8]) -> std::result::Result<ExrSimpleImage, JsValue>
     let image = read()
         .no_deep_data()
         .largest_resolution_level()
-        .rgb_channels(PixelVec::<(f32,f32,f32)>::constructor, PixelVec::set_pixel)
+        .rgb_channels(PixelVec::<(f32, f32, f32)>::constructor, PixelVec::set_pixel)
         .first_valid_layer()
         .all_attributes()
         .from_buffered(Cursor::new(data))
@@ -406,8 +428,15 @@ pub fn read_exr_rgb(data: &[u8]) -> std::result::Result<ExrSimpleImage, JsValue>
     Ok(ExrSimpleImage {
         width: image.layer_data.size.x() as u32,
         height: image.layer_data.size.y() as u32,
-        data: image.layer_data.channel_data.pixels.pixels
-            .iter().flat_map(|(r,g,b)| [r,g,b]).map(|f| *f).collect(), // TODO read into this structure directly to improve performance
+        data: image
+            .layer_data
+            .channel_data
+            .pixels
+            .pixels
+            .iter()
+            .flat_map(|(r, g, b)| [r, g, b])
+            .map(|f| *f)
+            .collect(), // TODO read into this structure directly to improve performance
     })
 }
 
@@ -424,8 +453,13 @@ pub fn write_exr_rgba(
     compression: CompressionMethod,
 ) -> std::result::Result<Vec<u8>, JsValue> {
     let mut image = ExrEncoder::new(width, height);
-    image.add_layer(layer_name, vec!["R".to_string(),"G".to_string(),"B".to_string(),"A".to_string()],
-                    data, precision, compression)?;
+    image.add_layer(
+        layer_name,
+        vec!["R".to_string(), "G".to_string(), "B".to_string(), "A".to_string()],
+        data,
+        precision,
+        compression,
+    )?;
     image.encode()
     // TODO: not use exrEncoder to improve performance and simplify the code
 }
@@ -452,7 +486,13 @@ pub fn write_exr_rgb(
     compression: CompressionMethod,
 ) -> std::result::Result<Vec<u8>, JsValue> {
     let mut image = ExrEncoder::new(width, height);
-    image.add_layer(layer_name, vec!["R".to_string(),"G".to_string(),"B".to_string()], data, precision, compression)?;
+    image.add_layer(
+        layer_name,
+        vec!["R".to_string(), "G".to_string(), "B".to_string()],
+        data,
+        precision,
+        compression,
+    )?;
     image.encode()
     // TODO: not use exrEncoder to improve performance and simplify the code
 }
@@ -492,7 +532,10 @@ fn read_exr_internal(data: &[u8]) -> std::result::Result<ExrDecoder, exr::error:
                 })
                 .collect();
 
-            ReadLayerData { name, channels }
+            ReadLayerData {
+                name,
+                channels,
+            }
         })
         .collect();
 
