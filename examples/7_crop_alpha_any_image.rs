@@ -37,6 +37,7 @@ pub fn main() {
                         .crop_where(|pixel: FlatSamplesPixel| pixel[alpha_channel_index].is_zero())
                         .or_crop_to_1x1_if_empty() // do not remove empty layers from image, because it could result in an
                         // image without content
+                        .unwrap()
                         .reallocate_cropped() // actually perform the crop
                                               // operation
                 } else {

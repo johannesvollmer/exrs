@@ -40,9 +40,9 @@ pub fn main() {
             image
                 .layer_data
                 .crop_where(|(_r, _g, _b, alpha)| alpha.is_zero())
-                .or_crop_to_1x1_if_empty() // do not remove empty layers from
-                                           // image, because it could result in
-                                           // an image without content
+                .or_crop_to_1x1_if_empty() // do not remove empty layers from image, because it could result in an image
+                // without content
+                .unwrap()
         },
     };
 

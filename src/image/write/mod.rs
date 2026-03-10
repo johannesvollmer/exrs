@@ -20,7 +20,7 @@ use std::io::{BufWriter, Seek};
 
 use crate::{
     block::writer::ChunksWriter,
-    error::UnitResult,
+    error::{Result, UnitResult},
     image::{
         ignore_progress,
         write::layers::{LayersWriter, WritableLayers},
@@ -122,7 +122,7 @@ where
 {
     /// Generate file meta data for this image. The meta data structure is close
     /// to the data in the file.
-    pub fn infer_meta_data(&self) -> Headers {
+    pub fn infer_meta_data(&self) -> Result<Headers> {
         // TODO this should perform all validity checks? and none after that?
         self.image.layer_data.infer_headers(&self.image.attributes)
     }
@@ -201,13 +201,13 @@ where
     /// bytes first.
     #[must_use]
     pub fn to_buffered(self, write: impl Write + Seek) -> UnitResult {
-        let headers = self.infer_meta_data();
-        let layers = self.image.layer_data.create_writer(&headers);
+        let headers = self.infer_meta_data()?;
+        let layers = self.image.layer_data.create_writer(&headers)?;
 
         crate::block::write(write, headers, self.check_compatibility, move |meta, chunk_writer| {
             let blocks = meta.collect_ordered_block_data(|block_index| {
                 layers.extract_uncompressed_block(&meta.headers, block_index)
-            });
+            })?;
 
             let chunk_writer = chunk_writer.on_progress(self.on_progress);
             if self.parallel {
