@@ -1,5 +1,5 @@
 [package]
-name = "exrs_lib"
+name = "exr"
 version = "1.74.0"
 edition = "2018"
 
