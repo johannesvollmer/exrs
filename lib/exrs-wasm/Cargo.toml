@@ -10,13 +10,9 @@ repository = "https://github.com/johannesvollmer/exrs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-exr = { path = "..", default-features = false }
+exr = { path = "../exrs", default-features = false }
 smallvec = "1.7"
 half = "2.1"
 
 wasm-bindgen = "=0.2.100"
 console_error_panic_hook = "0.1"
-
-[profile.release]
-opt-level = "s"
-lto = true
