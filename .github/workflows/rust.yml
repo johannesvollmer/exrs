@@ -173,9 +173,9 @@ jobs:
       # todo: cache?
       - name: Install
         run: npm ci
-        working-directory: exrs-wasm/js
+        working-directory: lib/exrs-wasm/js
 
       - name: Build and test wasm package
         run: npm run test
-        working-directory: exrs-wasm/js
+        working-directory: lib/exrs-wasm/js
 
