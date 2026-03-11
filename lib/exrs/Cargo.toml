@@ -29,25 +29,25 @@ required-features = ["rayon"]
 [[bench]]
 name = "read"
 harness = false
-path = "../../benches/read.rs"
+path = "benches/read.rs"
 required-features = ["rayon"]
 
 [[bench]]
 name = "profiling"
 harness = false
-path = "../../benches/profiling.rs"
+path = "benches/profiling.rs"
 required-features = ["rayon"]
 
 [[bench]]
 name = "write"
 harness = false
-path = "../../benches/write.rs"
+path = "benches/write.rs"
 required-features = ["rayon"]
 
 [[bench]]
 name = "pixel_format_conversion"
 harness = false
-path = "../../benches/pixel_format_conversion.rs"
+path = "benches/pixel_format_conversion.rs"
 required-features = ["rayon"]
 
 [lib]
