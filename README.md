@@ -57,7 +57,7 @@ __What we can do:__
             - [x] little-endian architectures
             - [ ] big-endian architectures __(help wanted)__
         - [x] b44, b44a (huge thanks to @narann)
-        - [ ] dwaa, dwab __(help wanted)__
+        - [~] dwaa, dwab __(help wanted)__
 
 - Nice Things
     - [x] no unsafe code, no undefined behaviour
@@ -301,7 +301,7 @@ and they offer several advantages over this Rust implementation:
 ### Specification
 
 This library is modeled after the
-official [`OpenEXRFileLayout.pdf`](http://www.openexr.com/documentation.html)
+official [`OpenEXR Documentation`](https://openexr.com/en/latest/)
 document. Unspecified behavior is concluded from the C++ library.
 
 ### Roadmap

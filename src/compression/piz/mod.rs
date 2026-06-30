@@ -2,7 +2,7 @@
 //! based on the PIZ image format, customized for `OpenEXR`.
 // inspired by  https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfPizCompressor.cpp
 
-mod huffman;
+pub(crate) mod huffman;
 mod wavelet;
 
 use std::convert::TryFrom;

@@ -3,6 +3,7 @@
 
 // private modules make non-breaking changes easier
 mod b44;
+mod dwa;
 mod piz;
 mod pxr24;
 mod rle;
@@ -128,18 +129,15 @@ pub enum Compression {
     /// Only supported for flat images, not for deep data.
     B44A, // TODO collapse with B44
 
-    /// __This lossy compression is not yet supported by this implementation.__
-    // lossy DCT based compression, in blocks
-    // of 32 scanlines. More efficient for partial buffer access.
-    DWAA(Option<f32>), /* TODO does this have a default value? make this non optional? default
-                        * Compression Level setting is 45.0 */
+    /// Lossy DCT-based compression (DreamWorks Animation), 32 scanlines per block.
+    /// Partial buffer access friendly.
+    /// Decoding support is implemented (encoding is still a stub).
+    DWAA(Option<f32>),
 
-    /// __This lossy compression is not yet supported by this implementation.__
-    // lossy DCT based compression, in blocks
-    // of 256 scanlines. More efficient space
-    // wise and faster to decode full frames
-    // than DWAA_COMPRESSION.
-    DWAB(Option<f32>), // TODO collapse with DWAA. default Compression Level setting is 45.0
+    /// Lossy DCT-based compression (DreamWorks Animation), 256 scanlines per block.
+    /// Better compression ratio for full frames.
+    /// Decoding support is implemented (encoding is still a stub).
+    DWAB(Option<f32>),
 
     /// __This lossy compression is not yet supported by this implementation.__
     // High-Throughput JPEG 2000 (32 lines)
@@ -329,6 +327,13 @@ impl Compression {
                     pedantic,
                 ),
                 B44 | B44A => b44::decompress(
+                    &header.channels,
+                    compressed_le,
+                    pixel_section,
+                    expected_byte_size,
+                    pedantic,
+                ),
+                DWAA(_) | DWAB(_) => dwa::decompress(
                     &header.channels,
                     compressed_le,
                     pixel_section,
