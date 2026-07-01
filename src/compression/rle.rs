@@ -12,7 +12,22 @@ pub fn decompress_bytes(
     expected_byte_size: usize,
     pedantic: bool,
 ) -> Result<ByteVec> {
-    let mut remaining_le = compressed_le.as_slice();
+    let mut decompressed_le = unpack_rle_tokens(&compressed_le, expected_byte_size, pedantic)?;
+    differences_to_samples(&mut decompressed_le);
+    interleave_byte_blocks(&mut decompressed_le);
+    super::convert_little_endian_to_current(decompressed_le, channels, rectangle)
+    // TODO no alloc
+}
+
+/// Classic byte-oriented run-length decoding shared by this compression method and DWA's RLE scheme (both port OpenEXR's `internal_rle_decompress`, see `compression::dwa`).
+/// A negative length-byte `-n` means "copy the next `n` bytes literally"; a non-negative `n` means "repeat the following byte `n + 1` times".
+/// Unlike full RLE decompression, this does not undo the delta prediction (`differences_to_samples`) or byte-block interleaving (`interleave_byte_blocks`) applied on top of it here, since DWA does not apply those extra steps.
+pub(super) fn unpack_rle_tokens(
+    compressed_le: &[u8],
+    expected_byte_size: usize,
+    pedantic: bool,
+) -> Result<ByteVec> {
+    let mut remaining_le = compressed_le;
     let mut decompressed_le = Vec::with_capacity(expected_byte_size.min(8 * 2048));
 
     while !remaining_le.is_empty() && decompressed_le.len() != expected_byte_size {
@@ -33,10 +48,7 @@ pub fn decompress_bytes(
         return Err(Error::invalid("data amount"));
     }
 
-    differences_to_samples(&mut decompressed_le);
-    interleave_byte_blocks(&mut decompressed_le);
-    super::convert_little_endian_to_current(decompressed_le, channels, rectangle)
-    // TODO no alloc
+    Ok(decompressed_le)
 }
 
 pub fn compress_bytes(

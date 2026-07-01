@@ -31,8 +31,8 @@ enum CompressorScheme {
 }
 
 /// Layout of the fixed 11-counter DWA chunk header. Every slot stays named
-/// here even though the decoder does not yet consume all of them (RLE
-/// channel data is parsed but not applied), since this documents the on-disk format.
+/// here even though not all are read directly from `DataSizes` (some, like
+/// `Version`, are only used while parsing), since this documents the on-disk format.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 #[repr(usize)]
@@ -137,6 +137,9 @@ pub fn decompress(
     let unknown_comp = counters[DataSizes::UnknownCompressedSize as usize];
     let ac_comp = counters[DataSizes::AcCompressedSize as usize];
     let dc_comp = counters[DataSizes::DcCompressedSize as usize];
+    let rle_comp = counters[DataSizes::RleCompressedSize as usize];
+    let rle_uncompressed_size = counters[DataSizes::RleUncompressedSize as usize] as usize;
+    let rle_raw_size = counters[DataSizes::RleRawSize as usize] as usize;
     let ac_count = counters[DataSizes::AcUncompressedCount as usize];
     let dc_count = counters[DataSizes::DcUncompressedCount as usize];
     let ac_comp_mode = counters[DataSizes::AcCompression as usize];
@@ -181,10 +184,10 @@ pub fn decompress(
 
     let d_len = std::cmp::min(dc_comp as usize, data.len());
     let dc_sec = &data[..d_len];
+    data = &data[d_len..];
 
-    // NOTE: the RLE-scheme section (e.g. alpha channels using the RLE scheme)
-    // is skipped over here but not decoded yet; see the fallback handling
-    // further down where those channels are written.
+    let r_len = std::cmp::min(rle_comp as usize, data.len());
+    let rle_sec = &data[..r_len];
 
     // UNKNOWN section: raw (non-DCT-compressible) channel data, zlib-compressed
     // and laid out planar (i.e. one channel's full width*height data fully
@@ -194,6 +197,20 @@ pub fn decompress(
     let unknown_uncompressed_size = counters[DataSizes::UnknownUncompressedSize as usize] as usize;
     let unknown_raw: Vec<u8> = if !u_sec.is_empty() {
         inflate_zlib(u_sec, unknown_uncompressed_size).unwrap_or_default()
+    } else {
+        vec![]
+    };
+
+    // RLE section: zlib-compressed, then classic byte-oriented RLE-encoded.
+    // The RLE-decoded result is planar per RLE-scheme channel (e.g. alpha),
+    // and within each channel it is further split into byte-planes (all
+    // first bytes of every pixel, then all second bytes, ...), in channel
+    // order. Matches DwaCompressor::uncompress's RLE handling in
+    // internal_dwa_compressor.h, which zlib-inflates into `_rleBuffer` and
+    // then calls `internal_rle_decompress` into `_planarUncBuffer[RLE]`.
+    let rle_raw: Vec<u8> = if !rle_sec.is_empty() && rle_raw_size > 0 {
+        let inflated = inflate_zlib(rle_sec, rle_uncompressed_size).unwrap_or_default();
+        super::rle::unpack_rle_tokens(&inflated, rle_raw_size, false).unwrap_or_default()
     } else {
         vec![]
     };
@@ -279,6 +296,34 @@ pub fn decompress(
                 let len = info.width * info.height * info.bytes_per_sample;
                 if cursor + len <= unknown_raw.len() {
                     unknown_data[i] = unknown_raw[cursor..cursor + len].to_vec();
+                }
+                cursor += len;
+            }
+        }
+    }
+
+    // Split the planar RLE buffer into one raw-byte run per RLE-scheme
+    // channel (mirrors the UNKNOWN split above), then un-transpose each
+    // channel's byte-planes back into normal per-pixel interleaved order
+    // (mirrors the `case RLE:` handling in DwaCompressor::uncompress, which
+    // reads one byte at a time from `planarUncRleEnd[byte]` per byte-plane).
+    let mut rle_data: Vec<Vec<u8>> = vec![vec![]; channel_infos.len()];
+    {
+        let mut cursor = 0usize;
+        for (i, info) in channel_infos.iter().enumerate() {
+            if info.scheme == CompressorScheme::Rle {
+                let elems = info.width * info.height;
+                let len = elems * info.bytes_per_sample;
+                if cursor + len <= rle_raw.len() {
+                    let block = &rle_raw[cursor..cursor + len];
+                    let bpe = info.bytes_per_sample;
+                    let mut interleaved = vec![0u8; len];
+                    for e in 0..elems {
+                        for b in 0..bpe {
+                            interleaved[e * bpe + b] = block[b * elems + e];
+                        }
+                    }
+                    rle_data[i] = interleaved;
                 }
                 cursor += len;
             }
@@ -374,9 +419,6 @@ pub fn decompress(
         processed[i] = true;
     }
 
-    // TODO: RLE-scheme and unknown-scheme channels aren't decoded yet (see the
-    // "A" special-case and zero-fill fallback below).
-
     // Write the decoded data to `out` in scanline-interleaved layout (like piz).
     let mut out_cursor = 0usize;
 
@@ -428,9 +470,22 @@ pub fn decompress(
                     );
                 }
                 out_cursor += byte_len;
+            } else if info.scheme == CompressorScheme::Rle && !rle_data[ci].is_empty() {
+                // Raw per-pixel bytes, scanline-wise per channel (see split above).
+                let row_in_ch = ((y - rectangle.position.y()) / samp_y) as usize;
+                let byte_len = line_w * bytes_per_samp;
+                let byte_off = row_in_ch * byte_len;
+
+                if byte_off + byte_len <= rle_data[ci].len() {
+                    out[out_cursor..out_cursor + byte_len].copy_from_slice(
+                        &rle_data[ci][byte_off..byte_off + byte_len]
+                    );
+                }
+                out_cursor += byte_len;
             } else {
-                // RLE-scheme channels aren't decoded yet and are left zeroed,
-                // except alpha, which defaults to fully opaque rather than fully transparent.
+                // Only reached if an RLE-scheme channel's data could not be
+                // decoded (e.g. missing/corrupt RLE section); alpha then
+                // defaults to fully opaque rather than fully transparent.
                 // The written value must still match `bytes_per_samp` for this channel's
                 // actual sample type, or every following channel/scanline shifts out of place.
                 if info.name == "A" || info.name.ends_with("A") {
