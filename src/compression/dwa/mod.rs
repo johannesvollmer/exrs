@@ -76,9 +76,8 @@ fn dwa_convert_to_linear(x: half::f16) -> half::f16 {
     let out = if f <= 1.0 {
         f.powf(2.2)
     } else {
-        // ln(f) / ln(e^2.2) + 1
-        // or equivalently: log(f) / 2.2 + 1.0   (natural log)
-        f.ln() / 2.2 + 1.0
+        // exp(2.2) ^ (f - 1) == exp(2.2 * (f - 1))
+        9.02501329156_f32.powf(f - 1.0)
     };
 
     half::f16::from_f32(sign * out)
@@ -615,7 +614,7 @@ fn decode_lossy_dct_group(
                         let val = dct_blocks[c][yy * 8 + xx];
                         let h = f16::from_f32(val);
                         let linear_h_bits = to_linear[h.to_bits() as usize];
-                        let linear_h = f16::from_bits(linear_h_bits).clamp(f16::ZERO, f16::ONE);
+                        let linear_h = f16::from_bits(linear_h_bits);
 
                         let idx = y * width + x;
                         if idx < comp_buf.len() {

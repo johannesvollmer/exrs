@@ -7,13 +7,17 @@ pub fn dct_inverse_8x8(data: &mut [f32; 64]) {
 }
 
 fn dct_inverse_8x8_scalar(data: &mut [f32; 64], zeroed_rows: usize) {
-    let a = 0.5 * (std::f32::consts::PI / 4.0).cos();
-    let b = 0.5 * (std::f32::consts::PI / 16.0).cos();
-    let c = 0.5 * (std::f32::consts::PI / 8.0).cos();
-    let d = 0.5 * ((3.0 * std::f32::consts::PI) / 16.0).cos();
-    let e = 0.5 * ((5.0 * std::f32::consts::PI) / 16.0).cos();
-    let f = 0.5 * ((3.0 * std::f32::consts::PI) / 8.0).cos();
-    let g = 0.5 * ((7.0 * std::f32::consts::PI) / 16.0).cos();
+    // Matches OpenEXR's dctInverse8x8_scalar, which uses this truncated
+    // literal instead of a full-precision PI, for bit-identical output.
+    const PI: f32 = 3.14159;
+
+    let a = 0.5 * (PI / 4.0).cos();
+    let b = 0.5 * (PI / 16.0).cos();
+    let c = 0.5 * (PI / 8.0).cos();
+    let d = 0.5 * ((3.0 * PI) / 16.0).cos();
+    let e = 0.5 * ((5.0 * PI) / 16.0).cos();
+    let f = 0.5 * ((3.0 * PI) / 8.0).cos();
+    let g = 0.5 * ((7.0 * PI) / 16.0).cos();
 
     let mut alpha = [0f32; 4];
     let mut beta = [0f32; 4];
