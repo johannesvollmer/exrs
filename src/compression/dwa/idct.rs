@@ -93,29 +93,22 @@ fn dct_inverse_8x8_scalar(data: &mut [f32; 64]) {
         alpha[2] = c * data[48 + column];
         alpha[3] = f * data[48 + column];
 
-        beta[0] =
-            b * data[8 + column] +
-            d * data[24 + column] +
-            e * data[40 + column] +
-            g * data[56 + column];
+        beta[0] = b * data[8 + column]
+            + d * data[24 + column]
+            + e * data[40 + column]
+            + g * data[56 + column];
 
-        beta[1] =
-            d * data[8 + column] -
-            g * data[24 + column] -
-            b * data[40 + column] -
-            e * data[56 + column];
+        beta[1] = d * data[8 + column]
+            - g * data[24 + column]
+            - b * data[40 + column]
+            - e * data[56 + column];
 
-        beta[2] =
-            e * data[8 + column] -
-            b * data[24 + column] +
-            g * data[40 + column] +
-            d * data[56 + column];
+        beta[2] = e * data[8 + column] - b * data[24 + column]
+            + g * data[40 + column]
+            + d * data[56 + column];
 
-        beta[3] =
-            g * data[8 + column] -
-            e * data[24 + column] +
-            d * data[40 + column] -
-            b * data[56 + column];
+        beta[3] = g * data[8 + column] - e * data[24 + column] + d * data[40 + column]
+            - b * data[56 + column];
 
         theta[0] = a * (data[column] + data[32 + column]);
         theta[3] = a * (data[column] - data[32 + column]);

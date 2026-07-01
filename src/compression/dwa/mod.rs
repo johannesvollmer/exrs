@@ -1,16 +1,16 @@
 // DWA / DWAB (lossy DCT) decompression for exrs (loading/decomp only).
 // Ported from OpenEXRCore internal_dwa* .
 
-use std::{ convert::TryInto, sync::OnceLock };
+use std::{convert::TryInto, sync::OnceLock};
 
 use crate::{
     compression::ByteVec,
-    error::{ Error, Result },
-    meta::attribute::{ ChannelList, IntegerBounds, SampleType },
+    error::{Error, Result},
+    meta::attribute::{ChannelList, IntegerBounds, SampleType},
 };
 
-mod idct;
 mod csc;
+mod idct;
 
 // Bit-exact port of OpenEXR's SIMD-dispatched IDCT; see idct_simd.rs and the
 // `dwa_simd_identical` feature in Cargo.toml.
@@ -75,14 +75,18 @@ fn dwa_convert_to_linear(x: half::f16) -> half::f16 {
     if !f.is_finite() {
         return half::f16::ZERO;
     }
-    let sign = if f < 0.0 { -1.0 } else { 1.0 };
+    let sign = if f < 0.0 {
+        -1.0
+    } else {
+        1.0
+    };
     let f = f.abs();
 
     let out = if f <= 1.0 {
         f.powf(2.2)
     } else {
         // exp(2.2) ^ (f - 1) == exp(2.2 * (f - 1))
-        9.02501329156_f32.powf(f - 1.0)
+        (9.02501329156_f32).powf(f - 1.0)
     };
 
     half::f16::from_f32(sign * out)
@@ -114,7 +118,7 @@ pub fn decompress(
     compressed_le: ByteVec,
     rectangle: IntegerBounds,
     expected_byte_size: usize,
-    _pedantic: bool
+    _pedantic: bool,
 ) -> Result<ByteVec> {
     if compressed_le.is_empty() {
         return Ok(vec![0u8; expected_byte_size]);
@@ -124,7 +128,7 @@ pub fn decompress(
         return crate::compression::convert_little_endian_to_current(
             compressed_le,
             channels,
-            rectangle
+            rectangle,
         );
     }
 
@@ -224,24 +228,17 @@ pub fn decompress(
     let ac_packed: Vec<u16> = if !ac_sec.is_empty() {
         let p = match ac_compression {
             AcCompression::StaticHuffman => {
-                crate::compression::piz::huffman
-                    ::decompress(ac_sec, ac_count as usize)
+                crate::compression::piz::huffman::decompress(ac_sec, ac_count as usize)
                     .unwrap_or_default()
             }
             AcCompression::Deflate => {
                 let bytes = inflate_zlib(ac_sec, (ac_count as usize) * 2).unwrap_or_default();
-                bytes
-                    .chunks_exact(2)
-                    .map(|c| u16::from_ne_bytes([c[0], c[1]]))
-                    .collect()
+                bytes.chunks_exact(2).map(|c| u16::from_ne_bytes([c[0], c[1]])).collect()
             }
         };
         if p.is_empty() {
             // fallback treat sec as u16 le if count matches roughly
-            ac_sec
-                .chunks_exact(2)
-                .map(|c| u16::from_ne_bytes([c[0], c[1]]))
-                .collect()
+            ac_sec.chunks_exact(2).map(|c| u16::from_ne_bytes([c[0], c[1]])).collect()
         } else {
             p
         }
@@ -256,10 +253,7 @@ pub fn decompress(
             _ => dc_sec.to_vec(),
         };
         let reconstructed = undo_zip_reconstruct_for_dc(&raw, raw.len());
-        reconstructed
-            .chunks_exact(2)
-            .map(|c| u16::from_ne_bytes([c[0], c[1]]))
-            .collect()
+        reconstructed.chunks_exact(2).map(|c| u16::from_ne_bytes([c[0], c[1]])).collect()
     } else {
         vec![]
     };
@@ -362,12 +356,12 @@ pub fn decompress(
             let g_idx = find_channel_with_csc_index(&channel_infos, base, 1);
             let b_idx = find_channel_with_csc_index(&channel_infos, base, 2);
             if let (Some(gi), Some(bi)) = (g_idx, b_idx) {
-                let (r_chan, g_chan, b_chan) = (&channels.list[i], &channels.list[gi], &channels.list[bi]);
-                if
-                    channel_infos[gi].scheme == CompressorScheme::LossyDct &&
-                    channel_infos[bi].scheme == CompressorScheme::LossyDct &&
-                    r_chan.sampling == g_chan.sampling &&
-                    r_chan.sampling == b_chan.sampling
+                let (r_chan, g_chan, b_chan) =
+                    (&channels.list[i], &channels.list[gi], &channels.list[bi]);
+                if channel_infos[gi].scheme == CompressorScheme::LossyDct
+                    && channel_infos[bi].scheme == CompressorScheme::LossyDct
+                    && r_chan.sampling == g_chan.sampling
+                    && r_chan.sampling == b_chan.sampling
                 {
                     csc_groups.push((i, gi, bi));
                     processed[i] = true;
@@ -397,7 +391,7 @@ pub fn decompress(
             h,
             true, // has csc
             &to_linear_table(),
-            &mut decoded
+            &mut decoded,
         );
 
         lossy_half_data[*r] = decoded[0].clone();
@@ -424,7 +418,7 @@ pub fn decompress(
             h,
             false,
             &to_linear_table(),
-            &mut decoded
+            &mut decoded,
         );
 
         lossy_half_data[i] = decoded[0].clone();
@@ -470,9 +464,8 @@ pub fn decompress(
                         }
                     }
                 }
-            } else if
-                (info.scheme == CompressorScheme::Unknown && !unknown_data[ci].is_empty()) ||
-                (info.scheme == CompressorScheme::Rle && !rle_data[ci].is_empty())
+            } else if (info.scheme == CompressorScheme::Unknown && !unknown_data[ci].is_empty())
+                || (info.scheme == CompressorScheme::Rle && !rle_data[ci].is_empty())
             {
                 // Raw bytes, scanline-wise per channel (see planar split above).
                 let raw = if info.scheme == CompressorScheme::Unknown {
@@ -486,9 +479,8 @@ pub fn decompress(
                 let byte_off = row_in_ch * byte_len;
 
                 if byte_off + byte_len <= raw.len() {
-                    out[out_cursor..out_cursor + byte_len].copy_from_slice(
-                        &raw[byte_off..byte_off + byte_len]
-                    );
+                    out[out_cursor..out_cursor + byte_len]
+                        .copy_from_slice(&raw[byte_off..byte_off + byte_len]);
                 }
                 out_cursor += byte_len;
             } else {
@@ -506,11 +498,11 @@ pub fn decompress(
                             }
                             SampleType::F32 => {
                                 out[out_cursor..out_cursor + 4]
-                                    .copy_from_slice(&1.0f32.to_le_bytes());
+                                    .copy_from_slice(&(1.0f32).to_le_bytes());
                             }
                             SampleType::U32 => {
                                 out[out_cursor..out_cursor + 4]
-                                    .copy_from_slice(&1u32.to_le_bytes());
+                                    .copy_from_slice(&(1u32).to_le_bytes());
                             }
                         }
                         out_cursor += bytes_per_samp;
@@ -529,18 +521,54 @@ pub fn decompress(
 
 fn get_legacy_channel_rules() -> Vec<Classifier> {
     vec![
-        Classifier { suffix: "r".into(), scheme: CompressorScheme::LossyDct },
-        Classifier { suffix: "red".into(), scheme: CompressorScheme::LossyDct },
-        Classifier { suffix: "g".into(), scheme: CompressorScheme::LossyDct },
-        Classifier { suffix: "grn".into(), scheme: CompressorScheme::LossyDct },
-        Classifier { suffix: "green".into(), scheme: CompressorScheme::LossyDct },
-        Classifier { suffix: "b".into(), scheme: CompressorScheme::LossyDct },
-        Classifier { suffix: "blu".into(), scheme: CompressorScheme::LossyDct },
-        Classifier { suffix: "blue".into(), scheme: CompressorScheme::LossyDct },
-        Classifier { suffix: "y".into(), scheme: CompressorScheme::LossyDct },
-        Classifier { suffix: "by".into(), scheme: CompressorScheme::LossyDct },
-        Classifier { suffix: "ry".into(), scheme: CompressorScheme::LossyDct },
-        Classifier { suffix: "a".into(), scheme: CompressorScheme::Rle }
+        Classifier {
+            suffix: "r".into(),
+            scheme: CompressorScheme::LossyDct,
+        },
+        Classifier {
+            suffix: "red".into(),
+            scheme: CompressorScheme::LossyDct,
+        },
+        Classifier {
+            suffix: "g".into(),
+            scheme: CompressorScheme::LossyDct,
+        },
+        Classifier {
+            suffix: "grn".into(),
+            scheme: CompressorScheme::LossyDct,
+        },
+        Classifier {
+            suffix: "green".into(),
+            scheme: CompressorScheme::LossyDct,
+        },
+        Classifier {
+            suffix: "b".into(),
+            scheme: CompressorScheme::LossyDct,
+        },
+        Classifier {
+            suffix: "blu".into(),
+            scheme: CompressorScheme::LossyDct,
+        },
+        Classifier {
+            suffix: "blue".into(),
+            scheme: CompressorScheme::LossyDct,
+        },
+        Classifier {
+            suffix: "y".into(),
+            scheme: CompressorScheme::LossyDct,
+        },
+        Classifier {
+            suffix: "by".into(),
+            scheme: CompressorScheme::LossyDct,
+        },
+        Classifier {
+            suffix: "ry".into(),
+            scheme: CompressorScheme::LossyDct,
+        },
+        Classifier {
+            suffix: "a".into(),
+            scheme: CompressorScheme::Rle,
+        },
     ]
 }
 
@@ -644,11 +672,8 @@ fn classify_channel(name: &str, rules: &[Classifier]) -> CompressorScheme {
 /// (0=R, 1=G, 2=B), matching sDefaultChannelRules/sLegacyChannelRules in
 /// internal_dwa_classifier.h (Y/RY/BY are intentionally absent: they have
 /// cscIdx == -1 there and are never CSC-grouped).
-const CSC_SUFFIXES: [(&str, usize); 8] = [
-    ("r", 0), ("red", 0),
-    ("g", 1), ("grn", 1), ("green", 1),
-    ("b", 2), ("blu", 2), ("blue", 2),
-];
+const CSC_SUFFIXES: [(&str, usize); 8] =
+    [("r", 0), ("red", 0), ("g", 1), ("grn", 1), ("green", 1), ("b", 2), ("blu", 2), ("blue", 2)];
 
 /// The part of a channel name after the last '.', matching
 /// `Classifier_find_suffix` in internal_dwa_classifier.h.
@@ -673,7 +698,11 @@ fn csc_prefix_for_index(name: &str, csc_idx: usize) -> Option<&str> {
     None
 }
 
-fn find_channel_with_csc_index(infos: &[ChannelInfo], prefix: &str, csc_idx: usize) -> Option<usize> {
+fn find_channel_with_csc_index(
+    infos: &[ChannelInfo],
+    prefix: &str,
+    csc_idx: usize,
+) -> Option<usize> {
     infos.iter().position(|info| csc_prefix_for_index(&info.name, csc_idx) == Some(prefix))
 }
 
@@ -687,9 +716,13 @@ fn decode_lossy_dct_group(
     height: usize,
     has_csc: bool,
     to_linear: &[u16; 65536],
-    decoded: &mut [Vec<f16>]
+    decoded: &mut [Vec<f16>],
 ) {
-    let num_comp = if has_csc { 3 } else { 1 };
+    let num_comp = if has_csc {
+        3
+    } else {
+        1
+    };
     let num_blocks_x = (width + 7) / 8;
     let num_blocks_y = (height + 7) / 8;
 
@@ -730,11 +763,8 @@ fn decode_lossy_dct_group(
             // CSC inverse on the float dct blocks if applicable (after IDCT)
             if has_csc && num_comp == 3 {
                 for i in 0..64 {
-                    let (r, g, b) = csc::csc709_inverse(
-                        dct_blocks[0][i],
-                        dct_blocks[1][i],
-                        dct_blocks[2][i]
-                    );
+                    let (r, g, b) =
+                        csc::csc709_inverse(dct_blocks[0][i], dct_blocks[1][i], dct_blocks[2][i]);
                     dct_blocks[0][i] = r;
                     dct_blocks[1][i] = g;
                     dct_blocks[2][i] = b;
@@ -781,7 +811,7 @@ fn un_rle_ac_into(
     ac: &[u16],
     cursor: &mut usize,
     block: &mut [u16; 64],
-    last_nz: &mut usize
+    last_nz: &mut usize,
 ) -> usize {
     let mut dct_comp = 1usize;
     let mut consumed = 0usize;
@@ -797,7 +827,11 @@ fn un_rle_ac_into(
 
         if (val & 0xff00) == 0xff00 {
             let count = (val & 0xff) as usize;
-            dct_comp += if count == 0 { 64 } else { count };
+            dct_comp += if count == 0 {
+                64
+            } else {
+                count
+            };
         } else {
             *last_nz = dct_comp;
             block[dct_comp] = val;
@@ -810,9 +844,9 @@ fn un_rle_ac_into(
 fn from_half_zigzag(src_zig: &[u16; 64], dst: &mut [f32; 64]) {
     // Mapping from the C fromHalfZigZag_scalar
     const SRC_INDICES: [usize; 64] = [
-        0, 1, 5, 6, 14, 15, 27, 28, 2, 4, 7, 13, 16, 26, 29, 42, 3, 8, 12, 17, 25, 30, 41, 43, 9, 11,
-        18, 24, 31, 40, 44, 53, 10, 19, 23, 32, 39, 45, 52, 54, 20, 22, 33, 38, 46, 51, 55, 60, 21, 34,
-        37, 47, 50, 56, 59, 61, 35, 36, 48, 49, 57, 58, 62, 63,
+        0, 1, 5, 6, 14, 15, 27, 28, 2, 4, 7, 13, 16, 26, 29, 42, 3, 8, 12, 17, 25, 30, 41, 43, 9,
+        11, 18, 24, 31, 40, 44, 53, 10, 19, 23, 32, 39, 45, 52, 54, 20, 22, 33, 38, 46, 51, 55, 60,
+        21, 34, 37, 47, 50, 56, 59, 61, 35, 36, 48, 49, 57, 58, 62, 63,
     ];
 
     for (i, &src_idx) in SRC_INDICES.iter().enumerate() {

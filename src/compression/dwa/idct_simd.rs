@@ -12,23 +12,23 @@ use core::arch::x86_64::*;
 
 #[target_feature(enable = "sse2")]
 unsafe fn dct_inverse_8x8_sse2_inner(data: &mut [f32; 64]) {
-    let a = _mm_set1_ps(3.535536e-01);
-    let b = _mm_set1_ps(4.903927e-01);
-    let c = _mm_set1_ps(4.619398e-01);
-    let d = _mm_set1_ps(4.157349e-01);
-    let e = _mm_set1_ps(2.777855e-01);
-    let f = _mm_set1_ps(1.913422e-01);
-    let g = _mm_set1_ps(9.754573e-02);
+    let a = _mm_set1_ps(3.535536e-1);
+    let b = _mm_set1_ps(4.903927e-1);
+    let c = _mm_set1_ps(4.619398e-1);
+    let d = _mm_set1_ps(4.157349e-1);
+    let e = _mm_set1_ps(2.777855e-1);
+    let f = _mm_set1_ps(1.913422e-1);
+    let g = _mm_set1_ps(9.754573e-2);
 
-    let c0 = _mm_set1_ps(3.535536e-01);
-    let c1 = _mm_setr_ps(4.619398e-01, 1.913422e-01, -1.913422e-01, -4.619398e-01);
-    let c2 = _mm_setr_ps(3.535536e-01, -3.535536e-01, -3.535536e-01, 3.535536e-01);
-    let c3 = _mm_setr_ps(1.913422e-01, -4.619398e-01, 4.619398e-01, -1.913422e-01);
+    let c0 = _mm_set1_ps(3.535536e-1);
+    let c1 = _mm_setr_ps(4.619398e-1, 1.913422e-1, -1.913422e-1, -4.619398e-1);
+    let c2 = _mm_setr_ps(3.535536e-1, -3.535536e-1, -3.535536e-1, 3.535536e-1);
+    let c3 = _mm_setr_ps(1.913422e-1, -4.619398e-1, 4.619398e-1, -1.913422e-1);
 
-    let c4 = _mm_setr_ps(4.903927e-01, 4.157349e-01, 2.777855e-01, 9.754573e-02);
-    let c5 = _mm_setr_ps(4.157349e-01, -9.754573e-02, -4.903927e-01, -2.777855e-01);
-    let c6 = _mm_setr_ps(2.777855e-01, -4.903927e-01, 9.754573e-02, 4.157349e-01);
-    let c7 = _mm_setr_ps(9.754573e-02, -2.777855e-01, 4.157349e-01, -4.903927e-01);
+    let c4 = _mm_setr_ps(4.903927e-1, 4.157349e-1, 2.777855e-1, 9.754573e-2);
+    let c5 = _mm_setr_ps(4.157349e-1, -9.754573e-2, -4.903927e-1, -2.777855e-1);
+    let c6 = _mm_setr_ps(2.777855e-1, -4.903927e-1, 9.754573e-2, 4.157349e-1);
+    let c7 = _mm_setr_ps(9.754573e-2, -2.777855e-1, 4.157349e-1, -4.903927e-1);
 
     // `data` (a stack-local [f32; 64]) is not guaranteed to be 16-byte
     // aligned, unlike OpenEXR's heap-allocated, SSE-aligned rowBlockHandle -
@@ -144,14 +144,38 @@ unsafe fn dct_inverse_8x8_avx_inner(data: &mut [f32; 64]) {
     //        [ a -f -a  c ]           [ e -b  g  d ]
     //        [ a -c  a -f ]           [ g -e  d -b ]
     const COEF: [f32; 32] = [
-        3.535536e-01, 3.535536e-01, 3.535536e-01, 3.535536e-01,
-        4.619398e-01, 1.913422e-01, -1.913422e-01, -4.619398e-01,
-        3.535536e-01, -3.535536e-01, -3.535536e-01, 3.535536e-01,
-        1.913422e-01, -4.619398e-01, 4.619398e-01, -1.913422e-01,
-        4.903927e-01, 4.157349e-01, 2.777855e-01, 9.754573e-02,
-        4.157349e-01, -9.754573e-02, -4.903927e-01, -2.777855e-01,
-        2.777855e-01, -4.903927e-01, 9.754573e-02, 4.157349e-01,
-        9.754573e-02, -2.777855e-01, 4.157349e-01, -4.903927e-01,
+        3.535536e-1,
+        3.535536e-1,
+        3.535536e-1,
+        3.535536e-1,
+        4.619398e-1,
+        1.913422e-1,
+        -1.913422e-1,
+        -4.619398e-1,
+        3.535536e-1,
+        -3.535536e-1,
+        -3.535536e-1,
+        3.535536e-1,
+        1.913422e-1,
+        -4.619398e-1,
+        4.619398e-1,
+        -1.913422e-1,
+        4.903927e-1,
+        4.157349e-1,
+        2.777855e-1,
+        9.754573e-2,
+        4.157349e-1,
+        -9.754573e-2,
+        -4.903927e-1,
+        -2.777855e-1,
+        2.777855e-1,
+        -4.903927e-1,
+        9.754573e-2,
+        4.157349e-1,
+        9.754573e-2,
+        -2.777855e-1,
+        4.157349e-1,
+        -4.903927e-1,
     ];
 
     let ptr = data.as_ptr();
@@ -164,51 +188,70 @@ unsafe fn dct_inverse_8x8_avx_inner(data: &mut [f32; 64]) {
     let r0_01 = _mm_loadu_ps(ptr.add(4));
     let r0_t0 = _mm256_insertf128_ps::<1>(_mm256_castps128_ps256(r0_00), _mm_loadu_ps(ptr.add(8)));
     let r0_t1 = _mm256_insertf128_ps::<1>(_mm256_castps128_ps256(r0_01), _mm_loadu_ps(ptr.add(12)));
-    let r0_d0 = _mm256_castpd_ps(_mm256_unpacklo_pd(_mm256_castps_pd(r0_t0), _mm256_castps_pd(r0_t1)));
-    let r0_d1 = _mm256_castpd_ps(_mm256_unpackhi_pd(_mm256_castps_pd(r0_t0), _mm256_castps_pd(r0_t1)));
+    let r0_d0 =
+        _mm256_castpd_ps(_mm256_unpacklo_pd(_mm256_castps_pd(r0_t0), _mm256_castps_pd(r0_t1)));
+    let r0_d1 =
+        _mm256_castpd_ps(_mm256_unpackhi_pd(_mm256_castps_pd(r0_t0), _mm256_castps_pd(r0_t1)));
     let r0_u0 = _mm256_unpacklo_ps(r0_d0, r0_d1);
     let r0_u1 = _mm256_unpackhi_ps(r0_d0, r0_d1);
-    let mut y0 = _mm256_castpd_ps(_mm256_unpacklo_pd(_mm256_castps_pd(r0_u0), _mm256_castps_pd(r0_u1)));
-    let mut y4 = _mm256_castpd_ps(_mm256_unpackhi_pd(_mm256_castps_pd(r0_u0), _mm256_castps_pd(r0_u1)));
+    let mut y0 =
+        _mm256_castpd_ps(_mm256_unpacklo_pd(_mm256_castps_pd(r0_u0), _mm256_castps_pd(r0_u1)));
+    let mut y4 =
+        _mm256_castpd_ps(_mm256_unpackhi_pd(_mm256_castps_pd(r0_u0), _mm256_castps_pd(r0_u1)));
 
     let r1_00 = _mm_loadu_ps(ptr.add(16));
     let r1_01 = _mm_loadu_ps(ptr.add(20));
     let r1_t0 = _mm256_insertf128_ps::<1>(_mm256_castps128_ps256(r1_00), _mm_loadu_ps(ptr.add(24)));
     let r1_t1 = _mm256_insertf128_ps::<1>(_mm256_castps128_ps256(r1_01), _mm_loadu_ps(ptr.add(28)));
-    let r1_d0 = _mm256_castpd_ps(_mm256_unpacklo_pd(_mm256_castps_pd(r1_t0), _mm256_castps_pd(r1_t1)));
-    let r1_d1 = _mm256_castpd_ps(_mm256_unpackhi_pd(_mm256_castps_pd(r1_t0), _mm256_castps_pd(r1_t1)));
+    let r1_d0 =
+        _mm256_castpd_ps(_mm256_unpacklo_pd(_mm256_castps_pd(r1_t0), _mm256_castps_pd(r1_t1)));
+    let r1_d1 =
+        _mm256_castpd_ps(_mm256_unpackhi_pd(_mm256_castps_pd(r1_t0), _mm256_castps_pd(r1_t1)));
     let r1_u0 = _mm256_unpacklo_ps(r1_d0, r1_d1);
     let r1_u1 = _mm256_unpackhi_ps(r1_d0, r1_d1);
-    let mut y1 = _mm256_castpd_ps(_mm256_unpacklo_pd(_mm256_castps_pd(r1_u0), _mm256_castps_pd(r1_u1)));
-    let mut y5 = _mm256_castpd_ps(_mm256_unpackhi_pd(_mm256_castps_pd(r1_u0), _mm256_castps_pd(r1_u1)));
+    let mut y1 =
+        _mm256_castpd_ps(_mm256_unpacklo_pd(_mm256_castps_pd(r1_u0), _mm256_castps_pd(r1_u1)));
+    let mut y5 =
+        _mm256_castpd_ps(_mm256_unpackhi_pd(_mm256_castps_pd(r1_u0), _mm256_castps_pd(r1_u1)));
 
     let r2_00 = _mm_loadu_ps(ptr.add(32));
     let r2_01 = _mm_loadu_ps(ptr.add(36));
     let r2_t0 = _mm256_insertf128_ps::<1>(_mm256_castps128_ps256(r2_00), _mm_loadu_ps(ptr.add(40)));
     let r2_t1 = _mm256_insertf128_ps::<1>(_mm256_castps128_ps256(r2_01), _mm_loadu_ps(ptr.add(44)));
-    let r2_d0 = _mm256_castpd_ps(_mm256_unpacklo_pd(_mm256_castps_pd(r2_t0), _mm256_castps_pd(r2_t1)));
-    let r2_d1 = _mm256_castpd_ps(_mm256_unpackhi_pd(_mm256_castps_pd(r2_t0), _mm256_castps_pd(r2_t1)));
+    let r2_d0 =
+        _mm256_castpd_ps(_mm256_unpacklo_pd(_mm256_castps_pd(r2_t0), _mm256_castps_pd(r2_t1)));
+    let r2_d1 =
+        _mm256_castpd_ps(_mm256_unpackhi_pd(_mm256_castps_pd(r2_t0), _mm256_castps_pd(r2_t1)));
     let r2_u0 = _mm256_unpacklo_ps(r2_d0, r2_d1);
     let r2_u1 = _mm256_unpackhi_ps(r2_d0, r2_d1);
-    let mut y2 = _mm256_castpd_ps(_mm256_unpacklo_pd(_mm256_castps_pd(r2_u0), _mm256_castps_pd(r2_u1)));
-    let mut y6 = _mm256_castpd_ps(_mm256_unpackhi_pd(_mm256_castps_pd(r2_u0), _mm256_castps_pd(r2_u1)));
+    let mut y2 =
+        _mm256_castpd_ps(_mm256_unpacklo_pd(_mm256_castps_pd(r2_u0), _mm256_castps_pd(r2_u1)));
+    let mut y6 =
+        _mm256_castpd_ps(_mm256_unpackhi_pd(_mm256_castps_pd(r2_u0), _mm256_castps_pd(r2_u1)));
 
     let r3_00 = _mm_loadu_ps(ptr.add(48));
     let r3_01 = _mm_loadu_ps(ptr.add(52));
     let r3_t0 = _mm256_insertf128_ps::<1>(_mm256_castps128_ps256(r3_00), _mm_loadu_ps(ptr.add(56)));
     let r3_t1 = _mm256_insertf128_ps::<1>(_mm256_castps128_ps256(r3_01), _mm_loadu_ps(ptr.add(60)));
-    let r3_d0 = _mm256_castpd_ps(_mm256_unpacklo_pd(_mm256_castps_pd(r3_t0), _mm256_castps_pd(r3_t1)));
-    let r3_d1 = _mm256_castpd_ps(_mm256_unpackhi_pd(_mm256_castps_pd(r3_t0), _mm256_castps_pd(r3_t1)));
+    let r3_d0 =
+        _mm256_castpd_ps(_mm256_unpacklo_pd(_mm256_castps_pd(r3_t0), _mm256_castps_pd(r3_t1)));
+    let r3_d1 =
+        _mm256_castpd_ps(_mm256_unpackhi_pd(_mm256_castps_pd(r3_t0), _mm256_castps_pd(r3_t1)));
     let r3_u0 = _mm256_unpacklo_ps(r3_d0, r3_d1);
     let r3_u1 = _mm256_unpackhi_ps(r3_d0, r3_d1);
-    let mut y3 = _mm256_castpd_ps(_mm256_unpacklo_pd(_mm256_castps_pd(r3_u0), _mm256_castps_pd(r3_u1)));
-    let mut y7 = _mm256_castpd_ps(_mm256_unpackhi_pd(_mm256_castps_pd(r3_u0), _mm256_castps_pd(r3_u1)));
+    let mut y3 =
+        _mm256_castpd_ps(_mm256_unpacklo_pd(_mm256_castps_pd(r3_u0), _mm256_castps_pd(r3_u1)));
+    let mut y7 =
+        _mm256_castpd_ps(_mm256_unpackhi_pd(_mm256_castps_pd(r3_u0), _mm256_castps_pd(r3_u1)));
 
     // Row transform: even columns (y0..y3) against M1.
     let c0 = _mm256_set_m128(_mm_loadu_ps(COEF.as_ptr()), _mm_loadu_ps(COEF.as_ptr()));
-    let c1 = _mm256_set_m128(_mm_loadu_ps(COEF.as_ptr().add(4)), _mm_loadu_ps(COEF.as_ptr().add(4)));
-    let c2 = _mm256_set_m128(_mm_loadu_ps(COEF.as_ptr().add(8)), _mm_loadu_ps(COEF.as_ptr().add(8)));
-    let c3 = _mm256_set_m128(_mm_loadu_ps(COEF.as_ptr().add(12)), _mm_loadu_ps(COEF.as_ptr().add(12)));
+    let c1 =
+        _mm256_set_m128(_mm_loadu_ps(COEF.as_ptr().add(4)), _mm_loadu_ps(COEF.as_ptr().add(4)));
+    let c2 =
+        _mm256_set_m128(_mm_loadu_ps(COEF.as_ptr().add(8)), _mm_loadu_ps(COEF.as_ptr().add(8)));
+    let c3 =
+        _mm256_set_m128(_mm_loadu_ps(COEF.as_ptr().add(12)), _mm_loadu_ps(COEF.as_ptr().add(12)));
 
     y0 = idct_avx_mmult(y0, c0, c1, c2, c3);
     y1 = idct_avx_mmult(y1, c0, c1, c2, c3);
@@ -216,10 +259,14 @@ unsafe fn dct_inverse_8x8_avx_inner(data: &mut [f32; 64]) {
     y3 = idct_avx_mmult(y3, c0, c1, c2, c3);
 
     // Row transform: odd columns (y4..y7) against M2.
-    let c4 = _mm256_set_m128(_mm_loadu_ps(COEF.as_ptr().add(16)), _mm_loadu_ps(COEF.as_ptr().add(16)));
-    let c5 = _mm256_set_m128(_mm_loadu_ps(COEF.as_ptr().add(20)), _mm_loadu_ps(COEF.as_ptr().add(20)));
-    let c6 = _mm256_set_m128(_mm_loadu_ps(COEF.as_ptr().add(24)), _mm_loadu_ps(COEF.as_ptr().add(24)));
-    let c7 = _mm256_set_m128(_mm_loadu_ps(COEF.as_ptr().add(28)), _mm_loadu_ps(COEF.as_ptr().add(28)));
+    let c4 =
+        _mm256_set_m128(_mm_loadu_ps(COEF.as_ptr().add(16)), _mm_loadu_ps(COEF.as_ptr().add(16)));
+    let c5 =
+        _mm256_set_m128(_mm_loadu_ps(COEF.as_ptr().add(20)), _mm_loadu_ps(COEF.as_ptr().add(20)));
+    let c6 =
+        _mm256_set_m128(_mm_loadu_ps(COEF.as_ptr().add(24)), _mm_loadu_ps(COEF.as_ptr().add(24)));
+    let c7 =
+        _mm256_set_m128(_mm_loadu_ps(COEF.as_ptr().add(28)), _mm_loadu_ps(COEF.as_ptr().add(28)));
 
     y4 = idct_avx_mmult(y4, c4, c5, c6, c7);
     y5 = idct_avx_mmult(y5, c4, c5, c6, c7);
@@ -299,7 +346,8 @@ unsafe fn dct_inverse_8x8_avx_inner(data: &mut [f32; 64]) {
     let beta3 = _mm256_sub_ps(s_d5g1, s_b7e3);
 
     // Reload the M1 broadcast source: bytes 8..24 of COEF = elements [2..6) = {a, a, c, f}.
-    let m1_bcast = _mm256_set_m128(_mm_loadu_ps(COEF.as_ptr().add(2)), _mm_loadu_ps(COEF.as_ptr().add(2)));
+    let m1_bcast =
+        _mm256_set_m128(_mm_loadu_ps(COEF.as_ptr().add(2)), _mm_loadu_ps(COEF.as_ptr().add(2)));
     let cf = _mm256_permute_ps::<0xff>(m1_bcast);
     let cc = _mm256_permute_ps::<0xaa>(m1_bcast);
     let ca = _mm256_permute_ps::<0x00>(m1_bcast);

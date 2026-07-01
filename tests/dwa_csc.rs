@@ -85,19 +85,26 @@ fn check_against_real_openexr(exr_name: &str, bin_name: &str, channel_names: &[&
             assert!(
                 diff <= MAX_ALLOWED_DIFF,
                 "channel {} sample [{}]: exrs decoded {}, real OpenEXR decoded {} (diff {})",
-                channel_name, i, a, e, diff
+                channel_name,
+                i,
+                a,
+                e,
+                diff
             );
             if diff > 0.0 {
                 mismatches += 1;
             }
         }
 
-        let mismatch_fraction = mismatches as f64 / actual.len() as f64;
+        let mismatch_fraction = (mismatches as f64) / (actual.len() as f64);
         assert!(
             mismatch_fraction <= MAX_ALLOWED_MISMATCH_FRACTION,
             "channel {}: {} of {} samples differ from real OpenEXR (fraction {:.4}), \
              which is too many to be the known last-bit rounding gap",
-            channel_name, mismatches, actual.len(), mismatch_fraction
+            channel_name,
+            mismatches,
+            actual.len(),
+            mismatch_fraction
         );
     }
 }
