@@ -335,8 +335,16 @@ pub fn decompress(
 
     let mut lossy_half_data: Vec<Vec<f16>> = vec![vec![]; channels.list.len()];
 
-    // Group channels for CSC: look for an R/G/B triplet by name suffix,
-    // since the decoder doesn't track the encoder's original CSC grouping.
+    // Group channels for CSC: find R/G/B triplets by name suffix, mirroring
+    // DwaCompressor_classifyChannels's prefixMap approach in
+    // internal_dwa_compressor.h (~line 1610-1698). Only suffixes with a
+    // cscIdx of 0/1/2 (the R/G/B family, including legacy "r"/"red",
+    // "g"/"grn"/"green", "b"/"blu"/"blue", matched case-insensitively) are
+    // ever grouped for the inverse color-space transform. Y/RY/BY channels
+    // have cscIdx == -1 in both sDefaultChannelRules and sLegacyChannelRules
+    // in internal_dwa_classifier.h and are therefore *never* CSC-grouped by
+    // the real compressor either - they are always decoded as standalone
+    // single LOSSY_DCT channels (see the loop below), matching this decoder.
     let mut csc_groups: Vec<(usize, usize, usize)> = vec![]; // (r_idx, g_idx, b_idx) in channel_infos
     let mut processed = vec![false; channel_infos.len()];
 
@@ -345,25 +353,24 @@ pub fn decompress(
             continue;
         }
         let name = &channel_infos[i].name;
-        if name.ends_with('R') || name == "R" {
-            // try to find G and B
-            let base = if name == "R" { "" } else { &name[..name.len() - 1] };
-            let g_idx = find_channel_by_suffix(&channel_infos, &(base.to_string() + "G"));
-            let b_idx = find_channel_by_suffix(&channel_infos, &(base.to_string() + "B"));
+        if let Some(base) = csc_prefix_for_index(name, 0) {
+            let g_idx = find_channel_with_csc_index(&channel_infos, base, 1);
+            let b_idx = find_channel_with_csc_index(&channel_infos, base, 2);
             if let (Some(gi), Some(bi)) = (g_idx, b_idx) {
+                let (r_chan, g_chan, b_chan) = (&channels.list[i], &channels.list[gi], &channels.list[bi]);
                 if
                     channel_infos[gi].scheme == CompressorScheme::LossyDct &&
-                    channel_infos[bi].scheme == CompressorScheme::LossyDct
+                    channel_infos[bi].scheme == CompressorScheme::LossyDct &&
+                    r_chan.sampling == g_chan.sampling &&
+                    r_chan.sampling == b_chan.sampling
                 {
                     csc_groups.push((i, gi, bi));
                     processed[i] = true;
                     processed[gi] = true;
                     processed[bi] = true;
-                    continue;
                 }
             }
         }
-        // TODO: Y/RY/BY-named CSC groups aren't recognized yet, only R/G/B.
     }
 
     // Process CSC groups
@@ -631,13 +638,41 @@ fn classify_channel(name: &str, rules: &[Classifier]) -> CompressorScheme {
     CompressorScheme::Unknown
 }
 
-fn find_channel_by_suffix(infos: &[ChannelInfo], suffix: &str) -> Option<usize> {
-    for (i, info) in infos.iter().enumerate() {
-        if info.name.ends_with(suffix) || info.name == suffix {
-            return Some(i);
+/// R/G/B family suffixes recognized for CSC grouping, with their cscIdx
+/// (0=R, 1=G, 2=B), matching sDefaultChannelRules/sLegacyChannelRules in
+/// internal_dwa_classifier.h (Y/RY/BY are intentionally absent: they have
+/// cscIdx == -1 there and are never CSC-grouped).
+const CSC_SUFFIXES: [(&str, usize); 8] = [
+    ("r", 0), ("red", 0),
+    ("g", 1), ("grn", 1), ("green", 1),
+    ("b", 2), ("blu", 2), ("blue", 2),
+];
+
+/// The part of a channel name after the last '.', matching
+/// `Classifier_find_suffix` in internal_dwa_classifier.h.
+fn channel_suffix(name: &str) -> &str {
+    match name.rfind('.') {
+        Some(idx) => &name[idx + 1..],
+        None => name,
+    }
+}
+
+/// If `name`'s suffix case-insensitively matches a CSC rule with the given
+/// `csc_idx`, returns the name's prefix (everything before the suffix), so
+/// sibling R/G/B channels sharing that prefix can be located.
+fn csc_prefix_for_index(name: &str, csc_idx: usize) -> Option<&str> {
+    let suffix = channel_suffix(name);
+    let suffix_lower = suffix.to_ascii_lowercase();
+    for (s, idx) in CSC_SUFFIXES {
+        if idx == csc_idx && suffix_lower == s {
+            return Some(&name[..name.len() - suffix.len()]);
         }
     }
     None
+}
+
+fn find_channel_with_csc_index(infos: &[ChannelInfo], prefix: &str, csc_idx: usize) -> Option<usize> {
+    infos.iter().position(|info| csc_prefix_for_index(&info.name, csc_idx) == Some(prefix))
 }
 
 /// Decode one or three LOSSY_DCT channels (with optional CSC).
@@ -667,7 +702,7 @@ fn decode_lossy_dct_group(
 
             let block_idx = by * num_blocks_x + bx;
             for c in 0..num_comp {
-                let dc_idx = c * n_blocks + block_idx;
+                let dc_idx = *dc_cursor + c * n_blocks + block_idx;
                 if dc_idx < dc_packed.len() {
                     comp_dcs[c] = f16::from_bits(dc_packed[dc_idx]);
                 }
