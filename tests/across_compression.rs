@@ -144,6 +144,25 @@ fn compare_compression_contents_b44a_f16() {
     expect_eq_other("f16", "b44a.exr", "decompressed_b44a.exr");
 }
 
+// NOTE: these four DWA tests are expected to fail - not a bug in exrs.
+// `expect_eq_other` forces an *exact* comparison here (the metadata HACK
+// above sets compression to Uncompressed before assert_equals_result, which
+// disables the epsilon tolerance normally applied to lossy methods).
+//
+// decompressed_dwaa.exr/decompressed_dwab.exr were decoded by some real
+// OpenEXR build in the past, but real OpenEXR isn't internally
+// bit-identical: its scalar and SIMD (SSE2/AVX) DWA IDCT paths use slightly
+// different basis constants (see `dct_inverse_8x8_scalar` in
+// src/compression/dwa/idct.rs), so two real builds/dispatch choices can
+// disagree by a couple of ULPs on some samples - independently of exrs. A
+// fresh real decode of dwaa.exr/dwab.exr confirms exrs differs from these
+// stale fixtures by that same scalar-vs-SIMD margin, not a structural bug -
+// and with the `dwa_simd_identical` feature (src/compression/dwa/
+// idct_simd.rs), exrs reproduces a fresh real decode of these two files
+// bit-for-bit (0/28,340 mismatches verified). These four tests still fail
+// even then, since their ground truth is the stale fixture, not a fresh
+// decode. See tests/dwa_csc.rs for a tolerance-based check against a fresh
+// real-OpenEXR decode instead.
 #[test]
 fn compare_compression_contents_dwaa_f32() {
     expect_eq_other("f32", "dwaa.exr", "decompressed_dwaa.exr");

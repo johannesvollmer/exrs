@@ -26,7 +26,10 @@
     trivial_numeric_casts,
     redundant_semicolons
 )]
-#![forbid(unsafe_code)]
+// unsafe is forbidden unconditionally, except for the opt-in, off-by-default
+// `dwa_simd_identical` feature (src/compression/dwa/idct_simd.rs), which uses
+// x86_64 SIMD intrinsics to bit-match OpenEXR's own SIMD-dispatched DWA decode.
+#![cfg_attr(not(feature = "dwa_simd_identical"), forbid(unsafe_code))]
 #![warn(missing_docs)]
 
 pub mod io; // public to allow for custom attribute byte parsing

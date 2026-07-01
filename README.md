@@ -113,7 +113,8 @@ __What we can do:__
         - [x] PIZ
         - [x] RXR24
         - [x] B44, B44A
-        - [ ] DWAA, DWAB
+        - [ ] DWAA, DWAB // True bit identical only with --fetaure dwa_simd_identical !unsafe!
+                         // rust for SSE2/AVX2 parity -> 0 mismatched bits
 
 - [ ] Writing images
     - [x] Scan Lines

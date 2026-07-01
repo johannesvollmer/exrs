@@ -12,6 +12,11 @@ use crate::{
 mod idct;
 mod csc;
 
+// Bit-exact port of OpenEXR's SIMD-dispatched IDCT; see idct_simd.rs and the
+// `dwa_simd_identical` feature in Cargo.toml.
+#[cfg(all(feature = "dwa_simd_identical", target_arch = "x86_64"))]
+mod idct_simd;
+
 use half::f16;
 
 /// Number of u64 counters in the DWA chunk header.
@@ -465,27 +470,24 @@ pub fn decompress(
                         }
                     }
                 }
-            } else if info.scheme == CompressorScheme::Unknown && !unknown_data[ci].is_empty() {
-                // Raw planar bytes, scanline-wise per channel (see split above).
+            } else if
+                (info.scheme == CompressorScheme::Unknown && !unknown_data[ci].is_empty()) ||
+                (info.scheme == CompressorScheme::Rle && !rle_data[ci].is_empty())
+            {
+                // Raw bytes, scanline-wise per channel (see planar split above).
+                let raw = if info.scheme == CompressorScheme::Unknown {
+                    &unknown_data[ci]
+                } else {
+                    &rle_data[ci]
+                };
+
                 let row_in_ch = ((y - rectangle.position.y()) / samp_y) as usize;
                 let byte_len = line_w * bytes_per_samp;
                 let byte_off = row_in_ch * byte_len;
 
-                if byte_off + byte_len <= unknown_data[ci].len() {
+                if byte_off + byte_len <= raw.len() {
                     out[out_cursor..out_cursor + byte_len].copy_from_slice(
-                        &unknown_data[ci][byte_off..byte_off + byte_len]
-                    );
-                }
-                out_cursor += byte_len;
-            } else if info.scheme == CompressorScheme::Rle && !rle_data[ci].is_empty() {
-                // Raw per-pixel bytes, scanline-wise per channel (see split above).
-                let row_in_ch = ((y - rectangle.position.y()) / samp_y) as usize;
-                let byte_len = line_w * bytes_per_samp;
-                let byte_off = row_in_ch * byte_len;
-
-                if byte_off + byte_len <= rle_data[ci].len() {
-                    out[out_cursor..out_cursor + byte_len].copy_from_slice(
-                        &rle_data[ci][byte_off..byte_off + byte_len]
+                        &raw[byte_off..byte_off + byte_len]
                     );
                 }
                 out_cursor += byte_len;

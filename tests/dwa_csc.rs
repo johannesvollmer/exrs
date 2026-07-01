@@ -1,28 +1,22 @@
 // Cross-checks exrs's DWA decoder against the real OpenEXR C++ library for
-// images containing more than one LOSSY_DCT channel group per chunk:
+// images with more than one LOSSY_DCT channel group per chunk:
 //
-// - y_ry_by_dwaa.exr:    three standalone LOSSY_DCT channels (Y, RY, BY).
-//   None of these are ever CSC-grouped (they have cscIdx == -1 in
-//   internal_dwa_classifier.h's sDefaultChannelRules/sLegacyChannelRules),
-//   so decoding them exercises three standalone-group decodes in sequence.
+// - y_ry_by_dwaa.exr:    three standalone channels (Y, RY, BY) - never
+//   CSC-grouped (cscIdx == -1 in internal_dwa_classifier.h), so this
+//   exercises three standalone-group decodes in a row.
 // - rgb_plus_y_dwaa.exr: an R/G/B CSC triplet followed by a standalone Y
-//   channel, exercising the transition from a 3-component CSC group to a
-//   subsequent standalone group.
+//   channel, exercising the transition from a CSC group to a standalone one.
 //
-// Both scenarios previously triggered a real bug: the DC coefficient buffer
-// is planar across *all* LOSSY_DCT groups in the chunk (CSC groups first,
-// then standalone channels, each contributing `num_components * num_blocks`
-// values), but the decoder read every group starting from offset 0 in that
-// buffer instead of from the running cursor - so every group after the
-// first read another group's DC values. See the `dc_cursor` fix in
-// `decode_lossy_dct_group` (src/compression/dwa/mod.rs).
+// Both scenarios previously hit a real bug: the DC buffer is planar across
+// *all* groups in the chunk, but every group was read starting from offset 0
+// instead of a running cursor, so groups after the first read another
+// group's DC values. Fixed via the `dc_cursor` in `decode_lossy_dct_group`
+// (src/compression/dwa/mod.rs).
 //
-// The fixtures in tests/images/valid/custom/dwa_csc/ were written with the
-// real OpenEXR library (see generate.py in that directory); the accompanying
-// .bin files are that same library's own decoded pixel values (f32 little
-// endian, one plane per channel in the order listed below), so this test has
-// no Python/OpenEXR runtime dependency - it just compares exrs's output to a
-// frozen reference decode.
+// Fixtures were written with the real OpenEXR library (see generate.py in
+// tests/images/valid/custom/dwa_csc/); the .bin files are that library's own
+// decoded pixel values (f32 LE, one plane per channel), so this test has no
+// Python/OpenEXR runtime dependency - just a frozen reference decode.
 
 use std::path::Path;
 
@@ -47,14 +41,17 @@ fn read_ground_truth(bin_path: &Path, channel_count: usize, pixel_count: usize) 
         .collect()
 }
 
-// LOSSY_DCT is, as the name says, lossy: exrs's scalar IDCT (src/compression/
-// dwa/idct.rs) does not reproduce the reference implementation bit-for-bit in
-// every last case (a known, separately tracked, pre-existing rounding
-// difference affecting an occasional sample - see the DWA fixtures in
-// across_compression.rs, which have one such mismatch each). This test's
-// purpose is to catch *structural* bugs (like the DC cursor bug above), which
-// produce large, widespread differences, not to chase that last-bit rounding
-// gap - so a tiny fraction of samples are allowed a small tolerance.
+// LOSSY_DCT is lossy: by default, exrs's scalar IDCT (src/compression/dwa/
+// idct.rs) doesn't reproduce a real OpenEXR decode bit-for-bit. Not an exrs
+// bug - OpenEXR's own scalar and SIMD (SSE2/AVX) IDCT disagree with each
+// other (basis-constant precision and summation order both differ; see the
+// comments on `dct_inverse_8x8_scalar` in idct.rs), and real builds dispatch
+// to SIMD by default, so this port's default scalar-matching path differs
+// from a typical real decode by 1-2 ULP in half precision on some samples.
+// The `dwa_simd_identical` feature closes that gap (0 mismatches verified
+// against real decodes, including these two fixtures). This test's
+// tolerance is here to catch *structural* bugs (like the DC cursor bug
+// above), not to chase the inherent scalar/SIMD ambiguity.
 const MAX_ALLOWED_DIFF: f32 = 0.001;
 const MAX_ALLOWED_MISMATCH_FRACTION: f64 = 0.01;
 

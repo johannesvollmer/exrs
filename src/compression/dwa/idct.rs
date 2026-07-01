@@ -1,14 +1,39 @@
 // Scalar 8x8 inverse DCT for DWA, ported from OpenEXRCore.
 
-/// Inverse DCT on 8x8 block (in-place), scalar implementation.
-/// `data` is 64 floats in row-major.
+/// Inverse DCT on 8x8 block (in-place). `data` is 64 floats in row-major.
+///
+/// By default matches OpenEXR's *scalar* dctInverse8x8_scalar exactly. With
+/// the `dwa_simd_identical` feature (x86_64 only), matches OpenEXR's
+/// SIMD-dispatched (SSE2/AVX) path instead - see `super::idct_simd` and the
+/// comment below on why these two upstream paths aren't the same.
 pub fn dct_inverse_8x8(data: &mut [f32; 64]) {
-    dct_inverse_8x8_scalar(data, 0);
+    #[cfg(all(feature = "dwa_simd_identical", target_arch = "x86_64"))]
+    {
+        super::idct_simd::dct_inverse_8x8_simd(data);
+        return;
+    }
+
+    #[allow(unreachable_code)]
+    dct_inverse_8x8_scalar(data);
 }
 
-fn dct_inverse_8x8_scalar(data: &mut [f32; 64], zeroed_rows: usize) {
-    // Matches OpenEXR's dctInverse8x8_scalar, which uses this truncated
-    // literal instead of a full-precision PI, for bit-identical output.
+fn dct_inverse_8x8_scalar(data: &mut [f32; 64]) {
+    // Matches OpenEXR's dctInverse8x8_scalar, which uses this truncated PI
+    // literal (not full precision) for bit-identical output.
+    //
+    // Caveat: OpenEXR itself isn't internally bit-identical here. Its
+    // SSE2/AVX path (internal_dwa_simd.h) hardcodes these same 7 basis
+    // constants as 6-digit decimal literals instead of this scalar path's
+    // runtime `cosf(...)` result - 4 of the 7 differ by exactly 1 ULP. Since
+    // real-world builds dispatch to SIMD by default, files from the "real"
+    // library almost always reflect those SIMD constants, not the scalar
+    // ones this reference (and this port) computes.
+    //
+    // So a fresh real-OpenEXR decode differs from this (scalar-matching)
+    // port by ~1-2 ULP in half precision on some samples - not a bug, just
+    // the scalar/SIMD ambiguity upstream itself has. `dwa_simd_identical`
+    // closes that gap; see tests/across_compression.rs and tests/dwa_csc.rs
+    // for how the test suite accounts for it.
     const PI: f32 = 3.14159;
 
     let a = 0.5 * (PI / 4.0).cos();
@@ -25,7 +50,7 @@ fn dct_inverse_8x8_scalar(data: &mut [f32; 64], zeroed_rows: usize) {
     let mut gamma = [0f32; 4];
 
     // First pass - row wise
-    for row in 0..8 - zeroed_rows {
+    for row in 0..8 {
         let base = row * 8;
         let row_ptr = &mut data[base..base + 8];
 

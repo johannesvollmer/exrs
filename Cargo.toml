@@ -49,6 +49,12 @@ default = ["rayon"]
 # rayon is used for parallel compression
 rayon = ["dep:rayon-core"]
 
+# Opt-in: unsafe x86_64 SSE2/AVX intrinsics that replicate
+# OpenEXR's SIMD-dispatched DWA decoder bit-for-bit (its basis constants and
+# summation order differ from OpenEXR's own scalar reference - see
+# src/compression/dwa/idct.rs). The only unsafe code in this crate; x86_64-only.
+dwa_simd_identical = []
+
 [[example]]
 name = "7_write_raw_blocks"
 required-features = ["rayon"]
