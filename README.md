@@ -302,7 +302,7 @@ and they offer several advantages over this Rust implementation:
 
 This library is modeled after the
 official [`OpenEXR Documentation`](https://openexr.com/en/latest/)
-document. Unspecified behavior is concluded from the C++ library.
+document. Saved older PDFs in /specification. Unspecified behavior is concluded from the C++ library.
 
 ### Roadmap
 1. Support all compression formats (missing format: DWAA/DWAB)
