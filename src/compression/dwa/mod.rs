@@ -31,7 +31,7 @@ enum CompressorScheme {
 }
 
 /// Layout of the fixed 11-counter DWA chunk header. Every slot stays named
-/// here even though the decoder does not yet consume all of them (RLE/unknown
+/// here even though the decoder does not yet consume all of them (RLE
 /// channel data is parsed but not applied), since this documents the on-disk format.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
@@ -172,6 +172,7 @@ pub fn decompress(
     // the data actually available so a truncated chunk degrades gracefully
     // instead of panicking on an out-of-bounds slice.
     let u_len = std::cmp::min(unknown_comp as usize, data.len());
+    let u_sec = &data[..u_len];
     data = &data[u_len..];
 
     let a_len = std::cmp::min(ac_comp as usize, data.len());
@@ -181,9 +182,21 @@ pub fn decompress(
     let d_len = std::cmp::min(dc_comp as usize, data.len());
     let dc_sec = &data[..d_len];
 
-    // NOTE: the unknown-scheme and RLE-scheme sections (e.g. alpha channels
-    // using the RLE scheme) are skipped over here but not decoded yet; see
-    // the fallback handling further down where those channels are written.
+    // NOTE: the RLE-scheme section (e.g. alpha channels using the RLE scheme)
+    // is skipped over here but not decoded yet; see the fallback handling
+    // further down where those channels are written.
+
+    // UNKNOWN section: raw (non-DCT-compressible) channel data, zlib-compressed
+    // and laid out planar (i.e. one channel's full width*height data fully
+    // before the next), in channel order. Matches DwaCompressor::uncompress
+    // in internal_dwa_compressor.h, which just inflates this straight into
+    // _planarUncBuffer[UNKNOWN] and memcpy's scanlines out of it verbatim.
+    let unknown_uncompressed_size = counters[DataSizes::UnknownUncompressedSize as usize] as usize;
+    let unknown_raw: Vec<u8> = if !u_sec.is_empty() {
+        inflate_zlib(u_sec, unknown_uncompressed_size).unwrap_or_default()
+    } else {
+        vec![]
+    };
 
     // AC section: either Huffman or zlib -> produces u16 values.
     let ac_packed: Vec<u16> = if !ac_sec.is_empty() {
@@ -253,6 +266,23 @@ pub fn decompress(
             bytes_per_sample,
             sample_type: chan.sample_type,
         });
+    }
+
+    // Split the planar UNKNOWN buffer into one contiguous raw-byte run per
+    // UNKNOWN-scheme channel, in channel order (mirrors
+    // DwaCompressor_setupChannelData's running per-scheme cursor).
+    let mut unknown_data: Vec<Vec<u8>> = vec![vec![]; channel_infos.len()];
+    {
+        let mut cursor = 0usize;
+        for (i, info) in channel_infos.iter().enumerate() {
+            if info.scheme == CompressorScheme::Unknown {
+                let len = info.width * info.height * info.bytes_per_sample;
+                if cursor + len <= unknown_raw.len() {
+                    unknown_data[i] = unknown_raw[cursor..cursor + len].to_vec();
+                }
+                cursor += len;
+            }
+        }
     }
 
     // Simple approach: decode all lossy channels to half, then write scanline by scanline.
@@ -386,14 +416,40 @@ pub fn decompress(
                         }
                     }
                 }
+            } else if info.scheme == CompressorScheme::Unknown && !unknown_data[ci].is_empty() {
+                // Raw planar bytes, scanline-wise per channel (see split above).
+                let row_in_ch = ((y - rectangle.position.y()) / samp_y) as usize;
+                let byte_len = line_w * bytes_per_samp;
+                let byte_off = row_in_ch * byte_len;
+
+                if byte_off + byte_len <= unknown_data[ci].len() {
+                    out[out_cursor..out_cursor + byte_len].copy_from_slice(
+                        &unknown_data[ci][byte_off..byte_off + byte_len]
+                    );
+                }
+                out_cursor += byte_len;
             } else {
-                // RLE/unknown-scheme channels aren't decoded yet and are left zeroed,
+                // RLE-scheme channels aren't decoded yet and are left zeroed,
                 // except alpha, which defaults to fully opaque rather than fully transparent.
+                // The written value must still match `bytes_per_samp` for this channel's
+                // actual sample type, or every following channel/scanline shifts out of place.
                 if info.name == "A" || info.name.ends_with("A") {
                     for _ in 0..line_w {
-                        let bits = f16::ONE.to_bits();
-                        out[out_cursor..out_cursor + 2].copy_from_slice(&bits.to_le_bytes());
-                        out_cursor += 2;
+                        match info.sample_type {
+                            SampleType::F16 => {
+                                out[out_cursor..out_cursor + 2]
+                                    .copy_from_slice(&f16::ONE.to_bits().to_le_bytes());
+                            }
+                            SampleType::F32 => {
+                                out[out_cursor..out_cursor + 4]
+                                    .copy_from_slice(&1.0f32.to_le_bytes());
+                            }
+                            SampleType::U32 => {
+                                out[out_cursor..out_cursor + 4]
+                                    .copy_from_slice(&1u32.to_le_bytes());
+                            }
+                        }
+                        out_cursor += bytes_per_samp;
                     }
                 } else {
                     out_cursor += line_w * bytes_per_samp;
