@@ -19,9 +19,7 @@ pub fn decompress_bytes(
     // TODO no alloc
 }
 
-/// Classic byte-oriented run-length decoding shared by this compression method and DWA's RLE scheme (both port OpenEXR's `internal_rle_decompress`, see `compression::dwa`).
-/// A negative length-byte `-n` means "copy the next `n` bytes literally"; a non-negative `n` means "repeat the following byte `n + 1` times".
-/// Unlike full RLE decompression, this does not undo the delta prediction (`differences_to_samples`) or byte-block interleaving (`interleave_byte_blocks`) applied on top of it here, since DWA does not apply those extra steps.
+/// Shared by this compression method and DWA's RLE scheme (both port OpenEXR's `internal_rle_decompress`, see `compression::dwa`) - kept separate from `decompress_bytes` because DWA does not apply the delta prediction / byte-block interleaving done there.
 pub(super) fn unpack_rle_tokens(
     compressed_le: &[u8],
     expected_byte_size: usize,
