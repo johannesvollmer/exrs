@@ -29,18 +29,17 @@ fn dir() -> &'static Path {
     Path::new("tests/images/valid/custom/dwa_csc")
 }
 
-// LOSSY_DCT is lossy: by default, exrs's scalar IDCT (src/compression/dwa/
-// idct.rs) doesn't reproduce a real OpenEXR decode bit-for-bit. Not an exrs
-// bug - OpenEXR's own scalar and SIMD (SSE2/AVX) IDCT disagree with each
-// other (basis-constant precision and summation order both differ; see the
-// comments on `dct_inverse_8x8_scalar` in idct.rs), and real builds dispatch
-// to SIMD by default, so this port's default scalar-matching path differs
-// from a typical real decode by 1-2 ULP in half precision on some samples.
-// The `dwa_simd_identical` feature closes that gap (0 mismatches verified
-// against real decodes, including these two fixtures). `ValidateResult`'s
-// lossy-compression tolerance (see `f32::validate_result` in
-// src/image/mod.rs) is here to catch *structural* bugs (like the DC cursor
-// bug above), not to chase the inherent scalar/SIMD ambiguity.
+// LOSSY_DCT is lossy: exrs's IDCT (src/compression/dwa/idct.rs) matches
+// OpenEXR's *scalar* reference exactly, but doesn't reproduce a real OpenEXR
+// decode bit-for-bit. Not an exrs bug - OpenEXR's own scalar and SIMD
+// (SSE2/AVX) IDCT disagree with each other (basis-constant precision and
+// summation order both differ; see the comments on `dct_inverse_8x8` in
+// idct.rs), and real builds dispatch to SIMD by default, so this port
+// differs from a typical real decode by 1-2 ULP in half precision on some
+// samples. `ValidateResult`'s lossy-compression tolerance (see
+// `f32::validate_result` in src/image/mod.rs) is here to catch *structural*
+// bugs (like the DC cursor bug above), not to chase the inherent
+// scalar/SIMD ambiguity.
 fn check_against_real_openexr(exr_name: &str, ground_truth_name: &str) {
     let decoded = read_first_flat_layer_from_file(dir().join(exr_name))
         .expect("exrs failed to decode DWA fixture");

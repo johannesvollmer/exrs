@@ -113,8 +113,8 @@ __What we can do:__
         - [x] PIZ
         - [x] RXR24
         - [x] B44, B44A
-        - [ ] DWAA, DWAB // True bit identical only with --fetaure dwa_simd_identical !unsafe!
-                         // rust for SSE2/AVX2 parity -> 0 mismatched bits
+        - [ ] DWAA, DWAB // decodes correctly, within a small epsilon of a real
+                         // OpenEXR decode (see src/compression/dwa/idct.rs)
 
 - [ ] Writing images
     - [x] Scan Lines

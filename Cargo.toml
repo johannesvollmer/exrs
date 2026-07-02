@@ -34,6 +34,7 @@ miniz_oxide = "^0.8.0"         # zip compression for pxr24
 smallvec = "^1.7.0"            # make cache-friendly allocations        TODO profile if smallvec is really an improvement!
 rayon-core = { version = "^1.11.0", optional = true }         # threading for parallel compression
 zune-inflate = { version = "^0.2.3", default-features = false, features = ["zlib"] }  # zip decompression, faster than miniz_oxide
+wide = "0.7.33"                # safe portable SIMD for the DWA decoder's inverse DCT
 
 [dev-dependencies]
 image = { version = "0.25.2", default-features = false, features = ["png"] }         # used to convert one exr to some pngs
@@ -48,12 +49,6 @@ default = ["rayon"]
 
 # rayon is used for parallel compression
 rayon = ["dep:rayon-core"]
-
-# Opt-in: unsafe x86_64 SSE2/AVX intrinsics that replicate
-# OpenEXR's SIMD-dispatched DWA decoder bit-for-bit (its basis constants and
-# summation order differ from OpenEXR's own scalar reference - see
-# src/compression/dwa/idct.rs). The only unsafe code in this crate; x86_64-only.
-dwa_simd_identical = []
 
 [[example]]
 name = "7_write_raw_blocks"

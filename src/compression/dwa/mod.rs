@@ -12,11 +12,6 @@ use crate::{
 mod csc;
 mod idct;
 
-// Bit-exact port of OpenEXR's SIMD-dispatched IDCT; see idct_simd.rs and the
-// `dwa_simd_identical` feature in Cargo.toml.
-#[cfg(all(feature = "dwa_simd_identical", target_arch = "x86_64"))]
-mod idct_simd;
-
 use half::f16;
 
 /// Number of u64 counters in the DWA chunk header.
