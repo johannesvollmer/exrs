@@ -1,32 +1,15 @@
-// Inverse DCT for DWA, ported from OpenEXRCore's scalar dctInverse8x8_scalar,
-// vectorized 8-wide with the `wide` crate (safe; its internal unsafe code)
-
-// Rather than vectorizing across the 8 coefficients *within* one row/column
-// (which is how OpenEXR's own SSE2/AVX port works, and requires shuffling
-// values between lanes), this vectorizes across the 8 independent rows (row pass)
-// and the 8 independent columns (column pass): lane if every `f32x8` holds
-// row/column i's value. Every `+`/`-`/`*` below is
-// then a per-lane op with no cross-lane interaction, so each lane computes
-// exactly the same sequence of scalar operations, in the same order, that a
-// plain scalar loop over that row/column would - making this bit-identical
-// to a scalar port while still running 8 rows/columns at once.
+// Inverse DCT for DWA, ported from OpenEXRCore's scalar dctInverse8x8_scalar.
+// Vectorized 8-wide with the `wide` crate: each pass runs all 8 rows (or all
+// 8 columns) of a block in parallel, one SIMD lane per row/column, doing the
+// same per-lane arithmetic the scalar loop would.
 //
-// `wide::f32x8` picks its backing implementation (AVX, SSE2-as-two-halves,
-// or a portable fallback) via `#[cfg(target_feature = ...)]`, resolved at
-// compile time - not `is_x86_feature_detected!` runtime dispatch - so there's
-// no per-block branch/overhead, which matters since DWA decodes many small
-// 8x8 blocks.
+// `wide::f32x8` selects its backing implementation (AVX, SSE2-as-two-halves,
+// or a portable fallback) via `#[cfg(target_feature = ...)]` at compile time,
+// not runtime dispatch.
 //
-// Caveat: this matches OpenEXR's *scalar* reference, not its own
-// SIMD-dispatched decoder. OpenEXR's SSE2/AVX path (internal_dwa_simd.h)
-// hardcodes its basis constants as 6-digit decimal literals instead of this
-// scalar paths runtime `cosf(...)` result - 4 of the 7 differ by exactly 1
-// ULP - and sums in a different (tree, not left-to-right chain) order. Since
-// real-world builds dispatch to SIMD by default, a fresh real-OpenEXR decode
-// differs from this port by ~1-2 ULP in half precision on some samples - not
-// a bug, just the scalar/SIMD ambiguity upstream itself has. See
-// tests/across_compression.rs and tests/dwa_csc.rs for how the test suite's
-// lossy-compression tolerance accounts for that gap.
+// Matches OpenEXR's *scalar* reference, not its SIMD-dispatched decoder (see
+// `avx_identical` below for that one). See tests/across_compression.rs and
+// tests/dwa_csc.rs for the resulting tolerance.
 use wide::f32x8;
 
 struct Coefficients {
@@ -41,7 +24,7 @@ struct Coefficients {
 
 // One 1D inverse DCT pass, applied to 8 lines (rows or columns) at once:
 // `input[k]` holds coefficient `k` of all 8 lines, `output[k]` holds sample
-// `k` of all 8 lines. Mirrors OpenEXR's scalar per-line loop body exactly.
+// `k` of all 8 lines.
 fn dct_inverse_8x8_pass(coef: &Coefficients, input: [f32x8; 8]) -> [f32x8; 8] {
     let alpha0 = coef.c * input[2];
     let alpha1 = coef.f * input[2];
@@ -77,7 +60,7 @@ fn dct_inverse_8x8_pass(coef: &Coefficients, input: [f32x8; 8]) -> [f32x8; 8] {
 
 /// Inverse DCT on 8x8 block (in-place). `data` is 64 floats in row-major.
 pub fn dct_inverse_8x8(data: &mut [f32; 64]) {
-    // literal PI (not full precision) for bit-identical output.
+    // Truncated PI literal, matching OpenEXR's constant.
     const PI: f32 = 3.14159;
 
     let coef = Coefficients {
@@ -90,8 +73,8 @@ pub fn dct_inverse_8x8(data: &mut [f32; 64]) {
         g: f32x8::splat(0.5 * ((7.0 * PI) / 16.0).cos()),
     };
 
-    // Row pass: lane i = row i. `data` is row-major, so gathering "column k
-    // across all rows" is a strided read.
+    // Row pass: lane i = row i. `data` is row-major, so this gathers "column
+    // k across all rows" with a strided read.
     let columns: [f32x8; 8] =
         std::array::from_fn(|k| f32x8::new(std::array::from_fn(|row| data[row * 8 + k])));
 
@@ -103,8 +86,7 @@ pub fn dct_inverse_8x8(data: &mut [f32; 64]) {
         }
     }
 
-    // Column pass: lane i = column i. Each row is already contiguous, so
-    // this needs no gather, just 8 plain loads/stores.
+    // Column pass: lane i = column i. Each row is already contiguous.
     let rows: [f32x8; 8] =
         std::array::from_fn(|row| f32x8::new(std::array::from_fn(|column| data[row * 8 + column])));
 
@@ -122,24 +104,203 @@ pub fn dct_inverse_8x8_dc_only(data: &mut [f32; 64]) {
     }
 }
 
-// Original scalar port that `dct_inverse_8x8_pass` is replaced, kept here
-// for reference.
+// Unused by the decoder (see doc comment on `dct_inverse_8x8_avx_identical`).
+// `#[allow(dead_code)]` on the module suppresses the crate-wide `deny(dead_code)`.
+#[allow(dead_code)]
+mod avx_identical {
+    use super::f32x8;
+
+    // OpenEXR's hardcoded AVX basis constants (internal_dwa_simd.h's sAvxCoef).
+    const AVX_A: f32 = 3.535536e-1;
+    const AVX_B: f32 = 4.903927e-1;
+    const AVX_C: f32 = 4.619398e-1;
+    const AVX_D: f32 = 4.157349e-1;
+    const AVX_E: f32 = 2.777855e-1;
+    const AVX_F: f32 = 1.913422e-1;
+    const AVX_G: f32 = 9.754573e-2;
+
+    struct AvxCoefficients {
+        a: f32x8,
+        na: f32x8,
+        b: f32x8,
+        nb: f32x8,
+        c: f32x8,
+        nc: f32x8,
+        d: f32x8,
+        nd: f32x8,
+        e: f32x8,
+        ne: f32x8,
+        f: f32x8,
+        nf: f32x8,
+        g: f32x8,
+        ng: f32x8,
+    }
+
+    impl AvxCoefficients {
+        fn new() -> Self {
+            // Precomputed negated splats (float negation is an exact sign
+            // flip, so `x * na == -(x * a)` bit-for-bit).
+            Self {
+                a: f32x8::splat(AVX_A),
+                na: f32x8::splat(-AVX_A),
+                b: f32x8::splat(AVX_B),
+                nb: f32x8::splat(-AVX_B),
+                c: f32x8::splat(AVX_C),
+                nc: f32x8::splat(-AVX_C),
+                d: f32x8::splat(AVX_D),
+                nd: f32x8::splat(-AVX_D),
+                e: f32x8::splat(AVX_E),
+                ne: f32x8::splat(-AVX_E),
+                f: f32x8::splat(AVX_F),
+                nf: f32x8::splat(-AVX_F),
+                g: f32x8::splat(AVX_G),
+                ng: f32x8::splat(-AVX_G),
+            }
+        }
+    }
+
+    // Row pass: OpenEXR's `IDCT_AVX_MMULT_ROWS` + `EO_TO_ROW_HALVES` - a dense
+    // matrix-vector product against basis matrices M1 (even input positions
+    // 0,2,4,6) and M2 (odd positions 1,3,5,7).
+    fn dct_inverse_8x8_row_avx(coef: &AvxCoefficients, input: [f32x8; 8]) -> [f32x8; 8] {
+        let (in0, in2, in4, in6) = (input[0], input[2], input[4], input[6]);
+        let (in1, in3, in5, in7) = (input[1], input[3], input[5], input[7]);
+
+        // M1 * [in0, in2, in4, in6]
+        let even0 = (in4 * coef.a + in6 * coef.f) + (in0 * coef.a + in2 * coef.c);
+        let even1 = (in4 * coef.na + in6 * coef.nc) + (in0 * coef.a + in2 * coef.f);
+        let even2 = (in4 * coef.na + in6 * coef.c) + (in0 * coef.a + in2 * coef.nf);
+        let even3 = (in4 * coef.a + in6 * coef.nf) + (in0 * coef.a + in2 * coef.nc);
+
+        // M2 * [in1, in3, in5, in7]
+        let odd0 = (in5 * coef.e + in7 * coef.g) + (in1 * coef.b + in3 * coef.d);
+        let odd1 = (in5 * coef.nb + in7 * coef.ne) + (in1 * coef.d + in3 * coef.ng);
+        let odd2 = (in5 * coef.g + in7 * coef.d) + (in1 * coef.e + in3 * coef.nb);
+        let odd3 = (in5 * coef.d + in7 * coef.nb) + (in1 * coef.g + in3 * coef.ne);
+
+        [
+            even0 + odd0,
+            even1 + odd1,
+            even2 + odd2,
+            even3 + odd3,
+            even3 - odd3,
+            even2 - odd2,
+            even1 - odd1,
+            even0 - odd0,
+        ]
+    }
+
+    // Column pass: OpenEXR's AVX column transform (the back half of
+    // `dctInverse8x8_avx_0`, after the row pass's transpose).
+    fn dct_inverse_8x8_column_avx(coef: &AvxCoefficients, input: [f32x8; 8]) -> [f32x8; 8] {
+        let (in0, in1, in2, in3, in4, in5, in6, in7) =
+            (input[0], input[1], input[2], input[3], input[4], input[5], input[6], input[7]);
+
+        let beta0 = (coef.g * in7 + coef.e * in5) + (coef.d * in3 + coef.b * in1);
+        let beta1 = (coef.d * in1 - (coef.b * in5 + coef.g * in3)) - coef.e * in7;
+        let beta2 = coef.d * in7 + (coef.g * in5 + (coef.e * in1 - coef.b * in3));
+        let beta3 = (coef.d * in5 + coef.g * in1) - (coef.b * in7 + coef.e * in3);
+
+        let theta0 = coef.a * in4 + coef.a * in0;
+        let theta3 = coef.a * in0 - coef.a * in4;
+
+        let theta1 = coef.f * in6 + coef.c * in2;
+        let gamma0 = theta1 + theta0;
+        let gamma3 = theta0 - theta1;
+
+        let theta2 = coef.f * in2 - coef.c * in6;
+        let gamma1 = theta3 + theta2;
+        let gamma2 = theta3 - theta2;
+
+        [
+            gamma0 + beta0,
+            gamma1 + beta1,
+            gamma2 + beta2,
+            gamma3 + beta3,
+            gamma3 - beta3,
+            gamma2 - beta2,
+            gamma1 - beta1,
+            gamma0 - beta0,
+        ]
+    }
+
+    /// Inverse DCT on 8x8 block (in-place), bit-identical to a real OpenEXR
+    /// build's SIMD-dispatched decode (avx > sse2 > scalar priority) instead
+    /// of its scalar reference. Safe, portable Rust - no unsafe, no
+    /// `target_feature`/`cfg(target_arch)` gating.
+    ///
+    /// Not used by the decoder by default; see `dct_inverse_8x8`.
+    pub fn dct_inverse_8x8_avx_identical(data: &mut [f32; 64]) {
+        let coef = AvxCoefficients::new();
+
+        let columns: [f32x8; 8] =
+            std::array::from_fn(|k| f32x8::new(std::array::from_fn(|row| data[row * 8 + k])));
+
+        let rows_out = dct_inverse_8x8_row_avx(&coef, columns);
+        for (column, result) in rows_out.iter().enumerate() {
+            let values = result.to_array();
+            for (row, value) in values.iter().enumerate() {
+                data[row * 8 + column] = *value;
+            }
+        }
+
+        let rows: [f32x8; 8] = std::array::from_fn(|row| {
+            f32x8::new(std::array::from_fn(|column| data[row * 8 + column]))
+        });
+
+        let columns_out = dct_inverse_8x8_column_avx(&coef, rows);
+        for (row, result) in columns_out.iter().enumerate() {
+            data[row * 8..row * 8 + 8].copy_from_slice(&result.to_array());
+        }
+    }
+} // mod avx_identical
+
+#[allow(unused_imports)]
+pub use avx_identical::dct_inverse_8x8_avx_identical;
+
+// TODO: sse2_identical, same technique as avx_identical above. Confirmed to
+// exist (dctInverse8x8_sse2, internal_dwa_simd.h - see this repo's git
+// history at 137ea81 for the original unsafe transcription); dispatch order
+// is avx > sse2 > scalar, so this is real OpenEXR's fallback on non-AVX
+// x86(_64). No further hardware path beyond these three (sse2/avx/scalar)
+// was ever found in that transcription - so likely nothing else to add here.
+//
+// Row pass constants (four __m128 lanes each, broadcast-multiplied against
+// one scalar row value at a time, then summed strictly left-to-right, NOT
+// tree-paired like avx_identical's row pass):
+//   c0 = [a, a, a, a]                    (against row position 0)
+//   c1 = [c, f, -f, -c]                  (against row position 2)
+//   c2 = [a, -a, -a, a]                  (against row position 4)
+//   c3 = [f, -c, c, -f]                  (against row position 6)
+//   c4 = [b, d, e, g]                    (against row position 1)
+//   c5 = [d, -g, -b, -e]                 (against row position 3)
+//   c6 = [e, -b, g, d]                   (against row position 5)
+//   c7 = [g, -e, d, -b]                  (against row position 7)
+//   even_sum = ((pos0*c0 + pos2*c1) + pos4*c2) + pos6*c3
+//   odd_sum  = ((pos1*c4 + pos3*c5) + pos5*c6) + pos7*c7
+//   out[0..4] = even_sum + odd_sum, out[4..8] = reverse(even_sum - odd_sum)
+//
+// Column pass reuses dct_inverse_8x8_pass's alpha0..3/theta0..3/gamma0..3
+// names and structure (including theta0 = a*(in0+in4), a single multiply
+// after adding - unlike avx_identical's two separate multiplies) - only
+// beta0..beta3 differ, each grouped as a tree of two pairs instead of
+// scalar's left-to-right chain, e.g. beta0 = (in1*b + in3*d) + (in5*e + in7*g).
+//
+// Verify the same way avx_identical was verified: temporarily point
+// dwa/mod.rs's dct_inverse_8x8(...) call at the new function, assert_eq!
+// (not tolerance) against tests/images/valid/custom/dwa_csc/*_ground_truth.exr,
+// then revert the call site.
+//
+// Also evaluate the `pulp` crate (safe SIMD with runtime feature detection,
+// unlike `wide`'s compile-time-only dispatch) as an alternative to hand-
+// deriving sse2_identical/avx_identical, and/or as a way to pick between
+// them at runtime.
+
+// Original scalar port that `dct_inverse_8x8_pass` replaced, kept for
+// reference.
 //
 // fn dct_inverse_8x8_scalar(data: &mut [f32; 64]) {
-//     // Matches OpenEXR's dctInverse8x8_scalar, which uses this truncated PI
-//     // literal (not full precision) for bit-identical output.
-//     //
-//     // Caveat: OpenEXR itself isn't internally bit-identical here. Its
-//     // SSE2/AVX path (internal_dwa_simd.h) hardcodes these same 7 basis
-//     // constants as 6-digit decimal literals instead of this scalar path's
-//     // runtime `cosf(...)` result - 4 of the 7 differ by exactly 1 ULP. Since
-//     // real-world builds dispatch to SIMD by default, files from the "real"
-//     // library almost always reflect those SIMD constants, not the scalar
-//     // ones this reference (and this port) computes.
-//     //
-//     // So a fresh real-OpenEXR decode differs from this (scalar-matching)
-//     // port by ~1-2 ULP in half precision on some samples - not a bug, just
-//     // the scalar/SIMD ambiguity upstream itself has.
+//     // Truncated PI literal, matching OpenEXR's constant.
 //     const PI: f32 = 3.14159;
 //
 //     let a = 0.5 * (PI / 4.0).cos();
