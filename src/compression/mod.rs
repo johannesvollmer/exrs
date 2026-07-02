@@ -131,12 +131,12 @@ pub enum Compression {
 
     /// Lossy DCT-based compression (DreamWorks Animation), 32 scanlines per block.
     /// Partial buffer access friendly.
-    /// Decoding support is implemented (encoding is still a stub).
+    /// Decoding support is implemented. Encoding is not implemented and returns an error.
     DWAA(Option<f32>),
 
     /// Lossy DCT-based compression (DreamWorks Animation), 256 scanlines per block.
     /// Better compression ratio for full frames.
-    /// Decoding support is implemented (encoding is still a stub).
+    /// Decoding support is implemented. Encoding is not implemented and returns an error.
     DWAB(Option<f32>),
 
     /// __This lossy compression is not yet supported by this implementation.__
