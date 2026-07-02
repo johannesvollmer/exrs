@@ -1,15 +1,11 @@
-// Inverse DCT for DWA, ported from OpenEXRCore's scalar dctInverse8x8_scalar.
-// Vectorized 8-wide with the `wide` crate: each pass runs all 8 rows (or all
-// 8 columns) of a block in parallel, one SIMD lane per row/column, doing the
-// same per-lane arithmetic the scalar loop would.
+// Inverse DCT for DWA, ported from OpenEXRCore's scalar dctInverse8x8_scalar
+// and vectorized 8-wide with the `wide` crate: each pass runs all 8 rows (or
+// columns) of a block in parallel, one SIMD lane per row/column. `wide::f32x8`
+// picks AVX, SSE2-as-two-halves, or a portable fallback via
+// `#[cfg(target_feature = ...)]` at compile time, not runtime dispatch.
 //
-// `wide::f32x8` selects its backing implementation (AVX, SSE2-as-two-halves,
-// or a portable fallback) via `#[cfg(target_feature = ...)]` at compile time,
-// not runtime dispatch.
-//
-// Matches OpenEXR's *scalar* reference, not its SIMD-dispatched decoder (see
-// `avx_identical` below for that one). See tests/across_compression.rs and
-// tests/dwa_csc.rs for the resulting tolerance.
+// Matches OpenEXR's scalar reference, not its SIMD-dispatched decoder (see
+// `avx_identical` below); see tests/across_compression.rs and tests/dwa_csc.rs.
 use wide::f32x8;
 
 struct Coefficients {
@@ -225,11 +221,9 @@ mod avx_identical {
     }
 
     /// Inverse DCT on 8x8 block (in-place), bit-identical to a real OpenEXR
-    /// build's SIMD-dispatched decode (avx > sse2 > scalar priority) instead
-    /// of its scalar reference. Safe, portable Rust - no unsafe, no
-    /// `target_feature`/`cfg(target_arch)` gating.
-    ///
-    /// Not used by the decoder by default; see `dct_inverse_8x8`.
+    /// build's SIMD-dispatched decode (avx > sse2 > scalar) rather than its
+    /// scalar reference. Safe, portable Rust - no unsafe, no `target_feature`
+    /// gating. Not used by the decoder by default; see `dct_inverse_8x8`.
     pub fn dct_inverse_8x8_avx_identical(data: &mut [f32; 64]) {
         let coef = AvxCoefficients::new();
 
@@ -258,12 +252,10 @@ mod avx_identical {
 #[allow(unused_imports)]
 pub use avx_identical::dct_inverse_8x8_avx_identical;
 
-// TODO: sse2_identical, same technique as avx_identical above. Confirmed to
-// exist (dctInverse8x8_sse2, internal_dwa_simd.h - see this repo's git
-// history at 137ea81 for the original unsafe transcription); dispatch order
-// is avx > sse2 > scalar, so this is real OpenEXR's fallback on non-AVX
-// x86(_64). No further hardware path beyond these three (sse2/avx/scalar)
-// was ever found in that transcription - so likely nothing else to add here.
+// TODO: sse2_identical, same technique as avx_identical above (dctInverse8x8_sse2,
+// internal_dwa_simd.h; see this repo's git history at 137ea81 for the original
+// unsafe transcription). Dispatch order is avx > sse2 > scalar, so this is
+// OpenEXR's non-AVX x86(_64) fallback - the last of the three hardware paths.
 //
 // Row pass constants (four __m128 lanes each, broadcast-multiplied against
 // one scalar row value at a time, then summed strictly left-to-right, NOT

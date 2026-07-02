@@ -194,10 +194,10 @@ pub fn decompress(
     let rle_sec = &data[..r_len];
 
     // UNKNOWN section: raw (non-DCT-compressible) channel data, zlib-compressed
-    // and laid out planar (i.e. one channel's full width*height data fully
-    // before the next), in channel order. Matches DwaCompressor::uncompress
-    // in internal_dwa_compressor.h, which just inflates this straight into
-    // _planarUncBuffer[UNKNOWN] and memcpy's scanlines out of it verbatim.
+    // and laid out planar (each channel's full width*height data before the
+    // next), in channel order. Matches DwaCompressor::uncompress in
+    // internal_dwa_compressor.h (inflate straight into _planarUncBuffer[UNKNOWN],
+    // then memcpy scanlines out verbatim).
     let unknown_uncompressed_size = counters[DataSizes::UnknownUncompressedSize as usize] as usize;
     let unknown_raw: Vec<u8> = if !u_sec.is_empty() {
         inflate_zlib(u_sec, unknown_uncompressed_size).unwrap_or_default()
@@ -206,12 +206,11 @@ pub fn decompress(
     };
 
     // RLE section: zlib-compressed, then classic byte-oriented RLE-encoded.
-    // The RLE-decoded result is planar per RLE-scheme channel (e.g. alpha),
-    // and within each channel it is further split into byte-planes (all
-    // first bytes of every pixel, then all second bytes, ...), in channel
-    // order. Matches DwaCompressor::uncompress's RLE handling in
-    // internal_dwa_compressor.h, which zlib-inflates into `_rleBuffer` and
-    // then calls `internal_rle_decompress` into `_planarUncBuffer[RLE]`.
+    // Result is planar per RLE-scheme channel (e.g. alpha), each channel
+    // further split into byte-planes (all first bytes of every pixel, then
+    // all second bytes, ...), in channel order. Matches
+    // DwaCompressor::uncompress's RLE handling in internal_dwa_compressor.h
+    // (inflate into `_rleBuffer`, `internal_rle_decompress` into `_planarUncBuffer[RLE]`).
     let rle_raw: Vec<u8> = if !rle_sec.is_empty() && rle_raw_size > 0 {
         let inflated = inflate_zlib(rle_sec, rle_uncompressed_size).unwrap_or_default();
         super::rle::unpack_rle_tokens(&inflated, rle_raw_size, false).unwrap_or_default()
@@ -296,11 +295,11 @@ pub fn decompress(
         }
     }
 
-    // Split the planar RLE buffer into one raw-byte run per RLE-scheme
-    // channel (mirrors the UNKNOWN split above), then un-transpose each
-    // channel's byte-planes back into normal per-pixel interleaved order
-    // (mirrors the `case RLE:` handling in DwaCompressor::uncompress, which
-    // reads one byte at a time from `planarUncRleEnd[byte]` per byte-plane).
+    // Split the planar RLE buffer into one raw-byte run per RLE-scheme channel
+    // (mirrors the UNKNOWN split above), then un-transpose each channel's
+    // byte-planes back into per-pixel interleaved order (mirrors
+    // DwaCompressor::uncompress's `case RLE:`, which reads one byte at a time
+    // from `planarUncRleEnd[byte]` per byte-plane).
     let mut rle_data: Vec<Vec<u8>> = vec![vec![]; channel_infos.len()];
     {
         let mut cursor = 0usize;
@@ -331,14 +330,11 @@ pub fn decompress(
 
     // Group channels for CSC: find R/G/B triplets by name suffix, mirroring
     // DwaCompressor_classifyChannels's prefixMap approach in
-    // internal_dwa_compressor.h (~line 1610-1698). Only suffixes with a
-    // cscIdx of 0/1/2 (the R/G/B family, including legacy "r"/"red",
-    // "g"/"grn"/"green", "b"/"blu"/"blue", matched case-insensitively) are
-    // ever grouped for the inverse color-space transform. Y/RY/BY channels
-    // have cscIdx == -1 in both sDefaultChannelRules and sLegacyChannelRules
-    // in internal_dwa_classifier.h and are therefore *never* CSC-grouped by
-    // the real compressor either - they are always decoded as standalone
-    // single LOSSY_DCT channels (see the loop below), matching this decoder.
+    // internal_dwa_compressor.h (~line 1610-1698). Only suffixes with cscIdx
+    // 0/1/2 (R/G/B family: "r"/"red", "g"/"grn"/"green", "b"/"blu"/"blue",
+    // case-insensitive) are grouped. Y/RY/BY have cscIdx == -1 in
+    // sDefaultChannelRules/sLegacyChannelRules (internal_dwa_classifier.h)
+    // and are always decoded standalone (see loop below), matching the real compressor.
     let mut csc_groups: Vec<(usize, usize, usize)> = vec![]; // (r_idx, g_idx, b_idx) in channel_infos
     let mut processed = vec![false; channel_infos.len()];
 
@@ -479,11 +475,11 @@ pub fn decompress(
                 }
                 out_cursor += byte_len;
             } else {
-                // Only reached if an RLE-scheme channel's data could not be
-                // decoded (e.g. missing/corrupt RLE section); alpha then
-                // defaults to fully opaque rather than fully transparent.
-                // The written value must still match `bytes_per_samp` for this channel's
-                // actual sample type, or every following channel/scanline shifts out of place.
+                // Only reached if an RLE-scheme channel's data could not be decoded
+                // (e.g. missing/corrupt RLE section); alpha then defaults to fully
+                // opaque. The written value must still match `bytes_per_samp` for
+                // this channel's actual sample type, or every following
+                // channel/scanline shifts out of place.
                 if info.name == "A" || info.name.ends_with("A") {
                     for _ in 0..line_w {
                         match info.sample_type {
