@@ -12,7 +12,7 @@ fn expect_eq_other(sub_dir: &str, image_name: &str, expected: &str) {
     match read_first_flat_layer_from_file(path) {
         Err(Error::NotSupported(message)) => println!("skipping ({})", message),
         Err(error) => panic!("unexpected error: {}", error),
-        Ok(mut decompressed) => {
+        Ok(decompressed) => {
             let decompressed_path = dir().join(sub_dir).join(expected);
             let mut expected_decompressed = read_first_flat_layer_from_file(decompressed_path)
                 .expect("uncompressed image could not be loaded");
@@ -20,13 +20,14 @@ fn expect_eq_other(sub_dir: &str, image_name: &str, expected: &str) {
             // HACK: make metadata match artificially, to avoid failing the check due to
             // meta data mismatch (the name of the compression methods should
             // not be equal, as we test between compression methods)
-            expected_decompressed.layer_data.encoding.compression = Compression::Uncompressed;
-            decompressed.layer_data.encoding.compression = Compression::Uncompressed;
+            expected_decompressed.layer_data.encoding.compression =
+                decompressed.layer_data.encoding.compression;
 
             debug_assert_eq!(
                 expected_decompressed.layer_data.attributes, decompressed.layer_data.attributes,
                 "attributes should not be affected by compression"
             );
+
             debug_assert_eq!(
                 expected_decompressed.layer_data.size, decompressed.layer_data.size,
                 "size should not be affected by compression"
@@ -144,21 +145,6 @@ fn compare_compression_contents_b44a_f16() {
     expect_eq_other("f16", "b44a.exr", "decompressed_b44a.exr");
 }
 
-// NOTE: these four DWA tests are expected to fail - not a bug in exrs.
-// `expect_eq_other` forces an *exact* comparison here (the metadata HACK
-// above sets compression to Uncompressed before assert_equals_result, which
-// disables the epsilon tolerance normally applied to lossy methods).
-//
-// decompressed_dwaa.exr/decompressed_dwab.exr were decoded by some real
-// OpenEXR build in the past, but real OpenEXR isn't internally
-// bit-identical: its scalar and SIMD (SSE2/AVX) DWA IDCT paths use slightly
-// different basis constants (see `dct_inverse_8x8` in
-// src/compression/dwa/idct.rs), so two real builds/dispatch choices can
-// disagree by a couple of ULPs on some samples - independently of exrs. A
-// fresh real decode of dwaa.exr/dwab.exr confirms exrs differs from these
-// stale fixtures by that same scalar-vs-SIMD margin, not a structural bug.
-// See tests/dwa_csc.rs for a tolerance-based check against a fresh
-// real-OpenEXR decode instead.
 #[test]
 fn compare_compression_contents_dwaa_f32() {
     expect_eq_other("f32", "dwaa.exr", "decompressed_dwaa.exr");
