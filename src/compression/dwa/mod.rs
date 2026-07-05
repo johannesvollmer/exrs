@@ -1,21 +1,24 @@
-// DWA / DWAB (lossy DCT) decompression for exrs (loading/decomp only).
-// Ported from OpenEXRCore internal_dwa* .
+// DWA / DWAB (lossy DCT) decompression, ported from OpenEXRCores
+// internal_dwa_compressor.h and alike (decoding only).
+//
+// A DWA chunk is: 11 u64 counters, the channel rules (version >= 2),
+// then four sections (UNKNOWN, AC, DC, RLE). Channels are classified by
+// name suffix + sample type into a compression scheme; R/G/B triplets
+// sharing a prefix are additionally CSC'd (Y'CbCr). All LOSSY_DCT
+// channel groups of a chunk consume the same planar AC/DC streams.
 
-use std::{convert::TryInto, sync::OnceLock};
+use std::{ borrow::Cow, convert::TryInto, sync::OnceLock };
+
+use half::f16;
 
 use crate::{
     compression::ByteVec,
-    error::{Error, Result},
-    meta::attribute::{ChannelList, IntegerBounds, SampleType},
+    error::{ Error, Result },
+    meta::attribute::{ ChannelList, IntegerBounds, SampleType },
 };
 
 mod csc;
 mod idct;
-
-use half::f16;
-
-/// Number of u64 counters in the DWA chunk header.
-const NUM_SIZES_SINGLE: usize = 11;
 
 #[derive(Debug, Clone, Copy)]
 enum AcCompression {
@@ -25,622 +28,217 @@ enum AcCompression {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum CompressorScheme {
-    Unknown = 0,
+    Unknown,
     LossyDct,
     Rle,
 }
 
-/// Layout of the fixed 11-counter DWA chunk header. Every slot stays named
-/// here even though not all are read directly from `DataSizes` (some, like
-/// `Version`, are only used while parsing), since this documents the on-disk format.
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy)]
-#[repr(usize)]
-enum DataSizes {
-    Version = 0,
-    UnknownUncompressedSize,
-    UnknownCompressedSize,
-    AcCompressedSize,
-    DcCompressedSize,
-    RleCompressedSize,
-    RleUncompressedSize,
-    RleRawSize,
-    AcUncompressedCount,
-    DcUncompressedCount,
-    AcCompression,
+/// The 11 little-endian u64 counters at the start of every DWA chunk
+/// (`DataSizesSingle` in internal_dwa_compressor.h), in on-disk order.
+struct DwaHeader {
+    version: u64,
+    unknown_uncompressed_size: usize,
+    unknown_compressed_size: usize,
+    ac_compressed_size: usize,
+    dc_compressed_size: usize,
+    rle_compressed_size: usize,
+    rle_uncompressed_size: usize,
+    rle_raw_size: usize,
+    ac_count: usize,
+    dc_count: usize,
+    ac_compression: AcCompression,
 }
 
-/// Build / get the to-linear half-float lookup table (perceptual -> linear).
-fn to_linear_table() -> &'static [u16; 65536] {
-    static TABLE: OnceLock<[u16; 65536]> = OnceLock::new();
-
-    TABLE.get_or_init(|| {
-        let mut tab = [0u16; 65536];
-        for (i, slot) in tab.iter_mut().enumerate() {
-            let h = half::f16::from_bits(i as u16);
-            *slot = dwa_convert_to_linear(h).to_bits();
+impl DwaHeader {
+    fn parse(input: &mut &[u8]) -> Result<Self> {
+        fn counter(input: &mut &[u8]) -> Result<u64> {
+            let (bytes, rest) = input
+                .split_first_chunk::<8>()
+                .ok_or_else(|| Error::invalid("truncated DWA header"))?;
+            *input = rest;
+            Ok(u64::from_le_bytes(*bytes))
         }
-        tab
+
+        // the C parser rejects counters with the top bit set
+        fn size(value: u64) -> Result<usize> {
+            if value > (i64::MAX as u64) {
+                return Err(Error::invalid("DWA counter out of range"));
+            }
+            value.try_into().map_err(|_| Error::invalid("DWA counter out of range"))
+        }
+
+        Ok(Self {
+            version: counter(input)?,
+            unknown_uncompressed_size: size(counter(input)?)?,
+            unknown_compressed_size: size(counter(input)?)?,
+            ac_compressed_size: size(counter(input)?)?,
+            dc_compressed_size: size(counter(input)?)?,
+            rle_compressed_size: size(counter(input)?)?,
+            rle_uncompressed_size: size(counter(input)?)?,
+            rle_raw_size: size(counter(input)?)?,
+            ac_count: size(counter(input)?)?,
+            dc_count: size(counter(input)?)?,
+            ac_compression: match counter(input)? {
+                0 => AcCompression::StaticHuffman,
+                1 => AcCompression::Deflate,
+                _ => {
+                    return Err(Error::invalid("unknown DWA AC compression mode"));
+                }
+            },
+        })
+    }
+}
+
+/// One channel classification rule (`Classifier` in
+/// internal_dwa_classifier.h): matches a channel by name suffix and sample
+/// type, and assigns its compression scheme.
+struct Rule {
+    suffix: Cow<'static, str>,
+    scheme: CompressorScheme,
+    sample_type: SampleType,
+    /// "Some(0/1/2)" marks this suffix as the R/G/B member of a potential
+    /// CSC triplet; "None" (like Y/RY/BY/A) is never CSC-grouped.
+    csc_index: Option<usize>,
+    case_insensitive: bool,
+}
+
+impl Rule {
+    /// "Classifier_match" exact suffix comparison, plus type equality.
+    fn matches(&self, suffix: &str, sample_type: SampleType) -> bool {
+        self.sample_type == sample_type &&
+            (if self.case_insensitive {
+                suffix.eq_ignore_ascii_case(&self.suffix)
+            } else {
+                suffix == self.suffix
+            })
+    }
+}
+
+/// "sLegacyChannelRules", implied by chunk versions <2.
+fn legacy_channel_rules() -> Vec<Rule> {
+    let lossy: [(&'static str, Option<usize>); 11] = [
+        ("r", Some(0)),
+        ("red", Some(0)),
+        ("g", Some(1)),
+        ("grn", Some(1)),
+        ("green", Some(1)),
+        ("b", Some(2)),
+        ("blu", Some(2)),
+        ("blue", Some(2)),
+        ("y", None),
+        ("by", None),
+        ("ry", None),
+    ];
+
+    let mut rules = Vec::with_capacity(25);
+    for (suffix, csc_index) in lossy {
+        for sample_type in [SampleType::F16, SampleType::F32] {
+            rules.push(Rule {
+                suffix: Cow::Borrowed(suffix),
+                scheme: CompressorScheme::LossyDct,
+                sample_type,
+                csc_index,
+                case_insensitive: true,
+            });
+        }
+    }
+    for sample_type in [SampleType::U32, SampleType::F16, SampleType::F32] {
+        rules.push(Rule {
+            suffix: Cow::Borrowed("a"),
+            scheme: CompressorScheme::Rle,
+            sample_type,
+            csc_index: None,
+            case_insensitive: true,
+        });
+    }
+    rules
+}
+
+/// Version >= 2 chunks embed the rules they were encoded with, prefixed by
+/// a u16 little-endian total size that includes the size field itself
+/// (`DwaCompressor_readChannelRules`).
+fn parse_channel_rules(input: &mut &[u8]) -> Result<Vec<Rule>> {
+    let (size_bytes, rest) = input
+        .split_first_chunk::<2>()
+        .ok_or_else(|| Error::invalid("truncated DWA channel rules"))?;
+    let total_size = u16::from_le_bytes(*size_bytes) as usize;
+
+    let rules_size = total_size
+        .checked_sub(2)
+        .ok_or_else(|| Error::invalid("truncated DWA channel rules"))?;
+    if rules_size > rest.len() {
+        return Err(Error::invalid("truncated DWA channel rules"));
+    }
+
+    let mut rules_data = &rest[..rules_size];
+    *input = &rest[rules_size..];
+
+    let mut rules = Vec::new();
+    while !rules_data.is_empty() {
+        rules.push(parse_rule(&mut rules_data)?);
+    }
+    Ok(rules)
+}
+
+/// One serialized rule ("Classifier_read"): a NUL-terminated suffix
+/// (at most 128 chars), a packed flags byte, and a pixel type byte.
+fn parse_rule(data: &mut &[u8]) -> Result<Rule> {
+    let corrupt = || Error::invalid("corrupt DWA channel rule");
+
+    let suffix_len = data
+        .iter()
+        .position(|&byte| byte == 0)
+        .ok_or_else(corrupt)?;
+    if suffix_len > 128 {
+        return Err(corrupt());
+    }
+    let suffix = String::from_utf8_lossy(&data[..suffix_len]).into_owned();
+
+    let rest = &data[suffix_len + 1..];
+    let (chunk, rest) = rest.split_first_chunk::<2>().ok_or_else(corrupt)?;
+    let [flags, type_byte] = *chunk;
+    *data = rest;
+
+    Ok(Rule {
+        suffix: Cow::Owned(suffix),
+        // flags layout: high nibble = cscIdx + 1, bits 2-3 = scheme, bit 0 = case-insensitive
+        csc_index: match ((flags >> 4) as i32) - 1 {
+            -1 => None,
+            index @ 0..=2 => Some(index as usize),
+            _ => {
+                return Err(corrupt());
+            }
+        },
+        scheme: match (flags >> 2) & 3 {
+            0 => CompressorScheme::Unknown,
+            1 => CompressorScheme::LossyDct,
+            2 => CompressorScheme::Rle,
+            _ => {
+                return Err(corrupt());
+            }
+        },
+        case_insensitive: (flags & 1) != 0,
+        sample_type: match type_byte {
+            0 => SampleType::U32,
+            1 => SampleType::F16,
+            2 => SampleType::F32,
+            _ => {
+                return Err(corrupt());
+            }
+        },
     })
 }
 
-/// Decoding needs the inverse (nonlinear stored -> linear).
-fn dwa_convert_to_linear(x: half::f16) -> half::f16 {
-    let f = x.to_f32();
-    if !f.is_finite() {
-        return half::f16::ZERO;
-    }
-    let sign = if f < 0.0 {
-        -1.0
-    } else {
-        1.0
-    };
-    let f = f.abs();
-
-    let out = if f <= 1.0 {
-        f.powf(2.2)
-    } else {
-        // exp(2.2) ^ (f - 1) == exp(2.2 * (f - 1))
-        (9.02501329156_f32).powf(f - 1.0)
-    };
-
-    half::f16::from_f32(sign * out)
-}
-
-/// Read the DWA chunk header counters (big-endian / XDR on disk).
-fn read_dwa_counters(input: &mut &[u8]) -> Result<[u64; NUM_SIZES_SINGLE]> {
-    let mut counters = [0u64; NUM_SIZES_SINGLE];
-    for c in &mut counters {
-        if input.len() < 8 {
-            return Err(Error::invalid("truncated DWA counter"));
-        }
-        let bytes: [u8; 8] = input[..8].try_into().unwrap();
-        *c = u64::from_le_bytes(bytes);
-        *input = &input[8..];
-    }
-    Ok(counters)
-}
-
-/// Classifier used to decide how a channel was compressed, based on its name suffix.
-#[derive(Debug, Clone)]
-struct Classifier {
-    suffix: String,
-    scheme: CompressorScheme,
-}
-
-pub fn decompress(
-    channels: &ChannelList,
-    compressed_le: ByteVec,
-    rectangle: IntegerBounds,
-    expected_byte_size: usize,
-    _pedantic: bool,
-) -> Result<ByteVec> {
-    if compressed_le.is_empty() {
-        return Ok(vec![0u8; expected_byte_size]);
-    }
-
-    if compressed_le.len() == expected_byte_size {
-        return crate::compression::convert_little_endian_to_current(
-            compressed_le,
-            channels,
-            rectangle,
-        );
-    }
-
-    let full = compressed_le.as_slice();
-
-    // Parse the fixed size header (11 * u64) from the start of the chunk data
-    if full.len() < NUM_SIZES_SINGLE * 8 {
-        return Err(Error::invalid("truncated DWA header"));
-    }
-
-    let mut hdr_cursor = &full[..];
-    let counters = read_dwa_counters(&mut hdr_cursor)?;
-
-    let version = counters[DataSizes::Version as usize];
-    let unknown_comp = counters[DataSizes::UnknownCompressedSize as usize];
-    let ac_comp = counters[DataSizes::AcCompressedSize as usize];
-    let dc_comp = counters[DataSizes::DcCompressedSize as usize];
-    let rle_comp = counters[DataSizes::RleCompressedSize as usize];
-    let rle_uncompressed_size = counters[DataSizes::RleUncompressedSize as usize] as usize;
-    let rle_raw_size = counters[DataSizes::RleRawSize as usize] as usize;
-    let ac_count = counters[DataSizes::AcUncompressedCount as usize];
-    let dc_count = counters[DataSizes::DcUncompressedCount as usize];
-    let ac_comp_mode = counters[DataSizes::AcCompression as usize];
-
-    let ac_compression = match ac_comp_mode {
-        0 => AcCompression::StaticHuffman,
-        1 => AcCompression::Deflate,
-        _ => {
-            return Err(Error::invalid("unknown DWA AC compression mode"));
-        }
-    };
-
-    let after_header = &full[NUM_SIZES_SINGLE * 8..];
-    // DWA v2+ prefixes the channel rules with their own 2-byte little-endian
-    // total size (including the size field itself). That size is read directly
-    // instead of inferring it from the buffer length, since the chunk buffer
-    // can be larger than header + rules + sections.
-    let rule_size = if version >= 2 && after_header.len() >= 2 {
-        u16::from_le_bytes([after_header[0], after_header[1]]) as usize
-    } else {
-        0
-    };
-    let section_start = if rule_size > 0 && rule_size <= after_header.len() {
-        &after_header[rule_size..]
-    } else {
-        after_header
-    };
-    let mut data = section_start;
-
-    let channel_rules: Vec<Classifier> = get_legacy_channel_rules();
-
-    // Split the four sections (unknown, AC, DC, RLE). Each length is clamped to
-    // the data actually available so a truncated chunk degrades gracefully
-    // instead of panicking on an out-of-bounds slice.
-    let u_len = std::cmp::min(unknown_comp as usize, data.len());
-    let u_sec = &data[..u_len];
-    data = &data[u_len..];
-
-    let a_len = std::cmp::min(ac_comp as usize, data.len());
-    let ac_sec = &data[..a_len];
-    data = &data[a_len..];
-
-    let d_len = std::cmp::min(dc_comp as usize, data.len());
-    let dc_sec = &data[..d_len];
-    data = &data[d_len..];
-
-    let r_len = std::cmp::min(rle_comp as usize, data.len());
-    let rle_sec = &data[..r_len];
-
-    // UNKNOWN section: raw (non-DCT-compressible) channel data, zlib-compressed
-    // and laid out planar (each channel's full width*height data before the
-    // next), in channel order. Matches DwaCompressor::uncompress in
-    // internal_dwa_compressor.h (inflate straight into _planarUncBuffer[UNKNOWN],
-    // then memcpy scanlines out verbatim).
-    let unknown_uncompressed_size = counters[DataSizes::UnknownUncompressedSize as usize] as usize;
-    let unknown_raw: Vec<u8> = if !u_sec.is_empty() {
-        inflate_zlib(u_sec, unknown_uncompressed_size).unwrap_or_default()
-    } else {
-        vec![]
-    };
-
-    // RLE section: zlib-compressed, then classic byte-oriented RLE-encoded.
-    // Result is planar per RLE-scheme channel (e.g. alpha), each channel
-    // further split into byte-planes (all first bytes of every pixel, then
-    // all second bytes, ...), in channel order. Matches
-    // DwaCompressor::uncompress's RLE handling in internal_dwa_compressor.h
-    // (inflate into `_rleBuffer`, `internal_rle_decompress` into `_planarUncBuffer[RLE]`).
-    let rle_raw: Vec<u8> = if !rle_sec.is_empty() && rle_raw_size > 0 {
-        let inflated = inflate_zlib(rle_sec, rle_uncompressed_size).unwrap_or_default();
-        super::rle::unpack_rle_tokens(&inflated, rle_raw_size, false).unwrap_or_default()
-    } else {
-        vec![]
-    };
-
-    // AC section: either Huffman or zlib -> produces u16 values.
-    let ac_packed: Vec<u16> = if !ac_sec.is_empty() {
-        let p = match ac_compression {
-            AcCompression::StaticHuffman => {
-                crate::compression::piz::huffman::decompress(ac_sec, ac_count as usize)
-                    .unwrap_or_default()
-            }
-            AcCompression::Deflate => {
-                let bytes = inflate_zlib(ac_sec, (ac_count as usize) * 2).unwrap_or_default();
-                bytes.chunks_exact(2).map(|c| u16::from_ne_bytes([c[0], c[1]])).collect()
-            }
-        };
-        if p.is_empty() {
-            // fallback treat sec as u16 le if count matches roughly
-            ac_sec.chunks_exact(2).map(|c| u16::from_ne_bytes([c[0], c[1]])).collect()
-        } else {
-            p
-        }
-    } else {
-        vec![]
-    };
-
-    // DC is always zlib + "zip reconstruct" (differencing undo) -> u16
-    let dc_packed: Vec<u16> = if !dc_sec.is_empty() {
-        let raw = match inflate_zlib(dc_sec, (dc_count as usize) * 2) {
-            Ok(r) if !r.is_empty() => r,
-            _ => dc_sec.to_vec(),
-        };
-        let reconstructed = undo_zip_reconstruct_for_dc(&raw, raw.len());
-        reconstructed.chunks_exact(2).map(|c| u16::from_ne_bytes([c[0], c[1]])).collect()
-    } else {
-        vec![]
-    };
-
-    let mut out = vec![0u8; expected_byte_size];
-
-    // Build channel classification for this chunk.
-    let mut channel_infos: Vec<ChannelInfo> = Vec::new();
-
-    for chan in channels.list.iter() {
-        let samp_x = chan.sampling.x().max(1);
-        let samp_y = chan.sampling.y().max(1);
-
-        let ch_width = (rectangle.size.width() + samp_x - 1) / samp_x;
-        let ch_height = (rectangle.size.height() + samp_y - 1) / samp_y;
-
-        let bytes_per_sample = chan.sample_type.bytes_per_sample();
-        let name_str = chan.name.to_string();
-        let scheme = classify_channel(&name_str, &channel_rules);
-
-        channel_infos.push(ChannelInfo {
-            name: name_str,
-            scheme,
-            width: ch_width,
-            height: ch_height,
-            bytes_per_sample,
-            sample_type: chan.sample_type,
-        });
-    }
-
-    // Split the planar UNKNOWN buffer into one contiguous raw-byte run per
-    // UNKNOWN-scheme channel, in channel order (mirrors
-    // DwaCompressor_setupChannelData's running per-scheme cursor).
-    let mut unknown_data: Vec<Vec<u8>> = vec![vec![]; channel_infos.len()];
-    {
-        let mut cursor = 0usize;
-        for (i, info) in channel_infos.iter().enumerate() {
-            if info.scheme == CompressorScheme::Unknown {
-                let len = info.width * info.height * info.bytes_per_sample;
-                if cursor + len <= unknown_raw.len() {
-                    unknown_data[i] = unknown_raw[cursor..cursor + len].to_vec();
-                }
-                cursor += len;
-            }
-        }
-    }
-
-    // Split the planar RLE buffer into one raw-byte run per RLE-scheme channel
-    // (mirrors the UNKNOWN split above), then un-transpose each channel's
-    // byte-planes back into per-pixel interleaved order (mirrors
-    // DwaCompressor::uncompress's `case RLE:`, which reads one byte at a time
-    // from `planarUncRleEnd[byte]` per byte-plane).
-    let mut rle_data: Vec<Vec<u8>> = vec![vec![]; channel_infos.len()];
-    {
-        let mut cursor = 0usize;
-        for (i, info) in channel_infos.iter().enumerate() {
-            if info.scheme == CompressorScheme::Rle {
-                let elems = info.width * info.height;
-                let len = elems * info.bytes_per_sample;
-                if cursor + len <= rle_raw.len() {
-                    let block = &rle_raw[cursor..cursor + len];
-                    let bpe = info.bytes_per_sample;
-                    let mut interleaved = vec![0u8; len];
-                    for e in 0..elems {
-                        for b in 0..bpe {
-                            interleaved[e * bpe + b] = block[b * elems + e];
-                        }
-                    }
-                    rle_data[i] = interleaved;
-                }
-                cursor += len;
-            }
-        }
-    }
-
-    // Simple approach: decode all lossy channels to half, then write scanline by scanline.
-    // This matches the expected layout from piz/others.
-
-    let mut lossy_half_data: Vec<Vec<f16>> = vec![vec![]; channels.list.len()];
-
-    // Group channels for CSC: find R/G/B triplets by name suffix, mirroring
-    // DwaCompressor_classifyChannels's prefixMap approach in
-    // internal_dwa_compressor.h (~line 1610-1698). Only suffixes with cscIdx
-    // 0/1/2 (R/G/B family: "r"/"red", "g"/"grn"/"green", "b"/"blu"/"blue",
-    // case-insensitive) are grouped. Y/RY/BY have cscIdx == -1 in
-    // sDefaultChannelRules/sLegacyChannelRules (internal_dwa_classifier.h)
-    // and are always decoded standalone (see loop below), matching the real compressor.
-    let mut csc_groups: Vec<(usize, usize, usize)> = vec![]; // (r_idx, g_idx, b_idx) in channel_infos
-    let mut processed = vec![false; channel_infos.len()];
-
-    for i in 0..channel_infos.len() {
-        if processed[i] || channel_infos[i].scheme != CompressorScheme::LossyDct {
-            continue;
-        }
-        let name = &channel_infos[i].name;
-        if let Some(base) = csc_prefix_for_index(name, 0) {
-            let g_idx = find_channel_with_csc_index(&channel_infos, base, 1);
-            let b_idx = find_channel_with_csc_index(&channel_infos, base, 2);
-            if let (Some(gi), Some(bi)) = (g_idx, b_idx) {
-                let (r_chan, g_chan, b_chan) =
-                    (&channels.list[i], &channels.list[gi], &channels.list[bi]);
-                if channel_infos[gi].scheme == CompressorScheme::LossyDct
-                    && channel_infos[bi].scheme == CompressorScheme::LossyDct
-                    && r_chan.sampling == g_chan.sampling
-                    && r_chan.sampling == b_chan.sampling
-                {
-                    csc_groups.push((i, gi, bi));
-                    processed[i] = true;
-                    processed[gi] = true;
-                    processed[bi] = true;
-                }
-            }
-        }
-    }
-
-    // Process CSC groups
-    let mut ac_cursor: usize = 0;
-    let mut dc_cursor: usize = 0;
-
-    for (r, g, b) in &csc_groups {
-        let w = channel_infos[*r].width;
-        let h = channel_infos[*r].height;
-
-        let mut decoded = vec![vec![f16::ZERO; w * h]; 3]; // r g b decoded linear-ish
-
-        decode_lossy_dct_group(
-            &ac_packed,
-            &mut ac_cursor,
-            &dc_packed,
-            &mut dc_cursor,
-            w,
-            h,
-            true, // has csc
-            &to_linear_table(),
-            &mut decoded,
-        );
-
-        lossy_half_data[*r] = decoded[0].clone();
-        lossy_half_data[*g] = decoded[1].clone();
-        lossy_half_data[*b] = decoded[2].clone();
-    }
-
-    // Process remaining single LOSSY_DCT channels
-    for (i, info) in channel_infos.iter().enumerate() {
-        if processed[i] || info.scheme != CompressorScheme::LossyDct {
-            continue;
-        }
-        let w = info.width;
-        let h = info.height;
-
-        let mut decoded = vec![vec![f16::ZERO; w * h]; 1];
-
-        decode_lossy_dct_group(
-            &ac_packed,
-            &mut ac_cursor,
-            &dc_packed,
-            &mut dc_cursor,
-            w,
-            h,
-            false,
-            &to_linear_table(),
-            &mut decoded,
-        );
-
-        lossy_half_data[i] = decoded[0].clone();
-        processed[i] = true;
-    }
-
-    // Write the decoded data to `out` in scanline-interleaved layout (like piz).
-    let mut out_cursor = 0usize;
-
-    for y in rectangle.position.y()..rectangle.end().y() {
-        for (ci, chan) in channels.list.iter().enumerate() {
-            let samp_y = chan.sampling.y().max(1) as i32;
-            if y % samp_y != 0 {
-                continue;
-            }
-
-            let info = &channel_infos[ci];
-            let line_w = info.width;
-            let bytes_per_samp = info.bytes_per_sample;
-
-            // For lossy channels, half the data, convert to target type
-            if info.scheme == CompressorScheme::LossyDct && !lossy_half_data[ci].is_empty() {
-                let ch_data = &lossy_half_data[ci];
-                let line_start_in_ch = (((y - rectangle.position.y()) / samp_y) as usize) * line_w;
-
-                for x in 0..line_w {
-                    let pix = ch_data[line_start_in_ch + x];
-                    match info.sample_type {
-                        SampleType::F16 => {
-                            let bits = pix.to_bits();
-                            out[out_cursor..out_cursor + 2].copy_from_slice(&bits.to_le_bytes());
-                            out_cursor += 2;
-                        }
-                        SampleType::F32 => {
-                            let f = pix.to_f32();
-                            out[out_cursor..out_cursor + 4].copy_from_slice(&f.to_le_bytes());
-                            out_cursor += 4;
-                        }
-                        SampleType::U32 => {
-                            // unlikely for DWA lossy
-                            out[out_cursor..out_cursor + 4].copy_from_slice(&(0u32).to_le_bytes());
-                            out_cursor += 4;
-                        }
-                    }
-                }
-            } else if (info.scheme == CompressorScheme::Unknown && !unknown_data[ci].is_empty())
-                || (info.scheme == CompressorScheme::Rle && !rle_data[ci].is_empty())
-            {
-                // Raw bytes, scanline-wise per channel (see planar split above).
-                let raw = if info.scheme == CompressorScheme::Unknown {
-                    &unknown_data[ci]
-                } else {
-                    &rle_data[ci]
-                };
-
-                let row_in_ch = ((y - rectangle.position.y()) / samp_y) as usize;
-                let byte_len = line_w * bytes_per_samp;
-                let byte_off = row_in_ch * byte_len;
-
-                if byte_off + byte_len <= raw.len() {
-                    out[out_cursor..out_cursor + byte_len]
-                        .copy_from_slice(&raw[byte_off..byte_off + byte_len]);
-                }
-                out_cursor += byte_len;
-            } else {
-                // Only reached if an RLE-scheme channel's data could not be decoded
-                // (e.g. missing/corrupt RLE section); alpha then defaults to fully
-                // opaque. The written value must still match `bytes_per_samp` for
-                // this channel's actual sample type, or every following
-                // channel/scanline shifts out of place.
-                if info.name == "A" || info.name.ends_with("A") {
-                    for _ in 0..line_w {
-                        match info.sample_type {
-                            SampleType::F16 => {
-                                out[out_cursor..out_cursor + 2]
-                                    .copy_from_slice(&f16::ONE.to_bits().to_le_bytes());
-                            }
-                            SampleType::F32 => {
-                                out[out_cursor..out_cursor + 4]
-                                    .copy_from_slice(&(1.0f32).to_le_bytes());
-                            }
-                            SampleType::U32 => {
-                                out[out_cursor..out_cursor + 4]
-                                    .copy_from_slice(&(1u32).to_le_bytes());
-                            }
-                        }
-                        out_cursor += bytes_per_samp;
-                    }
-                } else {
-                    out_cursor += line_w * bytes_per_samp;
-                }
-            }
-        }
-    }
-
-    Ok(out)
-}
-
-// --------------------- helpers ---------------------
-
-fn get_legacy_channel_rules() -> Vec<Classifier> {
-    vec![
-        Classifier {
-            suffix: "r".into(),
-            scheme: CompressorScheme::LossyDct,
-        },
-        Classifier {
-            suffix: "red".into(),
-            scheme: CompressorScheme::LossyDct,
-        },
-        Classifier {
-            suffix: "g".into(),
-            scheme: CompressorScheme::LossyDct,
-        },
-        Classifier {
-            suffix: "grn".into(),
-            scheme: CompressorScheme::LossyDct,
-        },
-        Classifier {
-            suffix: "green".into(),
-            scheme: CompressorScheme::LossyDct,
-        },
-        Classifier {
-            suffix: "b".into(),
-            scheme: CompressorScheme::LossyDct,
-        },
-        Classifier {
-            suffix: "blu".into(),
-            scheme: CompressorScheme::LossyDct,
-        },
-        Classifier {
-            suffix: "blue".into(),
-            scheme: CompressorScheme::LossyDct,
-        },
-        Classifier {
-            suffix: "y".into(),
-            scheme: CompressorScheme::LossyDct,
-        },
-        Classifier {
-            suffix: "by".into(),
-            scheme: CompressorScheme::LossyDct,
-        },
-        Classifier {
-            suffix: "ry".into(),
-            scheme: CompressorScheme::LossyDct,
-        },
-        Classifier {
-            suffix: "a".into(),
-            scheme: CompressorScheme::Rle,
-        },
-    ]
-}
-
-/// Inflate a zlib/raw-deflate buffer. Tries miniz_oxide first, then falls
-/// back to zune_inflate's raw-deflate and zlib modes, since some DWA chunks
-/// in the wild lack a proper zlib header.
-fn inflate_zlib(compressed: &[u8], _expected: usize) -> Result<Vec<u8>> {
-    if compressed.is_empty() {
-        return Ok(vec![]);
-    }
-    if let Ok(out) = miniz_oxide::inflate::decompress_to_vec(compressed) {
-        if !out.is_empty() {
-            return Ok(out);
-        }
-    }
-    {
-        let mut d = zune_inflate::DeflateDecoder::new(compressed);
-        if let Ok(out) = d.decode_deflate() {
-            if !out.is_empty() {
-                return Ok(out);
-            }
-        }
-    }
-    {
-        let mut d = zune_inflate::DeflateDecoder::new(compressed);
-        if let Ok(out) = d.decode_zlib() {
-            if !out.is_empty() {
-                return Ok(out);
-            }
-        }
-    }
-    Err(Error::invalid("DWA inflate failed"))
-}
-
-/// Undo the "zip reconstruct" step that OpenEXR applies to the DC buffer before compressing.
-/// Ports internal_zip_reconstruct_bytes: reconstruct then interleave.
-fn undo_zip_reconstruct_for_dc(source: &[u8], count: usize) -> Vec<u8> {
-    if count < 2 {
-        return source.to_vec();
-    }
-    let mut buf = source.to_vec();
-    reconstruct(&mut buf, count);
-    let mut out = vec![0u8; count];
-    interleave(&mut out, &buf, count);
-    out
-}
-
-fn reconstruct(buf: &mut [u8], sz: usize) {
-    let mut t = 1;
-    while t < sz {
-        let d = (buf[t - 1] as i32) + (buf[t] as i32) - 128;
-        buf[t] = d as u8;
-        t += 1;
-    }
-}
-
-fn interleave(out: &mut [u8], source: &[u8], out_size: usize) {
-    let mut t1 = 0;
-    let mut t2 = (out_size + 1) / 2;
-    let mut s = 0;
-    while s < out_size {
-        if s < out_size {
-            out[s] = source[t1];
-            t1 += 1;
-            s += 1;
-        } else {
-            break;
-        }
-        if s < out_size {
-            out[s] = source[t2];
-            t2 += 1;
-            s += 1;
-        } else {
-            break;
-        }
+/// The part of a channel name after the last '.'
+fn channel_suffix(name: &str) -> &str {
+    match name.rfind('.') {
+        Some(dot) => &name[dot + 1..],
+        None => name,
     }
 }
 
 #[derive(Debug, Clone)]
 struct ChannelInfo {
-    name: String,
     scheme: CompressorScheme,
     width: usize,
     height: usize,
@@ -648,199 +246,592 @@ struct ChannelInfo {
     sample_type: SampleType,
 }
 
-fn classify_channel(name: &str, rules: &[Classifier]) -> CompressorScheme {
-    let name_lower = name.to_ascii_lowercase();
-    for rule in rules {
-        let suf = rule.suffix.to_ascii_lowercase();
-        if name_lower.ends_with(&suf) || name_lower == suf {
-            return rule.scheme;
+/// Classify every channel and find the CSC'd R/G/B triplets, mirroring
+/// "DwaCompressor_classifyChannels": a prefix map (in order of first
+/// appearance, which determines group decode order) collects which channel
+/// holds each triplet slot, and a group forms when all three slots are
+/// filled with LOSSY_DCT channels of identical sampling.
+fn classify_channels(
+    channels: &ChannelList,
+    rectangle: IntegerBounds,
+    rules: &[Rule]
+) -> (Vec<ChannelInfo>, Vec<[usize; 3]>) {
+    let mut infos = Vec::with_capacity(channels.list.len());
+    let mut prefix_map: Vec<(String, [Option<usize>; 3])> = Vec::new();
+
+    for (index, channel) in channels.list.iter().enumerate() {
+        let name = channel.name.to_string();
+        let suffix = channel_suffix(&name);
+        let prefix = &name[..name.len() - suffix.len()];
+
+        if !prefix_map.iter().any(|(known, _)| known == prefix) {
+            prefix_map.push((prefix.to_string(), [None; 3]));
+        }
+
+        let mut scheme = CompressorScheme::Unknown;
+        for rule in rules {
+            if rule.matches(suffix, channel.sample_type) {
+                scheme = rule.scheme;
+                if let Some(csc_index) = rule.csc_index {
+                    for (known, slots) in &mut prefix_map {
+                        if known == prefix {
+                            slots[csc_index] = Some(index);
+                        }
+                    }
+                }
+            }
+        }
+
+        let sampling_x = channel.sampling.x().max(1);
+        let sampling_y = channel.sampling.y().max(1);
+        infos.push(ChannelInfo {
+            scheme,
+            width: (rectangle.size.width() + sampling_x - 1) / sampling_x,
+            height: (rectangle.size.height() + sampling_y - 1) / sampling_y,
+            bytes_per_sample: channel.sample_type.bytes_per_sample(),
+            sample_type: channel.sample_type,
+        });
+    }
+
+    let csc_groups = prefix_map
+        .into_iter()
+        .filter_map(|(_, slots)| {
+            let [Some(r), Some(g), Some(b)] = slots else {
+                return None;
+            };
+            let all_lossy = [r, g, b]
+                .iter()
+                .all(|&index| infos[index].scheme == CompressorScheme::LossyDct);
+            let same_sampling =
+                channels.list[r].sampling == channels.list[g].sampling &&
+                channels.list[r].sampling == channels.list[b].sampling;
+            (all_lossy && same_sampling).then_some([r, g, b])
+        })
+        .collect();
+
+    (infos, csc_groups)
+}
+
+pub fn decompress(
+    channels: &ChannelList,
+    compressed_le: ByteVec,
+    rectangle: IntegerBounds,
+    expected_byte_size: usize,
+    _pedantic: bool
+) -> Result<ByteVec> {
+    if compressed_le.is_empty() {
+        return Ok(vec![0u8; expected_byte_size]);
+    }
+
+    // the writer stores chunks raw when compression would not have helped
+    if compressed_le.len() == expected_byte_size {
+        return crate::compression::convert_little_endian_to_current(
+            compressed_le,
+            channels,
+            rectangle
+        );
+    }
+
+    let mut input = compressed_le.as_slice();
+    let header = DwaHeader::parse(&mut input)?;
+
+    let rules = if header.version < 2 {
+        legacy_channel_rules()
+    } else {
+        parse_channel_rules(&mut input)?
+    };
+
+    let (channel_infos, csc_groups) = classify_channels(channels, rectangle, &rules);
+
+    if
+        channel_infos
+            .iter()
+            .any(
+                |info|
+                    info.scheme == CompressorScheme::LossyDct && info.sample_type == SampleType::U32
+            )
+    {
+        return Err(Error::unsupported("DWA lossy DCT compression of u32 channels"));
+    }
+
+    let [unknown_section, ac_section, dc_section, rle_section] = split_sections(input, &header)?;
+
+    let unknown_planar = decode_unknown_section(unknown_section, &header)?;
+    let ac_packed = decode_ac_section(ac_section, &header)?;
+    let dc_packed = decode_dc_section(dc_section, &header)?;
+    let rle_planar = decode_rle_section(rle_section, &header)?;
+
+    let unknown_bytes = split_planar_channels(
+        &channel_infos,
+        CompressorScheme::Unknown,
+        &unknown_planar
+    )?;
+    let rle_bytes: Vec<Vec<u8>> = split_planar_channels(
+        &channel_infos,
+        CompressorScheme::Rle,
+        &rle_planar
+    )?
+        .into_iter()
+        .zip(&channel_infos)
+        .map(|(planar, info)| interleave_byte_planes(&planar, info.bytes_per_sample))
+        .collect();
+
+    let lossy_samples = decode_lossy_channels(&channel_infos, &csc_groups, &ac_packed, &dc_packed)?;
+
+    write_scanlines(
+        channels,
+        &channel_infos,
+        rectangle,
+        &lossy_samples,
+        &unknown_bytes,
+        &rle_bytes,
+        expected_byte_size
+    )
+}
+
+// --------------------- decoding ---------------------
+
+/// Split the data after header + rules into the four sections, in on-disk
+/// order. Errors on truncation like the C parser.
+fn split_sections<'d>(data: &'d [u8], header: &DwaHeader) -> Result<[&'d [u8]; 4]> {
+    let mut rest = data;
+    let mut take = |length: usize| -> Result<&'d [u8]> {
+        if length > rest.len() {
+            return Err(Error::invalid("truncated DWA section"));
+        }
+        let (section, remaining) = rest.split_at(length);
+        rest = remaining;
+        Ok(section)
+    };
+
+    Ok([
+        take(header.unknown_compressed_size)?,
+        take(header.ac_compressed_size)?,
+        take(header.dc_compressed_size)?,
+        take(header.rle_compressed_size)?,
+    ])
+}
+
+fn inflate(compressed: &[u8], expected_size: usize) -> Result<Vec<u8>> {
+    let options = zune_inflate::DeflateOptions
+        ::default()
+        .set_limit(expected_size)
+        .set_size_hint(expected_size);
+
+    let inflated = zune_inflate::DeflateDecoder
+        ::new_with_options(compressed, options)
+        .decode_zlib()
+        .map_err(|_| Error::invalid("DWA zlib data malformed"))?;
+
+    if inflated.len() != expected_size {
+        return Err(Error::invalid("DWA zlib data size mismatch"));
+    }
+    Ok(inflated)
+}
+
+/// UNKNOWN section: raw (non-DCT-compressible) channel data,
+/// zlib-compressed, planar in channel order.
+fn decode_unknown_section(section: &[u8], header: &DwaHeader) -> Result<Vec<u8>> {
+    if header.unknown_uncompressed_size == 0 {
+        return Ok(vec![]);
+    }
+    inflate(section, header.unknown_uncompressed_size)
+}
+
+/// AC section: RLE DCT coefficients as u16, entropy coded with either the
+/// PIZ static Huffman coder or zlib.
+fn decode_ac_section(section: &[u8], header: &DwaHeader) -> Result<Vec<u16>> {
+    if header.ac_count == 0 {
+        return Ok(vec![]);
+    }
+
+    match header.ac_compression {
+        AcCompression::StaticHuffman => {
+            crate::compression::piz::huffman::decompress(section, header.ac_count)
+        }
+        AcCompression::Deflate => {
+            let bytes = inflate(section, header.ac_count * 2)?;
+            Ok(
+                bytes
+                    .chunks_exact(2)
+                    .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+                    .collect()
+            )
         }
     }
-    CompressorScheme::Unknown
 }
 
-/// R/G/B family suffixes recognized for CSC grouping, with their cscIdx
-/// (0=R, 1=G, 2=B), matching sDefaultChannelRules/sLegacyChannelRules in
-/// internal_dwa_classifier.h (Y/RY/BY are intentionally absent: they have
-/// cscIdx == -1 there and are never CSC-grouped).
-const CSC_SUFFIXES: [(&str, usize); 8] =
-    [("r", 0), ("red", 0), ("g", 1), ("grn", 1), ("green", 1), ("b", 2), ("blu", 2), ("blue", 2)];
-
-/// The part of a channel name after the last '.', matching
-/// `Classifier_find_suffix` in internal_dwa_classifier.h.
-fn channel_suffix(name: &str) -> &str {
-    match name.rfind('.') {
-        Some(idx) => &name[idx + 1..],
-        None => name,
+/// DC section: one u16 (half bits) per 8x8 block, zlib-compressed after
+/// the "zip reconstruct" transform (differencing + byte deinterleave).
+fn decode_dc_section(section: &[u8], header: &DwaHeader) -> Result<Vec<u16>> {
+    if header.dc_count == 0 {
+        return Ok(vec![]);
     }
+
+    let bytes = inflate(section, header.dc_count * 2)?;
+    let bytes = undo_zip_reconstruct(&bytes);
+    Ok(
+        bytes
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect()
+    )
 }
 
-/// If `name`'s suffix case-insensitively matches a CSC rule with the given
-/// `csc_idx`, returns the name's prefix (everything before the suffix), so
-/// sibling R/G/B channels sharing that prefix can be located.
-fn csc_prefix_for_index(name: &str, csc_idx: usize) -> Option<&str> {
-    let suffix = channel_suffix(name);
-    let suffix_lower = suffix.to_ascii_lowercase();
-    for (s, idx) in CSC_SUFFIXES {
-        if idx == csc_idx && suffix_lower == s {
-            return Some(&name[..name.len() - suffix.len()]);
-        }
+/// RLE section: zlib, then classic byte-oriented RLE. Result is planar per
+/// channel, each channel further split into byte planes.
+fn decode_rle_section(section: &[u8], header: &DwaHeader) -> Result<Vec<u8>> {
+    if header.rle_raw_size == 0 {
+        return Ok(vec![]);
     }
-    None
+    let inflated = inflate(section, header.rle_uncompressed_size)?;
+    super::rle::unpack_rle_tokens(&inflated, header.rle_raw_size, false)
 }
 
-fn find_channel_with_csc_index(
+/// Ports "internal_zip_reconstruct_bytes": undo differencing, then
+/// interleave the two buffer halves.
+fn undo_zip_reconstruct(source: &[u8]) -> Vec<u8> {
+    if source.len() < 2 {
+        return source.to_vec();
+    }
+
+    let mut deltas = source.to_vec();
+    for index in 1..deltas.len() {
+        deltas[index] = ((deltas[index - 1] as i32) + (deltas[index] as i32) - 128) as u8;
+    }
+
+    let (first_half, second_half) = deltas.split_at((deltas.len() + 1) / 2);
+    let mut out = vec![0u8; deltas.len()];
+    for (index, slot) in out.iter_mut().enumerate() {
+        *slot = if index % 2 == 0 { first_half[index / 2] } else { second_half[index / 2] };
+    }
+    out
+}
+
+/// Split a planar buffer into one byte run per channel of the given scheme,
+/// in channel order (mirrors "DwaCompressor_setupChannelData"s running
+/// per-scheme cursor). Other schemes get an empty vec.
+fn split_planar_channels(
     infos: &[ChannelInfo],
-    prefix: &str,
-    csc_idx: usize,
-) -> Option<usize> {
-    infos.iter().position(|info| csc_prefix_for_index(&info.name, csc_idx) == Some(prefix))
+    scheme: CompressorScheme,
+    planar: &[u8]
+) -> Result<Vec<Vec<u8>>> {
+    let mut per_channel = vec![vec![]; infos.len()];
+    let mut cursor = 0;
+
+    for (channel_bytes, info) in per_channel.iter_mut().zip(infos) {
+        if info.scheme != scheme {
+            continue;
+        }
+        let length = info.width * info.height * info.bytes_per_sample;
+        *channel_bytes = planar
+            .get(cursor..cursor + length)
+            .ok_or_else(|| Error::invalid("truncated DWA channel data"))?
+            .to_vec();
+        cursor += length;
+    }
+    Ok(per_channel)
 }
 
-/// Decode one or three LOSSY_DCT channels (with optional CSC).
-fn decode_lossy_dct_group(
+/// Restore per-sample byte order from byte planes
+fn interleave_byte_planes(planar: &[u8], bytes_per_sample: usize) -> Vec<u8> {
+    let sample_count = planar.len() / bytes_per_sample;
+    let mut interleaved = vec![0u8; planar.len()];
+    for sample in 0..sample_count {
+        for byte in 0..bytes_per_sample {
+            interleaved[sample * bytes_per_sample + byte] = planar[byte * sample_count + sample];
+        }
+    }
+    interleaved
+}
+
+// --------------------- lossy DCT decoding ---------------------
+
+/// One of the chunk-global u16 streams (AC or DC). All channel groups of a
+/// chunk consume the same stream, so the cursor carries across groups.
+struct PackedStream<'v> {
+    values: &'v [u16],
+    cursor: usize,
+}
+
+impl<'v> PackedStream<'v> {
+    fn new(values: &'v [u16]) -> Self {
+        Self { values, cursor: 0 }
+    }
+
+    fn next(&mut self) -> Option<u16> {
+        let value = self.values.get(self.cursor).copied();
+        self.cursor += 1;
+        value
+    }
+
+    /// Value at "offset" past the cursor, without consuming (the DC stream
+    /// is indexed planar per group and advanced once at group end).
+    fn peek_at(&self, offset: usize) -> Option<u16> {
+        self.values.get(self.cursor + offset).copied()
+    }
+
+    fn advance(&mut self, count: usize) {
+        self.cursor += count;
+    }
+}
+
+/// Decode all LOSSY_DCT channels: first every CSC group, then the
+/// standalone channels, both in channel order - the order in which the
+/// encoder appended them to the shared AC/DC streams.
+fn decode_lossy_channels(
+    infos: &[ChannelInfo],
+    csc_groups: &[[usize; 3]],
     ac_packed: &[u16],
-    ac_cursor: &mut usize,
-    dc_packed: &[u16],
-    dc_cursor: &mut usize,
+    dc_packed: &[u16]
+) -> Result<Vec<Vec<f16>>> {
+    let to_linear = to_linear_table();
+    let mut ac = PackedStream::new(ac_packed);
+    let mut dc = PackedStream::new(dc_packed);
+
+    let mut samples: Vec<Vec<f16>> = vec![vec![]; infos.len()];
+    let mut grouped = vec![false; infos.len()];
+
+    for &group in csc_groups {
+        // all three channels have identical sampling, hence identical size
+        let info = &infos[group[0]];
+        let mut decoded: [Vec<f16>; 3] = std::array::from_fn(
+            |_| vec![f16::ZERO; info.width * info.height]
+        );
+
+        decode_lossy_dct_group(&mut ac, &mut dc, info.width, info.height, to_linear, &mut decoded)?;
+
+        for (&channel, channel_samples) in group.iter().zip(decoded) {
+            samples[channel] = channel_samples;
+            grouped[channel] = true;
+        }
+    }
+
+    for (index, info) in infos.iter().enumerate() {
+        if grouped[index] || info.scheme != CompressorScheme::LossyDct {
+            continue;
+        }
+        let mut decoded = [vec![f16::ZERO; info.width * info.height]];
+        decode_lossy_dct_group(&mut ac, &mut dc, info.width, info.height, to_linear, &mut decoded)?;
+
+        let [channel_samples] = decoded;
+        samples[index] = channel_samples;
+    }
+
+    Ok(samples)
+}
+
+/// Decode one standalone channel (decoded.len() == 1) or one CSC'd R/G/B
+/// triplet (decoded.len() == 3): per 8x8 block and component, read the
+/// DC value, un-RLE the AC values, inverse-DCT
+fn decode_lossy_dct_group(
+    ac: &mut PackedStream<'_>,
+    dc: &mut PackedStream<'_>,
     width: usize,
     height: usize,
-    has_csc: bool,
     to_linear: &[u16; 65536],
-    decoded: &mut [Vec<f16>],
-) {
-    let num_comp = if has_csc {
-        3
-    } else {
-        1
-    };
-    let num_blocks_x = (width + 7) / 8;
-    let num_blocks_y = (height + 7) / 8;
+    decoded: &mut [Vec<f16>]
+) -> Result<()> {
+    let components = decoded.len();
+    let blocks_x = (width + 7) / 8;
+    let blocks_y = (height + 7) / 8;
+    let block_count = blocks_x * blocks_y;
 
-    let n_blocks = num_blocks_x * num_blocks_y;
+    for block_y in 0..blocks_y {
+        for block_x in 0..blocks_x {
+            let block_index = block_y * blocks_x + block_x;
+            let mut dct_blocks = [[0.0f32; 64]; 3];
 
-    for by in 0..num_blocks_y {
-        for bx in 0..num_blocks_x {
-            let mut comp_dcs = [f16::ZERO; 3];
-            let mut last_nz = [0usize; 3];
-            let mut zig_blocks: [[u16; 64]; 3] = [[0u16; 64]; 3];
-            let mut dct_blocks: [[f32; 64]; 3] = [[0.0f32; 64]; 3];
+            for component in 0..components {
+                let mut zig_block = [0u16; 64];
 
-            let block_idx = by * num_blocks_x + bx;
-            for c in 0..num_comp {
-                let dc_idx = *dc_cursor + c * n_blocks + block_idx;
-                if dc_idx < dc_packed.len() {
-                    comp_dcs[c] = f16::from_bits(dc_packed[dc_idx]);
-                }
-            }
+                // the DC stream is planar: all of component 0's blocks,
+                // then all of component 1's, ...
+                zig_block[0] = dc
+                    .peek_at(component * block_count + block_index)
+                    .ok_or_else(|| Error::invalid("truncated DWA DC data"))?;
 
-            // UnRLE AC for each comp into its own zig block
-            for c in 0..num_comp {
-                zig_blocks[c][0] = comp_dcs[c].to_bits();
-                un_rle_ac_into(ac_packed, ac_cursor, &mut zig_blocks[c], &mut last_nz[c]);
-            }
+                let last_non_zero = un_rle_ac(ac, &mut zig_block)?;
 
-            // IDCT for each comp
-            for c in 0..num_comp {
-                if last_nz[c] == 0 {
-                    dct_blocks[c][0] = comp_dcs[c].to_f32();
-                    idct::dct_inverse_8x8_dc_only(&mut dct_blocks[c]);
+                let dct_block = &mut dct_blocks[component];
+                if last_non_zero == 0 {
+                    // DC-only block
+                    dct_block[0] = f16::from_bits(zig_block[0]).to_f32();
+                    idct::dct_inverse_8x8_dc_only(dct_block);
                 } else {
-                    from_half_zigzag(&zig_blocks[c], &mut dct_blocks[c]);
-                    idct::dct_inverse_8x8(&mut dct_blocks[c]);
+                    from_half_zigzag(&zig_block, dct_block);
+                    idct::dct_inverse_8x8(dct_block);
                 }
             }
 
-            // CSC inverse on the float dct blocks if applicable (after IDCT)
-            if has_csc && num_comp == 3 {
+            if components == 3 {
                 for i in 0..64 {
-                    let (r, g, b) =
-                        csc::csc709_inverse(dct_blocks[0][i], dct_blocks[1][i], dct_blocks[2][i]);
+                    let (r, g, b) = csc::csc709_inverse(
+                        dct_blocks[0][i],
+                        dct_blocks[1][i],
+                        dct_blocks[2][i]
+                    );
                     dct_blocks[0][i] = r;
                     dct_blocks[1][i] = g;
                     dct_blocks[2][i] = b;
                 }
             }
 
-            // Now convert each comp's dct block (nonlinear float) to linear half via to_linear LUT
-            // and write to the output decoded buffers
-            let bx0 = bx * 8;
-            let by0 = by * 8;
-
-            for c in 0..num_comp {
-                let comp_buf = &mut decoded[c];
-                for yy in 0..8 {
-                    let y = by0 + yy;
-                    if y >= height {
-                        break;
-                    }
-                    for xx in 0..8 {
-                        let x = bx0 + xx;
-                        if x >= width {
-                            break;
-                        }
-
-                        let val = dct_blocks[c][yy * 8 + xx];
-                        let h = f16::from_f32(val);
-                        let linear_h_bits = to_linear[h.to_bits() as usize];
-                        let linear_h = f16::from_bits(linear_h_bits);
-
-                        let idx = y * width + x;
-                        if idx < comp_buf.len() {
-                            comp_buf[idx] = linear_h;
-                        }
+            // nonlinear float -> linear half via LUT, cropped at the image edge
+            for (component, output) in decoded.iter_mut().enumerate() {
+                for y in block_y * 8..(block_y * 8 + 8).min(height) {
+                    for x in block_x * 8..(block_x * 8 + 8).min(width) {
+                        let value =
+                            dct_blocks[component][(y - block_y * 8) * 8 + (x - block_x * 8)];
+                        let nonlinear = f16::from_f32(value);
+                        output[y * width + x] = f16::from_bits(
+                            to_linear[nonlinear.to_bits() as usize]
+                        );
                     }
                 }
             }
         }
     }
-    // DC was read via planar indexing, advance cursor for subsequent singles/groups
-    *dc_cursor += num_comp * n_blocks;
+
+    dc.advance(components * block_count);
+    Ok(())
 }
 
-fn un_rle_ac_into(
-    ac: &[u16],
-    cursor: &mut usize,
-    block: &mut [u16; 64],
-    last_nz: &mut usize,
-) -> usize {
-    let mut dct_comp = 1usize;
-    let mut consumed = 0usize;
-    *last_nz = 0;
+/// Un-RLE one 8x8 block of AC values into block[1..]
+/// (`LossyDctDecoder_unRleAc`): a value with high byte 0xff encodes a run
+/// of `low byte` zeros (0 meaning "rest of the block"); anything else is a
+/// literal. Returns the index of the last non-zero value, 0 if none
+fn un_rle_ac(ac: &mut PackedStream<'_>, block: &mut [u16; 64]) -> Result<usize> {
+    let mut last_non_zero = 0;
+    let mut position = 1;
 
-    while dct_comp < 64 {
-        if *cursor >= ac.len() {
-            break;
-        }
-        let val = ac[*cursor];
-        *cursor += 1;
-        consumed += 1;
+    while position < 64 {
+        let value = ac.next().ok_or_else(|| Error::invalid("truncated DWA AC data"))?;
 
-        if (val & 0xff00) == 0xff00 {
-            let count = (val & 0xff) as usize;
-            dct_comp += if count == 0 {
-                64
-            } else {
-                count
-            };
+        if (value & 0xff00) == 0xff00 {
+            // run of zeros - the block is pre-zeroed, just skip ahead
+            let count = (value & 0xff) as usize;
+            position += if count == 0 { 64 } else { count };
         } else {
-            *last_nz = dct_comp;
-            block[dct_comp] = val;
-            dct_comp += 1;
+            last_non_zero = position;
+            block[position] = value;
+            position += 1;
         }
     }
-    consumed
+
+    Ok(last_non_zero)
 }
 
-fn from_half_zigzag(src_zig: &[u16; 64], dst: &mut [f32; 64]) {
-    // Mapping from the C fromHalfZigZag_scalar
+/// Undo the zig-zag coefficient order (C "fromHalfZigZag_scalar"),
+/// converting half bits to f32.
+fn from_half_zigzag(zig_zag: &[u16; 64], dst: &mut [f32; 64]) {
     const SRC_INDICES: [usize; 64] = [
-        0, 1, 5, 6, 14, 15, 27, 28, 2, 4, 7, 13, 16, 26, 29, 42, 3, 8, 12, 17, 25, 30, 41, 43, 9,
-        11, 18, 24, 31, 40, 44, 53, 10, 19, 23, 32, 39, 45, 52, 54, 20, 22, 33, 38, 46, 51, 55, 60,
-        21, 34, 37, 47, 50, 56, 59, 61, 35, 36, 48, 49, 57, 58, 62, 63,
+        0, 1, 5, 6, 14, 15, 27, 28, 2, 4, 7, 13, 16, 26, 29, 42, 3, 8, 12, 17, 25, 30, 41, 43, 9, 11,
+        18, 24, 31, 40, 44, 53, 10, 19, 23, 32, 39, 45, 52, 54, 20, 22, 33, 38, 46, 51, 55, 60, 21, 34,
+        37, 47, 50, 56, 59, 61, 35, 36, 48, 49, 57, 58, 62, 63,
     ];
 
-    for (i, &src_idx) in SRC_INDICES.iter().enumerate() {
-        dst[i] = f16::from_bits(src_zig[src_idx]).to_f32();
+    for (slot, &src_index) in dst.iter_mut().zip(SRC_INDICES.iter()) {
+        *slot = f16::from_bits(zig_zag[src_index]).to_f32();
     }
+}
+
+/// The stored nonlinear --> linear lookup table for all half bit patterns
+fn to_linear_table() -> &'static [u16; 65536] {
+    static TABLE: OnceLock<[u16; 65536]> = OnceLock::new();
+
+    TABLE.get_or_init(|| {
+        let mut table = [0u16; 65536];
+        for (bits, slot) in table.iter_mut().enumerate() {
+            *slot = dwa_convert_to_linear(f16::from_bits(bits as u16)).to_bits();
+        }
+        table
+    })
+}
+
+fn dwa_convert_to_linear(x: f16) -> f16 {
+    let value = x.to_f32();
+    if !value.is_finite() {
+        return f16::ZERO;
+    }
+
+    let sign = if value < 0.0 { -1.0 } else { 1.0 };
+    let value = value.abs();
+
+    let linear = if value <= 1.0 {
+        value.powf(2.2)
+    } else {
+        // exp(2.2) ^ (value - 1) == exp(2.2 * (value - 1))
+        (9.02501329156_f32).powf(value - 1.0)
+    };
+
+    f16::from_f32(sign * linear)
+}
+
+// --------------------- output layout ---------------------
+
+/// Interleave the per-channel decoded data into the scanline layout the
+/// rest of exrs expects: rows of "y" ascending, channels in list order
+/// within each row, samples little-endian.
+fn write_scanlines(
+    channels: &ChannelList,
+    infos: &[ChannelInfo],
+    rectangle: IntegerBounds,
+    lossy_samples: &[Vec<f16>],
+    unknown_bytes: &[Vec<u8>],
+    rle_bytes: &[Vec<u8>],
+    expected_byte_size: usize
+) -> Result<ByteVec> {
+    let mut out = Vec::with_capacity(expected_byte_size);
+
+    for y in rectangle.position.y()..rectangle.end().y() {
+        for (index, channel) in channels.list.iter().enumerate() {
+            let sampling_y = channel.sampling.y().max(1) as i32;
+            if y % sampling_y != 0 {
+                continue;
+            }
+
+            let info = &infos[index];
+            let row = ((y - rectangle.position.y()) / sampling_y) as usize;
+
+            match info.scheme {
+                CompressorScheme::LossyDct => {
+                    let row_samples = &lossy_samples[index][row * info.width..][..info.width];
+                    match info.sample_type {
+                        SampleType::F16 => {
+                            for sample in row_samples {
+                                out.extend_from_slice(&sample.to_bits().to_le_bytes());
+                            }
+                        }
+                        SampleType::F32 => {
+                            for sample in row_samples {
+                                out.extend_from_slice(&sample.to_f32().to_le_bytes());
+                            }
+                        }
+                        // rejected before decoding
+                        SampleType::U32 => {
+                            return Err(
+                                Error::unsupported("DWA lossy DCT compression of u32 channels")
+                            );
+                        }
+                    }
+                }
+
+                CompressorScheme::Unknown | CompressorScheme::Rle => {
+                    let bytes = if info.scheme == CompressorScheme::Unknown {
+                        &unknown_bytes[index]
+                    } else {
+                        &rle_bytes[index]
+                    };
+                    let row_length = info.width * info.bytes_per_sample;
+                    out.extend_from_slice(&bytes[row * row_length..][..row_length]);
+                }
+            }
+        }
+    }
+
+    if out.len() != expected_byte_size {
+        return Err(Error::invalid("DWA decoded size mismatch"));
+    }
+    Ok(out)
 }

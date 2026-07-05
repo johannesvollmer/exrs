@@ -16,42 +16,52 @@
 // Each fixture is paired with a `*_ground_truth.exr`: an uncompressed EXR
 // holding the real OpenEXR library's own decode of the DWAA file (see
 // generate.py in tests/images/valid/custom/dwa_csc/), so this test has no
-// Python/OpenEXR runtime dependency - just a frozen reference decode. This
-// reuses exrs's own `ValidateResult` machinery (see `expect_eq_other` in
-// tests/across_compression.rs) instead of a bespoke binary format and
-// hand-rolled tolerance check.
+// Python/OpenEXR runtime dependency - just a frozen reference decode.
 
 use std::path::Path;
 
-use exr::{image::validate_results::ValidateResult, prelude::*};
+use exr::{ image::validate_results::ValidateResult, prelude::* };
 
 fn dir() -> &'static Path {
     Path::new("tests/images/valid/custom/dwa_csc")
 }
 
-// LOSSY_DCT is lossy: exrs's IDCT (src/compression/dwa/idct.rs) matches
-// OpenEXR's *scalar* reference exactly, but doesn't reproduce a real OpenEXR
-// decode bit-for-bit. Not an exrs bug - OpenEXR's own scalar and SIMD
-// (SSE2/AVX) IDCT disagree with each other (basis-constant precision and
-// summation order both differ; see the comments on `dct_inverse_8x8` in
-// idct.rs), and real builds dispatch to SIMD by default, so this port
-// differs from a typical real decode by 1-2 ULP in half precision on some
-// samples. `ValidateResult`'s lossy-compression tolerance (see
-// `f32::validate_result` in src/image/mod.rs) is here to catch *structural*
-// bugs (like the DC cursor bug above), not to chase the inherent
-// scalar/SIMD ambiguity.
+// The ground truth was produced by an OpenEXR build that picked its avx
+// IDCT kernel. This code dispatches to the same kernel hierarchy at runtime
+// (src/compression/dwa/idct.rs), so on an AVX2-capable machine the decode
+// must be bit-identical. On lower tiers exrs correctly picks a different
+// kernel (sse2/scalar) whose output legitimately differs from the avx-made
+// ground truth by a few ULP, so there is nothing meaningful to compare and
+// the test is skipped.
+fn ground_truth_simd_tier_available() -> bool {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    {
+        // same token the decoder's dispatch uses for its avx tier
+        pulp::x86::V3::try_new().is_some()
+    }
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+    {
+        false
+    }
+}
+
 fn check_against_real_openexr(exr_name: &str, ground_truth_name: &str) {
-    let decoded = read_first_flat_layer_from_file(dir().join(exr_name))
-        .expect("exrs failed to decode DWA fixture");
+    if !ground_truth_simd_tier_available() {
+        eprintln!("skipping: this CPU lacks the SIMD tier the ground truth was generated with");
+        return;
+    }
 
-    let mut ground_truth = read_first_flat_layer_from_file(dir().join(ground_truth_name))
-        .expect("uncompressed ground truth could not be loaded");
+    let mut decoded = read_first_flat_layer_from_file(dir().join(exr_name)).expect(
+        "exrs failed to decode DWA fixture"
+    );
 
-    // The ground truth was saved uncompressed; match `decoded`'s compression
-    // so `validate_result` applies the lossy tolerance instead of failing on
-    // an encoding mismatch (same pattern as `expect_eq_other` in
-    // tests/across_compression.rs).
-    ground_truth.layer_data.encoding.compression = decoded.layer_data.encoding.compression;
+    let ground_truth = read_first_flat_layer_from_file(dir().join(ground_truth_name)).expect(
+        "uncompressed ground truth could not be loaded"
+    );
+
+    // Match the ground truth's lossless encoding so "validate_result"
+    // compares the samples bit-for-bit instead of with a lossy tolerance.
+    decoded.layer_data.encoding = ground_truth.layer_data.encoding;
 
     ground_truth.assert_equals_result(&decoded);
 }

@@ -12,7 +12,9 @@ repository = "https://github.com/johannesvollmer/exrs"
 readme = "README.md"
 license = "BSD-3-Clause"
 exclude = [ "specification/*", "specification/**", "tests/images/*", "tests/images/**" ]
-rust-version = "1.61.0"
+# 1.83 is required by pulp (verified by compiling: 1.82 fails on
+# raw-address syntax and more, 1.83 builds the whole crate)
+rust-version = "1.83.0"
 
 [badges]
 maintenance = { status = "actively-developed" }
@@ -34,12 +36,13 @@ miniz_oxide = "^0.8.0"         # zip compression for pxr24
 smallvec = "^1.7.0"            # make cache-friendly allocations        TODO profile if smallvec is really an improvement!
 rayon-core = { version = "^1.11.0", optional = true }         # threading for parallel compression
 zune-inflate = { version = "^0.2.3", default-features = false, features = ["zlib"] }  # zip decompression, faster than miniz_oxide
-wide = "0.7.33"                # safe portable SIMD for the DWA decoder's inverse DCT
+pulp = "0.22.3"                # safe *runtime* SIMD dispatch (avx2 > sse2 > scalar) for the DWA decoder's inverse DCT, mirroring OpenEXR's own cpuid dispatch. Needs default features: "std" for is_x86_feature_detected!, "x86-v3" for the AVX2 token type.
 
 [dev-dependencies]
 image = { version = "0.25.2", default-features = false, features = ["png"] }         # used to convert one exr to some pngs
 
 bencher = "0.1.5"
+pulp = "0.22.3"           # tests check the CPU's SIMD tier to know which decodes must be bit-exact (see tests/dwa_csc.rs)
 walkdir = "2.3.2"         # automatically test things for all files in a directory
 rand = "0.8.5"            # used for fuzz testing
 rayon = "1.5.3"           # run tests for many files in parallel
