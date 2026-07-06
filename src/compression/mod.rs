@@ -9,6 +9,13 @@ mod pxr24;
 mod rle;
 mod zip;
 
+#[cfg(any(feature = "avx2-tests", feature = "sse2-tests"))]
+#[allow(missing_docs)]
+#[doc(hidden)]
+pub mod simd_test_support {
+    pub use super::dwa::simd_test_support::*;
+}
+
 use std::convert::TryInto;
 
 use crate::{
@@ -129,14 +136,16 @@ pub enum Compression {
     /// Only supported for flat images, not for deep data.
     B44A, // TODO collapse with B44
 
-    /// Lossy DCT-based compression (DreamWorks Animation), 32 scanlines per block.
-    /// Partial buffer access friendly.
-    /// Decoding support is implemented. Encoding is not implemented and returns an error.
+    /// Lossy DCT-based compression (DreamWorks Animation), 32 scanlines per
+    /// block. Partial buffer access friendly.
+    /// Decoding support is implemented. Encoding is not implemented and returns
+    /// an error.
     DWAA(Option<f32>),
 
-    /// Lossy DCT-based compression (DreamWorks Animation), 256 scanlines per block.
-    /// Better compression ratio for full frames.
-    /// Decoding support is implemented. Encoding is not implemented and returns an error.
+    /// Lossy DCT-based compression (DreamWorks Animation), 256 scanlines per
+    /// block. Better compression ratio for full frames.
+    /// Decoding support is implemented. Encoding is not implemented and returns
+    /// an error.
     DWAB(Option<f32>),
 
     /// __This lossy compression is not yet supported by this implementation.__

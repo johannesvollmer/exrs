@@ -1,0 +1,108 @@
+name: SIMD tests
+
+on:
+  push:
+  pull_request:
+
+env:
+  SDE_VERSION: sde-external-10.8.0-2026-03-15-lin
+  SDE_SHA256: 50B320CD226ACEF7A491F5B321FC1BE3C3C7984F9E27A456E64894B5B0979DD3
+  SDE_URL: https://downloadmirror.intel.com/859732/sde-external-10.8.0-2026-03-15-lin.tar.xz
+
+jobs:
+  avx2-sde:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Cache Intel SDE
+        id: cache-sde
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/intel-sde/${{ env.SDE_VERSION }}
+          key: intel-sde-${{ env.SDE_VERSION }}
+
+      - name: Download Intel SDE
+        if: steps.cache-sde.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.cache/intel-sde
+          curl -L "$SDE_URL" -o /tmp/sde.tar.xz
+          echo "$SDE_SHA256  /tmp/sde.tar.xz" | sha256sum -c -
+          mkdir -p ~/.cache/intel-sde/"$SDE_VERSION"
+          tar -xf /tmp/sde.tar.xz --strip-components=1 -C ~/.cache/intel-sde/"$SDE_VERSION"
+
+      - name: Check SDE
+        run: |
+          ~/.cache/intel-sde/"$SDE_VERSION"/sde64 --version
+
+      - name: Build AVX2 integration test only
+        run: |
+          set -euo pipefail
+          RUSTFLAGS="-C target-feature=+avx2,+fma" \
+          cargo test --test avx2 --features avx2-tests --no-run --message-format=json \
+            | jq -r 'select(.reason == "compiler-artifact" and .target.name == "avx2" and .executable != null) | .executable' \
+            | tail -n 1 > /tmp/avx2-test-bin
+
+          test -s /tmp/avx2-test-bin
+          cat /tmp/avx2-test-bin
+
+      - name: Run AVX2 integration test under Intel SDE
+        run: |
+          set -euo pipefail
+          TEST_BIN="$(cat /tmp/avx2-test-bin)"
+          ~/.cache/intel-sde/"$SDE_VERSION"/sde64 -hsw -- "$TEST_BIN" --nocapture
+
+  sse2-sde:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Cache Intel SDE
+        id: cache-sde
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/intel-sde/${{ env.SDE_VERSION }}
+          key: intel-sde-${{ env.SDE_VERSION }}
+
+      - name: Download Intel SDE
+        if: steps.cache-sde.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.cache/intel-sde
+          curl -L "$SDE_URL" -o /tmp/sde.tar.xz
+          echo "$SDE_SHA256  /tmp/sde.tar.xz" | sha256sum -c -
+          mkdir -p ~/.cache/intel-sde/"$SDE_VERSION"
+          tar -xf /tmp/sde.tar.xz --strip-components=1 -C ~/.cache/intel-sde/"$SDE_VERSION"
+
+      - name: Check SDE
+        run: |
+          ~/.cache/intel-sde/"$SDE_VERSION"/sde64 --version
+
+      - name: Build SSE2 integration test only
+        run: |
+          set -euo pipefail
+          cargo test --test sse2 --features sse2-tests --no-run --message-format=json \
+            | jq -r 'select(.reason == "compiler-artifact" and .target.name == "sse2" and .executable != null) | .executable' \
+            | tail -n 1 > /tmp/sse2-test-bin
+
+          test -s /tmp/sse2-test-bin
+          cat /tmp/sse2-test-bin
+
+      - name: Run SSE2 integration test under Intel SDE
+        run: |
+          set -euo pipefail
+          TEST_BIN="$(cat /tmp/sse2-test-bin)"
+          ~/.cache/intel-sde/"$SDE_VERSION"/sde64 -p4 -- "$TEST_BIN" --nocapture

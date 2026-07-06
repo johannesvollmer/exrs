@@ -19,7 +19,10 @@ pub fn decompress_bytes(
     // TODO no alloc
 }
 
-/// Shared by this compression method and DWA's RLE scheme (both port OpenEXR's `internal_rle_decompress`, see `compression::dwa`) - kept separate from `decompress_bytes` because DWA does not apply the delta prediction / byte-block interleaving done there.
+/// Shared by this compression method and DWA's RLE scheme (both port OpenEXR's
+/// `internal_rle_decompress`, see `compression::dwa`) - kept separate from
+/// `decompress_bytes` because DWA does not apply the delta prediction /
+/// byte-block interleaving done there.
 pub(super) fn unpack_rle_tokens(
     compressed_le: &[u8],
     expected_byte_size: usize,
