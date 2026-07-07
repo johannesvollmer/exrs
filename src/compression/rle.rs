@@ -12,7 +12,23 @@ pub fn decompress_bytes(
     expected_byte_size: usize,
     pedantic: bool,
 ) -> Result<ByteVec> {
-    let mut remaining_le = compressed_le.as_slice();
+    let mut decompressed_le = unpack_rle_tokens(&compressed_le, expected_byte_size, pedantic)?;
+    differences_to_samples(&mut decompressed_le);
+    interleave_byte_blocks(&mut decompressed_le);
+    super::convert_little_endian_to_current(decompressed_le, channels, rectangle)
+    // TODO no alloc
+}
+
+/// Shared by this compression method and DWA's RLE scheme (both port OpenEXR's
+/// `internal_rle_decompress`, see `compression::dwa`) - kept separate from
+/// `decompress_bytes` because DWA does not apply the delta prediction /
+/// byte-block interleaving done there.
+pub(super) fn unpack_rle_tokens(
+    compressed_le: &[u8],
+    expected_byte_size: usize,
+    pedantic: bool,
+) -> Result<ByteVec> {
+    let mut remaining_le = compressed_le;
     let mut decompressed_le = Vec::with_capacity(expected_byte_size.min(8 * 2048));
 
     while !remaining_le.is_empty() && decompressed_le.len() != expected_byte_size {
@@ -20,12 +36,12 @@ pub fn decompress_bytes(
 
         if count < 0 {
             // take the next '-count' bytes as-is
-            let values = take_n(&mut remaining_le, (-count) as usize)?;
+            let values = take_n(&mut remaining_le, -count as usize)?;
             decompressed_le.extend_from_slice(values);
         } else {
             // repeat the next value 'count + 1' times
             let value = take_1(&mut remaining_le)?;
-            decompressed_le.resize(decompressed_le.len() + count as usize + 1, value);
+            decompressed_le.resize(decompressed_le.len() + (count as usize) + 1, value);
         }
     }
 
@@ -33,10 +49,7 @@ pub fn decompress_bytes(
         return Err(Error::invalid("data amount"));
     }
 
-    differences_to_samples(&mut decompressed_le);
-    interleave_byte_blocks(&mut decompressed_le);
-    super::convert_little_endian_to_current(decompressed_le, channels, rectangle)
-    // TODO no alloc
+    Ok(decompressed_le)
 }
 
 pub fn compress_bytes(
@@ -58,26 +71,27 @@ pub fn compress_bytes(
     while run_start < data_le.len() {
         while run_end < data_le.len()
             && data_le[run_start] == data_le[run_end]
-            && (run_end - run_start) as i32 - 1 < MAX_RUN_LENGTH as i32
+            && ((run_end - run_start) as i32) - 1 < (MAX_RUN_LENGTH as i32)
         {
             run_end += 1;
         }
 
         if run_end - run_start >= MIN_RUN_LENGTH {
-            compressed_le.push(((run_end - run_start) as i32 - 1) as u8);
+            compressed_le.push((((run_end - run_start) as i32) - 1) as u8);
             compressed_le.push(data_le[run_start]);
             run_start = run_end;
         } else {
             while run_end < data_le.len()
-                && ((run_end + 1 >= data_le.len() || data_le[run_end] != data_le[run_end + 1])
-                    || (run_end + 2 >= data_le.len()
-                        || data_le[run_end + 1] != data_le[run_end + 2]))
+                && (run_end + 1 >= data_le.len()
+                    || data_le[run_end] != data_le[run_end + 1]
+                    || run_end + 2 >= data_le.len()
+                    || data_le[run_end + 1] != data_le[run_end + 2])
                 && run_end - run_start < MAX_RUN_LENGTH
             {
                 run_end += 1;
             }
 
-            compressed_le.push((run_start as i32 - run_end as i32) as u8);
+            compressed_le.push(((run_start as i32) - (run_end as i32)) as u8);
             compressed_le.extend_from_slice(&data_le[run_start..run_end]);
 
             run_start = run_end;

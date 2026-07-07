@@ -57,7 +57,9 @@ __What we can do:__
             - [x] little-endian architectures
             - [ ] big-endian architectures __(help wanted)__
         - [x] b44, b44a (huge thanks to @narann)
-        - [ ] dwaa, dwab __(help wanted)__
+        - [~] dwaa, dwab 
+            - [X] decoding (@zinezockt)
+            - [ ] encoding __(help wanted)__
 
 - Nice Things
     - [x] no unsafe code, no undefined behaviour
@@ -113,7 +115,9 @@ __What we can do:__
         - [x] PIZ
         - [x] RXR24
         - [x] B44, B44A
-        - [ ] DWAA, DWAB
+        - [~] dwaa, dwab
+            - [X] decoding
+            - [ ] encoding
 
 - [ ] Writing images
     - [x] Scan Lines
@@ -301,11 +305,11 @@ and they offer several advantages over this Rust implementation:
 ### Specification
 
 This library is modeled after the
-official [`OpenEXRFileLayout.pdf`](http://www.openexr.com/documentation.html)
-document. Unspecified behavior is concluded from the C++ library.
+official [`OpenEXR Documentation`](https://openexr.com/en/latest/)
+document. Saved older PDFs in /specification. Unspecified behavior is concluded from the C++ library.
 
 ### Roadmap
-1. Support all compression formats (missing format: DWAA/DWAB)
+1. Support all compression formats
 1. Support subsampling
 1. Support Deep Data
 1. Automatic conversion between color spaces
@@ -354,3 +358,61 @@ You may also need to install the toolchain beforehand, using
 and `rustup target add powerpc-unknown-linux-gnu`.
  
 To benchmark the library, simply run `cargo bench`.
+
+#### SIMD tests (Intel SDE)
+
+The DWA inverse-DCT has SIMD kernels (AVX2 and SSE2) that are selected at
+runtime via [`pulp`](https://crates.io/crates/pulp), mirroring OpenEXR's own
+cpuid dispatch. Each tier has its own feature-gated integration test:
+
+- `tests/avx2.rs` — requires the `avx2-tests` feature, exercises the AVX2 kernel
+- `tests/sse2.rs` — requires the `sse2-tests` feature, exercises the SSE2 kernel
+
+These tests are **opt-in** and are excluded from the normal `cargo test` run. A
+test only passes if the requested tier is actually available on the CPU it runs
+on, so the AVX2 test needs an AVX2-capable CPU and the SSE2 test additionally
+asserts that AVX2 is *not* present (so it verifies the fallback path).
+
+Because most machines only expose their native tier, we run these tests under
+[Intel SDE](https://www.intel.com/content/www/us/en/developer/articles/tool/software-development-emulator.html)
+(Software Development Emulator), which emulates a chosen microarchitecture. This
+is exactly what the `SIMD tests` CI workflow does. To reproduce it locally:
+
+1. **Install Intel SDE.** Download it from the link above and put the `sde64`
+   binary on your `PATH` (or note its full path). SDE runs on x86-64 Linux,
+   macOS, and Windows.
+
+2. **Build the test binary without running it,** then locate the executable:
+
+   ```bash
+   # AVX2
+   cargo test --test avx2 --features avx2-tests --no-run
+
+   # SSE2
+   cargo test --test sse2 --features sse2-tests --no-run
+   ```
+
+   Cargo prints the path to the compiled test binary (under `target/debug/deps/`).
+
+3. **Run that binary under SDE,** selecting a chip that exposes the target tier:
+
+   ```bash
+   # AVX2 — Haswell is the first microarchitecture with AVX2 + FMA
+   sde64 -hsw -- target/debug/deps/avx2-<hash> --nocapture
+
+   # SSE2 — Merom is the lowest 64-bit chip SDE models: it has SSE2 but no AVX,
+   #        so pulp falls back to the SSE2 kernel
+   sde64 -mrm -- target/debug/deps/sse2-<hash> --nocapture
+   ```
+
+> [!IMPORTANT]
+> Do **not** set a global `RUSTFLAGS="-C target-feature=+avx2"` (or similar) to
+> run these tests. This is a runtime-dispatched library: forcing a target
+> feature globally would bake AVX2 into otherwise-portable code, break the
+> plain x86-64 baseline, and make the fallback tests meaningless. The kernels
+> already carry their own per-function `#[target_feature]`, so no global flag is
+> needed — SDE alone controls which tier the runtime dispatch selects.
+
+If your own CPU already exposes the required tier, you can skip SDE and run the
+test directly (e.g. `cargo test --test sse2 --features sse2-tests` on any
+x86-64 machine, since SSE2 is part of the baseline).

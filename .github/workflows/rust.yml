@@ -143,6 +143,63 @@ jobs:
     - name: Run tests without default features
       run: cargo +stable test --verbose --no-default-features
 
+  sde:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: avx2
+            test: avx2
+            feature: avx2-tests
+            # Haswell: first microarchitecture with AVX2+FMA.
+            # `-C target-feature` unset explicitly to force runtime dispatching
+            sde_cpu: "-hsw"
+
+          - name: sse2
+            test: sse2
+            feature: sse2-tests
+            # Merom: the lowest 64-bit chip SDE models. Has SSE2 but no AVX,
+            # `-C target-feature` unset explicitly to force runtime dispatching
+            sde_cpu: "-mrm"
+
+    name: test ${{ matrix.name }} using simd cpu emulator
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Setup Intel SDE
+        uses: petarpetrovt/setup-sde@v5.0
+        with:
+          environmentVariableName: SDE_PATH
+          sdeVersion: 10.8.0
+
+      - name: Check SDE
+        run: |
+          "$SDE_PATH"/sde64 --version
+
+      - name: Build ${{ matrix.name }} integration test only
+        run: |
+          set -euo pipefail
+
+          cargo test --test "${{ matrix.test }}" --features "${{ matrix.feature }}" --no-run --message-format=json \
+            | jq -r 'select(.reason == "compiler-artifact" and .target.name == "${{ matrix.test }}" and .executable != null) | .executable' \
+            | tail -n 1 > /tmp/simd-test-bin
+
+          test -s /tmp/simd-test-bin
+          cat /tmp/simd-test-bin
+
+      - name: Run ${{ matrix.name }} integration test under Intel SDE
+        run: |
+          set -euo pipefail
+
+          TEST_BIN="$(cat /tmp/simd-test-bin)"
+          "$SDE_PATH"/sde64 "${{ matrix.sde_cpu }}" -- "$TEST_BIN" --nocapture
+
   js:
     runs-on: ubuntu-latest
     name: test on wasm32 via javascript api
@@ -178,4 +235,3 @@ jobs:
       - name: Build and test wasm package
         run: npm run test
         working-directory: exrs-wasm/js
-

@@ -82,6 +82,7 @@ fn round_trip_rgba_file(path: &Path, file: &[u8]) -> Result<()> {
         Path::new("tests/images/valid/openexr/TestImages/GrayRampsHorizontal.exr"),
         Path::new("tests/images/valid/openexr/TestImages/WideFloatRange.exr"),
         Path::new("tests/images/valid/openexr/IlmfmlmflmTest/v1.7.test.tiled.exr"),
+        Path::new("tests/images/valid/custom/dwa_csc/y_ry_by_dwaa_ground_truth.exr"),
     ];
 
     if blacklist.contains(&path) {
@@ -177,7 +178,7 @@ fn check_all_files_in_repo<T>(
             match &result {
                 Result::Error(_) => println!("✗ Error when processing {:?}", file),
                 _ => println!("✓ No error when processing {:?}", file),
-            };
+            }
 
             (file, result)
         })
@@ -372,9 +373,9 @@ fn roundtrip_uncompressed() {
 
 fn test_mixed_roundtrip_with_compression(compression: Compression) {
     let original_pixels: [(f16, f32, f32); 4] = [
-        (0.0.to_f16(), -1.1, std::f32::consts::PI),
-        (9.1.to_f16(), -3.1, std::f32::consts::TAU),
-        (-10.0.to_f16(), -11.1, f32::EPSILON),
+        ((0.0).to_f16(), -1.1, std::f32::consts::PI),
+        ((9.1).to_f16(), -3.1, std::f32::consts::TAU),
+        (-(10.0).to_f16(), -11.1, f32::EPSILON),
         (half::f16::NAN, 10000.1, -1024.009),
     ];
 

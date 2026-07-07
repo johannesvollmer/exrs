@@ -12,7 +12,7 @@ fn expect_eq_other(sub_dir: &str, image_name: &str, expected: &str) {
     match read_first_flat_layer_from_file(path) {
         Err(Error::NotSupported(message)) => println!("skipping ({})", message),
         Err(error) => panic!("unexpected error: {}", error),
-        Ok(mut decompressed) => {
+        Ok(decompressed) => {
             let decompressed_path = dir().join(sub_dir).join(expected);
             let mut expected_decompressed = read_first_flat_layer_from_file(decompressed_path)
                 .expect("uncompressed image could not be loaded");
@@ -20,13 +20,14 @@ fn expect_eq_other(sub_dir: &str, image_name: &str, expected: &str) {
             // HACK: make metadata match artificially, to avoid failing the check due to
             // meta data mismatch (the name of the compression methods should
             // not be equal, as we test between compression methods)
-            expected_decompressed.layer_data.encoding.compression = Compression::Uncompressed;
-            decompressed.layer_data.encoding.compression = Compression::Uncompressed;
+            expected_decompressed.layer_data.encoding.compression =
+                decompressed.layer_data.encoding.compression;
 
             debug_assert_eq!(
                 expected_decompressed.layer_data.attributes, decompressed.layer_data.attributes,
                 "attributes should not be affected by compression"
             );
+
             debug_assert_eq!(
                 expected_decompressed.layer_data.size, decompressed.layer_data.size,
                 "size should not be affected by compression"
@@ -63,7 +64,7 @@ fn expect_eq_png(image_name: &str) {
     );
 
     fn to_u16(num: f32) -> u16 {
-        (num.powf(1.0 / 2.14).clamp(0.0, 1.0) * u16::MAX as f32).round() as u16
+        (num.powf(1.0 / 2.14).clamp(0.0, 1.0) * (u16::MAX as f32)).round() as u16
     }
 
     match png_from_exr {

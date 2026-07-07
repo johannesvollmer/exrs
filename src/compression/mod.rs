@@ -3,10 +3,25 @@
 
 // private modules make non-breaking changes easier
 mod b44;
+mod dwa;
 mod piz;
 mod pxr24;
 mod rle;
 mod zip;
+
+#[cfg(feature = "simd-benches")]
+#[allow(missing_docs)]
+#[doc(hidden)]
+pub mod simd_bench_support {
+    pub use super::dwa::simd_bench_support::*;
+}
+
+#[cfg(any(feature = "avx2-tests", feature = "sse2-tests"))]
+#[allow(missing_docs)]
+#[doc(hidden)]
+pub mod simd_test_support {
+    pub use super::dwa::simd_test_support::*;
+}
 
 use std::convert::TryInto;
 
@@ -49,7 +64,6 @@ pub enum Compression {
     /// lossless. Might be slightly faster but larger than `ZIP16´.
     ZIP1, /* TODO ZIP { individual_lines: bool, compression_level: Option<u8> }  // TODO
            * specify zip compression level? */
-
     /// Uses ZIP compression to compress blocks of 16 lines. Slowly produces
     /// small images which can be read with moderate speed. This compression
     /// method is lossless. Might be slightly slower but smaller than
@@ -128,18 +142,17 @@ pub enum Compression {
     /// Only supported for flat images, not for deep data.
     B44A, // TODO collapse with B44
 
-    /// __This lossy compression is not yet supported by this implementation.__
-    // lossy DCT based compression, in blocks
-    // of 32 scanlines. More efficient for partial buffer access.
-    DWAA(Option<f32>), /* TODO does this have a default value? make this non optional? default
-                        * Compression Level setting is 45.0 */
+    /// Lossy DCT-based compression (DreamWorks Animation), 32 scanlines per
+    /// block. Partial buffer access friendly.
+    /// Decoding support is implemented. Encoding is not implemented and returns
+    /// an error.
+    DWAA(Option<f32>),
 
-    /// __This lossy compression is not yet supported by this implementation.__
-    // lossy DCT based compression, in blocks
-    // of 256 scanlines. More efficient space
-    // wise and faster to decode full frames
-    // than DWAA_COMPRESSION.
-    DWAB(Option<f32>), // TODO collapse with DWAA. default Compression Level setting is 45.0
+    /// Lossy DCT-based compression (DreamWorks Animation), 256 scanlines per
+    /// block. Better compression ratio for full frames.
+    /// Decoding support is implemented. Encoding is not implemented and returns
+    /// an error.
+    DWAB(Option<f32>),
 
     /// __This lossy compression is not yet supported by this implementation.__
     // High-Throughput JPEG 2000 (32 lines)
@@ -199,7 +212,7 @@ impl Compression {
                     uncompressed_native_endian,
                     &header.channels,
                     pixel_section,
-                )
+                );
             }
 
             // we need to clone here, because we might have to fallback to the uncompressed data
@@ -240,7 +253,7 @@ impl Compression {
             _ => {
                 return Err(Error::unsupported(format!(
                     "yet unimplemented compression method: {self}"
-                )))
+                )));
             }
         };
 
@@ -335,10 +348,17 @@ impl Compression {
                     expected_byte_size,
                     pedantic,
                 ),
+                DWAA(_) | DWAB(_) => dwa::decompress(
+                    &header.channels,
+                    compressed_le,
+                    pixel_section,
+                    expected_byte_size,
+                    pedantic,
+                ),
                 _ => {
                     return Err(Error::unsupported(format!(
                         "yet unimplemented compression method: {self}"
-                    )))
+                    )));
                 }
             };
 
@@ -389,8 +409,9 @@ impl Compression {
         use self::Compression::*;
         match self {
             PXR24 => sample_type != SampleType::F32, // pxr reduces f32 to f24
-            B44 | B44A => sample_type != SampleType::F16, /* b44 only compresses f16 values,
-                                                            * others */
+            B44 | B44A => sample_type != SampleType::F16
+            /* b44 only compresses f16 values,
+             * others */,
             // are left uncompressed
             Uncompressed | RLE | ZIP1 | ZIP16 | PIZ | HTJ2K32 | HTJ2K256 => true,
             DWAB(_) | DWAA(_) => false,
@@ -552,7 +573,6 @@ const fn mod_p(x: i32, y: i32) -> i32 {
 
 /// A collection of functions used to prepare data for compression.
 mod optimize_bytes {
-
     /// Integrate over all differences to the previous value in order to
     /// reconstruct sample values.
     pub fn differences_to_samples(buffer: &mut [u8]) {
@@ -775,7 +795,6 @@ mod optimize_bytes {
 
     #[cfg(test)]
     pub mod test {
-
         #[test]
         fn roundtrip_interleave() {
             let source = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -812,14 +831,14 @@ mod test {
         let channels = ChannelList::new(smallvec![a32, y16]);
 
         let data = vec![
-            23582740683_f32.to_ne_bytes().as_slice(),
-            35827420683_f32.to_ne_bytes().as_slice(),
-            27406832358_f32.to_f16().to_ne_bytes().as_slice(),
-            74062358283_f32.to_f16().to_ne_bytes().as_slice(),
-            52582740683_f32.to_ne_bytes().as_slice(),
-            45827420683_f32.to_ne_bytes().as_slice(),
-            15406832358_f32.to_f16().to_ne_bytes().as_slice(),
-            65062358283_f32.to_f16().to_ne_bytes().as_slice(),
+            (23582740683_f32).to_ne_bytes().as_slice(),
+            (35827420683_f32).to_ne_bytes().as_slice(),
+            (27406832358_f32).to_f16().to_ne_bytes().as_slice(),
+            (74062358283_f32).to_f16().to_ne_bytes().as_slice(),
+            (52582740683_f32).to_ne_bytes().as_slice(),
+            (45827420683_f32).to_ne_bytes().as_slice(),
+            (15406832358_f32).to_f16().to_ne_bytes().as_slice(),
+            (65062358283_f32).to_f16().to_ne_bytes().as_slice(),
         ]
         .into_iter()
         .flatten()
