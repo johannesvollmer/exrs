@@ -375,7 +375,7 @@ pub fn decompress(
 
     let lossy_samples = decode_lossy_channels(&channel_infos, &csc_groups, &ac_packed, &dc_packed)?;
 
-    write_scanlines(
+    let out = write_scanlines(
         channels,
         &channel_infos,
         rectangle,
@@ -383,7 +383,9 @@ pub fn decompress(
         &unknown_bytes,
         &rle_bytes,
         expected_byte_size,
-    )
+    )?;
+
+    crate::compression::convert_little_endian_to_current(out, channels, rectangle)
 }
 
 // --------------------- decoding ---------------------
