@@ -352,8 +352,15 @@ and `cross-rs` to be installed on your machine (`cargo install cross`).
 
 To run the SIMD tests locally under Intel SDE with `cross`, use the SDE pseudo-target.
 These commands assume Docker is already running in the background.
+
+shell command:
 - AVX2 `CROSS_SDE_CPU=skx cross test --target x86_64-unknown-linux-gnu:sde --test avx2 --features avx2-tests --verbose -- --nocapture`
 - SSE2 `CROSS_SDE_CPU=ivb cross test --target x86_64-unknown-linux-gnu:sde --test sse2 --features sse2-tests --verbose -- --nocapture`
+
+power shell:
+- AVX2 `$env:CROSS_SDE_CPU="skx"; cross test --target x86_64-unknown-linux-gnu:sde --test avx2 --features avx2-tests --verbose -- --nocapture`
+- SSE2 `$env:CROSS_SDE_CPU="ivb"; cross test --target x86_64-unknown-linux-gnu:sde --test sse2 --features sse2-tests --verbose -- --nocapture`
+
 
 You may also need to install the toolchain beforehand, using 
 `rustup toolchain add stable-x86_64-unknown-linux-gnu --profile minimal --force-non-host` 
