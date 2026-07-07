@@ -58,6 +58,8 @@ __What we can do:__
             - [ ] big-endian architectures __(help wanted)__
         - [x] b44, b44a (huge thanks to @narann)
         - [~] dwaa, dwab __(help wanted)__
+            - [X] decoding
+            - [ ] encoding
 
 - Nice Things
     - [x] no unsafe code, no undefined behaviour
