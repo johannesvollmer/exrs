@@ -151,21 +151,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: AVX2
+          - name: avx2
             test: avx2
             feature: avx2-tests
             # Haswell: first microarchitecture with AVX2+FMA.
             # `-C target-feature` unset explicitly to force runtime dispatching
             sde_cpu: "-hsw"
 
-          - name: SSE2
+          - name: sse2
             test: sse2
             feature: sse2-tests
             # Merom: the lowest 64-bit chip SDE models. Has SSE2 but no AVX,
             # `-C target-feature` unset explicitly to force runtime dispatching
             sde_cpu: "-mrm"
 
-    name: ${{ matrix.name }} under Intel SDE
+    name: test ${{ matrix.name }} using simd cpu emulator
 
     steps:
       - uses: actions/checkout@v4
