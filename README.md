@@ -57,9 +57,9 @@ __What we can do:__
             - [x] little-endian architectures
             - [ ] big-endian architectures __(help wanted)__
         - [x] b44, b44a (huge thanks to @narann)
-        - [~] dwaa, dwab __(help wanted)__
-            - [X] decoding
-            - [ ] encoding
+        - [~] dwaa, dwab 
+            - [X] decoding (@zinezockt)
+            - [ ] encoding __(help wanted)__
 
 - Nice Things
     - [x] no unsafe code, no undefined behaviour
@@ -115,8 +115,9 @@ __What we can do:__
         - [x] PIZ
         - [x] RXR24
         - [x] B44, B44A
-        - [ ] DWAA, DWAB // decodes correctly, within a small epsilon of a real
-                         // OpenEXR decode (see src/compression/dwa/idct.rs)
+        - [~] dwaa, dwab
+            - [X] decoding
+            - [ ] encoding
 
 - [ ] Writing images
     - [x] Scan Lines
@@ -308,7 +309,7 @@ official [`OpenEXR Documentation`](https://openexr.com/en/latest/)
 document. Saved older PDFs in /specification. Unspecified behavior is concluded from the C++ library.
 
 ### Roadmap
-1. Support all compression formats (missing format: DWAA/DWAB)
+1. Support all compression formats
 1. Support subsampling
 1. Support Deep Data
 1. Automatic conversion between color spaces
