@@ -16,11 +16,11 @@ jobs:
           - name: AVX2
             test: avx2
             feature: avx2-tests
-            cpu: skx
+            cross_config: ci/Cross.avx2.toml
           - name: SSE2
             test: sse2
             feature: sse2-tests
-            cpu: ivb
+            cross_config: ci/Cross.sse2.toml
 
     name: test ${{ matrix.name }} under Intel SDE
 
@@ -41,10 +41,10 @@ jobs:
 
       - name: Run ${{ matrix.name }} integration test under SDE
         env:
-          CROSS_SDE_CPU: ${{ matrix.cpu }}
+          CROSS_CONFIG: ${{ matrix.cross_config }}
         run: |
           cross test \
-            --target x86_64-unknown-linux-gnu:sde \
+            --target x86_64-unknown-linux-gnu \
             --test "${{ matrix.test }}" \
             --features "${{ matrix.feature }}" \
             --verbose \
