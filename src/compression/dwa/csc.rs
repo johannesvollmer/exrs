@@ -1,5 +1,6 @@
 // Y'CbCr -> R'G'B' inverse conversion for DWA, using the modified 709
-// coefficients OpenEXR's DWA encoder uses (from OpenEXRCore internal_dwa_simd.h).
+// coefficients OpenEXR's DWA encoder uses (from OpenEXRCore
+// internal_dwa_simd.h).
 
 /// Input comp0/1/2 are Y, RY, BY; output is R, G, B.
 #[inline]

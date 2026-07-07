@@ -20,6 +20,13 @@ use crate::{
 mod csc;
 mod idct;
 
+#[cfg(any(feature = "avx2-tests", feature = "sse2-tests"))]
+#[allow(missing_docs)]
+#[doc(hidden)]
+pub mod simd_test_support {
+    pub use super::idct::simd_test_support::*;
+}
+
 #[derive(Debug, Clone, Copy)]
 enum AcCompression {
     StaticHuffman,
@@ -346,10 +353,9 @@ pub fn decompress(
     if
         channel_infos
             .iter()
-            .any(
-                |info|
-                    info.scheme == CompressorScheme::LossyDct && info.sample_type == SampleType::U32
-            )
+            .any(|info| {
+                info.scheme == CompressorScheme::LossyDct && info.sample_type == SampleType::U32
+            })
     {
         return Err(Error::unsupported("DWA lossy DCT compression of u32 channels"));
     }
@@ -556,7 +562,10 @@ struct PackedStream<'v> {
 
 impl<'v> PackedStream<'v> {
     fn new(values: &'v [u16]) -> Self {
-        Self { values, cursor: 0 }
+        Self {
+            values,
+            cursor: 0,
+        }
     }
 
     fn next(&mut self) -> Option<u16> {

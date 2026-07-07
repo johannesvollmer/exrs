@@ -572,10 +572,51 @@ pub fn dct_inverse_8x8_dc_only(data: &mut [f32; 64]) {
     }
 }
 
-// All tests exercise the SIMD kernels; only on x86.
-#[cfg(all(test, any(target_arch = "x86", target_arch = "x86_64")))]
-mod tests {
+#[cfg(any(feature = "avx2-tests", feature = "sse2-tests"))]
+#[allow(dead_code, missing_docs)]
+pub mod simd_test_support {
     use super::*;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum SimdTier {
+        Avx2,
+        Sse2,
+        Scalar,
+    }
+
+    pub fn selected_simd_tier() -> SimdTier {
+        if has_avx2_tier() {
+            return SimdTier::Avx2;
+        }
+        if has_sse2_tier() {
+            return SimdTier::Sse2;
+        }
+        SimdTier::Scalar
+    }
+
+    fn has_avx2_tier() -> bool {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            return pulp::x86::V3::try_new().is_some();
+        }
+
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+        {
+            false
+        }
+    }
+
+    fn has_sse2_tier() -> bool {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            return pulp::x86::V1::try_new().is_some();
+        }
+
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+        {
+            false
+        }
+    }
 
     // Deterministic blocks in the ballpark of half-precision DCT
     // coefficients (xorshift64, no `rand` dependency in the lib target).
@@ -593,7 +634,7 @@ mod tests {
     // The kernels are not bit-identical to each other (see file header), so
     // this only catches gross transcription bugs (wrong index, swapped sign,
     // transposed loop). Bit-exactness against real OpenEXR output is covered
-    // end-to-end by tests/dwa_csc.rs.
+    // end-to-end by tests/avx2.rs.
     fn assert_close_to_scalar_reference(kernel: impl Fn(&mut [f32; 64])) {
         for mut expected in pseudo_random_blocks(64) {
             let mut actual = expected;
@@ -611,35 +652,80 @@ mod tests {
         }
     }
 
-    #[test]
-    fn avx_is_close_to_scalar_reference() {
-        let Some(v3) = pulp::x86::V3::try_new() else {
-            return; // CPU can't run this kernel, nothing to test
-        };
-        assert_close_to_scalar_reference(|data| avx::dct_inverse_8x8(v3, data));
+    #[cfg(feature = "avx2-tests")]
+    pub fn assert_avx2_available() {
+        assert!(
+            has_avx2_tier(),
+            "AVX2 SIMD test requested, but the AVX2/FMA tier is unavailable; selected tier: {:?}",
+            selected_simd_tier()
+        );
     }
 
-    #[test]
-    fn sse2_is_close_to_scalar_reference() {
-        let Some(v1) = pulp::x86::V1::try_new() else {
-            return; // CPU can't run this kernel, nothing to test
-        };
-        assert_close_to_scalar_reference(|data| sse2::dct_inverse_8x8(v1, data));
+    #[cfg(feature = "avx2-tests")]
+    pub fn assert_avx2_close_to_scalar_reference() {
+        assert_avx2_available();
+
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            let v3 = pulp::x86::V3::try_new().expect("AVX2 tier checked above");
+            assert_close_to_scalar_reference(|data| avx::dct_inverse_8x8(v3, data));
+        }
     }
 
-    // The dispatch must pick the avx tier on an AVX2-capable machine,
-    // not silently fall further down the hierarchy.
-    #[test]
-    fn dispatch_picks_avx_when_available() {
-        let Some(v3) = pulp::x86::V3::try_new() else {
-            return; // CPU can't run this kernel, nothing to test
-        };
+    #[cfg(feature = "avx2-tests")]
+    pub fn assert_dispatch_picks_avx2() {
+        assert_avx2_available();
 
-        for mut expected in pseudo_random_blocks(16) {
-            let mut actual = expected;
-            avx::dct_inverse_8x8(v3, &mut expected);
-            dct_inverse_8x8(&mut actual);
-            assert_eq!(expected, actual);
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            let v3 = pulp::x86::V3::try_new().expect("AVX2 tier checked above");
+            for mut expected in pseudo_random_blocks(16) {
+                let mut actual = expected;
+                avx::dct_inverse_8x8(v3, &mut expected);
+                dct_inverse_8x8(&mut actual);
+                assert_eq!(expected, actual);
+            }
+        }
+    }
+
+    #[cfg(feature = "sse2-tests")]
+    pub fn assert_sse2_available() {
+        assert!(
+            has_sse2_tier(),
+            "SSE2 SIMD test requested, but the SSE2 tier is unavailable; selected tier: {:?}",
+            selected_simd_tier()
+        );
+    }
+
+    #[cfg(feature = "sse2-tests")]
+    pub fn assert_sse2_close_to_scalar_reference() {
+        assert_sse2_available();
+
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            let v1 = pulp::x86::V1::try_new().expect("SSE2 tier checked above");
+            assert_close_to_scalar_reference(|data| sse2::dct_inverse_8x8(v1, data));
+        }
+    }
+
+    #[cfg(feature = "sse2-tests")]
+    pub fn assert_dispatch_picks_sse2_without_avx2() {
+        assert_sse2_available();
+        assert!(
+            !has_avx2_tier(),
+            "SSE2 dispatch test must run with AVX2 hidden; selected tier: {:?}",
+            selected_simd_tier()
+        );
+
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            let v1 = pulp::x86::V1::try_new().expect("SSE2 tier checked above");
+            for mut expected in pseudo_random_blocks(16) {
+                let mut actual = expected;
+                sse2::dct_inverse_8x8(v1, &mut expected);
+                dct_inverse_8x8(&mut actual);
+                assert_eq!(expected, actual);
+            }
         }
     }
 }

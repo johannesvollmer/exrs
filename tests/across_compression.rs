@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use exr::{image::validate_results::ValidateResult, prelude::*};
+use exr::{ image::validate_results::ValidateResult, prelude::* };
 
 fn dir() -> &'static Path {
     Path::new("tests/images/valid/custom/compression_methods")
@@ -14,8 +14,9 @@ fn expect_eq_other(sub_dir: &str, image_name: &str, expected: &str) {
         Err(error) => panic!("unexpected error: {}", error),
         Ok(decompressed) => {
             let decompressed_path = dir().join(sub_dir).join(expected);
-            let mut expected_decompressed = read_first_flat_layer_from_file(decompressed_path)
-                .expect("uncompressed image could not be loaded");
+            let mut expected_decompressed = read_first_flat_layer_from_file(
+                decompressed_path
+            ).expect("uncompressed image could not be loaded");
 
             // HACK: make metadata match artificially, to avoid failing the check due to
             // meta data mismatch (the name of the compression methods should
@@ -24,12 +25,14 @@ fn expect_eq_other(sub_dir: &str, image_name: &str, expected: &str) {
                 decompressed.layer_data.encoding.compression;
 
             debug_assert_eq!(
-                expected_decompressed.layer_data.attributes, decompressed.layer_data.attributes,
+                expected_decompressed.layer_data.attributes,
+                decompressed.layer_data.attributes,
                 "attributes should not be affected by compression"
             );
 
             debug_assert_eq!(
-                expected_decompressed.layer_data.size, decompressed.layer_data.size,
+                expected_decompressed.layer_data.size,
+                decompressed.layer_data.size,
                 "size should not be affected by compression"
             );
 
@@ -58,13 +61,13 @@ fn expect_eq_png(image_name: &str) {
             png_pixels.put_pixel(
                 position.x() as u32,
                 position.y() as u32,
-                ::image::Rgb([to_u16(r), to_u16(g), to_u16(b)]),
+                ::image::Rgb([to_u16(r), to_u16(g), to_u16(b)])
             );
-        },
+        }
     );
 
     fn to_u16(num: f32) -> u16 {
-        (num.powf(1.0 / 2.14).clamp(0.0, 1.0) * u16::MAX as f32).round() as u16
+        (num.powf(1.0 / 2.14).clamp(0.0, 1.0) * (u16::MAX as f32)).round() as u16
     }
 
     match png_from_exr {
@@ -126,7 +129,7 @@ fn compare_compression_contents_zips_f16() {
 #[test]
 fn compare_compression_contents_b44_f32() {
     expect_eq_uncompressed("f32", "b44.exr"); // f32s are not compressed in b44
-                                              // and can be compared exactly
+    // and can be compared exactly
 }
 
 #[test]
@@ -137,7 +140,7 @@ fn compare_compression_contents_b44_f16() {
 #[test]
 fn compare_compression_contents_b44a_f32() {
     expect_eq_uncompressed("f32", "b44a.exr"); // f32s are not compressed in b44
-                                               // and can be compared exactly
+    // and can be compared exactly
 }
 
 #[test]

@@ -9,14 +9,18 @@ mod pxr24;
 mod rle;
 mod zip;
 
+#[cfg(any(feature = "avx2-tests", feature = "sse2-tests"))]
+#[allow(missing_docs)]
+#[doc(hidden)]
+pub mod simd_test_support {
+    pub use super::dwa::simd_test_support::*;
+}
+
 use std::convert::TryInto;
 
 use crate::{
-    error::{usize_to_i32, Error, Result, UnitResult},
-    meta::{
-        attribute::{ChannelList, IntegerBounds, SampleType},
-        header::Header,
-    },
+    error::{ usize_to_i32, Error, Result, UnitResult },
+    meta::{ attribute::{ ChannelList, IntegerBounds, SampleType }, header::Header },
 };
 
 /// A byte vector.
@@ -48,8 +52,9 @@ pub enum Compression {
     /// Uses ZIP compression to compress each line. Slowly produces small images
     /// which can be read with moderate speed. This compression method is
     /// lossless. Might be slightly faster but larger than `ZIP16´.
-    ZIP1, /* TODO ZIP { individual_lines: bool, compression_level: Option<u8> }  // TODO
-           * specify zip compression level? */
+    ZIP1
+    /* TODO ZIP { individual_lines: bool, compression_level: Option<u8> }  // TODO
+     * specify zip compression level? */,
 
     /// Uses ZIP compression to compress blocks of 16 lines. Slowly produces
     /// small images which can be read with moderate speed. This compression
@@ -129,14 +134,16 @@ pub enum Compression {
     /// Only supported for flat images, not for deep data.
     B44A, // TODO collapse with B44
 
-    /// Lossy DCT-based compression (DreamWorks Animation), 32 scanlines per block.
-    /// Partial buffer access friendly.
-    /// Decoding support is implemented. Encoding is not implemented and returns an error.
+    /// Lossy DCT-based compression (DreamWorks Animation), 32 scanlines per
+    /// block. Partial buffer access friendly.
+    /// Decoding support is implemented. Encoding is not implemented and returns
+    /// an error.
     DWAA(Option<f32>),
 
-    /// Lossy DCT-based compression (DreamWorks Animation), 256 scanlines per block.
-    /// Better compression ratio for full frames.
-    /// Decoding support is implemented. Encoding is not implemented and returns an error.
+    /// Lossy DCT-based compression (DreamWorks Animation), 256 scanlines per
+    /// block. Better compression ratio for full frames.
+    /// Decoding support is implemented. Encoding is not implemented and returns
+    /// an error.
     DWAB(Option<f32>),
 
     /// __This lossy compression is not yet supported by this implementation.__
@@ -150,24 +157,20 @@ pub enum Compression {
 
 impl std::fmt::Display for Compression {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "{} compression",
-            match self {
-                Self::Uncompressed => "no",
-                Self::RLE => "rle",
-                Self::ZIP1 => "zip line",
-                Self::ZIP16 => "zip block",
-                Self::B44 => "b44",
-                Self::B44A => "b44a",
-                Self::DWAA(_) => "dwaa",
-                Self::DWAB(_) => "dwab",
-                Self::PIZ => "piz",
-                Self::PXR24 => "pxr24",
-                Self::HTJ2K32 => "ht j2k 32",
-                Self::HTJ2K256 => "ht j2k 256",
-            }
-        )
+        write!(formatter, "{} compression", match self {
+            Self::Uncompressed => "no",
+            Self::RLE => "rle",
+            Self::ZIP1 => "zip line",
+            Self::ZIP16 => "zip block",
+            Self::B44 => "b44",
+            Self::B44A => "b44a",
+            Self::DWAA(_) => "dwaa",
+            Self::DWAB(_) => "dwab",
+            Self::PIZ => "piz",
+            Self::PXR24 => "pxr24",
+            Self::HTJ2K32 => "ht j2k 32",
+            Self::HTJ2K256 => "ht j2k 256",
+        })
     }
 }
 
@@ -178,7 +181,7 @@ impl Compression {
         self,
         header: &Header,
         uncompressed_native_endian: ByteVec,
-        pixel_section: IntegerBounds,
+        pixel_section: IntegerBounds
     ) -> Result<ByteVec> {
         let max_tile_size = header.max_block_pixel_size();
 
@@ -196,56 +199,64 @@ impl Compression {
                 return convert_current_to_little_endian(
                     uncompressed_native_endian,
                     &header.channels,
-                    pixel_section,
-                )
+                    pixel_section
+                );
             }
 
             // we need to clone here, because we might have to fallback to the uncompressed data
             // later (when compressed data is larger than raw data)
-            ZIP16 => zip::compress_bytes(
-                &header.channels,
-                uncompressed_native_endian.clone(),
-                pixel_section,
-            ),
-            ZIP1 => zip::compress_bytes(
-                &header.channels,
-                uncompressed_native_endian.clone(),
-                pixel_section,
-            ),
-            RLE => rle::compress_bytes(
-                &header.channels,
-                uncompressed_native_endian.clone(),
-                pixel_section,
-            ),
+            ZIP16 =>
+                zip::compress_bytes(
+                    &header.channels,
+                    uncompressed_native_endian.clone(),
+                    pixel_section
+                ),
+            ZIP1 =>
+                zip::compress_bytes(
+                    &header.channels,
+                    uncompressed_native_endian.clone(),
+                    pixel_section
+                ),
+            RLE =>
+                rle::compress_bytes(
+                    &header.channels,
+                    uncompressed_native_endian.clone(),
+                    pixel_section
+                ),
             PIZ => {
                 piz::compress(&header.channels, uncompressed_native_endian.clone(), pixel_section)
             }
             PXR24 => {
                 pxr24::compress(&header.channels, uncompressed_native_endian.clone(), pixel_section)
             }
-            B44 => b44::compress(
-                &header.channels,
-                uncompressed_native_endian.clone(),
-                pixel_section,
-                false,
-            ),
-            B44A => b44::compress(
-                &header.channels,
-                uncompressed_native_endian.clone(),
-                pixel_section,
-                true,
-            ),
+            B44 =>
+                b44::compress(
+                    &header.channels,
+                    uncompressed_native_endian.clone(),
+                    pixel_section,
+                    false
+                ),
+            B44A =>
+                b44::compress(
+                    &header.channels,
+                    uncompressed_native_endian.clone(),
+                    pixel_section,
+                    true
+                ),
             _ => {
-                return Err(Error::unsupported(format!(
-                    "yet unimplemented compression method: {self}"
-                )))
+                return Err(
+                    Error::unsupported(format!("yet unimplemented compression method: {self}"))
+                );
             }
         };
 
-        let compressed_little_endian = compressed_little_endian
-            .map_err(|_| Error::invalid(format!("pixels cannot be compressed ({self})")))?;
+        let compressed_little_endian = compressed_little_endian.map_err(|_|
+            Error::invalid(format!("pixels cannot be compressed ({self})"))
+        )?;
 
-        if self == Uncompressed || compressed_little_endian.len() < uncompressed_native_endian.len()
+        if
+            self == Uncompressed ||
+            compressed_little_endian.len() < uncompressed_native_endian.len()
         {
             // only write compressed if it actually is smaller than raw
             Ok(compressed_little_endian)
@@ -254,7 +265,7 @@ impl Compression {
             convert_current_to_little_endian(
                 uncompressed_native_endian,
                 &header.channels,
-                pixel_section,
+                pixel_section
             )
         }
     }
@@ -266,7 +277,7 @@ impl Compression {
         header: &Header,
         compressed_le: ByteVec,
         pixel_section: IntegerBounds,
-        pedantic: bool,
+        pedantic: bool
     ) -> Result<ByteVec> {
         let max_tile_size = header.max_block_pixel_size();
 
@@ -291,69 +302,79 @@ impl Compression {
                 Uncompressed => {
                     convert_little_endian_to_current(compressed_le, &header.channels, pixel_section)
                 }
-                ZIP16 => zip::decompress_bytes(
-                    &header.channels,
-                    compressed_le,
-                    pixel_section,
-                    expected_byte_size,
-                    pedantic,
-                ),
-                ZIP1 => zip::decompress_bytes(
-                    &header.channels,
-                    compressed_le,
-                    pixel_section,
-                    expected_byte_size,
-                    pedantic,
-                ),
-                RLE => rle::decompress_bytes(
-                    &header.channels,
-                    compressed_le,
-                    pixel_section,
-                    expected_byte_size,
-                    pedantic,
-                ),
-                PIZ => piz::decompress(
-                    &header.channels,
-                    compressed_le,
-                    pixel_section,
-                    expected_byte_size,
-                    pedantic,
-                ),
-                PXR24 => pxr24::decompress(
-                    &header.channels,
-                    compressed_le,
-                    pixel_section,
-                    expected_byte_size,
-                    pedantic,
-                ),
-                B44 | B44A => b44::decompress(
-                    &header.channels,
-                    compressed_le,
-                    pixel_section,
-                    expected_byte_size,
-                    pedantic,
-                ),
-                DWAA(_) | DWAB(_) => dwa::decompress(
-                    &header.channels,
-                    compressed_le,
-                    pixel_section,
-                    expected_byte_size,
-                    pedantic,
-                ),
+                ZIP16 =>
+                    zip::decompress_bytes(
+                        &header.channels,
+                        compressed_le,
+                        pixel_section,
+                        expected_byte_size,
+                        pedantic
+                    ),
+                ZIP1 =>
+                    zip::decompress_bytes(
+                        &header.channels,
+                        compressed_le,
+                        pixel_section,
+                        expected_byte_size,
+                        pedantic
+                    ),
+                RLE =>
+                    rle::decompress_bytes(
+                        &header.channels,
+                        compressed_le,
+                        pixel_section,
+                        expected_byte_size,
+                        pedantic
+                    ),
+                PIZ =>
+                    piz::decompress(
+                        &header.channels,
+                        compressed_le,
+                        pixel_section,
+                        expected_byte_size,
+                        pedantic
+                    ),
+                PXR24 =>
+                    pxr24::decompress(
+                        &header.channels,
+                        compressed_le,
+                        pixel_section,
+                        expected_byte_size,
+                        pedantic
+                    ),
+                B44 | B44A =>
+                    b44::decompress(
+                        &header.channels,
+                        compressed_le,
+                        pixel_section,
+                        expected_byte_size,
+                        pedantic
+                    ),
+                DWAA(_) | DWAB(_) =>
+                    dwa::decompress(
+                        &header.channels,
+                        compressed_le,
+                        pixel_section,
+                        expected_byte_size,
+                        pedantic
+                    ),
                 _ => {
-                    return Err(Error::unsupported(format!(
-                        "yet unimplemented compression method: {self}"
-                    )))
+                    return Err(
+                        Error::unsupported(format!("yet unimplemented compression method: {self}"))
+                    );
                 }
             };
 
             // map all errors to compression errors
-            let bytes_ne = bytes_ne.map_err(|decompression_error| match decompression_error {
-                Error::NotSupported(message) => Error::unsupported(format!(
-                    "yet unimplemented compression special case ({message})"
-                )),
+            let bytes_ne = bytes_ne.map_err(|decompression_error| {
+                match decompression_error {
+                    Error::NotSupported(message) =>
+                        Error::unsupported(
+                            format!("yet unimplemented compression special case ({message})")
+                        ),
 
-                error => Error::invalid(format!("compressed {self:?} data ({error})")),
+                    error => Error::invalid(format!("compressed {self:?} data ({error})")),
+                }
             })?;
 
             if bytes_ne.len() == expected_byte_size {
@@ -394,8 +415,9 @@ impl Compression {
         use self::Compression::*;
         match self {
             PXR24 => sample_type != SampleType::F32, // pxr reduces f32 to f24
-            B44 | B44A => sample_type != SampleType::F16, /* b44 only compresses f16 values,
-                                                            * others */
+            B44 | B44A => sample_type != SampleType::F16
+            /* b44 only compresses f16 values,
+             * others */,
             // are left uncompressed
             Uncompressed | RLE | ZIP1 | ZIP16 | PIZ | HTJ2K32 | HTJ2K256 => true,
             DWAB(_) | DWAA(_) => false,
@@ -443,7 +465,7 @@ impl Compression {
 fn convert_current_to_little_endian(
     mut bytes: ByteVec,
     channels: &ChannelList,
-    rectangle: IntegerBounds,
+    rectangle: IntegerBounds
 ) -> Result<ByteVec> {
     #[cfg(target_endian = "big")]
     reverse_block_endianness(&mut bytes, channels, rectangle)?;
@@ -455,7 +477,7 @@ fn convert_current_to_little_endian(
 fn convert_little_endian_to_current(
     mut bytes: ByteVec,
     channels: &ChannelList,
-    rectangle: IntegerBounds,
+    rectangle: IntegerBounds
 ) -> Result<ByteVec> {
     #[cfg(target_endian = "big")]
     reverse_block_endianness(&mut bytes, channels, rectangle)?;
@@ -467,7 +489,7 @@ fn convert_little_endian_to_current(
 fn reverse_block_endianness(
     bytes: &mut [u8],
     channels: &ChannelList,
-    rectangle: IntegerBounds,
+    rectangle: IntegerBounds
 ) -> UnitResult {
     let mut remaining_bytes: &mut [u8] = bytes;
 
@@ -482,18 +504,30 @@ fn reverse_block_endianness(
 
             match channel.sample_type {
                 SampleType::F16 => {
-                    remaining_bytes =
-                        convert_byte_chunks(reverse_2_bytes, 2, remaining_bytes, sample_count);
+                    remaining_bytes = convert_byte_chunks(
+                        reverse_2_bytes,
+                        2,
+                        remaining_bytes,
+                        sample_count
+                    );
                 }
 
                 SampleType::F32 => {
-                    remaining_bytes =
-                        convert_byte_chunks(reverse_4_bytes, 4, remaining_bytes, sample_count);
+                    remaining_bytes = convert_byte_chunks(
+                        reverse_4_bytes,
+                        4,
+                        remaining_bytes,
+                        sample_count
+                    );
                 }
 
                 SampleType::U32 => {
-                    remaining_bytes =
-                        convert_byte_chunks(reverse_4_bytes, 4, remaining_bytes, sample_count);
+                    remaining_bytes = convert_byte_chunks(
+                        reverse_4_bytes,
+                        4,
+                        remaining_bytes,
+                        sample_count
+                    );
                 }
             }
         }
@@ -506,7 +540,7 @@ fn reverse_block_endianness(
         convert_single_value: fn(&mut [u8]),
         batch_size: usize,
         bytes: &mut [u8],
-        batch_count: usize,
+        batch_count: usize
     ) -> &mut [u8] {
         let (line_bytes, rest) = bytes.split_at_mut(batch_count * batch_size);
         let value_byte_chunks = line_bytes.chunks_exact_mut(batch_size);
@@ -538,11 +572,7 @@ fn reverse_4_bytes(bytes: &mut [u8]) {
 #[inline]
 const fn div_p(x: i32, y: i32) -> i32 {
     if x >= 0 {
-        if y >= 0 {
-            x / y
-        } else {
-            -(x / -y)
-        }
+        if y >= 0 { x / y } else { -(x / -y) }
     } else if y >= 0 {
         -((y - 1 - x) / y)
     } else {
@@ -557,7 +587,6 @@ const fn mod_p(x: i32, y: i32) -> i32 {
 
 /// A collection of functions used to prepare data for compression.
 mod optimize_bytes {
-
     /// Integrate over all differences to the previous value in order to
     /// reconstruct sample values.
     pub fn differences_to_samples(buffer: &mut [u8]) {
@@ -675,10 +704,7 @@ mod optimize_bytes {
         static SCRATCH_SPACE: Cell<Vec<u8>> = const { Cell::new(Vec::new()) };
     }
 
-    fn with_reused_buffer<F>(length: usize, mut func: F)
-    where
-        F: FnMut(&mut [u8]),
-    {
+    fn with_reused_buffer<F>(length: usize, mut func: F) where F: FnMut(&mut [u8]) {
         SCRATCH_SPACE.with(|scratch_space| {
             // reuse a buffer if we've already initialized one
             let mut buffer = scratch_space.take();
@@ -714,9 +740,10 @@ mod optimize_bytes {
             let first_half_iter = &first_half[..second_half.len()];
 
             // Main loop that performs the interleaving
-            for ((first, second), interleaved) in
-                first_half_iter.iter().zip(second_half.iter()).zip(interleaved.chunks_exact_mut(2))
-            {
+            for ((first, second), interleaved) in first_half_iter
+                .iter()
+                .zip(second_half.iter())
+                .zip(interleaved.chunks_exact_mut(2)) {
                 // The length of each chunk is known to be 2 at compile time,
                 // and each index is also a constant.
                 // This allows the compiler to remove the bounds checks.
@@ -753,9 +780,10 @@ mod optimize_bytes {
             let first_half_iter = &mut first_half[..second_half.len()];
 
             // Main loop that performs the deinterleaving
-            for ((first, second), interleaved) in
-                first_half_iter.iter_mut().zip(second_half.iter_mut()).zip(source.chunks_exact(2))
-            {
+            for ((first, second), interleaved) in first_half_iter
+                .iter_mut()
+                .zip(second_half.iter_mut())
+                .zip(source.chunks_exact(2)) {
                 // The length of each chunk is known to be 2 at compile time,
                 // and each index is also a constant.
                 // This allows the compiler to remove the bounds checks.
@@ -780,7 +808,6 @@ mod optimize_bytes {
 
     #[cfg(test)]
     pub mod test {
-
         #[test]
         fn roundtrip_interleave() {
             let source = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -808,7 +835,7 @@ mod optimize_bytes {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{block::samples::IntoNativeSample, meta::attribute::ChannelDescription};
+    use crate::{ block::samples::IntoNativeSample, meta::attribute::ChannelDescription };
 
     #[test]
     fn roundtrip_endianness_mixed_channels() {
@@ -817,19 +844,19 @@ mod test {
         let channels = ChannelList::new(smallvec![a32, y16]);
 
         let data = vec![
-            23582740683_f32.to_ne_bytes().as_slice(),
-            35827420683_f32.to_ne_bytes().as_slice(),
-            27406832358_f32.to_f16().to_ne_bytes().as_slice(),
-            74062358283_f32.to_f16().to_ne_bytes().as_slice(),
-            52582740683_f32.to_ne_bytes().as_slice(),
-            45827420683_f32.to_ne_bytes().as_slice(),
-            15406832358_f32.to_f16().to_ne_bytes().as_slice(),
-            65062358283_f32.to_f16().to_ne_bytes().as_slice(),
+            (23582740683_f32).to_ne_bytes().as_slice(),
+            (35827420683_f32).to_ne_bytes().as_slice(),
+            (27406832358_f32).to_f16().to_ne_bytes().as_slice(),
+            (74062358283_f32).to_f16().to_ne_bytes().as_slice(),
+            (52582740683_f32).to_ne_bytes().as_slice(),
+            (45827420683_f32).to_ne_bytes().as_slice(),
+            (15406832358_f32).to_f16().to_ne_bytes().as_slice(),
+            (65062358283_f32).to_f16().to_ne_bytes().as_slice()
         ]
-        .into_iter()
-        .flatten()
-        .copied()
-        .collect();
+            .into_iter()
+            .flatten()
+            .copied()
+            .collect();
 
         roundtrip_convert_endianness(data, &channels, IntegerBounds::from_dimensions((2, 2)));
     }
@@ -837,13 +864,19 @@ mod test {
     fn roundtrip_convert_endianness(
         current_endian: ByteVec,
         channels: &ChannelList,
-        rectangle: IntegerBounds,
+        rectangle: IntegerBounds
     ) {
-        let little_endian =
-            convert_current_to_little_endian(current_endian.clone(), channels, rectangle).unwrap();
+        let little_endian = convert_current_to_little_endian(
+            current_endian.clone(),
+            channels,
+            rectangle
+        ).unwrap();
 
-        let current_endian_decoded =
-            convert_little_endian_to_current(little_endian, channels, rectangle).unwrap();
+        let current_endian_decoded = convert_little_endian_to_current(
+            little_endian,
+            channels,
+            rectangle
+        ).unwrap();
 
         assert_eq!(current_endian, current_endian_decoded, "endianness conversion failed");
     }
