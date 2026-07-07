@@ -2,15 +2,21 @@ extern crate exr;
 
 extern crate smallvec;
 
-use std::{ ffi::OsStr, io::Cursor, panic, panic::catch_unwind, path::{ Path, PathBuf } };
+use std::{
+    ffi::OsStr,
+    io::Cursor,
+    panic,
+    panic::catch_unwind,
+    path::{Path, PathBuf},
+};
 
 use exr::{
     block::samples::IntoNativeSample,
-    error::{ Error, UnitResult },
+    error::{Error, UnitResult},
     image::validate_results::ValidateResult,
-    prelude::{ pixel_vec::PixelVec, * },
+    prelude::{pixel_vec::PixelVec, *},
 };
-use rayon::{ iter::ParallelIterator, prelude::IntoParallelIterator };
+use rayon::{iter::ParallelIterator, prelude::IntoParallelIterator};
 
 #[test]
 fn roundtrip_all_files_in_repository_x4() {
@@ -134,7 +140,7 @@ fn round_trip_parallel_file(file: &[u8]) -> Result<()> {
 /// does not check any content, just checks whether a read error or panic
 /// happened.
 fn check_all_files_in_repo<T>(
-    operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -> exr::error::Result<T>
+    operation: impl Sync + std::panic::RefUnwindSafe + Fn(&Path) -> exr::error::Result<T>,
 ) {
     #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
     enum Result {
@@ -196,8 +202,7 @@ fn check_all_files_in_repo<T>(
 }
 
 fn all_exr_files_in_repo() -> impl Iterator<Item = PathBuf> {
-    walkdir::WalkDir
-        ::new("tests/images/valid")
+    walkdir::WalkDir::new("tests/images/valid")
         .into_iter()
         .map(std::result::Result::unwrap)
         .filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
@@ -211,7 +216,7 @@ fn roundtrip_unusual_2() -> UnitResult {
         (f16::from_f32(4.0), 9),
         (f16::from_f32(2.0), 6),
         (f16::from_f32(21.0), 8),
-        (f16::from_f32(64.0), 7)
+        (f16::from_f32(64.0), 7),
     ];
 
     let size = Vec2(3, 2);
@@ -267,7 +272,7 @@ fn roundtrip_unusual_7() -> UnitResult {
         (f16::from_f32(4.0), 8, 2.0, 3.0, 4.0, 5.0, 1.0),
         (f16::from_f32(2.0), 9, 3.0, 4.0, 5.0, 1.0, 2.0),
         (f16::from_f32(21.0), 6, 4.0, 5.0, 1.0, 2.0, 3.0),
-        (f16::from_f32(64.0), 5, 5.0, 1.0, 2.0, 3.0, 4.0)
+        (f16::from_f32(64.0), 5, 5.0, 1.0, 2.0, 3.0, 4.0),
     ];
 
     let size = Vec2(3, 2);
@@ -309,7 +314,7 @@ fn roundtrip_unusual_7() -> UnitResult {
         .required("  ")
         .collect_pixels(
             PixelVec::<(f16, u32, f32, f32, f32, f32, f32)>::constructor,
-            PixelVec::set_pixel
+            PixelVec::set_pixel,
         )
         .first_valid_layer()
         .all_attributes()
@@ -381,7 +386,7 @@ fn test_mixed_roundtrip_with_compression(compression: Compression) {
             compression,
             ..Encoding::default()
         },
-        SpecificChannels::rgb(PixelVec::new(Vec2(2, 2), original_pixels.to_vec()))
+        SpecificChannels::rgb(PixelVec::new(Vec2(2, 2), original_pixels.to_vec())),
     );
 
     original_image.write().to_buffered(Cursor::new(&mut file_bytes)).unwrap();

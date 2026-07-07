@@ -12,11 +12,8 @@ extern crate exr;
 
 use bencher::Bencher;
 use exr::compression::simd_bench_support::{
-    bench_blocks,
-    dct_inverse_8x8_forced_avx2,
-    dct_inverse_8x8_forced_avx2_batch,
-    dct_inverse_8x8_forced_scalar,
-    dct_inverse_8x8_forced_sse2,
+    bench_blocks, dct_inverse_8x8_forced_avx2, dct_inverse_8x8_forced_avx2_batch,
+    dct_inverse_8x8_forced_scalar, dct_inverse_8x8_forced_sse2,
 };
 
 const BLOCK_COUNT: usize = 4096;

@@ -3,14 +3,13 @@
 extern crate exr;
 extern crate smallvec;
 
-use std::{ ffi::OsStr, io::Cursor, path::PathBuf };
+use std::{ffi::OsStr, io::Cursor, path::PathBuf};
 
-use exr::{ image::validate_results::ValidateResult, meta::header::Header, prelude::* };
-use rayon::{ iter::ParallelIterator, prelude::IntoParallelIterator };
+use exr::{image::validate_results::ValidateResult, meta::header::Header, prelude::*};
+use rayon::{iter::ParallelIterator, prelude::IntoParallelIterator};
 
 fn exr_files() -> impl Iterator<Item = PathBuf> {
-    walkdir::WalkDir
-        ::new("tests/images/valid")
+    walkdir::WalkDir::new("tests/images/valid")
         .into_iter()
         .map(std::result::Result::unwrap)
         .filter(|entry| entry.path().extension() == Some(OsStr::new("exr")))
@@ -36,12 +35,10 @@ fn search_previews_of_all_files() {
     files.into_par_iter().for_each(|path| {
         let meta = MetaData::read_from_file(&path, false).unwrap();
         let has_preview = meta.headers.iter().any(|header: &Header| {
-            header.own_attributes.preview.is_some() ||
-                header.own_attributes.other.values().any(|value| {
-                    match value {
-                        AttributeValue::Preview(_) => true,
-                        _ => false,
-                    }
+            header.own_attributes.preview.is_some()
+                || header.own_attributes.other.values().any(|value| match value {
+                    AttributeValue::Preview(_) => true,
+                    _ => false,
                 })
         });
 

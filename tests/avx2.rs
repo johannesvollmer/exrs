@@ -5,9 +5,7 @@ use std::path::Path;
 
 use exr::{
     compression::simd_test_support::{
-        assert_avx2_available,
-        assert_avx2_close_to_scalar_reference,
-        assert_dispatch_picks_avx2,
+        assert_avx2_available, assert_avx2_close_to_scalar_reference, assert_dispatch_picks_avx2,
         selected_simd_tier,
     },
     image::validate_results::ValidateResult,
@@ -38,13 +36,11 @@ fn dir() -> &'static Path {
 fn check_against_real_openexr(exr_name: &str, ground_truth_name: &str) {
     require_avx2();
 
-    let mut decoded = read_first_flat_layer_from_file(dir().join(exr_name)).expect(
-        "exrs failed to decode DWA fixture"
-    );
+    let mut decoded = read_first_flat_layer_from_file(dir().join(exr_name))
+        .expect("exrs failed to decode DWA fixture");
 
-    let ground_truth = read_first_flat_layer_from_file(dir().join(ground_truth_name)).expect(
-        "uncompressed ground truth could not be loaded"
-    );
+    let ground_truth = read_first_flat_layer_from_file(dir().join(ground_truth_name))
+        .expect("uncompressed ground truth could not be loaded");
 
     // Match the ground truth's lossless encoding so "validate_result" compares
     // the samples bit-for-bit instead of with a lossy tolerance.

@@ -20,7 +20,7 @@
 // inherent, `#[target_feature]`-scoped, internally-unsafe trampoline
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod avx {
-    use pulp::{ f32x8, x86::V3 };
+    use pulp::{f32x8, x86::V3};
 
     // OpenEXRs hardcoded AVX basis constants ("sAvxCoef").
     const A: f32 = 3.535536e-1;
@@ -84,39 +84,25 @@ mod avx {
         let (in0, in2, in4, in6) = (input[0], input[2], input[4], input[6]);
         let (in1, in3, in5, in7) = (input[1], input[3], input[5], input[7]);
 
-        let even0 = add(
-            add(mul(in4, coef.a), mul(in6, coef.f)),
-            add(mul(in0, coef.a), mul(in2, coef.c))
-        );
-        let even1 = add(
-            add(mul(in4, coef.na), mul(in6, coef.nc)),
-            add(mul(in0, coef.a), mul(in2, coef.f))
-        );
-        let even2 = add(
-            add(mul(in4, coef.na), mul(in6, coef.c)),
-            add(mul(in0, coef.a), mul(in2, coef.nf))
-        );
-        let even3 = add(
-            add(mul(in4, coef.a), mul(in6, coef.nf)),
-            add(mul(in0, coef.a), mul(in2, coef.nc))
-        );
+        let even0 =
+            add(add(mul(in4, coef.a), mul(in6, coef.f)), add(mul(in0, coef.a), mul(in2, coef.c)));
+        let even1 =
+            add(add(mul(in4, coef.na), mul(in6, coef.nc)), add(mul(in0, coef.a), mul(in2, coef.f)));
+        let even2 =
+            add(add(mul(in4, coef.na), mul(in6, coef.c)), add(mul(in0, coef.a), mul(in2, coef.nf)));
+        let even3 =
+            add(add(mul(in4, coef.a), mul(in6, coef.nf)), add(mul(in0, coef.a), mul(in2, coef.nc)));
 
-        let odd0 = add(
-            add(mul(in5, coef.e), mul(in7, coef.g)),
-            add(mul(in1, coef.b), mul(in3, coef.d))
-        );
+        let odd0 =
+            add(add(mul(in5, coef.e), mul(in7, coef.g)), add(mul(in1, coef.b), mul(in3, coef.d)));
         let odd1 = add(
             add(mul(in5, coef.nb), mul(in7, coef.ne)),
-            add(mul(in1, coef.d), mul(in3, coef.ng))
+            add(mul(in1, coef.d), mul(in3, coef.ng)),
         );
-        let odd2 = add(
-            add(mul(in5, coef.g), mul(in7, coef.d)),
-            add(mul(in1, coef.e), mul(in3, coef.nb))
-        );
-        let odd3 = add(
-            add(mul(in5, coef.d), mul(in7, coef.nb)),
-            add(mul(in1, coef.g), mul(in3, coef.ne))
-        );
+        let odd2 =
+            add(add(mul(in5, coef.g), mul(in7, coef.d)), add(mul(in1, coef.e), mul(in3, coef.nb)));
+        let odd3 =
+            add(add(mul(in5, coef.d), mul(in7, coef.nb)), add(mul(in1, coef.g), mul(in3, coef.ne)));
 
         [
             add(even0, odd0),
@@ -137,33 +123,17 @@ mod avx {
         let add = |a, b| v3.add_f32x8(a, b);
         let sub = |a, b| v3.sub_f32x8(a, b);
 
-        let (in0, in1, in2, in3, in4, in5, in6, in7) = (
-            input[0],
-            input[1],
-            input[2],
-            input[3],
-            input[4],
-            input[5],
-            input[6],
-            input[7],
-        );
+        let (in0, in1, in2, in3, in4, in5, in6, in7) =
+            (input[0], input[1], input[2], input[3], input[4], input[5], input[6], input[7]);
 
-        let beta0 = add(
-            add(mul(coef.g, in7), mul(coef.e, in5)),
-            add(mul(coef.d, in3), mul(coef.b, in1))
-        );
-        let beta1 = sub(
-            sub(mul(coef.d, in1), add(mul(coef.b, in5), mul(coef.g, in3))),
-            mul(coef.e, in7)
-        );
-        let beta2 = add(
-            mul(coef.d, in7),
-            add(mul(coef.g, in5), sub(mul(coef.e, in1), mul(coef.b, in3)))
-        );
-        let beta3 = sub(
-            add(mul(coef.d, in5), mul(coef.g, in1)),
-            add(mul(coef.b, in7), mul(coef.e, in3))
-        );
+        let beta0 =
+            add(add(mul(coef.g, in7), mul(coef.e, in5)), add(mul(coef.d, in3), mul(coef.b, in1)));
+        let beta1 =
+            sub(sub(mul(coef.d, in1), add(mul(coef.b, in5), mul(coef.g, in3))), mul(coef.e, in7));
+        let beta2 =
+            add(mul(coef.d, in7), add(mul(coef.g, in5), sub(mul(coef.e, in1), mul(coef.b, in3))));
+        let beta3 =
+            sub(add(mul(coef.d, in5), mul(coef.g, in1)), add(mul(coef.b, in7), mul(coef.e, in3)));
 
         let theta0 = add(mul(coef.a, in4), mul(coef.a, in0));
         let theta3 = sub(mul(coef.a, in0), mul(coef.a, in4));
@@ -188,7 +158,7 @@ mod avx {
         ]
     }
 
-    #[cfg(any(feature = "avx2-tests", feature = "sse2-tests", feature = "simd-benches"))]
+    #[cfg(any(feature = "avx2-tests", feature = "simd-benches"))]
     pub fn dct_inverse_8x8(v3: V3, data: &mut [f32; 64]) {
         dct_inverse_8x8_batch(v3, std::iter::once(data));
     }
@@ -217,20 +187,14 @@ mod avx {
                         data[32 + k],
                         data[40 + k],
                         data[48 + k],
-                        data[56 + k]
+                        data[56 + k],
                     )
                 });
 
                 let rows_out = row_pass(v3, &coef, columns);
                 for (column, result) in rows_out.iter().enumerate() {
                     let r = [
-                        result.0,
-                        result.1,
-                        result.2,
-                        result.3,
-                        result.4,
-                        result.5,
-                        result.6,
+                        result.0, result.1, result.2, result.3, result.4, result.5, result.6,
                         result.7,
                     ];
                     for (row, value) in r.iter().enumerate() {
@@ -249,7 +213,7 @@ mod avx {
                         data[b + 4],
                         data[b + 5],
                         data[b + 6],
-                        data[b + 7]
+                        data[b + 7],
                     )
                 });
 
@@ -275,7 +239,7 @@ mod avx {
 // so the two are not bit-identical.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod sse2 {
-    use pulp::{ f32x4, x86::V1 };
+    use pulp::{f32x4, x86::V1};
 
     const A: f32 = 3.535536e-1;
     const B: f32 = 4.903927e-1;
@@ -370,33 +334,17 @@ mod sse2 {
         let add = |a, b| v1.add_f32x4(a, b);
         let sub = |a, b| v1.sub_f32x4(a, b);
 
-        let (in0, in1, in2, in3, in4, in5, in6, in7) = (
-            input[0],
-            input[1],
-            input[2],
-            input[3],
-            input[4],
-            input[5],
-            input[6],
-            input[7],
-        );
+        let (in0, in1, in2, in3, in4, in5, in6, in7) =
+            (input[0], input[1], input[2], input[3], input[4], input[5], input[6], input[7]);
 
-        let beta0 = add(
-            add(mul(in1, coef.b), mul(in3, coef.d)),
-            add(mul(in5, coef.e), mul(in7, coef.g))
-        );
-        let beta1 = sub(
-            sub(mul(in1, coef.d), mul(in3, coef.g)),
-            add(mul(in5, coef.b), mul(in7, coef.e))
-        );
-        let beta2 = add(
-            sub(mul(in1, coef.e), mul(in3, coef.b)),
-            add(mul(in5, coef.g), mul(in7, coef.d))
-        );
-        let beta3 = add(
-            sub(mul(in1, coef.g), mul(in3, coef.e)),
-            sub(mul(in5, coef.d), mul(in7, coef.b))
-        );
+        let beta0 =
+            add(add(mul(in1, coef.b), mul(in3, coef.d)), add(mul(in5, coef.e), mul(in7, coef.g)));
+        let beta1 =
+            sub(sub(mul(in1, coef.d), mul(in3, coef.g)), add(mul(in5, coef.b), mul(in7, coef.e)));
+        let beta2 =
+            add(sub(mul(in1, coef.e), mul(in3, coef.b)), add(mul(in5, coef.g), mul(in7, coef.d)));
+        let beta3 =
+            add(sub(mul(in1, coef.g), mul(in3, coef.e)), sub(mul(in5, coef.d), mul(in7, coef.b)));
 
         let theta0 = mul(coef.a, add(in0, in4));
         let theta3 = mul(coef.a, sub(in0, in4));
@@ -523,29 +471,22 @@ fn dct_inverse_8x8_scalar(data: &mut [f32; 64]) {
         alpha[2] = c * data[48 + column];
         alpha[3] = f * data[48 + column];
 
-        beta[0] =
-            b * data[8 + column] +
-            d * data[24 + column] +
-            e * data[40 + column] +
-            g * data[56 + column];
+        beta[0] = b * data[8 + column]
+            + d * data[24 + column]
+            + e * data[40 + column]
+            + g * data[56 + column];
 
-        beta[1] =
-            d * data[8 + column] -
-            g * data[24 + column] -
-            b * data[40 + column] -
-            e * data[56 + column];
+        beta[1] = d * data[8 + column]
+            - g * data[24 + column]
+            - b * data[40 + column]
+            - e * data[56 + column];
 
-        beta[2] =
-            e * data[8 + column] -
-            b * data[24 + column] +
-            g * data[40 + column] +
-            d * data[56 + column];
+        beta[2] = e * data[8 + column] - b * data[24 + column]
+            + g * data[40 + column]
+            + d * data[56 + column];
 
-        beta[3] =
-            g * data[8 + column] -
-            e * data[24 + column] +
-            d * data[40 + column] -
-            b * data[56 + column];
+        beta[3] = g * data[8 + column] - e * data[24 + column] + d * data[40 + column]
+            - b * data[56 + column];
 
         theta[0] = a * (data[column] + data[32 + column]);
         theta[3] = a * (data[column] - data[32 + column]);
@@ -588,7 +529,7 @@ pub fn dct_inverse_8x8(data: &mut [f32; 64]) {
 pub fn dct_inverse_8x8_batch<'a>(blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
-        use pulp::x86::{ V1, V3 };
+        use pulp::x86::{V1, V3};
 
         if let Some(v3) = V3::try_new() {
             avx::dct_inverse_8x8_batch(v3, blocks);
@@ -677,7 +618,7 @@ pub mod simd_bench_support {
     /// block like `dct_inverse_8x8_forced_avx2`. Returns `false` without
     /// touching `blocks` if this CPU lacks AVX2+FMA
     pub fn dct_inverse_8x8_forced_avx2_batch<'a>(
-        blocks: impl Iterator<Item = &'a mut [f32; 64]>
+        blocks: impl Iterator<Item = &'a mut [f32; 64]>,
     ) -> bool {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         if let Some(v3) = pulp::x86::V3::try_new() {
