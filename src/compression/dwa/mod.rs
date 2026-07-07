@@ -20,6 +20,13 @@ use crate::{
 mod csc;
 mod idct;
 
+#[cfg(feature = "simd-benches")]
+#[allow(missing_docs)]
+#[doc(hidden)]
+pub mod simd_bench_support {
+    pub use super::idct::simd_bench_support::*;
+}
+
 #[cfg(any(feature = "avx2-tests", feature = "sse2-tests"))]
 #[allow(missing_docs)]
 #[doc(hidden)]
@@ -646,10 +653,15 @@ fn decode_lossy_dct_group(
     let blocks_y = (height + 7) / 8;
     let block_count = blocks_x * blocks_y;
 
+    // Buffered for the whole group, rather than one block at a time, so the
+    // inverse DCT below can run as a single batch over every block that
+    // needs it (see idct::dct_inverse_8x8_batch's doc comment).
+    let mut dct_blocks: Vec<[[f32; 64]; 3]> = vec![[[0.0f32; 64]; 3]; block_count];
+    let mut needs_idct: Vec<[bool; 3]> = vec![[false; 3]; block_count];
+
     for block_y in 0..blocks_y {
         for block_x in 0..blocks_x {
             let block_index = block_y * blocks_x + block_x;
-            let mut dct_blocks = [[0.0f32; 64]; 3];
 
             for component in 0..components {
                 let mut zig_block = [0u16; 64];
@@ -662,16 +674,31 @@ fn decode_lossy_dct_group(
 
                 let last_non_zero = un_rle_ac(ac, &mut zig_block)?;
 
-                let dct_block = &mut dct_blocks[component];
+                let dct_block = &mut dct_blocks[block_index][component];
                 if last_non_zero == 0 {
                     // DC-only block
                     dct_block[0] = f16::from_bits(zig_block[0]).to_f32();
                     idct::dct_inverse_8x8_dc_only(dct_block);
                 } else {
                     from_half_zigzag(&zig_block, dct_block);
-                    idct::dct_inverse_8x8(dct_block);
+                    needs_idct[block_index][component] = true;
                 }
             }
+        }
+    }
+
+    idct::dct_inverse_8x8_batch(
+        dct_blocks
+            .iter_mut()
+            .zip(needs_idct.iter())
+            .flat_map(|(blocks, flags)| blocks.iter_mut().zip(flags.iter()))
+            .filter_map(|(block, &needed)| needed.then_some(block))
+    );
+
+    for block_y in 0..blocks_y {
+        for block_x in 0..blocks_x {
+            let block_index = block_y * blocks_x + block_x;
+            let dct_blocks = &mut dct_blocks[block_index];
 
             if components == 3 {
                 for i in 0..64 {

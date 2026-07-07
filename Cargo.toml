@@ -55,6 +55,12 @@ rayon = ["dep:rayon-core"]
 avx2-tests = []
 sse2-tests = []
 
+# Call the DWA inverse-DCT avx2/sse2/scalar kerne directly,
+# bypassing runtime dispatch, for the comparison benchmark.
+# Meaningless under emulation (timings won't reflect real hardware)
+# `cargo bench --features simd-benches --bench idct`
+simd-benches = []
+
 [[test]]
 name = "avx2"
 required-features = ["avx2-tests"]
@@ -90,6 +96,11 @@ required-features = ["rayon"]
 name = "pixel_format_conversion"
 harness = false
 required-features = ["rayon"]
+
+[[bench]]
+name = "idct"
+harness = false
+required-features = ["simd-benches"]
 
 # recommended release settings for max runtime performance
 [profile.release]

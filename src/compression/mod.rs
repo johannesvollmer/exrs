@@ -9,6 +9,13 @@ mod pxr24;
 mod rle;
 mod zip;
 
+#[cfg(feature = "simd-benches")]
+#[allow(missing_docs)]
+#[doc(hidden)]
+pub mod simd_bench_support {
+    pub use super::dwa::simd_bench_support::*;
+}
+
 #[cfg(any(feature = "avx2-tests", feature = "sse2-tests"))]
 #[allow(missing_docs)]
 #[doc(hidden)]

@@ -1,20 +1,23 @@
-// Inverse DCT for DWA, ported from OpenEXRCore's internal_dwa_simd.h
-// including its runtime CPU dispatch: `dct_inverse_8x8` picks the best
-// available x86 tier at runtime (avx2 > sse2 > scalar), like OpenEXR
-// cpuid-based `initializeFuncs`, and uses scalar on non-x86 or fallback
+// Inverse DCT for DWA, ported from OpenEXRCore's internal_dwa_simd.h,
+// including its runtime CPU dispatch: `dct_inverse_8x8`/`dct_inverse_8x8_batch`
+// pick the best available x86 tier at runtime (avx2 > sse2 > scalar), like
+// OpenEXRs cpuid-based `initializeFuncs`
 //
-// Dispatch uses pulp V3 and V1 tokens only construct after a cpuid
-// check and their methods carry the matching #[target_feature], giving
-// real runtime dispatch in 100% safe rust.
-// pulps V3 needs AVX2+FMA, so AVX-only CPUs (Sandy/Ivy Bridge) fallback on sse2
-// where OpenEXR would use its avx kernel.
+// Dispatch uses pulp's V3/V1 tokens, constructed only after a runtime CPU
+// feature check. V3 needs AVX2+FMA, so
+// AVX-only CPUs (Sandy/Ivy Bridge) fall back to sse2 here, where OpenEXR
+// would use its own (non-avx2) avx kernel.
 //
-// The three kernels are not bit-identical to each other (OpenEXRs own
+// The three kernels aren't bit-identical to each other (OpenEXRs own
 // kernels disagree too: basis-constant precision and summation order
-// differ), but each is bit-identical to OpenEXRs counterpart.
+// differ)
 
-// AVX2 V3 tier: OpenEXRs "dctInverse8x8_avx_0". Each pass runs all 8
+// AVX2 V3 tier: OpenEXR's "dctInverse8x8_avx_0". Each pass runs all 8
 // rows/columns of the block in parallel, one 8-wide register per position.
+//
+// `dct_inverse_8x8_batch` runs the kernel through `V3::vectorize` rather
+// than calling it as an ordinary function. `vectorize` is pulps own
+// inherent, `#[target_feature]`-scoped, internally-unsafe trampoline
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod avx {
     use pulp::{ f32x8, x86::V3 };
@@ -46,6 +49,11 @@ mod avx {
     }
 
     impl Coefficients {
+        // This, `row_pass`, and `column_pass` must inline into the
+        // `vectorize` closure below for their ops to fuse into avx2
+        // instructions; LLVM inlining heuristics aren't reliable
+        // enough to guarantee that on their own
+        #[inline(always)]
         fn new(v3: V3) -> Self {
             // Negated splats are exact (sign flip), so "x * na == -(x * a)".
             Self {
@@ -67,6 +75,7 @@ mod avx {
     }
 
     // OpenEXRs "IDCT_AVX_MMULT_ROWS" + "EO_TO_ROW_HALVES"
+    #[inline(always)] // must fuse into the `vectorize` closure --> see `Coefficients::new`
     fn row_pass(v3: V3, coef: &Coefficients, input: [f32x8; 8]) -> [f32x8; 8] {
         let mul = |a, b| v3.mul_f32x8(a, b);
         let add = |a, b| v3.add_f32x8(a, b);
@@ -122,6 +131,7 @@ mod avx {
     }
 
     // The column transform from the back half of "dctInverse8x8_avx_0".
+    #[inline(always)] // must fuse into the `vectorize` closure --> see `Coefficients::new`
     fn column_pass(v3: V3, coef: &Coefficients, input: [f32x8; 8]) -> [f32x8; 8] {
         let mul = |a, b| v3.mul_f32x8(a, b);
         let add = |a, b| v3.add_f32x8(a, b);
@@ -178,68 +188,85 @@ mod avx {
         ]
     }
 
+    #[cfg(any(feature = "avx2-tests", feature = "sse2-tests", feature = "simd-benches"))]
     pub fn dct_inverse_8x8(v3: V3, data: &mut [f32; 64]) {
-        let coef = Coefficients::new(v3);
+        dct_inverse_8x8_batch(v3, std::iter::once(data));
+    }
 
-        // Row pass: lane i = row i, gathered with a strided read
-        // (data is row-major).
-        let columns: [f32x8; 8] = std::array::from_fn(|k| {
-            f32x8(
-                data[k],
-                data[8 + k],
-                data[16 + k],
-                data[24 + k],
-                data[32 + k],
-                data[40 + k],
-                data[48 + k],
-                data[56 + k]
-            )
-        });
+    // `V3::vectorize` runs a `FnOnce()` closure inside pulps own
+    // `#[target_feature(enable = "avx2,fma")]` trampoline; passing the
+    // kernel as a closure, rather than calling it as an ordinary function,
+    // is what lets that closures body inline and fuse into avx2
+    // instructions.
+    //
+    // `vectorize` also has fixed overhead per call (an indirect call
+    // through its register-passing trampoline, plus a feature-cache check)
+    pub fn dct_inverse_8x8_batch<'a>(v3: V3, blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
+        v3.vectorize(move || {
+            let coef = Coefficients::new(v3);
 
-        let rows_out = row_pass(v3, &coef, columns);
-        for (column, result) in rows_out.iter().enumerate() {
-            let r = [
-                result.0,
-                result.1,
-                result.2,
-                result.3,
-                result.4,
-                result.5,
-                result.6,
-                result.7,
-            ];
-            for (row, value) in r.iter().enumerate() {
-                data[row * 8 + column] = *value;
+            for data in blocks {
+                // Row pass: lane i = row i, gathered with a strided read
+                // (data is row-major).
+                let columns: [f32x8; 8] = std::array::from_fn(|k| {
+                    f32x8(
+                        data[k],
+                        data[8 + k],
+                        data[16 + k],
+                        data[24 + k],
+                        data[32 + k],
+                        data[40 + k],
+                        data[48 + k],
+                        data[56 + k]
+                    )
+                });
+
+                let rows_out = row_pass(v3, &coef, columns);
+                for (column, result) in rows_out.iter().enumerate() {
+                    let r = [
+                        result.0,
+                        result.1,
+                        result.2,
+                        result.3,
+                        result.4,
+                        result.5,
+                        result.6,
+                        result.7,
+                    ];
+                    for (row, value) in r.iter().enumerate() {
+                        data[row * 8 + column] = *value;
+                    }
+                }
+
+                // Column pass: lane i = column i, each row already contiguous.
+                let rows: [f32x8; 8] = std::array::from_fn(|row| {
+                    let b = row * 8;
+                    f32x8(
+                        data[b],
+                        data[b + 1],
+                        data[b + 2],
+                        data[b + 3],
+                        data[b + 4],
+                        data[b + 5],
+                        data[b + 6],
+                        data[b + 7]
+                    )
+                });
+
+                let columns_out = column_pass(v3, &coef, rows);
+                for (row, result) in columns_out.iter().enumerate() {
+                    let b = row * 8;
+                    data[b] = result.0;
+                    data[b + 1] = result.1;
+                    data[b + 2] = result.2;
+                    data[b + 3] = result.3;
+                    data[b + 4] = result.4;
+                    data[b + 5] = result.5;
+                    data[b + 6] = result.6;
+                    data[b + 7] = result.7;
+                }
             }
-        }
-
-        // Column pass: lane i = column i, each row already contiguous.
-        let rows: [f32x8; 8] = std::array::from_fn(|row| {
-            let b = row * 8;
-            f32x8(
-                data[b],
-                data[b + 1],
-                data[b + 2],
-                data[b + 3],
-                data[b + 4],
-                data[b + 5],
-                data[b + 6],
-                data[b + 7]
-            )
         });
-
-        let columns_out = column_pass(v3, &coef, rows);
-        for (row, result) in columns_out.iter().enumerate() {
-            let b = row * 8;
-            data[b] = result.0;
-            data[b + 1] = result.1;
-            data[b + 2] = result.2;
-            data[b + 3] = result.3;
-            data[b + 4] = result.4;
-            data[b + 5] = result.5;
-            data[b + 6] = result.6;
-            data[b + 7] = result.7;
-        }
     }
 }
 
@@ -546,22 +573,38 @@ fn dct_inverse_8x8_scalar(data: &mut [f32; 64]) {
 /// Inverse DCT on an 8x8 block (in-place, row-major), dispatched at
 /// runtime to the best available x86 SIMD tier (avx2 > sse2 > scalar),
 /// like a real OpenEXR build. See the file header comment.
+///
+/// Only exists for the dispatch-comparison tests; production code
+/// (`decode_lossy_dct_group` in `mod.rs`) calls `dct_inverse_8x8_batch`
+/// directly, since it always has a whole group of blocks at once.
+#[cfg(any(feature = "avx2-tests", feature = "sse2-tests"))]
 pub fn dct_inverse_8x8(data: &mut [f32; 64]) {
+    dct_inverse_8x8_batch(std::iter::once(data));
+}
+
+/// Inverse DCT on many 8x8 blocks, dispatched once for the whole batch
+/// rather than once per block. Prefer this over looping calls to
+/// `dct_inverse_8x8`
+pub fn dct_inverse_8x8_batch<'a>(blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
         use pulp::x86::{ V1, V3 };
 
         if let Some(v3) = V3::try_new() {
-            avx::dct_inverse_8x8(v3, data);
+            avx::dct_inverse_8x8_batch(v3, blocks);
             return;
         }
         if let Some(v1) = V1::try_new() {
-            sse2::dct_inverse_8x8(v1, data);
+            for data in blocks {
+                sse2::dct_inverse_8x8(v1, data);
+            }
             return;
         }
     }
 
-    dct_inverse_8x8_scalar(data);
+    for data in blocks {
+        dct_inverse_8x8_scalar(data);
+    }
 }
 
 /// Optimized path when only DC is non-zero.
@@ -569,6 +612,84 @@ pub fn dct_inverse_8x8_dc_only(data: &mut [f32; 64]) {
     let val = data[0] * 0.3535536f32 * 0.3535536f32;
     for v in data.iter_mut() {
         *v = val;
+    }
+}
+
+// Deterministic blocks in the ballpark of half-precision DCT coefficients
+// (xorshift64, no `rand` dependency. Shared by the
+// correctness tests below and by the forced-tier benchmark in benches/idct.rs.
+#[cfg(any(feature = "avx2-tests", feature = "sse2-tests", feature = "simd-benches"))]
+fn pseudo_random_blocks(count: usize) -> Vec<[f32; 64]> {
+    let mut state: u64 = 0x9e3779b97f4a7c15;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        (((state >> 40) as i32 as f32) / (i32::MAX as f32)) * 1024.0
+    };
+    (0..count).map(|_| std::array::from_fn(|_| next())).collect()
+}
+
+// Exposes each SIMD tier as a direct call function, bypassing the
+// runtime dispatch in `dct_inverse_8x8`. Used by benches/idct.rs to measure
+// if avx2/sse2 is actually faster then scalar fallback on real hardware
+#[cfg(feature = "simd-benches")]
+#[allow(missing_docs)]
+pub mod simd_bench_support {
+    use super::*;
+
+    pub fn bench_blocks(count: usize) -> Vec<[f32; 64]> {
+        pseudo_random_blocks(count)
+    }
+
+    pub fn dct_inverse_8x8_forced_scalar(data: &mut [f32; 64]) {
+        dct_inverse_8x8_scalar(data);
+    }
+
+    /// Runs the SSE2 kernel directly; returns `false` without touching `data`
+    /// if this CPU lacks SSE2 (practically: no x86_64).
+    pub fn dct_inverse_8x8_forced_sse2(data: &mut [f32; 64]) -> bool {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        if let Some(v1) = pulp::x86::V1::try_new() {
+            sse2::dct_inverse_8x8(v1, data);
+            return true;
+        }
+
+        #[allow(unreachable_code)]
+        false
+    }
+
+    /// Runs the AVX2 kernel directly; returns `false` without touching `data`
+    /// if this CPU lacks AVX2+FMA.
+    pub fn dct_inverse_8x8_forced_avx2(data: &mut [f32; 64]) -> bool {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        if let Some(v3) = pulp::x86::V3::try_new() {
+            avx::dct_inverse_8x8(v3, data);
+            return true;
+        }
+
+        #[allow(unreachable_code)]
+        false
+    }
+
+    /// Runs the AVX2 kernel over the whole batch through one `vectorize`
+    /// call, the way `decode_lossy_dct_group` does, instead of once per
+    /// block like `dct_inverse_8x8_forced_avx2`. Returns `false` without
+    /// touching `blocks` if this CPU lacks AVX2+FMA
+    pub fn dct_inverse_8x8_forced_avx2_batch<'a>(
+        blocks: impl Iterator<Item = &'a mut [f32; 64]>
+    ) -> bool {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        if let Some(v3) = pulp::x86::V3::try_new() {
+            avx::dct_inverse_8x8_batch(v3, blocks);
+            return true;
+        }
+
+        #[allow(unreachable_code)]
+        {
+            let _ = blocks;
+            false
+        }
     }
 }
 
@@ -616,19 +737,6 @@ pub mod simd_test_support {
         {
             false
         }
-    }
-
-    // Deterministic blocks in the ballpark of half-precision DCT
-    // coefficients (xorshift64, no `rand` dependency in the lib target).
-    fn pseudo_random_blocks(count: usize) -> Vec<[f32; 64]> {
-        let mut state: u64 = 0x9e3779b97f4a7c15;
-        let mut next = move || {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            (((state >> 40) as i32 as f32) / (i32::MAX as f32)) * 1024.0
-        };
-        (0..count).map(|_| std::array::from_fn(|_| next())).collect()
     }
 
     // The kernels are not bit-identical to each other (see file header), so
