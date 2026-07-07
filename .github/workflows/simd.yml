@@ -16,13 +16,11 @@ jobs:
           - name: AVX2
             test: avx2
             feature: avx2-tests
-            rustflags: "-C target-feature=+avx2,+fma"
-            runner: "/opt/intel-sde/sde64 -hsw --"
+            cpu: skx
           - name: SSE2
             test: sse2
             feature: sse2-tests
-            rustflags: ""
-            runner: "/opt/intel-sde/sde64 -p4 --"
+            cpu: ivb
 
     name: test ${{ matrix.name }} under Intel SDE
 
@@ -43,11 +41,10 @@ jobs:
 
       - name: Run ${{ matrix.name }} integration test under SDE
         env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: ${{ matrix.runner }}
-          RUSTFLAGS: ${{ matrix.rustflags }}
+          CROSS_SDE_CPU: ${{ matrix.cpu }}
         run: |
           cross test \
-            --target x86_64-unknown-linux-gnu \
+            --target x86_64-unknown-linux-gnu:sde \
             --test "${{ matrix.test }}" \
             --features "${{ matrix.feature }}" \
             --verbose \
