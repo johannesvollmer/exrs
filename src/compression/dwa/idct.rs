@@ -513,6 +513,7 @@ fn dct_inverse_8x8_scalar(data: &mut [f32; 64]) {
     }
 }
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn forward_basis() -> &'static [[f32; 8]; 8] {
     static TABLE: OnceLock<[[f32; 8]; 8]> = OnceLock::new();
 
