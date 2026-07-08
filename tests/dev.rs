@@ -50,7 +50,7 @@ fn search_previews_of_all_files() {
 
 #[ignore]
 #[test]
-pub fn convert_to_dwa(){
+pub fn convert_to_dwa() {
     let path = "tests/images/valid/custom/compression_methods/f32/pxr24.exr";
 
     let mut image = read()

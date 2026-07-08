@@ -1,5 +1,5 @@
-// DWA / DWAB (lossy DCT) compression and decompression, ported from OpenEXRCores
-// internal_dwa_compressor.h and alike.
+// DWA / DWAB (lossy DCT) compression and decompression, ported from
+// OpenEXRCores internal_dwa_compressor.h and alike.
 //
 // A DWA chunk is: 11 u64 counters, the channel rules (version >= 2),
 // then four sections (UNKNOWN, AC, DC, RLE). Channels are classified by
@@ -824,9 +824,7 @@ fn encode_lossy_dct_group(
         }
 
         idct::dct_forward_8x8_batch(
-            row_blocks
-                .iter_mut()
-                .flat_map(|blocks| blocks[..component_count].iter_mut()),
+            row_blocks.iter_mut().flat_map(|blocks| blocks[..component_count].iter_mut()),
         );
 
         for block_x in 0..blocks_x {

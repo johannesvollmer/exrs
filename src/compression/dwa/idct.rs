@@ -575,8 +575,12 @@ fn dct_forward_8x8_scalar(data: &mut [f32; 64]) {
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod forward {
+    use pulp::{
+        f32x4, f32x8,
+        x86::{V1, V3},
+    };
+
     use super::forward_basis;
-    use pulp::{f32x4, f32x8, x86::V1, x86::V3};
 
     struct Coefficients8 {
         terms: [f32x8; 8],
@@ -648,7 +652,10 @@ mod forward {
         dct_forward_8x8_batch(v3, std::iter::once(data));
     }
 
-    pub(super) fn dct_forward_8x8_batch<'a>(v3: V3, blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
+    pub(super) fn dct_forward_8x8_batch<'a>(
+        v3: V3,
+        blocks: impl Iterator<Item = &'a mut [f32; 64]>,
+    ) {
         v3.vectorize(move || {
             let coef = Coefficients8::new(v3);
 
@@ -1131,7 +1138,9 @@ pub mod simd_test_support {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
             let v1 = pulp::x86::V1::try_new().expect("SSE2 tier checked above");
-            assert_forward_close_to_scalar_reference(|data| forward::dct_forward_8x8_sse2(v1, data));
+            assert_forward_close_to_scalar_reference(|data| {
+                forward::dct_forward_8x8_sse2(v1, data)
+            });
         }
     }
 
