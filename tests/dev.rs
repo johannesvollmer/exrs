@@ -48,6 +48,28 @@ fn search_previews_of_all_files() {
     });
 }
 
+#[ignore]
+#[test]
+pub fn convert_to_dwa(){
+    let path = "tests/images/valid/custom/compression_methods/f32/pxr24.exr";
+
+    let mut image = read()
+        .no_deep_data()
+        .all_resolution_levels()
+        .all_channels()
+        .all_layers()
+        .all_attributes()
+        .non_parallel()
+        .from_file(path)
+        .unwrap();
+
+    for layer in &mut image.layer_data {
+        layer.encoding.compression = Compression::DWAA(Some(45.0));
+    }
+
+    image.write().to_file("debug_dwaa.exr").unwrap();
+}
+
 // use this command for big endian testing:
 // cross test --target mips-unknown-linux-gnu --verbose --test dev
 // test_roundtrip -- --ignored
