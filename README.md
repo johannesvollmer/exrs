@@ -54,11 +54,9 @@ __What we can do:__
         - [x] rle (lossless)
         - [x] piz (lossless) (huge thanks to @dgsantana)
         - [x] pxr24 (lossless for f16 and u32)
-            - [x] little-endian architectures
-            - [ ] big-endian architectures __(help wanted)__
         - [x] b44, b44a (huge thanks to @narann)
         - [~] dwaa, dwab 
-            - [X] decoding (@zinezockt)
+            - [X] decoding (hunge thanks to @zinezockt)
             - [ ] encoding __(help wanted)__
 
 - Nice Things
