@@ -515,6 +515,8 @@ fn dct_inverse_8x8_scalar(data: &mut [f32; 64]) {
 /// straightforward separable DCT formula for the first encoder version; LLVM
 /// can still optimize the fixed-size loops without adding explicit SIMD paths.
 pub fn dct_forward_8x8(data: &mut [f32; 64]) {
+    // The forward path mirrors the inverse path's fixed 8x8 basis, but keeps
+    // the implementation scalar and easy to verify against the reference.
     const PI: f32 = 3.14159;
     const INV_SQRT_2: f32 = 0.70710677;
 

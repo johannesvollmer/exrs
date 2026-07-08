@@ -74,6 +74,9 @@ struct DwaHeader {
 
 impl DwaHeader {
     fn parse(input: &mut &[u8]) -> Result<Self> {
+        // The chunk leader is a fixed set of 11 little-endian counters.
+        // The decoder intentionally rejects truncated or out-of-range values
+        // before it looks at any of the payload sections.
         fn counter(input: &mut &[u8]) -> Result<u64> {
             let (bytes, rest) = input
                 .split_first_chunk::<8>()
@@ -112,6 +115,7 @@ impl DwaHeader {
     }
 
     fn write(&self, out: &mut Vec<u8>) {
+        // Keep the on-disk layout identical to the decoder's parse order.
         let counters = [
             self.version,
             self.unknown_uncompressed_size as u64,
@@ -194,6 +198,9 @@ impl Rule {
 /// decoder fallback, these are case-sensitive and use canonical uppercase
 /// channel suffixes.
 fn default_channel_rules() -> Vec<Rule> {
+    // OpenEXR's current encoder emits a small canonical rule table rather
+    // than serializing the whole channel list. Only channels matching one of
+    // these suffix/type pairs need to be recorded in the chunk header.
     let lossy: [(&'static str, Option<usize>); 6] =
         [("R", Some(0)), ("G", Some(1)), ("B", Some(2)), ("Y", None), ("BY", None), ("RY", None)];
 
@@ -223,6 +230,8 @@ fn default_channel_rules() -> Vec<Rule> {
 
 /// "sLegacyChannelRules", implied by chunk versions <2.
 fn legacy_channel_rules() -> Vec<Rule> {
+    // Version < 2 chunks relied on the older mixed-case naming conventions.
+    // Keep those rules around so the decoder can still read historical files.
     let lossy: [(&'static str, Option<usize>); 11] = [
         ("r", Some(0)),
         ("red", Some(0)),
@@ -265,6 +274,8 @@ fn legacy_channel_rules() -> Vec<Rule> {
 /// a u16 little-endian total size that includes the size field itself
 /// (`DwaCompressor_readChannelRules`).
 fn parse_channel_rules(input: &mut &[u8]) -> Result<Vec<Rule>> {
+    // The serialized rule block is prefixed by a u16 size that includes the
+    // size field itself, so the parser can skip over the whole table at once.
     let (size_bytes, rest) = input
         .split_first_chunk::<2>()
         .ok_or_else(|| Error::invalid("truncated DWA channel rules"))?;
@@ -304,7 +315,8 @@ fn parse_rule(data: &mut &[u8]) -> Result<Rule> {
 
     Ok(Rule {
         suffix: Cow::Owned(suffix),
-        // flags layout: high nibble = cscIdx + 1, bits 2-3 = scheme, bit 0 = case-insensitive
+        // The packed flags byte matches the C reference layout:
+        // high nibble = cscIdx + 1, bits 2-3 = scheme, bit 0 = case-insensitive.
         csc_index: match ((flags >> 4) as i32) - 1 {
             -1 => None,
             index @ 0..=2 => Some(index as usize),
@@ -336,6 +348,9 @@ fn parse_rule(data: &mut &[u8]) -> Result<Rule> {
 /// including the size field itself, followed by only the default rules that
 /// match at least one channel in this chunk's channel list.
 fn write_relevant_channel_rules(rules: &[Rule], channels: &ChannelList) -> Result<Vec<u8>> {
+    // The encoder only writes rules that are actually used by at least one
+    // channel in this chunk. This keeps the chunk leader self-contained while
+    // avoiding dead table entries.
     let mut payload = Vec::new();
 
     for rule in rules {
@@ -391,6 +406,9 @@ fn classify_channels(
     rectangle: IntegerBounds,
     rules: &[Rule],
 ) -> (Vec<ChannelInfo>, Vec<[usize; 3]>) {
+    // Match channel names against the rule table, then collect R/G/B triplets
+    // in the order the prefixes first appear. That order controls how the
+    // shared lossy streams are consumed later.
     let mut infos = Vec::with_capacity(channels.list.len());
     let mut prefix_map: Vec<(String, [Option<usize>; 3])> = Vec::new();
 
@@ -459,6 +477,8 @@ pub fn compress(
     let uncompressed_le =
         crate::compression::convert_current_to_little_endian(uncompressed_ne, channels, rectangle)?;
 
+    // The chunk is written in the same section order the decoder expects:
+    // header + rules, then UNKNOWN, AC, DC and RLE payloads.
     let rules = default_channel_rules();
     let rule_bytes = write_relevant_channel_rules(&rules, channels)?;
     let (channel_infos, csc_groups) = classify_channels(channels, rectangle, &rules);
@@ -539,6 +559,9 @@ fn split_scanline_channels(
     infos: &[ChannelInfo],
     rectangle: IntegerBounds,
 ) -> Result<Vec<Vec<u8>>> {
+    // The scanline buffer is already in channel order, but the encoder needs
+    // each channel sliced back out so the per-scheme packing matches the C
+    // reference's running cursors.
     let mut per_channel: Vec<Vec<u8>> = infos
         .iter()
         .map(|info| Vec::with_capacity(info.width * info.height * info.bytes_per_sample))
@@ -574,6 +597,8 @@ fn pack_unknown_channels(
     channel_bytes: &[Vec<u8>],
     scheme: CompressorScheme,
 ) -> Vec<u8> {
+    // UNKNOWN channels stay planar and are concatenated in channel order
+    // before the zlib step.
     let total_len = infos
         .iter()
         .zip(channel_bytes)
@@ -591,6 +616,8 @@ fn pack_unknown_channels(
 }
 
 fn pack_rle_channels(infos: &[ChannelInfo], channel_bytes: &[Vec<u8>]) -> Vec<u8> {
+    // RLE channels are repacked into byte planes first, then byte-RLE'd and
+    // zlib-compressed by the caller.
     let total_len = infos
         .iter()
         .zip(channel_bytes)
@@ -641,6 +668,8 @@ fn encode_lossy_channels(
     channel_bytes: &[Vec<u8>],
     quant_base_error: f32,
 ) -> Result<(Vec<u16>, Vec<u16>)> {
+    // Lossy chunks use shared AC/DC streams. CSC triplets consume the streams
+    // first, then standalone LOSSY_DCT channels continue from the same cursors.
     let mut ac = Vec::new();
     let mut dc = Vec::new();
     let mut grouped = vec![false; infos.len()];
@@ -691,6 +720,8 @@ fn channel_half_samples(
     info: &ChannelInfo,
     apply_nonlinear: bool,
 ) -> Result<Vec<u16>> {
+    // OpenEXR stores lossy input as half precision internally before DCT.
+    // F32 channels are clamped to the finite half range and demoted here.
     let mut samples = Vec::with_capacity(info.width * info.height);
 
     match info.sample_type {
@@ -754,6 +785,8 @@ fn encode_lossy_dct_group(
         }
     }
 
+    // Mirror the source block edges so partial 8x8 blocks behave the same way
+    // as the reference encoder.
     let quant_tables = QuantTables::new(quant_base_error);
     let blocks_x = (width + 7) / 8;
     let blocks_y = (height + 7) / 8;
@@ -777,6 +810,7 @@ fn encode_lossy_dct_group(
             }
 
             if component_count == 3 {
+                // CSC is performed in nonlinear space for the RGB triplet.
                 for i in 0..64 {
                     let (y, by, ry) =
                         csc::csc709_forward(dct_blocks[0][i], dct_blocks[1][i], dct_blocks[2][i]);
@@ -810,6 +844,8 @@ fn encode_lossy_dct_group(
 }
 
 fn mirror_index(index: usize, length: usize) -> usize {
+    // The C encoder mirrors out-of-bounds coordinates back into the image
+    // rather than clamping them. This keeps edge blocks symmetrical.
     debug_assert_ne!(length, 0);
     let mut value = index as isize;
     let length = length as isize;
@@ -833,6 +869,8 @@ struct QuantTables {
 
 impl QuantTables {
     fn new(quant_base_error: f32) -> Self {
+        // JPEG-style tables, normalized by their minimum entry and scaled by
+        // the configured DWA base error.
         const JPEG_Y: [i32; 64] = [
             16, 11, 10, 16, 24, 40, 51, 61, 12, 12, 14, 19, 26, 58, 60, 55, 14, 13, 16, 24, 40, 57,
             69, 56, 14, 17, 22, 29, 51, 87, 80, 62, 18, 22, 37, 56, 68, 109, 103, 77, 24, 35, 55,
@@ -872,6 +910,7 @@ fn quantize_coefficients_to_zigzag(
     tolerances: &[f32; 64],
     half_tolerances: &[u16; 64],
 ) -> [u16; 64] {
+    // Quantize in DCT order, then scatter into the stored zig-zag layout.
     const INV_REMAP: [usize; 64] = [
         0, 1, 5, 6, 14, 15, 27, 28, 2, 4, 7, 13, 16, 26, 29, 42, 3, 8, 12, 17, 25, 30, 41, 43, 9,
         11, 18, 24, 31, 40, 44, 53, 10, 19, 23, 32, 39, 45, 52, 54, 20, 22, 33, 38, 46, 51, 55, 60,
@@ -893,6 +932,8 @@ fn quantize_coefficients_to_zigzag(
 }
 
 fn rle_ac(block: &[u16; 64], ac: &mut Vec<u16>) {
+    // The AC stream uses a simple token format: literals are emitted as-is,
+    // and runs of zeroes are encoded as 0xffxx tokens. 0xff00 marks EOB.
     let mut dct_comp = 1;
 
     while dct_comp < 64 {
@@ -923,6 +964,8 @@ fn to_nonlinear_table() -> &'static [u16; 65536] {
     static TABLE: OnceLock<[u16; 65536]> = OnceLock::new();
 
     TABLE.get_or_init(|| {
+        // Build the forward transfer table lazily so the hot path stays cheap
+        // once the table is initialized.
         let mut table = [0u16; 65536];
         for (bits, slot) in table.iter_mut().enumerate() {
             *slot = dwa_convert_to_nonlinear(f16::from_bits(bits as u16)).to_bits();
@@ -932,6 +975,8 @@ fn to_nonlinear_table() -> &'static [u16; 65536] {
 }
 
 fn dwa_convert_to_nonlinear(x: f16) -> f16 {
+    // Inverse of the decoder's nonlinear -> linear transfer.
+    // Values <= 1 use a power curve; values above 1 follow the exponential tail.
     let value = x.to_f32();
     if !value.is_finite() {
         return f16::ZERO;
@@ -954,6 +999,9 @@ fn dwa_convert_to_nonlinear(x: f16) -> f16 {
 }
 
 fn algo_quantize(src: u32, herr_tol: u32, err_tol: f32, src_float: f32) -> u32 {
+    // Port of OpenEXR's bit-count based half-float quantizer.
+    // It searches nearby representations and keeps the one with the fewest
+    // set bits while staying within the tolerated error.
     let sign = src & 0x8000;
     let abssrc = src & 0x7fff;
     let src_float = src_float.abs();
@@ -1734,6 +1782,8 @@ fn decode_lossy_channels(
     ac_packed: &[u16],
     dc_packed: &[u16],
 ) -> Result<Vec<Vec<f16>>> {
+    // Decode CSC triplets first, then standalone lossy channels. The shared
+    // AC/DC cursors advance in the same order the encoder wrote them.
     let mut ac = PackedStream::new(ac_packed);
     let mut dc = PackedStream::new(dc_packed);
 
@@ -1792,9 +1842,9 @@ fn decode_lossy_dct_group(
     let blocks_y = (height + 7) / 8;
     let block_count = blocks_x * blocks_y;
 
-    // Buffered for the whole group, rather than one block at a time, so the
-    // inverse DCT below can run as a single batch over every block that
-    // needs it (see idct::dct_inverse_8x8_batch's doc comment).
+    // Buffer the whole group rather than one block at a time. That lets the
+    // inverse DCT batch over every block that actually needs it, matching the
+    // structure of the C reference.
     let mut dct_blocks: Vec<[[f32; 64]; 3]> = vec![[[0.0f32; 64]; 3]; block_count];
     let mut needs_idct: Vec<[bool; 3]> = vec![[false; 3]; block_count];
 
@@ -1815,7 +1865,8 @@ fn decode_lossy_dct_group(
 
                 let dct_block = &mut dct_blocks[block_index][component];
                 if last_non_zero == 0 {
-                    // DC-only block
+                    // DC-only block: all AC coefficients are zero, so the
+                    // inverse DCT can fill the whole block from one value.
                     dct_block[0] = f16::from_bits(zig_block[0]).to_f32();
                     idct::dct_inverse_8x8_dc_only(dct_block);
                 } else {
@@ -1849,7 +1900,8 @@ fn decode_lossy_dct_group(
                 }
             }
 
-            // nonlinear float -> linear half via LUT, cropped at the image edge
+            // Convert nonlinear DCT output back to linear half values and crop
+            // the edges to the actual image extent.
             for (component, output) in decoded.iter_mut().enumerate() {
                 for y in block_y * 8..(block_y * 8 + 8).min(height) {
                     for x in block_x * 8..(block_x * 8 + 8).min(width) {
@@ -1875,6 +1927,8 @@ fn decode_lossy_dct_group(
 /// of `low byte` zeros (0 meaning "rest of the block"); anything else is a
 /// literal. Returns the index of the last non-zero value, 0 if none
 fn un_rle_ac(ac: &mut PackedStream<'_>, block: &mut [u16; 64]) -> Result<usize> {
+    // DWA AC values use the same compact token format the encoder writes:
+    // 0xffxx means a zero run, and 0xff00 means end-of-block.
     let mut last_non_zero = 0;
     let mut position = 1;
 
@@ -1902,6 +1956,8 @@ fn un_rle_ac(ac: &mut PackedStream<'_>, block: &mut [u16; 64]) -> Result<usize> 
 /// Undo the zig-zag coefficient order (C "fromHalfZigZag_scalar"),
 /// converting half bits to f32.
 fn from_half_zigzag(zig_zag: &[u16; 64], dst: &mut [f32; 64]) {
+    // The encoder stores coefficients in zig-zag order; the inverse DCT needs
+    // normal 8x8 raster order.
     const SRC_INDICES: [usize; 64] = [
         0, 1, 5, 6, 14, 15, 27, 28, 2, 4, 7, 13, 16, 26, 29, 42, 3, 8, 12, 17, 25, 30, 41, 43, 9,
         11, 18, 24, 31, 40, 44, 53, 10, 19, 23, 32, 39, 45, 52, 54, 20, 22, 33, 38, 46, 51, 55, 60,
@@ -1918,6 +1974,8 @@ fn to_linear_table() -> &'static [u16; 65536] {
     static TABLE: OnceLock<[u16; 65536]> = OnceLock::new();
 
     TABLE.get_or_init(|| {
+        // Build the nonlinear -> linear transfer table lazily and reuse it
+        // across every chunk.
         let mut table = [0u16; 65536];
         for (bits, slot) in table.iter_mut().enumerate() {
             *slot = dwa_convert_to_linear(f16::from_bits(bits as u16)).to_bits();
@@ -1927,6 +1985,7 @@ fn to_linear_table() -> &'static [u16; 65536] {
 }
 
 fn dwa_convert_to_linear(x: f16) -> f16 {
+    // Inverse of the encoder's nonlinear transfer.
     let value = x.to_f32();
     if !value.is_finite() {
         return f16::ZERO;
@@ -1963,6 +2022,8 @@ fn write_scanlines(
     rle_bytes: &[Vec<u8>],
     expected_byte_size: usize,
 ) -> Result<ByteVec> {
+    // Reassemble the per-channel decoded data into the scanline layout the
+    // rest of the crate expects: rows in ascending y, channels in list order.
     let mut out = Vec::with_capacity(expected_byte_size);
 
     for y in rectangle.position.y()..rectangle.end().y() {
