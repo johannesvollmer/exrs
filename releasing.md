@@ -25,6 +25,7 @@ Yanking shouldn't be the default.
     - `cargo.toml`
     - `README.md`
     - `examples/README.md`
+    - `CHANGELOG.md`
     
 1. Run `cargo publish`
 
