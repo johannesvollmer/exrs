@@ -12,6 +12,8 @@
 // kernels disagree too: basis-constant precision and summation order
 // differ)
 
+use std::sync::OnceLock;
+
 // AVX2 V3 tier: OpenEXR's "dctInverse8x8_avx_0". Each pass runs all 8
 // rows/columns of the block in parallel, one 8-wide register per position.
 //
@@ -511,10 +513,33 @@ fn dct_inverse_8x8_scalar(data: &mut [f32; 64]) {
     }
 }
 
+fn forward_basis() -> &'static [[f32; 8]; 8] {
+    static TABLE: OnceLock<[[f32; 8]; 8]> = OnceLock::new();
+
+    TABLE.get_or_init(|| {
+        const PI: f32 = 3.14159;
+        const INV_SQRT_2: f32 = 0.70710677;
+
+        let mut table = [[0.0f32; 8]; 8];
+        for input in 0..8 {
+            for output in 0..8 {
+                let scale = if output == 0 {
+                    0.5 * INV_SQRT_2
+                } else {
+                    0.5
+                };
+                table[input][output] =
+                    scale * (((2 * input + 1) as f32 * output as f32 * PI) / 16.0).cos();
+            }
+        }
+        table
+    })
+}
+
 /// Scalar forward DCT for DWA 8x8 blocks. This intentionally uses the
 /// straightforward separable DCT formula for the first encoder version; LLVM
 /// can still optimize the fixed-size loops without adding explicit SIMD paths.
-pub fn dct_forward_8x8(data: &mut [f32; 64]) {
+fn dct_forward_8x8_scalar(data: &mut [f32; 64]) {
     // The forward path mirrors the inverse path's fixed 8x8 basis, but keeps
     // the implementation scalar and easy to verify against the reference.
     const PI: f32 = 3.14159;
@@ -545,6 +570,218 @@ pub fn dct_forward_8x8(data: &mut [f32; 64]) {
 
             data[v * 8 + u] = 0.25 * cu * cv * sum;
         }
+    }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+mod forward {
+    use super::forward_basis;
+    use pulp::{f32x4, f32x8, x86::V1, x86::V3};
+
+    struct Coefficients8 {
+        terms: [f32x8; 8],
+    }
+
+    impl Coefficients8 {
+        #[inline(always)]
+        fn new(_v3: V3) -> Self {
+            let basis = forward_basis();
+            Self {
+                terms: std::array::from_fn(|input| {
+                    let row = basis[input];
+                    f32x8(row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7])
+                }),
+            }
+        }
+    }
+
+    struct Coefficients4 {
+        low: [f32x4; 8],
+        high: [f32x4; 8],
+    }
+
+    impl Coefficients4 {
+        #[inline(always)]
+        fn new(_v1: V1) -> Self {
+            let basis = forward_basis();
+            Self {
+                low: std::array::from_fn(|input| {
+                    let row = basis[input];
+                    f32x4(row[0], row[1], row[2], row[3])
+                }),
+                high: std::array::from_fn(|input| {
+                    let row = basis[input];
+                    f32x4(row[4], row[5], row[6], row[7])
+                }),
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn forward_pass8(v3: V3, coef: &Coefficients8, input: [f32; 8]) -> f32x8 {
+        let mul = |a, b| v3.mul_f32x8(a, b);
+        let add = |a, b| v3.add_f32x8(a, b);
+        let splat = |value: f32| v3.splat_f32x8(value);
+
+        let mut out = v3.splat_f32x8(0.0);
+        for index in 0..8 {
+            out = add(out, mul(splat(input[index]), coef.terms[index]));
+        }
+        out
+    }
+
+    #[inline(always)]
+    fn forward_pass4(v1: V1, coef: &[f32x4; 8], input: [f32; 8]) -> f32x4 {
+        let mul = |a, b| v1.mul_f32x4(a, b);
+        let add = |a, b| v1.add_f32x4(a, b);
+        let splat = |value: f32| v1.splat_f32x4(value);
+
+        let mut out = v1.splat_f32x4(0.0);
+        for index in 0..8 {
+            out = add(out, mul(splat(input[index]), coef[index]));
+        }
+        out
+    }
+
+    #[allow(dead_code)]
+    pub(super) fn dct_forward_8x8(v3: V3, data: &mut [f32; 64]) {
+        dct_forward_8x8_batch(v3, std::iter::once(data));
+    }
+
+    pub(super) fn dct_forward_8x8_batch<'a>(v3: V3, blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
+        v3.vectorize(move || {
+            let coef = Coefficients8::new(v3);
+
+            for data in blocks {
+                for row in 0..8 {
+                    let base = row * 8;
+                    let input = [
+                        data[base],
+                        data[base + 1],
+                        data[base + 2],
+                        data[base + 3],
+                        data[base + 4],
+                        data[base + 5],
+                        data[base + 6],
+                        data[base + 7],
+                    ];
+                    let out = forward_pass8(v3, &coef, input);
+                    data[base] = out.0;
+                    data[base + 1] = out.1;
+                    data[base + 2] = out.2;
+                    data[base + 3] = out.3;
+                    data[base + 4] = out.4;
+                    data[base + 5] = out.5;
+                    data[base + 6] = out.6;
+                    data[base + 7] = out.7;
+                }
+
+                for column in 0..8 {
+                    let input = [
+                        data[column],
+                        data[8 + column],
+                        data[16 + column],
+                        data[24 + column],
+                        data[32 + column],
+                        data[40 + column],
+                        data[48 + column],
+                        data[56 + column],
+                    ];
+                    let out = forward_pass8(v3, &coef, input);
+                    data[column] = out.0;
+                    data[8 + column] = out.1;
+                    data[16 + column] = out.2;
+                    data[24 + column] = out.3;
+                    data[32 + column] = out.4;
+                    data[40 + column] = out.5;
+                    data[48 + column] = out.6;
+                    data[56 + column] = out.7;
+                }
+            }
+        });
+    }
+
+    pub(super) fn dct_forward_8x8_sse2(v1: V1, data: &mut [f32; 64]) {
+        let coef = Coefficients4::new(v1);
+
+        for row in 0..8 {
+            let base = row * 8;
+            let input = [
+                data[base],
+                data[base + 1],
+                data[base + 2],
+                data[base + 3],
+                data[base + 4],
+                data[base + 5],
+                data[base + 6],
+                data[base + 7],
+            ];
+            let low = forward_pass4(v1, &coef.low, input);
+            let high = forward_pass4(v1, &coef.high, input);
+            data[base] = low.0;
+            data[base + 1] = low.1;
+            data[base + 2] = low.2;
+            data[base + 3] = low.3;
+            data[base + 4] = high.0;
+            data[base + 5] = high.1;
+            data[base + 6] = high.2;
+            data[base + 7] = high.3;
+        }
+
+        for column in 0..8 {
+            let input = [
+                data[column],
+                data[8 + column],
+                data[16 + column],
+                data[24 + column],
+                data[32 + column],
+                data[40 + column],
+                data[48 + column],
+                data[56 + column],
+            ];
+            let low = forward_pass4(v1, &coef.low, input);
+            let high = forward_pass4(v1, &coef.high, input);
+            data[column] = low.0;
+            data[8 + column] = low.1;
+            data[16 + column] = low.2;
+            data[24 + column] = low.3;
+            data[32 + column] = high.0;
+            data[40 + column] = high.1;
+            data[48 + column] = high.2;
+            data[56 + column] = high.3;
+        }
+    }
+}
+
+/// Forward DCT on an 8x8 block (in-place, row-major), dispatched at runtime
+/// to the best available x86 SIMD tier (avx2 > sse2 > scalar), like a real
+/// OpenEXR build.
+#[cfg(any(feature = "avx2-tests", feature = "sse2-tests"))]
+pub fn dct_forward_8x8(data: &mut [f32; 64]) {
+    dct_forward_8x8_batch(std::iter::once(data));
+}
+
+/// Forward DCT on many 8x8 blocks, dispatched once for the whole batch rather
+/// than once per block. Prefer this over looping calls to `dct_forward_8x8`.
+pub fn dct_forward_8x8_batch<'a>(blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    {
+        use pulp::x86::{V1, V3};
+
+        if let Some(v3) = V3::try_new() {
+            forward::dct_forward_8x8_batch(v3, blocks);
+            return;
+        }
+        if let Some(v1) = V1::try_new() {
+            for data in blocks {
+                forward::dct_forward_8x8_sse2(v1, data);
+            }
+            return;
+        }
+    }
+
+    for data in blocks {
+        dct_forward_8x8_scalar(data);
     }
 }
 
@@ -618,6 +855,55 @@ pub mod simd_bench_support {
 
     pub fn bench_blocks(count: usize) -> Vec<[f32; 64]> {
         pseudo_random_blocks(count)
+    }
+
+    pub fn dct_forward_8x8_forced_scalar(data: &mut [f32; 64]) {
+        dct_forward_8x8_scalar(data);
+    }
+
+    /// Runs the SSE2 forward-DCT kernel directly; returns `false` without
+    /// touching `data` if this CPU lacks SSE2.
+    pub fn dct_forward_8x8_forced_sse2(data: &mut [f32; 64]) -> bool {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        if let Some(v1) = pulp::x86::V1::try_new() {
+            forward::dct_forward_8x8_sse2(v1, data);
+            return true;
+        }
+
+        #[allow(unreachable_code)]
+        false
+    }
+
+    /// Runs the AVX2 forward-DCT kernel directly; returns `false` without
+    /// touching `data` if this CPU lacks AVX2+FMA.
+    pub fn dct_forward_8x8_forced_avx2(data: &mut [f32; 64]) -> bool {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        if let Some(v3) = pulp::x86::V3::try_new() {
+            forward::dct_forward_8x8(v3, data);
+            return true;
+        }
+
+        #[allow(unreachable_code)]
+        false
+    }
+
+    /// Runs the AVX2 forward-DCT kernel over a whole batch through one
+    /// `vectorize` call. Returns `false` without touching `blocks` if this
+    /// CPU lacks AVX2+FMA.
+    pub fn dct_forward_8x8_forced_avx2_batch<'a>(
+        blocks: impl Iterator<Item = &'a mut [f32; 64]>,
+    ) -> bool {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        if let Some(v3) = pulp::x86::V3::try_new() {
+            forward::dct_forward_8x8_batch(v3, blocks);
+            return true;
+        }
+
+        #[allow(unreachable_code)]
+        {
+            let _ = blocks;
+            false
+        }
     }
 
     pub fn dct_inverse_8x8_forced_scalar(data: &mut [f32; 64]) {
@@ -738,6 +1024,23 @@ pub mod simd_test_support {
         }
     }
 
+    fn assert_forward_close_to_scalar_reference(kernel: impl Fn(&mut [f32; 64])) {
+        for mut expected in pseudo_random_blocks(64) {
+            let mut actual = expected;
+            dct_forward_8x8_scalar(&mut expected);
+            kernel(&mut actual);
+
+            for (e, a) in expected.iter().zip(actual.iter()) {
+                let tolerance = 1e-2 * e.abs().max(1.0);
+                assert!(
+                    (e - a).abs() <= tolerance,
+                    "expected {e}, got {a} (diff {})",
+                    (e - a).abs()
+                );
+            }
+        }
+    }
+
     #[cfg(feature = "avx2-tests")]
     pub fn assert_avx2_available() {
         assert!(
@@ -759,6 +1062,17 @@ pub mod simd_test_support {
     }
 
     #[cfg(feature = "avx2-tests")]
+    pub fn assert_avx2_forward_close_to_scalar_reference() {
+        assert_avx2_available();
+
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            let v3 = pulp::x86::V3::try_new().expect("AVX2 tier checked above");
+            assert_forward_close_to_scalar_reference(|data| forward::dct_forward_8x8(v3, data));
+        }
+    }
+
+    #[cfg(feature = "avx2-tests")]
     pub fn assert_dispatch_picks_avx2() {
         assert_avx2_available();
 
@@ -769,6 +1083,22 @@ pub mod simd_test_support {
                 let mut actual = expected;
                 avx::dct_inverse_8x8(v3, &mut expected);
                 dct_inverse_8x8(&mut actual);
+                assert_eq!(expected, actual);
+            }
+        }
+    }
+
+    #[cfg(feature = "avx2-tests")]
+    pub fn assert_dispatch_picks_avx2_for_forward() {
+        assert_avx2_available();
+
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            let v3 = pulp::x86::V3::try_new().expect("AVX2 tier checked above");
+            for mut expected in pseudo_random_blocks(16) {
+                let mut actual = expected;
+                forward::dct_forward_8x8(v3, &mut expected);
+                dct_forward_8x8(&mut actual);
                 assert_eq!(expected, actual);
             }
         }
@@ -795,6 +1125,17 @@ pub mod simd_test_support {
     }
 
     #[cfg(feature = "sse2-tests")]
+    pub fn assert_sse2_forward_close_to_scalar_reference() {
+        assert_sse2_available();
+
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            let v1 = pulp::x86::V1::try_new().expect("SSE2 tier checked above");
+            assert_forward_close_to_scalar_reference(|data| forward::dct_forward_8x8_sse2(v1, data));
+        }
+    }
+
+    #[cfg(feature = "sse2-tests")]
     pub fn assert_dispatch_picks_sse2_without_avx2() {
         assert_sse2_available();
         assert!(
@@ -810,6 +1151,27 @@ pub mod simd_test_support {
                 let mut actual = expected;
                 sse2::dct_inverse_8x8(v1, &mut expected);
                 dct_inverse_8x8(&mut actual);
+                assert_eq!(expected, actual);
+            }
+        }
+    }
+
+    #[cfg(feature = "sse2-tests")]
+    pub fn assert_dispatch_picks_sse2_without_avx2_for_forward() {
+        assert_sse2_available();
+        assert!(
+            !has_avx2_tier(),
+            "SSE2 dispatch test must run with AVX2 hidden; selected tier: {:?}",
+            selected_simd_tier()
+        );
+
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            let v1 = pulp::x86::V1::try_new().expect("SSE2 tier checked above");
+            for mut expected in pseudo_random_blocks(16) {
+                let mut actual = expected;
+                forward::dct_forward_8x8_sse2(v1, &mut expected);
+                dct_forward_8x8(&mut actual);
                 assert_eq!(expected, actual);
             }
         }

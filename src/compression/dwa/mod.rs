@@ -794,11 +794,12 @@ fn encode_lossy_dct_group(
     let mut group_dc: Vec<Vec<u16>> =
         (0..component_count).map(|_| Vec::with_capacity(block_count)).collect();
 
+    let mut row_blocks: Vec<[[f32; 64]; 3]> = vec![[[0.0; 64]; 3]; blocks_x];
+
     for block_y in 0..blocks_y {
         for block_x in 0..blocks_x {
-            let mut dct_blocks: Vec<[f32; 64]> = vec![[0.0; 64]; component_count];
-
-            for (component_index, block) in dct_blocks.iter_mut().enumerate() {
+            for component_index in 0..component_count {
+                let block = &mut row_blocks[block_x][component_index];
                 for y in 0..8 {
                     let src_y = mirror_index(block_y * 8 + y, height);
                     for x in 0..8 {
@@ -811,6 +812,7 @@ fn encode_lossy_dct_group(
 
             if component_count == 3 {
                 // CSC is performed in nonlinear space for the RGB triplet.
+                let dct_blocks = &mut row_blocks[block_x];
                 for i in 0..64 {
                     let (y, by, ry) =
                         csc::csc709_forward(dct_blocks[0][i], dct_blocks[1][i], dct_blocks[2][i]);
@@ -819,10 +821,17 @@ fn encode_lossy_dct_group(
                     dct_blocks[2][i] = ry;
                 }
             }
+        }
 
-            for (component_index, block) in dct_blocks.iter_mut().enumerate() {
-                idct::dct_forward_8x8(block);
+        idct::dct_forward_8x8_batch(
+            row_blocks
+                .iter_mut()
+                .flat_map(|blocks| blocks[..component_count].iter_mut()),
+        );
 
+        for block_x in 0..blocks_x {
+            for component_index in 0..component_count {
+                let block = &mut row_blocks[block_x][component_index];
                 let (tolerances, half_tolerances) = if component_index == 0 {
                     (&quant_tables.y, &quant_tables.half_y)
                 } else {

@@ -103,6 +103,11 @@ name = "idct"
 harness = false
 required-features = ["simd-benches"]
 
+[[bench]]
+name = "dct"
+harness = false
+required-features = ["simd-benches"]
+
 # recommended release settings for max runtime performance
 [profile.release]
 opt-level = 3
