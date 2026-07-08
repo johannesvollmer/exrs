@@ -90,11 +90,7 @@ fn bench_write_full_image_non_parallel(bench: &mut Bencher, compression: Compres
 
     bench.iter(|| {
         let mut result = Vec::new();
-        image
-            .write()
-            .non_parallel()
-            .to_buffered(Cursor::new(&mut result))
-            .unwrap();
+        image.write().non_parallel().to_buffered(Cursor::new(&mut result)).unwrap();
         bencher::black_box(result);
     })
 }
