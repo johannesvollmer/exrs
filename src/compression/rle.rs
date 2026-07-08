@@ -64,6 +64,13 @@ pub fn compress_bytes(
     separate_bytes_fragments(&mut data_le);
     samples_to_differences(&mut data_le);
 
+    Ok(pack_rle_tokens(&data_le))
+}
+
+/// Shared by this compression method and DWA's RLE section. This only emits
+/// the byte-oriented RLE token stream; callers are responsible for any byte
+/// prediction, byte interleaving, or zlib wrapping required by their format.
+pub(super) fn pack_rle_tokens(data_le: &[u8]) -> ByteVec {
     let mut compressed_le = Vec::with_capacity(data_le.len());
     let mut run_start = 0;
     let mut run_end = 1;
@@ -99,7 +106,7 @@ pub fn compress_bytes(
         }
     }
 
-    Ok(compressed_le)
+    compressed_le
 }
 
 fn take_1(slice: &mut &[u8]) -> Result<u8> {

@@ -250,6 +250,12 @@ impl Compression {
                 pixel_section,
                 true,
             ),
+            DWAA(level) | DWAB(level) => dwa::compress(
+                &header.channels,
+                uncompressed_native_endian.clone(),
+                pixel_section,
+                level,
+            ),
             _ => {
                 return Err(Error::unsupported(format!(
                     "yet unimplemented compression method: {self}"
@@ -409,10 +415,9 @@ impl Compression {
         use self::Compression::*;
         match self {
             PXR24 => sample_type != SampleType::F32, // pxr reduces f32 to f24
-            B44 | B44A => sample_type != SampleType::F16
-            /* b44 only compresses f16 values,
-             * others */,
-            // are left uncompressed
+            // B44 only compresses f16 values; other sample types are left
+            // uncompressed.
+            B44 | B44A => sample_type != SampleType::F16,
             Uncompressed | RLE | ZIP1 | ZIP16 | PIZ | HTJ2K32 | HTJ2K256 => true,
             DWAB(_) | DWAA(_) => false,
         }

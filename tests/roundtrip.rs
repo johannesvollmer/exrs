@@ -367,6 +367,16 @@ fn roundtrip_piz() {
 }
 
 #[test]
+fn roundtrip_dwaa() {
+    test_mixed_roundtrip_with_compression(Compression::DWAA(Some(45.0)))
+}
+
+#[test]
+fn roundtrip_dwab() {
+    test_mixed_roundtrip_with_compression(Compression::DWAB(Some(45.0)))
+}
+
+#[test]
 fn roundtrip_uncompressed() {
     test_mixed_roundtrip_with_compression(Compression::Uncompressed)
 }

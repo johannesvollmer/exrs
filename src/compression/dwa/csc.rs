@@ -10,3 +10,13 @@ pub fn csc709_inverse(comp0: f32, comp1: f32, comp2: f32) -> (f32, f32, f32) {
     let b = comp0 + 1.8556 * comp1;
     (r, g, b)
 }
+
+/// R'G'B' -> Y'CbCr forward conversion for DWA. The component order matches
+/// OpenEXR's channel-group storage: Y, BY, RY.
+#[inline]
+pub fn csc709_forward(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
+    let y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    let by = (b - y) / 1.8556;
+    let ry = (r - y) / 1.5747;
+    (y, by, ry)
+}

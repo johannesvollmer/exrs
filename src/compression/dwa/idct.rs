@@ -511,6 +511,41 @@ fn dct_inverse_8x8_scalar(data: &mut [f32; 64]) {
     }
 }
 
+/// Scalar forward DCT for DWA 8x8 blocks. This intentionally uses the
+/// straightforward separable DCT formula for the first encoder version; LLVM
+/// can still optimize the fixed-size loops without adding explicit SIMD paths.
+pub fn dct_forward_8x8(data: &mut [f32; 64]) {
+    const PI: f32 = 3.14159;
+    const INV_SQRT_2: f32 = 0.70710677;
+
+    let input = *data;
+    for v in 0..8 {
+        for u in 0..8 {
+            let cu = if u == 0 {
+                INV_SQRT_2
+            } else {
+                1.0
+            };
+            let cv = if v == 0 {
+                INV_SQRT_2
+            } else {
+                1.0
+            };
+            let mut sum = 0.0f32;
+
+            for y in 0..8 {
+                let cy = (((2 * y + 1) as f32 * v as f32 * PI) / 16.0).cos();
+                for x in 0..8 {
+                    let cx = (((2 * x + 1) as f32 * u as f32 * PI) / 16.0).cos();
+                    sum += input[y * 8 + x] * cx * cy;
+                }
+            }
+
+            data[v * 8 + u] = 0.25 * cu * cv * sum;
+        }
+    }
+}
+
 /// Inverse DCT on an 8x8 block (in-place, row-major), dispatched at
 /// runtime to the best available x86 SIMD tier (avx2 > sse2 > scalar),
 /// like a real OpenEXR build. See the file header comment.
