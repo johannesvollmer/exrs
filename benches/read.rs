@@ -7,6 +7,9 @@ use std::{fs, io::Cursor};
 use bencher::Bencher;
 use exr::{image::pixel_vec::PixelVec, prelude::*};
 
+const DWAA_PATH: &str = "tests/images/valid/custom/crowskull/crow_dwa.exr";
+const PIZ_PATH: &str = "tests/images/valid/custom/crowskull/crow_piz.exr";
+
 /// Read uncompressed (always single core)
 fn read_single_image_uncompressed_non_parallel_rgba(bench: &mut Bencher) {
     let mut file = fs::read("tests/images/valid/custom/crowskull/crow_uncompressed.exr").unwrap();
@@ -131,6 +134,16 @@ fn read_single_image_rle_non_parallel_rgba(bench: &mut Bencher) {
     })
 }
 
+/// Read DWA-compressed data without multi-core decompression
+fn read_single_image_dwaa_non_parallel_all_channels(bench: &mut Bencher) {
+    bench_read_full_image_non_parallel(bench, DWAA_PATH);
+}
+
+/// Read PIZ-compressed data without multi-core decompression
+fn read_single_image_piz_non_parallel_all_channels(bench: &mut Bencher) {
+    bench_read_full_image_non_parallel(bench, PIZ_PATH);
+}
+
 /// Read with multi-core zip decompression
 fn read_single_image_zips_rgba(bench: &mut Bencher) {
     let mut file = fs::read("tests/images/valid/custom/crowskull/crow_zips.exr").unwrap();
@@ -172,6 +185,26 @@ fn read_single_image_zips_non_parallel_rgba(bench: &mut Bencher) {
     })
 }
 
+fn bench_read_full_image_non_parallel(bench: &mut Bencher, path: &str) {
+    let mut file = fs::read(path).unwrap();
+
+    bench.iter(|| {
+        bencher::black_box(&mut file);
+
+        let image = exr::prelude::read()
+            .no_deep_data()
+            .largest_resolution_level()
+            .all_channels()
+            .all_layers()
+            .all_attributes()
+            .non_parallel()
+            .from_buffered(Cursor::new(file.as_slice()))
+            .unwrap();
+
+        bencher::black_box(image);
+    })
+}
+
 benchmark_group!(
     read,
     read_single_image_uncompressed_rgba,
@@ -182,6 +215,8 @@ benchmark_group!(
     read_single_image_rle_non_parallel_all_channels,
     read_single_image_zips_rgba,
     read_single_image_zips_non_parallel_rgba,
+    read_single_image_dwaa_non_parallel_all_channels,
+    read_single_image_piz_non_parallel_all_channels,
 );
 
 benchmark_main!(read);
