@@ -359,7 +359,7 @@ To benchmark the library, simply run `cargo bench`.
 
 #### SIMD tests (Intel SDE)
 
-The DWA inverse-DCT has SIMD kernels (AVX2 and SSE2) that are selected at
+The DWA DCT/IDCT code has SIMD kernels (AVX2 and SSE2) that are selected at
 runtime via [`pulp`](https://crates.io/crates/pulp), mirroring OpenEXR's own
 cpuid dispatch. Each tier has its own feature-gated integration test:
 
@@ -374,7 +374,9 @@ asserts that AVX2 is *not* present (so it verifies the fallback path).
 Because most machines only expose their native tier, we run these tests under
 [Intel SDE](https://www.intel.com/content/www/us/en/developer/articles/tool/software-development-emulator.html)
 (Software Development Emulator), which emulates a chosen microarchitecture. This
-is exactly what the `SIMD tests` CI workflow does. To reproduce it locally:
+is exactly what the `SIMD tests` CI workflow does: Cargo still builds a generic
+x86/x86-64 binary, and SDE only changes the runtime CPUID/features seen by
+`pulp`. To reproduce it locally:
 
 1. **Install Intel SDE.** Download it from the link above and put the `sde64`
    binary on your `PATH` (or note its full path). SDE runs on x86-64 Linux,
@@ -409,7 +411,7 @@ is exactly what the `SIMD tests` CI workflow does. To reproduce it locally:
 > feature globally would bake AVX2 into otherwise-portable code, break the
 > plain x86-64 baseline, and make the fallback tests meaningless. The kernels
 > already carry their own per-function `#[target_feature]`, so no global flag is
-> needed — SDE alone controls which tier the runtime dispatch selects.
+> needed. SDE alone controls which tier the runtime dispatch selects.
 
 If your own CPU already exposes the required tier, you can skip SDE and run the
 test directly (e.g. `cargo test --test sse2 --features sse2-tests` on any

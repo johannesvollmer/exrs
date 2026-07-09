@@ -1,45 +1,32 @@
-#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-compile_error!("AVX2 SIMD tests require an x86 or x86_64 target");
-
 use std::path::Path;
 
 use exr::{
     compression::simd_test_support::{
-        assert_avx2_available, assert_avx2_close_to_scalar_reference,
-        assert_avx2_forward_close_to_scalar_reference, assert_dispatch_picks_avx2,
-        assert_dispatch_picks_avx2_for_forward, selected_simd_tier,
+        assert_avx2_close_to_scalar_reference, assert_avx2_forward_close_to_scalar_reference,
+        assert_dispatch_picks_avx2, assert_dispatch_picks_avx2_for_forward, expect_avx2,
     },
     image::validate_results::ValidateResult,
     prelude::*,
 };
 
-fn require_avx2() {
-    eprintln!("selected SIMD tier: {:?}", selected_simd_tier());
-    assert_avx2_available();
-}
-
 #[test]
 fn avx2_idct_matches_scalar_reference() {
-    require_avx2();
-    assert_avx2_close_to_scalar_reference();
+    assert_avx2_close_to_scalar_reference(expect_avx2());
 }
 
 #[test]
 fn avx2_fdct_matches_scalar_reference() {
-    require_avx2();
-    assert_avx2_forward_close_to_scalar_reference();
+    assert_avx2_forward_close_to_scalar_reference(expect_avx2());
 }
 
 #[test]
 fn dispatch_picks_avx2_when_available() {
-    require_avx2();
-    assert_dispatch_picks_avx2();
+    assert_dispatch_picks_avx2(expect_avx2());
 }
 
 #[test]
 fn dispatch_picks_avx2_for_forward_dct() {
-    require_avx2();
-    assert_dispatch_picks_avx2_for_forward();
+    assert_dispatch_picks_avx2_for_forward(expect_avx2());
 }
 
 fn dir() -> &'static Path {
@@ -47,7 +34,7 @@ fn dir() -> &'static Path {
 }
 
 fn check_against_real_openexr(exr_name: &str, ground_truth_name: &str) {
-    require_avx2();
+    let _ = expect_avx2();
 
     let mut decoded = read_first_flat_layer_from_file(dir().join(exr_name))
         .expect("exrs failed to decode DWA fixture");
