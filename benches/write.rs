@@ -7,8 +7,6 @@ use std::io::Cursor;
 use bencher::Bencher;
 use exr::prelude::*;
 
-
-
 fn write_parallel_zip1_to_buffered(bench: &mut Bencher) {
     bench_write_full_image_parallel(bench, Compression::ZIP1);
 }
@@ -41,7 +39,7 @@ fn bench_write_full_image_parallel(bench: &mut Bencher, compression: Compression
     }
 
     bench.iter(|| {
-        let mut result = Vec::with_capacity(2048*4);
+        let mut result = Vec::with_capacity(2048 * 4);
         image.write().to_buffered(Cursor::new(&mut result)).unwrap();
         bencher::black_box(result);
     })

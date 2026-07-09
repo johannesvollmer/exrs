@@ -8,7 +8,10 @@ use bencher::Bencher;
 use exr::{image::pixel_vec::PixelVec, prelude::*};
 
 fn uncompressed_parallel(bench: &mut Bencher) {
-    bench_read_full_image_parallel(bench, "tests/images/valid/custom/crowskull/crow_uncompressed.exr");
+    bench_read_full_image_parallel(
+        bench,
+        "tests/images/valid/custom/crowskull/crow_uncompressed.exr",
+    );
 }
 
 fn rle_parallel(bench: &mut Bencher) {
@@ -32,7 +35,10 @@ fn zip_parallel(bench: &mut Bencher) {
 }
 
 fn uncompressed_non_parallel(bench: &mut Bencher) {
-    bench_read_full_image_non_parallel(bench, "tests/images/valid/custom/crowskull/crow_uncompressed.exr");
+    bench_read_full_image_non_parallel(
+        bench,
+        "tests/images/valid/custom/crowskull/crow_uncompressed.exr",
+    );
 }
 
 fn rle_non_parallel(bench: &mut Bencher) {

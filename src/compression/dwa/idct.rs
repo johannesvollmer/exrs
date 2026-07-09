@@ -857,7 +857,7 @@ pub fn dct_inverse_8x8_dc_only(data: &mut [f32; 64]) {
 
 // `pub` and `simd-benches`-gated because benches/dct.rs is a separate crate
 // that reaches this only through the public API; the in-crate tier tests get it
-// via `test`. 
+// via `test`.
 // public only for benchmarking
 #[doc(hidden)]
 #[cfg(any(test, feature = "simd-benches"))]
