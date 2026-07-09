@@ -1,4 +1,4 @@
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#![cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 
 #[macro_use]
 extern crate bencher;
@@ -6,10 +6,8 @@ extern crate bencher;
 extern crate exr;
 
 use bencher::Bencher;
+use exr::compression::dwa::idct::{x86::*, *};
 use pulp::x86::{V1, V3};
-use exr::compression::dwa::idct::*;
-use exr::compression::dwa::idct::x86::*;
-
 
 fn dct_forward_bench_autovectorized(bench: &mut Bencher) {
     let mut blocks = bench_blocks();
@@ -123,8 +121,14 @@ fn expect_sse2() -> V1 {
 
 benchmark_group!(
     dct,
-    dct_forward_bench_autovectorized, dct_forward_bench_sse2, dct_forward_bench_avx2, dct_forward_bench_avx2_batch,
-    dct_inverse_bench_autovectorized, dct_inverse_bench_sse2, dct_inverse_bench_avx2, dct_inverse_bench_avx2_batch
+    dct_forward_bench_autovectorized,
+    dct_forward_bench_sse2,
+    dct_forward_bench_avx2,
+    dct_forward_bench_avx2_batch,
+    dct_inverse_bench_autovectorized,
+    dct_inverse_bench_sse2,
+    dct_inverse_bench_avx2,
+    dct_inverse_bench_avx2_batch
 );
 
 benchmark_main!(dct);

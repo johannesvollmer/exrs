@@ -9,7 +9,6 @@ mod pxr24;
 mod rle;
 mod zip;
 
-
 use std::convert::TryInto;
 
 use crate::{

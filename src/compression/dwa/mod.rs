@@ -20,7 +20,6 @@ use crate::{
 mod csc;
 pub mod idct; // TODO pub(crate)
 
-
 #[derive(Debug, Clone, Copy)]
 enum AcCompression {
     StaticHuffman,

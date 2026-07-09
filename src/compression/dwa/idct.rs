@@ -12,14 +12,6 @@
 // kernels disagree too: basis-constant precision and summation order
 // differ)
 
-#[cfg(all(
-    any(feature = "avx2-tests", feature = "sse2-tests", feature = "simd-benches"),
-    not(any(target_arch = "x86", target_arch = "x86_64"))
-))]
-compile_error!(
-    "DWA SIMD test and bench support requires an x86 or x86_64 target; AVX2/SSE2 availability is checked at runtime"
-);
-
 // AVX2 V3 tier: OpenEXR's "dctInverse8x8_avx_0". Each pass runs all 8
 // rows/columns of the block in parallel, one 8-wide register per position.
 //
@@ -306,10 +298,7 @@ pub mod x86 {
             dct_forward_8x8_batch(v3, std::iter::once(data));
         }
 
-        pub fn dct_forward_8x8_batch<'a>(
-            v3: V3,
-            blocks: impl Iterator<Item = &'a mut [f32; 64]>,
-        ) {
+        pub fn dct_forward_8x8_batch<'a>(v3: V3, blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
             v3.vectorize(move || {
                 let coef = ForwardCoefficients::new(v3);
 
@@ -689,9 +678,7 @@ pub mod x86 {
         }
         false
     }
-
 }
-
 
 // Autovectorized fallback: OpenEXRs "dctInverse8x8_scalar", including its
 // truncated PI constant and summation order. Written as straightforward
@@ -833,9 +820,6 @@ pub fn dct_forward_8x8_autovectorized(data: &mut [f32; 64]) {
     }
 }
 
-
-
-
 /// Forward DCT on many 8x8 blocks, dispatched once for the whole batch rather
 /// than once per block. Prefer this over looping calls to `dct_forward_8x8`.
 pub fn dct_forward_8x8_batch<'a>(mut blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
@@ -871,9 +855,9 @@ pub fn dct_inverse_8x8_dc_only(data: &mut [f32; 64]) {
     }
 }
 
-// `pub` and `simd-benches`-gated because benches/dct.rs is a separate crate that
-// reaches this only through the public API; the in-crate tier tests get it via `test`.
-// TODO pub(crate)
+// `pub` and `simd-benches`-gated because benches/dct.rs is a separate crate
+// that reaches this only through the public API; the in-crate tier tests get it
+// via `test`. TODO pub(crate)
 #[cfg(any(test, feature = "simd-benches"))]
 pub mod testing {
     use crate::compression::dwa::idct::{dct_forward_8x8_batch, dct_inverse_8x8_batch};
@@ -937,27 +921,23 @@ mod avx2_tests {
 
     use pulp::x86::V3;
 
-    use super::x86::avx;
-    use super::{dct_forward_8x8_autovectorized, dct_inverse_8x8_autovectorized, testing};
-    use crate::image::validate_results::ValidateResult;
-    use crate::prelude::*;
+    use super::{
+        dct_forward_8x8_autovectorized, dct_inverse_8x8_autovectorized, testing, x86::avx,
+    };
+    use crate::{image::validate_results::ValidateResult, prelude::*};
 
     #[test]
     fn avx2_inverse_matches_autovectorized() {
-        testing::assert_blocks_match(
-            "AVX2 inverse DCT",
-            dct_inverse_8x8_autovectorized,
-            |data| avx::dct_inverse_8x8(expect_avx2(), data),
-        );
+        testing::assert_blocks_match("AVX2 inverse DCT", dct_inverse_8x8_autovectorized, |data| {
+            avx::dct_inverse_8x8(expect_avx2(), data)
+        });
     }
 
     #[test]
     fn avx2_forward_matches_autovectorized() {
-        testing::assert_blocks_match(
-            "AVX2 forward DCT",
-            dct_forward_8x8_autovectorized,
-            |data| avx::dct_forward_8x8(expect_avx2(), data),
-        );
+        testing::assert_blocks_match("AVX2 forward DCT", dct_forward_8x8_autovectorized, |data| {
+            avx::dct_forward_8x8(expect_avx2(), data)
+        });
     }
 
     #[test]
@@ -1002,25 +982,22 @@ mod avx2_tests {
 mod sse2_tests {
     use pulp::x86::{V1, V3};
 
-    use super::x86::sse2;
-    use super::{dct_forward_8x8_autovectorized, dct_inverse_8x8_autovectorized, testing};
+    use super::{
+        dct_forward_8x8_autovectorized, dct_inverse_8x8_autovectorized, testing, x86::sse2,
+    };
 
     #[test]
     fn assert_sse2_close_to_autovectorized_reference() {
-        testing::assert_blocks_match(
-            "SSE2 inverse DCT",
-            dct_inverse_8x8_autovectorized,
-            |data| sse2::dct_inverse_8x8(expect_sse2_without_avx2(), data),
-        );
+        testing::assert_blocks_match("SSE2 inverse DCT", dct_inverse_8x8_autovectorized, |data| {
+            sse2::dct_inverse_8x8(expect_sse2_without_avx2(), data)
+        });
     }
 
     #[test]
     fn assert_sse2_forward_close_to_autovectorized_reference() {
-        testing::assert_blocks_match(
-            "SSE2 forward DCT",
-            dct_forward_8x8_autovectorized,
-            |data| sse2::dct_forward_8x8(expect_sse2_without_avx2(), data),
-        );
+        testing::assert_blocks_match("SSE2 forward DCT", dct_forward_8x8_autovectorized, |data| {
+            sse2::dct_forward_8x8(expect_sse2_without_avx2(), data)
+        });
     }
 
     fn expect_sse2() -> V1 {
