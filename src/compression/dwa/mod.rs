@@ -1,5 +1,5 @@
-// DWA / DWAB (lossy DCT) decompression, ported from OpenEXRCores
-// internal_dwa_compressor.h and alike (decoding only).
+// DWA / DWAB (lossy DCT) compression and decompression, ported from
+// OpenEXRCores internal_dwa_compressor.h and alike.
 //
 // A DWA chunk is: 11 u64 counters, the channel rules (version >= 2),
 // then four sections (UNKNOWN, AC, DC, RLE). Channels are classified by
@@ -40,6 +40,15 @@ enum AcCompression {
     Deflate,
 }
 
+impl AcCompression {
+    fn as_counter(self) -> u64 {
+        match self {
+            AcCompression::StaticHuffman => 0,
+            AcCompression::Deflate => 1,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum CompressorScheme {
     Unknown,
@@ -65,6 +74,9 @@ struct DwaHeader {
 
 impl DwaHeader {
     fn parse(input: &mut &[u8]) -> Result<Self> {
+        // The chunk leader is a fixed set of 11 little-endian counters.
+        // The decoder intentionally rejects truncated or out-of-range values
+        // before it looks at any of the payload sections.
         fn counter(input: &mut &[u8]) -> Result<u64> {
             let (bytes, rest) = input
                 .split_first_chunk::<8>()
@@ -101,6 +113,27 @@ impl DwaHeader {
             },
         })
     }
+
+    fn write(&self, out: &mut Vec<u8>) {
+        // Keep the on-disk layout identical to the decoder's parse order.
+        let counters = [
+            self.version,
+            self.unknown_uncompressed_size as u64,
+            self.unknown_compressed_size as u64,
+            self.ac_compressed_size as u64,
+            self.dc_compressed_size as u64,
+            self.rle_compressed_size as u64,
+            self.rle_uncompressed_size as u64,
+            self.rle_raw_size as u64,
+            self.ac_count as u64,
+            self.dc_count as u64,
+            self.ac_compression.as_counter(),
+        ];
+
+        for counter in counters {
+            out.extend_from_slice(&counter.to_le_bytes());
+        }
+    }
 }
 
 /// One channel classification rule (`Classifier` in
@@ -126,10 +159,79 @@ impl Rule {
                 suffix == self.suffix
             })
     }
+
+    fn serialized_size(&self) -> usize {
+        self.suffix.len() + 1 + 2
+    }
+
+    fn write(&self, out: &mut Vec<u8>) -> Result<()> {
+        out.extend_from_slice(self.suffix.as_bytes());
+        out.push(0);
+
+        let csc_bits = match self.csc_index {
+            None => 0,
+            Some(index @ 0..=2) => index + 1,
+            Some(_) => return Err(Error::invalid("DWA channel rule csc index out of range")),
+        };
+
+        let scheme_bits = match self.scheme {
+            CompressorScheme::Unknown => 0,
+            CompressorScheme::LossyDct => 1,
+            CompressorScheme::Rle => 2,
+        };
+
+        let sample_type = match self.sample_type {
+            SampleType::U32 => 0,
+            SampleType::F16 => 1,
+            SampleType::F32 => 2,
+        };
+
+        out.push(
+            ((csc_bits as u8) << 4) | ((scheme_bits as u8) << 2) | u8::from(self.case_insensitive),
+        );
+        out.push(sample_type);
+        Ok(())
+    }
+}
+
+/// Current OpenEXR encoder rules for version-2 chunks. Unlike the legacy
+/// decoder fallback, these are case-sensitive and use canonical uppercase
+/// channel suffixes.
+fn default_channel_rules() -> Vec<Rule> {
+    // OpenEXR's current encoder emits a small canonical rule table rather
+    // than serializing the whole channel list. Only channels matching one of
+    // these suffix/type pairs need to be recorded in the chunk header.
+    let lossy: [(&'static str, Option<usize>); 6] =
+        [("R", Some(0)), ("G", Some(1)), ("B", Some(2)), ("Y", None), ("BY", None), ("RY", None)];
+
+    let mut rules = Vec::with_capacity(15);
+    for (suffix, csc_index) in lossy {
+        for sample_type in [SampleType::F16, SampleType::F32] {
+            rules.push(Rule {
+                suffix: Cow::Borrowed(suffix),
+                scheme: CompressorScheme::LossyDct,
+                sample_type,
+                csc_index,
+                case_insensitive: false,
+            });
+        }
+    }
+    for sample_type in [SampleType::U32, SampleType::F16, SampleType::F32] {
+        rules.push(Rule {
+            suffix: Cow::Borrowed("A"),
+            scheme: CompressorScheme::Rle,
+            sample_type,
+            csc_index: None,
+            case_insensitive: false,
+        });
+    }
+    rules
 }
 
 /// "sLegacyChannelRules", implied by chunk versions <2.
 fn legacy_channel_rules() -> Vec<Rule> {
+    // Version < 2 chunks relied on the older mixed-case naming conventions.
+    // Keep those rules around so the decoder can still read historical files.
     let lossy: [(&'static str, Option<usize>); 11] = [
         ("r", Some(0)),
         ("red", Some(0)),
@@ -172,6 +274,8 @@ fn legacy_channel_rules() -> Vec<Rule> {
 /// a u16 little-endian total size that includes the size field itself
 /// (`DwaCompressor_readChannelRules`).
 fn parse_channel_rules(input: &mut &[u8]) -> Result<Vec<Rule>> {
+    // The serialized rule block is prefixed by a u16 size that includes the
+    // size field itself, so the parser can skip over the whole table at once.
     let (size_bytes, rest) = input
         .split_first_chunk::<2>()
         .ok_or_else(|| Error::invalid("truncated DWA channel rules"))?;
@@ -211,7 +315,8 @@ fn parse_rule(data: &mut &[u8]) -> Result<Rule> {
 
     Ok(Rule {
         suffix: Cow::Owned(suffix),
-        // flags layout: high nibble = cscIdx + 1, bits 2-3 = scheme, bit 0 = case-insensitive
+        // The packed flags byte matches the C reference layout:
+        // high nibble = cscIdx + 1, bits 2-3 = scheme, bit 0 = case-insensitive.
         csc_index: match ((flags >> 4) as i32) - 1 {
             -1 => None,
             index @ 0..=2 => Some(index as usize),
@@ -239,6 +344,40 @@ fn parse_rule(data: &mut &[u8]) -> Result<Rule> {
     })
 }
 
+/// Encoder-side companion to `parse_channel_rules`: writes a u16 byte count
+/// including the size field itself, followed by only the default rules that
+/// match at least one channel in this chunk's channel list.
+fn write_relevant_channel_rules(rules: &[Rule], channels: &ChannelList) -> Result<Vec<u8>> {
+    // The encoder only writes rules that are actually used by at least one
+    // channel in this chunk. This keeps the chunk leader self-contained while
+    // avoiding dead table entries.
+    let mut payload = Vec::new();
+
+    for rule in rules {
+        let relevant = channels.list.iter().any(|channel| {
+            let name = channel.name.to_string();
+            rule.matches(channel_suffix(&name), channel.sample_type)
+        });
+
+        if relevant {
+            payload.reserve(rule.serialized_size());
+            rule.write(&mut payload)?;
+        }
+    }
+
+    let total_size = payload
+        .len()
+        .checked_add(2)
+        .ok_or_else(|| Error::invalid("DWA channel rules too large"))?;
+    let total_size: u16 =
+        total_size.try_into().map_err(|_| Error::invalid("DWA channel rules too large"))?;
+
+    let mut out = Vec::with_capacity(total_size as usize);
+    out.extend_from_slice(&total_size.to_le_bytes());
+    out.extend_from_slice(&payload);
+    Ok(out)
+}
+
 /// The part of a channel name after the last '.'
 fn channel_suffix(name: &str) -> &str {
     match name.rfind('.') {
@@ -254,6 +393,7 @@ struct ChannelInfo {
     height: usize,
     bytes_per_sample: usize,
     sample_type: SampleType,
+    quantize_linearly: bool,
 }
 
 /// Classify every channel and find the CSC'd R/G/B triplets, mirroring
@@ -266,6 +406,9 @@ fn classify_channels(
     rectangle: IntegerBounds,
     rules: &[Rule],
 ) -> (Vec<ChannelInfo>, Vec<[usize; 3]>) {
+    // Match channel names against the rule table, then collect R/G/B triplets
+    // in the order the prefixes first appear. That order controls how the
+    // shared lossy streams are consumed later.
     let mut infos = Vec::with_capacity(channels.list.len());
     let mut prefix_map: Vec<(String, [Option<usize>; 3])> = Vec::new();
 
@@ -300,6 +443,7 @@ fn classify_channels(
             height: (rectangle.size.height() + sampling_y - 1) / sampling_y,
             bytes_per_sample: channel.sample_type.bytes_per_sample(),
             sample_type: channel.sample_type,
+            quantize_linearly: channel.quantize_linearly,
         });
     }
 
@@ -318,6 +462,1072 @@ fn classify_channels(
         .collect();
 
     (infos, csc_groups)
+}
+
+pub fn compress(
+    channels: &ChannelList,
+    uncompressed_ne: ByteVec,
+    rectangle: IntegerBounds,
+    compression_level: Option<f32>,
+) -> Result<ByteVec> {
+    if uncompressed_ne.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let uncompressed_le =
+        crate::compression::convert_current_to_little_endian(uncompressed_ne, channels, rectangle)?;
+
+    // The chunk is written in the same section order the decoder expects:
+    // header + rules, then UNKNOWN, AC, DC and RLE payloads.
+    let rules = default_channel_rules();
+    let rule_bytes = write_relevant_channel_rules(&rules, channels)?;
+    let (channel_infos, csc_groups) = classify_channels(channels, rectangle, &rules);
+    let channel_bytes =
+        split_scanline_channels(&uncompressed_le, channels, &channel_infos, rectangle)?;
+
+    let unknown_planar =
+        pack_unknown_channels(&channel_infos, &channel_bytes, CompressorScheme::Unknown);
+    let rle_raw = pack_rle_channels(&channel_infos, &channel_bytes);
+
+    let quant_base_error = compression_level.unwrap_or(45.0) / 100000.0;
+    let (ac_values, dc_values) =
+        encode_lossy_channels(&channel_infos, &csc_groups, &channel_bytes, quant_base_error)?;
+
+    let unknown_compressed = if unknown_planar.is_empty() {
+        Vec::new()
+    } else {
+        miniz_oxide::deflate::compress_to_vec_zlib(&unknown_planar, 9)
+    };
+
+    let ac_compression = AcCompression::StaticHuffman;
+    let ac_compressed = if ac_values.is_empty() {
+        Vec::new()
+    } else {
+        crate::compression::piz::huffman::compress(&ac_values)?
+    };
+
+    let dc_compressed = if dc_values.is_empty() {
+        Vec::new()
+    } else {
+        let mut dc_bytes = u16s_to_le_bytes(&dc_values);
+        zip_deconstruct_bytes(&mut dc_bytes);
+        miniz_oxide::deflate::compress_to_vec_zlib(&dc_bytes, 9)
+    };
+
+    let (rle_uncompressed_size, rle_compressed) = if rle_raw.is_empty() {
+        (0, Vec::new())
+    } else {
+        let rle_tokens = super::rle::pack_rle_tokens(&rle_raw);
+        let compressed = miniz_oxide::deflate::compress_to_vec_zlib(&rle_tokens, 9);
+        (rle_tokens.len(), compressed)
+    };
+
+    let header = DwaHeader {
+        version: 2,
+        unknown_uncompressed_size: unknown_planar.len(),
+        unknown_compressed_size: unknown_compressed.len(),
+        ac_compressed_size: ac_compressed.len(),
+        dc_compressed_size: dc_compressed.len(),
+        rle_compressed_size: rle_compressed.len(),
+        rle_uncompressed_size,
+        rle_raw_size: rle_raw.len(),
+        ac_count: ac_values.len(),
+        dc_count: dc_values.len(),
+        ac_compression,
+    };
+
+    let mut out = Vec::with_capacity(
+        11 * 8
+            + rule_bytes.len()
+            + unknown_compressed.len()
+            + ac_compressed.len()
+            + dc_compressed.len()
+            + rle_compressed.len(),
+    );
+    header.write(&mut out);
+    out.extend_from_slice(&rule_bytes);
+    out.extend_from_slice(&unknown_compressed);
+    out.extend_from_slice(&ac_compressed);
+    out.extend_from_slice(&dc_compressed);
+    out.extend_from_slice(&rle_compressed);
+    Ok(out)
+}
+
+fn split_scanline_channels(
+    data: &[u8],
+    channels: &ChannelList,
+    infos: &[ChannelInfo],
+    rectangle: IntegerBounds,
+) -> Result<Vec<Vec<u8>>> {
+    // The scanline buffer is already in channel order, but the encoder needs
+    // each channel sliced back out so the per-scheme packing matches the C
+    // reference's running cursors.
+    let mut per_channel: Vec<Vec<u8>> = infos
+        .iter()
+        .map(|info| Vec::with_capacity(info.width * info.height * info.bytes_per_sample))
+        .collect();
+    let mut input = data;
+
+    for y in rectangle.position.y()..rectangle.end().y() {
+        for (index, channel) in channels.list.iter().enumerate() {
+            let sampling_y = channel.sampling.y().max(1) as i32;
+            if y % sampling_y != 0 {
+                continue;
+            }
+
+            let row_length = infos[index].width * infos[index].bytes_per_sample;
+            if row_length > input.len() {
+                return Err(Error::invalid("DWA input data truncated"));
+            }
+            let (row, rest) = input.split_at(row_length);
+            per_channel[index].extend_from_slice(row);
+            input = rest;
+        }
+    }
+
+    if !input.is_empty() {
+        return Err(Error::invalid("DWA input data size mismatch"));
+    }
+
+    Ok(per_channel)
+}
+
+fn pack_unknown_channels(
+    infos: &[ChannelInfo],
+    channel_bytes: &[Vec<u8>],
+    scheme: CompressorScheme,
+) -> Vec<u8> {
+    // UNKNOWN channels stay planar and are concatenated in channel order
+    // before the zlib step.
+    let total_len = infos
+        .iter()
+        .zip(channel_bytes)
+        .filter(|(info, _)| info.scheme == scheme)
+        .map(|(_, bytes)| bytes.len())
+        .sum();
+    let mut out = Vec::with_capacity(total_len);
+
+    for (info, bytes) in infos.iter().zip(channel_bytes) {
+        if info.scheme == scheme {
+            out.extend_from_slice(bytes);
+        }
+    }
+    out
+}
+
+fn pack_rle_channels(infos: &[ChannelInfo], channel_bytes: &[Vec<u8>]) -> Vec<u8> {
+    // RLE channels are repacked into byte planes first, then byte-RLE'd and
+    // zlib-compressed by the caller.
+    let total_len = infos
+        .iter()
+        .zip(channel_bytes)
+        .filter(|(info, _)| info.scheme == CompressorScheme::Rle)
+        .map(|(_, bytes)| bytes.len())
+        .sum();
+    let mut out = Vec::with_capacity(total_len);
+
+    for (info, bytes) in infos.iter().zip(channel_bytes) {
+        if info.scheme == CompressorScheme::Rle {
+            out.extend_from_slice(&separate_byte_planes(bytes, info.bytes_per_sample));
+        }
+    }
+    out
+}
+
+fn separate_byte_planes(interleaved: &[u8], bytes_per_sample: usize) -> Vec<u8> {
+    let sample_count = interleaved.len() / bytes_per_sample;
+    let mut planar = vec![0u8; interleaved.len()];
+
+    for byte in 0..bytes_per_sample {
+        for sample in 0..sample_count {
+            planar[byte * sample_count + sample] = interleaved[sample * bytes_per_sample + byte];
+        }
+    }
+
+    planar
+}
+
+fn u16s_to_le_bytes(values: &[u16]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(values.len() * 2);
+    for value in values {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    out
+}
+
+fn zip_deconstruct_bytes(bytes: &mut [u8]) {
+    super::optimize_bytes::separate_bytes_fragments(bytes);
+    super::optimize_bytes::samples_to_differences(bytes);
+}
+
+// --------------------- lossy DCT encoding ---------------------
+
+fn encode_lossy_channels(
+    infos: &[ChannelInfo],
+    csc_groups: &[[usize; 3]],
+    channel_bytes: &[Vec<u8>],
+    quant_base_error: f32,
+) -> Result<(Vec<u16>, Vec<u16>)> {
+    // Lossy chunks use shared AC/DC streams. CSC triplets consume the streams
+    // first, then standalone LOSSY_DCT channels continue from the same cursors.
+    let mut ac = Vec::new();
+    let mut dc = Vec::new();
+    let mut grouped = vec![false; infos.len()];
+
+    for &group in csc_groups {
+        let info = &infos[group[0]];
+        let components = group
+            .iter()
+            .map(|&channel| channel_half_samples(&channel_bytes[channel], &infos[channel], true))
+            .collect::<Result<Vec<_>>>()?;
+
+        encode_lossy_dct_group(
+            &components,
+            info.width,
+            info.height,
+            quant_base_error,
+            &mut ac,
+            &mut dc,
+        )?;
+
+        for &channel in &group {
+            grouped[channel] = true;
+        }
+    }
+
+    for (index, info) in infos.iter().enumerate() {
+        if grouped[index] || info.scheme != CompressorScheme::LossyDct {
+            continue;
+        }
+
+        let apply_nonlinear = !info.quantize_linearly;
+        let samples = channel_half_samples(&channel_bytes[index], info, apply_nonlinear)?;
+        encode_lossy_dct_group(
+            &[samples],
+            info.width,
+            info.height,
+            quant_base_error,
+            &mut ac,
+            &mut dc,
+        )?;
+    }
+
+    Ok((ac, dc))
+}
+
+fn channel_half_samples(
+    bytes: &[u8],
+    info: &ChannelInfo,
+    apply_nonlinear: bool,
+) -> Result<Vec<u16>> {
+    // OpenEXR stores lossy input as half precision internally before DCT.
+    // F32 channels are clamped to the finite half range and demoted here.
+    let mut samples = Vec::with_capacity(info.width * info.height);
+
+    match info.sample_type {
+        SampleType::F16 => {
+            let chunks = bytes.chunks_exact(2);
+            if !chunks.remainder().is_empty() {
+                return Err(Error::invalid("DWA f16 channel data size"));
+            }
+            samples.extend(chunks.map(|pair| u16::from_le_bytes([pair[0], pair[1]])));
+        }
+        SampleType::F32 => {
+            let chunks = bytes.chunks_exact(4);
+            if !chunks.remainder().is_empty() {
+                return Err(Error::invalid("DWA f32 channel data size"));
+            }
+            samples.extend(chunks.map(|quad| {
+                let mut value = f32::from_le_bytes([quad[0], quad[1], quad[2], quad[3]]);
+                value = value.clamp(-65504.0, 65504.0);
+                f16::from_f32(value).to_bits()
+            }));
+        }
+        SampleType::U32 => {
+            return Err(Error::unsupported("DWA lossy DCT compression of u32 channels"));
+        }
+    }
+
+    if samples.len() != info.width * info.height {
+        return Err(Error::invalid("DWA lossy channel data size mismatch"));
+    }
+
+    if apply_nonlinear {
+        let to_nonlinear = to_nonlinear_table();
+        for sample in &mut samples {
+            *sample = to_nonlinear[*sample as usize];
+        }
+    }
+
+    Ok(samples)
+}
+
+fn encode_lossy_dct_group(
+    components: &[Vec<u16>],
+    width: usize,
+    height: usize,
+    quant_base_error: f32,
+    ac: &mut Vec<u16>,
+    dc: &mut Vec<u16>,
+) -> Result<()> {
+    if width == 0 || height == 0 {
+        return Ok(());
+    }
+
+    let component_count = components.len();
+    if component_count != 1 && component_count != 3 {
+        return Err(Error::invalid("invalid DWA lossy component count"));
+    }
+
+    for component in components {
+        if component.len() != width * height {
+            return Err(Error::invalid("DWA lossy component size mismatch"));
+        }
+    }
+
+    // Mirror the source block edges so partial 8x8 blocks behave the same way
+    // as the reference encoder.
+    let quant_tables = QuantTables::new(quant_base_error);
+    let blocks_x = (width + 7) / 8;
+    let blocks_y = (height + 7) / 8;
+    let block_count = blocks_x * blocks_y;
+    let mut group_dc: Vec<Vec<u16>> =
+        (0..component_count).map(|_| Vec::with_capacity(block_count)).collect();
+
+    let mut row_blocks: Vec<[[f32; 64]; 3]> = vec![[[0.0; 64]; 3]; blocks_x];
+
+    for block_y in 0..blocks_y {
+        for block_x in 0..blocks_x {
+            for component_index in 0..component_count {
+                let block = &mut row_blocks[block_x][component_index];
+                for y in 0..8 {
+                    let src_y = mirror_index(block_y * 8 + y, height);
+                    for x in 0..8 {
+                        let src_x = mirror_index(block_x * 8 + x, width);
+                        let bits = components[component_index][src_y * width + src_x];
+                        block[y * 8 + x] = f16::from_bits(bits).to_f32();
+                    }
+                }
+            }
+
+            if component_count == 3 {
+                // CSC is performed in nonlinear space for the RGB triplet.
+                let dct_blocks = &mut row_blocks[block_x];
+                for i in 0..64 {
+                    let (y, by, ry) =
+                        csc::csc709_forward(dct_blocks[0][i], dct_blocks[1][i], dct_blocks[2][i]);
+                    dct_blocks[0][i] = y;
+                    dct_blocks[1][i] = by;
+                    dct_blocks[2][i] = ry;
+                }
+            }
+        }
+
+        idct::dct_forward_8x8_batch(
+            row_blocks.iter_mut().flat_map(|blocks| blocks[..component_count].iter_mut()),
+        );
+
+        for block_x in 0..blocks_x {
+            for component_index in 0..component_count {
+                let block = &mut row_blocks[block_x][component_index];
+                let (tolerances, half_tolerances) = if component_index == 0 {
+                    (&quant_tables.y, &quant_tables.half_y)
+                } else {
+                    (&quant_tables.cbcr, &quant_tables.half_cbcr)
+                };
+
+                let half_zig = quantize_coefficients_to_zigzag(block, tolerances, half_tolerances);
+                group_dc[component_index].push(half_zig[0]);
+                rle_ac(&half_zig, ac);
+            }
+        }
+    }
+
+    for component_dc in group_dc {
+        dc.extend(component_dc);
+    }
+
+    Ok(())
+}
+
+fn mirror_index(index: usize, length: usize) -> usize {
+    // The C encoder mirrors out-of-bounds coordinates back into the image
+    // rather than clamping them. This keeps edge blocks symmetrical.
+    debug_assert_ne!(length, 0);
+    let mut value = index as isize;
+    let length = length as isize;
+
+    if value >= length {
+        value = length - (value - (length - 1));
+    }
+    if value < 0 {
+        value = length - 1;
+    }
+
+    value as usize
+}
+
+struct QuantTables {
+    y: [f32; 64],
+    half_y: [u16; 64],
+    cbcr: [f32; 64],
+    half_cbcr: [u16; 64],
+}
+
+impl QuantTables {
+    fn new(quant_base_error: f32) -> Self {
+        // JPEG-style tables, normalized by their minimum entry and scaled by
+        // the configured DWA base error.
+        const JPEG_Y: [i32; 64] = [
+            16, 11, 10, 16, 24, 40, 51, 61, 12, 12, 14, 19, 26, 58, 60, 55, 14, 13, 16, 24, 40, 57,
+            69, 56, 14, 17, 22, 29, 51, 87, 80, 62, 18, 22, 37, 56, 68, 109, 103, 77, 24, 35, 55,
+            64, 81, 104, 113, 92, 49, 64, 78, 87, 103, 121, 120, 101, 72, 92, 95, 98, 112, 100,
+            103, 99,
+        ];
+        const JPEG_CBCR: [i32; 64] = [
+            17, 18, 24, 47, 99, 99, 99, 99, 18, 21, 26, 66, 99, 99, 99, 99, 24, 26, 56, 99, 99, 99,
+            99, 99, 47, 66, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
+            99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
+        ];
+
+        let quant_base_error = quant_base_error.max(0.0);
+        let mut y = [0.0; 64];
+        let mut half_y = [0; 64];
+        let mut cbcr = [0.0; 64];
+        let mut half_cbcr = [0; 64];
+
+        for index in 0..64 {
+            y[index] = quant_base_error * JPEG_Y[index] as f32 / 10.0;
+            half_y[index] = f16::from_f32(y[index]).to_bits();
+            cbcr[index] = quant_base_error * JPEG_CBCR[index] as f32 / 17.0;
+            half_cbcr[index] = f16::from_f32(cbcr[index]).to_bits();
+        }
+
+        Self {
+            y,
+            half_y,
+            cbcr,
+            half_cbcr,
+        }
+    }
+}
+
+fn quantize_coefficients_to_zigzag(
+    dct_values: &[f32; 64],
+    tolerances: &[f32; 64],
+    half_tolerances: &[u16; 64],
+) -> [u16; 64] {
+    // Quantize in DCT order, then scatter into the stored zig-zag layout.
+    const INV_REMAP: [usize; 64] = [
+        0, 1, 5, 6, 14, 15, 27, 28, 2, 4, 7, 13, 16, 26, 29, 42, 3, 8, 12, 17, 25, 30, 41, 43, 9,
+        11, 18, 24, 31, 40, 44, 53, 10, 19, 23, 32, 39, 45, 52, 54, 20, 22, 33, 38, 46, 51, 55, 60,
+        21, 34, 37, 47, 50, 56, 59, 61, 35, 36, 48, 49, 57, 58, 62, 63,
+    ];
+
+    let mut half_zig = [0u16; 64];
+    for i in 0..64 {
+        let src = f16::from_f32(dct_values[i]).to_bits();
+        let quantized = algo_quantize(
+            src as u32,
+            half_tolerances[i] as u32,
+            tolerances[i],
+            f16::from_bits(src).to_f32(),
+        );
+        half_zig[INV_REMAP[i]] = quantized as u16;
+    }
+    half_zig
+}
+
+fn rle_ac(block: &[u16; 64], ac: &mut Vec<u16>) {
+    // The AC stream uses a simple token format: literals are emitted as-is,
+    // and runs of zeroes are encoded as 0xffxx tokens. 0xff00 marks EOB.
+    let mut dct_comp = 1;
+
+    while dct_comp < 64 {
+        if block[dct_comp] != 0 {
+            ac.push(block[dct_comp]);
+            dct_comp += 1;
+            continue;
+        }
+
+        let mut run_len = 1;
+        while dct_comp + run_len < 64 && block[dct_comp + run_len] == 0 {
+            run_len += 1;
+        }
+
+        if run_len == 1 {
+            ac.push(block[dct_comp]);
+        } else if run_len + dct_comp == 64 {
+            ac.push(0xff00);
+        } else {
+            ac.push(0xff00 | run_len as u16);
+        }
+
+        dct_comp += run_len;
+    }
+}
+
+fn to_nonlinear_table() -> &'static [u16; 65536] {
+    static TABLE: OnceLock<[u16; 65536]> = OnceLock::new();
+
+    TABLE.get_or_init(|| {
+        // Build the forward transfer table lazily so the hot path stays cheap
+        // once the table is initialized.
+        let mut table = [0u16; 65536];
+        for (bits, slot) in table.iter_mut().enumerate() {
+            *slot = dwa_convert_to_nonlinear(f16::from_bits(bits as u16)).to_bits();
+        }
+        table
+    })
+}
+
+fn dwa_convert_to_nonlinear(x: f16) -> f16 {
+    // Inverse of the decoder's nonlinear -> linear transfer.
+    // Values <= 1 use a power curve; values above 1 follow the exponential tail.
+    let value = x.to_f32();
+    if !value.is_finite() {
+        return f16::ZERO;
+    }
+
+    let sign = if value < 0.0 {
+        -1.0
+    } else {
+        1.0
+    };
+    let value = value.abs();
+
+    let nonlinear = if value <= 1.0 {
+        value.powf(1.0 / 2.2)
+    } else {
+        1.0 + value.ln() / 9.02501329156_f32.ln()
+    };
+
+    f16::from_f32(sign * nonlinear)
+}
+
+fn algo_quantize(src: u32, herr_tol: u32, err_tol: f32, src_float: f32) -> u32 {
+    // Port of OpenEXR's bit-count based half-float quantizer.
+    // It searches nearby representations and keeps the one with the fewest
+    // set bits while staying within the tolerated error.
+    let sign = src & 0x8000;
+    let abssrc = src & 0x7fff;
+    let src_float = src_float.abs();
+
+    let src_exp_biased = src & 0x7c00;
+    let tol_exp_biased = herr_tol & 0x7c00;
+
+    if src_exp_biased == 0x7c00 {
+        return src;
+    }
+
+    if src_float < err_tol {
+        return 0;
+    }
+
+    let exp_diff = src_exp_biased.wrapping_sub(tol_exp_biased) >> 10;
+    let mut tol_sig = shift_right((herr_tol & 0x03ff) | (1 << 10), exp_diff);
+
+    if tol_exp_biased == 0 {
+        if exp_diff == 0 || exp_diff == 1 {
+            tol_sig = herr_tol & 0x03ff;
+            if tol_sig == 0 {
+                return src;
+            }
+            return sign | handle_quantize_generic(abssrc, tol_sig, err_tol, src_float);
+        }
+
+        tol_sig = herr_tol & 0x03ff;
+        if tol_sig == 0 {
+            return src;
+        }
+
+        tol_sig = shift_right(tol_sig, exp_diff);
+        if tol_sig == 0 {
+            tol_sig = 1;
+        }
+
+        return sign | handle_quantize_denorm_tol(abssrc, tol_sig, err_tol, src_float);
+    }
+
+    if tol_sig == 0 {
+        return src;
+    }
+
+    if exp_diff > 1 || src_exp_biased == 0 {
+        return sign | handle_quantize_default(abssrc, tol_sig, err_tol, src_float);
+    }
+
+    if exp_diff == 0 {
+        return sign | handle_quantize_equal_exp(abssrc, tol_sig, err_tol, src_float);
+    }
+    sign | handle_quantize_close_exp(abssrc, tol_sig, err_tol, src_float)
+}
+
+fn shift_right(value: u32, shift: u32) -> u32 {
+    if shift >= 32 {
+        0
+    } else {
+        value >> shift
+    }
+}
+
+fn half_to_f32(bits: u32) -> f32 {
+    f16::from_bits(bits as u16).to_f32()
+}
+
+fn test_quant_alternate_large(
+    alt: u32,
+    smallest: &mut u32,
+    smallbits: &mut u32,
+    smalldelta: &mut f32,
+    err_tol: f32,
+    src_float: f32,
+) {
+    let bits = alt.count_ones();
+    if bits < *smallbits {
+        let delta = half_to_f32(alt) - src_float;
+        if delta < err_tol {
+            *smallbits = bits;
+            *smalldelta = delta;
+            *smallest = alt;
+        }
+    } else if bits == *smallbits {
+        let delta = half_to_f32(alt) - src_float;
+        if delta < *smalldelta {
+            *smallest = alt;
+            *smalldelta = delta;
+            *smallbits = bits;
+        }
+    }
+}
+
+fn test_quant_alternate_small(
+    alt: u32,
+    smallest: &mut u32,
+    smallbits: &mut u32,
+    smalldelta: &mut f32,
+    err_tol: f32,
+    src_float: f32,
+) {
+    let bits = alt.count_ones();
+    if bits < *smallbits {
+        let delta = src_float - half_to_f32(alt);
+        if delta < err_tol {
+            *smallbits = bits;
+            *smalldelta = delta;
+            *smallest = alt;
+        }
+    } else if bits == *smallbits {
+        let delta = src_float - half_to_f32(alt);
+        if delta < *smalldelta {
+            *smallest = alt;
+            *smalldelta = delta;
+            *smallbits = bits;
+        }
+    }
+}
+
+fn quant_mask(tol_sig: u32) -> (u32, u32, u32, u32) {
+    let tsigshift = 32 - tol_sig.leading_zeros();
+    let npow2 = 1u32 << tsigshift;
+    let lowermask = npow2 - 1;
+    let mask = !lowermask;
+    let mask2 = mask ^ npow2;
+    (npow2, lowermask, mask, mask2)
+}
+
+fn handle_quantize_denorm_tol(abssrc: u32, tol_sig: u32, err_tol: f32, src_float: f32) -> u32 {
+    let (npow2, _, mask, mask2) = quant_mask(tol_sig);
+    let mut smallest = abssrc;
+    let mut smallbits = abssrc.count_ones();
+    let mut smalldelta = err_tol;
+
+    test_quant_alternate_small(
+        abssrc & mask2,
+        &mut smallest,
+        &mut smallbits,
+        &mut smalldelta,
+        err_tol,
+        src_float,
+    );
+    test_quant_alternate_small(
+        abssrc & mask,
+        &mut smallest,
+        &mut smallbits,
+        &mut smalldelta,
+        err_tol,
+        src_float,
+    );
+    test_quant_alternate_large(
+        (abssrc + npow2) & mask,
+        &mut smallest,
+        &mut smallbits,
+        &mut smalldelta,
+        err_tol,
+        src_float,
+    );
+    test_quant_alternate_large(
+        (abssrc + (npow2 << 1)) & mask,
+        &mut smallest,
+        &mut smallbits,
+        &mut smalldelta,
+        err_tol,
+        src_float,
+    );
+
+    smallest
+}
+
+fn handle_quantize_generic(abssrc: u32, tol_sig: u32, err_tol: f32, src_float: f32) -> u32 {
+    let (npow2, lowermask, mask, mask2) = quant_mask(tol_sig);
+    let src_masked_val = abssrc & lowermask;
+    let extrabit = u32::from(tol_sig > src_masked_val);
+    let mask3 = mask2 ^ (((npow2 << 1) * extrabit) | ((npow2 >> 1) * (1 - extrabit)));
+
+    let mut smallest = abssrc;
+    let mut smallbits = abssrc.count_ones();
+    let mut smalldelta = err_tol;
+
+    if extrabit != 0 {
+        test_quant_alternate_small(
+            abssrc & mask3,
+            &mut smallest,
+            &mut smallbits,
+            &mut smalldelta,
+            err_tol,
+            src_float,
+        );
+        test_quant_alternate_small(
+            abssrc & mask2,
+            &mut smallest,
+            &mut smallbits,
+            &mut smalldelta,
+            err_tol,
+            src_float,
+        );
+        test_quant_alternate_small(
+            abssrc & mask,
+            &mut smallest,
+            &mut smallbits,
+            &mut smalldelta,
+            err_tol,
+            src_float,
+        );
+    } else if (abssrc & npow2) != 0 {
+        test_quant_alternate_small(
+            abssrc & mask2,
+            &mut smallest,
+            &mut smallbits,
+            &mut smalldelta,
+            err_tol,
+            src_float,
+        );
+        test_quant_alternate_small(
+            abssrc & mask3,
+            &mut smallest,
+            &mut smallbits,
+            &mut smalldelta,
+            err_tol,
+            src_float,
+        );
+        test_quant_alternate_small(
+            abssrc & mask,
+            &mut smallest,
+            &mut smallbits,
+            &mut smalldelta,
+            err_tol,
+            src_float,
+        );
+    } else {
+        test_quant_alternate_small(
+            abssrc & mask2,
+            &mut smallest,
+            &mut smallbits,
+            &mut smalldelta,
+            err_tol,
+            src_float,
+        );
+        test_quant_alternate_small(
+            abssrc & mask,
+            &mut smallest,
+            &mut smallbits,
+            &mut smalldelta,
+            err_tol,
+            src_float,
+        );
+        test_quant_alternate_small(
+            abssrc & mask3,
+            &mut smallest,
+            &mut smallbits,
+            &mut smalldelta,
+            err_tol,
+            src_float,
+        );
+    }
+    test_quant_alternate_large(
+        (abssrc + npow2) & mask,
+        &mut smallest,
+        &mut smallbits,
+        &mut smalldelta,
+        err_tol,
+        src_float,
+    );
+
+    smallest
+}
+
+fn handle_quantize_equal_exp(abssrc: u32, tol_sig: u32, err_tol: f32, src_float: f32) -> u32 {
+    let npow2 = 0x0800;
+    let lowermask = npow2 - 1;
+    let mask = !lowermask;
+    let mask2 = mask ^ npow2;
+    let src_masked_val = abssrc & lowermask;
+    let extrabit = u32::from(tol_sig > src_masked_val);
+    let mask3 = mask2 ^ (((npow2 << 1) * extrabit) | ((npow2 >> 1) * (1 - extrabit)));
+
+    let mut smallest = abssrc;
+    let mut smallbits = abssrc.count_ones();
+    let mut smalldelta = err_tol;
+
+    if src_masked_val == abssrc {
+        test_quant_alternate_small(
+            abssrc & mask3,
+            &mut smallest,
+            &mut smallbits,
+            &mut smalldelta,
+            err_tol,
+            src_float,
+        );
+    } else {
+        let mut alt0 = abssrc & mask2;
+        let alt1 = abssrc & mask;
+        if alt0 == alt1 {
+            alt0 = abssrc & mask3;
+        }
+        test_quant_alternate_small(
+            alt0,
+            &mut smallest,
+            &mut smallbits,
+            &mut smalldelta,
+            err_tol,
+            src_float,
+        );
+        test_quant_alternate_small(
+            alt1,
+            &mut smallest,
+            &mut smallbits,
+            &mut smalldelta,
+            err_tol,
+            src_float,
+        );
+    }
+    test_quant_alternate_large(
+        (abssrc + npow2) & mask,
+        &mut smallest,
+        &mut smallbits,
+        &mut smalldelta,
+        err_tol,
+        src_float,
+    );
+
+    smallest
+}
+
+fn handle_quantize_close_exp(abssrc: u32, tol_sig: u32, err_tol: f32, src_float: f32) -> u32 {
+    let npow2 = 0x0400;
+    let lowermask = npow2 - 1;
+    let mask = !lowermask;
+    let mask2 = mask ^ npow2;
+    let src_masked_val = abssrc & lowermask;
+    let extrabit = u32::from(tol_sig > src_masked_val);
+    let mask3 = mask2 ^ (((npow2 << 1) * extrabit) | ((npow2 >> 1) * (1 - extrabit)));
+
+    let mut alternates = [0u32; 3];
+    if (abssrc & npow2) == 0 {
+        if extrabit != 0 {
+            alternates[0] = abssrc & mask3;
+            alternates[1] = abssrc & mask;
+        } else {
+            alternates[0] = abssrc & mask;
+            alternates[1] = abssrc & mask3;
+        }
+    } else if extrabit != 0 {
+        alternates[0] = abssrc & mask3;
+        alternates[1] = abssrc & mask2;
+        let alt1delta = src_float - half_to_f32(alternates[1]);
+        if alt1delta >= err_tol {
+            alternates[1] = abssrc & mask;
+        }
+    } else {
+        alternates[0] = abssrc & mask2;
+        alternates[1] = abssrc & mask3;
+        let alt0delta = src_float - half_to_f32(alternates[0]);
+        if alt0delta >= err_tol {
+            alternates[0] = abssrc & mask;
+        }
+    }
+    alternates[2] = (abssrc + npow2) & mask;
+
+    let mut smallest = abssrc;
+    let mut smallbits = abssrc.count_ones();
+    let mut smalldelta = err_tol;
+
+    test_quant_alternate_small(
+        alternates[0],
+        &mut smallest,
+        &mut smallbits,
+        &mut smalldelta,
+        err_tol,
+        src_float,
+    );
+    test_quant_alternate_small(
+        alternates[1],
+        &mut smallest,
+        &mut smallbits,
+        &mut smalldelta,
+        err_tol,
+        src_float,
+    );
+    test_quant_alternate_large(
+        alternates[2],
+        &mut smallest,
+        &mut smallbits,
+        &mut smalldelta,
+        err_tol,
+        src_float,
+    );
+
+    smallest
+}
+
+fn handle_quantize_larger_sig(
+    abssrc: u32,
+    npow2: u32,
+    mask: u32,
+    err_tol: f32,
+    src_float: f32,
+) -> u32 {
+    let mask2 = mask ^ (npow2 | (npow2 >> 1));
+    let alt0 = abssrc & mask2;
+    let alt1 = (abssrc + npow2) & mask;
+    choose_two_sided_alternate(abssrc, alt0, alt1, err_tol, src_float)
+}
+
+fn handle_quantize_smaller_sig(
+    abssrc: u32,
+    npow2: u32,
+    mask: u32,
+    err_tol: f32,
+    src_float: f32,
+) -> u32 {
+    let alt0 = abssrc & mask;
+    let alt1 = (abssrc + npow2) & mask;
+    choose_two_sided_alternate(abssrc, alt0, alt1, err_tol, src_float)
+}
+
+fn choose_two_sided_alternate(
+    abssrc: u32,
+    alt0: u32,
+    alt1: u32,
+    err_tol: f32,
+    src_float: f32,
+) -> u32 {
+    let bits0 = alt0.count_ones();
+    let bits1 = alt1.count_ones();
+
+    if bits1 < bits0 {
+        let delta = half_to_f32(alt1) - src_float;
+        if delta < err_tol {
+            return alt1;
+        }
+        let delta = src_float - half_to_f32(alt0);
+        if delta < err_tol {
+            return alt0;
+        }
+    } else if bits1 == bits0 {
+        let delta = src_float - half_to_f32(alt0);
+        let delta1 = half_to_f32(alt1) - src_float;
+        if delta < err_tol {
+            return if delta1 < delta {
+                alt1
+            } else {
+                alt0
+            };
+        }
+        if delta1 < err_tol {
+            return alt1;
+        }
+    } else {
+        let delta = src_float - half_to_f32(alt0);
+        if delta < err_tol {
+            return alt0;
+        }
+
+        if bits1 < abssrc.count_ones() {
+            let delta = half_to_f32(alt1) - src_float;
+            if delta < err_tol {
+                return alt1;
+            }
+        }
+    }
+
+    abssrc
+}
+
+fn handle_quantize_equal_sig(
+    abssrc: u32,
+    npow2: u32,
+    mask: u32,
+    err_tol: f32,
+    src_float: f32,
+) -> u32 {
+    let mut alt0 = abssrc & mask;
+    let alt1 = (abssrc + npow2) & mask;
+    let mut delta0 = src_float - half_to_f32(alt0);
+
+    if delta0 >= err_tol {
+        let mask2 = mask ^ (npow2 | (npow2 >> 1));
+        alt0 = abssrc & mask2;
+        delta0 = src_float - half_to_f32(alt0);
+
+        if delta0 >= err_tol {
+            let delta1 = half_to_f32(alt1) - src_float;
+            if delta1 < err_tol && alt1.count_ones() < abssrc.count_ones() {
+                return alt1;
+            }
+            return abssrc;
+        }
+    }
+
+    let bits0 = alt0.count_ones();
+    let bits1 = alt1.count_ones();
+
+    if bits1 < bits0 {
+        let delta1 = half_to_f32(alt1) - src_float;
+        if delta1 < err_tol {
+            return alt1;
+        }
+    } else if bits1 == bits0 {
+        let delta1 = half_to_f32(alt1) - src_float;
+        if delta1 < delta0 {
+            return alt1;
+        }
+    }
+
+    alt0
+}
+
+fn handle_quantize_default(abssrc: u32, tol_sig: u32, err_tol: f32, src_float: f32) -> u32 {
+    let (npow2, lowermask, mask, _) = quant_mask(tol_sig);
+    let src_masked_val = abssrc & lowermask;
+
+    if src_masked_val > tol_sig {
+        handle_quantize_larger_sig(abssrc, npow2, mask, err_tol, src_float)
+    } else if src_masked_val < tol_sig {
+        handle_quantize_smaller_sig(abssrc, npow2, mask, err_tol, src_float)
+    } else {
+        handle_quantize_equal_sig(abssrc, npow2, mask, err_tol, src_float)
+    }
 }
 
 pub fn decompress(
@@ -579,7 +1789,8 @@ fn decode_lossy_channels(
     ac_packed: &[u16],
     dc_packed: &[u16],
 ) -> Result<Vec<Vec<f16>>> {
-    let to_linear = to_linear_table();
+    // Decode CSC triplets first, then standalone lossy channels. The shared
+    // AC/DC cursors advance in the same order the encoder wrote them.
     let mut ac = PackedStream::new(ac_packed);
     let mut dc = PackedStream::new(dc_packed);
 
@@ -592,7 +1803,14 @@ fn decode_lossy_channels(
         let mut decoded: [Vec<f16>; 3] =
             std::array::from_fn(|_| vec![f16::ZERO; info.width * info.height]);
 
-        decode_lossy_dct_group(&mut ac, &mut dc, info.width, info.height, to_linear, &mut decoded)?;
+        decode_lossy_dct_group(
+            &mut ac,
+            &mut dc,
+            info.width,
+            info.height,
+            Some(to_linear_table()),
+            &mut decoded,
+        )?;
 
         for (&channel, channel_samples) in group.iter().zip(decoded) {
             samples[channel] = channel_samples;
@@ -605,6 +1823,7 @@ fn decode_lossy_channels(
             continue;
         }
         let mut decoded = [vec![f16::ZERO; info.width * info.height]];
+        let to_linear = (!info.quantize_linearly).then(to_linear_table);
         decode_lossy_dct_group(&mut ac, &mut dc, info.width, info.height, to_linear, &mut decoded)?;
 
         let [channel_samples] = decoded;
@@ -622,7 +1841,7 @@ fn decode_lossy_dct_group(
     dc: &mut PackedStream<'_>,
     width: usize,
     height: usize,
-    to_linear: &[u16; 65536],
+    to_linear: Option<&[u16; 65536]>,
     decoded: &mut [Vec<f16>],
 ) -> Result<()> {
     let components = decoded.len();
@@ -630,9 +1849,9 @@ fn decode_lossy_dct_group(
     let blocks_y = (height + 7) / 8;
     let block_count = blocks_x * blocks_y;
 
-    // Buffered for the whole group, rather than one block at a time, so the
-    // inverse DCT below can run as a single batch over every block that
-    // needs it (see idct::dct_inverse_8x8_batch's doc comment).
+    // Buffer the whole group rather than one block at a time. That lets the
+    // inverse DCT batch over every block that actually needs it, matching the
+    // structure of the C reference.
     let mut dct_blocks: Vec<[[f32; 64]; 3]> = vec![[[0.0f32; 64]; 3]; block_count];
     let mut needs_idct: Vec<[bool; 3]> = vec![[false; 3]; block_count];
 
@@ -653,7 +1872,8 @@ fn decode_lossy_dct_group(
 
                 let dct_block = &mut dct_blocks[block_index][component];
                 if last_non_zero == 0 {
-                    // DC-only block
+                    // DC-only block: all AC coefficients are zero, so the
+                    // inverse DCT can fill the whole block from one value.
                     dct_block[0] = f16::from_bits(zig_block[0]).to_f32();
                     idct::dct_inverse_8x8_dc_only(dct_block);
                 } else {
@@ -687,15 +1907,18 @@ fn decode_lossy_dct_group(
                 }
             }
 
-            // nonlinear float -> linear half via LUT, cropped at the image edge
+            // Convert nonlinear DCT output back to linear half values and crop
+            // the edges to the actual image extent.
             for (component, output) in decoded.iter_mut().enumerate() {
                 for y in block_y * 8..(block_y * 8 + 8).min(height) {
                     for x in block_x * 8..(block_x * 8 + 8).min(width) {
                         let value =
                             dct_blocks[component][(y - block_y * 8) * 8 + (x - block_x * 8)];
                         let nonlinear = f16::from_f32(value);
-                        output[y * width + x] =
-                            f16::from_bits(to_linear[nonlinear.to_bits() as usize]);
+                        output[y * width + x] = f16::from_bits(match to_linear {
+                            Some(to_linear) => to_linear[nonlinear.to_bits() as usize],
+                            None => nonlinear.to_bits(),
+                        });
                     }
                 }
             }
@@ -711,6 +1934,8 @@ fn decode_lossy_dct_group(
 /// of `low byte` zeros (0 meaning "rest of the block"); anything else is a
 /// literal. Returns the index of the last non-zero value, 0 if none
 fn un_rle_ac(ac: &mut PackedStream<'_>, block: &mut [u16; 64]) -> Result<usize> {
+    // DWA AC values use the same compact token format the encoder writes:
+    // 0xffxx means a zero run, and 0xff00 means end-of-block.
     let mut last_non_zero = 0;
     let mut position = 1;
 
@@ -738,6 +1963,8 @@ fn un_rle_ac(ac: &mut PackedStream<'_>, block: &mut [u16; 64]) -> Result<usize> 
 /// Undo the zig-zag coefficient order (C "fromHalfZigZag_scalar"),
 /// converting half bits to f32.
 fn from_half_zigzag(zig_zag: &[u16; 64], dst: &mut [f32; 64]) {
+    // The encoder stores coefficients in zig-zag order; the inverse DCT needs
+    // normal 8x8 raster order.
     const SRC_INDICES: [usize; 64] = [
         0, 1, 5, 6, 14, 15, 27, 28, 2, 4, 7, 13, 16, 26, 29, 42, 3, 8, 12, 17, 25, 30, 41, 43, 9,
         11, 18, 24, 31, 40, 44, 53, 10, 19, 23, 32, 39, 45, 52, 54, 20, 22, 33, 38, 46, 51, 55, 60,
@@ -754,6 +1981,8 @@ fn to_linear_table() -> &'static [u16; 65536] {
     static TABLE: OnceLock<[u16; 65536]> = OnceLock::new();
 
     TABLE.get_or_init(|| {
+        // Build the nonlinear -> linear transfer table lazily and reuse it
+        // across every chunk.
         let mut table = [0u16; 65536];
         for (bits, slot) in table.iter_mut().enumerate() {
             *slot = dwa_convert_to_linear(f16::from_bits(bits as u16)).to_bits();
@@ -763,6 +1992,7 @@ fn to_linear_table() -> &'static [u16; 65536] {
 }
 
 fn dwa_convert_to_linear(x: f16) -> f16 {
+    // Inverse of the encoder's nonlinear transfer.
     let value = x.to_f32();
     if !value.is_finite() {
         return f16::ZERO;
@@ -799,6 +2029,8 @@ fn write_scanlines(
     rle_bytes: &[Vec<u8>],
     expected_byte_size: usize,
 ) -> Result<ByteVec> {
+    // Reassemble the per-channel decoded data into the scanline layout the
+    // rest of the crate expects: rows in ascending y, channels in list order.
     let mut out = Vec::with_capacity(expected_byte_size);
 
     for y in rectangle.position.y()..rectangle.end().y() {
@@ -851,4 +2083,69 @@ fn write_scanlines(
         return Err(Error::invalid("DWA decoded size mismatch"));
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use smallvec::smallvec;
+
+    use super::*;
+    use crate::{
+        math::Vec2,
+        meta::attribute::{ChannelDescription, Text},
+    };
+
+    fn bounds(width: usize, height: usize) -> IntegerBounds {
+        IntegerBounds::new(Vec2(0, 0), Vec2(width, height))
+    }
+
+    #[test]
+    fn compress_decompress_rle_only_is_lossless() {
+        let channels = ChannelList::new(smallvec![ChannelDescription::named("A", SampleType::F16)]);
+        let rectangle = bounds(17, 3);
+        let mut raw = Vec::new();
+
+        for y in 0..rectangle.size.height() {
+            for x in 0..rectangle.size.width() {
+                let value = if (x + y) % 3 == 0 {
+                    f16::from_f32(0.25)
+                } else {
+                    f16::from_f32(0.75)
+                };
+                raw.extend_from_slice(&value.to_bits().to_ne_bytes());
+            }
+        }
+
+        let compressed = compress(&channels, raw.clone(), rectangle, Some(45.0)).unwrap();
+        let decoded = decompress(&channels, compressed, rectangle, raw.len(), true).unwrap();
+
+        assert_eq!(decoded, raw);
+    }
+
+    #[test]
+    fn compress_decompress_rgb_lossy_chunk_is_valid() {
+        let channels = ChannelList::new(smallvec![
+            ChannelDescription::named(Text::from("B"), SampleType::F16),
+            ChannelDescription::named(Text::from("G"), SampleType::F16),
+            ChannelDescription::named(Text::from("R"), SampleType::F16),
+        ]);
+        let rectangle = bounds(9, 9);
+        let mut raw = Vec::new();
+
+        for y in 0..rectangle.size.height() {
+            for channel in 0..3 {
+                for x in 0..rectangle.size.width() {
+                    let value = (x as f32 * 0.03125) + (y as f32 * 0.015625) + channel as f32 * 0.1;
+                    raw.extend_from_slice(&f16::from_f32(value).to_bits().to_ne_bytes());
+                }
+            }
+        }
+
+        let compressed = compress(&channels, raw.clone(), rectangle, Some(45.0)).unwrap();
+        assert_ne!(compressed.len(), raw.len());
+        let decoded = decompress(&channels, compressed, rectangle, raw.len(), true).unwrap();
+
+        assert_eq!(decoded.len(), raw.len());
+        assert!(decoded.iter().any(|&byte| byte != 0));
+    }
 }

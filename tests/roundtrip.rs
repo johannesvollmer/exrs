@@ -83,6 +83,7 @@ fn round_trip_rgba_file(path: &Path, file: &[u8]) -> Result<()> {
         Path::new("tests/images/valid/openexr/TestImages/WideFloatRange.exr"),
         Path::new("tests/images/valid/openexr/IlmfmlmflmTest/v1.7.test.tiled.exr"),
         Path::new("tests/images/valid/custom/dwa_csc/y_ry_by_dwaa_ground_truth.exr"),
+        Path::new("tests/images/valid/custom/dwa_csc/y_ry_by_dwaa.exr"),
     ];
 
     if blacklist.contains(&path) {
@@ -364,6 +365,16 @@ fn roundtrip_b44a() {
 #[test]
 fn roundtrip_piz() {
     test_mixed_roundtrip_with_compression(Compression::PIZ)
+}
+
+#[test]
+fn roundtrip_dwaa() {
+    test_mixed_roundtrip_with_compression(Compression::DWAA(Some(45.0)))
+}
+
+#[test]
+fn roundtrip_dwab() {
+    test_mixed_roundtrip_with_compression(Compression::DWAB(Some(45.0)))
 }
 
 #[test]

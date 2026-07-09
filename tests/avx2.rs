@@ -5,8 +5,9 @@ use std::path::Path;
 
 use exr::{
     compression::simd_test_support::{
-        assert_avx2_available, assert_avx2_close_to_scalar_reference, assert_dispatch_picks_avx2,
-        selected_simd_tier,
+        assert_avx2_available, assert_avx2_close_to_scalar_reference,
+        assert_avx2_forward_close_to_scalar_reference, assert_dispatch_picks_avx2,
+        assert_dispatch_picks_avx2_for_forward, selected_simd_tier,
     },
     image::validate_results::ValidateResult,
     prelude::*,
@@ -24,9 +25,21 @@ fn avx2_idct_matches_scalar_reference() {
 }
 
 #[test]
+fn avx2_fdct_matches_scalar_reference() {
+    require_avx2();
+    assert_avx2_forward_close_to_scalar_reference();
+}
+
+#[test]
 fn dispatch_picks_avx2_when_available() {
     require_avx2();
     assert_dispatch_picks_avx2();
+}
+
+#[test]
+fn dispatch_picks_avx2_for_forward_dct() {
+    require_avx2();
+    assert_dispatch_picks_avx2_for_forward();
 }
 
 fn dir() -> &'static Path {

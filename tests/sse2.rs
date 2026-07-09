@@ -2,8 +2,9 @@
 compile_error!("SSE2 SIMD tests require an x86 or x86_64 target");
 
 use exr::compression::simd_test_support::{
-    assert_dispatch_picks_sse2_without_avx2, assert_sse2_available,
-    assert_sse2_close_to_scalar_reference, selected_simd_tier,
+    assert_dispatch_picks_sse2_without_avx2, assert_dispatch_picks_sse2_without_avx2_for_forward,
+    assert_sse2_available, assert_sse2_close_to_scalar_reference,
+    assert_sse2_forward_close_to_scalar_reference, selected_simd_tier,
 };
 
 fn require_sse2() {
@@ -18,7 +19,19 @@ fn sse2_idct_matches_scalar_reference() {
 }
 
 #[test]
+fn sse2_fdct_matches_scalar_reference() {
+    require_sse2();
+    assert_sse2_forward_close_to_scalar_reference();
+}
+
+#[test]
 fn dispatch_picks_sse2_when_avx2_is_unavailable() {
     require_sse2();
     assert_dispatch_picks_sse2_without_avx2();
+}
+
+#[test]
+fn dispatch_picks_sse2_for_forward_dct_when_avx2_is_unavailable() {
+    require_sse2();
+    assert_dispatch_picks_sse2_without_avx2_for_forward();
 }
