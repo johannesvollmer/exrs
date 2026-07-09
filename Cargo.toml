@@ -51,10 +51,11 @@ default = ["rayon"]
 # rayon is used for parallel compression
 rayon = ["dep:rayon-core"]
 
-# Opt-in gates for the DWA SIMD tier unit tests (in src/compression/dwa/idct.rs).
+# Opt-in gates for the DWA SIMD tier unit tests
+# (in src/compression/dwa/discrete_cosine_transform/tests.rs).
 # Intentionally opt-in: each must be built and run under a CPU or emulator exposing
 # the requested tier, e.g.
-# `cargo test --lib --features avx2-tests -- compression::dwa::idct::avx2_tests`
+# `cargo test --lib --features avx2-tests -- compression::dwa::discrete_cosine_transform::tests::avx2_tests`
 avx2-tests = []
 sse2-tests = []
 
