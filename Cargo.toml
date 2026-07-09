@@ -51,8 +51,10 @@ default = ["rayon"]
 # rayon is used for parallel compression
 rayon = ["dep:rayon-core"]
 
-# Explicit SIMD integration-test targets. These are intentionally opt-in:
-# they must be built and run under a CPU or emulator exposing the requested tier.
+# Opt-in gates for the DWA SIMD tier unit tests (in src/compression/dwa/idct.rs).
+# Intentionally opt-in: each must be built and run under a CPU or emulator exposing
+# the requested tier, e.g.
+# `cargo test --lib --features avx2-tests -- compression::dwa::idct::avx2_tests`
 avx2-tests = []
 sse2-tests = []
 
@@ -61,14 +63,6 @@ sse2-tests = []
 # Meaningless under emulation (timings won't reflect real hardware)
 # `cargo bench --features simd-benches --bench dct`
 simd-benches = []
-
-[[test]]
-name = "avx2"
-required-features = ["avx2-tests"]
-
-[[test]]
-name = "sse2"
-required-features = ["sse2-tests"]
 
 [[example]]
 name = "7_write_raw_blocks"

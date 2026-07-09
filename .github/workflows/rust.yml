@@ -152,15 +152,19 @@ jobs:
       matrix:
         include:
           - name: avx2
-            test: avx2
             feature: avx2-tests
+            filter: "compression::dwa::idct::avx2_tests"
+            # Bump when adding/removing tests in `mod avx2_tests` (idct.rs).
+            expected_tests: 4
             # Haswell: first microarchitecture with AVX2+FMA.
             # `-C target-feature` unset explicitly to force runtime dispatching
             sde_cpu: "-hsw"
 
           - name: sse2
-            test: sse2
             feature: sse2-tests
+            filter: "compression::dwa::idct::sse2_tests"
+            # Bump when adding/removing tests in `mod sse2_tests` (idct.rs).
+            expected_tests: 2
             # Merom: the lowest 64-bit chip SDE models. Has SSE2 but no AVX,
             # `-C target-feature` unset explicitly to force runtime dispatching
             sde_cpu: "-mrm"
@@ -182,23 +186,33 @@ jobs:
         run: |
           "$SDE_PATH"/sde64 --version
 
-      - name: Build ${{ matrix.name }} integration test only
+      - name: Build ${{ matrix.name }} library unit-test binary only
         run: |
           set -euo pipefail
 
-          cargo test --test "${{ matrix.test }}" --features "${{ matrix.feature }}" --no-run --message-format=json \
-            | jq -r 'select(.reason == "compiler-artifact" and .target.name == "${{ matrix.test }}" and .executable != null) | .executable' \
+          cargo test --lib --features "${{ matrix.feature }}" --no-run --message-format=json \
+            | jq -r 'select(.reason == "compiler-artifact" and (.target.kind | index("lib")) and .profile.test == true and .executable != null) | .executable' \
             | tail -n 1 > /tmp/simd-test-bin
 
           test -s /tmp/simd-test-bin
           cat /tmp/simd-test-bin
 
-      - name: Run ${{ matrix.name }} integration test under Intel SDE
+      - name: Run ${{ matrix.name }} tier tests under Intel SDE
         run: |
           set -euo pipefail
 
           TEST_BIN="$(cat /tmp/simd-test-bin)"
-          "$SDE_PATH"/sde64 "${{ matrix.sde_cpu }}" -- "$TEST_BIN" --nocapture
+          # pipefail makes a real test failure (non-zero exit) fail the step through the tee.
+          "$SDE_PATH"/sde64 "${{ matrix.sde_cpu }}" -- "$TEST_BIN" --nocapture "${{ matrix.filter }}" \
+            | tee /tmp/simd-test-out
+
+          # A name filter that matches nothing still exits 0 ("0 passed"), so assert the
+          # exact expected count. -F fixed-string match on the "ok. N passed;" summary
+          # fragment is unambiguous (no 4-vs-14 collision; also implies all matched passed).
+          if ! grep -qF "test result: ok. ${{ matrix.expected_tests }} passed;" /tmp/simd-test-out; then
+            echo "::error::expected exactly ${{ matrix.expected_tests }} passing tests for filter '${{ matrix.filter }}' — update matrix.expected_tests or investigate the filter/gating"
+            exit 1
+          fi
 
   js:
     runs-on: ubuntu-latest
