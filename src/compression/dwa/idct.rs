@@ -687,7 +687,8 @@ pub mod x86 {
 // Autovectorized fallback: OpenEXRs "dctInverse8x8_scalar", including its
 // truncated PI constant and summation order. Written as straightforward
 // fixed-size loops that LLVM can autovectorize without explicit SIMD.
-// public only for benchmarking (the in-crate dispatch and tests reach it directly)
+// public only for benchmarking (the in-crate dispatch and tests reach it
+// directly)
 #[doc(hidden)]
 pub fn dct_inverse_8x8_autovectorized(data: &mut [f32; 64]) {
     const PI: f32 = 3.14159;
@@ -864,8 +865,8 @@ pub(crate) fn dct_inverse_8x8_dc_only(data: &mut [f32; 64]) {
 }
 
 // public only for benchmarking: benches/dct.rs is a separate crate and reaches
-// this through the public API, so the module stays `pub` and `simd-benches`-gated;
-// the in-crate tier tests pick it up via `test`.
+// this through the public API, so the module stays `pub` and
+// `simd-benches`-gated; the in-crate tier tests pick it up via `test`.
 #[doc(hidden)]
 #[cfg(any(test, feature = "simd-benches"))]
 pub mod testing {
@@ -897,7 +898,8 @@ pub mod testing {
     // Deterministic blocks in the ballpark of half-precision DCT coefficients
     // (xorshift64, no `rand` dependency. Shared by the correctness tests below
     // and by the forced-tier benchmark in benches/dct.rs.
-    // Stays `pub` (unlike `assert_blocks_match`) only because the benchmark needs it.
+    // Stays `pub` (unlike `assert_blocks_match`) only because the benchmark needs
+    // it.
     #[allow(unused)]
     pub fn pseudo_random_blocks(count: usize) -> Vec<[f32; 64]> {
         let mut state: u64 = 0x9e3779b97f4a7c15;
