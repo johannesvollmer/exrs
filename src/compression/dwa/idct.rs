@@ -27,12 +27,12 @@ compile_error!(
 // than calling it as an ordinary function. `vectorize` is pulps own
 // inherent, `#[target_feature]`-scoped, internally-unsafe trampoline
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-mod x86 {
+pub mod x86 {
     use std::sync::OnceLock;
 
     use pulp::x86::{V1, V3};
 
-    mod avx {
+    pub mod avx {
         use pulp::{f32x8, x86::V3};
 
         // OpenEXRs hardcoded AVX basis constants ("sAvxCoef").
@@ -272,7 +272,7 @@ mod x86 {
     // SSE2 V1 tier: OpenEXRs "dctInverse8x8_sse2". Vectorizes 4
     // output positions of one row at a time a different shape than "avx",
     // so the two are not bit-identical.
-    mod sse2 {
+    pub mod sse2 {
         use pulp::{f32x4, x86::V1};
 
         const A: f32 = 3.535536e-1;
@@ -451,7 +451,7 @@ mod x86 {
         }
     }
 
-    fn forward_basis() -> &'static [[f32; 8]; 8] {
+    pub fn forward_basis() -> &'static [[f32; 8]; 8] {
         static TABLE: OnceLock<[[f32; 8]; 8]> = OnceLock::new();
 
         TABLE.get_or_init(|| {
@@ -474,7 +474,7 @@ mod x86 {
         })
     }
 
-    mod forward {
+    pub mod forward {
         use pulp::{
             f32x4, f32x8,
             x86::{V1, V3},
@@ -694,230 +694,12 @@ mod x86 {
         false
     }
 
-    #[cfg(any(feature = "avx2-tests", feature = "simd-benches"))]
-    fn expect_avx2() -> V3 {
-        V3::try_new().expect("AVX2 SIMD mode requested, but the AVX2/FMA tier is unavailable")
-    }
-
-    #[cfg(any(feature = "sse2-tests", feature = "simd-benches"))]
-    fn expect_sse2() -> V1 {
-        V1::try_new().expect("SSE2 SIMD mode requested, but the SSE2 tier is unavailable")
-    }
-
-    #[cfg(feature = "sse2-tests")]
-    fn expect_sse2_without_avx2() -> V1 {
-        assert!(V3::try_new().is_none(), "SSE2 dispatch fallback test must run with AVX2 hidden");
-        expect_sse2()
-    }
-
-    #[cfg(feature = "simd-benches")]
-    #[allow(missing_docs)]
-    pub mod simd_bench_support {
-        use pulp::x86::{V1, V3};
-
-        pub fn bench_blocks(count: usize) -> Vec<[f32; 64]> {
-            super::super::pseudo_random_blocks(count)
-        }
-
-        pub fn expect_avx2() -> V3 {
-            super::expect_avx2()
-        }
-
-        pub fn expect_sse2() -> V1 {
-            super::expect_sse2()
-        }
-
-        pub fn dct_forward_8x8_forced_scalar(data: &mut [f32; 64]) {
-            super::super::dct_forward_8x8_scalar(data);
-        }
-
-        pub fn dct_forward_8x8_forced_sse2(v1: V1, data: &mut [f32; 64]) {
-            super::forward::dct_forward_8x8_sse2(v1, data);
-        }
-
-        pub fn dct_forward_8x8_forced_avx2(v3: V3, data: &mut [f32; 64]) {
-            super::forward::dct_forward_8x8(v3, data);
-        }
-
-        pub fn dct_forward_8x8_forced_avx2_batch<'a>(
-            v3: V3,
-            blocks: impl Iterator<Item = &'a mut [f32; 64]>,
-        ) {
-            super::forward::dct_forward_8x8_batch(v3, blocks);
-        }
-
-        pub fn dct_inverse_8x8_forced_scalar(data: &mut [f32; 64]) {
-            super::super::dct_inverse_8x8_scalar(data);
-        }
-
-        pub fn dct_inverse_8x8_forced_sse2(v1: V1, data: &mut [f32; 64]) {
-            super::sse2::dct_inverse_8x8(v1, data);
-        }
-
-        pub fn dct_inverse_8x8_forced_avx2(v3: V3, data: &mut [f32; 64]) {
-            super::avx::dct_inverse_8x8(v3, data);
-        }
-
-        pub fn dct_inverse_8x8_forced_avx2_batch<'a>(
-            v3: V3,
-            blocks: impl Iterator<Item = &'a mut [f32; 64]>,
-        ) {
-            super::avx::dct_inverse_8x8_batch(v3, blocks);
-        }
-    }
-
-    #[cfg(any(feature = "avx2-tests", feature = "sse2-tests"))]
-    #[allow(dead_code, missing_docs)]
-    pub mod simd_test_support {
-        #[cfg(feature = "sse2-tests")]
-        use pulp::x86::V1;
-        #[cfg(feature = "avx2-tests")]
-        use pulp::x86::V3;
-
-        #[cfg(feature = "avx2-tests")]
-        pub fn expect_avx2() -> V3 {
-            super::expect_avx2()
-        }
-
-        #[cfg(feature = "sse2-tests")]
-        pub fn expect_sse2() -> V1 {
-            super::expect_sse2()
-        }
-
-        #[cfg(feature = "sse2-tests")]
-        pub fn expect_sse2_without_avx2() -> V1 {
-            super::expect_sse2_without_avx2()
-        }
-
-        fn assert_close_to_scalar_reference(
-            label: &str,
-            scalar: fn(&mut [f32; 64]),
-            kernel: impl Fn(&mut [f32; 64]),
-        ) {
-            for mut expected in super::super::pseudo_random_blocks(64) {
-                let mut actual = expected;
-                scalar(&mut expected);
-                kernel(&mut actual);
-
-                for (e, a) in expected.iter().zip(actual.iter()) {
-                    let tolerance = 1e-2 * e.abs().max(1.0);
-                    assert!(
-                        (e - a).abs() <= tolerance,
-                        "{label}: expected {e}, got {a} (diff {})",
-                        (e - a).abs()
-                    );
-                }
-            }
-        }
-
-        fn assert_dispatch_matches(
-            label: &str,
-            forced: impl Fn(&mut [f32; 64]),
-            dispatched: fn(&mut [f32; 64]),
-        ) {
-            for mut expected in super::super::pseudo_random_blocks(16) {
-                let mut actual = expected;
-                forced(&mut expected);
-                dispatched(&mut actual);
-                assert_eq!(expected, actual, "{label}: runtime dispatch chose a different kernel");
-            }
-        }
-
-        #[cfg(feature = "avx2-tests")]
-        pub fn assert_avx2_close_to_scalar_reference(v3: V3) {
-            assert_close_to_scalar_reference(
-                "AVX2 inverse DCT",
-                super::super::dct_inverse_8x8_scalar,
-                |data| super::avx::dct_inverse_8x8(v3, data),
-            );
-        }
-
-        #[cfg(feature = "avx2-tests")]
-        pub fn assert_avx2_forward_close_to_scalar_reference(v3: V3) {
-            assert_close_to_scalar_reference(
-                "AVX2 forward DCT",
-                super::super::dct_forward_8x8_scalar,
-                |data| super::forward::dct_forward_8x8(v3, data),
-            );
-        }
-
-        #[cfg(feature = "avx2-tests")]
-        pub fn assert_dispatch_picks_avx2(v3: V3) {
-            assert_dispatch_matches(
-                "AVX2 inverse DCT",
-                |data| super::avx::dct_inverse_8x8(v3, data),
-                super::super::dct_inverse_8x8,
-            );
-        }
-
-        #[cfg(feature = "avx2-tests")]
-        pub fn assert_dispatch_picks_avx2_for_forward(v3: V3) {
-            assert_dispatch_matches(
-                "AVX2 forward DCT",
-                |data| super::forward::dct_forward_8x8(v3, data),
-                super::super::dct_forward_8x8,
-            );
-        }
-
-        #[cfg(feature = "sse2-tests")]
-        pub fn assert_sse2_close_to_scalar_reference(v1: V1) {
-            assert_close_to_scalar_reference(
-                "SSE2 inverse DCT",
-                super::super::dct_inverse_8x8_scalar,
-                |data| super::sse2::dct_inverse_8x8(v1, data),
-            );
-        }
-
-        #[cfg(feature = "sse2-tests")]
-        pub fn assert_sse2_forward_close_to_scalar_reference(v1: V1) {
-            assert_close_to_scalar_reference(
-                "SSE2 forward DCT",
-                super::super::dct_forward_8x8_scalar,
-                |data| super::forward::dct_forward_8x8_sse2(v1, data),
-            );
-        }
-
-        #[cfg(feature = "sse2-tests")]
-        pub fn assert_dispatch_picks_sse2(v1: V1) {
-            assert_dispatch_matches(
-                "SSE2 inverse DCT",
-                |data| super::sse2::dct_inverse_8x8(v1, data),
-                super::super::dct_inverse_8x8,
-            );
-        }
-
-        #[cfg(feature = "sse2-tests")]
-        pub fn assert_dispatch_picks_sse2_for_forward(v1: V1) {
-            assert_dispatch_matches(
-                "SSE2 forward DCT",
-                |data| super::forward::dct_forward_8x8_sse2(v1, data),
-                super::super::dct_forward_8x8,
-            );
-        }
-    }
 }
 
-#[cfg(all(feature = "simd-benches", any(target_arch = "x86", target_arch = "x86_64")))]
-pub use self::x86::simd_bench_support;
-
-#[cfg(all(feature = "simd-benches", not(any(target_arch = "x86", target_arch = "x86_64"))))]
-pub mod simd_bench_support {}
-
-#[cfg(all(
-    any(feature = "avx2-tests", feature = "sse2-tests"),
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
-pub use self::x86::simd_test_support;
-
-#[cfg(all(
-    any(feature = "avx2-tests", feature = "sse2-tests"),
-    not(any(target_arch = "x86", target_arch = "x86_64"))
-))]
-pub mod simd_test_support {}
 
 // Scalar fallback: OpenEXRs "dctInverse8x8_scalar", including its
 // truncated PI constant and summation order.
-fn dct_inverse_8x8_scalar(data: &mut [f32; 64]) {
+pub fn dct_inverse_8x8_scalar(data: &mut [f32; 64]) {
     const PI: f32 = 3.14159;
 
     let a = 0.5 * (PI / 4.0).cos();
@@ -1020,7 +802,7 @@ fn dct_inverse_8x8_scalar(data: &mut [f32; 64]) {
 /// Scalar forward DCT for DWA 8x8 blocks. This intentionally uses the
 /// straightforward separable DCT formula for the first encoder version; LLVM
 /// can still optimize the fixed-size loops without adding explicit SIMD paths.
-fn dct_forward_8x8_scalar(data: &mut [f32; 64]) {
+pub fn dct_forward_8x8_scalar(data: &mut [f32; 64]) {
     // The forward path mirrors the inverse path's fixed 8x8 basis, but keeps
     // the implementation scalar and easy to verify against the reference.
     const PI: f32 = 3.14159;
@@ -1054,13 +836,8 @@ fn dct_forward_8x8_scalar(data: &mut [f32; 64]) {
     }
 }
 
-/// Forward DCT on an 8x8 block (in-place, row-major), dispatched at runtime
-/// to the best available x86 SIMD tier (avx2 > sse2 > scalar), like a real
-/// OpenEXR build.
-#[cfg(any(feature = "avx2-tests", feature = "sse2-tests"))]
-pub fn dct_forward_8x8(data: &mut [f32; 64]) {
-    dct_forward_8x8_batch(std::iter::once(data));
-}
+
+
 
 /// Forward DCT on many 8x8 blocks, dispatched once for the whole batch rather
 /// than once per block. Prefer this over looping calls to `dct_forward_8x8`.
@@ -1073,18 +850,6 @@ pub fn dct_forward_8x8_batch<'a>(mut blocks: impl Iterator<Item = &'a mut [f32; 
     for data in blocks {
         dct_forward_8x8_scalar(data);
     }
-}
-
-/// Inverse DCT on an 8x8 block (in-place, row-major), dispatched at
-/// runtime to the best available x86 SIMD tier (avx2 > sse2 > scalar),
-/// like a real OpenEXR build. See the file header comment.
-///
-/// Only exists for the dispatch-comparison tests; production code
-/// (`decode_lossy_dct_group` in `mod.rs`) calls `dct_inverse_8x8_batch`
-/// directly, since it always has a whole group of blocks at once.
-#[cfg(any(feature = "avx2-tests", feature = "sse2-tests"))]
-pub fn dct_inverse_8x8(data: &mut [f32; 64]) {
-    dct_inverse_8x8_batch(std::iter::once(data));
 }
 
 /// Inverse DCT on many 8x8 blocks, dispatched once for the whole batch
@@ -1109,17 +874,58 @@ pub fn dct_inverse_8x8_dc_only(data: &mut [f32; 64]) {
     }
 }
 
-// Deterministic blocks in the ballpark of half-precision DCT coefficients
-// (xorshift64, no `rand` dependency. Shared by the
-// correctness tests below and by the forced-tier benchmark in benches/idct.rs.
-#[cfg(any(feature = "avx2-tests", feature = "sse2-tests", feature = "simd-benches"))]
-fn pseudo_random_blocks(count: usize) -> Vec<[f32; 64]> {
-    let mut state: u64 = 0x9e3779b97f4a7c15;
-    let mut next = move || {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        (((state >> 40) as i32 as f32) / (i32::MAX as f32)) * 1024.0
-    };
-    (0..count).map(|_| std::array::from_fn(|_| next())).collect()
+// TODO pub(crate)
+#[cfg(test)]
+pub mod testing {
+    use rand::distributions::Distribution;
+    use crate::compression::dwa::idct::{dct_forward_8x8_batch, dct_inverse_8x8_batch};
+
+    #[allow(unused)]
+    pub fn assert_blocks_match(
+        label: &str,
+        scalar: fn(&mut [f32; 64]),
+        kernel: impl Fn(&mut [f32; 64]),
+    ) {
+        for mut expected in pseudo_random_blocks(64) {
+            let mut actual = expected;
+            scalar(&mut expected);
+            kernel(&mut actual);
+
+            for (e, a) in expected.iter().zip(actual.iter()) {
+                let tolerance = 1e-2 * e.abs().max(1.0);
+                assert!(
+                    (e - a).abs() <= tolerance,
+                    "{label}: expected {e}, got {a} (diff {})",
+                    (e - a).abs()
+                );
+            }
+        }
+    }
+
+    // Deterministic blocks in the ballpark of half-precision DCT coefficients
+    // (xorshift64, no `rand` dependency. Shared by the
+    // correctness tests below and by the forced-tier benchmark in benches/idct.rs.
+    #[allow(unused)]
+    pub fn pseudo_random_blocks(count: usize) -> Vec<[f32; 64]> {
+        let mut state: u64 = 0x9e3779b97f4a7c15;
+
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (((state >> 40) as i32 as f32) / (i32::MAX as f32)) * 1024.0
+        };
+
+        (0..count).map(|_| std::array::from_fn(|_| next())).collect()
+    }
+
+    #[allow(unused)]
+    pub fn dct_forward_8x8(data: &mut [f32; 64]) {
+        dct_forward_8x8_batch(std::iter::once(data));
+    }
+
+    #[allow(unused)]
+    pub fn dct_inverse_8x8(data: &mut [f32; 64]) {
+        dct_inverse_8x8_batch(std::iter::once(data));
+    }
 }

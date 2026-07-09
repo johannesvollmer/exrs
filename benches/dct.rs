@@ -1,18 +1,18 @@
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+
 #[macro_use]
 extern crate bencher;
 
 extern crate exr;
 
 use bencher::Bencher;
-use exr::compression::simd_bench_support::{
-    bench_blocks, dct_forward_8x8_forced_avx2, dct_forward_8x8_forced_avx2_batch,
-    dct_forward_8x8_forced_scalar, dct_forward_8x8_forced_sse2, expect_avx2, expect_sse2,
-};
+use pulp::x86::{V1, V3};
+use exr::compression::dwa::idct::*;
+use exr::compression::dwa::idct::x86::*;
 
-const BLOCK_COUNT: usize = 4096;
 
-fn bench_scalar(bench: &mut Bencher) {
-    let mut blocks = bench_blocks(BLOCK_COUNT);
+fn dct_forward_bench_autovectorized(bench: &mut Bencher) {
+    let mut blocks = bench_blocks();
 
     bench.iter(|| {
         for block in blocks.iter_mut() {
@@ -23,42 +23,113 @@ fn bench_scalar(bench: &mut Bencher) {
     })
 }
 
-fn bench_sse2(bench: &mut Bencher) {
-    let mut blocks = bench_blocks(BLOCK_COUNT);
+fn dct_forward_bench_sse2(bench: &mut Bencher) {
+    let mut blocks = bench_blocks();
     let v1 = expect_sse2();
 
     bench.iter(|| {
         for block in blocks.iter_mut() {
-            dct_forward_8x8_forced_sse2(v1, block);
+            se2::dct_forward_8x8(v1, block);
         }
 
         bencher::black_box(&mut blocks);
     })
 }
 
-fn bench_avx2(bench: &mut Bencher) {
-    let mut blocks = bench_blocks(BLOCK_COUNT);
+fn dct_forward_bench_avx2(bench: &mut Bencher) {
+    let mut blocks = bench_blocks();
     let v3 = expect_avx2();
 
     bench.iter(|| {
         for block in blocks.iter_mut() {
-            dct_forward_8x8_forced_avx2(v3, block);
+            avx::dct_forward_8x8(v3, block);
         }
 
         bencher::black_box(&mut blocks);
     })
 }
 
-fn bench_avx2_batch(bench: &mut Bencher) {
-    let mut blocks = bench_blocks(BLOCK_COUNT);
+fn dct_forward_bench_avx2_batch(bench: &mut Bencher) {
+    let mut blocks = bench_blocks();
     let v3 = expect_avx2();
 
     bench.iter(|| {
-        dct_forward_8x8_forced_avx2_batch(v3, blocks.iter_mut());
+        avx::dct_forward_8x8_batch(v3, blocks.iter_mut());
 
         bencher::black_box(&mut blocks);
     })
 }
 
-benchmark_group!(dct, bench_scalar, bench_sse2, bench_avx2, bench_avx2_batch);
+fn dct_inverse_bench_autovectorized(bench: &mut Bencher) {
+    let mut blocks = bench_blocks();
+
+    bench.iter(|| {
+        for block in blocks.iter_mut() {
+            dct_inverse_8x8_forced_scalar(block);
+        }
+
+        bencher::black_box(&mut blocks);
+    })
+}
+
+fn dct_inverse_bench_sse2(bench: &mut Bencher) {
+    let mut blocks = bench_blocks();
+    let v1 = expect_sse2();
+
+    bench.iter(|| {
+        for block in blocks.iter_mut() {
+            dct_inverse_8x8_forced_sse2(v1, block);
+        }
+
+        bencher::black_box(&mut blocks);
+    })
+}
+
+fn dct_inverse_bench_avx2(bench: &mut Bencher) {
+    let mut blocks = bench_blocks();
+    let v3 = expect_avx2();
+
+    bench.iter(|| {
+        for block in blocks.iter_mut() {
+            dct_inverse_8x8_forced_avx2(v3, block);
+        }
+
+        bencher::black_box(&mut blocks);
+    })
+}
+
+fn dct_inverse_bench_avx2_batch(bench: &mut Bencher) {
+    let mut blocks = bench_blocks();
+    let v3 = expect_avx2();
+
+    bench.iter(|| {
+        dct_inverse_8x8_forced_avx2_batch(v3, blocks.iter_mut());
+
+        bencher::black_box(&mut blocks);
+    })
+}
+
+fn bench_blocks() -> Vec<[f32; 64]> {
+    testing::pseudo_random_blocks(4096)
+}
+
+fn expect_avx2() -> V3 {
+    V3::try_new().expect("AVX2 SIMD mode requested, but the AVX2/FMA tier is unavailable")
+}
+
+fn expect_sse2() -> V1 {
+    V1::try_new().expect("SSE2 SIMD mode requested, but the SSE2 tier is unavailable")
+}
+
+fn expect_sse2_without_avx2() -> V1 {
+    assert!(V3::try_new().is_none(), "SSE2 dispatch fallback test must run with AVX2 hidden");
+    expect_sse2()
+}
+
+benchmark_group!(
+    dct,
+    dct_forward_bench_autovectorized, dct_forward_bench_sse2, dct_forward_bench_avx2, dct_forward_bench_avx2_batch,
+    dct_inverse_bench_autovectorized, dct_inverse_bench_sse2, dct_inverse_bench_avx2, dct_inverse_bench_avx2_batch
+);
+
 benchmark_main!(dct);

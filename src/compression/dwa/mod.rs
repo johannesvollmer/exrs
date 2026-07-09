@@ -18,21 +18,8 @@ use crate::{
 };
 
 mod csc;
-mod idct;
+pub mod idct; // TODO pub(crate)
 
-#[cfg(feature = "simd-benches")]
-#[allow(missing_docs)]
-#[doc(hidden)]
-pub mod simd_bench_support {
-    pub use super::idct::simd_bench_support::*;
-}
-
-#[cfg(any(feature = "avx2-tests", feature = "sse2-tests"))]
-#[allow(missing_docs)]
-#[doc(hidden)]
-pub mod simd_test_support {
-    pub use super::idct::simd_test_support::*;
-}
 
 #[derive(Debug, Clone, Copy)]
 enum AcCompression {

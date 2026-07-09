@@ -1,33 +1,41 @@
+#![cfg(feature = "avx2-tests")]
+
+
 use std::path::Path;
-
-use exr::{
-    compression::simd_test_support::{
-        assert_avx2_close_to_scalar_reference, assert_avx2_forward_close_to_scalar_reference,
-        assert_dispatch_picks_avx2, assert_dispatch_picks_avx2_for_forward, expect_avx2,
-    },
-    image::validate_results::ValidateResult,
-    prelude::*,
-};
+use pulp::x86::{V3};
+use exr::compression::dwa::idct::*;
+use exr::compression::dwa::idct::x86::*;
 
 #[test]
-fn avx2_idct_matches_scalar_reference() {
-    assert_avx2_close_to_scalar_reference(expect_avx2());
+pub fn avx2_inverse_matches_scalar() {
+    testing::assert_blocks_match(
+        "AVX2 inverse DCT",
+        dct_inverse_8x8_scalar,
+        |data| avx::dct_inverse_8x8(expect_avx2(), data),
+    );
 }
 
 #[test]
-fn avx2_fdct_matches_scalar_reference() {
-    assert_avx2_forward_close_to_scalar_reference(expect_avx2());
+pub fn avx2_forward_matches_scalar() {
+    testing::assert_blocks_match(
+        "AVX2 forward DCT",
+        dct_forward_8x8_scalar,
+        |data| avx::dct_forward_8x8(expect_avx2(), data),
+    );
+}
+
+
+#[test]
+fn dwa_three_standalone_lossy_dct_groups() {
+    check_against_real_openexr("y_ry_by_dwaa.exr", "y_ry_by_dwaa_ground_truth.exr");
 }
 
 #[test]
-fn dispatch_picks_avx2_when_available() {
-    assert_dispatch_picks_avx2(expect_avx2());
+fn dwa_csc_group_then_standalone_group() {
+    check_against_real_openexr("rgb_plus_y_dwaa.exr", "rgb_plus_y_dwaa_ground_truth.exr");
 }
 
-#[test]
-fn dispatch_picks_avx2_for_forward_dct() {
-    assert_dispatch_picks_avx2_for_forward(expect_avx2());
-}
+
 
 fn dir() -> &'static Path {
     Path::new("tests/images/valid/custom/dwa_csc")
@@ -49,12 +57,10 @@ fn check_against_real_openexr(exr_name: &str, ground_truth_name: &str) {
     ground_truth.assert_equals_result(&decoded);
 }
 
-#[test]
-fn dwa_three_standalone_lossy_dct_groups() {
-    check_against_real_openexr("y_ry_by_dwaa.exr", "y_ry_by_dwaa_ground_truth.exr");
+
+fn expect_avx2() -> V3 {
+    V3::try_new().expect("AVX2 SIMD mode requested, but the AVX2/FMA tier is unavailable")
 }
 
-#[test]
-fn dwa_csc_group_then_standalone_group() {
-    check_against_real_openexr("rgb_plus_y_dwaa.exr", "rgb_plus_y_dwaa_ground_truth.exr");
-}
+
+

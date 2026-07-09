@@ -3,25 +3,12 @@
 
 // private modules make non-breaking changes easier
 mod b44;
-mod dwa;
+pub mod dwa; // TODO pub(crate)
 mod piz;
 mod pxr24;
 mod rle;
 mod zip;
 
-#[cfg(feature = "simd-benches")]
-#[allow(missing_docs)]
-#[doc(hidden)]
-pub mod simd_bench_support {
-    pub use super::dwa::simd_bench_support::*;
-}
-
-#[cfg(any(feature = "avx2-tests", feature = "sse2-tests"))]
-#[allow(missing_docs)]
-#[doc(hidden)]
-pub mod simd_test_support {
-    pub use super::dwa::simd_test_support::*;
-}
 
 use std::convert::TryInto;
 

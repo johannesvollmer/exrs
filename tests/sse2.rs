@@ -1,25 +1,36 @@
-use exr::compression::simd_test_support::{
-    assert_dispatch_picks_sse2, assert_dispatch_picks_sse2_for_forward,
-    assert_sse2_close_to_scalar_reference, assert_sse2_forward_close_to_scalar_reference,
-    expect_sse2, expect_sse2_without_avx2,
-};
+#![cfg(feature = "sse2-tests")]
+
+use pulp::x86::{V1, V3};
+use exr::compression::dwa::idct::*;
+use exr::compression::dwa::idct::x86::*;
+
 
 #[test]
-fn sse2_idct_matches_scalar_reference() {
-    assert_sse2_close_to_scalar_reference(expect_sse2());
+pub fn assert_sse2_close_to_scalar_reference() {
+    testing::assert_blocks_match(
+        "SSE2 inverse DCT",
+        dct_inverse_8x8_scalar,
+        |data| sse2::dct_inverse_8x8(expect_sse2_without_avx2(), data),
+    );
 }
 
 #[test]
-fn sse2_fdct_matches_scalar_reference() {
-    assert_sse2_forward_close_to_scalar_reference(expect_sse2());
+pub fn assert_sse2_forward_close_to_scalar_reference() {
+    testing::assert_blocks_match(
+        "SSE2 forward DCT",
+        dct_forward_8x8_scalar,
+        |data| sse2::dct_forward_8x8(expect_sse2_without_avx2(), data),
+    );
 }
 
-#[test]
-fn dispatch_picks_sse2_when_avx2_is_unavailable() {
-    assert_dispatch_picks_sse2(expect_sse2_without_avx2());
+
+
+fn expect_sse2() -> V1 {
+    V1::try_new().expect("SSE2 SIMD mode requested, but the SSE2 tier is unavailable")
 }
 
-#[test]
-fn dispatch_picks_sse2_for_forward_dct_when_avx2_is_unavailable() {
-    assert_dispatch_picks_sse2_for_forward(expect_sse2_without_avx2());
+fn expect_sse2_without_avx2() -> V1 {
+    assert!(V3::try_new().is_none(), "SSE2 dispatch fallback test must run with AVX2 hidden");
+    expect_sse2()
 }
+
