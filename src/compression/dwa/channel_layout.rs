@@ -268,8 +268,10 @@ mod test {
     fn pack_split_unknown_roundtrip() {
         let mut random = rand::rngs::StdRng::from_seed(SEED);
 
-        let infos =
-            vec![channel_info(CompressorScheme::Unknown, 4, 3), channel_info(CompressorScheme::Unknown, 5, 2)];
+        let infos = vec![
+            channel_info(CompressorScheme::Unknown, 4, 3),
+            channel_info(CompressorScheme::Unknown, 5, 2),
+        ];
         let channel_bytes: Vec<Vec<u8>> = infos
             .iter()
             .map(|info| random_bytes(&mut random, info.width * info.height * info.bytes_per_sample))
@@ -287,8 +289,10 @@ mod test {
     fn pack_split_rle_roundtrip() {
         let mut random = rand::rngs::StdRng::from_seed(SEED);
 
-        let infos =
-            vec![channel_info(CompressorScheme::Rle, 4, 3), channel_info(CompressorScheme::Rle, 6, 2)];
+        let infos = vec![
+            channel_info(CompressorScheme::Rle, 4, 3),
+            channel_info(CompressorScheme::Rle, 6, 2),
+        ];
         let channel_bytes: Vec<Vec<u8>> = infos
             .iter()
             .map(|info| random_bytes(&mut random, info.width * info.height * info.bytes_per_sample))
@@ -297,7 +301,8 @@ mod test {
         let packed = pack_rle_channels(&infos, &channel_bytes);
         // Mirror `mod.rs::decompress`: split the planar buffer per channel,
         // then interleave each channel's byte planes back to sample order.
-        let planar_per_channel = split_planar_channels(&infos, CompressorScheme::Rle, &packed).unwrap();
+        let planar_per_channel =
+            split_planar_channels(&infos, CompressorScheme::Rle, &packed).unwrap();
         let decoded: Vec<Vec<u8>> = infos
             .iter()
             .zip(&planar_per_channel)

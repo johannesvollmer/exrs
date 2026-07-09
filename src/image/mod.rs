@@ -1073,17 +1073,22 @@ pub mod validate_results {
             self.validate_result(result, ValidationOptions::default(), String::new).unwrap();
         }
 
-        /// Like [`Self::assert_equals_result`], but uses approximate (lossy) comparison
-        /// for floating point values. Panics if they are not approximately equal.
+        /// Like [`Self::assert_equals_result`], but uses approximate (lossy)
+        /// comparison for floating point values. Panics if they are not
+        /// approximately equal.
         ///
-        /// This is the single definitive helper for "a bunch of floats are approximately
-        /// equal" checks in tests: it applies the same adaptive tolerance
-        /// (`0.06 * (|a| + |b|)`, floored at `0.1`) that whole-image lossy comparison uses.
-        /// Works on `f32`/`f16`, on slices/`Vec`s of them, and on the whole image types.
+        /// This is the single definitive helper for "a bunch of floats are
+        /// approximately equal" checks in tests: it applies the same
+        /// adaptive tolerance (`0.06 * (|a| + |b|)`, floored at `0.1`)
+        /// that whole-image lossy comparison uses. Works on `f32`/
+        /// `f16`, on slices/`Vec`s of them, and on the whole image types.
         fn assert_approx_equals_result(&self, result: &Self) {
             self.validate_result(
                 result,
-                ValidationOptions { allow_lossy: true, nan_converted_to_zero: false },
+                ValidationOptions {
+                    allow_lossy: true,
+                    nan_converted_to_zero: false,
+                },
                 String::new,
             )
             .unwrap();

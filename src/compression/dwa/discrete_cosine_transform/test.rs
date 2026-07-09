@@ -157,11 +157,13 @@ mod sse2_tests {
 // dispatch selects on the host CPU.
 #[cfg(test)]
 mod roundtrip_tests {
-    use super::super::{
-        dct_forward_8x8_autovectorized, dct_forward_8x8_batch, dct_inverse_8x8_autovectorized,
-        dct_inverse_8x8_batch,
+    use super::{
+        super::{
+            dct_forward_8x8_autovectorized, dct_forward_8x8_batch, dct_inverse_8x8_autovectorized,
+            dct_inverse_8x8_batch,
+        },
+        pseudo_random_blocks,
     };
-    use super::pseudo_random_blocks;
     use crate::image::validate_results::ValidateResult;
 
     fn sample_blocks() -> Vec<[f32; 64]> {
