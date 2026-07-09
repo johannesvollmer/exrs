@@ -3,7 +3,11 @@
 
 // private modules make non-breaking changes easier
 mod b44;
-pub mod dwa; // TODO pub(crate)
+
+// public only for benchmarking
+#[doc(hidden)]
+pub mod dwa;
+
 mod piz;
 mod pxr24;
 mod rle;

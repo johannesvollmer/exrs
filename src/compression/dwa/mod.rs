@@ -18,7 +18,10 @@ use crate::{
 };
 
 mod csc;
-pub mod idct; // TODO pub(crate)
+
+// public only for benchmarking
+#[doc(hidden)]
+pub mod idct;
 
 #[derive(Debug, Clone, Copy)]
 enum AcCompression {

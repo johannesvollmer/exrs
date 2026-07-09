@@ -857,7 +857,9 @@ pub fn dct_inverse_8x8_dc_only(data: &mut [f32; 64]) {
 
 // `pub` and `simd-benches`-gated because benches/dct.rs is a separate crate
 // that reaches this only through the public API; the in-crate tier tests get it
-// via `test`. TODO pub(crate)
+// via `test`. 
+// public only for benchmarking
+#[doc(hidden)]
 #[cfg(any(test, feature = "simd-benches"))]
 pub mod testing {
     use crate::compression::dwa::idct::{dct_forward_8x8_batch, dct_inverse_8x8_batch};
