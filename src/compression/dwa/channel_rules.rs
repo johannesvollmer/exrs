@@ -4,12 +4,11 @@
 
 use std::{borrow::Cow, convert::TryInto};
 
+use super::{channel_suffix, CompressorScheme};
 use crate::{
     error::{Error, Result},
     meta::attribute::{ChannelList, SampleType},
 };
-
-use super::{channel_suffix, CompressorScheme};
 
 /// One channel classification rule (`Classifier` in
 /// internal_dwa_classifier.h): matches a channel by name suffix and sample

@@ -5,13 +5,11 @@
 
 use half::f16;
 
+use super::{discrete_cosine_transform, ChannelInfo, CompressorScheme};
 use crate::{
     error::{Error, Result},
     meta::attribute::SampleType,
 };
-
-use super::discrete_cosine_transform;
-use super::{ChannelInfo, CompressorScheme};
 
 mod half_float_quantizer;
 mod quantization;
@@ -44,7 +42,6 @@ fn csc709_forward(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
     let ry = (r - y) / 1.5747;
     (y, by, ry)
 }
-
 
 pub(super) fn encode_lossy_channels(
     infos: &[ChannelInfo],
@@ -250,7 +247,6 @@ fn mirror_index(index: usize, length: usize) -> usize {
 
     value as usize
 }
-
 
 /// One of the chunk-global u16 streams (AC or DC). All channel groups of a
 /// chunk consume the same stream, so the cursor carries across groups.

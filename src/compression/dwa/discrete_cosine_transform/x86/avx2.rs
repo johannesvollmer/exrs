@@ -71,39 +71,23 @@ fn row_pass(v3: V3, coef: &Coefficients, input: [f32x8; 8]) -> [f32x8; 8] {
     let (in0, in2, in4, in6) = (input[0], input[2], input[4], input[6]);
     let (in1, in3, in5, in7) = (input[1], input[3], input[5], input[7]);
 
-    let even0 = add(
-        add(mul(in4, coef.a), mul(in6, coef.f)),
-        add(mul(in0, coef.a), mul(in2, coef.c)),
-    );
-    let even1 = add(
-        add(mul(in4, coef.na), mul(in6, coef.nc)),
-        add(mul(in0, coef.a), mul(in2, coef.f)),
-    );
-    let even2 = add(
-        add(mul(in4, coef.na), mul(in6, coef.c)),
-        add(mul(in0, coef.a), mul(in2, coef.nf)),
-    );
-    let even3 = add(
-        add(mul(in4, coef.a), mul(in6, coef.nf)),
-        add(mul(in0, coef.a), mul(in2, coef.nc)),
-    );
+    let even0 =
+        add(add(mul(in4, coef.a), mul(in6, coef.f)), add(mul(in0, coef.a), mul(in2, coef.c)));
+    let even1 =
+        add(add(mul(in4, coef.na), mul(in6, coef.nc)), add(mul(in0, coef.a), mul(in2, coef.f)));
+    let even2 =
+        add(add(mul(in4, coef.na), mul(in6, coef.c)), add(mul(in0, coef.a), mul(in2, coef.nf)));
+    let even3 =
+        add(add(mul(in4, coef.a), mul(in6, coef.nf)), add(mul(in0, coef.a), mul(in2, coef.nc)));
 
-    let odd0 = add(
-        add(mul(in5, coef.e), mul(in7, coef.g)),
-        add(mul(in1, coef.b), mul(in3, coef.d)),
-    );
-    let odd1 = add(
-        add(mul(in5, coef.nb), mul(in7, coef.ne)),
-        add(mul(in1, coef.d), mul(in3, coef.ng)),
-    );
-    let odd2 = add(
-        add(mul(in5, coef.g), mul(in7, coef.d)),
-        add(mul(in1, coef.e), mul(in3, coef.nb)),
-    );
-    let odd3 = add(
-        add(mul(in5, coef.d), mul(in7, coef.nb)),
-        add(mul(in1, coef.g), mul(in3, coef.ne)),
-    );
+    let odd0 =
+        add(add(mul(in5, coef.e), mul(in7, coef.g)), add(mul(in1, coef.b), mul(in3, coef.d)));
+    let odd1 =
+        add(add(mul(in5, coef.nb), mul(in7, coef.ne)), add(mul(in1, coef.d), mul(in3, coef.ng)));
+    let odd2 =
+        add(add(mul(in5, coef.g), mul(in7, coef.d)), add(mul(in1, coef.e), mul(in3, coef.nb)));
+    let odd3 =
+        add(add(mul(in5, coef.d), mul(in7, coef.nb)), add(mul(in1, coef.g), mul(in3, coef.ne)));
 
     [
         add(even0, odd0),
@@ -127,22 +111,14 @@ fn column_pass(v3: V3, coef: &Coefficients, input: [f32x8; 8]) -> [f32x8; 8] {
     let (in0, in1, in2, in3, in4, in5, in6, in7) =
         (input[0], input[1], input[2], input[3], input[4], input[5], input[6], input[7]);
 
-    let beta0 = add(
-        add(mul(coef.g, in7), mul(coef.e, in5)),
-        add(mul(coef.d, in3), mul(coef.b, in1)),
-    );
-    let beta1 = sub(
-        sub(mul(coef.d, in1), add(mul(coef.b, in5), mul(coef.g, in3))),
-        mul(coef.e, in7),
-    );
-    let beta2 = add(
-        mul(coef.d, in7),
-        add(mul(coef.g, in5), sub(mul(coef.e, in1), mul(coef.b, in3))),
-    );
-    let beta3 = sub(
-        add(mul(coef.d, in5), mul(coef.g, in1)),
-        add(mul(coef.b, in7), mul(coef.e, in3)),
-    );
+    let beta0 =
+        add(add(mul(coef.g, in7), mul(coef.e, in5)), add(mul(coef.d, in3), mul(coef.b, in1)));
+    let beta1 =
+        sub(sub(mul(coef.d, in1), add(mul(coef.b, in5), mul(coef.g, in3))), mul(coef.e, in7));
+    let beta2 =
+        add(mul(coef.d, in7), add(mul(coef.g, in5), sub(mul(coef.e, in1), mul(coef.b, in3))));
+    let beta3 =
+        sub(add(mul(coef.d, in5), mul(coef.g, in1)), add(mul(coef.b, in7), mul(coef.e, in3)));
 
     let theta0 = add(mul(coef.a, in4), mul(coef.a, in0));
     let theta3 = sub(mul(coef.a, in0), mul(coef.a, in4));
@@ -203,8 +179,7 @@ pub fn dct_inverse_8x8_batch<'a>(v3: V3, blocks: impl Iterator<Item = &'a mut [f
             let rows_out = row_pass(v3, &coef, columns);
             for (column, result) in rows_out.iter().enumerate() {
                 let r = [
-                    result.0, result.1, result.2, result.3, result.4, result.5, result.6,
-                    result.7,
+                    result.0, result.1, result.2, result.3, result.4, result.5, result.6, result.7,
                 ];
                 for (row, value) in r.iter().enumerate() {
                     data[row * 8 + column] = *value;

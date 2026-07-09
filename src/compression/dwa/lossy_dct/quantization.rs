@@ -5,10 +5,8 @@
 
 use half::f16;
 
+use super::{half_float_quantizer::algo_quantize, PackedStream};
 use crate::error::{Error, Result};
-
-use super::half_float_quantizer::algo_quantize;
-use super::PackedStream;
 
 pub(super) struct QuantTables {
     pub(super) y: [f32; 64],

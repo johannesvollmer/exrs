@@ -2,9 +2,8 @@
 // chunk body into them, the zlib inflate wrapper they share, and the
 // differencing transform applied to the DC stream.
 
-use crate::error::{Error, Result};
-
 use super::chunk_header::{AcCompression, DwaHeader};
+use crate::error::{Error, Result};
 
 /// Split the data after header + rules into the four sections, in on-disk
 /// order. Errors on truncation like the C parser.

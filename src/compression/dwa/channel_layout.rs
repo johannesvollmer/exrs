@@ -4,13 +4,12 @@
 
 use half::f16;
 
+use super::{ChannelInfo, CompressorScheme};
 use crate::{
     compression::ByteVec,
     error::{Error, Result},
     meta::attribute::{ChannelList, IntegerBounds, SampleType},
 };
-
-use super::{ChannelInfo, CompressorScheme};
 
 pub(super) fn split_scanline_channels(
     data: &[u8],

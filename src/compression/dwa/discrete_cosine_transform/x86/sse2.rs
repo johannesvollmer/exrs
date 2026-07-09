@@ -102,22 +102,14 @@ fn column_pass(v1: V1, coef: &ColumnCoefficients, input: [f32x4; 8]) -> [f32x4; 
     let (in0, in1, in2, in3, in4, in5, in6, in7) =
         (input[0], input[1], input[2], input[3], input[4], input[5], input[6], input[7]);
 
-    let beta0 = add(
-        add(mul(in1, coef.b), mul(in3, coef.d)),
-        add(mul(in5, coef.e), mul(in7, coef.g)),
-    );
-    let beta1 = sub(
-        sub(mul(in1, coef.d), mul(in3, coef.g)),
-        add(mul(in5, coef.b), mul(in7, coef.e)),
-    );
-    let beta2 = add(
-        sub(mul(in1, coef.e), mul(in3, coef.b)),
-        add(mul(in5, coef.g), mul(in7, coef.d)),
-    );
-    let beta3 = add(
-        sub(mul(in1, coef.g), mul(in3, coef.e)),
-        sub(mul(in5, coef.d), mul(in7, coef.b)),
-    );
+    let beta0 =
+        add(add(mul(in1, coef.b), mul(in3, coef.d)), add(mul(in5, coef.e), mul(in7, coef.g)));
+    let beta1 =
+        sub(sub(mul(in1, coef.d), mul(in3, coef.g)), add(mul(in5, coef.b), mul(in7, coef.e)));
+    let beta2 =
+        add(sub(mul(in1, coef.e), mul(in3, coef.b)), add(mul(in5, coef.g), mul(in7, coef.d)));
+    let beta3 =
+        add(sub(mul(in1, coef.g), mul(in3, coef.e)), sub(mul(in5, coef.d), mul(in7, coef.b)));
 
     let theta0 = mul(coef.a, add(in0, in4));
     let theta3 = mul(coef.a, sub(in0, in4));
