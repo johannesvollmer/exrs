@@ -24,6 +24,8 @@ pub mod x86 {
 
     use pulp::x86::{V1, V3};
 
+    // public only for benchmarking
+    #[doc(hidden)]
     pub mod avx {
         use pulp::{f32x8, x86::V3};
 
@@ -355,6 +357,8 @@ pub mod x86 {
     // SSE2 V1 tier: OpenEXRs "dctInverse8x8_sse2". Vectorizes 4
     // output positions of one row at a time a different shape than "avx",
     // so the two are not bit-identical.
+    // public only for benchmarking
+    #[doc(hidden)]
     pub mod sse2 {
         use pulp::{f32x4, x86::V1};
 
@@ -622,7 +626,7 @@ pub mod x86 {
         }
     }
 
-    pub fn forward_basis() -> &'static [[f32; 8]; 8] {
+    fn forward_basis() -> &'static [[f32; 8]; 8] {
         static TABLE: OnceLock<[[f32; 8]; 8]> = OnceLock::new();
 
         TABLE.get_or_init(|| {
@@ -683,6 +687,8 @@ pub mod x86 {
 // Autovectorized fallback: OpenEXRs "dctInverse8x8_scalar", including its
 // truncated PI constant and summation order. Written as straightforward
 // fixed-size loops that LLVM can autovectorize without explicit SIMD.
+// public only for benchmarking (the in-crate dispatch and tests reach it directly)
+#[doc(hidden)]
 pub fn dct_inverse_8x8_autovectorized(data: &mut [f32; 64]) {
     const PI: f32 = 3.14159;
 
@@ -786,6 +792,8 @@ pub fn dct_inverse_8x8_autovectorized(data: &mut [f32; 64]) {
 /// Autovectorized forward DCT for DWA 8x8 blocks. This intentionally uses the
 /// straightforward separable DCT formula for the first encoder version; LLVM
 /// can still optimize the fixed-size loops without adding explicit SIMD paths.
+// public only for benchmarking (the in-crate dispatch and tests reach it directly)
+#[doc(hidden)]
 pub fn dct_forward_8x8_autovectorized(data: &mut [f32; 64]) {
     // The forward path mirrors the inverse path's fixed 8x8 basis, but keeps
     // the implementation autovectorized and easy to verify against the reference.
@@ -822,7 +830,7 @@ pub fn dct_forward_8x8_autovectorized(data: &mut [f32; 64]) {
 
 /// Forward DCT on many 8x8 blocks, dispatched once for the whole batch rather
 /// than once per block. Prefer this over looping calls to `dct_forward_8x8`.
-pub fn dct_forward_8x8_batch<'a>(mut blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
+pub(crate) fn dct_forward_8x8_batch<'a>(mut blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if x86::try_dct_forward_8x8_batch(&mut blocks) {
         return;
@@ -836,7 +844,7 @@ pub fn dct_forward_8x8_batch<'a>(mut blocks: impl Iterator<Item = &'a mut [f32; 
 /// Inverse DCT on many 8x8 blocks, dispatched once for the whole batch
 /// rather than once per block. Prefer this over looping calls to
 /// `dct_inverse_8x8`
-pub fn dct_inverse_8x8_batch<'a>(mut blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
+pub(crate) fn dct_inverse_8x8_batch<'a>(mut blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if x86::try_dct_inverse_8x8_batch(&mut blocks) {
         return;
@@ -848,24 +856,24 @@ pub fn dct_inverse_8x8_batch<'a>(mut blocks: impl Iterator<Item = &'a mut [f32; 
 }
 
 /// Optimized path when only DC is non-zero.
-pub fn dct_inverse_8x8_dc_only(data: &mut [f32; 64]) {
+pub(crate) fn dct_inverse_8x8_dc_only(data: &mut [f32; 64]) {
     let val = data[0] * 0.3535536f32 * 0.3535536f32;
     for v in data.iter_mut() {
         *v = val;
     }
 }
 
-// `pub` and `simd-benches`-gated because benches/dct.rs is a separate crate
-// that reaches this only through the public API; the in-crate tier tests get it
-// via `test`.
-// public only for benchmarking
+// public only for benchmarking: benches/dct.rs is a separate crate and reaches
+// this through the public API, so the module stays `pub` and `simd-benches`-gated;
+// the in-crate tier tests pick it up via `test`.
 #[doc(hidden)]
 #[cfg(any(test, feature = "simd-benches"))]
 pub mod testing {
     use crate::compression::dwa::idct::{dct_forward_8x8_batch, dct_inverse_8x8_batch};
 
+    // Only the in-crate tier tests use this, so it need not be `pub`.
     #[allow(unused)]
-    pub fn assert_blocks_match(
+    pub(super) fn assert_blocks_match(
         label: &str,
         autovectorized: fn(&mut [f32; 64]),
         kernel: impl Fn(&mut [f32; 64]),
@@ -887,8 +895,9 @@ pub mod testing {
     }
 
     // Deterministic blocks in the ballpark of half-precision DCT coefficients
-    // (xorshift64, no `rand` dependency. Shared by the
-    // correctness tests below and by the forced-tier benchmark in benches/dct.rs.
+    // (xorshift64, no `rand` dependency. Shared by the correctness tests below
+    // and by the forced-tier benchmark in benches/dct.rs.
+    // Stays `pub` (unlike `assert_blocks_match`) only because the benchmark needs it.
     #[allow(unused)]
     pub fn pseudo_random_blocks(count: usize) -> Vec<[f32; 64]> {
         let mut state: u64 = 0x9e3779b97f4a7c15;
@@ -904,12 +913,12 @@ pub mod testing {
     }
 
     #[allow(unused)]
-    pub fn dct_forward_8x8(data: &mut [f32; 64]) {
+    fn dct_forward_8x8(data: &mut [f32; 64]) {
         dct_forward_8x8_batch(std::iter::once(data));
     }
 
     #[allow(unused)]
-    pub fn dct_inverse_8x8(data: &mut [f32; 64]) {
+    fn dct_inverse_8x8(data: &mut [f32; 64]) {
         dct_inverse_8x8_batch(std::iter::once(data));
     }
 }
