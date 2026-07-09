@@ -120,3 +120,33 @@ pub(super) fn zip_deconstruct_bytes(bytes: &mut [u8]) {
     crate::compression::optimize_bytes::separate_bytes_fragments(bytes);
     crate::compression::optimize_bytes::samples_to_differences(bytes);
 }
+
+#[cfg(test)]
+mod test {
+    use rand::{Rng, SeedableRng};
+
+    use super::*;
+
+    const SEED: [u8; 32] = [
+        19, 240, 8, 91, 3, 128, 9, 44, 201, 17, 88, 6, 255, 61, 30, 11, 2, 121, 99, 1, 250, 77, 33,
+        7, 42, 13, 200, 176, 22, 5, 66, 100,
+    ];
+
+    /// The encoder-side DC transform (`zip_deconstruct_bytes`) and the
+    /// decoder-side reconstruction (`undo_zip_reconstruct`) must be inverses,
+    /// including for odd lengths and the < 2 byte short-circuit.
+    #[test]
+    fn zip_deconstruct_reconstruct_roundtrip() {
+        let mut random = rand::rngs::StdRng::from_seed(SEED);
+
+        for length in [0usize, 1, 2, 3, 4, 5, 17, 64, 129] {
+            let original: Vec<u8> = (0..length).map(|_| random.gen()).collect();
+
+            let mut deconstructed = original.clone();
+            zip_deconstruct_bytes(&mut deconstructed);
+            let reconstructed = undo_zip_reconstruct(&deconstructed);
+
+            assert_eq!(reconstructed, original, "failed at length {length}");
+        }
+    }
+}

@@ -9,24 +9,17 @@ use super::{dct_forward_8x8_batch, dct_inverse_8x8_batch};
 
 // Only the in-crate tier tests use this, so it need not be `pub`.
 #[allow(unused)]
-fn assert_blocks_match(
-    label: &str,
-    autovectorized: fn(&mut [f32; 64]),
-    kernel: impl Fn(&mut [f32; 64]),
-) {
+fn assert_blocks_match(autovectorized: fn(&mut [f32; 64]), kernel: impl Fn(&mut [f32; 64])) {
+    // Compare via the crate's one definitive approximate-float helper rather
+    // than a bespoke tolerance loop.
+    use crate::image::validate_results::ValidateResult;
+
     for mut expected in pseudo_random_blocks(64) {
         let mut actual = expected;
         autovectorized(&mut expected);
         kernel(&mut actual);
 
-        for (e, a) in expected.iter().zip(actual.iter()) {
-            let tolerance = 1e-2 * e.abs().max(1.0);
-            assert!(
-                (e - a).abs() <= tolerance,
-                "{label}: expected {e}, got {a} (diff {})",
-                (e - a).abs()
-            );
-        }
+        expected.to_vec().assert_approx_equals_result(&actual.to_vec());
     }
 }
 
@@ -76,14 +69,14 @@ mod avx2_tests {
 
     #[test]
     fn avx2_inverse_matches_autovectorized() {
-        assert_blocks_match("AVX2 inverse DCT", dct_inverse_8x8_autovectorized, |data| {
+        assert_blocks_match(dct_inverse_8x8_autovectorized, |data| {
             avx2::dct_inverse_8x8(expect_avx2(), data)
         });
     }
 
     #[test]
     fn avx2_forward_matches_autovectorized() {
-        assert_blocks_match("AVX2 forward DCT", dct_forward_8x8_autovectorized, |data| {
+        assert_blocks_match(dct_forward_8x8_autovectorized, |data| {
             avx2::dct_forward_8x8(expect_avx2(), data)
         });
     }
@@ -137,14 +130,14 @@ mod sse2_tests {
 
     #[test]
     fn assert_sse2_close_to_autovectorized_reference() {
-        assert_blocks_match("SSE2 inverse DCT", dct_inverse_8x8_autovectorized, |data| {
+        assert_blocks_match(dct_inverse_8x8_autovectorized, |data| {
             sse2::dct_inverse_8x8(expect_sse2_without_avx2(), data)
         });
     }
 
     #[test]
     fn assert_sse2_forward_close_to_autovectorized_reference() {
-        assert_blocks_match("SSE2 forward DCT", dct_forward_8x8_autovectorized, |data| {
+        assert_blocks_match(dct_forward_8x8_autovectorized, |data| {
             sse2::dct_forward_8x8(expect_sse2_without_avx2(), data)
         });
     }
@@ -156,5 +149,55 @@ mod sse2_tests {
     fn expect_sse2_without_avx2() -> V1 {
         assert!(V3::try_new().is_none(), "SSE2 dispatch fallback test must run with AVX2 hidden");
         expect_sse2()
+    }
+}
+
+// Always-on (not SIMD-tier-gated) roundtrip tests: forward DCT followed by
+// inverse DCT must recover the original block. Runs whatever tier the runtime
+// dispatch selects on the host CPU.
+#[cfg(test)]
+mod roundtrip_tests {
+    use super::super::{
+        dct_forward_8x8_autovectorized, dct_forward_8x8_batch, dct_inverse_8x8_autovectorized,
+        dct_inverse_8x8_batch,
+    };
+    use super::pseudo_random_blocks;
+    use crate::image::validate_results::ValidateResult;
+
+    fn sample_blocks() -> Vec<[f32; 64]> {
+        // A simple hardcoded ramp block plus deterministic pseudo-random blocks.
+        let ramp = std::array::from_fn(|i| i as f32 - 32.0);
+        let mut blocks = vec![ramp];
+        blocks.extend(pseudo_random_blocks(32));
+        blocks
+    }
+
+    /// The scalar reference forward and inverse kernels compose to an
+    /// approximate identity (the forward is a normalized DCT-II, the inverse is
+    /// OpenEXR's scalar IDCT with a truncated PI — which is what the codec
+    /// depends on).
+    #[test]
+    fn autovectorized_forward_inverse_is_identity() {
+        for original in sample_blocks() {
+            let mut block = original;
+            dct_forward_8x8_autovectorized(&mut block);
+            dct_inverse_8x8_autovectorized(&mut block);
+            original.to_vec().assert_approx_equals_result(&block.to_vec());
+        }
+    }
+
+    /// Same identity through the batch dispatch entry points (SIMD or scalar,
+    /// depending on the host CPU).
+    #[test]
+    fn batch_forward_inverse_is_identity() {
+        let originals = sample_blocks();
+        let mut blocks = originals.clone();
+
+        dct_forward_8x8_batch(blocks.iter_mut());
+        dct_inverse_8x8_batch(blocks.iter_mut());
+
+        for (original, roundtripped) in originals.iter().zip(&blocks) {
+            original.to_vec().assert_approx_equals_result(&roundtripped.to_vec());
+        }
     }
 }

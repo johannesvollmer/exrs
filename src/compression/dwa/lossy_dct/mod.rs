@@ -428,3 +428,45 @@ fn decode_lossy_dct_group(
     dc.advance(components * block_count);
     Ok(())
 }
+
+#[cfg(test)]
+mod test {
+    use rand::{Rng, SeedableRng};
+
+    use super::*;
+    use crate::image::validate_results::ValidateResult;
+
+    const SEED: [u8; 32] = [
+        66, 100, 19, 240, 8, 91, 3, 128, 9, 44, 201, 17, 88, 6, 255, 61, 30, 11, 2, 121, 99, 1,
+        250, 77, 33, 7, 42, 13, 200, 176, 22, 5,
+    ];
+
+    /// The R'G'B' <-> Y'CbCr conversion pair must round-trip: converting to
+    /// Y'CbCr and back must recover the original RGB triple (approximately,
+    /// since the matrix coefficients are not exactly invertible in f32). The
+    /// forward output tuple `(y, by, ry)` feeds the inverse positionally.
+    fn assert_csc_roundtrips(r: f32, g: f32, b: f32) {
+        let (y, by, ry) = csc709_forward(r, g, b);
+        let (r2, g2, b2) = csc709_inverse(y, by, ry);
+        vec![r, g, b].assert_approx_equals_result(&vec![r2, g2, b2]);
+    }
+
+    #[test]
+    fn csc_roundtrip_hardcoded() {
+        assert_csc_roundtrips(0.0, 0.0, 0.0);
+        assert_csc_roundtrips(1.0, 1.0, 1.0);
+        assert_csc_roundtrips(1.0, 0.0, 0.0);
+        assert_csc_roundtrips(0.0, 1.0, 0.0);
+        assert_csc_roundtrips(0.0, 0.0, 1.0);
+        assert_csc_roundtrips(0.25, 0.5, 0.75);
+    }
+
+    #[test]
+    fn csc_roundtrip_seeded() {
+        let mut random = rand::rngs::StdRng::from_seed(SEED);
+        for _ in 0..256 {
+            let mut channel = || random.gen_range(-4.0f32..4.0);
+            assert_csc_roundtrips(channel(), channel(), channel());
+        }
+    }
+}

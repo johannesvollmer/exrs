@@ -217,3 +217,93 @@ pub(super) fn write_scanlines(
     }
     Ok(out)
 }
+
+#[cfg(test)]
+mod test {
+    use rand::{Rng, SeedableRng};
+
+    use super::*;
+
+    const SEED: [u8; 32] = [
+        3, 128, 9, 44, 201, 17, 88, 6, 255, 61, 30, 11, 2, 121, 99, 1, 250, 77, 33, 7, 42, 13, 200,
+        176, 22, 5, 66, 100, 19, 240, 8, 91,
+    ];
+
+    fn random_bytes(random: &mut impl Rng, count: usize) -> Vec<u8> {
+        (0..count).map(|_| random.gen()).collect()
+    }
+
+    fn channel_info(scheme: CompressorScheme, width: usize, height: usize) -> ChannelInfo {
+        // Use F16 (2 bytes) as a representative sample type; the layout code
+        // only cares about the byte counts, not the semantics.
+        ChannelInfo {
+            scheme,
+            width,
+            height,
+            bytes_per_sample: SampleType::F16.bytes_per_sample(),
+            sample_type: SampleType::F16,
+            quantize_linearly: false,
+        }
+    }
+
+    /// Splitting interleaved samples into byte planes and interleaving them
+    /// back must be the identity, for several samples-per-byte widths.
+    #[test]
+    fn byte_planes_roundtrip() {
+        let mut random = rand::rngs::StdRng::from_seed(SEED);
+
+        for bytes_per_sample in [2usize, 4] {
+            for sample_count in [0usize, 1, 5, 37] {
+                let original = random_bytes(&mut random, sample_count * bytes_per_sample);
+                let planar = separate_byte_planes(&original, bytes_per_sample);
+                let interleaved = interleave_byte_planes(&planar, bytes_per_sample);
+                assert_eq!(interleaved, original);
+            }
+        }
+    }
+
+    /// Packing UNKNOWN channels into one planar buffer and splitting it back
+    /// out must reproduce every channel's bytes exactly.
+    #[test]
+    fn pack_split_unknown_roundtrip() {
+        let mut random = rand::rngs::StdRng::from_seed(SEED);
+
+        let infos =
+            vec![channel_info(CompressorScheme::Unknown, 4, 3), channel_info(CompressorScheme::Unknown, 5, 2)];
+        let channel_bytes: Vec<Vec<u8>> = infos
+            .iter()
+            .map(|info| random_bytes(&mut random, info.width * info.height * info.bytes_per_sample))
+            .collect();
+
+        let packed = pack_unknown_channels(&infos, &channel_bytes, CompressorScheme::Unknown);
+        let split = split_planar_channels(&infos, CompressorScheme::Unknown, &packed).unwrap();
+
+        assert_eq!(split, channel_bytes);
+    }
+
+    /// RLE channels are packed via byte-plane separation; splitting the planar
+    /// buffer and interleaving each plane back must recover the input bytes.
+    #[test]
+    fn pack_split_rle_roundtrip() {
+        let mut random = rand::rngs::StdRng::from_seed(SEED);
+
+        let infos =
+            vec![channel_info(CompressorScheme::Rle, 4, 3), channel_info(CompressorScheme::Rle, 6, 2)];
+        let channel_bytes: Vec<Vec<u8>> = infos
+            .iter()
+            .map(|info| random_bytes(&mut random, info.width * info.height * info.bytes_per_sample))
+            .collect();
+
+        let packed = pack_rle_channels(&infos, &channel_bytes);
+        // Mirror `mod.rs::decompress`: split the planar buffer per channel,
+        // then interleave each channel's byte planes back to sample order.
+        let planar_per_channel = split_planar_channels(&infos, CompressorScheme::Rle, &packed).unwrap();
+        let decoded: Vec<Vec<u8>> = infos
+            .iter()
+            .zip(&planar_per_channel)
+            .map(|(info, planar)| interleave_byte_planes(planar, info.bytes_per_sample))
+            .collect();
+
+        assert_eq!(decoded, channel_bytes);
+    }
+}
