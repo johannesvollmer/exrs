@@ -7,52 +7,62 @@ use std::{fs, io::Cursor};
 use bencher::Bencher;
 use exr::{image::pixel_vec::PixelVec, prelude::*};
 
-const DWAA_PATH: &str = "tests/images/valid/custom/crowskull/crow_dwa.exr";
-const PIZ_PATH: &str = "tests/images/valid/custom/crowskull/crow_piz.exr";
-
-/// Read uncompressed (always single core)
-fn read_single_image_uncompressed_non_parallel_rgba(bench: &mut Bencher) {
-    let mut file = fs::read("tests/images/valid/custom/crowskull/crow_uncompressed.exr").unwrap();
-    bench.iter(|| {
-        bencher::black_box(&mut file);
-
-        let image = exr::prelude::read()
-            .no_deep_data()
-            .largest_resolution_level()
-            .rgba_channels(PixelVec::<(f32, f32, f32, f32)>::constructor, PixelVec::set_pixel)
-            .all_layers()
-            .all_attributes()
-            .non_parallel()
-            .from_buffered(Cursor::new(file.as_slice()))
-            .unwrap();
-
-        bencher::black_box(image);
-    })
+fn uncompressed_parallel(bench: &mut Bencher) {
+    bench_read_full_image_parallel(
+        bench,
+        "tests/images/valid/custom/crowskull/crow_uncompressed.exr",
+    );
 }
 
-/// Read from in-memory in parallel
-fn read_single_image_uncompressed_rgba(bench: &mut Bencher) {
-    let mut file = fs::read("tests/images/valid/custom/crowskull/crow_uncompressed.exr").unwrap();
-
-    bench.iter(|| {
-        bencher::black_box(&mut file);
-
-        let image = exr::prelude::read()
-            .no_deep_data()
-            .largest_resolution_level()
-            .rgba_channels(PixelVec::<(f32, f32, f32, f32)>::constructor, PixelVec::set_pixel)
-            .all_layers()
-            .all_attributes()
-            .from_buffered(Cursor::new(file.as_slice()))
-            .unwrap();
-
-        bencher::black_box(image);
-    })
+fn rle_parallel(bench: &mut Bencher) {
+    bench_read_full_image_parallel(bench, "tests/images/valid/custom/crowskull/crow_rle.exr");
 }
 
-/// Read with multi-core RLE decompression
-fn read_single_image_rle_all_channels(bench: &mut Bencher) {
-    let mut file = fs::read("tests/images/valid/custom/crowskull/crow_rle.exr").unwrap();
+fn dwa_parallel(bench: &mut Bencher) {
+    bench_read_full_image_parallel(bench, "tests/images/valid/custom/crowskull/crow_dwa.exr");
+}
+
+fn piz_parallel(bench: &mut Bencher) {
+    bench_read_full_image_parallel(bench, "tests/images/valid/custom/crowskull/crow_piz.exr");
+}
+
+fn zips_parallel(bench: &mut Bencher) {
+    bench_read_full_image_parallel(bench, "tests/images/valid/custom/crowskull/crow_zips.exr");
+}
+
+fn zip_parallel(bench: &mut Bencher) {
+    bench_read_full_image_parallel(bench, "tests/images/valid/custom/crowskull/crow_zip.exr");
+}
+
+fn uncompressed_non_parallel(bench: &mut Bencher) {
+    bench_read_full_image_non_parallel(
+        bench,
+        "tests/images/valid/custom/crowskull/crow_uncompressed.exr",
+    );
+}
+
+fn rle_non_parallel(bench: &mut Bencher) {
+    bench_read_full_image_non_parallel(bench, "tests/images/valid/custom/crowskull/crow_rle.exr");
+}
+
+fn dwa_non_parallel(bench: &mut Bencher) {
+    bench_read_full_image_non_parallel(bench, "tests/images/valid/custom/crowskull/crow_dwa.exr");
+}
+
+fn piz_non_parallel(bench: &mut Bencher) {
+    bench_read_full_image_non_parallel(bench, "tests/images/valid/custom/crowskull/crow_piz.exr");
+}
+
+fn zips_non_parallel(bench: &mut Bencher) {
+    bench_read_full_image_non_parallel(bench, "tests/images/valid/custom/crowskull/crow_zips.exr");
+}
+
+fn zip_non_parallel(bench: &mut Bencher) {
+    bench_read_full_image_non_parallel(bench, "tests/images/valid/custom/crowskull/crow_zip.exr");
+}
+
+fn bench_read_full_image_parallel(bench: &mut Bencher, path: &str) {
+    let mut file = fs::read(path).unwrap();
 
     bench.iter(|| {
         bencher::black_box(&mut file);
@@ -63,121 +73,6 @@ fn read_single_image_rle_all_channels(bench: &mut Bencher) {
             .all_channels()
             .all_layers()
             .all_attributes()
-            .from_buffered(Cursor::new(file.as_slice()))
-            .unwrap();
-
-        bencher::black_box(image);
-    })
-}
-
-/// Read without multi-core RLE decompression
-fn read_single_image_rle_non_parallel_all_channels(bench: &mut Bencher) {
-    let mut file = fs::read("tests/images/valid/custom/crowskull/crow_rle.exr").unwrap();
-
-    bench.iter(|| {
-        bencher::black_box(&mut file);
-
-        // copied from `read_all_flat_layers_from_file` and added `.non_parallel()`
-        let image = exr::prelude::read()
-            .no_deep_data()
-            .largest_resolution_level()
-            .all_channels()
-            .all_layers()
-            .all_attributes()
-            .non_parallel()
-            .from_buffered(Cursor::new(file.as_slice()))
-            .unwrap();
-
-        bencher::black_box(image);
-    })
-}
-
-/// Read with multi-core RLE decompression
-fn read_single_image_rle_rgba(bench: &mut Bencher) {
-    let mut file = fs::read("tests/images/valid/custom/crowskull/crow_rle.exr").unwrap();
-
-    bench.iter(|| {
-        bencher::black_box(&mut file);
-
-        let image = exr::prelude::read()
-            .no_deep_data()
-            .largest_resolution_level()
-            .rgba_channels(PixelVec::<(f32, f32, f32, f32)>::constructor, PixelVec::set_pixel)
-            .all_layers()
-            .all_attributes()
-            .from_buffered(Cursor::new(file.as_slice()))
-            .unwrap();
-
-        bencher::black_box(image);
-    })
-}
-
-/// Read without multi-core RLE decompression
-fn read_single_image_rle_non_parallel_rgba(bench: &mut Bencher) {
-    let mut file = fs::read("tests/images/valid/custom/crowskull/crow_rle.exr").unwrap();
-
-    bench.iter(|| {
-        bencher::black_box(&mut file);
-
-        // copied from `read_all_flat_layers_from_file` and added `.non_parallel()`
-        let image = exr::prelude::read()
-            .no_deep_data()
-            .largest_resolution_level()
-            .rgba_channels(PixelVec::<(f32, f32, f32, f32)>::constructor, PixelVec::set_pixel)
-            .all_layers()
-            .all_attributes()
-            .non_parallel()
-            .from_buffered(Cursor::new(file.as_slice()))
-            .unwrap();
-
-        bencher::black_box(image);
-    })
-}
-
-/// Read DWA-compressed data without multi-core decompression
-fn read_single_image_dwaa_non_parallel_all_channels(bench: &mut Bencher) {
-    bench_read_full_image_non_parallel(bench, DWAA_PATH);
-}
-
-/// Read PIZ-compressed data without multi-core decompression
-fn read_single_image_piz_non_parallel_all_channels(bench: &mut Bencher) {
-    bench_read_full_image_non_parallel(bench, PIZ_PATH);
-}
-
-/// Read with multi-core zip decompression
-fn read_single_image_zips_rgba(bench: &mut Bencher) {
-    let mut file = fs::read("tests/images/valid/custom/crowskull/crow_zips.exr").unwrap();
-
-    bench.iter(|| {
-        bencher::black_box(&mut file);
-
-        let image = exr::prelude::read()
-            .no_deep_data()
-            .largest_resolution_level()
-            .rgba_channels(PixelVec::<(f32, f32, f32, f32)>::constructor, PixelVec::set_pixel)
-            .all_layers()
-            .all_attributes()
-            .from_buffered(Cursor::new(file.as_slice()))
-            .unwrap();
-
-        bencher::black_box(image);
-    })
-}
-
-/// Read without multi-core ZIP decompression
-fn read_single_image_zips_non_parallel_rgba(bench: &mut Bencher) {
-    let mut file = fs::read("tests/images/valid/custom/crowskull/crow_zips.exr").unwrap();
-
-    bench.iter(|| {
-        bencher::black_box(&mut file);
-
-        let image = exr::prelude::read()
-            .no_deep_data()
-            .largest_resolution_level()
-            .rgba_channels(PixelVec::<(f32, f32, f32, f32)>::constructor, PixelVec::set_pixel)
-            .all_layers()
-            .all_attributes()
-            .non_parallel()
             .from_buffered(Cursor::new(file.as_slice()))
             .unwrap();
 
@@ -197,7 +92,6 @@ fn bench_read_full_image_non_parallel(bench: &mut Bencher, path: &str) {
             .all_channels()
             .all_layers()
             .all_attributes()
-            .non_parallel()
             .from_buffered(Cursor::new(file.as_slice()))
             .unwrap();
 
@@ -207,16 +101,18 @@ fn bench_read_full_image_non_parallel(bench: &mut Bencher, path: &str) {
 
 benchmark_group!(
     read,
-    read_single_image_uncompressed_rgba,
-    read_single_image_uncompressed_non_parallel_rgba,
-    read_single_image_rle_rgba,
-    read_single_image_rle_non_parallel_rgba,
-    read_single_image_rle_all_channels,
-    read_single_image_rle_non_parallel_all_channels,
-    read_single_image_zips_rgba,
-    read_single_image_zips_non_parallel_rgba,
-    read_single_image_dwaa_non_parallel_all_channels,
-    read_single_image_piz_non_parallel_all_channels,
+    zip_non_parallel,
+    zips_non_parallel,
+    piz_non_parallel,
+    dwa_non_parallel,
+    rle_non_parallel,
+    uncompressed_non_parallel,
+    zip_parallel,
+    zips_parallel,
+    piz_parallel,
+    dwa_parallel,
+    rle_parallel,
+    uncompressed_parallel,
 );
 
 benchmark_main!(read);
