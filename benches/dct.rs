@@ -6,7 +6,7 @@ extern crate bencher;
 extern crate exr;
 
 use bencher::Bencher;
-use exr::compression::dwa::idct::{x86::*, *};
+use exr::compression::dwa::discrete_cosine_transform::{x86::*, *};
 use pulp::x86::{V1, V3};
 
 fn dct_forward_bench_autovectorized(bench: &mut Bencher) {
@@ -40,7 +40,7 @@ fn dct_forward_bench_avx2(bench: &mut Bencher) {
 
     bench.iter(|| {
         for block in blocks.iter_mut() {
-            avx::dct_forward_8x8(v3, block);
+            avx2::dct_forward_8x8(v3, block);
         }
 
         bencher::black_box(&mut blocks);
@@ -52,7 +52,7 @@ fn dct_forward_bench_avx2_batch(bench: &mut Bencher) {
     let v3 = expect_avx2();
 
     bench.iter(|| {
-        avx::dct_forward_8x8_batch(v3, blocks.iter_mut());
+        avx2::dct_forward_8x8_batch(v3, blocks.iter_mut());
 
         bencher::black_box(&mut blocks);
     })
@@ -89,7 +89,7 @@ fn dct_inverse_bench_avx2(bench: &mut Bencher) {
 
     bench.iter(|| {
         for block in blocks.iter_mut() {
-            avx::dct_inverse_8x8(v3, block);
+            avx2::dct_inverse_8x8(v3, block);
         }
 
         bencher::black_box(&mut blocks);
@@ -101,14 +101,14 @@ fn dct_inverse_bench_avx2_batch(bench: &mut Bencher) {
     let v3 = expect_avx2();
 
     bench.iter(|| {
-        avx::dct_inverse_8x8_batch(v3, blocks.iter_mut());
+        avx2::dct_inverse_8x8_batch(v3, blocks.iter_mut());
 
         bencher::black_box(&mut blocks);
     })
 }
 
 fn bench_blocks() -> Vec<[f32; 64]> {
-    testing::pseudo_random_blocks(4096)
+    test::pseudo_random_blocks(4096)
 }
 
 fn expect_avx2() -> V3 {

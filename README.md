@@ -395,19 +395,20 @@ x86/x86-64 binary, and SDE only changes the runtime CPUID/features seen by
 
    Cargo prints the path to the compiled unit-test binary (under
    `target/debug/deps/exr-<hash>`). Since these are now in-crate unit tests, you
-   select a tier by passing the module path as a test-name **filter** (there is
-   no per-file test binary).
+   select a tier by passing a test-name **filter** (there is no per-file test
+   binary). A short substring like `avx2`/`sse2` is enough — it matches the
+   respective `mod avx2_tests`/`mod sse2_tests`.
 
 3. **Run that binary under SDE,** selecting a chip that exposes the target tier
    and filtering to the tier's test module:
 
    ```bash
    # AVX2 — Haswell is the first microarchitecture with AVX2 + FMA
-   sde64 -hsw -- target/debug/deps/exr-<hash> --nocapture compression::dwa::idct::avx2_tests
+   sde64 -hsw -- target/debug/deps/exr-<hash> --nocapture avx2
 
    # SSE2 — Merom is the lowest 64-bit chip SDE models: it has SSE2 but no AVX,
    #        so pulp falls back to the SSE2 kernel
-   sde64 -mrm -- target/debug/deps/exr-<hash> --nocapture compression::dwa::idct::sse2_tests
+   sde64 -mrm -- target/debug/deps/exr-<hash> --nocapture sse2
    ```
 
    The CI workflow asserts the run reports the exact expected number of passing
@@ -426,7 +427,7 @@ If your own CPU already exposes the required tier, you can skip SDE and run the
 tests directly, e.g. on an AVX2-capable machine:
 
 ```bash
-cargo test --lib --features avx2-tests -- compression::dwa::idct::avx2_tests
+cargo test --lib --features avx2-tests -- avx2
 ```
 
 The SSE2 module additionally asserts that AVX2 is *absent*, so it only passes
