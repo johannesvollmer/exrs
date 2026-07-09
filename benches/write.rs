@@ -21,6 +21,10 @@ fn write_parallel_piz_to_buffered(bench: &mut Bencher) {
     bench_write_full_image_parallel(bench, Compression::PIZ);
 }
 
+fn write_parallel_pxr24_to_buffered(bench: &mut Bencher) {
+    bench_write_full_image_parallel(bench, Compression::PXR24);
+}
+
 fn write_parallel_zip16_to_buffered(bench: &mut Bencher) {
     bench_write_full_image_parallel(bench, Compression::ZIP16);
 }
@@ -45,11 +49,11 @@ fn bench_write_full_image_parallel(bench: &mut Bencher, compression: Compression
 
 benchmark_group!(
     write,
-    write_parallel_zip1_to_buffered,
     write_parallel_dwaa_to_buffered,
     write_parallel_piz_to_buffered,
     write_parallel_zip1_to_buffered,
     write_parallel_zip16_to_buffered,
+    write_parallel_pxr24_to_buffered,
     write_uncompressed_to_buffered
 );
 
