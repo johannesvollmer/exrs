@@ -153,8 +153,8 @@ jobs:
         include:
           - name: avx2
             feature: avx2-tests
-            filter: "compression::dwa::idct::avx2_tests"
-            # Bump when adding/removing tests in `mod avx2_tests` (idct.rs).
+            filter: "avx2"
+            # Bump when adding/removing avx tests
             expected_tests: 4
             # Haswell: first microarchitecture with AVX2+FMA.
             # `-C target-feature` unset explicitly to force runtime dispatching
@@ -162,8 +162,8 @@ jobs:
 
           - name: sse2
             feature: sse2-tests
-            filter: "compression::dwa::idct::sse2_tests"
-            # Bump when adding/removing tests in `mod sse2_tests` (idct.rs).
+            filter: "sse2"
+            # Bump when adding/removing sse tests
             expected_tests: 2
             # Merom: the lowest 64-bit chip SDE models. Has SSE2 but no AVX,
             # `-C target-feature` unset explicitly to force runtime dispatching
