@@ -108,7 +108,7 @@ fn dct_inverse_bench_avx2_batch(bench: &mut Bencher) {
 }
 
 fn bench_blocks() -> Vec<[f32; 64]> {
-    testing::pseudo_random_blocks(4096)
+    test::pseudo_random_blocks(4096)
 }
 
 fn expect_avx2() -> V3 {

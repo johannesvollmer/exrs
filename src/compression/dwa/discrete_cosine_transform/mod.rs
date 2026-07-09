@@ -19,12 +19,11 @@
 #[doc(hidden)]
 pub mod x86;
 
+// public only for benchmarking (benches/dct.rs reaches
+// `test::pseudo_random_blocks`)
 #[cfg(any(test, feature = "simd-benches"))]
 #[doc(hidden)]
-pub mod testing;
-
-#[cfg(test)]
-mod tests;
+pub mod test;
 
 // Autovectorized fallback: OpenEXRs "dctInverse8x8_scalar", including its
 // truncated PI constant and summation order. Written as straightforward
