@@ -3,23 +3,24 @@
 
 use std::path::Path;
 use pulp::x86::{V3};
+use exr::{image::validate_results::ValidateResult, prelude::*};
 use exr::compression::dwa::idct::*;
 use exr::compression::dwa::idct::x86::*;
 
 #[test]
-pub fn avx2_inverse_matches_scalar() {
+pub fn avx2_inverse_matches_autovectorized() {
     testing::assert_blocks_match(
         "AVX2 inverse DCT",
-        dct_inverse_8x8_scalar,
+        dct_inverse_8x8_autovectorized,
         |data| avx::dct_inverse_8x8(expect_avx2(), data),
     );
 }
 
 #[test]
-pub fn avx2_forward_matches_scalar() {
+pub fn avx2_forward_matches_autovectorized() {
     testing::assert_blocks_match(
         "AVX2 forward DCT",
-        dct_forward_8x8_scalar,
+        dct_forward_8x8_autovectorized,
         |data| avx::dct_forward_8x8(expect_avx2(), data),
     );
 }

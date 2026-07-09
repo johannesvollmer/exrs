@@ -35,6 +35,8 @@ pub mod x86 {
     pub mod avx {
         use pulp::{f32x8, x86::V3};
 
+        use super::forward_basis;
+
         // OpenEXRs hardcoded AVX basis constants ("sAvxCoef").
         const A: f32 = 3.535536e-1;
         const B: f32 = 4.903927e-1;
@@ -267,6 +269,98 @@ pub mod x86 {
                 }
             });
         }
+
+        struct ForwardCoefficients {
+            terms: [f32x8; 8],
+        }
+
+        impl ForwardCoefficients {
+            #[inline(always)]
+            fn new(_v3: V3) -> Self {
+                let basis = forward_basis();
+                Self {
+                    terms: std::array::from_fn(|input| {
+                        let row = basis[input];
+                        f32x8(row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7])
+                    }),
+                }
+            }
+        }
+
+        #[inline(always)]
+        fn forward_pass(v3: V3, coef: &ForwardCoefficients, input: [f32; 8]) -> f32x8 {
+            let mul = |a, b| v3.mul_f32x8(a, b);
+            let add = |a, b| v3.add_f32x8(a, b);
+            let splat = |value: f32| v3.splat_f32x8(value);
+
+            let mut out = v3.splat_f32x8(0.0);
+            for index in 0..8 {
+                out = add(out, mul(splat(input[index]), coef.terms[index]));
+            }
+            out
+        }
+
+        // TODO just #[test]
+        #[cfg(any(feature = "avx2-tests", feature = "simd-benches"))]
+        pub fn dct_forward_8x8(v3: V3, data: &mut [f32; 64]) {
+            dct_forward_8x8_batch(v3, std::iter::once(data));
+        }
+
+        pub fn dct_forward_8x8_batch<'a>(
+            v3: V3,
+            blocks: impl Iterator<Item = &'a mut [f32; 64]>,
+        ) {
+            v3.vectorize(move || {
+                let coef = ForwardCoefficients::new(v3);
+
+                for data in blocks {
+                    for row in 0..8 {
+                        let base = row * 8;
+                        let input = [
+                            data[base],
+                            data[base + 1],
+                            data[base + 2],
+                            data[base + 3],
+                            data[base + 4],
+                            data[base + 5],
+                            data[base + 6],
+                            data[base + 7],
+                        ];
+                        let out = forward_pass(v3, &coef, input);
+                        data[base] = out.0;
+                        data[base + 1] = out.1;
+                        data[base + 2] = out.2;
+                        data[base + 3] = out.3;
+                        data[base + 4] = out.4;
+                        data[base + 5] = out.5;
+                        data[base + 6] = out.6;
+                        data[base + 7] = out.7;
+                    }
+
+                    for column in 0..8 {
+                        let input = [
+                            data[column],
+                            data[8 + column],
+                            data[16 + column],
+                            data[24 + column],
+                            data[32 + column],
+                            data[40 + column],
+                            data[48 + column],
+                            data[56 + column],
+                        ];
+                        let out = forward_pass(v3, &coef, input);
+                        data[column] = out.0;
+                        data[8 + column] = out.1;
+                        data[16 + column] = out.2;
+                        data[24 + column] = out.3;
+                        data[32 + column] = out.4;
+                        data[40 + column] = out.5;
+                        data[48 + column] = out.6;
+                        data[56 + column] = out.7;
+                    }
+                }
+            });
+        }
     }
 
     // SSE2 V1 tier: OpenEXRs "dctInverse8x8_sse2". Vectorizes 4
@@ -274,6 +368,8 @@ pub mod x86 {
     // so the two are not bit-identical.
     pub mod sse2 {
         use pulp::{f32x4, x86::V1};
+
+        use super::forward_basis;
 
         const A: f32 = 3.535536e-1;
         const B: f32 = 4.903927e-1;
@@ -449,6 +545,92 @@ pub mod x86 {
                 }
             }
         }
+
+        struct ForwardCoefficients {
+            low: [f32x4; 8],
+            high: [f32x4; 8],
+        }
+
+        impl ForwardCoefficients {
+            #[inline(always)]
+            fn new(_v1: V1) -> Self {
+                let basis = forward_basis();
+                Self {
+                    low: std::array::from_fn(|input| {
+                        let row = basis[input];
+                        f32x4(row[0], row[1], row[2], row[3])
+                    }),
+                    high: std::array::from_fn(|input| {
+                        let row = basis[input];
+                        f32x4(row[4], row[5], row[6], row[7])
+                    }),
+                }
+            }
+        }
+
+        #[inline(always)]
+        fn forward_pass(v1: V1, coef: &[f32x4; 8], input: [f32; 8]) -> f32x4 {
+            let mul = |a, b| v1.mul_f32x4(a, b);
+            let add = |a, b| v1.add_f32x4(a, b);
+            let splat = |value: f32| v1.splat_f32x4(value);
+
+            let mut out = v1.splat_f32x4(0.0);
+            for index in 0..8 {
+                out = add(out, mul(splat(input[index]), coef[index]));
+            }
+            out
+        }
+
+        pub fn dct_forward_8x8(v1: V1, data: &mut [f32; 64]) {
+            let coef = ForwardCoefficients::new(v1);
+
+            for row in 0..8 {
+                let base = row * 8;
+                let input = [
+                    data[base],
+                    data[base + 1],
+                    data[base + 2],
+                    data[base + 3],
+                    data[base + 4],
+                    data[base + 5],
+                    data[base + 6],
+                    data[base + 7],
+                ];
+                let low = forward_pass(v1, &coef.low, input);
+                let high = forward_pass(v1, &coef.high, input);
+                data[base] = low.0;
+                data[base + 1] = low.1;
+                data[base + 2] = low.2;
+                data[base + 3] = low.3;
+                data[base + 4] = high.0;
+                data[base + 5] = high.1;
+                data[base + 6] = high.2;
+                data[base + 7] = high.3;
+            }
+
+            for column in 0..8 {
+                let input = [
+                    data[column],
+                    data[8 + column],
+                    data[16 + column],
+                    data[24 + column],
+                    data[32 + column],
+                    data[40 + column],
+                    data[48 + column],
+                    data[56 + column],
+                ];
+                let low = forward_pass(v1, &coef.low, input);
+                let high = forward_pass(v1, &coef.high, input);
+                data[column] = low.0;
+                data[8 + column] = low.1;
+                data[16 + column] = low.2;
+                data[24 + column] = low.3;
+                data[32 + column] = high.0;
+                data[40 + column] = high.1;
+                data[48 + column] = high.2;
+                data[56 + column] = high.3;
+            }
+        }
     }
 
     pub fn forward_basis() -> &'static [[f32; 8]; 8] {
@@ -474,203 +656,17 @@ pub mod x86 {
         })
     }
 
-    pub mod forward {
-        use pulp::{
-            f32x4, f32x8,
-            x86::{V1, V3},
-        };
-
-        use super::forward_basis;
-
-        struct Coefficients8 {
-            terms: [f32x8; 8],
-        }
-
-        impl Coefficients8 {
-            #[inline(always)]
-            fn new(_v3: V3) -> Self {
-                let basis = forward_basis();
-                Self {
-                    terms: std::array::from_fn(|input| {
-                        let row = basis[input];
-                        f32x8(row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7])
-                    }),
-                }
-            }
-        }
-
-        struct Coefficients4 {
-            low: [f32x4; 8],
-            high: [f32x4; 8],
-        }
-
-        impl Coefficients4 {
-            #[inline(always)]
-            fn new(_v1: V1) -> Self {
-                let basis = forward_basis();
-                Self {
-                    low: std::array::from_fn(|input| {
-                        let row = basis[input];
-                        f32x4(row[0], row[1], row[2], row[3])
-                    }),
-                    high: std::array::from_fn(|input| {
-                        let row = basis[input];
-                        f32x4(row[4], row[5], row[6], row[7])
-                    }),
-                }
-            }
-        }
-
-        #[inline(always)]
-        fn forward_pass8(v3: V3, coef: &Coefficients8, input: [f32; 8]) -> f32x8 {
-            let mul = |a, b| v3.mul_f32x8(a, b);
-            let add = |a, b| v3.add_f32x8(a, b);
-            let splat = |value: f32| v3.splat_f32x8(value);
-
-            let mut out = v3.splat_f32x8(0.0);
-            for index in 0..8 {
-                out = add(out, mul(splat(input[index]), coef.terms[index]));
-            }
-            out
-        }
-
-        #[inline(always)]
-        fn forward_pass4(v1: V1, coef: &[f32x4; 8], input: [f32; 8]) -> f32x4 {
-            let mul = |a, b| v1.mul_f32x4(a, b);
-            let add = |a, b| v1.add_f32x4(a, b);
-            let splat = |value: f32| v1.splat_f32x4(value);
-
-            let mut out = v1.splat_f32x4(0.0);
-            for index in 0..8 {
-                out = add(out, mul(splat(input[index]), coef[index]));
-            }
-            out
-        }
-
-        #[allow(dead_code)]
-        pub(super) fn dct_forward_8x8(v3: V3, data: &mut [f32; 64]) {
-            dct_forward_8x8_batch(v3, std::iter::once(data));
-        }
-
-        pub(super) fn dct_forward_8x8_batch<'a>(
-            v3: V3,
-            blocks: impl Iterator<Item = &'a mut [f32; 64]>,
-        ) {
-            v3.vectorize(move || {
-                let coef = Coefficients8::new(v3);
-
-                for data in blocks {
-                    for row in 0..8 {
-                        let base = row * 8;
-                        let input = [
-                            data[base],
-                            data[base + 1],
-                            data[base + 2],
-                            data[base + 3],
-                            data[base + 4],
-                            data[base + 5],
-                            data[base + 6],
-                            data[base + 7],
-                        ];
-                        let out = forward_pass8(v3, &coef, input);
-                        data[base] = out.0;
-                        data[base + 1] = out.1;
-                        data[base + 2] = out.2;
-                        data[base + 3] = out.3;
-                        data[base + 4] = out.4;
-                        data[base + 5] = out.5;
-                        data[base + 6] = out.6;
-                        data[base + 7] = out.7;
-                    }
-
-                    for column in 0..8 {
-                        let input = [
-                            data[column],
-                            data[8 + column],
-                            data[16 + column],
-                            data[24 + column],
-                            data[32 + column],
-                            data[40 + column],
-                            data[48 + column],
-                            data[56 + column],
-                        ];
-                        let out = forward_pass8(v3, &coef, input);
-                        data[column] = out.0;
-                        data[8 + column] = out.1;
-                        data[16 + column] = out.2;
-                        data[24 + column] = out.3;
-                        data[32 + column] = out.4;
-                        data[40 + column] = out.5;
-                        data[48 + column] = out.6;
-                        data[56 + column] = out.7;
-                    }
-                }
-            });
-        }
-
-        pub(super) fn dct_forward_8x8_sse2(v1: V1, data: &mut [f32; 64]) {
-            let coef = Coefficients4::new(v1);
-
-            for row in 0..8 {
-                let base = row * 8;
-                let input = [
-                    data[base],
-                    data[base + 1],
-                    data[base + 2],
-                    data[base + 3],
-                    data[base + 4],
-                    data[base + 5],
-                    data[base + 6],
-                    data[base + 7],
-                ];
-                let low = forward_pass4(v1, &coef.low, input);
-                let high = forward_pass4(v1, &coef.high, input);
-                data[base] = low.0;
-                data[base + 1] = low.1;
-                data[base + 2] = low.2;
-                data[base + 3] = low.3;
-                data[base + 4] = high.0;
-                data[base + 5] = high.1;
-                data[base + 6] = high.2;
-                data[base + 7] = high.3;
-            }
-
-            for column in 0..8 {
-                let input = [
-                    data[column],
-                    data[8 + column],
-                    data[16 + column],
-                    data[24 + column],
-                    data[32 + column],
-                    data[40 + column],
-                    data[48 + column],
-                    data[56 + column],
-                ];
-                let low = forward_pass4(v1, &coef.low, input);
-                let high = forward_pass4(v1, &coef.high, input);
-                data[column] = low.0;
-                data[8 + column] = low.1;
-                data[16 + column] = low.2;
-                data[24 + column] = low.3;
-                data[32 + column] = high.0;
-                data[40 + column] = high.1;
-                data[48 + column] = high.2;
-                data[56 + column] = high.3;
-            }
-        }
-    }
-
     pub(super) fn try_dct_forward_8x8_batch<'a, I>(blocks: &mut I) -> bool
     where
         I: Iterator<Item = &'a mut [f32; 64]>,
     {
         if let Some(v3) = V3::try_new() {
-            forward::dct_forward_8x8_batch(v3, blocks);
+            avx::dct_forward_8x8_batch(v3, blocks);
             return true;
         }
         if let Some(v1) = V1::try_new() {
             for data in blocks {
-                forward::dct_forward_8x8_sse2(v1, data);
+                sse2::dct_forward_8x8(v1, data);
             }
             return true;
         }
@@ -697,9 +693,10 @@ pub mod x86 {
 }
 
 
-// Scalar fallback: OpenEXRs "dctInverse8x8_scalar", including its
-// truncated PI constant and summation order.
-pub fn dct_inverse_8x8_scalar(data: &mut [f32; 64]) {
+// Autovectorized fallback: OpenEXRs "dctInverse8x8_scalar", including its
+// truncated PI constant and summation order. Written as straightforward
+// fixed-size loops that LLVM can autovectorize without explicit SIMD.
+pub fn dct_inverse_8x8_autovectorized(data: &mut [f32; 64]) {
     const PI: f32 = 3.14159;
 
     let a = 0.5 * (PI / 4.0).cos();
@@ -799,12 +796,12 @@ pub fn dct_inverse_8x8_scalar(data: &mut [f32; 64]) {
     }
 }
 
-/// Scalar forward DCT for DWA 8x8 blocks. This intentionally uses the
+/// Autovectorized forward DCT for DWA 8x8 blocks. This intentionally uses the
 /// straightforward separable DCT formula for the first encoder version; LLVM
 /// can still optimize the fixed-size loops without adding explicit SIMD paths.
-pub fn dct_forward_8x8_scalar(data: &mut [f32; 64]) {
+pub fn dct_forward_8x8_autovectorized(data: &mut [f32; 64]) {
     // The forward path mirrors the inverse path's fixed 8x8 basis, but keeps
-    // the implementation scalar and easy to verify against the reference.
+    // the implementation autovectorized and easy to verify against the reference.
     const PI: f32 = 3.14159;
     const INV_SQRT_2: f32 = 0.70710677;
 
@@ -848,7 +845,7 @@ pub fn dct_forward_8x8_batch<'a>(mut blocks: impl Iterator<Item = &'a mut [f32; 
     }
 
     for data in blocks {
-        dct_forward_8x8_scalar(data);
+        dct_forward_8x8_autovectorized(data);
     }
 }
 
@@ -862,7 +859,7 @@ pub fn dct_inverse_8x8_batch<'a>(mut blocks: impl Iterator<Item = &'a mut [f32; 
     }
 
     for data in blocks {
-        dct_inverse_8x8_scalar(data);
+        dct_inverse_8x8_autovectorized(data);
     }
 }
 
@@ -874,21 +871,21 @@ pub fn dct_inverse_8x8_dc_only(data: &mut [f32; 64]) {
     }
 }
 
+// TODO just #[test]
 // TODO pub(crate)
-#[cfg(test)]
+#[cfg(any(test, feature = "avx2-tests", feature = "sse2-tests", feature = "simd-benches"))]
 pub mod testing {
-    use rand::distributions::Distribution;
     use crate::compression::dwa::idct::{dct_forward_8x8_batch, dct_inverse_8x8_batch};
 
     #[allow(unused)]
     pub fn assert_blocks_match(
         label: &str,
-        scalar: fn(&mut [f32; 64]),
+        autovectorized: fn(&mut [f32; 64]),
         kernel: impl Fn(&mut [f32; 64]),
     ) {
         for mut expected in pseudo_random_blocks(64) {
             let mut actual = expected;
-            scalar(&mut expected);
+            autovectorized(&mut expected);
             kernel(&mut actual);
 
             for (e, a) in expected.iter().zip(actual.iter()) {
@@ -904,7 +901,7 @@ pub mod testing {
 
     // Deterministic blocks in the ballpark of half-precision DCT coefficients
     // (xorshift64, no `rand` dependency. Shared by the
-    // correctness tests below and by the forced-tier benchmark in benches/idct.rs.
+    // correctness tests below and by the forced-tier benchmark in benches/dct.rs.
     #[allow(unused)]
     pub fn pseudo_random_blocks(count: usize) -> Vec<[f32; 64]> {
         let mut state: u64 = 0x9e3779b97f4a7c15;

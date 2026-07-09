@@ -6,19 +6,19 @@ use exr::compression::dwa::idct::x86::*;
 
 
 #[test]
-pub fn assert_sse2_close_to_scalar_reference() {
+pub fn assert_sse2_close_to_autovectorized_reference() {
     testing::assert_blocks_match(
         "SSE2 inverse DCT",
-        dct_inverse_8x8_scalar,
+        dct_inverse_8x8_autovectorized,
         |data| sse2::dct_inverse_8x8(expect_sse2_without_avx2(), data),
     );
 }
 
 #[test]
-pub fn assert_sse2_forward_close_to_scalar_reference() {
+pub fn assert_sse2_forward_close_to_autovectorized_reference() {
     testing::assert_blocks_match(
         "SSE2 forward DCT",
-        dct_forward_8x8_scalar,
+        dct_forward_8x8_autovectorized,
         |data| sse2::dct_forward_8x8(expect_sse2_without_avx2(), data),
     );
 }

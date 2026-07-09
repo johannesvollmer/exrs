@@ -16,7 +16,7 @@ fn dct_forward_bench_autovectorized(bench: &mut Bencher) {
 
     bench.iter(|| {
         for block in blocks.iter_mut() {
-            dct_forward_8x8_forced_scalar(block);
+            dct_forward_8x8_autovectorized(block);
         }
 
         bencher::black_box(&mut blocks);
@@ -29,7 +29,7 @@ fn dct_forward_bench_sse2(bench: &mut Bencher) {
 
     bench.iter(|| {
         for block in blocks.iter_mut() {
-            se2::dct_forward_8x8(v1, block);
+            sse2::dct_forward_8x8(v1, block);
         }
 
         bencher::black_box(&mut blocks);
@@ -65,7 +65,7 @@ fn dct_inverse_bench_autovectorized(bench: &mut Bencher) {
 
     bench.iter(|| {
         for block in blocks.iter_mut() {
-            dct_inverse_8x8_forced_scalar(block);
+            dct_inverse_8x8_autovectorized(block);
         }
 
         bencher::black_box(&mut blocks);
@@ -78,7 +78,7 @@ fn dct_inverse_bench_sse2(bench: &mut Bencher) {
 
     bench.iter(|| {
         for block in blocks.iter_mut() {
-            dct_inverse_8x8_forced_sse2(v1, block);
+            sse2::dct_inverse_8x8(v1, block);
         }
 
         bencher::black_box(&mut blocks);
@@ -91,7 +91,7 @@ fn dct_inverse_bench_avx2(bench: &mut Bencher) {
 
     bench.iter(|| {
         for block in blocks.iter_mut() {
-            dct_inverse_8x8_forced_avx2(v3, block);
+            avx::dct_inverse_8x8(v3, block);
         }
 
         bencher::black_box(&mut blocks);
@@ -103,7 +103,7 @@ fn dct_inverse_bench_avx2_batch(bench: &mut Bencher) {
     let v3 = expect_avx2();
 
     bench.iter(|| {
-        dct_inverse_8x8_forced_avx2_batch(v3, blocks.iter_mut());
+        avx::dct_inverse_8x8_batch(v3, blocks.iter_mut());
 
         bencher::black_box(&mut blocks);
     })
@@ -119,11 +119,6 @@ fn expect_avx2() -> V3 {
 
 fn expect_sse2() -> V1 {
     V1::try_new().expect("SSE2 SIMD mode requested, but the SSE2 tier is unavailable")
-}
-
-fn expect_sse2_without_avx2() -> V1 {
-    assert!(V3::try_new().is_none(), "SSE2 dispatch fallback test must run with AVX2 hidden");
-    expect_sse2()
 }
 
 benchmark_group!(
