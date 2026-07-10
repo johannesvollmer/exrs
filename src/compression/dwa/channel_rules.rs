@@ -13,6 +13,7 @@ use crate::{
 /// One channel classification rule (`Classifier` in
 /// internal_dwa_classifier.h): matches a channel by name suffix and sample
 /// type, and assigns its compression scheme.
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct Rule {
     suffix: Cow<'static, str>,
     pub(super) scheme: CompressorScheme,
@@ -253,4 +254,60 @@ pub(super) fn write_relevant_channel_rules(
     out.extend_from_slice(&total_size.to_le_bytes());
     out.extend_from_slice(&payload);
     Ok(out)
+}
+
+#[cfg(test)]
+mod test {
+    use smallvec::smallvec;
+
+    use super::*;
+    use crate::meta::attribute::ChannelDescription;
+
+    /// Writing a single rule and parsing it back must preserve every field.
+    #[test]
+    fn single_rule_write_parse_roundtrip() {
+        for original in default_channel_rules().into_iter().chain(legacy_channel_rules()) {
+            let mut bytes = Vec::new();
+            original.write(&mut bytes).unwrap();
+            assert_eq!(bytes.len(), original.serialized_size());
+
+            let mut data = bytes.as_slice();
+            let parsed = parse_rule(&mut data).unwrap();
+
+            assert_eq!(parsed, original);
+            assert!(data.is_empty(), "parse_rule must consume exactly one rule");
+        }
+    }
+
+    /// The u16-size-prefixed relevant-rules block must survive a
+    /// write -> parse -> re-write roundtrip byte-for-byte, which also proves
+    /// `parse_channel_rules` and `parse_rule` agree with the writer.
+    #[test]
+    fn relevant_rules_block_roundtrip() {
+        let channels = ChannelList::new(smallvec![
+            ChannelDescription::named("R", SampleType::F16),
+            ChannelDescription::named("G", SampleType::F16),
+            ChannelDescription::named("B", SampleType::F16),
+            ChannelDescription::named("A", SampleType::F16),
+        ]);
+
+        let block = write_relevant_channel_rules(&default_channel_rules(), &channels).unwrap();
+
+        let mut input = block.as_slice();
+        let parsed = parse_channel_rules(&mut input).unwrap();
+        assert!(input.is_empty(), "the block is fully described by its u16 size prefix");
+        assert!(!parsed.is_empty(), "R/G/B/A channels must match at least one rule");
+
+        // Re-serialize the parsed rules in the same u16-size-prefixed form and
+        // require it to be identical to what the encoder wrote.
+        let mut payload = Vec::new();
+        for rule in &parsed {
+            rule.write(&mut payload).unwrap();
+        }
+        let mut rebuilt = Vec::new();
+        rebuilt.extend_from_slice(&((payload.len() + 2) as u16).to_le_bytes());
+        rebuilt.extend_from_slice(&payload);
+
+        assert_eq!(rebuilt, block);
+    }
 }

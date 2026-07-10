@@ -154,3 +154,79 @@ pub(super) fn from_half_zigzag(zig_zag: &[u16; 64], dst: &mut [f32; 64]) {
         *slot = f16::from_bits(zig_zag[src_index]).to_f32();
     }
 }
+
+// Note: `quantize_coefficients_to_zigzag`/`from_half_zigzag` are intentionally
+// not roundtrip-tested for value equality. The zig-zag scatter/gather
+// permutations are exact inverses, but `quantize_coefficients_to_zigzag` also
+// lossily quantizes the coefficients, so `from_half_zigzag(quantize(x)) != x`
+// by design. The lossless half of quantization is the AC run-length coding
+// below, which is what these tests cover.
+#[cfg(test)]
+mod test {
+    use rand::{Rng, SeedableRng};
+
+    use super::*;
+
+    const SEED: [u8; 32] = [
+        250, 77, 33, 7, 42, 13, 200, 176, 22, 5, 66, 100, 19, 240, 8, 91, 3, 128, 9, 44, 201, 17,
+        88, 6, 255, 61, 30, 11, 2, 121, 99, 1,
+    ];
+
+    /// Run-length-encode an AC block, decode it back, and require the AC
+    /// coefficients (indices 1..64) to be recovered exactly. Index 0 (DC) is
+    /// not part of the AC stream, so it is kept zero on both sides.
+    fn assert_ac_roundtrips(block: [u16; 64]) {
+        let mut ac = Vec::new();
+        rle_ac(&block, &mut ac);
+
+        let mut stream = PackedStream::new(&ac);
+        let mut decoded = [0u16; 64];
+        un_rle_ac(&mut stream, &mut decoded).unwrap();
+
+        assert_eq!(decoded, block);
+    }
+
+    #[test]
+    fn ac_run_length_roundtrip_hardcoded() {
+        // All-zero AC (immediate end-of-block).
+        assert_ac_roundtrips([0u16; 64]);
+
+        // No zeros at all: every AC coefficient is a literal.
+        let mut dense = [0u16; 64];
+        for (index, slot) in dense.iter_mut().enumerate().skip(1) {
+            *slot = index as u16;
+        }
+        assert_ac_roundtrips(dense);
+
+        // A mix of literals, an interior zero run, a single isolated zero, and
+        // a trailing zero run that ends the block.
+        let mut mixed = [0u16; 64];
+        mixed[1] = 5;
+        // mixed[2..10] stay zero -> interior run
+        mixed[10] = 7;
+        mixed[11] = 0; // isolated single zero
+        mixed[12] = 9;
+        // mixed[13..64] stay zero -> trailing run to end
+        assert_ac_roundtrips(mixed);
+    }
+
+    #[test]
+    fn ac_run_length_roundtrip_seeded() {
+        let mut random = rand::rngs::StdRng::from_seed(SEED);
+
+        for _ in 0..64 {
+            let mut block = [0u16; 64];
+            for slot in block.iter_mut().skip(1) {
+                // ~30% zeros to exercise runs; non-zero literals must stay out
+                // of the 0xff00..=0xffff token range the format reserves for
+                // zero-run markers.
+                *slot = if random.gen_bool(0.3) {
+                    0
+                } else {
+                    random.gen_range(1..=0xfeff)
+                };
+            }
+            assert_ac_roundtrips(block);
+        }
+    }
+}
