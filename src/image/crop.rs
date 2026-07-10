@@ -3,6 +3,7 @@
 
 use crate::{
     block::BlockIndex,
+    error::{Error, Result},
     image::{
         write::channels::{ChannelsWriter, GetPixel, WritableChannels},
         AnyChannel, AnyChannels, FlatSamples, FlatSamplesPixel, Layer, SpecificChannels,
@@ -194,19 +195,19 @@ where
                                                 // reflects the changes
     }
 
-    fn infer_level_modes(&self) -> (LevelMode, RoundingMode) {
+    fn infer_level_modes(&self) -> Result<(LevelMode, RoundingMode)> {
         self.full_channels.infer_level_modes()
     }
 
-    fn create_writer(&'slf self, header: &Header) -> Self::Writer {
+    fn create_writer(&'slf self, header: &Header) -> Result<Self::Writer> {
         let offset = (self.cropped_bounds.position - self.full_bounds.position)
             .to_usize("invalid cropping bounds for cropped view")
             .unwrap();
 
-        CroppedWriter {
-            channels: self.full_channels.create_writer(header),
+        Ok(CroppedWriter {
+            channels: self.full_channels.create_writer(header)?,
             offset,
-        }
+        })
     }
 }
 
@@ -221,7 +222,7 @@ impl<'c, Channels> ChannelsWriter for CroppedWriter<Channels>
 where
     Channels: ChannelsWriter,
 {
-    fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex) -> Vec<u8> {
+    fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex) -> Result<Vec<u8>> {
         let block = BlockIndex {
             pixel_position: block.pixel_position + self.offset,
             ..block
@@ -462,24 +463,27 @@ impl<Cropped, Original> CropResult<Cropped, Original> {
     /// transparent pixels instead, leaving the layer intact while reducing
     /// memory usage.
     ///
-    /// # Panics
-    /// Panics if the layer has zero width and height (which indicates an
-    /// invalid layer state). This should never happen with properly
+    /// # Errors
+    /// Returns an error if the layer has zero width and height (which indicates
+    /// an invalid layer state). This should never happen with properly
     /// constructed images.
-    pub fn or_crop_to_1x1_if_empty(self) -> Cropped
+    pub fn or_crop_to_1x1_if_empty(self) -> Result<Cropped>
     where
         Original: Crop<Cropped = Cropped> + GetBounds,
     {
         match self {
-            CropResult::Cropped(cropped) => cropped,
+            CropResult::Cropped(cropped) => Ok(cropped),
             CropResult::Empty {
                 original,
             } => {
                 let bounds = original.bounds();
                 if bounds.size == Vec2(0, 0) {
-                    unreachable!("layer has zero width and height - this indicates an invalid layer state that should have been caught during construction")
+                    Err(Error::invalid(
+                        "layer has zero width and height - this indicates an invalid layer state",
+                    ))
+                } else {
+                    Ok(original.crop(IntegerBounds::new(bounds.position, Vec2(1, 1))))
                 }
-                original.crop(IntegerBounds::new(bounds.position, Vec2(1, 1)))
             }
         }
     }

@@ -18,20 +18,20 @@ pub trait WritableChannels<'slf> {
 
     ///  Generate the file meta data of whether and how resolution levels should
     /// be stored in the file
-    fn infer_level_modes(&self) -> (LevelMode, RoundingMode);
+    fn infer_level_modes(&self) -> Result<(LevelMode, RoundingMode)>;
 
     /// The type of temporary writer
     type Writer: ChannelsWriter;
 
     /// Create a temporary writer for this list of channels
-    fn create_writer(&'slf self, header: &Header) -> Self::Writer;
+    fn create_writer(&'slf self, header: &Header) -> Result<Self::Writer>;
 }
 
 /// A temporary writer for a list of channels
 pub trait ChannelsWriter: Sync {
     /// Deliver a block of pixels, containing all channel data, to be stored in
     /// the file
-    fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex) -> Vec<u8>; // TODO return uncompressed block?
+    fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex) -> Result<Vec<u8>>; // TODO return uncompressed block?
 }
 
 /// Define how to get a pixel from your custom pixel storage.
@@ -79,27 +79,30 @@ where
         )
     }
 
-    fn infer_level_modes(&self) -> (LevelMode, RoundingMode) {
-        let mode =
-            self.list.iter().next().expect("zero channels in list").sample_data.infer_level_modes();
+    fn infer_level_modes(&self) -> Result<(LevelMode, RoundingMode)> {
+        let first = self
+            .list
+            .iter()
+            .next()
+            .ok_or_else(|| Error::invalid("cannot infer level modes: channel list is empty"))?;
+        let mode = first.sample_data.infer_level_modes()?;
 
-        debug_assert!(
-            std::iter::repeat(mode)
-                .zip(self.list.iter().skip(1))
-                .all(|(first, other)| other.sample_data.infer_level_modes() == first),
-            "level mode must be the same across all levels (do not nest resolution levels!)"
-        );
+        for other in self.list.iter().skip(1) {
+            if other.sample_data.infer_level_modes()? != mode {
+                return Err(Error::invalid("level mode must be the same across all levels (do not nest resolution levels!)"));
+            }
+        }
 
-        mode
+        Ok(mode)
     }
 
-    fn create_writer(&'samples self, header: &Header) -> Self::Writer {
-        let channels =
+    fn create_writer(&'samples self, header: &Header) -> Result<Self::Writer> {
+        let channels: Result<SmallVec<_>> =
             self.list.iter().map(|chan| chan.sample_data.create_samples_writer(header)).collect();
 
-        AnyChannelsWriter {
-            channels,
-        }
+        Ok(AnyChannelsWriter {
+            channels: channels?,
+        })
     }
 }
 
@@ -113,13 +116,15 @@ impl<Samples> ChannelsWriter for AnyChannelsWriter<Samples>
 where
     Samples: SamplesWriter,
 {
-    fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Vec<u8> {
+    fn extract_uncompressed_block(
+        &self,
+        header: &Header,
+        block_index: BlockIndex,
+    ) -> Result<Vec<u8>> {
         UncompressedBlock::collect_block_data_from_lines(
             &header.channels,
             block_index,
-            |line_ref| {
-                self.channels[line_ref.location.channel].extract_line(line_ref);
-            },
+            |line_ref| self.channels[line_ref.location.channel].extract_line(line_ref),
         )
     }
 }
@@ -154,19 +159,19 @@ where
         ChannelList::new(vec)
     }
 
-    fn infer_level_modes(&self) -> (LevelMode, RoundingMode) {
-        (LevelMode::Singular, RoundingMode::Down) // TODO
+    fn infer_level_modes(&self) -> Result<(LevelMode, RoundingMode)> {
+        Ok((LevelMode::Singular, RoundingMode::Down)) // TODO
     }
 
-    fn create_writer(&'c self, header: &Header) -> Self::Writer {
-        SpecificChannelsWriter {
+    fn create_writer(&'c self, header: &Header) -> Result<Self::Writer> {
+        Ok(SpecificChannelsWriter {
             channels: self,
             recursive_channel_writer: self
                 .channels
                 .clone()
                 .into_recursive()
-                .create_recursive_writer(&header.channels),
-        }
+                .create_recursive_writer(&header.channels)?,
+        })
     }
 }
 
@@ -179,15 +184,19 @@ pub struct SpecificChannelsWriter<'channels, PixelWriter, Storage, Channels> {
     recursive_channel_writer: PixelWriter,
 }
 
-impl<PxWriter, Storage, Channels> ChannelsWriter
-    for SpecificChannelsWriter<'_, PxWriter, Storage, Channels>
+impl<'channels, PxWriter, Storage, Channels> ChannelsWriter
+    for SpecificChannelsWriter<'channels, PxWriter, Storage, Channels>
 where
     Channels: Sync,
     Storage: GetPixel,
     Storage::Pixel: IntoRecursive,
     PxWriter: Sync + RecursivePixelWriter<<Storage::Pixel as IntoRecursive>::Recursive>,
 {
-    fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Vec<u8> {
+    fn extract_uncompressed_block(
+        &self,
+        header: &Header,
+        block_index: BlockIndex,
+    ) -> Result<Vec<u8>> {
         let block_bytes = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
         let mut block_bytes = vec![0_u8; block_bytes];
 
@@ -203,25 +212,24 @@ where
         for (y, line_bytes) in byte_lines.enumerate() {
             pixel_line.clear();
             pixel_line.extend((0..width).map(|x| {
-                self.channels
-                    .pixels
-                    .get_pixel(block_index.pixel_position + Vec2(x, y))
-                    .into_recursive()
+                self.channels.pixels.get_pixel(block_index.pixel_position + Vec2(x, y)).into_recursive()
             }));
 
-            self.recursive_channel_writer.write_pixels(line_bytes, pixel_line.as_slice(), |px| px);
+            self.recursive_channel_writer.write_pixels(
+                line_bytes,
+                pixel_line.as_slice(),
+                |px| px,
+            )?;
         }
 
-        block_bytes
+        Ok(block_bytes)
     }
 }
 
 /// A tuple containing either `ChannelsDescription` or
-/// `Option<ChannelsDescription>` entries.
-///
-/// Use an `Option` if you want to dynamically omit a single channel (probably
-/// only for roundtrip tests). The number of entries must match the number of
-/// channels.
+/// `Option<ChannelsDescription>` entries. Use an `Option` if you want to
+/// dynamically omit a single channel (probably only for roundtrip tests).
+/// The number of entries must match the number of channels.
 pub trait WritableChannelsDescription<Pixel>: Sync {
     /// A type that has a recursive entry for each channel in the image,
     /// which must accept the desired pixel type.
@@ -229,18 +237,18 @@ pub trait WritableChannelsDescription<Pixel>: Sync {
 
     /// Create the temporary writer, accepting the sorted list of channels from
     /// `channel_descriptions_list`.
-    fn create_recursive_writer(&self, channels: &ChannelList) -> Self::RecursiveWriter;
+    fn create_recursive_writer(&self, channels: &ChannelList) -> Result<Self::RecursiveWriter>;
 
     /// Return all the channels that should actually end up in the image, in any
     /// order.
     fn channel_descriptions_list(&self) -> SmallVec<[ChannelDescription; 5]>;
 }
 
-impl WritableChannelsDescription<Self> for NoneMore {
-    type RecursiveWriter = Self;
+impl WritableChannelsDescription<NoneMore> for NoneMore {
+    type RecursiveWriter = NoneMore;
 
-    fn create_recursive_writer(&self, _: &ChannelList) -> Self::RecursiveWriter {
-        Self
+    fn create_recursive_writer(&self, _: &ChannelList) -> Result<Self::RecursiveWriter> {
+        Ok(NoneMore)
     }
 
     fn channel_descriptions_list(&self) -> SmallVec<[ChannelDescription; 5]> {
@@ -256,23 +264,28 @@ where
 {
     type RecursiveWriter = RecursiveWriter<InnerDescriptions::RecursiveWriter, Sample>;
 
-    fn create_recursive_writer(&self, channels: &ChannelList) -> Self::RecursiveWriter {
+    fn create_recursive_writer(&self, channels: &ChannelList) -> Result<Self::RecursiveWriter> {
         // this linear lookup is required because the order of the channels changed, due
         // to alphabetical sorting
         let (start_byte_offset, target_sample_type) = channels
             .channels_with_byte_offset()
             .find(|(_offset, channel)| channel.name == self.value.name)
             .map(|(offset, channel)| (offset, channel.sample_type))
-            .expect("a channel has not been put into channel list");
+            .ok_or_else(|| {
+                Error::invalid(format!(
+                    "channel '{}' was not found in the channel list",
+                    self.value.name.to_string()
+                ))
+            })?;
 
-        Recursive::new(
-            self.inner.create_recursive_writer(channels),
+        Ok(Recursive::new(
+            self.inner.create_recursive_writer(channels)?,
             SampleWriter {
                 start_byte_offset,
                 target_sample_type,
-                px: PhantomData,
+                px: PhantomData::default(),
             },
-        )
+        ))
     }
 
     fn channel_descriptions_list(&self) -> SmallVec<[ChannelDescription; 5]> {
@@ -290,26 +303,35 @@ where
 {
     type RecursiveWriter = OptionalRecursiveWriter<InnerDescriptions::RecursiveWriter, Sample>;
 
-    fn create_recursive_writer(&self, channels: &ChannelList) -> Self::RecursiveWriter {
+    fn create_recursive_writer(&self, channels: &ChannelList) -> Result<Self::RecursiveWriter> {
         // this linear lookup is required because the order of the channels changed, due
         // to alphabetical sorting
 
-        let channel = self.value.as_ref().map(|required_channel| {
-            channels
-                .channels_with_byte_offset()
-                .find(|(_offset, channel)| channel == &required_channel)
-                .map(|(offset, channel)| (offset, channel.sample_type))
-                .expect("a channel has not been put into channel list")
-        });
+        let channel = self
+            .value
+            .as_ref()
+            .map(|required_channel| {
+                channels
+                    .channels_with_byte_offset()
+                    .find(|(_offset, channel)| channel == &required_channel)
+                    .map(|(offset, channel)| (offset, channel.sample_type))
+                    .ok_or_else(|| {
+                        Error::invalid(format!(
+                            "channel '{}' was not found in the channel list",
+                            required_channel.name.to_string()
+                        ))
+                    })
+            })
+            .transpose()?;
 
-        Recursive::new(
-            self.inner.create_recursive_writer(channels),
+        Ok(Recursive::new(
+            self.inner.create_recursive_writer(channels)?,
             channel.map(|(start_byte_offset, target_sample_type)| SampleWriter {
                 start_byte_offset,
                 target_sample_type,
-                px: PhantomData,
+                px: PhantomData::default(),
             }),
-        )
+        ))
     }
 
     fn channel_descriptions_list(&self) -> SmallVec<[ChannelDescription; 5]> {
@@ -330,7 +352,7 @@ pub trait RecursivePixelWriter<Pixel>: Sync {
         bytes: &mut [u8],
         pixels: &[FullPixel],
         get_pixel: impl Fn(&FullPixel) -> &Pixel,
-    );
+    ) -> Result<()>;
 }
 
 type RecursiveWriter<Inner, Sample> = Recursive<Inner, SampleWriter<Sample>>;
@@ -349,12 +371,14 @@ impl<Sample> SampleWriter<Sample>
 where
     Sample: IntoNativeSample,
 {
-    fn write_own_samples(&self, bytes: &mut [u8], samples: impl ExactSizeIterator<Item = Sample>) {
+    fn write_own_samples(
+        &self,
+        bytes: &mut [u8],
+        samples: impl ExactSizeIterator<Item = Sample>,
+    ) -> Result<()> {
         let byte_start_index = samples.len() * self.start_byte_offset;
         let byte_count = samples.len() * self.target_sample_type.bytes_per_sample();
-        let byte_writer = &mut &mut bytes[byte_start_index..byte_start_index + byte_count];
-
-        let write_error_msg = "invalid memory buffer length when writing";
+        let ref mut byte_writer = &mut bytes[byte_start_index..byte_start_index + byte_count];
 
         // match outside the loop to avoid matching on every single sample
         match self.target_sample_type {
@@ -362,32 +386,34 @@ where
             // parameter?
             SampleType::F16 => {
                 for sample in samples {
-                    sample.to_f16().write_ne(byte_writer).expect(write_error_msg);
+                    sample.to_f16().write_ne(byte_writer)?;
                 }
             }
             SampleType::F32 => {
                 for sample in samples {
-                    sample.to_f32().write_ne(byte_writer).expect(write_error_msg);
+                    sample.to_f32().write_ne(byte_writer)?;
                 }
             }
             SampleType::U32 => {
                 for sample in samples {
-                    sample.to_u32().write_ne(byte_writer).expect(write_error_msg);
+                    sample.to_u32().write_ne(byte_writer)?;
                 }
             }
-        }
+        };
 
         debug_assert!(byte_writer.is_empty(), "all samples are written, but more were expected");
+        Ok(())
     }
 }
 
-impl RecursivePixelWriter<Self> for NoneMore {
+impl RecursivePixelWriter<NoneMore> for NoneMore {
     fn write_pixels<FullPixel>(
         &self,
         _: &mut [u8],
         _: &[FullPixel],
-        _: impl Fn(&FullPixel) -> &Self,
-    ) {
+        _: impl Fn(&FullPixel) -> &NoneMore,
+    ) -> Result<()> {
+        Ok(())
     }
 }
 
@@ -402,9 +428,10 @@ where
         bytes: &mut [u8],
         pixels: &[FullPixel],
         get_pixel: impl Fn(&FullPixel) -> &Recursive<InnerPixel, Sample>,
-    ) {
-        self.value.write_own_samples(bytes, pixels.iter().map(|px| get_pixel(px).value));
-        self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
+    ) -> Result<()> {
+        self.value.write_own_samples(bytes, pixels.iter().map(|px| get_pixel(px).value))?;
+        self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner)?;
+        Ok(())
     }
 }
 
@@ -419,12 +446,13 @@ where
         bytes: &mut [u8],
         pixels: &[FullPixel],
         get_pixel: impl Fn(&FullPixel) -> &Recursive<InnerPixel, Sample>,
-    ) {
+    ) -> Result<()> {
         if let Some(writer) = &self.value {
-            writer.write_own_samples(bytes, pixels.iter().map(|px| get_pixel(px).value));
+            writer.write_own_samples(bytes, pixels.iter().map(|px| get_pixel(px).value))?;
         }
 
-        self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner);
+        self.inner.write_pixels(bytes, pixels, |px| &get_pixel(px).inner)?;
+        Ok(())
     }
 }
 
