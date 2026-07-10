@@ -55,9 +55,8 @@ __What we can do:__
         - [x] piz (lossless) (huge thanks to @dgsantana)
         - [x] pxr24 (lossless for f16 and u32)
         - [x] b44, b44a (huge thanks to @narann)
-        - [~] dwaa, dwab 
-            - [X] decoding (hunge thanks to @zinezockt)
-            - [ ] encoding __(help wanted)__
+        - [x] dwaa, dwab (hunge thanks to @zinezockt)
+        - [ ] HTJ2K32, HTJ2K256
 
 - Nice Things
     - [x] no unsafe code, no undefined behaviour
@@ -113,9 +112,7 @@ __What we can do:__
         - [x] PIZ
         - [x] RXR24
         - [x] B44, B44A
-        - [~] dwaa, dwab
-            - [X] decoding
-            - [ ] encoding
+        - [x] dwaa, dwab
 
 - [ ] Writing images
     - [x] Scan Lines
