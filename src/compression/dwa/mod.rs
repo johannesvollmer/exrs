@@ -21,6 +21,9 @@ mod csc;
 mod idct;
 mod quantize;
 
+#[cfg(test)]
+mod tests;
+
 /// Temporary coarse-phase timing, only compiled in with `--features dwa-profile`.
 /// Not for production use: global atomics, reset/reported manually from a
 /// single-threaded caller between runs.
