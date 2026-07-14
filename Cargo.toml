@@ -51,29 +51,19 @@ default = ["rayon"]
 # rayon is used for parallel compression
 rayon = ["dep:rayon-core"]
 
-# Explicit SIMD integration-test targets. These are intentionally opt-in:
-# they must be built and run under a CPU or emulator exposing the requested tier.
+# Opt-in gates for the DWA SIMD tier unit tests
+# (in src/compression/dwa/discrete_cosine_transform/test.rs).
+# Intentionally opt-in: each must be built and run under a CPU or emulator exposing
+# the requested tier, e.g.
+# `cargo test --lib --features avx2-tests -- avx2`
 avx2-tests = []
 sse2-tests = []
 
-# Call the DWA inverse-DCT avx2/sse2/scalar kerne directly,
+# Call the DWA DCT avx2/sse2/autovectorized kernels directly,
 # bypassing runtime dispatch, for the comparison benchmark.
 # Meaningless under emulation (timings won't reflect real hardware)
-# `cargo bench --features simd-benches --bench idct`
+# `cargo bench --features simd-benches --bench dct`
 simd-benches = []
-
-# Temporary coarse-phase timing instrumentation for the DWA decoder
-# (exr::compression::dwa_profile), used to find where decompression time
-# goes. Adds global atomics on the decode path; not for production use.
-dwa-profile = []
-
-[[test]]
-name = "avx2"
-required-features = ["avx2-tests"]
-
-[[test]]
-name = "sse2"
-required-features = ["sse2-tests"]
 
 [[example]]
 name = "7_write_raw_blocks"
@@ -104,7 +94,7 @@ harness = false
 required-features = ["rayon"]
 
 [[bench]]
-name = "idct"
+name = "dct"
 harness = false
 required-features = ["simd-benches"]
 

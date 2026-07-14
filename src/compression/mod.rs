@@ -3,32 +3,15 @@
 
 // private modules make non-breaking changes easier
 mod b44;
-mod dwa;
+
+// public only for benchmarking
+#[doc(hidden)]
+pub mod dwa;
+
 mod piz;
 mod pxr24;
 mod rle;
 mod zip;
-
-#[cfg(feature = "dwa-profile")]
-#[allow(missing_docs)]
-#[doc(hidden)]
-pub mod dwa_profile {
-    pub use super::dwa::profile::*;
-}
-
-#[cfg(feature = "simd-benches")]
-#[allow(missing_docs)]
-#[doc(hidden)]
-pub mod simd_bench_support {
-    pub use super::dwa::simd_bench_support::*;
-}
-
-#[cfg(any(feature = "avx2-tests", feature = "sse2-tests"))]
-#[allow(missing_docs)]
-#[doc(hidden)]
-pub mod simd_test_support {
-    pub use super::dwa::simd_test_support::*;
-}
 
 use std::convert::TryInto;
 
@@ -151,10 +134,14 @@ pub enum Compression {
 
     /// Lossy DCT-based compression (DreamWorks Animation), 32 scanlines per
     /// block. Partial buffer access friendly.
+    /// Decoding support is implemented. Encoding is not implemented and returns
+    /// an error.
     DWAA(Option<f32>),
 
     /// Lossy DCT-based compression (DreamWorks Animation), 256 scanlines per
     /// block. Better compression ratio for full frames.
+    /// Decoding support is implemented. Encoding is not implemented and returns
+    /// an error.
     DWAB(Option<f32>),
 
     /// __This lossy compression is not yet supported by this implementation.__

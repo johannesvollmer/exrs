@@ -1,80 +1,12 @@
-// Coefficient quantization for the lossy DCT encoder: the JPEG-derived
-// tolerance tables, the quantize-and-scatter-to-zig-zag encode step, and
 // OpenEXR's bit-count based half-float quantizer (`quantize` in
-// internal_dwa_helpers.h), which searches nearby half representations and
-// keeps the one with the fewest set bits that still stays within the
-// tolerated error. The zig-zag scatter (`INV_REMAP`) is the exact inverse of
-// the gather permutation `from_half_zigzag` in `mod.rs` uses.
+// internal_dwa_helpers.h): `algo_quantize` searches nearby half
+// representations and keeps the one with the fewest set bits that still stays
+// within the tolerated error. All the `handle_quantize_*` cases and their
+// helpers are internal to this search and never used elsewhere.
 
 use half::f16;
 
-pub(super) struct QuantTables {
-    pub(super) y: [f32; 64],
-    pub(super) half_y: [u16; 64],
-    pub(super) cbcr: [f32; 64],
-    pub(super) half_cbcr: [u16; 64],
-}
-
-impl QuantTables {
-    pub(super) fn new(quant_base_error: f32) -> Self {
-        // JPEG-style tables, normalized by their minimum entry and scaled by
-        // the configured DWA base error.
-        const JPEG_Y: [i32; 64] = [
-            16, 11, 10, 16, 24, 40, 51, 61, 12, 12, 14, 19, 26, 58, 60, 55, 14, 13, 16, 24, 40, 57,
-            69, 56, 14, 17, 22, 29, 51, 87, 80, 62, 18, 22, 37, 56, 68, 109, 103, 77, 24, 35, 55,
-            64, 81, 104, 113, 92, 49, 64, 78, 87, 103, 121, 120, 101, 72, 92, 95, 98, 112, 100,
-            103, 99,
-        ];
-        const JPEG_CBCR: [i32; 64] = [
-            17, 18, 24, 47, 99, 99, 99, 99, 18, 21, 26, 66, 99, 99, 99, 99, 24, 26, 56, 99, 99, 99,
-            99, 99, 47, 66, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
-            99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
-        ];
-
-        let quant_base_error = quant_base_error.max(0.0);
-        let mut y = [0.0; 64];
-        let mut half_y = [0; 64];
-        let mut cbcr = [0.0; 64];
-        let mut half_cbcr = [0; 64];
-
-        for index in 0..64 {
-            y[index] = quant_base_error * JPEG_Y[index] as f32 / 10.0;
-            half_y[index] = f16::from_f32(y[index]).to_bits();
-            cbcr[index] = quant_base_error * JPEG_CBCR[index] as f32 / 17.0;
-            half_cbcr[index] = f16::from_f32(cbcr[index]).to_bits();
-        }
-
-        Self { y, half_y, cbcr, half_cbcr }
-    }
-}
-
-pub(super) fn quantize_coefficients_to_zigzag(
-    dct_values: &[f32; 64],
-    tolerances: &[f32; 64],
-    half_tolerances: &[u16; 64],
-) -> [u16; 64] {
-    // Quantize in DCT order, then scatter into the stored zig-zag layout.
-    const INV_REMAP: [usize; 64] = [
-        0, 1, 5, 6, 14, 15, 27, 28, 2, 4, 7, 13, 16, 26, 29, 42, 3, 8, 12, 17, 25, 30, 41, 43, 9,
-        11, 18, 24, 31, 40, 44, 53, 10, 19, 23, 32, 39, 45, 52, 54, 20, 22, 33, 38, 46, 51, 55, 60,
-        21, 34, 37, 47, 50, 56, 59, 61, 35, 36, 48, 49, 57, 58, 62, 63,
-    ];
-
-    let mut half_zig = [0u16; 64];
-    for i in 0..64 {
-        let src = f16::from_f32(dct_values[i]).to_bits();
-        let quantized = algo_quantize(
-            src as u32,
-            half_tolerances[i] as u32,
-            tolerances[i],
-            f16::from_bits(src).to_f32(),
-        );
-        half_zig[INV_REMAP[i]] = quantized as u16;
-    }
-    half_zig
-}
-
-fn algo_quantize(src: u32, herr_tol: u32, err_tol: f32, src_float: f32) -> u32 {
+pub(super) fn algo_quantize(src: u32, herr_tol: u32, err_tol: f32, src_float: f32) -> u32 {
     // Port of OpenEXR's bit-count based half-float quantizer.
     // It searches nearby representations and keeps the one with the fewest
     // set bits while staying within the tolerated error.
@@ -517,7 +449,11 @@ fn choose_two_sided_alternate(
         let delta = src_float - half_to_f32(alt0);
         let delta1 = half_to_f32(alt1) - src_float;
         if delta < err_tol {
-            return if delta1 < delta { alt1 } else { alt0 };
+            return if delta1 < delta {
+                alt1
+            } else {
+                alt0
+            };
         }
         if delta1 < err_tol {
             return alt1;

@@ -119,11 +119,6 @@ pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
         return Err(Error::invalid(NOT_ENOUGH_DATA));
     }
 
-    #[cfg(feature = "dwa-profile")]
-    let table_timer = crate::compression::dwa::profile::Timer::start(
-        &crate::compression::dwa::profile::AC_TABLE,
-    );
-
     let encoding_table =
         read_encoding_table(&mut remaining_compressed, min_code_index, max_code_index)?;
     if bit_count > 8 * remaining_compressed.len() {
@@ -131,9 +126,6 @@ pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
     }
 
     let decoder = CanonicalDecoder::build(&encoding_table, min_code_index, max_code_index)?;
-
-    #[cfg(feature = "dwa-profile")]
-    drop(table_timer);
 
     decoder.decode(remaining_compressed, bit_count, max_code_index_32, expected_size)
 }
@@ -493,9 +485,6 @@ impl CanonicalDecoder {
     /// starts with, on corrupt streams.
     #[inline(never)]
     fn resolve_long_code(&self, buffer: u64) -> Result<(u32, usize)> {
-        #[cfg(feature = "dwa-profile")]
-        crate::compression::dwa::profile::AC_SLOW.add(1);
-
         let mut len = LUT_BITS + 1;
         while len <= self.max_len && self.lj_base[len] > buffer {
             len += 1;
