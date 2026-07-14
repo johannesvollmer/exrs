@@ -151,14 +151,10 @@ pub enum Compression {
 
     /// Lossy DCT-based compression (DreamWorks Animation), 32 scanlines per
     /// block. Partial buffer access friendly.
-    /// Decoding support is implemented. Encoding is not implemented and returns
-    /// an error.
     DWAA(Option<f32>),
 
     /// Lossy DCT-based compression (DreamWorks Animation), 256 scanlines per
     /// block. Better compression ratio for full frames.
-    /// Decoding support is implemented. Encoding is not implemented and returns
-    /// an error.
     DWAB(Option<f32>),
 
     /// __This lossy compression is not yet supported by this implementation.__
@@ -256,6 +252,12 @@ impl Compression {
                 uncompressed_native_endian.clone(),
                 pixel_section,
                 true,
+            ),
+            DWAA(level) | DWAB(level) => dwa::compress(
+                &header.channels,
+                uncompressed_native_endian.clone(),
+                pixel_section,
+                level,
             ),
             _ => {
                 return Err(Error::unsupported(format!(
@@ -416,10 +418,9 @@ impl Compression {
         use self::Compression::*;
         match self {
             PXR24 => sample_type != SampleType::F32, // pxr reduces f32 to f24
-            B44 | B44A => sample_type != SampleType::F16
-            /* b44 only compresses f16 values,
-             * others */,
-            // are left uncompressed
+            // B44 only compresses f16 values; other sample types are left
+            // uncompressed.
+            B44 | B44A => sample_type != SampleType::F16,
             Uncompressed | RLE | ZIP1 | ZIP16 | PIZ | HTJ2K32 | HTJ2K256 => true,
             DWAB(_) | DWAA(_) => false,
         }

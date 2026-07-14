@@ -556,6 +556,46 @@ pub fn dct_inverse_8x8_dc_only(data: &mut [f32; 64]) {
     }
 }
 
+/// Forward DCT for one 8x8 block (in-place, row-major). Uses the
+/// straightforward separable DCT formula (OpenEXR's
+/// `dctForward8x8_scalar`/autovectorized fallback); LLVM can still
+/// autovectorize the fixed-size loops without an explicit SIMD path.
+///
+/// Unlike the inverse path, there is currently no dedicated avx2/sse2 kernel
+/// here: this only runs on the encode side, which this crate's DWA work has
+/// not been performance-tuned for yet (see TODO.md).
+fn dct_forward_8x8_scalar(data: &mut [f32; 64]) {
+    const PI: f32 = 3.14159;
+    const INV_SQRT_2: f32 = 0.70710677;
+
+    let input = *data;
+    for v in 0..8 {
+        for u in 0..8 {
+            let cu = if u == 0 { INV_SQRT_2 } else { 1.0 };
+            let cv = if v == 0 { INV_SQRT_2 } else { 1.0 };
+            let mut sum = 0.0f32;
+
+            for y in 0..8 {
+                let cy = (((2 * y + 1) as f32 * v as f32 * PI) / 16.0).cos();
+                for x in 0..8 {
+                    let cx = (((2 * x + 1) as f32 * u as f32 * PI) / 16.0).cos();
+                    sum += input[y * 8 + x] * cx * cy;
+                }
+            }
+
+            data[v * 8 + u] = 0.25 * cu * cv * sum;
+        }
+    }
+}
+
+/// Forward DCT on many 8x8 blocks. Only a scalar/autovectorized
+/// implementation exists so far; see `dct_forward_8x8_scalar`.
+pub fn dct_forward_8x8_batch<'a>(blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
+    for data in blocks {
+        dct_forward_8x8_scalar(data);
+    }
+}
+
 // Deterministic blocks in the ballpark of half-precision DCT coefficients
 // (xorshift64, no `rand` dependency. Shared by the
 // correctness tests below and by the forced-tier benchmark in benches/idct.rs.
