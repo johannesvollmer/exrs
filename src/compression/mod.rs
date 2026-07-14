@@ -9,6 +9,13 @@ mod pxr24;
 mod rle;
 mod zip;
 
+#[cfg(feature = "dwa-profile")]
+#[allow(missing_docs)]
+#[doc(hidden)]
+pub mod dwa_profile {
+    pub use super::dwa::profile::*;
+}
+
 #[cfg(feature = "simd-benches")]
 #[allow(missing_docs)]
 #[doc(hidden)]

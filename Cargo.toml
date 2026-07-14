@@ -62,6 +62,11 @@ sse2-tests = []
 # `cargo bench --features simd-benches --bench idct`
 simd-benches = []
 
+# Temporary coarse-phase timing instrumentation for the DWA decoder
+# (exr::compression::dwa_profile), used to find where decompression time
+# goes. Adds global atomics on the decode path; not for production use.
+dwa-profile = []
+
 [[test]]
 name = "avx2"
 required-features = ["avx2-tests"]

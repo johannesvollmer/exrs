@@ -20,6 +20,80 @@ use crate::{
 mod csc;
 mod idct;
 
+/// Temporary coarse-phase timing, only compiled in with `--features dwa-profile`.
+/// Not for production use: global atomics, reset/reported manually from a
+/// single-threaded caller between runs.
+#[cfg(feature = "dwa-profile")]
+#[allow(missing_docs)]
+pub mod profile {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Instant;
+
+    #[derive(Default)]
+    pub struct Phase(AtomicU64);
+    impl Phase {
+        pub const fn new() -> Self { Self(AtomicU64::new(0)) }
+        pub fn add(&self, nanos: u64) { self.0.fetch_add(nanos, Ordering::Relaxed); }
+        pub fn get_ms(&self) -> f64 { self.0.load(Ordering::Relaxed) as f64 / 1_000_000.0 }
+        pub fn reset(&self) { self.0.store(0, Ordering::Relaxed); }
+    }
+
+    pub static SETUP: Phase = Phase::new();
+    pub static ENTROPY_AC: Phase = Phase::new();
+    pub static ENTROPY_OTHER: Phase = Phase::new();
+    pub static PLANAR_SPLIT: Phase = Phase::new();
+    pub static DEQUANT: Phase = Phase::new();
+    pub static IDCT: Phase = Phase::new();
+    pub static CSC_LUT: Phase = Phase::new();
+    pub static WRITE: Phase = Phase::new();
+    pub static AC_TABLE: Phase = Phase::new(); // huffman table parse+build share of ENTROPY_AC
+    pub static AC_COUNT: Phase = Phase::new(); // abused as a plain counter, not nanoseconds
+    pub static AC_SLOW: Phase = Phase::new(); // counter: symbols taking the long-code scan path
+
+    pub fn reset_all() {
+        SETUP.reset(); ENTROPY_AC.reset(); ENTROPY_OTHER.reset();
+        PLANAR_SPLIT.reset(); DEQUANT.reset(); IDCT.reset(); CSC_LUT.reset(); WRITE.reset();
+        AC_TABLE.reset(); AC_COUNT.reset(); AC_SLOW.reset();
+    }
+
+    pub fn report() {
+        eprintln!("--- dwa phase timings (sum across all chunks) ---");
+        eprintln!("total ac symbols decoded: {}", AC_COUNT.0.load(Ordering::Relaxed));
+        eprintln!("long-code scan hits:      {}", AC_SLOW.0.load(Ordering::Relaxed));
+        eprintln!("setup           {:>8.2} ms", SETUP.get_ms());
+        eprintln!("entropy: ac     {:>8.2} ms", ENTROPY_AC.get_ms());
+        eprintln!("  - table build {:>8.2} ms", AC_TABLE.get_ms());
+        eprintln!("entropy: other  {:>8.2} ms", ENTROPY_OTHER.get_ms());
+        eprintln!("planar split    {:>8.2} ms", PLANAR_SPLIT.get_ms());
+        eprintln!("dequant/un-rle  {:>8.2} ms", DEQUANT.get_ms());
+        eprintln!("idct            {:>8.2} ms", IDCT.get_ms());
+        eprintln!("csc + lut       {:>8.2} ms", CSC_LUT.get_ms());
+        eprintln!("write_scanlines {:>8.2} ms", WRITE.get_ms());
+    }
+
+    pub struct Timer<'a> { start: Instant, phase: &'a Phase }
+    impl<'a> Timer<'a> {
+        pub fn start(phase: &'a Phase) -> Self { Self { start: Instant::now(), phase } }
+    }
+    impl<'a> Drop for Timer<'a> {
+        fn drop(&mut self) { self.phase.add(self.start.elapsed().as_nanos() as u64); }
+    }
+}
+
+#[cfg(feature = "dwa-profile")]
+macro_rules! timed {
+    ($phase:expr, $body:expr) => {{
+        let _t = profile::Timer::start(&$phase);
+        $body
+    }};
+}
+#[cfg(not(feature = "dwa-profile"))]
+macro_rules! timed {
+    ($phase:expr, $body:expr) => {
+        $body
+    };
+}
+
 #[cfg(feature = "simd-benches")]
 #[allow(missing_docs)]
 #[doc(hidden)]
@@ -341,15 +415,20 @@ pub fn decompress(
     }
 
     let mut input = compressed_le.as_slice();
-    let header = DwaHeader::parse(&mut input)?;
 
-    let rules = if header.version < 2 {
-        legacy_channel_rules()
-    } else {
-        parse_channel_rules(&mut input)?
-    };
+    let (header, rules, channel_infos, csc_groups) = timed!(profile::SETUP, {
+        let header = DwaHeader::parse(&mut input)?;
 
-    let (channel_infos, csc_groups) = classify_channels(channels, rectangle, &rules);
+        let rules = if header.version < 2 {
+            legacy_channel_rules()
+        } else {
+            parse_channel_rules(&mut input)?
+        };
+
+        let (channel_infos, csc_groups) = classify_channels(channels, rectangle, &rules);
+        Result::Ok((header, rules, channel_infos, csc_groups))
+    })?;
+    let _ = &rules;
 
     if channel_infos.iter().any(|info| {
         info.scheme == CompressorScheme::LossyDct && info.sample_type == SampleType::U32
@@ -359,23 +438,30 @@ pub fn decompress(
 
     let [unknown_section, ac_section, dc_section, rle_section] = split_sections(input, &header)?;
 
-    let unknown_planar = decode_unknown_section(unknown_section, &header)?;
-    let ac_packed = decode_ac_section(ac_section, &header)?;
-    let dc_packed = decode_dc_section(dc_section, &header)?;
-    let rle_planar = decode_rle_section(rle_section, &header)?;
+    let ac_packed = timed!(profile::ENTROPY_AC, decode_ac_section(ac_section, &header))?;
 
-    let unknown_bytes =
-        split_planar_channels(&channel_infos, CompressorScheme::Unknown, &unknown_planar)?;
-    let rle_bytes: Vec<Vec<u8>> =
-        split_planar_channels(&channel_infos, CompressorScheme::Rle, &rle_planar)?
-            .into_iter()
-            .zip(&channel_infos)
-            .map(|(planar, info)| interleave_byte_planes(&planar, info.bytes_per_sample))
-            .collect();
+    let (unknown_planar, dc_packed, rle_planar) = timed!(profile::ENTROPY_OTHER, {
+        let unknown_planar = decode_unknown_section(unknown_section, &header)?;
+        let dc_packed = decode_dc_section(dc_section, &header)?;
+        let rle_planar = decode_rle_section(rle_section, &header)?;
+        Result::Ok((unknown_planar, dc_packed, rle_planar))
+    })?;
+
+    let (unknown_bytes, rle_bytes) = timed!(profile::PLANAR_SPLIT, {
+        let unknown_bytes =
+            split_planar_channels(&channel_infos, CompressorScheme::Unknown, &unknown_planar)?;
+        let rle_bytes: Vec<Vec<u8>> =
+            split_planar_channels(&channel_infos, CompressorScheme::Rle, &rle_planar)?
+                .into_iter()
+                .zip(&channel_infos)
+                .map(|(planar, info)| interleave_byte_planes(&planar, info.bytes_per_sample))
+                .collect();
+        Result::Ok((unknown_bytes, rle_bytes))
+    })?;
 
     let lossy_samples = decode_lossy_channels(&channel_infos, &csc_groups, &ac_packed, &dc_packed)?;
 
-    let out = write_scanlines(
+    let out = timed!(profile::WRITE, write_scanlines(
         channels,
         &channel_infos,
         rectangle,
@@ -383,7 +469,7 @@ pub fn decompress(
         &unknown_bytes,
         &rle_bytes,
         expected_byte_size,
-    )?;
+    ))?;
 
     crate::compression::convert_little_endian_to_current(out, channels, rectangle)
 }
@@ -444,6 +530,8 @@ fn decode_ac_section(section: &[u8], header: &DwaHeader) -> Result<Vec<u16>> {
 
     match header.ac_compression {
         AcCompression::StaticHuffman => {
+            #[cfg(feature = "dwa-profile")]
+            profile::AC_COUNT.add(header.ac_count as u64);
             crate::compression::piz::huffman::decompress(section, header.ac_count)
         }
         AcCompression::Deflate => {
@@ -636,42 +724,46 @@ fn decode_lossy_dct_group(
     let mut dct_blocks: Vec<[[f32; 64]; 3]> = vec![[[0.0f32; 64]; 3]; block_count];
     let mut needs_idct: Vec<[bool; 3]> = vec![[false; 3]; block_count];
 
-    for block_y in 0..blocks_y {
-        for block_x in 0..blocks_x {
-            let block_index = block_y * blocks_x + block_x;
+    timed!(profile::DEQUANT, {
+        for block_y in 0..blocks_y {
+            for block_x in 0..blocks_x {
+                let block_index = block_y * blocks_x + block_x;
 
-            for component in 0..components {
-                let mut zig_block = [0u16; 64];
+                for component in 0..components {
+                    let mut zig_block = [0u16; 64];
 
-                // the DC stream is planar: all of component 0's blocks,
-                // then all of component 1's, ...
-                zig_block[0] = dc
-                    .peek_at(component * block_count + block_index)
-                    .ok_or_else(|| Error::invalid("truncated DWA DC data"))?;
+                    // the DC stream is planar: all of component 0's blocks,
+                    // then all of component 1's, ...
+                    zig_block[0] = dc
+                        .peek_at(component * block_count + block_index)
+                        .ok_or_else(|| Error::invalid("truncated DWA DC data"))?;
 
-                let last_non_zero = un_rle_ac(ac, &mut zig_block)?;
+                    let last_non_zero = un_rle_ac(ac, &mut zig_block)?;
 
-                let dct_block = &mut dct_blocks[block_index][component];
-                if last_non_zero == 0 {
-                    // DC-only block
-                    dct_block[0] = f16::from_bits(zig_block[0]).to_f32();
-                    idct::dct_inverse_8x8_dc_only(dct_block);
-                } else {
-                    from_half_zigzag(&zig_block, dct_block);
-                    needs_idct[block_index][component] = true;
+                    let dct_block = &mut dct_blocks[block_index][component];
+                    if last_non_zero == 0 {
+                        // DC-only block
+                        dct_block[0] = f16::from_bits(zig_block[0]).to_f32();
+                        idct::dct_inverse_8x8_dc_only(dct_block);
+                    } else {
+                        from_half_zigzag(&zig_block, dct_block);
+                        needs_idct[block_index][component] = true;
+                    }
                 }
             }
         }
-    }
+        Result::Ok(())
+    })?;
 
-    idct::dct_inverse_8x8_batch(
+    timed!(profile::IDCT, idct::dct_inverse_8x8_batch(
         dct_blocks
             .iter_mut()
             .zip(needs_idct.iter())
             .flat_map(|(blocks, flags)| blocks.iter_mut().zip(flags.iter()))
             .filter_map(|(block, &needed)| needed.then_some(block)),
-    );
+    ));
 
+    timed!(profile::CSC_LUT, {
     for block_y in 0..blocks_y {
         for block_x in 0..blocks_x {
             let block_index = block_y * blocks_x + block_x;
@@ -701,6 +793,7 @@ fn decode_lossy_dct_group(
             }
         }
     }
+    });
 
     dc.advance(components * block_count);
     Ok(())
