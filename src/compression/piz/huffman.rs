@@ -68,10 +68,18 @@
 // matches a comment to the same effect in `internal_huf.c`. Don't re-fuse
 // them.
 //
-// Result on a 4096x4096 DWAA test image (Ryzen 9800X3D, single thread):
-// AC Huffman decode phase went from 259ms to 135ms, bit exact with
-// OpenEXR. Remaining gap to OpenEXR's C++ decoder and further candidates
-// are tracked below.
+// Result on a 4096x4096 DWAA test image (RGB half, Ryzen 9800X3D,
+// target-cpu=native), decode time compared before/after the rewrite and
+// against OpenEXR's C++ decoder, bit exact with OpenEXR:
+//
+// | phase                | before  | after   | OpenEXR C++ |
+// |----------------------|---------|---------|-------------|
+// | AC Huffman, 1 thread | 259 ms  | 135 ms  | --          |
+// | total, 1 thread      | 393 ms  | ~315 ms | ~186 ms     |
+// | total, 8 threads     | ~140 ms | ~60 ms  | ~30 ms      |
+//
+// Remaining gap to OpenEXR's C++ decoder and further candidates are
+// tracked below.
 //
 // TODO for this file specifically:
 // - symbol loop is still about 2.7 ns per symbol single threaded (OpenEXR's
@@ -216,11 +224,7 @@ struct CanonicalDecoder {
 }
 
 impl CanonicalDecoder {
-    fn build(
-        encoding_table: &[u64],
-        min_code_index: usize,
-        max_code_index: usize,
-    ) -> Result<Self> {
+    fn build(encoding_table: &[u64], min_code_index: usize, max_code_index: usize) -> Result<Self> {
         let symbols = &encoding_table[..=max_code_index];
 
         let mut count_per_length = [0_u64; MAX_CODE_LENGTH + 2];
@@ -334,9 +338,7 @@ impl CanonicalDecoder {
         let mut words = Vec::with_capacity(data.len() / 8 + 3);
         let mut chunks = data.chunks_exact(8);
         for chunk in &mut chunks {
-            words.push(u64::from_be_bytes(
-                <[u8; 8]>::try_from(chunk).expect("chunk size is 8"),
-            ));
+            words.push(u64::from_be_bytes(<[u8; 8]>::try_from(chunk).expect("chunk size is 8")));
         }
         let remainder = chunks.remainder();
         if !remainder.is_empty() {
