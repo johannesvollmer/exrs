@@ -10,7 +10,7 @@
 This library is a 100% Rust and 100% safe code library for
 reading and writing OpenEXR images.
 
-[OpenEXR](http://www.openexr.com/)
+[OpenEXR](https://openexr.com/)
 is the de-facto standard image format in animation, VFX, and
 other computer graphics pipelines, for it can represent an immense variety of pixel data with lossless compression.
 
@@ -176,7 +176,7 @@ so you could also link the github repository master branch.
 
 ### Example
 
-Example: [generate an rgb exr file](https://github.com/johannesvollmer/exrs/blob/master/examples/0_write_rgba.rs).
+Example: [generate an rgb exr file](https://github.com/johannesvollmer/exrs/blob/master/examples/0a_write_rgba.rs).
 
 ```rust
 extern crate exr;
@@ -213,7 +213,7 @@ fn main() {
 
 See the [the examples folder](https://github.com/johannesvollmer/exrs/tree/master/examples) for more examples.
 
-Or read [the guide](https://github.com/johannesvollmer/exrs/tree/master/GUIDE.md).
+Or read [the guide](https://github.com/johannesvollmer/exrs/blob/master/GUIDE.md).
 
 
 ### Goals
