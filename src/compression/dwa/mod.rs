@@ -177,7 +177,7 @@ pub fn compress(
     let ac_compressed = if ac_values.is_empty() {
         Vec::new()
     } else {
-        crate::compression::piz::huffman::compress(&ac_values)?
+        crate::compression::huffman::compress(&ac_values)?
     };
 
     let dc_compressed = if dc_values.is_empty() {
