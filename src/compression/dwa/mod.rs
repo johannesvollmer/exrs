@@ -25,6 +25,10 @@ mod section_stream;
 
 // public only for benchmarking
 #[doc(hidden)]
+pub mod color_space_conversion;
+
+// public only for benchmarking
+#[doc(hidden)]
 pub mod discrete_cosine_transform;
 
 #[cfg(test)]

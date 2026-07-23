@@ -1,11 +1,14 @@
 // The lossy DCT codec: encoding and decoding the shared AC/DC coefficient
 // streams that every LOSSY_DCT channel group of a chunk consumes. Includes the
 // Y'CbCr <-> R'G'B' color-space conversion the RGB triplets are transformed
-// with (the modified 709 coefficients from OpenEXRCore internal_dwa_simd.h).
+//
+// with (the modified 709 coefficients from OpenEXRCore internal_dwa_simd.h),
+// batched across a whole row/group at once via `color_space_conversion`, the
+// same way the DCT batches below already do.
 
 use half::f16;
 
-use super::{discrete_cosine_transform, ChannelInfo, CompressorScheme};
+use super::{color_space_conversion, discrete_cosine_transform, ChannelInfo, CompressorScheme};
 use crate::{
     error::{Error, Result},
     meta::attribute::SampleType,
@@ -19,29 +22,6 @@ use quantization::{
     from_half_zigzag, quantize_coefficients_to_zigzag, rle_ac, un_rle_ac, QuantTables,
 };
 use transfer_curve::{to_linear_table, to_nonlinear_table};
-
-/// Y'CbCr -> R'G'B' inverse conversion for DWA, using the modified 709
-/// coefficients OpenEXR's DWA encoder uses. Input comp0/1/2 are Y, RY, BY;
-/// output is R, G, B.
-#[inline]
-fn csc709_inverse(comp0: f32, comp1: f32, comp2: f32) -> (f32, f32, f32) {
-    let r = comp0 + 1.5747 * comp2;
-    let g = comp0 - 0.1873 * comp1 - 0.4682 * comp2;
-    let b = comp0 + 1.8556 * comp1;
-    (r, g, b)
-}
-
-/// R'G'B' -> Y'CbCr forward conversion for DWA. The component order matches
-/// OpenEXR's channel-group storage: Y, BY, RY.
-#[inline]
-fn csc709_forward(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
-    // OpenEXR uses a modified 709 transform with a zero-centered chroma
-    // representation instead of the usual 0.5 offset.
-    let y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    let by = (b - y) / 1.8556;
-    let ry = (r - y) / 1.5747;
-    (y, by, ry)
-}
 
 pub(super) fn encode_lossy_channels(
     infos: &[ChannelInfo],
@@ -190,18 +170,12 @@ fn encode_lossy_dct_group(
                     }
                 }
             }
+        }
 
-            if component_count == 3 {
-                // CSC is performed in nonlinear space for the RGB triplet.
-                let dct_blocks = &mut row_blocks[block_x];
-                for i in 0..64 {
-                    let (y, by, ry) =
-                        csc709_forward(dct_blocks[0][i], dct_blocks[1][i], dct_blocks[2][i]);
-                    dct_blocks[0][i] = y;
-                    dct_blocks[1][i] = by;
-                    dct_blocks[2][i] = ry;
-                }
-            }
+        if component_count == 3 {
+            // CSC is performed in nonlinear space for the RGB triplet, batched
+            // across the whole row at once (same shape as the DCT batch below).
+            color_space_conversion::csc709_forward_8x8_batch(row_blocks.iter_mut());
         }
 
         discrete_cosine_transform::dct_forward_8x8_batch(
@@ -392,20 +366,15 @@ fn decode_lossy_dct_group(
             .filter_map(|(block, &needed)| needed.then_some(block)),
     );
 
+    if components == 3 {
+        // Batched across the whole group at once (same shape as the DCT batch above).
+        color_space_conversion::csc709_inverse_8x8_batch(dct_blocks.iter_mut());
+    }
+
     for block_y in 0..blocks_y {
         for block_x in 0..blocks_x {
             let block_index = block_y * blocks_x + block_x;
             let dct_blocks = &mut dct_blocks[block_index];
-
-            if components == 3 {
-                for i in 0..64 {
-                    let (r, g, b) =
-                        csc709_inverse(dct_blocks[0][i], dct_blocks[1][i], dct_blocks[2][i]);
-                    dct_blocks[0][i] = r;
-                    dct_blocks[1][i] = g;
-                    dct_blocks[2][i] = b;
-                }
-            }
 
             // Convert nonlinear DCT output back to linear half values and crop
             // the edges to the actual image extent.
@@ -427,46 +396,4 @@ fn decode_lossy_dct_group(
 
     dc.advance(components * block_count);
     Ok(())
-}
-
-#[cfg(test)]
-mod test {
-    use rand::{Rng, SeedableRng};
-
-    use super::*;
-    use crate::image::validate_results::ValidateResult;
-
-    const SEED: [u8; 32] = [
-        66, 100, 19, 240, 8, 91, 3, 128, 9, 44, 201, 17, 88, 6, 255, 61, 30, 11, 2, 121, 99, 1,
-        250, 77, 33, 7, 42, 13, 200, 176, 22, 5,
-    ];
-
-    /// The R'G'B' <-> Y'CbCr conversion pair must round-trip: converting to
-    /// Y'CbCr and back must recover the original RGB triple (approximately,
-    /// since the matrix coefficients are not exactly invertible in f32). The
-    /// forward output tuple `(y, by, ry)` feeds the inverse positionally.
-    fn assert_csc_roundtrips(r: f32, g: f32, b: f32) {
-        let (y, by, ry) = csc709_forward(r, g, b);
-        let (r2, g2, b2) = csc709_inverse(y, by, ry);
-        vec![r, g, b].assert_approx_equals_result(&vec![r2, g2, b2]);
-    }
-
-    #[test]
-    fn csc_roundtrip_hardcoded() {
-        assert_csc_roundtrips(0.0, 0.0, 0.0);
-        assert_csc_roundtrips(1.0, 1.0, 1.0);
-        assert_csc_roundtrips(1.0, 0.0, 0.0);
-        assert_csc_roundtrips(0.0, 1.0, 0.0);
-        assert_csc_roundtrips(0.0, 0.0, 1.0);
-        assert_csc_roundtrips(0.25, 0.5, 0.75);
-    }
-
-    #[test]
-    fn csc_roundtrip_seeded() {
-        let mut random = rand::rngs::StdRng::from_seed(SEED);
-        for _ in 0..256 {
-            let mut channel = || random.gen_range(-4.0f32..4.0);
-            assert_csc_roundtrips(channel(), channel(), channel());
-        }
-    }
 }

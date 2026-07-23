@@ -10,8 +10,6 @@
 // - 12-bit prefix LUT (L1-resident), linear scan for longer codes
 // - fused base/offset table (paper improvement 1)
 // - two-word 64-bit refill, fast region without per-symbol end checks (improvement 3)
-// - improvements 2 (multi-symbol lookup) and 4 (SIMD batch): skipped
-// - two separate LUTs (symbol/length) measured faster than one fused LUT, dont re-fuse
 // - tables built directly from the packed 6-bit length stream (no 64K intermediate table)
 // Same design as OpenEXRs `FastHufDecoder`:
 // https://github.com/AcademySoftwareFoundation/openexr/blob/main/src/lib/OpenEXRCore/internal_huf.c
@@ -703,9 +701,11 @@ fn pack_encoding_table(
 ///      alone, the code table can be transmitted without sending the actual
 ///      code values
 ///    - see <http://www.compressconsult.com/huffman>/
+///
+/// `code_table` holds one entry (code length, in bits 0..=5) per used symbol,
+/// addressed by compact id, not by the 16-bit symbol value. This table build
+/// never allocates or scans the full `ENCODING_TABLE_SIZE` (65537) symbol range.
 fn build_canonical_table(code_table: &mut [u64]) -> UnitResult {
-    debug_assert_eq!(code_table.len(), ENCODING_TABLE_SIZE);
-
     let mut count_per_code = [0_u64; 59];
 
     for &code in code_table.iter() {
@@ -776,100 +776,61 @@ fn build_encoding_table(
         }
     }
 
-    // This function assumes that when it is called, array frq
-    // indicates the frequency of all possible symbols in the data
-    // that are to be Huffman-encoded.  (frq[i] contains the number
-    // of occurrences of symbol i in the data.)
-    //
-    // The loop below does three things:
-    //
-    // 1) Finds the minimum and maximum indices that point to non-zero entries in
-    //    frq:
-    //
-    //     frq[im] != 0, and frq[i] == 0 for all i < im
-    //     frq[iM] != 0, and frq[i] == 0 for all i > iM
-    //
-    // 2) Fills array fHeap with pointers to all non-zero entries in frq.
-    //
-    // 3) Initializes array hlink such that hlink[i] == i for all array entries.
-
-    // We need to use vec here or we overflow the stack.
-    let mut links = vec![0_usize; ENCODING_TABLE_SIZE];
-    let mut frequency_heap = vec![0_usize; ENCODING_TABLE_SIZE];
-
-    // This is a good solution since we don't have usize::MAX items (no panics or
-    // UB), and since this is short-circuit, it stops at the first in order non
-    // zero element.
-    let min_frequency_index = frequencies.iter().position(|f| *f != 0).unwrap_or(0);
-
-    let mut max_frequency_index = 0;
-    let mut frequency_count = 0;
-
-    // assert bounds check to optimize away bounds check in loops
-    assert!(links.len() >= ENCODING_TABLE_SIZE);
-    assert!(frequencies.len() >= ENCODING_TABLE_SIZE);
-
-    for index in min_frequency_index..ENCODING_TABLE_SIZE {
-        links[index] = index;
-
-        if frequencies[index] != 0 {
-            frequency_heap[frequency_count] = index;
-            max_frequency_index = index;
-            frequency_count += 1;
+    // Huffman symbol loop: collect the (typically few thousand) symbols with
+    // non-zero frequency instead of walking and allocating over the full
+    // `ENCODING_TABLE_SIZE` (65537) range. `links`/`s_code` below are then
+    // addressed by the compact index into `symbols`, not by the 16-bit symbol
+    // value, so no 65537-sized table is ever built for the tree merge or the
+    // canonical code assignment.
+    let mut symbols = Vec::with_capacity(1024);
+    for (index, &frequency) in frequencies.iter().enumerate() {
+        if frequency != 0 {
+            symbols.push(index);
         }
     }
 
-    // Add a pseudo-symbol, with a frequency count of 1, to frq;
-    // adjust the fHeap and hlink array accordingly.  Function
-    // hufEncode() uses the pseudo-symbol for run-length encoding.
+    let min_frequency_index = symbols.first().copied().unwrap_or(0);
+    let mut max_frequency_index = symbols.last().copied().unwrap_or(0);
 
+    // Add a pseudo-symbol, with a frequency count of 1, to frq;
+    // adjust the symbol list accordingly. Function hufEncode() uses the
+    // pseudo-symbol for run-length encoding.
     max_frequency_index += 1;
     frequencies[max_frequency_index] = 1;
-    frequency_heap[frequency_count] = max_frequency_index;
-    frequency_count += 1;
+    symbols.push(max_frequency_index);
+
+    let frequency_count = symbols.len();
+    let mut links: Vec<usize> = (0..frequency_count).collect();
 
     // Build an array, scode, such that scode[i] contains the number
     // of bits assigned to symbol i.  Conceptually this is done by
     // constructing a tree whose leaves are the symbols with non-zero
-    // frequency:
+    // frequency.
     //
-    //     Make a heap that contains all symbols with a non-zero frequency,
-    //     with the least frequent symbol on top.
-    //
-    //     Repeat until only one symbol is left on the heap:
-    //
-    //         Take the two least frequent symbols off the top of the heap.
-    //         Create a new node that has first two nodes as children, and
-    //         whose frequency is the sum of the frequencies of the first
-    //         two nodes.  Put the new node back into the heap.
-    //
-    // The last node left on the heap is the root of the tree.  For each
-    // leaf node, the distance between the root and the leaf is the length
-    // of the code for the corresponding symbol.
-    //
-    // The loop below doesn't actually build the tree; instead we compute
+    // The loop below doesn't actually build the tree; instead compute
     // the distances of the leaves from the root on the fly.  When a new
     // node is added to the heap, then that node's descendants are linked
     // into a single linear list that starts at the new node, and the code
     // lengths of the descendants (that is, their distance from the root
     // of the tree) are incremented by one.
     let mut heap = BinaryHeap::with_capacity(frequency_count);
-    for index in frequency_heap.drain(..frequency_count) {
+    for (compact_id, &symbol) in symbols.iter().enumerate() {
         heap.push(HeapFrequency {
-            position: index,
-            frequency: frequencies[index],
+            position: compact_id,
+            frequency: frequencies[symbol],
         });
     }
 
-    let mut s_code = vec![0_u64; ENCODING_TABLE_SIZE];
+    let mut s_code = vec![0_u64; frequency_count];
+    let mut remaining_count = frequency_count;
 
-    while frequency_count > 1 {
+    while remaining_count > 1 {
         // Find the indices, mm and m, of the two smallest non-zero frq
         // values in fHeap, add the smallest frq to the second-smallest
         // frq, and remove the smallest frq value from fHeap.
         let (high_position, low_position) = {
             let smallest_frequency = heap.pop().expect("heap empty bug");
-            frequency_count -= 1;
+            remaining_count -= 1;
 
             let mut second_smallest_frequency = heap.peek_mut().expect("heap empty bug");
             second_smallest_frequency.frequency += smallest_frequency.frequency;
@@ -920,10 +881,14 @@ fn build_encoding_table(
     }
 
     // Build a canonical Huffman code table, replacing the code
-    // lengths in scode with (code, code length) pairs.  Copy the
-    // code table from scode into frq.
+    // lengths in scode with (code, code length) pairs. scode is indexed by
+    // compact id
     build_canonical_table(&mut s_code)?;
-    frequencies.copy_from_slice(&s_code);
+
+    frequencies.fill(0);
+    for (compact_id, &symbol) in symbols.iter().enumerate() {
+        frequencies[symbol] = s_code[compact_id];
+    }
 
     Ok((min_frequency_index, max_frequency_index))
 }
