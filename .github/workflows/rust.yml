@@ -155,7 +155,7 @@ jobs:
             feature: avx2-tests
             filter: "avx2"
             # Bump when adding/removing avx tests
-            expected_tests: 4
+            expected_tests: 6
             # Haswell: first microarchitecture with AVX2+FMA.
             # `-C target-feature` unset explicitly to force runtime dispatching
             sde_cpu: "-hsw"

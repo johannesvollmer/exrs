@@ -9,8 +9,10 @@
 // https://ieeexplore.ieee.org/document/11510463
 // - 12-bit prefix LUT (L1-resident), linear scan for longer codes
 // - fused base/offset table (paper improvement 1)
-// - two-word 64-bit refill, fast region without per-symbol end checks (improvement 3)
-// - tables built directly from the packed 6-bit length stream (no 64K intermediate table)
+// - two-word 64-bit refill, fast region without per-symbol end checks
+//   (improvement 3)
+// - tables built directly from the packed 6-bit length stream (no 64K
+//   intermediate table)
 // Same design as OpenEXRs `FastHufDecoder`:
 // https://github.com/AcademySoftwareFoundation/openexr/blob/main/src/lib/OpenEXRCore/internal_huf.c
 
@@ -94,7 +96,8 @@ const LONG_ZEROCODE_RUN: u64 = 63;
 const SHORTEST_LONG_RUN: u64 = 2 + LONG_ZEROCODE_RUN - SHORT_ZEROCODE_RUN;
 const LONGEST_LONG_RUN: u64 = 255 + SHORTEST_LONG_RUN;
 
-/// Longest possible code, from the 6-bit length fields (run markers start at 59)
+/// Longest possible code, from the 6-bit length fields (run markers start at
+/// 59)
 const MAX_CODE_LENGTH: usize = 58;
 /// Leading buffer bits resolved with a single table lookup;
 /// keeps the tables L1-resident (4096 * 5 bytes)
@@ -331,7 +334,8 @@ impl CanonicalDecoder {
 
                     if remaining >= len + 8 {
                         remaining -= len + 8;
-                        buffer = (buffer << 1) << (len + 7); // len + 8 might be all 64 bits
+                        buffer = (buffer << 1) << (len + 7); // len + 8 might be
+                                                             // all 64 bits
                     } else {
                         position += (64 - remaining) + len + 8;
                         continue 'refill;
@@ -368,7 +372,8 @@ impl CanonicalDecoder {
                     self.lut_symbol[prefix]
                 } else {
                     if remaining < self.max_len && position + remaining < bit_count {
-                        continue 'tail_refill; // needs more real bits than remain
+                        continue 'tail_refill; // needs more real bits than
+                                               // remain
                     }
                     let (symbol, long_len) = self.resolve_long_code(buffer)?;
                     len = long_len;
@@ -704,7 +709,8 @@ fn pack_encoding_table(
 ///
 /// `code_table` holds one entry (code length, in bits 0..=5) per used symbol,
 /// addressed by compact id, not by the 16-bit symbol value. This table build
-/// never allocates or scans the full `ENCODING_TABLE_SIZE` (65537) symbol range.
+/// never allocates or scans the full `ENCODING_TABLE_SIZE` (65537) symbol
+/// range.
 fn build_canonical_table(code_table: &mut [u64]) -> UnitResult {
     let mut count_per_code = [0_u64; 59];
 

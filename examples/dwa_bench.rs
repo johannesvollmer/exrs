@@ -12,10 +12,8 @@ fn bithash(pixels: &[Vec<[f32; 4]>], mut h: u64) -> u64 {
         for row in pixels {
             for pixel in row {
                 let bits = half::f16::from_f32(pixel[channel_index]).to_bits() as u64;
-                h ^= bits
-                    .wrapping_add(0x9e3779b97f4a7c15)
-                    .wrapping_add(h << 6)
-                    .wrapping_add(h >> 2);
+                h ^=
+                    bits.wrapping_add(0x9e3779b97f4a7c15).wrapping_add(h << 6).wrapping_add(h >> 2);
             }
         }
     }

@@ -62,7 +62,9 @@ pub fn csc709_inverse_8x8_autovectorized(block: &mut [[f32; 64]; 3]) {
 /// Forward CSC on many 8x8 block triplets, dispatched once for the whole
 /// batch rather than once per block. Prefer this over looping calls to
 /// `csc709_forward_8x8_autovectorized`.
-pub(crate) fn csc709_forward_8x8_batch<'a>(mut blocks: impl Iterator<Item = &'a mut [[f32; 64]; 3]>) {
+pub(crate) fn csc709_forward_8x8_batch<'a>(
+    mut blocks: impl Iterator<Item = &'a mut [[f32; 64]; 3]>,
+) {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if x86::try_csc709_forward_8x8_batch(&mut blocks) {
         return;
@@ -76,7 +78,9 @@ pub(crate) fn csc709_forward_8x8_batch<'a>(mut blocks: impl Iterator<Item = &'a 
 /// Inverse CSC on many 8x8 block triplets, dispatched once for the whole
 /// batch rather than once per block. Prefer this over looping calls to
 /// `csc709_inverse_8x8_autovectorized`.
-pub(crate) fn csc709_inverse_8x8_batch<'a>(mut blocks: impl Iterator<Item = &'a mut [[f32; 64]; 3]>) {
+pub(crate) fn csc709_inverse_8x8_batch<'a>(
+    mut blocks: impl Iterator<Item = &'a mut [[f32; 64]; 3]>,
+) {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if x86::try_csc709_inverse_8x8_batch(&mut blocks) {
         return;
@@ -95,8 +99,8 @@ mod scalar_test {
     use crate::image::validate_results::ValidateResult;
 
     const SEED: [u8; 32] = [
-        66, 100, 19, 240, 8, 91, 3, 128, 9, 44, 201, 17, 88, 6, 255, 61, 30, 11, 2, 121, 99, 1, 250,
-        77, 33, 7, 42, 13, 200, 176, 22, 5,
+        66, 100, 19, 240, 8, 91, 3, 128, 9, 44, 201, 17, 88, 6, 255, 61, 30, 11, 2, 121, 99, 1,
+        250, 77, 33, 7, 42, 13, 200, 176, 22, 5,
     ];
 
     /// The R'G'B' <-> Y'CbCr conversion pair must round-trip: converting to
