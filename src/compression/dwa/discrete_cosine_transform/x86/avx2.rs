@@ -256,8 +256,11 @@ pub fn dct_forward_8x8(v3: V3, data: &mut [f32; 64]) {
 pub fn dct_forward_8x8_batch<'a>(v3: V3, blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
     v3.vectorize(move || {
         let coef = ForwardCoefficients::new(v3);
+        let basis = forward_basis();
 
         for data in blocks {
+            // Row pass: each row's own 8 values are already contiguous, so
+            // this needs no gather.
             for row in 0..8 {
                 let base = row * 8;
                 let input = [
@@ -281,26 +284,40 @@ pub fn dct_forward_8x8_batch<'a>(v3: V3, blocks: impl Iterator<Item = &'a mut [f
                 data[base + 7] = out.7;
             }
 
-            for column in 0..8 {
-                let input = [
-                    data[column],
-                    data[8 + column],
-                    data[16 + column],
-                    data[24 + column],
-                    data[32 + column],
-                    data[40 + column],
-                    data[48 + column],
-                    data[56 + column],
-                ];
-                let out = forward_pass(v3, &coef, input);
-                data[column] = out.0;
-                data[8 + column] = out.1;
-                data[16 + column] = out.2;
-                data[24 + column] = out.3;
-                data[32 + column] = out.4;
-                data[40 + column] = out.5;
-                data[48 + column] = out.6;
-                data[56 + column] = out.7;
+            // Column pass: batched across all 8 columns via SIMD lanes
+            // instead of gathering one column at a time with a stride-8
+            // read. Each row is loaded contiguously once and fanned into 8
+            // per-frequency accumulators (one lane per column), which are
+            // then stored back contiguously per output row.
+            let mut outputs = [v3.splat_f32x8(0.0); 8];
+            for row in 0..8 {
+                let base = row * 8;
+                let row_vec = f32x8(
+                    data[base],
+                    data[base + 1],
+                    data[base + 2],
+                    data[base + 3],
+                    data[base + 4],
+                    data[base + 5],
+                    data[base + 6],
+                    data[base + 7],
+                );
+                for v in 0..8 {
+                    let coefficient = v3.splat_f32x8(basis[row][v]);
+                    outputs[v] = v3.add_f32x8(outputs[v], v3.mul_f32x8(coefficient, row_vec));
+                }
+            }
+
+            for (v, out) in outputs.iter().enumerate() {
+                let base = v * 8;
+                data[base] = out.0;
+                data[base + 1] = out.1;
+                data[base + 2] = out.2;
+                data[base + 3] = out.3;
+                data[base + 4] = out.4;
+                data[base + 5] = out.5;
+                data[base + 6] = out.6;
+                data[base + 7] = out.7;
             }
         }
     });

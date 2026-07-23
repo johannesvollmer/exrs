@@ -235,26 +235,31 @@ pub fn dct_forward_8x8(v1: V1, data: &mut [f32; 64]) {
         data[base + 7] = high.3;
     }
 
-    for column in 0..8 {
-        let input = [
-            data[column],
-            data[8 + column],
-            data[16 + column],
-            data[24 + column],
-            data[32 + column],
-            data[40 + column],
-            data[48 + column],
-            data[56 + column],
-        ];
-        let low = forward_pass(v1, &coef.low, input);
-        let high = forward_pass(v1, &coef.high, input);
-        data[column] = low.0;
-        data[8 + column] = low.1;
-        data[16 + column] = low.2;
-        data[24 + column] = low.3;
-        data[32 + column] = high.0;
-        data[40 + column] = high.1;
-        data[48 + column] = high.2;
-        data[56 + column] = high.3;
+    // Column pass: two four-lane halves, each batched across 4 columns via
+    // SIMD lanes instead of gathering one column at a time with a stride-8
+    // read. Each row is loaded contiguously once per half and fanned into 8
+    // per-frequency accumulators, which are then stored back contiguously
+    // per output row.
+    let basis = forward_basis();
+    for half in 0..2 {
+        let offset = half * 4;
+        let mut outputs = [v1.splat_f32x4(0.0); 8];
+
+        for row in 0..8 {
+            let base = row * 8 + offset;
+            let row_vec = f32x4(data[base], data[base + 1], data[base + 2], data[base + 3]);
+            for v in 0..8 {
+                let coefficient = v1.splat_f32x4(basis[row][v]);
+                outputs[v] = v1.add_f32x4(outputs[v], v1.mul_f32x4(coefficient, row_vec));
+            }
+        }
+
+        for (v, out) in outputs.iter().enumerate() {
+            let base = v * 8 + offset;
+            data[base] = out.0;
+            data[base + 1] = out.1;
+            data[base + 2] = out.2;
+            data[base + 3] = out.3;
+        }
     }
 }
