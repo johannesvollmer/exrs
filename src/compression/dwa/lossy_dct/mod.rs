@@ -6,6 +6,8 @@
 // batched across a whole row/group at once via `color_space_conversion`, the
 // same way the DCT batches below already do.
 
+use std::convert::TryInto;
+
 use half::f16;
 
 use super::{color_space_conversion, discrete_cosine_transform, ChannelInfo, CompressorScheme};
@@ -323,71 +325,97 @@ fn decode_lossy_dct_group(
     let blocks_y = (height + 7) / 8;
     let block_count = blocks_x * blocks_y;
 
-    // Buffer the whole group rather than one block at a time. That lets the
-    // inverse DCT batch over every block that actually needs it, matching the
-    // structure of the C reference.
-    let mut dct_blocks: Vec<[[f32; 64]; 3]> = vec![[[0.0f32; 64]; 3]; block_count];
-    let mut needs_inverse_dct: Vec<[bool; 3]> = vec![[false; 3]; block_count];
+    // Buffer a strip of block-rows at a time and reuse it across strips,
+    // the same streaming shape the encoder already uses per row, widened to
+    // amortize the batch dispatch's fixed per-call cost. Buffering the whole
+    // group at once, always 3-wide, can be tens of megabytes for a wide DWAB
+    // chunk (256 scanlines), which relies on a big-enough L3 to avoid
+    // spilling to main memory and, under parallel decode, several chunks'
+    // worth of that footprint compete for the same shared L3 at once. A
+    // strip of a few block-rows keeps each thread's working set to a few MB
+    // (regardless of image width) while still batching thousands of blocks
+    // per dispatch.
+    const STRIP_BLOCK_ROWS: usize = 1;
+    let strip_capacity = blocks_x * STRIP_BLOCK_ROWS.min(blocks_y.max(1));
+    let mut row_blocks: Vec<[f32; 64]> = vec![[0.0f32; 64]; strip_capacity * components];
+    let mut needs_inverse_dct: Vec<bool> = vec![false; strip_capacity * components];
 
-    for block_y in 0..blocks_y {
-        for block_x in 0..blocks_x {
-            let block_index = block_y * blocks_x + block_x;
+    for strip_start in (0..blocks_y).step_by(STRIP_BLOCK_ROWS) {
+        let strip_rows = STRIP_BLOCK_ROWS.min(blocks_y - strip_start);
+        let strip_blocks = blocks_x * strip_rows;
 
-            for component in 0..components {
-                let mut zig_block = [0u16; 64];
+        for row_in_strip in 0..strip_rows {
+            let block_y = strip_start + row_in_strip;
 
-                // the DC stream is planar: all of component 0's blocks,
-                // then all of component 1's, ...
-                zig_block[0] = dc
-                    .peek_at(component * block_count + block_index)
-                    .ok_or_else(|| Error::invalid("truncated DWA DC data"))?;
+            for block_x in 0..blocks_x {
+                let block_index = block_y * blocks_x + block_x;
 
-                let last_non_zero = un_rle_ac(ac, &mut zig_block)?;
+                for component in 0..components {
+                    let mut zig_block = [0u16; 64];
 
-                let dct_block = &mut dct_blocks[block_index][component];
-                if last_non_zero == 0 {
-                    // DC-only block: all AC coefficients are zero, so the
-                    // inverse DCT can fill the whole block from one value.
-                    dct_block[0] = f16::from_bits(zig_block[0]).to_f32();
-                    discrete_cosine_transform::dct_inverse_8x8_dc_only(dct_block);
-                } else {
-                    from_half_zigzag(&zig_block, dct_block);
-                    needs_inverse_dct[block_index][component] = true;
+                    // the DC stream is planar: all of component 0's blocks,
+                    // then all of component 1's, ... (indexed against the whole
+                    // group's block_count, even though only one strip is buffered)
+                    zig_block[0] = dc
+                        .peek_at(component * block_count + block_index)
+                        .ok_or_else(|| Error::invalid("truncated DWA DC data"))?;
+
+                    let last_non_zero = un_rle_ac(ac, &mut zig_block)?;
+
+                    let slot = (row_in_strip * blocks_x + block_x) * components + component;
+                    let dct_block = &mut row_blocks[slot];
+                    if last_non_zero == 0 {
+                        // DC-only block: all AC coefficients are zero, so the
+                        // inverse DCT can fill the whole block from one value.
+                        dct_block[0] = f16::from_bits(zig_block[0]).to_f32();
+                        discrete_cosine_transform::dct_inverse_8x8_dc_only(dct_block);
+                        needs_inverse_dct[slot] = false;
+                    } else {
+                        from_half_zigzag(&zig_block, dct_block);
+                        needs_inverse_dct[slot] = true;
+                    }
                 }
             }
         }
-    }
 
-    discrete_cosine_transform::dct_inverse_8x8_batch(
-        dct_blocks
-            .iter_mut()
-            .zip(needs_inverse_dct.iter())
-            .flat_map(|(blocks, flags)| blocks.iter_mut().zip(flags.iter()))
-            .filter_map(|(block, &needed)| needed.then_some(block)),
-    );
+        let strip_slots = strip_blocks * components;
+        discrete_cosine_transform::dct_inverse_8x8_batch(
+            row_blocks[..strip_slots]
+                .iter_mut()
+                .zip(needs_inverse_dct[..strip_slots].iter())
+                .filter_map(|(block, &needed)| needed.then_some(block)),
+        );
 
-    if components == 3 {
-        // Batched across the whole group at once (same shape as the DCT batch above).
-        color_space_conversion::csc709_inverse_8x8_batch(dct_blocks.iter_mut());
-    }
+        if components == 3 {
+            // Batched across the whole strip at once (same shape as the DCT batch
+            // above). A `[f32; 64]` triplet is layout-identical to `[[f32; 64]; 3]`,
+            // so this reinterprets 3-block chunks of the flat buffer without a copy.
+            color_space_conversion::csc709_inverse_8x8_batch(
+                row_blocks[..strip_slots]
+                    .chunks_exact_mut(3)
+                    .map(|triplet| triplet.try_into().unwrap()),
+            );
+        }
 
-    for block_y in 0..blocks_y {
-        for block_x in 0..blocks_x {
-            let block_index = block_y * blocks_x + block_x;
-            let dct_blocks = &mut dct_blocks[block_index];
+        for row_in_strip in 0..strip_rows {
+            let block_y = strip_start + row_in_strip;
 
-            // Convert nonlinear DCT output back to linear half values and crop
-            // the edges to the actual image extent.
-            for (component, output) in decoded.iter_mut().enumerate() {
-                for y in block_y * 8..(block_y * 8 + 8).min(height) {
-                    for x in block_x * 8..(block_x * 8 + 8).min(width) {
-                        let value =
-                            dct_blocks[component][(y - block_y * 8) * 8 + (x - block_x * 8)];
-                        let nonlinear = f16::from_f32(value);
-                        output[y * width + x] = f16::from_bits(match to_linear {
-                            Some(to_linear) => to_linear[nonlinear.to_bits() as usize],
-                            None => nonlinear.to_bits(),
-                        });
+            for block_x in 0..blocks_x {
+                let base = (row_in_strip * blocks_x + block_x) * components;
+
+                // Convert nonlinear DCT output back to linear half values and crop
+                // the edges to the actual image extent.
+                for (component, output) in decoded.iter_mut().enumerate() {
+                    let block = &row_blocks[base + component];
+                    for y in block_y * 8..(block_y * 8 + 8).min(height) {
+                        for x in block_x * 8..(block_x * 8 + 8).min(width) {
+                            let value = block[(y - block_y * 8) * 8 + (x - block_x * 8)];
+                            let nonlinear = f16::from_f32(value);
+                            output[y * width + x] = f16::from_bits(match to_linear {
+                                Some(to_linear) => to_linear[nonlinear.to_bits() as usize],
+                                None => nonlinear.to_bits(),
+                            });
+                        }
                     }
                 }
             }
