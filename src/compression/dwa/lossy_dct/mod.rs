@@ -409,22 +409,40 @@ fn decode_lossy_dct_group(
 
         for row_in_strip in 0..strip_rows {
             let block_y = strip_start + row_in_strip;
+            let y_count = 8.min(height - block_y * 8);
 
             for block_x in 0..blocks_x {
                 let base = (row_in_strip * blocks_x + block_x) * components;
+                let x_count = 8.min(width - block_x * 8);
 
                 // Convert nonlinear DCT output back to linear half values and crop
-                // the edges to the actual image extent.
+                // the edges to the actual image extent. `to_linear` is the same
+                // for the whole call, so match it once per block/component here
+                // instead of once per pixel, and slice each 8-wide block row once
+                // instead of re-deriving its offset for every pixel.
                 for (component, output) in decoded.iter_mut().enumerate() {
                     let block = &row_blocks[base + component];
-                    for y in block_y * 8..(block_y * 8 + 8).min(height) {
-                        for x in block_x * 8..(block_x * 8 + 8).min(width) {
-                            let value = block[(y - block_y * 8) * 8 + (x - block_x * 8)];
-                            let nonlinear = f16::from_f32(value);
-                            output[y * width + x] = f16::from_bits(match to_linear {
-                                Some(to_linear) => to_linear[nonlinear.to_bits() as usize],
-                                None => nonlinear.to_bits(),
-                            });
+                    match to_linear {
+                        Some(to_linear) => {
+                            for dy in 0..y_count {
+                                let y = block_y * 8 + dy;
+                                let row = &block[dy * 8..dy * 8 + x_count];
+                                let out_row = &mut output[y * width + block_x * 8..][..x_count];
+                                for (dst, &value) in out_row.iter_mut().zip(row) {
+                                    let nonlinear = f16::from_f32(value);
+                                    *dst = f16::from_bits(to_linear[nonlinear.to_bits() as usize]);
+                                }
+                            }
+                        }
+                        None => {
+                            for dy in 0..y_count {
+                                let y = block_y * 8 + dy;
+                                let row = &block[dy * 8..dy * 8 + x_count];
+                                let out_row = &mut output[y * width + block_x * 8..][..x_count];
+                                for (dst, &value) in out_row.iter_mut().zip(row) {
+                                    *dst = f16::from_f32(value);
+                                }
+                            }
                         }
                     }
                 }
