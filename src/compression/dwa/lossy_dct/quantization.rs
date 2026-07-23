@@ -115,24 +115,62 @@ pub(super) fn rle_ac(block: &[u16; 64], ac: &mut Vec<u16>) {
 pub(super) fn un_rle_ac(ac: &mut PackedStream<'_>, block: &mut [u16; 64]) -> Result<usize> {
     // DWA AC values use the same compact token format the encoder writes:
     // 0xffxx means a zero run, and 0xff00 means end-of-block.
+
+    // `position` starts at 1 and increases by at least 1 per token (a run of
+    // 0 maps to +64, ending the loop immediately), so one block never reads
+    // more than 63 tokens. When at least that many values remain in the
+    // stream,
+    // check sub-slice once up front and walk it with a plain iterator
+    // instead of the per-token `Option`
+    const MAX_TOKENS_PER_BLOCK: usize = 63;
+
     let mut last_non_zero = 0;
     let mut position = 1;
 
-    while position < 64 {
-        let value = ac.next().ok_or_else(|| Error::invalid("truncated DWA AC data"))?;
+    if ac.remaining() >= MAX_TOKENS_PER_BLOCK {
+        let fast = ac.peek_slice(MAX_TOKENS_PER_BLOCK);
+        let mut fast_iter = fast.iter();
+        let mut consumed = 0;
 
-        if (value & 0xff00) == 0xff00 {
-            // run of zeros - the block is pre-zeroed, just skip ahead
-            let count = (value & 0xff) as usize;
-            position += if count == 0 {
-                64
+        while position < 64 {
+            // At most MAX_TOKENS_PER_BLOCK iterations run (by the position
+            // bookkeeping above), and `fast` holds exactly that many values,
+            // so this can never be exhausted.
+            let &value = fast_iter.next().expect("un_rle_ac read past its bounded fast slice");
+            consumed += 1;
+
+            if (value & 0xff00) == 0xff00 {
+                let count = (value & 0xff) as usize;
+                position += if count == 0 {
+                    64
+                } else {
+                    count
+                };
             } else {
-                count
-            };
-        } else {
-            last_non_zero = position;
-            block[position] = value;
-            position += 1;
+                last_non_zero = position;
+                block[position] = value;
+                position += 1;
+            }
+        }
+
+        ac.advance(consumed);
+    } else {
+        while position < 64 {
+            let value = ac.next().ok_or_else(|| Error::invalid("truncated DWA AC data"))?;
+
+            if (value & 0xff00) == 0xff00 {
+                // run of zeros - the block is pre-zeroed, just skip ahead
+                let count = (value & 0xff) as usize;
+                position += if count == 0 {
+                    64
+                } else {
+                    count
+                };
+            } else {
+                last_non_zero = position;
+                block[position] = value;
+                position += 1;
+            }
         }
     }
 

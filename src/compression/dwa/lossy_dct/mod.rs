@@ -254,6 +254,16 @@ impl<'v> PackedStream<'v> {
     fn advance(&mut self, count: usize) {
         self.cursor += count;
     }
+
+    /// Values left between the cursor and the end of the stream.
+    fn remaining(&self) -> usize {
+        self.values.len().saturating_sub(self.cursor)
+    }
+
+    /// The next `len` values as a plain slice, without consuming them.
+    fn peek_slice(&self, len: usize) -> &'v [u16] {
+        &self.values[self.cursor..self.cursor + len]
+    }
 }
 
 /// Decode all LOSSY_DCT channels: first every CSC group, then the
