@@ -90,7 +90,7 @@ pub trait ReadSpecificChannel: Sized + CheckDuplicates {
                 &<<Self::RecursivePixelReader as RecursivePixelReader>::RecursiveChannelDescriptions as IntoNonRecursive>::NonRecursive
             ) -> PixelStorage,
             SetPixel: Fn(&mut PixelStorage, Vec2<usize>, Pixel),
-    {
+{
         CollectPixels {
             read_channels: self,
             set_pixel,

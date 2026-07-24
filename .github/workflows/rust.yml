@@ -164,7 +164,7 @@ jobs:
             feature: sse2-tests
             filter: "sse2"
             # Bump when adding/removing sse tests
-            expected_tests: 2
+            expected_tests: 4
             # Merom: the lowest 64-bit chip SDE models. Has SSE2 but no AVX,
             # `-C target-feature` unset explicitly to force runtime dispatching
             sde_cpu: "-mrm"
