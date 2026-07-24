@@ -8,6 +8,7 @@ mod b44;
 #[doc(hidden)]
 pub mod dwa;
 
+pub(crate) mod huffman;
 mod piz;
 mod pxr24;
 mod rle;

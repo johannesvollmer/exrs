@@ -2,13 +2,12 @@
 //! based on the PIZ image format, customized for `OpenEXR`.
 // inspired by  https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfPizCompressor.cpp
 
-pub(crate) mod huffman;
 mod wavelet;
 
 use std::convert::TryFrom;
 
 use crate::{
-    compression::{mod_p, ByteVec, Bytes},
+    compression::{huffman, mod_p, ByteVec, Bytes},
     error::{usize_to_i32, usize_to_u16},
     io::Data,
     meta::attribute::*,

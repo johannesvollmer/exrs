@@ -14,7 +14,7 @@ fn assert_blocks_match(autovectorized: fn(&mut [f32; 64]), kernel: impl Fn(&mut 
     // than a bespoke tolerance loop.
     use crate::image::validate_results::ValidateResult;
 
-    for mut expected in pseudo_random_blocks(64) {
+    for mut expected in pseudo_random_blocks(4096) {
         let mut actual = expected;
         autovectorized(&mut expected);
         kernel(&mut actual);

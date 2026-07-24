@@ -59,7 +59,7 @@ pub(super) fn decode_ac_section(section: &[u8], header: &DwaHeader) -> Result<Ve
 
     match header.ac_compression {
         AcCompression::StaticHuffman => {
-            crate::compression::piz::huffman::decompress(section, header.ac_count)
+            crate::compression::huffman::decompress(section, header.ac_count)
         }
         AcCompression::Deflate => {
             let bytes = inflate(section, header.ac_count * 2)?;

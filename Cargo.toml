@@ -23,7 +23,6 @@ test = true
 doctest = true
 bench = true
 doc = true
-plugin = false
 proc-macro = false
 
 [dependencies]
@@ -95,6 +94,11 @@ required-features = ["rayon"]
 
 [[bench]]
 name = "dct"
+harness = false
+required-features = ["simd-benches"]
+
+[[bench]]
+name = "csc"
 harness = false
 required-features = ["simd-benches"]
 
