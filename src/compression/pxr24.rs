@@ -153,7 +153,7 @@ pub fn compress(channels: &ChannelList, bytes_ne: ByteVec, area: IntegerBounds) 
         debug_assert_eq!(write.len(), 0, "bytes left after compression");
     }
 
-    Ok(miniz_oxide::deflate::compress_to_vec_zlib(encoded_be.as_slice(), 4))
+    Ok(super::compress_zlib(encoded_be.as_slice(), 4))
 }
 
 pub fn decompress(

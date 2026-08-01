@@ -2199,7 +2199,7 @@ pub mod type_names {
 #[cfg(test)]
 mod test {
     use ::std::io::Cursor;
-    use rand::{random, thread_rng, Rng};
+    use rand::RngExt;
 
     use super::*;
 
@@ -2396,18 +2396,18 @@ mod test {
 
     #[test]
     fn time_code_pack() {
-        let mut rng = thread_rng();
+        let mut rng = rand::rng();
 
         let codes = std::iter::repeat_with(|| TimeCode {
-            hours: rng.gen_range(0..24),
-            minutes: rng.gen_range(0..60),
-            seconds: rng.gen_range(0..60),
-            frame: rng.gen_range(0..29),
-            drop_frame: random(),
-            color_frame: random(),
-            field_phase: random(),
-            binary_group_flags: [random(), random(), random()],
-            binary_groups: std::iter::repeat_with(|| rng.gen_range(0..16))
+            hours: rng.random_range(0..24),
+            minutes: rng.random_range(0..60),
+            seconds: rng.random_range(0..60),
+            frame: rng.random_range(0..29),
+            drop_frame: rand::random(),
+            color_frame: rand::random(),
+            field_phase: rand::random(),
+            binary_group_flags: [rand::random(), rand::random(), rand::random()],
+            binary_groups: std::iter::repeat_with(|| rng.random_range(0..16))
                 .take(8)
                 .collect::<SmallVec<[u8; 8]>>()
                 .into_inner()

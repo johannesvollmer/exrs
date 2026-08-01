@@ -8,6 +8,7 @@ mod b44;
 #[doc(hidden)]
 pub mod dwa;
 
+pub(crate) mod huffman;
 mod piz;
 mod pxr24;
 mod rle;
@@ -812,6 +813,17 @@ mod optimize_bytes {
             assert_eq!(source, modified);
         }
     }
+}
+
+/// Compress the given bytes with zlib deflate at the given compression level (0-9),
+/// shared by the zip, pxr24 and dwa compression methods.
+pub(crate) fn compress_zlib(data: &[u8], level: u8) -> ByteVec {
+    use flate2::{write::ZlibEncoder, Compression as ZlibCompression};
+    use std::io::Write;
+
+    let mut encoder = ZlibEncoder::new(Vec::with_capacity(data.len()), ZlibCompression::new(level as u32));
+    encoder.write_all(data).expect("zlib compression to memory buffer cannot fail");
+    encoder.finish().expect("zlib compression to memory buffer cannot fail")
 }
 
 #[cfg(test)]

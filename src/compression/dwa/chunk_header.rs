@@ -104,7 +104,7 @@ impl DwaHeader {
 
 #[cfg(test)]
 mod test {
-    use rand::{Rng, SeedableRng};
+    use rand::{RngExt, SeedableRng};
 
     use super::*;
 
@@ -121,7 +121,7 @@ mod test {
 
         for ac_compression in [AcCompression::StaticHuffman, AcCompression::Deflate] {
             // counters are stored as i64-positive u64s, so keep them in range
-            let mut counter = || random.gen_range(0..=(i64::MAX as u64)) as usize;
+            let mut counter = || random.random_range(0..=(i64::MAX as u64)) as usize;
 
             let header = DwaHeader {
                 version: 2,

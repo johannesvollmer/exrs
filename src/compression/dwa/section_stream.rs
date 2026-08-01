@@ -59,7 +59,7 @@ pub(super) fn decode_ac_section(section: &[u8], header: &DwaHeader) -> Result<Ve
 
     match header.ac_compression {
         AcCompression::StaticHuffman => {
-            crate::compression::piz::huffman::decompress(section, header.ac_count)
+            crate::compression::huffman::decompress(section, header.ac_count)
         }
         AcCompression::Deflate => {
             let bytes = inflate(section, header.ac_count * 2)?;
@@ -123,7 +123,7 @@ pub(super) fn zip_deconstruct_bytes(bytes: &mut [u8]) {
 
 #[cfg(test)]
 mod test {
-    use rand::{Rng, SeedableRng};
+    use rand::{RngExt, SeedableRng};
 
     use super::*;
 
@@ -140,7 +140,7 @@ mod test {
         let mut random = rand::rngs::StdRng::from_seed(SEED);
 
         for length in [0usize, 1, 2, 3, 4, 5, 17, 64, 129] {
-            let original: Vec<u8> = (0..length).map(|_| random.gen()).collect();
+            let original: Vec<u8> = (0..length).map(|_| random.random()).collect();
 
             let mut deconstructed = original.clone();
             zip_deconstruct_bytes(&mut deconstructed);

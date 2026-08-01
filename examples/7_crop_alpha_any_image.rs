@@ -1,5 +1,3 @@
-extern crate image as png;
-
 extern crate exr;
 
 /// Read an arbitrary image, crop away transparent pixels,

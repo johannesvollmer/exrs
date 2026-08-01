@@ -2,6 +2,10 @@ use std::path::Path;
 
 use exr::{image::validate_results::ValidateResult, prelude::*};
 
+#[path = "../dev-support/tiny_png.rs"]
+#[allow(dead_code)]
+mod tiny_png;
+
 fn dir() -> &'static Path {
     Path::new("tests/images/valid/custom/compression_methods")
 }
@@ -45,20 +49,20 @@ fn expect_eq_other(sub_dir: &str, image_name: &str, expected: &str) {
 // little endian data is unpacked correctly on big endian systems
 // it does not attempt to compare NaN
 fn expect_eq_png(image_name: &str) {
-    type Rgb16Image = ::image::ImageBuffer<::image::Rgb<u16>, Vec<u16>>;
+    type Rgb16Image = tiny_png::Rgb16Buffer;
 
     let exr_path = dir().join("u16").join(image_name);
     let png_from_exr = read_first_rgba_layer_from_file(
         exr_path,
         |resolution, _channels: &RgbaChannels| -> Rgb16Image {
-            ::image::ImageBuffer::new(resolution.width() as u32, resolution.height() as u32)
+            Rgb16Image::new(resolution.width() as u32, resolution.height() as u32)
         },
         // set each pixel in the png buffer from the exr file
         |png_pixels: &mut Rgb16Image, position: Vec2<usize>, (r, g, b, _): (f32, f32, f32, f32)| {
             png_pixels.put_pixel(
                 position.x() as u32,
                 position.y() as u32,
-                ::image::Rgb([to_u16(r), to_u16(g), to_u16(b)]),
+                [to_u16(r), to_u16(g), to_u16(b)],
             );
         },
     );
@@ -72,9 +76,8 @@ fn expect_eq_png(image_name: &str) {
         Err(error) => panic!("unexpected error: {}", error),
         Ok(decompressed) => {
             let truth_path = dir().join("u16").join("ground_truth.png");
-            let truth_dyn_img = image::open(truth_path).unwrap();
+            let ground_truth_png = tiny_png::read_rgb16(truth_path).unwrap();
 
-            let ground_truth_png = truth_dyn_img.to_rgb16();
             let exr_as_png_px = decompressed.layer_data.channel_data.pixels;
             debug_assert_eq!(
                 ground_truth_png.dimensions(),
@@ -82,9 +85,9 @@ fn expect_eq_png(image_name: &str) {
                 "size should not be affected by compression"
             );
 
-            let expected_px = ground_truth_png.pixels().flat_map(|px| px.0.iter().copied());
+            let expected_px = ground_truth_png.pixels().flat_map(|px| px.iter().copied());
 
-            let actual_px = exr_as_png_px.pixels().flat_map(|px| px.0.iter().copied());
+            let actual_px = exr_as_png_px.pixels().flat_map(|px| px.iter().copied());
 
             let max_diff = u16::MAX / 10;
             for (exp, val) in expected_px.zip(actual_px) {

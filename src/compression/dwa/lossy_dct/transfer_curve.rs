@@ -85,7 +85,7 @@ fn dwa_convert_to_linear(x: f16) -> f16 {
 
 #[cfg(test)]
 mod test {
-    use rand::{Rng, SeedableRng};
+    use rand::{RngExt, SeedableRng};
 
     use super::*;
     use crate::image::validate_results::ValidateResult;
@@ -114,7 +114,7 @@ mod test {
 
         let mut random = rand::rngs::StdRng::from_seed(SEED);
         for _ in 0..512 {
-            assert_curve_roundtrips(random.gen_range(-4.0f32..4.0));
+            assert_curve_roundtrips(random.random_range(-4.0f32..4.0));
         }
     }
 
