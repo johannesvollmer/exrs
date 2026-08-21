@@ -5,9 +5,10 @@ use crate::{
     image::{FlatSamples, Levels, RipMaps},
     math::{RoundingMode, Vec2},
     meta::{
+        BlockDescription,
         attribute::{LevelMode, SampleType, TileDescription},
         header::Header,
-        mip_map_indices, mip_map_levels, rip_map_indices, rip_map_levels, BlockDescription,
+        mip_map_indices, mip_map_levels, rip_map_indices, rip_map_levels,
     },
 };
 

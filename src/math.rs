@@ -9,7 +9,7 @@ use std::{
     ops::{Add, Div, Mul, Sub},
 };
 
-use crate::error::{i32_to_usize, Result};
+use crate::error::{Result, i32_to_usize};
 
 /// Simple two-dimensional vector of any numerical type.
 /// Supports only few mathematical operations

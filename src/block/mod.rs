@@ -7,6 +7,7 @@
 //! Start with the `block::read(...)`
 //! and `block::write(...)` functions.
 
+pub mod pool;
 pub mod reader;
 pub mod writer;
 
@@ -24,9 +25,9 @@ use crate::{
         lines::{LineIndex, LineRef, LineRefMut, LineSlice},
     },
     compression::ByteVec,
-    error::{usize_to_i32, Error, Result, UnitResult},
+    error::{Error, Result, UnitResult, usize_to_i32},
     math::Vec2,
-    meta::{attribute::ChannelList, header::Header, BlockDescription, Headers, MetaData},
+    meta::{BlockDescription, Headers, MetaData, attribute::ChannelList, header::Header},
 };
 
 /// Specifies where a block of pixel data should be placed in the actual image.

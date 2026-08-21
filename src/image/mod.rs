@@ -663,7 +663,7 @@ impl<LevelSamples> Levels<LevelSamples> {
     // TODO storage order for RIP maps?
     pub fn get_level_mut(&mut self, level: Vec2<usize>) -> Result<&mut LevelSamples> {
         match self {
-            Self::Singular(ref mut block) => {
+            Self::Singular(block) => {
                 debug_assert_eq!(
                     level,
                     Vec2(0, 0),
@@ -1584,9 +1584,9 @@ pub mod validate_results {
 
         use crate::{
             image::{
+                FlatSamples,
                 pixel_vec::PixelVec,
                 validate_results::{ValidateResult, ValidationOptions},
-                FlatSamples,
             },
             meta::attribute::LineOrder::Increasing,
         };
@@ -1615,16 +1615,18 @@ pub mod validate_results {
         ) where
             T: ValidateResult,
         {
-            assert!(original
-                .validate_result(
-                    result,
-                    ValidationOptions {
-                        allow_lossy,
-                        nan_converted_to_zero
-                    },
-                    String::new
-                )
-                .is_err());
+            assert!(
+                original
+                    .validate_result(
+                        result,
+                        ValidationOptions {
+                            allow_lossy,
+                            nan_converted_to_zero
+                        },
+                        String::new
+                    )
+                    .is_err()
+            );
         }
 
         #[test]

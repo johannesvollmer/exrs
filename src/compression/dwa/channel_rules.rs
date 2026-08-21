@@ -4,7 +4,7 @@
 
 use std::{borrow::Cow, convert::TryInto};
 
-use super::{channel_suffix, CompressorScheme};
+use super::{CompressorScheme, channel_suffix};
 use crate::{
     error::{Error, Result},
     meta::attribute::{ChannelList, SampleType},

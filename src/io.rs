@@ -125,7 +125,7 @@ impl<T: Read> PeekRead<T> {
         self.peeked =
             self.peeked.take().or_else(|| Some(u8::read_from_little_endian(&mut self.inner)));
         self.peeked.as_ref().unwrap() // unwrap cannot fail because we just set
-                                      // it
+        // it
     }
 
     /// Skip a single byte if it equals the specified value.

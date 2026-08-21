@@ -4,8 +4,8 @@
 use crate::{
     block::BlockIndex,
     image::{
-        write::channels::{ChannelsWriter, GetPixel, WritableChannels},
         AnyChannel, AnyChannels, FlatSamples, FlatSamplesPixel, Layer, SpecificChannels,
+        write::channels::{ChannelsWriter, GetPixel, WritableChannels},
     },
     math::{RoundingMode, Vec2},
     meta::{
@@ -190,8 +190,8 @@ where
 
     fn infer_channel_list(&self) -> ChannelList {
         self.full_channels.infer_channel_list() // no need for adjustments, as
-                                                // the layer content already
-                                                // reflects the changes
+        // the layer content already
+        // reflects the changes
     }
 
     fn infer_level_modes(&self) -> (LevelMode, RoundingMode) {
@@ -477,7 +477,9 @@ impl<Cropped, Original> CropResult<Cropped, Original> {
             } => {
                 let bounds = original.bounds();
                 if bounds.size == Vec2(0, 0) {
-                    unreachable!("layer has zero width and height - this indicates an invalid layer state that should have been caught during construction")
+                    unreachable!(
+                        "layer has zero width and height - this indicates an invalid layer state that should have been caught during construction"
+                    )
                 }
                 original.crop(IntegerBounds::new(bounds.position, Vec2(1, 1)))
             }

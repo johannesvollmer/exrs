@@ -7,7 +7,7 @@ use lebe::io::{ReadPrimitive, WriteEndian};
 use table::{EXP_TABLE, LOG_TABLE};
 
 use crate::{
-    compression::{mod_p, ByteVec},
+    compression::{ByteVec, mod_p},
     error::usize_to_i32,
     io::Data,
     meta::attribute::ChannelList,
@@ -689,9 +689,8 @@ pub fn compress(
 mod test {
     use crate::{
         compression::{
-            b44,
+            ByteVec, b44,
             b44::{convert_from_linear, convert_to_linear},
-            ByteVec,
         },
         image::validate_results::ValidateResult,
         meta::attribute::ChannelList,

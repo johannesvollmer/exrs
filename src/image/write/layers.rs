@@ -3,15 +3,15 @@
 use crate::{
     block::BlockIndex,
     image::{
+        Layer, Layers,
         recursive::{NoneMore, Recursive},
         write::channels::{ChannelsWriter, WritableChannels},
-        Layer, Layers,
     },
     meta::{
+        Headers,
         attribute::TileDescription,
         compute_chunk_count,
         header::{Header, ImageAttributes},
-        Headers,
     },
     prelude::SmallVec,
 };

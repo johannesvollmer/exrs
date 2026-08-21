@@ -1,7 +1,7 @@
 //! How to read either a single or a list of layers.
 
 use crate::{
-    block::{chunk::TileCoordinates, BlockIndex, UncompressedBlock},
+    block::{BlockIndex, UncompressedBlock, chunk::TileCoordinates},
     error::{Error, Result, UnitResult},
     image::{
         read::image::{LayersReader, ReadLayers},
@@ -9,8 +9,8 @@ use crate::{
     },
     math::Vec2,
     meta::{
-        header::{Header, LayerAttributes},
         MetaData,
+        header::{Header, LayerAttributes},
     },
 };
 

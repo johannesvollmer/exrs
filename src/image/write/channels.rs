@@ -431,7 +431,7 @@ where
 #[cfg(test)]
 mod test {
     use crate::{
-        image::{pixel_vec::PixelVec, write::channels::WritableChannels, SpecificChannels},
+        image::{SpecificChannels, pixel_vec::PixelVec, write::channels::WritableChannels},
         meta::attribute::{ChannelDescription, SampleType},
         prelude::f16,
     };

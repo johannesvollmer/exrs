@@ -1,5 +1,3 @@
-extern crate image as png;
-
 extern crate exr;
 
 /// Read an arbitrary image, crop away transparent pixels,
@@ -38,7 +36,7 @@ pub fn main() {
                         .or_crop_to_1x1_if_empty() // do not remove empty layers from image, because it could result in an
                         // image without content
                         .reallocate_cropped() // actually perform the crop
-                                              // operation
+                // operation
                 } else {
                     // return the original layer, as no alpha channel can be used for cropping
                     layer

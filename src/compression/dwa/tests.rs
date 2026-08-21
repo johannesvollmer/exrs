@@ -29,7 +29,7 @@ fn compress_decompress_rle_only_is_lossless() {
     }
 
     let compressed = compress(&channels, raw.clone(), rectangle, Some(45.0)).unwrap();
-    let decoded = decompress(&channels, compressed, rectangle, raw.len(), true).unwrap();
+    let decoded = decompress(&channels, &compressed, rectangle, raw.len(), true).unwrap();
 
     assert_eq!(decoded, raw);
 }
@@ -55,7 +55,7 @@ fn compress_decompress_rgb_lossy_chunk_is_valid() {
 
     let compressed = compress(&channels, raw.clone(), rectangle, Some(45.0)).unwrap();
     assert_ne!(compressed.len(), raw.len());
-    let decoded = decompress(&channels, compressed, rectangle, raw.len(), true).unwrap();
+    let decoded = decompress(&channels, &compressed, rectangle, raw.len(), true).unwrap();
 
     assert_eq!(decoded.len(), raw.len());
     assert!(decoded.iter().any(|&byte| byte != 0));

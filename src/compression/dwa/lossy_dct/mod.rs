@@ -1,47 +1,30 @@
-// The lossy DCT codec: encoding and decoding the shared AC/DC coefficient
-// streams that every LOSSY_DCT channel group of a chunk consumes. Includes the
-// Y'CbCr <-> R'G'B' color-space conversion the RGB triplets are transformed
-// with (the modified 709 coefficients from OpenEXRCore internal_dwa_simd.h).
+//! Lossy DCT codec: shared AC/DC streams for each LOSSY_DCT channel group.
+//!
+//! RGB groups go through modified-709 CSC (`color_space_conversion`) and DCT
+//! in batches. Decode prefers fused x86 SIMD (`x86/`) before the strip-tile
+//! fallback.
+
+use std::convert::TryInto;
 
 use half::f16;
 
-use super::{discrete_cosine_transform, ChannelInfo, CompressorScheme};
+use super::{ChannelInfo, CompressorScheme, color_space_conversion, discrete_cosine_transform};
 use crate::{
     error::{Error, Result},
     meta::attribute::SampleType,
 };
 
+mod ac_rle;
 mod half_float_quantizer;
 mod quantization;
 mod transfer_curve;
 
-use quantization::{
-    from_half_zigzag, quantize_coefficients_to_zigzag, rle_ac, un_rle_ac, QuantTables,
-};
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+mod x86;
+
+use ac_rle::{rle_ac, un_rle_ac};
+use quantization::{QuantTables, from_half_zigzag, quantize_coefficients_to_zigzag};
 use transfer_curve::{to_linear_table, to_nonlinear_table};
-
-/// Y'CbCr -> R'G'B' inverse conversion for DWA, using the modified 709
-/// coefficients OpenEXR's DWA encoder uses. Input comp0/1/2 are Y, RY, BY;
-/// output is R, G, B.
-#[inline]
-fn csc709_inverse(comp0: f32, comp1: f32, comp2: f32) -> (f32, f32, f32) {
-    let r = comp0 + 1.5747 * comp2;
-    let g = comp0 - 0.1873 * comp1 - 0.4682 * comp2;
-    let b = comp0 + 1.8556 * comp1;
-    (r, g, b)
-}
-
-/// R'G'B' -> Y'CbCr forward conversion for DWA. The component order matches
-/// OpenEXR's channel-group storage: Y, BY, RY.
-#[inline]
-fn csc709_forward(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
-    // OpenEXR uses a modified 709 transform with a zero-centered chroma
-    // representation instead of the usual 0.5 offset.
-    let y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    let by = (b - y) / 1.8556;
-    let ry = (r - y) / 1.5747;
-    (y, by, ry)
-}
 
 pub(super) fn encode_lossy_channels(
     infos: &[ChannelInfo],
@@ -190,18 +173,12 @@ fn encode_lossy_dct_group(
                     }
                 }
             }
+        }
 
-            if component_count == 3 {
-                // CSC is performed in nonlinear space for the RGB triplet.
-                let dct_blocks = &mut row_blocks[block_x];
-                for i in 0..64 {
-                    let (y, by, ry) =
-                        csc709_forward(dct_blocks[0][i], dct_blocks[1][i], dct_blocks[2][i]);
-                    dct_blocks[0][i] = y;
-                    dct_blocks[1][i] = by;
-                    dct_blocks[2][i] = ry;
-                }
-            }
+        if component_count == 3 {
+            // CSC is performed in nonlinear space for the RGB triplet, batched
+            // across the whole row at once (same shape as the DCT batch below).
+            color_space_conversion::csc709_forward_8x8_batch(row_blocks.iter_mut());
         }
 
         discrete_cosine_transform::dct_forward_8x8_batch(
@@ -278,30 +255,57 @@ impl<'v> PackedStream<'v> {
     fn advance(&mut self, count: usize) {
         self.cursor += count;
     }
+
+    /// Values left between the cursor and the end of the stream.
+    fn remaining(&self) -> usize {
+        self.values.len().saturating_sub(self.cursor)
+    }
+
+    /// The next `len` values as a plain slice, without consuming them.
+    fn peek_slice(&self, len: usize) -> &'v [u16] {
+        &self.values[self.cursor..self.cursor + len]
+    }
 }
 
-/// Decode all LOSSY_DCT channels: first every CSC group, then the
-/// standalone channels, both in channel order - the order in which the
-/// encoder appended them to the shared AC/DC streams.
+/// Where one channel's decoded lossy DCT output should land in the final
+/// scanline-interleaved output buffer: its sample type (for serialization)
+/// and, per local row, the byte offset `compute_row_offsets` assigned it.
+/// Writing straight here instead of into an intermediate per-channel buffer
+/// avoids a second full-image copy pass (the equivalent of OpenEXR C++'s
+/// `LossyDctDecoder_execute` writing directly into its output rows).
+pub(super) struct ScanlineTarget<'a> {
+    pub(super) sample_type: SampleType,
+    pub(super) row_offsets: &'a [usize],
+}
+
+/// Decode all LOSSY_DCT channels directly into `out`: first every CSC group,
+/// then the standalone channels, both in channel order - the order in which
+/// the encoder appended them to the shared AC/DC streams.
 pub(super) fn decode_lossy_channels(
     infos: &[ChannelInfo],
     csc_groups: &[[usize; 3]],
     ac_packed: &[u16],
     dc_packed: &[u16],
-) -> Result<Vec<Vec<f16>>> {
+    row_offsets: &[Vec<usize>],
+    out: &mut [u8],
+) -> Result<()> {
     // Decode CSC triplets first, then standalone lossy channels. The shared
     // AC/DC cursors advance in the same order the encoder wrote them.
     let mut ac = PackedStream::new(ac_packed);
     let mut dc = PackedStream::new(dc_packed);
 
-    let mut samples: Vec<Vec<f16>> = vec![vec![]; infos.len()];
     let mut grouped = vec![false; infos.len()];
 
     for &group in csc_groups {
         // all three channels have identical sampling, hence identical size
         let info = &infos[group[0]];
-        let mut decoded: [Vec<f16>; 3] =
-            std::array::from_fn(|_| vec![f16::ZERO; info.width * info.height]);
+        let mut targets: [ScanlineTarget<'_>; 3] = std::array::from_fn(|i| {
+            let channel = group[i];
+            ScanlineTarget {
+                sample_type: infos[channel].sample_type,
+                row_offsets: &row_offsets[channel],
+            }
+        });
 
         decode_lossy_dct_group(
             &mut ac,
@@ -309,11 +313,11 @@ pub(super) fn decode_lossy_channels(
             info.width,
             info.height,
             Some(to_linear_table()),
-            &mut decoded,
+            &mut targets,
+            out,
         )?;
 
-        for (&channel, channel_samples) in group.iter().zip(decoded) {
-            samples[channel] = channel_samples;
+        for &channel in &group {
             grouped[channel] = true;
         }
     }
@@ -322,103 +326,248 @@ pub(super) fn decode_lossy_channels(
         if grouped[index] || info.scheme != CompressorScheme::LossyDct {
             continue;
         }
-        let mut decoded = [vec![f16::ZERO; info.width * info.height]];
+        let mut targets = [ScanlineTarget {
+            sample_type: info.sample_type,
+            row_offsets: &row_offsets[index],
+        }];
         let to_linear = (!info.quantize_linearly).then(to_linear_table);
-        decode_lossy_dct_group(&mut ac, &mut dc, info.width, info.height, to_linear, &mut decoded)?;
-
-        let [channel_samples] = decoded;
-        samples[index] = channel_samples;
+        decode_lossy_dct_group(
+            &mut ac,
+            &mut dc,
+            info.width,
+            info.height,
+            to_linear,
+            &mut targets,
+            out,
+        )?;
     }
 
-    Ok(samples)
+    Ok(())
 }
 
-/// Decode one standalone channel (decoded.len() == 1) or one CSC'd R/G/B
-/// triplet (decoded.len() == 3): per 8x8 block and component, read the
-/// DC value, un-RLE the AC values, inverse-DCT
+/// Decode one standalone channel (targets.len() == 1) or one CSC'd R/G/B
+/// triplet (targets.len() == 3): per 8x8 block and component, read the
+/// DC value, un-RLE the AC values, inverse-DCT, and write straight into the
+/// final output buffer at each target's precomputed row offsets.
 fn decode_lossy_dct_group(
     ac: &mut PackedStream<'_>,
     dc: &mut PackedStream<'_>,
     width: usize,
     height: usize,
     to_linear: Option<&[u16; 65536]>,
-    decoded: &mut [Vec<f16>],
+    targets: &mut [ScanlineTarget<'_>],
+    out: &mut [u8],
 ) -> Result<()> {
-    let components = decoded.len();
+    // Prefer the AVX-512 (V4) fused path when available: same fused shape as
+    // the AVX2 path below, but the DCT/CSC middle step processes 2 spatial
+    // blocks at once through 512-bit registers (see
+    // `try_decode_group_fused_avx512`).
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if let Some(result) =
+        x86::try_decode_group_fused_avx512(ac, dc, width, height, to_linear, targets, out)
+    {
+        return result;
+    }
+
+    // Otherwise, prefer the fused per-block path on AVX2+F16C hosts: one
+    // spatial 8x8 (or RGB triplet) finishes unRLE->iDCT->CSC->write while its
+    // ~1 KiB working set is still L1-hot, matching OpenEXR's LossyDctDecoder
+    // shape more closely than the strip-tiled multi-pass fallback below.
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if let Some(result) =
+        x86::try_decode_group_fused(ac, dc, width, height, to_linear, targets, out)
+    {
+        return result;
+    }
+
+    let components = targets.len();
     let blocks_x = (width + 7) / 8;
     let blocks_y = (height + 7) / 8;
     let block_count = blocks_x * blocks_y;
 
-    // Buffer the whole group rather than one block at a time. That lets the
-    // inverse DCT batch over every block that actually needs it, matching the
-    // structure of the C reference.
-    let mut dct_blocks: Vec<[[f32; 64]; 3]> = vec![[[0.0f32; 64]; 3]; block_count];
-    let mut needs_inverse_dct: Vec<[bool; 3]> = vec![[false; 3]; block_count];
+    // Buffer a strip of block-rows at a time and reuse it across strips,
+    // the same streaming shape the encoder already uses per row, widened to
+    // amortize the batch dispatch's fixed per-call cost. Buffering the whole
+    // group at once, always 3-wide, can be tens of megabytes for a wide DWAB
+    // chunk (256 scanlines), which relies on a big-enough L3 to avoid
+    // spilling to main memory and, under parallel decode, several chunks'
+    // worth of that footprint compete for the same shared L3 at once. A
+    // strip of a few block-rows keeps each thread's working set to a few MB
+    // (regardless of image width) while still batching thousands of blocks
+    // per dispatch.
+    const STRIP_BLOCK_ROWS: usize = 1;
 
-    for block_y in 0..blocks_y {
-        for block_x in 0..blocks_x {
-            let block_index = block_y * blocks_x + block_x;
+    // The strip is additionally tiled along x.
+    //
+    // 32 blocks is the widest tile whose buffers still fit a 48 KiB L1d: the
+    // tile is 32 * 3 * 256 = 24 KiB, plus the ~12 KiB of output rows the last
+    // pass writes for it. Measured against no x tiling, it removes ~17% of the
+    // decode's L1 misses and ~31% of its L2 misses; the wall-clock effect is
+    // under 1%, because the out-of-order engine already overlapped most of
+    // those misses, but it is reproducible and never a regression.
+    //
+    // Requires `STRIP_BLOCK_ROWS == 1`: the AC stream is a sequential bitstream
+    // written in block-row-major order, so an x tile may only be the innermost
+    // block loop of a single row, never span several buffered rows.
+    const _: () = assert!(STRIP_BLOCK_ROWS == 1);
+    const STRIP_BLOCK_COLS: usize = 32;
 
-            for component in 0..components {
-                let mut zig_block = [0u16; 64];
+    let tile_capacity = STRIP_BLOCK_COLS.min(blocks_x.max(1));
+    let strip_capacity = tile_capacity * STRIP_BLOCK_ROWS.min(blocks_y.max(1));
+    let mut row_blocks: Vec<[f32; 64]> = vec![[0.0f32; 64]; strip_capacity * components];
+    let mut needs_inverse_dct: Vec<bool> = vec![false; strip_capacity * components];
 
-                // the DC stream is planar: all of component 0's blocks,
-                // then all of component 1's, ...
-                zig_block[0] = dc
-                    .peek_at(component * block_count + block_index)
-                    .ok_or_else(|| Error::invalid("truncated DWA DC data"))?;
+    for strip_start in (0..blocks_y).step_by(STRIP_BLOCK_ROWS) {
+        let strip_rows = STRIP_BLOCK_ROWS.min(blocks_y - strip_start);
 
-                let last_non_zero = un_rle_ac(ac, &mut zig_block)?;
+        for tile_start in (0..blocks_x).step_by(STRIP_BLOCK_COLS) {
+            let tile_cols = STRIP_BLOCK_COLS.min(blocks_x - tile_start);
+            let strip_blocks = tile_cols * strip_rows;
 
-                let dct_block = &mut dct_blocks[block_index][component];
-                if last_non_zero == 0 {
-                    // DC-only block: all AC coefficients are zero, so the
-                    // inverse DCT can fill the whole block from one value.
-                    dct_block[0] = f16::from_bits(zig_block[0]).to_f32();
-                    discrete_cosine_transform::dct_inverse_8x8_dc_only(dct_block);
-                } else {
-                    from_half_zigzag(&zig_block, dct_block);
-                    needs_inverse_dct[block_index][component] = true;
+            for row_in_strip in 0..strip_rows {
+                let block_y = strip_start + row_in_strip;
+
+                for tile_x in 0..tile_cols {
+                    let block_x = tile_start + tile_x;
+                    let block_index = block_y * blocks_x + block_x;
+
+                    for component in 0..components {
+                        let mut zig_block = [0u16; 64];
+
+                        // the DC stream is planar: all of component 0's blocks,
+                        // then all of component 1's, ... (indexed against the whole
+                        // group's block_count, even though only one strip is buffered)
+                        zig_block[0] = dc
+                            .peek_at(component * block_count + block_index)
+                            .ok_or_else(|| Error::invalid("truncated DWA DC data"))?;
+
+                        let last_non_zero = un_rle_ac(ac, &mut zig_block)?;
+
+                        let slot = (row_in_strip * tile_cols + tile_x) * components + component;
+                        let dct_block = &mut row_blocks[slot];
+                        if last_non_zero == 0 {
+                            // DC-only block: all AC coefficients are zero, so the
+                            // inverse DCT can fill the whole block from one value.
+                            dct_block[0] = f16::from_bits(zig_block[0]).to_f32();
+                            discrete_cosine_transform::dct_inverse_8x8_dc_only(dct_block);
+                            needs_inverse_dct[slot] = false;
+                        } else {
+                            from_half_zigzag(&zig_block, dct_block);
+                            needs_inverse_dct[slot] = true;
+                        }
+                    }
                 }
             }
-        }
-    }
 
-    discrete_cosine_transform::dct_inverse_8x8_batch(
-        dct_blocks
-            .iter_mut()
-            .zip(needs_inverse_dct.iter())
-            .flat_map(|(blocks, flags)| blocks.iter_mut().zip(flags.iter()))
-            .filter_map(|(block, &needed)| needed.then_some(block)),
-    );
-
-    for block_y in 0..blocks_y {
-        for block_x in 0..blocks_x {
-            let block_index = block_y * blocks_x + block_x;
-            let dct_blocks = &mut dct_blocks[block_index];
+            let strip_slots = strip_blocks * components;
+            discrete_cosine_transform::dct_inverse_8x8_batch(
+                row_blocks[..strip_slots]
+                    .iter_mut()
+                    .zip(needs_inverse_dct[..strip_slots].iter())
+                    .filter_map(|(block, &needed)| needed.then_some(block)),
+            );
 
             if components == 3 {
-                for i in 0..64 {
-                    let (r, g, b) =
-                        csc709_inverse(dct_blocks[0][i], dct_blocks[1][i], dct_blocks[2][i]);
-                    dct_blocks[0][i] = r;
-                    dct_blocks[1][i] = g;
-                    dct_blocks[2][i] = b;
-                }
+                // Batched across the whole strip at once (same shape as the DCT batch
+                // above). A `[f32; 64]` triplet is layout-identical to `[[f32; 64]; 3]`,
+                // so this reinterprets 3-block chunks of the flat buffer without a copy.
+                color_space_conversion::csc709_inverse_8x8_batch(
+                    row_blocks[..strip_slots]
+                        .chunks_exact_mut(3)
+                        .map(|triplet| triplet.try_into().unwrap()),
+                );
             }
 
-            // Convert nonlinear DCT output back to linear half values and crop
-            // the edges to the actual image extent.
-            for (component, output) in decoded.iter_mut().enumerate() {
-                for y in block_y * 8..(block_y * 8 + 8).min(height) {
-                    for x in block_x * 8..(block_x * 8 + 8).min(width) {
-                        let value =
-                            dct_blocks[component][(y - block_y * 8) * 8 + (x - block_x * 8)];
-                        let nonlinear = f16::from_f32(value);
-                        output[y * width + x] = f16::from_bits(match to_linear {
-                            Some(to_linear) => to_linear[nonlinear.to_bits() as usize],
-                            None => nonlinear.to_bits(),
-                        });
+            for row_in_strip in 0..strip_rows {
+                let block_y = strip_start + row_in_strip;
+                let y_count = 8.min(height - block_y * 8);
+
+                for tile_x in 0..tile_cols {
+                    let block_x = tile_start + tile_x;
+                    let base = (row_in_strip * tile_cols + tile_x) * components;
+                    let x_count = 8.min(width - block_x * 8);
+
+                    // Convert nonlinear DCT output back to linear half values, crop
+                    // the edges to the actual image extent, and serialize straight
+                    // into the final scanline buffer at this target's row offsets
+                    // (no intermediate per-channel buffer + later copy, mirroring
+                    // OpenEXR C++'s LossyDctDecoder_execute writing directly into
+                    // its output rows). `to_linear` and the sample type are the
+                    // same for the whole call, so match them once per
+                    // block/component here instead of once per pixel.
+                    for (component, target) in targets.iter_mut().enumerate() {
+                        let block = &row_blocks[base + component];
+                        let bytes_per_sample = target.sample_type.bytes_per_sample();
+
+                        macro_rules! write_row {
+                            ($linearize:expr) => {
+                                for dy in 0..y_count {
+                                    let y = block_y * 8 + dy;
+                                    let row = &block[dy * 8..dy * 8 + x_count];
+                                    let offset =
+                                        target.row_offsets[y] + block_x * 8 * bytes_per_sample;
+                                    let out_row = &mut out[offset..][..x_count * bytes_per_sample];
+
+                                    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                                    {
+                                        let handled = match target.sample_type {
+                                            SampleType::F16 => {
+                                                x86::try_write_row_f16(row, to_linear, out_row)
+                                                    || x86::try_write_row_f16_sse2(
+                                                        row, to_linear, out_row,
+                                                    )
+                                            }
+                                            SampleType::F32 => {
+                                                x86::try_write_row_f32(row, to_linear, out_row)
+                                                    || x86::try_write_row_f32_sse2(
+                                                        row, to_linear, out_row,
+                                                    )
+                                            }
+                                            SampleType::U32 => false,
+                                        };
+                                        if handled {
+                                            continue;
+                                        }
+                                    }
+                                    match target.sample_type {
+                                        SampleType::F16 => {
+                                            for (chunk, &value) in
+                                                out_row.chunks_exact_mut(2).zip(row)
+                                            {
+                                                let linear: f16 = $linearize(value);
+                                                chunk.copy_from_slice(
+                                                    &linear.to_bits().to_le_bytes(),
+                                                );
+                                            }
+                                        }
+                                        SampleType::F32 => {
+                                            for (chunk, &value) in
+                                                out_row.chunks_exact_mut(4).zip(row)
+                                            {
+                                                let linear: f16 = $linearize(value);
+                                                chunk.copy_from_slice(
+                                                    &linear.to_f32().to_le_bytes(),
+                                                );
+                                            }
+                                        }
+                                        // rejected before decoding
+                                        SampleType::U32 => {
+                                            return Err(Error::unsupported(
+                                                "DWA lossy DCT compression of u32 channels",
+                                            ));
+                                        }
+                                    }
+                                }
+                            };
+                        }
+
+                        match to_linear {
+                            Some(table) => write_row!(|value: f32| -> f16 {
+                                let nonlinear = f16::from_f32(value);
+                                f16::from_bits(table[nonlinear.to_bits() as usize])
+                            }),
+                            None => write_row!(|value: f32| -> f16 { f16::from_f32(value) }),
+                        }
                     }
                 }
             }
@@ -427,46 +576,4 @@ fn decode_lossy_dct_group(
 
     dc.advance(components * block_count);
     Ok(())
-}
-
-#[cfg(test)]
-mod test {
-    use rand::{Rng, SeedableRng};
-
-    use super::*;
-    use crate::image::validate_results::ValidateResult;
-
-    const SEED: [u8; 32] = [
-        66, 100, 19, 240, 8, 91, 3, 128, 9, 44, 201, 17, 88, 6, 255, 61, 30, 11, 2, 121, 99, 1,
-        250, 77, 33, 7, 42, 13, 200, 176, 22, 5,
-    ];
-
-    /// The R'G'B' <-> Y'CbCr conversion pair must round-trip: converting to
-    /// Y'CbCr and back must recover the original RGB triple (approximately,
-    /// since the matrix coefficients are not exactly invertible in f32). The
-    /// forward output tuple `(y, by, ry)` feeds the inverse positionally.
-    fn assert_csc_roundtrips(r: f32, g: f32, b: f32) {
-        let (y, by, ry) = csc709_forward(r, g, b);
-        let (r2, g2, b2) = csc709_inverse(y, by, ry);
-        vec![r, g, b].assert_approx_equals_result(&vec![r2, g2, b2]);
-    }
-
-    #[test]
-    fn csc_roundtrip_hardcoded() {
-        assert_csc_roundtrips(0.0, 0.0, 0.0);
-        assert_csc_roundtrips(1.0, 1.0, 1.0);
-        assert_csc_roundtrips(1.0, 0.0, 0.0);
-        assert_csc_roundtrips(0.0, 1.0, 0.0);
-        assert_csc_roundtrips(0.0, 0.0, 1.0);
-        assert_csc_roundtrips(0.25, 0.5, 0.75);
-    }
-
-    #[test]
-    fn csc_roundtrip_seeded() {
-        let mut random = rand::rngs::StdRng::from_seed(SEED);
-        for _ in 0..256 {
-            let mut channel = || random.gen_range(-4.0f32..4.0);
-            assert_csc_roundtrips(channel(), channel(), channel());
-        }
-    }
 }

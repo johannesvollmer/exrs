@@ -8,15 +8,17 @@ mod b44;
 #[doc(hidden)]
 pub mod dwa;
 
+pub(crate) mod huffman;
 mod piz;
 mod pxr24;
 mod rle;
+pub(crate) mod simd_detect;
 mod zip;
 
 use std::convert::TryInto;
 
 use crate::{
-    error::{usize_to_i32, Error, Result, UnitResult},
+    error::{Error, Result, UnitResult, usize_to_i32},
     meta::{
         attribute::{ChannelList, IntegerBounds, SampleType},
         header::Header,
@@ -344,13 +346,21 @@ impl Compression {
                     expected_byte_size,
                     pedantic,
                 ),
-                DWAA(_) | DWAB(_) => dwa::decompress(
-                    &header.channels,
-                    compressed_le,
-                    pixel_section,
-                    expected_byte_size,
-                    pedantic,
-                ),
+                DWAA(_) | DWAB(_) => {
+                    let result = dwa::decompress(
+                        &header.channels,
+                        &compressed_le,
+                        pixel_section,
+                        expected_byte_size,
+                        pedantic,
+                    );
+
+                    // the codec only ever borrowed the compressed bytes, so the
+                    // buffer that `block::chunk::read_compressed_pixels_le`
+                    // pooled it from can be handed straight back
+                    crate::block::pool::recycle(compressed_le);
+                    result
+                }
                 _ => {
                     return Err(Error::unsupported(format!(
                         "yet unimplemented compression method: {self}"
@@ -812,6 +822,19 @@ mod optimize_bytes {
             assert_eq!(source, modified);
         }
     }
+}
+
+/// Compress the given bytes with zlib deflate at the given compression level
+/// (0-9), shared by the zip, pxr24 and dwa compression methods.
+pub(crate) fn compress_zlib(data: &[u8], level: u8) -> ByteVec {
+    use std::io::Write;
+
+    use flate2::{Compression as ZlibCompression, write::ZlibEncoder};
+
+    let buffer = crate::block::pool::take_with_capacity(data.len());
+    let mut encoder = ZlibEncoder::new(buffer, ZlibCompression::new(level as u32));
+    encoder.write_all(data).expect("zlib compression to memory buffer cannot fail");
+    encoder.finish().expect("zlib compression to memory buffer cannot fail")
 }
 
 #[cfg(test)]

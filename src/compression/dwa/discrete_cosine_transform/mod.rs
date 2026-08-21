@@ -1,17 +1,9 @@
-// Discrete cosine transform (forward and inverse) for DWA, ported from
-// OpenEXRCore's internal_dwa_simd.h, including its runtime CPU dispatch:
-// `dct_inverse_8x8_batch`/`dct_forward_8x8_batch` pick the best available x86
-// tier at runtime (avx2 > sse2 > scalar), like OpenEXRs cpuid-based
-// `initializeFuncs`
-//
-// Dispatch uses pulp's V3/V1 tokens, constructed only after a runtime CPU
-// feature check. V3 needs AVX2+FMA, so
-// AVX-only CPUs (Sandy/Ivy Bridge) fall back to sse2 here, where OpenEXR
-// would use its own (non-avx2) avx kernel.
-//
-// The three kernels aren't bit-identical to each other (OpenEXRs own
-// kernels disagree too: basis-constant precision and summation order
-// differ)
+//! Discrete cosine transform (forward and inverse) for DWA, ported from
+//! OpenEXRCore's `internal_dwa_simd.h`.
+//!
+//! `dct_*_8x8_batch` picks Avx, else Sse, else scalar (miraculix tokens after
+//! CPU detect). Kernels are not bit-identical across tiers; OpenEXR's own
+//! kernels diverge the same way (basis precision / sum order).
 
 // public only for benchmarking (the runtime dispatch below and the tier tests
 // reach the individual kernels through this)
@@ -195,6 +187,35 @@ pub(crate) fn dct_inverse_8x8_batch<'a>(mut blocks: impl Iterator<Item = &'a mut
     for data in blocks {
         dct_inverse_8x8_autovectorized(data);
     }
+}
+
+/// Forward-DCT basis table (cosine coefficients), shared by every SIMD tier
+/// across every architecture -- purely data, no architecture-specific shape.
+/// Unused (dead) on non-x86 builds, where no SIMD tier is available at all.
+#[allow(dead_code)]
+pub(crate) fn forward_basis() -> &'static [[f32; 8]; 8] {
+    use std::sync::OnceLock;
+
+    static TABLE: OnceLock<[[f32; 8]; 8]> = OnceLock::new();
+
+    TABLE.get_or_init(|| {
+        const PI: f32 = 3.14159;
+        const INV_SQRT_2: f32 = 0.70710677;
+
+        let mut table = [[0.0f32; 8]; 8];
+        for input in 0..8 {
+            for output in 0..8 {
+                let scale = if output == 0 {
+                    0.5 * INV_SQRT_2
+                } else {
+                    0.5
+                };
+                table[input][output] =
+                    scale * (((2 * input + 1) as f32 * output as f32 * PI) / 16.0).cos();
+            }
+        }
+        table
+    })
 }
 
 /// Optimized path when only DC is non-zero.

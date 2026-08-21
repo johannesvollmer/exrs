@@ -12,8 +12,8 @@ use ::smallvec::SmallVec;
 use self::attribute::*;
 use crate::{
     block::{
-        chunk::{CompressedBlock, TileCoordinates},
         BlockIndex, UncompressedBlock,
+        chunk::{CompressedBlock, TileCoordinates},
     },
     error::*,
     io::*,
@@ -579,7 +579,9 @@ impl MetaData {
                 );
 
             if must_share {
-                return Err(Error::invalid("chromaticities and time code attributes must must not exist in own attributes but shared instead"));
+                return Err(Error::invalid(
+                    "chromaticities and time code attributes must must not exist in own attributes but shared instead",
+                ));
             }
         }
 
@@ -590,7 +592,9 @@ impl MetaData {
 
             for header in &headers[1..] {
                 if &header.shared_attributes != first_header_attributes {
-                    return Err(Error::invalid("display window, pixel aspect, chromaticities, and time code attributes must be equal for all headers"));
+                    return Err(Error::invalid(
+                        "display window, pixel aspect, chromaticities, and time code attributes must be equal for all headers",
+                    ));
                 }
             }
         }

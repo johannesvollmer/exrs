@@ -55,9 +55,9 @@ use crate::{
     block::samples::FromNativeSample,
     error::Result,
     image::{
-        read::{image::ReadLayers, layers::ReadChannels, samples::ReadFlatSamples},
         AnyChannels, AnyImage, FlatImage, FlatSamples, Image, Layer, PixelLayersImage,
         RgbaChannels,
+        read::{image::ReadLayers, layers::ReadChannels, samples::ReadFlatSamples},
     },
     math::Vec2,
     prelude::PixelImage,

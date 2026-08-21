@@ -22,9 +22,8 @@ use crate::{
     block::writer::ChunksWriter,
     error::UnitResult,
     image::{
-        ignore_progress,
+        Image, IntoSample, SpecificChannels, ignore_progress,
         write::layers::{LayersWriter, WritableLayers},
-        Image, IntoSample, SpecificChannels,
     },
     io::Write,
     math::Vec2,

@@ -5,10 +5,10 @@ use std::{fmt::Debug, io::Seek, iter::Peekable, ops::Not};
 use smallvec::alloc::collections::BTreeMap;
 
 use crate::{
-    block::{chunk::Chunk, UncompressedBlock},
-    error::{usize_to_u64, Error, Result, UnitResult},
+    block::{UncompressedBlock, chunk::Chunk},
+    error::{Error, Result, UnitResult, usize_to_u64},
     io::{Data, Tracking, Write},
-    meta::{attribute::LineOrder, Headers, MetaData, OffsetTables},
+    meta::{Headers, MetaData, OffsetTables, attribute::LineOrder},
 };
 
 /// Write an exr file by writing one chunk after another in a closure.
@@ -180,6 +180,25 @@ where
 
         *chunk_index_slot = usize_to_u64(self.byte_writer.byte_position(), "seek position")?;
         chunk.write(&mut self.byte_writer, self.header_count)?;
+
+        // the compressed bytes have been copied into the file by now, so the
+        // buffer that held them can be recycled for the next chunk's
+        // compressor to reuse instead of letting it fault in fresh pages
+        match chunk.compressed_block {
+            crate::block::chunk::CompressedBlock::ScanLine(block) => {
+                crate::block::pool::recycle(block.compressed_pixels_le)
+            }
+            crate::block::chunk::CompressedBlock::Tile(block) => {
+                crate::block::pool::recycle(block.compressed_pixels_le)
+            }
+            crate::block::chunk::CompressedBlock::DeepScanLine(block) => {
+                crate::block::pool::recycle(block.compressed_sample_data_le)
+            }
+            crate::block::chunk::CompressedBlock::DeepTile(block) => {
+                crate::block::pool::recycle(block.compressed_sample_data_le)
+            }
+        }
+
         Ok(())
     }
 }

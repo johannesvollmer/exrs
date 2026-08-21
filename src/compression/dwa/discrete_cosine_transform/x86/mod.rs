@@ -1,54 +1,37 @@
-// Runtime x86 SIMD dispatch for the DWA DCT: `try_dct_*_8x8_batch` select the
-// AVX2 tier when available and fall back to the SSE2 tier, otherwise let the
-// caller use the scalar autovectorized path. Both tiers share the lazily-built
-// `forward_basis` cosine table.
+//! Runtime x86 SIMD dispatch for DWA DCT: Avx, else Sse, else scalar.
+//! Both tiers share the lazily-built `forward_basis` cosine table.
+//!
+//! Kernel modules are `#[doc(hidden)]` for benches. Names match miraculix
+//! tokens (`avx` / `sse`): f32 arithmetic only, no AVX2 int ops. `avx512dq`
+//! is an inverse-only prototype (needs `Avx512f` + `Avx` + `Avx512Dq`); not
+//! selected by the batch `try_*` below.
 
-use std::sync::OnceLock;
+use crate::compression::simd_detect::x86::miraculix_x86::{avx, sse};
 
-use pulp::x86::{V1, V3};
-
-// public only for benchmarking
+/// Bench/test entry; `Avx` token (f32 only).
 #[doc(hidden)]
-pub mod avx2;
+pub mod avx;
 
-// public only for benchmarking
+/// Inverse pair/quad prototype; not selected by `try_*` below.
+/// Named for `Avx512Dq`, the tightest of the three tokens it needs.
 #[doc(hidden)]
-pub mod sse2;
+pub mod avx512dq;
 
-pub(super) fn forward_basis() -> &'static [[f32; 8]; 8] {
-    static TABLE: OnceLock<[[f32; 8]; 8]> = OnceLock::new();
-
-    TABLE.get_or_init(|| {
-        const PI: f32 = 3.14159;
-        const INV_SQRT_2: f32 = 0.70710677;
-
-        let mut table = [[0.0f32; 8]; 8];
-        for input in 0..8 {
-            for output in 0..8 {
-                let scale = if output == 0 {
-                    0.5 * INV_SQRT_2
-                } else {
-                    0.5
-                };
-                table[input][output] =
-                    scale * (((2 * input + 1) as f32 * output as f32 * PI) / 16.0).cos();
-            }
-        }
-        table
-    })
-}
+/// Bench/test entry; `Sse` token (f32 only).
+#[doc(hidden)]
+pub mod sse;
 
 pub(super) fn try_dct_forward_8x8_batch<'a, I>(blocks: &mut I) -> bool
 where
     I: Iterator<Item = &'a mut [f32; 64]>,
 {
-    if let Some(v3) = V3::try_new() {
-        avx2::dct_forward_8x8_batch(v3, blocks);
+    if let Some(avx_token) = avx() {
+        self::avx::dct_forward_8x8_batch(avx_token, blocks);
         return true;
     }
-    if let Some(v1) = V1::try_new() {
+    if let Some(sse_token) = sse() {
         for data in blocks {
-            sse2::dct_forward_8x8(v1, data);
+            self::sse::dct_forward_8x8(sse_token, data);
         }
         return true;
     }
@@ -59,13 +42,13 @@ pub(super) fn try_dct_inverse_8x8_batch<'a, I>(blocks: &mut I) -> bool
 where
     I: Iterator<Item = &'a mut [f32; 64]>,
 {
-    if let Some(v3) = V3::try_new() {
-        avx2::dct_inverse_8x8_batch(v3, blocks);
+    if let Some(avx_token) = avx() {
+        self::avx::dct_inverse_8x8_batch(avx_token, blocks);
         return true;
     }
-    if let Some(v1) = V1::try_new() {
+    if let Some(sse_token) = sse() {
         for data in blocks {
-            sse2::dct_inverse_8x8(v1, data);
+            self::sse::dct_inverse_8x8(sse_token, data);
         }
         return true;
     }

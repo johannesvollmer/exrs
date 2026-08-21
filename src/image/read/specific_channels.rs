@@ -4,7 +4,7 @@
 use std::marker::PhantomData;
 
 use crate::{
-    block::{chunk::TileCoordinates, samples::*, UncompressedBlock},
+    block::{UncompressedBlock, chunk::TileCoordinates, samples::*},
     error::*,
     image::{
         read::layers::{ChannelsReader, ReadChannels},
@@ -30,7 +30,7 @@ pub trait ReadSpecificChannel: Sized + CheckDuplicates {
     /// Create a separate internal reader for the pixels of the specific channel
     /// combination.
     fn create_recursive_reader(&self, channels: &ChannelList)
-        -> Result<Self::RecursivePixelReader>;
+    -> Result<Self::RecursivePixelReader>;
 
     /// Plan to read an additional channel from the image, with the specified
     /// name. If the channel cannot be found in the image when the image is
@@ -90,7 +90,7 @@ pub trait ReadSpecificChannel: Sized + CheckDuplicates {
                 &<<Self::RecursivePixelReader as RecursivePixelReader>::RecursiveChannelDescriptions as IntoNonRecursive>::NonRecursive
             ) -> PixelStorage,
             SetPixel: Fn(&mut PixelStorage, Vec2<usize>, Pixel),
-    {
+{
         CollectPixels {
             read_channels: self,
             set_pixel,
@@ -256,6 +256,9 @@ where
             }
         }
 
+        // every sample has been copied into the image, so the buffer can be
+        // handed back for the next chunk to decompress into
+        crate::block::pool::recycle(block.data);
         Ok(())
     }
 

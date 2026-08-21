@@ -1,7 +1,7 @@
 //! How to read arbitrary channels.
 
 use crate::{
-    block::{chunk::TileCoordinates, lines::LineRef, UncompressedBlock},
+    block::{UncompressedBlock, chunk::TileCoordinates, lines::LineRef},
     error::{Result, UnitResult},
     image::{
         read::layers::{ChannelsReader, ReadChannels},
@@ -123,6 +123,9 @@ impl<S: SamplesReader> ChannelsReader for AnyChannelsReader<S> {
             self.sample_channels_reader[line.location.channel].samples.read_line(line)?;
         }
 
+        // every sample has been copied into the image, so the buffer can be
+        // handed back for the next chunk to decompress into
+        crate::block::pool::recycle(decompressed.data);
         Ok(())
     }
 

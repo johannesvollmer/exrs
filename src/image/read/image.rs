@@ -8,12 +8,12 @@ use std::{
 };
 
 use crate::{
-    block::{chunk::TileCoordinates, reader::ChunksReader, BlockIndex, UncompressedBlock},
+    block::{BlockIndex, UncompressedBlock, chunk::TileCoordinates, reader::ChunksReader},
     error::{Result, UnitResult},
     image::*,
     meta::{
-        header::{Header, ImageAttributes},
         MetaData,
+        header::{Header, ImageAttributes},
     },
 };
 

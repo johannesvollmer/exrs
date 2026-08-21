@@ -5,14 +5,14 @@ keywords = ["exr", "openexr", "file", "binary", "io"]
 categories = ["encoding", "filesystem", "graphics", "multimedia"]
 
 version = "1.74.2"
-edition = "2018"
+edition = "2024"
 authors = ["johannesvollmer <contact@johannesvollmer.com>"]
 
 repository = "https://github.com/johannesvollmer/exrs"
 readme = "README.md"
 license = "BSD-3-Clause"
 exclude = [ "specification/*", "specification/**", "tests/images/*", "tests/images/**" ]
-rust-version = "1.83.0"
+rust-version = "1.94.0"
 
 [badges]
 maintenance = { status = "actively-developed" }
@@ -27,23 +27,23 @@ plugin = false
 proc-macro = false
 
 [dependencies]
-lebe = "^0.5.2"                # generic binary serialization
-half = "2.1.0"                 # 16 bit float pixel data type
-bit_field = "^0.10.1"          # exr file version bit flags
-miniz_oxide = "^0.8.0"         # zip compression for pxr24
-smallvec = "^1.7.0"            # make cache-friendly allocations        TODO profile if smallvec is really an improvement!
-rayon-core = { version = "^1.11.0", optional = true }         # threading for parallel compression
-zune-inflate = { version = "^0.2.3", default-features = false, features = ["zlib"] }  # zip decompression, faster than miniz_oxide
-pulp = "0.22.3"                # used for runtime SIMD dispatch
-num-complex = "0.4.6"          # pins pulps own dependency, pulp wants 0.4.4 but calls for Complex::ZERO/ONE/I; consts added in 0.4.6
+lebe = "^0.5.3"                # generic binary serialization
+half = "2.7.1"                 # 16 bit float pixel data type
+bit_field = "^0.10.3"          # exr file version bit flags
+flate2 = { version = "^1.1.9", default-features = false, features = ["zlib-rs"] }  # zip compression for zip/pxr24/dwa; zlib-rs backend is pure rust, no C toolchain needed
+smallvec = "^1.15.2"            # make cache-friendly allocations        TODO profile if smallvec is really an improvement!
+rayon-core = { version = "^1.13.0", optional = true }         # threading for parallel compression
+zune-inflate = { version = "^0.2.54", default-features = false, features = ["zlib"] }  # zip decompression, faster than miniz_oxide
+miraculix = "0.1.5-alpha"   # x86 SIMD wrapper crate for all SIMD (pulp replacement)
+
+[target.'cfg(any(target_arch = "x86", target_arch = "x86_64"))'.dependencies]
+raw-cpuid = { version = "11.6.0", default-features = false }  # detect L1d cache size to pick the Huffman decode LUT width
 
 [dev-dependencies]
-image = { version = "0.25.2", default-features = false, features = ["png"] }         # used to convert one exr to some pngs
-
 bencher = "0.1.5"
 walkdir = "2.3.2"         # automatically test things for all files in a directory
-rand = "0.8.5"            # used for fuzz testing
-rayon = "1.5.3"           # run tests for many files in parallel
+rand = "0.10.2"            # used for fuzz testing
+rayon = "1.12.0"           # run tests for many files in parallel
 
 [features]
 default = ["rayon"]
@@ -52,18 +52,40 @@ default = ["rayon"]
 rayon = ["dep:rayon-core"]
 
 # Opt-in gates for the DWA SIMD tier unit tests
-# (in src/compression/dwa/discrete_cosine_transform/test.rs).
 # Intentionally opt-in: each must be built and run under a CPU or emulator exposing
 # the requested tier, e.g.
 # `cargo test --lib --features avx2-tests -- avx2`
 avx2-tests = []
 sse2-tests = []
+avx512-tests = []
 
 # Call the DWA DCT avx2/sse2/autovectorized kernels directly,
 # bypassing runtime dispatch, for the comparison benchmark.
 # Meaningless under emulation (timings won't reflect real hardware)
 # `cargo bench --features simd-benches --bench dct`
 simd-benches = []
+
+# Per-stage wall-clock timing of the DWA decode pipeline (unknown/AC/DC/RLE
+# section decode, lossy DCT decode, final scanline assembly), accumulated in
+# global atomics and printed by examples/dwa_bench.rs. Adds a few atomic
+# adds per chunk; negligible unless you're doing this exact measurement.
+dwa-profile = []
+
+# Opt-in Zen5 component dual-port DCT inside AVX-512 fused decode
+# (`inverse_quad(R∥G)` + pair B instead of 3× sequential `inverse_pair`).
+# Isolated microbench is +6–11%; whole-pipeline A/B on both fixtures showed
+# a small `lossy_dct` *regression* (−1 to −6%) with wall flat-to-worse, so
+# this stays off by default. Re-enable for further investigation:
+#   cargo build --release --example dwa_bench --features "dwa-profile,dwa-avx512-rgb-comp-quad"
+dwa-avx512-rgb-comp-quad = []
+
+# Override the AC-Huffman decode prefix-LUT size (huffman.rs' LUT_BITS).
+# Bigger trades fewer long-code fallbacks for more L1d pressure per DWA
+# chunk; without one of these pinned, x86/x86_64 picks it at runtime from
+# the detected L1d size instead. Mutually exclusive.
+huffman-lut-12 = []
+huffman-lut-13 = []
+huffman-lut-14 = []
 
 [[example]]
 name = "7_write_raw_blocks"
@@ -72,6 +94,10 @@ required-features = ["rayon"]
 [[example]]
 name = "8_read_raw_blocks"
 required-features = ["rayon"]
+
+[[example]]
+name = "dct_rgb_comp_quad_bench"
+required-features = ["simd-benches"]
 
 [[bench]]
 name = "read"
@@ -95,6 +121,11 @@ required-features = ["rayon"]
 
 [[bench]]
 name = "dct"
+harness = false
+required-features = ["simd-benches"]
+
+[[bench]]
+name = "csc"
 harness = false
 required-features = ["simd-benches"]
 
@@ -132,3 +163,14 @@ overflow-checks = false
 lto = true
 debug = true
 codegen-units = 1
+
+# release-equivalent codegen but with LTO/inlining backed off and full debug
+# info kept, so perf/addr2line can resolve real function boundaries. Not used
+# for reported benchmark numbers (those come from [profile.release]) -- this
+# profile is for sampling-profiler investigation only.
+# `cargo build --profile profiling --features dwa-profile`
+[profile.profiling]
+inherits = "release"
+lto = false
+debug = 2
+codegen-units = 16

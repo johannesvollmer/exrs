@@ -23,26 +23,35 @@ mod chunk_header;
 mod lossy_dct;
 mod section_stream;
 
-// public only for benchmarking
+// Public for benches.
+#[doc(hidden)]
+pub mod color_space_conversion;
+
+// Public for benches.
 #[doc(hidden)]
 pub mod discrete_cosine_transform;
 
 #[cfg(test)]
 mod tests;
 
+// Public for the `dwa_bench` example.
+#[doc(hidden)]
+#[cfg(feature = "dwa-profile")]
+pub mod profile;
+
 use channel_layout::{
-    interleave_byte_planes, pack_rle_channels, pack_unknown_channels, split_planar_channels,
-    split_scanline_channels, u16s_to_le_bytes, write_scanlines,
+    compute_row_offsets, pack_rle_channels, pack_unknown_channels, rle_planar_size,
+    split_scanline_channels, u16s_to_le_bytes, write_scanlines_fused,
 };
 use channel_rules::{
-    default_channel_rules, legacy_channel_rules, parse_channel_rules, write_relevant_channel_rules,
-    Rule,
+    Rule, default_channel_rules, legacy_channel_rules, parse_channel_rules,
+    write_relevant_channel_rules,
 };
 use chunk_header::{AcCompression, DwaHeader};
 use lossy_dct::{decode_lossy_channels, encode_lossy_channels};
 use section_stream::{
-    decode_ac_section, decode_dc_section, decode_rle_section, decode_unknown_section,
-    split_sections, zip_deconstruct_bytes,
+    decode_ac_section_into, decode_dc_section, decode_rle_section_into,
+    decode_unknown_section_into, split_sections, zip_deconstruct_bytes,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -170,14 +179,14 @@ pub fn compress(
     let unknown_compressed = if unknown_planar.is_empty() {
         Vec::new()
     } else {
-        miniz_oxide::deflate::compress_to_vec_zlib(&unknown_planar, 9)
+        super::compress_zlib(&unknown_planar, 9)
     };
 
     let ac_compression = AcCompression::StaticHuffman;
     let ac_compressed = if ac_values.is_empty() {
         Vec::new()
     } else {
-        crate::compression::piz::huffman::compress(&ac_values)?
+        crate::compression::huffman::compress(&ac_values)?
     };
 
     let dc_compressed = if dc_values.is_empty() {
@@ -185,15 +194,17 @@ pub fn compress(
     } else {
         let mut dc_bytes = u16s_to_le_bytes(&dc_values);
         zip_deconstruct_bytes(&mut dc_bytes);
-        miniz_oxide::deflate::compress_to_vec_zlib(&dc_bytes, 9)
+        super::compress_zlib(&dc_bytes, 9)
     };
 
     let (rle_uncompressed_size, rle_compressed) = if rle_raw.is_empty() {
         (0, Vec::new())
     } else {
         let rle_tokens = super::rle::pack_rle_tokens(&rle_raw);
-        let compressed = miniz_oxide::deflate::compress_to_vec_zlib(&rle_tokens, 9);
-        (rle_tokens.len(), compressed)
+        let compressed = super::compress_zlib(&rle_tokens, 9);
+        let rle_tokens_len = rle_tokens.len();
+        crate::block::pool::recycle(rle_tokens);
+        (rle_tokens_len, compressed)
     };
 
     let header = DwaHeader {
@@ -210,7 +221,7 @@ pub fn compress(
         ac_compression,
     };
 
-    let mut out = Vec::with_capacity(
+    let mut out = crate::block::pool::take_with_capacity(
         11 * 8
             + rule_bytes.len()
             + unknown_compressed.len()
@@ -224,12 +235,19 @@ pub fn compress(
     out.extend_from_slice(&ac_compressed);
     out.extend_from_slice(&dc_compressed);
     out.extend_from_slice(&rle_compressed);
+
+    // Already copied into `out`; recycle so the next chunk can reuse the pages.
+    crate::block::pool::recycle(unknown_compressed);
+    crate::block::pool::recycle(ac_compressed);
+    crate::block::pool::recycle(dc_compressed);
+    crate::block::pool::recycle(rle_compressed);
+
     Ok(out)
 }
 
 pub fn decompress(
     channels: &ChannelList,
-    compressed_le: ByteVec,
+    compressed_le: &[u8],
     rectangle: IntegerBounds,
     expected_byte_size: usize,
     _pedantic: bool,
@@ -241,13 +259,16 @@ pub fn decompress(
     // the writer stores chunks raw when compression would not have helped
     if compressed_le.len() == expected_byte_size {
         return crate::compression::convert_little_endian_to_current(
-            compressed_le,
+            compressed_le.to_vec(),
             channels,
             rectangle,
         );
     }
 
-    let mut input = compressed_le.as_slice();
+    #[cfg(feature = "dwa-profile")]
+    let total = profile::start();
+
+    let mut input = compressed_le;
     let header = DwaHeader::parse(&mut input)?;
 
     let rules = if header.version < 2 {
@@ -266,31 +287,106 @@ pub fn decompress(
 
     let [unknown_section, ac_section, dc_section, rle_section] = split_sections(input, &header)?;
 
-    let unknown_planar = decode_unknown_section(unknown_section, &header)?;
-    let ac_packed = decode_ac_section(ac_section, &header)?;
+    // Reused across chunks on this thread (zlib output, no further expansion).
+    thread_local! {
+        static UNKNOWN_BUFFER: std::cell::RefCell<Vec<u8>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    #[cfg(feature = "dwa-profile")]
+    let t = profile::start();
+    let mut unknown_buffer =
+        UNKNOWN_BUFFER.with(|buffer| std::mem::take(&mut *buffer.borrow_mut()));
+    let unknown_len = decode_unknown_section_into(unknown_section, &header, &mut unknown_buffer)?;
+    let unknown_planar = &unknown_buffer[..unknown_len];
+    #[cfg(feature = "dwa-profile")]
+    t.stop(&profile::UNKNOWN_NS);
+
+    // Reused across chunks: AC coefficients plus Huffman scratch (`words`).
+    thread_local! {
+        static AC_OUT_BUFFER: std::cell::RefCell<Vec<u16>> = const { std::cell::RefCell::new(Vec::new()) };
+        static AC_WORDS_BUFFER: std::cell::RefCell<Vec<u64>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    #[cfg(feature = "dwa-profile")]
+    let t = profile::start();
+    let mut ac_buffer = AC_OUT_BUFFER.with(|buffer| std::mem::take(&mut *buffer.borrow_mut()));
+    let mut ac_words_buffer =
+        AC_WORDS_BUFFER.with(|buffer| std::mem::take(&mut *buffer.borrow_mut()));
+    let ac_len = decode_ac_section_into(ac_section, &header, &mut ac_buffer, &mut ac_words_buffer)?;
+    AC_WORDS_BUFFER.with(|buffer| *buffer.borrow_mut() = ac_words_buffer);
+    #[cfg(feature = "dwa-profile")]
+    t.stop(&profile::AC_NS);
+
+    #[cfg(feature = "dwa-profile")]
+    let t = profile::start();
     let dc_packed = decode_dc_section(dc_section, &header)?;
-    let rle_planar = decode_rle_section(rle_section, &header)?;
+    #[cfg(feature = "dwa-profile")]
+    t.stop(&profile::DC_NS);
 
-    let unknown_bytes =
-        split_planar_channels(&channel_infos, CompressorScheme::Unknown, &unknown_planar)?;
-    let rle_bytes: Vec<Vec<u8>> =
-        split_planar_channels(&channel_infos, CompressorScheme::Rle, &rle_planar)?
-            .into_iter()
-            .zip(&channel_infos)
-            .map(|(planar, info)| interleave_byte_planes(&planar, info.bytes_per_sample))
-            .collect();
+    // Reused across chunks; on error this thread simply drops it.
+    thread_local! {
+        static RLE_BUFFER: std::cell::RefCell<Vec<u8>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
 
-    let lossy_samples = decode_lossy_channels(&channel_infos, &csc_groups, &ac_packed, &dc_packed)?;
+    #[cfg(feature = "dwa-profile")]
+    let t = profile::start();
+    let mut rle_buffer = RLE_BUFFER.with(|buffer| std::mem::take(&mut *buffer.borrow_mut()));
+    let rle_length = decode_rle_section_into(
+        rle_section,
+        &header,
+        rle_planar_size(&channel_infos),
+        &mut rle_buffer,
+    )?;
+    let rle_planar = &rle_buffer[..rle_length];
+    #[cfg(feature = "dwa-profile")]
+    t.stop(&profile::RLE_NS);
 
-    let out = write_scanlines(
+    let row_offsets = compute_row_offsets(channels, &channel_infos, rectangle);
+
+    // Caller-owned; comes from the block pool (readers recycle after copy-out).
+    #[cfg(feature = "dwa-profile")]
+    let t = profile::start();
+    let mut out = crate::block::pool::take_zeroed(expected_byte_size);
+    #[cfg(feature = "dwa-profile")]
+    {
+        t.stop(&profile::OUT_ALLOC_NS);
+        profile::OUT_BYTES
+            .fetch_add(expected_byte_size as u64, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    #[cfg(feature = "dwa-profile")]
+    let t = profile::start();
+    decode_lossy_channels(
+        &channel_infos,
+        &csc_groups,
+        &ac_buffer[..ac_len],
+        &dc_packed,
+        &row_offsets,
+        &mut out,
+    )?;
+    AC_OUT_BUFFER.with(|buffer| *buffer.borrow_mut() = ac_buffer);
+    #[cfg(feature = "dwa-profile")]
+    t.stop(&profile::DCT_NS);
+
+    #[cfg(feature = "dwa-profile")]
+    let t = profile::start();
+    write_scanlines_fused(
         channels,
         &channel_infos,
         rectangle,
-        &lossy_samples,
-        &unknown_bytes,
-        &rle_bytes,
-        expected_byte_size,
+        &row_offsets,
+        unknown_planar,
+        rle_planar,
+        &mut out,
     )?;
+    #[cfg(feature = "dwa-profile")]
+    t.stop(&profile::ASSEMBLE_NS);
+
+    RLE_BUFFER.with(|buffer| *buffer.borrow_mut() = rle_buffer);
+    UNKNOWN_BUFFER.with(|buffer| *buffer.borrow_mut() = unknown_buffer);
+
+    #[cfg(feature = "dwa-profile")]
+    total.stop(&profile::TOTAL_NS);
 
     crate::compression::convert_little_endian_to_current(out, channels, rectangle)
 }

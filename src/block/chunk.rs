@@ -1,6 +1,8 @@
 //! Read and write already compressed pixel data blocks.
 //! Does not include the process of compression and decompression.
 
+use std::convert::TryFrom;
+
 use crate::meta::attribute::IntegerBounds;
 
 /// A generic block of pixel information.
@@ -218,7 +220,7 @@ impl TileCoordinates {
     }
 }
 
-use crate::meta::{calculate_block_size, BlockDescription, MetaData};
+use crate::meta::{BlockDescription, MetaData, calculate_block_size};
 
 impl CompressedScanLineBlock {
     /// Without validation, write this instance to the byte stream.
@@ -237,12 +239,8 @@ impl CompressedScanLineBlock {
     /// Read the value without validating.
     pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let y_coordinate = i32::read_le(read)?;
-        let compressed_pixels_le = u8::read_i32_sized_vec_le(
-            read,
-            max_block_byte_size,
-            Some(max_block_byte_size),
-            "scan line block sample count",
-        )?;
+        let compressed_pixels_le =
+            read_compressed_pixels_le(read, max_block_byte_size, "scan line block sample count")?;
         Ok(Self {
             y_coordinate,
             compressed_pixels_le,
@@ -267,17 +265,36 @@ impl CompressedTileBlock {
     /// Read the value without validating.
     pub fn read(read: &mut impl Read, max_block_byte_size: usize) -> Result<Self> {
         let coordinates = TileCoordinates::read(read)?;
-        let compressed_pixels_le = u8::read_i32_sized_vec_le(
-            read,
-            max_block_byte_size,
-            Some(max_block_byte_size),
-            "tile block sample count",
-        )?;
+        let compressed_pixels_le =
+            read_compressed_pixels_le(read, max_block_byte_size, "tile block sample count")?;
         Ok(Self {
             coordinates,
             compressed_pixels_le,
         })
     }
+}
+
+/// Read an i32-prefixed compressed-pixel payload into a pooled buffer.
+///
+/// Same bounds checks as `u8::read_i32_sized_vec_le`, but capacity comes from
+/// `block::pool` so a subsequent `recycle` after decompression can avoid
+/// faulting new pages for the next chunk of the same size.
+fn read_compressed_pixels_le(
+    read: &mut impl Read,
+    max_block_byte_size: usize,
+    purpose: &'static str,
+) -> Result<Vec<u8>> {
+    let size = usize::try_from(i32::read_le(read)?)?;
+    if size > max_block_byte_size {
+        return Err(Error::invalid(purpose));
+    }
+
+    let mut data = crate::block::pool::take_with_capacity(size);
+    let got = read.by_ref().take(size as u64).read_to_end(&mut data)?;
+    if got != size {
+        return Err(Error::invalid("reference to missing bytes"));
+    }
+    Ok(data)
 }
 
 impl CompressedDeepScanLineBlock {
@@ -384,7 +401,7 @@ impl CompressedDeepTileBlock {
 }
 
 use crate::{
-    error::{i32_to_usize, u64_to_usize, usize_to_i32, Error, Result, UnitResult},
+    error::{Error, Result, UnitResult, i32_to_usize, u64_to_usize, usize_to_i32},
     math::Vec2,
 };
 

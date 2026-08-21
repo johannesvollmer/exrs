@@ -5,7 +5,7 @@ extern crate rand;
 
 use std::{convert::TryInto, fs::File, io::BufWriter};
 
-use exr::block::{writer::ChunksWriter, UncompressedBlock};
+use exr::block::{UncompressedBlock, writer::ChunksWriter};
 
 // exr imports
 extern crate exr;

@@ -602,9 +602,9 @@ impl Header {
     /// indices. Starts at `0` and is not negative.
     pub fn get_block_data_indices(&self, block: &CompressedBlock) -> Result<TileCoordinates> {
         Ok(match block {
-            CompressedBlock::Tile(ref tile) => tile.coordinates,
+            CompressedBlock::Tile(tile) => tile.coordinates,
 
-            CompressedBlock::ScanLine(ref block) => {
+            CompressedBlock::ScanLine(block) => {
                 let size = self.compression.scan_lines_per_block() as i32;
 
                 let diff = block

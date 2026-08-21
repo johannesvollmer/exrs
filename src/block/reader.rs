@@ -8,12 +8,12 @@ use std::{
 
 use crate::{
     block::{
-        chunk::{Chunk, TileCoordinates},
         BlockIndex, UncompressedBlock,
+        chunk::{Chunk, TileCoordinates},
     },
-    error::{u64_to_usize, Error, Result, UnitResult},
+    error::{Error, Result, UnitResult, u64_to_usize},
     io::{PeekRead, Tracking},
-    meta::{header::Header, MetaData, OffsetTables},
+    meta::{MetaData, OffsetTables, header::Header},
 };
 
 /// Decode the meta data from a byte source, keeping the source ready for
@@ -135,7 +135,7 @@ impl<R: Read + Seek> Reader<R> {
         }
 
         filtered_offsets.sort_unstable(); // enables reading continuously if possible (already sorted where line order
-                                          // increasing)
+        // increasing)
 
         if pedantic {
             // table is sorted. if any two neighbours are equal, we have duplicates. this is

@@ -1,7 +1,10 @@
-extern crate image as png;
 use std::cmp::Ordering;
 
 extern crate exr;
+
+#[path = "../dev-support/tiny_png.rs"]
+#[allow(dead_code)]
+mod tiny_png;
 
 /// Extract all exr pixel information into pngs.
 /// Writes each channel of each mip map of each layer as one grayscale png.
@@ -48,7 +51,8 @@ pub fn main() {
     /// Save raw float data to a PNG file, doing automatic brightness
     /// adjustments per channel
     fn save_f32_image_as_png(data: &[f32], size: Vec2<usize>, name: String) {
-        let mut png_buffer = png::GrayImage::new(size.width() as u32, size.height() as u32);
+        let (width, height) = (size.width() as u32, size.height() as u32);
+        let mut png_buffer = vec![0u8; width as usize * height as usize];
         let mut sorted = Vec::from(data);
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Less));
 
@@ -62,18 +66,17 @@ pub fn main() {
         let min_toned = tone(*sorted.first().unwrap());
 
         // for each pixel, tone map the value
-        for (x, y, pixel) in png_buffer.enumerate_pixels_mut() {
-            let v = data[y as usize * size.0 + x as usize];
+        for (i, pixel) in png_buffer.iter_mut().enumerate() {
+            let v = data[i];
             let v = (v - min) / (max - min);
             let v = tone(v);
 
             let v = (v - min_toned) / (max_toned - min_toned);
 
-            // TODO does the `image` crate expect gamma corrected data?
-            *pixel = png::Luma([(v.max(0.0).min(1.0) * 255.0) as u8]);
+            *pixel = (v.max(0.0).min(1.0) * 255.0) as u8;
         }
 
-        png_buffer.save(&name).unwrap();
+        tiny_png::write_gray8(&name, width, height, &png_buffer).unwrap();
     }
 
     println!("extracted all layers to folder `./pngs/*.png`");

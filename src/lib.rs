@@ -59,7 +59,7 @@ pub mod prelude {
                 read,
                 specific_channels::ReadSpecificChannel,
             },
-            write::{channels::GetPixel, WritableImage},
+            write::{WritableImage, channels::GetPixel},
         };
     }
 
@@ -85,13 +85,12 @@ pub mod prelude {
         block::samples::Sample,
         image::*,
         meta::{
-            attribute,
+            MetaData, attribute,
             attribute::{
                 AttributeValue, ChannelDescription, Compression, IntegerBounds, LineOrder,
                 SampleType, Text, TileDescription,
             },
             header::{ImageAttributes, LayerAttributes},
-            MetaData,
         },
     };
 }

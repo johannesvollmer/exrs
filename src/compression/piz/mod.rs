@@ -2,13 +2,12 @@
 //! based on the PIZ image format, customized for `OpenEXR`.
 // inspired by  https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfPizCompressor.cpp
 
-pub(crate) mod huffman;
 mod wavelet;
 
 use std::convert::TryFrom;
 
 use crate::{
-    compression::{mod_p, ByteVec, Bytes},
+    compression::{ByteVec, Bytes, huffman, mod_p},
     error::{usize_to_i32, usize_to_u16},
     io::Data,
     meta::attribute::*,
@@ -257,7 +256,7 @@ pub fn bitmap_from_data(data: &[u16]) -> (usize, usize, Vec<u8>) {
     }
 
     bitmap[0] &= !1; // zero is not explicitly stored in the bitmap; we assume that the data always
-                     // contain zeroes
+    // contain zeroes
 
     let min_index = bitmap.iter().position(|&value| value != 0);
     let max_index = min_index.map(|min|  // only if min was found
@@ -312,7 +311,7 @@ fn apply_lookup_table(data: &mut [u16], table: &[u16]) {
 #[cfg(test)]
 mod test {
     use crate::{
-        compression::{piz, ByteVec},
+        compression::{ByteVec, piz},
         meta::attribute::*,
         prelude::*,
     };

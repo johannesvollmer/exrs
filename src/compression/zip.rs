@@ -42,5 +42,5 @@ pub fn compress_bytes(
     separate_bytes_fragments(&mut packed_le);
     samples_to_differences(&mut packed_le);
 
-    Ok(miniz_oxide::deflate::compress_to_vec_zlib(packed_le.as_slice(), 4))
+    Ok(super::compress_zlib(packed_le.as_slice(), 4))
 }
