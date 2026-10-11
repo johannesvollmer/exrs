@@ -183,32 +183,32 @@ fn unpack14(b: &[u8], s: &mut [u16; 16]) {
     let shift = b32!(b, 2) >> 2;
     let bias = 0x20 << shift;
 
-    s[4] = (u32::from(s[0]) + ((((b32!(b, 2) << 4) | (b32!(b, 3) >> 4)) & SIX_BITS) << shift)
-        - bias) as u16;
-    s[8] = (u32::from(s[4]) + ((((b32!(b, 3) << 2) | (b32!(b, 4) >> 6)) & SIX_BITS) << shift)
-        - bias) as u16;
-    s[12] = (u32::from(s[8]) + ((b32!(b, 4) & SIX_BITS) << shift) - bias) as u16;
+    s[4] = (u32::from(s[0]) + ((((b32!(b, 2) << 4) | (b32!(b, 3) >> 4)) & SIX_BITS) << shift))
+        .wrapping_sub(bias) as u16;
+    s[8] = (u32::from(s[4]) + ((((b32!(b, 3) << 2) | (b32!(b, 4) >> 6)) & SIX_BITS) << shift))
+        .wrapping_sub(bias) as u16;
+    s[12] = (u32::from(s[8]) + ((b32!(b, 4) & SIX_BITS) << shift)).wrapping_sub(bias) as u16;
 
-    s[1] = (u32::from(s[0]) + ((b32!(b, 5) >> 2) << shift) - bias) as u16;
-    s[5] = (u32::from(s[4]) + ((((b32!(b, 5) << 4) | (b32!(b, 6) >> 4)) & SIX_BITS) << shift)
-        - bias) as u16;
-    s[9] = (u32::from(s[8]) + ((((b32!(b, 6) << 2) | (b32!(b, 7) >> 6)) & SIX_BITS) << shift)
-        - bias) as u16;
-    s[13] = (u32::from(s[12]) + ((b32!(b, 7) & SIX_BITS) << shift) - bias) as u16;
+    s[1] = (u32::from(s[0]) + ((b32!(b, 5) >> 2) << shift)).wrapping_sub(bias) as u16;
+    s[5] = (u32::from(s[4]) + ((((b32!(b, 5) << 4) | (b32!(b, 6) >> 4)) & SIX_BITS) << shift))
+        .wrapping_sub(bias) as u16;
+    s[9] = (u32::from(s[8]) + ((((b32!(b, 6) << 2) | (b32!(b, 7) >> 6)) & SIX_BITS) << shift))
+        .wrapping_sub(bias) as u16;
+    s[13] = (u32::from(s[12]) + ((b32!(b, 7) & SIX_BITS) << shift)).wrapping_sub(bias) as u16;
 
-    s[2] = (u32::from(s[1]) + ((b32!(b, 8) >> 2) << shift) - bias) as u16;
-    s[6] = (u32::from(s[5]) + ((((b32!(b, 8) << 4) | (b32!(b, 9) >> 4)) & SIX_BITS) << shift)
-        - bias) as u16;
-    s[10] = (u32::from(s[9]) + ((((b32!(b, 9) << 2) | (b32!(b, 10) >> 6)) & SIX_BITS) << shift)
-        - bias) as u16;
-    s[14] = (u32::from(s[13]) + ((b32!(b, 10) & SIX_BITS) << shift) - bias) as u16;
+    s[2] = (u32::from(s[1]) + ((b32!(b, 8) >> 2) << shift)).wrapping_sub(bias) as u16;
+    s[6] = (u32::from(s[5]) + ((((b32!(b, 8) << 4) | (b32!(b, 9) >> 4)) & SIX_BITS) << shift))
+        .wrapping_sub(bias) as u16;
+    s[10] = (u32::from(s[9]) + ((((b32!(b, 9) << 2) | (b32!(b, 10) >> 6)) & SIX_BITS) << shift))
+        .wrapping_sub(bias) as u16;
+    s[14] = (u32::from(s[13]) + ((b32!(b, 10) & SIX_BITS) << shift)).wrapping_sub(bias) as u16;
 
-    s[3] = (u32::from(s[2]) + ((b32!(b, 11) >> 2) << shift) - bias) as u16;
-    s[7] = (u32::from(s[6]) + ((((b32!(b, 11) << 4) | (b32!(b, 12) >> 4)) & SIX_BITS) << shift)
-        - bias) as u16;
-    s[11] = (u32::from(s[10]) + ((((b32!(b, 12) << 2) | (b32!(b, 13) >> 6)) & SIX_BITS) << shift)
-        - bias) as u16;
-    s[15] = (u32::from(s[14]) + ((b32!(b, 13) & SIX_BITS) << shift) - bias) as u16;
+    s[3] = (u32::from(s[2]) + ((b32!(b, 11) >> 2) << shift)).wrapping_sub(bias) as u16;
+    s[7] = (u32::from(s[6]) + ((((b32!(b, 11) << 4) | (b32!(b, 12) >> 4)) & SIX_BITS) << shift))
+        .wrapping_sub(bias) as u16;
+    s[11] = (u32::from(s[10]) + ((((b32!(b, 12) << 2) | (b32!(b, 13) >> 6)) & SIX_BITS) << shift))
+        .wrapping_sub(bias) as u16;
+    s[15] = (u32::from(s[14]) + ((b32!(b, 13) & SIX_BITS) << shift)).wrapping_sub(bias) as u16;
 
     for i in 0..16 {
         if (s[i] & 0x8000) != 0 {
