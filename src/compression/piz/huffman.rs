@@ -128,7 +128,10 @@ fn decode_with_tables(
     run_length_code: u32,
     expected_output_size: usize,
 ) -> Result<Vec<u16>> {
-    let mut output = Vec::with_capacity(expected_output_size);
+    // The expected size comes from the file, so only reserve a bounded amount
+    // up front; the vector grows as values are actually decoded, and the
+    // length is checked below.
+    let mut output = Vec::with_capacity(expected_output_size.min(1024 * 1024 * 4));
     let mut code_bits = 0_u64;
     let mut code_bit_count = 0_u64;
 
