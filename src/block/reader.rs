@@ -147,6 +147,10 @@ impl<R: Read + Seek> Reader<R> {
             if filtered_offsets.windows(2).any(|pair| pair[0] == pair[1]) {
                 return Err(Error::invalid("chunk offset table"));
             }
+        } else {
+            // the same offset always refers to the same chunk, so read each
+            // chunk only once
+            filtered_offsets.dedup();
         }
 
         Ok(FilteredChunksReader {

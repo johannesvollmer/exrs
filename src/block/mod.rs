@@ -192,6 +192,13 @@ impl UncompressedBlock {
 
         let header: &Header = headers.get(index.layer).expect("block layer index bug");
 
+        if header.deep {
+            return Err(Error::invalid(
+                "flat block in deep layer (use `UncompressedDeepBlock`, which requires the \
+                 `deep` feature)",
+            ));
+        }
+
         let expected_byte_size = header.channels.bytes_per_pixel * self.index.pixel_size.area(); // TODO sampling??
         if expected_byte_size != data.len() {
             return Err(Error::invalid(format!(

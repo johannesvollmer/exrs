@@ -27,6 +27,7 @@
 //! This module requires the `deep` feature.
 
 use std::{
+    collections::HashSet,
     io::{BufReader, Read, Seek},
     path::Path,
 };
@@ -40,6 +41,7 @@ use crate::{
         deep::DeepChannels, ignore_progress, Blocks, DeepImage, DeepLayersImage, Encoding, Image,
         Layer, Layers,
     },
+    math::Vec2,
     meta::{header::Header, BlockDescription, MetaData},
 };
 
@@ -64,9 +66,17 @@ pub struct ReadDeepSamples;
 impl ReadDeepSamples {
     /// Read all layers of the image, which must all be deep layers.
     /// Returns an error if the image contains a flat layer.
+    /// Use `all_valid_layers()` to skip flat layers instead.
     #[must_use]
     pub fn all_layers(self) -> ReadDeepImage<ReadAllDeepLayers, fn(f64)> {
         ReadDeepImage::new(ReadAllDeepLayers)
+    }
+
+    /// Read all deep layers of the image, ignoring flat layers.
+    /// Returns an error if the image contains no deep layer.
+    #[must_use]
+    pub fn all_valid_layers(self) -> ReadDeepImage<ReadAllValidDeepLayers, fn(f64)> {
+        ReadDeepImage::new(ReadAllValidDeepLayers)
     }
 
     /// Read only the first deep layer of the image, ignoring flat layers.
@@ -78,12 +88,14 @@ impl ReadDeepSamples {
 }
 
 /// Specifies which deep layers to read from an image,
-/// and how to return them.
+/// and how to return them. Use `ReadDeepImage::new` to read an image
+/// with a custom implementation.
 pub trait ReadDeepLayers {
     /// The resulting layer data, for example a single `Layer` or `Layers`.
     type Layers;
 
     /// Select the indices of the headers that should be loaded.
+    /// Each index must refer to a deep layer, and must not appear twice.
     fn select_layers(&self, headers: &[Header]) -> Result<SmallVec<[usize; 2]>>;
 
     /// Collect the selected layers, in the order that they were selected.
@@ -93,6 +105,10 @@ pub trait ReadDeepLayers {
 /// Read all layers of an image, which must all be deep layers.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 pub struct ReadAllDeepLayers;
+
+/// Read all deep layers of an image, ignoring flat layers.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
+pub struct ReadAllValidDeepLayers;
 
 /// Read only the first deep layer of an image, ignoring flat layers.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
@@ -104,11 +120,35 @@ impl ReadDeepLayers for ReadAllDeepLayers {
     fn select_layers(&self, headers: &[Header]) -> Result<SmallVec<[usize; 2]>> {
         if headers.iter().any(|header| !header.deep) {
             return Err(Error::unsupported(
-                "flat layers cannot be read as deep data (use `first_valid_layer()` to skip them)",
+                "flat layers cannot be read as deep data (use `all_valid_layers()` to read only \
+                 the deep layers)",
             ));
         }
 
         Ok((0..headers.len()).collect())
+    }
+
+    fn collect_layers(&self, layers: Vec<Layer<DeepChannels>>) -> Self::Layers {
+        layers.into_iter().collect()
+    }
+}
+
+impl ReadDeepLayers for ReadAllValidDeepLayers {
+    type Layers = Layers<DeepChannels>;
+
+    fn select_layers(&self, headers: &[Header]) -> Result<SmallVec<[usize; 2]>> {
+        let deep_layers: SmallVec<[usize; 2]> = headers
+            .iter()
+            .enumerate()
+            .filter(|(_, header)| header.deep)
+            .map(|(index, _)| index)
+            .collect();
+
+        if deep_layers.is_empty() {
+            return Err(Error::unsupported("the image contains no deep layer"));
+        }
+
+        Ok(deep_layers)
     }
 
     fn collect_layers(&self, layers: Vec<Layer<DeepChannels>>) -> Self::Layers {
@@ -145,8 +185,11 @@ pub struct ReadDeepImage<ReadLayers, OnProgress> {
 }
 
 impl<L> ReadDeepImage<L, fn(f64)> {
+    /// Read the layers selected by the specified layer selection,
+    /// which may be a custom implementation of `ReadDeepLayers`.
     /// Uses relaxed error handling and parallel decompression.
-    fn new(read_layers: L) -> Self {
+    /// Use `read().deep_data()` for the predefined layer selections.
+    pub fn new(read_layers: L) -> Self {
         Self {
             read_layers,
             on_progress: ignore_progress,
@@ -235,7 +278,17 @@ where
 
         let mut is_selected = vec![false; headers.len()];
         for &layer_index in &selected_layers {
-            is_selected[layer_index] = true;
+            let header = headers
+                .get(layer_index)
+                .ok_or_else(|| Error::invalid("selected deep layer index"))?;
+
+            if !header.deep {
+                return Err(Error::unsupported("flat layers cannot be read as deep data"));
+            }
+
+            if std::mem::replace(&mut is_selected[layer_index], true) {
+                return Err(Error::invalid("deep layer selected twice"));
+            }
         }
 
         // only the largest resolution level of the selected layers is loaded
@@ -246,8 +299,24 @@ where
             .on_progress(on_progress);
 
         let mut blocks_per_layer: Vec<Vec<UncompressedDeepBlock>> = vec![Vec::new(); headers.len()];
+        let mut block_positions: Vec<HashSet<(usize, usize)>> = vec![HashSet::new(); headers.len()];
+
         let insert_block = |_: &MetaData, block: UncompressedDeepBlock| {
-            blocks_per_layer[block.index.layer].push(block);
+            let layer = block.index.layer;
+            let Vec2(x, y) = block.index.pixel_position;
+
+            // keep only one block per position, as a corrupt file may contain a
+            // block twice
+            let is_expected = is_selected[layer]
+                && block.index.level == Vec2(0, 0)
+                && block_positions[layer].insert((x, y));
+
+            if is_expected {
+                blocks_per_layer[layer].push(block);
+            } else if pedantic {
+                return Err(Error::invalid("unexpected or duplicate deep block"));
+            }
+
             Ok(())
         };
 

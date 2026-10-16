@@ -57,7 +57,7 @@ pub enum Compression {
     /// Uses ZIP compression to compress blocks of 16 lines. Slowly produces
     /// small images which can be read with moderate speed. This compression
     /// method is lossless. Might be slightly slower but smaller than
-    /// `ZIP1´.
+    /// `ZIP1´. Only supported for flat images, not for deep data.
     ZIP16, // TODO collapse with ZIP1
 
     /// PIZ compression works well for noisy and natural images. Works better
@@ -402,27 +402,18 @@ impl Compression {
     /// Compress bytes that are not organized in channels and lines,
     /// such as deep pixel offset tables or deep sample data.
     /// The bytes must already be in little-endian format.
-    /// Returns the uncompressed bytes if compression would not reduce the
-    /// size, just like the `OpenEXR` library does.
+    /// Always returns the compressed bytes, even if they are larger than the
+    /// uncompressed bytes. The caller decides whether to store them
+    /// uncompressed instead.
     #[cfg(feature = "deep")]
-    pub(crate) fn compress_deep_bytes_le(self, bytes_le: ByteVec) -> Result<ByteVec> {
+    pub(crate) fn compress_deep_bytes_le(self, bytes_le: &[u8]) -> Result<ByteVec> {
         use self::Compression::*;
 
-        let compressed_le = match self {
-            Uncompressed => return Ok(bytes_le),
-            RLE => rle::compress_raw_bytes(bytes_le.clone()),
-            ZIP1 | ZIP16 => zip::compress_raw_bytes(bytes_le.clone()),
-            _ => {
-                return Err(Error::unsupported(format!(
-                    "deep data cannot be compressed using {self}"
-                )))
-            }
-        };
-
-        if compressed_le.len() < bytes_le.len() {
-            Ok(compressed_le)
-        } else {
-            Ok(bytes_le)
+        match self {
+            Uncompressed => Ok(bytes_le.to_vec()),
+            RLE => Ok(rle::compress_raw_bytes(bytes_le.to_vec())),
+            ZIP1 | ZIP16 => Ok(zip::compress_raw_bytes(bytes_le.to_vec())),
+            _ => Err(Error::unsupported(format!("deep data cannot be compressed using {self}"))),
         }
     }
 

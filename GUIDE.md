@@ -104,7 +104,8 @@ fn main(){
 
 To read deep images, enable the `deep` feature of this crate, 
 and call `deep_data()` instead. Then choose whether to read all layers,
-which must all be deep, or only the first deep layer.
+which must all be deep, all deep layers while skipping flat layers, or only the first deep layer.
+Implement `ReadDeepLayers` and use `ReadDeepImage::new` for a custom selection of layers.
 Deep images do not support the further options of flat images, 
 as all channels and only the largest resolution level are loaded.
 
@@ -114,6 +115,7 @@ fn main(){
     
     // results in a `DeepLayersImage`
     let all_layers = read().deep_data().all_layers();
+    let all_deep_layers = read().deep_data().all_valid_layers();
     
     // results in a `DeepImage`
     let first_layer = read().deep_data().first_valid_layer()
