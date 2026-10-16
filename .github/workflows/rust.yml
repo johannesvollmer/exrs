@@ -38,6 +38,10 @@ jobs:
       run: cargo +stable build --features rayon --verbose
     - name: Run tests with rayon feature
       run: cargo +stable test --features rayon --verbose
+    - name: Run tests with deep feature, without default features
+      run: cargo +stable test --no-default-features --features deep --verbose
+    - name: Run tests with deep and rayon features
+      run: cargo +stable test --features rayon,deep --verbose
 
 
   macos:
@@ -58,6 +62,8 @@ jobs:
         run: cargo +stable build --features rayon --verbose
       - name: Run tests with rayon feature
         run: cargo +stable test --features rayon --verbose
+      - name: Run tests with deep and rayon features
+        run: cargo +stable test --features rayon,deep --verbose
 
   verify-msrv:
     strategy:
@@ -128,6 +134,9 @@ jobs:
 
       - name: Cross-Run Tests in powerpc-unknown-linux-gnu with rayon feature
         run: cross test --target powerpc-unknown-linux-gnu --features rayon --verbose
+
+      - name: Cross-Run deep data tests in powerpc-unknown-linux-gnu
+        run: cross test --target powerpc-unknown-linux-gnu --features rayon,deep --verbose --lib --test deep
 
   wasm32:
     runs-on: ubuntu-latest

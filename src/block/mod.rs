@@ -11,11 +11,15 @@ pub mod reader;
 pub mod writer;
 
 pub mod chunk;
+#[cfg(feature = "deep")]
+pub mod deep;
 pub mod lines;
 pub mod samples;
 
 use std::io::{Read, Seek, Write};
 
+#[cfg(feature = "deep")]
+pub use self::deep::UncompressedDeepBlock;
 use crate::{
     block::{
         chunk::{
@@ -167,7 +171,12 @@ impl UncompressedBlock {
                 },
             }),
 
-            _ => Err(Error::unsupported("deep data not supported yet")),
+            CompressedBlock::DeepScanLine(_) | CompressedBlock::DeepTile(_) => {
+                Err(Error::unsupported(
+                    "deep data cannot be decompressed as flat data (use `UncompressedDeepBlock`, \
+                     which requires the `deep` feature)",
+                ))
+            }
         }
     }
 
