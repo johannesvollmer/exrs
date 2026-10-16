@@ -3,6 +3,7 @@
 //! Browse the `exr::image` module to get started with the high-level interface.
 
 pub mod attribute;
+pub mod deep_state;
 pub mod header;
 
 use std::{collections::HashSet, convert::TryFrom, fs::File, io::BufReader};
@@ -426,6 +427,14 @@ impl MetaData {
     ) -> Result<Self> {
         let meta_data = Self::read_unvalidated_from_buffered_peekable(read, !pedantic)?;
         Self::validate(meta_data.headers.as_slice(), pedantic)?;
+
+        // the file must declare deep data in the version flags if any header
+        // contains deep data
+        let headers_have_deep_data = meta_data.headers.iter().any(|header| header.deep);
+        if headers_have_deep_data && !meta_data.requirements.has_deep_data {
+            return Err(Error::invalid("deep data in a file not flagged as containing deep data"));
+        }
+
         Ok(meta_data)
     }
 
@@ -524,7 +533,7 @@ impl MetaData {
             return Err(Error::invalid("at least one layer is required"));
         }
 
-        let deep = false; // TODO deep data
+        let deep = headers.iter().any(|header| header.deep);
         let is_multilayer = headers.len() > 1;
         let first_header_has_tiles =
             headers.iter().next().map_or(false, |header| header.blocks.has_tiles());
@@ -538,15 +547,19 @@ impl MetaData {
             // start as low as possible, later increasing if required
             has_long_names: false,
 
-            is_single_layer_and_tiled: !is_multilayer && first_header_has_tiles,
+            // the single tile bit must not be set for deep data
+            is_single_layer_and_tiled: !is_multilayer && !deep && first_header_has_tiles,
             has_multiple_layers: is_multilayer,
             has_deep_data: deep,
         };
 
         for header in headers {
+            #[cfg(not(feature = "deep"))]
             if header.deep {
-                // TODO deep data (and then remove this check)
-                return Err(Error::unsupported("deep data not supported yet"));
+                return Err(Error::unsupported(
+                    "deep data (enable the `deep` feature of the `exr` crate to read and write \
+                     deep data)",
+                ));
             }
 
             header.validate(is_multilayer, &mut minimal_requirements.has_long_names, pedantic)?;

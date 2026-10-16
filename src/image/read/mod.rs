@@ -43,6 +43,8 @@
 //    converted to the clean image structure, without temporary data.
 
 pub mod any_channels;
+#[cfg(feature = "deep")]
+pub mod deep;
 pub mod image;
 pub mod layers;
 pub mod levels;
@@ -222,6 +224,16 @@ impl ReadBuilder {
     #[must_use]
     pub const fn no_deep_data(self) -> ReadFlatSamples {
         ReadFlatSamples
+    }
+
+    /// Specify to read deep data, where each pixel contains any number of
+    /// samples. Continue by choosing the layers, for example with
+    /// `read().deep_data().all_layers()`. See [`deep`] for more information.
+    /// Requires the `deep` feature.
+    #[cfg(feature = "deep")]
+    #[must_use]
+    pub const fn deep_data(self) -> deep::ReadDeepSamples {
+        deep::ReadDeepSamples
     }
 
     // pub fn any_resolution_levels() -> ReadBuilder<> {}

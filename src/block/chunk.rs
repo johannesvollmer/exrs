@@ -284,12 +284,7 @@ impl CompressedTileBlock {
 impl CompressedDeepScanLineBlock {
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
-        debug_assert_ne!(
-            self.compressed_sample_data_le.len(),
-            0,
-            "empty blocks should not be put in the file bug"
-        );
-
+        // note: deep blocks may be empty, as pixels can contain zero samples
         i32::write_le(self.y_coordinate, write)?;
         u64::write_le(self.compressed_pixel_offset_table.len() as u64, write)?;
         u64::write_le(self.compressed_sample_data_le.len() as u64, write)?; // TODO just guessed
@@ -336,12 +331,7 @@ impl CompressedDeepScanLineBlock {
 impl CompressedDeepTileBlock {
     /// Without validation, write this instance to the byte stream.
     pub fn write<W: Write>(&self, write: &mut W) -> UnitResult {
-        debug_assert_ne!(
-            self.compressed_sample_data_le.len(),
-            0,
-            "empty blocks should not be put in the file bug"
-        );
-
+        // note: deep blocks may be empty, as pixels can contain zero samples
         self.coordinates.write(write)?;
         u64::write_le(self.compressed_pixel_offset_table.len() as u64, write)?;
         u64::write_le(self.compressed_sample_data_le.len() as u64, write)?; // TODO just guessed
@@ -428,7 +418,15 @@ impl Chunk {
         }
 
         let header = &meta_data.headers[layer_number];
-        let max_block_byte_size = header.max_block_byte_size();
+
+        // the size of deep blocks is not limited by the header, as the number
+        // of samples per pixel is not known in advance. the bytes are
+        // read incrementally instead.
+        let max_block_byte_size = if header.deep {
+            usize::MAX
+        } else {
+            header.max_block_byte_size()
+        };
 
         let chunk = Self {
             layer_index: layer_number,

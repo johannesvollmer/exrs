@@ -220,7 +220,16 @@ where
             })
             .next()
             .ok_or_else(|| {
-                Error::invalid("no layer in the image matched your specified requirements")
+                if headers.iter().any(|header| header.deep) {
+                    // the image is not invalid, but its deep layers cannot be
+                    // read as flat data
+                    Error::unsupported(
+                        "no flat layer in the image matched your specified requirements \
+                         (use `read().deep_data()` to read deep layers)",
+                    )
+                } else {
+                    Error::invalid("no layer in the image matched your specified requirements")
+                }
             })
     }
 }

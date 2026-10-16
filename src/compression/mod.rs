@@ -399,6 +399,63 @@ impl Compression {
         }
     }
 
+    /// Compress bytes that are not organized in channels and lines,
+    /// such as deep pixel offset tables or deep sample data.
+    /// The bytes must already be in little-endian format.
+    /// Returns the uncompressed bytes if compression would not reduce the
+    /// size, just like the `OpenEXR` library does.
+    #[cfg(feature = "deep")]
+    pub(crate) fn compress_deep_bytes_le(self, bytes_le: ByteVec) -> Result<ByteVec> {
+        use self::Compression::*;
+
+        let compressed_le = match self {
+            Uncompressed => return Ok(bytes_le),
+            RLE => rle::compress_raw_bytes(bytes_le.clone()),
+            ZIP1 | ZIP16 => zip::compress_raw_bytes(bytes_le.clone()),
+            _ => {
+                return Err(Error::unsupported(format!(
+                    "deep data cannot be compressed using {self}"
+                )))
+            }
+        };
+
+        if compressed_le.len() < bytes_le.len() {
+            Ok(compressed_le)
+        } else {
+            Ok(bytes_le)
+        }
+    }
+
+    /// Decompress bytes that are not organized in channels and lines,
+    /// such as deep pixel offset tables or deep sample data.
+    /// The caller must decide whether the bytes are stored without compression,
+    /// which is the case if the compressed size equals the uncompressed size.
+    /// Produces at most `max_byte_size` bytes, which are in little-endian
+    /// format.
+    #[cfg(feature = "deep")]
+    pub(crate) fn decompress_deep_bytes_le(
+        self,
+        compressed_le: &[u8],
+        max_byte_size: usize,
+        pedantic: bool,
+    ) -> Result<ByteVec> {
+        use self::Compression::*;
+
+        let decompressed_le = match self {
+            Uncompressed => Ok(compressed_le.to_vec()),
+            RLE => rle::decompress_raw_bytes(compressed_le, max_byte_size, pedantic),
+            ZIP1 | ZIP16 => zip::decompress_raw_bytes(compressed_le, max_byte_size),
+            _ => {
+                return Err(Error::unsupported(format!(
+                    "deep data cannot be decompressed using {self}"
+                )))
+            }
+        };
+
+        decompressed_le
+            .map_err(|error| Error::invalid(format!("compressed {self:?} deep data ({error})")))
+    }
+
     /// Most compression methods will reconstruct the exact pixel bytes,
     /// but some might throw away unimportant data for specific types of
     /// samples.
