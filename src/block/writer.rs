@@ -142,6 +142,9 @@ pub trait ChunksWriter: Sized {
             parallel_writer.add_block_to_compression_queue(index_in_header_increasing_y, block)?;
         }
 
+        // the blocks might not include all chunks of the file
+        parallel_writer.write_all_queued_chunks()?;
+
         // TODO debug_assert_eq!(self.is_complete());
         Ok(())
     }
@@ -167,7 +170,9 @@ pub trait ChunksWriter: Sized {
     #[cfg(all(feature = "rayon", feature = "deep"))]
     /// Compresses all deep blocks to the file, using multiple threads.
     /// The index of the block must be in increasing line order within the
-    /// header. All blocks must belong to deep layers.
+    /// header. All blocks must belong to deep layers. For files that also
+    /// contain flat layers, use a single `parallel_blocks_compressor()` for
+    /// all blocks, so that the chunks can be written in the required order.
     /// Will fallback to sequential processing where threads are not available,
     /// or where it would not speed up the process.
     fn compress_all_deep_blocks_parallel(
@@ -185,6 +190,9 @@ pub trait ChunksWriter: Sized {
                 .add_deep_block_to_compression_queue(index_in_header_increasing_y, block)?;
         }
 
+        // the blocks might not include all chunks of the file, for example if
+        // it also contains flat layers
+        parallel_writer.write_all_queued_chunks()?;
         Ok(())
     }
 }

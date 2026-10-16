@@ -17,6 +17,9 @@ rust-version = "1.83.0"
 [badges]
 maintenance = { status = "actively-developed" }
 
+[package.metadata.docs.rs]
+features = ["deep"]
+
 [lib]
 path = "src/lib.rs"
 test = true

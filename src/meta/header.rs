@@ -640,7 +640,8 @@ impl Header {
     /// Maximum byte length of an uncompressed or compressed block, used for
     /// validation.
     ///
-    /// For deep data, the number of samples per pixel is not bounded,
+    /// For deep data, this bounds both the pixel offset table and the sample
+    /// data of a block. The number of samples per pixel is not bounded,
     /// unless the `max_samples_per_pixel` attribute is known. Without that
     /// attribute, this returns `usize::MAX` for deep data.
     pub fn max_block_byte_size(&self) -> usize {
@@ -653,9 +654,17 @@ impl Header {
 
         if self.deep {
             match self.max_samples_per_pixel {
-                Some(max_samples_per_pixel) => max_block_pixel_count
-                    .saturating_mul(max_samples_per_pixel)
-                    .saturating_mul(self.channels.bytes_per_pixel),
+                Some(max_samples_per_pixel) => {
+                    // the offset table contains one i32 per pixel
+                    let offset_table_byte_size =
+                        max_block_pixel_count.saturating_mul(std::mem::size_of::<i32>());
+
+                    let sample_data_byte_size = max_block_pixel_count
+                        .saturating_mul(max_samples_per_pixel)
+                        .saturating_mul(self.channels.bytes_per_pixel);
+
+                    offset_table_byte_size.max(sample_data_byte_size)
+                }
 
                 None => usize::MAX,
             }

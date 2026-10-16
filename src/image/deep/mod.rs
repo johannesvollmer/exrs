@@ -25,7 +25,7 @@ use crate::{
     error::{Error, Result, UnitResult},
     image::{AnyChannel, FlatSamples},
     math::Vec2,
-    meta::attribute::{ChannelDescription, ChannelList, SampleType},
+    meta::attribute::{ChannelDescription, ChannelList, SampleType, Text},
 };
 
 /// The channels of a deep layer.
@@ -290,6 +290,13 @@ impl DeepChannels {
     /// Check that the sample counts match the resolution, that each channel
     /// contains one value for each sample, and that channel names are unique.
     pub fn validate(&self) -> UnitResult {
+        self.validate_sample_offsets()?;
+        self.validate_channels()
+    }
+
+    /// Check that the sample counts match the resolution.
+    /// Takes time proportional to the number of pixels.
+    fn validate_sample_offsets(&self) -> UnitResult {
         if self.sample_offsets.len() != self.pixel_count() + 1 {
             return Err(Error::invalid(format!(
                 "deep layer of resolution {}x{} requires {} sample counts, but has {}",
@@ -306,6 +313,14 @@ impl DeepChannels {
             return Err(Error::invalid("deep sample offsets"));
         }
 
+        Ok(())
+    }
+
+    /// Check that each channel contains one value for each sample, and that
+    /// channel names are unique. This is everything that can be changed after
+    /// construction, using `channels_mut`. Takes time proportional to the
+    /// number of channels.
+    pub(crate) fn validate_channels(&self) -> UnitResult {
         for channel in &self.list {
             if channel.sample_data.len() != self.total_sample_count() {
                 return Err(Error::invalid(format!(
@@ -324,11 +339,11 @@ impl DeepChannels {
             }
         }
 
-        let has_duplicate_names = self.list.iter().enumerate().any(|(index, channel)| {
-            self.list[..index].iter().any(|other| other.name == channel.name)
-        });
+        let mut names: SmallVec<[&Text; 8]> =
+            self.list.iter().map(|channel| &channel.name).collect();
+        names.sort_unstable();
 
-        if has_duplicate_names {
+        if names.windows(2).any(|pair| pair[0] == pair[1]) {
             return Err(Error::invalid("duplicate deep channel name"));
         }
 
