@@ -2,7 +2,7 @@
 
 use crate::{
     block::{chunk::TileCoordinates, lines::LineRef},
-    error::{Result, UnitResult},
+    error::{Error, Result, UnitResult},
     image::{
         read::{
             any_channels::{ReadSamples, SamplesReader},
@@ -81,11 +81,17 @@ impl ReadSamplesLevel for ReadFlatSamples {
 
     fn create_samples_level_reader(
         &self,
-        _header: &Header,
+        header: &Header,
         channel: &ChannelDescription,
         level: Vec2<usize>,
         resolution: Vec2<usize>,
     ) -> Result<Self::Reader> {
+        if header.deep {
+            return Err(Error::unsupported(
+                "deep data cannot be read as flat samples (use `read().deep_data()` instead)",
+            ));
+        }
+
         Ok(FlatSamplesReader {
             level,
             resolution, // TODO sampling

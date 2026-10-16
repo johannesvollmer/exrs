@@ -44,3 +44,36 @@ pub fn compress_bytes(
 
     Ok(miniz_oxide::deflate::compress_to_vec_zlib(packed_le.as_slice(), 4))
 }
+
+/// Compress bytes that are not organized in channels, such as deep data.
+/// Applies the same byte reordering and delta prediction as `compress_bytes`.
+#[cfg(feature = "deep")]
+pub(super) fn compress_raw_bytes(mut data_le: ByteVec) -> ByteVec {
+    separate_bytes_fragments(&mut data_le);
+    samples_to_differences(&mut data_le);
+    miniz_oxide::deflate::compress_to_vec_zlib(data_le.as_slice(), 4)
+}
+
+/// Decompress bytes that are not organized in channels, such as deep data.
+/// Produces at most `max_byte_size` bytes.
+#[cfg(feature = "deep")]
+pub(super) fn decompress_raw_bytes(compressed_le: &[u8], max_byte_size: usize) -> Result<ByteVec> {
+    // the maximum size is read from the file, so do not trust it for allocating
+    // memory up front
+    let size_hint = max_byte_size.min(compressed_le.len().saturating_mul(16).max(64 * 1024));
+
+    let options =
+        zune_inflate::DeflateOptions::default().set_limit(max_byte_size).set_size_hint(size_hint);
+
+    let mut decoder = zune_inflate::DeflateDecoder::new_with_options(compressed_le, options);
+    let mut decompressed_le =
+        decoder.decode_zlib().map_err(|_| Error::invalid("zlib-compressed data malformed"))?;
+
+    if decompressed_le.len() > max_byte_size {
+        return Err(Error::invalid("zlib-compressed data size"));
+    }
+
+    differences_to_samples(&mut decompressed_le);
+    interleave_byte_blocks(&mut decompressed_le);
+    Ok(decompressed_le)
+}

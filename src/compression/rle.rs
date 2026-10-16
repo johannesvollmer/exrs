@@ -19,6 +19,35 @@ pub fn decompress_bytes(
     // TODO no alloc
 }
 
+/// Compress bytes that are not organized in channels, such as deep data.
+/// Applies the same byte reordering and delta prediction as `compress_bytes`.
+#[cfg(feature = "deep")]
+pub(super) fn compress_raw_bytes(mut data_le: ByteVec) -> ByteVec {
+    separate_bytes_fragments(&mut data_le);
+    samples_to_differences(&mut data_le);
+    pack_rle_tokens(&data_le)
+}
+
+/// Decompress bytes that are not organized in channels, such as deep data.
+/// Produces at most `max_byte_size` bytes.
+#[cfg(feature = "deep")]
+pub(super) fn decompress_raw_bytes(
+    compressed_le: &[u8],
+    max_byte_size: usize,
+    pedantic: bool,
+) -> Result<ByteVec> {
+    let mut decompressed_le = unpack_rle_tokens(compressed_le, max_byte_size, pedantic)?;
+
+    // a run might have exceeded the maximum size
+    if decompressed_le.len() > max_byte_size {
+        return Err(Error::invalid("compressed data"));
+    }
+
+    differences_to_samples(&mut decompressed_le);
+    interleave_byte_blocks(&mut decompressed_le);
+    Ok(decompressed_le)
+}
+
 /// Shared by this compression method and DWA's RLE scheme (both port OpenEXR's
 /// `internal_rle_decompress`, see `compression::dwa`) - kept separate from
 /// `decompress_bytes` because DWA does not apply the delta prediction /
