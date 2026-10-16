@@ -104,19 +104,23 @@ pub struct CompressedDeepScanLineBlock {
     /// with the top edge of the data window.
     pub y_coordinate: i32,
 
-    /// Count of samples.
+    /// The byte size of the sample data after decompression,
+    /// which is the total number of samples in this block multiplied by the
+    /// byte size of one sample of all channels.
     pub decompressed_sample_data_size: usize,
 
-    /// The pixel offset table is a list of integers, one for each pixel column
-    /// within the data window. Each entry in the table indicates the total
-    /// number of samples required to store the pixel in it as well as all
-    /// pixels to the left of it.
+    /// The possibly compressed bytes of the pixel offset table. When
+    /// decompressed, the table contains one little-endian `i32` for each pixel
+    /// of this block, in row-major order. Each entry is the number of samples
+    /// in that pixel and all pixels to its left in the same row, so the count
+    /// restarts in each row. The table is stored without compression if its
+    /// byte size equals the uncompressed size. Uncompressed tables of partial
+    /// tiles are padded to the size of a full tile.
     pub compressed_pixel_offset_table: Vec<i8>,
 
-    /// One or more scan lines may be stored together as a scan line block.
-    /// The number of scan lines per block depends on how the pixel data are
-    /// compressed. For each line in the tile, for each channel, the row
-    /// values are contiguous.
+    /// The possibly compressed sample data, in little-endian format.
+    /// For each row of pixels in this block, for each channel, for each pixel
+    /// in that row, contains all samples of that pixel.
     pub compressed_sample_data_le: Vec<u8>,
 }
 
@@ -129,19 +133,23 @@ pub struct CompressedDeepTileBlock {
     /// The tile location.
     pub coordinates: TileCoordinates,
 
-    /// Count of samples.
+    /// The byte size of the sample data after decompression,
+    /// which is the total number of samples in this block multiplied by the
+    /// byte size of one sample of all channels.
     pub decompressed_sample_data_size: usize,
 
-    /// The pixel offset table is a list of integers, one for each pixel column
-    /// within the data window. Each entry in the table indicates the total
-    /// number of samples required to store the pixel in it as well as all
-    /// pixels to the left of it.
+    /// The possibly compressed bytes of the pixel offset table. When
+    /// decompressed, the table contains one little-endian `i32` for each pixel
+    /// of this block, in row-major order. Each entry is the number of samples
+    /// in that pixel and all pixels to its left in the same row, so the count
+    /// restarts in each row. The table is stored without compression if its
+    /// byte size equals the uncompressed size. Uncompressed tables of partial
+    /// tiles are padded to the size of a full tile.
     pub compressed_pixel_offset_table: Vec<i8>,
 
-    /// One or more scan lines may be stored together as a scan line block.
-    /// The number of scan lines per block depends on how the pixel data are
-    /// compressed. For each line in the tile, for each channel, the row
-    /// values are contiguous.
+    /// The possibly compressed sample data, in little-endian format.
+    /// For each row of pixels in this block, for each channel, for each pixel
+    /// in that row, contains all samples of that pixel.
     pub compressed_sample_data_le: Vec<u8>,
 }
 
@@ -287,7 +295,7 @@ impl CompressedDeepScanLineBlock {
         // note: deep blocks may be empty, as pixels can contain zero samples
         i32::write_le(self.y_coordinate, write)?;
         u64::write_le(self.compressed_pixel_offset_table.len() as u64, write)?;
-        u64::write_le(self.compressed_sample_data_le.len() as u64, write)?; // TODO just guessed
+        u64::write_le(self.compressed_sample_data_le.len() as u64, write)?;
         u64::write_le(self.decompressed_sample_data_size as u64, write)?;
         i8::write_slice_le(write, &self.compressed_pixel_offset_table)?;
         u8::write_slice_le(write, &self.compressed_sample_data_le)?;
@@ -302,7 +310,6 @@ impl CompressedDeepScanLineBlock {
         let compressed_sample_data_size = u64_to_usize(u64::read_le(read)?, "deep size")?;
         let decompressed_sample_data_size = u64_to_usize(u64::read_le(read)?, "raw deep size")?;
 
-        // doc said i32, try u8
         let compressed_pixel_offset_table = i8::read_vec_le(
             read,
             compressed_pixel_offset_table_size,
@@ -334,7 +341,7 @@ impl CompressedDeepTileBlock {
         // note: deep blocks may be empty, as pixels can contain zero samples
         self.coordinates.write(write)?;
         u64::write_le(self.compressed_pixel_offset_table.len() as u64, write)?;
-        u64::write_le(self.compressed_sample_data_le.len() as u64, write)?; // TODO just guessed
+        u64::write_le(self.compressed_sample_data_le.len() as u64, write)?;
         u64::write_le(self.decompressed_sample_data_size as u64, write)?;
         i8::write_slice_le(write, &self.compressed_pixel_offset_table)?;
         u8::write_slice_le(write, &self.compressed_sample_data_le)?;
@@ -346,7 +353,7 @@ impl CompressedDeepTileBlock {
         let coordinates = TileCoordinates::read(read)?;
         let compressed_pixel_offset_table_size =
             u64_to_usize(u64::read_le(read)?, "deep table size")?;
-        let compressed_sample_data_size = u64_to_usize(u64::read_le(read)?, "deep size")?; // TODO u64 just guessed
+        let compressed_sample_data_size = u64_to_usize(u64::read_le(read)?, "deep size")?;
         let decompressed_sample_data_size = u64_to_usize(u64::read_le(read)?, "raw deep size")?;
 
         let compressed_pixel_offset_table = i8::read_vec_le(

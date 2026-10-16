@@ -6,6 +6,7 @@
 extern crate exr;
 
 use std::{
+    convert::TryInto,
     ffi::OsStr,
     io::Cursor,
     path::{Path, PathBuf},
@@ -374,6 +375,166 @@ fn write_image_with_flat_and_deep_layers() {
         // deep data
         assert!(matches!(read_deep_bytes(&bytes), Err(Error::NotSupported(_))));
     }
+}
+
+#[test]
+fn read_images_with_deep_and_flat_layers_in_any_order() {
+    let size = Vec2(6, 4);
+    let flat = Layer::new(
+        size,
+        LayerAttributes::named("flat"),
+        Encoding::FAST_LOSSLESS,
+        AnyChannels::sort(smallvec::smallvec![AnyChannel::new(
+            "Y",
+            FlatSamples::F32((0..size.area()).map(|index| index as f32).collect())
+        )]),
+    );
+
+    let first_deep = synthetic_layer("first deep", size, 3, Encoding::UNCOMPRESSED);
+    let second_deep = synthetic_layer("second deep", size, 4, Encoding::FAST_LOSSLESS);
+
+    // the deep layer comes first, so flat readers must skip it
+    let image = Image::empty(ImageAttributes::with_size(size))
+        .with_layer(first_deep.clone())
+        .with_layer(flat.clone())
+        .with_layer(second_deep.clone());
+
+    let mut bytes = Vec::new();
+    image.write().to_buffered(Cursor::new(&mut bytes)).unwrap();
+
+    let decoded_flat = read()
+        .no_deep_data()
+        .largest_resolution_level()
+        .all_channels()
+        .first_valid_layer()
+        .all_attributes()
+        .pedantic()
+        .from_buffered(Cursor::new(&bytes))
+        .unwrap();
+
+    assert_eq!(decoded_flat.layer_data.attributes.layer_name, flat.attributes.layer_name);
+    assert_eq!(decoded_flat.layer_data.channel_data, flat.channel_data);
+
+    let decoded_first: DeepImage = read()
+        .deep_data()
+        .first_valid_layer()
+        .pedantic()
+        .from_buffered(Cursor::new(&bytes))
+        .unwrap();
+
+    assert_eq!(decoded_first.layer_data.channel_data, first_deep.channel_data);
+
+    // all deep layers can be read, skipping the flat layer
+    let decoded_deep: DeepLayersImage = read()
+        .deep_data()
+        .all_valid_layers()
+        .pedantic()
+        .from_buffered(Cursor::new(&bytes))
+        .unwrap();
+
+    assert_eq!(decoded_deep.layer_data.len(), 2);
+    assert_eq!(decoded_deep.layer_data[0].channel_data, first_deep.channel_data);
+    assert_eq!(decoded_deep.layer_data[1].channel_data, second_deep.channel_data);
+    assert_eq!(decoded_deep.layer_data[1].attributes.layer_name, second_deep.attributes.layer_name);
+    assert!(matches!(read_deep_bytes(&bytes), Err(Error::NotSupported(_))));
+}
+
+/// Selects the deep layer with a specific name.
+struct ReadDeepLayerByName(&'static str);
+
+impl exr::image::read::deep::ReadDeepLayers for ReadDeepLayerByName {
+    type Layers = Layer<DeepChannels>;
+
+    fn select_layers(&self, headers: &[exr::meta::header::Header]) -> Result<SmallVec<[usize; 2]>> {
+        headers
+            .iter()
+            .position(|header| header.own_attributes.layer_name == Some(Text::from(self.0)))
+            .map(|index| SmallVec::from_slice(&[index]))
+            .ok_or_else(|| Error::Invalid("no layer with that name".into()))
+    }
+
+    fn collect_layers(&self, layers: Vec<Layer<DeepChannels>>) -> Self::Layers {
+        layers.into_iter().next().unwrap()
+    }
+}
+
+#[test]
+fn read_deep_layers_with_custom_selection() {
+    let path = "tests/images/valid/openexr/v2/Stereo/Balls.exr";
+    let all = read().deep_data().all_layers().from_file(path).unwrap();
+
+    let second_name = all.layer_data[1].attributes.layer_name.clone().unwrap();
+    let second_name: &'static str = Box::leak(second_name.to_string().into_boxed_str());
+
+    let second = exr::image::read::deep::ReadDeepImage::new(ReadDeepLayerByName(second_name))
+        .from_file(path)
+        .unwrap();
+
+    assert_eq!(second.layer_data.channel_data, all.layer_data[1].channel_data);
+}
+
+#[test]
+fn version_flags_of_deep_files() {
+    // clear the deep data flag, which is bit 11 of the version field
+    let without_deep_flag = |path: &str| {
+        let mut bytes = std::fs::read(path).unwrap();
+        bytes[5] &= !0x08;
+        bytes
+    };
+
+    // like the `OpenEXR` library, the type attribute of multi-layer files is
+    // trusted
+    let multi_layer = without_deep_flag("tests/images/valid/openexr/v2/Stereo/Balls.exr");
+    let relaxed = read().deep_data().all_layers().from_buffered(Cursor::new(&multi_layer));
+    assert_eq!(relaxed.unwrap().layer_data.len(), 2);
+    assert!(read_deep_bytes(&multi_layer).is_err());
+
+    // single-layer files must declare deep data
+    let single_layer = without_deep_flag(&format!("{LOW_RES}/Balls.exr"));
+    let relaxed = read().deep_data().all_layers().from_buffered(Cursor::new(&single_layer));
+    assert!(relaxed.is_err());
+}
+
+#[test]
+fn duplicate_chunk_offsets_are_read_once() {
+    let encoding = Encoding {
+        compression: Compression::ZIP1,
+        blocks: Blocks::ScanLines,
+        line_order: LineOrder::Increasing,
+    };
+
+    let layer = synthetic_layer("deep", Vec2(7, 16), 9, encoding);
+    let image = Image::from_layer(layer);
+
+    let mut bytes = Vec::new();
+    image.write().to_buffered(Cursor::new(&mut bytes)).unwrap();
+
+    // the offset table of the single layer is directly followed by the first
+    // chunk
+    let chunk_count = 16;
+    let read_u64 = |bytes: &[u8], position: usize| {
+        u64::from_le_bytes(bytes[position..position + 8].try_into().unwrap()) as usize
+    };
+
+    let table_start = (8..bytes.len() - 8)
+        .find(|&position| read_u64(&bytes, position) == position + chunk_count * 8)
+        .expect("offset table not found");
+
+    // point all offsets to the first chunk
+    let first_chunk = read_u64(&bytes, table_start);
+    for index in 0..chunk_count {
+        let position = table_start + index * 8;
+        bytes[position..position + 8].copy_from_slice(&(first_chunk as u64).to_le_bytes());
+    }
+
+    // the first chunk only contains the first row, which contains no samples
+    let relaxed: DeepImage =
+        read().deep_data().first_valid_layer().from_buffered(Cursor::new(&bytes)).unwrap();
+    assert_eq!(relaxed.layer_data.channel_data.total_sample_count(), 0);
+
+    let pedantic =
+        read().deep_data().first_valid_layer().pedantic().from_buffered(Cursor::new(&bytes));
+    assert!(pedantic.is_err());
 }
 
 #[test]

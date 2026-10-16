@@ -104,7 +104,9 @@ impl ChannelsWriter for DeepChannelsWriter<'_> {
             return Err(Error::unsupported("resolution levels in deep layers"));
         }
 
-        self.channels.validate()?;
+        // the sample offsets are validated when constructing the channels,
+        // but the channels may have been modified afterwards
+        self.channels.validate_channels()?;
         self.channels.extract_block(block)
     }
 }

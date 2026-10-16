@@ -18,7 +18,8 @@ use crate::{
 ///
 /// The numerical values match the `DeepImageState` enumeration of the `OpenEXR`
 /// library, and are stored as a single byte in the file.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
+/// The states are only partially ordered, see `is_at_least`.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Default)]
 pub enum DeepImageState {
     /// The samples may be in any order, and may overlap each other.
     #[default]

@@ -11,8 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Adds reading, writing, and compositing deep images, behind the new `deep` feature.
   Deep layers contain any number of samples per pixel and use `DeepChannels` as channel data.
   - Read deep images with `read().deep_data()`, and write them with `image.write()`, like flat images.
-    Images may contain both flat and deep layers.
+    Images may contain both flat and deep layers. Use `all_valid_layers()` to read all deep layers of such images,
+    or implement `ReadDeepLayers` for a custom selection.
   - Supports deep scan lines and deep tiles, compressed with `Uncompressed`, `RLE` or `ZIP1`.
+    Offset tables of partial tiles are written such that all versions of the `OpenEXR` library can read them.
   - `image::deep::compositing` can sort, merge, and flatten deep layers.
   - The block-level API offers `UncompressedDeepBlock`, with sequential and parallel (de)compression.
 - Adds the `DeepImageState` attribute type, for the standard `deepImageState` attribute.
@@ -25,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A negative `maxSamplesPerPixel` attribute, which means "unknown", no longer fails to load.
 - With the `deep` feature, flat readers using `first_valid_layer()` skip deep layers,
   and otherwise return `Error::NotSupported` for deep layers.
+- Compressing a flat block for a deep layer now returns an error.
+- Reading without pedantic checks no longer decompresses the same chunk multiple times
+  if the offset table contains duplicate entries.
+- `compress_all_blocks_parallel` now also writes the queued chunks if the blocks do not cover the whole file.
 
 ## [1.74.2] - 2026-07-10
 ### Added

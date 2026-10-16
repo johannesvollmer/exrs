@@ -122,14 +122,18 @@ impl DeepChannels {
 /// The samples of all layers are sorted by depth, and then composited front
 /// to back using the "over" operation: each sample contributes its values,
 /// weighted by the remaining transparency in front of it. Compositing stops
-/// when a pixel is fully opaque. This matches the compositing of the `OpenEXR`
-/// library.
+/// when a pixel is fully opaque. For sorted samples, the color and alpha
+/// channels match the result of `CompositeDeepScanLine` in the `OpenEXR`
+/// library. Unlike `OpenEXR`, the samples are also sorted if there is only
+/// one layer, layers without `A` or `Z` channels are allowed, and depth
+/// channels are not composited.
 ///
 /// The result covers the union of all layers, and contains all channels of all
 /// layers, using the sample type of the first layer containing each channel.
 /// Instead of being composited, the depth channels `Z` and `ZBack`, as well as
 /// all `u32` channels, contain the value of the nearest sample of each pixel.
-/// Pixels without samples contain zero in all channels.
+/// For layers without a `ZBack` channel, the `ZBack` value of a sample is its
+/// `Z` value. Pixels without samples contain zero in all channels.
 /// The attributes and encoding of the result are copied from the first layer.
 pub fn composite<'l>(
     layers: impl IntoIterator<Item = &'l Layer<DeepChannels>>,
@@ -183,12 +187,11 @@ pub fn composite<'l>(
             }
         }
 
-        let nearest_source = &sources.layers[nearest.source];
         for (channel, output) in outputs.iter_mut().enumerate() {
             let value = if is_composited[channel] {
                 Sample::F32(accumulated[channel])
             } else {
-                nearest_source.value(channel, nearest.index).unwrap_or(Sample::F32(0.0))
+                sources.value(channel, &nearest).unwrap_or(Sample::F32(0.0))
             };
 
             set_value(output, pixel_index, value);
@@ -233,7 +236,8 @@ pub fn flatten(layer: &Layer<DeepChannels>) -> Result<Layer<AnyChannels<FlatSamp
 /// The result covers the union of all layers, and contains all channels of all
 /// layers, using the sample type of the first layer containing each channel.
 /// If a layer does not contain a channel, its samples have the value zero in
-/// that channel. The samples of each pixel are sorted by depth, from front to
+/// that channel, except for `ZBack`, which then contains the `Z` value of the
+/// sample. The samples of each pixel are sorted by depth, from front to
 /// back. Overlapping volumetric samples are not split.
 /// The attributes and encoding of the result are copied from the first layer.
 pub fn merge<'l>(
@@ -270,10 +274,8 @@ pub fn merge<'l>(
         sources.gather_sorted_samples(position, &mut gathered);
 
         for (sample, output_index) in gathered.iter().zip(sample_offsets[pixel_index]..) {
-            let source = &sources.layers[sample.source];
-
             for (channel, output) in outputs.iter_mut().enumerate() {
-                if let Some(value) = source.value(channel, sample.index) {
+                if let Some(value) = sources.value(channel, sample) {
                     set_value(output, output_index, value);
                 }
             }
@@ -490,6 +492,20 @@ impl<'l> Sources<'l> {
 
     fn output_channel_index(&self, name: &str) -> Option<usize> {
         self.output_channels.iter().position(|channel| channel.name.eq(name))
+    }
+
+    /// The value of a sample in the specified output channel, if its layer
+    /// contains that channel. If its layer has no back depth channel,
+    /// the back depth of the sample is its front depth.
+    fn value(&self, output_channel: usize, sample: &GatheredSample) -> Option<Sample> {
+        self.layers[sample.source].value(output_channel, sample.index).or_else(|| {
+            let is_back_depth = self.output_channels[output_channel].name.eq(BACK_DEPTH);
+            if is_back_depth {
+                Some(Sample::F32(sample.depth.1))
+            } else {
+                None
+            }
+        })
     }
 
     /// Convert a position in the result to a position in the global 2D space.
@@ -814,6 +830,54 @@ mod test {
                 .sample_data,
             FlatSamples::U32(vec![9])
         );
+    }
+
+    #[test]
+    fn missing_back_depth_equals_front_depth() {
+        // a volumetric sample with a back depth, and a surface sample at the
+        // same depth
+        let volume = Layer {
+            channel_data: DeepChannels::new(
+                (1, 1),
+                vec![1],
+                vec![
+                    AnyChannel::new("Z", FlatSamples::F32(vec![5.0])),
+                    AnyChannel::new("ZBack", FlatSamples::F32(vec![6.0])),
+                    AnyChannel::new("A", FlatSamples::F32(vec![0.5])),
+                    AnyChannel::new("R", FlatSamples::F32(vec![0.5])),
+                ],
+            )
+            .unwrap(),
+            attributes: LayerAttributes::default(),
+            size: Vec2(1, 1),
+            encoding: Encoding::UNCOMPRESSED,
+        };
+
+        let surface = layer(
+            Vec2(0, 0),
+            (1, 1),
+            vec![1],
+            vec![5.0],
+            [vec![0.0], vec![1.0], vec![0.0], vec![1.0]],
+        );
+
+        let merged = merge(vec![&volume, &surface]).unwrap();
+        let depth = &merged.channel_data.channel_by_name("Z").unwrap().sample_data;
+        let back_depth = &merged.channel_data.channel_by_name("ZBack").unwrap().sample_data;
+
+        // the surface sample has no back depth, so it uses its front depth,
+        // and is sorted in front of the volumetric sample
+        assert_eq!(depth, &FlatSamples::F32(vec![5.0, 5.0]));
+        assert_eq!(back_depth, &FlatSamples::F32(vec![5.0, 6.0]));
+
+        let composited = composite(vec![&volume, &surface]).unwrap();
+        assert_eq!(values(&composited, "ZBack"), vec![5.0]);
+        assert_eq!(values(&composited, "G"), vec![1.0]);
+
+        // flattening the merged layer is equivalent to compositing the original
+        // layers
+        let flattened = flatten(&merged).unwrap();
+        assert_eq!(flattened.channel_data, composited.channel_data);
     }
 
     #[test]
