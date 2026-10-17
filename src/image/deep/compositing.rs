@@ -132,7 +132,8 @@ impl DeepChannels {
 /// The result covers the union of all layers, and contains all channels of all
 /// layers, using the sample type of the first layer containing each channel.
 /// The depth channels use `f32` if the depth channels of the layers do not all
-/// use the same sample type. Instead of being composited, the depth channels
+/// use the same sample type, and the samples are sorted by their depth in the
+/// sample type of the result. Instead of being composited, the depth channels
 /// `Z` and `ZBack`, as well as all `u32` channels, contain the value of the
 /// nearest sample of each pixel. For layers without a `ZBack` channel, the
 /// `ZBack` value of a sample is its `Z` value. Pixels without samples contain
@@ -239,9 +240,8 @@ pub fn flatten(layer: &Layer<DeepChannels>) -> Result<Layer<AnyChannels<FlatSamp
 /// The result covers the union of all layers, and contains all channels of all
 /// layers, using the sample type of the first layer containing each channel.
 /// The depth channels `Z` and `ZBack` use `f32` if the depth channels of the
-/// layers do not all use the same sample type, to avoid rounding only some of
-/// the depth values. The samples are sorted by their depth as stored in the
-/// result.
+/// layers do not all use the same sample type. The samples are sorted by their
+/// depth as stored in the result.
 /// If a layer does not contain a channel, its samples have the value zero in
 /// that channel, except for `ZBack`, which then contains the `Z` value of the
 /// sample. The samples of each pixel are sorted by depth, from front to
