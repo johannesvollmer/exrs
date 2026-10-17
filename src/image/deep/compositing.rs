@@ -130,10 +130,11 @@ impl DeepChannels {
 ///
 /// The result covers the union of all layers, and contains all channels of all
 /// layers, using the sample type of the first layer containing each channel.
-/// Instead of being composited, the depth channels `Z` and `ZBack`, as well as
-/// all `u32` channels, contain the value of the nearest sample of each pixel.
-/// For layers without a `ZBack` channel, the `ZBack` value of a sample is its
-/// `Z` value. Pixels without samples contain zero in all channels.
+/// The depth channels use `f32` if the layers use different sample types for
+/// depth. Instead of being composited, the depth channels `Z` and `ZBack`, as
+/// well as all `u32` channels, contain the value of the nearest sample of each
+/// pixel. For layers without a `ZBack` channel, the `ZBack` value of a sample
+/// is its `Z` value. Pixels without samples contain zero in all channels.
 /// The attributes and encoding of the result are copied from the first layer.
 pub fn composite<'l>(
     layers: impl IntoIterator<Item = &'l Layer<DeepChannels>>,
@@ -235,6 +236,8 @@ pub fn flatten(layer: &Layer<DeepChannels>) -> Result<Layer<AnyChannels<FlatSamp
 ///
 /// The result covers the union of all layers, and contains all channels of all
 /// layers, using the sample type of the first layer containing each channel.
+/// The depth channels `Z` and `ZBack` use `f32` if the layers use different
+/// sample types for depth, so that the samples stay sorted by their depth.
 /// If a layer does not contain a channel, its samples have the value zero in
 /// that channel, except for `ZBack`, which then contains the `Z` value of the
 /// sample. The samples of each pixel are sorted by depth, from front to
@@ -458,6 +461,22 @@ impl<'l> Sources<'l> {
         }
 
         output_channels.sort_by(|a, b| a.name.cmp(&b.name));
+
+        // samples are sorted by their depth as `f32`, so the depth of all
+        // samples must be stored without rounding to keep them in order
+        let is_depth = |name: &Text| name.eq(DEPTH) || name.eq(BACK_DEPTH);
+        let depth_sample_types: SmallVec<[SampleType; 8]> = layers
+            .iter()
+            .flat_map(|layer| layer.channel_data.channels())
+            .filter(|channel| is_depth(&channel.name))
+            .map(|channel| sample_type(&channel.sample_data))
+            .collect();
+
+        if depth_sample_types.windows(2).any(|pair| pair[0] != pair[1]) {
+            for output in output_channels.iter_mut().filter(|output| is_depth(&output.name)) {
+                output.sample_type = SampleType::F32;
+            }
+        }
 
         let sources: Vec<Source<'l>> = layers
             .iter()
@@ -876,6 +895,50 @@ mod test {
 
         // flattening the merged layer is equivalent to compositing the original
         // layers
+        let flattened = flatten(&merged).unwrap();
+        assert_eq!(flattened.channel_data, composited.channel_data);
+    }
+
+    #[test]
+    fn merge_layers_with_different_depth_sample_types() {
+        let half_depth = Layer {
+            channel_data: DeepChannels::new(
+                (1, 1),
+                vec![1],
+                vec![
+                    AnyChannel::new("Z", FlatSamples::F16(vec![f16::from_f32(5.0)])),
+                    AnyChannel::new("ZBack", FlatSamples::F32(vec![5.0025])),
+                    AnyChannel::new("A", FlatSamples::F32(vec![0.5])),
+                    AnyChannel::new("R", FlatSamples::F32(vec![0.5])),
+                ],
+            )
+            .unwrap(),
+            attributes: LayerAttributes::default(),
+            size: Vec2(1, 1),
+            encoding: Encoding::UNCOMPRESSED,
+        };
+
+        // in `f16`, this depth would be rounded to the depth of the other
+        // sample
+        let full_depth = layer(
+            Vec2(0, 0),
+            (1, 1),
+            vec![1],
+            vec![5.001],
+            [vec![0.0], vec![0.5], vec![0.0], vec![0.5]],
+        );
+
+        let merged = merge(vec![&half_depth, &full_depth]).unwrap();
+        let depth = &merged.channel_data.channel_by_name("Z").unwrap().sample_data;
+        let back_depth = &merged.channel_data.channel_by_name("ZBack").unwrap().sample_data;
+
+        assert_eq!(depth, &FlatSamples::F32(vec![5.0, 5.001]));
+        assert_eq!(back_depth, &FlatSamples::F32(vec![5.0025, 5.001]));
+
+        let composited = composite(vec![&half_depth, &full_depth]).unwrap();
+        assert_eq!(values(&composited, "R"), vec![0.5]);
+        assert_eq!(values(&composited, "G"), vec![0.25]);
+
         let flattened = flatten(&merged).unwrap();
         assert_eq!(flattened.channel_data, composited.channel_data);
     }

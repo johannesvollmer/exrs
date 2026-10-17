@@ -153,11 +153,17 @@ impl<R: Read + Seek> Reader<R> {
             filtered_offsets.dedup();
         }
 
+        // deep chunks have no size limit, so reading the same bytes as
+        // multiple chunks could require any amount of memory
+        let reject_overlapping_chunks = self.meta_data.headers.iter().any(|header| header.deep);
+
         Ok(FilteredChunksReader {
             meta_data: self.meta_data,
             expected_filtered_chunk_count: filtered_offsets.len(),
             remaining_filtered_chunk_indices: filtered_offsets.into_iter(),
             remaining_bytes: self.remaining_reader,
+            reject_overlapping_chunks,
+            previous_chunk_end: 0,
         })
     }
 }
@@ -209,6 +215,8 @@ pub struct FilteredChunksReader<R> {
     expected_filtered_chunk_count: usize,
     remaining_filtered_chunk_indices: std::vec::IntoIter<u64>,
     remaining_bytes: PeekRead<Tracking<R>>,
+    reject_overlapping_chunks: bool,
+    previous_chunk_end: usize,
 }
 
 /// Decode all chunks in the file without seeking.
@@ -535,14 +543,22 @@ impl<R: Read + Seek> Iterator for FilteredChunksReader<R> {
     fn next(&mut self) -> Option<Self::Item> {
         // read as many chunks as we have desired chunk offsets
         self.remaining_filtered_chunk_indices.next().map(|next_chunk_location| {
-            self.remaining_bytes.skip_to(
-                // no-op for seek at current position, uses skip_bytes for small
-                // amounts
-                usize::try_from(next_chunk_location)?,
-            )?;
+            let chunk_start = usize::try_from(next_chunk_location)?;
+
+            // the offsets are sorted, so a chunk that starts before the end of
+            // the previous chunk overlaps it
+            if self.reject_overlapping_chunks && chunk_start < self.previous_chunk_end {
+                return Err(Error::invalid("overlapping chunks"));
+            }
+
+            // no-op for seek at current position, uses skip_bytes for small
+            // amounts
+            self.remaining_bytes.skip_to(chunk_start)?;
 
             let meta_data = &self.meta_data;
-            Chunk::read(&mut self.remaining_bytes, meta_data)
+            let chunk = Chunk::read(&mut self.remaining_bytes, meta_data)?;
+            self.previous_chunk_end = self.remaining_bytes.byte_position();
+            Ok(chunk)
         })
 
         // TODO remember last chunk index and then seek to index+size and check

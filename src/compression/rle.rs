@@ -28,6 +28,55 @@ pub(super) fn compress_raw_bytes(mut data_le: ByteVec) -> ByteVec {
     pack_rle_tokens(&data_le)
 }
 
+/// Encode the same bytes as the compressed bytes, using one or two bytes more,
+/// by splitting the first token that produces more than one byte.
+/// Returns `None` if every token produces a single byte.
+#[cfg(feature = "deep")]
+pub(super) fn lengthen_compressed_bytes(compressed_le: &[u8]) -> Option<ByteVec> {
+    let mut position = 0;
+
+    while position < compressed_le.len() {
+        let count = compressed_le[position] as i8 as i32;
+
+        if count < 0 {
+            let byte_count = -count as usize;
+            let end = position + 1 + byte_count;
+
+            if end > compressed_le.len() {
+                return None;
+            }
+
+            if byte_count > 1 {
+                // take the first `n - 1` bytes as-is, then the last byte
+                let mut lengthened_le = Vec::with_capacity(compressed_le.len() + 1);
+                lengthened_le.extend_from_slice(&compressed_le[..position]);
+                lengthened_le.push((1 - byte_count as i32) as u8);
+                lengthened_le.extend_from_slice(&compressed_le[position + 1..end - 1]);
+                lengthened_le.push(-1_i32 as u8);
+                lengthened_le.extend_from_slice(&compressed_le[end - 1..]);
+                return Some(lengthened_le);
+            }
+
+            position = end;
+        } else {
+            let value = *compressed_le.get(position + 1)?;
+
+            if count > 0 {
+                // repeat the value `count` times, then once more
+                let mut lengthened_le = Vec::with_capacity(compressed_le.len() + 2);
+                lengthened_le.extend_from_slice(&compressed_le[..position]);
+                lengthened_le.extend_from_slice(&[(count - 1) as u8, value, 0, value]);
+                lengthened_le.extend_from_slice(&compressed_le[position + 2..]);
+                return Some(lengthened_le);
+            }
+
+            position += 2;
+        }
+    }
+
+    None
+}
+
 /// Decompress bytes that are not organized in channels, such as deep data.
 /// Produces at most `max_byte_size` bytes.
 #[cfg(feature = "deep")]
