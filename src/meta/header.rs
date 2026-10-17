@@ -646,9 +646,11 @@ impl Header {
     /// attribute, this returns `usize::MAX` for deep data.
     pub fn max_block_byte_size(&self) -> usize {
         let max_block_pixel_count = match self.blocks {
-            BlockDescription::Tiles(tiles) => tiles.tile_size.area(),
+            BlockDescription::Tiles(tiles) => {
+                tiles.tile_size.width().saturating_mul(tiles.tile_size.height())
+            }
             BlockDescription::ScanLines => {
-                self.compression.scan_lines_per_block() * self.layer_size.width()
+                self.compression.scan_lines_per_block().saturating_mul(self.layer_size.width())
             }
         };
 
@@ -669,7 +671,7 @@ impl Header {
                 None => usize::MAX,
             }
         } else {
-            self.channels.bytes_per_pixel * max_block_pixel_count
+            self.channels.bytes_per_pixel.saturating_mul(max_block_pixel_count)
         }
     }
 

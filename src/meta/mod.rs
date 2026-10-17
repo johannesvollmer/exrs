@@ -428,8 +428,9 @@ impl MetaData {
         Self::validate(meta_data.headers.as_slice(), pedantic)?;
 
         // a single-layer file must declare deep data in the version flags.
-        // like the `OpenEXR` library, trust the type attribute of each header
-        // in multi-layer files, unless reading pedantically.
+        // like `OpenEXR` 3.3 and newer, trust the type attribute of each header
+        // in multi-layer files. `OpenEXR` 3.2 and older reject such files,
+        // so reading pedantically requires the flag.
         let headers_have_deep_data = meta_data.headers.iter().any(|header| header.deep);
         let flags_are_required = pedantic || !meta_data.requirements.is_multilayer();
         if flags_are_required && headers_have_deep_data && !meta_data.requirements.has_deep_data {

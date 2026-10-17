@@ -115,7 +115,9 @@ pub struct CompressedDeepScanLineBlock {
     /// in that pixel and all pixels to its left in the same row, so the count
     /// restarts in each row. The table is stored without compression if its
     /// byte size equals the uncompressed size. Uncompressed tables of partial
-    /// tiles are padded to the size of a full tile.
+    /// tiles may also be padded to the size of a full tile. Older versions of
+    /// the `OpenEXR` library only store tables of partial tiles without
+    /// compression if they are padded.
     pub compressed_pixel_offset_table: Vec<i8>,
 
     /// The possibly compressed sample data, in little-endian format.
@@ -144,7 +146,9 @@ pub struct CompressedDeepTileBlock {
     /// in that pixel and all pixels to its left in the same row, so the count
     /// restarts in each row. The table is stored without compression if its
     /// byte size equals the uncompressed size. Uncompressed tables of partial
-    /// tiles are padded to the size of a full tile.
+    /// tiles may also be padded to the size of a full tile. Older versions of
+    /// the `OpenEXR` library only store tables of partial tiles without
+    /// compression if they are padded.
     pub compressed_pixel_offset_table: Vec<i8>,
 
     /// The possibly compressed sample data, in little-endian format.
@@ -194,8 +198,9 @@ impl TileCoordinates {
         tile_size: Vec2<usize>,
         max: Vec2<usize>,
     ) -> Result<IntegerBounds> {
-        let x = self.tile_index.x() * tile_size.width();
-        let y = self.tile_index.y() * tile_size.height();
+        let x = self.tile_index.x().checked_mul(tile_size.width());
+        let y = self.tile_index.y().checked_mul(tile_size.height());
+        let (x, y) = x.zip(y).ok_or_else(|| Error::invalid("tile index"))?;
 
         if x >= max.x() || y >= max.y() {
             Err(Error::invalid("tile index"))

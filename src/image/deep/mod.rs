@@ -297,12 +297,14 @@ impl DeepChannels {
     /// Check that the sample counts match the resolution.
     /// Takes time proportional to the number of pixels.
     fn validate_sample_offsets(&self) -> UnitResult {
-        if self.sample_offsets.len() != self.pixel_count() + 1 {
+        let Vec2(width, height) = self.resolution;
+        let offset_count = width.checked_mul(height).and_then(|count| count.checked_add(1));
+
+        if offset_count != Some(self.sample_offsets.len()) {
             return Err(Error::invalid(format!(
-                "deep layer of resolution {}x{} requires {} sample counts, but has {}",
-                self.resolution.width(),
-                self.resolution.height(),
-                self.pixel_count(),
+                "deep layer of resolution {}x{} requires one sample count per pixel, but has {}",
+                width,
+                height,
                 self.sample_offsets.len().saturating_sub(1)
             )));
         }
@@ -316,10 +318,10 @@ impl DeepChannels {
         Ok(())
     }
 
-    /// Check that each channel contains one value for each sample, and that
-    /// channel names are unique. This is everything that can be changed after
-    /// construction, using `channels_mut`. Takes time proportional to the
-    /// number of channels.
+    /// Check that each channel contains one value for each sample, is not
+    /// subsampled, and that channel names are unique. The order of the
+    /// channels is checked when validating the header. Takes `O(c log c)` time
+    /// for `c` channels.
     pub(crate) fn validate_channels(&self) -> UnitResult {
         for channel in &self.list {
             if channel.sample_data.len() != self.total_sample_count() {
@@ -363,7 +365,22 @@ impl DeepChannels {
             .sort_by_key(|block| (block.index.pixel_position.y(), block.index.pixel_position.x()));
         blocks.dedup_by_key(|block| block.index.pixel_position);
 
-        let mut sample_counts = vec![0_usize; resolution.area()];
+        let pixel_count = resolution
+            .width()
+            .checked_mul(resolution.height())
+            .ok_or_else(|| Error::invalid("deep layer size"))?;
+
+        // the size is read from the file, so allocating could fail
+        let try_allocate = |capacity: usize| -> Result<Vec<usize>> {
+            let mut values = Vec::new();
+            values
+                .try_reserve_exact(capacity)
+                .map_err(|_| Error::unsupported("deep layer too large for memory"))?;
+            Ok(values)
+        };
+
+        let mut sample_counts = try_allocate(pixel_count)?;
+        sample_counts.resize(pixel_count, 0);
 
         for block in &blocks {
             block.validate(channels)?;
@@ -387,7 +404,7 @@ impl DeepChannels {
             }
         }
 
-        let mut sample_offsets = Vec::with_capacity(sample_counts.len() + 1);
+        let mut sample_offsets = try_allocate(pixel_count.saturating_add(1))?;
         sample_offsets.push(0);
 
         let mut total_sample_count = 0_usize;
