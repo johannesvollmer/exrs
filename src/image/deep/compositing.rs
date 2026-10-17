@@ -102,15 +102,16 @@ impl DeepChannels {
             .collect()
     }
 
-    /// The front and back depth of a sample.
+    /// The exact front and back depth of a sample.
     fn depth_of(
         &self,
         sample: usize,
         depth: Option<usize>,
         back_depth: Option<usize>,
-    ) -> (f32, f32) {
-        let value =
-            |channel: usize| self.list[channel].sample_data.value_by_flat_index(sample).to_f32();
+    ) -> (f64, f64) {
+        let value = |channel: usize| {
+            exact_value(self.list[channel].sample_data.value_by_flat_index(sample))
+        };
 
         let front = depth.map_or(0.0, value);
         (front, back_depth.map_or(front, value))
@@ -130,12 +131,13 @@ impl DeepChannels {
 ///
 /// The result covers the union of all layers, and contains all channels of all
 /// layers, using the sample type of the first layer containing each channel.
-/// The depth channels use `f32` if the layers use different sample types for
-/// depth. Instead of being composited, the depth channels `Z` and `ZBack`, as
-/// well as all `u32` channels, contain the value of the nearest sample of each
-/// pixel. For layers without a `ZBack` channel, the `ZBack` value of a sample
-/// is its `Z` value. Pixels without samples contain zero in all channels.
-/// The attributes and encoding of the result are copied from the first layer.
+/// The depth channels use `f32` if the depth channels of the layers do not all
+/// use the same sample type. Instead of being composited, the depth channels
+/// `Z` and `ZBack`, as well as all `u32` channels, contain the value of the
+/// nearest sample of each pixel. For layers without a `ZBack` channel, the
+/// `ZBack` value of a sample is its `Z` value. Pixels without samples contain
+/// zero in all channels. The attributes and encoding of the result are copied
+/// from the first layer.
 pub fn composite<'l>(
     layers: impl IntoIterator<Item = &'l Layer<DeepChannels>>,
 ) -> Result<Layer<AnyChannels<FlatSamples>>> {
@@ -236,8 +238,10 @@ pub fn flatten(layer: &Layer<DeepChannels>) -> Result<Layer<AnyChannels<FlatSamp
 ///
 /// The result covers the union of all layers, and contains all channels of all
 /// layers, using the sample type of the first layer containing each channel.
-/// The depth channels `Z` and `ZBack` use `f32` if the layers use different
-/// sample types for depth, so that the samples stay sorted by their depth.
+/// The depth channels `Z` and `ZBack` use `f32` if the depth channels of the
+/// layers do not all use the same sample type, to avoid rounding only some of
+/// the depth values. The samples are sorted by their depth as stored in the
+/// result.
 /// If a layer does not contain a channel, its samples have the value zero in
 /// that channel, except for `ZBack`, which then contains the `Z` value of the
 /// sample. The samples of each pixel are sorted by depth, from front to
@@ -420,7 +424,8 @@ struct Source<'l> {
 /// A sample that contributes to a pixel.
 #[derive(Debug, Clone, Copy)]
 struct GatheredSample {
-    depth: (f32, f32),
+    /// The depth and back depth, exactly as stored in the result.
+    depth: (f64, f64),
     source: usize,
     index: usize,
 }
@@ -432,6 +437,8 @@ struct Sources<'l> {
     output_channels: Vec<OutputChannel>,
     bounds: IntegerBounds,
     first_layer: &'l Layer<DeepChannels>,
+    depth_type: Option<SampleType>,
+    back_depth_type: Option<SampleType>,
 }
 
 impl<'l> Sources<'l> {
@@ -462,8 +469,8 @@ impl<'l> Sources<'l> {
 
         output_channels.sort_by(|a, b| a.name.cmp(&b.name));
 
-        // samples are sorted by their depth as `f32`, so the depth of all
-        // samples must be stored without rounding to keep them in order
+        // samples are sorted by their depth as stored in the result,
+        // so avoid rounding the depth of some samples but not others
         let is_depth = |name: &Text| name.eq(DEPTH) || name.eq(BACK_DEPTH);
         let depth_sample_types: SmallVec<[SampleType; 8]> = layers
             .iter()
@@ -501,8 +508,17 @@ impl<'l> Sources<'l> {
             })
             .collect();
 
+        let output_type = |name: &str| {
+            output_channels
+                .iter()
+                .find(|output| output.name.eq(name))
+                .map(|output| output.sample_type)
+        };
+
         Ok(Self {
             bounds: union_of_bounds(layers.iter().map(|layer| layer.absolute_bounds()))?,
+            depth_type: output_type(DEPTH),
+            back_depth_type: output_type(BACK_DEPTH),
             layers: sources,
             output_channels,
             first_layer,
@@ -517,14 +533,28 @@ impl<'l> Sources<'l> {
     /// contains that channel. If its layer has no back depth channel,
     /// the back depth of the sample is its front depth.
     fn value(&self, output_channel: usize, sample: &GatheredSample) -> Option<Sample> {
-        self.layers[sample.source].value(output_channel, sample.index).or_else(|| {
+        let source = &self.layers[sample.source];
+
+        source.value(output_channel, sample.index).or_else(|| {
             let is_back_depth = self.output_channels[output_channel].name.eq(BACK_DEPTH);
             if is_back_depth {
-                Some(Sample::F32(sample.depth.1))
+                Some(source.depth_samples(sample.index).1)
             } else {
                 None
             }
         })
+    }
+
+    /// The depth and back depth of a sample, exactly as they will be stored
+    /// in the result.
+    fn stored_depth_of(&self, source: &Source<'_>, sample: usize) -> (f64, f64) {
+        let (front, back) = source.depth_samples(sample);
+
+        let stored = |sample: Sample, sample_type: Option<SampleType>| {
+            exact_value(sample_type.map_or(sample, |sample_type| convert(sample, sample_type)))
+        };
+
+        (stored(front, self.depth_type), stored(back, self.back_depth_type.or(self.depth_type)))
     }
 
     /// Convert a position in the result to a position in the global 2D space.
@@ -544,7 +574,7 @@ impl<'l> Sources<'l> {
         for (source_index, source) in self.layers.iter().enumerate() {
             if let Some(range) = source.sample_range(global_position) {
                 gathered.extend(range.map(|index| GatheredSample {
-                    depth: source.channels.depth_of(index, source.depth, source.back_depth),
+                    depth: self.stored_depth_of(source, index),
                     source: source_index,
                     index,
                 }));
@@ -558,6 +588,18 @@ impl<'l> Sources<'l> {
 }
 
 impl Source<'_> {
+    /// The depth and back depth of a sample of this layer. The depth is zero
+    /// if this layer has no depth channel, and the back depth is the depth if
+    /// this layer has no back depth channel.
+    fn depth_samples(&self, sample: usize) -> (Sample, Sample) {
+        let value = |channel: usize| {
+            self.channels.channels()[channel].sample_data.value_by_flat_index(sample)
+        };
+
+        let front = self.depth.map_or(Sample::F32(0.0), value);
+        (front, self.back_depth.map_or(front, value))
+    }
+
     /// The samples of this layer at the specified position in the global 2D
     /// space, if this layer covers that position.
     fn sample_range(&self, global_position: Vec2<i64>) -> Option<Range<usize>> {
@@ -579,7 +621,7 @@ impl Source<'_> {
     }
 }
 
-fn compare_depths(a: (f32, f32), b: (f32, f32)) -> Ordering {
+fn compare_depths(a: (f64, f64), b: (f64, f64)) -> Ordering {
     a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1))
 }
 
@@ -622,6 +664,26 @@ fn zeroes(sample_type: SampleType, count: usize) -> FlatSamples {
         SampleType::F16 => FlatSamples::F16(vec![f16::ZERO; count]),
         SampleType::F32 => FlatSamples::F32(vec![0.0; count]),
         SampleType::U32 => FlatSamples::U32(vec![0; count]),
+    }
+}
+
+/// The exact value of a sample. `f64` can represent every value of every
+/// sample type.
+fn exact_value(sample: Sample) -> f64 {
+    match sample {
+        Sample::F16(value) => value.to_f64(),
+        Sample::F32(value) => f64::from(value),
+        Sample::U32(value) => f64::from(value),
+    }
+}
+
+/// Convert a sample to the specified type, as when storing it in a channel of
+/// that type.
+fn convert(sample: Sample, sample_type: SampleType) -> Sample {
+    match sample_type {
+        SampleType::F16 => Sample::F16(sample.to_f16()),
+        SampleType::F32 => Sample::F32(sample.to_f32()),
+        SampleType::U32 => Sample::U32(sample.to_u32()),
     }
 }
 
@@ -941,6 +1003,65 @@ mod test {
 
         let flattened = flatten(&merged).unwrap();
         assert_eq!(flattened.channel_data, composited.channel_data);
+    }
+
+    #[test]
+    fn sort_large_integer_depths_exactly() {
+        // these depths are equal when converted to `f32`
+        let near = 16_777_216_u32;
+        let far = near + 1;
+
+        let with_back_depth = Layer {
+            channel_data: DeepChannels::new(
+                (1, 1),
+                vec![1],
+                vec![
+                    AnyChannel::new("Z", FlatSamples::U32(vec![near])),
+                    AnyChannel::new("ZBack", FlatSamples::U32(vec![near])),
+                    AnyChannel::new("A", FlatSamples::F32(vec![0.5])),
+                ],
+            )
+            .unwrap(),
+            attributes: LayerAttributes::default(),
+            size: Vec2(1, 1),
+            encoding: Encoding::UNCOMPRESSED,
+        };
+
+        let without_back_depth = Layer {
+            channel_data: DeepChannels::new(
+                (1, 1),
+                vec![1],
+                vec![
+                    AnyChannel::new("Z", FlatSamples::U32(vec![far])),
+                    AnyChannel::new("A", FlatSamples::F32(vec![0.25])),
+                ],
+            )
+            .unwrap(),
+            ..with_back_depth.clone()
+        };
+
+        let merged = merge(vec![&without_back_depth, &with_back_depth]).unwrap();
+        let depth = &merged.channel_data.channel_by_name("Z").unwrap().sample_data;
+        let back_depth = &merged.channel_data.channel_by_name("ZBack").unwrap().sample_data;
+        assert_eq!(depth, &FlatSamples::U32(vec![near, far]));
+        assert_eq!(back_depth, &FlatSamples::U32(vec![near, far]));
+
+        let composited = composite(vec![&without_back_depth, &with_back_depth]).unwrap();
+        let nearest_depth =
+            composited.channel_data.list.iter().find(|channel| channel.name.eq("Z"));
+        assert_eq!(nearest_depth.unwrap().sample_data, FlatSamples::U32(vec![near]));
+        assert_eq!(flatten(&merged).unwrap().channel_data, composited.channel_data);
+
+        let mut unsorted = DeepChannels::new(
+            (1, 1),
+            vec![2],
+            vec![AnyChannel::new("Z", FlatSamples::U32(vec![far, near]))],
+        )
+        .unwrap();
+
+        unsorted.sort_samples_by_depth().unwrap();
+        let depth = &unsorted.channel_by_name("Z").unwrap().sample_data;
+        assert_eq!(depth, &FlatSamples::U32(vec![near, far]));
     }
 
     #[test]

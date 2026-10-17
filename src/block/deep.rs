@@ -467,14 +467,14 @@ fn compress_unless_larger(compression: Compression, bytes_le: ByteVec) -> Result
 /// the uncompressed table of this block. `OpenEXR` 3.2 and older compare it to
 /// the uncompressed table of a full tile, which is larger for the partial
 /// tiles at the right and bottom edge of an image. Like the `OpenEXR` writer,
-/// we store uncompressed tables of partial tiles padded to the full tile size.
-/// For partial tiles of compressed layers, we store a compressed table whose
-/// size differs from both sizes. Some tiny partial tiles, of tiles that are
-/// only one or two pixels wide or high, have no such compressed table.
-/// For those, we store the table without compression or padding, like newer
-/// versions of the `OpenEXR` writer do, which `OpenEXR` 3.2 and older cannot
-/// read. We also do not pad tables of huge tiles, which those versions fail to
-/// read.
+/// we store uncompressed tables of partial tiles padded to the full tile size,
+/// unless the tiles are huge. For partial tiles of compressed layers, we store
+/// a compressed table whose size differs from both sizes. If we find no such
+/// compressed table, we store the table without compression or padding, like
+/// newer versions of the `OpenEXR` writer do, which `OpenEXR` 3.2 and older
+/// cannot read. This can happen for partial tiles of tiles that are only one
+/// or two pixels wide or high, and for partial tiles that are only one or two
+/// pixels smaller than a large tile.
 fn compress_offset_table(header: &Header, table_le: ByteVec) -> Result<ByteVec> {
     if !header.blocks.has_tiles() {
         return compress_unless_larger(header.compression, table_le);
@@ -488,19 +488,19 @@ fn compress_offset_table(header: &Header, table_le: ByteVec) -> Result<ByteVec> 
     }
 
     if header.compression == Compression::Uncompressed {
-        // `OpenEXR` 3.2 and older fail to read tiles whose table is larger
-        // than this, so padding would only waste memory
-        let max_padded_table_byte_size = i32::MAX as usize;
-        if full_table_byte_size > max_padded_table_byte_size {
-            return Ok(table_le);
-        }
+        // the tile size is not limited, so do not pad tables of tiles much
+        // larger than any practical tile, which would waste memory and space
+        const MAX_PADDED_TABLE_BYTE_SIZE: usize = 16 * 1024 * 1024;
 
         let mut padded_table_le = table_le;
-        padded_table_le
-            .try_reserve_exact(full_table_byte_size - padded_table_le.len())
-            .map_err(|_| Error::unsupported("deep tile size too large"))?;
+        let padding_byte_size = full_table_byte_size - padded_table_le.len();
 
-        padded_table_le.resize(full_table_byte_size, 0);
+        if full_table_byte_size <= MAX_PADDED_TABLE_BYTE_SIZE
+            && padded_table_le.try_reserve_exact(padding_byte_size).is_ok()
+        {
+            padded_table_le.resize(full_table_byte_size, 0);
+        }
+
         return Ok(padded_table_le);
     }
 
@@ -989,7 +989,7 @@ mod test {
 
     #[test]
     fn do_not_pad_offset_tables_of_huge_tiles() {
-        for tile_size in [1 << 15, 1 << 29] {
+        for tile_size in [1 << 12, 1 << 15, 1 << 29] {
             let header =
                 test_header_of_size(Compression::Uncompressed, tiles(tile_size), Vec2(1, 1));
 

@@ -15,7 +15,7 @@ use std::{
 use exr::{
     image::deep::{compositing, DeepChannels},
     meta::attribute::DeepImageState,
-    prelude::*,
+    prelude::{pixel_vec::PixelVec, *},
 };
 
 const LOW_RES: &str = "tests/images/valid/openexr/v2/LowResLeftView";
@@ -581,6 +581,81 @@ fn overlapping_chunks_are_rejected() {
             result.map(|image| image.layer_data.channel_data.total_sample_count())
         );
     }
+}
+
+#[test]
+fn read_chunks_after_skipping_tiny_chunks() {
+    // the single chunk of a flat layer with one pixel has only 14 bytes,
+    // and is skipped without seeking when reading the other layers
+    let tiny = Layer::new(
+        Vec2(1, 1),
+        LayerAttributes::named("tiny"),
+        Encoding::UNCOMPRESSED,
+        AnyChannels::sort(smallvec::smallvec![AnyChannel::new(
+            "Y",
+            FlatSamples::F16(vec![f16::ONE])
+        )]),
+    );
+
+    let first = synthetic_layer("first", Vec2(3, 4), 5, Encoding::UNCOMPRESSED);
+    let second = synthetic_layer("second", Vec2(3, 4), 6, Encoding::UNCOMPRESSED);
+
+    let image = Image::empty(ImageAttributes::with_size(Vec2(3, 4)))
+        .with_layer(first.clone())
+        .with_layer(tiny.clone())
+        .with_layer(second.clone());
+
+    let mut bytes = Vec::new();
+    image.write().non_parallel().to_buffered(Cursor::new(&mut bytes)).unwrap();
+
+    for pedantic in [false, true] {
+        let reader = read().deep_data().all_valid_layers();
+        let reader = if pedantic {
+            reader.pedantic()
+        } else {
+            reader
+        };
+
+        let decoded = reader.from_buffered(Cursor::new(&bytes)).unwrap();
+        assert_eq!(decoded.layer_data.len(), 2);
+        assert_eq!(decoded.layer_data[0].channel_data, first.channel_data);
+        assert_eq!(decoded.layer_data[1].channel_data, second.channel_data);
+    }
+
+    // reading flat layers of an image with deep layers
+    let flat = Layer::new(
+        Vec2(2, 3),
+        LayerAttributes::named("flat"),
+        Encoding::UNCOMPRESSED,
+        AnyChannels::sort(smallvec::smallvec![AnyChannel::new(
+            "R",
+            FlatSamples::F16((0..6).map(|value| f16::from_f32(value as f32)).collect())
+        )]),
+    );
+
+    let image = Image::empty(ImageAttributes::with_size(Vec2(3, 4)))
+        .with_layer(tiny)
+        .with_layer(flat)
+        .with_layer(first);
+
+    let mut bytes = Vec::new();
+    image.write().non_parallel().to_buffered(Cursor::new(&mut bytes)).unwrap();
+
+    let decoded = read()
+        .no_deep_data()
+        .largest_resolution_level()
+        .specific_channels()
+        .required("R")
+        .collect_pixels(PixelVec::<(f16,)>::constructor, PixelVec::set_pixel)
+        .first_valid_layer()
+        .all_attributes()
+        .from_buffered(Cursor::new(&bytes))
+        .unwrap();
+
+    let values: Vec<f32> =
+        decoded.layer_data.channel_data.pixels.pixels.iter().map(|(red,)| red.to_f32()).collect();
+
+    assert_eq!(values, vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
 }
 
 #[test]
