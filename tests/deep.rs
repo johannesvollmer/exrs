@@ -482,8 +482,8 @@ fn version_flags_of_deep_files() {
         bytes
     };
 
-    // like the `OpenEXR` library, the type attribute of multi-layer files is
-    // trusted
+    // like `OpenEXR` 3.3 and newer, the type attribute of multi-layer files is
+    // trusted, but not when reading pedantically, as older versions reject it
     let multi_layer = without_deep_flag("tests/images/valid/openexr/v2/Stereo/Balls.exr");
     let relaxed = read().deep_data().all_layers().from_buffered(Cursor::new(&multi_layer));
     assert_eq!(relaxed.unwrap().layer_data.len(), 2);
@@ -535,6 +535,52 @@ fn duplicate_chunk_offsets_are_read_once() {
     let pedantic =
         read().deep_data().first_valid_layer().pedantic().from_buffered(Cursor::new(&bytes));
     assert!(pedantic.is_err());
+}
+
+#[test]
+fn overlapping_chunks_are_rejected() {
+    let encoding = Encoding {
+        compression: Compression::Uncompressed,
+        blocks: Blocks::ScanLines,
+        line_order: LineOrder::Increasing,
+    };
+
+    let layer = synthetic_layer("deep", Vec2(7, 16), 9, encoding);
+    let image = Image::from_layer(layer);
+
+    let mut bytes = Vec::new();
+    image.write().to_buffered(Cursor::new(&mut bytes)).unwrap();
+
+    let chunk_count = 16;
+    let read_u64 = |bytes: &[u8], position: usize| {
+        u64::from_le_bytes(bytes[position..position + 8].try_into().unwrap()) as usize
+    };
+
+    let table_start = (8..bytes.len() - 8)
+        .find(|&position| read_u64(&bytes, position) == position + chunk_count * 8)
+        .expect("offset table not found");
+
+    // point the second offset into the first chunk, such that both chunks
+    // would contain the same bytes
+    let first_chunk = read_u64(&bytes, table_start);
+    let second_offset = table_start + 8;
+    bytes[second_offset..second_offset + 8]
+        .copy_from_slice(&(first_chunk as u64 + 8).to_le_bytes());
+
+    for pedantic in [false, true] {
+        let reader = read().deep_data().first_valid_layer();
+        let result: Result<DeepImage> = if pedantic {
+            reader.pedantic().from_buffered(Cursor::new(&bytes))
+        } else {
+            reader.from_buffered(Cursor::new(&bytes))
+        };
+
+        assert!(
+            matches!(&result, Err(Error::Invalid(message)) if message.contains("overlapping")),
+            "{:?}",
+            result.map(|image| image.layer_data.channel_data.total_sample_count())
+        );
+    }
 }
 
 #[test]

@@ -54,6 +54,24 @@ pub(super) fn compress_raw_bytes(mut data_le: ByteVec) -> ByteVec {
     miniz_oxide::deflate::compress_to_vec_zlib(data_le.as_slice(), 4)
 }
 
+/// Encode the same bytes as the zlib stream, using five bytes more,
+/// by inserting an empty uncompressed deflate block after the zlib header.
+/// Returns `None` if the bytes are not a zlib stream.
+#[cfg(feature = "deep")]
+pub(super) fn lengthen_compressed_bytes(compressed_le: &[u8]) -> Option<ByteVec> {
+    if compressed_le.len() < 2 {
+        return None;
+    }
+
+    let (zlib_header, deflate_blocks) = compressed_le.split_at(2);
+
+    // a block that is not the last block, of type "stored", padded to a whole
+    // byte, followed by its length of zero and the complement of its length
+    let empty_block = [0x00, 0x00, 0x00, 0xff, 0xff];
+
+    Some([zlib_header, &empty_block, deflate_blocks].concat())
+}
+
 /// Decompress bytes that are not organized in channels, such as deep data.
 /// Produces at most `max_byte_size` bytes.
 #[cfg(feature = "deep")]

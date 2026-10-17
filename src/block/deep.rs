@@ -114,34 +114,73 @@ impl UncompressedDeepBlock {
         let compressed_offset_table: ByteVec =
             compressed_offset_table.into_iter().map(|byte| byte.to_ne_bytes()[0]).collect();
 
-        // the `OpenEXR` library writes uncompressed offset tables of partial
-        // tiles using the full tile size, so we allow larger tables and
-        // only use the first entries, even when reading pedantically
-        let offset_table_le = if compression == Compression::Uncompressed
-            || compressed_offset_table.len() == table_byte_size
-        {
-            compressed_offset_table
-        } else {
-            let max_table_byte_size = table_byte_size.max(full_block_table_byte_size(header));
+        let full_table_byte_size = full_block_table_byte_size(header).unwrap_or(usize::MAX);
+        let is_partial_tile = header.blocks.has_tiles() && table_byte_size < full_table_byte_size;
 
-            compression.decompress_deep_bytes_le(
-                &compressed_offset_table,
-                max_table_byte_size,
-                pedantic,
-            )?
+        // The `OpenEXR` library writes uncompressed offset tables of partial
+        // tiles padded to the full tile size, so we allow larger tables and
+        // only use the first entries, even when reading pedantically.
+        // Older versions also store tables of partial tiles in compressed
+        // layers this way, when compression does not make them smaller than
+        // the table of a full tile.
+        let is_uncompressed_table = compression == Compression::Uncompressed
+            || compressed_offset_table.len() == table_byte_size
+            || (is_partial_tile && compressed_offset_table.len() == full_table_byte_size);
+
+        let read_offset_table = |is_uncompressed_table: bool| -> Result<Vec<u32>> {
+            let decompressed_table_le;
+            let offset_table_le = if is_uncompressed_table {
+                &compressed_offset_table
+            } else {
+                decompressed_table_le = compression.decompress_deep_bytes_le(
+                    &compressed_offset_table,
+                    table_byte_size.max(full_table_byte_size),
+                    pedantic,
+                )?;
+
+                &decompressed_table_le
+            };
+
+            let offset_table_le = offset_table_le
+                .get(..table_byte_size)
+                .ok_or_else(|| Error::invalid("deep pixel offset table size"))?;
+
+            offset_table_from_rows_le(offset_table_le, block_size.width())
         };
 
-        if offset_table_le.len() < table_byte_size {
-            return Err(Error::invalid("deep pixel offset table size"));
+        let sample_byte_size_of = |pixel_offset_table: &[u32]| -> Result<usize> {
+            let total_sample_count = pixel_offset_table.last().map_or(0, |&total| total as usize);
+            total_sample_count
+                .checked_mul(header.channels.bytes_per_pixel)
+                .ok_or_else(|| Error::invalid("deep sample count"))
+        };
+
+        let mut pixel_offset_table = read_offset_table(is_uncompressed_table);
+
+        // Older versions of the `OpenEXR` library store a compressed table for
+        // a partial tile, even if it has exactly the size of the uncompressed
+        // table, as they compare the size to the table of a full tile.
+        // We only recognize such a table by trying to decompress it,
+        // when it is not a valid uncompressed table.
+        let is_ambiguous = is_partial_tile
+            && compression != Compression::Uncompressed
+            && compressed_offset_table.len() == table_byte_size;
+
+        let matches_sample_data = |table: &Result<Vec<u32>>| match table {
+            Ok(table) => sample_byte_size_of(table).ok() == Some(unpacked_sample_data_size),
+            Err(_) => false,
+        };
+
+        if is_ambiguous && !matches_sample_data(&pixel_offset_table) {
+            let decompressed_table = read_offset_table(false);
+
+            if matches_sample_data(&decompressed_table) {
+                pixel_offset_table = decompressed_table;
+            }
         }
 
-        let pixel_offset_table =
-            offset_table_from_rows_le(&offset_table_le[..table_byte_size], block_size.width())?;
-
-        let total_sample_count = pixel_offset_table.last().map_or(0, |&total| total as usize);
-        let sample_byte_size = total_sample_count
-            .checked_mul(header.channels.bytes_per_pixel)
-            .ok_or_else(|| Error::invalid("deep sample count"))?;
+        let pixel_offset_table = pixel_offset_table?;
+        let sample_byte_size = sample_byte_size_of(&pixel_offset_table)?;
 
         if unpacked_sample_data_size < sample_byte_size
             || (pedantic && unpacked_sample_data_size != sample_byte_size)
@@ -399,9 +438,10 @@ impl UncompressedDeepBlock {
 
 /// The byte size of the uncompressed pixel offset table of a block
 /// that is not cut off by the edge of the image.
-fn full_block_table_byte_size(header: &Header) -> usize {
+/// Returns `None` if the size does not fit into `usize`.
+fn full_block_table_byte_size(header: &Header) -> Option<usize> {
     let Vec2(width, height) = header.max_block_pixel_size();
-    width.saturating_mul(height).saturating_mul(std::mem::size_of::<i32>())
+    width.checked_mul(height)?.checked_mul(std::mem::size_of::<i32>())
 }
 
 /// Compress the bytes, unless that would not reduce their size,
@@ -420,37 +460,64 @@ fn compress_unless_larger(compression: Compression, bytes_le: ByteVec) -> Result
 }
 
 /// Compress the pixel offset table of a block,
-/// such that all versions of the `OpenEXR` library can read it.
+/// such that all versions of the `OpenEXR` library can read it where possible.
 ///
 /// Readers decide whether a table is stored without compression by comparing
 /// its size to the uncompressed size. `OpenEXR` 3.3 and newer compare it to
 /// the uncompressed table of this block. `OpenEXR` 3.2 and older compare it to
 /// the uncompressed table of a full tile, which is larger for the partial
 /// tiles at the right and bottom edge of an image. Like the `OpenEXR` writer,
-/// we store uncompressed tables of partial tiles padded to the full tile size,
-/// and prefer a compressed table for partial tiles of compressed layers.
+/// we store uncompressed tables of partial tiles padded to the full tile size.
+/// For partial tiles of compressed layers, we store a compressed table whose
+/// size differs from both sizes. Some tiny partial tiles, of tiles that are
+/// only one or two pixels wide or high, have no such compressed table.
+/// For those, we store the table without compression or padding, like newer
+/// versions of the `OpenEXR` writer do, which `OpenEXR` 3.2 and older cannot
+/// read. We also do not pad tables of huge tiles, which those versions fail to
+/// read.
 fn compress_offset_table(header: &Header, table_le: ByteVec) -> Result<ByteVec> {
-    let full_table_byte_size = full_block_table_byte_size(header);
-    let is_partial_tile = header.blocks.has_tiles() && table_le.len() < full_table_byte_size;
+    if !header.blocks.has_tiles() {
+        return compress_unless_larger(header.compression, table_le);
+    }
 
+    let full_table_byte_size = full_block_table_byte_size(header).unwrap_or(usize::MAX);
+
+    let is_partial_tile = table_le.len() < full_table_byte_size;
     if !is_partial_tile {
         return compress_unless_larger(header.compression, table_le);
     }
 
     if header.compression == Compression::Uncompressed {
+        // `OpenEXR` 3.2 and older fail to read tiles whose table is larger
+        // than this, so padding would only waste memory
+        let max_padded_table_byte_size = i32::MAX as usize;
+        if full_table_byte_size > max_padded_table_byte_size {
+            return Ok(table_le);
+        }
+
         let mut padded_table_le = table_le;
+        padded_table_le
+            .try_reserve_exact(full_table_byte_size - padded_table_le.len())
+            .map_err(|_| Error::unsupported("deep tile size too large"))?;
+
         padded_table_le.resize(full_table_byte_size, 0);
         return Ok(padded_table_le);
     }
 
     // any compressed size other than the size of the uncompressed table
-    // is recognized as compressed by all readers
+    // of this block or of a full tile is recognized as compressed by all
+    // readers
+    let is_unambiguous = |compressed_le: &ByteVec| {
+        compressed_le.len() != table_le.len() && compressed_le.len() < full_table_byte_size
+    };
+
     let compressed_le = header.compression.compress_deep_bytes_le(&table_le)?;
-    Ok(if compressed_le.len() != table_le.len() && compressed_le.len() < full_table_byte_size {
-        compressed_le
-    } else {
-        table_le
-    })
+    if is_unambiguous(&compressed_le) {
+        return Ok(compressed_le);
+    }
+
+    let lengthened_le = header.compression.lengthen_compressed_deep_bytes_le(&compressed_le);
+    Ok(lengthened_le.filter(is_unambiguous).unwrap_or(table_le))
 }
 
 /// The indices of the samples in the specified row of pixels,
@@ -530,13 +597,21 @@ mod test {
     };
 
     fn test_header(compression: Compression, blocks: BlockDescription) -> Header {
+        test_header_of_size(compression, blocks, Vec2(5, 3))
+    }
+
+    fn test_header_of_size(
+        compression: Compression,
+        blocks: BlockDescription,
+        layer_size: Vec2<usize>,
+    ) -> Header {
         let channels = smallvec![
             ChannelDescription::new("A", SampleType::F16, true),
             ChannelDescription::new("Z", SampleType::F32, false),
             ChannelDescription::new("id", SampleType::U32, false),
         ];
 
-        let mut header = Header::new("deep".into(), Vec2(5, 3), channels).with_encoding(
+        let mut header = Header::new("deep".into(), layer_size, channels).with_encoding(
             compression,
             blocks,
             LineOrder::Increasing,
@@ -833,48 +908,215 @@ mod test {
         assert!(block.compress_to_chunk(&meta.headers).is_err());
     }
 
-    #[test]
-    fn offset_tables_of_partial_tiles_are_readable_by_all_openexr_versions() {
-        // 2x2 tiles in a 5x3 image: the tiles at the right and bottom edge are
-        // partial
-        let tiles = BlockDescription::Tiles(TileDescription {
-            tile_size: Vec2(2, 2),
+    fn tiles(size: usize) -> BlockDescription {
+        BlockDescription::Tiles(TileDescription {
+            tile_size: Vec2(size, size),
             level_mode: LevelMode::Singular,
             rounding_mode: crate::math::RoundingMode::Down,
-        });
+        })
+    }
 
-        for compression in [Compression::Uncompressed, Compression::RLE, Compression::ZIP1] {
-            let header = test_header(compression, tiles);
+    fn table_byte_size(chunk: &Chunk) -> usize {
+        match &chunk.compressed_block {
+            CompressedBlock::DeepTile(tile) => tile.compressed_pixel_offset_table.len(),
+            _ => panic!("expected a deep tile"),
+        }
+    }
+
+    fn set_table(chunk: &mut Chunk, table: &[u8]) {
+        match &mut chunk.compressed_block {
+            CompressedBlock::DeepTile(tile) => {
+                tile.compressed_pixel_offset_table =
+                    table.iter().map(|&byte| i8::from_ne_bytes([byte])).collect();
+            }
+            _ => panic!("expected a deep tile"),
+        }
+    }
+
+    #[test]
+    fn offset_tables_of_partial_tiles_are_readable_by_all_openexr_versions() {
+        // the empty partial tiles are the cases where the compressed table is
+        // exactly as large as the uncompressed table
+        let sample_count_patterns: [&[u32]; 5] =
+            [&[1], &[0], &[0, 0, 1, 0], &[2, 2, 2, 2, 2, 0], &[3, 0, 255, 1, 70000, 9, 0]];
+
+        // the tiles at the right and bottom edge are partial
+        let images = [
+            (Vec2(5, 3), 2, vec![Compression::Uncompressed, Compression::RLE]),
+            (Vec2(5, 4), 3, vec![Compression::Uncompressed, Compression::RLE, Compression::ZIP1]),
+        ];
+
+        for (layer_size, tile_size, compression_methods) in images {
+            for compression in compression_methods {
+                let header = test_header_of_size(compression, tiles(tile_size), layer_size);
+                let meta = meta_data(header.clone());
+
+                for counts in sample_count_patterns {
+                    for (_, index) in
+                        crate::block::enumerate_ordered_header_block_indices(&meta.headers)
+                    {
+                        let counts: Vec<u32> = (0..index.pixel_size.area())
+                            .map(|pixel| counts[pixel % counts.len()])
+                            .collect();
+
+                        let block = test_block(&header, index, &counts);
+                        let chunk = block.clone().compress_to_chunk(&meta.headers).unwrap();
+
+                        let table_size = table_byte_size(&chunk);
+                        let exact_size = index.pixel_size.area() * 4;
+                        let full_tile_size = tile_size * tile_size * 4;
+
+                        if compression == Compression::Uncompressed {
+                            // like the `OpenEXR` library, pad uncompressed
+                            // tables to the full tile size
+                            assert_eq!(table_size, full_tile_size, "{index:?}");
+                        } else if exact_size < full_tile_size {
+                            // never store a partial table uncompressed,
+                            // as older readers would misinterpret it as
+                            // compressed
+                            assert_ne!(table_size, exact_size, "{compression:?} {index:?}");
+                            assert!(table_size < full_tile_size, "{:?} {:?}", compression, index);
+                        }
+
+                        let decompressed =
+                            UncompressedDeepBlock::decompress_chunk(chunk, &meta, true).unwrap();
+                        assert_eq!(decompressed, block);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn do_not_pad_offset_tables_of_huge_tiles() {
+        for tile_size in [1 << 15, 1 << 29] {
+            let header =
+                test_header_of_size(Compression::Uncompressed, tiles(tile_size), Vec2(1, 1));
+
+            let meta = meta_data(header.clone());
+            let index = BlockIndex {
+                layer: 0,
+                pixel_position: Vec2(0, 0),
+                pixel_size: Vec2(1, 1),
+                level: Vec2(0, 0),
+            };
+
+            let block = test_block(&header, index, &[2]);
+            let chunk = block.clone().compress_to_chunk(&meta.headers).unwrap();
+            assert_eq!(table_byte_size(&chunk), 4);
+
+            let decompressed = UncompressedDeepBlock::decompress_chunk(chunk, &meta, true).unwrap();
+            assert_eq!(decompressed, block);
+        }
+    }
+
+    #[test]
+    fn read_offset_tables_of_partial_tiles_written_by_older_openexr_versions() {
+        for compression in [Compression::RLE, Compression::ZIP1] {
+            let header = test_header(compression, tiles(2));
             let meta = meta_data(header.clone());
 
             for (_, index) in crate::block::enumerate_ordered_header_block_indices(&meta.headers) {
-                let block = test_block(&header, index, &vec![1; index.pixel_size.area()]);
-                let chunk = block.clone().compress_to_chunk(&meta.headers).unwrap();
+                for counts in [vec![0; index.pixel_size.area()], vec![2; index.pixel_size.area()]] {
+                    let block = test_block(&header, index, &counts);
+                    let chunk = block.clone().compress_to_chunk(&meta.headers).unwrap();
+                    let table_le = offset_table_to_rows_le(
+                        &block.pixel_offset_table,
+                        index.pixel_size.width(),
+                    )
+                    .unwrap();
 
-                let table_size = match &chunk.compressed_block {
-                    CompressedBlock::DeepTile(tile) => tile.compressed_pixel_offset_table.len(),
-                    _ => panic!("expected a deep tile"),
-                };
+                    // older versions store the table without compression
+                    // only if compression does not make it smaller than the
+                    // table of a full tile, and then pad it to that size
+                    let mut padded_table_le = table_le.clone();
+                    padded_table_le.resize(2 * 2 * 4, 0);
 
-                let exact_size = index.pixel_size.area() * 4;
-                let full_tile_size = 2 * 2 * 4;
+                    let mut padded_chunk = chunk.clone();
+                    set_table(&mut padded_chunk, &padded_table_le);
 
-                if compression == Compression::Uncompressed {
-                    // like the `OpenEXR` library, pad uncompressed tables to
-                    // the full tile size
-                    assert_eq!(table_size, full_tile_size, "{index:?}");
-                } else if exact_size < full_tile_size {
-                    // never store a partial table uncompressed, as older
-                    // readers would misinterpret it as
-                    // compressed
-                    assert_ne!(table_size, exact_size, "{compression:?} {index:?}");
-                    assert!(table_size < full_tile_size, "{:?} {:?}", compression, index);
+                    let decompressed =
+                        UncompressedDeepBlock::decompress_chunk(padded_chunk, &meta, true).unwrap();
+                    assert_eq!(decompressed, block, "{compression:?} {index:?}");
+
+                    // older versions store a compressed table even if it is
+                    // exactly as large as the uncompressed table
+                    let compressed_table_le =
+                        compression.compress_deep_bytes_le(&table_le).unwrap();
+                    let mut compressed_chunk = chunk;
+                    set_table(&mut compressed_chunk, &compressed_table_le);
+
+                    let decompressed =
+                        UncompressedDeepBlock::decompress_chunk(compressed_chunk, &meta, true)
+                            .unwrap();
+                    assert_eq!(decompressed, block, "{compression:?} {index:?}");
                 }
-
-                let decompressed =
-                    UncompressedDeepBlock::decompress_chunk(chunk, &meta, true).unwrap();
-                assert_eq!(decompressed, block);
             }
         }
+
+        // the table of an empty 1x1 tile, compressed using RLE,
+        // has exactly the size of the uncompressed table
+        let table_le = [0; 4];
+        assert_eq!(Compression::RLE.compress_deep_bytes_le(&table_le).unwrap().len(), 4);
+    }
+
+    #[test]
+    fn lengthened_compressed_bytes_decompress_to_the_same_bytes() {
+        let byte_patterns: [Vec<u8>; 6] = [
+            vec![0; 4],
+            vec![1, 2, 3, 4, 5, 6, 7, 8],
+            vec![7; 300],
+            (0..=255).collect(),
+            (0..1000).map(|index: u32| (index * index % 7) as u8).collect(),
+            vec![0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0],
+        ];
+
+        for compression in [Compression::RLE, Compression::ZIP1] {
+            for bytes in &byte_patterns {
+                let compressed = compression.compress_deep_bytes_le(bytes).unwrap();
+                let lengthened =
+                    compression.lengthen_compressed_deep_bytes_le(&compressed).unwrap();
+
+                assert!(lengthened.len() > compressed.len(), "{:?} {:?}", compression, bytes);
+                assert!(lengthened.len() <= compressed.len() + 5, "{:?} {:?}", compression, bytes);
+
+                let decompressed =
+                    compression.decompress_deep_bytes_le(&lengthened, bytes.len(), true).unwrap();
+                assert_eq!(&decompressed, bytes, "{compression:?}");
+            }
+        }
+
+        // every token of this stream produces a single byte
+        let single_bytes = [-1_i8 as u8, 3, 0, 4];
+        assert_eq!(Compression::RLE.lengthen_compressed_deep_bytes_le(&single_bytes), None);
+    }
+
+    #[test]
+    fn reject_flat_blocks_in_deep_layers() {
+        let header = test_header(Compression::ZIP1, BlockDescription::ScanLines);
+        let meta = meta_data(header);
+        let index = BlockIndex {
+            layer: 0,
+            pixel_position: Vec2(0, 0),
+            pixel_size: Vec2(5, 1),
+            level: Vec2(0, 0),
+        };
+
+        let block = crate::block::UncompressedBlock {
+            index,
+            data: vec![0; 5 * 10],
+        };
+
+        assert!(block.compress_to_chunk(&meta.headers).is_err());
+    }
+
+    #[test]
+    fn reject_tile_indices_that_overflow() {
+        let tile = TileCoordinates {
+            tile_index: Vec2(usize::MAX / 2, 0),
+            level_index: Vec2(0, 0),
+        };
+
+        assert!(tile.to_data_indices(Vec2(4, 4), Vec2(8, 8)).is_err());
     }
 }

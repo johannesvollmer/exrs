@@ -417,6 +417,19 @@ impl Compression {
         }
     }
 
+    /// Encode the same bytes as the result of `compress_deep_bytes_le`,
+    /// using a few more bytes. Returns `None` if that is not possible.
+    #[cfg(feature = "deep")]
+    pub(crate) fn lengthen_compressed_deep_bytes_le(self, compressed_le: &[u8]) -> Option<ByteVec> {
+        use self::Compression::*;
+
+        match self {
+            RLE => rle::lengthen_compressed_bytes(compressed_le),
+            ZIP1 | ZIP16 => zip::lengthen_compressed_bytes(compressed_le),
+            _ => None,
+        }
+    }
+
     /// Decompress bytes that are not organized in channels and lines,
     /// such as deep pixel offset tables or deep sample data.
     /// The caller must decide whether the bytes are stored without compression,
