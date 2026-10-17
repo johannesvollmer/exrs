@@ -460,21 +460,23 @@ fn compress_unless_larger(compression: Compression, bytes_le: ByteVec) -> Result
 }
 
 /// Compress the pixel offset table of a block,
-/// such that all versions of the `OpenEXR` library can read it where possible.
+/// such that all versions of the `OpenEXR` library can read it in most cases.
 ///
 /// Readers decide whether a table is stored without compression by comparing
 /// its size to the uncompressed size. `OpenEXR` 3.3 and newer compare it to
 /// the uncompressed table of this block. `OpenEXR` 3.2 and older compare it to
 /// the uncompressed table of a full tile, which is larger for the partial
-/// tiles at the right and bottom edge of an image. Like the `OpenEXR` writer,
-/// we store uncompressed tables of partial tiles padded to the full tile size,
-/// unless the tiles are huge. For partial tiles of compressed layers, we store
-/// a compressed table whose size differs from both sizes. If we find no such
-/// compressed table, we store the table without compression or padding, like
-/// newer versions of the `OpenEXR` writer do, which `OpenEXR` 3.2 and older
-/// cannot read. This can happen for partial tiles of tiles that are only one
-/// or two pixels wide or high, and for partial tiles that are only one or two
-/// pixels smaller than a large tile.
+/// tiles at the right and bottom edge of an image.
+///
+/// Like the `OpenEXR` writer, we store uncompressed tables of partial tiles
+/// padded to the full tile size, unless the table of a full tile has more than
+/// 16 MiB, which `OpenEXR` 3.2 and older then cannot read. For partial tiles
+/// of compressed layers, we store a compressed table whose size differs from
+/// both sizes. If we find no such compressed table, we store the table without
+/// compression or padding, like newer versions of the `OpenEXR` writer do,
+/// which `OpenEXR` 3.2 and older cannot read. This can happen for partial tiles
+/// of tiles that are only one or two pixels wide or high, and for partial
+/// tiles that are only one or two pixels smaller than a large tile.
 fn compress_offset_table(header: &Header, table_le: ByteVec) -> Result<ByteVec> {
     if !header.blocks.has_tiles() {
         return compress_unless_larger(header.compression, table_le);
