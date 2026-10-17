@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     or implement `ReadDeepLayers` for a custom selection.
   - Supports deep scan lines and deep tiles, compressed with `Uncompressed`, `RLE` or `ZIP1`.
     Offset tables of partial tiles are written such that all versions of the `OpenEXR` library can read them,
-    except for some partial tiles where that is not possible, for example of tiles that are only one or two pixels wide or high.
+    except for some partial tiles where that is not possible, for example of tiles that are only one or two pixels wide or high,
+    and except for uncompressed tiles of more than 4,194,304 pixels, whose tables are not padded to avoid huge files.
     The offset tables written by older versions of the `OpenEXR` library can also be read.
   - `image::deep::compositing` can sort, merge, and flatten deep layers.
   - The block-level API offers `UncompressedDeepBlock`, with sequential and parallel (de)compression.
@@ -35,8 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `compress_all_blocks_parallel` now also writes the queued chunks if the blocks do not cover the whole file.
 - Files with deep layers whose chunks overlap are rejected, as they could require any amount of memory.
 - Fixes an integer overflow on 32-bit platforms for files with very large tile indices.
-- Fixes reading only some layers of a file in which a skipped chunk is smaller than 16 bytes,
-  which could fail or read the wrong chunk.
+- Fixes reading a chunk that starts 1 to 15 bytes after the end of the previously read chunk,
+  for example after skipping a tiny chunk when reading only some layers, which could fail or read the wrong chunk.
 
 ## [1.74.2] - 2026-07-10
 ### Added
