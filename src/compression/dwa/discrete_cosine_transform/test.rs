@@ -101,6 +101,34 @@ mod roundtrip_tests {
             original.to_vec().assert_approx_equals_result(&roundtripped.to_vec());
         }
     }
+
+    /// Runtime-selected transforms preserve the baseline arithmetic, including
+    /// when an iterator skips blocks that do not need a transform.
+    #[test]
+    fn batch_matches_baseline() {
+        for count in [0, 1, 33] {
+            let originals = sample_blocks();
+            let originals = &originals[..count];
+            for inverse in [false, true] {
+                let mut expected = originals.to_vec();
+                for block in expected.iter_mut().step_by(2) {
+                    if inverse {
+                        dct_inverse_8x8_autovectorized(block);
+                    } else {
+                        dct_forward_8x8_autovectorized(block);
+                    }
+                }
+
+                let mut actual = originals.to_vec();
+                if inverse {
+                    dct_inverse_8x8_batch(actual.iter_mut().step_by(2));
+                } else {
+                    dct_forward_8x8_batch(actual.iter_mut().step_by(2));
+                }
+                assert_eq!(actual, expected);
+            }
+        }
+    }
 }
 
 // Keep the original direct 2D formula as an independent reference for the

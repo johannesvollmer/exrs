@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Changed
-- Use compiler autovectorization for DWA transforms, removing handwritten SIMD kernels and runtime dispatch.
+- Use compiler autovectorization for DWA transforms, replacing handwritten SIMD kernels with batch-level AVX2 runtime dispatch via `multiversion`.
 
 
 ## [1.74.2] - 2026-07-10

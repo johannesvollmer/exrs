@@ -1,6 +1,7 @@
 // Discrete cosine transform (forward and inverse) for DWA. The inverse is
 // ported from OpenEXRCore's internal_dwa_simd.h. Both transforms use fixed-size
-// loops that LLVM can autovectorize for the compile-time CPU target.
+// loops that LLVM can autovectorize. Batch entry points select AVX2 at runtime
+// on x86; other CPUs use the compile-time target (including SSE2 and NEON).
 
 // public only for benchmarking (benches/dct.rs reaches
 // `test::pseudo_random_blocks`)
@@ -14,6 +15,7 @@ pub mod test;
 // public only for benchmarking (the in-crate batch functions and tests also
 // reach it directly)
 #[doc(hidden)]
+#[inline(always)]
 pub fn dct_inverse_8x8_autovectorized(data: &mut [f32; 64]) {
     const PI: f32 = 3.14159;
 
@@ -135,6 +137,7 @@ const FORWARD_BASIS: [[f32; 8]; 8] = [
 /// along rows and then columns.
 // public only for benchmarking (the in-crate batch functions and tests also reach it)
 #[doc(hidden)]
+#[inline(always)]
 pub fn dct_forward_8x8_autovectorized(data: &mut [f32; 64]) {
     // Keep each 1D accumulator local so LLVM can vectorize its eight outputs.
     // Transpose the intermediate block so both passes read contiguous input.
@@ -165,20 +168,29 @@ pub fn dct_forward_8x8_autovectorized(data: &mut [f32; 64]) {
 }
 
 /// Forward DCT on many 8x8 blocks.
-pub(crate) fn dct_forward_8x8_batch<'a>(blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
+// Dispatch once per batch, inlining the per-block transform into each target
+// version so LLVM can vectorize it using that target's features.
+// Public only for benchmarking.
+#[doc(hidden)]
+#[multiversion::multiversion(targets("x86_64+avx2", "x86+avx2"))]
+pub fn dct_forward_8x8_batch<'a>(blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
     for data in blocks {
         dct_forward_8x8_autovectorized(data);
     }
 }
 
 /// Inverse DCT on many 8x8 blocks.
-pub(crate) fn dct_inverse_8x8_batch<'a>(blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
+// Public only for benchmarking.
+#[doc(hidden)]
+#[multiversion::multiversion(targets("x86_64+avx2", "x86+avx2"))]
+pub fn dct_inverse_8x8_batch<'a>(blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
     for data in blocks {
         dct_inverse_8x8_autovectorized(data);
     }
 }
 
 /// Optimized path when only DC is non-zero.
+#[inline(always)]
 pub(crate) fn dct_inverse_8x8_dc_only(data: &mut [f32; 64]) {
     let val = data[0] * 0.3535536f32 * 0.3535536f32;
     for v in data.iter_mut() {

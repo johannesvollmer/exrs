@@ -356,14 +356,17 @@ To benchmark the library, simply run `cargo bench`.
 
 #### DWA DCT tests and benchmarks
 
-The DWA transforms use compiler autovectorization for the compile-time CPU
-target. Their correctness tests run as part of the normal test suite:
+The DWA transforms use compiler autovectorization, with runtime AVX2 selection
+on x86 and a fallback using the compile-time CPU target (SSE2 on baseline
+x86-64, NEON on AArch64). Dispatch happens once per batch of blocks. Their
+correctness tests run as part of the normal test suite:
 
 ```bash
 cargo test --lib compression::dwa
 ```
 
-To benchmark the forward and inverse transforms:
+To benchmark the forward and inverse transforms, comparing the compile-time
+baseline (`autovectorized`) with runtime selection (`multiversion`):
 
 ```bash
 cargo bench --features dct-benches --bench dct
@@ -376,7 +379,7 @@ RUSTFLAGS="-C target-cpu=x86-64-v3" cargo test --lib compression::dwa
 RUSTFLAGS="-C target-cpu=x86-64-v3" cargo bench --features dct-benches --bench dct
 ```
 
-Use `-C target-cpu=x86-64` for the SSE2 baseline, or `-C target-cpu=native`
-for a binary tuned to the build machine. CPU features are selected at compile
-time; there is no runtime DCT dispatch. Measure performance on real hardware
-rather than under an emulator.
+Use `-C target-cpu=x86-64` to compare the SSE2 baseline with runtime AVX2
+selection, or `-C target-cpu=native` for a binary tuned to the build machine.
+When AVX2 is enabled at compile time, runtime dispatch is eliminated. Measure
+performance on real hardware rather than under an emulator.
