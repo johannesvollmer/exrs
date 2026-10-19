@@ -172,7 +172,10 @@ pub fn dct_forward_8x8_autovectorized(data: &mut [f32; 64]) {
 // version so LLVM can vectorize it using that target's features.
 // Public only for benchmarking.
 #[doc(hidden)]
-#[multiversion::multiversion(targets("x86_64+avx2", "x86+avx2"))]
+#[cfg_attr(
+    any(target_arch = "x86", target_arch = "x86_64"),
+    multiversion::multiversion(targets("x86_64+avx2", "x86+avx2"))
+)]
 pub fn dct_forward_8x8_batch<'a>(blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
     for data in blocks {
         dct_forward_8x8_autovectorized(data);
@@ -182,7 +185,10 @@ pub fn dct_forward_8x8_batch<'a>(blocks: impl Iterator<Item = &'a mut [f32; 64]>
 /// Inverse DCT on many 8x8 blocks.
 // Public only for benchmarking.
 #[doc(hidden)]
-#[multiversion::multiversion(targets("x86_64+avx2", "x86+avx2"))]
+#[cfg_attr(
+    any(target_arch = "x86", target_arch = "x86_64"),
+    multiversion::multiversion(targets("x86_64+avx2", "x86+avx2"))
+)]
 pub fn dct_inverse_8x8_batch<'a>(blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
     for data in blocks {
         dct_inverse_8x8_autovectorized(data);
