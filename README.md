@@ -353,3 +353,49 @@ You may also need to install the toolchain beforehand, using
 and `rustup target add powerpc-unknown-linux-gnu`.
  
 To benchmark the library, simply run `cargo bench`.
+
+#### SIMD tests (Intel SDE)
+
+Some functions select AVX2 versions of themselves where available, and use SSE2 otherwise.
+
+Because most machines only expose their native tier, we run these tests under
+[Intel SDE](https://www.intel.com/content/www/us/en/developer/articles/tool/software-development-emulator.html)
+(Software Development Emulator), which emulates a chosen microarchitecture.
+This lets us test both AVX2 and SSE2 codepaths.
+
+There is currently no handwritten code for any of these architectures,
+so this is included out of an abundance of caution.
+
+To reproduce it locally:
+
+1. **Install Intel SDE.** Download it from the link above and put the `sde64`
+   binary on your `PATH` (or note its full path). SDE runs on x86-64 Linux,
+   macOS, and Windows.
+
+2. **Build the library test binary without running it,** then locate the executable:
+
+   ```bash
+   # AVX2
+   cargo test --lib --features avx2-tests --no-run
+
+   # SSE2
+   cargo test --lib --features sse2-tests --no-run
+   ```
+
+   Cargo prints the path to the compiled unit-test binary (under
+   `target/debug/deps/exr-<hash>`). Since these are now in-crate unit tests, you
+   select a tier by passing a test-name **filter** (there is no per-file test
+   binary). A short substring like `avx2`/`sse2` is enough — it matches the
+   respective `mod avx2_tests`/`mod sse2_tests`.
+
+3. **Run that binary under SDE,** selecting a chip that exposes the target tier
+   and filtering to the tier's test module:
+
+   ```bash
+   # AVX2 — Haswell is the first microarchitecture with AVX2 + FMA
+   sde64 -hsw -- target/debug/deps/exr-<hash> --nocapture avx2
+
+   # SSE2 — Merom is the lowest 64-bit chip SDE models: it has SSE2 but no AVX,
+   #        so pulp falls back to the SSE2 kernel
+   sde64 -mrm -- target/debug/deps/exr-<hash> --nocapture sse2
+   ```
