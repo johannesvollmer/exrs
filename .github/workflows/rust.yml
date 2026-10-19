@@ -99,9 +99,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install or use cached cross-rs/cross
-        uses: baptiste0928/cargo-install@v1
+        uses: baptiste0928/cargo-install@v3
         with:
           crate: cross
+          git: https://github.com/cross-rs/cross
+          tag: v0.2.5
 
       - name: Cache Cargo Dependencies
         uses: Swatinem/rust-cache@v1.3.0
