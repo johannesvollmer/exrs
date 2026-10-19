@@ -154,21 +154,30 @@ const FORWARD_BASIS: [[f32; 8]; 8] = [
 // public only for benchmarking (the in-crate dispatch and tests reach it directly)
 #[doc(hidden)]
 pub fn dct_forward_8x8_autovectorized(data: &mut [f32; 64]) {
-    let mut rows = [0.0f32; 64];
+    // Keep each 1D accumulator local so LLVM can vectorize its eight outputs.
+    // Transpose the intermediate block so both passes read contiguous input.
+    let mut rows = [[0.0f32; 8]; 8];
     for y in 0..8 {
+        let mut out = [0.0f32; 8];
         for x in 0..8 {
             for u in 0..8 {
-                rows[y * 8 + u] += data[y * 8 + x] * FORWARD_BASIS[x][u];
+                out[u] += data[y * 8 + x] * FORWARD_BASIS[x][u];
             }
+        }
+        for u in 0..8 {
+            rows[u][y] = out[u];
         }
     }
 
-    data.fill(0.0);
-    for y in 0..8 {
-        for v in 0..8 {
-            for u in 0..8 {
-                data[v * 8 + u] += rows[y * 8 + u] * FORWARD_BASIS[y][v];
+    for u in 0..8 {
+        let mut out = [0.0f32; 8];
+        for y in 0..8 {
+            for v in 0..8 {
+                out[v] += rows[u][y] * FORWARD_BASIS[y][v];
             }
+        }
+        for v in 0..8 {
+            data[v * 8 + u] = out[v];
         }
     }
 }
