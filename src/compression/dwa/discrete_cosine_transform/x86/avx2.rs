@@ -7,7 +7,7 @@
 
 use pulp::{f32x8, x86::V3};
 
-use super::forward_basis;
+use super::super::FORWARD_BASIS;
 
 // OpenEXRs hardcoded AVX basis constants ("sAvxCoef").
 const A: f32 = 3.535536e-1;
@@ -62,7 +62,8 @@ impl Coefficients {
 }
 
 // OpenEXRs "IDCT_AVX_MMULT_ROWS" + "EO_TO_ROW_HALVES"
-#[inline(always)] // must fuse into the `vectorize` closure --> see `Coefficients::new`
+#[inline(always)] // must fuse into the `vectorize` closure --> see
+                  // `Coefficients::new`
 fn row_pass(v3: V3, coef: &Coefficients, input: [f32x8; 8]) -> [f32x8; 8] {
     let mul = |a, b| v3.mul_f32x8(a, b);
     let add = |a, b| v3.add_f32x8(a, b);
@@ -102,7 +103,8 @@ fn row_pass(v3: V3, coef: &Coefficients, input: [f32x8; 8]) -> [f32x8; 8] {
 }
 
 // The column transform from the back half of "dctInverse8x8_avx_0".
-#[inline(always)] // must fuse into the `vectorize` closure --> see `Coefficients::new`
+#[inline(always)] // must fuse into the `vectorize` closure --> see
+                  // `Coefficients::new`
 fn column_pass(v3: V3, coef: &Coefficients, input: [f32x8; 8]) -> [f32x8; 8] {
     let mul = |a, b| v3.mul_f32x8(a, b);
     let add = |a, b| v3.add_f32x8(a, b);
@@ -224,7 +226,7 @@ struct ForwardCoefficients {
 impl ForwardCoefficients {
     #[inline(always)]
     fn new(_v3: V3) -> Self {
-        let basis = forward_basis();
+        let basis = &FORWARD_BASIS;
         Self {
             terms: std::array::from_fn(|input| {
                 let row = basis[input];

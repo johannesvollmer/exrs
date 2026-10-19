@@ -104,8 +104,9 @@ mod avx2_tests {
         let ground_truth = read_first_flat_layer_from_file(dir().join(ground_truth_name))
             .expect("uncompressed ground truth could not be loaded");
 
-        // Match the ground truth's lossless encoding so "validate_result" compares
-        // the samples bit-for-bit instead of with a lossy tolerance.
+        // Match the ground truth's lossless encoding so "validate_result"
+        // compares the samples bit-for-bit instead of with a lossy
+        // tolerance.
         decoded.layer_data.encoding = ground_truth.layer_data.encoding;
 
         ground_truth.assert_equals_result(&decoded);
@@ -167,7 +168,8 @@ mod roundtrip_tests {
     use crate::image::validate_results::ValidateResult;
 
     fn sample_blocks() -> Vec<[f32; 64]> {
-        // A simple hardcoded ramp block plus deterministic pseudo-random blocks.
+        // A simple hardcoded ramp block plus deterministic pseudo-random
+        // blocks.
         let ramp = std::array::from_fn(|i| i as f32 - 32.0);
         let mut blocks = vec![ramp];
         blocks.extend(pseudo_random_blocks(32));
@@ -200,6 +202,112 @@ mod roundtrip_tests {
 
         for (original, roundtripped) in originals.iter().zip(&blocks) {
             original.to_vec().assert_approx_equals_result(&roundtripped.to_vec());
+        }
+    }
+}
+
+// Keep the original direct 2D formula as an independent reference for the
+// separable kernels. Codec-level lossy tolerances are too loose for this check.
+#[cfg(test)]
+mod forward_tests {
+    use super::{super::dct_forward_8x8_autovectorized, pseudo_random_blocks};
+
+    #[test]
+    fn forward_matches_direct_formula() {
+        let mut blocks = vec![
+            [0.0; 64],
+            [1.0; 64],
+            [-65504.0; 64],
+            std::array::from_fn(|i| i as f32 - 32.0),
+            std::array::from_fn(|i| {
+                if (i / 8 + i % 8) % 2 == 0 {
+                    1.0
+                } else {
+                    -1.0
+                }
+            }),
+        ];
+        // Every impulse position exercises a different pair of basis rows.
+        for i in 0..64 {
+            let mut block = [0.0; 64];
+            block[i] = 1.0;
+            blocks.push(block);
+        }
+        blocks.extend(
+            pseudo_random_blocks(64)
+                .into_iter()
+                .map(|block| block.map(|value| (value - 4.0) * 8192.0)),
+        );
+
+        for original in blocks {
+            let mut expected = original;
+            forward_reference(&mut expected);
+            // Summation order changes, especially near cancellation. Bound the
+            // absolute error relative to input magnitude, not each coefficient.
+            let tolerance = original.iter().fold(1.0f32, |max, x| max.max(x.abs())) * 1e-5;
+            let check = |actual: [f32; 64]| {
+                for (i, (&expected, &actual)) in expected.iter().zip(&actual).enumerate() {
+                    assert!(
+                        (expected - actual).abs() <= tolerance,
+                        "coefficient {}: expected {}, got {}, tolerance {}",
+                        i,
+                        expected,
+                        actual,
+                        tolerance
+                    );
+                }
+            };
+
+            let mut actual = original;
+            dct_forward_8x8_autovectorized(&mut actual);
+            check(actual);
+
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            {
+                use super::super::x86::{avx2, sse2};
+                if let Some(v1) = pulp::x86::V1::try_new() {
+                    let mut actual = original;
+                    sse2::dct_forward_8x8(v1, &mut actual);
+                    check(actual);
+                }
+                if let Some(v3) = pulp::x86::V3::try_new() {
+                    let mut actual = original;
+                    avx2::dct_forward_8x8_batch(v3, std::iter::once(&mut actual));
+                    check(actual);
+                }
+            }
+        }
+    }
+
+    fn forward_reference(data: &mut [f32; 64]) {
+        const PI: f32 = 3.14159;
+        const INV_SQRT_2: f32 = 0.70710677;
+
+        let input = *data;
+        for v in 0..8 {
+            for u in 0..8 {
+                let cu = if u == 0 {
+                    INV_SQRT_2
+                } else {
+                    1.0
+                };
+                let cv = if v == 0 {
+                    INV_SQRT_2
+                } else {
+                    1.0
+                };
+                let mut sum = 0.0f32;
+
+                for y in 0..8 {
+                    let cy = (((2 * y + 1) as f32 * v as f32 * PI) / 16.0).cos();
+                    for x in 0..8 {
+                        let cx = (((2 * x + 1) as f32 * u as f32 * PI) / 16.0).cos();
+                        sum += input[y * 8 + x] * cx * cy;
+                    }
+                }
+
+                data[v * 8 + u] = 0.25 * cu * cv * sum;
+            }
         }
     }
 }

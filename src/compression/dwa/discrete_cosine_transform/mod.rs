@@ -131,41 +131,44 @@ pub fn dct_inverse_8x8_autovectorized(data: &mut [f32; 64]) {
     }
 }
 
-/// Autovectorized forward DCT for DWA 8x8 blocks. This intentionally uses the
-/// straightforward separable DCT formula for the first encoder version; LLVM
-/// can still optimize the fixed-size loops without adding explicit SIMD paths.
+// Normalized DCT-II basis, indexed by [input][output], shared by all forward
+// kernels. Precomputed in f32 as:
+//   scale * (((2 * input + 1) as f32 * output as f32 * PI) / 16.0).cos()
+// where PI = 3.14159 and scale = 0.5 * (output == 0 ? 0.70710677 : 1.0).
+// Preserve the original truncated PI and f32 rounding: using symmetry or a
+// more precise PI here would change the existing SIMD encoder's coefficients.
+#[rustfmt::skip]
+const FORWARD_BASIS: [[f32; 8]; 8] = [
+    [0.35355338, 0.49039266, 0.46193984, 0.41573495, 0.35355362, 0.27778545, 0.19134216, 0.097545706],
+    [0.35355338, 0.41573495, 0.19134216, -0.09754446, -0.35355273, -0.49039242, -0.46194032, -0.2777866],
+    [0.35355338, 0.27778545, -0.19134098, -0.49039242, -0.35355452, 0.097543105, 0.46193886, 0.4157363],
+    [0.35355338, 0.097545706, -0.46193933, -0.2777866, 0.35355183, 0.4157363, -0.19133842, -0.49039343],
+    [0.35355338, -0.09754446, -0.46194032, 0.27778342, 0.3535554, -0.41573277, -0.19134545, 0.4903917],
+    [0.35355338, -0.27778438, -0.19134332, 0.49039316, -0.3535509, -0.09754932, 0.46194187, -0.41573134],
+    [0.35355338, -0.41573423, 0.19133982, 0.097548075, -0.3535563, 0.49039367, -0.4619375, 0.27777922],
+    [0.35355338, -0.49039242, 0.46193886, -0.41573277, 0.35355002, -0.27778026, 0.1913349, -0.09753735],
+];
+
+/// Autovectorized forward DCT for DWA 8x8 blocks. Apply the fixed 1D basis
+/// along rows and then columns, as in the explicit SIMD kernels.
 // public only for benchmarking (the in-crate dispatch and tests reach it directly)
 #[doc(hidden)]
 pub fn dct_forward_8x8_autovectorized(data: &mut [f32; 64]) {
-    // The forward path mirrors the inverse path's fixed 8x8 basis, but keeps
-    // the implementation autovectorized and easy to verify against the reference.
-    const PI: f32 = 3.14159;
-    const INV_SQRT_2: f32 = 0.70710677;
-
-    let input = *data;
-    for v in 0..8 {
-        for u in 0..8 {
-            let cu = if u == 0 {
-                INV_SQRT_2
-            } else {
-                1.0
-            };
-            let cv = if v == 0 {
-                INV_SQRT_2
-            } else {
-                1.0
-            };
-            let mut sum = 0.0f32;
-
-            for y in 0..8 {
-                let cy = (((2 * y + 1) as f32 * v as f32 * PI) / 16.0).cos();
-                for x in 0..8 {
-                    let cx = (((2 * x + 1) as f32 * u as f32 * PI) / 16.0).cos();
-                    sum += input[y * 8 + x] * cx * cy;
-                }
+    let mut rows = [0.0f32; 64];
+    for y in 0..8 {
+        for x in 0..8 {
+            for u in 0..8 {
+                rows[y * 8 + u] += data[y * 8 + x] * FORWARD_BASIS[x][u];
             }
+        }
+    }
 
-            data[v * 8 + u] = 0.25 * cu * cv * sum;
+    data.fill(0.0);
+    for y in 0..8 {
+        for v in 0..8 {
+            for u in 0..8 {
+                data[v * 8 + u] += rows[y * 8 + u] * FORWARD_BASIS[y][v];
+            }
         }
     }
 }

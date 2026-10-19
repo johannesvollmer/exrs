@@ -4,7 +4,7 @@
 
 use pulp::{f32x4, x86::V1};
 
-use super::forward_basis;
+use super::super::FORWARD_BASIS;
 
 const A: f32 = 3.535536e-1;
 const B: f32 = 4.903927e-1;
@@ -181,7 +181,7 @@ struct ForwardCoefficients {
 impl ForwardCoefficients {
     #[inline(always)]
     fn new(_v1: V1) -> Self {
-        let basis = forward_basis();
+        let basis = &FORWARD_BASIS;
         Self {
             low: std::array::from_fn(|input| {
                 let row = basis[input];
