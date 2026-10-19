@@ -265,9 +265,9 @@ impl UncompressedBlock {
     // &self, header: &Header,
     // mut accept_line: impl FnMut(LineRef<'_>) -> UnitResult
     // ) -> UnitResult {
-    // for (bytes, line) in LineIndex::lines_in_block(self.index, &header.channels)
-    // { let line_ref = LineSlice { location: line, value: &self.data[bytes] };
-    // accept_line(line_ref)?;
+    // for (bytes, line) in LineIndex::lines_in_block(self.index,
+    // &header.channels) { let line_ref = LineSlice { location: line, value:
+    // &self.data[bytes] }; accept_line(line_ref)?;
     // }
     //
     // Ok(())

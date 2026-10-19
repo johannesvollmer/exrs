@@ -17,9 +17,10 @@ fn expect_eq_other(sub_dir: &str, image_name: &str, expected: &str) {
             let mut expected_decompressed = read_first_flat_layer_from_file(decompressed_path)
                 .expect("uncompressed image could not be loaded");
 
-            // HACK: make metadata match artificially, to avoid failing the check due to
-            // meta data mismatch (the name of the compression methods should
-            // not be equal, as we test between compression methods)
+            // HACK: make metadata match artificially, to avoid failing the
+            // check due to meta data mismatch (the name of the
+            // compression methods should not be equal, as we test
+            // between compression methods)
             expected_decompressed.layer_data.encoding.compression =
                 decompressed.layer_data.encoding.compression;
 
@@ -33,8 +34,8 @@ fn expect_eq_other(sub_dir: &str, image_name: &str, expected: &str) {
                 "size should not be affected by compression"
             );
 
-            // Note: Unimplemented methods may still work, if each compressed tile would be
-            // larger than uncompressed.
+            // Note: Unimplemented methods may still work, if each compressed
+            // tile would be larger than uncompressed.
             expected_decompressed.assert_equals_result(&decompressed);
         }
     }

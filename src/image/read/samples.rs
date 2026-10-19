@@ -44,9 +44,9 @@ impl ReadFlatSamples {
         }
     }
 
-    // TODO pub fn specific_resolution_level<F: Fn(&[Vec2<usize>])->usize >(self,
-    // select_level: F) -> ReadLevelBy<Self> { ReadAllLevels { read_samples: self }
-    // }
+    // TODO pub fn specific_resolution_level<F: Fn(&[Vec2<usize>])->usize
+    // >(self, select_level: F) -> ReadLevelBy<Self> { ReadAllLevels {
+    // read_samples: self } }
 }
 
 // pub struct AnySamplesReader { TODO
