@@ -31,7 +31,8 @@ impl Pool {
     }
 
     fn lock(&self) -> MutexGuard<'_, Vec<Vec<u8>>> {
-        // Do not poison the pool on panic; a half-updated pool only costs a missed reuse.
+        // Do not poison the pool on panic; a half-updated pool only costs a missed
+        // reuse.
         self.buffers.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
@@ -89,7 +90,8 @@ impl Pool {
 
 static POOL: Pool = Pool::new();
 
-/// Zeroed buffer of exactly `size` bytes. Reuses a pooled allocation when possible.
+/// Zeroed buffer of exactly `size` bytes. Reuses a pooled allocation when
+/// possible.
 pub fn take_zeroed(size: usize) -> Vec<u8> {
     POOL.take_zeroed(size)
 }
@@ -100,7 +102,8 @@ pub fn take_with_capacity(min_capacity: usize) -> Vec<u8> {
     POOL.take_with_capacity(min_capacity)
 }
 
-/// Offer a finished buffer back instead of dropping it. Oversized buffers are dropped.
+/// Offer a finished buffer back instead of dropping it. Oversized buffers are
+/// dropped.
 pub fn recycle(buffer: Vec<u8>) {
     POOL.recycle(buffer)
 }
