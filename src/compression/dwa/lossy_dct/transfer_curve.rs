@@ -22,7 +22,8 @@ pub(super) fn to_nonlinear_table() -> &'static [u16; 65536] {
 
 fn dwa_convert_to_nonlinear(x: f16) -> f16 {
     // Inverse of the decoder's nonlinear -> linear transfer.
-    // Values <= 1 use a power curve; values above 1 follow the exponential tail.
+    // Values <= 1 use a power curve; values above 1 follow the exponential
+    // tail.
     let value = x.to_f32();
     if !value.is_finite() {
         return f16::ZERO;

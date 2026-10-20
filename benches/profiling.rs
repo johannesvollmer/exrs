@@ -7,7 +7,8 @@ use std::{fs, io::Cursor};
 use bencher::Bencher;
 use exr::{image::pixel_vec::PixelVec, prelude::*};
 
-const PROFILING_REPETITIONS: i32 = 1; // make this 100 for profiling longer periods
+const PROFILING_REPETITIONS: i32 = 1; // make this 100 for profiling longer
+                                      // periods
 
 /// This is a suuuper long benchmark, to allow you to hook up a profiler while
 /// running it but this means we don't want it in our normal benchmarks

@@ -196,7 +196,8 @@ where
         let byte_lines = block_bytes.chunks_exact_mut(line_bytes);
         assert_eq!(byte_lines.len(), block_index.pixel_size.height(), "invalid block line splits");
 
-        // dbg!(width, line_bytes, header.channels.bytes_per_pixel, byte_lines.len());
+        // dbg!(width, line_bytes, header.channels.bytes_per_pixel,
+        // byte_lines.len());
 
         let mut pixel_line = Vec::with_capacity(width);
 
@@ -257,8 +258,8 @@ where
     type RecursiveWriter = RecursiveWriter<InnerDescriptions::RecursiveWriter, Sample>;
 
     fn create_recursive_writer(&self, channels: &ChannelList) -> Self::RecursiveWriter {
-        // this linear lookup is required because the order of the channels changed, due
-        // to alphabetical sorting
+        // this linear lookup is required because the order of the channels
+        // changed, due to alphabetical sorting
         let (start_byte_offset, target_sample_type) = channels
             .channels_with_byte_offset()
             .find(|(_offset, channel)| channel.name == self.value.name)
@@ -291,8 +292,8 @@ where
     type RecursiveWriter = OptionalRecursiveWriter<InnerDescriptions::RecursiveWriter, Sample>;
 
     fn create_recursive_writer(&self, channels: &ChannelList) -> Self::RecursiveWriter {
-        // this linear lookup is required because the order of the channels changed, due
-        // to alphabetical sorting
+        // this linear lookup is required because the order of the channels
+        // changed, due to alphabetical sorting
 
         let channel = self.value.as_ref().map(|required_channel| {
             channels

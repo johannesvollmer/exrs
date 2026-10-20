@@ -432,8 +432,8 @@ impl Header {
         ordered
     }
 
-    // /// Iterate over all blocks, in the order specified by the headers line order
-    // attribute. Also includes an index of the block if it were
+    // /// Iterate over all blocks, in the order specified by the headers line
+    // order attribute. Also includes an index of the block if it were
     // `LineOrder::Increasing`, starting at zero for this header.
     // pub fn enumerate_ordered_blocks(&self) -> impl Iterator<Item = (usize,
     // TileIndices)> + Send { let increasing_y =
@@ -517,12 +517,12 @@ impl Header {
     }
 
     // TODO
-    // The block indices of this header, ordered as they would appear in the file.
-    // pub fn ordered_block_indices<'s>(&'s self, layer_index: usize) -> impl 's +
-    // Iterator<Item=BlockIndex> { self.enumerate_ordered_blocks().
-    // map(|(chunk_index, tile)|{ let data_indices =
-    // self.get_absolute_block_pixel_coordinates(tile.location).expect("tile
-    // coordinate bug");
+    // The block indices of this header, ordered as they would appear in the
+    // file. pub fn ordered_block_indices<'s>(&'s self, layer_index: usize)
+    // -> impl 's + Iterator<Item=BlockIndex> {
+    // self.enumerate_ordered_blocks(). map(|(chunk_index, tile)|{ let
+    // data_indices = self.get_absolute_block_pixel_coordinates(tile.
+    // location).expect("tile coordinate bug");
     //
     // BlockIndex {
     // layer: layer_index,
@@ -765,8 +765,8 @@ impl Header {
             )?;
         }
 
-        // this is only to check whether someone tampered with our precious values, to
-        // avoid writing an invalid file
+        // this is only to check whether someone tampered with our precious
+        // values, to avoid writing an invalid file
         if self.chunk_count != compute_chunk_count(self.compression, self.layer_size, self.blocks) {
             return Err(Error::invalid("chunk count attribute")); // TODO this may be an expensive check?
         }
@@ -885,8 +885,8 @@ impl Header {
             once((name, to_attribute((*value).clone())))
         }
 
-        // used to type-check local variables. only requried because you cannot do `let
-        // i: impl Iterator<> = ...`
+        // used to type-check local variables. only requried because you cannot
+        // do `let i: impl Iterator<> = ...`
         #[inline]
         const fn expect_is_iter<'s, T: Iterator<Item = (&'s TextSlice, AttributeValue)>>(
             val: T,
@@ -1033,7 +1033,8 @@ impl Header {
             32
         }; // TODO DRY this information
 
-        // these required attributes will be filled when encountered while parsing
+        // these required attributes will be filled when encountered while
+        // parsing
         let mut tiles = None;
         let mut block_type = None;
         let mut version = None;
@@ -1060,12 +1061,14 @@ impl Header {
                         attribute::AttributeValue::*, header::standard_names as name,
                     };
 
-                    // if the attribute is a required attribute, set the corresponding variable
+                    // if the attribute is a required attribute, set the
+                    // corresponding variable
                     // directly. otherwise, add the attribute to the vector of
                     // custom attributes
 
-                    // the following attributes will only be set if the type matches the commonly
-                    // used type for that attribute
+                    // the following attributes will only be set if the type
+                    // matches the commonly used type for
+                    // that attribute
                     match (attribute_name.as_slice(), value) {
                         (name::BLOCK_TYPE, Text(value)) => {
                             block_type = Some(attribute::BlockType::parse(value)?);
@@ -1217,7 +1220,8 @@ impl Header {
             display_window.ok_or_else(|| missing_attribute("display window"))?;
 
         let data_window = data_window.ok_or_else(|| missing_attribute("data window"))?;
-        data_window.validate(None)?; // validate now to avoid errors when computing the chunk_count
+        data_window.validate(None)?; // validate now to avoid errors when
+                                     // computing the chunk_count
         layer_attributes.layer_position = data_window.position;
 
         // validate now to avoid errors when computing the chunk_count

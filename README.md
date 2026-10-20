@@ -356,25 +356,17 @@ To benchmark the library, simply run `cargo bench`.
 
 #### SIMD tests (Intel SDE)
 
-The DWA DCT/IDCT code has SIMD kernels (AVX2 and SSE2) that are selected at
-runtime via [`pulp`](https://crates.io/crates/pulp), mirroring OpenEXR's own
-cpuid dispatch. Each tier has its own feature-gated unit-test module in
-`src/compression/dwa/idct.rs`:
-
-- `mod avx2_tests` — requires the `avx2-tests` feature, exercises the AVX2 kernel
-- `mod sse2_tests` — requires the `sse2-tests` feature, exercises the SSE2 kernel
-
-These tests are **opt-in** and are excluded from the normal `cargo test` run. A
-test only passes if the requested tier is actually available on the CPU it runs
-on, so the AVX2 test needs an AVX2-capable CPU and the SSE2 test additionally
-asserts that AVX2 is *not* present (so it verifies the fallback path).
+Some functions select AVX2 versions of themselves where available, and use SSE2 otherwise.
 
 Because most machines only expose their native tier, we run these tests under
 [Intel SDE](https://www.intel.com/content/www/us/en/developer/articles/tool/software-development-emulator.html)
-(Software Development Emulator), which emulates a chosen microarchitecture. This
-is exactly what the `SIMD tests` CI workflow does: Cargo still builds a generic
-x86/x86-64 binary, and SDE only changes the runtime CPUID/features seen by
-`pulp`. To reproduce it locally:
+(Software Development Emulator), which emulates a chosen microarchitecture.
+This lets us test both AVX2 and SSE2 codepaths.
+
+There is currently no handwritten code for any of these architectures,
+so this is included out of an abundance of caution.
+
+To reproduce it locally:
 
 1. **Install Intel SDE.** Download it from the link above and put the `sde64`
    binary on your `PATH` (or note its full path). SDE runs on x86-64 Linux,
@@ -407,26 +399,3 @@ x86/x86-64 binary, and SDE only changes the runtime CPUID/features seen by
    #        so pulp falls back to the SSE2 kernel
    sde64 -mrm -- target/debug/deps/exr-<hash> --nocapture sse2
    ```
-
-   The CI workflow asserts the run reports the exact expected number of passing
-   tests, so a mistyped filter (which libtest would report as `0 passed` while
-   still exiting `0`) fails the job instead of silently passing.
-
-> [!IMPORTANT]
-> Do **not** set a global `RUSTFLAGS="-C target-feature=+avx2"` (or similar) to
-> run these tests. This is a runtime-dispatched library: forcing a target
-> feature globally would bake AVX2 into otherwise-portable code, break the
-> plain x86-64 baseline, and make the fallback tests meaningless. The kernels
-> already carry their own per-function `#[target_feature]`, so no global flag is
-> needed. SDE alone controls which tier the runtime dispatch selects.
-
-If your own CPU already exposes the required tier, you can skip SDE and run the
-tests directly, e.g. on an AVX2-capable machine:
-
-```bash
-cargo test --lib --features avx2-tests -- avx2
-```
-
-The SSE2 module additionally asserts that AVX2 is *absent*, so it only passes
-under SDE (or a CPU without AVX2) — running it directly on a modern machine will
-trip that assertion by design.
