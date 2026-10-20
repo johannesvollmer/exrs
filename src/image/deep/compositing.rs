@@ -42,13 +42,13 @@ use crate::{
 };
 
 /// The name of the channel that contains the depth of each sample.
-pub const DEPTH: &str = "Z";
+const DEPTH: &str = "Z";
 
 /// The name of the channel that contains the back depth of volumetric samples.
-pub const BACK_DEPTH: &str = "ZBack";
+const BACK_DEPTH: &str = "ZBack";
 
 /// The name of the channel that contains the alpha of each sample.
-pub const ALPHA: &str = "A";
+const ALPHA: &str = "A";
 
 impl DeepChannels {
     /// Sort the samples within each pixel by their depth, from front to back.

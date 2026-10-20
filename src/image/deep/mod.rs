@@ -57,7 +57,7 @@ pub struct DeepChannels {
 }
 
 /// Statistics about the distribution of the samples in a deep layer.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct DeepSampleStatistics {
     /// Total number of pixels in the layer.
     pub pixel_count: usize,
@@ -253,7 +253,7 @@ impl DeepChannels {
     /// The channel descriptions of this layer, as they would be stored in a
     /// file.
     #[must_use]
-    pub fn channel_list(&self) -> ChannelList {
+    pub fn to_channel_list(&self) -> ChannelList {
         ChannelList::new(
             self.list
                 .iter()
@@ -644,7 +644,7 @@ mod test {
     #[test]
     fn blocks_round_trip() {
         let deep = test_channels();
-        let channels = deep.channel_list();
+        let channels = deep.to_channel_list();
 
         let block_indices = [(Vec2(0, 0), Vec2(2, 2)), (Vec2(2, 0), Vec2(1, 2))];
 
