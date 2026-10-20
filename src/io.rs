@@ -70,7 +70,7 @@ impl<'p> From<&'p Path> for LateFile<'p> {
     }
 }
 
-impl LateFile<'_> {
+impl<'p> LateFile<'p> {
     fn file(&mut self) -> std::io::Result<&mut File> {
         if self.file.is_none() {
             self.file = Some(File::create(self.path)?);
@@ -79,7 +79,7 @@ impl LateFile<'_> {
     }
 }
 
-impl std::io::Write for LateFile<'_> {
+impl<'p> std::io::Write for LateFile<'p> {
     fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
         self.file()?.write(buffer)
     }
@@ -93,7 +93,7 @@ impl std::io::Write for LateFile<'_> {
     }
 }
 
-impl Seek for LateFile<'_> {
+impl<'p> Seek for LateFile<'p> {
     fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
         self.file()?.seek(position)
     }
@@ -111,7 +111,7 @@ pub struct PeekRead<T> {
 impl<T: Read> PeekRead<T> {
     /// Wrap a reader to make it peekable.
     #[inline]
-    pub const fn new(inner: T) -> Self {
+    pub fn new(inner: T) -> Self {
         Self {
             inner,
             peeked: None,
@@ -180,7 +180,7 @@ impl<T: Read + Seek> PeekRead<Tracking<T>> {
 
 impl<T: Read> PeekRead<Tracking<T>> {
     /// Current number of bytes read.
-    pub const fn byte_position(&self) -> usize {
+    pub fn byte_position(&self) -> usize {
         self.inner.byte_position()
     }
 }
@@ -218,15 +218,15 @@ impl<T: Write> Write for Tracking<T> {
 impl<T> Tracking<T> {
     /// If `inner` is a reference, if must never be seeked directly,
     /// but only through this `Tracking` instance.
-    pub const fn new(inner: T) -> Self {
-        Self {
+    pub fn new(inner: T) -> Self {
+        Tracking {
             inner,
             position: 0,
         }
     }
 
     /// Current number of bytes written or read.
-    pub const fn byte_position(&self) -> usize {
+    pub fn byte_position(&self) -> usize {
         self.position
     }
 }
@@ -412,33 +412,30 @@ pub trait Data: Sized + Default + Clone {
     }
 }
 
-/// A unifying trait that is implemented for Vec and `SmallVec`,
+/// A unifying trait that is implemented for Vec and SmallVec,
 /// focused on resizing capabilities.
 pub trait ResizableVec<T>: AsMut<[T]> {
     fn resize(&mut self, new_len: usize, value: T);
     fn len(&self) -> usize;
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
 }
 
 impl<T: Clone> ResizableVec<T> for Vec<T> {
     fn resize(&mut self, new_len: usize, value: T) {
-        Self::resize(self, new_len, value);
+        Vec::resize(self, new_len, value)
     }
 
     fn len(&self) -> usize {
-        Self::len(self)
+        Vec::len(self)
     }
 }
 
 impl<T: Clone, A: Array<Item = T>> ResizableVec<T> for SmallVec<A> {
     fn resize(&mut self, new_len: usize, value: T) {
-        Self::resize(self, new_len, value);
+        SmallVec::resize(self, new_len, value)
     }
 
     fn len(&self) -> usize {
-        Self::len(self)
+        SmallVec::len(self)
     }
 }
 
@@ -508,12 +505,12 @@ implement_data_for_primitive!(f64);
 impl Data for f16 {
     #[inline]
     fn read_le(read: &mut impl Read) -> Result<Self> {
-        u16::read_le(read).map(Self::from_bits)
+        u16::read_le(read).map(f16::from_bits)
     }
 
     #[inline]
     fn read_ne(read: &mut impl Read) -> Result<Self> {
-        u16::read_ne(read).map(Self::from_bits)
+        u16::read_ne(read).map(f16::from_bits)
     }
 
     #[inline]

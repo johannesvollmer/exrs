@@ -27,7 +27,7 @@ pub trait WritableSamples<'slf> {
     type Writer: SamplesWriter;
 
     /// Create a temporary writer for this sample storage
-    fn create_samples_writer(&'slf self, header: &Header) -> Self::Writer;
+    fn create_samples_writer(&'slf self, header: &Header, sampling: Vec2<usize>) -> Self::Writer;
 }
 
 /// Enable an image with this single level sample grid to be written to a file.
@@ -40,7 +40,7 @@ pub trait WritableLevel<'slf> {
     type Writer: SamplesWriter;
 
     /// Create a temporary writer for this single level of samples
-    fn create_level_writer(&'slf self, size: Vec2<usize>) -> Self::Writer;
+    fn create_level_writer(&'slf self, size: Vec2<usize>, sampling: Vec2<usize>) -> Self::Writer;
 }
 
 /// A temporary writer for one or more resolution levels containing samples
@@ -53,8 +53,11 @@ pub trait SamplesWriter: Sync {
 /// A temporary writer for a predefined non-deep sample storage
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct FlatSamplesWriter<'samples> {
-    resolution: Vec2<usize>, // respects resolution level
+    resolution: Vec2<usize>, // Full resolution (for coordinate mapping)
+    subsampled_resolution: Vec2<usize>, // Actual sample buffer resolution
     samples: &'samples FlatSamples,
+    x_sampling: usize,
+    y_sampling: usize,
 }
 
 // used if no layers are used and the flat samples are directly inside the
@@ -64,9 +67,9 @@ impl<'samples> WritableSamples<'samples> for FlatSamples {
 
     fn sample_type(&self) -> SampleType {
         match self {
-            Self::F16(_) => SampleType::F16,
-            Self::F32(_) => SampleType::F32,
-            Self::U32(_) => SampleType::U32,
+            FlatSamples::F16(_) => SampleType::F16,
+            FlatSamples::F32(_) => SampleType::F32,
+            FlatSamples::U32(_) => SampleType::U32,
         }
     }
 
@@ -75,10 +78,21 @@ impl<'samples> WritableSamples<'samples> for FlatSamples {
     }
 
     //&'s FlatSamples;
-    fn create_samples_writer(&'samples self, header: &Header) -> Self::Writer {
+    fn create_samples_writer(
+        &'samples self,
+        header: &Header,
+        sampling: Vec2<usize>,
+    ) -> Self::Writer {
+        let resolution = header.layer_size;
+        let subsampled_resolution =
+            Vec2(resolution.x() / sampling.x(), resolution.y() / sampling.y());
+
         FlatSamplesWriter {
-            resolution: header.layer_size,
+            resolution,
+            subsampled_resolution,
             samples: self,
+            x_sampling: sampling.x(),
+            y_sampling: sampling.y(),
         }
     }
 }
@@ -89,32 +103,53 @@ impl<'samples> WritableLevel<'samples> for FlatSamples {
 
     fn sample_type(&self) -> SampleType {
         match self {
-            Self::F16(_) => SampleType::F16,
-            Self::F32(_) => SampleType::F32,
-            Self::U32(_) => SampleType::U32,
+            FlatSamples::F16(_) => SampleType::F16,
+            FlatSamples::F32(_) => SampleType::F32,
+            FlatSamples::U32(_) => SampleType::U32,
         }
     }
 
-    fn create_level_writer(&'samples self, size: Vec2<usize>) -> Self::Writer {
+    fn create_level_writer(
+        &'samples self,
+        size: Vec2<usize>,
+        sampling: Vec2<usize>,
+    ) -> Self::Writer {
+        let subsampled_resolution = Vec2(size.x() / sampling.x(), size.y() / sampling.y());
+
         FlatSamplesWriter {
             resolution: size,
+            subsampled_resolution,
             samples: self,
+            x_sampling: sampling.x(),
+            y_sampling: sampling.y(),
         }
     }
 }
 
-impl SamplesWriter for FlatSamplesWriter<'_> {
+impl<'samples> SamplesWriter for FlatSamplesWriter<'samples> {
     fn extract_line(&self, line: LineRefMut<'_>) {
-        let image_width = self.resolution.width(); // header.layer_size.width();
-        debug_assert_ne!(image_width, 0, "image width calculation bug");
+        use crate::math::div_p;
 
-        let start_index = line.location.position.y() * image_width + line.location.position.x();
+        debug_assert_ne!(
+            self.subsampled_resolution.width(),
+            0,
+            "sample buffer width calculation bug"
+        );
+
+        // Convert full-resolution coordinates to subsampled coordinates
+        // For a channel with sampling (2, 2), pixel position (4, 6) maps to
+        // sample position (2, 3)
+        let subsampled_x = div_p(line.location.position.x() as i32, self.x_sampling) as usize;
+        let subsampled_y = div_p(line.location.position.y() as i32, self.y_sampling) as usize;
+
+        // Calculate the index into the subsampled buffer
+        let start_index = subsampled_y * self.subsampled_resolution.width() + subsampled_x;
         let end_index = start_index + line.location.sample_count;
 
         debug_assert!(
             start_index < end_index && end_index <= self.samples.len(),
-            "for resolution {:?}, this is an invalid line: {:?}",
-            self.resolution,
+            "for subsampled resolution {:?}, this is an invalid line: {:?}",
+            self.subsampled_resolution,
             line.location
         );
 
@@ -152,19 +187,23 @@ where
 
     fn infer_level_modes(&self) -> (LevelMode, RoundingMode) {
         match self {
-            Self::Singular(_) => (LevelMode::Singular, RoundingMode::Down),
-            Self::Mip {
+            Levels::Singular(_) => (LevelMode::Singular, RoundingMode::Down),
+            Levels::Mip {
                 rounding_mode,
                 ..
             } => (LevelMode::MipMap, *rounding_mode),
-            Self::Rip {
+            Levels::Rip {
                 rounding_mode,
                 ..
             } => (LevelMode::RipMap, *rounding_mode),
         }
     }
 
-    fn create_samples_writer(&'samples self, header: &Header) -> Self::Writer {
+    fn create_samples_writer(
+        &'samples self,
+        header: &Header,
+        sampling: Vec2<usize>,
+    ) -> Self::Writer {
         let rounding = match header.blocks {
             BlockDescription::Tiles(TileDescription {
                 rounding_mode,
@@ -175,10 +214,10 @@ where
 
         LevelsWriter {
             levels: match self {
-                Self::Singular(level) => {
-                    Levels::Singular(level.create_level_writer(header.layer_size))
+                Levels::Singular(level) => {
+                    Levels::Singular(level.create_level_writer(header.layer_size, sampling))
                 }
-                Self::Mip {
+                Levels::Mip {
                     level_data,
                     rounding_mode,
                 } => {
@@ -203,12 +242,12 @@ where
                             ))
                             // .map(|level| level.create_samples_writer(header))
                             .map(|(level, (_level_index, level_size))| {
-                                level.create_level_writer(level_size)
+                                level.create_level_writer(level_size, sampling)
                             })
                             .collect(),
                     }
                 }
-                Self::Rip {
+                Levels::Rip {
                     level_data,
                     rounding_mode,
                 } => {
@@ -239,7 +278,7 @@ where
                                     header.layer_size,
                                 ))
                                 .map(|(level, (_level_index, level_size))| {
-                                    level.create_level_writer(level_size)
+                                    level.create_level_writer(level_size, sampling)
                                 })
                                 .collect(),
                         },
@@ -264,6 +303,6 @@ where
         self.levels
             .get_level(line.location.level)
             .expect("invalid level index") // TODO compute level size from line index??
-            .extract_line(line);
+            .extract_line(line)
     }
 }

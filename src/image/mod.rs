@@ -46,7 +46,7 @@ use crate::{
 };
 
 /// Don't do anything
-pub(crate) const fn ignore_progress(_progress: f64) {}
+pub(crate) fn ignore_progress(_progress: f64) {}
 
 /// This image type contains all supported exr features and can represent almost
 /// any image. It currently does not support deep data yet.
@@ -161,7 +161,6 @@ pub enum Blocks {
 }
 
 /// A grid of pixels. The pixels are written to your custom pixel storage.
-///
 /// `PixelStorage` can be anything, from a flat `Vec<f16>` to
 /// `Vec<Vec<AnySample>>`, as desired. In order to write this image to a file,
 /// your `PixelStorage` must implement [`GetPixel`].
@@ -180,7 +179,7 @@ pub struct SpecificChannels<Pixels, ChannelsDescription> {
 
 /// A dynamic list of arbitrary channels.
 /// `Samples` can currently only be `FlatSamples` or `Levels<FlatSamples>`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AnyChannels<Samples> {
     /// This list must be sorted alphabetically, by channel name.
     /// Use `AnyChannels::sorted` for automatic sorting.
@@ -189,7 +188,7 @@ pub struct AnyChannels<Samples> {
 
 /// A single arbitrary channel.
 /// `Samples` can currently only be `FlatSamples` or `Levels<FlatSamples>`
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AnyChannel<Samples> {
     /// One of "R", "G", or "B" most of the time.
     pub name: Text,
@@ -321,7 +320,7 @@ impl<SampleStorage, Channels> SpecificChannels<SampleStorage, Channels> {
     /// The `Channels` must be a tuple containing either `ChannelDescription` or
     /// `Option<ChannelDescription>`. The length of the tuple dictates the
     /// number of channels in the sample storage.
-    pub const fn new(channels: Channels, source_samples: SampleStorage) -> Self
+    pub fn new(channels: Channels, source_samples: SampleStorage) -> Self
     where
         SampleStorage: GetPixel,
         SampleStorage::Pixel: IntoRecursive,
@@ -329,7 +328,7 @@ impl<SampleStorage, Channels> SpecificChannels<SampleStorage, Channels> {
         <Channels as IntoRecursive>::Recursive:
             WritableChannelsDescription<<SampleStorage::Pixel as IntoRecursive>::Recursive>,
     {
-        Self {
+        SpecificChannels {
             channels,
             pixels: source_samples,
         }
@@ -441,7 +440,7 @@ impl<RecursiveChannels: CheckDuplicates, RecursivePixel>
 
         SpecificChannelsBuilder {
             channels: Recursive::new(self.channels, channel),
-            px: PhantomData,
+            px: PhantomData::default(),
         }
     }
 
@@ -511,7 +510,7 @@ impl<SampleStorage>
         A: IntoSample,
         SampleStorage: GetPixel<Pixel = (R, G, B, A)>,
     {
-        Self {
+        SpecificChannels {
             channels: (
                 ChannelDescription::named("R", R::PREFERRED_SAMPLE_TYPE),
                 ChannelDescription::named("G", G::PREFERRED_SAMPLE_TYPE),
@@ -538,7 +537,7 @@ impl<SampleStorage>
         B: IntoSample,
         SampleStorage: GetPixel<Pixel = (R, G, B)>,
     {
-        Self {
+        SpecificChannels {
             channels: (
                 ChannelDescription::named("R", R::PREFERRED_SAMPLE_TYPE),
                 ChannelDescription::named("G", G::PREFERRED_SAMPLE_TYPE),
@@ -561,7 +560,7 @@ impl Layer<AnyChannels<FlatSamples>> {
     }
 
     /// Lookup all channels of a single pixel in the image
-    pub const fn samples_at(&self, position: Vec2<usize>) -> FlatSampleIterator<'_> {
+    pub fn samples_at(&self, position: Vec2<usize>) -> FlatSampleIterator<'_> {
         FlatSampleIterator {
             layer: self,
             channel_index: 0,
@@ -623,7 +622,7 @@ impl<LevelSamples> Levels<LevelSamples> {
     /// Get a resolution level by index, sorted by size, decreasing.
     pub fn get_level(&self, level: Vec2<usize>) -> Result<&LevelSamples> {
         match self {
-            Self::Singular(block) => {
+            Levels::Singular(block) => {
                 debug_assert_eq!(
                     level,
                     Vec2(0, 0),
@@ -632,7 +631,7 @@ impl<LevelSamples> Levels<LevelSamples> {
                 Ok(block)
             }
 
-            Self::Mip {
+            Levels::Mip {
                 level_data,
                 ..
             } => {
@@ -641,21 +640,13 @@ impl<LevelSamples> Levels<LevelSamples> {
                     level.y(),
                     "mip map levels must be equal on x and y bug"
                 );
-                level_data.get(level.x()).ok_or_else(|| {
-                    Error::invalid(format!(
-                        "mip level index {} out of range (max: {})",
-                        level.x(),
-                        level_data.len().saturating_sub(1)
-                    ))
-                })
+                level_data.get(level.x()).ok_or(Error::invalid("block mip level index"))
             }
 
-            Self::Rip {
+            Levels::Rip {
                 level_data,
                 ..
-            } => level_data
-                .get_by_level(level)
-                .ok_or_else(|| Error::invalid(format!("rip level index {level:?} not found"))),
+            } => level_data.get_by_level(level).ok_or(Error::invalid("block rip level index")),
         }
     }
 
@@ -663,7 +654,7 @@ impl<LevelSamples> Levels<LevelSamples> {
     // TODO storage order for RIP maps?
     pub fn get_level_mut(&mut self, level: Vec2<usize>) -> Result<&mut LevelSamples> {
         match self {
-            Self::Singular(ref mut block) => {
+            Levels::Singular(ref mut block) => {
                 debug_assert_eq!(
                     level,
                     Vec2(0, 0),
@@ -672,7 +663,7 @@ impl<LevelSamples> Levels<LevelSamples> {
                 Ok(block)
             }
 
-            Self::Mip {
+            Levels::Mip {
                 level_data,
                 ..
             } => {
@@ -681,33 +672,25 @@ impl<LevelSamples> Levels<LevelSamples> {
                     level.y(),
                     "mip map levels must be equal on x and y bug"
                 );
-                let max_level = level_data.len().saturating_sub(1);
-                let level_index = level.x();
-                level_data.get_mut(level_index).ok_or_else(|| {
-                    Error::invalid(format!(
-                        "mip level index {level_index} out of range (max: {max_level})"
-                    ))
-                })
+                level_data.get_mut(level.x()).ok_or(Error::invalid("block mip level index"))
             }
 
-            Self::Rip {
+            Levels::Rip {
                 level_data,
                 ..
-            } => level_data
-                .get_by_level_mut(level)
-                .ok_or_else(|| Error::invalid(format!("rip level index {level:?} not found"))),
+            } => level_data.get_by_level_mut(level).ok_or(Error::invalid("block rip level index")),
         }
     }
 
     /// Get a slice of all resolution levels, sorted by size, decreasing.
     pub fn levels_as_slice(&self) -> &[LevelSamples] {
         match self {
-            Self::Singular(data) => std::slice::from_ref(data),
-            Self::Mip {
+            Levels::Singular(data) => std::slice::from_ref(data),
+            Levels::Mip {
                 level_data,
                 ..
             } => level_data,
-            Self::Rip {
+            Levels::Rip {
                 level_data,
                 ..
             } => &level_data.map_data,
@@ -718,12 +701,12 @@ impl<LevelSamples> Levels<LevelSamples> {
     /// decreasing.
     pub fn levels_as_slice_mut(&mut self) -> &mut [LevelSamples] {
         match self {
-            Self::Singular(data) => std::slice::from_mut(data),
-            Self::Mip {
+            Levels::Singular(data) => std::slice::from_mut(data),
+            Levels::Mip {
                 level_data,
                 ..
             } => level_data,
-            Self::Rip {
+            Levels::Rip {
                 level_data,
                 ..
             } => &mut level_data.map_data,
@@ -744,13 +727,13 @@ impl<LevelSamples> Levels<LevelSamples> {
     // }
 
     /// Whether this stores multiple resolution levels.
-    pub const fn level_mode(&self) -> LevelMode {
+    pub fn level_mode(&self) -> LevelMode {
         match self {
-            Self::Singular(_) => LevelMode::Singular,
-            Self::Mip {
+            Levels::Singular(_) => LevelMode::Singular,
+            Levels::Mip {
                 ..
             } => LevelMode::MipMap,
-            Self::Rip {
+            Levels::Rip {
                 ..
             } => LevelMode::RipMap,
         }
@@ -781,23 +764,23 @@ impl FlatSamples {
     /// height. Might vary when subsampling is used.
     pub fn len(&self) -> usize {
         match self {
-            Self::F16(vec) => vec.len(),
-            Self::F32(vec) => vec.len(),
-            Self::U32(vec) => vec.len(),
+            FlatSamples::F16(vec) => vec.len(),
+            FlatSamples::F32(vec) => vec.len(),
+            FlatSamples::U32(vec) => vec.len(),
         }
     }
 
     /// Views all samples in this storage as f32.
     /// Matches the underlying sample type again for every sample,
     /// match yourself if performance is critical! Does not allocate.
-    pub fn values_as_f32(&self) -> impl '_ + Iterator<Item = f32> {
-        self.values().map(super::block::samples::Sample::to_f32)
+    pub fn values_as_f32<'s>(&'s self) -> impl 's + Iterator<Item = f32> {
+        self.values().map(|sample| sample.to_f32())
     }
 
     /// All samples in this storage as iterator.
     /// Matches the underlying sample type again for every sample,
     /// match yourself if performance is critical! Does not allocate.
-    pub fn values(&self) -> impl '_ + Iterator<Item = Sample> {
+    pub fn values<'s>(&'s self) -> impl 's + Iterator<Item = Sample> {
         (0..self.len()).map(move |index| self.value_by_flat_index(index))
     }
 
@@ -806,9 +789,9 @@ impl FlatSamples {
     /// which computes the index in a flattened array of pixel rows.
     pub fn value_by_flat_index(&self, index: usize) -> Sample {
         match self {
-            Self::F16(vec) => Sample::F16(vec[index]),
-            Self::F32(vec) => Sample::F32(vec[index]),
-            Self::U32(vec) => Sample::U32(vec[index]),
+            FlatSamples::F16(vec) => Sample::F16(vec[index]),
+            FlatSamples::F32(vec) => Sample::F32(vec[index]),
+            FlatSamples::U32(vec) => Sample::U32(vec[index]),
         }
     }
 }
@@ -826,7 +809,7 @@ impl<'s, ChannelData: 's> Layer<ChannelData> {
     where
         ChannelData: WritableChannels<'s>,
     {
-        Self {
+        Layer {
             channel_data: channels,
             attributes,
             size: dimensions.into(),
@@ -869,21 +852,21 @@ impl Encoding {
     /// Run-length encoding with tiles of 64x64 pixels. This is the recommended
     /// default encoding. Almost as fast as uncompressed data, but optimizes
     /// single-colored areas such as mattes and masks.
-    pub const FAST_LOSSLESS: Self = Self {
+    pub const FAST_LOSSLESS: Encoding = Encoding {
         compression: Compression::RLE,
         blocks: Blocks::Tiles(Vec2(64, 64)), // optimize for RLE compression
         line_order: LineOrder::Unspecified,
     };
     /// PIZ compression with tiles of 256x256 pixels. Small images, not too
     /// slow.
-    pub const SMALL_FAST_LOSSLESS: Self = Self {
+    pub const SMALL_FAST_LOSSLESS: Encoding = Encoding {
         compression: Compression::PIZ,
         blocks: Blocks::Tiles(Vec2(256, 256)),
         line_order: LineOrder::Unspecified,
     };
     /// ZIP compression with blocks of 16 lines. Slow, but produces small files
     /// without visible artefacts.
-    pub const SMALL_LOSSLESS: Self = Self {
+    pub const SMALL_LOSSLESS: Encoding = Encoding {
         compression: Compression::ZIP16,
         blocks: Blocks::ScanLines, /* largest possible, but also with high probability of
                                     * parallel workers */
@@ -891,7 +874,7 @@ impl Encoding {
     };
     /// No compression. Massive space requirements.
     /// Fast, because it minimizes data shuffling and reallocation.
-    pub const UNCOMPRESSED: Self = Self {
+    pub const UNCOMPRESSED: Encoding = Encoding {
         compression: Compression::Uncompressed,
         blocks: Blocks::ScanLines,         // longest lines, faster memcpy
         line_order: LineOrder::Increasing, // presumably fastest?
@@ -900,7 +883,7 @@ impl Encoding {
 
 impl Default for Encoding {
     fn default() -> Self {
-        Self::FAST_LOSSLESS
+        Encoding::FAST_LOSSLESS
     }
 }
 
@@ -910,8 +893,8 @@ where
 {
     /// Create an image with one or multiple layers. The layer can be a `Layer`,
     /// or `Layers` small vector, or `Vec<Layer>` or `&[Layer]`.
-    pub const fn new(image_attributes: ImageAttributes, layer_data: LayerData) -> Self {
-        Self {
+    pub fn new(image_attributes: ImageAttributes, layer_data: LayerData) -> Self {
+        Image {
             attributes: image_attributes,
             layer_data,
         }
@@ -964,8 +947,7 @@ impl Image<NoneMore> {
     /// Create an empty image, to be filled with layers later on. Add at least
     /// one layer to obtain a valid image. Call `with_layer(another_layer)`
     /// for each layer you want to add to this image.
-    #[must_use]
-    pub const fn empty(attributes: ImageAttributes) -> Self {
+    pub fn empty(attributes: ImageAttributes) -> Self {
         Self {
             attributes,
             layer_data: NoneMore,
@@ -1007,7 +989,7 @@ impl<'s, SampleData: 's> AnyChannel<SampleData> {
     {
         let name: Text = name.into();
 
-        Self {
+        AnyChannel {
             quantize_linearly: ChannelDescription::guess_quantization_linearity(&name),
             name,
             sample_data,
@@ -1027,15 +1009,15 @@ impl std::fmt::Debug for FlatSamples {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.len() <= 6 {
             match self {
-                Self::F16(vec) => vec.fmt(formatter),
-                Self::F32(vec) => vec.fmt(formatter),
-                Self::U32(vec) => vec.fmt(formatter),
+                FlatSamples::F16(vec) => vec.fmt(formatter),
+                FlatSamples::F32(vec) => vec.fmt(formatter),
+                FlatSamples::U32(vec) => vec.fmt(formatter),
             }
         } else {
             match self {
-                Self::F16(vec) => write!(formatter, "[f16; {}]", vec.len()),
-                Self::F32(vec) => write!(formatter, "[f32; {}]", vec.len()),
-                Self::U32(vec) => write!(formatter, "[u32; {}]", vec.len()),
+                FlatSamples::F16(vec) => write!(formatter, "[f16; {}]", vec.len()),
+                FlatSamples::F32(vec) => write!(formatter, "[f32; {}]", vec.len()),
+                FlatSamples::U32(vec) => write!(formatter, "[u32; {}]", vec.len()),
             }
         }
     }

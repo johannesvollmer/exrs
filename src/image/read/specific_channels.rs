@@ -1,10 +1,15 @@
 //! How to read arbitrary but specific selection of arbitrary channels.
 //! This is not a zero-cost abstraction.
 
-use std::marker::PhantomData;
+use std::{convert::TryFrom, marker::PhantomData};
 
 use crate::{
-    block::{chunk::TileCoordinates, samples::*, UncompressedBlock},
+    block::{
+        chunk::TileCoordinates,
+        lines::{LineIndex, LineRef},
+        samples::*,
+        UncompressedBlock,
+    },
     error::*,
     image::{
         read::layers::{ChannelsReader, ReadChannels},
@@ -17,7 +22,6 @@ use crate::{
 };
 
 /// Can be attached one more channel reader.
-///
 /// Call `required` or `optional` on this object to declare another channel to
 /// be read from the file. Call `collect_pixels` at last to define how the
 /// previously declared pixels should be stored.
@@ -113,10 +117,20 @@ pub trait RecursivePixelReader {
     /// The pixel type. Will be converted to a tuple at the end of the process.
     type RecursivePixel: Copy + Default + 'static;
 
-    /// Read the line of pixels.
-    fn read_pixels<FullPixel>(
+    /// Prepare a scanline before reading any channel data (e.g. to fill default
+    /// values).
+    fn prepare_scanline<FullPixel>(
         &self,
-        bytes: &[u8],
+        pixels: &mut [FullPixel],
+        get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel,
+    );
+
+    /// Read a single channel line of pixels.
+    fn read_line<'s, FullPixel>(
+        &self,
+        line: LineRef<'s>,
+        block_x_min: i32,
+        block_x_max: i32,
         pixels: &mut [FullPixel],
         get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel,
     );
@@ -229,32 +243,40 @@ where
     // TODO all levels
 
     fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult {
-        let mut pixels = vec![PxReader::RecursivePixel::default(); block.index.pixel_size.width()]; // TODO allocate once in self
+        let width = block.index.pixel_size.width();
+        let mut pixels = vec![PxReader::RecursivePixel::default(); width];
+        let mut lines = LineIndex::lines_in_block(block.index, &header.channels).peekable();
+        let x_min = block.index.pixel_position.x() as i32;
+        let x_max = x_min + width as i32 - 1;
+        let y_start = block.index.pixel_position.y();
+        let y_end = y_start + block.index.pixel_size.height();
 
-        let byte_lines = block
-            .data
-            .chunks_exact(header.channels.bytes_per_pixel * block.index.pixel_size.width());
-        debug_assert_eq!(
-            byte_lines.len(),
-            block.index.pixel_size.height(),
-            "invalid block lines split"
-        );
+        for y in y_start..y_end {
+            pixels.iter_mut().for_each(|px| *px = PxReader::RecursivePixel::default());
+            self.pixel_reader.prepare_scanline(&mut pixels, |px| px);
 
-        for (y_offset, line_bytes) in byte_lines.enumerate() {
-            // TODO sampling
-            // this two-step copy method should be very cache friendly in
-            // theory, and also reduce sample_type lookup count
-            self.pixel_reader.read_pixels(line_bytes, &mut pixels, |px| px);
+            while let Some((_, line_index)) = lines.peek() {
+                if line_index.position.y() != y {
+                    break;
+                }
+
+                let (byte_range, line_index) = lines.next().expect("peek returned Some");
+                let line_bytes = &block.data[byte_range];
+                let line_ref = LineRef {
+                    location: line_index,
+                    value: line_bytes,
+                };
+
+                self.pixel_reader.read_line(line_ref, x_min, x_max, &mut pixels, |px| px);
+            }
 
             for (x_offset, pixel) in pixels.iter().enumerate() {
-                let set_pixel = &self.set_pixel;
-                set_pixel(
-                    &mut self.pixel_storage,
-                    block.index.pixel_position + Vec2(x_offset, y_offset),
-                    pixel.into_tuple(),
-                );
+                let position = Vec2(block.index.pixel_position.x() + x_offset, y);
+                (self.set_pixel)(&mut self.pixel_storage, position, pixel.into_tuple());
             }
         }
+
+        debug_assert!(lines.next().is_none(), "not all line data consumed for block");
 
         Ok(())
     }
@@ -272,10 +294,10 @@ where
 pub type ReadZeroChannels = NoneMore;
 
 impl ReadSpecificChannel for NoneMore {
-    type RecursivePixelReader = Self;
+    type RecursivePixelReader = NoneMore;
 
     fn create_recursive_reader(&self, _: &ChannelList) -> Result<Self::RecursivePixelReader> {
-        Ok(Self)
+        Ok(NoneMore)
     }
 }
 
@@ -300,10 +322,12 @@ where
 
         let inner_samples_reader = self.previous_channels.create_recursive_reader(channels)?;
         let reader = channels
-            .channels_with_byte_offset()
+            .list
+            .iter()
+            .enumerate()
             .find(|(_, channel)| channel.name == self.channel_name)
-            .map(|(channel_byte_offset, channel)| SampleReader {
-                channel_byte_offset,
+            .map(|(channel_index, channel)| SampleReader {
+                channel_index,
                 channel: channel.clone(),
                 px: Default::default(),
             });
@@ -330,8 +354,10 @@ where
         channels: &ChannelList,
     ) -> Result<Self::RecursivePixelReader> {
         let previous_samples_reader = self.previous_channels.create_recursive_reader(channels)?;
-        let (channel_byte_offset, channel) = channels
-            .channels_with_byte_offset()
+        let (channel_index, channel) = channels
+            .list
+            .iter()
+            .enumerate()
             .find(|(_, channel)| channel.name == self.channel_name)
             .ok_or_else(|| {
                 Error::invalid(format!(
@@ -343,7 +369,7 @@ where
         Ok(Recursive::new(
             previous_samples_reader,
             SampleReader {
-                channel_byte_offset,
+                channel_index,
                 channel: channel.clone(),
                 px: Default::default(),
             },
@@ -355,9 +381,7 @@ where
 /// f32, u32).
 #[derive(Clone, Debug)]
 pub struct SampleReader<Sample> {
-    /// to be multiplied with line width!
-    channel_byte_offset: usize,
-
+    channel_index: usize,
     channel: ChannelDescription,
     px: PhantomData<Sample>,
 }
@@ -372,41 +396,95 @@ pub struct OptionalSampleReader<DefaultSample> {
 }
 
 impl<Sample: FromNativeSample> SampleReader<Sample> {
-    fn read_own_samples<FullPixel>(
+    fn read_line<'s, FullPixel>(
         &self,
-        bytes: &[u8],
+        line: LineRef<'s>,
+        block_x_min: i32,
+        block_x_max: i32,
         pixels: &mut [FullPixel],
         get_sample: impl Fn(&mut FullPixel) -> &mut Sample,
     ) {
-        let start_index = pixels.len() * self.channel_byte_offset;
-        let byte_count = pixels.len() * self.channel.sample_type.bytes_per_sample();
-        let mut own_bytes_reader = &mut &bytes[start_index..start_index + byte_count]; // TODO check block size somewhere
-        let mut samples_out = pixels.iter_mut().map(get_sample);
+        if line.location.sample_count == 0 {
+            debug_assert!(
+                line.value.is_empty(),
+                "line bytes should be empty when sample count is zero"
+            );
+            return;
+        }
+
+        debug_assert_eq!(
+            line.location.channel, self.channel_index,
+            "line dispatched to wrong reader"
+        );
+
+        let bytes_per_sample = self.channel.sample_type.bytes_per_sample();
+        debug_assert_eq!(
+            line.value.len(),
+            line.location.sample_count * bytes_per_sample,
+            "line byte count mismatch"
+        );
+
+        let y = line.location.position.y() as i32;
+        debug_assert!(
+            self.channel.has_samples_at_y(y),
+            "line at y={} is invalid for channel {:?}",
+            y,
+            self.channel.name
+        );
+
+        let mut own_bytes_reader = &line.value[..];
+        let mut written_samples = 0usize;
+        let first_sample_x = first_sample_coordinate(self.channel.sampling.x(), block_x_min);
+        let step = self.channel.sampling.x() as i32;
+        let mut write_samples = |converted: &[Sample]| {
+            for sample in converted {
+                let x = first_sample_x + (written_samples as i32) * step;
+                written_samples += 1;
+                debug_assert!(x <= block_x_max, "sample x {} exceeds block max {}", x, block_x_max);
+
+                let index = usize::try_from(x - block_x_min).expect("invalid sample index");
+                *get_sample(&mut pixels[index]) = *sample;
+            }
+        };
 
         // match the type once for the whole line, not on every single sample
         match self.channel.sample_type {
             SampleType::F16 => read_and_convert_all_samples_batched(
                 &mut own_bytes_reader,
-                &mut samples_out,
+                line.location.sample_count,
+                &mut write_samples,
                 Sample::from_f16s,
             ),
 
             SampleType::F32 => read_and_convert_all_samples_batched(
                 &mut own_bytes_reader,
-                &mut samples_out,
+                line.location.sample_count,
+                &mut write_samples,
                 Sample::from_f32s,
             ),
 
             SampleType::U32 => read_and_convert_all_samples_batched(
                 &mut own_bytes_reader,
-                &mut samples_out,
+                line.location.sample_count,
+                &mut write_samples,
                 Sample::from_u32s,
             ),
         }
 
-        debug_assert!(samples_out.next().is_none(), "not all samples have been converted");
+        debug_assert!(
+            written_samples == line.location.sample_count,
+            "not all samples have been read"
+        );
         debug_assert!(own_bytes_reader.is_empty(), "bytes left after reading all samples");
     }
+}
+
+fn first_sample_coordinate(x_sampling: usize, block_x_min: i32) -> i32 {
+    let mut current = div_p(block_x_min, x_sampling) * x_sampling as i32;
+    if mod_p(block_x_min, x_sampling) != 0 {
+        current += x_sampling as i32;
+    }
+    current
 }
 
 /// Does the same as `convert_batch(in_bytes.chunks().map(From::from_bytes))`,
@@ -414,69 +492,48 @@ impl<Sample: FromNativeSample> SampleReader<Sample> {
 /// specified in the file, and then converts those to the desired sample types.
 /// Uses batches to allow vectorization, converting multiple values with one
 /// instruction. Does not convert endianness.
-fn read_and_convert_all_samples_batched<'t, From, To>(
+fn read_and_convert_all_samples_batched<From, To>(
     mut in_bytes: impl Read,
-    out_samples: &mut impl ExactSizeIterator<Item = &'t mut To>,
+    total_sample_count: usize,
+    mut write_samples: impl FnMut(&[To]),
     convert_batch: fn(&[From], &mut [To]),
 ) where
     From: Data + Default + Copy,
-    To: 't + Default + Copy,
+    To: Default + Copy,
 {
-    // this is not a global! why is this warning triggered?
     #[allow(non_upper_case_globals)]
-    const batch_size: usize = 16;
+    const BATCH_SIZE: usize = 16;
 
-    let total_sample_count = out_samples.len();
-    let batch_count = total_sample_count / batch_size;
-    let remaining_samples_count = total_sample_count % batch_size;
+    let batch_count = total_sample_count / BATCH_SIZE;
+    let remaining_samples_count = total_sample_count % BATCH_SIZE;
 
-    let len_error_msg = "sample count was miscalculated";
     let byte_error_msg = "error when reading from in-memory slice";
 
-    // write samples from a given slice to the output iterator. should be
-    // inlined.
-    let output_n_samples = &mut move |samples: &[To]| {
-        for converted_sample in samples {
-            *out_samples.next().expect(len_error_msg) = *converted_sample;
-        }
-    };
+    let mut source_samples_batch: [From; BATCH_SIZE] = Default::default();
+    let mut desired_samples_batch: [To; BATCH_SIZE] = Default::default();
 
-    // read samples from the byte source into a given slice. should be inlined.
-    // todo: use #[inline] when available
-    // error[E0658]: attributes on expressions are experimental,
-    // see issue #15701 <https://github.com/rust-lang/rust/issues/15701> for more information
     let read_n_samples = &mut move |samples: &mut [From]| {
         Data::read_slice_ne(&mut in_bytes, samples).expect(byte_error_msg);
     };
 
-    // temporary arrays with fixed size, operations should be vectorized within
-    // these arrays
-    let mut source_samples_batch: [From; batch_size] = Default::default();
-    let mut desired_samples_batch: [To; batch_size] = Default::default();
-
-    // first convert all whole batches, size statically known to be 16 element
-    // arrays
     for _ in 0..batch_count {
         read_n_samples(&mut source_samples_batch);
         convert_batch(source_samples_batch.as_slice(), desired_samples_batch.as_mut_slice());
-        output_n_samples(&desired_samples_batch);
+        write_samples(&desired_samples_batch);
     }
 
-    // then convert a partial remaining batch, size known only at runtime
     if remaining_samples_count != 0 {
         let source_samples_batch = &mut source_samples_batch[..remaining_samples_count];
         let desired_samples_batch = &mut desired_samples_batch[..remaining_samples_count];
 
         read_n_samples(source_samples_batch);
         convert_batch(source_samples_batch, desired_samples_batch);
-        output_n_samples(desired_samples_batch);
+        write_samples(desired_samples_batch);
     }
 }
 
 #[cfg(test)]
 mod test {
-    use half::f16;
-
     use super::*;
 
     #[test]
@@ -490,9 +547,16 @@ mod test {
             let mut out_f16_samples_batched =
                 vec![f16::from_f32(rand::random::<f32>()); total_array_size];
 
+            let mut write_offset = 0usize;
             read_and_convert_all_samples_batched(
                 &mut in_f32s_bytes.as_slice(),
-                &mut out_f16_samples_batched.iter_mut(),
+                total_array_size,
+                |converted| {
+                    for sample in converted {
+                        out_f16_samples_batched[write_offset] = *sample;
+                        write_offset += 1;
+                    }
+                },
                 f16::from_f32s,
             );
 
@@ -504,18 +568,27 @@ mod test {
 }
 
 impl RecursivePixelReader for NoneMore {
-    type RecursiveChannelDescriptions = Self;
-    type RecursivePixel = Self;
+    type RecursiveChannelDescriptions = NoneMore;
+    type RecursivePixel = NoneMore;
 
     fn get_descriptions(&self) -> Self::RecursiveChannelDescriptions {
-        Self
+        NoneMore
     }
 
-    fn read_pixels<FullPixel>(
+    fn prepare_scanline<FullPixel>(
         &self,
-        _: &[u8],
         _: &mut [FullPixel],
-        _: impl Fn(&mut FullPixel) -> &mut Self,
+        _: impl Fn(&mut FullPixel) -> &mut NoneMore,
+    ) {
+    }
+
+    fn read_line<'s, FullPixel>(
+        &self,
+        _: LineRef<'s>,
+        _: i32,
+        _: i32,
+        _: &mut [FullPixel],
+        _: impl Fn(&mut FullPixel) -> &mut NoneMore,
     ) {
     }
 }
@@ -533,14 +606,29 @@ where
         Recursive::new(self.inner.get_descriptions(), self.value.channel.clone())
     }
 
-    fn read_pixels<FullPixel>(
+    fn prepare_scanline<FullPixel>(
         &self,
-        bytes: &[u8],
         pixels: &mut [FullPixel],
         get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel,
     ) {
-        self.value.read_own_samples(bytes, pixels, |px| &mut get_pixel(px).value);
-        self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
+        self.inner.prepare_scanline(pixels, |px| &mut get_pixel(px).inner);
+    }
+
+    fn read_line<'s, FullPixel>(
+        &self,
+        line: LineRef<'s>,
+        block_x_min: i32,
+        block_x_max: i32,
+        pixels: &mut [FullPixel],
+        get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel,
+    ) {
+        if line.location.channel == self.value.channel_index {
+            self.value
+                .read_line(line, block_x_min, block_x_max, pixels, |px| &mut get_pixel(px).value);
+        } else {
+            self.inner
+                .read_line(line, block_x_min, block_x_max, pixels, |px| &mut get_pixel(px).inner);
+        }
     }
 }
 
@@ -560,22 +648,37 @@ where
         )
     }
 
-    fn read_pixels<FullPixel>(
+    fn prepare_scanline<FullPixel>(
         &self,
-        bytes: &[u8],
         pixels: &mut [FullPixel],
         get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel,
     ) {
-        if let Some(reader) = &self.value.reader {
-            reader.read_own_samples(bytes, pixels, |px| &mut get_pixel(px).value);
-        } else {
-            // if this channel is optional and was not found in the file, fill
-            // the default sample
+        self.inner.prepare_scanline(pixels, |px| &mut get_pixel(px).inner);
+
+        if self.value.reader.is_none() {
             for pixel in pixels.iter_mut() {
                 get_pixel(pixel).value = self.value.default_sample;
             }
         }
+    }
 
-        self.inner.read_pixels(bytes, pixels, |px| &mut get_pixel(px).inner);
+    fn read_line<'s, FullPixel>(
+        &self,
+        line: LineRef<'s>,
+        block_x_min: i32,
+        block_x_max: i32,
+        pixels: &mut [FullPixel],
+        get_pixel: impl Fn(&mut FullPixel) -> &mut Self::RecursivePixel,
+    ) {
+        if let Some(reader) = &self.value.reader {
+            if line.location.channel == reader.channel_index {
+                reader.read_line(line, block_x_min, block_x_max, pixels, |px| {
+                    &mut get_pixel(px).value
+                });
+                return;
+            }
+        }
+
+        self.inner.read_line(line, block_x_min, block_x_max, pixels, |px| &mut get_pixel(px).inner);
     }
 }

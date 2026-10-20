@@ -1,7 +1,8 @@
 //! Write an exr image to a file.
 //!
 //! First, call `my_image.write()`. The resulting value can be customized, like
-//! this: ```no_run
+//! this:
+//! ```no_run
 //! use exr::prelude::*;
 //! #   let my_image: FlatImage = unimplemented!();
 //!
@@ -32,7 +33,6 @@ use crate::{
 };
 
 /// An oversimplified function for "just write the damn file already" use cases.
-///
 /// Have a look at the examples to see how you can write an image with more
 /// flexibility (it's not that hard). Use `write_rgb_file` if you do not need an
 /// alpha channel.
@@ -57,7 +57,6 @@ where
 }
 
 /// An oversimplified function for "just write the damn file already" use cases.
-///
 /// Have a look at the examples to see how you can write an image with more
 /// flexibility (it's not that hard). Use `write_rgb_file` if you do not need an
 /// alpha channel.

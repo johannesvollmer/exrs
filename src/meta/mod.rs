@@ -24,7 +24,6 @@ use crate::{
 // TODO rename MetaData to ImageInfo?
 
 /// Contains the complete meta data of an exr image.
-///
 /// Defines how the image is split up in the file,
 /// the number and type of images and channels,
 /// and various other attributes.
@@ -47,13 +46,11 @@ pub type Headers = SmallVec<[Header; 3]>;
 pub type OffsetTables = SmallVec<[OffsetTable; 3]>;
 
 /// The offset table is an ordered list of indices referencing pixel data in the
-/// exr file.
-///
-/// For each pixel tile in the image, an index exists, which points to the
-/// byte-location of the corresponding pixel data in the file. That index can be
-/// used to load specific portions of an image without processing all bytes in a
-/// file. For each header, an offset table exists with its indices ordered by
-/// `LineOrder::Increasing`.
+/// exr file. For each pixel tile in the image, an index exists, which points to
+/// the byte-location of the corresponding pixel data in the file. That index
+/// can be used to load specific portions of an image without processing all
+/// bytes in a file. For each header, an offset table exists with its indices
+/// ordered by `LineOrder::Increasing`.
 // If the multipart bit is unset and the chunkCount attribute is not present,
 // the number of entries in the chunk table is computed using the
 // dataWindow, tileDesc, and compression attribute.
@@ -63,10 +60,9 @@ pub type OffsetTables = SmallVec<[OffsetTable; 3]>;
 pub type OffsetTable = Vec<u64>;
 
 /// A summary of requirements that must be met to read this exr file.
-///
 /// Used to determine whether this file can be read by a given reader.
-/// It includes the `OpenEXR` version number. This library aims to support
-/// version `2.0`.
+/// It includes the OpenEXR version number. This library aims to support version
+/// `2.0`.
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Hash)]
 pub struct Requirements {
     /// This library supports reading version 1 and 2, and writing version 2.
@@ -142,7 +138,7 @@ impl BlockDescription {
     /// line blocks.
     pub fn has_tiles(&self) -> bool {
         match self {
-            Self::Tiles {
+            BlockDescription::Tiles {
                 ..
             } => true,
             _ => false,
@@ -203,7 +199,7 @@ pub mod sequence_end {
 }
 
 fn missing_attribute(name: &str) -> Error {
-    Error::invalid(format!("missing or invalid {name} attribute"))
+    Error::invalid(format!("missing or invalid {} attribute", name))
 }
 
 /// Compute the number of tiles required to contain all values.
@@ -236,9 +232,7 @@ pub fn calculate_block_size(
     block_position: usize,
 ) -> Result<usize> {
     if block_position >= total_size {
-        return Err(Error::invalid(format!(
-            "block position {block_position} exceeds total size {total_size}"
-        )));
+        return Err(Error::invalid("block index"));
     }
 
     if block_position + block_size <= total_size {
@@ -390,7 +384,7 @@ impl MetaData {
     #[must_use]
     pub fn read_from_buffered(buffered: impl Read, pedantic: bool) -> Result<Self> {
         let mut read = PeekRead::new(buffered);
-        Self::read_unvalidated_from_buffered_peekable(&mut read, pedantic)
+        MetaData::read_unvalidated_from_buffered_peekable(&mut read, pedantic)
     }
 
     /// Does __not validate__ the meta data completely.
@@ -411,7 +405,7 @@ impl MetaData {
 
         // TODO check if supporting requirements 2 always implies supporting
         // requirements 1
-        Ok(Self {
+        Ok(MetaData {
             requirements,
             headers,
         })
@@ -424,7 +418,7 @@ impl MetaData {
         pedantic: bool,
     ) -> Result<Self> {
         let meta_data = Self::read_unvalidated_from_buffered_peekable(read, !pedantic)?;
-        Self::validate(meta_data.headers.as_slice(), pedantic)?;
+        MetaData::validate(meta_data.headers.as_slice(), pedantic)?;
         Ok(meta_data)
     }
 
@@ -519,7 +513,7 @@ impl MetaData {
 
     /// Validates this meta data. Returns the minimal possible requirements.
     pub fn validate(headers: &[Header], pedantic: bool) -> Result<Requirements> {
-        if headers.is_empty() {
+        if headers.len() == 0 {
             return Err(Error::invalid("at least one layer is required"));
         }
 
@@ -639,7 +633,7 @@ impl Requirements {
             return Err(Error::unsupported("too new file feature flags"));
         }
 
-        let version = Self {
+        let version = Requirements {
             file_format_version: version,
             is_single_layer_and_tiled: is_single_tile,
             has_long_names,
@@ -656,7 +650,7 @@ impl Requirements {
 
         // the 8 least significant bits contain the file format version number
         // and the flags are set to 0
-        let mut version_and_flags = u32::from(self.file_format_version);
+        let mut version_and_flags = self.file_format_version as u32;
 
         // the 24 most significant bits are treated as a set of boolean flags
         version_and_flags.set_bit(9, self.is_single_layer_and_tiled);
@@ -813,8 +807,8 @@ mod test {
             layer_size: Vec2(2000, 333),
             own_attributes: LayerAttributes {
                 other: vec![
-                    (Text::from("x"), AttributeValue::F32(3.0)),
-                    (Text::from("y"), AttributeValue::F32(-1.0)),
+                    (Text::try_from("x").unwrap(), AttributeValue::F32(3.0)),
+                    (Text::try_from("y").unwrap(), AttributeValue::F32(-1.0)),
                 ]
                 .into_iter()
                 .collect(),
@@ -824,11 +818,11 @@ mod test {
 
         let low_requirements = MetaData::validate(&[header_version_1_short_names], true).unwrap();
 
-        assert!(!low_requirements.has_long_names);
+        assert_eq!(low_requirements.has_long_names, false);
         assert_eq!(low_requirements.file_format_version, 2); // always have
                                                              // version 2
-        assert!(!low_requirements.has_deep_data);
-        assert!(!low_requirements.has_multiple_layers);
+        assert_eq!(low_requirements.has_deep_data, false);
+        assert_eq!(low_requirements.has_multiple_layers, false);
     }
 
     #[test]
@@ -882,9 +876,9 @@ mod test {
         let low_requirements =
             MetaData::validate(&[header_version_2_long_names, layer_2], true).unwrap();
 
-        assert!(low_requirements.has_long_names);
+        assert_eq!(low_requirements.has_long_names, true);
         assert_eq!(low_requirements.file_format_version, 2);
-        assert!(!low_requirements.has_deep_data);
-        assert!(low_requirements.has_multiple_layers);
+        assert_eq!(low_requirements.has_deep_data, false);
+        assert_eq!(low_requirements.has_multiple_layers, true);
     }
 }

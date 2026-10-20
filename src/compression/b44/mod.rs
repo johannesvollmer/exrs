@@ -278,7 +278,7 @@ pub fn decompress(
 ) -> Result<ByteVec> {
     debug_assert_eq!(
         expected_byte_size,
-        rectangle.size.area() * channels.bytes_per_pixel,
+        channels.bytes_per_pixel_section(rectangle),
         "expected byte size does not match header" // TODO compute instead of passing argument?
     );
 
@@ -286,6 +286,10 @@ pub fn decompress(
 
     if compressed_le.is_empty() {
         return Ok(Vec::new());
+    }
+
+    if channels.list.iter().any(|channel| channel.sampling.x() != 1 || channel.sampling.y() != 1) {
+        return Err(Error::unsupported("B44 does not support subsampled channels"));
     }
 
     // Extract channel information needed for decompression.
@@ -506,6 +510,10 @@ pub fn compress(
 ) -> Result<ByteVec> {
     if uncompressed_ne.is_empty() {
         return Ok(Vec::new());
+    }
+
+    if channels.list.iter().any(|channel| channel.sampling.x() != 1 || channel.sampling.y() != 1) {
+        return Err(Error::unsupported("B44 does not support subsampled channels"));
     }
 
     // TODO do not convert endianness for f16-only images
