@@ -1,5 +1,3 @@
-extern crate image as png;
-
 extern crate exr;
 
 /// Read an rgba image, or fail if none can be found.

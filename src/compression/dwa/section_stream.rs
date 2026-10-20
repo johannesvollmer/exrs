@@ -123,7 +123,7 @@ pub(super) fn zip_deconstruct_bytes(bytes: &mut [u8]) {
 
 #[cfg(test)]
 mod test {
-    use rand::{Rng, SeedableRng};
+    use rand::{RngExt, SeedableRng};
 
     use super::*;
 
@@ -140,7 +140,7 @@ mod test {
         let mut random = rand::rngs::StdRng::from_seed(SEED);
 
         for length in [0usize, 1, 2, 3, 4, 5, 17, 64, 129] {
-            let original: Vec<u8> = (0..length).map(|_| random.gen()).collect();
+            let original: Vec<u8> = (0..length).map(|_| random.random()).collect();
 
             let mut deconstructed = original.clone();
             zip_deconstruct_bytes(&mut deconstructed);

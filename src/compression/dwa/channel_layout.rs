@@ -220,7 +220,7 @@ pub(super) fn write_scanlines(
 
 #[cfg(test)]
 mod test {
-    use rand::{Rng, SeedableRng};
+    use rand::{Rng, RngExt, SeedableRng};
 
     use super::*;
 
@@ -230,7 +230,7 @@ mod test {
     ];
 
     fn random_bytes(random: &mut impl Rng, count: usize) -> Vec<u8> {
-        (0..count).map(|_| random.gen()).collect()
+        (0..count).map(|_| random.random()).collect()
     }
 
     fn channel_info(scheme: CompressorScheme, width: usize, height: usize) -> ChannelInfo {

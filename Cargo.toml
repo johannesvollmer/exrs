@@ -27,13 +27,13 @@ plugin = false
 proc-macro = false
 
 [dependencies]
-lebe = "^0.5.2"                # generic binary serialization
-half = "2.1.0"                 # 16 bit float pixel data type
-bit_field = "^0.10.1"          # exr file version bit flags
-miniz_oxide = "^0.8.0"         # zip compression for pxr24
-smallvec = "^1.7.0"            # make cache-friendly allocations        TODO profile if smallvec is really an improvement!
-rayon-core = { version = "^1.11.0", optional = true }         # threading for parallel compression
-zune-inflate = { version = "^0.2.3", default-features = false, features = ["zlib"] }  # zip decompression, faster than miniz_oxide
+lebe = "^0.5.3"                # generic binary serialization
+half = "2.7.1"                 # 16 bit float pixel data type
+bit_field = "^0.10.3"          # exr file version bit flags
+flate2 = { version = "^1.1.10", default-features = false, features = ["zlib-rs"] }  # zip compression for zip/pxr24/dwa; zlib-rs backend is pure rust, no C toolchain needed
+smallvec = "^1.16.3"            # make cache-friendly allocations        TODO profile if smallvec is really an improvement!
+rayon-core = { version = "^1.13.0", optional = true }         # threading for parallel compression
+zune-inflate = { version = "^0.2.54", default-features = false, features = ["zlib"] }  # zip decompression, faster than miniz_oxide
 
 [target.'cfg(any(target_arch = "x86", target_arch = "x86_64"))'.dependencies]
 multiversion = "0.8" # runtime AVX2 selection for better performance on x86
@@ -41,12 +41,10 @@ multiversion = "0.8" # runtime AVX2 selection for better performance on x86
                      # WASM doesn't have runtime selection, simd128 is enabled/disabled at build time
 
 [dev-dependencies]
-image = { version = "0.25.2", default-features = false, features = ["png"] }         # used to convert one exr to some pngs
-
 bencher = "0.1.5"
 walkdir = "2.3.2"         # automatically test things for all files in a directory
-rand = "0.8.5"            # used for fuzz testing
-rayon = "1.5.3"           # run tests for many files in parallel
+rand = "0.10.3"            # used for fuzz testing
+rayon = "1.12.0"           # run tests for many files in parallel
 
 [features]
 default = ["rayon"]

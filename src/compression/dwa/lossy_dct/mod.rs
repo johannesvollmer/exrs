@@ -431,7 +431,7 @@ fn decode_lossy_dct_group(
 
 #[cfg(test)]
 mod test {
-    use rand::{Rng, SeedableRng};
+    use rand::{RngExt, SeedableRng};
 
     use super::*;
     use crate::image::validate_results::ValidateResult;
@@ -465,7 +465,7 @@ mod test {
     fn csc_roundtrip_seeded() {
         let mut random = rand::rngs::StdRng::from_seed(SEED);
         for _ in 0..256 {
-            let mut channel = || random.gen_range(-4.0f32..4.0);
+            let mut channel = || random.random_range(-4.0f32..4.0);
             assert_csc_roundtrips(channel(), channel(), channel());
         }
     }

@@ -170,7 +170,7 @@ pub fn compress(
     let unknown_compressed = if unknown_planar.is_empty() {
         Vec::new()
     } else {
-        miniz_oxide::deflate::compress_to_vec_zlib(&unknown_planar, 9)
+        super::compress_zlib(&unknown_planar, 9)
     };
 
     let ac_compression = AcCompression::StaticHuffman;
@@ -185,14 +185,14 @@ pub fn compress(
     } else {
         let mut dc_bytes = u16s_to_le_bytes(&dc_values);
         zip_deconstruct_bytes(&mut dc_bytes);
-        miniz_oxide::deflate::compress_to_vec_zlib(&dc_bytes, 9)
+        super::compress_zlib(&dc_bytes, 9)
     };
 
     let (rle_uncompressed_size, rle_compressed) = if rle_raw.is_empty() {
         (0, Vec::new())
     } else {
         let rle_tokens = super::rle::pack_rle_tokens(&rle_raw);
-        let compressed = miniz_oxide::deflate::compress_to_vec_zlib(&rle_tokens, 9);
+        let compressed = super::compress_zlib(&rle_tokens, 9);
         (rle_tokens.len(), compressed)
     };
 

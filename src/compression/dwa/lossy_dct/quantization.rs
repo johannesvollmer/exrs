@@ -163,7 +163,7 @@ pub(super) fn from_half_zigzag(zig_zag: &[u16; 64], dst: &mut [f32; 64]) {
 // below, which is what these tests cover.
 #[cfg(test)]
 mod test {
-    use rand::{Rng, SeedableRng};
+    use rand::{RngExt, SeedableRng};
 
     use super::*;
 
@@ -220,10 +220,10 @@ mod test {
                 // ~30% zeros to exercise runs; non-zero literals must stay out
                 // of the 0xff00..=0xffff token range the format reserves for
                 // zero-run markers.
-                *slot = if random.gen_bool(0.3) {
+                *slot = if random.random_bool(0.3) {
                     0
                 } else {
-                    random.gen_range(1..=0xfeff)
+                    random.random_range(1..=0xfeff)
                 };
             }
             assert_ac_roundtrips(block);
