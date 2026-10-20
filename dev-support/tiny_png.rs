@@ -2,13 +2,13 @@
 // (already a dependency of `exr` via the `zlib-rs` feature) instead of the
 // `image`/`png` crates.
 
-use std::fs::File;
-use std::io::{self, Read, Write};
-use std::path::Path;
+use std::{
+    fs::File,
+    io::{self, Read, Write},
+    path::Path,
+};
 
-use flate2::read::ZlibDecoder;
-use flate2::write::ZlibEncoder;
-use flate2::Compression;
+use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
 
 const SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'];
 
@@ -20,7 +20,11 @@ fn crc32(data: &[u8]) -> u32 {
             let mut c = n as u32;
             let mut k = 0;
             while k < 8 {
-                c = if c & 1 != 0 { 0xEDB88320 ^ (c >> 1) } else { c >> 1 };
+                c = if c & 1 != 0 {
+                    0xEDB88320 ^ (c >> 1)
+                } else {
+                    c >> 1
+                };
                 k += 1;
             }
             table[n] = c;
@@ -49,7 +53,11 @@ fn write_chunk(out: &mut Vec<u8>, chunk_type: &[u8; 4], data: &[u8]) {
 }
 
 fn encode_png(
-    path: impl AsRef<Path>, width: u32, height: u32, color_type: u8, bytes_per_pixel: usize,
+    path: impl AsRef<Path>,
+    width: u32,
+    height: u32,
+    color_type: u8,
+    bytes_per_pixel: usize,
     raw: &[u8],
 ) -> io::Result<()> {
     let row_len = width as usize * bytes_per_pixel;
@@ -82,14 +90,22 @@ fn encode_png(
 }
 
 /// Encode an 8-bit grayscale image (one byte per pixel) as a PNG.
-pub fn write_gray8(path: impl AsRef<Path>, width: u32, height: u32, pixels: &[u8]) -> io::Result<()> {
+pub fn write_gray8(
+    path: impl AsRef<Path>,
+    width: u32,
+    height: u32,
+    pixels: &[u8],
+) -> io::Result<()> {
     assert_eq!(pixels.len(), width as usize * height as usize, "pixel buffer size mismatch");
     encode_png(path, width, height, 0, 1, pixels)
 }
 
 /// Encode an 8-bit RGBA image as a PNG.
 pub fn write_rgba8(
-    path: impl AsRef<Path>, width: u32, height: u32, pixels: &[[u8; 4]],
+    path: impl AsRef<Path>,
+    width: u32,
+    height: u32,
+    pixels: &[[u8; 4]],
 ) -> io::Result<()> {
     assert_eq!(pixels.len(), width as usize * height as usize, "pixel buffer size mismatch");
     let raw: Vec<u8> = pixels.iter().flatten().copied().collect();
@@ -106,7 +122,11 @@ pub struct Rgb16Buffer {
 
 impl Rgb16Buffer {
     pub fn new(width: u32, height: u32) -> Self {
-        Self { width, height, data: vec![[0u16; 3]; width as usize * height as usize] }
+        Self {
+            width,
+            height,
+            data: vec![[0u16; 3]; width as usize * height as usize],
+        }
     }
 
     pub fn put_pixel(&mut self, x: u32, y: u32, pixel: [u16; 3]) {
@@ -216,9 +236,17 @@ pub fn read_rgb16(path: impl AsRef<Path>) -> io::Result<Rgb16Buffer> {
         let mut row = raw[row_start + 1..row_start + 1 + row_len].to_vec();
 
         for i in 0..row_len {
-            let a = if i >= BYTES_PER_PIXEL { row[i - BYTES_PER_PIXEL] } else { 0 };
+            let a = if i >= BYTES_PER_PIXEL {
+                row[i - BYTES_PER_PIXEL]
+            } else {
+                0
+            };
             let b = prior_row[i];
-            let c = if i >= BYTES_PER_PIXEL { prior_row[i - BYTES_PER_PIXEL] } else { 0 };
+            let c = if i >= BYTES_PER_PIXEL {
+                prior_row[i - BYTES_PER_PIXEL]
+            } else {
+                0
+            };
 
             row[i] = match filter_type {
                 0 => row[i],

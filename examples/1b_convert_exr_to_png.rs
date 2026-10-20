@@ -13,7 +13,11 @@ struct RgbaBuffer {
 
 impl RgbaBuffer {
     fn new(width: u32, height: u32) -> Self {
-        Self { width, height, pixels: vec![[0, 0, 0, 0]; width as usize * height as usize] }
+        Self {
+            width,
+            height,
+            pixels: vec![[0, 0, 0, 0]; width as usize * height as usize],
+        }
     }
 
     fn put_pixel(&mut self, x: u32, y: u32, pixel: [u8; 4]) {
