@@ -30,8 +30,8 @@ proc-macro = false
 lebe = "^0.5.3"                # generic binary serialization
 half = "2.7.1"                 # 16 bit float pixel data type
 bit_field = "^0.10.3"          # exr file version bit flags
-flate2 = { version = "^1.1.9", default-features = false, features = ["zlib-rs"] }  # zip compression for zip/pxr24/dwa; zlib-rs backend is pure rust, no C toolchain needed
-smallvec = "^1.15.2"            # make cache-friendly allocations        TODO profile if smallvec is really an improvement!
+flate2 = { version = "^1.1.10", default-features = false, features = ["zlib-rs"] }  # zip compression for zip/pxr24/dwa; zlib-rs backend is pure rust, no C toolchain needed
+smallvec = "^1.16.3"            # make cache-friendly allocations        TODO profile if smallvec is really an improvement!
 rayon-core = { version = "^1.13.0", optional = true }         # threading for parallel compression
 zune-inflate = { version = "^0.2.54", default-features = false, features = ["zlib"] }  # zip decompression, faster than miniz_oxide
 
@@ -43,7 +43,7 @@ multiversion = "0.8" # runtime AVX2 selection for better performance on x86
 [dev-dependencies]
 bencher = "0.1.5"
 walkdir = "2.3.2"         # automatically test things for all files in a directory
-rand = "0.10.2"            # used for fuzz testing
+rand = "0.10.3"            # used for fuzz testing
 rayon = "1.12.0"           # run tests for many files in parallel
 
 [features]
