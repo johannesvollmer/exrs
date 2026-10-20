@@ -394,10 +394,14 @@ use crate::{
 impl Chunk {
     /// Without validation, write this instance to the byte stream.
     pub fn write(&self, write: &mut impl Write, header_count: usize) -> UnitResult {
-        debug_assert!(self.layer_index < header_count, "layer index bug"); // validation is done in full_image or simple_image
+        if self.layer_index >= header_count {
+            return Err(Error::invalid("chunk layer index"));
+        }
 
         if header_count == 1 {
-            assert_eq!(self.layer_index, 0, "invalid header index for single layer file");
+            if self.layer_index != 0 {
+                return Err(Error::invalid("invalid layer index for single layer file"));
+            }
         } else {
             usize_to_i32(self.layer_index, "layer index")?.write_le(write)?;
         }
