@@ -109,7 +109,8 @@ pub enum AttributeValue {
 /// A byte array with each byte being a char.
 /// This is not UTF and it must be constructed from a standard string.
 // TODO is this ascii? use a rust ascii crate?
-#[derive(Clone, PartialEq, Ord, PartialOrd, Default)] // hash implemented manually
+#[derive(Clone, PartialEq, Ord, PartialOrd, Default)] // hash implemented
+                                                      // manually
 pub struct Text {
     bytes: TextBytes,
 }
@@ -589,7 +590,10 @@ impl Text {
 
     /// Write the string contents and a null-terminator.
     fn write_null_terminated_bytes<W: Write>(bytes: &[u8], write: &mut W) -> UnitResult {
-        debug_assert!(!bytes.is_empty(), "text is empty bug"); // required to avoid mixup with "sequece_end"
+        debug_assert!(!bytes.is_empty(), "text is empty bug"); // required to
+                                                               // avoid mixup
+                                                               // with "sequece_end"
+                                                               //
 
         Self::write_unsized_bytes(bytes, write)?;
         sequence_end::write(write)?;
@@ -599,7 +603,9 @@ impl Text {
     /// Read a string until the null-terminator is found. Then skips the
     /// null-terminator.
     pub fn read_null_terminated<R: Read>(read: &mut R, max_len: usize) -> Result<Self> {
-        let mut bytes = smallvec![u8::read_le(read)?]; // null-terminated strings are always at least 1 byte
+        let mut bytes = smallvec![u8::read_le(read)?]; // null-terminated
+                                                       // strings are always at
+                                                       // least 1 byte
 
         loop {
             match u8::read_le(read)? {
@@ -630,7 +636,8 @@ impl Text {
 
         while processed_bytes < total_byte_size {
             let text = Self::read_i32_sized_le(read, total_byte_size)?;
-            processed_bytes += ::std::mem::size_of::<i32>(); // size i32 of the text
+            processed_bytes += ::std::mem::size_of::<i32>(); // size i32 of the
+                                                             // text
             processed_bytes += text.bytes.len();
             result.push(text);
         }
@@ -673,8 +680,8 @@ impl Text {
 
     /// Compare this `exr::Text` with a plain `&str` ignoring capitalization.
     pub fn eq_case_insensitive(&self, string: &str) -> bool {
-        // this is technically not working for a "turkish i", but those cannot be
-        // encoded in exr files anyways
+        // this is technically not working for a "turkish i", but those cannot
+        // be encoded in exr files anyways
         let self_chars = self.chars().map(|char| char.to_ascii_lowercase());
         let string_chars = string.chars().flat_map(char::to_lowercase);
 
@@ -907,7 +914,9 @@ impl IntegerBounds {
     }
 
     fn validate_min_max_u64(min: Vec2<i64>, max: Vec2<i64>) -> UnitResult {
-        let max_box_size_as_i64 = i64::from(i32::MAX / 2); // as defined in the original c++ library
+        let max_box_size_as_i64 = i64::from(i32::MAX / 2); // as defined in the
+                                                           // original c++
+                                                           // library
 
         if max.x() >= max_box_size_as_i64
             || max.y() >= max_box_size_as_i64
@@ -1040,8 +1049,8 @@ impl SampleType {
 
     /// Read the value without validating.
     pub fn read<R: Read>(read: &mut R) -> Result<Self> {
-        // there's definitely going to be more than 255 different pixel types in the
-        // future
+        // there's definitely going to be more than 255 different pixel types in
+        // the future
         Ok(match i32::read_le(read)? {
             0 => Self::U32,
             1 => Self::F16,
@@ -1074,8 +1083,8 @@ impl ChannelDescription {
         Self::new(name, sample_type, linearity)
     }
 
-    // pub fn from_name<T: Into<Sample> + Default>(name: impl Into<Text>) -> Self {
-    // Self::named(name, T::default().into().sample_type())
+    // pub fn from_name<T: Into<Sample> + Default>(name: impl Into<Text>) ->
+    // Self { Self::named(name, T::default().into().sample_type())
     // }
 
     /// Create a new channel with the specified properties and a sampling rate
@@ -1158,7 +1167,9 @@ impl ChannelDescription {
         data_window: IntegerBounds,
         strict: bool,
     ) -> UnitResult {
-        self.name.validate(true, None)?; // TODO spec says this does not affect `requirements.long_names` but is that
+        self.name.validate(true, None)?; // TODO spec says this does not affect
+                                         // `requirements.long_names` but is
+                                         // that
                                          // true?
 
         if self.sampling.x() == 0 || self.sampling.y() == 0 {
@@ -1184,8 +1195,8 @@ impl ChannelDescription {
         }
 
         if self.sampling != Vec2(1, 1) {
-            // TODO this must only be implemented in the crate::image module and child
-            // modules,      should not be too difficult
+            // TODO this must only be implemented in the crate::image module and
+            // child modules,      should not be too difficult
 
             return Err(Error::unsupported("channel subsampling not supported yet"));
         }
@@ -1784,7 +1795,8 @@ pub fn validate(
     data_window: IntegerBounds,
     strict: bool,
 ) -> UnitResult {
-    name.validate(true, Some(long_names))?; // only name text has length restriction
+    name.validate(true, Some(long_names))?; // only name text has length
+                                            // restriction
     value.validate(allow_sampling, data_window, strict) // attribute value text
                                                         // length is never
                                                         // restricted
@@ -1943,7 +1955,9 @@ impl AttributeValue {
                 ref type_hint,
                 ref bytes,
             } => {
-                type_hint.write_u32_sized_le(write)?; // no idea why this one is u32, everything else is usually i32...
+                type_hint.write_u32_sized_le(write)?; // no idea why this one is
+                                                      // u32, everything else is
+                                                      // usually i32...
                 u8::write_slice_le(write, bytes.as_slice())?;
             }
 
@@ -1968,8 +1982,8 @@ impl AttributeValue {
     ) -> Result<Result<Self>> {
         use self::{type_names as ty, AttributeValue::*};
 
-        // always read bytes as to leave the read position at the end of the attribute
-        // even if the attribute contents fails to decode
+        // always read bytes as to leave the read position at the end of the
+        // attribute even if the attribute contents fails to decode
         let mut attribute_bytes = SmallVec::<[u8; 64]>::new();
         u8::read_into_vec_le(
             read,
@@ -1979,8 +1993,8 @@ impl AttributeValue {
             None,
             "attribute value size",
         )?;
-        // TODO: don't read into an array at all, just read directly from the reader and
-        // optionally seek afterwards?
+        // TODO: don't read into an array at all, just read directly from the
+        // reader and optionally seek afterwards?
 
         let parse_attribute = move || {
             let reader = &mut attribute_bytes.as_slice();
@@ -2061,7 +2075,8 @@ impl AttributeValue {
                 ty::TILES => TileDescription(self::TileDescription::read(reader)?),
 
                 ty::BYTES => {
-                    // for some reason, they went for unsigned sizes, in this place only
+                    // for some reason, they went for unsigned sizes, in this
+                    // place only
                     let type_hint = self::Text::read_u32_sized_le(reader, reader.len())?;
                     let bytes = SmallVec::from(*reader);
                     Bytes {

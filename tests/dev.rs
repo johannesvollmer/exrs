@@ -86,8 +86,8 @@ pub fn test_roundtrip() {
     // "tests/images/valid/openexr/LuminanceChroma/Flowers.exr"; // subsampling
 
     // let path = "tests/images/valid/openexr/IlmfmlmflmTest/test_native1.exr";
-    // let path = "tests/images/valid/openexr/IlmfmlmflmTest/test_native2.exr"; //
-    // contains NaN
+    // let path = "tests/images/valid/openexr/IlmfmlmflmTest/test_native2.exr";
+    // // contains NaN
 
     // deep data?
     // let path = "tests/images/valid/openexr/v2/Stereo/Balls.exr";

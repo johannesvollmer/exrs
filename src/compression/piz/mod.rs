@@ -116,8 +116,8 @@ pub fn decompress(
     // Expand the pixel data to their original range
     apply_lookup_table(&mut tmp_u16_buffer, &lookup_table);
 
-    // let out_buffer_size = (max_scan_line_size * scan_line_count) + 65536 + 8192;
-    // // TODO not use expected byte size?
+    // let out_buffer_size = (max_scan_line_size * scan_line_count) + 65536 +
+    // 8192; // TODO not use expected byte size?
     let mut out = Vec::with_capacity(expected_byte_size);
 
     for y in rectangle.position.y()..rectangle.end().y() {
@@ -256,8 +256,8 @@ pub fn bitmap_from_data(data: &[u16]) -> (usize, usize, Vec<u8>) {
         bitmap[*value as usize >> 3] |= 1 << (*value as u8 & 7);
     }
 
-    bitmap[0] &= !1; // zero is not explicitly stored in the bitmap; we assume that the data always
-                     // contain zeroes
+    bitmap[0] &= !1; // zero is not explicitly stored in the bitmap; we assume
+                     // that the data always contain zeroes
 
     let min_index = bitmap.iter().position(|&value| value != 0);
     let max_index = min_index.map(|min|  // only if min was found

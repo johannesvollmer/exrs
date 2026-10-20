@@ -38,7 +38,8 @@ pub fn main() {
                         .reallocate_cropped() // actually perform the crop
                                               // operation
                 } else {
-                    // return the original layer, as no alpha channel can be used for cropping
+                    // return the original layer, as no alpha channel can be
+                    // used for cropping
                     layer
                 }
             })

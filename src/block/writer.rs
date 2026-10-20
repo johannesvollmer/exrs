@@ -201,10 +201,10 @@ where
         let requirements =
             MetaData::write_validating_to_buffered(&mut write, headers.as_slice(), pedantic)?;
 
-        // TODO: use increasing line order where possible, but this requires us to know
-        // whether we want to be parallel right now
-        // // if non-parallel compression, we always use increasing order anyways
-        // if !parallel || !has_compression {
+        // TODO: use increasing line order where possible, but this requires us
+        // to know whether we want to be parallel right now
+        // // if non-parallel compression, we always use increasing order
+        // anyways if !parallel || !has_compression {
         // for header in &mut headers {
         // if header.line_order == LineOrder::Unspecified {
         // header.line_order = LineOrder::Increasing;
@@ -217,8 +217,8 @@ where
         let offset_table_start_byte = write.byte_position();
         let offset_table_end_byte = write.byte_position() + offset_table_size * u64::BYTE_SIZE;
 
-        // skip offset tables, filling with 0, will be updated after the last chunk has
-        // been written
+        // skip offset tables, filling with 0, will be updated after the last
+        // chunk has been written
         write.seek_write_to(offset_table_end_byte)?;
 
         let header_count = headers.len();
@@ -262,7 +262,8 @@ where
             u64::write_slice_le(&mut self.byte_writer, table.as_slice())?;
         }
 
-        self.byte_writer.flush()?; // make sure we catch all (possibly delayed) io errors before returning
+        self.byte_writer.flush()?; // make sure we catch all (possibly delayed)
+                                   // io errors before returning
         Ok(())
     }
 }
@@ -290,8 +291,8 @@ where
         self.written_chunks += 1;
 
         on_progress({
-            // guarantee finishing with progress 1.0 for last block at least once, float
-            // division might slightly differ from 1.0
+            // guarantee finishing with progress 1.0 for last block at least
+            // once, float division might slightly differ from 1.0
             if self.written_chunks == total_chunks {
                 1.0
             } else {
@@ -349,7 +350,8 @@ where
             self.chunk_writer.write_chunk(chunk_y_index, chunk)?;
             self.unwritten_chunk_indices.next().expect("peeked chunk index is missing");
 
-            // write all pending blocks that are immediate successors of this block
+            // write all pending blocks that are immediate successors of this
+            // block
             while let Some((next_chunk_y_index, next_chunk)) = self
                 .unwritten_chunk_indices
                 .peek()
@@ -477,7 +479,8 @@ where
 
         let max_threads =
             pool.current_num_threads().max(1).min(chunks_writer.total_chunks_count()) + 2; // ca one block for each thread at all times
-        let (send, recv) = std::sync::mpsc::channel(); // TODO bounded channel simplifies logic?
+        let (send, recv) = std::sync::mpsc::channel(); // TODO bounded channel
+                                                       // simplifies logic?
 
         Some(Self {
             sorted_writer: SortedBlocksWriter::new(meta, chunks_writer),
@@ -562,7 +565,8 @@ where
         self.currently_compressing_count += 1;
         self.next_incoming_chunk_index += 1;
 
-        // if this is the last chunk, wait for all chunks to complete before returning
+        // if this is the last chunk, wait for all chunks to complete before
+        // returning
         if self.written_chunk_count + self.currently_compressing_count
             == self.inner_chunks_writer().total_chunks_count()
         {

@@ -62,15 +62,16 @@ fn main() {
         let blocks = meta_data.collect_ordered_blocks(|block_index| {
             let channel_description = &meta_data.headers[block_index.layer].channels;
 
-            // fill the image file contents with one of the precomputed random values,
-            // picking a different one per channel
+            // fill the image file contents with one of the precomputed random
+            // values, picking a different one per channel
             UncompressedBlock::from_lines(channel_description, block_index, |line_mut| {
                 // TODO iterate mut instead??
 
                 let chan = line_mut.location.channel;
 
                 if chan == 3 {
-                    // write time as depth (could also check for _meta.channels[chan].name == "Z")
+                    // write time as depth (could also check for
+                    // _meta.channels[chan].name == "Z")
                     line_mut
                         .write_samples(|_| start_time.elapsed().as_secs_f32())
                         .expect("write to line bug");

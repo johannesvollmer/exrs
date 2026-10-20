@@ -5,11 +5,16 @@ extern crate exr;
 /// and write the cropped result to another file.
 /// This retains only the rgb pixels, and no other layers.
 pub fn main() {
-    use exr::{image::pixel_vec::*, prelude::*}; // import predefined pixel storage
+    use exr::{image::pixel_vec::*, prelude::*}; // import predefined pixel
+                                                // storage
 
     let path = "tests/images/valid/custom/oh crop.exr";
 
-    type DynamicRgbaPixel = (Sample, Sample, Sample, Sample); // `Sample` is an enum containing the original data type (f16,f32, or u32)
+    type DynamicRgbaPixel = (Sample, Sample, Sample, Sample); // `Sample` is an
+                                                              // enum containing
+                                                              // the original
+                                                              // data type (f16,
+                                                              // f32, or u32)
 
     // load an rgba image
     // this specific example discards all but the first valid rgb layers and

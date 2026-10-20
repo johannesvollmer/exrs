@@ -165,7 +165,8 @@ pub fn fuzz() {
     let mut records = File::create("tests/images/fuzzed/list.txt").unwrap();
     records.write_all(format!("seed = {:?}", seed).as_bytes()).unwrap();
 
-    let start_index = 0; // default is 0. increase this integer for debugging a specific fuzz case
+    let start_index = 0; // default is 0. increase this integer for debugging a
+                         // specific fuzz case
     for fuzz_index in 0..1024_u64 * 2048 * 4 {
         let file_1_name = &files[random.random_range(0..files.len())];
         let mutation_point = random.random::<f32>().powi(3);

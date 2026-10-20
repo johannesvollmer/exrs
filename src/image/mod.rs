@@ -431,8 +431,8 @@ impl<RecursiveChannels: CheckDuplicates, RecursivePixel>
         Recursive<RecursiveChannels, ChannelDescription>,
         Recursive<RecursivePixel, Sample>,
     > {
-        // duplicate channel names are checked later, but also check now to make sure
-        // there are no problems with the `SpecificChannelsWriter`
+        // duplicate channel names are checked later, but also check now to make
+        // sure there are no problems with the `SpecificChannelsWriter`
         assert!(
             self.channels.already_contains(&channel.name).not(),
             "channel name `{}` is duplicate",
@@ -730,8 +730,8 @@ impl<LevelSamples> Levels<LevelSamples> {
         }
     }
 
-    // TODO simplify working with levels in general! like level_size_by_index and
-    // such
+    // TODO simplify working with levels in general! like level_size_by_index
+    // and such
 
     // pub fn levels_with_size(&self, rounding: RoundingMode, max_resolution:
     // Vec2<usize>) -> Vec<(Vec2<usize>, &S)> { match self {
@@ -739,8 +739,8 @@ impl<LevelSamples> Levels<LevelSamples> {
     // Levels::Mip(ref maps) => mip_map_levels(rounding,
     // max_resolution).map(|(_index, size)| size).zip(maps).collect(),
     // Levels::Rip(ref rip_maps) => rip_map_levels(rounding,
-    // max_resolution).map(|(_index, size)| size).zip(&rip_maps.map_data).collect(),
-    // }
+    // max_resolution).map(|(_index, size)|
+    // size).zip(&rip_maps.map_data).collect(), }
     // }
 
     /// Whether this stores multiple resolution levels.
@@ -1015,8 +1015,8 @@ impl<'s, SampleData: 's> AnyChannel<SampleData> {
         }
     }
 
-    // /// This is the same as `AnyChannel::new()`, but additionally ensures that
-    // the closure type is correct. pub fn from_closure<V>(name: Text,
+    // /// This is the same as `AnyChannel::new()`, but additionally ensures
+    // that the closure type is correct. pub fn from_closure<V>(name: Text,
     // sample_data: S) -> Self where S: Sync + Fn(Vec2<usize>) -> V, V:
     // InferSampleType + Data {
     // Self::new(name, sample_data)

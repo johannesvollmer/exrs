@@ -81,6 +81,11 @@ jobs:
       - name: Generate Cargo.lock with minimal-version dependencies
         run: cargo -Zminimal-versions generate-lockfile
 
+      # multiversion-macros 0.8.0 allows syn 2.0.0 but uses an API added in 2.0.1:
+      # https://github.com/calebzulawski/multiversion/issues/60
+      - name: Work around multiversion-macros' incorrect syn minimum
+        run: cargo +nightly update -p syn --precise 2.0.1
+
       - name: Verify the Rustc version declared in `Cargo.toml` with `minimal-versions`
         run: cargo-msrv verify
 
@@ -99,9 +104,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install or use cached cross-rs/cross
-        uses: baptiste0928/cargo-install@v1
+        uses: baptiste0928/cargo-install@v3
         with:
           crate: cross
+          git: https://github.com/cross-rs/cross
+          tag: v0.2.5
 
       - name: Cache Cargo Dependencies
         uses: Swatinem/rust-cache@v1.3.0
@@ -152,21 +159,19 @@ jobs:
       matrix:
         include:
           - name: avx2
-            feature: avx2-tests
-            filter: "avx2"
-            # Bump when adding/removing avx tests
-            expected_tests: 4
+            filter: "compression::dwa::discrete_cosine_transform::"
+            # Bump when adding/removing DCT tests
+            expected_tests: 6
             # Haswell: first microarchitecture with AVX2+FMA.
-            # `-C target-feature` unset explicitly to force runtime dispatching
+            # Leave target features unset to exercise runtime dispatch.
             sde_cpu: "-hsw"
 
           - name: sse2
-            feature: sse2-tests
-            filter: "sse2"
-            # Bump when adding/removing sse tests
-            expected_tests: 2
+            filter: "compression::dwa::discrete_cosine_transform::"
+            # Bump when adding/removing DCT tests
+            expected_tests: 6
             # Merom: the lowest 64-bit chip SDE models. Has SSE2 but no AVX,
-            # `-C target-feature` unset explicitly to force runtime dispatching
+            # Leave target features unset to exercise runtime dispatch.
             sde_cpu: "-mrm"
 
     name: test ${{ matrix.name }} using simd cpu emulator
@@ -190,14 +195,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          cargo test --lib --features "${{ matrix.feature }}" --no-run --message-format=json \
+          cargo test --lib --no-run --message-format=json \
             | jq -r 'select(.reason == "compiler-artifact" and (.target.kind | index("lib")) and .profile.test == true and .executable != null) | .executable' \
             | tail -n 1 > /tmp/simd-test-bin
 
           test -s /tmp/simd-test-bin
           cat /tmp/simd-test-bin
 
-      - name: Run ${{ matrix.name }} tier tests under Intel SDE
+      - name: Run ${{ matrix.name }} DCT tests under Intel SDE
         run: |
           set -euo pipefail
 

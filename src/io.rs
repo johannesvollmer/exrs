@@ -160,7 +160,8 @@ impl<T: Read> Read for PeekRead<T> {
             Some(peeked) => {
                 target_buffer[0] = peeked?;
 
-                // indexing [1..] is safe because an empty buffer already returned ok
+                // indexing [1..] is safe because an empty buffer already
+                // returned ok
                 Ok(1 + self.inner.read(&mut target_buffer[1..])?)
             }
         }
@@ -238,8 +239,8 @@ impl<T: Read + Seek> Tracking<T> {
         debug_assert!(delta.abs() < usize::MAX as i128);
 
         if delta > 0 && delta < 16 {
-            // TODO profile that this is indeed faster than a syscall! (should be because of
-            // bufread buffer discard)
+            // TODO profile that this is indeed faster than a syscall! (should
+            // be because of bufread buffer discard)
             skip_bytes(self, delta as usize)?;
             self.position += delta as usize;
         } else if delta != 0 {
