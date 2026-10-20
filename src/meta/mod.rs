@@ -403,8 +403,8 @@ impl MetaData {
 
         let requirements = Requirements::read(read)?;
 
-        // do this check now in order to fast-fail for newer versions and features than
-        // version 2
+        // do this check now in order to fast-fail for newer versions and
+        // features than version 2
         requirements.validate()?;
 
         let headers = Header::read_all(read, &requirements, pedantic)?;
@@ -471,7 +471,10 @@ impl MetaData {
     // TODO use seek for large (probably all) tables!
     pub fn skip_offset_tables(read: &mut PeekRead<impl Read>, headers: &Headers) -> Result<usize> {
         let chunk_count: usize = headers.iter().map(|header| header.chunk_count).sum();
-        crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE)?; // TODO this should seek for large tables
+        crate::io::skip_bytes(read, chunk_count * u64::BYTE_SIZE)?; // TODO this
+                                                                    // should seek
+                                                                    // for large
+                                                                    // tables
         Ok(chunk_count)
     }
 
@@ -601,8 +604,8 @@ impl MetaData {
 }
 
 impl Requirements {
-    // this is actually used for control flow, as the number of headers may be 1 in
-    // a multilayer file
+    // this is actually used for control flow, as the number of headers may be 1
+    // in a multilayer file
     /// Is this file declared to contain multiple layers?
     pub fn is_multilayer(&self) -> bool {
         self.has_multiple_layers
@@ -614,8 +617,8 @@ impl Requirements {
 
         let version_and_flags = u32::read_le(read)?;
 
-        // take the 8 least significant bits, they contain the file format version
-        // number
+        // take the 8 least significant bits, they contain the file format
+        // version number
         let version = (version_and_flags & 0x000F) as u8;
 
         // the 24 most significant bits are treated as a set of boolean flags
@@ -624,10 +627,12 @@ impl Requirements {
         let has_deep_data = version_and_flags.get_bit(11);
         let has_multiple_layers = version_and_flags.get_bit(12);
 
-        // all remaining bits except 9, 10, 11 and 12 are reserved and should be 0
-        // if a file has any of these bits set to 1, it means this file contains
-        // a feature that we don't support
-        let unknown_flags = version_and_flags >> 13; // all flags excluding the 12 bits we already parsed
+        // all remaining bits except 9, 10, 11 and 12 are reserved and should be
+        // 0 if a file has any of these bits set to 1, it means this
+        // file contains a feature that we don't support
+        let unknown_flags = version_and_flags >> 13; // all flags excluding the
+                                                     // 12 bits we already
+                                                     // parsed
 
         if unknown_flags != 0 {
             // TODO test if this correctly detects unsupported files
@@ -658,7 +663,8 @@ impl Requirements {
         version_and_flags.set_bit(10, self.has_long_names);
         version_and_flags.set_bit(11, self.has_deep_data);
         version_and_flags.set_bit(12, self.has_multiple_layers);
-        // all remaining bits except 9, 10, 11 and 12 are reserved and should be 0
+        // all remaining bits except 9, 10, 11 and 12 are reserved and should be
+        // 0
 
         version_and_flags.write_le(write)?;
         Ok(())
@@ -819,7 +825,8 @@ mod test {
         let low_requirements = MetaData::validate(&[header_version_1_short_names], true).unwrap();
 
         assert!(!low_requirements.has_long_names);
-        assert_eq!(low_requirements.file_format_version, 2); // always have version 2
+        assert_eq!(low_requirements.file_format_version, 2); // always have
+                                                             // version 2
         assert!(!low_requirements.has_deep_data);
         assert!(!low_requirements.has_multiple_layers);
     }

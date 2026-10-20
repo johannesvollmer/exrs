@@ -1,36 +1,21 @@
-// Discrete cosine transform (forward and inverse) for DWA, ported from
-// OpenEXRCore's internal_dwa_simd.h, including its runtime CPU dispatch:
-// `dct_inverse_8x8_batch`/`dct_forward_8x8_batch` pick the best available x86
-// tier at runtime (avx2 > sse2 > scalar), like OpenEXRs cpuid-based
-// `initializeFuncs`
-//
-// Dispatch uses pulp's V3/V1 tokens, constructed only after a runtime CPU
-// feature check. V3 needs AVX2+FMA, so
-// AVX-only CPUs (Sandy/Ivy Bridge) fall back to sse2 here, where OpenEXR
-// would use its own (non-avx2) avx kernel.
-//
-// The three kernels aren't bit-identical to each other (OpenEXRs own
-// kernels disagree too: basis-constant precision and summation order
-// differ)
-
-// public only for benchmarking (the runtime dispatch below and the tier tests
-// reach the individual kernels through this)
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[doc(hidden)]
-pub mod x86;
+// Discrete cosine transform (forward and inverse) for DWA. The inverse is
+// ported from OpenEXRCore's internal_dwa_simd.h. Both transforms use fixed-size
+// loops that LLVM can autovectorize. Batch entry points select AVX2 at runtime
+// on x86; other CPUs use the compile-time target (including SSE2 and NEON).
 
 // public only for benchmarking (benches/dct.rs reaches
 // `test::pseudo_random_blocks`)
-#[cfg(any(test, feature = "simd-benches"))]
+#[cfg(any(test, feature = "dct-benches"))]
 #[doc(hidden)]
 pub mod test;
 
-// Autovectorized fallback: OpenEXRs "dctInverse8x8_scalar", including its
+// Autovectorized inverse: OpenEXRs "dctInverse8x8_scalar", including its
 // truncated PI constant and summation order. Written as straightforward
 // fixed-size loops that LLVM can autovectorize without explicit SIMD.
-// public only for benchmarking (the in-crate dispatch and tests reach it
-// directly)
+// public only for benchmarking (the in-crate batch functions and tests also
+// reach it directly)
 #[doc(hidden)]
+#[inline(always)]
 pub fn dct_inverse_8x8_autovectorized(data: &mut [f32; 64]) {
     const PI: f32 = 3.14159;
 
@@ -131,73 +116,87 @@ pub fn dct_inverse_8x8_autovectorized(data: &mut [f32; 64]) {
     }
 }
 
-/// Autovectorized forward DCT for DWA 8x8 blocks. This intentionally uses the
-/// straightforward separable DCT formula for the first encoder version; LLVM
-/// can still optimize the fixed-size loops without adding explicit SIMD paths.
-// public only for benchmarking (the in-crate dispatch and tests reach it directly)
+// Normalized DCT-II basis, indexed by [input][output]. Precomputed in f32 as:
+//   scale * (((2 * input + 1) as f32 * output as f32 * PI) / 16.0).cos()
+// where PI = 3.14159 and scale = 0.5 * (output == 0 ? 0.70710677 : 1.0).
+// Preserve the original truncated PI and f32 rounding: using symmetry or a
+// more precise PI here would change the encoder's coefficients.
+#[rustfmt::skip]
+const FORWARD_BASIS: [[f32; 8]; 8] = [
+    [0.35355338, 0.49039266, 0.46193984, 0.41573495, 0.35355362, 0.27778545, 0.19134216, 0.097545706],
+    [0.35355338, 0.41573495, 0.19134216, -0.09754446, -0.35355273, -0.49039242, -0.46194032, -0.2777866],
+    [0.35355338, 0.27778545, -0.19134098, -0.49039242, -0.35355452, 0.097543105, 0.46193886, 0.4157363],
+    [0.35355338, 0.097545706, -0.46193933, -0.2777866, 0.35355183, 0.4157363, -0.19133842, -0.49039343],
+    [0.35355338, -0.09754446, -0.46194032, 0.27778342, 0.3535554, -0.41573277, -0.19134545, 0.4903917],
+    [0.35355338, -0.27778438, -0.19134332, 0.49039316, -0.3535509, -0.09754932, 0.46194187, -0.41573134],
+    [0.35355338, -0.41573423, 0.19133982, 0.097548075, -0.3535563, 0.49039367, -0.4619375, 0.27777922],
+    [0.35355338, -0.49039242, 0.46193886, -0.41573277, 0.35355002, -0.27778026, 0.1913349, -0.09753735],
+];
+
+/// Autovectorized forward DCT for DWA 8x8 blocks. Apply the fixed 1D basis
+/// along rows and then columns.
+// public only for benchmarking (the in-crate batch functions and tests also reach it)
 #[doc(hidden)]
+#[inline(always)]
 pub fn dct_forward_8x8_autovectorized(data: &mut [f32; 64]) {
-    // The forward path mirrors the inverse path's fixed 8x8 basis, but keeps
-    // the implementation autovectorized and easy to verify against the reference.
-    const PI: f32 = 3.14159;
-    const INV_SQRT_2: f32 = 0.70710677;
-
-    let input = *data;
-    for v in 0..8 {
-        for u in 0..8 {
-            let cu = if u == 0 {
-                INV_SQRT_2
-            } else {
-                1.0
-            };
-            let cv = if v == 0 {
-                INV_SQRT_2
-            } else {
-                1.0
-            };
-            let mut sum = 0.0f32;
-
-            for y in 0..8 {
-                let cy = (((2 * y + 1) as f32 * v as f32 * PI) / 16.0).cos();
-                for x in 0..8 {
-                    let cx = (((2 * x + 1) as f32 * u as f32 * PI) / 16.0).cos();
-                    sum += input[y * 8 + x] * cx * cy;
-                }
+    // Keep each 1D accumulator local so LLVM can vectorize its eight outputs.
+    // Transpose the intermediate block so both passes read contiguous input.
+    let mut rows = [[0.0f32; 8]; 8];
+    for y in 0..8 {
+        let mut out = [0.0f32; 8];
+        for x in 0..8 {
+            for u in 0..8 {
+                out[u] += data[y * 8 + x] * FORWARD_BASIS[x][u];
             }
+        }
+        for u in 0..8 {
+            rows[u][y] = out[u];
+        }
+    }
 
-            data[v * 8 + u] = 0.25 * cu * cv * sum;
+    for u in 0..8 {
+        let mut out = [0.0f32; 8];
+        for y in 0..8 {
+            for v in 0..8 {
+                out[v] += rows[u][y] * FORWARD_BASIS[y][v];
+            }
+        }
+        for v in 0..8 {
+            data[v * 8 + u] = out[v];
         }
     }
 }
 
-/// Forward DCT on many 8x8 blocks, dispatched once for the whole batch rather
-/// than once per block. Prefer this over looping calls to `dct_forward_8x8`.
-pub(crate) fn dct_forward_8x8_batch<'a>(mut blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    if x86::try_dct_forward_8x8_batch(&mut blocks) {
-        return;
-    }
-
+/// Forward DCT on many 8x8 blocks.
+// Dispatch once per batch, inlining the per-block transform into each target
+// version so LLVM can vectorize it using that target's features.
+// Public only for benchmarking.
+#[doc(hidden)]
+#[cfg_attr(
+    any(target_arch = "x86", target_arch = "x86_64"),
+    multiversion::multiversion(targets("x86_64+avx2", "x86+avx2"))
+)]
+pub fn dct_forward_8x8_batch<'a>(blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
     for data in blocks {
         dct_forward_8x8_autovectorized(data);
     }
 }
 
-/// Inverse DCT on many 8x8 blocks, dispatched once for the whole batch
-/// rather than once per block. Prefer this over looping calls to
-/// `dct_inverse_8x8`
-pub(crate) fn dct_inverse_8x8_batch<'a>(mut blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    if x86::try_dct_inverse_8x8_batch(&mut blocks) {
-        return;
-    }
-
+/// Inverse DCT on many 8x8 blocks.
+// Public only for benchmarking.
+#[doc(hidden)]
+#[cfg_attr(
+    any(target_arch = "x86", target_arch = "x86_64"),
+    multiversion::multiversion(targets("x86_64+avx2", "x86+avx2"))
+)]
+pub fn dct_inverse_8x8_batch<'a>(blocks: impl Iterator<Item = &'a mut [f32; 64]>) {
     for data in blocks {
         dct_inverse_8x8_autovectorized(data);
     }
 }
 
 /// Optimized path when only DC is non-zero.
+#[inline(always)]
 pub(crate) fn dct_inverse_8x8_dc_only(data: &mut [f32; 64]) {
     let val = data[0] * 0.3535536f32 * 0.3535536f32;
     for v in data.iter_mut() {

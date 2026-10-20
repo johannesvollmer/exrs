@@ -113,8 +113,9 @@ impl<S: SamplesReader> ChannelsReader for AnyChannelsReader<S> {
     }
 
     fn read_block(&mut self, header: &Header, decompressed: UncompressedBlock) -> UnitResult {
-        // for (bytes, line) in LineIndex::lines_in_block(decompressed.index, header) {
-        // let channel = self.sample_channels_reader.get_mut(line.channel).unwrap();
+        // for (bytes, line) in LineIndex::lines_in_block(decompressed.index,
+        // header) { let channel =
+        // self.sample_channels_reader.get_mut(line.channel).unwrap();
         // channel.samples.read_line(LineSlice { location: line, value:
         // &decompressed.data[bytes] })?; }
         //

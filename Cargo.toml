@@ -34,8 +34,11 @@ miniz_oxide = "^0.8.0"         # zip compression for pxr24
 smallvec = "^1.7.0"            # make cache-friendly allocations        TODO profile if smallvec is really an improvement!
 rayon-core = { version = "^1.11.0", optional = true }         # threading for parallel compression
 zune-inflate = { version = "^0.2.3", default-features = false, features = ["zlib"] }  # zip decompression, faster than miniz_oxide
-pulp = "0.22.3"                # used for runtime SIMD dispatch
-num-complex = "0.4.6"          # pins pulps own dependency, pulp wants 0.4.4 but calls for Complex::ZERO/ONE/I; consts added in 0.4.6
+
+[target.'cfg(any(target_arch = "x86", target_arch = "x86_64"))'.dependencies]
+multiversion = "0.8" # runtime AVX2 selection for better performance on x86
+                     # ARM doesn't need it because NEON is part of the baseline instruction set
+                     # WASM doesn't have runtime selection, simd128 is enabled/disabled at build time
 
 [dev-dependencies]
 image = { version = "0.25.2", default-features = false, features = ["png"] }         # used to convert one exr to some pngs
@@ -51,19 +54,9 @@ default = ["rayon"]
 # rayon is used for parallel compression
 rayon = ["dep:rayon-core"]
 
-# Opt-in gates for the DWA SIMD tier unit tests
-# (in src/compression/dwa/discrete_cosine_transform/test.rs).
-# Intentionally opt-in: each must be built and run under a CPU or emulator exposing
-# the requested tier, e.g.
-# `cargo test --lib --features avx2-tests -- avx2`
-avx2-tests = []
-sse2-tests = []
-
-# Call the DWA DCT avx2/sse2/autovectorized kernels directly,
-# bypassing runtime dispatch, for the comparison benchmark.
-# Meaningless under emulation (timings won't reflect real hardware)
-# `cargo bench --features simd-benches --bench dct`
-simd-benches = []
+# Expose deterministic input blocks for the DWA DCT benchmark.
+# `cargo bench --features dct-benches --bench dct`
+dct-benches = []
 
 [[example]]
 name = "7_write_raw_blocks"
@@ -96,7 +89,7 @@ required-features = ["rayon"]
 [[bench]]
 name = "dct"
 harness = false
-required-features = ["simd-benches"]
+required-features = ["dct-benches"]
 
 # recommended release settings for max runtime performance
 [profile.release]

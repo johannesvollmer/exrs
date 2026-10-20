@@ -166,8 +166,9 @@ impl TileCoordinates {
         let level_y = i32::read_le(read)?;
 
         if level_x > 31 || level_y > 31 {
-            // there can be at most 31 levels, because the largest level would have a size
-            // of 2^31, which exceeds the maximum 32-bit integer value.
+            // there can be at most 31 levels, because the largest level would
+            // have a size of 2^31, which exceeds the maximum 32-bit
+            // integer value.
             return Err(Error::invalid("level index exceeding integer maximum"));
         }
 

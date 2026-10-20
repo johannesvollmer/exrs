@@ -90,7 +90,7 @@ pub trait ReadSpecificChannel: Sized + CheckDuplicates {
                 &<<Self::RecursivePixelReader as RecursivePixelReader>::RecursiveChannelDescriptions as IntoNonRecursive>::NonRecursive
             ) -> PixelStorage,
             SetPixel: Fn(&mut PixelStorage, Vec2<usize>, Pixel),
-    {
+{
         CollectPixels {
             read_channels: self,
             set_pixel,
@@ -242,8 +242,8 @@ where
 
         for (y_offset, line_bytes) in byte_lines.enumerate() {
             // TODO sampling
-            // this two-step copy method should be very cache friendly in theory, and also
-            // reduce sample_type lookup count
+            // this two-step copy method should be very cache friendly in
+            // theory, and also reduce sample_type lookup count
             self.pixel_reader.read_pixels(line_bytes, &mut pixels, |px| px);
 
             for (x_offset, pixel) in pixels.iter().enumerate() {
@@ -433,7 +433,8 @@ fn read_and_convert_all_samples_batched<'t, From, To>(
     let len_error_msg = "sample count was miscalculated";
     let byte_error_msg = "error when reading from in-memory slice";
 
-    // write samples from a given slice to the output iterator. should be inlined.
+    // write samples from a given slice to the output iterator. should be
+    // inlined.
     let output_n_samples = &mut move |samples: &[To]| {
         for converted_sample in samples {
             *out_samples.next().expect(len_error_msg) = *converted_sample;
@@ -568,8 +569,8 @@ where
         if let Some(reader) = &self.value.reader {
             reader.read_own_samples(bytes, pixels, |px| &mut get_pixel(px).value);
         } else {
-            // if this channel is optional and was not found in the file, fill the default
-            // sample
+            // if this channel is optional and was not found in the file, fill
+            // the default sample
             for pixel in pixels.iter_mut() {
                 get_pixel(pixel).value = self.value.default_sample;
             }

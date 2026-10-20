@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Regenerates the DWA cross-check fixtures in this directory using the real
 # OpenEXR C++ library (via its Python bindings), to verify that exrs's DWA
-# decoder is bit-identical to the reference implementation for scenarios with
+# decoder agrees with the reference implementation for scenarios with
 # more than one LOSSY_DCT channel group per chunk:
 #   - y_ry_by_dwaa.exr:  three standalone LOSSY_DCT channels (Y, RY, BY).
 #                        None of these are ever CSC-grouped (cscIdx == -1

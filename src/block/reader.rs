@@ -98,8 +98,8 @@ impl<R: Read + Seek> Reader<R> {
         let offset_tables =
             MetaData::read_offset_tables(&mut self.remaining_reader, &self.meta_data.headers)?;
 
-        // TODO regardless of pedantic, if invalid, read all chunks instead, and filter
-        // after reading each chunk?
+        // TODO regardless of pedantic, if invalid, read all chunks instead, and
+        // filter after reading each chunk?
         if pedantic {
             validate_offset_tables(
                 self.meta_data.headers.as_slice(),
@@ -111,8 +111,8 @@ impl<R: Read + Seek> Reader<R> {
         let mut filtered_offsets =
             Vec::with_capacity((self.meta_data.headers.len() * 32).min(2 * 2048));
 
-        // TODO detect whether the filter actually would skip chunks, and aviod sorting
-        // etc when not filtering is applied
+        // TODO detect whether the filter actually would skip chunks, and aviod
+        // sorting etc when not filtering is applied
 
         for (header_index, header) in self.meta_data.headers.iter().enumerate() {
             // offset tables are stored same order as headers
@@ -134,12 +134,14 @@ impl<R: Read + Seek> Reader<R> {
             }
         }
 
-        filtered_offsets.sort_unstable(); // enables reading continuously if possible (already sorted where line order
+        filtered_offsets.sort_unstable(); // enables reading continuously if
+                                          // possible (already sorted where line
+                                          // order
                                           // increasing)
 
         if pedantic {
-            // table is sorted. if any two neighbours are equal, we have duplicates. this is
-            // invalid.
+            // table is sorted. if any two neighbours are equal, we have
+            // duplicates. this is invalid.
             if filtered_offsets.windows(2).any(|pair| pair[0] == pair[1]) {
                 return Err(Error::invalid("chunk offset table"));
             }
@@ -271,8 +273,8 @@ pub trait ChunksReader: Sized + Iterator<Item = Result<Chunk>> + ExactSizeIterat
     /// deterministic. You can also use `parallel_decompressor` to obtain an
     /// iterator instead. Will fallback to sequential processing where
     /// threads are not available, or where it would not speed up the process.
-    // FIXME try async + futures instead of rayon! Maybe even allows for external
-    // async decoding? (-> impl Stream<UncompressedBlock>)
+    // FIXME try async + futures instead of rayon! Maybe even allows for
+    // external async decoding? (-> impl Stream<UncompressedBlock>)
     fn decompress_parallel(
         self,
         pedantic: bool,
@@ -412,7 +414,8 @@ impl<R: Read + Seek> Iterator for AllChunksReader<R> {
     type Item = Result<Chunk>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // read as many chunks as the file should contain (inferred from meta data)
+        // read as many chunks as the file should contain (inferred from meta
+        // data)
         let next_chunk = self
             .remaining_chunks
             .next()
@@ -567,7 +570,8 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
 
         let max_threads = pool.current_num_threads().max(1).min(chunks.len()) + 2; // ca one block for each thread at all times
 
-        let (send, recv) = std::sync::mpsc::channel(); // TODO bounded channel simplifies logic?
+        let (send, recv) = std::sync::mpsc::channel(); // TODO bounded channel
+                                                       // simplifies logic?
 
         Ok(Self {
             shared_meta_data_ref: std::sync::Arc::new(chunks.meta_data().clone()),
@@ -603,9 +607,10 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
                     let decompressed_or_err =
                         UncompressedBlock::decompress_chunk(block, &meta, pedantic);
 
-                    // by now, decompressing could have failed in another thread.
-                    // the error is then already handled, so we simply
-                    // don't send the decompressed block and do nothing
+                    // by now, decompressing could have failed in another
+                    // thread. the error is then already
+                    // handled, so we simply don't send the
+                    // decompressed block and do nothing
                     let _ = sender.send(decompressed_or_err);
                 });
             } else {
