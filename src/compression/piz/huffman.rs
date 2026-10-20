@@ -65,7 +65,9 @@ pub fn compress(uncompressed: &[u16]) -> Result<Vec<u8>> {
     let (min_code_index, max_code_index) = build_encoding_table(&mut frequencies)?;
 
     let mut result = Cursor::new(Vec::with_capacity(uncompressed.len()));
-    u32::write_slice_le(&mut result, &[0; 5])?; // we come back to these later after we know more about the compressed data
+    u32::write_slice_le(&mut result, &[0; 5])?; // we come back to these later
+                                                // after we know more about the
+                                                // compressed data
 
     let table_start = result.position();
     pack_encoding_table(&frequencies, min_code_index, max_code_index, &mut result)?;
@@ -216,7 +218,8 @@ fn decode_with_tables(
             if short_code.len() > code_bit_count {
                 return Err(Error::invalid("code"));
             } // FIXME why does this happen??
-            code_bit_count -= short_code.len(); // FIXME may throw "attempted to subtract with overflow"
+            code_bit_count -= short_code.len(); // FIXME may throw "attempted to
+                                                // subtract with overflow"
 
             read_code_into_vec(
                 short_code.value,
@@ -513,7 +516,8 @@ fn encode_with_frequencies(
         &mut out,
     )?;
 
-    let data_length = out.position() - start_position; // we shouldn't count the last byte write
+    let data_length = out.position() - start_position; // we shouldn't count the
+                                                       // last byte write
 
     if code_bit_count != 0 {
         out.write_all(&[(code_bits << (8 - code_bit_count) & 0xff) as u8])?;
@@ -587,7 +591,8 @@ fn pack_encoding_table(
                     )?;
                 }
 
-                frequency_index += 1; // we must increment or else this may go very wrong
+                frequency_index += 1; // we must increment or else this may go
+                                      // very wrong
                 continue;
             }
         }
@@ -696,8 +701,8 @@ fn build_encoding_table(
     //
     // The loop below does three things:
     //
-    // 1) Finds the minimum and maximum indices that point to non-zero entries in
-    //    frq:
+    // 1) Finds the minimum and maximum indices that point to non-zero entries
+    //    in frq:
     //
     //     frq[im] != 0, and frq[i] == 0 for all i < im
     //     frq[iM] != 0, and frq[i] == 0 for all i > iM
@@ -710,9 +715,9 @@ fn build_encoding_table(
     let mut links = vec![0_usize; ENCODING_TABLE_SIZE];
     let mut frequency_heap = vec![0_usize; ENCODING_TABLE_SIZE];
 
-    // This is a good solution since we don't have usize::MAX items (no panics or
-    // UB), and since this is short-circuit, it stops at the first in order non
-    // zero element.
+    // This is a good solution since we don't have usize::MAX items (no panics
+    // or UB), and since this is short-circuit, it stops at the first in
+    // order non zero element.
     let min_frequency_index = frequencies.iter().position(|f| *f != 0).unwrap_or(0);
 
     let mut max_frequency_index = 0;

@@ -106,7 +106,8 @@ fn main() {
                 let channel = &mut layer.channels[line.location.channel];
                 let channel_sample_count = layer.data_window.size.area() as f32;
 
-                // now sum the average based on the values in this line section of pixels
+                // now sum the average based on the values in this line section
+                // of pixels
                 match channel.sample_type {
                     SampleType::F16 => {
                         for value in line.read_samples::<f16>() {

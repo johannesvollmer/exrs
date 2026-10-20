@@ -383,14 +383,16 @@ pub fn try_find_smaller_bounds(
     // scans top to bottom (left to right)
     let first_top_left_pixel = (0..height)
         .flat_map(|y| (0..width).map(move |x| Vec2(x, y)))
-        .find(|&position| pixel_at(position))?; // return none if no pixel should be kept
+        .find(|&position| pixel_at(position))?; // return none if no pixel
+                                                // should be kept
 
     // scans bottom to top (right to left)
     let first_bottom_right_pixel = (first_top_left_pixel.y() + 1..height) // excluding the top line
         .flat_map(|y| (0..width).map(move |x| Vec2(x, y))) // x search cannot start at first_top.x, because this must catch all bottom pixels
         .rev()
         .find(|&position| pixel_at(position))
-        .unwrap_or(first_top_left_pixel); // did not find any at bottom, but we know top has some pixel
+        .unwrap_or(first_top_left_pixel); // did not find any at bottom, but we
+                                          // know top has some pixel
 
     // now we know exactly how much we can throw away top and bottom,
     // but we don't know exactly about left or right
@@ -399,8 +401,8 @@ pub fn try_find_smaller_bounds(
 
     // we only now some arbitrary left and right bounds which we need to refine.
     // because the actual image contents might be wider than the corner points.
-    // we know that we do not need to look in the center between min x and max x,
-    // as these must be included in any case.
+    // we know that we do not need to look in the center between min x and max
+    // x, as these must be included in any case.
     let mut min_left_x = first_top_left_pixel.x().min(first_bottom_right_pixel.x());
     let mut max_right_x = first_bottom_right_pixel.x().max(first_top_left_pixel.x());
 
@@ -411,9 +413,9 @@ pub fn try_find_smaller_bounds(
             break;
         }
 
-        // search from right image edge towards image center, until known max x, for
-        // existing pixels, possibly including some pixels that would have been
-        // cropped otherwise
+        // search from right image edge towards image center, until known max x,
+        // for existing pixels, possibly including some pixels that
+        // would have been cropped otherwise
         if max_right_x != width - 1 {
             max_right_x = (max_right_x + 1..width)
                 .rev() // excluding current max
@@ -421,9 +423,9 @@ pub fn try_find_smaller_bounds(
                 .unwrap_or(max_right_x);
         }
 
-        // search from left image edge towards image center, until known min x, for
-        // existing pixels, possibly including some pixels that would have been
-        // cropped otherwise
+        // search from left image edge towards image center, until known min x,
+        // for existing pixels, possibly including some pixels that
+        // would have been cropped otherwise
         if min_left_x != 0 {
             min_left_x = (0..min_left_x) // excluding current min
                 .find(|&x| pixel_at(Vec2(x, y)))

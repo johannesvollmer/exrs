@@ -60,8 +60,8 @@ pub fn compress(channels: &ChannelList, bytes_ne: ByteVec, area: IntegerBounds) 
     {
         let mut write = encoded_be.as_mut_slice();
 
-        // TODO this loop should be an iterator in the `IntegerBounds` class, as it is
-        // used in all compression methods
+        // TODO this loop should be an iterator in the `IntegerBounds` class, as
+        // it is used in all compression methods
         for y in area.position.1..area.end().1 {
             for channel in &channels.list {
                 if mod_p(y, usize_to_i32(channel.sampling.1, "sampling factor")?) != 0 {
@@ -70,7 +70,8 @@ pub fn compress(channels: &ChannelList, bytes_ne: ByteVec, area: IntegerBounds) 
 
                 let sample_count_x = channel.subsampled_resolution(area.size).0;
 
-                // this apparently can't be a closure in Rust 1.43 due to borrowing ambiguity
+                // this apparently can't be a closure in Rust 1.43 due to
+                // borrowing ambiguity
                 macro_rules! split_off_write_slice {
                     () => {{
                         let (slice, rest) = write.split_at_mut(sample_count_x);

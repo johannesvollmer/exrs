@@ -222,10 +222,10 @@ fn unpack14(b: &[u8], s: &mut [u16; 16]) {
 // Unpack a 3-byte block `b` into 4 by 4 identical 16-bit pixels in `s` array.
 fn unpack3(b: &[u8], s: &mut [u16; 16]) {
     // this assertion panics for fuzzed images.
-    // assuming this debug assertion is an overly strict check to catch potential
-    // compression errors. disabling because it panics when fuzzed.
-    // when commenting out, it simply works (maybe it should return an error
-    // instead?). debug_assert_eq!(b[2], 0xfc);
+    // assuming this debug assertion is an overly strict check to catch
+    // potential compression errors. disabling because it panics when
+    // fuzzed. when commenting out, it simply works (maybe it should return
+    // an error instead?). debug_assert_eq!(b[2], 0xfc);
 
     // Get the 16-bit value from the block.
     let mut value = ((b32!(b, 0) << 8) | b32!(b, 1)) as u16;
@@ -310,9 +310,9 @@ pub fn decompress(
         channel_data.push(channel);
     }
 
-    // Temporary buffer is used to decompress B44 datas the way they are stored in
-    // the compressed buffer (channel by channel). We interleave the final
-    // result later.
+    // Temporary buffer is used to decompress B44 datas the way they are stored
+    // in the compressed buffer (channel by channel). We interleave the
+    // final result later.
     let mut tmp = Vec::with_capacity(expected_byte_size);
 
     // Index in the compressed buffer.
@@ -327,9 +327,9 @@ pub fn decompress(
         let sample_count = channel.resolution.area() * channel.samples_per_pixel;
         let byte_count = sample_count * channel.sample_type.bytes_per_sample();
 
-        // Sample types that does not support B44 compression (u32 and f32) are raw
-        // copied. In this branch, "compressed" array is actually raw,
-        // uncompressed data.
+        // Sample types that does not support B44 compression (u32 and f32) are
+        // raw copied. In this branch, "compressed" array is actually
+        // raw, uncompressed data.
         if channel.sample_type != SampleType::F16 {
             debug_assert_eq!(channel.sample_type.bytes_per_sample(), 4);
 
@@ -362,8 +362,8 @@ pub fn decompress(
         let cd_start = channel.tmp_start_index;
 
         for y in (0..y_sample_count).step_by(BLOCK_SAMPLE_COUNT) {
-            // Compute index in output (decompressed) buffer. We have 4 rows, because we
-            // will uncompress 4 by 4 data blocks.
+            // Compute index in output (decompressed) buffer. We have 4 rows,
+            // because we will uncompress 4 by 4 data blocks.
             let mut row0 = cd_start + y * x_byte_count;
             let mut row1 = row0 + x_byte_count;
             let mut row2 = row1 + x_byte_count;
@@ -371,7 +371,8 @@ pub fn decompress(
 
             // Move in pixel x line, 4 by 4.
             for x in (0..x_sample_count).step_by(BLOCK_SAMPLE_COUNT) {
-                // Extract the 4 by 4 block of 16-bit floats from the compressed buffer.
+                // Extract the 4 by 4 block of 16-bit floats from the compressed
+                // buffer.
                 let mut s = [0u16; 16];
 
                 if remaining_le < 3 {
@@ -403,8 +404,8 @@ pub fn decompress(
                     convert_to_linear(&mut s);
                 }
 
-                // Get resting samples from the line to copy in temp buffer (without going
-                // outside channel).
+                // Get resting samples from the line to copy in temp buffer
+                // (without going outside channel).
                 let x_resting_sample_count = if x + 3 < x_sample_count {
                     BLOCK_SAMPLE_COUNT
                 } else {
@@ -469,8 +470,8 @@ pub fn decompress(
             // native representations of a half have the same size.
 
             if channel.sample_type == SampleType::F16 {
-                // TODO simplify this and make it memcpy on little endian systems
-                // https://github.com/AcademySoftwareFoundation/openexr/blob/a03aca31fa1ce85d3f28627dbb3e5ded9494724a/src/lib/OpenEXR/ImfB44Compressor.cpp#L943
+                // TODO simplify this and make it memcpy on little endian
+                // systems https://github.com/AcademySoftwareFoundation/openexr/blob/a03aca31fa1ce85d3f28627dbb3e5ded9494724a/src/lib/OpenEXR/ImfB44Compressor.cpp#L943
                 for mut f16_bytes in channel_bytes.chunks(std::mem::size_of::<f16>()) {
                     let native_endian_f16_bits =
                         u16::read_from_little_endian(&mut f16_bytes).expect("memory read failed");
@@ -562,8 +563,8 @@ pub fn compress(
             // native representations of a half have the same size.
 
             if channel.sample_type == SampleType::F16 {
-                // TODO simplify this and make it memcpy on little endian systems
-                // https://github.com/AcademySoftwareFoundation/openexr/blob/a03aca31fa1ce85d3f28627dbb3e5ded9494724a/src/lib/OpenEXR/ImfB44Compressor.cpp#L640
+                // TODO simplify this and make it memcpy on little endian
+                // systems https://github.com/AcademySoftwareFoundation/openexr/blob/a03aca31fa1ce85d3f28627dbb3e5ded9494724a/src/lib/OpenEXR/ImfB44Compressor.cpp#L640
 
                 for mut out_f16_bytes in target.chunks_mut(2) {
                     let native_endian_f16_bits =
@@ -580,10 +581,11 @@ pub fn compress(
         }
     }
 
-    // Generate a whole buffer that we will crop to proper size once compression is
-    // done.
+    // Generate a whole buffer that we will crop to proper size once compression
+    // is done.
     let mut b44_compressed = vec![0; std::cmp::max(2048, uncompressed_le.len())];
-    let mut b44_end = 0; // Buffer byte index for storing next compressed values.
+    let mut b44_end = 0; // Buffer byte index for storing next compressed
+                         // values.
 
     for channel in &channel_data {
         // U32 and F32 channels are raw copied.
@@ -664,8 +666,8 @@ pub fn compress(
                 row2 += BLOCK_X_BYTE_COUNT;
                 row3 += BLOCK_X_BYTE_COUNT;
 
-                // Compress the contents of array `s` and append the results to the output
-                // buffer.
+                // Compress the contents of array `s` and append the results to
+                // the output buffer.
                 if channel.quantize_linearly {
                     convert_from_linear(&mut s);
                 }
@@ -770,8 +772,8 @@ mod test {
         let (pixel_bytes, compressed, decompressed) =
             test_roundtrip_noise_with(channels, rectangle);
 
-        // On my tests, B44 give a size of 44.08% the original data (this assert implies
-        // enough pixels to be relevant).
+        // On my tests, B44 give a size of 44.08% the original data (this assert
+        // implies enough pixels to be relevant).
         assert_eq!(pixel_bytes.len(), 941528);
         assert_eq!(compressed.len(), 415044);
         assert_eq!(decompressed.len(), 941528);
@@ -797,7 +799,8 @@ mod test {
         let (pixel_bytes, compressed, decompressed) =
             test_roundtrip_noise_with(channels, rectangle);
 
-        // B44 being 4 by 4 block, compression is less efficient for tiny images.
+        // B44 being 4 by 4 block, compression is less efficient for tiny
+        // images.
         assert_eq!(pixel_bytes.len(), 24);
         assert_eq!(compressed.len(), 28);
         assert_eq!(decompressed.len(), 24);
