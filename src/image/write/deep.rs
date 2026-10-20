@@ -60,7 +60,7 @@ impl<'channels> WritableChannels<'channels> for DeepChannels {
     type Writer = DeepChannelsWriter<'channels>;
 
     fn infer_channel_list(&self) -> ChannelList {
-        self.channel_list()
+        self.to_channel_list()
     }
 
     fn infer_level_modes(&self) -> (LevelMode, RoundingMode) {
