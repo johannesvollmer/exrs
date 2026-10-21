@@ -718,6 +718,11 @@ mod optimize_bytes {
 
     /// Interleave the bytes such that the second half of the array is every
     /// other byte.
+    // Dispatch once per buffer so LLVM can use AVX2 for the interleaving loop.
+    #[cfg_attr(
+        any(target_arch = "x86", target_arch = "x86_64"),
+        multiversion::multiversion(targets("x86_64+avx2", "x86+avx2"))
+    )]
     pub fn interleave_byte_blocks(separated: &mut [u8]) {
         with_reused_buffer(separated.len(), |interleaved| {
             // Split the two halves that we are going to interleave.
@@ -804,13 +809,17 @@ mod optimize_bytes {
     pub mod test {
         #[test]
         fn roundtrip_interleave() {
-            let source = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-            let mut modified = source.clone();
+            // Cover SIMD boundaries, odd tails, and reusing a larger scratch
+            // buffer for a shorter input.
+            for length in (0..=129).chain([65535, 65536, 65537, 3, 0]) {
+                let source: Vec<u8> = (0..length).map(|index| (index % 251) as u8).collect();
+                let mut modified = source.clone();
 
-            super::separate_bytes_fragments(&mut modified);
-            super::interleave_byte_blocks(&mut modified);
+                super::separate_bytes_fragments(&mut modified);
+                super::interleave_byte_blocks(&mut modified);
 
-            assert_eq!(source, modified);
+                assert_eq!(source, modified, "interleave roundtrip failed for length {length}");
+            }
         }
 
         #[test]
