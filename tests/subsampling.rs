@@ -710,3 +710,27 @@ fn specific_channels_read_modify_rewrite_roundtrip() {
         }
     }
 }
+
+#[test]
+fn reads_openexr_b44_subsampled_like_cpp() {
+    // Values decoded by OpenEXR 3.1.11 from comp_b44.exr at selected pixels.
+    let image =
+        read_all_data_from_file("tests/images/valid/openexr/IlmfmlmflmTest/comp_b44.exr").unwrap();
+    let layer = image.layer_data.first().unwrap();
+    let channel =
+        layer.channel_data.list.iter().find(|channel| channel.name.to_string() == "Y").unwrap();
+    let samples = channel.sample_data.levels_as_slice().first().unwrap();
+    let width = layer.size.width();
+
+    for &(x, y, expected) in &[
+        (0usize, 0usize, 0.04272461_f32),
+        (2, 0, 0.04272461),
+        (1, 1, 0.04321289),
+        (2, 2, 0.043701172),
+        (716, 262, 0.25976563),
+        (585, 673, 0.017089844),
+    ] {
+        let actual = samples.value_by_flat_index(y * width + x).to_f32();
+        assert_eq!(actual, expected, "pixel ({x}, {y})");
+    }
+}
