@@ -17,6 +17,9 @@ rust-version = "1.83.0"
 [badges]
 maintenance = { status = "actively-developed" }
 
+[package.metadata.docs.rs]
+features = ["deep"]
+
 [lib]
 path = "src/lib.rs"
 test = true
@@ -58,6 +61,10 @@ rayon = ["dep:rayon-core"]
 # `cargo bench --features dct-benches --bench dct`
 dct-benches = []
 
+# enables reading, writing, and compositing deep images
+# (images with a variable number of samples per pixel, at different depths)
+deep = []
+
 [[example]]
 name = "7_write_raw_blocks"
 required-features = ["rayon"]
@@ -65,6 +72,10 @@ required-features = ["rayon"]
 [[example]]
 name = "8_read_raw_blocks"
 required-features = ["rayon"]
+
+[[example]]
+name = "9_deep_data"
+required-features = ["deep"]
 
 [[bench]]
 name = "read"

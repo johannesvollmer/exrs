@@ -11,11 +11,15 @@ pub mod reader;
 pub mod writer;
 
 pub mod chunk;
+#[cfg(feature = "deep")]
+pub mod deep;
 pub mod lines;
 pub mod samples;
 
 use std::io::{Read, Seek, Write};
 
+#[cfg(feature = "deep")]
+pub use self::deep::UncompressedDeepBlock;
 use crate::{
     block::{
         chunk::{
@@ -167,7 +171,12 @@ impl UncompressedBlock {
                 },
             }),
 
-            _ => Err(Error::unsupported("deep data not supported yet")),
+            CompressedBlock::DeepScanLine(_) | CompressedBlock::DeepTile(_) => {
+                Err(Error::unsupported(
+                    "deep data cannot be decompressed as flat data (use `UncompressedDeepBlock`, \
+                     which requires the `deep` feature)",
+                ))
+            }
         }
     }
 
@@ -182,6 +191,13 @@ impl UncompressedBlock {
         } = self;
 
         let header: &Header = headers.get(index.layer).expect("block layer index bug");
+
+        if header.deep {
+            return Err(Error::invalid(
+                "flat block in deep layer (use `UncompressedDeepBlock`, which requires the \
+                 `deep` feature)",
+            ));
+        }
 
         let expected_byte_size = header.channels.bytes_per_pixel * self.index.pixel_size.area(); // TODO sampling??
         if expected_byte_size != data.len() {

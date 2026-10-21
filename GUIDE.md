@@ -89,8 +89,11 @@ will contain an additional vector with the mip map levels.
 
 ### Deep Data
 The first choice to be made is whether you want to load deep data or not.
-Deep data is where multiple colors are stored in one pixel at the same location.
-Currently, deep data is not supported yet, so we always call `no_deep_data()`.
+Deep data is where any number of samples is stored in one pixel, 
+for example at different depths. Most images do not contain deep data,
+so most of the time, we call `no_deep_data()`. 
+Flat readers return `Error::NotSupported` for deep layers. 
+With the `deep` feature enabled, `first_valid_layer()` skips deep layers instead.
 
 ```rust
 fn main(){
@@ -98,6 +101,33 @@ fn main(){
     let reader = read().no_deep_data();
 }
 ```
+
+To read deep images, enable the `deep` feature of this crate, 
+and call `deep_data()` instead. Then choose whether to read all layers,
+which must all be deep, all deep layers while skipping flat layers, or only the first deep layer.
+Implement `ReadDeepLayers` and use `ReadDeepImage::new` for a custom selection of layers.
+Deep images do not support the further options of flat images, 
+as all channels and only the largest resolution level are loaded.
+
+```rust
+fn main(){
+    use exr::prelude::*;
+    
+    // results in a `DeepLayersImage`
+    let all_layers = read().deep_data().all_layers();
+    let all_deep_layers = read().deep_data().all_valid_layers();
+    
+    // results in a `DeepImage`
+    let first_layer = read().deep_data().first_valid_layer()
+        .non_parallel().pedantic().on_progress(|progress| println!("{}", progress));
+}
+```
+
+The deep samples of a layer are stored in `AnyDeepChannels`, which contain 
+the number of samples of each pixel and the values of each channel for all samples.
+Use `deep.sample_range(Vec2(x, y))` to find the samples of a specific pixel in the sample vectors.
+Deep images are written using `image.write()`, just like flat images, 
+and can be flattened or merged using the functions in `exr::image::deep::compositing`.
 
 ### Resolution Levels
 Decide whether you want to load the largest resolution level, or all Mip Maps from the file.
@@ -517,10 +547,11 @@ fn main() {
 ### Channel
 The type `AnyChannel` can describe every possible channel and contains all its samples for this layer.   
 Use `AnyChannel::new(channel_name, sample_data)` or `AnyChannel { .. }`.
-The samples can currently only be `FlatSamples` or `Levels<FlatSamples>`, and in the future might be `DeepSamples`.
+The samples can currently only be `FlatSamples` or `Levels<FlatSamples>`.
+Deep layers use `AnyDeepChannels` instead of `AnyChannels`, which also contain a list of `AnyChannel<FlatSamples>`.
 
 ### Samples
-Currently, only flat samples are supported. These do not contain deep data.  
+`FlatSamples` contain one sample per pixel. These do not contain deep data.  
 Construct flat samples directly using `FlatSamples::F16(samples_vec)`, `FlatSamples::F32(samples_vec)`, or `FlatSamples::U32(samples_vec)`.
 The vector contains all samples of the layer, row by row (from top to bottom), from left to right.
 

@@ -24,12 +24,12 @@ Features include:
 - load specific sections of an image without processing the whole file
 - compress and decompress image pixels on multiple threads in parallel
 - add arbitrary meta data to any image, including custom byte data, with full backwards compatibility
-- any number of samples per pixel ("deep data") (not yet supported)
+- any number of samples per pixel ("deep data"), using the `deep` feature
 
 ### Current Status
 
 This library has matured quite a bit, but should still be considered incomplete.
-For example, deep data and DWA compression algorithms are not supported yet.
+For example, channel subsampling and HTJ2K compression are not supported yet.
 
 If you encounter an exr file that cannot be opened by this crate but should be,
 please leave an issue on this repository, containing the image file.
@@ -46,7 +46,7 @@ __What we can do:__
     - [x] access meta data and raw pixel blocks independently
     - [x] automatically crop away transparent pixels of an image (opt-in)
     - [ ] channel subsampling
-    - [ ] deep data
+    - [x] deep data (scan lines and tiles, using the `deep` feature)
     - [x] compression methods
         - [x] uncompressed
         - [x] zip line (lossless)
@@ -81,11 +81,11 @@ __What we can do:__
         - [x] Tiles
         - [x] Scan lines
         - [x] Deep Tiles
-        - [ ] Deep Scan Lines _(coded, but untested)_
+        - [x] Deep Scan Lines
     - [x] Multipart
         - [x] Tiles
         - [x] Scan lines
-        - [ ] Deep Tiles _(coded, but untested)_
+        - [x] Deep Tiles
         - [x] Deep Scan Lines
     - [x] Multi Resolution
         - [x] Singular Resolution
@@ -101,7 +101,7 @@ __What we can do:__
     - [x] Any LineOrder
     - [x] Any Pixel Type (`f16`, `f32`, `u32`)
     - [x] Multipart
-    - [ ] Deep Data
+    - [x] Deep Data (largest resolution level only)
     - [x] Rip/Mip Maps  _(coded, but untested)_
     - [ ] Nice API for RGBA conversion and displaying other color spaces?
     - [ ] Compression Methods
@@ -118,7 +118,7 @@ __What we can do:__
     - [x] Scan Lines
     - [x] Tiles
     - [x] Multipart
-    - [ ] Deep Data
+    - [x] Deep Data (no resolution levels)
     - [x] User supplied line order
     - [x] Rip/Mip Maps _(coded, but untested)_
     - [x] 100% correct meta data
@@ -213,9 +213,6 @@ fn main() {
 
 See the [the examples folder](https://github.com/johannesvollmer/exrs/tree/master/examples) for more examples.
 
-Or read [the guide](https://github.com/johannesvollmer/exrs/blob/master/GUIDE.md).
-
-
 ### Goals
 
 `exrs` aims to provide a safe and convenient
@@ -306,7 +303,6 @@ document. Saved older PDFs in /specification. Unspecified behavior is concluded 
 ### Roadmap
 1. Support all compression formats
 1. Support subsampling
-1. Support Deep Data
 1. Automatic conversion between color spaces
 1. Profiling and other optimization
 1. Tooling (Image Viewer App, Metadata Extraction Tool, ...)

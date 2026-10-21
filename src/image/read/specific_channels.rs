@@ -182,7 +182,11 @@ ReadChannels<'s> for CollectPixels<InnerChannels, Pixel, PixelStorage, CreatePix
     >;
 
     fn create_channels_reader(&'s self, header: &Header) -> Result<Self::Reader> {
-        if header.deep { return Err(Error::invalid("`SpecificChannels` does not support deep data yet")) }
+        if header.deep {
+            return Err(Error::invalid(
+                "deep data cannot be read as specific channels (use `read().deep_data()` instead)"
+            ))
+        }
 
         let pixel_reader = self.read_channels.create_recursive_reader(&header.channels)?;
         let channel_descriptions = pixel_reader.get_descriptions().into_non_recursive();// TODO not call this twice

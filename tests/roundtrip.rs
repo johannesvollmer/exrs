@@ -168,6 +168,9 @@ fn check_all_files_in_repo<T>(
                 Ok(Err(Error::NotSupported(message))) => Result::Unsupported(message.to_string()),
 
                 Ok(Err(Error::Io(io))) => Result::Error(format!("IoError: {:?}", io)),
+                Ok(Err(Error::Invalid(message))) if message.contains("deep") => {
+                    Result::Unsupported(format!("deep layer skipped: {message:?}"))
+                }
                 Ok(Err(Error::Invalid(message))) => {
                     Result::Error(format!("Invalid: {:?}", message))
                 }
