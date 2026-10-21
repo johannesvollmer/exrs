@@ -59,6 +59,20 @@ where
     }
 }
 
+/// Sort channel descriptions and reject duplicate names with a message that
+/// names the offending channel.
+fn unique_channel_list(mut channels: SmallVec<[ChannelDescription; 5]>) -> Result<ChannelList> {
+    channels.sort_unstable_by_key(|channel| channel.name.clone());
+
+    for pair in channels.windows(2) {
+        if pair[0].name == pair[1].name {
+            return Err(Error::invalid(format!("duplicate channel name `{}`", pair[0].name)));
+        }
+    }
+
+    Ok(ChannelList::new(channels))
+}
+
 impl<'samples, Samples> WritableChannels<'samples> for AnyChannels<Samples>
 where
     Samples: 'samples + WritableSamples<'samples>,
@@ -66,19 +80,20 @@ where
     type Writer = AnyChannelsWriter<Samples::Writer>;
 
     fn infer_channel_list(&self) -> Result<ChannelList> {
-        Ok(ChannelList::new(
-            self.list
-                .iter()
-                .map(|channel| {
-                    Ok(ChannelDescription {
-                        name: channel.name.clone(),
-                        sample_type: channel.sample_data.sample_type()?,
-                        quantize_linearly: channel.quantize_linearly,
-                        sampling: channel.sampling,
-                    })
+        let channels = self
+            .list
+            .iter()
+            .map(|channel| {
+                Ok(ChannelDescription {
+                    name: channel.name.clone(),
+                    sample_type: channel.sample_data.sample_type()?,
+                    quantize_linearly: channel.quantize_linearly,
+                    sampling: channel.sampling,
                 })
-                .collect::<Result<SmallVec<_>>>()?,
-        ))
+            })
+            .collect::<Result<SmallVec<_>>>()?;
+
+        unique_channel_list(channels)
     }
 
     fn infer_level_modes(&self) -> Result<(LevelMode, RoundingMode)> {
@@ -149,16 +164,7 @@ where
     >;
 
     fn infer_channel_list(&self) -> Result<ChannelList> {
-        let mut vec = self.channels.clone().into_recursive().channel_descriptions_list();
-        vec.sort_unstable_by_key(|channel: &ChannelDescription| channel.name.clone()); // TODO no clone?
-
-        debug_assert!(
-            // check for equal neighbors in sorted vec
-            vec.iter().zip(vec.iter().skip(1)).all(|(prev, next)| prev.name != next.name),
-            "specific channels contain duplicate channel names"
-        );
-
-        Ok(ChannelList::new(vec))
+        unique_channel_list(self.channels.clone().into_recursive().channel_descriptions_list())
     }
 
     fn infer_level_modes(&self) -> Result<(LevelMode, RoundingMode)> {
@@ -505,5 +511,24 @@ mod test {
         ));
 
         fn assert_is_writable_channels<'s>(_channels: impl WritableChannels<'s>) {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn duplicate_channel_names_report_the_name() {
+        let channel = || ChannelDescription {
+            name: crate::meta::attribute::Text::from("A"),
+            sample_type: crate::meta::attribute::SampleType::F16,
+            quantize_linearly: false,
+            sampling: crate::math::Vec2(1, 1),
+        };
+
+        let error =
+            unique_channel_list(smallvec::smallvec![channel(), channel()]).unwrap_err().to_string();
+        assert!(error.contains("duplicate channel name `A`"), "{}", error);
     }
 }
