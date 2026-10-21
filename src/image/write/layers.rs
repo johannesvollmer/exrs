@@ -112,7 +112,7 @@ impl<'slf, Channels: WritableChannels<'slf>> WritableLayers<'slf> for Layer<Chan
         let chunk_count = compute_chunk_count(self.encoding.compression, self.size, blocks);
 
         let header = Header {
-            channels: self.channel_data.infer_channel_list(),
+            channels: self.channel_data.infer_channel_list()?,
             compression: self.encoding.compression,
 
             blocks,

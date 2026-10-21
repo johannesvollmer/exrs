@@ -1171,15 +1171,17 @@ pub mod validate_results {
                 for (own_chan, other_chan) in
                     self.channel_data.list.iter().zip(other.channel_data.list.iter())
                 {
+                    let lossless = other_chan
+                        .sample_data
+                        .sample_type()
+                        .map(|sample_type| other.encoding.compression.is_lossless_for(sample_type))
+                        .map_err(|error| error.to_string())?;
+
                     own_chan.validate_result(
                         other_chan,
                         ValidationOptions {
                             // no tolerance for lossless channels
-                            allow_lossy: other
-                                .encoding
-                                .compression
-                                .is_lossless_for(other_chan.sample_data.sample_type())
-                                .not(),
+                            allow_lossy: lossless.not(),
 
                             // consider nan and zero equal if the compression method does not
                             // support nan

@@ -19,7 +19,7 @@ pub trait WritableSamples<'slf> {
     // fn is_deep(&self) -> bool;
 
     /// Generate the file meta data regarding the number type of this storage
-    fn sample_type(&self) -> SampleType;
+    fn sample_type(&self) -> Result<SampleType>;
 
     /// Generate the file meta data regarding resolution levels
     fn infer_level_modes(&self) -> Result<(LevelMode, RoundingMode)>;
@@ -35,7 +35,7 @@ pub trait WritableSamples<'slf> {
 /// Only contained within `Levels`.
 pub trait WritableLevel<'slf> {
     /// Generate the file meta data regarding the number type of these samples
-    fn sample_type(&self) -> SampleType;
+    fn sample_type(&self) -> Result<SampleType>;
 
     /// The type of the temporary writer for this single level of samples
     type Writer: SamplesWriter;
@@ -63,12 +63,12 @@ pub struct FlatSamplesWriter<'samples> {
 impl<'samples> WritableSamples<'samples> for FlatSamples {
     type Writer = FlatSamplesWriter<'samples>;
 
-    fn sample_type(&self) -> SampleType {
-        match self {
+    fn sample_type(&self) -> Result<SampleType> {
+        Ok(match self {
             Self::F16(_) => SampleType::F16,
             Self::F32(_) => SampleType::F32,
             Self::U32(_) => SampleType::U32,
-        }
+        })
     }
 
     fn infer_level_modes(&self) -> Result<(LevelMode, RoundingMode)> {
@@ -88,12 +88,12 @@ impl<'samples> WritableSamples<'samples> for FlatSamples {
 impl<'samples> WritableLevel<'samples> for FlatSamples {
     type Writer = FlatSamplesWriter<'samples>;
 
-    fn sample_type(&self) -> SampleType {
-        match self {
+    fn sample_type(&self) -> Result<SampleType> {
+        Ok(match self {
             Self::F16(_) => SampleType::F16,
             Self::F32(_) => SampleType::F32,
             Self::U32(_) => SampleType::U32,
-        }
+        })
     }
 
     fn create_level_writer(&'samples self, size: Vec2<usize>) -> Self::Writer {
@@ -139,19 +139,20 @@ where
 {
     type Writer = LevelsWriter<LevelSamples::Writer>;
 
-    fn sample_type(&self) -> SampleType {
-        let sample_type = self
-            .levels_as_slice()
+    fn sample_type(&self) -> Result<SampleType> {
+        let levels = self.levels_as_slice();
+        let sample_type = levels
             .first()
-            .expect("sample type cannot be determined: no levels found in Levels structure")
-            .sample_type();
+            .ok_or_else(|| Error::invalid("sample type cannot be determined: no levels found"))?
+            .sample_type()?;
 
-        debug_assert!(
-            self.levels_as_slice().iter().skip(1).all(|ty| ty.sample_type() == sample_type),
-            "sample types must be the same across all levels"
-        );
+        for level in levels.iter().skip(1) {
+            if level.sample_type()? != sample_type {
+                return Err(Error::invalid("sample types must be the same across all levels"));
+            }
+        }
 
-        sample_type
+        Ok(sample_type)
     }
 
     fn infer_level_modes(&self) -> Result<(LevelMode, RoundingMode)> {

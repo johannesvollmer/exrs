@@ -189,7 +189,7 @@ where
 {
     type Writer = CroppedWriter<Channels::Writer>;
 
-    fn infer_channel_list(&self) -> ChannelList {
+    fn infer_channel_list(&self) -> Result<ChannelList> {
         self.full_channels.infer_channel_list() // no need for adjustments, as
                                                 // the layer content already
                                                 // reflects the changes

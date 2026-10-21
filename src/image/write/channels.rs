@@ -14,7 +14,7 @@ use crate::{
 /// Enables an image containing this list of channels to be written to a file.
 pub trait WritableChannels<'slf> {
     /// Generate the file meta data for this list of channel
-    fn infer_channel_list(&self) -> ChannelList;
+    fn infer_channel_list(&self) -> Result<ChannelList>;
 
     ///  Generate the file meta data of whether and how resolution levels should
     /// be stored in the file
@@ -65,18 +65,20 @@ where
 {
     type Writer = AnyChannelsWriter<Samples::Writer>;
 
-    fn infer_channel_list(&self) -> ChannelList {
-        ChannelList::new(
+    fn infer_channel_list(&self) -> Result<ChannelList> {
+        Ok(ChannelList::new(
             self.list
                 .iter()
-                .map(|channel| ChannelDescription {
-                    name: channel.name.clone(),
-                    sample_type: channel.sample_data.sample_type(),
-                    quantize_linearly: channel.quantize_linearly,
-                    sampling: channel.sampling,
+                .map(|channel| {
+                    Ok(ChannelDescription {
+                        name: channel.name.clone(),
+                        sample_type: channel.sample_data.sample_type()?,
+                        quantize_linearly: channel.quantize_linearly,
+                        sampling: channel.sampling,
+                    })
                 })
-                .collect(),
-        )
+                .collect::<Result<SmallVec<_>>>()?,
+        ))
     }
 
     fn infer_level_modes(&self) -> Result<(LevelMode, RoundingMode)> {
@@ -146,7 +148,7 @@ where
         Channels,
     >;
 
-    fn infer_channel_list(&self) -> ChannelList {
+    fn infer_channel_list(&self) -> Result<ChannelList> {
         let mut vec = self.channels.clone().into_recursive().channel_descriptions_list();
         vec.sort_unstable_by_key(|channel: &ChannelDescription| channel.name.clone()); // TODO no clone?
 
@@ -156,7 +158,7 @@ where
             "specific channels contain duplicate channel names"
         );
 
-        ChannelList::new(vec)
+        Ok(ChannelList::new(vec))
     }
 
     fn infer_level_modes(&self) -> Result<(LevelMode, RoundingMode)> {
