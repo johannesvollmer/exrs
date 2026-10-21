@@ -13,7 +13,7 @@ use std::{
 };
 
 use exr::{
-    image::deep::{compositing, DeepChannels},
+    image::deep::{compositing, AnyDeepChannels},
     meta::attribute::DeepImageState,
     prelude::{pixel_vec::PixelVec, *},
 };
@@ -122,26 +122,26 @@ fn flat_and_deep_readers_reject_each_other() {
     let deep_path = format!("{LOW_RES}/Balls.exr");
 
     // flat readers report deep data as unsupported instead of invalid
-    assert!(matches!(read_all_data_from_file(&deep_path), Err(Error::NotSupported(_))));
-    assert!(matches!(read_all_flat_layers_from_file(&deep_path), Err(Error::NotSupported(_))));
+    assert!(matches!(read_all_data_from_file(&deep_path), Err(Error::Invalid(_))));
+    assert!(matches!(read_all_flat_layers_from_file(&deep_path), Err(Error::Invalid(_))));
     assert!(matches!(
         read_first_rgba_layer_from_file(
             &deep_path,
             |_, _| (),
             |_: &mut (), _: Vec2<usize>, _: (f32, f32, f32, f32)| {}
         ),
-        Err(Error::NotSupported(_))
+        Err(Error::Invalid(_))
     ));
 
     // deep readers report flat data as unsupported
     let flat_path = format!("{LOW_RES}/composited.exr");
     assert!(matches!(
         read().deep_data().first_valid_layer().from_file(&flat_path),
-        Err(Error::NotSupported(_))
+        Err(Error::Invalid(_))
     ));
     assert!(matches!(
         read().deep_data().all_layers().from_file(&flat_path),
-        Err(Error::NotSupported(_))
+        Err(Error::Invalid(_))
     ));
 }
 
@@ -193,7 +193,7 @@ fn synthetic_layer(
     size: Vec2<usize>,
     seed: u32,
     encoding: Encoding,
-) -> Layer<DeepChannels> {
+) -> Layer<AnyDeepChannels> {
     let mut state = seed;
     let mut random = move || {
         state ^= state << 13;
@@ -218,7 +218,7 @@ fn synthetic_layer(
     let alpha = (0..total).map(|_| f16::from_f32((random() % 1000) as f32 / 1000.0)).collect();
     let ids = (0..total).map(|_| random()).collect();
 
-    let channels = DeepChannels::new(
+    let channels = AnyDeepChannels::new(
         size,
         counts,
         vec![
@@ -253,7 +253,7 @@ fn round_trip_synthetic_layers() {
         },
     ];
 
-    let layers: Layers<DeepChannels> = encodings
+    let layers: Layers<AnyDeepChannels> = encodings
         .iter()
         .enumerate()
         .map(|(index, &encoding)| {
@@ -373,7 +373,7 @@ fn write_image_with_flat_and_deep_layers() {
 
         // the image contains a flat layer, so not all layers can be read as
         // deep data
-        assert!(matches!(read_deep_bytes(&bytes), Err(Error::NotSupported(_))));
+        assert!(matches!(read_deep_bytes(&bytes), Err(Error::Invalid(_))));
     }
 }
 
@@ -436,14 +436,14 @@ fn read_images_with_deep_and_flat_layers_in_any_order() {
     assert_eq!(decoded_deep.layer_data[0].channel_data, first_deep.channel_data);
     assert_eq!(decoded_deep.layer_data[1].channel_data, second_deep.channel_data);
     assert_eq!(decoded_deep.layer_data[1].attributes.layer_name, second_deep.attributes.layer_name);
-    assert!(matches!(read_deep_bytes(&bytes), Err(Error::NotSupported(_))));
+    assert!(matches!(read_deep_bytes(&bytes), Err(Error::Invalid(_))));
 }
 
 /// Selects the deep layer with a specific name.
 struct ReadDeepLayerByName(&'static str);
 
 impl exr::image::read::deep::ReadDeepLayers for ReadDeepLayerByName {
-    type Layers = Layer<DeepChannels>;
+    type Layers = Layer<AnyDeepChannels>;
 
     fn select_layers(&self, headers: &[exr::meta::header::Header]) -> Result<SmallVec<[usize; 2]>> {
         headers
@@ -453,7 +453,7 @@ impl exr::image::read::deep::ReadDeepLayers for ReadDeepLayerByName {
             .ok_or_else(|| Error::Invalid("no layer with that name".into()))
     }
 
-    fn collect_layers(&self, layers: Vec<Layer<DeepChannels>>) -> Self::Layers {
+    fn collect_layers(&self, layers: Vec<Layer<AnyDeepChannels>>) -> Self::Layers {
         layers.into_iter().next().unwrap()
     }
 }
@@ -709,7 +709,7 @@ fn reject_invalid_deep_layers_when_writing() {
 /// by compositing the four deep images.
 #[test]
 fn composite_matches_openexr_reference_image() {
-    let read_layer = |name: &str| -> Layer<DeepChannels> {
+    let read_layer = |name: &str| -> Layer<AnyDeepChannels> {
         read()
             .deep_data()
             .first_valid_layer()
@@ -718,10 +718,11 @@ fn composite_matches_openexr_reference_image() {
             .layer_data
     };
 
-    let sources: Vec<Layer<DeepChannels>> = ["Ground.exr", "Trunks.exr", "Balls.exr", "Leaves.exr"]
-        .iter()
-        .map(|name| read_layer(name))
-        .collect();
+    let sources: Vec<Layer<AnyDeepChannels>> =
+        ["Ground.exr", "Trunks.exr", "Balls.exr", "Leaves.exr"]
+            .iter()
+            .map(|name| read_layer(name))
+            .collect();
 
     let composited = compositing::composite(&sources).unwrap();
     assert_eq!(composited.attributes.layer_position, Vec2(0, 0));

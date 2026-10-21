@@ -6,7 +6,7 @@
 ## Summary
 
 Combine the deep-data work with PR #292, which supplies the high-level
-`DeepChannels` image API on current `master` and passes the OpenEXR cross-checks.
+`AnyDeepChannels` image API on current `master` and passes the OpenEXR cross-checks.
 This branch keeps that API, keeps the block API as an escape hatch, and adds the
 SDD artifacts, API-guideline fixes, and the documented compositing tolerance.
 
@@ -94,3 +94,18 @@ specs/001-deep-data/
    method, and the derives that `f32` fields permit.
 6. **Verification** — run all feature combinations, update the PR body, and split
    the changes into the stacked commits listed in `tasks.md`.
+
+## Review-Driven Slices
+
+7. **Rename the allocated deep type** — `AnyDeepChannels` → `AnyAnyDeepChannels`
+   (and the writer/statistics types) across code, docs and tests. Evidence:
+   `cargo test --features deep`.
+8. **Compositing follow-up** — keep `composite`/`flatten`/`merge` out of the
+   core merge; rework the pixel API around `RGBADepthF32Premultiplied`,
+   precomputed channel indices, `Option`-based absence, and
+   `_or_zero`/`_or_transparent`.
+9. **Block pipeline unification** — replace duplicated deep reader/writer
+   pipelines with one `Flat`/`Deep` enum and one parallel/sequential loop.
+   Evidence: flat and deep round-trip suites on both paths.
+10. **Error type audit** — flat-on-deep is `Invalid`; `Unsupported` only for
+    missing features.

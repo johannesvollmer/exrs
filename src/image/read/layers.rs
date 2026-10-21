@@ -223,7 +223,7 @@ where
                 if headers.iter().any(|header| header.deep) {
                     // the image is not invalid, but its deep layers cannot be
                     // read as flat data
-                    Error::unsupported(
+                    Error::invalid(
                         "no flat layer in the image matched your specified requirements \
                          (use `read().deep_data()` to read deep layers)",
                     )

@@ -119,3 +119,24 @@ As a library consumer, I want deep code to cost nothing when unused.
   code that used the wrong type. This is intentional and called out in the PR.
 - **Feature-gated rot.** Deep code is not compiled by default; CI must run
   `--features deep`.
+
+## Follow-Up Review Constraints
+
+These constraints come from the maintainer review of PR #292.
+
+- The block module reads flat and deep chunks through one runtime enum
+  (`Flat`/`Deep`), not two duplicated reader/writer pipelines. Deep is not a
+  feature gate inside the block layer.
+- The high-level reader/writer keeps separate static types, but `pedantic`,
+  `parallel`, and the `from_*` entry points live in one shared wrapper.
+- The allocated deep channel type is named `AnyAnyDeepChannels` (and related
+  types), leaving room for a later non-allocating variant.
+- Compositing is a follow-up surface. It must not force allocations per pixel,
+  must let the caller supply channel indices, must represent missing channels
+  as `Option`, and must expose explicit `_or_zero` / `_or_transparent`
+  conveniences.
+- A sample is a single number in this crate. The RGB+depth+alpha value is
+  `RGBADepthF32Premultiplied`, not `RGBADepthF32Premultiplied`.
+- Duplicate channel detection belongs to `ChannelList`.
+- A flat reader that encounters a deep layer returns `Invalid`, not
+  `Unsupported`; `Unsupported` is reserved for missing library features.

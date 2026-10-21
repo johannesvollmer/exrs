@@ -50,7 +50,7 @@ pub trait ChannelsWriter: Sync {
         _header: &Header,
         _block: BlockIndex,
     ) -> Result<UncompressedDeepBlock> {
-        Err(Error::unsupported("these channels do not contain deep data"))
+        Err(Error::invalid("these channels do not contain deep data"))
     }
 }
 

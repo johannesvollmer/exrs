@@ -232,8 +232,8 @@ impl ReadBuilder {
     /// Requires the `deep` feature.
     #[cfg(feature = "deep")]
     #[must_use]
-    pub const fn deep_data(self) -> deep::ReadDeepSamples {
-        deep::ReadDeepSamples
+    pub const fn deep_data(self) -> deep::ReadRGBADepthF32Premultiplieds {
+        deep::ReadRGBADepthF32Premultiplieds
     }
 
     // pub fn any_resolution_levels() -> ReadBuilder<> {}

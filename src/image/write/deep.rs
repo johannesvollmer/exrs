@@ -1,14 +1,14 @@
 //! Write deep images.
 //!
-//! Deep layers use [`DeepChannels`] as their channel data,
+//! Deep layers use [`AnyDeepChannels`] as their channel data,
 //! and are written using the same API as flat images.
 //! A single image may contain both flat and deep layers.
 //!
 //! ```no_run
-//! use exr::{image::deep::DeepChannels, prelude::*};
+//! use exr::{image::deep::AnyDeepChannels, prelude::*};
 //!
 //! // a 2x1 deep image: the first pixel contains two samples, the second pixel none
-//! let channels = DeepChannels::new(
+//! let channels = AnyDeepChannels::new(
 //!     (2, 1),
 //!     vec![2, 0],
 //!     vec![
@@ -38,7 +38,7 @@ use crate::{
     block::{writer::ChunksWriter, BlockIndex, UncompressedBlock, UncompressedDeepBlock},
     error::{Error, Result, UnitResult},
     image::{
-        deep::DeepChannels,
+        deep::AnyDeepChannels,
         write::{
             channels::{ChannelsWriter, WritableChannels},
             layers::LayersWriter,
@@ -54,12 +54,12 @@ use crate::{
 
 /// A temporary writer for the channels of a deep layer.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DeepChannelsWriter<'channels> {
-    channels: &'channels DeepChannels,
+pub struct AnyDeepChannelsWriter<'channels> {
+    channels: &'channels AnyDeepChannels,
 }
 
-impl<'channels> WritableChannels<'channels> for DeepChannels {
-    type Writer = DeepChannelsWriter<'channels>;
+impl<'channels> WritableChannels<'channels> for AnyDeepChannels {
+    type Writer = AnyDeepChannelsWriter<'channels>;
 
     fn infer_channel_list(&self) -> ChannelList {
         self.to_channel_list()
@@ -70,7 +70,7 @@ impl<'channels> WritableChannels<'channels> for DeepChannels {
     }
 
     fn create_writer(&'channels self, _header: &Header) -> Self::Writer {
-        DeepChannelsWriter {
+        AnyDeepChannelsWriter {
             channels: self,
         }
     }
@@ -80,7 +80,7 @@ impl<'channels> WritableChannels<'channels> for DeepChannels {
     }
 }
 
-impl ChannelsWriter for DeepChannelsWriter<'_> {
+impl ChannelsWriter for AnyDeepChannelsWriter<'_> {
     /// Deep channels cannot be written as flat data.
     /// Returns an empty block, which will be rejected when compressing it.
     fn extract_uncompressed_block(&self, _header: &Header, _block: BlockIndex) -> Vec<u8> {

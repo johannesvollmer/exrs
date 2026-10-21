@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added
 - Adds reading, writing, and compositing deep images, behind the new `deep` feature.
-  Deep layers contain any number of samples per pixel and use `DeepChannels` as channel data.
+  Deep layers contain any number of samples per pixel and use `AnyDeepChannels` as channel data.
   - Read deep images with `read().deep_data()`, and write them with `image.write()`, like flat images.
     Images may contain both flat and deep layers. Use `all_valid_layers()` to read all deep layers of such images,
     or implement `ReadDeepLayers` for a custom selection.

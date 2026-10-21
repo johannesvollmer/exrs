@@ -14,13 +14,13 @@ API-guideline fixes from the older deep branch.
 
 ## Phase 2: API Review
 
-- [x] T005 Rename `DeepChannels::channel_list` to `to_channel_list`.
+- [x] T005 Rename `AnyDeepChannels::channel_list` to `to_channel_list`.
 - [x] T006 Make the depth/alpha channel-name constants private.
 - [x] T007 Rename `pixel_sample_bytes_range` to `pixel_sample_byte_range`.
-- [x] T008 Add `Hash` to `UncompressedDeepBlock` and `Debug` to `DeepChannels`.
+- [x] T008 Add `Hash` to `UncompressedDeepBlock` and `Debug` to `AnyDeepChannels`.
 - [x] T009 Add `Eq`, `Hash` and `Default` to `DeepSampleStatistics`.
 - [ ] T010 Review remaining public items against `lang/rust/AGENTS.md`.
-- [ ] T011 Decide whether `DeepSample::new_*` should become `from_*`.
+- [ ] T011 Decide whether `RGBADepthF32Premultiplied::new_*` should become `from_*`.
 
 ## Phase 3: Correctness Evidence
 
@@ -51,3 +51,15 @@ API-guideline fixes from the older deep branch.
 
 - [ ] T027 Every `Covered` contract row cites source and executable evidence.
 - [ ] T028 No warnings, no `get_` methods in new public API, formatting clean.
+
+## Phase 7: Maintainer Review Follow-Up
+
+- [ ] T034 Rename `AnyDeepChannels` to `AnyAnyDeepChannels` and related types.
+- [ ] T035 Rename the RGB sample value to `RGBADepthF32Premultiplied`; add a
+  `DeepPixel` alias.
+- [ ] T036 Move duplicate channel detection into `ChannelList` validation.
+- [ ] T037 Return `Invalid` when a flat reader sees a deep layer.
+- [ ] T038 Move the compositing module to the follow-up PR and rework its
+  pixel API as reviewed.
+- [ ] T039 Unify the block reader/writer deep and flat pipelines behind one
+  enum.

@@ -1,12 +1,12 @@
 //! Sorting, merging, and flattening deep images.
 //!
-//! - [`DeepChannels::sort_samples_by_depth`] sorts the samples within each
+//! - [`AnyDeepChannels::sort_samples_by_depth`] sorts the samples within each
 //!   pixel from front to back.
 //! - [`merge`] combines multiple deep layers into a single deep layer.
 //! - [`composite`] combines multiple deep layers into a single flat layer, and
 //!   [`flatten`] converts a single deep layer to a flat layer.
-//! - [`DeepSample`] and [`composite_samples_front_to_back`] help with
-//!   compositing individual pixels.
+//! - [`RGBADepthF32Premultiplied`] and [`composite_samples_front_to_back`] help
+//!   with compositing individual pixels.
 //!
 //! Layers may have different positions and sizes. The result covers the union
 //! of all layers. Channels are matched by name. By convention, `Z` contains the
@@ -34,7 +34,7 @@ use crate::{
     block::samples::Sample,
     error::{Error, Result, UnitResult},
     image::{
-        deep::{sample_type, DeepChannels},
+        deep::{sample_type, AnyDeepChannels},
         AnyChannel, AnyChannels, FlatSamples, Layer,
     },
     math::Vec2,
@@ -50,7 +50,7 @@ const BACK_DEPTH: &str = "ZBack";
 /// The name of the channel that contains the alpha of each sample.
 const ALPHA: &str = "A";
 
-impl DeepChannels {
+impl AnyDeepChannels {
     /// Sort the samples within each pixel by their depth, from front to back.
     /// Samples are sorted by their `Z` value, then by their `ZBack` value.
     /// Samples with equal depths keep their order.
@@ -87,14 +87,14 @@ impl DeepChannels {
     /// channels `R`, `G`, `B`, `A`, and `Z`. Missing channels contain zero.
     /// Panics if the position is outside of the resolution.
     #[must_use]
-    pub fn rgba_samples_at(&self, position: Vec2<usize>) -> Vec<DeepSample> {
+    pub fn rgba_samples_at(&self, position: Vec2<usize>) -> DeepPixel {
         let value = |name: &str, sample: usize| {
             self.channel_by_name(name)
                 .map_or(0.0, |channel| channel.sample_data.value_by_flat_index(sample).to_f32())
         };
 
         self.sample_range(position)
-            .map(|sample| DeepSample {
+            .map(|sample| RGBADepthF32Premultiplied {
                 depth: value(DEPTH, sample),
                 color: [value("R", sample), value("G", sample), value("B", sample)],
                 alpha: value(ALPHA, sample),
@@ -140,7 +140,7 @@ impl DeepChannels {
 /// zero in all channels. The attributes and encoding of the result are copied
 /// from the first layer.
 pub fn composite<'l>(
-    layers: impl IntoIterator<Item = &'l Layer<DeepChannels>>,
+    layers: impl IntoIterator<Item = &'l Layer<AnyDeepChannels>>,
 ) -> Result<Layer<AnyChannels<FlatSamples>>> {
     let sources = Sources::new(layers)?;
     let output_size = sources.bounds.size;
@@ -231,7 +231,7 @@ pub fn composite<'l>(
 
 /// Convert a deep layer into a flat layer, by compositing all samples of each
 /// pixel. See [`composite`] for details.
-pub fn flatten(layer: &Layer<DeepChannels>) -> Result<Layer<AnyChannels<FlatSamples>>> {
+pub fn flatten(layer: &Layer<AnyDeepChannels>) -> Result<Layer<AnyChannels<FlatSamples>>> {
     composite(std::iter::once(layer))
 }
 
@@ -248,8 +248,8 @@ pub fn flatten(layer: &Layer<DeepChannels>) -> Result<Layer<AnyChannels<FlatSamp
 /// back. Overlapping volumetric samples are not split.
 /// The attributes and encoding of the result are copied from the first layer.
 pub fn merge<'l>(
-    layers: impl IntoIterator<Item = &'l Layer<DeepChannels>>,
-) -> Result<Layer<DeepChannels>> {
+    layers: impl IntoIterator<Item = &'l Layer<AnyDeepChannels>>,
+) -> Result<Layer<AnyDeepChannels>> {
     let sources = Sources::new(layers)?;
     let output_size = sources.bounds.size;
 
@@ -313,17 +313,20 @@ pub fn merge<'l>(
     };
 
     Ok(Layer {
-        channel_data: DeepChannels::from_sample_offsets(output_size, sample_offsets, list)?,
+        channel_data: AnyDeepChannels::from_sample_offsets(output_size, sample_offsets, list)?,
         attributes,
         size: output_size,
         encoding: first.encoding,
     })
 }
 
+/// The samples of one deep pixel, stored inline for the common case.
+pub type DeepPixel = SmallVec<[RGBADepthF32Premultiplied; 4]>;
+
 /// A single deep sample with a depth, a color, and an alpha value.
 /// The color is premultiplied by alpha.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DeepSample {
+pub struct RGBADepthF32Premultiplied {
     /// The distance of the sample from the camera.
     pub depth: f32,
 
@@ -334,7 +337,7 @@ pub struct DeepSample {
     pub alpha: f32,
 }
 
-impl DeepSample {
+impl RGBADepthF32Premultiplied {
     /// Create a sample from a color that is already premultiplied by alpha.
     #[must_use]
     pub fn new_premultiplied(depth: f32, color: [f32; 3], alpha: f32) -> Self {
@@ -358,7 +361,7 @@ impl DeepSample {
 
 /// Sort the samples by depth, from front to back.
 /// Samples with equal depths keep their order.
-pub fn sort_samples_by_depth(samples: &mut [DeepSample]) {
+pub fn sort_samples_by_depth(samples: &mut [RGBADepthF32Premultiplied]) {
     samples.sort_by(|a, b| a.depth.total_cmp(&b.depth));
 }
 
@@ -366,7 +369,7 @@ pub fn sort_samples_by_depth(samples: &mut [DeepSample]) {
 /// operation. Returns the premultiplied color and the alpha of the result.
 /// Stops when the result is fully opaque.
 #[must_use]
-pub fn composite_samples_front_to_back(samples: &[DeepSample]) -> ([f32; 3], f32) {
+pub fn composite_samples_front_to_back(samples: &[RGBADepthF32Premultiplied]) -> ([f32; 3], f32) {
     let mut color = [0.0; 3];
     let mut alpha = 0.0;
 
@@ -389,7 +392,7 @@ pub fn composite_samples_front_to_back(samples: &[DeepSample]) -> ([f32; 3], f32
 /// Composite samples that are sorted from front to back, and return the
 /// resulting color as `[r, g, b, a]`, where the color is not premultiplied.
 #[must_use]
-pub fn flatten_to_rgba(samples: &[DeepSample]) -> [f32; 4] {
+pub fn flatten_to_rgba(samples: &[RGBADepthF32Premultiplied]) -> [f32; 4] {
     let ([r, g, b], alpha) = composite_samples_front_to_back(samples);
 
     if alpha > 0.0 {
@@ -411,7 +414,7 @@ struct OutputChannel {
 #[derive(Debug)]
 struct Source<'l> {
     bounds: IntegerBounds,
-    channels: &'l DeepChannels,
+    channels: &'l AnyDeepChannels,
 
     /// For each output channel, the index of the corresponding channel in this
     /// layer.
@@ -436,14 +439,14 @@ struct Sources<'l> {
     layers: Vec<Source<'l>>,
     output_channels: Vec<OutputChannel>,
     bounds: IntegerBounds,
-    first_layer: &'l Layer<DeepChannels>,
+    first_layer: &'l Layer<AnyDeepChannels>,
     depth_type: Option<SampleType>,
     back_depth_type: Option<SampleType>,
 }
 
 impl<'l> Sources<'l> {
-    fn new(layers: impl IntoIterator<Item = &'l Layer<DeepChannels>>) -> Result<Self> {
-        let layers: Vec<&'l Layer<DeepChannels>> = layers.into_iter().collect();
+    fn new(layers: impl IntoIterator<Item = &'l Layer<AnyDeepChannels>>) -> Result<Self> {
+        let layers: Vec<&'l Layer<AnyDeepChannels>> = layers.into_iter().collect();
         let first_layer = *layers.first().ok_or_else(|| Error::invalid("no deep layers"))?;
 
         let mut output_channels: Vec<OutputChannel> = Vec::new();
@@ -721,12 +724,12 @@ mod test {
         counts: Vec<usize>,
         z: Vec<f32>,
         rgba: [Vec<f32>; 4],
-    ) -> Layer<DeepChannels> {
+    ) -> Layer<AnyDeepChannels> {
         let [r, g, b, a] = rgba;
         let to_f16 =
             |values: Vec<f32>| FlatSamples::F16(values.into_iter().map(f16::from_f32).collect());
 
-        let channels = DeepChannels::new(
+        let channels = AnyDeepChannels::new(
             size,
             counts,
             vec![
@@ -755,8 +758,8 @@ mod test {
     #[test]
     fn composite_samples() {
         let samples = [
-            DeepSample::new_unpremultiplied(1.0, [1.0, 0.0, 0.0], 0.5),
-            DeepSample::new_unpremultiplied(2.0, [0.0, 1.0, 0.0], 0.5),
+            RGBADepthF32Premultiplied::new_unpremultiplied(1.0, [1.0, 0.0, 0.0], 0.5),
+            RGBADepthF32Premultiplied::new_unpremultiplied(2.0, [0.0, 1.0, 0.0], 0.5),
         ];
 
         let (color, alpha) = composite_samples_front_to_back(&samples);
@@ -769,8 +772,8 @@ mod test {
 
         // samples behind an opaque sample are ignored
         let opaque_in_front = [
-            DeepSample::new_premultiplied(1.0, [0.2, 0.2, 0.2], 1.0),
-            DeepSample::new_premultiplied(2.0, [1.0, 1.0, 1.0], 1.0),
+            RGBADepthF32Premultiplied::new_premultiplied(1.0, [0.2, 0.2, 0.2], 1.0),
+            RGBADepthF32Premultiplied::new_premultiplied(2.0, [1.0, 1.0, 1.0], 1.0),
         ];
 
         assert_eq!(composite_samples_front_to_back(&opaque_in_front), ([0.2, 0.2, 0.2], 1.0));
@@ -875,7 +878,7 @@ mod test {
         );
 
         let with_id = Layer {
-            channel_data: DeepChannels::new(
+            channel_data: AnyDeepChannels::new(
                 (1, 1),
                 vec![2],
                 vec![
@@ -918,7 +921,7 @@ mod test {
         // a volumetric sample with a back depth, and a surface sample at the
         // same depth
         let volume = Layer {
-            channel_data: DeepChannels::new(
+            channel_data: AnyDeepChannels::new(
                 (1, 1),
                 vec![1],
                 vec![
@@ -964,7 +967,7 @@ mod test {
     #[test]
     fn merge_layers_with_different_depth_sample_types() {
         let half_depth = Layer {
-            channel_data: DeepChannels::new(
+            channel_data: AnyDeepChannels::new(
                 (1, 1),
                 vec![1],
                 vec![
@@ -1012,7 +1015,7 @@ mod test {
         let far = near + 1;
 
         let with_back_depth = Layer {
-            channel_data: DeepChannels::new(
+            channel_data: AnyDeepChannels::new(
                 (1, 1),
                 vec![1],
                 vec![
@@ -1028,7 +1031,7 @@ mod test {
         };
 
         let without_back_depth = Layer {
-            channel_data: DeepChannels::new(
+            channel_data: AnyDeepChannels::new(
                 (1, 1),
                 vec![1],
                 vec![
@@ -1052,7 +1055,7 @@ mod test {
         assert_eq!(nearest_depth.unwrap().sample_data, FlatSamples::U32(vec![near]));
         assert_eq!(flatten(&merged).unwrap().channel_data, composited.channel_data);
 
-        let mut unsorted = DeepChannels::new(
+        let mut unsorted = AnyDeepChannels::new(
             (1, 1),
             vec![2],
             vec![AnyChannel::new("Z", FlatSamples::U32(vec![far, near]))],
@@ -1066,7 +1069,7 @@ mod test {
 
     #[test]
     fn reject_invalid_layers() {
-        assert!(composite(Vec::<&Layer<DeepChannels>>::new()).is_err());
+        assert!(composite(Vec::<&Layer<AnyDeepChannels>>::new()).is_err());
 
         let mut wrong_size = layer(
             Vec2(0, 0),

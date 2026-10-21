@@ -3,7 +3,7 @@
 ## Scope
 
 Covers `compositing::{composite, flatten, merge, sort_samples_by_depth}` and the
-`DeepSample` helpers. Overlapping volumetric samples are not split.
+`RGBADepthF32Premultiplied` helpers. Overlapping volumetric samples are not split.
 
 ## Matrix
 

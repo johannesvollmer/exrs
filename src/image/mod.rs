@@ -63,13 +63,13 @@ pub type FlatImage = Image<Layers<AnyChannels<FlatSamples>>>;
 /// channels. Each pixel contains any number of samples.
 /// Requires the `deep` feature.
 #[cfg(feature = "deep")]
-pub type DeepImage = Image<Layer<deep::DeepChannels>>;
+pub type DeepImage = Image<Layer<deep::AnyDeepChannels>>;
 
 /// This image type contains multiple layers of deep data, with arbitrary
 /// channels. Each pixel contains any number of samples.
 /// Requires the `deep` feature.
 #[cfg(feature = "deep")]
-pub type DeepLayersImage = Image<Layers<deep::DeepChannels>>;
+pub type DeepLayersImage = Image<Layers<deep::AnyDeepChannels>>;
 
 /// This image type contains multiple layers, with each layer containing a
 /// user-defined type of pixels.
@@ -278,7 +278,7 @@ pub struct RipMaps<Samples> {
 // TODO deep data
 // #[derive(Clone, PartialEq)]
 // pub enum DeepAndFlatSamples {
-// Deep(DeepSamples),
+// Deep(RGBADepthF32Premultiplieds),
 // Flat(FlatSamples)
 // }
 
@@ -303,7 +303,7 @@ pub enum FlatSamples {
 }
 
 // #[derive(Clone, PartialEq)]
-// pub enum DeepSamples {
+// pub enum RGBADepthF32Premultiplieds {
 // F16(Vec<Vec<f16>>),
 // F32(Vec<Vec<f32>>),
 // U32(Vec<Vec<u32>>),

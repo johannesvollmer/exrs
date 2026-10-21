@@ -46,7 +46,7 @@ pub trait LayersWriter: Sync {
         _headers: &[Header],
         _block: BlockIndex,
     ) -> Result<UncompressedDeepBlock> {
-        Err(Error::unsupported("these layers do not contain deep data"))
+        Err(Error::invalid("these layers do not contain deep data"))
     }
 }
 

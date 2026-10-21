@@ -5,7 +5,7 @@
 extern crate exr;
 
 use exr::{
-    image::deep::{compositing, DeepChannels},
+    image::deep::{compositing, AnyDeepChannels},
     prelude::*,
 };
 
@@ -39,7 +39,7 @@ fn main() {
     }
 
     // access the samples of a single pixel
-    let balls: &DeepChannels = &images[2].layer_data.channel_data;
+    let balls: &AnyDeepChannels = &images[2].layer_data.channel_data;
     let samples = balls.rgba_samples_at(Vec2(430, 0));
     println!("samples of a pixel: {:#?}", samples);
 

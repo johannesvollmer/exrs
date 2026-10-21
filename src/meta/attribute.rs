@@ -1236,6 +1236,15 @@ impl ChannelList {
         Ok(Self::new(channels))
     }
 
+    /// Check that channel names are unique. The list is expected to be sorted.
+    pub(crate) fn validate_unique_names(&self) -> UnitResult {
+        if self.list.windows(2).any(|pair| pair[0].name == pair[1].name) {
+            Err(Error::invalid("channel names are not unique"))
+        } else {
+            Ok(())
+        }
+    }
+
     /// Check if channels are valid and sorted.
     pub fn validate(
         &self,
@@ -1252,7 +1261,7 @@ impl ChannelList {
 
         for result in iter {
             let value = result?;
-            if strict && previous == value {
+            if previous == value {
                 return Err(Error::invalid("channel names are not unique"));
             } else if previous > value {
                 return Err(Error::invalid("channel names are not sorted alphabetically"));

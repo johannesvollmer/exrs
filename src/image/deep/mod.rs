@@ -1,8 +1,8 @@
 //! Data structures for deep images, where each pixel contains any number of
 //! samples, for example at different depths.
 //!
-//! Deep layers use [`DeepChannels`] as their channel data. A deep image with a
-//! single layer is a [`DeepImage`](crate::image::DeepImage), and a deep image
+//! Deep layers use [`AnyDeepChannels`] as their channel data. A deep image with
+//! a single layer is a [`DeepImage`](crate::image::DeepImage), and a deep image
 //! with multiple layers is a
 //! [`DeepLayersImage`](crate::image::DeepLayersImage).
 //!
@@ -25,7 +25,7 @@ use crate::{
     error::{Error, Result, UnitResult},
     image::{AnyChannel, FlatSamples},
     math::Vec2,
-    meta::attribute::{ChannelDescription, ChannelList, SampleType, Text},
+    meta::attribute::{ChannelDescription, ChannelList, SampleType},
 };
 
 /// The channels of a deep layer.
@@ -33,7 +33,7 @@ use crate::{
 /// Each pixel contains any number of samples, including zero samples.
 /// All channels share the same number of samples per pixel.
 /// The samples of all pixels are stored in a single flat vector per channel,
-/// pixel after pixel, in row-major order. Use [`DeepChannels::sample_range`]
+/// pixel after pixel, in row-major order. Use [`AnyDeepChannels::sample_range`]
 /// to find the samples of a specific pixel inside the flat sample vectors.
 ///
 /// The samples within a pixel may be in any order. Use the
@@ -45,7 +45,7 @@ use crate::{
 /// depth of volumetric samples. Color channels should be premultiplied by the
 /// alpha channel `A`.
 #[derive(Clone, PartialEq)]
-pub struct DeepChannels {
+pub struct AnyDeepChannels {
     resolution: Vec2<usize>,
 
     /// For each pixel, the index of its first sample, and one more entry
@@ -78,7 +78,7 @@ pub struct DeepSampleStatistics {
     pub non_empty_pixel_count: usize,
 }
 
-impl DeepChannels {
+impl AnyDeepChannels {
     /// Create the channels of a deep layer.
     ///
     /// The sample counts contain the number of samples of each pixel, in
@@ -89,10 +89,10 @@ impl DeepChannels {
     /// Each channel must have a sampling rate of `(1, 1)`.
     ///
     /// ```
-    /// use exr::{image::deep::DeepChannels, prelude::*};
+    /// use exr::{image::deep::AnyDeepChannels, prelude::*};
     ///
     /// // a 2x1 image, the first pixel contains two samples, the second pixel none
-    /// let channels = DeepChannels::new(
+    /// let channels = AnyDeepChannels::new(
     ///     (2, 1),
     ///     vec![2, 0],
     ///     vec![
@@ -341,15 +341,7 @@ impl DeepChannels {
             }
         }
 
-        let mut names: SmallVec<[&Text; 8]> =
-            self.list.iter().map(|channel| &channel.name).collect();
-        names.sort_unstable();
-
-        if names.windows(2).any(|pair| pair[0] == pair[1]) {
-            return Err(Error::invalid("duplicate deep channel name"));
-        }
-
-        Ok(())
+        self.to_channel_list().validate_unique_names()
     }
 
     /// Assemble a layer from the decompressed blocks of the largest resolution
@@ -504,10 +496,10 @@ impl DeepChannels {
     }
 }
 
-impl std::fmt::Debug for DeepChannels {
+impl std::fmt::Debug for AnyDeepChannels {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_struct("DeepChannels")
+            .debug_struct("AnyDeepChannels")
             .field("resolution", &self.resolution)
             .field("total_sample_count", &self.total_sample_count())
             .field("list", &self.list)
@@ -576,8 +568,8 @@ mod test {
     use super::*;
     use crate::meta::attribute::Text;
 
-    fn test_channels() -> DeepChannels {
-        DeepChannels::new(
+    fn test_channels() -> AnyDeepChannels {
+        AnyDeepChannels::new(
             (3, 2),
             vec![1, 0, 2, 3, 1, 0],
             vec![
@@ -616,21 +608,21 @@ mod test {
 
     #[test]
     fn reject_invalid_channels() {
-        let missing_counts = DeepChannels::new(
+        let missing_counts = AnyDeepChannels::new(
             (2, 2),
             vec![1, 1, 1],
             vec![AnyChannel::new("Z", FlatSamples::F32(vec![0.0; 3]))],
         );
         assert!(missing_counts.is_err());
 
-        let missing_samples = DeepChannels::new(
+        let missing_samples = AnyDeepChannels::new(
             (2, 1),
             vec![1, 2],
             vec![AnyChannel::new("Z", FlatSamples::F32(vec![0.0; 2]))],
         );
         assert!(missing_samples.is_err());
 
-        let duplicate_names = DeepChannels::new(
+        let duplicate_names = AnyDeepChannels::new(
             (1, 1),
             vec![1],
             vec![
@@ -668,7 +660,8 @@ mod test {
         assert_eq!(blocks[0].pixel_offset_table, vec![1, 1, 4, 5]);
         assert_eq!(blocks[1].pixel_offset_table, vec![2, 2]);
 
-        let reassembled = DeepChannels::from_blocks(deep.resolution(), &channels, blocks).unwrap();
+        let reassembled =
+            AnyDeepChannels::from_blocks(deep.resolution(), &channels, blocks).unwrap();
         assert_eq!(reassembled, deep);
     }
 }

@@ -183,7 +183,7 @@ ReadChannels<'s> for CollectPixels<InnerChannels, Pixel, PixelStorage, CreatePix
 
     fn create_channels_reader(&'s self, header: &Header) -> Result<Self::Reader> {
         if header.deep {
-            return Err(Error::unsupported(
+            return Err(Error::invalid(
                 "deep data cannot be read as specific channels (use `read().deep_data()` instead)"
             ))
         }

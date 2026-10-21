@@ -87,7 +87,7 @@ impl ReadSamplesLevel for ReadFlatSamples {
         resolution: Vec2<usize>,
     ) -> Result<Self::Reader> {
         if header.deep {
-            return Err(Error::unsupported(
+            return Err(Error::invalid(
                 "deep data cannot be read as flat samples (use `read().deep_data()` instead)",
             ));
         }
