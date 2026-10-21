@@ -1,5 +1,5 @@
 //! The PIZ compression method is a wavelet compression,
-//! based on the PIZ image format, customized for `OpenEXR`.
+//! based on the PIZ image format, customized for OpenEXR.
 // inspired by  https://github.com/AcademySoftwareFoundation/openexr/blob/master/OpenEXR/IlmImf/ImfPizCompressor.cpp
 
 pub(crate) mod huffman;
@@ -37,7 +37,7 @@ pub fn decompress(
     pedantic: bool,
 ) -> Result<ByteVec> {
     let expected_u16_count = expected_byte_size / 2;
-    debug_assert_eq!(expected_byte_size, rectangle.size.area() * channels.bytes_per_pixel);
+    debug_assert_eq!(expected_byte_size, channels.bytes_per_pixel_section(rectangle));
     debug_assert!(!channels.list.is_empty());
 
     if compressed_le.is_empty() {
@@ -64,7 +64,7 @@ pub fn decompress(
 
     {
         let length = i32::read_le(&mut remaining_input_le)?;
-        if pedantic && i64::from(length) != remaining_input_le.len() as i64 {
+        if pedantic && length as i64 != remaining_input_le.len() as i64 {
             // TODO length might be smaller than remaining??
             return Err(Error::invalid("compression data"));
         }
@@ -256,8 +256,8 @@ pub fn bitmap_from_data(data: &[u16]) -> (usize, usize, Vec<u8>) {
         bitmap[*value as usize >> 3] |= 1 << (*value as u8 & 7);
     }
 
-    bitmap[0] &= !1; // zero is not explicitly stored in the bitmap; we assume
-                     // that the data always contain zeroes
+    bitmap[0] = bitmap[0] & !1; // zero is not explicitly stored in the bitmap;
+                                // we assume that the data always contain zeroes
 
     let min_index = bitmap.iter().position(|&value| value != 0);
     let max_index = min_index.map(|min|  // only if min was found
@@ -318,12 +318,13 @@ mod test {
     };
 
     fn test_roundtrip_noise_with(channels: ChannelList, rectangle: IntegerBounds) {
+        let expected_byte_count = channels.bytes_per_pixel_section(rectangle);
         let pixel_bytes: ByteVec = (0..37)
             .map(|_| rand::random())
             .collect::<Vec<u8>>()
             .into_iter()
             .cycle()
-            .take(channels.bytes_per_pixel * rectangle.size.area())
+            .take(expected_byte_count)
             .collect();
 
         let compressed = piz::compress(&channels, pixel_bytes.clone(), rectangle).unwrap();

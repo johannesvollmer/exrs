@@ -23,7 +23,7 @@ impl<T> Vec2<T> {
     where
         T: Ord,
     {
-        Self(self.0.max(other.0), self.1.max(other.1))
+        Vec2(self.0.max(other.0), self.1.max(other.1))
     }
 
     /// Returns the vector with the minimum of either coordinates.
@@ -31,7 +31,7 @@ impl<T> Vec2<T> {
     where
         T: Ord,
     {
-        Self(self.0.min(other.0), self.1.min(other.1))
+        Vec2(self.0.min(other.0), self.1.min(other.1))
     }
 
     /// Try to convert all components of this vector to a new type,
@@ -42,7 +42,7 @@ impl<T> Vec2<T> {
     {
         let x = T::try_from(value.0)?;
         let y = T::try_from(value.1)?;
-        Ok(Self(x, y))
+        Ok(Vec2(x, y))
     }
 
     /// Seeing this vector as a dimension or size (width and height),
@@ -85,7 +85,7 @@ impl<T> Vec2<T> {
     /// the pixels row by row, one after another, in a single array.
     /// In debug mode, panics for an index out of bounds.
     #[inline]
-    pub fn flat_index_for_size(self, resolution: Self) -> T
+    pub fn flat_index_for_size(self, resolution: Vec2<T>) -> T
     where
         T: Copy + Debug + Ord + Mul<Output = T> + Add<Output = T>,
     {
@@ -96,7 +96,7 @@ impl<T> Vec2<T> {
             resolution
         );
 
-        let Self(x, y) = self;
+        let Vec2(x, y) = self;
         y * resolution.width() + x
     }
 }
@@ -120,34 +120,34 @@ impl Vec2<usize> {
     }
 }
 
-impl<T: std::ops::Add<T>> std::ops::Add<Self> for Vec2<T> {
+impl<T: std::ops::Add<T>> std::ops::Add<Vec2<T>> for Vec2<T> {
     type Output = Vec2<T::Output>;
 
-    fn add(self, other: Self) -> Self::Output {
+    fn add(self, other: Vec2<T>) -> Self::Output {
         Vec2(self.0 + other.0, self.1 + other.1)
     }
 }
 
-impl<T: std::ops::Sub<T>> std::ops::Sub<Self> for Vec2<T> {
+impl<T: std::ops::Sub<T>> std::ops::Sub<Vec2<T>> for Vec2<T> {
     type Output = Vec2<T::Output>;
 
-    fn sub(self, other: Self) -> Self::Output {
+    fn sub(self, other: Vec2<T>) -> Self::Output {
         Vec2(self.0 - other.0, self.1 - other.1)
     }
 }
 
-impl<T: std::ops::Div<T>> std::ops::Div<Self> for Vec2<T> {
+impl<T: std::ops::Div<T>> std::ops::Div<Vec2<T>> for Vec2<T> {
     type Output = Vec2<T::Output>;
 
-    fn div(self, other: Self) -> Self::Output {
+    fn div(self, other: Vec2<T>) -> Self::Output {
         Vec2(self.0 / other.0, self.1 / other.1)
     }
 }
 
-impl<T: std::ops::Mul<T>> std::ops::Mul<Self> for Vec2<T> {
+impl<T: std::ops::Mul<T>> std::ops::Mul<Vec2<T>> for Vec2<T> {
     type Output = Vec2<T::Output>;
 
-    fn mul(self, other: Self) -> Self::Output {
+    fn mul(self, other: Vec2<T>) -> Self::Output {
         Vec2(self.0 * other.0, self.1 * other.1)
     }
 }
@@ -156,16 +156,16 @@ impl<T> std::ops::Neg for Vec2<T>
 where
     T: std::ops::Neg<Output = T>,
 {
-    type Output = Self;
+    type Output = Vec2<T>;
 
     fn neg(self) -> Self::Output {
-        Self(-self.0, -self.1)
+        Vec2(-self.0, -self.1)
     }
 }
 
 impl<T> From<(T, T)> for Vec2<T> {
     fn from((x, y): (T, T)) -> Self {
-        Self(x, y)
+        Vec2(x, y)
     }
 }
 
@@ -177,7 +177,7 @@ impl<T> From<Vec2<T>> for (T, T) {
 
 /// Computes `floor(log(x)/log(2))`. Returns 0 where argument is 0.
 // TODO does rust std not provide this?
-pub(crate) const fn floor_log_2(mut number: u32) -> u32 {
+pub(crate) fn floor_log_2(mut number: u32) -> u32 {
     let mut log = 0;
 
     // TODO check if this unrolls properly?
@@ -192,7 +192,7 @@ pub(crate) const fn floor_log_2(mut number: u32) -> u32 {
 /// Computes `ceil(log(x)/log(2))`. Returns 0 where argument is 0.
 // taken from https://github.com/openexr/openexr/blob/master/OpenEXR/IlmImf/ImfTiledMisc.cpp
 // TODO does rust std not provide this?
-pub(crate) const fn ceil_log_2(mut number: u32) -> u32 {
+pub(crate) fn ceil_log_2(mut number: u32) -> u32 {
     let mut log = 0;
     let mut round_up = 0;
 
@@ -220,10 +220,10 @@ pub enum RoundingMode {
 }
 
 impl RoundingMode {
-    pub(crate) const fn log2(self, number: u32) -> u32 {
+    pub(crate) fn log2(self, number: u32) -> u32 {
         match self {
-            Self::Down => self::floor_log_2(number),
-            Self::Up => self::ceil_log_2(number),
+            RoundingMode::Down => self::floor_log_2(number),
+            RoundingMode::Up => self::ceil_log_2(number),
         }
     }
 
@@ -243,11 +243,178 @@ impl RoundingMode {
         );
 
         match self {
-            Self::Up => (dividend + divisor - T::from(1_u8)) / divisor, // only works for
-            // positive numbers
-            Self::Down => dividend / divisor,
+            RoundingMode::Up => (dividend + divisor - T::from(1_u8)) / divisor, // only works
+            // for positive
+            // numbers
+            RoundingMode::Down => dividend / divisor,
         }
     }
 }
 
 // TODO log2 tests
+
+/// Division with positive floor, matching OpenEXR's `divp()`.
+/// Handles negative numbers correctly by ensuring the result
+/// rounds toward negative infinity.
+///
+/// This is used for subsampling calculations where we need to
+/// map pixel coordinates to sample indices.
+///
+/// # Examples
+/// ```
+/// # use exr::math::div_p;
+/// assert_eq!(div_p(5, 2), 2); // 5 / 2 = 2.5 -> 2
+/// assert_eq!(div_p(-3, 2), -2); // -3 / 2 = -1.5 -> -2
+/// assert_eq!(div_p(4, 2), 2); // 4 / 2 = 2 -> 2
+/// assert_eq!(div_p(-4, 2), -2); // -4 / 2 = -2 -> -2
+/// ```
+#[inline]
+pub fn div_p(x: i32, s: usize) -> i32 {
+    let s = s as i32;
+    if x >= 0 {
+        x / s
+    } else {
+        -((-x + s - 1) / s)
+    }
+}
+
+/// Modulo that always returns non-negative result, matching OpenEXR's `modp()`.
+/// This is the complement of `div_p()` such that: `x == div_p(x, s) * s +
+/// modp(x, s)`
+///
+/// Used to check if a pixel coordinate has a sample in a subsampled channel.
+/// A pixel at coordinate x has a sample if `modp(x, xSampling) == 0`.
+///
+/// # Examples
+/// ```
+/// # use exr::math::mod_p;
+/// assert_eq!(mod_p(5, 2), 1); // 5 % 2 = 1
+/// assert_eq!(mod_p(-3, 2), 1); // -3 % 2 = 1 (not -1!)
+/// assert_eq!(mod_p(4, 2), 0); // 4 % 2 = 0
+/// assert_eq!(mod_p(-4, 2), 0); // -4 % 2 = 0
+/// ```
+#[inline]
+pub fn mod_p(x: i32, s: usize) -> usize {
+    let s = s as i32;
+    let m = x % s;
+    if m < 0 {
+        (m + s) as usize
+    } else {
+        m as usize
+    }
+}
+
+/// Calculate the number of samples in the interval [a, b] for a given sampling
+/// rate. Matches OpenEXR's `numSamples()` function.
+///
+/// For a channel with subsampling rate `s`, samples exist at coordinates
+/// that are multiples of `s`. This function counts how many such multiples
+/// exist in the inclusive range [a, b].
+///
+/// # Examples
+/// ```
+/// # use exr::math::sample_count;
+/// // Sampling rate 2, interval [1, 5] -> samples at [2, 4]
+/// assert_eq!(sample_count(2, 1, 5), 2);
+/// // Sampling rate 2, interval [2, 6] -> samples at [2, 4, 6]
+/// assert_eq!(sample_count(2, 2, 6), 3);
+/// // Sampling rate 1, interval [0, 3] -> samples at [0, 1, 2, 3]
+/// assert_eq!(sample_count(1, 0, 3), 4);
+/// ```
+#[inline]
+pub fn sample_count(s: usize, a: i32, b: i32) -> usize {
+    let a1 = div_p(a, s);
+    let b1 = div_p(b, s);
+    let count = b1 - a1
+        + if a1 * (s as i32) < a {
+            0
+        } else {
+            1
+        };
+    count.max(0) as usize
+}
+
+/// Calculate the number of samples in the interval [a, b] for a given sampling
+/// rate.
+#[deprecated(since = "1.8.0", note = "Use `sample_count` instead")]
+#[inline]
+pub fn num_samples(s: usize, a: i32, b: i32) -> usize {
+    sample_count(s, a, b)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_div_p() {
+        // Positive numbers
+        assert_eq!(div_p(5, 2), 2);
+        assert_eq!(div_p(4, 2), 2);
+        assert_eq!(div_p(3, 2), 1);
+        assert_eq!(div_p(2, 2), 1);
+        assert_eq!(div_p(1, 2), 0);
+        assert_eq!(div_p(0, 2), 0);
+
+        // Negative numbers
+        assert_eq!(div_p(-1, 2), -1);
+        assert_eq!(div_p(-2, 2), -1);
+        assert_eq!(div_p(-3, 2), -2);
+        assert_eq!(div_p(-4, 2), -2);
+        assert_eq!(div_p(-5, 2), -3);
+
+        // Different divisors
+        assert_eq!(div_p(10, 3), 3);
+        assert_eq!(div_p(-10, 3), -4);
+    }
+
+    #[test]
+    fn test_mod_p() {
+        // Positive numbers
+        assert_eq!(mod_p(5, 2), 1);
+        assert_eq!(mod_p(4, 2), 0);
+        assert_eq!(mod_p(3, 2), 1);
+        assert_eq!(mod_p(2, 2), 0);
+        assert_eq!(mod_p(1, 2), 1);
+        assert_eq!(mod_p(0, 2), 0);
+
+        // Negative numbers - always return non-negative
+        assert_eq!(mod_p(-1, 2), 1);
+        assert_eq!(mod_p(-2, 2), 0);
+        assert_eq!(mod_p(-3, 2), 1);
+        assert_eq!(mod_p(-4, 2), 0);
+        assert_eq!(mod_p(-5, 2), 1);
+
+        // Verify divp and modp relationship: x == divp(x, s) * s + modp(x, s)
+        for x in -10..10 {
+            for s in 1..5 {
+                let d = div_p(x, s);
+                let m = mod_p(x, s) as i32;
+                assert_eq!(x, d * (s as i32) + m, "x={}, s={}", x, s);
+            }
+        }
+    }
+
+    #[test]
+    fn sample_count_calculation() {
+        // Basic cases
+        assert_eq!(sample_count(1, 0, 3), 4); // [0, 1, 2, 3]
+        assert_eq!(sample_count(2, 0, 3), 2); // [0, 2]
+        assert_eq!(sample_count(2, 1, 5), 2); // [2, 4]
+        assert_eq!(sample_count(2, 2, 6), 3); // [2, 4, 6]
+
+        // Edge cases
+        assert_eq!(sample_count(2, 0, 0), 1); // [0]
+        assert_eq!(sample_count(2, 1, 1), 0); // []
+        assert_eq!(sample_count(3, 0, 8), 3); // [0, 3, 6]
+
+        // Negative coordinates
+        assert_eq!(sample_count(2, -4, 4), 5); // [-4, -2, 0, 2, 4]
+        assert_eq!(sample_count(2, -3, 3), 3); // [-2, 0, 2]
+
+        // Full image width example: 4x4 image with 2x subsampling
+        let width = 4;
+        assert_eq!(sample_count(2, 0, width - 1), 2); // [0, 2]
+        assert_eq!(sample_count(1, 0, width - 1), 4); // [0, 1, 2, 3]
+    }
+}

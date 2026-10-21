@@ -142,7 +142,8 @@ macro_rules! gen_tuple_value {
 }
 
 /// Generate the trait implementations given a sequence of type names in both
-/// directions and the indices backwards: ```nocheck
+/// directions and the indices backwards:
+/// ```nocheck
 /// generate_single(A, B, C; C, B, A; 2, 1, 0)
 /// ```
 macro_rules! generate_single {

@@ -26,7 +26,11 @@ use crate::{
     compression::ByteVec,
     error::{usize_to_i32, Error, Result, UnitResult},
     math::Vec2,
-    meta::{attribute::ChannelList, header::Header, BlockDescription, Headers, MetaData},
+    meta::{
+        attribute::{ChannelList, IntegerBounds},
+        header::Header,
+        BlockDescription, Headers, MetaData,
+    },
 };
 
 /// Specifies where a block of pixel data should be placed in the actual image.
@@ -49,9 +53,7 @@ pub struct BlockIndex {
 }
 
 /// Contains a block of pixel data and where that data should be placed in the
-/// actual image.
-///
-/// The bytes must be encoded in native-endian format.
+/// actual image. The bytes must be encoded in native-endian format.
 /// The conversion to little-endian format happens when converting to chunks
 /// (potentially in parallel).
 #[derive(Clone, Eq, PartialEq, Debug)]
@@ -70,7 +72,6 @@ pub struct UncompressedBlock {
 }
 
 /// Immediately reads the meta data from the file.
-///
 /// Then, returns a reader that can be used to read all pixel blocks.
 /// From the reader, you can pull each compressed chunk from the file.
 /// Alternatively, you can create a decompressor, and pull the uncompressed data
@@ -80,7 +81,6 @@ pub fn read<R: Read + Seek>(buffered_read: R, pedantic: bool) -> Result<self::re
 }
 
 /// Immediately writes the meta data to the file.
-///
 /// Then, calls a closure with a writer that can be used to write all pixel
 /// blocks. In the closure, you can push compressed chunks directly into the
 /// writer. Alternatively, you can create a compressor, wrapping the writer, and
@@ -95,9 +95,7 @@ pub fn write<W: Write + Seek>(
 }
 
 /// This iterator tells you the block indices of all blocks that must be in the
-/// image.
-///
-/// The order of the blocks depends on the `LineOrder` attribute
+/// image. The order of the blocks depends on the `LineOrder` attribute
 /// (unspecified line order is treated the same as increasing line order).
 /// The blocks written to the file must be exactly in this order,
 /// except for when the `LineOrder` is unspecified.
@@ -134,10 +132,8 @@ impl UncompressedBlock {
     #[inline]
     #[must_use]
     pub fn decompress_chunk(chunk: Chunk, meta_data: &MetaData, pedantic: bool) -> Result<Self> {
-        let header: &Header = meta_data
-            .headers
-            .get(chunk.layer_index)
-            .ok_or_else(|| Error::invalid("chunk layer index"))?;
+        let header: &Header =
+            meta_data.headers.get(chunk.layer_index).ok_or(Error::invalid("chunk layer index"))?;
 
         let tile_data_indices = header.get_block_data_indices(&chunk.compressed_block)?;
         let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_data_indices)?;
@@ -152,7 +148,7 @@ impl UncompressedBlock {
             | CompressedBlock::ScanLine(CompressedScanLineBlock {
                 compressed_pixels_le,
                 ..
-            }) => Ok(Self {
+            }) => Ok(UncompressedBlock {
                 data: header.compression.decompress_image_section_from_le(
                     header,
                     compressed_pixels_le,
@@ -167,7 +163,7 @@ impl UncompressedBlock {
                 },
             }),
 
-            _ => Err(Error::unsupported("deep data not supported yet")),
+            _ => return Err(Error::unsupported("deep data not supported yet")),
         }
     }
 
@@ -176,31 +172,32 @@ impl UncompressedBlock {
     #[inline]
     #[must_use]
     pub fn compress_to_chunk(self, headers: &[Header]) -> Result<Chunk> {
-        let Self {
+        let UncompressedBlock {
             data,
             index,
         } = self;
 
-        let header: &Header = headers.get(index.layer).expect("block layer index bug");
-
-        let expected_byte_size = header.channels.bytes_per_pixel * self.index.pixel_size.area(); // TODO sampling??
-        if expected_byte_size != data.len() {
-            return Err(Error::invalid(format!(
-                "decompressed block byte size mismatch: expected {} bytes but got {} bytes",
-                expected_byte_size,
-                data.len()
-            )));
-        }
+        let header: &Header =
+            headers.get(index.layer).ok_or_else(|| Error::invalid("block layer index"))?;
 
         let tile_coordinates = TileCoordinates {
             // FIXME this calculation should not be made here but elsewhere instead (in
             // meta::header?)
-            tile_index: index.pixel_position / header.max_block_pixel_size(), // TODO sampling??
+            tile_index: index.pixel_position / header.max_block_pixel_size(),
             level_index: index.level,
         };
 
         let absolute_indices = header.get_absolute_block_pixel_coordinates(tile_coordinates)?;
         absolute_indices.validate(Some(header.layer_size))?;
+
+        // Calculate expected byte size accounting for channel subsampling
+        let expected_byte_size = header.channels.bytes_per_pixel_section(absolute_indices);
+        if expected_byte_size != data.len() {
+            return Err(Error::invalid(format!(
+                "block byte size should be {expected_byte_size} but was {}",
+                data.len()
+            )));
+        }
 
         if !header.compression.may_loose_data() {
             debug_assert_eq!(
@@ -256,8 +253,8 @@ impl UncompressedBlock {
 
     // TODO pub fn lines_mut<'s>(&'s mut self, header: &Header) -> impl 's +
     // Iterator<Item=LineRefMut<'s>> { LineIndex::lines_in_block(self.index,
-    // &header.channels) .map(move |(bytes, line)| LineSlice { location: line,
-    // value: &mut self.data[bytes] }) }
+    // &header.channels) .map(move |(bytes, line)| LineSlice { location:
+    // line, value: &mut self.data[bytes] }) }
 
     // // TODO make iterator
     // Call a closure for each line of samples in this uncompressed block.
@@ -281,12 +278,16 @@ impl UncompressedBlock {
         block_index: BlockIndex,
         mut extract_line: impl FnMut(LineRefMut<'_>),
     ) -> Vec<u8> {
-        let byte_count = block_index.pixel_size.area() * channels.bytes_per_pixel;
+        // Calculate byte count accounting for channel subsampling
+        let pixel_bounds = IntegerBounds {
+            position: block_index.pixel_position.to_i32(),
+            size: block_index.pixel_size,
+        };
+        let byte_count = channels.bytes_per_pixel_section(pixel_bounds);
         let mut block_bytes = vec![0_u8; byte_count];
 
         for (byte_range, line_index) in LineIndex::lines_in_block(block_index, channels) {
             extract_line(LineRefMut {
-                // TODO subsampling
                 value: &mut block_bytes[byte_range],
                 location: line_index,
             });

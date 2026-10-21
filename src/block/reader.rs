@@ -41,7 +41,7 @@ impl<R: Read + Seek> Reader<R> {
 
     // must not be mutable, as reading the file later on relies on the meta data
     /// The decoded exr meta data from the file.
-    pub const fn meta_data(&self) -> &MetaData {
+    pub fn meta_data(&self) -> &MetaData {
         &self.meta_data
     }
 
@@ -71,7 +71,7 @@ impl<R: Read + Seek> Reader<R> {
                     &offset_tables,
                     self.remaining_reader.byte_position(),
                 )?;
-                offset_tables.iter().map(std::vec::Vec::len).sum()
+                offset_tables.iter().map(|table| table.len()).sum()
             } else {
                 MetaData::skip_offset_tables(&mut self.remaining_reader, &self.meta_data.headers)?
             }
@@ -128,7 +128,7 @@ impl<R: Read + Seek> Reader<R> {
                 };
 
                 if filter(&self.meta_data, tile.location, block) {
-                    filtered_offsets.push(offset_tables[header_index][block_index]);
+                    filtered_offsets.push(offset_tables[header_index][block_index])
                     // safe indexing from `enumerate()`
                 }
             }
@@ -136,8 +136,7 @@ impl<R: Read + Seek> Reader<R> {
 
         filtered_offsets.sort_unstable(); // enables reading continuously if
                                           // possible (already sorted where line
-                                          // order
-                                          // increasing)
+                                          // order increasing)
 
         if pedantic {
             // table is sorted. if any two neighbours are equal, we have
@@ -184,7 +183,6 @@ fn validate_offset_tables(
 }
 
 /// Decode the desired chunks and skip the unimportant chunks in the file.
-///
 /// The decoded chunks can be decompressed by calling
 /// `decompress_parallel`, `decompress_sequential`, or `sequential_decompressor`
 /// or `parallel_decompressor`. Call `on_progress` to have a callback with each
@@ -198,7 +196,6 @@ pub struct FilteredChunksReader<R> {
 }
 
 /// Decode all chunks in the file without seeking.
-///
 /// The decoded chunks can be decompressed by calling
 /// `decompress_parallel`, `decompress_sequential`, or `sequential_decompressor`
 /// or `parallel_decompressor`. Call `on_progress` to have a callback with each
@@ -212,7 +209,6 @@ pub struct AllChunksReader<R> {
 }
 
 /// Decode chunks in the file without seeking.
-///
 /// Calls the supplied closure for each chunk.
 /// The decoded chunks can be decompressed by calling
 /// `decompress_parallel`, `decompress_sequential`, or
@@ -225,7 +221,6 @@ pub struct OnProgressChunksReader<R, F> {
 }
 
 /// Decode chunks in the file.
-///
 /// The decoded chunks can be decompressed by calling
 /// `decompress_parallel`, `decompress_sequential`, or
 /// `sequential_decompressor`. Call `on_progress` to have a callback with each
@@ -491,7 +486,7 @@ impl<R: ChunksReader> SequentialBlockDecompressor<R> {
         self.remaining_chunks_reader.read_next_chunk().map(|compressed_chunk| {
             UncompressedBlock::decompress_chunk(
                 compressed_chunk?,
-                self.remaining_chunks_reader.meta_data(),
+                &self.remaining_chunks_reader.meta_data(),
                 self.pedantic,
             )
         })
@@ -500,7 +495,6 @@ impl<R: ChunksReader> SequentialBlockDecompressor<R> {
 
 #[cfg(feature = "rayon")]
 /// Decompress the chunks in a file in parallel.
-///
 /// The first call to `next` will fill the thread pool with jobs,
 /// starting to decompress the next few blocks.
 /// These jobs will finish, even if you stop reading more blocks.
@@ -528,7 +522,7 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
     pub fn new(chunks: R, pedantic: bool) -> std::result::Result<Self, R> {
         Self::new_with_thread_pool(chunks, pedantic, || {
             rayon_core::ThreadPoolBuilder::new()
-                .thread_name(|index| format!("OpenEXR Block Decompressor Thread #{index}"))
+                .thread_name(|index| format!("OpenEXR Block Decompressor Thread #{}", index))
                 .build()
         })
     }
