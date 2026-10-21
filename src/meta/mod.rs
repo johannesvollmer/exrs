@@ -509,17 +509,22 @@ impl MetaData {
     /// The closure returns the byte data for each block index.
     pub fn collect_ordered_block_data<'s>(
         &'s self,
-        mut get_block_data: impl 's + FnMut(BlockIndex) -> Vec<u8>,
-    ) -> impl 's + Iterator<Item = (usize, UncompressedBlock)> {
-        self.collect_ordered_blocks(move |block_index| UncompressedBlock {
-            index: block_index,
-            data: get_block_data(block_index),
+        mut get_block_data: impl 's + FnMut(BlockIndex) -> Result<Vec<u8>>,
+    ) -> impl 's + Iterator<Item = Result<(usize, UncompressedBlock)>> {
+        self.enumerate_ordered_header_block_indices().map(move |(index_in_header, block_index)| {
+            Ok((
+                index_in_header,
+                UncompressedBlock {
+                    index: block_index,
+                    data: get_block_data(block_index)?,
+                },
+            ))
         })
     }
 
     /// Validates this meta data. Returns the minimal possible requirements.
     pub fn validate(headers: &[Header], pedantic: bool) -> Result<Requirements> {
-        if headers.is_empty() {
+        if headers.len() == 0 {
             return Err(Error::invalid("at least one layer is required"));
         }
 
@@ -639,7 +644,7 @@ impl Requirements {
             return Err(Error::unsupported("too new file feature flags"));
         }
 
-        let version = Self {
+        let version = Requirements {
             file_format_version: version,
             is_single_layer_and_tiled: is_single_tile,
             has_long_names,
@@ -656,7 +661,7 @@ impl Requirements {
 
         // the 8 least significant bits contain the file format version number
         // and the flags are set to 0
-        let mut version_and_flags = u32::from(self.file_format_version);
+        let mut version_and_flags = self.file_format_version as u32;
 
         // the 24 most significant bits are treated as a set of boolean flags
         version_and_flags.set_bit(9, self.is_single_layer_and_tiled);
@@ -813,8 +818,8 @@ mod test {
             layer_size: Vec2(2000, 333),
             own_attributes: LayerAttributes {
                 other: vec![
-                    (Text::from("x"), AttributeValue::F32(3.0)),
-                    (Text::from("y"), AttributeValue::F32(-1.0)),
+                    (Text::try_from("x").unwrap(), AttributeValue::F32(3.0)),
+                    (Text::try_from("y").unwrap(), AttributeValue::F32(-1.0)),
                 ]
                 .into_iter()
                 .collect(),
@@ -882,9 +887,9 @@ mod test {
         let low_requirements =
             MetaData::validate(&[header_version_2_long_names, layer_2], true).unwrap();
 
-        assert!(low_requirements.has_long_names);
+        assert_eq!(low_requirements.has_long_names, true);
         assert_eq!(low_requirements.file_format_version, 2);
-        assert!(!low_requirements.has_deep_data);
-        assert!(low_requirements.has_multiple_layers);
+        assert_eq!(low_requirements.has_deep_data, false);
+        assert_eq!(low_requirements.has_multiple_layers, true);
     }
 }
