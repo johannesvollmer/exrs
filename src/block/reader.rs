@@ -6,6 +6,8 @@ use std::{
     io::{Read, Seek},
 };
 
+#[cfg(feature = "deep")]
+use crate::block::UncompressedDeepBlock;
 use crate::{
     block::{
         chunk::{Chunk, TileCoordinates},
@@ -145,13 +147,23 @@ impl<R: Read + Seek> Reader<R> {
             if filtered_offsets.windows(2).any(|pair| pair[0] == pair[1]) {
                 return Err(Error::invalid("chunk offset table"));
             }
+        } else {
+            // the same offset always refers to the same chunk, so read each
+            // chunk only once
+            filtered_offsets.dedup();
         }
+
+        // deep chunks have no size limit, so reading the same bytes as
+        // multiple chunks could require any amount of memory
+        let reject_overlapping_chunks = self.meta_data.headers.iter().any(|header| header.deep);
 
         Ok(FilteredChunksReader {
             meta_data: self.meta_data,
             expected_filtered_chunk_count: filtered_offsets.len(),
             remaining_filtered_chunk_indices: filtered_offsets.into_iter(),
             remaining_bytes: self.remaining_reader,
+            reject_overlapping_chunks,
+            previous_chunk_end: 0,
         })
     }
 }
@@ -163,11 +175,19 @@ fn validate_offset_tables(
 ) -> UnitResult {
     let max_pixel_bytes: usize = headers
         .iter() // when compressed, chunks are smaller, but never larger than max
-        .map(|header| header.max_pixel_file_bytes())
-        .sum();
+        .map(|header| {
+            // the size of deep data is not known without decoding all the
+            // chunks
+            if header.deep {
+                usize::MAX
+            } else {
+                header.max_pixel_file_bytes()
+            }
+        })
+        .fold(0, usize::saturating_add);
 
     // check that each offset is within the bounds
-    let end_byte = chunks_start_byte + max_pixel_bytes;
+    let end_byte = chunks_start_byte.saturating_add(max_pixel_bytes);
     let is_invalid =
         offset_tables.iter().flatten().map(|&u64| u64_to_usize(u64, "chunk start")).any(
             |maybe_chunk_start| match maybe_chunk_start {
@@ -195,6 +215,8 @@ pub struct FilteredChunksReader<R> {
     expected_filtered_chunk_count: usize,
     remaining_filtered_chunk_indices: std::vec::IntoIter<u64>,
     remaining_bytes: PeekRead<Tracking<R>>,
+    reject_overlapping_chunks: bool,
+    previous_chunk_end: usize,
 }
 
 /// Decode all chunks in the file without seeking.
@@ -339,6 +361,76 @@ pub trait ChunksReader: Sized + Iterator<Item = Result<Chunk>> + ExactSizeIterat
             pedantic,
         }
     }
+
+    #[cfg(all(feature = "rayon", feature = "deep"))]
+    /// Decompress all deep blocks in the file, using multiple cpu cores, and
+    /// call the supplied closure for each block. The order of the blocks is
+    /// not deterministic. All chunks must belong to deep layers.
+    /// Will fallback to sequential processing where threads are not available,
+    /// or where it would not speed up the process.
+    fn decompress_deep_parallel(
+        self,
+        pedantic: bool,
+        mut insert_block: impl FnMut(&MetaData, UncompressedDeepBlock) -> UnitResult,
+    ) -> UnitResult {
+        let mut decompressor = match self.parallel_deep_decompressor(pedantic) {
+            Err(old_self) => return old_self.decompress_deep_sequential(pedantic, insert_block),
+            Ok(decompressor) => decompressor,
+        };
+
+        while let Some(block) = decompressor.next() {
+            insert_block(decompressor.meta_data(), block?)?;
+        }
+
+        debug_assert_eq!(
+            decompressor.len(),
+            0,
+            "compressed blocks left after decompressing all blocks"
+        );
+        Ok(())
+    }
+
+    #[cfg(all(feature = "rayon", feature = "deep"))]
+    /// Return an iterator that decompresses the deep chunks with multiple
+    /// threads. The order of the blocks is not deterministic.
+    /// Returns the `self` if there is no need for parallel decompression.
+    fn parallel_deep_decompressor(
+        self,
+        pedantic: bool,
+    ) -> std::result::Result<ParallelDeepBlockDecompressor<Self>, Self> {
+        ParallelDeepBlockDecompressor::new(self, pedantic)
+    }
+
+    #[cfg(feature = "deep")]
+    /// Decompress all deep blocks in the file in this thread, and call the
+    /// supplied closure for each block. All chunks must belong to deep layers.
+    fn decompress_deep_sequential(
+        self,
+        pedantic: bool,
+        mut insert_block: impl FnMut(&MetaData, UncompressedDeepBlock) -> UnitResult,
+    ) -> UnitResult {
+        let mut decompressor = self.sequential_deep_decompressor(pedantic);
+        while let Some(block) = decompressor.next() {
+            insert_block(decompressor.meta_data(), block?)?;
+        }
+
+        debug_assert_eq!(
+            decompressor.len(),
+            0,
+            "compressed blocks left after decompressing all blocks"
+        );
+        Ok(())
+    }
+
+    #[cfg(feature = "deep")]
+    /// Prepare reading the deep chunks sequentially, only a single thread, but
+    /// with less memory overhead.
+    fn sequential_deep_decompressor(self, pedantic: bool) -> SequentialDeepBlockDecompressor<Self> {
+        SequentialDeepBlockDecompressor {
+            remaining_chunks_reader: self,
+            pedantic,
+        }
+    }
 }
 
 impl<R, F> ChunksReader for OnProgressChunksReader<R, F>
@@ -451,13 +543,22 @@ impl<R: Read + Seek> Iterator for FilteredChunksReader<R> {
     fn next(&mut self) -> Option<Self::Item> {
         // read as many chunks as we have desired chunk offsets
         self.remaining_filtered_chunk_indices.next().map(|next_chunk_location| {
-            self.remaining_bytes.skip_to(
-                // no-op for seek at current position, uses skip_bytes for small amounts
-                usize::try_from(next_chunk_location)?,
-            )?;
+            let chunk_start = usize::try_from(next_chunk_location)?;
+
+            // the offsets are sorted, so a chunk that starts before the end of
+            // the previous chunk overlaps it
+            if self.reject_overlapping_chunks && chunk_start < self.previous_chunk_end {
+                return Err(Error::invalid("overlapping chunks"));
+            }
+
+            // no-op for seek at current position, uses skip_bytes for small
+            // amounts
+            self.remaining_bytes.skip_to(chunk_start)?;
 
             let meta_data = &self.meta_data;
-            Chunk::read(&mut self.remaining_bytes, meta_data)
+            let chunk = Chunk::read(&mut self.remaining_bytes, meta_data)?;
+            self.previous_chunk_end = self.remaining_bytes.byte_position();
+            Ok(chunk)
         })
 
         // TODO remember last chunk index and then seek to index+size and check
@@ -507,16 +608,7 @@ impl<R: ChunksReader> SequentialBlockDecompressor<R> {
 /// Implements iterator.
 #[derive(Debug)]
 pub struct ParallelBlockDecompressor<R: ChunksReader> {
-    remaining_chunks: R,
-    sender: std::sync::mpsc::Sender<Result<UncompressedBlock>>,
-    receiver: std::sync::mpsc::Receiver<Result<UncompressedBlock>>,
-    currently_decompressing_count: usize,
-    max_threads: usize,
-
-    shared_meta_data_ref: std::sync::Arc<MetaData>,
-    pedantic: bool,
-
-    pool: rayon_core::ThreadPool,
+    decompressor: ParallelChunkDecompressor<R, UncompressedBlock>,
 }
 
 #[cfg(feature = "rayon")]
@@ -526,11 +618,7 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
     /// Returns the chunks if parallel decompression should not be used.
     /// Use `new_with_thread_pool` to customize the threadpool.
     pub fn new(chunks: R, pedantic: bool) -> std::result::Result<Self, R> {
-        Self::new_with_thread_pool(chunks, pedantic, || {
-            rayon_core::ThreadPoolBuilder::new()
-                .thread_name(|index| format!("OpenEXR Block Decompressor Thread #{index}"))
-                .build()
-        })
+        Self::new_with_thread_pool(chunks, pedantic, default_decompression_thread_pool)
     }
 
     /// Create a new decompressor. Does not immediately spawn any tasks.
@@ -540,6 +628,68 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
         chunks: R,
         pedantic: bool,
         try_create_thread_pool: CreatePool,
+    ) -> std::result::Result<Self, R>
+    where
+        CreatePool:
+            FnOnce()
+                -> std::result::Result<rayon_core::ThreadPool, rayon_core::ThreadPoolBuildError>,
+    {
+        ParallelChunkDecompressor::new_with_thread_pool(
+            chunks,
+            pedantic,
+            try_create_thread_pool,
+            UncompressedBlock::decompress_chunk,
+        )
+        .map(|decompressor| Self {
+            decompressor,
+        })
+    }
+
+    /// Fill the pool with decompression jobs. Returns the first job that
+    /// finishes.
+    pub fn decompress_next_block(&mut self) -> Option<Result<UncompressedBlock>> {
+        self.decompressor.decompress_next_block()
+    }
+
+    /// The extracted meta data of the image file.
+    pub fn meta_data(&self) -> &MetaData {
+        self.decompressor.meta_data()
+    }
+}
+
+#[cfg(feature = "rayon")]
+fn default_decompression_thread_pool(
+) -> std::result::Result<rayon_core::ThreadPool, rayon_core::ThreadPoolBuildError> {
+    rayon_core::ThreadPoolBuilder::new()
+        .thread_name(|index| format!("OpenEXR Block Decompressor Thread #{index}"))
+        .build()
+}
+
+/// Decompresses the chunks in a file in parallel,
+/// producing either flat or deep blocks.
+#[cfg(feature = "rayon")]
+#[derive(Debug)]
+struct ParallelChunkDecompressor<R: ChunksReader, Block> {
+    remaining_chunks: R,
+    sender: std::sync::mpsc::Sender<Result<Block>>,
+    receiver: std::sync::mpsc::Receiver<Result<Block>>,
+    currently_decompressing_count: usize,
+    max_threads: usize,
+
+    shared_meta_data_ref: std::sync::Arc<MetaData>,
+    pedantic: bool,
+    decompress_chunk: fn(Chunk, &MetaData, bool) -> Result<Block>,
+
+    pool: rayon_core::ThreadPool,
+}
+
+#[cfg(feature = "rayon")]
+impl<R: ChunksReader, Block: 'static + Send> ParallelChunkDecompressor<R, Block> {
+    fn new_with_thread_pool<CreatePool>(
+        chunks: R,
+        pedantic: bool,
+        try_create_thread_pool: CreatePool,
+        decompress_chunk: fn(Chunk, &MetaData, bool) -> Result<Block>,
     ) -> std::result::Result<Self, R>
     where
         CreatePool:
@@ -580,6 +730,7 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
             sender: send,
             receiver: recv,
             pedantic,
+            decompress_chunk,
             max_threads,
 
             pool,
@@ -588,7 +739,7 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
 
     /// Fill the pool with decompression jobs. Returns the first job that
     /// finishes.
-    pub fn decompress_next_block(&mut self) -> Option<Result<UncompressedBlock>> {
+    fn decompress_next_block(&mut self) -> Option<Result<Block>> {
         while self.currently_decompressing_count < self.max_threads {
             let block = self.remaining_chunks.next();
             if let Some(block) = block {
@@ -600,12 +751,12 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
                 let sender = self.sender.clone();
                 let meta = self.shared_meta_data_ref.clone();
                 let pedantic = self.pedantic;
+                let decompress_chunk = self.decompress_chunk;
 
                 self.currently_decompressing_count += 1;
 
                 self.pool.spawn(move || {
-                    let decompressed_or_err =
-                        UncompressedBlock::decompress_chunk(block, &meta, pedantic);
+                    let decompressed_or_err = decompress_chunk(block, &meta, pedantic);
 
                     // by now, decompressing could have failed in another
                     // thread. the error is then already
@@ -633,7 +784,7 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
                 "uncompressed chunks left in channel after decompressing all chunks"
             ); // TODO not reliable
             debug_assert_eq!(
-                self.len(),
+                self.remaining_chunks.len(),
                 0,
                 "compressed chunks left after decompressing all chunks"
             );
@@ -642,8 +793,12 @@ impl<R: ChunksReader> ParallelBlockDecompressor<R> {
     }
 
     /// The extracted meta data of the image file.
-    pub fn meta_data(&self) -> &MetaData {
+    fn meta_data(&self) -> &MetaData {
         self.remaining_chunks.meta_data()
+    }
+
+    fn remaining_block_count(&self) -> usize {
+        self.remaining_chunks.len() + self.currently_decompressing_count
     }
 }
 
@@ -671,7 +826,125 @@ impl<R: ChunksReader> Iterator for ParallelBlockDecompressor<R> {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.remaining_chunks.len() + self.currently_decompressing_count;
+        let remaining = self.decompressor.remaining_block_count();
+        (remaining, Some(remaining))
+    }
+}
+
+/// Read all deep chunks from the file, decompressing each chunk immediately.
+/// Implements iterator.
+#[cfg(feature = "deep")]
+#[derive(Debug)]
+pub struct SequentialDeepBlockDecompressor<R: ChunksReader> {
+    remaining_chunks_reader: R,
+    pedantic: bool,
+}
+
+#[cfg(feature = "deep")]
+impl<R: ChunksReader> SequentialDeepBlockDecompressor<R> {
+    /// The extracted meta data from the image file.
+    pub fn meta_data(&self) -> &MetaData {
+        self.remaining_chunks_reader.meta_data()
+    }
+
+    /// Read and then decompress a single block of deep pixels from the byte
+    /// source.
+    pub fn decompress_next_block(&mut self) -> Option<Result<UncompressedDeepBlock>> {
+        self.remaining_chunks_reader.read_next_chunk().map(|compressed_chunk| {
+            UncompressedDeepBlock::decompress_chunk(
+                compressed_chunk?,
+                self.remaining_chunks_reader.meta_data(),
+                self.pedantic,
+            )
+        })
+    }
+}
+
+#[cfg(feature = "deep")]
+impl<R: ChunksReader> ExactSizeIterator for SequentialDeepBlockDecompressor<R> {}
+#[cfg(feature = "deep")]
+impl<R: ChunksReader> Iterator for SequentialDeepBlockDecompressor<R> {
+    type Item = Result<UncompressedDeepBlock>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.decompress_next_block()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.remaining_chunks_reader.size_hint()
+    }
+}
+
+/// Decompress the deep chunks in a file in parallel.
+///
+/// The first call to `next` will fill the thread pool with jobs,
+/// starting to decompress the next few blocks.
+/// These jobs will finish, even if you stop reading more blocks.
+/// Implements iterator.
+#[cfg(all(feature = "rayon", feature = "deep"))]
+#[derive(Debug)]
+pub struct ParallelDeepBlockDecompressor<R: ChunksReader> {
+    decompressor: ParallelChunkDecompressor<R, UncompressedDeepBlock>,
+}
+
+#[cfg(all(feature = "rayon", feature = "deep"))]
+impl<R: ChunksReader> ParallelDeepBlockDecompressor<R> {
+    /// Create a new decompressor. Does not immediately spawn any tasks.
+    /// Decompression starts after the first call to `next`.
+    /// Returns the chunks if parallel decompression should not be used.
+    /// Use `new_with_thread_pool` to customize the threadpool.
+    pub fn new(chunks: R, pedantic: bool) -> std::result::Result<Self, R> {
+        Self::new_with_thread_pool(chunks, pedantic, default_decompression_thread_pool)
+    }
+
+    /// Create a new decompressor. Does not immediately spawn any tasks.
+    /// Decompression starts after the first call to `next`.
+    /// Returns the chunks if parallel decompression should not be used.
+    pub fn new_with_thread_pool<CreatePool>(
+        chunks: R,
+        pedantic: bool,
+        try_create_thread_pool: CreatePool,
+    ) -> std::result::Result<Self, R>
+    where
+        CreatePool:
+            FnOnce()
+                -> std::result::Result<rayon_core::ThreadPool, rayon_core::ThreadPoolBuildError>,
+    {
+        ParallelChunkDecompressor::new_with_thread_pool(
+            chunks,
+            pedantic,
+            try_create_thread_pool,
+            UncompressedDeepBlock::decompress_chunk,
+        )
+        .map(|decompressor| Self {
+            decompressor,
+        })
+    }
+
+    /// Fill the pool with decompression jobs. Returns the first job that
+    /// finishes.
+    pub fn decompress_next_block(&mut self) -> Option<Result<UncompressedDeepBlock>> {
+        self.decompressor.decompress_next_block()
+    }
+
+    /// The extracted meta data of the image file.
+    pub fn meta_data(&self) -> &MetaData {
+        self.decompressor.meta_data()
+    }
+}
+
+#[cfg(all(feature = "rayon", feature = "deep"))]
+impl<R: ChunksReader> ExactSizeIterator for ParallelDeepBlockDecompressor<R> {}
+#[cfg(all(feature = "rayon", feature = "deep"))]
+impl<R: ChunksReader> Iterator for ParallelDeepBlockDecompressor<R> {
+    type Item = Result<UncompressedDeepBlock>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.decompress_next_block()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.decompressor.remaining_block_count();
         (remaining, Some(remaining))
     }
 }

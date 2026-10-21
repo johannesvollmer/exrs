@@ -4,6 +4,8 @@ use std::{fmt::Debug, io::Seek, iter::Peekable, ops::Not};
 
 use smallvec::alloc::collections::BTreeMap;
 
+#[cfg(feature = "deep")]
+use crate::block::UncompressedDeepBlock;
 use crate::{
     block::{chunk::Chunk, UncompressedBlock},
     error::{usize_to_u64, Error, Result, UnitResult},
@@ -140,7 +142,57 @@ pub trait ChunksWriter: Sized {
             parallel_writer.add_block_to_compression_queue(index_in_header_increasing_y, block)?;
         }
 
+        // the blocks might not include all chunks of the file
+        parallel_writer.write_all_queued_chunks()?;
+
         // TODO debug_assert_eq!(self.is_complete());
+        Ok(())
+    }
+
+    #[cfg(feature = "deep")]
+    /// Compresses all deep blocks to the file.
+    /// The index of the block must be in increasing line order within the
+    /// header. All blocks must belong to deep layers.
+    fn compress_all_deep_blocks_sequential(
+        mut self,
+        meta: &MetaData,
+        blocks: impl Iterator<Item = (usize, UncompressedDeepBlock)>,
+    ) -> UnitResult {
+        let mut writer = self.sequential_blocks_compressor(meta);
+
+        for (index_in_header_increasing_y, block) in blocks {
+            writer.compress_deep_block(index_in_header_increasing_y, block)?;
+        }
+
+        Ok(())
+    }
+
+    #[cfg(all(feature = "rayon", feature = "deep"))]
+    /// Compresses all deep blocks to the file, using multiple threads.
+    /// The index of the block must be in increasing line order within the
+    /// header. All blocks must belong to deep layers. For files that also
+    /// contain flat layers, use a single `parallel_blocks_compressor()` for
+    /// all blocks, so that the chunks can be written in the required order.
+    /// Will fallback to sequential processing where threads are not available,
+    /// or where it would not speed up the process.
+    fn compress_all_deep_blocks_parallel(
+        mut self,
+        meta: &MetaData,
+        blocks: impl Iterator<Item = (usize, UncompressedDeepBlock)>,
+    ) -> UnitResult {
+        let mut parallel_writer = match self.parallel_blocks_compressor(meta) {
+            None => return self.compress_all_deep_blocks_sequential(meta, blocks),
+            Some(writer) => writer,
+        };
+
+        for (index_in_header_increasing_y, block) in blocks {
+            parallel_writer
+                .add_deep_block_to_compression_queue(index_in_header_increasing_y, block)?;
+        }
+
+        // the blocks might not include all chunks of the file, for example if
+        // it also contains flat layers
+        parallel_writer.write_all_queued_chunks()?;
         Ok(())
     }
 }
@@ -412,6 +464,18 @@ where
         self.chunks_writer
             .write_chunk(index_in_header_increasing_y, block.compress_to_chunk(&self.meta.headers)?)
     }
+
+    /// Compress a single deep block immediately. The index of the block must be
+    /// in increasing line order.
+    #[cfg(feature = "deep")]
+    pub fn compress_deep_block(
+        &mut self,
+        index_in_header_increasing_y: usize,
+        block: UncompressedDeepBlock,
+    ) -> UnitResult {
+        self.chunks_writer
+            .write_chunk(index_in_header_increasing_y, block.compress_to_chunk(&self.meta.headers)?)
+    }
 }
 
 /// Compress blocks to a chunk writer with multiple threads.
@@ -540,6 +604,30 @@ where
         index_in_header_increasing_y: usize,
         block: UncompressedBlock,
     ) -> UnitResult {
+        self.add_to_compression_queue(index_in_header_increasing_y, move |headers| {
+            block.compress_to_chunk(headers)
+        })
+    }
+
+    /// Add a single deep block to the compressor queue. The index of the block
+    /// must be in increasing line order. Behaves like
+    /// `add_block_to_compression_queue`.
+    #[cfg(feature = "deep")]
+    pub fn add_deep_block_to_compression_queue(
+        &mut self,
+        index_in_header_increasing_y: usize,
+        block: UncompressedDeepBlock,
+    ) -> UnitResult {
+        self.add_to_compression_queue(index_in_header_increasing_y, move |headers| {
+            block.compress_to_chunk(headers)
+        })
+    }
+
+    fn add_to_compression_queue(
+        &mut self,
+        index_in_header_increasing_y: usize,
+        compress_to_chunk: impl 'static + Send + FnOnce(&[crate::meta::header::Header]) -> Result<Chunk>,
+    ) -> UnitResult {
         // if pipe is full, block to wait for a slot to free up
         if self.currently_compressing_count >= self.max_threads {
             self.write_next_queued_chunk()?;
@@ -551,7 +639,7 @@ where
         let meta = self.meta.clone();
 
         self.pool.spawn(move || {
-            let compressed_or_err = block.compress_to_chunk(&meta.headers);
+            let compressed_or_err = compress_to_chunk(&meta.headers);
 
             // by now, decompressing could have failed in another thread.
             // the error is then already handled, so we simply
