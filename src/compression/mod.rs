@@ -205,8 +205,9 @@ impl Compression {
                 );
             }
 
-            // we need to clone here, because we might have to fallback to the uncompressed data
-            // later (when compressed data is larger than raw data)
+            // we need to clone here, because we might have to fallback to the
+            // uncompressed data later (when compressed data is larger than raw
+            // data)
             ZIP16 => zip::compress_bytes(
                 &header.channels,
                 uncompressed_native_endian.clone(),

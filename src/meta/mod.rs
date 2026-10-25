@@ -78,7 +78,8 @@ pub struct Requirements {
     /// image with scan line blocks.
     pub is_single_layer_and_tiled: bool,
 
-    // in c or bad c++ this might have been relevant (omg is he allowed to say that)
+    // in c or bad c++ this might have been relevant (omg is he allowed to say
+    // that)
     /// Whether this file has strings with a length greater than 31.
     /// Strings can never be longer than 255.
     pub has_long_names: bool,
@@ -529,9 +530,9 @@ impl MetaData {
             headers.iter().next().map_or(false, |header| header.blocks.has_tiles());
 
         let mut minimal_requirements = Requirements {
-            // according to the spec, version 2  should only be necessary if `is_multilayer ||
-            // deep`. but the current open exr library does not support images with
-            // version 1, so always use version 2.
+            // according to the spec, version 2  should only be necessary if
+            // `is_multilayer || deep`. but the current open exr library does
+            // not support images with version 1, so always use version 2.
             file_format_version: 2,
 
             // start as low as possible, later increasing if required
