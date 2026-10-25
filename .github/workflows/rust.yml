@@ -81,11 +81,6 @@ jobs:
       - name: Generate Cargo.lock with minimal-version dependencies
         run: cargo -Zminimal-versions generate-lockfile
 
-      # multiversion-macros 0.8.0 allows syn 2.0.0 but uses an API added in 2.0.1:
-      # https://github.com/calebzulawski/multiversion/issues/60
-      - name: Work around multiversion-macros' incorrect syn minimum
-        run: cargo +nightly update -p syn --precise 2.0.1
-
       - name: Verify the Rustc version declared in `Cargo.toml` with `minimal-versions`
         run: cargo-msrv verify
 
@@ -151,7 +146,7 @@ jobs:
       run: cargo +stable test --verbose --no-default-features
 
   sde:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
 
     strategy:

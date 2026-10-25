@@ -193,8 +193,8 @@ impl UncompressedBlock {
         }
 
         let tile_coordinates = TileCoordinates {
-            // FIXME this calculation should not be made here but elsewhere instead (in
-            // meta::header?)
+            // FIXME this calculation should not be made here but elsewhere
+            // instead (in meta::header?)
             tile_index: index.pixel_position / header.max_block_pixel_size(), // TODO sampling??
             level_index: index.level,
         };
@@ -231,8 +231,8 @@ impl UncompressedBlock {
                 BlockDescription::ScanLines => CompressedBlock::ScanLine(CompressedScanLineBlock {
                     compressed_pixels_le,
 
-                    // FIXME this calculation should not be made here but elsewhere instead (in
-                    // meta::header?)
+                    // FIXME this calculation should not be made here but
+                    // elsewhere instead (in meta::header?)
                     y_coordinate: usize_to_i32(index.pixel_position.y(), "pixel index")?
                         + header.own_attributes.layer_position.y(), // TODO sampling??
                 }),
