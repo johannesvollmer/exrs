@@ -3,7 +3,7 @@
 // Y'CbCr <-> R'G'B' color-space conversion the RGB triplets are transformed
 // with (the modified 709 coefficients from OpenEXRCore internal_dwa_simd.h).
 
-use half::f16;
+use half::{f16, slice::HalfFloatSliceExt};
 
 use super::{discrete_cosine_transform, ChannelInfo, CompressorScheme};
 use crate::{
@@ -410,15 +410,19 @@ fn decode_lossy_dct_group(
             // Convert nonlinear DCT output back to linear half values and crop
             // the edges to the actual image extent.
             for (component, output) in decoded.iter_mut().enumerate() {
+                let mut half_block = [f16::ZERO; 64];
+                half_block.convert_from_f32_slice(&dct_blocks[component]);
+                let columns = (width - block_x * 8).min(8);
                 for y in block_y * 8..(block_y * 8 + 8).min(height) {
-                    for x in block_x * 8..(block_x * 8 + 8).min(width) {
-                        let value =
-                            dct_blocks[component][(y - block_y * 8) * 8 + (x - block_x * 8)];
-                        let nonlinear = f16::from_f32(value);
-                        output[y * width + x] = f16::from_bits(match to_linear {
-                            Some(to_linear) => to_linear[nonlinear.to_bits() as usize],
-                            None => nonlinear.to_bits(),
-                        });
+                    let row = &half_block[(y - block_y * 8) * 8..][..columns];
+                    let output_row = &mut output[y * width + block_x * 8..][..columns];
+                    match to_linear {
+                        Some(table) => {
+                            for (output, nonlinear) in output_row.iter_mut().zip(row) {
+                                *output = f16::from_bits(table[nonlinear.to_bits() as usize]);
+                            }
+                        }
+                        None => output_row.copy_from_slice(row),
                     }
                 }
             }

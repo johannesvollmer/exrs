@@ -75,8 +75,8 @@ pub(super) fn decode_dc_section(section: &[u8], header: &DwaHeader) -> Result<Ve
         return Ok(vec![]);
     }
 
-    let bytes = inflate(section, header.dc_count * 2)?;
-    let bytes = undo_zip_reconstruct(&bytes);
+    let mut bytes = inflate(section, header.dc_count * 2)?;
+    undo_zip_reconstruct(&mut bytes);
     Ok(bytes.chunks_exact(2).map(|pair| u16::from_le_bytes([pair[0], pair[1]])).collect())
 }
 
@@ -92,26 +92,9 @@ pub(super) fn decode_rle_section(section: &[u8], header: &DwaHeader) -> Result<V
 
 /// Ports "internal_zip_reconstruct_bytes": undo differencing, then
 /// interleave the two buffer halves.
-fn undo_zip_reconstruct(source: &[u8]) -> Vec<u8> {
-    if source.len() < 2 {
-        return source.to_vec();
-    }
-
-    let mut deltas = source.to_vec();
-    for index in 1..deltas.len() {
-        deltas[index] = ((deltas[index - 1] as i32) + (deltas[index] as i32) - 128) as u8;
-    }
-
-    let (first_half, second_half) = deltas.split_at((deltas.len() + 1) / 2);
-    let mut out = vec![0u8; deltas.len()];
-    for (index, slot) in out.iter_mut().enumerate() {
-        *slot = if index % 2 == 0 {
-            first_half[index / 2]
-        } else {
-            second_half[index / 2]
-        };
-    }
-    out
+fn undo_zip_reconstruct(bytes: &mut [u8]) {
+    crate::compression::optimize_bytes::differences_to_samples(bytes);
+    crate::compression::optimize_bytes::interleave_byte_blocks(bytes);
 }
 
 /// Encoder-side companion applied to the DC byte stream before zlib:
@@ -134,7 +117,7 @@ mod test {
 
     /// The encoder-side DC transform (`zip_deconstruct_bytes`) and the
     /// decoder-side reconstruction (`undo_zip_reconstruct`) must be inverses,
-    /// including for odd lengths and the < 2 byte short-circuit.
+    /// including for empty, single-byte, and odd-length buffers.
     #[test]
     fn zip_deconstruct_reconstruct_roundtrip() {
         let mut random = rand::rngs::StdRng::from_seed(SEED);
@@ -144,9 +127,9 @@ mod test {
 
             let mut deconstructed = original.clone();
             zip_deconstruct_bytes(&mut deconstructed);
-            let reconstructed = undo_zip_reconstruct(&deconstructed);
+            undo_zip_reconstruct(&mut deconstructed);
 
-            assert_eq!(reconstructed, original, "failed at length {length}");
+            assert_eq!(deconstructed, original, "failed at length {length}");
         }
     }
 }
