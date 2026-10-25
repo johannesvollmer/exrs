@@ -359,8 +359,8 @@ where
 
         // match outside the loop to avoid matching on every single sample
         match self.target_sample_type {
-            // TODO does this boil down to a `memcpy` where the sample type equals the type
-            // parameter?
+            // TODO does this boil down to a `memcpy` where the sample type
+            // equals the type parameter?
             SampleType::F16 => {
                 for sample in samples {
                     sample.to_f16().write_ne(byte_writer).expect(write_error_msg);

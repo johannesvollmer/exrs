@@ -1837,7 +1837,8 @@ impl AttributeValue {
             Preview(ref value) => value.byte_size(),
 
             // attribute value texts never have limited size.
-            // also, don't serialize size, as it can be inferred from attribute size
+            // also, don't serialize size, as it can be inferred from attribute
+            // size
             Text(ref value) => value.bytes.len(),
 
             TextVector(ref value) => value.iter().map(self::Text::i32_sized_byte_size).sum(),
@@ -1944,7 +1945,8 @@ impl AttributeValue {
             Preview(ref value) => value.write(write)?,
 
             // attribute value texts never have limited size.
-            // also, don't serialize size, as it can be inferred from attribute size
+            // also, don't serialize size, as it can be inferred from attribute
+            // size
             Text(ref value) => u8::write_slice_le(write, value.bytes.as_slice())?,
 
             TextVector(ref value) => self::Text::write_vec_of_i32_sized_texts_le(write, value)?,
@@ -2066,7 +2068,8 @@ impl AttributeValue {
                 ty::PREVIEW => Preview(self::Preview::read(reader)?),
                 ty::TEXT => Text(self::Text::read_sized(reader, byte_size)?),
 
-                // the number of strings can be inferred from the total attribute size
+                // the number of strings can be inferred from the total
+                // attribute size
                 ty::TEXT_VECTOR => TextVector(self::Text::read_vec_of_i32_sized_texts_le(
                     &mut PeekRead::new(attribute_bytes.as_slice()),
                     byte_size,
@@ -2463,7 +2466,8 @@ mod test {
 
             {
                 let film24_code = TimeCode {
-                    // apparently, film24 does not support some flags, so do not use those values
+                    // apparently, film24 does not support some flags, so do not
+                    // use those values
                     color_frame: false,
                     drop_frame: false,
                     ..code

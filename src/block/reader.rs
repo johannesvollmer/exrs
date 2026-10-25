@@ -452,7 +452,8 @@ impl<R: Read + Seek> Iterator for FilteredChunksReader<R> {
         // read as many chunks as we have desired chunk offsets
         self.remaining_filtered_chunk_indices.next().map(|next_chunk_location| {
             self.remaining_bytes.skip_to(
-                // no-op for seek at current position, uses skip_bytes for small amounts
+                // no-op for seek at current position, uses skip_bytes for small
+                // amounts
                 usize::try_from(next_chunk_location)?,
             )?;
 

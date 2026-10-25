@@ -1110,9 +1110,9 @@ pub mod validate_results {
             &self,
             lossy_result: &Self,
             options: ValidationOptions,
-            // this is a lazy string, because constructing a string is only necessary in the case
-            // of an error, but eats up memory and allocation time every time. this was
-            // measured.
+            // this is a lazy string, because constructing a string is only
+            // necessary in the case of an error, but eats up memory and
+            // allocation time every time. this was measured.
             context: impl Fn() -> String,
         ) -> ValidationResult;
     }
@@ -1181,8 +1181,8 @@ pub mod validate_results {
                                 .is_lossless_for(other_chan.sample_data.sample_type())
                                 .not(),
 
-                            // consider nan and zero equal if the compression method does not
-                            // support nan
+                            // consider nan and zero equal if the compression
+                            // method does not support nan
                             nan_converted_to_zero: other.encoding.compression.supports_nan().not(),
                         },
                         || format!("{} > channel `{}`", location(), own_chan.name),
@@ -1217,13 +1217,14 @@ pub mod validate_results {
             } else {
                 let options = ValidationOptions {
                     // no tolerance for lossless channels
-                    // pxr only looses data for f32 values, B44 only for f16, not other any other
-                    // types
+                    // pxr only looses data for f32 values, B44 only for f16,
+                    // not other any other types
                     allow_lossy: other.encoding.compression.may_loose_data(), /* TODO check
                                                                                * specific channels
                                                                                * sample types */
 
-                    // consider nan and zero equal if the compression method does not support nan
+                    // consider nan and zero equal if the compression method
+                    // does not support nan
                     nan_converted_to_zero: other.encoding.compression.supports_nan().not(),
                 };
 
