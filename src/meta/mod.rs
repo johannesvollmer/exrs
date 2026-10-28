@@ -557,14 +557,6 @@ impl MetaData {
         };
 
         for header in headers {
-            #[cfg(not(feature = "deep"))]
-            if header.deep {
-                return Err(Error::unsupported(
-                    "deep data (enable the `deep` feature of the `exr` crate to read and write \
-                     deep data)",
-                ));
-            }
-
             header.validate(is_multilayer, &mut minimal_requirements.has_long_names, pedantic)?;
         }
 

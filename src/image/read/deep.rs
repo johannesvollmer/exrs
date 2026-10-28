@@ -21,10 +21,6 @@
 //!
 //! Only the largest resolution level of deep layers is loaded.
 //! The samples are returned in the order in which they are stored in the file.
-//! See [`crate::image::deep::compositing`] for sorting and flattening the
-//! samples.
-//!
-//! This module requires the `deep` feature.
 
 use std::{
     collections::HashSet,
@@ -35,7 +31,10 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::{
-    block::{reader::ChunksReader, UncompressedDeepBlock},
+    block::{
+        reader::{self, ChunksReader},
+        UncompressedDeepBlock,
+    },
     error::{Error, Result},
     image::{
         deep::DeepChannels, ignore_progress, Blocks, DeepImage, DeepLayersImage, Encoding, Image,
@@ -325,9 +324,9 @@ where
             return Err(Error::unsupported("parallel decompression requires the rayon feature"));
 
             #[cfg(feature = "rayon")]
-            chunks.decompress_deep_parallel(pedantic, insert_block)?;
+            reader::decompress_blocks_parallel(chunks, pedantic, insert_block)?;
         } else {
-            chunks.decompress_deep_sequential(pedantic, insert_block)?;
+            reader::decompress_blocks_sequential(chunks, pedantic, insert_block)?;
         }
 
         let layers: Result<Vec<Layer<DeepChannels>>> = selected_layers

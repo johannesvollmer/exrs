@@ -494,12 +494,9 @@ fn compress_offset_table(header: &Header, table_le: ByteVec) -> Result<ByteVec> 
         // larger than any practical tile, which would waste memory and space
         const MAX_PADDED_TABLE_BYTE_SIZE: usize = 16 * 1024 * 1024;
 
+        // this limit also bounds the memory allocated for the padding
         let mut padded_table_le = table_le;
-        let padding_byte_size = full_table_byte_size - padded_table_le.len();
-
-        if full_table_byte_size <= MAX_PADDED_TABLE_BYTE_SIZE
-            && padded_table_le.try_reserve_exact(padding_byte_size).is_ok()
-        {
+        if full_table_byte_size <= MAX_PADDED_TABLE_BYTE_SIZE {
             padded_table_le.resize(full_table_byte_size, 0);
         }
 
@@ -750,7 +747,7 @@ mod test {
                     (index_in_header, test_block(&deep_header, index, &counts))
                 });
 
-            writer.on_progress(|_| ()).compress_all_deep_blocks_parallel(&meta, deep_blocks)?;
+            writer.on_progress(|_| ()).compress_all_blocks_parallel(&meta, deep_blocks)?;
 
             let flat_blocks = crate::block::enumerate_ordered_header_block_indices(&meta.headers)
                 .filter(|(_, index)| index.layer == 0)

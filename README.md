@@ -24,7 +24,7 @@ Features include:
 - load specific sections of an image without processing the whole file
 - compress and decompress image pixels on multiple threads in parallel
 - add arbitrary meta data to any image, including custom byte data, with full backwards compatibility
-- any number of samples per pixel ("deep data"), using the `deep` feature
+- any number of samples per pixel ("deep data")
 
 ### Current Status
 
@@ -46,7 +46,7 @@ __What we can do:__
     - [x] access meta data and raw pixel blocks independently
     - [x] automatically crop away transparent pixels of an image (opt-in)
     - [ ] channel subsampling
-    - [x] deep data (scan lines and tiles, using the `deep` feature)
+    - [x] deep data (scan lines and tiles)
     - [x] compression methods
         - [x] uncompressed
         - [x] zip line (lossless)
@@ -212,39 +212,6 @@ fn main() {
 ```
 
 See the [the examples folder](https://github.com/johannesvollmer/exrs/tree/master/examples) for more examples.
-
-### Deep Data
-
-Deep images store any number of samples per pixel, for example
-the samples of a volumetric render at different depths.
-Reading, writing, merging, and flattening deep images requires the `deep` feature:
-
-```toml
-[dependencies]
-exr = { version = "1.74.2", features = ["deep"] }
-```
-
-```rust
-use exr::{image::deep::compositing, prelude::*};
-
-fn main() -> Result<()> {
-    // read the first deep layer, with all its channels
-    let image: DeepImage = read().deep_data().first_valid_layer().from_file("deep.exr")?;
-
-    let deep = &image.layer_data.channel_data;
-    println!("{} samples in {} pixels", deep.total_sample_count(), deep.pixel_count());
-
-    // composite all samples of each pixel, from front to back
-    let flat = Image::new(image.attributes.clone(), compositing::flatten(&image.layer_data)?);
-    flat.write().to_file("flat.exr")?;
-
-    // deep images are written just like flat images
-    image.write().to_file("deep_copy.exr")?;
-    Ok(())
-}
-```
-
-See the [deep data example](https://github.com/johannesvollmer/exrs/blob/master/examples/9_deep_data.rs) for more details.
 
 Or read [the guide](https://github.com/johannesvollmer/exrs/blob/master/GUIDE.md).
 

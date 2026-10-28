@@ -405,7 +405,6 @@ impl Compression {
     /// Always returns the compressed bytes, even if they are larger than the
     /// uncompressed bytes. The caller decides whether to store them
     /// uncompressed instead.
-    #[cfg(feature = "deep")]
     pub(crate) fn compress_deep_bytes_le(self, bytes_le: &[u8]) -> Result<ByteVec> {
         use self::Compression::*;
 
@@ -419,7 +418,6 @@ impl Compression {
 
     /// Encode the same bytes as the result of `compress_deep_bytes_le`,
     /// using a few more bytes. Returns `None` if that is not possible.
-    #[cfg(feature = "deep")]
     pub(crate) fn lengthen_compressed_deep_bytes_le(self, compressed_le: &[u8]) -> Option<ByteVec> {
         use self::Compression::*;
 
@@ -436,7 +434,6 @@ impl Compression {
     /// which is the case if the compressed size equals the uncompressed size.
     /// Produces at most `max_byte_size` bytes, which are in little-endian
     /// format.
-    #[cfg(feature = "deep")]
     pub(crate) fn decompress_deep_bytes_le(
         self,
         compressed_le: &[u8],

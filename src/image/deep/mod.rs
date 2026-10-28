@@ -8,12 +8,7 @@
 //!
 //! Read deep images with `read().deep_data()`, see
 //! [`crate::image::read::deep`]. Write deep images with `image.write()`, see
-//! [`crate::image::write::deep`]. See [`compositing`] for flattening and
-//! merging deep images.
-//!
-//! This module requires the `deep` feature.
-
-pub mod compositing;
+//! [`crate::image::write::deep`].
 
 use std::{convert::TryFrom, ops::Range};
 

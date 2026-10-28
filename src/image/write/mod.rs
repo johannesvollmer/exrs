@@ -13,7 +13,6 @@
 //! ```
 
 pub mod channels;
-#[cfg(feature = "deep")]
 pub mod deep;
 pub mod layers;
 pub mod samples;
@@ -209,7 +208,6 @@ where
         crate::block::write(write, headers, self.check_compatibility, move |meta, chunk_writer| {
             let chunk_writer = chunk_writer.on_progress(self.on_progress);
 
-            #[cfg(feature = "deep")]
             if meta.headers.iter().any(|header| header.deep) {
                 return deep::write_flat_and_deep_blocks(
                     &meta,
