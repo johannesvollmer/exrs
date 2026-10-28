@@ -37,8 +37,8 @@ use crate::{
     },
     error::{Error, Result},
     image::{
-        deep::AnyDeepChannels, ignore_progress, Blocks, DeepImage, DeepLayersImage, Encoding, Image,
-        Layer, Layers,
+        deep::AnyDeepChannels, ignore_progress, Blocks, DeepImage, DeepLayersImage, Encoding,
+        Image, Layer, Layers,
     },
     math::Vec2,
     meta::{header::Header, BlockDescription, MetaData},

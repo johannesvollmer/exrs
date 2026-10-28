@@ -1,8 +1,8 @@
 //! Data structures for deep images, where each pixel contains any number of
 //! samples, for example at different depths.
 //!
-//! Deep layers use [`AnyDeepChannels`] as their channel data. A deep image with a
-//! single layer is a [`DeepImage`](crate::image::DeepImage), and a deep image
+//! Deep layers use [`AnyDeepChannels`] as their channel data. A deep image with
+//! a single layer is a [`DeepImage`](crate::image::DeepImage), and a deep image
 //! with multiple layers is a
 //! [`DeepLayersImage`](crate::image::DeepLayersImage).
 //!
@@ -663,7 +663,8 @@ mod test {
         assert_eq!(blocks[0].pixel_offset_table, vec![1, 1, 4, 5]);
         assert_eq!(blocks[1].pixel_offset_table, vec![2, 2]);
 
-        let reassembled = AnyDeepChannels::from_blocks(deep.resolution(), &channels, blocks).unwrap();
+        let reassembled =
+            AnyDeepChannels::from_blocks(deep.resolution(), &channels, blocks).unwrap();
         assert_eq!(reassembled, deep);
     }
 }

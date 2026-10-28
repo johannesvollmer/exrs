@@ -1097,7 +1097,8 @@ impl Header {
                         (name::LINE_ORDER, LineOrder(value)) => line_order = Some(value),
                         (name::DEEP_DATA_VERSION, I32(value)) => version = Some(value),
 
-                        // a negative value, usually `-1`, indicates an unknown value
+                        // a negative value, usually `-1`, indicates an unknown
+                        // value
                         (name::MAX_SAMPLES, I32(value)) => {
                             max_samples_per_pixel = usize::try_from(value).ok();
                         }

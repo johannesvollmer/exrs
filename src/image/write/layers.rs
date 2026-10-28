@@ -1,7 +1,8 @@
 //! How to write either a single or a list of layers.
 
 use crate::{
-    block::BlockIndex,
+    block::{BlockIndex, UncompressedDeepBlock},
+    error::{Error, Result},
     image::{
         recursive::{NoneMore, Recursive},
         write::channels::{ChannelsWriter, WritableChannels},
@@ -14,10 +15,6 @@ use crate::{
         Headers,
     },
     prelude::SmallVec,
-};
-use crate::{
-    block::UncompressedDeepBlock,
-    error::{Error, Result},
 };
 
 /// Enables an image containing this list of layers to be written to a file.
