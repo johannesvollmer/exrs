@@ -1,19 +1,11 @@
-//! Tests for reading, writing, and compositing deep images.
-//! Requires the `deep` feature: `cargo test --features deep`.
-
-#![cfg(feature = "deep")]
+//! Tests for reading and writing deep images.
 
 extern crate exr;
 
-use std::{
-    convert::TryInto,
-    ffi::OsStr,
-    io::Cursor,
-    path::{Path, PathBuf},
-};
+use std::{convert::TryInto, ffi::OsStr, io::Cursor, path::PathBuf};
 
 use exr::{
-    image::deep::{compositing, DeepChannels},
+    image::deep::DeepChannels,
     meta::attribute::DeepImageState,
     prelude::{pixel_vec::PixelVec, *},
 };
@@ -703,95 +695,4 @@ fn reject_invalid_deep_layers_when_writing() {
     };
     let mut bytes = Vec::new();
     assert!(Image::from_layer(piz).write().to_buffered(Cursor::new(&mut bytes)).is_err());
-}
-
-/// The `composited.exr` image was created by the `OpenEXR` library,
-/// by compositing the four deep images.
-#[test]
-fn composite_matches_openexr_reference_image() {
-    let read_layer = |name: &str| -> Layer<DeepChannels> {
-        read()
-            .deep_data()
-            .first_valid_layer()
-            .from_file(Path::new(LOW_RES).join(name))
-            .unwrap()
-            .layer_data
-    };
-
-    let sources: Vec<Layer<DeepChannels>> = ["Ground.exr", "Trunks.exr", "Balls.exr", "Leaves.exr"]
-        .iter()
-        .map(|name| read_layer(name))
-        .collect();
-
-    let composited = compositing::composite(&sources).unwrap();
-    assert_eq!(composited.attributes.layer_position, Vec2(0, 0));
-    assert_eq!(composited.size, Vec2(1024, 576));
-
-    // merging and then flattening produces the same result
-    let merged = compositing::merge(&sources).unwrap();
-    let flattened = compositing::flatten(&merged).unwrap();
-    assert_eq!(flattened.channel_data, composited.channel_data);
-
-    let reference = read_first_flat_layer_from_file(format!("{LOW_RES}/composited.exr")).unwrap();
-    let reference = &reference.layer_data;
-    let offset = reference.attributes.layer_position - composited.attributes.layer_position;
-    let offset = offset.to_usize("reference offset").unwrap();
-
-    for name in ["R", "G", "B", "A"] {
-        let find = |channels: &AnyChannels<FlatSamples>| {
-            channels.list.iter().find(|channel| channel.name.eq(name)).unwrap().sample_data.clone()
-        };
-
-        let expected = find(&reference.channel_data);
-        let actual = find(&composited.channel_data);
-
-        let mut mismatching_pixels = 0;
-        for y in 0..reference.size.height() {
-            for x in 0..reference.size.width() {
-                let expected =
-                    expected.value_by_flat_index(y * reference.size.width() + x).to_f32();
-                let actual_index = (y + offset.y()) * composited.size.width() + x + offset.x();
-                let actual = actual.value_by_flat_index(actual_index).to_f32();
-
-                // the results may differ slightly due to rounding to 16-bit
-                // floats
-                if (expected - actual).abs() > 2.0e-3 {
-                    mismatching_pixels += 1;
-                }
-            }
-        }
-
-        // a single pixel in the reference image is composited in a different
-        // order, because it contains two samples whose depths differ by
-        // less than 0.01, which only become equal when rounded to
-        // 16-bit floats
-        assert!(
-            mismatching_pixels <= 1,
-            "{} pixels differ in channel {}",
-            mismatching_pixels,
-            name
-        );
-    }
-}
-
-#[test]
-fn sort_samples_of_real_image() {
-    let mut image =
-        read().deep_data().first_valid_layer().from_file(format!("{LOW_RES}/Leaves.exr")).unwrap();
-    let deep = &mut image.layer_data.channel_data;
-
-    let before = deep.clone();
-    deep.sort_samples_by_depth().unwrap();
-    assert_eq!(
-        deep.sample_counts().collect::<Vec<_>>(),
-        before.sample_counts().collect::<Vec<_>>()
-    );
-
-    let depth = deep.channel_by_name("Z").unwrap().sample_data.clone();
-    for pixel in 0..deep.pixel_count() {
-        let range = deep.sample_range_by_index(pixel);
-        let depths: Vec<f32> =
-            range.map(|index| depth.value_by_flat_index(index).to_f32()).collect();
-        assert!(depths.windows(2).all(|pair| pair[0] <= pair[1]), "pixel {} is not sorted", pixel);
-    }
 }

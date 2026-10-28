@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
-- Adds reading, writing, and compositing deep images, behind the new `deep` feature.
+- Adds reading and writing deep images.
   Deep layers contain any number of samples per pixel and use `DeepChannels` as channel data.
   - Read deep images with `read().deep_data()`, and write them with `image.write()`, like flat images.
     Images may contain both flat and deep layers. Use `all_valid_layers()` to read all deep layers of such images,
@@ -18,8 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     except for some partial tiles where that is not possible, for example of tiles that are only one or two pixels wide or high,
     and except for uncompressed tiles of more than 4,194,304 pixels, whose tables are not padded to avoid huge files.
     The offset tables written by older versions of the `OpenEXR` library can also be read.
-  - `image::deep::compositing` can sort, merge, and flatten deep layers.
-  - The block-level API offers `UncompressedDeepBlock`, with sequential and parallel (de)compression.
+  - The block-level API offers `UncompressedDeepBlock`. Deep blocks are (de)compressed with the same
+    sequential and parallel pipeline as flat blocks, which is now generic over the new `PixelBlock` trait.
+    For example, `ParallelBlockDecompressor<R, UncompressedDeepBlock>` decompresses deep blocks.
 - Adds the `DeepImageState` attribute type, for the standard `deepImageState` attribute.
 
 ### Changed
@@ -28,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of `Option<Rational>`, matching the `OpenEXR` format,
   and `AttributeValue` has a new `DeepImageState` variant.
 - A negative `maxSamplesPerPixel` attribute, which means "unknown", no longer fails to load.
-- With the `deep` feature, flat readers using `first_valid_layer()` skip deep layers,
+- Flat readers using `first_valid_layer()` skip deep layers,
   and otherwise return `Error::NotSupported` for deep layers.
 - Compressing a flat block for a deep layer now returns an error.
 - Reading without pedantic checks no longer decompresses the same chunk multiple times

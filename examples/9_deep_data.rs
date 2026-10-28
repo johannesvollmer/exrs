@@ -1,13 +1,8 @@
-//! Read deep images, merge and flatten them, and write the results.
-//! Requires the `deep` feature: `cargo run --example 9_deep_data --features
-//! deep`.
+//! Read deep images, inspect their samples, and write them again.
 
 extern crate exr;
 
-use exr::{
-    image::deep::{compositing, DeepChannels},
-    prelude::*,
-};
+use exr::{image::deep::DeepChannels, prelude::*};
 
 fn main() {
     let directory = "tests/images/valid/openexr/v2/LowResLeftView";
@@ -40,23 +35,18 @@ fn main() {
 
     // access the samples of a single pixel
     let balls: &DeepChannels = &images[2].layer_data.channel_data;
-    let samples = balls.rgba_samples_at(Vec2(430, 0));
-    println!("samples of a pixel: {:#?}", samples);
+    let samples = balls.sample_range(Vec2(430, 0));
 
-    // combine all images into a single deep layer, with the samples sorted by
-    // depth
-    let layers = images.iter().map(|image| &image.layer_data);
-    let merged = compositing::merge(layers).expect("cannot merge deep layers");
+    for channel in balls.channels() {
+        let values: Vec<f32> = samples
+            .clone()
+            .map(|index| channel.sample_data.value_by_flat_index(index).to_f32())
+            .collect();
 
-    // write the merged deep layer, using the display window of the first image
-    let merged_image = Image::new(images[0].attributes.clone(), merged);
-    merged_image.write().to_file("merged_deep.exr").expect("cannot write deep image");
+        println!("samples of channel {} in a pixel: {:?}", channel.name, values);
+    }
 
-    // composite the samples of each pixel, from front to back, and write a flat
-    // image
-    let flat = compositing::flatten(&merged_image.layer_data).expect("cannot flatten deep layer");
-    let flat_image = Image::new(images[0].attributes.clone(), flat);
-    flat_image.write().to_file("flattened_deep.exr").expect("cannot write flat image");
-
-    println!("created files `merged_deep.exr` and `flattened_deep.exr`");
+    // deep images are written just like flat images
+    images[2].write().to_file("deep_balls.exr").expect("cannot write deep image");
+    println!("created file `deep_balls.exr`");
 }
