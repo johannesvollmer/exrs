@@ -6,7 +6,7 @@
 ## Summary
 
 Combine the deep-data work with PR #292, which supplies the high-level
-`DeepChannels` image API on current `master` and passes the OpenEXR cross-checks.
+`AnyDeepChannels` image API on current `master` and passes the OpenEXR cross-checks.
 This branch keeps that API, keeps the block API as an escape hatch, and adds the
 SDD artifacts, API-guideline fixes, and the documented compositing tolerance.
 
@@ -30,9 +30,9 @@ data. Native-endian in memory, little-endian on the wire.
 linear in payload size. Flattening may look up a block per pixel; no quadratic
 growth in blocks.
 
-**Constraints**: Feature-gated code must compile with `--no-default-features`,
-`--features deep`, and `--features deep`. No new panics on untrusted
-input. Public API changes must be named in the PR.
+**Constraints**: Deep code must compile with the default features and with
+`--no-default-features`. No new panics on untrusted input. Public API changes
+must be named in the PR.
 
 ## Constitution Check
 
@@ -87,10 +87,11 @@ specs/001-deep-data/
 3. **Compression** — verify `compress_raw`/`decompress_raw` for `RLE`, `ZIP1`,
    `ZIP1`, including the "store raw when not smaller" rule. Evidence: files
    written by Rust read by OpenEXR and vice versa.
-4. **Compositing** — replace the Weta `composited.exr` oracle with C++-derived
-   values; keep sort/early-out semantics. Evidence: `test_composite_four_deep_to_flat`.
+4. **Compositing (deferred)** — moved to a follow-up PR. The contract and
+   research notes remain the specification for that work.
 5. **API review** — apply Rust API guideline fixes to the combined API:
    `to_channel_list`, private channel-name constants, descriptive byte-range
    method, and the derives that `f32` fields permit.
-6. **Verification** — run all feature combinations, update the PR body, and split
-   the changes into the stacked commits listed in `tasks.md`.
+6. **Verification** — run default and `--no-default-features` builds and tests,
+   update the PR body, and split the changes into the stacked commits listed in
+   `tasks.md`.

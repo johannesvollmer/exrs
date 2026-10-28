@@ -60,11 +60,11 @@ pub type FlatImage = Image<Layers<AnyChannels<FlatSamples>>>;
 
 /// This image type contains a single layer of deep data, with arbitrary
 /// channels. Each pixel contains any number of samples.
-pub type DeepImage = Image<Layer<deep::DeepChannels>>;
+pub type DeepImage = Image<Layer<deep::AnyDeepChannels>>;
 
 /// This image type contains multiple layers of deep data, with arbitrary
 /// channels. Each pixel contains any number of samples.
-pub type DeepLayersImage = Image<Layers<deep::DeepChannels>>;
+pub type DeepLayersImage = Image<Layers<deep::AnyDeepChannels>>;
 
 /// This image type contains multiple layers, with each layer containing a
 /// user-defined type of pixels.

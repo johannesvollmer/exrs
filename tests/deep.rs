@@ -5,7 +5,7 @@ extern crate exr;
 use std::{convert::TryInto, ffi::OsStr, io::Cursor, path::PathBuf};
 
 use exr::{
-    image::deep::DeepChannels,
+    image::deep::AnyDeepChannels,
     meta::attribute::DeepImageState,
     prelude::{pixel_vec::PixelVec, *},
 };
@@ -185,7 +185,7 @@ fn synthetic_layer(
     size: Vec2<usize>,
     seed: u32,
     encoding: Encoding,
-) -> Layer<DeepChannels> {
+) -> Layer<AnyDeepChannels> {
     let mut state = seed;
     let mut random = move || {
         state ^= state << 13;
@@ -210,7 +210,7 @@ fn synthetic_layer(
     let alpha = (0..total).map(|_| f16::from_f32((random() % 1000) as f32 / 1000.0)).collect();
     let ids = (0..total).map(|_| random()).collect();
 
-    let channels = DeepChannels::new(
+    let channels = AnyDeepChannels::new(
         size,
         counts,
         vec![
@@ -245,7 +245,7 @@ fn round_trip_synthetic_layers() {
         },
     ];
 
-    let layers: Layers<DeepChannels> = encodings
+    let layers: Layers<AnyDeepChannels> = encodings
         .iter()
         .enumerate()
         .map(|(index, &encoding)| {
@@ -435,7 +435,7 @@ fn read_images_with_deep_and_flat_layers_in_any_order() {
 struct ReadDeepLayerByName(&'static str);
 
 impl exr::image::read::deep::ReadDeepLayers for ReadDeepLayerByName {
-    type Layers = Layer<DeepChannels>;
+    type Layers = Layer<AnyDeepChannels>;
 
     fn select_layers(&self, headers: &[exr::meta::header::Header]) -> Result<SmallVec<[usize; 2]>> {
         headers
@@ -445,7 +445,7 @@ impl exr::image::read::deep::ReadDeepLayers for ReadDeepLayerByName {
             .ok_or_else(|| Error::Invalid("no layer with that name".into()))
     }
 
-    fn collect_layers(&self, layers: Vec<Layer<DeepChannels>>) -> Self::Layers {
+    fn collect_layers(&self, layers: Vec<Layer<AnyDeepChannels>>) -> Self::Layers {
         layers.into_iter().next().unwrap()
     }
 }

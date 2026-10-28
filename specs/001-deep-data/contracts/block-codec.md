@@ -36,6 +36,6 @@ covered by `compression.md`.
 
 ## Required Evidence Before Marking Complete
 
-- `cargo test --features deep --test deep`
+- `cargo test --test deep`
 - Cross-read: Rust-written scan line and tile files read by OpenEXR 3.1.11;
   OpenEXR-written partial tile read by Rust. Record the OpenEXR version.

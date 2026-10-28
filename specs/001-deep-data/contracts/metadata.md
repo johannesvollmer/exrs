@@ -30,7 +30,7 @@ and the file-version flags.
 
 ## Required Evidence Before Marking Complete
 
-- `cargo test --features deep --test deep`
+- `cargo test --test deep`
 - `cargo test --no-default-features`
 - `exrheader` on a Rust-written deep file reports `type`, `version`,
   `chunkCount`, `maxSamplesPerPixel` and `deepImageState`.

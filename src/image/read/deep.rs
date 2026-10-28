@@ -37,7 +37,7 @@ use crate::{
     },
     error::{Error, Result},
     image::{
-        deep::DeepChannels, ignore_progress, Blocks, DeepImage, DeepLayersImage, Encoding, Image,
+        deep::AnyDeepChannels, ignore_progress, Blocks, DeepImage, DeepLayersImage, Encoding, Image,
         Layer, Layers,
     },
     math::Vec2,
@@ -98,7 +98,7 @@ pub trait ReadDeepLayers {
     fn select_layers(&self, headers: &[Header]) -> Result<SmallVec<[usize; 2]>>;
 
     /// Collect the selected layers, in the order that they were selected.
-    fn collect_layers(&self, layers: Vec<Layer<DeepChannels>>) -> Self::Layers;
+    fn collect_layers(&self, layers: Vec<Layer<AnyDeepChannels>>) -> Self::Layers;
 }
 
 /// Read all layers of an image, which must all be deep layers.
@@ -114,7 +114,7 @@ pub struct ReadAllValidDeepLayers;
 pub struct ReadFirstValidDeepLayer;
 
 impl ReadDeepLayers for ReadAllDeepLayers {
-    type Layers = Layers<DeepChannels>;
+    type Layers = Layers<AnyDeepChannels>;
 
     fn select_layers(&self, headers: &[Header]) -> Result<SmallVec<[usize; 2]>> {
         if headers.iter().any(|header| !header.deep) {
@@ -127,13 +127,13 @@ impl ReadDeepLayers for ReadAllDeepLayers {
         Ok((0..headers.len()).collect())
     }
 
-    fn collect_layers(&self, layers: Vec<Layer<DeepChannels>>) -> Self::Layers {
+    fn collect_layers(&self, layers: Vec<Layer<AnyDeepChannels>>) -> Self::Layers {
         layers.into_iter().collect()
     }
 }
 
 impl ReadDeepLayers for ReadAllValidDeepLayers {
-    type Layers = Layers<DeepChannels>;
+    type Layers = Layers<AnyDeepChannels>;
 
     fn select_layers(&self, headers: &[Header]) -> Result<SmallVec<[usize; 2]>> {
         let deep_layers: SmallVec<[usize; 2]> = headers
@@ -150,13 +150,13 @@ impl ReadDeepLayers for ReadAllValidDeepLayers {
         Ok(deep_layers)
     }
 
-    fn collect_layers(&self, layers: Vec<Layer<DeepChannels>>) -> Self::Layers {
+    fn collect_layers(&self, layers: Vec<Layer<AnyDeepChannels>>) -> Self::Layers {
         layers.into_iter().collect()
     }
 }
 
 impl ReadDeepLayers for ReadFirstValidDeepLayer {
-    type Layers = Layer<DeepChannels>;
+    type Layers = Layer<AnyDeepChannels>;
 
     fn select_layers(&self, headers: &[Header]) -> Result<SmallVec<[usize; 2]>> {
         headers
@@ -166,7 +166,7 @@ impl ReadDeepLayers for ReadFirstValidDeepLayer {
             .ok_or_else(|| Error::unsupported("the image contains no deep layer"))
     }
 
-    fn collect_layers(&self, layers: Vec<Layer<DeepChannels>>) -> Self::Layers {
+    fn collect_layers(&self, layers: Vec<Layer<AnyDeepChannels>>) -> Self::Layers {
         layers.into_iter().next().expect("deep layer selection bug")
     }
 }
@@ -329,13 +329,13 @@ where
             reader::decompress_blocks_sequential(chunks, pedantic, insert_block)?;
         }
 
-        let layers: Result<Vec<Layer<DeepChannels>>> = selected_layers
+        let layers: Result<Vec<Layer<AnyDeepChannels>>> = selected_layers
             .iter()
             .map(|&layer_index| {
                 let header = &headers[layer_index];
                 let blocks = std::mem::take(&mut blocks_per_layer[layer_index]);
                 let channel_data =
-                    DeepChannels::from_blocks(header.layer_size, &header.channels, blocks)?;
+                    AnyDeepChannels::from_blocks(header.layer_size, &header.channels, blocks)?;
 
                 Ok(Layer {
                     channel_data,

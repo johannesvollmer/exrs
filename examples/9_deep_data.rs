@@ -2,7 +2,7 @@
 
 extern crate exr;
 
-use exr::{image::deep::DeepChannels, prelude::*};
+use exr::{image::deep::AnyDeepChannels, prelude::*};
 
 fn main() {
     let directory = "tests/images/valid/openexr/v2/LowResLeftView";
@@ -34,7 +34,7 @@ fn main() {
     }
 
     // access the samples of a single pixel
-    let balls: &DeepChannels = &images[2].layer_data.channel_data;
+    let balls: &AnyDeepChannels = &images[2].layer_data.channel_data;
     let samples = balls.sample_range(Vec2(430, 0));
 
     for channel in balls.channels() {

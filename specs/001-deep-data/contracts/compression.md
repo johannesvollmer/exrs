@@ -32,6 +32,6 @@ them for deep parts.
 
 ## Required Evidence Before Marking Complete
 
-- `cargo test --features deep --test deep`
+- `cargo test --test deep`
 - Write each codec with Rust, read with OpenEXR, compare every sample; repeat in
   the other direction.

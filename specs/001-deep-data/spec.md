@@ -51,10 +51,14 @@ round trips preserve them and other tools accept them.
   (`Messy`, `Sorted`, `NonOverlapping`, `Tidy`) as in `ImfDeepImageState.h`.
 - Given a deep header, when I write it, then `type` is `deepscanline` or
   `deeptile`, `version` is 1, and `maxSamplesPerPixel` is present when known.
-- Given `deep = false`, when I build without the `deep` feature, then the public
-  API is unchanged and deep attributes still parse.
+- Given a flat image, when I read it, then deep attributes remain optional and
+  parsing is unchanged.
 
-### User Story 4: Composite deep pixels (P2)
+### User Story 4: Composite deep pixels (deferred)
+
+Compositing and flattening were moved out of this PR into a follow-up PR, as
+requested in review. The contract below remains the specification for that
+follow-up and is not part of the merge gate.
 
 As a compositor author, I want front-to-back compositing that matches OpenEXR,
 so that flattened output is portable.
@@ -70,16 +74,17 @@ so that flattened output is portable.
   then they are skipped.
 - Given `ZBack` is absent, then `ZBack` is treated as `Z`.
 
-### User Story 5: Feature gating (P2)
+### User Story 5: Default compilation (P2)
 
-As a library consumer, I want deep code to cost nothing when unused.
+As a library consumer, I want deep data support available without an opt-in
+feature and without interfering with flat images.
 
 **Acceptance Criteria**
 
-- Given `--no-default-features`, when I build, then no deep codec, block or
-  utility is compiled.
-- Given `--features deep`, when I build, then deep I/O, metadata, compositing
-  and flattening compile.
+- Given the default feature set, when I build, then deep block decoding,
+  encoding, metadata, reading and writing compile.
+- Given `--no-default-features`, when I build, then deep blocks and metadata
+  still compile and flat images are unaffected.
 
 ## Non-Goals
 
@@ -99,12 +104,12 @@ As a library consumer, I want deep code to cost nothing when unused.
 - R4: `maxSamplesPerPixel == -1` means unknown and must be accepted.
 - R5: ZIP and RLE preprocessing for deep sample data and offset tables must match
   `ImfZip.cpp` and `ImfRle.cpp`.
-- R6: Flattening must follow the formula in `ImfDeepCompositing.cpp`; the
-  one-pixel near-tie in the reference fixture is covered by a documented
-  tolerance.
+- R6: Flattening is deferred to the compositing follow-up PR. When implemented,
+  it must follow `ImfDeepCompositing.cpp` and document the one-pixel near-tie.
 - R7: Size arithmetic and allocation derived from untrusted counts must be
   checked or fail with `Error`, never panic or wrap.
-- R8: All deep code is behind the `deep` feature.
+- R8: Deep block and metadata support compile in every feature combination;
+  the high-level deep API is available by default.
 
 ## Risks
 
@@ -117,5 +122,5 @@ As a library consumer, I want deep code to cost nothing when unused.
   document the block lookup and keep it linear in the number of blocks.
 - **API break.** Changing `deepImageState` from `Rational` to the enum breaks
   code that used the wrong type. This is intentional and called out in the PR.
-- **Feature-gated rot.** Deep code is not compiled by default; CI must run
-  `--features deep`.
+- **Default-path regressions.** Deep code is now always compiled; CI must cover
+  both default and `--no-default-features` builds.

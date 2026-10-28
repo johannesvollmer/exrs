@@ -14,8 +14,8 @@ Covers malformed deep files, feature gating and resource bounds.
 | Size arithmetic is checked or saturating | Covered | `block/deep.rs`, `meta/header.rs` | round-trip and hostile-size tests | fuzz target |
 | Invalid deep layers rejected on write | Covered | `image/write/deep.rs` | `reject_invalid_deep_layers_when_writing` | — |
 | Sheared deep layers rejected | Covered | `block/deep.rs::validate` | `reject_invalid_deep_layers_when_writing` | — |
-| Deep code absent without `deep` | Covered | `#[cfg(feature = "deep")]` modules | `cargo build --no-default-features` | — |
-| `deep` enables read, write and compositing | Covered | `Cargo.toml` | `cargo build --features deep` | — |
+| Deep blocks compile in every feature set | Covered | `src/block/deep.rs`, `src/compression/*` | `cargo check --no-default-features` | — |
+| Deep I/O is available by default | Covered | `src/image/read/deep.rs`, `src/image/write/deep.rs` | `cargo test --test deep` | — |
 
 ## Invariants
 
@@ -31,6 +31,6 @@ Covers malformed deep files, feature gating and resource bounds.
 
 ## Required Evidence Before Marking Complete
 
-- `cargo test --features deep --test deep`
-- `cargo test --features deep` and `cargo test --no-default-features`
+- `cargo test --test deep`
+- `cargo test` and `cargo test --no-default-features`
 - Run the invalid deep fixtures with `pedantic = true`; expect errors, not panics.

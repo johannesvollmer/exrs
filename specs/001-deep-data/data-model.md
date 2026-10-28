@@ -39,9 +39,9 @@
 - **Persistence**: encoded to a deep chunk; the on-disk table restarts at each
   row and is converted to block-wide cumulative form.
 
-### DeepChannels
+### AnyDeepChannels
 
-- **Owner**: `crate::image::deep::DeepChannels`.
+- **Owner**: `crate::image::deep::AnyDeepChannels`.
 - **Identity**: resolution plus one `sample_offsets` array for all pixels.
 - **Fields**: `resolution: Vec2<usize>`, `sample_offsets: Vec<usize>` (one more
   entry than pixels), `list: SmallVec<[AnyChannel<FlatSamples>; 4]>` sorted by
@@ -55,7 +55,7 @@
 
 - **Owner**: `crate::image`.
 - **Identity**: one layer (`DeepImage`) or many layers (`DeepLayersImage`).
-- **Fields**: shared `ImageAttributes`, layer data with `DeepChannels`.
+- **Fields**: shared `ImageAttributes`, layer data with `AnyDeepChannels`.
 - **Invariants**: each deep layer has at least one channel; flat and deep layers
   may be mixed in a file but not in one layer.
 

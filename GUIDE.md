@@ -122,7 +122,7 @@ fn main(){
 }
 ```
 
-The deep samples of a layer are stored in `DeepChannels`, which contain 
+The deep samples of a layer are stored in `AnyDeepChannels`, which contain 
 the number of samples of each pixel and the values of each channel for all samples.
 Use `deep.sample_range(Vec2(x, y))` to find the samples of a specific pixel in the sample vectors.
 Deep images are written using `image.write()`, just like flat images.
@@ -546,7 +546,7 @@ fn main() {
 The type `AnyChannel` can describe every possible channel and contains all its samples for this layer.   
 Use `AnyChannel::new(channel_name, sample_data)` or `AnyChannel { .. }`.
 The samples can currently only be `FlatSamples` or `Levels<FlatSamples>`.
-Deep layers use `DeepChannels` instead of `AnyChannels`, which also contain a list of `AnyChannel<FlatSamples>`.
+Deep layers use `AnyDeepChannels` instead of `AnyChannels`, which also contain a list of `AnyChannel<FlatSamples>`.
 
 ### Samples
 `FlatSamples` contain one sample per pixel. These do not contain deep data.  

@@ -4,7 +4,7 @@
 
 ### Decision: High-level deep API, with block access as an escape hatch
 
-**Chosen**: Adopt the `DeepChannels` / `DeepImage` / `DeepLayersImage` API from
+**Chosen**: Adopt the `AnyDeepChannels` / `DeepImage` / `DeepLayersImage` API from
 PR #292. Read with `read().deep_data()`, write with `image.write()`, and keep
 `UncompressedDeepBlock` public for callers that need raw chunks.
 
@@ -38,7 +38,7 @@ oracle because half rounding alone produces ~129k sub-`2e-3` differences.
 
 ### Decision: `deepImageState` is an unconditional enum
 
-**Chosen**: Keep `DeepImageState` compiled without the `deep` feature and type
+**Chosen**: Keep `DeepImageState` compiled in every feature set and type
 `LayerAttributes::deep_image_state` as `Option<DeepImageState>`.
 
 **Reason**: The attribute is defined unconditionally in OpenEXR and is one byte
