@@ -31,8 +31,6 @@
 //! Only the compression methods `Uncompressed`, `RLE`, and `ZIP1` are
 //! supported for deep data. The samples are written in the order they are
 //! stored, and no sorting is performed.
-//!
-//! This module requires the `deep` feature.
 
 use crate::{
     block::{writer::ChunksWriter, BlockIndex, UncompressedBlock, UncompressedDeepBlock},
@@ -131,7 +129,7 @@ pub(crate) fn write_flat_and_deep_blocks(
                 if meta.headers[block_index.layer].deep {
                     let block =
                         layers.extract_uncompressed_deep_block(&meta.headers, block_index)?;
-                    compressor.add_deep_block_to_compression_queue(index_in_header, block)?;
+                    compressor.add_block_to_compression_queue(index_in_header, block)?;
                 } else {
                     let block = extract_flat_block(block_index);
                     compressor.add_block_to_compression_queue(index_in_header, block)?;
@@ -152,7 +150,7 @@ pub(crate) fn write_flat_and_deep_blocks(
     for (index_in_header, block_index) in meta.enumerate_ordered_header_block_indices() {
         if meta.headers[block_index.layer].deep {
             let block = layers.extract_uncompressed_deep_block(&meta.headers, block_index)?;
-            compressor.compress_deep_block(index_in_header, block)?;
+            compressor.compress_block(index_in_header, block)?;
         } else {
             compressor.compress_block(index_in_header, extract_flat_block(block_index))?;
         }

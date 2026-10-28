@@ -15,7 +15,6 @@ use crate::{
     },
     prelude::SmallVec,
 };
-#[cfg(feature = "deep")]
 use crate::{
     block::UncompressedDeepBlock,
     error::{Error, Result},
@@ -40,7 +39,6 @@ pub trait LayersWriter: Sync {
 
     /// Deliver a block of deep pixels from a single deep layer to be stored in
     /// the file. Returns an error by default.
-    #[cfg(feature = "deep")]
     fn extract_uncompressed_deep_block(
         &self,
         _headers: &[Header],
@@ -117,11 +115,7 @@ impl<'slf, Channels: WritableChannels<'slf>> WritableLayers<'slf> for Layer<Chan
 
         let chunk_count = compute_chunk_count(self.encoding.compression, self.size, blocks);
 
-        #[cfg(feature = "deep")]
         let max_samples_per_pixel = self.channel_data.infer_deep_max_samples_per_pixel();
-
-        #[cfg(not(feature = "deep"))]
-        let max_samples_per_pixel = None;
 
         let deep = max_samples_per_pixel.is_some();
 
@@ -169,7 +163,6 @@ where
         // TODO no array-vs-first
     }
 
-    #[cfg(feature = "deep")]
     fn extract_uncompressed_deep_block(
         &self,
         headers: &[Header],
@@ -190,7 +183,6 @@ where
         // TODO no array-vs-first
     }
 
-    #[cfg(feature = "deep")]
     fn extract_uncompressed_deep_block(
         &self,
         headers: &[Header],
@@ -272,7 +264,6 @@ where
         }
     }
 
-    #[cfg(feature = "deep")]
     fn extract_uncompressed_deep_block(
         &self,
         headers: &[Header],

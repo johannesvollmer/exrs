@@ -29,7 +29,6 @@ pub trait WritableChannels<'slf> {
     /// Whether these channels contain deep data, and if so,
     /// the maximum number of samples in a single pixel.
     /// Returns `None` for flat channels, which is the default.
-    #[cfg(feature = "deep")]
     fn infer_deep_max_samples_per_pixel(&self) -> Option<usize> {
         None
     }
@@ -44,7 +43,6 @@ pub trait ChannelsWriter: Sync {
     /// Deliver a block of deep pixels, containing all channel data, to be
     /// stored in the file. Only called for channels that contain deep data.
     /// Returns an error by default.
-    #[cfg(feature = "deep")]
     fn extract_uncompressed_deep_block(
         &self,
         _header: &Header,

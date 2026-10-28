@@ -21,7 +21,6 @@ pub fn decompress_bytes(
 
 /// Compress bytes that are not organized in channels, such as deep data.
 /// Applies the same byte reordering and delta prediction as `compress_bytes`.
-#[cfg(feature = "deep")]
 pub(super) fn compress_raw_bytes(mut data_le: ByteVec) -> ByteVec {
     separate_bytes_fragments(&mut data_le);
     samples_to_differences(&mut data_le);
@@ -31,7 +30,6 @@ pub(super) fn compress_raw_bytes(mut data_le: ByteVec) -> ByteVec {
 /// Encode the same bytes as the compressed bytes, using one or two bytes more,
 /// by splitting the first token that produces more than one byte.
 /// Returns `None` if every token produces a single byte.
-#[cfg(feature = "deep")]
 pub(super) fn lengthen_compressed_bytes(compressed_le: &[u8]) -> Option<ByteVec> {
     let mut position = 0;
 
@@ -79,7 +77,6 @@ pub(super) fn lengthen_compressed_bytes(compressed_le: &[u8]) -> Option<ByteVec>
 
 /// Decompress bytes that are not organized in channels, such as deep data.
 /// Produces at most `max_byte_size` bytes.
-#[cfg(feature = "deep")]
 pub(super) fn decompress_raw_bytes(
     compressed_le: &[u8],
     max_byte_size: usize,

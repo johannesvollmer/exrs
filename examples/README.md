@@ -14,8 +14,7 @@ Only the cropping examples and `9_deep_data` use images from the source reposito
   `2_rgba_adjust_exposure`
 - Access all pixel information in a file, fully dynamic:
   `6_extract_mip_map_pngs`
-- Read, merge, flatten, and write deep images (requires the `deep` feature, 
-  run with `cargo run --example 9_deep_data --features deep`):
+- Read, inspect, and write deep images:
   `9_deep_data`
 
 

@@ -92,8 +92,8 @@ The first choice to be made is whether you want to load deep data or not.
 Deep data is where any number of samples is stored in one pixel, 
 for example at different depths. Most images do not contain deep data,
 so most of the time, we call `no_deep_data()`. 
-Flat readers return `Error::NotSupported` for deep layers. 
-With the `deep` feature enabled, `first_valid_layer()` skips deep layers instead.
+Flat readers return `Error::NotSupported` for deep layers, 
+except for `first_valid_layer()`, which skips deep layers instead.
 
 ```rust
 fn main(){
@@ -102,8 +102,7 @@ fn main(){
 }
 ```
 
-To read deep images, enable the `deep` feature of this crate, 
-and call `deep_data()` instead. Then choose whether to read all layers,
+To read deep images, call `deep_data()` instead. Then choose whether to read all layers,
 which must all be deep, all deep layers while skipping flat layers, or only the first deep layer.
 Implement `ReadDeepLayers` and use `ReadDeepImage::new` for a custom selection of layers.
 Deep images do not support the further options of flat images, 
@@ -126,8 +125,7 @@ fn main(){
 The deep samples of a layer are stored in `DeepChannels`, which contain 
 the number of samples of each pixel and the values of each channel for all samples.
 Use `deep.sample_range(Vec2(x, y))` to find the samples of a specific pixel in the sample vectors.
-Deep images are written using `image.write()`, just like flat images, 
-and can be flattened or merged using the functions in `exr::image::deep::compositing`.
+Deep images are written using `image.write()`, just like flat images.
 
 ### Resolution Levels
 Decide whether you want to load the largest resolution level, or all Mip Maps from the file.
