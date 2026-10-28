@@ -80,6 +80,9 @@ pub enum AttributeValue {
     /// 3D float vector.
     FloatVec3((f32, f32, f32)),
 
+    /// How the samples of a deep image are organized.
+    DeepImageState(DeepImageState),
+
     /// An explicitly untyped attribute for binary application data.
     /// Also contains the type name of this value.
     /// The format of the byte contents is explicitly unspecified.
@@ -185,7 +188,7 @@ pub mod block_type_strings {
     pub const DEEP_TILE: &[u8] = b"deeptile";
 }
 
-pub use crate::compression::Compression;
+pub use crate::{compression::Compression, meta::deep_state::DeepImageState};
 
 /// The integer rectangle describing where an layer is placed on the infinite 2D
 /// global space.
@@ -1848,6 +1851,7 @@ impl AttributeValue {
                 ..
             } => bytes.len(),
             BlockType(ref kind) => kind.byte_size(),
+            DeepImageState(_) => self::DeepImageState::byte_size(),
 
             Bytes {
                 ref bytes,
@@ -1885,6 +1889,7 @@ impl AttributeValue {
             TextVector(_) => ty::TEXT_VECTOR,
             TileDescription(_) => ty::TILES,
             BlockType(_) => super::BlockType::TYPE_NAME,
+            DeepImageState(_) => ty::DEEP_IMAGE_STATE,
             Bytes {
                 ..
             } => ty::BYTES,
@@ -1952,6 +1957,7 @@ impl AttributeValue {
             TextVector(ref value) => self::Text::write_vec_of_i32_sized_texts_le(write, value)?,
             TileDescription(ref value) => value.write(write)?,
             BlockType(kind) => kind.write(write)?,
+            DeepImageState(state) => state.write(write)?,
 
             Bytes {
                 ref type_hint,
@@ -2076,6 +2082,7 @@ impl AttributeValue {
                 )?),
 
                 ty::TILES => TileDescription(self::TileDescription::read(reader)?),
+                ty::DEEP_IMAGE_STATE => DeepImageState(self::DeepImageState::read(reader)?),
 
                 ty::BYTES => {
                     // for some reason, they went for unsigned sizes, in this
@@ -2123,6 +2130,14 @@ impl AttributeValue {
         }
 
         Ok(())
+    }
+
+    /// Return `Ok(DeepImageState)` if this attribute is a deep image state.
+    pub fn to_deep_image_state(&self) -> Result<DeepImageState> {
+        match *self {
+            Self::DeepImageState(value) => Ok(value),
+            _ => Err(invalid_type()),
+        }
     }
 
     /// Return `Ok(i32)` if this attribute is an i32.
@@ -2210,7 +2225,8 @@ pub mod type_names {
         TEXT:           b"string",
         TEXT_VECTOR:    b"stringvector",
         TILES:          b"tiledesc",
-        BYTES:          b"bytes"
+        BYTES:          b"bytes",
+        DEEP_IMAGE_STATE: b"deepImageState"
     }
 }
 

@@ -57,7 +57,7 @@ pub enum Compression {
     /// Uses ZIP compression to compress blocks of 16 lines. Slowly produces
     /// small images which can be read with moderate speed. This compression
     /// method is lossless. Might be slightly slower but smaller than
-    /// `ZIP1´.
+    /// `ZIP1´. Only supported for flat images, not for deep data.
     ZIP16, // TODO collapse with ZIP1
 
     /// PIZ compression works well for noisy and natural images. Works better
@@ -397,6 +397,64 @@ impl Compression {
 
             ZIP16 | PXR24 | PIZ | B44 | B44A | DWAA(_) | DWAB(_) | HTJ2K256 | HTJ2K32 => false,
         }
+    }
+
+    /// Compress bytes that are not organized in channels and lines,
+    /// such as deep pixel offset tables or deep sample data.
+    /// The bytes must already be in little-endian format.
+    /// Always returns the compressed bytes, even if they are larger than the
+    /// uncompressed bytes. The caller decides whether to store them
+    /// uncompressed instead.
+    pub(crate) fn compress_deep_bytes_le(self, bytes_le: &[u8]) -> Result<ByteVec> {
+        use self::Compression::*;
+
+        match self {
+            Uncompressed => Ok(bytes_le.to_vec()),
+            RLE => Ok(rle::compress_raw_bytes(bytes_le.to_vec())),
+            ZIP1 | ZIP16 => Ok(zip::compress_raw_bytes(bytes_le.to_vec())),
+            _ => Err(Error::unsupported(format!("deep data cannot be compressed using {self}"))),
+        }
+    }
+
+    /// Encode the same bytes as the result of `compress_deep_bytes_le`,
+    /// using a few more bytes. Returns `None` if that is not possible.
+    pub(crate) fn lengthen_compressed_deep_bytes_le(self, compressed_le: &[u8]) -> Option<ByteVec> {
+        use self::Compression::*;
+
+        match self {
+            RLE => rle::lengthen_compressed_bytes(compressed_le),
+            ZIP1 | ZIP16 => zip::lengthen_compressed_bytes(compressed_le),
+            _ => None,
+        }
+    }
+
+    /// Decompress bytes that are not organized in channels and lines,
+    /// such as deep pixel offset tables or deep sample data.
+    /// The caller must decide whether the bytes are stored without compression,
+    /// which is the case if the compressed size equals the uncompressed size.
+    /// Produces at most `max_byte_size` bytes, which are in little-endian
+    /// format.
+    pub(crate) fn decompress_deep_bytes_le(
+        self,
+        compressed_le: &[u8],
+        max_byte_size: usize,
+        pedantic: bool,
+    ) -> Result<ByteVec> {
+        use self::Compression::*;
+
+        let decompressed_le = match self {
+            Uncompressed => Ok(compressed_le.to_vec()),
+            RLE => rle::decompress_raw_bytes(compressed_le, max_byte_size, pedantic),
+            ZIP1 | ZIP16 => zip::decompress_raw_bytes(compressed_le, max_byte_size),
+            _ => {
+                return Err(Error::unsupported(format!(
+                    "deep data cannot be decompressed using {self}"
+                )))
+            }
+        };
+
+        decompressed_le
+            .map_err(|error| Error::invalid(format!("compressed {self:?} deep data ({error})")))
     }
 
     /// Most compression methods will reconstruct the exact pixel bytes,

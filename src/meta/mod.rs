@@ -3,6 +3,7 @@
 //! Browse the `exr::image` module to get started with the high-level interface.
 
 pub mod attribute;
+pub mod deep_state;
 pub mod header;
 
 use std::{collections::HashSet, convert::TryFrom, fs::File, io::BufReader};
@@ -426,6 +427,17 @@ impl MetaData {
     ) -> Result<Self> {
         let meta_data = Self::read_unvalidated_from_buffered_peekable(read, !pedantic)?;
         Self::validate(meta_data.headers.as_slice(), pedantic)?;
+
+        // a single-layer file must declare deep data in the version flags.
+        // like `OpenEXR` 3.3 and newer, trust the type attribute of each header
+        // in multi-layer files. `OpenEXR` 3.2 and older reject such files,
+        // so reading pedantically requires the flag.
+        let headers_have_deep_data = meta_data.headers.iter().any(|header| header.deep);
+        let flags_are_required = pedantic || !meta_data.requirements.is_multilayer();
+        if flags_are_required && headers_have_deep_data && !meta_data.requirements.has_deep_data {
+            return Err(Error::invalid("deep data in a file not flagged as containing deep data"));
+        }
+
         Ok(meta_data)
     }
 
@@ -524,7 +536,7 @@ impl MetaData {
             return Err(Error::invalid("at least one layer is required"));
         }
 
-        let deep = false; // TODO deep data
+        let deep = headers.iter().any(|header| header.deep);
         let is_multilayer = headers.len() > 1;
         let first_header_has_tiles =
             headers.iter().next().map_or(false, |header| header.blocks.has_tiles());
@@ -538,17 +550,13 @@ impl MetaData {
             // start as low as possible, later increasing if required
             has_long_names: false,
 
-            is_single_layer_and_tiled: !is_multilayer && first_header_has_tiles,
+            // the single tile bit must not be set for deep data
+            is_single_layer_and_tiled: !is_multilayer && !deep && first_header_has_tiles,
             has_multiple_layers: is_multilayer,
             has_deep_data: deep,
         };
 
         for header in headers {
-            if header.deep {
-                // TODO deep data (and then remove this check)
-                return Err(Error::unsupported("deep data not supported yet"));
-            }
-
             header.validate(is_multilayer, &mut minimal_requirements.has_long_names, pedantic)?;
         }
 

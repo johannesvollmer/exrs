@@ -25,6 +25,13 @@ pub trait WritableChannels<'slf> {
 
     /// Create a temporary writer for this list of channels
     fn create_writer(&'slf self, header: &Header) -> Self::Writer;
+
+    /// Whether these channels contain deep data, and if so,
+    /// the maximum number of samples in a single pixel.
+    /// Returns `None` for flat channels, which is the default.
+    fn infer_deep_max_samples_per_pixel(&self) -> Option<usize> {
+        None
+    }
 }
 
 /// A temporary writer for a list of channels
@@ -32,6 +39,17 @@ pub trait ChannelsWriter: Sync {
     /// Deliver a block of pixels, containing all channel data, to be stored in
     /// the file
     fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex) -> Vec<u8>; // TODO return uncompressed block?
+
+    /// Deliver a block of deep pixels, containing all channel data, to be
+    /// stored in the file. Only called for channels that contain deep data.
+    /// Returns an error by default.
+    fn extract_uncompressed_deep_block(
+        &self,
+        _header: &Header,
+        _block: BlockIndex,
+    ) -> Result<UncompressedDeepBlock> {
+        Err(Error::unsupported("these channels do not contain deep data"))
+    }
 }
 
 /// Define how to get a pixel from your custom pixel storage.

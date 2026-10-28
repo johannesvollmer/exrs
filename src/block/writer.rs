@@ -5,7 +5,7 @@ use std::{fmt::Debug, io::Seek, iter::Peekable, ops::Not};
 use smallvec::alloc::collections::BTreeMap;
 
 use crate::{
-    block::{chunk::Chunk, UncompressedBlock},
+    block::{chunk::Chunk, PixelBlock},
     error::{usize_to_u64, Error, Result, UnitResult},
     io::{Data, Tracking, Write},
     meta::{attribute::LineOrder, Headers, MetaData, OffsetTables},
@@ -102,11 +102,11 @@ pub trait ChunksWriter: Sized {
     /// Compresses all blocks to the file.
     /// The index of the block must be in increasing line order within the
     /// header. Obtain iterator with `MetaData::collect_ordered_blocks(...)`
-    /// or similar methods.
-    fn compress_all_blocks_sequential(
+    /// or similar methods. The blocks may be flat or deep blocks.
+    fn compress_all_blocks_sequential<Block: PixelBlock>(
         mut self,
         meta: &MetaData,
-        blocks: impl Iterator<Item = (usize, UncompressedBlock)>,
+        blocks: impl Iterator<Item = (usize, Block)>,
     ) -> UnitResult {
         let mut writer = self.sequential_blocks_compressor(meta);
 
@@ -125,10 +125,11 @@ pub trait ChunksWriter: Sized {
     /// header. Obtain iterator with `MetaData::collect_ordered_blocks(...)`
     /// or similar methods. Will fallback to sequential processing where
     /// threads are not available, or where it would not speed up the process.
-    fn compress_all_blocks_parallel(
+    /// The blocks may be flat or deep blocks.
+    fn compress_all_blocks_parallel<Block: PixelBlock>(
         mut self,
         meta: &MetaData,
-        blocks: impl Iterator<Item = (usize, UncompressedBlock)>,
+        blocks: impl Iterator<Item = (usize, Block)>,
     ) -> UnitResult {
         let mut parallel_writer = match self.parallel_blocks_compressor(meta) {
             None => return self.compress_all_blocks_sequential(meta, blocks),
@@ -139,6 +140,9 @@ pub trait ChunksWriter: Sized {
         for (index_in_header_increasing_y, block) in blocks {
             parallel_writer.add_block_to_compression_queue(index_in_header_increasing_y, block)?;
         }
+
+        // the blocks might not include all chunks of the file
+        parallel_writer.write_all_queued_chunks()?;
 
         // TODO debug_assert_eq!(self.is_complete());
         Ok(())
@@ -403,11 +407,11 @@ where
     }
 
     /// Compress a single block immediately. The index of the block must be in
-    /// increasing line order.
+    /// increasing line order. The block may be a flat or a deep block.
     pub fn compress_block(
         &mut self,
         index_in_header_increasing_y: usize,
-        block: UncompressedBlock,
+        block: impl PixelBlock,
     ) -> UnitResult {
         self.chunks_writer
             .write_chunk(index_in_header_increasing_y, block.compress_to_chunk(&self.meta.headers)?)
@@ -534,11 +538,11 @@ where
     /// This only works when you write as many blocks as the image expects,
     /// otherwise you can use `wait_for_all_remaining_chunks`. Waits for a
     /// block from the queue to be written, if the queue already has enough
-    /// items.
+    /// items. The block may be a flat or a deep block.
     pub fn add_block_to_compression_queue(
         &mut self,
         index_in_header_increasing_y: usize,
-        block: UncompressedBlock,
+        block: impl PixelBlock,
     ) -> UnitResult {
         // if pipe is full, block to wait for a slot to free up
         if self.currently_compressing_count >= self.max_threads {

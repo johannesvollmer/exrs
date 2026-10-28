@@ -26,6 +26,7 @@
 //! See `exr::blocks` module for a low-level interface.
 
 pub mod crop;
+pub mod deep;
 pub mod pixel_vec;
 pub mod read;
 pub mod recursive;
@@ -56,6 +57,14 @@ pub type AnyImage = Image<Layers<AnyChannels<Levels<FlatSamples>>>>;
 /// almost any plain image. Does not contain resolution levels. Does not support
 /// deep data.
 pub type FlatImage = Image<Layers<AnyChannels<FlatSamples>>>;
+
+/// This image type contains a single layer of deep data, with arbitrary
+/// channels. Each pixel contains any number of samples.
+pub type DeepImage = Image<Layer<deep::AnyDeepChannels>>;
+
+/// This image type contains multiple layers of deep data, with arbitrary
+/// channels. Each pixel contains any number of samples.
+pub type DeepLayersImage = Image<Layers<deep::AnyDeepChannels>>;
 
 /// This image type contains multiple layers, with each layer containing a
 /// user-defined type of pixels.

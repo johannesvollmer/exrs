@@ -13,6 +13,7 @@
 //! ```
 
 pub mod channels;
+pub mod deep;
 pub mod layers;
 pub mod samples;
 
@@ -205,11 +206,21 @@ where
         let layers = self.image.layer_data.create_writer(&headers);
 
         crate::block::write(write, headers, self.check_compatibility, move |meta, chunk_writer| {
+            let chunk_writer = chunk_writer.on_progress(self.on_progress);
+
+            if meta.headers.iter().any(|header| header.deep) {
+                return deep::write_flat_and_deep_blocks(
+                    &meta,
+                    &layers,
+                    chunk_writer,
+                    self.parallel,
+                );
+            }
+
             let blocks = meta.collect_ordered_block_data(|block_index| {
                 layers.extract_uncompressed_block(&meta.headers, block_index)
             });
 
-            let chunk_writer = chunk_writer.on_progress(self.on_progress);
             if self.parallel {
                 #[cfg(not(feature = "rayon"))]
                 return Err(crate::error::Error::unsupported(

@@ -220,8 +220,8 @@ pub struct LayerAttributes {
     pub world_to_normalized_device: Option<Matrix4x4>,
 
     /// Specifies whether the pixels in a deep image are sorted and
-    /// non-overlapping.
-    pub deep_image_state: Option<Rational>,
+    /// non-overlapping. If absent, the samples should be assumed to be messy.
+    pub deep_image_state: Option<DeepImageState>,
 
     /// If the image was cropped, contains the original data window.
     pub original_data_window: Option<IntegerBounds>,
@@ -603,27 +603,15 @@ impl Header {
     pub fn get_block_data_indices(&self, block: &CompressedBlock) -> Result<TileCoordinates> {
         Ok(match block {
             CompressedBlock::Tile(ref tile) => tile.coordinates,
+            CompressedBlock::DeepTile(ref tile) => tile.coordinates,
 
             CompressedBlock::ScanLine(ref block) => {
-                let size = self.compression.scan_lines_per_block() as i32;
-
-                let diff = block
-                    .y_coordinate
-                    .checked_sub(self.own_attributes.layer_position.y())
-                    .ok_or_else(|| Error::invalid("invalid header"))?;
-                let y = diff.checked_div(size).ok_or_else(|| Error::invalid("invalid header"))?;
-
-                if y < 0 {
-                    return Err(Error::invalid("scan block y coordinate"));
-                }
-
-                TileCoordinates {
-                    tile_index: Vec2(0, y as usize),
-                    level_index: Vec2(0, 0),
-                }
+                self.get_scan_line_block_tile_coordinates(block.y_coordinate)?
             }
 
-            _ => return Err(Error::unsupported("deep data not supported yet")),
+            CompressedBlock::DeepScanLine(ref block) => {
+                self.get_scan_line_block_tile_coordinates(block.y_coordinate)?
+            }
         })
     }
 
@@ -651,14 +639,40 @@ impl Header {
 
     /// Maximum byte length of an uncompressed or compressed block, used for
     /// validation.
+    ///
+    /// For deep data, this bounds both the pixel offset table and the sample
+    /// data of a block. The number of samples per pixel is not bounded,
+    /// unless the `max_samples_per_pixel` attribute is known. Without that
+    /// attribute, this returns `usize::MAX` for deep data.
     pub fn max_block_byte_size(&self) -> usize {
-        self.channels.bytes_per_pixel
-            * match self.blocks {
-                BlockDescription::Tiles(tiles) => tiles.tile_size.area(),
-                BlockDescription::ScanLines => {
-                    self.compression.scan_lines_per_block() * self.layer_size.width()
-                } // TODO What about deep data???
+        let max_block_pixel_count = match self.blocks {
+            BlockDescription::Tiles(tiles) => {
+                tiles.tile_size.width().saturating_mul(tiles.tile_size.height())
             }
+            BlockDescription::ScanLines => {
+                self.compression.scan_lines_per_block().saturating_mul(self.layer_size.width())
+            }
+        };
+
+        if self.deep {
+            match self.max_samples_per_pixel {
+                Some(max_samples_per_pixel) => {
+                    // the offset table contains one i32 per pixel
+                    let offset_table_byte_size =
+                        max_block_pixel_count.saturating_mul(std::mem::size_of::<i32>());
+
+                    let sample_data_byte_size = max_block_pixel_count
+                        .saturating_mul(max_samples_per_pixel)
+                        .saturating_mul(self.channels.bytes_per_pixel);
+
+                    offset_table_byte_size.max(sample_data_byte_size)
+                }
+
+                None => usize::MAX,
+            }
+        } else {
+            self.channels.bytes_per_pixel.saturating_mul(max_block_pixel_count)
+        }
     }
 
     /// Returns the number of bytes that the pixels of this header will require
@@ -793,17 +807,9 @@ impl Header {
         }
 
         if self.deep {
-            if strict {
-                if self.own_attributes.layer_name.is_none() {
-                    return Err(missing_attribute("layer name for deep file"));
-                }
-
-                if self.max_samples_per_pixel.is_none() {
-                    return Err(Error::invalid(
-                        "missing max samples per pixel attribute for deepdata",
-                    ));
-                }
-            }
+            // the `maxSamplesPerPixel` and `name` attributes are not required
+            // here, as single-layer deep files written by the
+            // `OpenEXR` library may not contain them
 
             match self.deep_data_version {
                 Some(1) => {}
@@ -923,9 +929,17 @@ impl Header {
 
         let block_type_and_tiles = expect_is_iter(
             once_with(move || {
-                let (block_type, tiles) = match self.blocks {
-                    BlockDescription::ScanLines => (attribute::BlockType::ScanLine, None),
-                    BlockDescription::Tiles(tiles) => (attribute::BlockType::Tile, Some(tiles)),
+                let (block_type, tiles) = match (self.blocks, self.deep) {
+                    (BlockDescription::ScanLines, false) => (attribute::BlockType::ScanLine, None),
+                    (BlockDescription::ScanLines, true) => {
+                        (attribute::BlockType::DeepScanLine, None)
+                    }
+                    (BlockDescription::Tiles(tiles), false) => {
+                        (attribute::BlockType::Tile, Some(tiles))
+                    }
+                    (BlockDescription::Tiles(tiles), true) => {
+                        (attribute::BlockType::DeepTile, Some(tiles))
+                    }
                 };
 
                 once((BLOCK_TYPE, BlockType(block_type)))
@@ -999,7 +1013,7 @@ impl Header {
             MULTI_VIEW: TextVector = &self.own_attributes.multi_view_names,
             WORLD_TO_CAMERA: Matrix4x4 = &self.own_attributes.world_to_camera,
             WORLD_TO_NDC: Matrix4x4 = &self.own_attributes.world_to_normalized_device,
-            DEEP_IMAGE_STATE: Rational = &self.own_attributes.deep_image_state,
+            DEEP_IMAGE_STATE: DeepImageState = &self.own_attributes.deep_image_state,
             ORIGINAL_DATA_WINDOW: IntegerBounds = &self.own_attributes.original_data_window,
             CHROMATICITIES: Chromaticities = &self.shared_attributes.chromaticities,
             PREVIEW: Preview = &self.own_attributes.preview,
@@ -1083,8 +1097,10 @@ impl Header {
                         (name::LINE_ORDER, LineOrder(value)) => line_order = Some(value),
                         (name::DEEP_DATA_VERSION, I32(value)) => version = Some(value),
 
+                        // a negative value, usually `-1`, indicates an unknown
+                        // value
                         (name::MAX_SAMPLES, I32(value)) => {
-                            max_samples_per_pixel = Some(i32_to_usize(value, "max sample count")?);
+                            max_samples_per_pixel = usize::try_from(value).ok();
                         }
 
                         (name::CHUNKS, I32(value)) => {
@@ -1151,7 +1167,7 @@ impl Header {
                         (name::WORLD_TO_NDC, Matrix4x4(value)) => {
                             layer_attributes.world_to_normalized_device = Some(value);
                         }
-                        (name::DEEP_IMAGE_STATE, Rational(value)) => {
+                        (name::DEEP_IMAGE_STATE, DeepImageState(value)) => {
                             layer_attributes.deep_image_state = Some(value);
                         }
                         (name::ORIGINAL_DATA_WINDOW, IntegerBounds(value)) => {
