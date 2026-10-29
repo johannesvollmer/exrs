@@ -179,15 +179,22 @@ pub(super) fn write_scanlines(
             match info.scheme {
                 CompressorScheme::LossyDct => {
                     let row_samples = &lossy_samples[index][row * info.width..][..info.width];
+                    // Grow once per row and fill the new bytes, so these loops
+                    // vectorise; extending sample by sample does not.
+                    let start = out.len();
                     match info.sample_type {
                         SampleType::F16 => {
-                            for sample in row_samples {
-                                out.extend_from_slice(&sample.to_bits().to_le_bytes());
+                            out.resize(start + row_samples.len() * 2, 0);
+                            for (bytes, sample) in out[start..].chunks_exact_mut(2).zip(row_samples)
+                            {
+                                bytes.copy_from_slice(&sample.to_bits().to_le_bytes());
                             }
                         }
                         SampleType::F32 => {
-                            for sample in row_samples {
-                                out.extend_from_slice(&sample.to_f32().to_le_bytes());
+                            out.resize(start + row_samples.len() * 4, 0);
+                            for (bytes, sample) in out[start..].chunks_exact_mut(4).zip(row_samples)
+                            {
+                                bytes.copy_from_slice(&sample.to_f32().to_le_bytes());
                             }
                         }
                         // rejected before decoding
