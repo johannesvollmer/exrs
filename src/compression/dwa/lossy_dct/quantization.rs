@@ -3,7 +3,10 @@
 // gather, and the AC run-length (de)coding. The zig-zag scatter (`INV_REMAP`)
 // and gather (`SRC_INDICES`) permutations are exact inverses of each other.
 
-use half::f16;
+use half::{
+    f16,
+    slice::{HalfBitsSliceExt, HalfFloatSliceExt},
+};
 
 use super::{half_float_quantizer::algo_quantize, PackedStream};
 use crate::error::{Error, Result};
@@ -150,9 +153,10 @@ pub(super) fn from_half_zigzag(zig_zag: &[u16; 64], dst: &mut [f32; 64]) {
         21, 34, 37, 47, 50, 56, 59, 61, 35, 36, 48, 49, 57, 58, 62, 63,
     ];
 
-    for (slot, &src_index) in dst.iter_mut().zip(SRC_INDICES.iter()) {
-        *slot = f16::from_bits(zig_zag[src_index]).to_f32();
-    }
+    let raster = SRC_INDICES.map(|src_index| zig_zag[src_index]);
+    // Convert in bulk, which uses F16C where the CPU has it; converting
+    // sample by sample is several times slower.
+    raster.reinterpret_cast::<f16>().convert_to_f32_slice(dst);
 }
 
 // Note: `quantize_coefficients_to_zigzag`/`from_half_zigzag` are intentionally
