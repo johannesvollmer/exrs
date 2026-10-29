@@ -3,7 +3,7 @@
 // Y'CbCr <-> R'G'B' color-space conversion the RGB triplets are transformed
 // with (the modified 709 coefficients from OpenEXRCore internal_dwa_simd.h).
 
-use half::f16;
+use half::{f16, slice::HalfFloatSliceExt};
 
 use super::{discrete_cosine_transform, ChannelInfo, CompressorScheme};
 use crate::{
@@ -408,18 +408,21 @@ fn decode_lossy_dct_group(
             }
 
             // Convert nonlinear DCT output back to linear half values and crop
-            // the edges to the actual image extent.
+            // the edges to the actual image extent. Half conversion is in bulk,
+            // which uses F16C where the CPU has it.
+            let (x0, y0) = (block_x * 8, block_y * 8);
+            let block_width = (width - x0).min(8);
             for (component, output) in decoded.iter_mut().enumerate() {
-                for y in block_y * 8..(block_y * 8 + 8).min(height) {
-                    for x in block_x * 8..(block_x * 8 + 8).min(width) {
-                        let value =
-                            dct_blocks[component][(y - block_y * 8) * 8 + (x - block_x * 8)];
-                        let nonlinear = f16::from_f32(value);
-                        output[y * width + x] = f16::from_bits(match to_linear {
-                            Some(to_linear) => to_linear[nonlinear.to_bits() as usize],
-                            None => nonlinear.to_bits(),
-                        });
+                let mut nonlinear = [f16::ZERO; 64];
+                nonlinear.convert_from_f32_slice(&dct_blocks[component]);
+                if let Some(to_linear) = to_linear {
+                    for value in &mut nonlinear {
+                        *value = f16::from_bits(to_linear[value.to_bits() as usize]);
                     }
+                }
+                for (row, y) in nonlinear.chunks_exact(8).zip(y0..height.min(y0 + 8)) {
+                    let start = y * width + x0;
+                    output[start..start + block_width].copy_from_slice(&row[..block_width]);
                 }
             }
         }
