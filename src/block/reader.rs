@@ -93,8 +93,16 @@ impl<R: Read + Seek> Reader<R> {
     pub fn filter_chunks(
         mut self,
         pedantic: bool,
-        mut filter: impl FnMut(&MetaData, TileCoordinates, BlockIndex) -> bool,
+        filter: impl FnMut(&MetaData, TileCoordinates, BlockIndex) -> bool,
     ) -> Result<FilteredChunksReader<R>> {
+        let offset_tables = self.read_offset_tables(pedantic)?;
+        self.filter_chunks_with_offset_tables(offset_tables, pedantic, filter)
+    }
+
+    /// Read the offset tables, which must directly follow the meta data.
+    /// A file too short to contain them claims more chunks than it has, so
+    /// doing this before allocating the image refuses such a file cheaply.
+    pub(crate) fn read_offset_tables(&mut self, pedantic: bool) -> Result<OffsetTables> {
         let offset_tables =
             MetaData::read_offset_tables(&mut self.remaining_reader, &self.meta_data.headers)?;
 
@@ -108,6 +116,16 @@ impl<R: Read + Seek> Reader<R> {
             )?;
         }
 
+        Ok(offset_tables)
+    }
+
+    /// Like `filter_chunks`, with the result of `read_offset_tables`.
+    pub(crate) fn filter_chunks_with_offset_tables(
+        self,
+        offset_tables: OffsetTables,
+        pedantic: bool,
+        mut filter: impl FnMut(&MetaData, TileCoordinates, BlockIndex) -> bool,
+    ) -> Result<FilteredChunksReader<R>> {
         let mut filtered_offsets =
             Vec::with_capacity((self.meta_data.headers.len() * 32).min(2 * 2048));
 

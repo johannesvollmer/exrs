@@ -6,6 +6,7 @@ use crate::{
     image::{
         read::{
             any_channels::{ReadSamples, SamplesReader},
+            ensure_allocatable,
             levels::{ReadAllLevels, ReadLargestLevel, ReadSamplesLevel},
         },
         *,
@@ -86,6 +87,12 @@ impl ReadSamplesLevel for ReadFlatSamples {
         level: Vec2<usize>,
         resolution: Vec2<usize>,
     ) -> Result<Self::Reader> {
+        match channel.sample_type {
+            SampleType::F16 => ensure_allocatable::<f16>(resolution)?,
+            SampleType::F32 => ensure_allocatable::<f32>(resolution)?,
+            SampleType::U32 => ensure_allocatable::<u32>(resolution)?,
+        }
+
         Ok(FlatSamplesReader {
             level,
             resolution, // TODO sampling
