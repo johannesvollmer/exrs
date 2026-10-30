@@ -144,14 +144,17 @@ impl LongCodes {
 }
 
 /// Reads input bits most significant first from a 64-bit register,
-/// refilled several bytes at a time.
+/// refilled several bytes at a time. Past the end of the input it reads
+/// zeros, so callers check `position()` against the input length once,
+/// rather than before every code.
 struct BitReader<'i> {
     input: &'i [u8],
     /// The next unread bits, most significant first; zero below `count`.
     bits: u64,
     /// The number of valid bits in `bits`.
     count: u64,
-    /// The next input byte not yet in `bits`.
+    /// The next input byte not yet in `bits`; beyond the input once zeros
+    /// past its end have been read.
     next_byte: usize,
 }
 
@@ -173,7 +176,7 @@ impl<'i> BitReader<'i> {
         self.next_byte * 8 - self.count as usize
     }
 
-    /// Fill `bits` to at least 57 valid bits, or with all remaining input.
+    /// Fill `bits` to at least 57 bits.
     #[inline(always)]
     fn refill(&mut self) {
         if let Some(bytes) = self.input.get(self.next_byte..self.next_byte + 8) {
@@ -184,15 +187,16 @@ impl<'i> BitReader<'i> {
             self.next_byte += take as usize;
             self.count += take * 8;
         } else {
-            while self.count <= 56 && self.next_byte < self.input.len() {
-                self.bits |= u64::from(self.input[self.next_byte]) << (56 - self.count);
+            while self.count <= 56 {
+                let byte = self.input.get(self.next_byte).copied().unwrap_or(0);
+                self.bits |= u64::from(byte) << (56 - self.count);
                 self.next_byte += 1;
                 self.count += 8;
             }
         }
     }
 
-    /// The next `count` (1 to 57, after a refill) bits, zero past the end.
+    /// The next `count` (1 to 57, after a refill) bits.
     #[inline(always)]
     fn peek(&self, count: u64) -> u64 {
         self.bits >> (64 - count)
@@ -236,13 +240,21 @@ fn decode_with_tables(
     run_length_code: u32,
     expected_output_size: usize,
 ) -> Result<Vec<u16>> {
-    // The expected size comes from the file, so only reserve a bounded amount
-    // up front; the vector grows as values are actually decoded, and the
-    // length is checked below.
-    let mut output = Vec::with_capacity(expected_output_size.min(1024 * 1024 * 4));
+    // The expected size comes from the file. Every code takes at least one
+    // bit and a run-length code (at least 9 bits with its count) repeats at
+    // most 255 values, so a larger size cannot be valid; refusing it before
+    // allocating keeps a small file from requesting a huge buffer.
+    if expected_output_size > input_bit_count.saturating_mul(29) {
+        return Err(Error::invalid(NOT_ENOUGH_DATA));
+    }
+
+    let mut output = vec![0_u16; expected_output_size];
+    let mut length = 0;
     let mut reader = BitReader::new(input);
 
-    while reader.position() < input_bit_count {
+    // As in OpenEXR's FastHufDecoder, decode until the output is full and
+    // check the input was long enough once, at the end.
+    while length < expected_output_size {
         if reader.count < 32 {
             reader.refill();
         }
@@ -250,23 +262,13 @@ fn decode_with_tables(
         let entry = decoding_table.entries[reader.peek(DECODE_BITS) as usize];
 
         let symbol = if entry & 63 != 0 {
-            let length = u64::from(entry & 63);
-            // Until the reader has loaded the last input bit, it holds at
-            // least 32 valid bits, more than any short code: only near the
-            // end can a code run past it.
-            if reader.next_byte * 8 >= input_bit_count
-                && reader.position() + length as usize > input_bit_count
-            {
-                return Err(Error::invalid(INVALID_CODE));
-            }
-            reader.consume(length);
+            reader.consume(u64::from(entry & 63));
             entry >> 6
         } else {
             let long = &decoding_table.long;
             let position = reader.position();
-            // After a refill the register holds at least 57 bits, unless the
-            // input ends sooner; only then, or for codes of 58 bits, read the
-            // slower window, which supplies zeros past the end.
+            // After a refill the register holds at least 57 bits; only codes
+            // of 58 bits can need the slower window.
             let bits = if reader.count >= long.max_length {
                 reader.bits
             } else {
@@ -274,9 +276,6 @@ fn decode_with_tables(
             };
             let (symbol, code_length) =
                 long.decode(bits).ok_or_else(|| Error::invalid(INVALID_CODE))?;
-            if position + code_length as usize > input_bit_count {
-                return Err(Error::invalid(INVALID_CODE));
-            }
             if code_length <= reader.count {
                 reader.consume(code_length);
             } else {
@@ -286,31 +285,29 @@ fn decode_with_tables(
         };
 
         if symbol == run_length_code {
-            if reader.position() + 8 > input_bit_count {
-                return Err(Error::invalid(NOT_ENOUGH_DATA));
-            }
             if reader.count < 8 {
                 reader.refill();
             }
             let repetitions = reader.peek(8) as usize;
             reader.consume(8);
 
-            if output.len() + repetitions > expected_output_size {
+            if length + repetitions > expected_output_size {
                 return Err(Error::invalid(TOO_MUCH_DATA));
             }
-            let Some(&repeated) = output.last() else {
+            if length == 0 {
                 return Err(Error::invalid(NOT_ENOUGH_DATA));
-            };
-            output.extend(std::iter::repeat(repeated).take(repetitions));
-        } else if output.len() < expected_output_size {
-            // code may be too large for u16
-            output.push(u16::try_from(symbol)?);
+            }
+            let repeated = output[length - 1];
+            output[length..length + repetitions].fill(repeated);
+            length += repetitions;
         } else {
-            return Err(Error::invalid(TOO_MUCH_DATA));
+            // code may be too large for u16
+            output[length] = u16::try_from(symbol)?;
+            length += 1;
         }
     }
 
-    if output.len() != expected_output_size {
+    if reader.position() > input_bit_count {
         return Err(Error::invalid(NOT_ENOUGH_DATA));
     }
 
