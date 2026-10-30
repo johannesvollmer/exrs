@@ -13,7 +13,7 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::{
-    error::{u32_to_usize, u64_to_usize, Error, Result, UnitResult},
+    error::{u64_to_usize, Error, Result, UnitResult},
     io::Data,
     math::RoundingMode,
 };
@@ -48,7 +48,7 @@ pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
         &encoding_table,
         &decoding_table,
         remaining_compressed,
-        i32::try_from(bit_count)?,
+        bit_count,
         max_code_index_32,
         expected_size,
     )?;
@@ -94,7 +94,6 @@ const DECODE_BITS: u64 = 14; // decoding bit size (>= 8)
 
 const ENCODING_TABLE_SIZE: usize = ((1 << ENCODE_BITS) + 1) as usize;
 const DECODING_TABLE_SIZE: usize = (1 << DECODE_BITS) as usize;
-const DECODE_MASK: u64 = DECODING_TABLE_SIZE as u64 - 1;
 
 const SHORT_ZEROCODE_RUN: u64 = 59;
 const LONG_ZEROCODE_RUN: u64 = 63;
@@ -112,12 +111,97 @@ struct DecodingTable {
     long: Vec<SmallVec<[u32; 2]>>,
 }
 
-/// Decode (uncompress) n bits based on encoding & decoding tables:
+/// Reads input bits most significant first from a 64-bit register,
+/// refilled several bytes at a time.
+struct BitReader<'i> {
+    input: &'i [u8],
+    /// The next unread bits, most significant first; zero below `count`.
+    bits: u64,
+    /// The number of valid bits in `bits`.
+    count: u64,
+    /// The next input byte not yet in `bits`.
+    next_byte: usize,
+}
+
+impl<'i> BitReader<'i> {
+    fn new(input: &'i [u8]) -> Self {
+        let mut reader = Self {
+            input,
+            bits: 0,
+            count: 0,
+            next_byte: 0,
+        };
+        reader.refill();
+        reader
+    }
+
+    /// Bits consumed so far.
+    #[inline(always)]
+    fn position(&self) -> usize {
+        self.next_byte * 8 - self.count as usize
+    }
+
+    /// Fill `bits` to at least 57 valid bits, or with all remaining input.
+    #[inline(always)]
+    fn refill(&mut self) {
+        if let Some(bytes) = self.input.get(self.next_byte..self.next_byte + 8) {
+            // Whole bytes only, so the bits below `count` stay zero.
+            let take = (63 - self.count) / 8;
+            let word = u64::from_be_bytes(<[u8; 8]>::try_from(bytes).unwrap());
+            self.bits |= (word >> self.count) & !(u64::MAX >> (self.count + take * 8));
+            self.next_byte += take as usize;
+            self.count += take * 8;
+        } else {
+            while self.count <= 56 && self.next_byte < self.input.len() {
+                self.bits |= u64::from(self.input[self.next_byte]) << (56 - self.count);
+                self.next_byte += 1;
+                self.count += 8;
+            }
+        }
+    }
+
+    /// The next `count` (1 to 57, after a refill) bits, zero past the end.
+    #[inline(always)]
+    fn peek(&self, count: u64) -> u64 {
+        self.bits >> (64 - count)
+    }
+
+    #[inline(always)]
+    fn consume(&mut self, count: u64) {
+        debug_assert!(count <= self.count);
+        self.bits <<= count;
+        self.count -= count;
+    }
+
+    /// Continue reading from bit `position`.
+    fn seek(&mut self, position: usize) {
+        self.next_byte = position / 8;
+        self.bits = 0;
+        self.count = 0;
+        self.refill();
+        self.consume((position % 8) as u64);
+    }
+}
+
+/// The `count` (at most 58) input bits starting at bit `position`, zero
+/// past the end of the input.
+fn peek_bits(input: &[u8], position: usize, count: u64) -> u64 {
+    debug_assert!((1..=58).contains(&count));
+    let byte = position / 8;
+    let mut bytes = [0_u8; 16];
+    let tail = input.get(byte..).unwrap_or(&[]);
+    let available = tail.len().min(16);
+    bytes[..available].copy_from_slice(&tail[..available]);
+    let bits = u128::from_be_bytes(bytes) << (position % 8);
+    (bits >> (128 - count)) as u64
+}
+
+/// Decode `input_bit_count` bits of input based on encoding & decoding tables.
 fn decode_with_tables(
     encoding_table: &[u64],
     decoding_table: &DecodingTable,
-    mut input: &[u8],
-    input_bit_count: i32,
+    input: &[u8],
+    input_bit_count: usize,
     run_length_code: u32,
     expected_output_size: usize,
 ) -> Result<Vec<u16>> {
@@ -125,105 +209,68 @@ fn decode_with_tables(
     // up front; the vector grows as values are actually decoded, and the
     // length is checked below.
     let mut output = Vec::with_capacity(expected_output_size.min(1024 * 1024 * 4));
-    let mut code_bits = 0_u64;
-    let mut code_bit_count = 0_u64;
+    let mut reader = BitReader::new(input);
 
-    while !input.is_empty() {
-        read_byte(&mut code_bits, &mut code_bit_count, &mut input)?;
+    while reader.position() < input_bit_count {
+        if reader.count < 32 {
+            reader.refill();
+        }
 
-        // Access decoding table
-        while code_bit_count >= DECODE_BITS {
-            let code_index = (code_bits >> (code_bit_count - DECODE_BITS)) & DECODE_MASK;
-            let entry = decoding_table.entries[code_index as usize];
+        let entry = decoding_table.entries[reader.peek(DECODE_BITS) as usize];
 
-            // Get short code
-            if entry & 63 != 0 {
-                code_bit_count -= u64::from(entry & 63);
-
-                read_code_into_vec(
-                    entry >> 6,
-                    run_length_code,
-                    &mut code_bits,
-                    &mut code_bit_count,
-                    &mut input,
-                    &mut output,
-                    expected_output_size,
-                )?;
-            } else if entry != 0 {
-                let long_codes = &decoding_table.long[(entry >> 6) as usize - 1];
-                debug_assert_ne!(long_codes.len(), 0);
-
-                let long_code = long_codes
-                    .iter()
-                    .filter_map(|&long_code| {
-                        let encoded_long_code =
-                            encoding_table[u32_to_usize(long_code, "huffman long code").ok()?];
-                        let length = length(encoded_long_code);
-
-                        while code_bit_count < length && !input.is_empty() {
-                            let err = read_byte(&mut code_bits, &mut code_bit_count, &mut input);
-                            if let Err(err) = err {
-                                return Some(Err(err));
-                            }
-                        }
-
-                        if code_bit_count >= length {
-                            let required_code =
-                                (code_bits >> (code_bit_count - length)) & ((1 << length) - 1);
-
-                            if self::code(encoded_long_code) == required_code {
-                                code_bit_count -= length;
-                                return Some(Ok(long_code));
-                            }
-                        }
-
-                        None
-                    })
-                    .next()
-                    .ok_or_else(|| Error::invalid(INVALID_CODE))?;
-
-                read_code_into_vec(
-                    long_code?,
-                    run_length_code,
-                    &mut code_bits,
-                    &mut code_bit_count,
-                    &mut input,
-                    &mut output,
-                    expected_output_size,
-                )?;
-            } else {
+        let symbol = if entry & 63 != 0 {
+            let length = u64::from(entry & 63);
+            // Until the reader has loaded the last input bit, it holds at
+            // least 32 valid bits, more than any short code: only near the
+            // end can a code run past it.
+            if reader.next_byte * 8 >= input_bit_count
+                && reader.position() + length as usize > input_bit_count
+            {
                 return Err(Error::invalid(INVALID_CODE));
             }
-        }
-    }
-
-    let count = u64::try_from((8 - input_bit_count) & 7)?;
-    code_bits >>= count;
-
-    code_bit_count = code_bit_count.checked_sub(count).ok_or_else(|| Error::invalid("code"))?;
-
-    while code_bit_count > 0 {
-        let index = (code_bits << (DECODE_BITS - code_bit_count)) & DECODE_MASK;
-        let entry = decoding_table.entries[index as usize];
-
-        if entry & 63 != 0 {
-            let length = u64::from(entry & 63);
-            if length > code_bit_count {
-                return Err(Error::invalid("code"));
-            } // FIXME why does this happen??
-            code_bit_count -= length;
-
-            read_code_into_vec(
-                entry >> 6,
-                run_length_code,
-                &mut code_bits,
-                &mut code_bit_count,
-                &mut input,
-                &mut output,
-                expected_output_size,
-            )?;
+            reader.consume(length);
+            entry >> 6
+        } else if entry != 0 {
+            let position = reader.position();
+            let candidates = &decoding_table.long[(entry >> 6) as usize - 1];
+            let (symbol, length) = candidates
+                .iter()
+                .find_map(|&symbol| {
+                    let encoded = encoding_table[symbol as usize];
+                    let length = length(encoded);
+                    let fits = position + length as usize <= input_bit_count;
+                    (fits && peek_bits(input, position, length) == code(encoded))
+                        .then_some((symbol, length))
+                })
+                .ok_or_else(|| Error::invalid(INVALID_CODE))?;
+            reader.seek(position + length as usize);
+            symbol
         } else {
             return Err(Error::invalid(INVALID_CODE));
+        };
+
+        if symbol == run_length_code {
+            if reader.position() + 8 > input_bit_count {
+                return Err(Error::invalid(NOT_ENOUGH_DATA));
+            }
+            if reader.count < 8 {
+                reader.refill();
+            }
+            let repetitions = reader.peek(8) as usize;
+            reader.consume(8);
+
+            if output.len() + repetitions > expected_output_size {
+                return Err(Error::invalid(TOO_MUCH_DATA));
+            }
+            let Some(&repeated) = output.last() else {
+                return Err(Error::invalid(NOT_ENOUGH_DATA));
+            };
+            output.extend(std::iter::repeat(repeated).take(repetitions));
+        } else if output.len() < expected_output_size {
+            // code may be too large for u16
+            output.push(u16::try_from(symbol)?);
+        } else {
+            return Err(Error::invalid(TOO_MUCH_DATA));
         }
     }
 
@@ -353,44 +400,6 @@ fn read_bits(
 fn read_byte(code_bits: &mut u64, bit_count: &mut u64, input: &mut impl Read) -> UnitResult {
     *code_bits = (*code_bits << 8) | u64::from(u8::read_ne(input)?);
     *bit_count += 8;
-    Ok(())
-}
-
-#[inline]
-fn read_code_into_vec(
-    code: u32,
-    run_length_code: u32,
-    code_bits: &mut u64,
-    code_bit_count: &mut u64,
-    read: &mut impl Read,
-    out: &mut Vec<u16>,
-    max_len: usize,
-) -> UnitResult {
-    if code == run_length_code {
-        // code may be too large for u16
-        if *code_bit_count < 8 {
-            read_byte(code_bits, code_bit_count, read)?;
-        }
-
-        *code_bit_count -= 8;
-
-        let code_repetitions = usize::from((*code_bits >> *code_bit_count) as u8);
-
-        if out.len() + code_repetitions > max_len {
-            return Err(Error::invalid(TOO_MUCH_DATA));
-        } else if out.is_empty() {
-            return Err(Error::invalid(NOT_ENOUGH_DATA));
-        }
-
-        let repeated_code = *out.last().unwrap();
-        out.extend(std::iter::repeat(repeated_code).take(code_repetitions));
-    } else if out.len() < max_len {
-        // implies that code is not larger than u16???
-        out.push(u16::try_from(code)?);
-    } else {
-        return Err(Error::invalid(TOO_MUCH_DATA));
-    }
-
     Ok(())
 }
 
