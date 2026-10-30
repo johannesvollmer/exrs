@@ -36,13 +36,13 @@ pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
         return Err(Error::invalid(NOT_ENOUGH_DATA));
     }
 
-    let encoding_table =
+    let (encoding_table, symbols) =
         read_encoding_table(&mut remaining_compressed, min_code_index, max_code_index)?;
     if bit_count > 8 * remaining_compressed.len() {
         return Err(Error::invalid(INVALID_BIT_COUNT));
     }
 
-    let decoding_table = build_decoding_table(&encoding_table, min_code_index, max_code_index)?;
+    let decoding_table = build_decoding_table(&encoding_table, &symbols)?;
 
     let result = decode_with_tables(
         &encoding_table,
@@ -238,18 +238,12 @@ fn decode_with_tables(
 ///    - short codes (<= `DECODE_BITS`) are resolved with a single table access;
 ///    - long codes are found by comparing the few candidates sharing a prefix,
 ///      because long codes are infrequent.
-fn build_decoding_table(
-    encoding_table: &[u64],
-    min_code_index: usize,
-    max_code_index: usize,
-) -> Result<DecodingTable> {
+fn build_decoding_table(encoding_table: &[u64], symbols: &[u32]) -> Result<DecodingTable> {
     let mut entries = Box::new([0_u32; DECODING_TABLE_SIZE]);
     let mut long: Vec<SmallVec<[u32; 2]>> = Vec::new();
 
-    for (code_index, &encoded_code) in
-        encoding_table[..=max_code_index].iter().enumerate().skip(min_code_index)
-    {
-        let code_index = u32::try_from(code_index).unwrap();
+    for &symbol in symbols {
+        let encoded_code = encoding_table[symbol as usize];
 
         let code = code(encoded_code);
         let length = length(encoded_code);
@@ -264,16 +258,16 @@ fn build_decoding_table(
 
             match (*entry & 63, *entry >> 6) {
                 (0, 0) => {
-                    long.push(smallvec![code_index]);
+                    long.push(smallvec![symbol]);
                     *entry = u32::try_from(long.len())? << 6;
                 }
-                (0, list) => long[list as usize - 1].push(code_index),
+                (0, list) => long[list as usize - 1].push(symbol),
                 _ => return Err(Error::invalid(INVALID_TABLE_ENTRY)),
             }
         } else if length != 0 {
             let start_index = u64_to_usize(code << (DECODE_BITS - length), "huffman start index")?;
             let count = u64_to_usize(1 << (DECODE_BITS - length), "huffman count")?;
-            entries[start_index..start_index + count].fill(code_index << 6 | length as u32);
+            entries[start_index..start_index + count].fill(symbol << 6 | length as u32);
         }
     }
 
@@ -289,9 +283,12 @@ fn read_encoding_table(
     packed: &mut impl Read,
     min_code_index: usize,
     max_code_index: usize,
-) -> Result<Vec<u64>> {
+) -> Result<(Vec<u64>, Vec<u32>)> {
     let mut code_bits = 0_u64;
     let mut code_bit_count = 0_u64;
+    // The symbols that have a code, ascending: usually far fewer than the
+    // table's 65,537 entries, so later passes visit only these.
+    let mut symbols = Vec::new();
 
     // TODO push() into encoding table instead of index stuff?
     let mut encoding_table = vec![0_u64; ENCODING_TABLE_SIZE];
@@ -325,12 +322,15 @@ fn read_encoding_table(
 
             code_index += duplication_count;
         } else {
+            if code_len != 0 {
+                symbols.push(u32::try_from(code_index)?);
+            }
             code_index += 1;
         }
     }
 
-    build_canonical_table(&mut encoding_table)?;
-    Ok(encoding_table)
+    build_canonical_table(&mut encoding_table, symbols.iter().map(|&symbol| symbol as usize))?;
+    Ok((encoding_table, symbols))
 }
 
 // TODO Use BitStreamReader for all the bit reads?!
@@ -609,13 +609,18 @@ fn pack_encoding_table(
 ///      alone, the code table can be transmitted without sending the actual
 ///      code values
 ///    - see <http://www.compressconsult.com/huffman>/
-fn build_canonical_table(code_table: &mut [u64]) -> UnitResult {
+/// `symbols` lists, ascending, at least every symbol whose code length is
+/// non-zero; zero-length entries need not be visited.
+fn build_canonical_table(
+    code_table: &mut [u64],
+    symbols: impl Iterator<Item = usize> + Clone,
+) -> UnitResult {
     debug_assert_eq!(code_table.len(), ENCODING_TABLE_SIZE);
 
     let mut count_per_code = [0_u64; 59];
 
-    for &code in code_table.iter() {
-        count_per_code[u64_to_usize(code, "table entry")?] += 1;
+    for symbol in symbols.clone() {
+        count_per_code[u64_to_usize(code_table[symbol], "table entry")?] += 1;
     }
 
     // For each i from 58 through 1, compute the
@@ -634,7 +639,8 @@ fn build_canonical_table(code_table: &mut [u64]) -> UnitResult {
     // code for symbol i.  Assign the next available
     // code of length l to the symbol and store both
     // l and the code in code[i]. // TODO iter + filter ?
-    for symbol_length in code_table.iter_mut() {
+    for symbol in symbols {
+        let symbol_length = &mut code_table[symbol];
         let current_length = *symbol_length;
         let code_index = u64_to_usize(current_length, "huffman code index")?;
         if current_length > 0 {
@@ -828,7 +834,7 @@ fn build_encoding_table(
     // Build a canonical Huffman code table, replacing the code
     // lengths in scode with (code, code length) pairs.  Copy the
     // code table from scode into frq.
-    build_canonical_table(&mut s_code)?;
+    build_canonical_table(&mut s_code, 0..ENCODING_TABLE_SIZE)?;
     frequencies.copy_from_slice(&s_code);
 
     Ok((min_frequency_index, max_frequency_index))
