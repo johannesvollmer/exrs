@@ -101,30 +101,21 @@ const LONG_ZEROCODE_RUN: u64 = 63;
 const SHORTEST_LONG_RUN: u64 = 2 + LONG_ZEROCODE_RUN - SHORT_ZEROCODE_RUN;
 const LONGEST_LONG_RUN: u64 = 255 + SHORTEST_LONG_RUN;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum Code {
-    Empty,
-    Short(ShortCode),
-    Long(SmallVec<[u32; 2]>), // often 2, sometimes 4, rarely 8
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct ShortCode {
-    value: u32,
-    len: u8,
-}
-
-impl ShortCode {
-    #[inline]
-    fn len(&self) -> u64 {
-        u64::from(self.len)
-    }
+/// The decoding table, indexed by the next `DECODE_BITS` bits of input.
+struct DecodingTable {
+    /// `symbol << 6 | length` for a code of at most `DECODE_BITS` bits. For a
+    /// prefix of longer codes, length 0 and `index + 1` into `long` in place
+    /// of the symbol. Zero where no code has this prefix.
+    entries: Box<[u32; DECODING_TABLE_SIZE]>,
+    /// Candidate symbols of the codes longer than `DECODE_BITS` bits that
+    /// share a prefix: often 2, sometimes 4, rarely 8.
+    long: Vec<SmallVec<[u32; 2]>>,
 }
 
 /// Decode (uncompress) n bits based on encoding & decoding tables:
 fn decode_with_tables(
     encoding_table: &[u64],
-    decoding_table: &[Code],
+    decoding_table: &DecodingTable,
     mut input: &[u8],
     input_bit_count: i32,
     run_length_code: u32,
@@ -143,14 +134,14 @@ fn decode_with_tables(
         // Access decoding table
         while code_bit_count >= DECODE_BITS {
             let code_index = (code_bits >> (code_bit_count - DECODE_BITS)) & DECODE_MASK;
-            let code = &decoding_table[u64_to_usize(code_index, "huffman code index")?];
+            let entry = decoding_table.entries[code_index as usize];
 
             // Get short code
-            if let Code::Short(code) = code {
-                code_bit_count -= code.len();
+            if entry & 63 != 0 {
+                code_bit_count -= u64::from(entry & 63);
 
                 read_code_into_vec(
-                    code.value,
+                    entry >> 6,
                     run_length_code,
                     &mut code_bits,
                     &mut code_bit_count,
@@ -158,7 +149,8 @@ fn decode_with_tables(
                     &mut output,
                     expected_output_size,
                 )?;
-            } else if let Code::Long(ref long_codes) = code {
+            } else if entry != 0 {
+                let long_codes = &decoding_table.long[(entry >> 6) as usize - 1];
                 debug_assert_ne!(long_codes.len(), 0);
 
                 let long_code = long_codes
@@ -212,17 +204,17 @@ fn decode_with_tables(
 
     while code_bit_count > 0 {
         let index = (code_bits << (DECODE_BITS - code_bit_count)) & DECODE_MASK;
-        let code = &decoding_table[u64_to_usize(index, "huffman code index")?];
+        let entry = decoding_table.entries[index as usize];
 
-        if let Code::Short(short_code) = code {
-            if short_code.len() > code_bit_count {
+        if entry & 63 != 0 {
+            let length = u64::from(entry & 63);
+            if length > code_bit_count {
                 return Err(Error::invalid("code"));
             } // FIXME why does this happen??
-            code_bit_count -= short_code.len(); // FIXME may throw "attempted to
-                                                // subtract with overflow"
+            code_bit_count -= length;
 
             read_code_into_vec(
-                short_code.value,
+                entry >> 6,
                 run_length_code,
                 &mut code_bits,
                 &mut code_bit_count,
@@ -242,17 +234,17 @@ fn decode_with_tables(
     Ok(output)
 }
 
-/// Build a decoding hash table based on the encoding table code:
-///    - short codes (<= `HUF_DECBITS`) are resolved with a single table access;
-///    - long code entry allocations are not optimized, because long codes are
-///      unfrequent;
-///    - decoding tables are used by `hufDecode()`;
+/// Build a decoding table based on the encoding table code:
+///    - short codes (<= `DECODE_BITS`) are resolved with a single table access;
+///    - long codes are found by comparing the few candidates sharing a prefix,
+///      because long codes are infrequent.
 fn build_decoding_table(
     encoding_table: &[u64],
     min_code_index: usize,
     max_code_index: usize,
-) -> Result<Vec<Code>> {
-    let mut decoding_table = vec![Code::Empty; DECODING_TABLE_SIZE]; // not an array because of code not being copy
+) -> Result<DecodingTable> {
+    let mut entries = Box::new([0_u32; DECODING_TABLE_SIZE]);
+    let mut long: Vec<SmallVec<[u32; 2]>> = Vec::new();
 
     for (code_index, &encoded_code) in
         encoding_table[..=max_code_index].iter().enumerate().skip(min_code_index)
@@ -267,32 +259,28 @@ fn build_decoding_table(
         }
 
         if length > DECODE_BITS {
-            let long_code = &mut decoding_table
-                [u64_to_usize(code >> (length - DECODE_BITS), "long code index")?];
+            let entry =
+                &mut entries[u64_to_usize(code >> (length - DECODE_BITS), "long code index")?];
 
-            match long_code {
-                Code::Empty => *long_code = Code::Long(smallvec![code_index]),
-                Code::Long(lits) => lits.push(code_index),
-                _ => {
-                    return Err(Error::invalid(INVALID_TABLE_ENTRY));
+            match (*entry & 63, *entry >> 6) {
+                (0, 0) => {
+                    long.push(smallvec![code_index]);
+                    *entry = u32::try_from(long.len())? << 6;
                 }
+                (0, list) => long[list as usize - 1].push(code_index),
+                _ => return Err(Error::invalid(INVALID_TABLE_ENTRY)),
             }
         } else if length != 0 {
-            let default_value = Code::Short(ShortCode {
-                value: code_index,
-                len: length as u8,
-            });
-
             let start_index = u64_to_usize(code << (DECODE_BITS - length), "huffman start index")?;
             let count = u64_to_usize(1 << (DECODE_BITS - length), "huffman count")?;
-
-            for value in &mut decoding_table[start_index..start_index + count] {
-                *value = default_value.clone();
-            }
+            entries[start_index..start_index + count].fill(code_index << 6 | length as u32);
         }
     }
 
-    Ok(decoding_table)
+    Ok(DecodingTable {
+        entries,
+        long,
+    })
 }
 
 /// Run-length-decompresses all zero runs from the packed table to the encoding
