@@ -807,6 +807,59 @@ mod test {
     }
 
     #[test]
+    fn roundtrip_noise_f16_single_row_larger_than_input() {
+        let channel = ChannelDescription {
+            sample_type: SampleType::F16,
+            name: Default::default(),
+            quantize_linearly: false,
+            sampling: Vec2(1, 1),
+        };
+
+        // RGB. A block one row high packs to 14 bytes per 4 samples, but only 8 bytes
+        // of the input are real samples, as the other rows are padded. Once the
+        // packed size passes the minimum output buffer of 2048 bytes (at 3 * 196
+        // samples), it also passes the size of the input.
+        let channels = ChannelList::new(smallvec![channel.clone(), channel.clone(), channel]);
+
+        for width in [192, 196, 400] {
+            let rectangle = IntegerBounds {
+                position: Vec2(0, 0),
+                size: Vec2(width, 1),
+            };
+
+            let (pixel_bytes, _compressed, decompressed) =
+                test_roundtrip_noise_with(channels.clone(), rectangle);
+
+            assert_eq!(pixel_bytes.len(), width * 3 * 2);
+            assert_eq!(decompressed.len(), pixel_bytes.len());
+        }
+    }
+
+    #[test]
+    fn roundtrip_noise_f16_single_column_larger_than_input() {
+        let channel = ChannelDescription {
+            sample_type: SampleType::F16,
+            name: Default::default(),
+            quantize_linearly: false,
+            sampling: Vec2(1, 1),
+        };
+
+        // The same as with a single row, but with a single column.
+        let channels = ChannelList::new(smallvec![channel]);
+
+        let rectangle = IntegerBounds {
+            position: Vec2(0, 0),
+            size: Vec2(1, 1200),
+        };
+
+        let (pixel_bytes, _compressed, decompressed) =
+            test_roundtrip_noise_with(channels, rectangle);
+
+        assert_eq!(pixel_bytes.len(), 1200 * 2);
+        assert_eq!(decompressed.len(), pixel_bytes.len());
+    }
+
+    #[test]
     fn roundtrip_noise_f32() {
         let channel = ChannelDescription {
             sample_type: SampleType::F32,
