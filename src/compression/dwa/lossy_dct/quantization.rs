@@ -1,7 +1,8 @@
 // Coefficient (de)quantization for the lossy DCT: the JPEG-derived tolerance
 // tables, the quantize-and-scatter-to-zig-zag encode step, the inverse zig-zag
 // gather, and the AC run-length (de)coding. The zig-zag scatter (`INV_REMAP`)
-// and gather (`SRC_INDICES`) permutations are exact inverses of each other.
+// and gather (`ZIG_ZAG_TO_RASTER`) permutations are exact inverses of each
+// other.
 
 use half::{
     f16,
@@ -114,7 +115,11 @@ pub(super) fn rle_ac(block: &[u16; 64], ac: &mut Vec<u16>) {
 /// Un-RLE one 8x8 block of AC values into block[1..]
 /// (`LossyDctDecoder_unRleAc`): a value with high byte 0xff encodes a run
 /// of `low byte` zeros (0 meaning "rest of the block"); anything else is a
-/// literal. Returns the index of the last non-zero value, 0 if none
+/// literal. Returns the zig-zag index of the last non-zero value, 0 if none.
+///
+/// The encoder stores coefficients in zig-zag order and the inverse DCT needs
+/// raster order, so literals go straight to their raster position. Blocks are
+/// mostly zeros, which makes this cheaper than permuting all 64 values after.
 pub(super) fn un_rle_ac(ac: &mut PackedStream<'_>, block: &mut [u16; 64]) -> Result<usize> {
     // DWA AC values use the same compact token format the encoder writes:
     // 0xffxx means a zero run, and 0xff00 means end-of-block.
@@ -134,7 +139,7 @@ pub(super) fn un_rle_ac(ac: &mut PackedStream<'_>, block: &mut [u16; 64]) -> Res
             };
         } else {
             last_non_zero = position;
-            block[position] = value;
+            block[ZIG_ZAG_TO_RASTER[position] as usize] = value;
             position += 1;
         }
     }
@@ -142,27 +147,25 @@ pub(super) fn un_rle_ac(ac: &mut PackedStream<'_>, block: &mut [u16; 64]) -> Res
     Ok(last_non_zero)
 }
 
-/// Undo the zig-zag coefficient order (C "fromHalfZigZag_scalar"),
-/// converting half bits to f32.
-pub(super) fn from_half_zigzag(zig_zag: &[u16; 64], dst: &mut [f32; 64]) {
-    // The encoder stores coefficients in zig-zag order; the inverse DCT needs
-    // normal 8x8 raster order.
-    const SRC_INDICES: [usize; 64] = [
-        0, 1, 5, 6, 14, 15, 27, 28, 2, 4, 7, 13, 16, 26, 29, 42, 3, 8, 12, 17, 25, 30, 41, 43, 9,
-        11, 18, 24, 31, 40, 44, 53, 10, 19, 23, 32, 39, 45, 52, 54, 20, 22, 33, 38, 46, 51, 55, 60,
-        21, 34, 37, 47, 50, 56, 59, 61, 35, 36, 48, 49, 57, 58, 62, 63,
-    ];
-
-    let raster = SRC_INDICES.map(|src_index| zig_zag[src_index]);
+/// Convert a raster-order block of half bits to f32.
+pub(super) fn half_block_to_f32(block: &[u16; 64], dst: &mut [f32; 64]) {
     // Convert in bulk, which uses F16C where the CPU has it; converting
     // sample by sample is several times slower.
-    raster.reinterpret_cast::<f16>().convert_to_f32_slice(dst);
+    block.reinterpret_cast::<f16>().convert_to_f32_slice(dst);
 }
 
-// Note: `quantize_coefficients_to_zigzag`/`from_half_zigzag` are intentionally
+/// Where each zig-zag position goes in an 8x8 raster block
+/// (C "fromHalfZigZag_scalar").
+const ZIG_ZAG_TO_RASTER: [u8; 64] = [
+    0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20,
+    13, 6, 7, 14, 21, 28, 35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59,
+    52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
+];
+
+// Note: `quantize_coefficients_to_zigzag`/`un_rle_ac`'s reordering are intentionally
 // not roundtrip-tested for value equality. The zig-zag scatter/gather
 // permutations are exact inverses, but `quantize_coefficients_to_zigzag` also
-// lossily quantizes the coefficients, so `from_half_zigzag(quantize(x)) != x`
+// lossily quantizes the coefficients, so `un_rle_ac(quantize(x)) != x`
 // by design. The lossless half of quantization is the AC run-length coding
 // below, which is what these tests cover.
 #[cfg(test)]
@@ -187,7 +190,9 @@ mod test {
         let mut decoded = [0u16; 64];
         un_rle_ac(&mut stream, &mut decoded).unwrap();
 
-        assert_eq!(decoded, block);
+        // un_rle_ac places values in raster order
+        let zig_zag = ZIG_ZAG_TO_RASTER.map(|raster| decoded[raster as usize]);
+        assert_eq!(zig_zag, block);
     }
 
     #[test]

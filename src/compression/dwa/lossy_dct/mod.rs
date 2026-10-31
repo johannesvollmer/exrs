@@ -16,7 +16,7 @@ mod quantization;
 mod transfer_curve;
 
 use quantization::{
-    from_half_zigzag, quantize_coefficients_to_zigzag, rle_ac, un_rle_ac, QuantTables,
+    half_block_to_f32, quantize_coefficients_to_zigzag, rle_ac, un_rle_ac, QuantTables,
 };
 use transfer_curve::{to_linear_table, to_nonlinear_table};
 
@@ -360,24 +360,24 @@ fn decode_lossy_dct_group(
             let block_index = block_y * blocks_x + block_x;
 
             for component in 0..components {
-                let mut zig_block = [0u16; 64];
+                let mut half_block = [0u16; 64];
 
                 // the DC stream is planar: all of component 0's blocks,
                 // then all of component 1's, ...
-                zig_block[0] = dc
+                half_block[0] = dc
                     .peek_at(component * block_count + block_index)
                     .ok_or_else(|| Error::invalid("truncated DWA DC data"))?;
 
-                let last_non_zero = un_rle_ac(ac, &mut zig_block)?;
+                let last_non_zero = un_rle_ac(ac, &mut half_block)?;
 
                 let dct_block = &mut dct_blocks[block_index][component];
                 if last_non_zero == 0 {
                     // DC-only block: all AC coefficients are zero, so the
                     // inverse DCT can fill the whole block from one value.
-                    dct_block[0] = f16::from_bits(zig_block[0]).to_f32();
+                    dct_block[0] = f16::from_bits(half_block[0]).to_f32();
                     discrete_cosine_transform::dct_inverse_8x8_dc_only(dct_block);
                 } else {
-                    from_half_zigzag(&zig_block, dct_block);
+                    half_block_to_f32(&half_block, dct_block);
                     needs_inverse_dct[block_index][component] = true;
                 }
             }
