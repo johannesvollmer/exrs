@@ -582,8 +582,27 @@ pub fn compress(
     }
 
     // Generate a whole buffer that we will crop to proper size once compression
-    // is done.
-    let mut b44_compressed = vec![0; std::cmp::max(2048, uncompressed_le.len())];
+    // is done. It must fit the worst case of packed blocks, which can be larger
+    // than the input: each 4x4 block takes up to 14 bytes, even when padding
+    // makes up most of it, for example in a block that is only one row high.
+    let max_compressed_byte_count: usize = channel_data
+        .iter()
+        .map(|channel| {
+            if channel.sample_type == SampleType::F16 {
+                let x_sample_count = channel.resolution.x() * channel.samples_per_pixel;
+                let y_sample_count = channel.resolution.y() * channel.samples_per_pixel;
+
+                x_sample_count.div_ceil(BLOCK_SAMPLE_COUNT)
+                    * y_sample_count.div_ceil(BLOCK_SAMPLE_COUNT)
+                    * 14
+            } else {
+                // U32 and F32 channels are raw copied.
+                channel.tmp_end_index - channel.tmp_start_index
+            }
+        })
+        .sum();
+
+    let mut b44_compressed = vec![0; max_compressed_byte_count];
     let mut b44_end = 0; // Buffer byte index for storing next compressed
                          // values.
 
@@ -804,6 +823,59 @@ mod test {
         assert_eq!(pixel_bytes.len(), 24);
         assert_eq!(compressed.len(), 28);
         assert_eq!(decompressed.len(), 24);
+    }
+
+    #[test]
+    fn roundtrip_noise_f16_single_row_larger_than_input() {
+        let channel = ChannelDescription {
+            sample_type: SampleType::F16,
+            name: Default::default(),
+            quantize_linearly: false,
+            sampling: Vec2(1, 1),
+        };
+
+        // RGB. A block one row high packs to 14 bytes per 4 samples, but only 8 bytes
+        // of the input are real samples, as the other rows are padded. Once the
+        // packed size passes the minimum output buffer of 2048 bytes (at 3 * 196
+        // samples), it also passes the size of the input.
+        let channels = ChannelList::new(smallvec![channel.clone(), channel.clone(), channel]);
+
+        for width in [192, 196, 400] {
+            let rectangle = IntegerBounds {
+                position: Vec2(0, 0),
+                size: Vec2(width, 1),
+            };
+
+            let (pixel_bytes, _compressed, decompressed) =
+                test_roundtrip_noise_with(channels.clone(), rectangle);
+
+            assert_eq!(pixel_bytes.len(), width * 3 * 2);
+            assert_eq!(decompressed.len(), pixel_bytes.len());
+        }
+    }
+
+    #[test]
+    fn roundtrip_noise_f16_single_column_larger_than_input() {
+        let channel = ChannelDescription {
+            sample_type: SampleType::F16,
+            name: Default::default(),
+            quantize_linearly: false,
+            sampling: Vec2(1, 1),
+        };
+
+        // The same as with a single row, but with a single column.
+        let channels = ChannelList::new(smallvec![channel]);
+
+        let rectangle = IntegerBounds {
+            position: Vec2(0, 0),
+            size: Vec2(1, 1200),
+        };
+
+        let (pixel_bytes, _compressed, decompressed) =
+            test_roundtrip_noise_with(channels, rectangle);
+
+        assert_eq!(pixel_bytes.len(), 1200 * 2);
+        assert_eq!(decompressed.len(), pixel_bytes.len());
     }
 
     #[test]
