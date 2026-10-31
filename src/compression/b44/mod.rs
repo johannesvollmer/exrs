@@ -582,8 +582,27 @@ pub fn compress(
     }
 
     // Generate a whole buffer that we will crop to proper size once compression
-    // is done.
-    let mut b44_compressed = vec![0; std::cmp::max(2048, uncompressed_le.len())];
+    // is done. It must fit the worst case of packed blocks, which can be larger
+    // than the input: each 4x4 block takes up to 14 bytes, even when padding
+    // makes up most of it, for example in a block that is only one row high.
+    let max_compressed_byte_count: usize = channel_data
+        .iter()
+        .map(|channel| {
+            if channel.sample_type == SampleType::F16 {
+                let x_sample_count = channel.resolution.x() * channel.samples_per_pixel;
+                let y_sample_count = channel.resolution.y() * channel.samples_per_pixel;
+
+                x_sample_count.div_ceil(BLOCK_SAMPLE_COUNT)
+                    * y_sample_count.div_ceil(BLOCK_SAMPLE_COUNT)
+                    * 14
+            } else {
+                // U32 and F32 channels are raw copied.
+                channel.tmp_end_index - channel.tmp_start_index
+            }
+        })
+        .sum();
+
+    let mut b44_compressed = vec![0; max_compressed_byte_count];
     let mut b44_end = 0; // Buffer byte index for storing next compressed
                          // values.
 
