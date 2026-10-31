@@ -1559,7 +1559,7 @@ impl EnvironmentMap {
 impl KeyCode {
     /// Number of bytes this would consume in an exr file.
     pub fn byte_size() -> usize {
-        6 * i32::BYTE_SIZE
+        7 * i32::BYTE_SIZE
     }
 
     /// Without validation, write this instance to the byte stream.
@@ -1569,6 +1569,7 @@ impl KeyCode {
         self.film_roll_prefix.write_le(write)?;
         self.count.write_le(write)?;
         self.perforation_offset.write_le(write)?;
+        self.perforations_per_frame.write_le(write)?;
         self.perforations_per_count.write_le(write)?;
         Ok(())
     }
