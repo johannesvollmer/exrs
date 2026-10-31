@@ -2,7 +2,8 @@
 // scanline buffer the rest of the crate uses, the per-channel byte runs, the
 // planar byte planes of the UNKNOWN/RLE sections, and back again.
 
-use half::f16;
+use half::{f16, slice::HalfFloatSliceExt};
+use lebe::io::WriteEndian;
 
 use super::{ChannelInfo, CompressorScheme};
 use crate::{
@@ -179,22 +180,18 @@ pub(super) fn write_scanlines(
             match info.scheme {
                 CompressorScheme::LossyDct => {
                     let row_samples = &lossy_samples[index][row * info.width..][..info.width];
-                    // Grow once per row and fill the new bytes, so these loops
-                    // vectorise; extending sample by sample does not.
-                    let start = out.len();
                     match info.sample_type {
                         SampleType::F16 => {
-                            out.resize(start + row_samples.len() * 2, 0);
-                            for (bytes, sample) in out[start..].chunks_exact_mut(2).zip(row_samples)
-                            {
-                                bytes.copy_from_slice(&sample.to_bits().to_le_bytes());
-                            }
+                            out.write_as_little_endian(row_samples.reinterpret_cast())?;
                         }
                         SampleType::F32 => {
-                            out.resize(start + row_samples.len() * 4, 0);
-                            for (bytes, sample) in out[start..].chunks_exact_mut(4).zip(row_samples)
-                            {
-                                bytes.copy_from_slice(&sample.to_f32().to_le_bytes());
+                            // Batch half conversions without allocating a
+                            // temporary buffer for the entire scanline.
+                            let mut floats = [0.0f32; 64];
+                            for samples in row_samples.chunks(floats.len()) {
+                                let floats = &mut floats[..samples.len()];
+                                samples.convert_to_f32_slice(floats);
+                                out.write_as_little_endian(&*floats)?;
                             }
                         }
                         // rejected before decoding
