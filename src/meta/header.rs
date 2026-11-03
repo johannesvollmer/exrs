@@ -1198,8 +1198,8 @@ impl Header {
                             image_attributes.chromaticities = Some(value);
                         }
 
-                        // insert unknown attributes of these types into image attributes,
-                        // as these must be the same for all headers
+                        // insert unknown attributes of these types into image
+                        // attributes, as these must be the same for all headers
                         (_, value @ (Chromaticities(_) | TimeCode(_))) => {
                             image_attributes.other.insert(attribute_name, value);
                         }
@@ -1211,8 +1211,8 @@ impl Header {
                     }
                 }
 
-                // in case the attribute value itself is not ok, but the rest of the image is
-                // only abort reading the image if desired
+                // in case the attribute value itself is not ok, but the rest of
+                // the image is only abort reading the image if desired
                 Err(error) => {
                     if pedantic {
                         return Err(error);
@@ -1262,7 +1262,8 @@ impl Header {
         let header = Self {
             compression,
 
-            // always compute ourselves, because we cannot trust anyone out there 😱
+            // always compute ourselves, because we cannot trust anyone out
+            // there 😱
             chunk_count: computed_chunk_count,
 
             layer_size: data_window.size,

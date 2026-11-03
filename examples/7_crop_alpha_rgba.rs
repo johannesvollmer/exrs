@@ -25,8 +25,8 @@ pub fn main() {
         read_first_rgba_layer_from_file(
             path,
             PixelVec::<DynamicRgbaPixel>::constructor,
-            // use this predefined rgba pixel container from the exr crate, requesting any type of
-            // pixels with 3 or 4 values
+            // use this predefined rgba pixel container from the exr crate,
+            // requesting any type of pixels with 3 or 4 values
             PixelVec::set_pixel,
         )
         .expect("this file exists in the exrs repository. download that?");

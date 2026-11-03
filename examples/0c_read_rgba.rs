@@ -15,9 +15,9 @@ fn main() {
             empty_image
         },
         // transfer the colors from the file to your image type,
-        // requesting all values to be converted to f32 numbers (you can also directly use f16
-        // instead) and you could also use `Sample` instead of `f32` to keep the original
-        // data type from the file
+        // requesting all values to be converted to f32 numbers (you can also
+        // directly use f16 instead) and you could also use `Sample` instead of
+        // `f32` to keep the original data type from the file
         |pixel_vector, position, (r, g, b, a): (f32, f32, f32, f32)| {
             pixel_vector[position.y()][position.x()] = [r, g, b, a]
         },

@@ -23,8 +23,9 @@ fn main() {
 
                 vec![vec![(f16::ZERO, 0.0, 0.0); resolution.width()]; resolution.height()]
             },
-            // all samples will be converted to f32 (you can also use the enum `Sample` instead of
-            // `f32` here to retain the original data type from the file)
+            // all samples will be converted to f32 (you can also use the enum
+            // `Sample` instead of `f32` here to retain the original data type
+            // from the file)
             |vec, position, (a, y, yr): (f16, f32, f32)| {
                 vec[position.y()][position.x()] = (a, y, yr)
             },

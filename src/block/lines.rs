@@ -15,7 +15,8 @@ use crate::{
 /// Use [LineRef] or [LineRefMut] for easier type names.
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub struct LineSlice<T> {
-    // TODO also store enum SampleType, as it would always be matched in every place it is used
+    // TODO also store enum SampleType, as it would always be matched in every
+    // place it is used
     /// Where this line is located inside the image.
     pub location: LineIndex,
 

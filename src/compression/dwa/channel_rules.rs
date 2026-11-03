@@ -191,7 +191,8 @@ fn parse_rule(data: &mut &[u8]) -> Result<Rule> {
     Ok(Rule {
         suffix: Cow::Owned(suffix),
         // The packed flags byte matches the C reference layout:
-        // high nibble = cscIdx + 1, bits 2-3 = scheme, bit 0 = case-insensitive.
+        // high nibble = cscIdx + 1, bits 2-3 = scheme, bit 0 =
+        // case-insensitive.
         csc_index: match ((flags >> 4) as i32) - 1 {
             -1 => None,
             index @ 0..=2 => Some(index as usize),

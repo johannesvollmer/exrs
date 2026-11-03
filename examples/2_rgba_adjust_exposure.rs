@@ -33,8 +33,8 @@ fn main() {
                     lines,
                 }
             },
-            // request pixels with red, green, blue, and optionally and alpha values.
-            // transfer each pixel from the file to our image
+            // request pixels with red, green, blue, and optionally and alpha
+            // values. transfer each pixel from the file to our image
             |image, position, (r, g, b, a): RgbaF32Pixel| {
                 // insert the values into our custom image
                 image.lines[position.y()][position.x()] = (r, g, b, a);
