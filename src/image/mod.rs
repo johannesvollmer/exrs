@@ -60,11 +60,11 @@ pub type FlatImage = Image<Layers<AnyChannels<FlatSamples>>>;
 
 /// This image type contains a single layer of deep data, with arbitrary
 /// channels. Each pixel contains any number of samples.
-pub type DeepImage = Image<Layer<deep::DeepChannels>>;
+pub type DeepImage = Image<Layer<deep::AnyDeepChannels>>;
 
 /// This image type contains multiple layers of deep data, with arbitrary
 /// channels. Each pixel contains any number of samples.
-pub type DeepLayersImage = Image<Layers<deep::DeepChannels>>;
+pub type DeepLayersImage = Image<Layers<deep::AnyDeepChannels>>;
 
 /// This image type contains multiple layers, with each layer containing a
 /// user-defined type of pixels.
@@ -1241,6 +1241,54 @@ pub mod validate_results {
                     location() + " > channel_data"
                 })?;
                 Ok(())
+            }
+        }
+    }
+
+    impl ValidateResult for Layer<deep::AnyDeepChannels> {
+        fn validate_result(
+            &self,
+            other: &Self,
+            options: ValidationOptions,
+            location: impl Fn() -> String,
+        ) -> ValidationResult {
+            let location = || format!("{} (layer `{:?}`)", location(), self.attributes.layer_name);
+
+            if self.attributes != other.attributes {
+                Err(location() + " > attributes")
+            } else if self.encoding != other.encoding {
+                Err(location() + " > encoding")
+            } else if self.size != other.size {
+                Err(location() + " > size")
+            } else {
+                let options = ValidationOptions {
+                    // all compression methods that support deep data are
+                    // lossless
+                    allow_lossy: options.allow_lossy,
+                    nan_converted_to_zero: false,
+                };
+
+                self.channel_data.validate_result(&other.channel_data, options, || {
+                    location() + " > channel_data"
+                })
+            }
+        }
+    }
+
+    impl ValidateResult for deep::AnyDeepChannels {
+        fn validate_result(
+            &self,
+            other: &Self,
+            options: ValidationOptions,
+            location: impl Fn() -> String,
+        ) -> ValidationResult {
+            if self.resolution() != other.resolution() {
+                Err(location() + " > resolution")
+            } else if self.sample_offsets() != other.sample_offsets() {
+                Err(location() + " > sample counts")
+            } else {
+                self.channels()
+                    .validate_result(&other.channels(), options, || location() + " > channels")
             }
         }
     }

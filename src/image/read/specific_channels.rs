@@ -4,7 +4,7 @@
 use std::marker::PhantomData;
 
 use crate::{
-    block::{chunk::TileCoordinates, samples::*, UncompressedBlock},
+    block::{chunk::TileCoordinates, samples::*, UncompressedFlatBlock},
     error::*,
     image::{
         read::layers::{ChannelsReader, ReadChannels},
@@ -183,8 +183,8 @@ ReadChannels<'s> for CollectPixels<InnerChannels, Pixel, PixelStorage, CreatePix
 
     fn create_channels_reader(&'s self, header: &Header) -> Result<Self::Reader> {
         if header.deep {
-            return Err(Error::unsupported(
-                "deep data cannot be read as specific channels (use `read().deep_data()` instead)"
+            return Err(Error::invalid(
+                "expected flat data but found deep data (use `read().deep_data()` instead)"
             ))
         }
 
@@ -232,7 +232,7 @@ where
 
     // TODO all levels
 
-    fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult {
+    fn read_block(&mut self, header: &Header, block: UncompressedFlatBlock) -> UnitResult {
         let mut pixels = vec![PxReader::RecursivePixel::default(); block.index.pixel_size.width()]; // TODO allocate once in self
 
         let byte_lines = block

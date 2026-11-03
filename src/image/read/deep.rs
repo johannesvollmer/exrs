@@ -9,6 +9,7 @@
 //! let image: DeepLayersImage = read()
 //!     .deep_data()
 //!     .all_layers()
+//!     .all_attributes()
 //!     .on_progress(|progress| println!("progress: {:.1}%", progress * 100.0))
 //!     .from_file("deep.exr")?;
 //!
@@ -19,42 +20,42 @@
 //! # Ok::<(), exr::error::Error>(())
 //! ```
 //!
+//! The deep layer selections implement the same `ReadLayers` trait as the
+//! flat layer selections, so that deep images are read with the same
+//! `ReadImage` options, such as `pedantic()` and `non_parallel()`.
+//!
 //! Only the largest resolution level of deep layers is loaded.
 //! The samples are returned in the order in which they are stored in the file.
 
-use std::{
-    collections::HashSet,
-    io::{BufReader, Read, Seek},
-    path::Path,
-};
+use std::path::Path;
 
 use smallvec::SmallVec;
 
 use crate::{
-    block::{
-        reader::{self, ChunksReader},
-        UncompressedDeepBlock,
-    },
-    error::{Error, Result},
+    block::{chunk::TileCoordinates, BlockIndex, UncompressedBlock},
+    error::{Error, Result, UnitResult},
     image::{
-        deep::DeepChannels, ignore_progress, Blocks, DeepImage, DeepLayersImage, Encoding, Image,
-        Layer, Layers,
+        deep::{AnyDeepChannels, DeepBlocksCollector},
+        read::image::{LayersReader, ReadLayers},
+        Blocks, DeepImage, DeepLayersImage, Encoding, Layer, Layers,
     },
-    math::Vec2,
-    meta::{header::Header, BlockDescription, MetaData},
+    meta::{
+        header::{Header, LayerAttributes},
+        BlockDescription, MetaData,
+    },
 };
 
 /// Read the first deep layer of an image file, including all of its channels.
 /// Uses parallel decompression and relaxed error handling.
 /// Ignores flat layers. Fails if the image contains no deep layer.
 pub fn read_first_deep_layer_from_file(path: impl AsRef<Path>) -> Result<DeepImage> {
-    ReadDeepSamples.first_valid_layer().from_file(path)
+    ReadDeepSamples.first_valid_layer().all_attributes().from_file(path)
 }
 
 /// Read all layers of an image file, which must all be deep layers.
 /// Uses parallel decompression and relaxed error handling.
 pub fn read_all_deep_layers_from_file(path: impl AsRef<Path>) -> Result<DeepLayersImage> {
-    ReadDeepSamples.all_layers().from_file(path)
+    ReadDeepSamples.all_layers().all_attributes().from_file(path)
 }
 
 /// Specify to read deep data, with all channels.
@@ -67,38 +68,23 @@ impl ReadDeepSamples {
     /// Returns an error if the image contains a flat layer.
     /// Use `all_valid_layers()` to skip flat layers instead.
     #[must_use]
-    pub fn all_layers(self) -> ReadDeepImage<ReadAllDeepLayers, fn(f64)> {
-        ReadDeepImage::new(ReadAllDeepLayers)
+    pub const fn all_layers(self) -> ReadAllDeepLayers {
+        ReadAllDeepLayers
     }
 
     /// Read all deep layers of the image, ignoring flat layers.
     /// Returns an error if the image contains no deep layer.
     #[must_use]
-    pub fn all_valid_layers(self) -> ReadDeepImage<ReadAllValidDeepLayers, fn(f64)> {
-        ReadDeepImage::new(ReadAllValidDeepLayers)
+    pub const fn all_valid_layers(self) -> ReadAllValidDeepLayers {
+        ReadAllValidDeepLayers
     }
 
     /// Read only the first deep layer of the image, ignoring flat layers.
     /// Returns an error if the image contains no deep layer.
     #[must_use]
-    pub fn first_valid_layer(self) -> ReadDeepImage<ReadFirstValidDeepLayer, fn(f64)> {
-        ReadDeepImage::new(ReadFirstValidDeepLayer)
+    pub const fn first_valid_layer(self) -> ReadFirstValidDeepLayer {
+        ReadFirstValidDeepLayer
     }
-}
-
-/// Specifies which deep layers to read from an image,
-/// and how to return them. Use `ReadDeepImage::new` to read an image
-/// with a custom implementation.
-pub trait ReadDeepLayers {
-    /// The resulting layer data, for example a single `Layer` or `Layers`.
-    type Layers;
-
-    /// Select the indices of the headers that should be loaded.
-    /// Each index must refer to a deep layer, and must not appear twice.
-    fn select_layers(&self, headers: &[Header]) -> Result<SmallVec<[usize; 2]>>;
-
-    /// Collect the selected layers, in the order that they were selected.
-    fn collect_layers(&self, layers: Vec<Layer<DeepChannels>>) -> Self::Layers;
 }
 
 /// Read all layers of an image, which must all be deep layers.
@@ -113,234 +99,101 @@ pub struct ReadAllValidDeepLayers;
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
 pub struct ReadFirstValidDeepLayer;
 
-impl ReadDeepLayers for ReadAllDeepLayers {
-    type Layers = Layers<DeepChannels>;
+impl ReadLayers<'_> for ReadAllDeepLayers {
+    type Layers = Layers<AnyDeepChannels>;
+    type Reader = AllDeepLayersReader;
 
-    fn select_layers(&self, headers: &[Header]) -> Result<SmallVec<[usize; 2]>> {
+    fn create_layers_reader(&self, headers: &[Header]) -> Result<Self::Reader> {
         if headers.iter().any(|header| !header.deep) {
-            return Err(Error::unsupported(
-                "flat layers cannot be read as deep data (use `all_valid_layers()` to read only \
-                 the deep layers)",
+            return Err(Error::invalid(
+                "expected deep data but found a flat layer (use `all_valid_layers()` to read \
+                 only the deep layers)",
             ));
         }
 
-        Ok((0..headers.len()).collect())
-    }
-
-    fn collect_layers(&self, layers: Vec<Layer<DeepChannels>>) -> Self::Layers {
-        layers.into_iter().collect()
+        AllDeepLayersReader::new(headers, |_| true)
     }
 }
 
-impl ReadDeepLayers for ReadAllValidDeepLayers {
-    type Layers = Layers<DeepChannels>;
+impl ReadLayers<'_> for ReadAllValidDeepLayers {
+    type Layers = Layers<AnyDeepChannels>;
+    type Reader = AllDeepLayersReader;
 
-    fn select_layers(&self, headers: &[Header]) -> Result<SmallVec<[usize; 2]>> {
-        let deep_layers: SmallVec<[usize; 2]> = headers
+    fn create_layers_reader(&self, headers: &[Header]) -> Result<Self::Reader> {
+        if !headers.iter().any(|header| header.deep) {
+            return Err(Error::invalid("expected deep data but the image contains no deep layer"));
+        }
+
+        AllDeepLayersReader::new(headers, |header| header.deep)
+    }
+}
+
+impl ReadLayers<'_> for ReadFirstValidDeepLayer {
+    type Layers = Layer<AnyDeepChannels>;
+    type Reader = FirstValidDeepLayerReader;
+
+    fn create_layers_reader(&self, headers: &[Header]) -> Result<Self::Reader> {
+        FirstValidDeepLayerReader::new(headers, |header| header.deep)
+    }
+}
+
+/// Collects the blocks of all selected deep layers of an image.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AllDeepLayersReader {
+    /// One entry for each header, `None` if the layer is not selected.
+    layers: SmallVec<[Option<DeepLayerReader>; 2]>,
+}
+
+/// Collects the blocks of the first deep layer of an image.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FirstValidDeepLayerReader {
+    layers: AllDeepLayersReader,
+}
+
+/// Collects the blocks of a single deep layer.
+#[derive(Debug, Clone, PartialEq)]
+struct DeepLayerReader {
+    blocks: DeepBlocksCollector,
+    attributes: LayerAttributes,
+    encoding: Encoding,
+}
+
+impl FirstValidDeepLayerReader {
+    /// Prepare reading the first deep layer for which `is_selected` returns
+    /// true. Use this to implement `ReadLayers` for your own layer selection.
+    pub fn new(headers: &[Header], is_selected: impl Fn(&Header) -> bool) -> Result<Self> {
+        let first_selected_layer = headers
             .iter()
-            .enumerate()
-            .filter(|(_, header)| header.deep)
-            .map(|(index, _)| index)
-            .collect();
+            .position(|header| header.deep && is_selected(header))
+            .ok_or_else(|| Error::invalid("no deep layer matched the specified requirements"))?;
 
-        if deep_layers.is_empty() {
-            return Err(Error::unsupported("the image contains no deep layer"));
-        }
-
-        Ok(deep_layers)
-    }
-
-    fn collect_layers(&self, layers: Vec<Layer<DeepChannels>>) -> Self::Layers {
-        layers.into_iter().collect()
+        Ok(Self {
+            layers: AllDeepLayersReader::new(headers, |header| {
+                std::ptr::eq(header, &headers[first_selected_layer])
+            })?,
+        })
     }
 }
 
-impl ReadDeepLayers for ReadFirstValidDeepLayer {
-    type Layers = Layer<DeepChannels>;
-
-    fn select_layers(&self, headers: &[Header]) -> Result<SmallVec<[usize; 2]>> {
-        headers
+impl AllDeepLayersReader {
+    /// Prepare reading all deep layers for which `is_selected` returns true.
+    /// Flat layers are never selected.
+    /// Use this to implement `ReadLayers` for your own layer selection.
+    pub fn new(headers: &[Header], is_selected: impl Fn(&Header) -> bool) -> Result<Self> {
+        let layers = headers
             .iter()
-            .position(|header| header.deep)
-            .map(|index| SmallVec::from_slice(&[index]))
-            .ok_or_else(|| Error::unsupported("the image contains no deep layer"))
-    }
+            .map(|header| {
+                if !header.deep || !is_selected(header) {
+                    return Ok(None);
+                }
 
-    fn collect_layers(&self, layers: Vec<Layer<DeepChannels>>) -> Self::Layers {
-        layers.into_iter().next().expect("deep layer selection bug")
-    }
-}
-
-/// Specify whether to read the image in parallel,
-/// whether to use pedantic error handling,
-/// and a callback for the reading progress.
-/// Finally, read the image using `from_file` or similar methods.
-#[derive(Debug, Clone)]
-pub struct ReadDeepImage<ReadLayers, OnProgress> {
-    read_layers: ReadLayers,
-    on_progress: OnProgress,
-    pedantic: bool,
-    parallel: bool,
-}
-
-impl<L> ReadDeepImage<L, fn(f64)> {
-    /// Read the layers selected by the specified layer selection,
-    /// which may be a custom implementation of `ReadDeepLayers`.
-    /// Uses relaxed error handling and parallel decompression.
-    /// Use `read().deep_data()` for the predefined layer selections.
-    pub fn new(read_layers: L) -> Self {
-        Self {
-            read_layers,
-            on_progress: ignore_progress,
-            pedantic: false,
-            parallel: cfg!(feature = "rayon"),
-        }
-    }
-}
-
-impl<L, F> ReadDeepImage<L, F>
-where
-    L: ReadDeepLayers,
-    F: FnMut(f64),
-{
-    /// Specify that any missing or unusual information should result in an
-    /// error. Otherwise, `exrs` will try to compute or ignore missing
-    /// information. See `ReadImage::pedantic` for more information.
-    #[must_use]
-    pub fn pedantic(self) -> Self {
-        Self {
-            pedantic: true,
-            ..self
-        }
-    }
-
-    /// Specify that multiple pixel blocks should never be decompressed using
-    /// multiple threads at once. This might be slower but uses less memory
-    /// and less synchronization.
-    #[must_use]
-    pub fn non_parallel(self) -> Self {
-        Self {
-            parallel: false,
-            ..self
-        }
-    }
-
-    /// Specify a function to be called regularly throughout the loading
-    /// process. Replaces all previously specified progress functions in
-    /// this reader.
-    pub fn on_progress<OnProgress>(self, on_progress: OnProgress) -> ReadDeepImage<L, OnProgress>
-    where
-        OnProgress: FnMut(f64),
-    {
-        ReadDeepImage {
-            on_progress,
-            read_layers: self.read_layers,
-            pedantic: self.pedantic,
-            parallel: self.parallel,
-        }
-    }
-
-    /// Read the deep exr image from a file.
-    #[inline]
-    pub fn from_file(self, path: impl AsRef<Path>) -> Result<Image<L::Layers>> {
-        self.from_unbuffered(std::fs::File::open(path)?)
-    }
-
-    /// Buffer the reader and then read the deep exr image from it.
-    /// Use `from_buffered` instead, if your reader is an in-memory reader.
-    #[inline]
-    pub fn from_unbuffered(self, unbuffered: impl Read + Seek) -> Result<Image<L::Layers>> {
-        self.from_buffered(BufReader::new(unbuffered))
-    }
-
-    /// Read the deep exr image from a buffered reader.
-    pub fn from_buffered(self, buffered: impl Read + Seek) -> Result<Image<L::Layers>> {
-        let chunks = crate::block::read(buffered, self.pedantic)?;
-        self.from_chunks(chunks)
-    }
-
-    /// Read the deep exr image from an initialized chunks reader
-    /// that has already extracted the meta data from the file.
-    pub fn from_chunks(
-        self,
-        chunks_reader: crate::block::reader::Reader<impl Read + Seek>,
-    ) -> Result<Image<L::Layers>> {
-        let Self {
-            read_layers,
-            on_progress,
-            pedantic,
-            parallel,
-        } = self;
-
-        let headers: SmallVec<[Header; 3]> = chunks_reader.headers().iter().cloned().collect();
-        let selected_layers = read_layers.select_layers(&headers)?;
-
-        let mut is_selected = vec![false; headers.len()];
-        for &layer_index in &selected_layers {
-            let header = headers
-                .get(layer_index)
-                .ok_or_else(|| Error::invalid("selected deep layer index"))?;
-
-            if !header.deep {
-                return Err(Error::unsupported("flat layers cannot be read as deep data"));
-            }
-
-            if std::mem::replace(&mut is_selected[layer_index], true) {
-                return Err(Error::invalid("deep layer selected twice"));
-            }
-        }
-
-        // only the largest resolution level of the selected layers is loaded
-        let chunks = chunks_reader
-            .filter_chunks(pedantic, |_, tile, block| {
-                is_selected[block.layer] && tile.is_largest_resolution_level()
-            })?
-            .on_progress(on_progress);
-
-        let mut blocks_per_layer: Vec<Vec<UncompressedDeepBlock>> = vec![Vec::new(); headers.len()];
-        let mut block_positions: Vec<HashSet<(usize, usize)>> = vec![HashSet::new(); headers.len()];
-
-        let insert_block = |_: &MetaData, block: UncompressedDeepBlock| {
-            let layer = block.index.layer;
-            let Vec2(x, y) = block.index.pixel_position;
-
-            // keep only one block per position, as a corrupt file may contain a
-            // block twice
-            let is_expected = is_selected[layer]
-                && block.index.level == Vec2(0, 0)
-                && block_positions[layer].insert((x, y));
-
-            if is_expected {
-                blocks_per_layer[layer].push(block);
-            } else if pedantic {
-                return Err(Error::invalid("unexpected or duplicate deep block"));
-            }
-
-            Ok(())
-        };
-
-        if parallel {
-            #[cfg(not(feature = "rayon"))]
-            return Err(Error::unsupported("parallel decompression requires the rayon feature"));
-
-            #[cfg(feature = "rayon")]
-            reader::decompress_blocks_parallel(chunks, pedantic, insert_block)?;
-        } else {
-            reader::decompress_blocks_sequential(chunks, pedantic, insert_block)?;
-        }
-
-        let layers: Result<Vec<Layer<DeepChannels>>> = selected_layers
-            .iter()
-            .map(|&layer_index| {
-                let header = &headers[layer_index];
-                let blocks = std::mem::take(&mut blocks_per_layer[layer_index]);
-                let channel_data =
-                    DeepChannels::from_blocks(header.layer_size, &header.channels, blocks)?;
-
-                Ok(Layer {
-                    channel_data,
+                Ok(Some(DeepLayerReader {
+                    blocks: DeepBlocksCollector::new(
+                        header.layer_size,
+                        header.max_block_pixel_size(),
+                        header.channels.clone(),
+                    )?,
                     attributes: header.own_attributes.clone(),
-                    size: header.layer_size,
                     encoding: Encoding {
                         compression: header.compression,
                         line_order: header.line_order,
@@ -349,17 +202,66 @@ where
                             BlockDescription::Tiles(tiles) => Blocks::Tiles(tiles.tile_size),
                         },
                     },
-                })
+                }))
             })
-            .collect();
+            .collect::<Result<_>>()?;
 
-        Ok(Image {
-            attributes: headers
-                .first()
-                .expect("header count validation bug")
-                .shared_attributes
-                .clone(),
-            layer_data: read_layers.collect_layers(layers?),
+        Ok(Self {
+            layers,
         })
+    }
+}
+
+impl LayersReader for AllDeepLayersReader {
+    type Layers = Layers<AnyDeepChannels>;
+
+    fn filter_block(&self, _: &MetaData, tile: TileCoordinates, block: BlockIndex) -> bool {
+        // only the largest resolution level of the selected layers is loaded
+        tile.is_largest_resolution_level()
+            && self.layers.get(block.layer).is_some_and(Option::is_some)
+    }
+
+    fn read_block(&mut self, _: &[Header], block: UncompressedBlock) -> UnitResult {
+        let block = block.into_deep()?;
+
+        self.layers
+            .get_mut(block.index.layer)
+            .and_then(Option::as_mut)
+            .ok_or_else(|| Error::invalid("unexpected deep block"))?
+            .blocks
+            .insert_block(block)
+    }
+
+    /// Assemble the selected layers, in the order of the headers.
+    fn into_layers(self) -> Self::Layers {
+        self.layers
+            .into_iter()
+            .flatten()
+            .map(|layer| {
+                let channel_data = layer.blocks.into_channels();
+                Layer {
+                    size: channel_data.resolution(),
+                    channel_data,
+                    attributes: layer.attributes,
+                    encoding: layer.encoding,
+                }
+            })
+            .collect()
+    }
+}
+
+impl LayersReader for FirstValidDeepLayerReader {
+    type Layers = Layer<AnyDeepChannels>;
+
+    fn filter_block(&self, meta: &MetaData, tile: TileCoordinates, block: BlockIndex) -> bool {
+        self.layers.filter_block(meta, tile, block)
+    }
+
+    fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult {
+        self.layers.read_block(headers, block)
+    }
+
+    fn into_layers(self) -> Self::Layers {
+        self.layers.into_layers().into_iter().next().expect("deep layer selection bug")
     }
 }

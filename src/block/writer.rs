@@ -5,7 +5,7 @@ use std::{fmt::Debug, io::Seek, iter::Peekable, ops::Not};
 use smallvec::alloc::collections::BTreeMap;
 
 use crate::{
-    block::{chunk::Chunk, PixelBlock},
+    block::{chunk::Chunk, UncompressedBlock},
     error::{usize_to_u64, Error, Result, UnitResult},
     io::{Data, Tracking, Write},
     meta::{attribute::LineOrder, Headers, MetaData, OffsetTables},
@@ -103,7 +103,7 @@ pub trait ChunksWriter: Sized {
     /// The index of the block must be in increasing line order within the
     /// header. Obtain iterator with `MetaData::collect_ordered_blocks(...)`
     /// or similar methods. The blocks may be flat or deep blocks.
-    fn compress_all_blocks_sequential<Block: PixelBlock>(
+    fn compress_all_blocks_sequential<Block: Into<UncompressedBlock>>(
         mut self,
         meta: &MetaData,
         blocks: impl Iterator<Item = (usize, Block)>,
@@ -126,7 +126,7 @@ pub trait ChunksWriter: Sized {
     /// or similar methods. Will fallback to sequential processing where
     /// threads are not available, or where it would not speed up the process.
     /// The blocks may be flat or deep blocks.
-    fn compress_all_blocks_parallel<Block: PixelBlock>(
+    fn compress_all_blocks_parallel<Block: Into<UncompressedBlock>>(
         mut self,
         meta: &MetaData,
         blocks: impl Iterator<Item = (usize, Block)>,
@@ -411,10 +411,10 @@ where
     pub fn compress_block(
         &mut self,
         index_in_header_increasing_y: usize,
-        block: impl PixelBlock,
+        block: impl Into<UncompressedBlock>,
     ) -> UnitResult {
-        self.chunks_writer
-            .write_chunk(index_in_header_increasing_y, block.compress_to_chunk(&self.meta.headers)?)
+        let chunk = block.into().compress_to_chunk(&self.meta.headers)?;
+        self.chunks_writer.write_chunk(index_in_header_increasing_y, chunk)
     }
 }
 
@@ -542,7 +542,7 @@ where
     pub fn add_block_to_compression_queue(
         &mut self,
         index_in_header_increasing_y: usize,
-        block: impl PixelBlock,
+        block: impl Into<UncompressedBlock>,
     ) -> UnitResult {
         // if pipe is full, block to wait for a slot to free up
         if self.currently_compressing_count >= self.max_threads {
@@ -553,6 +553,7 @@ where
         let index_in_file = self.next_incoming_chunk_index;
         let sender = self.sender.clone();
         let meta = self.meta.clone();
+        let block: UncompressedBlock = block.into();
 
         self.pool.spawn(move || {
             let compressed_or_err = block.compress_to_chunk(&meta.headers);

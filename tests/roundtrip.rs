@@ -23,6 +23,13 @@ fn roundtrip_all_files_in_repository_x4() {
     check_all_files_in_repo(|path| {
         let file = std::fs::read(path).expect("cannot open file");
 
+        // flat readers report deep data as invalid, so read deep images as
+        // deep data instead
+        let meta = MetaData::read_from_buffered(file.as_slice(), false)?;
+        if meta.headers.iter().any(|header| header.deep) {
+            return round_trip_deep(&file);
+        }
+
         round_trip_simple(&file)?;
         round_trip_full(&file)?;
         round_trip_rgba_file(path, &file)?;
@@ -30,6 +37,18 @@ fn roundtrip_all_files_in_repository_x4() {
 
         Ok(())
     });
+}
+
+fn round_trip_deep(file: &[u8]) -> Result<()> {
+    let read_image = read().deep_data().all_valid_layers().all_attributes().non_parallel();
+    let image = read_image.clone().from_buffered(Cursor::new(file))?;
+
+    let mut tmp_bytes = Vec::with_capacity(file.len());
+    image.write().non_parallel().to_buffered(Cursor::new(&mut tmp_bytes))?;
+
+    let image2 = read_image.from_buffered(Cursor::new(tmp_bytes))?;
+    image.assert_equals_result(&image2);
+    Ok(())
 }
 
 fn round_trip_full(file: &[u8]) -> Result<()> {

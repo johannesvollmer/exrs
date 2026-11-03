@@ -41,7 +41,7 @@ use crate::{
 /// alphabetically, as in the channel list of the header), for each pixel in
 /// that row, all samples of that pixel. The conversion to little-endian format
 /// happens when compressing the block.
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug, Hash)]
 pub struct UncompressedDeepBlock {
     /// Location of the data inside the image.
     pub index: BlockIndex,
@@ -339,7 +339,7 @@ impl UncompressedDeepBlock {
     /// The channel index refers to the list of channels in the header.
     /// Panics if the pixel or the channel index is out of bounds.
     #[must_use]
-    pub fn pixel_sample_bytes_range(
+    pub fn pixel_sample_byte_range(
         &self,
         channels: &ChannelList,
         pixel_index: usize,
@@ -662,7 +662,7 @@ mod test {
         let mut value = 0_u32;
         for pixel in 0..counts.len() {
             for (channel_index, channel) in header.channels.list.iter().enumerate() {
-                let range = block.pixel_sample_bytes_range(&header.channels, pixel, channel_index);
+                let range = block.pixel_sample_byte_range(&header.channels, pixel, channel_index);
                 let bytes = &mut block.sample_data[range];
 
                 for sample in bytes.chunks_exact_mut(channel.sample_type.bytes_per_sample()) {
@@ -722,7 +722,10 @@ mod test {
     #[cfg(feature = "rayon")]
     #[test]
     fn write_flat_and_deep_blocks_with_separate_parallel_compressors() {
-        use crate::block::{writer::ChunksWriter, UncompressedBlock};
+        use crate::{
+            block::{writer::ChunksWriter, UncompressedFlatBlock},
+            image::read::image::ReadLayers,
+        };
 
         let flat_header = Header::new(
             "flat".into(),
@@ -755,7 +758,7 @@ mod test {
                     let data = vec![0; index.pixel_size.area() * 4];
                     (
                         index_in_header,
-                        UncompressedBlock {
+                        UncompressedFlatBlock {
                             index,
                             data,
                         },
@@ -769,6 +772,7 @@ mod test {
         let image = crate::image::read::read()
             .deep_data()
             .first_valid_layer()
+            .all_attributes()
             .pedantic()
             .from_buffered(std::io::Cursor::new(bytes))
             .unwrap();
@@ -822,17 +826,17 @@ mod test {
         block.validate(channels).unwrap();
 
         // first row: A of both pixels, Z of both pixels, id of both pixels
-        assert_eq!(block.pixel_sample_bytes_range(channels, 0, 0), 0..2);
-        assert_eq!(block.pixel_sample_bytes_range(channels, 1, 0), 2..6);
-        assert_eq!(block.pixel_sample_bytes_range(channels, 0, 1), 6..10);
-        assert_eq!(block.pixel_sample_bytes_range(channels, 1, 1), 10..18);
-        assert_eq!(block.pixel_sample_bytes_range(channels, 1, 2), 22..30);
+        assert_eq!(block.pixel_sample_byte_range(channels, 0, 0), 0..2);
+        assert_eq!(block.pixel_sample_byte_range(channels, 1, 0), 2..6);
+        assert_eq!(block.pixel_sample_byte_range(channels, 0, 1), 6..10);
+        assert_eq!(block.pixel_sample_byte_range(channels, 1, 1), 10..18);
+        assert_eq!(block.pixel_sample_byte_range(channels, 1, 2), 22..30);
 
         // second row: the first pixel has no samples
-        assert_eq!(block.pixel_sample_bytes_range(channels, 2, 0), 30..30);
-        assert_eq!(block.pixel_sample_bytes_range(channels, 3, 0), 30..32);
-        assert_eq!(block.pixel_sample_bytes_range(channels, 3, 1), 32..36);
-        assert_eq!(block.pixel_sample_bytes_range(channels, 3, 2), 36..40);
+        assert_eq!(block.pixel_sample_byte_range(channels, 2, 0), 30..30);
+        assert_eq!(block.pixel_sample_byte_range(channels, 3, 0), 30..32);
+        assert_eq!(block.pixel_sample_byte_range(channels, 3, 1), 32..36);
+        assert_eq!(block.pixel_sample_byte_range(channels, 3, 2), 36..40);
     }
 
     #[test]
@@ -852,7 +856,7 @@ mod test {
         assert_ne!(block, original);
 
         // the first channel is `A` of type f16
-        let first = original.pixel_sample_bytes_range(&header.channels, 0, 0);
+        let first = original.pixel_sample_byte_range(&header.channels, 0, 0);
         assert_eq!(block.sample_data[first.start], original.sample_data[first.start + 1]);
 
         block.reverse_sample_byte_order(&header.channels).unwrap();
@@ -1101,7 +1105,7 @@ mod test {
             level: Vec2(0, 0),
         };
 
-        let block = crate::block::UncompressedBlock {
+        let block = crate::block::UncompressedFlatBlock {
             index,
             data: vec![0; 5 * 10],
         };

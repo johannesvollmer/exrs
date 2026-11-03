@@ -3,7 +3,7 @@
 //! Browse the `exr::image` module to get started with the high-level interface.
 
 pub mod attribute;
-pub mod deep_state;
+pub mod deep_image_state;
 pub mod header;
 
 use std::{collections::HashSet, convert::TryFrom, fs::File, io::BufReader};
@@ -14,7 +14,7 @@ use self::attribute::*;
 use crate::{
     block::{
         chunk::{CompressedBlock, TileCoordinates},
-        BlockIndex, UncompressedBlock,
+        BlockIndex, UncompressedFlatBlock,
     },
     error::*,
     io::*,
@@ -507,11 +507,13 @@ impl MetaData {
     /// Go through all the block indices in the correct order and call the
     /// specified closure for each of these blocks. That way, the blocks
     /// indices are filled with real block data and returned as an iterator.
-    /// The closure returns the an `UncompressedBlock` for each block index.
-    pub fn collect_ordered_blocks<'s>(
+    /// The closure returns a block for each block index, for example an
+    /// `UncompressedFlatBlock`, an `UncompressedDeepBlock`, or an
+    /// `UncompressedBlock`.
+    pub fn collect_ordered_blocks<'s, Block>(
         &'s self,
-        mut get_block: impl 's + FnMut(BlockIndex) -> UncompressedBlock,
-    ) -> impl 's + Iterator<Item = (usize, UncompressedBlock)> {
+        mut get_block: impl 's + FnMut(BlockIndex) -> Block,
+    ) -> impl 's + Iterator<Item = (usize, Block)> {
         self.enumerate_ordered_header_block_indices()
             .map(move |(index_in_header, block_index)| (index_in_header, get_block(block_index)))
     }
@@ -523,8 +525,8 @@ impl MetaData {
     pub fn collect_ordered_block_data<'s>(
         &'s self,
         mut get_block_data: impl 's + FnMut(BlockIndex) -> Vec<u8>,
-    ) -> impl 's + Iterator<Item = (usize, UncompressedBlock)> {
-        self.collect_ordered_blocks(move |block_index| UncompressedBlock {
+    ) -> impl 's + Iterator<Item = (usize, UncompressedFlatBlock)> {
+        self.collect_ordered_blocks(move |block_index| UncompressedFlatBlock {
             index: block_index,
             data: get_block_data(block_index),
         })

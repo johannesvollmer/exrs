@@ -1,14 +1,14 @@
 //! Write deep images.
 //!
-//! Deep layers use [`DeepChannels`] as their channel data,
+//! Deep layers use [`AnyDeepChannels`] as their channel data,
 //! and are written using the same API as flat images.
 //! A single image may contain both flat and deep layers.
 //!
 //! ```no_run
-//! use exr::{image::deep::DeepChannels, prelude::*};
+//! use exr::{image::deep::AnyDeepChannels, prelude::*};
 //!
 //! // a 2x1 deep image: the first pixel contains two samples, the second pixel none
-//! let channels = DeepChannels::new(
+//! let channels = AnyDeepChannels::new(
 //!     (2, 1),
 //!     vec![2, 0],
 //!     vec![
@@ -33,34 +33,30 @@
 //! stored, and no sorting is performed.
 
 use crate::{
-    block::{writer::ChunksWriter, BlockIndex, UncompressedBlock, UncompressedDeepBlock},
-    error::{Error, Result, UnitResult},
+    block::{BlockIndex, UncompressedBlock},
+    error::{Error, Result},
     image::{
-        deep::DeepChannels,
-        write::{
-            channels::{ChannelsWriter, WritableChannels},
-            layers::LayersWriter,
-        },
+        deep::AnyDeepChannels,
+        write::channels::{ChannelsWriter, WritableChannels},
     },
     math::RoundingMode,
     meta::{
         attribute::{ChannelList, LevelMode},
         header::Header,
-        MetaData,
     },
 };
 
 /// A temporary writer for the channels of a deep layer.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DeepChannelsWriter<'channels> {
-    channels: &'channels DeepChannels,
+pub struct AnyDeepChannelsWriter<'channels> {
+    channels: &'channels AnyDeepChannels,
 }
 
-impl<'channels> WritableChannels<'channels> for DeepChannels {
-    type Writer = DeepChannelsWriter<'channels>;
+impl<'channels> WritableChannels<'channels> for AnyDeepChannels {
+    type Writer = AnyDeepChannelsWriter<'channels>;
 
     fn infer_channel_list(&self) -> ChannelList {
-        self.channel_list()
+        self.to_channel_list()
     }
 
     fn infer_level_modes(&self) -> (LevelMode, RoundingMode) {
@@ -68,7 +64,7 @@ impl<'channels> WritableChannels<'channels> for DeepChannels {
     }
 
     fn create_writer(&'channels self, _header: &Header) -> Self::Writer {
-        DeepChannelsWriter {
+        AnyDeepChannelsWriter {
             channels: self,
         }
     }
@@ -78,18 +74,12 @@ impl<'channels> WritableChannels<'channels> for DeepChannels {
     }
 }
 
-impl ChannelsWriter for DeepChannelsWriter<'_> {
-    /// Deep channels cannot be written as flat data.
-    /// Returns an empty block, which will be rejected when compressing it.
-    fn extract_uncompressed_block(&self, _header: &Header, _block: BlockIndex) -> Vec<u8> {
-        Vec::new()
-    }
-
-    fn extract_uncompressed_deep_block(
+impl ChannelsWriter for AnyDeepChannelsWriter<'_> {
+    fn extract_uncompressed_block(
         &self,
         header: &Header,
         block: BlockIndex,
-    ) -> Result<UncompressedDeepBlock> {
+    ) -> Result<UncompressedBlock> {
         if header.layer_size != self.channels.resolution() {
             return Err(Error::invalid(format!(
                 "deep layer size {:?} does not match the resolution of its channels {:?}",
@@ -105,56 +95,6 @@ impl ChannelsWriter for DeepChannelsWriter<'_> {
         // the sample offsets are validated when constructing the channels,
         // but the channels may have been modified afterwards
         self.channels.validate_channels()?;
-        self.channels.extract_block(block)
+        Ok(self.channels.extract_block(block)?.into())
     }
-}
-
-/// Extract all blocks of all layers, flat and deep, then compress them, and
-/// write them to the file in the required order.
-pub(crate) fn write_flat_and_deep_blocks(
-    meta: &MetaData,
-    layers: &impl LayersWriter,
-    mut chunk_writer: impl ChunksWriter,
-    parallel: bool,
-) -> UnitResult {
-    let extract_flat_block = |block_index: BlockIndex| UncompressedBlock {
-        index: block_index,
-        data: layers.extract_uncompressed_block(&meta.headers, block_index),
-    };
-
-    #[cfg(feature = "rayon")]
-    if parallel {
-        if let Some(mut compressor) = chunk_writer.parallel_blocks_compressor(meta) {
-            for (index_in_header, block_index) in meta.enumerate_ordered_header_block_indices() {
-                if meta.headers[block_index.layer].deep {
-                    let block =
-                        layers.extract_uncompressed_deep_block(&meta.headers, block_index)?;
-                    compressor.add_block_to_compression_queue(index_in_header, block)?;
-                } else {
-                    let block = extract_flat_block(block_index);
-                    compressor.add_block_to_compression_queue(index_in_header, block)?;
-                }
-            }
-
-            return Ok(());
-        }
-    }
-
-    #[cfg(not(feature = "rayon"))]
-    if parallel {
-        return Err(Error::unsupported("parallel compression requires the rayon feature"));
-    }
-
-    let mut compressor = chunk_writer.sequential_blocks_compressor(meta);
-
-    for (index_in_header, block_index) in meta.enumerate_ordered_header_block_indices() {
-        if meta.headers[block_index.layer].deep {
-            let block = layers.extract_uncompressed_deep_block(&meta.headers, block_index)?;
-            compressor.compress_block(index_in_header, block)?;
-        } else {
-            compressor.compress_block(index_in_header, extract_flat_block(block_index))?;
-        }
-    }
-
-    Ok(())
 }

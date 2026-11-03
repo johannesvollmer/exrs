@@ -92,7 +92,7 @@ The first choice to be made is whether you want to load deep data or not.
 Deep data is where any number of samples is stored in one pixel, 
 for example at different depths. Most images do not contain deep data,
 so most of the time, we call `no_deep_data()`. 
-Flat readers return `Error::NotSupported` for deep layers, 
+Flat readers return `Error::Invalid` for deep layers, 
 except for `first_valid_layer()`, which skips deep layers instead.
 
 ```rust
@@ -104,27 +104,29 @@ fn main(){
 
 To read deep images, call `deep_data()` instead. Then choose whether to read all layers,
 which must all be deep, all deep layers while skipping flat layers, or only the first deep layer.
-Implement `ReadDeepLayers` and use `ReadDeepImage::new` for a custom selection of layers.
-Deep images do not support the further options of flat images, 
+For a custom selection of layers, implement `ReadLayers` using `FirstValidDeepLayerReader` or `AllDeepLayersReader`.
+Deep images do not support the channel and resolution level options of flat images, 
 as all channels and only the largest resolution level are loaded.
+Afterwards, call `all_attributes()`, which offers the same options as for flat images.
 
 ```rust
 fn main(){
     use exr::prelude::*;
     
     // results in a `DeepLayersImage`
-    let all_layers = read().deep_data().all_layers();
-    let all_deep_layers = read().deep_data().all_valid_layers();
+    let all_layers = read().deep_data().all_layers().all_attributes();
+    let all_deep_layers = read().deep_data().all_valid_layers().all_attributes();
     
     // results in a `DeepImage`
-    let first_layer = read().deep_data().first_valid_layer()
+    let first_layer = read().deep_data().first_valid_layer().all_attributes()
         .non_parallel().pedantic().on_progress(|progress| println!("{}", progress));
 }
 ```
 
-The deep samples of a layer are stored in `DeepChannels`, which contain 
+The deep samples of a layer are stored in `AnyDeepChannels`, which contain 
 the number of samples of each pixel and the values of each channel for all samples.
-Use `deep.sample_range(Vec2(x, y))` to find the samples of a specific pixel in the sample vectors.
+Use `deep.pixel_samples_as::<f32>(channel_index, Vec2(x, y))` to iterate the samples of a specific pixel,
+or `deep.sample_range(Vec2(x, y))` to find them in the sample vectors.
 Deep images are written using `image.write()`, just like flat images.
 
 ### Resolution Levels
@@ -546,7 +548,7 @@ fn main() {
 The type `AnyChannel` can describe every possible channel and contains all its samples for this layer.   
 Use `AnyChannel::new(channel_name, sample_data)` or `AnyChannel { .. }`.
 The samples can currently only be `FlatSamples` or `Levels<FlatSamples>`.
-Deep layers use `DeepChannels` instead of `AnyChannels`, which also contain a list of `AnyChannel<FlatSamples>`.
+Deep layers use `AnyDeepChannels` instead of `AnyChannels`, which also contain a list of `AnyChannel<FlatSamples>`.
 
 ### Samples
 `FlatSamples` contain one sample per pixel. These do not contain deep data.  
