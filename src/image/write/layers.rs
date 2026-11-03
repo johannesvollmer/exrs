@@ -1,7 +1,8 @@
 //! How to write either a single or a list of layers.
 
 use crate::{
-    block::BlockIndex,
+    block::{BlockIndex, UncompressedBlock},
+    error::Result,
     image::{
         recursive::{NoneMore, Recursive},
         write::channels::{ChannelsWriter, WritableChannels},
@@ -14,10 +15,6 @@ use crate::{
         Headers,
     },
     prelude::SmallVec,
-};
-use crate::{
-    block::UncompressedDeepBlock,
-    error::{Error, Result},
 };
 
 /// Enables an image containing this list of layers to be written to a file.
@@ -34,18 +31,13 @@ pub trait WritableLayers<'slf> {
 
 /// A temporary writer for a list of channels
 pub trait LayersWriter: Sync {
-    /// Deliver a block of pixels from a single layer to be stored in the file
-    fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex) -> Vec<u8>;
-
-    /// Deliver a block of deep pixels from a single deep layer to be stored in
-    /// the file. Returns an error by default.
-    fn extract_uncompressed_deep_block(
+    /// Deliver a block of pixels from a single layer to be stored in the file.
+    /// Flat layers return a flat block, and deep layers return a deep block.
+    fn extract_uncompressed_block(
         &self,
-        _headers: &[Header],
-        _block: BlockIndex,
-    ) -> Result<UncompressedDeepBlock> {
-        Err(Error::unsupported("these layers do not contain deep data"))
-    }
+        headers: &[Header],
+        block: BlockIndex,
+    ) -> Result<UncompressedBlock>;
 }
 
 /// A temporary writer for an arbitrary list of layers
@@ -157,19 +149,14 @@ impl<C> LayersWriter for AllLayersWriter<C>
 where
     C: ChannelsWriter,
 {
-    fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex) -> Vec<u8> {
-        self.layers[block.layer]
-            .extract_uncompressed_block(std::slice::from_ref(&headers[block.layer]), block)
-        // TODO no array-vs-first
-    }
-
-    fn extract_uncompressed_deep_block(
+    fn extract_uncompressed_block(
         &self,
         headers: &[Header],
         block: BlockIndex,
-    ) -> Result<UncompressedDeepBlock> {
+    ) -> Result<UncompressedBlock> {
         self.layers[block.layer]
-            .extract_uncompressed_deep_block(std::slice::from_ref(&headers[block.layer]), block)
+            .extract_uncompressed_block(std::slice::from_ref(&headers[block.layer]), block)
+        // TODO no array-vs-first
     }
 }
 
@@ -177,21 +164,14 @@ impl<C> LayersWriter for LayerWriter<C>
 where
     C: ChannelsWriter,
 {
-    fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex) -> Vec<u8> {
-        self.channels
-            .extract_uncompressed_block(headers.first().expect("invalid inferred header"), block)
-        // TODO no array-vs-first
-    }
-
-    fn extract_uncompressed_deep_block(
+    fn extract_uncompressed_block(
         &self,
         headers: &[Header],
         block: BlockIndex,
-    ) -> Result<UncompressedDeepBlock> {
-        self.channels.extract_uncompressed_deep_block(
-            headers.first().expect("invalid inferred header"),
-            block,
-        )
+    ) -> Result<UncompressedBlock> {
+        self.channels
+            .extract_uncompressed_block(headers.first().expect("invalid inferred header"), block)
+        // TODO no array-vs-first
     }
 }
 
@@ -240,7 +220,7 @@ impl LayersWriter for NoneMore {
     /// Panics if called, as this indicates a recursive length mismatch bug
     /// where a block is being extracted for a layer index that doesn't
     /// exist in the recursive layer structure.
-    fn extract_uncompressed_block(&self, _: &[Header], _: BlockIndex) -> Vec<u8> {
+    fn extract_uncompressed_block(&self, _: &[Header], _: BlockIndex) -> Result<UncompressedBlock> {
         unreachable!(
             "recursive length mismatch bug: attempted to extract block for non-existent layer"
         )
@@ -253,7 +233,11 @@ where
     InnerLayersWriter: LayersWriter,
     Channels: ChannelsWriter,
 {
-    fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex) -> Vec<u8> {
+    fn extract_uncompressed_block(
+        &self,
+        headers: &[Header],
+        block: BlockIndex,
+    ) -> Result<UncompressedBlock> {
         let (layer_index, layer) = &self.value;
         if *layer_index == block.layer {
             let header = headers.get(*layer_index).expect("layer index bug");
@@ -261,20 +245,6 @@ where
         // TODO no slice?
         } else {
             self.inner.extract_uncompressed_block(headers, block)
-        }
-    }
-
-    fn extract_uncompressed_deep_block(
-        &self,
-        headers: &[Header],
-        block: BlockIndex,
-    ) -> Result<UncompressedDeepBlock> {
-        let (layer_index, layer) = &self.value;
-        if *layer_index == block.layer {
-            let header = headers.get(*layer_index).expect("layer index bug");
-            layer.extract_uncompressed_deep_block(std::slice::from_ref(header), block)
-        } else {
-            self.inner.extract_uncompressed_deep_block(headers, block)
         }
     }
 }

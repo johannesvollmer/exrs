@@ -9,28 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added
 - Adds reading and writing deep images.
-  Deep layers contain any number of samples per pixel and use `DeepChannels` as channel data.
+  Deep layers contain any number of samples per pixel and use `AnyDeepChannels` as channel data.
   - Read deep images with `read().deep_data()`, and write them with `image.write()`, like flat images.
+    The deep layer selections implement `ReadLayers`, so they share all options of `ReadImage`,
+    for example `read().deep_data().all_layers().all_attributes().pedantic().from_file(path)`.
     Images may contain both flat and deep layers. Use `all_valid_layers()` to read all deep layers of such images,
-    or implement `ReadDeepLayers` for a custom selection.
+    or implement `ReadLayers` using `FirstValidDeepLayerReader` or `AllDeepLayersReader` for a custom selection.
+  - Inspect the samples of a deep pixel without allocating, using `AnyDeepChannels::pixel_samples`,
+    or converted to a specific type, using `AnyDeepChannels::pixel_samples_as::<f32>`.
   - Supports deep scan lines and deep tiles, compressed with `Uncompressed`, `RLE` or `ZIP1`.
     Offset tables of partial tiles are written such that all versions of the `OpenEXR` library can read them,
     except for some partial tiles where that is not possible, for example of tiles that are only one or two pixels wide or high,
     and except for uncompressed tiles of more than 4,194,304 pixels, whose tables are not padded to avoid huge files.
     The offset tables written by older versions of the `OpenEXR` library can also be read.
   - The block-level API offers `UncompressedDeepBlock`. Deep blocks are (de)compressed with the same
-    sequential and parallel pipeline as flat blocks, which is now generic over the new `PixelBlock` trait.
-    For example, `ParallelBlockDecompressor<R, UncompressedDeepBlock>` decompresses deep blocks.
+    sequential and parallel pipeline as flat blocks.
 - Adds the `DeepImageState` attribute type, for the standard `deepImageState` attribute.
 
 ### Changed
 - Use compiler autovectorization for DWA transforms, replacing handwritten SIMD kernels with batch-level AVX2 runtime dispatch via `multiversion`.
+- __Breaking:__ `UncompressedBlock` is now an enum with the variants `Flat(UncompressedFlatBlock)` and
+  `Deep(UncompressedDeepBlock)`. The previous struct is now called `UncompressedFlatBlock`.
+  The block decompressors return this enum, so use `block.into_flat()?` where only flat data is expected.
+  The block compressors accept anything that converts into it.
+- __Breaking:__ `ChannelsWriter::extract_uncompressed_block` and `LayersWriter::extract_uncompressed_block`
+  now return `Result<UncompressedBlock>` instead of the flat bytes,
+  and `ChannelsReader::read_block` now receives an `UncompressedFlatBlock`.
 - __Breaking:__ `LayerAttributes::deep_image_state` now has the type `Option<DeepImageState>`
   instead of `Option<Rational>`, matching the `OpenEXR` format,
   and `AttributeValue` has a new `DeepImageState` variant.
 - A negative `maxSamplesPerPixel` attribute, which means "unknown", no longer fails to load.
 - Flat readers using `first_valid_layer()` skip deep layers,
-  and otherwise return `Error::NotSupported` for deep layers.
+  and otherwise return `Error::Invalid` for deep layers instead of `Error::NotSupported`.
 - Compressing a flat block for a deep layer now returns an error.
 - Reading without pedantic checks no longer decompresses the same chunk multiple times
   if the offset table contains duplicate entries.

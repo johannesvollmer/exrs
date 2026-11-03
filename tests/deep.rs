@@ -5,7 +5,7 @@ extern crate exr;
 use std::{convert::TryInto, ffi::OsStr, io::Cursor, path::PathBuf};
 
 use exr::{
-    image::deep::DeepChannels,
+    image::{deep::AnyDeepChannels, validate_results::ValidateResult},
     meta::attribute::DeepImageState,
     prelude::{pixel_vec::PixelVec, *},
 };
@@ -29,7 +29,7 @@ fn deep_files_in_repository() -> Vec<PathBuf> {
 }
 
 fn read_deep_bytes(bytes: &[u8]) -> Result<DeepLayersImage> {
-    read().deep_data().all_layers().pedantic().from_buffered(Cursor::new(bytes))
+    read().deep_data().all_layers().all_attributes().pedantic().from_buffered(Cursor::new(bytes))
 }
 
 fn write_to_bytes(image: &DeepLayersImage) -> Vec<u8> {
@@ -38,26 +38,20 @@ fn write_to_bytes(image: &DeepLayersImage) -> Vec<u8> {
     bytes
 }
 
-/// Compare the deep data and the relevant attributes of two images.
-fn assert_deep_images_equal(expected: &DeepLayersImage, actual: &DeepLayersImage) {
-    assert_eq!(expected.attributes, actual.attributes);
-    assert_eq!(expected.layer_data.len(), actual.layer_data.len());
-
-    for (expected, actual) in expected.layer_data.iter().zip(&actual.layer_data) {
-        assert_eq!(expected.size, actual.size);
-        assert_eq!(expected.attributes, actual.attributes);
-        assert_eq!(expected.channel_data, actual.channel_data);
-    }
-}
-
 #[test]
 fn read_all_deep_images_in_repository() {
     for path in deep_files_in_repository() {
-        let parallel = read().deep_data().all_layers().from_file(&path).unwrap();
-        let sequential =
-            read().deep_data().all_layers().non_parallel().pedantic().from_file(&path).unwrap();
+        let parallel = read().deep_data().all_layers().all_attributes().from_file(&path).unwrap();
+        let sequential = read()
+            .deep_data()
+            .all_layers()
+            .all_attributes()
+            .non_parallel()
+            .pedantic()
+            .from_file(&path)
+            .unwrap();
 
-        assert_deep_images_equal(&parallel, &sequential);
+        parallel.assert_equals_result(&sequential);
 
         for layer in &parallel.layer_data {
             let deep = &layer.channel_data;
@@ -70,14 +64,18 @@ fn read_all_deep_images_in_repository() {
         }
 
         let first = exr::image::read::deep::read_first_deep_layer_from_file(&path).unwrap();
-        assert_eq!(first.layer_data.channel_data, parallel.layer_data[0].channel_data);
+        parallel.layer_data[0].channel_data.assert_equals_result(&first.layer_data.channel_data);
     }
 }
 
 #[test]
 fn read_known_sample_values() {
-    let image =
-        read().deep_data().first_valid_layer().from_file(format!("{LOW_RES}/Balls.exr")).unwrap();
+    let image = read()
+        .deep_data()
+        .first_valid_layer()
+        .all_attributes()
+        .from_file(format!("{LOW_RES}/Balls.exr"))
+        .unwrap();
 
     let layer = &image.layer_data;
     assert_eq!(layer.attributes.layer_name, Some(Text::from("rgba.left")));
@@ -92,15 +90,12 @@ fn read_known_sample_values() {
     assert_eq!(statistics.max_samples_per_pixel, 2);
     assert_eq!(statistics.non_empty_pixel_count, 117_256);
 
-    let samples = deep.sample_range(Vec2(430, 0));
-    assert_eq!(samples.len(), 2);
+    let position = Vec2(430, 0);
+    assert_eq!(deep.sample_count(position), 2);
 
     let values = |name: &str| -> Vec<f32> {
-        let channel = deep.channel_by_name(name).unwrap();
-        samples
-            .clone()
-            .map(|index| channel.sample_data.value_by_flat_index(index).to_f32())
-            .collect()
+        let channel = deep.channel_index_by_name(name).unwrap();
+        deep.pixel_samples_as(channel, position).collect()
     };
 
     assert_eq!(values("A"), vec![0.109375, 0.017547607421875]);
@@ -113,34 +108,38 @@ fn read_known_sample_values() {
 fn flat_and_deep_readers_reject_each_other() {
     let deep_path = format!("{LOW_RES}/Balls.exr");
 
-    // flat readers report deep data as unsupported instead of invalid
-    assert!(matches!(read_all_data_from_file(&deep_path), Err(Error::NotSupported(_))));
-    assert!(matches!(read_all_flat_layers_from_file(&deep_path), Err(Error::NotSupported(_))));
+    // flat readers report deep data as invalid
+    assert!(matches!(read_all_data_from_file(&deep_path), Err(Error::Invalid(_))));
+    assert!(matches!(read_all_flat_layers_from_file(&deep_path), Err(Error::Invalid(_))));
     assert!(matches!(
         read_first_rgba_layer_from_file(
             &deep_path,
             |_, _| (),
             |_: &mut (), _: Vec2<usize>, _: (f32, f32, f32, f32)| {}
         ),
-        Err(Error::NotSupported(_))
+        Err(Error::Invalid(_))
     ));
 
-    // deep readers report flat data as unsupported
+    // deep readers report flat data as invalid
     let flat_path = format!("{LOW_RES}/composited.exr");
     assert!(matches!(
-        read().deep_data().first_valid_layer().from_file(&flat_path),
-        Err(Error::NotSupported(_))
+        read().deep_data().first_valid_layer().all_attributes().from_file(&flat_path),
+        Err(Error::Invalid(_))
     ));
     assert!(matches!(
-        read().deep_data().all_layers().from_file(&flat_path),
-        Err(Error::NotSupported(_))
+        read().deep_data().all_layers().all_attributes().from_file(&flat_path),
+        Err(Error::Invalid(_))
     ));
 }
 
 #[test]
 fn round_trip_with_all_compression_methods_and_blocks() {
-    let original =
-        read().deep_data().all_layers().from_file(format!("{LOW_RES}/Trunks.exr")).unwrap();
+    let original = read()
+        .deep_data()
+        .all_layers()
+        .all_attributes()
+        .from_file(format!("{LOW_RES}/Trunks.exr"))
+        .unwrap();
 
     for compression in [Compression::Uncompressed, Compression::RLE, Compression::ZIP1] {
         for blocks in [Blocks::ScanLines, Blocks::Tiles(Vec2(64, 64)), Blocks::Tiles(Vec2(37, 23))]
@@ -154,16 +153,17 @@ fn round_trip_with_all_compression_methods_and_blocks() {
 
             let bytes = write_to_bytes(&image);
             let decoded = read_deep_bytes(&bytes).unwrap();
-            assert_deep_images_equal(&image, &decoded);
+            image.assert_equals_result(&decoded);
             assert_eq!(decoded.layer_data[0].encoding, image.layer_data[0].encoding);
 
             let sequential = read()
                 .deep_data()
                 .all_layers()
+                .all_attributes()
                 .non_parallel()
                 .from_buffered(Cursor::new(&bytes))
                 .unwrap();
-            assert_deep_images_equal(&image, &sequential);
+            image.assert_equals_result(&sequential);
         }
     }
 }
@@ -171,11 +171,11 @@ fn round_trip_with_all_compression_methods_and_blocks() {
 #[test]
 fn round_trip_multi_part_file() {
     let path = "tests/images/valid/openexr/v2/Stereo/Balls.exr";
-    let original = read().deep_data().all_layers().from_file(path).unwrap();
+    let original = read().deep_data().all_layers().all_attributes().from_file(path).unwrap();
     assert_eq!(original.layer_data.len(), 2);
 
     let decoded = read_deep_bytes(&write_to_bytes(&original)).unwrap();
-    assert_deep_images_equal(&original, &decoded);
+    original.assert_equals_result(&decoded);
 }
 
 /// Create a deep layer with pseudo-random contents, including empty pixels
@@ -185,7 +185,7 @@ fn synthetic_layer(
     size: Vec2<usize>,
     seed: u32,
     encoding: Encoding,
-) -> Layer<DeepChannels> {
+) -> Layer<AnyDeepChannels> {
     let mut state = seed;
     let mut random = move || {
         state ^= state << 13;
@@ -210,7 +210,7 @@ fn synthetic_layer(
     let alpha = (0..total).map(|_| f16::from_f32((random() % 1000) as f32 / 1000.0)).collect();
     let ids = (0..total).map(|_| random()).collect();
 
-    let channels = DeepChannels::new(
+    let channels = AnyDeepChannels::new(
         size,
         counts,
         vec![
@@ -245,7 +245,7 @@ fn round_trip_synthetic_layers() {
         },
     ];
 
-    let layers: Layers<DeepChannels> = encodings
+    let layers: Layers<AnyDeepChannels> = encodings
         .iter()
         .enumerate()
         .map(|(index, &encoding)| {
@@ -275,7 +275,7 @@ fn round_trip_synthetic_layers() {
         writer.to_buffered(Cursor::new(&mut bytes)).unwrap();
 
         let decoded = read_deep_bytes(&bytes).unwrap();
-        assert_deep_images_equal(&image, &decoded);
+        image.assert_equals_result(&decoded);
 
         let meta = MetaData::read_from_buffered(bytes.as_slice(), true).unwrap();
         assert!(meta.requirements.has_deep_data);
@@ -310,9 +310,13 @@ fn round_trip_single_tiled_layer() {
     assert!(meta.requirements.has_deep_data);
     assert!(!meta.requirements.is_single_layer_and_tiled);
 
-    let decoded: DeepImage =
-        read().deep_data().first_valid_layer().from_buffered(Cursor::new(&bytes)).unwrap();
-    assert_eq!(decoded.layer_data.channel_data, image.layer_data.channel_data);
+    let decoded: DeepImage = read()
+        .deep_data()
+        .first_valid_layer()
+        .all_attributes()
+        .from_buffered(Cursor::new(&bytes))
+        .unwrap();
+    image.layer_data.channel_data.assert_equals_result(&decoded.layer_data.channel_data);
 }
 
 #[test]
@@ -346,10 +350,11 @@ fn write_image_with_flat_and_deep_layers() {
         let decoded_deep: DeepImage = read()
             .deep_data()
             .first_valid_layer()
+            .all_attributes()
             .pedantic()
             .from_buffered(Cursor::new(&bytes))
             .unwrap();
-        assert_eq!(decoded_deep.layer_data.channel_data, deep.channel_data);
+        deep.channel_data.assert_equals_result(&decoded_deep.layer_data.channel_data);
 
         let decoded_flat = read()
             .no_deep_data()
@@ -365,7 +370,7 @@ fn write_image_with_flat_and_deep_layers() {
 
         // the image contains a flat layer, so not all layers can be read as
         // deep data
-        assert!(matches!(read_deep_bytes(&bytes), Err(Error::NotSupported(_))));
+        assert!(matches!(read_deep_bytes(&bytes), Err(Error::Invalid(_))));
     }
 }
 
@@ -410,59 +415,54 @@ fn read_images_with_deep_and_flat_layers_in_any_order() {
     let decoded_first: DeepImage = read()
         .deep_data()
         .first_valid_layer()
+        .all_attributes()
         .pedantic()
         .from_buffered(Cursor::new(&bytes))
         .unwrap();
 
-    assert_eq!(decoded_first.layer_data.channel_data, first_deep.channel_data);
+    first_deep.channel_data.assert_equals_result(&decoded_first.layer_data.channel_data);
 
     // all deep layers can be read, skipping the flat layer
     let decoded_deep: DeepLayersImage = read()
         .deep_data()
         .all_valid_layers()
+        .all_attributes()
         .pedantic()
         .from_buffered(Cursor::new(&bytes))
         .unwrap();
 
     assert_eq!(decoded_deep.layer_data.len(), 2);
-    assert_eq!(decoded_deep.layer_data[0].channel_data, first_deep.channel_data);
-    assert_eq!(decoded_deep.layer_data[1].channel_data, second_deep.channel_data);
+    first_deep.channel_data.assert_equals_result(&decoded_deep.layer_data[0].channel_data);
+    second_deep.channel_data.assert_equals_result(&decoded_deep.layer_data[1].channel_data);
     assert_eq!(decoded_deep.layer_data[1].attributes.layer_name, second_deep.attributes.layer_name);
-    assert!(matches!(read_deep_bytes(&bytes), Err(Error::NotSupported(_))));
+    assert!(matches!(read_deep_bytes(&bytes), Err(Error::Invalid(_))));
 }
 
 /// Selects the deep layer with a specific name.
 struct ReadDeepLayerByName(&'static str);
 
-impl exr::image::read::deep::ReadDeepLayers for ReadDeepLayerByName {
-    type Layers = Layer<DeepChannels>;
+impl ReadLayers<'_> for ReadDeepLayerByName {
+    type Layers = Layer<AnyDeepChannels>;
+    type Reader = exr::image::read::deep::FirstValidDeepLayerReader;
 
-    fn select_layers(&self, headers: &[exr::meta::header::Header]) -> Result<SmallVec<[usize; 2]>> {
-        headers
-            .iter()
-            .position(|header| header.own_attributes.layer_name == Some(Text::from(self.0)))
-            .map(|index| SmallVec::from_slice(&[index]))
-            .ok_or_else(|| Error::Invalid("no layer with that name".into()))
-    }
-
-    fn collect_layers(&self, layers: Vec<Layer<DeepChannels>>) -> Self::Layers {
-        layers.into_iter().next().unwrap()
+    fn create_layers_reader(&self, headers: &[exr::meta::header::Header]) -> Result<Self::Reader> {
+        exr::image::read::deep::FirstValidDeepLayerReader::new(headers, |header| {
+            header.own_attributes.layer_name == Some(Text::from(self.0))
+        })
     }
 }
 
 #[test]
 fn read_deep_layers_with_custom_selection() {
     let path = "tests/images/valid/openexr/v2/Stereo/Balls.exr";
-    let all = read().deep_data().all_layers().from_file(path).unwrap();
+    let all = read().deep_data().all_layers().all_attributes().from_file(path).unwrap();
 
     let second_name = all.layer_data[1].attributes.layer_name.clone().unwrap();
     let second_name: &'static str = Box::leak(second_name.to_string().into_boxed_str());
 
-    let second = exr::image::read::deep::ReadDeepImage::new(ReadDeepLayerByName(second_name))
-        .from_file(path)
-        .unwrap();
+    let second = ReadDeepLayerByName(second_name).all_attributes().from_file(path).unwrap();
 
-    assert_eq!(second.layer_data.channel_data, all.layer_data[1].channel_data);
+    all.layer_data[1].channel_data.assert_equals_result(&second.layer_data.channel_data);
 }
 
 #[test]
@@ -477,13 +477,15 @@ fn version_flags_of_deep_files() {
     // like `OpenEXR` 3.3 and newer, the type attribute of multi-layer files is
     // trusted, but not when reading pedantically, as older versions reject it
     let multi_layer = without_deep_flag("tests/images/valid/openexr/v2/Stereo/Balls.exr");
-    let relaxed = read().deep_data().all_layers().from_buffered(Cursor::new(&multi_layer));
+    let relaxed =
+        read().deep_data().all_layers().all_attributes().from_buffered(Cursor::new(&multi_layer));
     assert_eq!(relaxed.unwrap().layer_data.len(), 2);
     assert!(read_deep_bytes(&multi_layer).is_err());
 
     // single-layer files must declare deep data
     let single_layer = without_deep_flag(&format!("{LOW_RES}/Balls.exr"));
-    let relaxed = read().deep_data().all_layers().from_buffered(Cursor::new(&single_layer));
+    let relaxed =
+        read().deep_data().all_layers().all_attributes().from_buffered(Cursor::new(&single_layer));
     assert!(relaxed.is_err());
 }
 
@@ -520,12 +522,20 @@ fn duplicate_chunk_offsets_are_read_once() {
     }
 
     // the first chunk only contains the first row, which contains no samples
-    let relaxed: DeepImage =
-        read().deep_data().first_valid_layer().from_buffered(Cursor::new(&bytes)).unwrap();
+    let relaxed: DeepImage = read()
+        .deep_data()
+        .first_valid_layer()
+        .all_attributes()
+        .from_buffered(Cursor::new(&bytes))
+        .unwrap();
     assert_eq!(relaxed.layer_data.channel_data.total_sample_count(), 0);
 
-    let pedantic =
-        read().deep_data().first_valid_layer().pedantic().from_buffered(Cursor::new(&bytes));
+    let pedantic = read()
+        .deep_data()
+        .first_valid_layer()
+        .all_attributes()
+        .pedantic()
+        .from_buffered(Cursor::new(&bytes));
     assert!(pedantic.is_err());
 }
 
@@ -560,7 +570,7 @@ fn overlapping_chunks_are_rejected() {
         .copy_from_slice(&(first_chunk as u64 + 8).to_le_bytes());
 
     for pedantic in [false, true] {
-        let reader = read().deep_data().first_valid_layer();
+        let reader = read().deep_data().first_valid_layer().all_attributes();
         let result: Result<DeepImage> = if pedantic {
             reader.pedantic().from_buffered(Cursor::new(&bytes))
         } else {
@@ -601,7 +611,7 @@ fn read_chunks_after_skipping_tiny_chunks() {
     image.write().non_parallel().to_buffered(Cursor::new(&mut bytes)).unwrap();
 
     for pedantic in [false, true] {
-        let reader = read().deep_data().all_valid_layers();
+        let reader = read().deep_data().all_valid_layers().all_attributes();
         let reader = if pedantic {
             reader.pedantic()
         } else {
@@ -610,8 +620,8 @@ fn read_chunks_after_skipping_tiny_chunks() {
 
         let decoded = reader.from_buffered(Cursor::new(&bytes)).unwrap();
         assert_eq!(decoded.layer_data.len(), 2);
-        assert_eq!(decoded.layer_data[0].channel_data, first.channel_data);
-        assert_eq!(decoded.layer_data[1].channel_data, second.channel_data);
+        first.channel_data.assert_equals_result(&decoded.layer_data[0].channel_data);
+        second.channel_data.assert_equals_result(&decoded.layer_data[1].channel_data);
     }
 
     // reading flat layers of an image with deep layers
@@ -667,6 +677,7 @@ fn deep_image_state_attribute() {
     let decoded: DeepImage = read()
         .deep_data()
         .first_valid_layer()
+        .all_attributes()
         .pedantic()
         .from_buffered(Cursor::new(&bytes))
         .unwrap();

@@ -2,7 +2,8 @@
 //! rectangle. Currently does not support deep data and resolution levels.
 
 use crate::{
-    block::BlockIndex,
+    block::{BlockIndex, UncompressedBlock, UncompressedDeepBlock, UncompressedFlatBlock},
+    error::Result,
     image::{
         write::channels::{ChannelsWriter, GetPixel, WritableChannels},
         AnyChannel, AnyChannels, FlatSamples, FlatSamplesPixel, Layer, SpecificChannels,
@@ -221,13 +222,29 @@ impl<'c, Channels> ChannelsWriter for CroppedWriter<Channels>
 where
     Channels: ChannelsWriter,
 {
-    fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex) -> Vec<u8> {
-        let block = BlockIndex {
+    fn extract_uncompressed_block(
+        &self,
+        header: &Header,
+        block: BlockIndex,
+    ) -> Result<UncompressedBlock> {
+        let cropped_block = BlockIndex {
             pixel_position: block.pixel_position + self.offset,
             ..block
         };
 
-        self.channels.extract_uncompressed_block(header, block)
+        // the extracted block is located in the cropped image
+        Ok(match self.channels.extract_uncompressed_block(header, cropped_block)? {
+            UncompressedBlock::Flat(flat) => UncompressedFlatBlock {
+                index: block,
+                ..flat
+            }
+            .into(),
+            UncompressedBlock::Deep(deep) => UncompressedDeepBlock {
+                index: block,
+                ..deep
+            }
+            .into(),
+        })
     }
 }
 

@@ -46,6 +46,14 @@ pub enum CompressedBlock {
     DeepTile(CompressedDeepTileBlock),
 }
 
+impl CompressedBlock {
+    /// Whether this block contains deep data.
+    #[must_use]
+    pub const fn is_deep(&self) -> bool {
+        matches!(self, Self::DeepScanLine(_) | Self::DeepTile(_))
+    }
+}
+
 /// A `Block` of possibly compressed flat scan lines.
 /// Corresponds to type attribute `scanlineimage`.
 /// The byte data is in little-endian format,

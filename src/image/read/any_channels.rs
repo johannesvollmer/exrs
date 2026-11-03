@@ -1,7 +1,7 @@
 //! How to read arbitrary channels.
 
 use crate::{
-    block::{chunk::TileCoordinates, lines::LineRef, UncompressedBlock},
+    block::{chunk::TileCoordinates, lines::LineRef, UncompressedFlatBlock},
     error::{Result, UnitResult},
     image::{
         read::layers::{ChannelsReader, ReadChannels},
@@ -112,7 +112,7 @@ impl<S: SamplesReader> ChannelsReader for AnyChannelsReader<S> {
         self.sample_channels_reader.iter().any(|channel| channel.samples.filter_block(tile))
     }
 
-    fn read_block(&mut self, header: &Header, decompressed: UncompressedBlock) -> UnitResult {
+    fn read_block(&mut self, header: &Header, decompressed: UncompressedFlatBlock) -> UnitResult {
         // for (bytes, line) in LineIndex::lines_in_block(decompressed.index,
         // header) { let channel =
         // self.sample_channels_reader.get_mut(line.channel).unwrap();

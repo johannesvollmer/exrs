@@ -9,7 +9,7 @@ use std::{
 use crate::{
     block::{
         chunk::{Chunk, TileCoordinates},
-        BlockIndex, PixelBlock, UncompressedBlock,
+        BlockIndex, UncompressedBlock,
     },
     error::{u64_to_usize, Error, Result, UnitResult},
     io::{PeekRead, Tracking},
@@ -290,7 +290,8 @@ pub trait ChunksReader: Sized + Iterator<Item = Result<Chunk>> + ExactSizeIterat
     #[cfg(feature = "rayon")]
     /// Decompress all blocks in the file, using multiple cpu cores, and call
     /// the supplied closure for each block. The order of the blocks is not
-    /// deterministic. You can also use `parallel_decompressor` to obtain an
+    /// deterministic. Each block is either flat or deep, depending on its
+    /// layer. You can also use `parallel_decompressor` to obtain an
     /// iterator instead. Will fallback to sequential processing where
     /// threads are not available, or where it would not speed up the process.
     // FIXME try async + futures instead of rayon! Maybe even allows for
@@ -298,9 +299,23 @@ pub trait ChunksReader: Sized + Iterator<Item = Result<Chunk>> + ExactSizeIterat
     fn decompress_parallel(
         self,
         pedantic: bool,
-        insert_block: impl FnMut(&MetaData, UncompressedBlock) -> UnitResult,
+        mut insert_block: impl FnMut(&MetaData, UncompressedBlock) -> UnitResult,
     ) -> UnitResult {
-        decompress_blocks_parallel(self, pedantic, insert_block)
+        let mut decompressor = match self.parallel_decompressor(pedantic) {
+            Err(chunks) => return chunks.decompress_sequential(pedantic, insert_block),
+            Ok(decompressor) => decompressor,
+        };
+
+        while let Some(block) = decompressor.next() {
+            insert_block(decompressor.meta_data(), block?)?;
+        }
+
+        debug_assert_eq!(
+            decompressor.len(),
+            0,
+            "compressed blocks left after decompressing all blocks"
+        );
+        Ok(())
     }
 
     #[cfg(feature = "rayon")]
@@ -316,15 +331,26 @@ pub trait ChunksReader: Sized + Iterator<Item = Result<Chunk>> + ExactSizeIterat
         ParallelBlockDecompressor::new(self, pedantic)
     }
 
-    /// Return an iterator that decompresses the chunks in this thread.
-    /// You can alternatively use `sequential_decompressor` if you prefer an
-    /// external iterator.
+    /// Decompress all blocks in the file in this thread, and call the supplied
+    /// closure for each block. Each block is either flat or deep, depending
+    /// on its layer. You can alternatively use `sequential_decompressor` if
+    /// you prefer an external iterator.
     fn decompress_sequential(
         self,
         pedantic: bool,
-        insert_block: impl FnMut(&MetaData, UncompressedBlock) -> UnitResult,
+        mut insert_block: impl FnMut(&MetaData, UncompressedBlock) -> UnitResult,
     ) -> UnitResult {
-        decompress_blocks_sequential(self, pedantic, insert_block)
+        let mut decompressor = self.sequential_decompressor(pedantic);
+        while let Some(block) = decompressor.next() {
+            insert_block(decompressor.meta_data(), block?)?;
+        }
+
+        debug_assert_eq!(
+            decompressor.len(),
+            0,
+            "compressed blocks left after decompressing all blocks"
+        );
+        Ok(())
     }
 
     /// Prepare reading the chunks sequentially, only a single thread, but with
@@ -332,55 +358,6 @@ pub trait ChunksReader: Sized + Iterator<Item = Result<Chunk>> + ExactSizeIterat
     fn sequential_decompressor(self, pedantic: bool) -> SequentialBlockDecompressor<Self> {
         SequentialBlockDecompressor::new(self, pedantic)
     }
-}
-
-/// Decompress all blocks in the file, using multiple cpu cores, and call the
-/// supplied closure for each block. The order of the blocks is not
-/// deterministic. Decompresses either flat or deep blocks, depending on the
-/// `Block` type. Will fallback to sequential processing where threads are not
-/// available, or where it would not speed up the process.
-#[cfg(feature = "rayon")]
-pub fn decompress_blocks_parallel<Block: PixelBlock>(
-    chunks: impl ChunksReader,
-    pedantic: bool,
-    mut insert_block: impl FnMut(&MetaData, Block) -> UnitResult,
-) -> UnitResult {
-    let mut decompressor = match ParallelBlockDecompressor::<_, Block>::new(chunks, pedantic) {
-        Err(chunks) => return decompress_blocks_sequential(chunks, pedantic, insert_block),
-        Ok(decompressor) => decompressor,
-    };
-
-    while let Some(block) = decompressor.next() {
-        insert_block(decompressor.meta_data(), block?)?;
-    }
-
-    debug_assert_eq!(
-        decompressor.len(),
-        0,
-        "compressed blocks left after decompressing all blocks"
-    );
-    Ok(())
-}
-
-/// Decompress all blocks in the file in this thread, and call the supplied
-/// closure for each block. Decompresses either flat or deep blocks, depending
-/// on the `Block` type.
-pub fn decompress_blocks_sequential<Block: PixelBlock>(
-    chunks: impl ChunksReader,
-    pedantic: bool,
-    mut insert_block: impl FnMut(&MetaData, Block) -> UnitResult,
-) -> UnitResult {
-    let mut decompressor = SequentialBlockDecompressor::<_, Block>::new(chunks, pedantic);
-    while let Some(block) = decompressor.next() {
-        insert_block(decompressor.meta_data(), block?)?;
-    }
-
-    debug_assert_eq!(
-        decompressor.len(),
-        0,
-        "compressed blocks left after decompressing all blocks"
-    );
-    Ok(())
 }
 
 impl<R, F> ChunksReader for OnProgressChunksReader<R, F>
@@ -524,24 +501,21 @@ impl<R: Read + Seek> Iterator for FilteredChunksReader<R> {
 }
 
 /// Read all chunks from the file, decompressing each chunk immediately.
-/// Produces flat blocks by default. Use `UncompressedDeepBlock` as the `Block`
-/// type to read deep blocks instead.
+/// Each block is either flat or deep, depending on its layer.
 /// Implements iterator.
 #[derive(Debug)]
-pub struct SequentialBlockDecompressor<R: ChunksReader, Block = UncompressedBlock> {
+pub struct SequentialBlockDecompressor<R: ChunksReader> {
     remaining_chunks_reader: R,
     pedantic: bool,
-    block: std::marker::PhantomData<fn() -> Block>,
 }
 
-impl<R: ChunksReader, Block: PixelBlock> SequentialBlockDecompressor<R, Block> {
+impl<R: ChunksReader> SequentialBlockDecompressor<R> {
     /// Prepare reading the chunks sequentially, only a single thread, but with
     /// less memory overhead.
     pub fn new(chunks: R, pedantic: bool) -> Self {
         Self {
             remaining_chunks_reader: chunks,
             pedantic,
-            block: std::marker::PhantomData,
         }
     }
 
@@ -551,9 +525,9 @@ impl<R: ChunksReader, Block: PixelBlock> SequentialBlockDecompressor<R, Block> {
     }
 
     /// Read and then decompress a single block of pixels from the byte source.
-    pub fn decompress_next_block(&mut self) -> Option<Result<Block>> {
+    pub fn decompress_next_block(&mut self) -> Option<Result<UncompressedBlock>> {
         self.remaining_chunks_reader.read_next_chunk().map(|compressed_chunk| {
-            Block::decompress_chunk(
+            UncompressedBlock::decompress_chunk(
                 compressed_chunk?,
                 self.remaining_chunks_reader.meta_data(),
                 self.pedantic,
@@ -564,18 +538,17 @@ impl<R: ChunksReader, Block: PixelBlock> SequentialBlockDecompressor<R, Block> {
 
 #[cfg(feature = "rayon")]
 /// Decompress the chunks in a file in parallel.
-/// Produces flat blocks by default. Use `UncompressedDeepBlock` as the `Block`
-/// type to read deep blocks instead.
+/// Each block is either flat or deep, depending on its layer.
 ///
 /// The first call to `next` will fill the thread pool with jobs,
 /// starting to decompress the next few blocks.
 /// These jobs will finish, even if you stop reading more blocks.
 /// Implements iterator.
 #[derive(Debug)]
-pub struct ParallelBlockDecompressor<R: ChunksReader, Block = UncompressedBlock> {
+pub struct ParallelBlockDecompressor<R: ChunksReader> {
     remaining_chunks: R,
-    sender: std::sync::mpsc::Sender<Result<Block>>,
-    receiver: std::sync::mpsc::Receiver<Result<Block>>,
+    sender: std::sync::mpsc::Sender<Result<UncompressedBlock>>,
+    receiver: std::sync::mpsc::Receiver<Result<UncompressedBlock>>,
     currently_decompressing_count: usize,
     max_threads: usize,
 
@@ -586,7 +559,7 @@ pub struct ParallelBlockDecompressor<R: ChunksReader, Block = UncompressedBlock>
 }
 
 #[cfg(feature = "rayon")]
-impl<R: ChunksReader, Block: PixelBlock> ParallelBlockDecompressor<R, Block> {
+impl<R: ChunksReader> ParallelBlockDecompressor<R> {
     /// Create a new decompressor. Does not immediately spawn any tasks.
     /// Decompression starts after the first call to `next`.
     /// Returns the chunks if parallel decompression should not be used.
@@ -654,7 +627,7 @@ impl<R: ChunksReader, Block: PixelBlock> ParallelBlockDecompressor<R, Block> {
 
     /// Fill the pool with decompression jobs. Returns the first job that
     /// finishes.
-    pub fn decompress_next_block(&mut self) -> Option<Result<Block>> {
+    pub fn decompress_next_block(&mut self) -> Option<Result<UncompressedBlock>> {
         while self.currently_decompressing_count < self.max_threads {
             let block = self.remaining_chunks.next();
             if let Some(block) = block {
@@ -670,7 +643,8 @@ impl<R: ChunksReader, Block: PixelBlock> ParallelBlockDecompressor<R, Block> {
                 self.currently_decompressing_count += 1;
 
                 self.pool.spawn(move || {
-                    let decompressed_or_err = Block::decompress_chunk(block, &meta, pedantic);
+                    let decompressed_or_err =
+                        UncompressedBlock::decompress_chunk(block, &meta, pedantic);
 
                     // by now, decompressing could have failed in another
                     // thread. the error is then already
@@ -712,12 +686,9 @@ impl<R: ChunksReader, Block: PixelBlock> ParallelBlockDecompressor<R, Block> {
     }
 }
 
-impl<R: ChunksReader, Block: PixelBlock> ExactSizeIterator
-    for SequentialBlockDecompressor<R, Block>
-{
-}
-impl<R: ChunksReader, Block: PixelBlock> Iterator for SequentialBlockDecompressor<R, Block> {
-    type Item = Result<Block>;
+impl<R: ChunksReader> ExactSizeIterator for SequentialBlockDecompressor<R> {}
+impl<R: ChunksReader> Iterator for SequentialBlockDecompressor<R> {
+    type Item = Result<UncompressedBlock>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.decompress_next_block()
@@ -729,10 +700,10 @@ impl<R: ChunksReader, Block: PixelBlock> Iterator for SequentialBlockDecompresso
 }
 
 #[cfg(feature = "rayon")]
-impl<R: ChunksReader, Block: PixelBlock> ExactSizeIterator for ParallelBlockDecompressor<R, Block> {}
+impl<R: ChunksReader> ExactSizeIterator for ParallelBlockDecompressor<R> {}
 #[cfg(feature = "rayon")]
-impl<R: ChunksReader, Block: PixelBlock> Iterator for ParallelBlockDecompressor<R, Block> {
-    type Item = Result<Block>;
+impl<R: ChunksReader> Iterator for ParallelBlockDecompressor<R> {
+    type Item = Result<UncompressedBlock>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.decompress_next_block()

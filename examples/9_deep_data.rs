@@ -2,7 +2,7 @@
 
 extern crate exr;
 
-use exr::{image::deep::DeepChannels, prelude::*};
+use exr::{image::deep::AnyDeepChannels, prelude::*};
 
 fn main() {
     let directory = "tests/images/valid/openexr/v2/LowResLeftView";
@@ -14,6 +14,7 @@ fn main() {
             read()
                 .deep_data()
                 .first_valid_layer()
+                .all_attributes()
                 .from_file(format!("{}/{}", directory, name))
                 .expect("cannot read deep image")
         })
@@ -34,15 +35,10 @@ fn main() {
     }
 
     // access the samples of a single pixel
-    let balls: &DeepChannels = &images[2].layer_data.channel_data;
-    let samples = balls.sample_range(Vec2(430, 0));
+    let balls: &AnyDeepChannels = &images[2].layer_data.channel_data;
 
-    for channel in balls.channels() {
-        let values: Vec<f32> = samples
-            .clone()
-            .map(|index| channel.sample_data.value_by_flat_index(index).to_f32())
-            .collect();
-
+    for (channel_index, channel) in balls.channels().iter().enumerate() {
+        let values: Vec<f32> = balls.pixel_samples_as(channel_index, Vec2(430, 0)).collect();
         println!("samples of channel {} in a pixel: {:?}", channel.name, values);
     }
 

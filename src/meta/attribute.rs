@@ -188,7 +188,7 @@ pub mod block_type_strings {
     pub const DEEP_TILE: &[u8] = b"deeptile";
 }
 
-pub use crate::{compression::Compression, meta::deep_state::DeepImageState};
+pub use crate::{compression::Compression, meta::deep_image_state::DeepImageState};
 
 /// The integer rectangle describing where an layer is placed on the infinite 2D
 /// global space.
