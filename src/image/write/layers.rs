@@ -1,7 +1,8 @@
 //! How to write either a single or a list of layers.
 
 use crate::{
-    block::BlockIndex,
+    block::{BlockIndex, UncompressedBlock},
+    error::Result,
     image::{
         recursive::{NoneMore, Recursive},
         write::channels::{ChannelsWriter, WritableChannels},
@@ -30,8 +31,13 @@ pub trait WritableLayers<'slf> {
 
 /// A temporary writer for a list of channels
 pub trait LayersWriter: Sync {
-    /// Deliver a block of pixels from a single layer to be stored in the file
-    fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex) -> Vec<u8>;
+    /// Deliver a block of pixels from a single layer to be stored in the file.
+    /// Flat layers return a flat block, and deep layers return a deep block.
+    fn extract_uncompressed_block(
+        &self,
+        headers: &[Header],
+        block: BlockIndex,
+    ) -> Result<UncompressedBlock>;
 }
 
 /// A temporary writer for an arbitrary list of layers
@@ -101,6 +107,10 @@ impl<'slf, Channels: WritableChannels<'slf>> WritableLayers<'slf> for Layer<Chan
 
         let chunk_count = compute_chunk_count(self.encoding.compression, self.size, blocks);
 
+        let max_samples_per_pixel = self.channel_data.infer_deep_max_samples_per_pixel();
+
+        let deep = max_samples_per_pixel.is_some();
+
         let header = Header {
             channels: self.channel_data.infer_channel_list(),
             compression: self.encoding.compression,
@@ -113,9 +123,13 @@ impl<'slf, Channels: WritableChannels<'slf>> WritableLayers<'slf> for Layer<Chan
             shared_attributes: image_attributes.clone(),
             own_attributes: self.attributes.clone(),
 
-            deep: false, // TODO deep data
-            deep_data_version: None,
-            max_samples_per_pixel: None,
+            deep,
+            deep_data_version: if deep {
+                Some(1)
+            } else {
+                None
+            },
+            max_samples_per_pixel,
         };
 
         smallvec![header] // TODO no array-vs-first
@@ -135,7 +149,11 @@ impl<C> LayersWriter for AllLayersWriter<C>
 where
     C: ChannelsWriter,
 {
-    fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex) -> Vec<u8> {
+    fn extract_uncompressed_block(
+        &self,
+        headers: &[Header],
+        block: BlockIndex,
+    ) -> Result<UncompressedBlock> {
         self.layers[block.layer]
             .extract_uncompressed_block(std::slice::from_ref(&headers[block.layer]), block)
         // TODO no array-vs-first
@@ -146,7 +164,11 @@ impl<C> LayersWriter for LayerWriter<C>
 where
     C: ChannelsWriter,
 {
-    fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex) -> Vec<u8> {
+    fn extract_uncompressed_block(
+        &self,
+        headers: &[Header],
+        block: BlockIndex,
+    ) -> Result<UncompressedBlock> {
         self.channels
             .extract_uncompressed_block(headers.first().expect("invalid inferred header"), block)
         // TODO no array-vs-first
@@ -198,7 +220,7 @@ impl LayersWriter for NoneMore {
     /// Panics if called, as this indicates a recursive length mismatch bug
     /// where a block is being extracted for a layer index that doesn't
     /// exist in the recursive layer structure.
-    fn extract_uncompressed_block(&self, _: &[Header], _: BlockIndex) -> Vec<u8> {
+    fn extract_uncompressed_block(&self, _: &[Header], _: BlockIndex) -> Result<UncompressedBlock> {
         unreachable!(
             "recursive length mismatch bug: attempted to extract block for non-existent layer"
         )
@@ -211,7 +233,11 @@ where
     InnerLayersWriter: LayersWriter,
     Channels: ChannelsWriter,
 {
-    fn extract_uncompressed_block(&self, headers: &[Header], block: BlockIndex) -> Vec<u8> {
+    fn extract_uncompressed_block(
+        &self,
+        headers: &[Header],
+        block: BlockIndex,
+    ) -> Result<UncompressedBlock> {
         let (layer_index, layer) = &self.value;
         if *layer_index == block.layer {
             let header = headers.get(*layer_index).expect("layer index bug");

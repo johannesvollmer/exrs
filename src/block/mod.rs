@@ -11,11 +11,13 @@ pub mod reader;
 pub mod writer;
 
 pub mod chunk;
+pub mod deep;
 pub mod lines;
 pub mod samples;
 
 use std::io::{Read, Seek, Write};
 
+pub use self::deep::UncompressedDeepBlock;
 use crate::{
     block::{
         chunk::{
@@ -48,14 +50,93 @@ pub struct BlockIndex {
     pub level: Vec2<usize>,
 }
 
+/// A block of uncompressed pixels, stored in a single chunk of the file.
+/// Flat layers contain flat blocks, and deep layers contain deep blocks.
+/// The block pipeline reads and writes both kinds of blocks,
+/// and the image reader and writer then use only the kind they expect.
+#[derive(Clone, Eq, PartialEq, Debug, Hash)]
+pub enum UncompressedBlock {
+    /// A block of a flat layer, containing exactly one sample per pixel and
+    /// channel.
+    Flat(UncompressedFlatBlock),
+
+    /// A block of a deep layer, containing any number of samples per pixel.
+    Deep(UncompressedDeepBlock),
+}
+
+impl UncompressedBlock {
+    /// Decompress the possibly compressed chunk.
+    /// Returns a flat or a deep block, depending on the kind of the chunk.
+    #[inline]
+    pub fn decompress_chunk(chunk: Chunk, meta_data: &MetaData, pedantic: bool) -> Result<Self> {
+        if chunk.compressed_block.is_deep() {
+            UncompressedDeepBlock::decompress_chunk(chunk, meta_data, pedantic).map(Self::Deep)
+        } else {
+            UncompressedFlatBlock::decompress_chunk(chunk, meta_data, pedantic).map(Self::Flat)
+        }
+    }
+
+    /// Consume this block by compressing it, returning a `Chunk`.
+    #[inline]
+    pub fn compress_to_chunk(self, headers: &[Header]) -> Result<Chunk> {
+        match self {
+            Self::Flat(block) => block.compress_to_chunk(headers),
+            Self::Deep(block) => block.compress_to_chunk(headers),
+        }
+    }
+
+    /// Location of the data inside the image.
+    #[must_use]
+    pub const fn index(&self) -> BlockIndex {
+        match self {
+            Self::Flat(block) => block.index,
+            Self::Deep(block) => block.index,
+        }
+    }
+
+    /// Whether this block contains deep data.
+    #[must_use]
+    pub const fn is_deep(&self) -> bool {
+        matches!(self, Self::Deep(_))
+    }
+
+    /// Return the flat block, or an error if this block contains deep data.
+    pub fn into_flat(self) -> Result<UncompressedFlatBlock> {
+        match self {
+            Self::Flat(block) => Ok(block),
+            Self::Deep(_) => Err(Error::invalid("deep data in flat layer")),
+        }
+    }
+
+    /// Return the deep block, or an error if this block contains flat data.
+    pub fn into_deep(self) -> Result<UncompressedDeepBlock> {
+        match self {
+            Self::Deep(block) => Ok(block),
+            Self::Flat(_) => Err(Error::invalid("flat data in deep layer")),
+        }
+    }
+}
+
+impl From<UncompressedFlatBlock> for UncompressedBlock {
+    fn from(block: UncompressedFlatBlock) -> Self {
+        Self::Flat(block)
+    }
+}
+
+impl From<UncompressedDeepBlock> for UncompressedBlock {
+    fn from(block: UncompressedDeepBlock) -> Self {
+        Self::Deep(block)
+    }
+}
+
 /// Contains a block of pixel data and where that data should be placed in the
 /// actual image.
 ///
 /// The bytes must be encoded in native-endian format.
 /// The conversion to little-endian format happens when converting to chunks
 /// (potentially in parallel).
-#[derive(Clone, Eq, PartialEq, Debug)]
-pub struct UncompressedBlock {
+#[derive(Clone, Eq, PartialEq, Debug, Hash)]
+pub struct UncompressedFlatBlock {
     /// Location of the data inside the image.
     pub index: BlockIndex,
 
@@ -127,9 +208,9 @@ pub fn enumerate_ordered_header_block_indices(
     })
 }
 
-impl UncompressedBlock {
+impl UncompressedFlatBlock {
     /// Decompress the possibly compressed chunk and returns an
-    /// `UncompressedBlock`.
+    /// `UncompressedFlatBlock`. Returns an error for deep chunks.
     // for uncompressed data, the ByteVec in the chunk is moved all the way
     #[inline]
     #[must_use]
@@ -167,7 +248,9 @@ impl UncompressedBlock {
                 },
             }),
 
-            _ => Err(Error::unsupported("deep data not supported yet")),
+            CompressedBlock::DeepScanLine(_) | CompressedBlock::DeepTile(_) => {
+                Err(Error::invalid("deep data in flat block"))
+            }
         }
     }
 
@@ -182,6 +265,10 @@ impl UncompressedBlock {
         } = self;
 
         let header: &Header = headers.get(index.layer).expect("block layer index bug");
+
+        if header.deep {
+            return Err(Error::invalid("flat block in deep layer"));
+        }
 
         let expected_byte_size = header.channels.bytes_per_pixel * self.index.pixel_size.area(); // TODO sampling??
         if expected_byte_size != data.len() {
@@ -295,8 +382,8 @@ impl UncompressedBlock {
         block_bytes
     }
 
-    /// Create an uncompressed block by requesting one line of samples after
-    /// another.
+    /// Create an uncompressed flat block by requesting one line of samples
+    /// after another.
     pub fn from_lines(
         channels: &ChannelList,
         block_index: BlockIndex,

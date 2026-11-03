@@ -13,6 +13,7 @@
 //! ```
 
 pub mod channels;
+pub mod deep;
 pub mod layers;
 pub mod samples;
 
@@ -205,11 +206,17 @@ where
         let layers = self.image.layer_data.create_writer(&headers);
 
         crate::block::write(write, headers, self.check_compatibility, move |meta, chunk_writer| {
-            let blocks = meta.collect_ordered_block_data(|block_index| {
-                layers.extract_uncompressed_block(&meta.headers, block_index)
-            });
+            let mut chunk_writer = chunk_writer.on_progress(self.on_progress);
 
-            let chunk_writer = chunk_writer.on_progress(self.on_progress);
+            // flat layers produce flat blocks, and deep layers produce deep
+            // blocks
+            let mut blocks = meta.enumerate_ordered_header_block_indices().map(
+                |(index_in_header, block_index)| {
+                    let block = layers.extract_uncompressed_block(&meta.headers, block_index)?;
+                    Ok((index_in_header, block))
+                },
+            );
+
             if self.parallel {
                 #[cfg(not(feature = "rayon"))]
                 return Err(crate::error::Error::unsupported(
@@ -217,11 +224,21 @@ where
                 ));
 
                 #[cfg(feature = "rayon")]
-                chunk_writer.compress_all_blocks_parallel(&meta, blocks)?;
-            } else {
-                chunk_writer.compress_all_blocks_sequential(&meta, blocks)?;
+                if let Some(mut compressor) = chunk_writer.parallel_blocks_compressor(&meta) {
+                    for block in blocks {
+                        let (index_in_header, block) = block?;
+                        compressor.add_block_to_compression_queue(index_in_header, block)?;
+                    }
+
+                    return Ok(());
+                }
             }
-            Ok(())
+
+            let mut compressor = chunk_writer.sequential_blocks_compressor(&meta);
+            blocks.try_for_each(|block: crate::error::Result<_>| {
+                let (index_in_header, block) = block?;
+                compressor.compress_block(index_in_header, block)
+            })
         })
     }
 }

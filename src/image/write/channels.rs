@@ -25,13 +25,25 @@ pub trait WritableChannels<'slf> {
 
     /// Create a temporary writer for this list of channels
     fn create_writer(&'slf self, header: &Header) -> Self::Writer;
+
+    /// Whether these channels contain deep data, and if so,
+    /// the maximum number of samples in a single pixel.
+    /// Returns `None` for flat channels, which is the default.
+    fn infer_deep_max_samples_per_pixel(&self) -> Option<usize> {
+        None
+    }
 }
 
 /// A temporary writer for a list of channels
 pub trait ChannelsWriter: Sync {
     /// Deliver a block of pixels, containing all channel data, to be stored in
-    /// the file
-    fn extract_uncompressed_block(&self, header: &Header, block: BlockIndex) -> Vec<u8>; // TODO return uncompressed block?
+    /// the file. Flat channels return a flat block, and deep channels return
+    /// a deep block.
+    fn extract_uncompressed_block(
+        &self,
+        header: &Header,
+        block: BlockIndex,
+    ) -> Result<UncompressedBlock>;
 }
 
 /// Define how to get a pixel from your custom pixel storage.
@@ -113,14 +125,16 @@ impl<Samples> ChannelsWriter for AnyChannelsWriter<Samples>
 where
     Samples: SamplesWriter,
 {
-    fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Vec<u8> {
-        UncompressedBlock::collect_block_data_from_lines(
-            &header.channels,
-            block_index,
-            |line_ref| {
-                self.channels[line_ref.location.channel].extract_line(line_ref);
-            },
-        )
+    fn extract_uncompressed_block(
+        &self,
+        header: &Header,
+        block_index: BlockIndex,
+    ) -> Result<UncompressedBlock> {
+        let block = UncompressedFlatBlock::from_lines(&header.channels, block_index, |line_ref| {
+            self.channels[line_ref.location.channel].extract_line(line_ref);
+        });
+
+        Ok(block.into())
     }
 }
 
@@ -187,7 +201,11 @@ where
     Storage::Pixel: IntoRecursive,
     PxWriter: Sync + RecursivePixelWriter<<Storage::Pixel as IntoRecursive>::Recursive>,
 {
-    fn extract_uncompressed_block(&self, header: &Header, block_index: BlockIndex) -> Vec<u8> {
+    fn extract_uncompressed_block(
+        &self,
+        header: &Header,
+        block_index: BlockIndex,
+    ) -> Result<UncompressedBlock> {
         let block_bytes = block_index.pixel_size.area() * header.channels.bytes_per_pixel;
         let mut block_bytes = vec![0_u8; block_bytes];
 
@@ -213,7 +231,11 @@ where
             self.recursive_channel_writer.write_pixels(line_bytes, pixel_line.as_slice(), |px| px);
         }
 
-        block_bytes
+        Ok(UncompressedFlatBlock {
+            index: block_index,
+            data: block_bytes,
+        }
+        .into())
     }
 }
 

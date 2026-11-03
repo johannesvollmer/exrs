@@ -241,8 +241,8 @@ impl<T: Read + Seek> Tracking<T> {
         if delta > 0 && delta < 16 {
             // TODO profile that this is indeed faster than a syscall! (should
             // be because of bufread buffer discard)
+            // reading through `self` also updates the position
             skip_bytes(self, delta as usize)?;
-            self.position += delta as usize;
         } else if delta != 0 {
             self.inner.seek(SeekFrom::Start(u64::try_from(target_position).unwrap()))?;
             self.position = target_position;
@@ -579,5 +579,25 @@ mod test {
         assert!(peek.peek_u8().is_err());
 
         assert!(u8::read_from_little_endian(&mut peek).is_err());
+    }
+
+    #[test]
+    fn seek_read_tracks_position() {
+        use crate::io::Tracking;
+
+        let bytes: Vec<u8> = (0..100).collect();
+        let mut read = PeekRead::new(Tracking::new(std::io::Cursor::new(bytes)));
+
+        // a few bytes are skipped without seeking, many bytes are skipped by
+        // seeking
+        for (target, expected_byte) in [(5, 5), (6, 6), (20, 20), (35, 35), (3, 3), (17, 17)] {
+            read.skip_to(target).unwrap();
+            assert_eq!(read.byte_position(), target);
+
+            let mut byte = [0];
+            read.read_exact(&mut byte).unwrap();
+            assert_eq!(byte[0], expected_byte);
+            assert_eq!(read.byte_position(), target + 1);
+        }
     }
 }
