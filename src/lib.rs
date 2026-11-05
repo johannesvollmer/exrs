@@ -39,6 +39,20 @@ pub mod meta;
 pub mod block;
 pub mod error;
 
+/// Some unit tests read images from `tests/images`, which is not part of the
+/// published crate. Returns whether that directory is present, so these tests
+/// can skip themselves when run from the published crate.
+#[cfg(test)]
+pub(crate) fn test_images_available() -> bool {
+    let available = std::path::Path::new("tests/images").is_dir();
+
+    if !available {
+        eprintln!("skipping: `tests/images` is not included in the published crate");
+    }
+
+    available
+}
+
 #[macro_use]
 extern crate smallvec;
 

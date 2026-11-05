@@ -11,7 +11,9 @@ authors = ["johannesvollmer <contact@johannesvollmer.com>"]
 repository = "https://github.com/johannesvollmer/exrs"
 readme = "README.md"
 license = "BSD-3-Clause"
-exclude = [ "specification/*", "specification/**", "tests/images/*", "tests/images/**" ]
+# Most integration tests and benchmarks need the images in `tests/images`,
+# which are too large to publish, so neither is published.
+exclude = [ "specification/*", "specification/**", "tests/*", "tests/**", "benches/*", "benches/**" ]
 rust-version = "1.83.0"
 
 [badges]
