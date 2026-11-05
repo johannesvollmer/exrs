@@ -1011,12 +1011,14 @@ impl Header {
             SOFTWARE: Text = &self.own_attributes.software_name
         );
 
-        let other = self
-            .own_attributes
-            .other
-            .iter()
-            .chain(self.shared_attributes.other.iter())
-            .map(|(name, val)| (name.as_slice(), val.clone())); // TODO no clone
+        // `HashMap` iteration order is random per process, so sort the custom
+        // attributes by name to write the same bytes for the same image.
+        let mut other: Vec<_> =
+            self.own_attributes.other.iter().chain(self.shared_attributes.other.iter()).collect();
+
+        other.sort_by(|(a, _), (b, _)| a.as_slice().cmp(b.as_slice()));
+
+        let other = other.into_iter().map(|(name, val)| (name.as_slice(), val.clone())); // TODO no clone
 
         req_core_attrs.chain(opt_core_attrs).chain(opt_attr).chain(other)
     }

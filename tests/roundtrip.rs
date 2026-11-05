@@ -264,6 +264,46 @@ fn roundtrip_unusual_2() -> UnitResult {
     Ok(())
 }
 
+/// Custom attributes are stored in a `HashMap`, whose iteration order differs
+/// between map instances. Writing the same image must still give the same
+/// bytes.
+#[test]
+fn writing_same_image_twice_gives_same_bytes() -> UnitResult {
+    fn write_image() -> Result<Vec<u8>> {
+        let size = Vec2(2, 2);
+        let mut layer_attributes = LayerAttributes::named("layer");
+        let mut image_attributes = ImageAttributes::new(IntegerBounds::from_dimensions(size));
+
+        for index in 0..32 {
+            layer_attributes.other.insert(
+                Text::from(format!("layer attribute {index}").as_str()),
+                AttributeValue::I32(index),
+            );
+
+            image_attributes.other.insert(
+                Text::from(format!("image attribute {index}").as_str()),
+                AttributeValue::F32(index as f32),
+            );
+        }
+
+        let layer = Layer::new(
+            size,
+            layer_attributes,
+            Encoding::UNCOMPRESSED,
+            SpecificChannels::rgb(|_| (0.5_f32, 0.25_f32, 1.0_f32)),
+        );
+
+        let image = Image::new(image_attributes, layer);
+
+        let mut bytes = Vec::new();
+        image.write().non_parallel().to_buffered(Cursor::new(&mut bytes))?;
+        Ok(bytes)
+    }
+
+    assert_eq!(write_image()?, write_image()?);
+    Ok(())
+}
+
 // TODO test optional reader
 // TODO dedup
 #[test]
