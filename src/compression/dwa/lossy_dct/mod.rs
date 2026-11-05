@@ -349,15 +349,18 @@ fn decode_lossy_dct_group(
     let blocks_y = (height + 7) / 8;
     let block_count = blocks_x * blocks_y;
 
-    // Buffer the whole group rather than one block at a time. That lets the
-    // inverse DCT batch over every block that actually needs it, matching the
-    // structure of the C reference.
-    let mut dct_blocks: Vec<[[f32; 64]; 3]> = vec![[[0.0f32; 64]; 3]; block_count];
-    let mut needs_inverse_dct: Vec<[bool; 3]> = vec![[false; 3]; block_count];
+    // Decode one row of 8x8 blocks at a time, as the C reference does, and
+    // batch the inverse DCT over that row. Buffering the whole group instead
+    // needs 768 bytes per block: 12 MiB for a 4096x256 DWAB chunk, which
+    // does not stay in cache, and decoding several chunks at once then
+    // becomes bound by memory bandwidth.
+    let mut dct_blocks: Vec<[[f32; 64]; 3]> = vec![[[0.0f32; 64]; 3]; blocks_x];
+    let mut needs_inverse_dct: Vec<[bool; 3]> = vec![[false; 3]; blocks_x];
 
     for block_y in 0..blocks_y {
         for block_x in 0..blocks_x {
             let block_index = block_y * blocks_x + block_x;
+            needs_inverse_dct[block_x] = [false; 3];
 
             for component in 0..components {
                 let mut zig_block = [0u16; 64];
@@ -370,7 +373,9 @@ fn decode_lossy_dct_group(
 
                 let last_non_zero = un_rle_ac(ac, &mut zig_block)?;
 
-                let dct_block = &mut dct_blocks[block_index][component];
+                // Both branches write all 64 values, so the row buffer needs
+                // no clearing between rows.
+                let dct_block = &mut dct_blocks[block_x][component];
                 if last_non_zero == 0 {
                     // DC-only block: all AC coefficients are zero, so the
                     // inverse DCT can fill the whole block from one value.
@@ -378,24 +383,21 @@ fn decode_lossy_dct_group(
                     discrete_cosine_transform::dct_inverse_8x8_dc_only(dct_block);
                 } else {
                     from_half_zigzag(&zig_block, dct_block);
-                    needs_inverse_dct[block_index][component] = true;
+                    needs_inverse_dct[block_x][component] = true;
                 }
             }
         }
-    }
 
-    discrete_cosine_transform::dct_inverse_8x8_batch(
-        dct_blocks
-            .iter_mut()
-            .zip(needs_inverse_dct.iter())
-            .flat_map(|(blocks, flags)| blocks.iter_mut().zip(flags.iter()))
-            .filter_map(|(block, &needed)| needed.then_some(block)),
-    );
+        discrete_cosine_transform::dct_inverse_8x8_batch(
+            dct_blocks
+                .iter_mut()
+                .zip(needs_inverse_dct.iter())
+                .flat_map(|(blocks, flags)| blocks.iter_mut().zip(flags.iter()))
+                .filter_map(|(block, &needed)| needed.then_some(block)),
+        );
 
-    for block_y in 0..blocks_y {
         for block_x in 0..blocks_x {
-            let block_index = block_y * blocks_x + block_x;
-            let dct_blocks = &mut dct_blocks[block_index];
+            let dct_blocks = &mut dct_blocks[block_x];
 
             if components == 3 {
                 for i in 0..64 {
