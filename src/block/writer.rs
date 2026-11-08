@@ -106,12 +106,13 @@ pub trait ChunksWriter: Sized {
     fn compress_all_blocks_sequential(
         mut self,
         meta: &MetaData,
-        blocks: impl Iterator<Item = (usize, UncompressedBlock)>,
+        blocks: impl Iterator<Item = Result<(usize, UncompressedBlock)>>,
     ) -> UnitResult {
         let mut writer = self.sequential_blocks_compressor(meta);
 
         // TODO check block order if line order is not unspecified!
-        for (index_in_header_increasing_y, block) in blocks {
+        for block in blocks {
+            let (index_in_header_increasing_y, block) = block?;
             writer.compress_block(index_in_header_increasing_y, block)?;
         }
 
@@ -128,7 +129,7 @@ pub trait ChunksWriter: Sized {
     fn compress_all_blocks_parallel(
         mut self,
         meta: &MetaData,
-        blocks: impl Iterator<Item = (usize, UncompressedBlock)>,
+        blocks: impl Iterator<Item = Result<(usize, UncompressedBlock)>>,
     ) -> UnitResult {
         let mut parallel_writer = match self.parallel_blocks_compressor(meta) {
             None => return self.compress_all_blocks_sequential(meta, blocks),
@@ -136,7 +137,8 @@ pub trait ChunksWriter: Sized {
         };
 
         // TODO check block order if line order is not unspecified!
-        for (index_in_header_increasing_y, block) in blocks {
+        for block in blocks {
+            let (index_in_header_increasing_y, block) = block?;
             parallel_writer.add_block_to_compression_queue(index_in_header_increasing_y, block)?;
         }
 
@@ -159,7 +161,10 @@ where
     /// may remain in an invalid state and should not be used further.
     /// Errors when the chunk at this index was already written.
     fn write_chunk(&mut self, index_in_header_increasing_y: usize, chunk: Chunk) -> UnitResult {
-        let header_chunk_indices = &mut self.chunk_indices_increasing_y[chunk.layer_index];
+        let header_chunk_indices = self
+            .chunk_indices_increasing_y
+            .get_mut(chunk.layer_index)
+            .ok_or_else(|| Error::invalid("chunk layer index"))?;
 
         if index_in_header_increasing_y >= header_chunk_indices.len() {
             return Err(Error::invalid(format!(

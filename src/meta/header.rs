@@ -720,11 +720,13 @@ impl Header {
                 return Err(Error::invalid("unspecified line order in scan line images"));
             }
 
-            if self.layer_size == Vec2(0, 0) {
+            if self.layer_size.x() == 0 || self.layer_size.y() == 0 {
                 return Err(Error::invalid("empty data window"));
             }
 
-            if self.shared_attributes.display_window.size == Vec2(0, 0) {
+            if self.shared_attributes.display_window.size.x() == 0
+                || self.shared_attributes.display_window.size.y() == 0
+            {
                 return Err(Error::invalid("empty display window"));
             }
 
