@@ -29,7 +29,7 @@ Features include:
 ### Current Status
 
 This library has matured quite a bit, but should still be considered incomplete.
-For example, deep data and DWA compression algorithms are not supported yet.
+For example, deep data is not supported yet.
 
 If you encounter an exr file that cannot be opened by this crate but should be,
 please leave an issue on this repository, containing the image file.
@@ -55,7 +55,7 @@ __What we can do:__
         - [x] piz (lossless) (huge thanks to @dgsantana)
         - [x] pxr24 (lossless for f16 and u32)
         - [x] b44, b44a (huge thanks to @narann)
-        - [x] dwaa, dwab (hunge thanks to @zinezockt)
+        - [x] dwaa, dwab (huge thanks to @zinezockt)
         - [ ] HTJ2K32, HTJ2K256
 
 - Nice Things
@@ -157,13 +157,10 @@ __What we can do:__
 
 ### Usage
 
-> [!TIP]
-> If you want to use the newest version of `exrs` with an older Rust version, you can still do that, by forcing Rust to use an older version of the `half` crate via `cargo update -p half --precise 2.2.1`, or downgrade all dependencies via `cargo +nightly -Zminimal-versions generate-lockfile`. Version `half 2.3.0` and higher have an MSRV above 1.61.
-
 Add this to your `Cargo.toml`:
 ```toml
 [dependencies]
-exr = "1.74.2"
+exr = "1.74.3"
 
 # also, optionally add this to your crate for smaller binary size
 # and better runtime performance
@@ -375,27 +372,21 @@ To reproduce it locally:
 2. **Build the library test binary without running it,** then locate the executable:
 
    ```bash
-   # AVX2
-   cargo test --lib --features avx2-tests --no-run
-
-   # SSE2
-   cargo test --lib --features sse2-tests --no-run
+   cargo test --lib --no-run
    ```
 
    Cargo prints the path to the compiled unit-test binary (under
-   `target/debug/deps/exr-<hash>`). Since these are now in-crate unit tests, you
-   select a tier by passing a test-name **filter** (there is no per-file test
-   binary). A short substring like `avx2`/`sse2` is enough — it matches the
-   respective `mod avx2_tests`/`mod sse2_tests`.
+   `target/debug/deps/exr-<hash>`). The same binary serves both tiers:
+   SDE only changes which CPU features the runtime dispatch sees.
 
 3. **Run that binary under SDE,** selecting a chip that exposes the target tier
-   and filtering to the tier's test module:
+   and filtering to the DCT tests:
 
    ```bash
    # AVX2 — Haswell is the first microarchitecture with AVX2 + FMA
-   sde64 -hsw -- target/debug/deps/exr-<hash> --nocapture avx2
+   sde64 -hsw -- target/debug/deps/exr-<hash> --nocapture compression::dwa::discrete_cosine_transform::
 
    # SSE2 — Merom is the lowest 64-bit chip SDE models: it has SSE2 but no AVX,
-   #        so pulp falls back to the SSE2 kernel
-   sde64 -mrm -- target/debug/deps/exr-<hash> --nocapture sse2
+   #        so the runtime dispatch falls back to SSE2
+   sde64 -mrm -- target/debug/deps/exr-<hash> --nocapture compression::dwa::discrete_cosine_transform::
    ```

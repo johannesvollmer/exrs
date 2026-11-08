@@ -26,8 +26,11 @@ Yanking shouldn't be the default.
     - `README.md`
     - `examples/README.md`
     - `CHANGELOG.md`
+    - `exrs-wasm/js/package.json` (`cd exrs-wasm/js && npm version patch --no-git-tag-version`)
+
+1. Add new contributors to `CONTRIBUTORS.md`
     
 1. Run `cargo publish`
 
-1. Run `cd exrs-wasm && npm run publish`
+1. Run `cd exrs-wasm/js && npm publish`
     
