@@ -27,6 +27,13 @@ pub(super) fn split_sections<'d>(data: &'d [u8], header: &DwaHeader) -> Result<[
 }
 
 fn inflate(compressed: &[u8], expected_size: usize) -> Result<Vec<u8>> {
+    // The expected size comes from the chunk header and is used as a size
+    // hint, so the decoder allocates it up front. Deflate expands at most
+    // about 1032:1; refuse anything larger before allocating it.
+    if expected_size > compressed.len().saturating_mul(1032) {
+        return Err(Error::invalid("DWA zlib data size mismatch"));
+    }
+
     let options = zune_inflate::DeflateOptions::default()
         .set_limit(expected_size)
         .set_size_hint(expected_size);
