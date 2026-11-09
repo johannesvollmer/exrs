@@ -2,7 +2,7 @@
 // scanline buffer the rest of the crate uses, the per-channel byte runs, the
 // planar byte planes of the UNKNOWN/RLE sections, and back again.
 
-use half::f16;
+use half::{f16, slice::HalfFloatSliceExt};
 
 use super::{ChannelInfo, CompressorScheme};
 use crate::{
@@ -140,12 +140,49 @@ pub(super) fn split_planar_channels(
 
 /// Restore per-sample byte order from byte planes
 pub(super) fn interleave_byte_planes(planar: &[u8], bytes_per_sample: usize) -> Vec<u8> {
-    let sample_count = planar.len() / bytes_per_sample;
-    let mut interleaved = vec![0u8; planar.len()];
-    for sample in 0..sample_count {
-        for byte in 0..bytes_per_sample {
-            interleaved[sample * bytes_per_sample + byte] = planar[byte * sample_count + sample];
+    match bytes_per_sample {
+        2 => interleave_byte_planes_batched::<2>(planar),
+        4 => interleave_byte_planes_batched::<4>(planar),
+        _ => unreachable!("DWA samples must contain 2 or 4 bytes"),
+    }
+}
+
+#[cfg_attr(
+    any(target_arch = "x86", target_arch = "x86_64"),
+    multiversion::multiversion(targets("x86_64+avx2", "x86+avx2"))
+)]
+fn interleave_byte_planes_batched<const BYTES_PER_SAMPLE: usize>(planar: &[u8]) -> Vec<u8> {
+    // Read 256 bits from each plane at a time. Fixed-size batches let LLVM
+    // vectorize the interleave, and appending them avoids zeroing the output.
+    const BATCH_SAMPLES: usize = 32;
+    assert_eq!(planar.len() % BYTES_PER_SAMPLE, 0, "incomplete DWA channel sample");
+    let sample_count = planar.len() / BYTES_PER_SAMPLE;
+    let mut planes: [_; BYTES_PER_SAMPLE] = std::array::from_fn(|byte| {
+        planar[byte * sample_count..(byte + 1) * sample_count].chunks_exact(BATCH_SAMPLES)
+    });
+    let mut interleaved = Vec::with_capacity(planar.len());
+
+    for _ in 0..sample_count / BATCH_SAMPLES {
+        // Fixed-size references eliminate bounds checks in the transpose.
+        // Every plane has the same number of full batches, so both unwraps
+        // succeed.
+        let chunks = planes
+            .each_mut()
+            .map(|plane| plane.next().unwrap().first_chunk::<BATCH_SAMPLES>().unwrap());
+        let mut batch = [[0u8; BYTES_PER_SAMPLE]; BATCH_SAMPLES];
+        for sample in 0..BATCH_SAMPLES {
+            for byte in 0..BYTES_PER_SAMPLE {
+                batch[sample][byte] = chunks[byte][sample];
+            }
         }
+        interleaved.extend_from_slice(batch.as_flattened());
+    }
+
+    // At most 31 samples remain; append each directly without another batch
+    // buffer.
+    for sample in 0..sample_count % BATCH_SAMPLES {
+        let bytes = planes.each_ref().map(|plane| plane.remainder()[sample]);
+        interleaved.extend_from_slice(&bytes);
     }
     interleaved
 }
@@ -186,8 +223,15 @@ pub(super) fn write_scanlines(
                             }
                         }
                         SampleType::F32 => {
-                            for sample in row_samples {
-                                out.extend_from_slice(&sample.to_f32().to_le_bytes());
+                            // Batch half conversions without allocating a
+                            // temporary buffer for the entire scanline.
+                            let mut floats = [0.0f32; 64];
+                            for samples in row_samples.chunks(floats.len()) {
+                                let floats = &mut floats[..samples.len()];
+                                samples.convert_to_f32_slice(floats);
+                                for sample in floats {
+                                    out.extend_from_slice(&sample.to_le_bytes());
+                                }
                             }
                         }
                         // rejected before decoding
@@ -253,7 +297,7 @@ mod test {
         let mut random = rand::rngs::StdRng::from_seed(SEED);
 
         for bytes_per_sample in [2usize, 4] {
-            for sample_count in [0usize, 1, 5, 37] {
+            for sample_count in [0usize, 1, 5, 31, 32, 33, 37, 63, 64, 65, 1024] {
                 let original = random_bytes(&mut random, sample_count * bytes_per_sample);
                 let planar = separate_byte_planes(&original, bytes_per_sample);
                 let interleaved = interleave_byte_planes(&planar, bytes_per_sample);

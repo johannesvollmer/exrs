@@ -5,7 +5,7 @@ extern crate exr;
 use std::{fs, io::Cursor};
 
 use bencher::Bencher;
-use exr::{image::pixel_vec::PixelVec, prelude::*};
+use exr::prelude::*;
 
 fn uncompressed_parallel(bench: &mut Bencher) {
     bench_read_full_image_parallel(
@@ -92,6 +92,7 @@ fn bench_read_full_image_non_parallel(bench: &mut Bencher, path: &str) {
             .all_channels()
             .all_layers()
             .all_attributes()
+            .non_parallel()
             .from_buffered(Cursor::new(file.as_slice()))
             .unwrap();
 
