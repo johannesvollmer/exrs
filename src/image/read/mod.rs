@@ -53,7 +53,7 @@ use std::path::Path;
 
 use crate::{
     block::samples::FromNativeSample,
-    error::Result,
+    error::{Error, Result, UnitResult},
     image::{
         read::{image::ReadLayers, layers::ReadChannels, samples::ReadFlatSamples},
         AnyChannels, AnyImage, FlatImage, FlatSamples, Image, Layer, PixelLayersImage,
@@ -62,6 +62,18 @@ use crate::{
     math::Vec2,
     prelude::PixelImage,
 };
+
+/// Whether a grid of `T` can be allocated. Headers can claim far more memory
+/// than the machine has, and a failed `vec!` aborts the process, where this
+/// returns an error instead. It only asks: reserving and filling the grid here
+/// would also write memory that `vec![0; n]` gets from the system zeroed.
+pub(crate) fn ensure_allocatable<T>(resolution: Vec2<usize>) -> UnitResult {
+    resolution
+        .width()
+        .checked_mul(resolution.height())
+        .and_then(|count| Vec::<T>::new().try_reserve_exact(count).ok())
+        .ok_or_else(|| Error::unsupported("image does not fit into memory"))
+}
 
 /// All resolution levels, all channels, all layers.
 ///

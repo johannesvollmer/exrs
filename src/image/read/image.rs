@@ -143,7 +143,7 @@ where
     #[must_use]
     pub fn from_chunks<Layers>(
         mut self,
-        chunks_reader: crate::block::reader::Reader<impl Read + Seek>,
+        mut chunks_reader: crate::block::reader::Reader<impl Read + Seek>,
     ) -> Result<Image<Layers>>
     where
         for<'s> L: ReadLayers<'s, Layers = Layers>,
@@ -155,12 +155,15 @@ where
             ref mut read_layers,
         } = self;
 
+        // before the layers reader allocates the image the headers claim
+        let offset_tables = chunks_reader.read_offset_tables(pedantic)?;
+
         let layers_reader = read_layers.create_layers_reader(chunks_reader.headers())?;
         let mut image_collector =
             ImageWithAttributesReader::new(chunks_reader.headers(), layers_reader)?;
 
         let block_reader = chunks_reader
-            .filter_chunks(pedantic, |meta, tile, block| {
+            .filter_chunks_with_offset_tables(offset_tables, pedantic, |meta, tile, block| {
                 image_collector.filter_block(meta, tile, block)
             })?
             .on_progress(on_progress);

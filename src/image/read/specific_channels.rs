@@ -7,7 +7,10 @@ use crate::{
     block::{chunk::TileCoordinates, samples::*, UncompressedBlock},
     error::*,
     image::{
-        read::layers::{ChannelsReader, ReadChannels},
+        read::{
+            ensure_allocatable,
+            layers::{ChannelsReader, ReadChannels},
+        },
         recursive::*,
         *,
     },
@@ -186,6 +189,9 @@ ReadChannels<'s> for CollectPixels<InnerChannels, Pixel, PixelStorage, CreatePix
 
         let pixel_reader = self.read_channels.create_recursive_reader(&header.channels)?;
         let channel_descriptions = pixel_reader.get_descriptions().into_non_recursive();// TODO not call this twice
+
+        // the storage is created by the user, who cannot return an error
+        ensure_allocatable::<Pixel>(header.layer_size)?;
 
         let create = &self.create_pixels;
         let pixel_storage = create(header.layer_size, &channel_descriptions);
