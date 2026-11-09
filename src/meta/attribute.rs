@@ -1559,7 +1559,7 @@ impl EnvironmentMap {
 impl KeyCode {
     /// Number of bytes this would consume in an exr file.
     pub fn byte_size() -> usize {
-        6 * i32::BYTE_SIZE
+        7 * i32::BYTE_SIZE
     }
 
     /// Without validation, write this instance to the byte stream.
@@ -1569,6 +1569,7 @@ impl KeyCode {
         self.film_roll_prefix.write_le(write)?;
         self.count.write_le(write)?;
         self.perforation_offset.write_le(write)?;
+        self.perforations_per_frame.write_le(write)?;
         self.perforations_per_count.write_le(write)?;
         Ok(())
     }
@@ -2288,6 +2289,30 @@ mod test {
     }
 
     #[test]
+    fn key_code_write_read_roundtrip_and_byte_size() {
+        // distinct value per field, so a dropped or shifted field is detected
+        let key_code = KeyCode {
+            film_manufacturer_code: 1,
+            film_type: 2,
+            film_roll_prefix: 3,
+            count: 4,
+            perforation_offset: 5,
+            perforations_per_frame: 6,
+            perforations_per_count: 7,
+        };
+
+        let mut bytes = Vec::new();
+        key_code.write(&mut bytes).unwrap();
+
+        // OpenEXR defines the keycode attribute as seven ints
+        assert_eq!(bytes.len(), 7 * 4, "written keycode size");
+        assert_eq!(KeyCode::byte_size(), bytes.len(), "KeyCode::byte_size()");
+
+        let new_key_code = KeyCode::read(&mut Cursor::new(bytes)).unwrap();
+        assert_eq!(key_code, new_key_code, "keycode round trip");
+    }
+
+    #[test]
     fn attribute_write_read_roundtrip_and_byte_size() {
         let attributes = [
             (Text::from("greeting"), AttributeValue::Text(Text::from("hello"))),
@@ -2370,6 +2395,18 @@ mod test {
                         sampling: Vec2(0, 0)
                     }
                 ])),
+            ),
+            (
+                Text::from("keyCode"),
+                AttributeValue::KeyCode(KeyCode {
+                    film_manufacturer_code: 1,
+                    film_type: 2,
+                    film_roll_prefix: 3,
+                    count: 4,
+                    perforation_offset: 5,
+                    perforations_per_frame: 6,
+                    perforations_per_count: 7,
+                }),
             ),
         ];
 
