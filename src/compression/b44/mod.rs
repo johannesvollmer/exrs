@@ -1057,6 +1057,10 @@ mod test {
     #[test]
     fn border_on_multiview() {
         // This test is hard to reproduce, so we use the direct image.
+        if !crate::test_images_available() {
+            return;
+        }
+
         let path = "tests/images/valid/openexr/MultiView/Adjuster.exr";
 
         let read_image = read()

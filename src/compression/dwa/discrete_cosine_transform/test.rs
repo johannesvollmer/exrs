@@ -38,6 +38,10 @@ mod openexr_tests {
     }
 
     fn check_against_real_openexr(exr_name: &str, ground_truth_name: &str) {
+        if !crate::test_images_available() {
+            return;
+        }
+
         let decoded = read_first_flat_layer_from_file(dir().join(exr_name))
             .expect("exrs failed to decode DWA fixture");
 

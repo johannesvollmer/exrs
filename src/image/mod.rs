@@ -1697,7 +1697,7 @@ pub mod validate_results {
             );
             print_error(&FlatSamples::U32(vec![0, 0]), &FlatSamples::F32(vec![0.1, 0.2]), false);
 
-            {
+            if crate::test_images_available() {
                 let image = crate::prelude::read_all_data_from_file(
                     "tests/images/valid/openexr/MultiResolution/Kapaa.exr",
                 )
