@@ -1,5 +1,7 @@
 //! How to read samples (a grid of `f32`, `f16` or `u32` values).
 
+use half::vec::HalfBitsVecExt;
+
 use crate::{
     block::{chunk::TileCoordinates, lines::LineRef},
     error::{Result, UnitResult},
@@ -90,7 +92,11 @@ impl ReadSamplesLevel for ReadFlatSamples {
             level,
             resolution, // TODO sampling
             samples: match channel.sample_type {
-                SampleType::F16 => FlatSamples::F16(vec![f16::ZERO; resolution.area()]),
+                // Zeroed u16 bits, so the allocator can hand out fresh
+                // zero pages instead of writing every sample up front.
+                SampleType::F16 => {
+                    FlatSamples::F16(vec![0_u16; resolution.area()].reinterpret_into())
+                }
                 SampleType::F32 => FlatSamples::F32(vec![0.0; resolution.area()]),
                 SampleType::U32 => FlatSamples::U32(vec![0; resolution.area()]),
             },
