@@ -834,10 +834,10 @@ mod test {
             sampling: Vec2(1, 1),
         };
 
-        // RGB. A block one row high packs to 14 bytes per 4 samples, but only 8 bytes
-        // of the input are real samples, as the other rows are padded. Once the
-        // packed size passes the minimum output buffer of 2048 bytes (at 3 * 196
-        // samples), it also passes the size of the input.
+        // RGB. A block one row high packs to 14 bytes per 4 samples, but only 8
+        // bytes of the input are real samples, as the other rows are padded.
+        // Once the packed size passes the minimum output buffer of 2048 bytes
+        // (at 3 * 196 samples), it also passes the size of the input.
         let channels = ChannelList::new(smallvec![channel.clone(), channel.clone(), channel]);
 
         for width in [192, 196, 400] {
