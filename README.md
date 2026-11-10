@@ -29,7 +29,7 @@ Features include:
 ### Current Status
 
 This library has matured quite a bit, but should still be considered incomplete.
-For example, deep data is not supported yet.
+For example, deep data and HTJ2K compression are not supported yet.
 
 If you encounter an exr file that cannot be opened by this crate but should be,
 please leave an issue on this repository, containing the image file.
@@ -55,7 +55,7 @@ __What we can do:__
         - [x] piz (lossless) (huge thanks to @dgsantana)
         - [x] pxr24 (lossless for f16 and u32)
         - [x] b44, b44a (huge thanks to @narann)
-        - [x] dwaa, dwab (huge thanks to @zinezockt)
+        - [x] dwaa, dwab (huge thanks to @zinedinp)
         - [ ] HTJ2K32, HTJ2K256
 
 - Nice Things
@@ -110,9 +110,9 @@ __What we can do:__
         - [x] ZIP
         - [x] RLE
         - [x] PIZ
-        - [x] RXR24
+        - [x] PXR24
         - [x] B44, B44A
-        - [x] dwaa, dwab
+        - [x] DWAA, DWAB
 
 - [ ] Writing images
     - [x] Scan Lines
@@ -130,7 +130,7 @@ __What we can do:__
         - [x] PIZ (lossless)
         - [x] PXR24 (lossless for f16 and u32)
         - [x] B44, B44A
-        - [ ] DWAA, DWAB
+        - [x] DWAA, DWAB
 
 - [x] De/compressing multiple blocks in parallel
 
