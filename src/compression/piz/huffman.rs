@@ -10,10 +10,8 @@ use std::{
     io::{Cursor, Read, Write},
 };
 
-use smallvec::SmallVec;
-
 use crate::{
-    error::{u32_to_usize, u64_to_usize, Error, Result, UnitResult},
+    error::{u64_to_usize, Error, Result, UnitResult},
     io::Data,
     math::RoundingMode,
 };
@@ -36,19 +34,18 @@ pub fn decompress(compressed: &[u8], expected_size: usize) -> Result<Vec<u16>> {
         return Err(Error::invalid(NOT_ENOUGH_DATA));
     }
 
-    let encoding_table =
+    let (encoding_table, symbols) =
         read_encoding_table(&mut remaining_compressed, min_code_index, max_code_index)?;
     if bit_count > 8 * remaining_compressed.len() {
         return Err(Error::invalid(INVALID_BIT_COUNT));
     }
 
-    let decoding_table = build_decoding_table(&encoding_table, min_code_index, max_code_index)?;
+    let decoding_table = build_decoding_table(&encoding_table, &symbols, max_code_index_32)?;
 
     let result = decode_with_tables(
-        &encoding_table,
         &decoding_table,
         remaining_compressed,
-        i32::try_from(bit_count)?,
+        bit_count,
         max_code_index_32,
         expected_size,
     )?;
@@ -90,174 +87,267 @@ pub fn compress(uncompressed: &[u16]) -> Result<Vec<u8>> {
 }
 
 const ENCODE_BITS: u64 = 16; // literal (value) bit length
-const DECODE_BITS: u64 = 14; // decoding bit size (>= 8)
+const DECODE_BITS: u64 = 12; // decoding bit size (>= 8); 16 KiB of u32 entries fits L1
 
 const ENCODING_TABLE_SIZE: usize = ((1 << ENCODE_BITS) + 1) as usize;
 const DECODING_TABLE_SIZE: usize = (1 << DECODE_BITS) as usize;
-const DECODE_MASK: u64 = DECODING_TABLE_SIZE as u64 - 1;
 
 const SHORT_ZEROCODE_RUN: u64 = 59;
 const LONG_ZEROCODE_RUN: u64 = 63;
 const SHORTEST_LONG_RUN: u64 = 2 + LONG_ZEROCODE_RUN - SHORT_ZEROCODE_RUN;
 const LONGEST_LONG_RUN: u64 = 255 + SHORTEST_LONG_RUN;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum Code {
-    Empty,
-    Short(ShortCode),
-    Long(SmallVec<[u32; 2]>), // often 2, sometimes 4, rarely 8
+/// The decoding table, indexed by the next `DECODE_BITS` bits of input.
+struct DecodingTable {
+    /// `symbol << 6 | length` for a code of at most `DECODE_BITS` bits whose
+    /// symbol is a plain value. The zero low bits of `length << 26 | symbol
+    /// << 6` send the run-length code and symbols too large for a value to
+    /// the slow path, sharing the one branch that long codes take; those are
+    /// zero, as are entries where no code has this prefix.
+    entries: Box<[u32; DECODING_TABLE_SIZE]>,
+    long: LongCodes,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct ShortCode {
-    value: u32,
-    len: u8,
+/// Codes longer than `DECODE_BITS` bits, decoded arithmetically as in
+/// OpenEXR's `FastHufDecoder`. Canonical codes of one length are consecutive,
+/// and left-aligned in 64 bits, every code compares greater than all longer
+/// codes. So the length of the code at the start of the input is the shortest
+/// that has codes and whose first left-aligned code is not greater than the
+/// input bits.
+struct LongCodes {
+    /// The lengths that have codes, ascending.
+    lengths: Vec<u64>,
+    /// The first code of each length, left-aligned.
+    first_left_aligned: [u64; 59],
+    /// The first code of each length.
+    first: [u64; 59],
+    /// Where each length's symbols start in `symbols`.
+    offset: [u32; 59],
+    count: [u32; 59],
+    /// Ordered by length, then by code.
+    symbols: Vec<u32>,
+    max_length: u64,
 }
 
-impl ShortCode {
+impl LongCodes {
+    /// The symbol and length of the long code at the start of `bits`, which
+    /// must hold at least `max_length` valid bits.
     #[inline]
-    fn len(&self) -> u64 {
-        u64::from(self.len)
+    fn decode(&self, bits: u64) -> Option<(u32, u64)> {
+        let length = *self
+            .lengths
+            .iter()
+            .find(|&&length| bits >= self.first_left_aligned[length as usize])?;
+        let index = (bits >> (64 - length)) - self.first[length as usize];
+        (index < u64::from(self.count[length as usize])).then(|| {
+            let symbol = self.symbols[(self.offset[length as usize] + index as u32) as usize];
+            (symbol, length)
+        })
     }
 }
 
-/// Decode (uncompress) n bits based on encoding & decoding tables:
-fn decode_with_tables(
-    encoding_table: &[u64],
-    decoding_table: &[Code],
-    mut input: &[u8],
-    input_bit_count: i32,
-    run_length_code: u32,
-    expected_output_size: usize,
-) -> Result<Vec<u16>> {
-    // The expected size comes from the file, so only reserve a bounded amount
-    // up front; the vector grows as values are actually decoded, and the
-    // length is checked below.
-    let mut output = Vec::with_capacity(expected_output_size.min(1024 * 1024 * 4));
-    let mut code_bits = 0_u64;
-    let mut code_bit_count = 0_u64;
+/// Reads input bits most significant first from a 64-bit register,
+/// refilled several bytes at a time. Past the end of the input it reads
+/// zeros, so callers check `position()` against the input length once,
+/// rather than before every code.
+struct BitReader<'i> {
+    input: &'i [u8],
+    /// The next unread bits, most significant first. Bits past `count` are
+    /// already those of the input, or zero.
+    bits: u64,
+    /// The number of valid bits in `bits`.
+    count: u64,
+    /// The next input byte not yet in `bits`; beyond the input once zeros
+    /// past its end have been read.
+    next_byte: usize,
+}
 
-    while !input.is_empty() {
-        read_byte(&mut code_bits, &mut code_bit_count, &mut input)?;
+impl<'i> BitReader<'i> {
+    fn new(input: &'i [u8]) -> Self {
+        let mut reader = Self {
+            input,
+            bits: 0,
+            count: 0,
+            next_byte: 0,
+        };
+        reader.refill();
+        reader
+    }
 
-        // Access decoding table
-        while code_bit_count >= DECODE_BITS {
-            let code_index = (code_bits >> (code_bit_count - DECODE_BITS)) & DECODE_MASK;
-            let code = &decoding_table[u64_to_usize(code_index, "huffman code index")?];
+    /// Bits consumed so far.
+    #[inline(always)]
+    fn position(&self) -> usize {
+        self.next_byte * 8 - self.count as usize
+    }
 
-            // Get short code
-            if let Code::Short(code) = code {
-                code_bit_count -= code.len();
-
-                read_code_into_vec(
-                    code.value,
-                    run_length_code,
-                    &mut code_bits,
-                    &mut code_bit_count,
-                    &mut input,
-                    &mut output,
-                    expected_output_size,
-                )?;
-            } else if let Code::Long(ref long_codes) = code {
-                debug_assert_ne!(long_codes.len(), 0);
-
-                let long_code = long_codes
-                    .iter()
-                    .filter_map(|&long_code| {
-                        let encoded_long_code =
-                            encoding_table[u32_to_usize(long_code, "huffman long code").ok()?];
-                        let length = length(encoded_long_code);
-
-                        while code_bit_count < length && !input.is_empty() {
-                            let err = read_byte(&mut code_bits, &mut code_bit_count, &mut input);
-                            if let Err(err) = err {
-                                return Some(Err(err));
-                            }
-                        }
-
-                        if code_bit_count >= length {
-                            let required_code =
-                                (code_bits >> (code_bit_count - length)) & ((1 << length) - 1);
-
-                            if self::code(encoded_long_code) == required_code {
-                                code_bit_count -= length;
-                                return Some(Ok(long_code));
-                            }
-                        }
-
-                        None
-                    })
-                    .next()
-                    .ok_or_else(|| Error::invalid(INVALID_CODE))?;
-
-                read_code_into_vec(
-                    long_code?,
-                    run_length_code,
-                    &mut code_bits,
-                    &mut code_bit_count,
-                    &mut input,
-                    &mut output,
-                    expected_output_size,
-                )?;
-            } else {
-                return Err(Error::invalid(INVALID_CODE));
+    /// Fill `bits` to at least 57 bits.
+    #[inline(always)]
+    fn refill(&mut self) {
+        if let Some(bytes) = self.input.get(self.next_byte..self.next_byte + 8) {
+            // Takes whole bytes only. Part of the next byte may also land in
+            // `bits`, where the next refill writes the same bits again.
+            let word = u64::from_be_bytes(<[u8; 8]>::try_from(bytes).unwrap());
+            self.bits |= word >> self.count;
+            self.next_byte += ((63 - self.count) / 8) as usize;
+            self.count |= 56;
+        } else {
+            while self.count <= 56 {
+                let byte = self.input.get(self.next_byte).copied().unwrap_or(0);
+                self.bits |= u64::from(byte) << (56 - self.count);
+                self.next_byte += 1;
+                self.count += 8;
             }
         }
     }
 
-    let count = u64::try_from((8 - input_bit_count) & 7)?;
-    code_bits >>= count;
+    /// The next `count` (1 to 57, after a refill) bits.
+    #[inline(always)]
+    fn peek(&self, count: u64) -> u64 {
+        self.bits >> (64 - count)
+    }
 
-    code_bit_count = code_bit_count.checked_sub(count).ok_or_else(|| Error::invalid("code"))?;
+    #[inline(always)]
+    fn consume(&mut self, count: u64) {
+        debug_assert!(count <= self.count);
+        self.bits <<= count;
+        self.count -= count;
+    }
 
-    while code_bit_count > 0 {
-        let index = (code_bits << (DECODE_BITS - code_bit_count)) & DECODE_MASK;
-        let code = &decoding_table[u64_to_usize(index, "huffman code index")?];
+    /// Continue reading from bit `position`.
+    fn seek(&mut self, position: usize) {
+        self.next_byte = position / 8;
+        self.bits = 0;
+        self.count = 0;
+        self.refill();
+        self.consume((position % 8) as u64);
+    }
+}
 
-        if let Code::Short(short_code) = code {
-            if short_code.len() > code_bit_count {
-                return Err(Error::invalid("code"));
-            } // FIXME why does this happen??
-            code_bit_count -= short_code.len(); // FIXME may throw "attempted to
-                                                // subtract with overflow"
+/// The `count` (at most 64) input bits starting at bit `position`, zero
+/// past the end of the input.
+fn peek_bits(input: &[u8], position: usize, count: u64) -> u64 {
+    debug_assert!((1..=64).contains(&count));
+    let byte = position / 8;
+    let mut bytes = [0_u8; 16];
+    let tail = input.get(byte..).unwrap_or(&[]);
+    let available = tail.len().min(16);
+    bytes[..available].copy_from_slice(&tail[..available]);
+    let bits = u128::from_be_bytes(bytes) << (position % 8);
+    (bits >> (128 - count)) as u64
+}
 
-            read_code_into_vec(
-                short_code.value,
-                run_length_code,
-                &mut code_bits,
-                &mut code_bit_count,
-                &mut input,
-                &mut output,
-                expected_output_size,
-            )?;
+/// Decode `input_bit_count` bits of input based on the decoding table.
+fn decode_with_tables(
+    decoding_table: &DecodingTable,
+    input: &[u8],
+    input_bit_count: usize,
+    run_length_code: u32,
+    expected_output_size: usize,
+) -> Result<Vec<u16>> {
+    // The expected size comes from the file. Every code takes at least one
+    // bit and a run-length code (at least 9 bits with its count) repeats at
+    // most 255 values, so a larger size cannot be valid; refusing it before
+    // allocating keeps a small file from requesting a huge buffer.
+    if expected_output_size > input_bit_count.saturating_mul(29) {
+        return Err(Error::invalid(NOT_ENOUGH_DATA));
+    }
+
+    let mut output = vec![0_u16; expected_output_size];
+    let mut length = 0;
+    let mut reader = BitReader::new(input);
+    let entries = &*decoding_table.entries;
+
+    // As in OpenEXR's FastHufDecoder, decode until the output is full and
+    // check the input was long enough once, at the end.
+    while length < expected_output_size {
+        if reader.count < 32 {
+            reader.refill();
+        }
+
+        let entry = entries[reader.peek(DECODE_BITS) as usize];
+
+        let code_length = u64::from(entry & 63);
+        if code_length != 0 {
+            reader.consume(code_length);
+            output[length] = (entry >> 6) as u16;
+            length += 1;
+            continue;
+        }
+
+        let symbol = if entry != 0 {
+            reader.consume(u64::from(entry >> 26));
+            entry >> 6 & 0xfffff
         } else {
-            return Err(Error::invalid(INVALID_CODE));
+            let long = &decoding_table.long;
+            let position = reader.position();
+            // After a refill the register holds at least 57 bits; only codes
+            // of 58 bits can need the slower window.
+            let bits = if reader.count >= long.max_length {
+                reader.bits
+            } else {
+                peek_bits(input, position, 64)
+            };
+            let (symbol, code_length) =
+                long.decode(bits).ok_or_else(|| Error::invalid(INVALID_CODE))?;
+            if code_length <= reader.count {
+                reader.consume(code_length);
+            } else {
+                reader.seek(position + code_length as usize);
+            }
+            symbol
+        };
+
+        if symbol == run_length_code {
+            if reader.count < 8 {
+                reader.refill();
+            }
+            let repetitions = reader.peek(8) as usize;
+            reader.consume(8);
+
+            if length + repetitions > expected_output_size {
+                return Err(Error::invalid(TOO_MUCH_DATA));
+            }
+            if length == 0 {
+                return Err(Error::invalid(NOT_ENOUGH_DATA));
+            }
+            let repeated = output[length - 1];
+            output[length..length + repetitions].fill(repeated);
+            length += repetitions;
+        } else {
+            // code may be too large for u16
+            output[length] = u16::try_from(symbol)?;
+            length += 1;
         }
     }
 
-    if output.len() != expected_output_size {
+    if reader.position() > input_bit_count {
         return Err(Error::invalid(NOT_ENOUGH_DATA));
     }
 
     Ok(output)
 }
 
-/// Build a decoding hash table based on the encoding table code:
-///    - short codes (<= `HUF_DECBITS`) are resolved with a single table access;
-///    - long code entry allocations are not optimized, because long codes are
-///      unfrequent;
-///    - decoding tables are used by `hufDecode()`;
+/// Build a decoding table based on the encoding table code:
+///    - short codes (<= `DECODE_BITS`) are resolved with a single table access;
+///    - long codes are resolved arithmetically, see `LongCodes`.
 fn build_decoding_table(
     encoding_table: &[u64],
-    min_code_index: usize,
-    max_code_index: usize,
-) -> Result<Vec<Code>> {
-    let mut decoding_table = vec![Code::Empty; DECODING_TABLE_SIZE]; // not an array because of code not being copy
+    symbols: &[u32],
+    run_length_code: u32,
+) -> Result<DecodingTable> {
+    let mut entries = Box::new([0_u32; DECODING_TABLE_SIZE]);
+    let mut long = LongCodes {
+        lengths: Vec::new(),
+        first_left_aligned: [0; 59],
+        first: [0; 59],
+        offset: [0; 59],
+        count: [0; 59],
+        symbols: Vec::new(),
+        max_length: 0,
+    };
 
-    for (code_index, &encoded_code) in
-        encoding_table[..=max_code_index].iter().enumerate().skip(min_code_index)
-    {
-        let code_index = u32::try_from(code_index).unwrap();
+    for &symbol in symbols {
+        let encoded_code = encoding_table[symbol as usize];
 
         let code = code(encoded_code);
         let length = length(encoded_code);
@@ -267,32 +357,57 @@ fn build_decoding_table(
         }
 
         if length > DECODE_BITS {
-            let long_code = &mut decoding_table
-                [u64_to_usize(code >> (length - DECODE_BITS), "long code index")?];
-
-            match long_code {
-                Code::Empty => *long_code = Code::Long(smallvec![code_index]),
-                Code::Long(lits) => lits.push(code_index),
-                _ => {
-                    return Err(Error::invalid(INVALID_TABLE_ENTRY));
-                }
+            let prefix = u64_to_usize(code >> (length - DECODE_BITS), "long code index")?;
+            if entries[prefix] != 0 {
+                return Err(Error::invalid(INVALID_TABLE_ENTRY));
             }
-        } else if length != 0 {
-            let default_value = Code::Short(ShortCode {
-                value: code_index,
-                len: length as u8,
-            });
 
+            // Symbols arrive in ascending order, and canonical codes of one
+            // length ascend with them: the first seen is the length's first.
+            let length = length as usize;
+            if long.count[length] == 0 {
+                long.first[length] = code;
+                long.first_left_aligned[length] = code << (64 - length);
+            }
+            long.count[length] += 1;
+            long.max_length = long.max_length.max(length as u64);
+        } else if length != 0 {
             let start_index = u64_to_usize(code << (DECODE_BITS - length), "huffman start index")?;
             let count = u64_to_usize(1 << (DECODE_BITS - length), "huffman count")?;
-
-            for value in &mut decoding_table[start_index..start_index + count] {
-                *value = default_value.clone();
-            }
+            let entry = if symbol == run_length_code || symbol > u32::from(u16::MAX) {
+                (length as u32) << 26 | symbol << 6
+            } else {
+                symbol << 6 | length as u32
+            };
+            entries[start_index..start_index + count].fill(entry);
         }
     }
 
-    Ok(decoding_table)
+    long.lengths = (DECODE_BITS + 1..=long.max_length)
+        .filter(|&length| long.count[length as usize] != 0)
+        .collect();
+
+    // Group the long-code symbols by length, keeping code order within each.
+    let mut total = 0;
+    for (offset, &count) in long.offset.iter_mut().zip(&long.count) {
+        *offset = total;
+        total += count;
+    }
+    let mut next = long.offset;
+    long.symbols = vec![0; total as usize];
+    for &symbol in symbols {
+        let length = length(encoding_table[symbol as usize]);
+        if length > DECODE_BITS {
+            let slot = &mut next[length as usize];
+            long.symbols[*slot as usize] = symbol;
+            *slot += 1;
+        }
+    }
+
+    Ok(DecodingTable {
+        entries,
+        long,
+    })
 }
 
 /// Run-length-decompresses all zero runs from the packed table to the encoding
@@ -301,9 +416,12 @@ fn read_encoding_table(
     packed: &mut impl Read,
     min_code_index: usize,
     max_code_index: usize,
-) -> Result<Vec<u64>> {
+) -> Result<(Vec<u64>, Vec<u32>)> {
     let mut code_bits = 0_u64;
     let mut code_bit_count = 0_u64;
+    // The symbols that have a code, ascending: usually far fewer than the
+    // table's 65,537 entries, so later passes visit only these.
+    let mut symbols = Vec::new();
 
     // TODO push() into encoding table instead of index stuff?
     let mut encoding_table = vec![0_u64; ENCODING_TABLE_SIZE];
@@ -337,12 +455,15 @@ fn read_encoding_table(
 
             code_index += duplication_count;
         } else {
+            if code_len != 0 {
+                symbols.push(u32::try_from(code_index)?);
+            }
             code_index += 1;
         }
     }
 
-    build_canonical_table(&mut encoding_table)?;
-    Ok(encoding_table)
+    build_canonical_table(&mut encoding_table, symbols.iter().map(|&symbol| symbol as usize))?;
+    Ok((encoding_table, symbols))
 }
 
 // TODO Use BitStreamReader for all the bit reads?!
@@ -365,44 +486,6 @@ fn read_bits(
 fn read_byte(code_bits: &mut u64, bit_count: &mut u64, input: &mut impl Read) -> UnitResult {
     *code_bits = (*code_bits << 8) | u64::from(u8::read_ne(input)?);
     *bit_count += 8;
-    Ok(())
-}
-
-#[inline]
-fn read_code_into_vec(
-    code: u32,
-    run_length_code: u32,
-    code_bits: &mut u64,
-    code_bit_count: &mut u64,
-    read: &mut impl Read,
-    out: &mut Vec<u16>,
-    max_len: usize,
-) -> UnitResult {
-    if code == run_length_code {
-        // code may be too large for u16
-        if *code_bit_count < 8 {
-            read_byte(code_bits, code_bit_count, read)?;
-        }
-
-        *code_bit_count -= 8;
-
-        let code_repetitions = usize::from((*code_bits >> *code_bit_count) as u8);
-
-        if out.len() + code_repetitions > max_len {
-            return Err(Error::invalid(TOO_MUCH_DATA));
-        } else if out.is_empty() {
-            return Err(Error::invalid(NOT_ENOUGH_DATA));
-        }
-
-        let repeated_code = *out.last().unwrap();
-        out.extend(std::iter::repeat(repeated_code).take(code_repetitions));
-    } else if out.len() < max_len {
-        // implies that code is not larger than u16???
-        out.push(u16::try_from(code)?);
-    } else {
-        return Err(Error::invalid(TOO_MUCH_DATA));
-    }
-
     Ok(())
 }
 
@@ -621,13 +704,18 @@ fn pack_encoding_table(
 ///      alone, the code table can be transmitted without sending the actual
 ///      code values
 ///    - see <http://www.compressconsult.com/huffman>/
-fn build_canonical_table(code_table: &mut [u64]) -> UnitResult {
+/// `symbols` lists, ascending, at least every symbol whose code length is
+/// non-zero; zero-length entries need not be visited.
+fn build_canonical_table(
+    code_table: &mut [u64],
+    symbols: impl Iterator<Item = usize> + Clone,
+) -> UnitResult {
     debug_assert_eq!(code_table.len(), ENCODING_TABLE_SIZE);
 
     let mut count_per_code = [0_u64; 59];
 
-    for &code in code_table.iter() {
-        count_per_code[u64_to_usize(code, "table entry")?] += 1;
+    for symbol in symbols.clone() {
+        count_per_code[u64_to_usize(code_table[symbol], "table entry")?] += 1;
     }
 
     // For each i from 58 through 1, compute the
@@ -646,7 +734,8 @@ fn build_canonical_table(code_table: &mut [u64]) -> UnitResult {
     // code for symbol i.  Assign the next available
     // code of length l to the symbol and store both
     // l and the code in code[i]. // TODO iter + filter ?
-    for symbol_length in code_table.iter_mut() {
+    for symbol in symbols {
+        let symbol_length = &mut code_table[symbol];
         let current_length = *symbol_length;
         let code_index = u64_to_usize(current_length, "huffman code index")?;
         if current_length > 0 {
@@ -840,7 +929,7 @@ fn build_encoding_table(
     // Build a canonical Huffman code table, replacing the code
     // lengths in scode with (code, code length) pairs.  Copy the
     // code table from scode into frq.
-    build_canonical_table(&mut s_code)?;
+    build_canonical_table(&mut s_code, 0..ENCODING_TABLE_SIZE)?;
     frequencies.copy_from_slice(&s_code);
 
     Ok((min_frequency_index, max_frequency_index))
@@ -1010,6 +1099,25 @@ mod test {
         let decompressed = decompress(&compressed, uncompressed.len()).unwrap();
 
         assert_eq!(uncompressed, decompressed.as_slice());
+    }
+
+    /// With no codes of `DECODE_BITS` bits or fewer, every code takes the
+    /// long path. Here every symbol has a 16-bit code, so lengths 13 to 15
+    /// have none, and symbol 65535's code is sixteen ones. Near the end of the
+    /// input the bit reader fills all 64 bits with them, so lengths without
+    /// codes must never match, even input bits of all ones.
+    #[test]
+    fn long_codes_after_unused_lengths_with_all_one_bits() {
+        let mut encoding_table = vec![0_u64; ENCODING_TABLE_SIZE];
+        encoding_table[..1 << 16].fill(16);
+        let symbols: Vec<u32> = (0..1 << 16).collect();
+        build_canonical_table(&mut encoding_table, 0..1 << 16).unwrap();
+        let decoding_table = build_decoding_table(&encoding_table, &symbols, 1 << 16).unwrap();
+
+        let input = [0xff_u8; 12];
+        let decoded = decode_with_tables(&decoding_table, &input, 6 * 16, 1 << 16, 6).unwrap();
+
+        assert_eq!(decoded, [u16::MAX; 6]);
     }
 
     const SEED: [u8; 32] = [
