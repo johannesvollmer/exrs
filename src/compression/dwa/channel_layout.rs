@@ -2,7 +2,8 @@
 // scanline buffer the rest of the crate uses, the per-channel byte runs, the
 // planar byte planes of the UNKNOWN/RLE sections, and back again.
 
-use half::f16;
+use half::{f16, slice::HalfFloatSliceExt};
+use lebe::io::WriteEndian;
 
 use super::{ChannelInfo, CompressorScheme};
 use crate::{
@@ -181,13 +182,16 @@ pub(super) fn write_scanlines(
                     let row_samples = &lossy_samples[index][row * info.width..][..info.width];
                     match info.sample_type {
                         SampleType::F16 => {
-                            for sample in row_samples {
-                                out.extend_from_slice(&sample.to_bits().to_le_bytes());
-                            }
+                            out.write_as_little_endian(row_samples.reinterpret_cast())?;
                         }
                         SampleType::F32 => {
-                            for sample in row_samples {
-                                out.extend_from_slice(&sample.to_f32().to_le_bytes());
+                            // Batch half conversions without allocating a
+                            // temporary buffer for the entire scanline.
+                            let mut floats = [0.0f32; 64];
+                            for samples in row_samples.chunks(floats.len()) {
+                                let floats = &mut floats[..samples.len()];
+                                samples.convert_to_f32_slice(floats);
+                                out.write_as_little_endian(&*floats)?;
                             }
                         }
                         // rejected before decoding
