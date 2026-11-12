@@ -424,7 +424,7 @@ impl MetaData {
         read: &mut PeekRead<impl Read>,
         pedantic: bool,
     ) -> Result<Self> {
-        let meta_data = Self::read_unvalidated_from_buffered_peekable(read, !pedantic)?;
+        let meta_data = Self::read_unvalidated_from_buffered_peekable(read, pedantic)?;
         Self::validate(meta_data.headers.as_slice(), pedantic)?;
         Ok(meta_data)
     }
@@ -887,5 +887,70 @@ mod test {
         assert_eq!(low_requirements.file_format_version, 2);
         assert!(!low_requirements.has_deep_data);
         assert!(low_requirements.has_multiple_layers);
+    }
+
+    /// Some writers store a `chunkCount` that disagrees with the data window.
+    /// The count is always computed from the data window anyway, so a lenient
+    /// read uses the computed count, and only a pedantic read refuses the file.
+    #[test]
+    fn wrong_chunk_count_is_refused_only_when_pedantic() {
+        use std::io::Cursor;
+
+        use crate::prelude::*;
+
+        let size = Vec2(7, 40); // three blocks of 16 scan lines
+        let pixel = |position: Vec2<usize>| (position.x() as f32, position.y() as f32, 0.5_f32);
+        let image = Image::from_layer(Layer::new(
+            size,
+            LayerAttributes::named("patched"),
+            Encoding::SMALL_LOSSLESS, // scan line blocks of 16 lines
+            SpecificChannels::rgb(pixel),
+        ));
+
+        let mut bytes = Vec::new();
+        image.write().non_parallel().to_buffered(Cursor::new(&mut bytes)).unwrap();
+
+        // the attribute is its name, its type, the value size, and the value
+        let attribute_start = b"chunkCount\0int\0\x04\0\0\0";
+        let value_position = bytes
+            .windows(attribute_start.len())
+            .position(|window| window == attribute_start)
+            .expect("the writer should store the chunk count")
+            + attribute_start.len();
+
+        let value = &mut bytes[value_position..value_position + 4];
+        assert_eq!(value, &3_i32.to_le_bytes()[..]);
+        value.copy_from_slice(&990_i32.to_le_bytes());
+
+        let pedantic_error = crate::block::read(Cursor::new(&bytes), true).err();
+        assert!(
+            matches!(pedantic_error, Some(Error::Invalid(_))),
+            "a pedantic read must refuse a wrong chunk count"
+        );
+
+        let reader = crate::block::read(Cursor::new(&bytes), false).unwrap();
+        assert_eq!(reader.headers()[0].chunk_count, 3);
+
+        let read_back = read()
+            .no_deep_data()
+            .largest_resolution_level()
+            .rgb_channels(
+                |resolution, _| vec![(0.0_f32, 0.0_f32, 0.0_f32); resolution.area()],
+                move |pixels, position, value: (f32, f32, f32)| {
+                    pixels[position.flat_index_for_size(size)] = value
+                },
+            )
+            .first_valid_layer()
+            .all_attributes()
+            .non_parallel()
+            .from_buffered(Cursor::new(&bytes))
+            .unwrap();
+
+        let pixels = &read_back.layer_data.channel_data.pixels;
+        for y in 0..size.height() {
+            for x in 0..size.width() {
+                assert_eq!(pixels[y * size.width() + x], pixel(Vec2(x, y)));
+            }
+        }
     }
 }
