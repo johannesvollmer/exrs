@@ -612,3 +612,71 @@ fn write_samples(target: &mut [u8], samples: &[i32], sample_type: SampleType) {
 fn codestream_error(error: ::htj2k::Error) -> Error {
     Error::invalid(format!("HTJ2K codestream: {}", error.message()))
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    const H: SampleType = SampleType::F16;
+    const F: SampleType = SampleType::F32;
+    const U: SampleType = SampleType::U32;
+
+    fn map(list: &[(&str, SampleType, usize)]) -> (bool, Vec<usize>) {
+        let channels = list
+            .iter()
+            .map(|&(name, sample_type, sampling)| ChannelDescription {
+                name: name.into(),
+                sample_type,
+                quantize_linearly: false,
+                sampling: Vec2(sampling, sampling),
+            })
+            .collect();
+        channel_map(&ChannelList::new(channels))
+    }
+
+    #[test]
+    fn rgb_goes_first() {
+        let abgr = [("A", H, 1), ("B", H, 1), ("G", H, 1), ("R", H, 1)];
+        assert_eq!(map(&abgr), (true, vec![3, 2, 1, 0]));
+        let lower = [("b", F, 1), ("g", F, 1), ("r", F, 1), ("z", F, 1)];
+        assert_eq!(map(&lower), (true, vec![2, 1, 0, 3]));
+        let words = [("Blue", U, 1), ("GREEN", U, 1), ("id", U, 1), ("red", U, 1)];
+        assert_eq!(map(&words), (true, vec![3, 1, 0, 2]));
+    }
+
+    #[test]
+    fn rgb_must_match() {
+        // types differ, sampling differs
+        assert_eq!(map(&[("B", H, 1), ("G", F, 1), ("R", H, 1)]), (false, vec![0, 1, 2]));
+        assert_eq!(map(&[("B", H, 2), ("G", H, 1), ("R", H, 1)]), (false, vec![0, 1, 2]));
+        // no blue, and luminance and chroma are no triplet
+        assert_eq!(map(&[("G", H, 1), ("R", H, 1)]), (false, vec![0, 1]));
+        assert_eq!(map(&[("BY", H, 2), ("RY", H, 2), ("Y", H, 1)]), (false, vec![0, 1, 2]));
+        // a colour is a whole name or the suffix after the last "."
+        let joined = [("MainB", H, 1), ("MainG", H, 1), ("MainR", H, 1)];
+        assert_eq!(map(&joined), (false, vec![0, 1, 2]));
+    }
+
+    #[test]
+    fn rgb_shares_a_prefix() {
+        let layers = [("diffuse.B", H, 1), ("diffuse.G", H, 1), ("diffuse.R", H, 1), ("x.R", H, 1)];
+        assert_eq!(map(&layers), (true, vec![2, 1, 0, 3]));
+        // the first prefix to match a colour claims the triplet
+        let mixed = [("a.B", H, 1), ("b.G", H, 1), ("b.R", H, 1), ("c.B", H, 1)];
+        assert_eq!(map(&mixed), (false, vec![0, 1, 2, 3]));
+        // the second triplet counts when the first is incomplete
+        let words = [("R", H, 1), ("x.blue", F, 1), ("x.green", F, 1), ("x.red", F, 1)];
+        assert_eq!(map(&words), (true, vec![3, 2, 1, 0]));
+    }
+
+    #[test]
+    fn chunk_header_round_trip() {
+        let mut chunk = Vec::new();
+        write_chunk_header(&mut chunk, &[3, 2, 1, 0]).unwrap();
+        assert_eq!(chunk, [b'H', b'T', 0, 0, 0, 10, 0, 4, 0, 3, 0, 2, 0, 1, 0, 0]);
+        chunk.extend_from_slice(&[0xFF, 0x4F]);
+        let (file_channels, codestream) = read_chunk_header(&chunk, 4).unwrap();
+        assert_eq!(file_channels, [3, 2, 1, 0]);
+        assert_eq!(codestream, [0xFF, 0x4F]);
+    }
+}
