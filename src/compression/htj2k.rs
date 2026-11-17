@@ -38,19 +38,20 @@ const PREFIX_SIZE: usize = 6;
 /// Bounds what the codestream decoder may allocate for one channel, besides
 /// [`MEMORY_PER_CHANNEL_COLUMN`] for each pixel of the chunk's width.
 ///
-/// The decoder's memory does not depend on the chunk height. For each
-/// component it holds one row of code blocks per subband, each block at its
-/// nominal size even when it is smaller, plus a few lines per resolution.
-/// So it grows with the chunk width and the nominal block height: about 23
-/// bytes per pixel of width and per row of block height with 64-bit samples
-/// (FLOAT and UINT channels), and half that with 32-bit samples (HALF). For
-/// OpenEXR's 128x32 blocks and 5 decomposition levels that is about 0.7 KiB
-/// per pixel of width, besides about 340 KiB per component.
+/// For each component the decoder holds one row of code blocks per
+/// subband, each sized to the tallest row of blocks in its subband, plus a
+/// few lines per resolution. So it grows with the chunk width and with the
+/// smaller of the chunk height and the nominal block height. With 64-bit
+/// samples (FLOAT and UINT channels) and 5 decomposition levels, a 32-line
+/// chunk needs about 350 bytes per pixel of width whatever the block size,
+/// and a 256-line chunk about 0.8 KiB with OpenEXR's 128x32 blocks and up to
+/// 2.2 KiB with blocks 256 high. 32-bit samples (HALF) need about half.
 ///
-/// The limit allows blocks up to 128 high with 64-bit samples, which leaves
-/// room for other encoders' choices, while stopping a damaged codestream
-/// from claiming far more memory than the chunk could need. Taller blocks,
-/// which JPEG 2000 allows up to 1024, may be refused in wide chunks.
+/// The limit covers every block size for the chunk heights exrs and OpenEXR
+/// use, while stopping a damaged codestream from claiming far more memory
+/// than the chunk could need. Only blocks 256 or more high in chunks of 512
+/// lines or more, which no OpenEXR compression method produces, may be
+/// refused in wide chunks.
 const MEMORY_PER_CHANNEL: u64 = 4 << 20;
 
 /// See [`MEMORY_PER_CHANNEL`].
