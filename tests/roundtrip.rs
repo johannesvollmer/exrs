@@ -84,6 +84,9 @@ fn round_trip_rgba_file(path: &Path, file: &[u8]) -> Result<()> {
         Path::new("tests/images/valid/openexr/IlmfmlmflmTest/v1.7.test.tiled.exr"),
         Path::new("tests/images/valid/custom/dwa_csc/y_ry_by_dwaa_ground_truth.exr"),
         Path::new("tests/images/valid/custom/dwa_csc/y_ry_by_dwaa.exr"),
+        Path::new("tests/images/valid/custom/htj2k/y_half.exr"),
+        Path::new("tests/images/valid/custom/htj2k/y_half_htj2k32.exr"),
+        Path::new("tests/images/valid/custom/htj2k/y_half_htj2k256.exr"),
     ];
 
     if blacklist.contains(&path) {
