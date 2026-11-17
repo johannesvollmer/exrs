@@ -149,14 +149,24 @@ pub enum Compression {
 
     /// Lossless High-Throughput JPEG 2000 (HTJ2K), 32 scanlines per block.
     /// Introduced in OpenEXR 3.4.
-    /// Decoding support is implemented. Encoding is not implemented and returns
-    /// an error.
+    /// Needs the `htj2k` cargo feature, without which reading and writing
+    /// return `Error::NotSupported`. exrs writes the chunks `OpenEXR` 3.5
+    /// writes, but for the `OpenJPH` version their comment names. Chunks
+    /// that would not be smaller are stored uncompressed, as are all chunks
+    /// of a layer with a channel whose y sampling is larger than the block
+    /// height, which `OpenEXR` could not read back. Sampling that is not a
+    /// power of two cannot be written.
     HTJ2K32,
 
     /// Lossless High-Throughput JPEG 2000 (HTJ2K), 256 scanlines per block.
     /// Introduced in OpenEXR 3.4.
-    /// Decoding support is implemented. Encoding is not implemented and returns
-    /// an error.
+    /// Needs the `htj2k` cargo feature, without which reading and writing
+    /// return `Error::NotSupported`. exrs writes the chunks `OpenEXR` 3.5
+    /// writes, but for the `OpenJPH` version their comment names. Chunks
+    /// that would not be smaller are stored uncompressed, as are all chunks
+    /// of a layer with a channel whose y sampling is larger than the block
+    /// height, which `OpenEXR` could not read back. Sampling that is not a
+    /// power of two cannot be written.
     HTJ2K256,
 }
 
