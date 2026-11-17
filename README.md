@@ -29,7 +29,8 @@ Features include:
 ### Current Status
 
 This library has matured quite a bit, but should still be considered incomplete.
-For example, deep data and HTJ2K compression are not supported yet.
+For example, deep data is not supported yet,
+and HTJ2K compression can be read but not written.
 
 If you encounter an exr file that cannot be opened by this crate but should be,
 please leave an issue on this repository, containing the image file.
@@ -56,7 +57,7 @@ __What we can do:__
         - [x] pxr24 (lossless for f16 and u32)
         - [x] b44, b44a (huge thanks to @narann)
         - [x] dwaa, dwab (huge thanks to @zinedinp)
-        - [ ] HTJ2K32, HTJ2K256
+        - [x] HTJ2K32, HTJ2K256 (lossless, reading only)
 
 - Nice Things
     - [x] no unsafe code, no undefined behaviour
@@ -131,6 +132,7 @@ __What we can do:__
         - [x] PXR24 (lossless for f16 and u32)
         - [x] B44, B44A
         - [x] DWAA, DWAB
+        - [ ] HTJ2K32, HTJ2K256
 
 - [x] De/compressing multiple blocks in parallel
 

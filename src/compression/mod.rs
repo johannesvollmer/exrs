@@ -145,12 +145,16 @@ pub enum Compression {
     /// an error.
     DWAB(Option<f32>),
 
-    /// __This lossy compression is not yet supported by this implementation.__
-    // High-Throughput JPEG 2000 (32 lines)
+    /// Lossless High-Throughput JPEG 2000 (HTJ2K), 32 scanlines per block.
+    /// Introduced in OpenEXR 3.4.
+    /// Decoding support is implemented. Encoding is not implemented and returns
+    /// an error.
     HTJ2K32,
 
-    /// __This lossy compression is not yet supported by this implementation.__
-    // High-Throughput JPEG 2000 (256 lines)
+    /// Lossless High-Throughput JPEG 2000 (HTJ2K), 256 scanlines per block.
+    /// Introduced in OpenEXR 3.4.
+    /// Decoding support is implemented. Encoding is not implemented and returns
+    /// an error.
     HTJ2K256,
 }
 
