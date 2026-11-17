@@ -31,6 +31,7 @@ Features include:
 This library has matured quite a bit, but should still be considered incomplete.
 For example, deep data is not supported yet,
 and HTJ2K compression can be read but not written.
+Reading HTJ2K needs the optional `htj2k` cargo feature.
 
 If you encounter an exr file that cannot be opened by this crate but should be,
 please leave an issue on this repository, containing the image file.
@@ -57,7 +58,7 @@ __What we can do:__
         - [x] pxr24 (lossless for f16 and u32)
         - [x] b44, b44a (huge thanks to @narann)
         - [x] dwaa, dwab (huge thanks to @zinedinp)
-        - [x] HTJ2K32, HTJ2K256 (lossless, reading only)
+        - [x] HTJ2K32, HTJ2K256 (lossless, reading only, with the `htj2k` feature)
 
 - Nice Things
     - [x] no unsafe code, no undefined behaviour

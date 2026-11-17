@@ -1,6 +1,10 @@
 //! Decodes the HTJ2K files in `tests/images/valid/custom/htj2k`, which
 //! OpenEXR wrote, and checks every sample bit for bit against the
 //! uncompressed file each was converted from. See `generate.py` there.
+//!
+//! Needs the `htj2k` feature: `cargo test --features htj2k`.
+
+#![cfg(feature = "htj2k")]
 
 use std::{
     io::Cursor,

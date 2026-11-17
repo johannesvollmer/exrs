@@ -198,6 +198,7 @@ fn compare_compression_contents_pxr24_f32() {
 
 /// Like `expect_eq_uncompressed`, but fails instead of skipping when the
 /// compression method is not supported.
+#[cfg(feature = "htj2k")]
 fn expect_supported_eq_uncompressed(sub_dir: &str, image_name: &str) {
     let path = dir().join(sub_dir).join(image_name);
     if let Err(error) = read_first_flat_layer_from_file(&path) {
@@ -207,23 +208,43 @@ fn expect_supported_eq_uncompressed(sub_dir: &str, image_name: &str) {
 }
 
 #[test]
+#[cfg(feature = "htj2k")]
 fn compare_compression_contents_htj2k32_f16() {
     expect_supported_eq_uncompressed("f16", "htj2k32.exr");
 }
 
 #[test]
+#[cfg(feature = "htj2k")]
 fn compare_compression_contents_htj2k32_f32() {
     expect_supported_eq_uncompressed("f32", "htj2k32.exr");
 }
 
 #[test]
+#[cfg(feature = "htj2k")]
 fn compare_compression_contents_htj2k256_f16() {
     expect_supported_eq_uncompressed("f16", "htj2k256.exr");
 }
 
 #[test]
+#[cfg(feature = "htj2k")]
 fn compare_compression_contents_htj2k256_f32() {
     expect_supported_eq_uncompressed("f32", "htj2k256.exr");
+}
+
+/// Without the `htj2k` feature, HTJ2K files must be refused as
+/// unsupported, not misread or reported as damaged.
+#[test]
+#[cfg(not(feature = "htj2k"))]
+fn htj2k_needs_its_feature() {
+    for name in ["f16/htj2k32.exr", "f32/htj2k256.exr"] {
+        let path = dir().join(name);
+        match read_first_flat_layer_from_file(&path) {
+            Err(Error::NotSupported(_)) => {}
+            other => {
+                panic!("{}: expected NotSupported, got {:?}", path.display(), other.map(|_| ()))
+            }
+        }
+    }
 }
 
 #[test]

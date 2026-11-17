@@ -3,6 +3,7 @@
 
 // private modules make non-breaking changes easier
 mod b44;
+#[cfg(feature = "htj2k")]
 mod htj2k;
 
 // public only for benchmarking
@@ -357,6 +358,7 @@ impl Compression {
                     expected_byte_size,
                     pedantic,
                 ),
+                #[cfg(feature = "htj2k")]
                 HTJ2K32 | HTJ2K256 => htj2k::decompress(
                     &header.channels,
                     compressed_le,
@@ -364,6 +366,12 @@ impl Compression {
                     expected_byte_size,
                     pedantic,
                 ),
+                #[cfg(not(feature = "htj2k"))]
+                HTJ2K32 | HTJ2K256 => {
+                    return Err(Error::unsupported(
+                        "HTJ2K decompression (enable the `htj2k` feature of the exr crate)",
+                    ))
+                }
             };
 
             // map all errors to compression errors
