@@ -257,9 +257,21 @@ impl Compression {
             // the error is returned as it is, as its message tells the user
             // what cannot be compressed
             #[cfg(feature = "htj2k")]
-            HTJ2K32 | HTJ2K256 => {
-                Ok(htj2k::compress(&header.channels, &uncompressed_native_endian, pixel_section)?)
-            }
+            HTJ2K32 | HTJ2K256 => match htj2k::compress(
+                &header.channels,
+                &uncompressed_native_endian,
+                pixel_section,
+                max_tile_size.height(),
+            )? {
+                Some(compressed) => Ok(compressed),
+                None => {
+                    return convert_current_to_little_endian(
+                        uncompressed_native_endian,
+                        &header.channels,
+                        pixel_section,
+                    )
+                }
+            },
             #[cfg(not(feature = "htj2k"))]
             HTJ2K32 | HTJ2K256 => {
                 return Err(Error::unsupported(

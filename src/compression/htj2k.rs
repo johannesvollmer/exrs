@@ -88,12 +88,34 @@ const BLOCK_SIZE: (u32, u32) = (128, 32);
 /// codestream, coded as `OpenEXR`'s `ht_apply_impl` codes it.
 ///
 /// The result may be larger than the samples; the caller stores the
-/// samples instead then, as `OpenEXR` does.
+/// samples instead then, as `OpenEXR` does. `None` asks the caller to store
+/// them in any case: see [`must_store_raw`].
+///
+/// `chunk_lines` is the height of a full chunk: 32 for `HTJ2K32` and 256
+/// for `HTJ2K256`, or the tile height.
+///
+/// Refuses channel sampling that is not a power of two, as `OpenEXR` fails
+/// on it: the encoder cannot subsample by other factors with RPCL.
 pub fn compress(
     channels: &ChannelList,
     uncompressed: &[u8],
     rectangle: IntegerBounds,
-) -> Result<ByteVec> {
+    chunk_lines: usize,
+) -> Result<Option<ByteVec>> {
+    for channel in &channels.list {
+        let Vec2(x, y) = channel.sampling;
+        if !x.is_power_of_two() || !y.is_power_of_two() {
+            return Err(Error::unsupported(format!(
+                "HTJ2K compression of channel {} sampled {}x{}: HTJ2K, as OpenEXR \
+                 writes it, needs sampling factors that are powers of two",
+                channel.name, x, y
+            )));
+        }
+    }
+    if must_store_raw(channels, chunk_lines) {
+        return Ok(None);
+    }
+
     let (layout, byte_size) = chunk_layout(channels, rectangle)?;
     if byte_size != uncompressed.len() {
         return Err(Error::invalid("uncompressed chunk size"));
@@ -107,12 +129,12 @@ pub fn compress(
     );
 
     // The codestream gives a component ceil(height / sampling) lines, as
-    // the image offset is 0, which must be the lines of its channel.
+    // the image offset is 0, which must be the lines of its channel. With
+    // the sampling dividing the chunk height, they differ only if the data
+    // window does not start on a multiple of the sampling, which is invalid.
     for (channel, channel_layout) in channels.list.iter().zip(&layout) {
         if channel_layout.lines.len() != height.div_ceil(channel.sampling.y()) {
-            return Err(Error::unsupported(
-                "HTJ2K compression of a chunk that does not start on a multiple of the y sampling",
-            ));
+            return Err(Error::invalid("data window not aligned to the channel sampling"));
         }
     }
 
@@ -151,7 +173,25 @@ pub fn compress(
     }
     encoder.flush(&mut compressed).map_err(encoder_error)?;
 
-    Ok(compressed)
+    Ok(Some(compressed))
+}
+
+/// Whether the chunks must be stored uncompressed because a channel's y
+/// sampling is larger than the chunk height or does not divide it.
+///
+/// `OpenEXR` codes such chunks, but its encoder and decoder disagree on
+/// their size: the codestream gives a channel ceil(height / sampling) lines
+/// where the chunk may have none, and the decoder refuses a channel with
+/// fewer than height / sampling lines, rounded down. So `OpenEXR` writes them
+/// without error and then cannot read them, and some hold wrong samples.
+/// Uncompressed chunks stay readable by every reader. With power-of-two
+/// sampling, this is a y sampling of 64 or more with `HTJ2K32`, or 512 or
+/// more with `HTJ2K256`.
+fn must_store_raw(channels: &ChannelList, chunk_lines: usize) -> bool {
+    channels.list.iter().any(|channel| {
+        let sampling = channel.sampling.y();
+        sampling > chunk_lines || chunk_lines % sampling != 0
+    })
 }
 
 /// An encoder set up for one chunk with `ht_apply_impl`'s calls, in the
