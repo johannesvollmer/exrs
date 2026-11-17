@@ -196,6 +196,36 @@ fn compare_compression_contents_pxr24_f32() {
     expect_eq_other("f32", "pxr24.exr", "decompressed_pxr24.exr");
 }
 
+/// Like `expect_eq_uncompressed`, but fails instead of skipping when the
+/// compression method is not supported.
+fn expect_supported_eq_uncompressed(sub_dir: &str, image_name: &str) {
+    let path = dir().join(sub_dir).join(image_name);
+    if let Err(error) = read_first_flat_layer_from_file(&path) {
+        panic!("{} could not be read: {}", path.display(), error);
+    }
+    expect_eq_uncompressed(sub_dir, image_name)
+}
+
+#[test]
+fn compare_compression_contents_htj2k32_f16() {
+    expect_supported_eq_uncompressed("f16", "htj2k32.exr");
+}
+
+#[test]
+fn compare_compression_contents_htj2k32_f32() {
+    expect_supported_eq_uncompressed("f32", "htj2k32.exr");
+}
+
+#[test]
+fn compare_compression_contents_htj2k256_f16() {
+    expect_supported_eq_uncompressed("f16", "htj2k256.exr");
+}
+
+#[test]
+fn compare_compression_contents_htj2k256_f32() {
+    expect_supported_eq_uncompressed("f32", "htj2k256.exr");
+}
+
 #[test]
 fn compare_png_to_uncompressed_f16() {
     expect_eq_png("f16_uncompressed.exr");
