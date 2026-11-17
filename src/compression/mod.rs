@@ -3,6 +3,7 @@
 
 // private modules make non-breaking changes easier
 mod b44;
+mod htj2k;
 
 // public only for benchmarking
 #[doc(hidden)]
@@ -352,11 +353,13 @@ impl Compression {
                     expected_byte_size,
                     pedantic,
                 ),
-                _ => {
-                    return Err(Error::unsupported(format!(
-                        "yet unimplemented compression method: {self}"
-                    )));
-                }
+                HTJ2K32 | HTJ2K256 => htj2k::decompress(
+                    &header.channels,
+                    compressed_le,
+                    pixel_section,
+                    expected_byte_size,
+                    pedantic,
+                ),
             };
 
             // map all errors to compression errors
