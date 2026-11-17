@@ -254,10 +254,17 @@ impl Compression {
                 pixel_section,
                 level,
             ),
-            _ => {
-                return Err(Error::unsupported(format!(
-                    "yet unimplemented compression method: {self}"
-                )));
+            // the error is returned as it is, as its message tells the user
+            // what cannot be compressed
+            #[cfg(feature = "htj2k")]
+            HTJ2K32 | HTJ2K256 => {
+                Ok(htj2k::compress(&header.channels, &uncompressed_native_endian, pixel_section)?)
+            }
+            #[cfg(not(feature = "htj2k"))]
+            HTJ2K32 | HTJ2K256 => {
+                return Err(Error::unsupported(
+                    "HTJ2K compression (enable the `htj2k` feature of the exr crate)",
+                ))
             }
         };
 
