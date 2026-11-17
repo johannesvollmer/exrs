@@ -19,6 +19,7 @@ use std::convert::TryInto;
 
 use crate::{
     error::{usize_to_i32, Error, Result, UnitResult},
+    math::Vec2,
     meta::{
         attribute::{ChannelList, IntegerBounds, SampleType},
         header::Header,
@@ -296,7 +297,7 @@ impl Compression {
             assert!(self.supports_deep_data());
         }
 
-        let expected_byte_size = pixel_section.size.area() * header.channels.bytes_per_pixel; // FIXME this needs to account for subsampling anywhere
+        let expected_byte_size = uncompressed_byte_size(&header.channels, pixel_section)?;
 
         // note: always true where self == Uncompressed
         if compressed_le.len() == expected_byte_size {
@@ -462,6 +463,27 @@ impl Compression {
             B44 | Uncompressed | RLE | ZIP1 | ZIP16 | PIZ | HTJ2K32 | HTJ2K256 => true,
         }
     }
+}
+
+/// The size in bytes of the uncompressed samples of a section. A channel
+/// subsampled vertically has a line only where y is a multiple of its
+/// sampling, and a channel subsampled horizontally has fewer samples per
+/// line.
+fn uncompressed_byte_size(channels: &ChannelList, section: IntegerBounds) -> Result<usize> {
+    if channels.list.iter().all(|channel| channel.sampling == Vec2(1, 1)) {
+        return Ok(section.size.area() * channels.bytes_per_pixel);
+    }
+
+    let mut byte_size = 0;
+    for channel in &channels.list {
+        let sampling_y = usize_to_i32(channel.sampling.y().max(1), "sampling")?;
+        let lines = (section.position.y()..section.end().y())
+            .filter(|&y| mod_p(y, sampling_y) == 0)
+            .count();
+        let samples_per_line = section.size.width() / channel.sampling.x().max(1);
+        byte_size += lines * samples_per_line * channel.sample_type.bytes_per_sample();
+    }
+    Ok(byte_size)
 }
 
 // see https://github.com/AcademySoftwareFoundation/openexr/blob/6a9f8af6e89547bcd370ae3cec2b12849eee0b54/OpenEXR/IlmImf/ImfMisc.cpp#L1456-L1541
