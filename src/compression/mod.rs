@@ -451,12 +451,12 @@ impl Compression {
                     pedantic,
                 ),
                 #[cfg(feature = "htj2k")]
-                HTJ2K32 | HTJ2K256 => htj2k::decompress(
+                HTJ2K32 | HTJ2K256 | LJ2K(_) => htj2k::decompress(
                     &header.channels,
                     compressed_le,
                     pixel_section,
                     expected_byte_size,
-                    pedantic,
+                    matches!(self, LJ2K(_)),
                 ),
                 #[cfg(not(feature = "htj2k"))]
                 HTJ2K32 | HTJ2K256 => {
@@ -464,8 +464,6 @@ impl Compression {
                         "HTJ2K decompression (enable the `htj2k` feature of the exr crate)",
                     ))
                 }
-                #[cfg(feature = "htj2k")]
-                LJ2K(_) => return Err(Error::unsupported("LJ2K decompression")),
                 #[cfg(not(feature = "htj2k"))]
                 LJ2K(_) => {
                     return Err(Error::unsupported(

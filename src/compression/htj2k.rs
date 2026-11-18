@@ -1,5 +1,6 @@
-//! Lossless High-Throughput JPEG 2000 (HTJ2K, ITU-T T.814 | ISO/IEC
-//! 15444-15), as OpenEXR writes it for `HTJ2K32` and `HTJ2K256`.
+//! High-Throughput JPEG 2000 (HTJ2K, ITU-T T.814 | ISO/IEC 15444-15), as
+//! `OpenEXR` writes it for `HTJ2K32` and `HTJ2K256`, which are lossless, and
+//! for `LJ2K`, which is lossy.
 //!
 //! Each chunk holds one HTJ2K codestream, which the `htj2k` crate encodes
 //! and decodes, behind a short header that maps the codestream's components
@@ -12,7 +13,7 @@
 //! The chunk header, all fields big-endian:
 //!
 //! ```text
-//! u16  magic                      "HT"
+//! u16  magic                      "HT", or "HL" for LJ2K
 //! u32  payload_size               bytes after this field, up to the codestream
 //! u16  channel_count
 //! u16  file_channel[channel_count]  channel index of each component
@@ -30,6 +31,22 @@
 //! transform on them, unless a channel is subsampled. Subsampled channels
 //! make the codestream planar: each component is coded with its channel's
 //! sampling, one after the other.
+//!
+//! `LJ2K` codes such an R, G and B triplet lossily when its channels are
+//! HALF or FLOAT and not subsampled: with the irreversible 9/7 wavelet and
+//! colour transforms, and NLT type 4 tables that map the bits of the
+//! samples through a transfer function. The tables are in the codestream,
+//! so the decoder needs nothing else. Its other channels are coded as
+//! above. A lossy codestream not coded planar is padded to a size of 1
+//! modulo 32 each way (see [`padded_length`]), and the padding is dropped
+//! when decoding.
+//!
+//! `OpenEXR` 3.5.0 and 3.5.1 wrote `LJ2K` chunks with the "HT" magic number,
+//! and coded their lossy components without NLT tables: they mapped each
+//! sample through the transfer function to a signed integer of the
+//! component's depth before coding. Like `OpenEXR` 3.5.2 and later, the
+//! decoder reads them and undoes that mapping on the lossy components
+//! after decoding the codestream (see [`write_legacy_samples`]).
 
 use std::convert::TryFrom;
 
@@ -38,9 +55,16 @@ use ::htj2k::{codestream::Encoder, params::nonlinearity, types::Point};
 use super::*;
 use crate::{math::Vec2, meta::attribute::ChannelDescription};
 
-/// "HT", the magic number of `HTJ2K32` and `HTJ2K256` chunks. OpenEXR also
-/// accepts "HL" for its lossy `LJ2K` compression, which exrs does not read.
+/// "HT", the magic number of `HTJ2K32` and `HTJ2K256` chunks
+/// (`HeaderMagic::V1` in `OpenEXR`). `OpenEXR` 3.5.0 and 3.5.1 also wrote it
+/// on `LJ2K` chunks, which they coded with the transfer function outside the
+/// codestream.
 const MAGIC: u16 = u16::from_be_bytes(*b"HT");
+
+/// "HL", the magic number of `LJ2K` chunks as `OpenEXR` writes them after
+/// 3.5.1 (`HeaderMagic::V2`), with the transfer function in NLT type 4
+/// tables of the codestream.
+const MAGIC_LJ2K: u16 = u16::from_be_bytes(*b"HL");
 
 /// Bytes of the chunk header before its payload: the magic number and the
 /// payload size.
@@ -252,6 +276,68 @@ fn new_encoder(
     Ok(encoder)
 }
 
+/// `tf_to_linear` in `OpenEXR`: a power of 2.2 up to 1, exponential above,
+/// odd. The C++ constants are `float` literals, so they are rounded to
+/// `f32` before the arithmetic in `f64`.
+fn tf_to_linear(x: f64) -> f64 {
+    let sign = if x < 0.0 {
+        -1.0
+    } else {
+        1.0
+    };
+    let v = x.abs();
+    if v <= 1.0 {
+        sign * v.powf(f64::from(2.2_f32))
+    } else {
+        sign * (f64::from(2.2_f32) * (v - 1.0)).exp()
+    }
+}
+
+/// Imath's `imath_float_to_half`: to nearest even, overflowing to
+/// infinity. Legacy `LJ2K` samples must use exactly this rounding.
+// The casts and the arithmetic are `OpenEXR`'s, which this must reproduce
+// bit for bit: a fused multiply-add or `exp2` would round differently.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::suboptimal_flops
+)]
+fn float_to_half_bits(f: f32) -> u16 {
+    let i = f.to_bits();
+    let mut ui = i & !0x8000_0000;
+    let sign = ((i >> 16) & 0x8000) as u16;
+    if ui >= 0x3880_0000 {
+        if ui >= 0x7f80_0000 {
+            let infinity = sign | 0x7c00;
+            if ui == 0x7f80_0000 {
+                return infinity;
+            }
+            let mantissa = ((ui & 0x7f_ffff) >> 13) as u16;
+            return infinity | mantissa | u16::from(mantissa == 0);
+        }
+        if ui > 0x477f_efff {
+            return sign | 0x7c00;
+        }
+        ui -= 0x3800_0000;
+        ui = (ui + 0x0000_0fff + ((ui >> 13) & 1)) >> 13;
+        return sign | ui as u16;
+    }
+    if ui < 0x3300_0001 {
+        return sign;
+    }
+    let exponent = ui >> 23;
+    let shift = 0x7e - exponent;
+    let mantissa = 0x80_0000 | (ui & 0x7f_ffff);
+    let rest = mantissa << (32 - shift);
+    let mut half = sign | (mantissa >> shift) as u16;
+    if rest > 0x8000_0000 || (rest == 0x8000_0000 && (half & 1) != 0) {
+        half += 1;
+    }
+    half
+}
+
 /// The codestream component order, `make_channel_map` in `OpenEXR`: the file
 /// channel of each component, and whether components 0, 1 and 2 are an R, G
 /// and B triplet, which the colour transform can then decorrelate.
@@ -367,15 +453,18 @@ fn encoder_error(error: ::htj2k::Error) -> Error {
 
 /// Decompresses one chunk into a new buffer of native-endian samples, in the
 /// usual layout: line by line, and within each line the channels in order.
+///
+/// `lj2k` tells `LJ2K` chunks from `HTJ2K32` and `HTJ2K256` ones, which
+/// differ in their magic number.
 pub fn decompress(
     channels: &ChannelList,
     compressed: ByteVec,
     rectangle: IntegerBounds,
     expected_byte_size: usize,
-    _pedantic: bool,
+    lj2k: bool,
 ) -> Result<ByteVec> {
     let mut decompressed = vec![0_u8; expected_byte_size];
-    decompress_into(channels, &compressed, rectangle, &mut decompressed)?;
+    decompress_into(channels, &compressed, rectangle, &mut decompressed, lj2k)?;
     Ok(decompressed)
 }
 
@@ -386,12 +475,21 @@ fn decompress_into(
     compressed: &[u8],
     rectangle: IntegerBounds,
     decompressed: &mut [u8],
+    lj2k: bool,
 ) -> UnitResult {
     let channel_count = channels.list.len();
     let width = rectangle.size.width();
     let height = rectangle.size.height();
 
-    let (file_channels, codestream) = read_chunk_header(compressed, channel_count)?;
+    let (magic, file_channels, codestream) = read_chunk_header(compressed, channel_count)?;
+    // An LJ2K chunk with the "HT" magic number is one of OpenEXR 3.5.0 or
+    // 3.5.1, whose lossy components hold samples mapped through the legacy
+    // transfer function (see `legacy_half_bits`)
+    let legacy = match (magic, lj2k) {
+        (MAGIC, false) | (MAGIC_LJ2K, true) => false,
+        (MAGIC, true) => true,
+        _ => return Err(Error::invalid("HTJ2K chunk header magic number")),
+    };
 
     let (layout, byte_size) = chunk_layout(channels, rectangle)?;
     if byte_size != decompressed.len() {
@@ -409,31 +507,54 @@ fn decompress_into(
     decoder.set_memory_limit(memory_limit);
     decoder.read_headers(codestream).map_err(codestream_error)?;
 
-    // The codestream must be exactly the chunk: OpenEXR pads only lossy
-    // codestreams, which these compression methods never are.
+    // The codestream is either exactly the chunk, or, coded lossily, the
+    // chunk padded to the size `padded_length` gives (see there).
     let siz = decoder.access_siz();
     let extent = siz.get_image_extent();
     let offset = siz.get_image_offset();
-    let image_width = extent.x.checked_sub(offset.x);
-    let image_height = extent.y.checked_sub(offset.y);
-    if image_width.map(|w| w as usize) != Some(width)
-        || image_height.map(|h| h as usize) != Some(height)
-    {
+    let image_size = extent.x.checked_sub(offset.x).zip(extent.y.checked_sub(offset.y));
+    let Some((image_width, image_height)) = image_size.map(|(w, h)| (w as usize, h as usize))
+    else {
         return Err(Error::invalid("HTJ2K image size does not match the chunk"));
-    }
+    };
     if siz.get_num_components() as usize != channel_count {
         return Err(Error::invalid("HTJ2K component count does not match the channels"));
     }
+
+    let planar = is_planar(channels);
+    let padded = (image_width, image_height) != (width, height);
+    if padded {
+        // As `ht_undo_impl`: only an irreversible codestream may be padded,
+        // with no more decomposition levels than OpenEXR codes, which bounds
+        // the padding, and never with subsampled channels.
+        let cod = decoder.access_cod();
+        let levels = cod.get_num_decompositions();
+        if cod.is_reversible()
+            || planar
+            || Some(image_width) != padded_length(width, levels)
+            || Some(image_height) != padded_length(height, levels)
+        {
+            return Err(Error::invalid("HTJ2K image size does not match the chunk"));
+        }
+    }
+
     // Each component must have the sampling and the size of its channel.
     // OpenEXR codes a chunk at image offset 0, so a component has
     // ceil(size / sampling) samples each way, which is the size of the
-    // channel when the chunk starts on a multiple of its sampling.
+    // channel when the chunk starts on a multiple of its sampling. In a
+    // padded codestream no channel is subsampled, and every component has
+    // the padded size.
     for (component, &file_channel) in (0_u32..).zip(&file_channels) {
         let sampling = siz.get_downsampling(component);
         let channel_layout = &layout[file_channel];
+        let (component_width, component_height) = if padded {
+            (image_width, image_height)
+        } else {
+            (channel_layout.width, channel_layout.lines.len())
+        };
         if Vec2(sampling.x as usize, sampling.y as usize) != channels.list[file_channel].sampling
-            || siz.get_recon_width(component) as usize != channel_layout.width
-            || siz.get_recon_height(component) as usize != channel_layout.lines.len()
+            || siz.get_recon_width(component) as usize != component_width
+            || siz.get_recon_height(component) as usize != component_height
         {
             return Err(Error::invalid("HTJ2K component size does not match the chunk"));
         }
@@ -441,11 +562,17 @@ fn decompress_into(
 
     // OpenEXR codes subsampled channels one after the other, and otherwise
     // one line of each component in turn, which is one line of the chunk.
-    let planar = is_planar(channels);
     decoder.set_planar(planar);
     decoder.create().map_err(codestream_error)?;
 
-    let mut pull_line = |component: usize, line: usize| -> UnitResult {
+    // `line` is `None` for the lines of padding, which are dropped.
+    let mut pull_line = |component: usize, line: Option<usize>| -> UnitResult {
+        // as `ht_undo_impl`: by the coding of the component, whatever its
+        // channel (`read_chunk_header` bounds the components to u16)
+        let legacy_lossy = legacy
+            && !decoder
+                .access_cod()
+                .is_reversible_comp(u32::try_from(component).unwrap_or(u32::MAX));
         let (pulled, samples) = decoder
             .pull()
             .map_err(codestream_error)?
@@ -453,6 +580,9 @@ fn decompress_into(
         if pulled as usize != component || !samples.is_i32() {
             return Err(Error::invalid("HTJ2K line order"));
         }
+        let Some(line) = line else {
+            return Ok(());
+        };
 
         let file_channel = file_channels[component];
         let channel_layout = &layout[file_channel];
@@ -464,18 +594,20 @@ fn decompress_into(
         let sample_type = channels.list[file_channel].sample_type;
         let start = channel_layout.lines[line];
         let size = sample_type.bytes_per_sample() * channel_layout.width;
-        write_samples(&mut decompressed[start..start + size], samples, sample_type);
+        let target = &mut decompressed[start..start + size];
+        write_samples(target, samples, sample_type, legacy_lossy);
         Ok(())
     };
 
     if planar {
         for (component, &file_channel) in file_channels.iter().enumerate() {
             for line in 0..layout[file_channel].lines.len() {
-                pull_line(component, line)?;
+                pull_line(component, Some(line))?;
             }
         }
     } else {
-        for line in 0..height {
+        for line in 0..image_height {
+            let line = (line < height).then_some(line);
             for component in 0..channel_count {
                 pull_line(component, line)?;
             }
@@ -543,9 +675,9 @@ fn is_planar(channels: &ChannelList) -> bool {
     channels.list.iter().any(|channel| channel.sampling != Vec2(1, 1))
 }
 
-/// Reads the chunk header. Returns the file channel of each codestream
-/// component and the codestream.
-fn read_chunk_header(compressed: &[u8], channel_count: usize) -> Result<(Vec<usize>, &[u8])> {
+/// Reads the chunk header. Returns its magic number, the file channel of
+/// each codestream component and the codestream.
+fn read_chunk_header(compressed: &[u8], channel_count: usize) -> Result<(u16, Vec<usize>, &[u8])> {
     let mut remaining = compressed;
     let mut take = |count: usize| {
         if remaining.len() < count {
@@ -557,7 +689,8 @@ fn read_chunk_header(compressed: &[u8], channel_count: usize) -> Result<(Vec<usi
     };
     let read_u16 = |bytes: &[u8]| u16::from_be_bytes([bytes[0], bytes[1]]);
 
-    if read_u16(take(2)?) != MAGIC {
+    let magic = read_u16(take(2)?);
+    if magic != MAGIC && magic != MAGIC_LJ2K {
         return Err(Error::invalid("HTJ2K chunk header magic number"));
     }
     let payload = take(4)?;
@@ -588,13 +721,18 @@ fn read_chunk_header(compressed: &[u8], channel_count: usize) -> Result<(Vec<usi
     if codestream.is_empty() {
         return Err(Error::invalid("HTJ2K codestream missing"));
     }
-    Ok((file_channels, codestream))
+    Ok((magic, file_channels, codestream))
 }
 
 /// Stores decoded samples as native-endian samples of `sample_type`. The
 /// decoder returns the bits of each sample in an `i32`; a HALF sample is in
-/// its low 16 bits.
-fn write_samples(target: &mut [u8], samples: &[i32], sample_type: SampleType) {
+/// its low 16 bits. `legacy_lossy` says the samples are those of a lossy
+/// component of a legacy `LJ2K` chunk instead: see
+/// [`write_legacy_samples`].
+fn write_samples(target: &mut [u8], samples: &[i32], sample_type: SampleType, legacy_lossy: bool) {
+    if legacy_lossy {
+        return write_legacy_samples(target, samples, sample_type);
+    }
     match sample_type {
         SampleType::F16 => {
             for (bytes, &sample) in target.chunks_exact_mut(2).zip(samples) {
@@ -607,6 +745,89 @@ fn write_samples(target: &mut [u8], samples: &[i32], sample_type: SampleType) {
             }
         }
     }
+}
+
+/// Stores the decoded samples of a lossy component of a legacy `LJ2K` chunk
+/// (`OpenEXR` 3.5.0 or 3.5.1) as native-endian samples of `sample_type`,
+/// undoing the transfer function those versions applied before coding, as
+/// `decode_line` in `OpenEXR`'s `internal_ht.cpp` does: HALF samples with
+/// [`legacy_half_bits`], any other type, as FLOAT, with
+/// [`legacy_float_bits`]. (Those versions never coded a UINT channel
+/// lossily, so only a damaged chunk gets here with one.)
+fn write_legacy_samples(target: &mut [u8], samples: &[i32], sample_type: SampleType) {
+    match sample_type {
+        SampleType::F16 => {
+            for (bytes, &sample) in target.chunks_exact_mut(2).zip(samples) {
+                bytes.copy_from_slice(&legacy_half_bits(sample).to_ne_bytes());
+            }
+        }
+        SampleType::F32 | SampleType::U32 => {
+            for (bytes, &sample) in target.chunks_exact_mut(4).zip(samples) {
+                bytes.copy_from_slice(&legacy_float_bits(sample).to_ne_bytes());
+            }
+        }
+    }
+}
+
+/// `LEGACY_INT16_HALF_FACTOR` in `OpenEXR`: 32767 / `tf_from_linear(HALF_MAX)`,
+/// the scale from the transfer function's domain to legacy 16-bit samples.
+const LEGACY_HALF_FACTOR: f64 = 5_424.238_088_666_29;
+
+/// `LEGACY_INT32_FLOAT_FACTOR` in `OpenEXR`: `i32::MAX` /
+/// `tf_from_linear(f32::MAX)`, as [`LEGACY_HALF_FACTOR`] for 32 bits.
+const LEGACY_FLOAT_FACTOR: f64 = 51_961_246.180_338;
+
+/// `legacy_int16_to_half` in `OpenEXR`: a decoded 16-bit sample of a legacy
+/// lossy component, clamped to ±32767, scaled back to the transfer
+/// function's domain and taken to linear, as the bits of a HALF value.
+///
+/// `OpenEXR` returns the `f64` as an Imath `half`, which converts it to
+/// `f32` first and that to HALF, rounding twice, to nearest even each time.
+fn legacy_half_bits(sample: i32) -> u16 {
+    let sample = sample.clamp(-32767, 32767);
+    // the rounding of the C++ conversions, which this must reproduce
+    #[allow(clippy::cast_possible_truncation)]
+    let linear = tf_to_linear(f64::from(sample) / LEGACY_HALF_FACTOR) as f32;
+    float_to_half_bits(linear)
+}
+
+/// `legacy_int32_to_float` in `OpenEXR`: as [`legacy_half_bits`] for a 32-bit
+/// sample, without clamping it, to the bits of a FLOAT value clamped to
+/// ±`f32::MAX`.
+fn legacy_float_bits(sample: i32) -> u32 {
+    let linear = tf_to_linear(f64::from(sample) / LEGACY_FLOAT_FACTOR);
+    let max = f64::from(f32::MAX);
+    let value = if linear > max {
+        f32::MAX
+    } else if linear < -max {
+        -f32::MAX
+    } else {
+        // to nearest, as the C++ cast
+        #[allow(clippy::cast_possible_truncation)]
+        let value = linear as f32;
+        value
+    };
+    value.to_bits()
+}
+
+/// The length a chunk dimension of `length` samples is padded to when coded
+/// lossily with `levels` decomposition levels (`ht_padded_length` in
+/// `OpenEXR`): the smallest length of at least `length` that is 1 modulo
+/// 2^`levels`. `None` above [`DECOMPOSITION_LEVELS`] levels, which bounds
+/// the padding, or if the padded length does not fit in an `i32`.
+///
+/// With the image at offset 0, the symmetric extension of the wavelet then
+/// folds on a low-pass sample at every level, so that the quantisation
+/// error does not show as a step along the bottom and right edges of each
+/// chunk. `OpenEXR` repeats the last line and column of the chunk up to that
+/// size, and drops them when decoding.
+fn padded_length(length: usize, levels: u32) -> Option<usize> {
+    if levels > DECOMPOSITION_LEVELS {
+        return None;
+    }
+    let modulus = 1_usize << levels;
+    let padded = length.checked_add((modulus + 1 - length % modulus) % modulus)?;
+    i32::try_from(padded).is_ok().then_some(padded)
 }
 
 fn codestream_error(error: ::htj2k::Error) -> Error {
@@ -675,8 +896,48 @@ mod test {
         write_chunk_header(&mut chunk, &[3, 2, 1, 0]).unwrap();
         assert_eq!(chunk, [b'H', b'T', 0, 0, 0, 10, 0, 4, 0, 3, 0, 2, 0, 1, 0, 0]);
         chunk.extend_from_slice(&[0xFF, 0x4F]);
-        let (file_channels, codestream) = read_chunk_header(&chunk, 4).unwrap();
+        let (magic, file_channels, codestream) = read_chunk_header(&chunk, 4).unwrap();
+        assert_eq!(magic, MAGIC);
         assert_eq!(file_channels, [3, 2, 1, 0]);
         assert_eq!(codestream, [0xFF, 0x4F]);
+    }
+
+    #[test]
+    fn legacy_transfer_function() {
+        // zero, odd symmetry, and the clamp of 16-bit samples
+        assert_eq!(legacy_half_bits(0), 0);
+        assert_eq!(legacy_float_bits(0), 0);
+        for sample in [1, 77, 5424, 20000, 32767] {
+            assert_eq!(legacy_half_bits(-sample), legacy_half_bits(sample) | 0x8000);
+        }
+        assert_eq!(legacy_half_bits(40000), legacy_half_bits(32767));
+        assert_eq!(legacy_half_bits(i32::MIN), legacy_half_bits(-32767));
+
+        // the factors map the largest samples to the largest values: HALF's
+        // and, clamped, FLOAT's (values from OpenEXR 3.5.3's functions)
+        assert_eq!(legacy_half_bits(32767), 0x7BFF);
+        assert_eq!(legacy_half_bits(5424), 0x3C00);
+        assert_eq!(legacy_float_bits(i32::MAX), 0x7F7F_FFFF);
+        assert_eq!(legacy_float_bits(i32::MIN), 0xFF7F_FFFF);
+        assert_eq!(legacy_float_bits(1), 0x2343_9FFF);
+        assert_eq!(legacy_float_bits(-1), 0xA343_9FFF);
+    }
+
+    #[test]
+    fn padded_lengths() {
+        // 1 modulo 32, as `ht_padded_length` gives
+        assert_eq!(padded_length(0, 5), Some(1));
+        assert_eq!(padded_length(1, 5), Some(1));
+        assert_eq!(padded_length(2, 5), Some(33));
+        assert_eq!(padded_length(32, 5), Some(33));
+        assert_eq!(padded_length(33, 5), Some(33));
+        assert_eq!(padded_length(256, 5), Some(257));
+        assert_eq!(padded_length(256, 0), Some(256));
+        assert_eq!(padded_length(256, 1), Some(257));
+        assert_eq!(padded_length(256, 6), None);
+        let max = i32::MAX as usize;
+        assert_eq!(padded_length(max - 31, 5), Some(max - 30));
+        assert_eq!(padded_length(max - 30, 5), Some(max - 30));
+        assert_eq!(padded_length(max - 29, 5), None);
     }
 }
