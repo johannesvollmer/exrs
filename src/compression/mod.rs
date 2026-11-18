@@ -168,6 +168,56 @@ pub enum Compression {
     /// height, which `OpenEXR` could not read back. Sampling that is not a
     /// power of two cannot be written.
     HTJ2K256,
+
+    /// Lossy High-Throughput JPEG 2000 (`LJ2K`), 256 scanlines per block,
+    /// with the quality level `OpenEXR` codes the chunks with, from 1 to 150.
+    /// `None` means `OpenEXR`'s default quality, 110. Introduced in
+    /// `OpenEXR` 3.5.
+    ///
+    /// Only an R, G and B triplet of HALF or FLOAT channels, not subsampled,
+    /// is coded lossily, with the irreversible wavelet and colour transforms.
+    /// Every other channel, and all channels of a layer without such a
+    /// triplet, is coded losslessly, as with `HTJ2K256`.
+    ///
+    /// The quality is a setting of the writer, not part of the file: reading
+    /// gives `None`. A quality that is not finite or not within 1 to 150 is
+    /// an error when writing.
+    ///
+    /// Needs the `htj2k` cargo feature, without which reading and writing
+    /// return `Error::NotSupported`.
+    LJ2K(Option<f32>),
+}
+
+impl Compression {
+    /// The quality `OpenEXR` codes `LJ2K` with when none is given.
+    pub const DEFAULT_LJ2K_QUALITY: f32 = 110.0;
+    /// The highest quality level of `LJ2K`.
+    pub const MAX_LJ2K_QUALITY: f32 = 150.0;
+    /// The lowest quality level of `LJ2K`.
+    pub const MIN_LJ2K_QUALITY: f32 = 1.0;
+
+    /// The quality `LJ2K` chunks are written with, if this is `LJ2K`: the one
+    /// given, or the default. An error if the one given is not finite or not
+    /// within 1 to 150, as `OpenEXR` refuses it.
+    pub(crate) fn lj2k_quality(self) -> Result<Option<f32>> {
+        match self {
+            Self::LJ2K(quality) => {
+                let quality = quality.unwrap_or(Self::DEFAULT_LJ2K_QUALITY);
+                if quality.is_finite()
+                    && (Self::MIN_LJ2K_QUALITY..=Self::MAX_LJ2K_QUALITY).contains(&quality)
+                {
+                    Ok(Some(quality))
+                } else {
+                    Err(Error::invalid(format!(
+                        "LJ2K quality {quality}: must be within {} and {}",
+                        Self::MIN_LJ2K_QUALITY,
+                        Self::MAX_LJ2K_QUALITY
+                    )))
+                }
+            }
+            _ => Ok(None),
+        }
+    }
 }
 
 impl std::fmt::Display for Compression {
@@ -188,6 +238,7 @@ impl std::fmt::Display for Compression {
                 Self::PXR24 => "pxr24",
                 Self::HTJ2K32 => "ht j2k 32",
                 Self::HTJ2K256 => "ht j2k 256",
+                Self::LJ2K(_) => "lj2k",
             }
         )
     }
@@ -286,6 +337,17 @@ impl Compression {
             HTJ2K32 | HTJ2K256 => {
                 return Err(Error::unsupported(
                     "HTJ2K compression (enable the `htj2k` feature of the exr crate)",
+                ))
+            }
+            #[cfg(feature = "htj2k")]
+            LJ2K(_) => {
+                self.lj2k_quality()?;
+                return Err(Error::unsupported("LJ2K compression"));
+            }
+            #[cfg(not(feature = "htj2k"))]
+            LJ2K(_) => {
+                return Err(Error::unsupported(
+                    "LJ2K compression (enable the `htj2k` feature of the exr crate)",
                 ))
             }
         };
@@ -402,6 +464,14 @@ impl Compression {
                         "HTJ2K decompression (enable the `htj2k` feature of the exr crate)",
                     ))
                 }
+                #[cfg(feature = "htj2k")]
+                LJ2K(_) => return Err(Error::unsupported("LJ2K decompression")),
+                #[cfg(not(feature = "htj2k"))]
+                LJ2K(_) => {
+                    return Err(Error::unsupported(
+                        "LJ2K decompression (enable the `htj2k` feature of the exr crate)",
+                    ))
+                }
             };
 
             // map all errors to compression errors
@@ -430,7 +500,7 @@ impl Compression {
             Uncompressed | RLE | ZIP1 => 1,
             ZIP16 | PXR24 => 16,
             PIZ | B44 | B44A | DWAA(_) | HTJ2K32 => 32,
-            DWAB(_) | HTJ2K256 => 256,
+            DWAB(_) | HTJ2K256 | LJ2K(_) => 256,
         }
     }
 
@@ -440,13 +510,19 @@ impl Compression {
         match self {
             Uncompressed | RLE | ZIP1 => true,
 
-            ZIP16 | PXR24 | PIZ | B44 | B44A | DWAA(_) | DWAB(_) | HTJ2K256 | HTJ2K32 => false,
+            ZIP16 | PXR24 | PIZ | B44 | B44A | DWAA(_) | DWAB(_) | HTJ2K256 | HTJ2K32 | LJ2K(_) => {
+                false
+            }
         }
     }
 
     /// Most compression methods will reconstruct the exact pixel bytes,
     /// but some might throw away unimportant data for specific types of
     /// samples.
+    ///
+    /// `LJ2K` is lossless for UINT samples only: it codes HALF and FLOAT
+    /// channels lossily when they form an R, G and B triplet, and never
+    /// codes UINT channels so.
     pub fn is_lossless_for(self, sample_type: SampleType) -> bool {
         use self::Compression::*;
         match self {
@@ -455,6 +531,9 @@ impl Compression {
             // uncompressed.
             B44 | B44A => sample_type != SampleType::F16,
             Uncompressed | RLE | ZIP1 | ZIP16 | PIZ | HTJ2K32 | HTJ2K256 => true,
+            // LJ2K codes UINT channels losslessly, and HALF and FLOAT channels
+            // lossily when they are an R, G and B triplet
+            LJ2K(_) => sample_type == SampleType::U32,
             DWAB(_) | DWAA(_) => false,
         }
     }
@@ -465,7 +544,7 @@ impl Compression {
         use self::Compression::*;
         match self {
             Uncompressed | RLE | ZIP1 | ZIP16 | PIZ | HTJ2K32 | HTJ2K256 => false,
-            PXR24 | B44 | B44A | DWAB(_) | DWAA(_) => true,
+            PXR24 | B44 | B44A | DWAB(_) | DWAA(_) | LJ2K(_) => true,
         }
     }
 
@@ -477,7 +556,7 @@ impl Compression {
     pub fn supports_nan(self) -> bool {
         use self::Compression::*;
         match self {
-            B44A | DWAB(_) | DWAA(_) => false,
+            B44A | DWAB(_) | DWAA(_) | LJ2K(_) => false,
             Uncompressed | PXR24 | RLE | ZIP1 | ZIP16 | PIZ | B44 | HTJ2K32 | HTJ2K256 => true,
         }
     }
@@ -488,7 +567,7 @@ impl Compression {
     pub fn preserves_nan_bits(self) -> bool {
         use self::Compression::*;
         match self {
-            B44A | PXR24 | DWAB(_) | DWAA(_) => false,
+            B44A | PXR24 | DWAB(_) | DWAA(_) | LJ2K(_) => false,
             B44 | Uncompressed | RLE | ZIP1 | ZIP16 | PIZ | HTJ2K32 | HTJ2K256 => true,
         }
     }
@@ -934,5 +1013,42 @@ mod test {
             convert_little_endian_to_current(little_endian, channels, rectangle).unwrap();
 
         assert_eq!(current_endian, current_endian_decoded, "endianness conversion failed");
+    }
+
+    #[test]
+    fn lj2k_is_compression_twelve() {
+        for quality in [None, Some(1.0), Some(110.0)] {
+            let mut bytes = Vec::new();
+            Compression::LJ2K(quality).write(&mut bytes).unwrap();
+            assert_eq!(bytes, [12]);
+            // the quality is not stored
+            let read = Compression::read(&mut bytes.as_slice()).unwrap();
+            assert_eq!(read, Compression::LJ2K(None));
+        }
+        assert_eq!(Compression::LJ2K(None).scan_lines_per_block(), 256);
+        assert_eq!(Compression::LJ2K(Some(3.0)).to_string(), "lj2k compression");
+    }
+
+    #[test]
+    fn lj2k_is_lossy_but_for_uint() {
+        let lj2k = Compression::LJ2K(None);
+        assert!(lj2k.may_loose_data());
+        assert!(!lj2k.is_lossless_for(SampleType::F16));
+        assert!(!lj2k.is_lossless_for(SampleType::F32));
+        assert!(lj2k.is_lossless_for(SampleType::U32));
+        assert!(!lj2k.supports_deep_data());
+    }
+
+    #[test]
+    fn lj2k_quality_must_be_valid() {
+        let quality = |value| Compression::LJ2K(value).lj2k_quality();
+        assert_eq!(quality(None).unwrap(), Some(110.0));
+        assert_eq!(quality(Some(1.0)).unwrap(), Some(1.0));
+        assert_eq!(quality(Some(96.5)).unwrap(), Some(96.5));
+        assert_eq!(quality(Some(150.0)).unwrap(), Some(150.0));
+        for bad in [0.0, 0.999, 150.001, -1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(matches!(quality(Some(bad)), Err(Error::Invalid(_))), "{}", bad);
+        }
+        assert_eq!(Compression::HTJ2K256.lj2k_quality().unwrap(), None);
     }
 }

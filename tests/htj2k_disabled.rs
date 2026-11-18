@@ -1,5 +1,5 @@
-//! Without the `htj2k` feature, writing HTJ2K fails as reading it does: with
-//! `Error::NotSupported` naming the feature, never a panic.
+//! Without the `htj2k` feature, writing HTJ2K and LJ2K fails as reading them
+//! does: with `Error::NotSupported` naming the feature, never a panic.
 
 #![cfg(not(feature = "htj2k"))]
 
@@ -9,7 +9,7 @@ use exr::prelude::*;
 
 #[test]
 fn writing_htj2k_needs_the_feature() {
-    for compression in [Compression::HTJ2K32, Compression::HTJ2K256] {
+    for compression in [Compression::HTJ2K32, Compression::HTJ2K256, Compression::LJ2K(None)] {
         let channel = AnyChannel::new("Y", FlatSamples::F16(vec![f16::ONE; 16 * 16]));
         let encoding = Encoding {
             compression,
