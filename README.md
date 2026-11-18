@@ -29,7 +29,9 @@ Features include:
 ### Current Status
 
 This library has matured quite a bit, but should still be considered incomplete.
-For example, deep data and HTJ2K compression are not supported yet.
+For example, deep data is not supported yet.
+Reading and writing HTJ2K and LJ2K needs the optional `htj2k` cargo feature.
+The `htj2k-simd` feature adds that crate's SIMD kernels (AVX2, NEON) and needs Rust 1.87.
 
 If you encounter an exr file that cannot be opened by this crate but should be,
 please leave an issue on this repository, containing the image file.
@@ -56,7 +58,9 @@ __What we can do:__
         - [x] pxr24 (lossless for f16 and u32)
         - [x] b44, b44a (huge thanks to @narann)
         - [x] dwaa, dwab (huge thanks to @zinedinp)
-        - [ ] HTJ2K32, HTJ2K256
+        - [x] HTJ2K32, HTJ2K256 (lossless, with the `htj2k` feature)
+        - [x] LJ2K (lossy for RGB, lossless otherwise, with the `htj2k` feature;
+              including the files of OpenEXR 3.5.0 and 3.5.1)
 
 - Nice Things
     - [x] no unsafe code, no undefined behaviour
@@ -131,6 +135,8 @@ __What we can do:__
         - [x] PXR24 (lossless for f16 and u32)
         - [x] B44, B44A
         - [x] DWAA, DWAB
+        - [x] HTJ2K32, HTJ2K256 (with the `htj2k` feature)
+        - [x] LJ2K (with the `htj2k` feature)
 
 - [x] De/compressing multiple blocks in parallel
 

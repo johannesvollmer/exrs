@@ -1501,6 +1501,7 @@ impl Compression {
             DWAB(_) => 9_u8,
             HTJ2K256 => 10_u8,
             HTJ2K32 => 11_u8,
+            LJ2K(_) => 12_u8,
         }
         .write_le(write)?;
         Ok(())
@@ -1522,6 +1523,7 @@ impl Compression {
             9 => DWAB(None),
             10 => HTJ2K256,
             11 => HTJ2K32,
+            12 => LJ2K(None),
             _ => return Err(Error::unsupported("unknown compression method")),
         })
     }

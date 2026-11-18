@@ -38,6 +38,10 @@ jobs:
       run: cargo +stable build --features rayon --verbose
     - name: Run tests with rayon feature
       run: cargo +stable test --features rayon --verbose
+    - name: Run tests with htj2k feature
+      run: cargo +stable test --features htj2k --verbose
+    - name: Run tests with htj2k-simd feature
+      run: cargo +stable test --features htj2k-simd --verbose
 
 
   macos:
@@ -58,6 +62,10 @@ jobs:
         run: cargo +stable build --features rayon --verbose
       - name: Run tests with rayon feature
         run: cargo +stable test --features rayon --verbose
+      - name: Run tests with htj2k feature
+        run: cargo +stable test --features htj2k --verbose
+      - name: Run tests with htj2k-simd feature
+        run: cargo +stable test --features htj2k-simd --verbose
 
   verify-msrv:
     strategy:

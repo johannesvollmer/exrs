@@ -34,6 +34,7 @@ miniz_oxide = "^0.8.0"         # zip compression for pxr24
 smallvec = "^1.7.0"            # make cache-friendly allocations        TODO profile if smallvec is really an improvement!
 rayon-core = { version = "^1.11.0", optional = true }         # threading for parallel compression
 zune-inflate = { version = "^0.2.3", default-features = false, features = ["zlib"] }  # zip decompression, faster than miniz_oxide
+htj2k = { version = "0.1", optional = true, default-features = false }  # HTJ2K codestream coding, ported from OpenJPH
 
 [target.'cfg(any(target_arch = "x86", target_arch = "x86_64"))'.dependencies]
 multiversion = "0.8.1" # runtime AVX2 selection for better performance on x86
@@ -53,6 +54,16 @@ default = ["rayon"]
 
 # rayon is used for parallel compression
 rayon = ["dep:rayon-core"]
+
+# Read and write HTJ2K32, HTJ2K256 and LJ2K (lossy HTJ2K) compressed files,
+# using the pure Rust htj2k crate. Without it, reading or writing their
+# pixels returns `Error::NotSupported`.
+htj2k = ["dep:htj2k"]
+
+# The htj2k crate's SIMD kernels: AVX2 on x86_64, chosen at run time, and
+# NEON on aarch64. They change no output, only the speed. Needs Rust 1.87,
+# so it is not part of the `htj2k` feature.
+htj2k-simd = ["htj2k", "htj2k/simd"]
 
 # Expose deterministic input blocks for the DWA DCT benchmark.
 # `cargo bench --features dct-benches --bench dct`

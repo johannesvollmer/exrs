@@ -740,6 +740,10 @@ impl Header {
             }
         }
 
+        // the quality is not part of the file, so this only matters when
+        // writing; reading gives no quality
+        self.compression.lj2k_quality()?;
+
         let allow_subsampling = !self.deep && self.blocks == BlockDescription::ScanLines;
         self.channels.validate(allow_subsampling, self.data_window(), strict)?;
 
