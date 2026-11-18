@@ -1,9 +1,8 @@
 [![Rust Crate](https://img.shields.io/crates/v/exr.svg)](https://crates.io/crates/exr)
-[![Crates.io MSRV](https://img.shields.io/crates/msrv/exr?label=minimum%20rust%20version)](https://doc.rust-lang.org/cargo/reference/manifest.html#the-rust-version-field)
+[![MSRV](https://img.shields.io/crates/msrv/exr?label=minimum%20Rust%20version)](https://doc.rust-lang.org/cargo/reference/manifest.html#the-rust-version-field)
 [![Rust Docs](https://docs.rs/exr/badge.svg)](https://docs.rs/exr)
-[![NPM](https://img.shields.io/npm/v/exrs?style=flat&color=green)](https://www.npmjs.com/package/exrs)
-[![downloads](https://img.shields.io/crates/d/exr)](https://crates.io/crates/exr)
-[![Lines of Code](https://tokei.rs/b1/github/johannesvollmer/exrs?category=code)](https://tokei.rs)
+[![npm](https://img.shields.io/npm/v/exrs?color=green)](https://www.npmjs.com/package/exrs)
+[![Downloads](https://img.shields.io/crates/d/exr)](https://crates.io/crates/exr)
 
 # EXRS
 
