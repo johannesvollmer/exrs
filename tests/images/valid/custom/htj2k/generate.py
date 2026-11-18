@@ -41,7 +41,10 @@
 # sample with OpenEXR's decoding: exactly in the channels LJ2K codes
 # losslessly, and to within one unit in the last place in the lossy ones,
 # since the OpenJPH that OpenEXR links rounds some float conversions
-# differently on CPUs with AVX2 (see tests/lj2k_common).
+# differently on CPUs with AVX2 (see tests/lj2k_common). tests/lj2k_write.rs
+# writes `<name>.exr` with LJ2K at quality Q and compares its chunks with
+# the LJ2K file's, allowing for what the installed OpenEXR does otherwise
+# than OpenJPH's generic code (see there).
 #
 # LJ2K codes R, G and B lossily only when they are HALF or FLOAT, of one
 # type and not subsampled; it codes every other channel losslessly. The
