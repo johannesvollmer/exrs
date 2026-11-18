@@ -55,9 +55,9 @@ default = ["rayon"]
 # rayon is used for parallel compression
 rayon = ["dep:rayon-core"]
 
-# Read and write HTJ2K32 and HTJ2K256 compressed files, using the pure Rust
-# htj2k crate. Without it, reading or writing their pixels returns
-# `Error::NotSupported`.
+# Read and write HTJ2K32, HTJ2K256 and LJ2K (lossy HTJ2K) compressed files,
+# using the pure Rust htj2k crate. Without it, reading or writing their
+# pixels returns `Error::NotSupported`.
 htj2k = ["dep:htj2k"]
 
 # Expose deterministic input blocks for the DWA DCT benchmark.

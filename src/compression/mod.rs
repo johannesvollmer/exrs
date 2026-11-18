@@ -183,6 +183,13 @@ pub enum Compression {
     /// gives `None`. A quality that is not finite or not within 1 to 150 is
     /// an error when writing.
     ///
+    /// The `LJ2K` files of every `OpenEXR` version are read: those of 3.5.2
+    /// and later (tested with 3.5.3), and those of 3.5.0 and 3.5.1, which
+    /// apply the transfer function outside the codestream and which are
+    /// decoded as later versions of `OpenEXR` decode them (tested with
+    /// 3.5.1). exrs writes the chunks of 3.5.2 and later, which 3.5.0 and
+    /// 3.5.1 cannot read.
+    ///
     /// Needs the `htj2k` cargo feature, without which reading and writing
     /// return `Error::NotSupported`.
     LJ2K(Option<f32>),
